@@ -185,6 +185,8 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> Tuple[ToolLoopStat
 
 ## Phase 6: Formal Verification of State Machines
 
+**Reference implementation:** [`plugin/scripting/payload_codec.py`](../plugin/scripting/payload_codec.py) already carries `deal` contracts and CrossHair/pytest verification for split-grid serialization — see [`docs/serialization-verification-plan.md`](serialization-verification-plan.md). Use that module as the pattern for adding contracts to state machines below.
+
 Now that the state machine infrastructure is in place, we can apply formal verification:
 
 ### Step 1: Add Design by Contract to State Machines

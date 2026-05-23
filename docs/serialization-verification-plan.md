@@ -1,121 +1,166 @@
-# Serialization Formal Verification Plan
+# Serialization Formal Verification
 
-**Goal:** Apply the formal verification approach from `docs/formal_verification.md` to the split_grid serialization code in `plugin/scripting/payload_codec.py`.
+**Goal:** Apply the formal verification approach from [`docs/formal_verification.md`](formal_verification.md) to the split_grid serialization code in [`plugin/scripting/payload_codec.py`](../plugin/scripting/payload_codec.py).
 
-This gives us high-confidence mathematical checking of the most complex pure-Python data transformation logic in the project.
+This is the reference implementation for Tier-0 (pure Python) contract + CrossHair verification in WriterAgent.
 
 ---
 
-## 1. Release No-Ops Strategy (Critical Constraint)
+## Status (2026-05)
 
-We must ensure `deal` contracts have **zero runtime cost** inside LibreOffice.
+| Item | State |
+|------|--------|
+| `deal` contracts | 8 functions in `payload_codec.py` (see list below) |
+| Dev dependencies | `deal`, `crosshair-tool` in [`pyproject.toml`](../pyproject.toml) |
+| Release strip | [`scripts/strip_code.py`](../scripts/strip_code.py) removes `@deal.*` decorators and import shim |
+| Pytest hook | [`tests/scripting/test_serialization_verification.py`](../tests/scripting/test_serialization_verification.py) |
+| Makefile target | `make verify-serialization` |
+| Status tracking | [`verification_status.json`](../verification_status.json) |
+| CI integration | Not yet wired |
 
-### Chosen Approach
+**Functions with contracts:**
+
+1. `_flatten_grid_to_components` — core flatten logic
+2. `host_pack_split_grid`
+3. `host_pack_data`
+4. `host_unpack_split_grid`
+5. `child_unpack_split_grid`
+6. `child_unpack_data`
+7. `child_pack_split_grid`
+8. `child_pack_result`
+
+`host_unpack_data` is a thin dispatcher with **no** contracts (delegates to `host_unpack_split_grid`).
+
+Round-trip equality (`host_unpack(host_pack(grid)) == grid`) is validated in pytest, not as `@deal.ensure` (too expensive for CrossHair).
+
+---
+
+## Architecture
+
+```mermaid
+flowchart LR
+  subgraph dev [Dev / CI]
+    deal["deal contracts"]
+    crosshair[CrossHair check]
+    pytest[pytest invariants]
+    deal --> crosshair
+    deal --> pytest
+  end
+  subgraph release [Release OXT]
+    strip[strip_code.py]
+    lo[LibreOffice runtime]
+    strip --> lo
+  end
+  dev --> strip
+```
+
+### Release no-ops (zero runtime cost in LibreOffice)
 
 **Two-layer safety:**
 
-1. **Guarded Import** (in source)
+1. **Guarded import** — `_DummyDeal` no-op shim when `deal` is not installed:
+
    ```python
    try:
-       import deal
+       deal = importlib.import_module("deal")
    except ImportError:
-       deal = None
+       class _DummyDeal:
+           def __getattr__(self, name: str) -> Any:
+               return lambda *args, **kwargs: lambda f: f
+       deal = _DummyDeal()
    ```
 
-2. **Build-time Stripping** (in `scripts/build_oxt.py`)
-   - Extend `strip_production_code()` to detect and remove `@deal.*` decorators.
-   - This is the same mechanism already used for `log.debug`, `print`, and `grammar_obs`.
-
-### Stripper Changes Needed
-
-In `scripts/build_oxt.py`, inside `FindVisitor`:
-
-- Add `visit_FunctionDef` and `visit_AsyncFunctionDef`
-- Add helper `_strip_deal_decorators(node)` that walks `node.decorator_list` and removes any decorator where the root is `deal`
-
-This ensures that even if someone accidentally leaves a `deal` import, the decorators themselves disappear in release builds.
+2. **Build-time stripping** — [`scripts/strip_code.py`](../scripts/strip_code.py) removes `@deal.*` decorators and the import/shim block from the production bundle. Tests in [`scripts/tests/test_strip_code.py`](../scripts/tests/test_strip_code.py).
 
 ---
 
-## 2. First Contracts to Add (payload_codec.py)
+## Contract design
 
-We will start with the highest-value functions.
+### Helpers
 
-### Target Functions (Phase 1)
+Shared predicates keep `@deal` lambdas short and CrossHair-friendly:
 
-1. `host_pack_split_grid`
-2. `child_unpack_split_grid`
-3. `host_pack_data` / `host_unpack_data` (public entry points)
-4. `_flatten_grid_to_components` (core logic)
+- `_is_grid_sequence(grid)` — empty, 1D, or 2D list/tuple (jagged 2D allowed; flatten raises `ValueError`)
+- `_is_split_grid_envelope(envelope)` — valid split_grid wire dict shape
+- `_is_ndarray(obj)` — NumPy ndarray type check without importing NumPy at module load
 
-### Example Contracts (Initial Set)
+### Key invariants encoded
 
-```python
-if deal:
-    @deal.pre(lambda grid: isinstance(grid, (list, tuple)))
-    @deal.post(lambda result: isinstance(result, dict))
-    @deal.ensure(lambda grid, result: result.get("__wa_payload__") == "split_grid")
-    def host_pack_split_grid(grid):
-        ...
-```
+- `strings` dict keys are integers; values are strings
+- `column_kinds` length matches column count
+- Buffer byte length is a multiple of 8 (float64 cells)
+- When `strings == {}`, child unpack returns ndarray (pytest); when strings present, returns list (`@deal.ensure` on `child_unpack_split_grid`)
+- Jagged 2D grids raise `ValueError` via `@deal.raises` on `_flatten_grid_to_components`
 
-```python
-if deal:
-    @deal.pre(lambda envelope: isinstance(envelope, dict))
-    @deal.post(lambda result: result is not None)
-    @deal.ensure(lambda envelope, result: 
-        (isinstance(result, list) or 
-         (hasattr(result, 'shape') and result.shape is not None)))
-    def child_unpack_split_grid(envelope):
-        ...
-```
+### Dispatch wrappers
 
-Key invariants we want to encode:
+`host_pack_data`, `child_unpack_data`, and `child_pack_result` use **minimal** pre/post contracts. Branch-specific guarantees (ndarray vs list vs split_grid dict) live in pytest oracles.
 
-- `strings` dict only contains integer keys
-- When `strings == {}`, pure numeric path returns `ndarray`
-- Shape is preserved through pack → unpack
-- String values are never turned into floats
-- `column_kinds` length matches number of columns
+Functions with keyword-only parameters use `@deal.pre(lambda arg, *_, **__: ...)` to avoid Deal/CrossHair `TypeError` on default-arg forwarding.
 
 ---
 
-## 3. Testing Workflow
+## Workflow
 
-### Local Verification
+### Local verification
 
 ```bash
-# 1. Add contracts
-# 2. Run type checker
-mypy plugin/scripting/payload_codec.py --strict
+# Runtime invariant tests (fast)
+make verify-serialization
 
-# 3. Run CrossHair
-crosshair check plugin/scripting/payload_codec.py --contracts --per_condition_timeout=10
+# Or pytest directly (CrossHair test skipped if tool not installed)
+pytest tests/scripting/test_serialization_verification.py -v
+
+# CrossHair on core Tier-0 functions (slower)
+crosshair check plugin.scripting.payload_codec._flatten_grid_to_components --per_condition_timeout=10
+crosshair check plugin.scripting.payload_codec.host_pack_split_grid --per_condition_timeout=10
+crosshair check plugin.scripting.payload_codec.host_unpack_split_grid --per_condition_timeout=10
+crosshair check plugin.scripting.payload_codec.child_unpack_split_grid --per_condition_timeout=10
+
+# Full module scan with report
+crosshair check plugin/scripting/payload_codec.py --per_condition_timeout=8 --report_all
 ```
 
-### Integration with Existing Tests
+**Targeting:** use fully-qualified function names or a file path. There is no `--include` flag in current CrossHair; contracts are auto-discovered from `deal` (no `--contracts` flag needed).
 
-The file `tests/scripting/test_serialization_ab.py` already does excellent A/B testing. We can later add `@deal.ensure` contracts that the A/B tests implicitly validate.
+### Interpreting CrossHair output
+
+| Message | Meaning |
+|---------|---------|
+| `Confirmed over all paths` | Condition proven for explored paths |
+| `Not confirmed` | No counterexample found, but not proven (common for complex ensures) |
+| `Unable to meet precondition` | CrossHair could not synthesize valid inputs (e.g. ndarray for `child_pack_split_grid`) |
+| `: error:` | **Counterexample** — contract violation; must fix |
+
+The pytest CrossHair hook fails only on `: error:` lines (counterexamples), not on `Not confirmed`.
+
+### Existing test coverage
+
+[`tests/scripting/test_serialization_ab.py`](../tests/scripting/test_serialization_ab.py) provides A/B regression tests. [`tests/scripting/test_payload_codec.py`](../tests/scripting/test_payload_codec.py) covers edge cases. Verification tests complement these with formal contracts and optional concolic search.
 
 ---
 
-## 4. Next Steps After Initial Contracts
+## Known gaps
 
-1. Add 4–6 contracts to `payload_codec.py`
-2. Run CrossHair and fix any counterexamples found
-3. Extend the stripper in `build_oxt.py`
-4. Add `deal` + `crosshair` as optional dev dependencies in `pyproject.toml`
-5. Create `verification_status.json` entry for the module
-6. Consider adding contracts to `child_pack_result` and the full ingress/egress cycle helpers
+- Most `@deal.ensure` conditions report `Not confirmed` — expected for complex serialization logic; no counterexamples found to date.
+- `child_pack_split_grid` pre may report `Unable to meet precondition` when CrossHair cannot synthesize ndarrays.
+- Round-trip and branch-specific oracles remain in pytest, not `@deal.ensure`.
+- CI matrix entry not yet added.
 
 ---
 
-## 5. Why This Module Is High Value
+## Next steps
+
+1. Optional CI job running `make verify-serialization` on a schedule or PR label.
+2. Extend contracts to other Tier-0 helpers: `should_use_binary_envelope`, `column_kinds_for_grid`.
+3. Consider `scripts/update_verification_status.py` to refresh [`verification_status.json`](../verification_status.json) after CrossHair runs.
+
+---
+
+## Why this module is high value
 
 - Pure Tier 0 logic (no UNO)
-- Complex numeric + mixed-type handling with many subtle edge cases
-- Already has strong test coverage (`test_serialization_ab.py`)
-- Performance-critical path used by `=PYTHON()` and chat tools
-- Mistakes here affect both Calc and LLM observation quality
-
-This is one of the best places in the entire codebase to demonstrate the value of the formal verification approach.
+- Complex numeric + mixed-type handling with subtle edge cases
+- Strong existing test coverage
+- Performance-critical path for `=PYTHON()` and chat tools
+- Mistakes affect both Calc and LLM observation quality

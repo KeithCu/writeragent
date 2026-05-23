@@ -10,20 +10,20 @@
 
 from __future__ import annotations
 
-import math
+import re
 import shutil
 import subprocess
-import sys
 from pathlib import Path
+
 import pytest
 
-from plugin.scripting import payload_codec
 from plugin.scripting.payload_codec import (
     PAYLOAD_SPLIT_GRID,
     SPLIT_GRID_WIRE_DTYPE,
+    _flatten_grid_to_components,
+    child_unpack_split_grid,
     host_pack_split_grid,
     host_unpack_split_grid,
-    child_unpack_split_grid,
 )
 
 # Test cases representing structural variety of inputs
@@ -43,6 +43,25 @@ VERIFICATION_GRIDS = [
         [3.5, None, True],
     ],
 ]
+
+CROSSHAIR_TARGETS = [
+    "plugin.scripting.payload_codec._flatten_grid_to_components",
+    "plugin.scripting.payload_codec.host_pack_split_grid",
+    "plugin.scripting.payload_codec.host_unpack_split_grid",
+    "plugin.scripting.payload_codec.child_unpack_split_grid",
+]
+
+_CROSSHAIR_ERROR_RE = re.compile(r": error:")
+
+
+def _find_crosshair() -> str | None:
+    crosshair_path = shutil.which("crosshair")
+    if crosshair_path:
+        return crosshair_path
+    venv_bin_ch = Path(".venv/bin/crosshair")
+    if venv_bin_ch.exists():
+        return str(venv_bin_ch)
+    return None
 
 
 def test_serialization_contracts_runtime_and_invariants() -> None:
@@ -64,39 +83,42 @@ def test_serialization_contracts_runtime_and_invariants() -> None:
         assert reconstructed == grid
 
         # C. child_unpack_split_grid
-        np = pytest.importorskip("numpy")
+        pytest.importorskip("numpy")
         child_unpacked = child_unpack_split_grid(envelope)
         assert child_unpacked is not None
 
 
+def test_jagged_grid_raises_value_error() -> None:
+    """Jagged 2D grids must raise ValueError via @deal.raises on _flatten_grid_to_components."""
+    jagged = [[1.0, 2.0], [3.0]]
+    with pytest.raises(ValueError, match="Uneven row lengths"):
+        _flatten_grid_to_components(jagged)
+
+
 def test_crosshair_verification_if_available() -> None:
     """Run CrossHair concolic verification if the tool is installed in the environment."""
-    # Find crosshair executable
-    crosshair_path = shutil.which("crosshair")
-    if not crosshair_path:
-        # Check in .venv/bin/
-        venv_bin_ch = Path(".venv/bin/crosshair")
-        if venv_bin_ch.exists():
-            crosshair_path = str(venv_bin_ch)
-
+    crosshair_path = _find_crosshair()
     if not crosshair_path:
         pytest.skip("CrossHair concolic execution engine is not installed.")
 
-    # Run crosshair check on payload_codec.py
     result = subprocess.run(
         [
             crosshair_path,
             "check",
-            "plugin/scripting/payload_codec.py",
-            "--per_condition_timeout=5",
+            *CROSSHAIR_TARGETS,
+            "--per_condition_timeout=10",
+            "--report_all",
         ],
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=300,
     )
 
-    print(f"CrossHair stdout:\n{result.stdout}")
-    if result.stderr:
-        print(f"CrossHair stderr:\n{result.stderr}")
+    combined = f"{result.stdout}\n{result.stderr}".strip()
+    print(f"CrossHair output:\n{combined}")
 
-    assert result.returncode == 0, f"CrossHair verification failed:\n{result.stdout}\n{result.stderr}"
+    errors = [line for line in combined.splitlines() if _CROSSHAIR_ERROR_RE.search(line)]
+    assert not errors, f"CrossHair counterexamples found:\n" + "\n".join(errors)
+
+    if result.returncode == 2:
+        pytest.fail(f"CrossHair internal error (exit 2):\n{combined}")

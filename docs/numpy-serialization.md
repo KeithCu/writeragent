@@ -91,6 +91,10 @@ This section documents **behavior** for real inputs (rectangular Calc ranges and
 - **2D data must be rectangular:** every row has the same length (`len(row) == ncols`). Calc `=PYTHON(code; range)` passes UNO range blocks this way; empty cells are `None` in a full-width row, not “missing” list elements.
 - **Uneven row lengths** (jagged nested lists) are **unsupported**. [`_flatten_grid_to_components`](../plugin/scripting/payload_codec.py) logs an error and raises `ValueError` if row lengths differ. We do not pad short rows.
 
+#### Formal verification
+
+The split-grid codec is the project's reference Tier-0 verification target: `deal` contracts on pack/unpack functions, optional CrossHair concolic checking, and pytest round-trip oracles. See [`docs/serialization-verification-plan.md`](serialization-verification-plan.md) for workflow and status; background in [`docs/formal_verification.md`](formal_verification.md).
+
 #### Calc → Python ([`calc_addin_data.py`](../plugin/calc/calc_addin_data.py))
 
 | Calc / UNO | Python `data` before pack |

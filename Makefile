@@ -441,6 +441,9 @@ test:
 	@$(MAKE) test-run
 	@$(MAKE) bandit
 
+verify-serialization:
+	$(PYTHON) -m pytest tests/scripting/test_serialization_verification.py -v
+
 # ── POC extension ───────────────────────────────────────────────────────────
 
 set-config:
