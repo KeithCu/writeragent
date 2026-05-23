@@ -17,16 +17,25 @@ from plugin.scripting.payload_codec import host_pack_data, is_split_grid, wire_c
 MAX_PYTHON_DATA_CELLS = 250_000
 
 
-def _unwrap_cell(value: Any) -> Any:
+def _unwrap_cell(value: Any, true_strings: set[str] | None = None, false_strings: set[str] | None = None) -> Any:
     """Normalize a single cell value from UNO / Calc."""
     if value is None:
         return None
     # PyUNO may wrap values in uno.Any
     if type(value).__name__ == "Any" and hasattr(value, "value"):
         value = value.value
-    if isinstance(value, str) and value == "":
-        return None
-    if isinstance(value, (bool, int, float, str)):
+
+    if isinstance(value, str):
+        if value == "":
+            return None
+        val_stripped = value.strip()
+        if true_strings and val_stripped in true_strings:
+            return True
+        if false_strings and val_stripped in false_strings:
+            return False
+        return value
+
+    if isinstance(value, (bool, int, float)):
         return value
     return value
 
@@ -76,7 +85,11 @@ def finalize_python_data(raw: Any) -> list[Any] | list[list[Any]] | None:
     return list(raw)
 
 
-def calc_addin_data_to_python(value: Any) -> list[Any] | list[list[Any]] | None:
+def calc_addin_data_to_python(
+    value: Any,
+    true_strings: set[str] | None = None,
+    false_strings: set[str] | None = None,
+) -> list[Any] | list[list[Any]] | None:
     """Convert a Calc ``=PYTHON()`` second argument into plain Python data.
 
     - Missing / void → ``None`` (no ``data`` injection).
@@ -86,7 +99,7 @@ def calc_addin_data_to_python(value: Any) -> list[Any] | list[list[Any]] | None:
     if value is None:
         return None
 
-    value = _unwrap_cell(value)
+    value = _unwrap_cell(value, true_strings, false_strings)
 
     if not _is_row_sequence(value):
         return [value]
@@ -97,10 +110,10 @@ def calc_addin_data_to_python(value: Any) -> list[Any] | list[list[Any]] | None:
 
     first = rows[0]
     if _is_row_sequence(first):
-        grid = [[_unwrap_cell(c) for c in row] for row in rows]
+        grid = [[_unwrap_cell(c, true_strings, false_strings) for c in row] for row in rows]
     else:
         # 1D sequence (single row range from Calc)
-        grid = [[_unwrap_cell(c) for c in rows]]
+        grid = [[_unwrap_cell(c, true_strings, false_strings) for c in rows]]
 
     return normalize_python_data_shape(grid)
 

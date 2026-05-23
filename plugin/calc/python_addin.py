@@ -20,6 +20,7 @@ for _path in (_ext_root, _plugin_dir, _calc_dir):
     if _path not in sys.path:
         sys.path.insert(0, _path)
 
+import uno  # noqa: E402
 import unohelper  # noqa: E402
 
 from plugin.calc.addin_common import CalcFunctionSpec, SingleFunctionAddInBase  # noqa: E402
@@ -58,9 +59,43 @@ class PythonFunction(SingleFunctionAddInBase, _XPythonFunctionBase):  # pyright:
     def __init__(self, ctx: Any) -> None:
         log.debug("=== PythonFunction.__init__ ===")
         super().__init__(ctx, _PYTHON_SPEC)
+        self._true_strings, self._false_strings = self._get_localized_booleans()
+
+    def _get_localized_booleans(self) -> tuple[set[str], set[str]]:
+        """Discover localized boolean function names (e.g. WAHR, VRAI) via OpCodeMapper.
+
+        Returns two sets of uppercase strings including English and native variants.
+        """
+        # Always include English and Python defaults as a safety baseline
+        true_strs = {"=TRUE()", "TRUE", "True"}
+        false_strs = {"=FALSE()", "FALSE", "False"}
+        try:
+            smgr = self.ctx.getServiceManager()
+            mapper = smgr.createInstanceWithContext("com.sun.star.sheet.FormulaOpCodeMapper", self.ctx)
+            if mapper:
+                english = uno.getConstantByName("com.sun.star.sheet.FormulaLanguage.ENGLISH")
+                native = uno.getConstantByName("com.sun.star.sheet.FormulaLanguage.NATIVE")
+
+                # Map English labels to internal OpCodes
+                mappings = mapper.getMappings(["TRUE", "FALSE"], english)
+                opcodes = [m.Token.OpCode for m in mappings]
+
+                # Map OpCodes to the user's NATIVE (localized) UI symbols
+                localized = mapper.getAvailableSymbolTokens(opcodes, native)
+                if len(localized) >= 2:
+                    for i, symbol_token in enumerate(localized[:2]):
+                        name = symbol_token.Symbol.upper()
+                        target_set = true_strs if i == 0 else false_strs
+                        target_set.add(f"={name}()")
+                        target_set.add(name)
+                        target_set.add(name.capitalize())
+        except Exception as e:
+            log.debug("Failed to map localized booleans via UNO: %s", e)
+
+        return true_strs, false_strs
 
     def python(self, code: str, data: Any = None) -> Any:
-        return execute_python_addin(self.ctx, code, data)
+        return execute_python_addin(self.ctx, code, data, self._true_strings, self._false_strings)
 
     def getImplementationName(self) -> str:
         return "org.extension.writeragent.PythonFunction"

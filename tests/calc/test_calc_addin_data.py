@@ -111,9 +111,52 @@ def test_pack_calc_data_for_wire_uses_list_below_threshold():
     assert not is_split_grid(wire)
 
 
-def test_text_true_string_stays_string():
-    """Pickle/JSON fidelity: literal text True is not coerced to bool at ingress."""
+def test_text_true_string_stays_string_when_no_sets_provided():
+    """Text fidelity: literal text True is not coerced if no coercion sets are passed."""
     assert calc_addin_data_to_python("True") == ["True"]
+
+
+def test_logical_coercion_standard_scope():
+    """Verify coercion for formulas, plain text, and Python constants."""
+    true_s = {"=TRUE()", "TRUE", "True"}
+    false_s = {"=FALSE()", "FALSE", "False"}
+
+    # Formulas
+    assert calc_addin_data_to_python("=TRUE()", true_s, false_s) == [True]
+    assert calc_addin_data_to_python(" =FALSE() ", true_s, false_s) == [False]
+
+    # Plain Text
+    assert calc_addin_data_to_python("TRUE", true_s, false_s) == [True]
+    assert calc_addin_data_to_python("FALSE", true_s, false_s) == [False]
+
+    # Python constants
+    assert calc_addin_data_to_python("True", true_s, false_s) == [True]
+    assert calc_addin_data_to_python("False", true_s, false_s) == [False]
+
+    # Mixed 2D grid
+    grid = [["=TRUE()", "Normal"], ["False", 10]]
+    expected = [[True, "Normal"], [False, 10]]
+    assert calc_addin_data_to_python(grid, true_s, false_s) == expected
+
+
+def test_localized_coercion_simulation():
+    """Verify coercion with simulated localized strings (e.g. German WAHR)."""
+    true_s = {"=TRUE()", "TRUE", "True", "=WAHR()", "WAHR", "Wahr"}
+    false_s = {"=FALSE()", "FALSE", "False", "=FALSCH()", "FALSCH", "Falsch"}
+
+    assert calc_addin_data_to_python("=WAHR()", true_s, false_s) == [True]
+    assert calc_addin_data_to_python("Falsch", true_s, false_s) == [False]
+
+
+def test_logical_coercion_negative_controls():
+    """Ensure unrelated strings are not coerced even if they look similar."""
+    true_s = {"=TRUE()", "TRUE", "True"}
+    false_s = {"=FALSE()", "FALSE", "False"}
+
+    # Not in set
+    assert calc_addin_data_to_python("true", true_s, false_s) == ["true"]
+    assert calc_addin_data_to_python("True()", true_s, false_s) == ["True()"]
+    assert calc_addin_data_to_python("VERDADERO", true_s, false_s) == ["VERDADERO"]
 
 
 def test_calc_logical_float_sums_through_wire():

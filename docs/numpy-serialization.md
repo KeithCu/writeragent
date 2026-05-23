@@ -105,32 +105,100 @@ This section documents **behavior** for real inputs (rectangular Calc ranges and
 
 **Wire fidelity:** split_grid + Pickle5 must behave like nested Python lists + standard pickle — no extra type coercion in [`payload_codec.py`](../plugin/scripting/payload_codec.py). Optimized `frombuffer` paths are a performance implementation of that contract.
 
-#### Future work — logical string coercion at Calc ingress (not implemented)
+#### Logical string coercion at Calc ingress
 
-**Status:** deferred; manual tests use numeric **`1`/`0`** in [`tests/fixtures/serialization_tests.xlsx`](../tests/fixtures/serialization_tests.xlsx) because XLSX import does not evaluate `=TRUE()` as a formula.
+**Status:** Implemented (2026-05).
 
-When a user enters a real logical in Calc (`TRUE` in the formula bar), the add-in bridge usually delivers **`1.0`/`0.0`** (VALUE cells). That already works with `np.sum` and split_grid. Coercion is **not** needed for normal spreadsheet use.
+When a user enters a logical in Calc (e.g., `TRUE` in the formula bar), the add-in bridge usually delivers **`1.0`/`0.0`** (VALUE cells). That already works with `np.sum` and split_grid.
 
-The gap is **text that looks like a logical or formula** after import/paste:
+The implementation now also gracefully handles text that looks like a logical or formula after import/paste (e.g., from CSVs or Python output). In `calc_addin_data._unwrap_cell`, the system intercepts exact strings and coerces them to Python `bool` **before** packing.
 
-| What the user sees | What `_unwrap_cell` gets today | `np.sum(data)` |
-|--------------------|--------------------------------|----------------|
-| Logical typed in Calc | `1.0` / `0.0` (or rare `bool`) | OK |
-| CSV/text literal `True` / `"True"` | `str` | Fails (string dtype) |
-| CSV/text literal `=TRUE()` / `=FALSE()` | `str` (len 7/8; observed as `U7`/`U8`) | Fails |
+| What the user sees | What `_unwrap_cell` gets | Python `data` |
+|--------------------|--------------------------|---------------|
+| Logical typed in Calc | `1.0` / `0.0` | `1.0` / `0.0` |
+| Formula string | `"=TRUE()"` / `"=WAHR()"` | `True` |
+| Plain text | `"TRUE"` / `"WAHR"` | `True` |
+| Python text | `"True"` / `"False"` | `True` / `False` |
 
-**Proposed fix (ingress only):** in [`calc_addin_data._unwrap_cell`](../plugin/calc/calc_addin_data.py), map **exact** strings such as `"=TRUE()"` / `"=FALSE()"` (after strip) → Python `bool` **before** `pack_calc_data_for_wire`. Wire codec unchanged; this is a deliberate exception at the Calc boundary, not pickle/JSON semantics on the wire.
+**How it works:**
+1.  **Localized Discovery:** At add-in initialization (`PythonFunction.__init__`), the extension uses the `XFormulaOpCodeMapper` service to discover the user's localized boolean function names (e.g., `WAHR` for German, `VRAI` for French).
+2.  **Standard Coercion Sets:** It builds sets of strings to coerce, including formulas (`"=TRUE()"`), plain uppercase (`"TRUE"`), and Python-style title case (`"True"`), along with their localized equivalents.
+3.  **Efficiency:** These sets are cached and passed to the serialization layer, ensuring coercion happens in a single pass without extra UNO calls during range processing.
 
-**Why not in `payload_codec`:** coercing strings there would change split_grid/`strings` behavior for all paths (tools, MCP, etc.) and violate the “dumb list / standard pickle” contract.
-
-**Design questions before implementing:**
-
-1. **How narrow?** Exact `=TRUE()`/`=FALSE()` only (safest) vs `"TRUE"`/`"FALSE"` display strings vs localized (`WAHR`/`FALSC`) vs case-insensitive `"True"`.
-2. **False positives:** a text column containing the word `TRUE` as a label must stay `str` in mixed grids; broad rules are risky.
-3. **Relationship to `1.0`/`0.0`:** ingress may see floats for real logicals; no change needed. Optional: treat `1.0`/`0.0` in all-bool contexts — probably **not** worth it.
-4. **Tests:** extend [`tests/calc/test_calc_addin_data.py`](../tests/calc/test_calc_addin_data.py); keep [`tests/fixtures/serialization_tests.xlsx`](../tests/fixtures/serialization_tests.xlsx) on `1`/`0` or add a case that documents post-coercion behavior if product fix lands.
+This prevents `np.sum(data)` from failing when ranges contain text-based logicals, while strictly avoiding broad rules that might misinterpret arbitrary text labels.
 
 **Related fixes already shipped:** nested generator expressions in [`local_python_executor.evaluate_generatorexp`](../plugin/contrib/smolagents/local_python_executor.py) (mixed-grid `sum(v for row in data …)`); dynamic input columns in [`scripts/generate_serialization_test_csv.py`](../scripts/generate_serialization_test_csv.py).
+
+#### Calc logical display vs `=PYTHON()` — manual experiments
+
+Use this when designing new serialization or bool tests ([`tests/calc/serialization_cases.py`](../tests/calc/serialization_cases.py): `bool_true`, `bool_false`, `bool_col_11_sum`; manual sheet uses numeric **1/0** in input grids because XLSX import does not evaluate `=TRUE()`).
+
+**What Calc shows vs what math uses**
+
+| Concept | In the cell UI | In `=SUM(...)`, `=A1*2`, etc. |
+|---------|----------------|-------------------------------|
+| Logical TRUE / FALSE | `TRUE` / `FALSE` (locale may differ, e.g. `WAHR`) | **1** / **0** |
+| Number 1 / 0 | `1` / `0` | 1 / 0 |
+| Text `"TRUE"` / `"1"` | looks like true / one | text is **not** a number; `SUM` skips or NumPy sums strings fail |
+
+**`=PYTHON()` egress:** Python `True` / `False` from the worker are mapped to UNO booleans in [`to_calc_compatible`](../plugin/calc/python_function.py). A one-cell formula `=PYTHON("True")` should display a **logical** TRUE, not the text `"True"`.
+
+**`=PYTHON()` ingress (second argument = range):** What Python sees as `data` depends on how the cell is stored:
+
+| Cell contents | Typical `data` in Python | `np.sum(data)` on a 1-cell range |
+|---------------|--------------------------|----------------------------------|
+| `=TRUE()` / `=FALSE()` | Often `1.0` / `0.0` from the bridge; sometimes `bool` | Works (sums to 1 or 0) |
+| Typed `1` / `0` | `1` / `0` | Works |
+| Text `'True'` / `'1'` | `"True"` / `"1"` (`str`) | **Fails** (Unicode dtype / wrong semantics) |
+| After string coercion (see table above) | `True` / `False` | Works once coerced to bool before pack |
+
+**Quick paste tests (empty sheet)**
+
+1. **Return type from PYTHON**
+
+   ```text
+   =PYTHON("True")
+   =PYTHON("False")
+   =PYTHON("type(True).__name__")
+   ```
+
+   Expect: logical TRUE/FALSE; third cell shows `bool` as text.
+
+2. **Compare to native Calc logicals**
+
+   ```text
+   =TRUE()
+   =FALSE()
+   =PYTHON("True")
+   =PYTHON("1 == 1")
+   ```
+
+3. **Numeric use**
+
+   ```text
+   =SUM(TRUE();FALSE();TRUE())
+   =PYTHON("True") + PYTHON("False") + PYTHON("True")
+   ```
+
+   Both should evaluate to **2**.
+
+4. **What Python receives from one cell** — put value in **D1**, then in **E1**:
+
+   ```text
+   =PYTHON("repr(data)", D1)
+   ```
+
+   Try D1 = `=TRUE()`, `1`, and text `1` (format as text). Compare `repr` output.
+
+5. **One-line probe over a small range** — **A1:C1** = `TRUE`, `FALSE`, `1`:
+
+   ```text
+   =PYTHON("f'{data=} {type(data).__name__}'", A1:C1)
+   ```
+
+   For flat ranges, `data` is a list; inspect element types before adding `np.sum` cases to the manual suite.
+
+**Future test ideas:** matrix block of logicals; mixed column TRUE + label text; localized `=WAHR()` strings after CSV import; PYTHON returning bool vs `1.0` and compare column to `=IF(A1,"PASS","FAIL")`.
 
 #### Split-Grid encoding (host pack)
 

@@ -175,11 +175,17 @@ def _format_error_for_display(exc: BaseException) -> str:
     return _("Error: {0}").format(payload.get("message", str(exc)))
 
 
-def execute_python_addin(ctx: Any, code: str, data: Any = None) -> Any:
+def execute_python_addin(
+    ctx: Any,
+    code: str,
+    data: Any = None,
+    true_strings: set[str] | None = None,
+    false_strings: set[str] | None = None,
+) -> Any:
     """Run *code* in the user venv and return a Calc-compatible scalar (or error string)."""
     log.debug("=== PYTHON(%r, data=%r) ===", code, data)
     try:
-        py_data = calc_addin_data_to_python(data)
+        py_data = calc_addin_data_to_python(data, true_strings, false_strings)
         log.debug("PYTHON parsed py_data: %r", py_data)
         index_arg = None
         if py_data is not None and is_scalar_index_arg(py_data) and not is_split_grid(py_data):
