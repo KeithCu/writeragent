@@ -233,11 +233,20 @@ Use `np.nansum(data)` (or mask with `np.isnan`) on numeric-only ingress when you
 | `np.inf` / `-np.inf` | Still **inf** (not treated as missing) |
 | Large numeric array (≥ 10 cells) | `split_grid` on wire; host unpack → nested lists for Calc matrix / LLM |
 
-#### NaN summary (common confusion)
+#### Empty cells vs NaN (policy)
 
-- **Empty Calc cell** → `None` in Python → **NaN on wire** → **`np.nan`** in numeric-only `data`, or **`None`** in mixed lists.
-- **NumPy `np.nan` in `result`** → NaN on wire → **`None`** after host unpack (for sheet / JSON consumers).
-- Do not expect `None` and `np.nan` to round-trip identically on every leg; behavior depends on numeric vs mixed path and ingress vs egress.
+Author-facing summary (script examples and LLM guidance): [Empty cells vs NaN](enabling_numpy_in_libreoffice.md#empty-cells-vs-nan).
+
+We **do not** distinguish empty Calc cells from Python/NumPy NaN on the wire (both use `NaN` in the split_grid buffer). On **egress to Calc**, both become **empty cells** so downstream formulas stay healthy.
+
+| Direction | From | To | Why |
+|-----------|------|-----|-----|
+| **Ingress** | Calc empty | Python `None` | Natural null in list/mixed grids. |
+| **Ingress** | Calc empty | NumPy `np.nan` | Required for pure numeric `ndarray` fast path (`frombuffer`). Use `np.nansum` / `np.isnan` when holes matter. |
+| **Egress** | Python `None` | Calc empty | Standard spreadsheet behavior (`""` via [`to_calc_compatible`](../plugin/calc/python_function.py)). |
+| **Egress** | Python / NumPy NaN | Calc empty | Same as `None`; avoids `#NUM!` / `#VALUE!` in matrix blocks and referencing formulas. |
+
+**Wire / host unpack:** buffer NaN slots decode to `None` in nested lists ([`host_unpack_split_grid`](../plugin/scripting/payload_codec.py)); [`to_calc_compatible`](../plugin/calc/python_function.py) maps both `None` and NaN floats to `""`. **`±inf`** is unchanged on egress (may still show `#NUM!`).
 
 #### Performance Impact:
 - **~20x Speedup** over Column-Wise mixed grids.

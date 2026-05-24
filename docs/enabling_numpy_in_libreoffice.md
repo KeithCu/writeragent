@@ -13,6 +13,7 @@ For a short executive summary, see [WriterAgent architecture — Scientific Pyth
    - [Linux Cross-Process IPC Performance](#linux-cross-process-ipc-performance)
 5. [Developer reference](#5-developer-reference)
 6. [The `=PYTHON()` Calc function](#6-the-python-calc-function) <!-- anchor: the-python-calc-function -->
+   - [Empty cells vs NaN](#empty-cells-vs-nan)
    - [Calc formula lexer quirks (inline code)](#calc-formula-lexer-quirks-inline-code)
    - [NumPy serialization](#numpy-serialization)
 7. [Deferred roadmap](#7-deferred-roadmap)
@@ -290,8 +291,49 @@ LibreOffice Calc operates strictly on double-precision floats (`double`/`float`)
 * **The resolution:** Every return value from `=PYTHON()` is recursively filtered through a coercion pipeline (`to_calc_compatible`):
   - `int` -> `float` (coerced to UNO `double`)
   - `None` -> `""` (coerced to empty cell)
-  - `bool`, `float`, and `str` are preserved as is.
+  - `float('nan')` / `np.nan` -> `""` (empty cell; keeps downstream formulas healthy)
+  - Other `bool`, `float`, and `str` values are preserved as-is.
   - Lists and tuples are recursively converted to tuples of these Calc-supported types.
+
+#### Empty cells vs NaN
+
+Calc **empty cells** and Python/NumPy **NaN** are treated as the same *missing* value on the wire, but they surface differently in Python on **ingress** and are **normalized to empty cells** on **egress** so sheet formulas stay healthy.
+
+| Direction | From | To | Why |
+|-----------|------|-----|-----|
+| **Ingress** | Calc empty | Python `None` | Natural null in nested lists and mixed grids. |
+| **Ingress** | Calc empty | NumPy `np.nan` | Pure numeric ranges materialize as a float64 `ndarray` via `np.frombuffer`; holes must be NaN slots, not Python `None`. |
+| **Egress** | Python `None` | Calc empty | Standard spreadsheet behavior (`""` via [`to_calc_compatible`](../plugin/calc/python_function.py)). |
+| **Egress** | Python / NumPy NaN | Calc empty | Same as `None`; avoids `#NUM!` / `#VALUE!` when a matrix or downstream formula references the cell. |
+
+**What you see in scripts**
+
+| Grid type in the venv | Empty Calc cell becomes | Notes |
+|-----------------------|-------------------------|-------|
+| **Mixed** (any text in range) | `None` in `list` / `list[list]` | Same as pre–split-grid list behavior. |
+| **Pure numeric** (≥10 cells, split_grid) | `np.nan` in `data` | Fast path; use **`np.nansum`**, **`np.nanmean`**, or **`np.isnan`** when holes must be ignored. |
+| **Small range** (&lt;10 cells, nested list) | `None` in lists | Same as mixed; may be promoted to `ndarray` only if the child reloads a clean numeric grid. |
+
+**Return path:** worker results pass through [`host_unpack_data`](../plugin/scripting/payload_codec.py) (buffer NaN → `None` in nested lists) and then [`to_calc_compatible`](../plugin/calc/python_function.py) (`None` and NaN floats → `""`). A scalar `result = float('nan')` or a matrix slot with `np.nan` therefore displays as a **blank cell**, not `#NUM!`.
+
+**We do not round-trip “real NaN” into Calc.** If your script computes a missing numeric result you want visible as an error, return a string (e.g. `"N/A"`) or a normal value; do not rely on `np.nan` to show as `#NUM!` in the sheet.
+
+**Infinity:** `±inf` is **not** collapsed to empty on egress and may still produce `#NUM!` in Calc — only NaN/`None` map to blank cells.
+
+**Wire format:** on the split_grid binary lane, both empty cells and NaN values occupy NaN slots in the float64 buffer ([details in NumPy serialization — Cell semantics](numpy-serialization.md#cell-semantics-calc-python-and-numpy)). That is an implementation detail; authors should follow the table above.
+
+**Examples**
+
+```python
+# Ingress — numeric block B1:B5 with a blank in B3
+result = np.nansum(data)          # OK: ignores np.nan holes
+result = np.sum(data)             # NaN poisons the sum unless you mask
+
+# Egress — both become empty cells in the sheet
+result = None
+result = float("nan")
+result = [[1.0, np.nan, 3.0]]     # matrix formula → 1, blank, 3
+```
 
 #### 2. Normal (Single-Cell) Formulas vs. Matrix (Array) Formulas
 Calc's legacy add-in bridge only accepts **one scalar** (number, text, or boolean) per `=PYTHON()` evaluation. It cannot receive a Python list/tuple as a native array return (that yields `#VALUE!` even with **Ctrl+Shift+Enter**).
@@ -461,9 +503,9 @@ When you pass a range (or cell reference) as the second argument to `=PYTHON(cod
 | **Row or Column** (e.g., `B1:B10`) | **Flat 1D `list`** (or 1D `ndarray` if numeric) | `sum(data)` or `np.mean(data)` |
 | **2D Rectangle** (e.g., `B1:C5`) | **Nested 2D `list` (row-major)** (or 2D `ndarray` if numeric) | `pd.DataFrame(data)` or 2D numpy processing |
 
-Conversion logic: [`plugin/calc/calc_addin_data.py`](plugin/calc/calc_addin_data.py). Empty cells in Calc map to `None` in Python. The maximum data payload is capped by Settings → Python **`scripting.python_max_data_cells`** (default 250 000, max 2 000 000).
+Conversion logic: [`plugin/calc/calc_addin_data.py`](plugin/calc/calc_addin_data.py). Empty cells in Calc map to `None` in Python (or `np.nan` in pure numeric `ndarray` ingress — see [Empty cells vs NaN](#empty-cells-vs-nan)). The maximum data payload is capped by Settings → Python **`scripting.python_max_data_cells`** (default 250 000, max 2 000 000).
 
-**Data pipeline:** Calc UNO range → `calc_addin_data_to_python` → `pack_calc_data_for_wire` ([`host_pack_data`](../plugin/scripting/payload_codec.py): Pickle list or Split-Grid; details in [NumPy serialization](numpy-serialization.md#current-pipeline-and-costs)) → Pickle5 payload stream → `child_unpack_data` (ndarray or list from split_grid) → `send_variables({"data": ...})` → script runs. Return path: `child_pack_result` → Pickle5 payload stream → host `host_unpack_data` ([`python_function.py`](../plugin/calc/python_function.py)).
+**Data pipeline:** Calc UNO range → `calc_addin_data_to_python` → `pack_calc_data_for_wire` ([`host_pack_data`](../plugin/scripting/payload_codec.py): Pickle list or Split-Grid; details in [NumPy serialization](numpy-serialization.md#current-pipeline-and-costs)) → Pickle5 payload stream → `child_unpack_data` (ndarray or list from split_grid) → `send_variables({"data": ...})` → script runs. Return path: `child_pack_result` → Pickle5 payload stream → host `host_unpack_data` → [`to_calc_compatible`](../plugin/calc/python_function.py) (NaN/`None` → empty cell; see [Empty cells vs NaN](#empty-cells-vs-nan)).
 
 **Gaps vs LibrePythonista (workarounds):** chat tool still single `data_range` (use multiple `=PYTHON` cells or varargs in formulas); no `collapse` (tighter range or strip `None` in Python); no auto-DataFrame (`pd.DataFrame(data)`).
 
@@ -479,7 +521,7 @@ Under the **Pickle5 + Split-Grid** design:
 - **C-Speed Materialization**: Peer materialization in the child is an unbelievable **168.50x faster** than standard JSON list mapping (`0.017 ms` vs `2.837 ms` baseline), loading the raw double-precision binary buffer directly via zero-copy `np.frombuffer` in one step.
 - Mixed-type grids are fully supported via a sparse index map for strings, and smaller payloads (<10 cells) gracefully fall back to standard Pickle lists.
 
-This keeps LibreOffice's embedded Python NumPy-free while making large Calc ranges and ndarray results exceptionally fast to move across the process boundary. Wire format, benchmarks, and optimization tiers are in [NumPy serialization](numpy-serialization.md). **Cell-level behavior** (empty cells, strings, zip codes, `np.nan` vs `None`, rectangular-only 2D) is documented in [Cell semantics: Calc, Python, and NumPy](numpy-serialization.md#cell-semantics-calc-python-and-numpy).
+This keeps LibreOffice's embedded Python NumPy-free while making large Calc ranges and ndarray results exceptionally fast to move across the process boundary. Wire format, benchmarks, and optimization tiers are in [NumPy serialization](numpy-serialization.md). **Cell-level behavior** (empty cells, strings, zip codes, ingress/egress NaN policy, rectangular-only 2D) is summarized in [Empty cells vs NaN](#empty-cells-vs-nan) above and expanded in [Cell semantics: Calc, Python, and NumPy](numpy-serialization.md#cell-semantics-calc-python-and-numpy).
 
 ### Optional: Python edit dialog (deferred UX)
 
