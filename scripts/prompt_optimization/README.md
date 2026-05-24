@@ -2,22 +2,49 @@
 
 This folder implements the DSPy-based optimization of `DEFAULT_CHAT_SYSTEM_PROMPT` for WriterAgent (see plan in repo).
 
-## Setup
+## Benchmarks from repo root
 
 ```bash
-cd scripts/prompt_optimization
-pip install -r requirements.txt
+git clone …/writeragent && cd writeragent
+uv sync
+make eval-deps                    # uv pip install dspy-ai (eval + optimize only)
+export OPENROUTER_API_KEY=sk-…   # or OPENAI_API_KEY / WRITERAGENT_API_KEY
+make run_eval-smoke               # one model, one example
+make run_eval EVAL_ARGS="--models qwen/qwen3-coder-next -n 2 -j 1"
 ```
 
-**Defaults: OpenRouter** with **qwen/qwen3-coder-next** (cheap and fast). Set your key:
+Local OpenAI-compatible (Ollama, vLLM, etc.):
 
-- `OPENROUTER_API_KEY` or `OPENAI_API_KEY` – required for OpenRouter
+```bash
+export OPENAI_API_BASE=http://127.0.0.1:11434/v1
+make run_eval EVAL_ARGS="--model llama3.2 --allow-unknown-model -n 1 -j 1"
+# Judge defaults to the same model on non-OpenRouter endpoints.
+```
 
-Override model or endpoint via env or CLI:
+Wrapper: [`scripts/benchmark.py`](../benchmark.py). Credentials: [`eval_auth.py`](eval_auth.py) (CLI/env → `LlmClient` config; judge uses same HTTP stack as chat).
 
-- `OPENAI_API_BASE` – default `https://openrouter.ai/api/v1`
-- `OPENAI_MODEL` – default `qwen/qwen3-coder-next`
-- Or: `python run_optimize.py --model google/gemini-2.0-flash-001` / `--api-base ...` / `--api-key ...`
+## Setup (this directory)
+
+```bash
+uv pip install -r requirements.txt   # or: make eval-deps from repo root
+```
+
+**Defaults: OpenRouter** with **qwen/qwen3-coder-next** (cheap and fast). API key (first match wins):
+
+- `--api-key` / `-k`, then `WRITERAGENT_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`
+
+Endpoint:
+
+- `--api-base` / `WRITERAGENT_API_BASE`, `OPENAI_API_BASE` — default `https://openrouter.ai/api/v1`
+
+Judge model (`run_eval_multi.py`):
+
+- `--judge` / `WRITERAGENT_JUDGE_MODEL`, then Grok on OpenRouter, else first `--models` id on other endpoints
+- `--no-judge` — substring checks only
+
+Override model for optimize:
+
+- `python run_optimize.py --model google/gemini-2.0-flash-001` / `--api-base ...` / `--api-key ...`
 
 ## Run
 

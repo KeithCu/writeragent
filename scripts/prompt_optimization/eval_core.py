@@ -7,6 +7,7 @@ This centralizes correctness / token accounting so both run_eval.py and
 multi-model scripts can reuse the same logic.
 """
 
+import re
 import sys
 import uuid
 from dataclasses import dataclass
@@ -113,6 +114,123 @@ def score_with_judge(
             task_category=task_category,
         )
     return (float(j_result.score), j_result)
+
+
+JUDGE_SYSTEM_PROMPT = """You are an expert evaluator for document-editing tasks.
+Score the model's output compared to the task, optional gold reference, and rubric.
+
+Respond with a single JSON object only (no markdown fences), with these keys:
+- thought_process: string, brief step-by-step reasoning
+- accuracy_score: number 1-5, how well instructions and meaning are met
+- formatting_score: number 1-5, layout/HTML/structure quality
+- naturalness_score: number 1-5, or null for structural tasks where tone is N/A
+
+Task category is either "structural" (weight accuracy 60%, formatting 40%) or
+"creative" (accuracy 30%, formatting 20%, naturalness 50%)."""
+
+
+@dataclass
+class JudgeResult:
+    """LLM-as-judge output (same fields as DSPy JudgeModule prediction)."""
+
+    thought_process: str
+    accuracy_score: Any
+    formatting_score: Any
+    naturalness_score: Any
+    score: float
+
+
+def _weighted_judge_score(
+    accuracy_score: Any,
+    formatting_score: Any,
+    naturalness_score: Any,
+    task_category: str,
+) -> float:
+    """Map 1-5 sub-scores to 0.0-1.0 (mirrors JudgeModule.forward)."""
+    try:
+        acc = float(accuracy_score)
+        fmt = float(formatting_score)
+        if task_category == "creative":
+            nat = float(naturalness_score)
+            return min(max((acc * 0.3 + fmt * 0.2 + nat * 0.5) / 5.0, 0.0), 1.0)
+        return min(max((acc * 0.6 + fmt * 0.4) / 5.0, 0.0), 1.0)
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def _parse_judge_json(content: str, task_category: str) -> JudgeResult:
+    from plugin.framework.errors import safe_json_loads
+
+    text = (content or "").strip()
+    if not text:
+        return JudgeResult("", "1", "1", "N/A" if task_category != "creative" else "1", 0.0)
+    # Strip optional markdown code fence
+    fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
+    if fence:
+        text = fence.group(1).strip()
+    data = safe_json_loads(text)
+    if not isinstance(data, dict):
+        return JudgeResult(text[:500], "1", "1", "N/A", 0.0)
+    thought = str(data.get("thought_process") or "")
+    acc = data.get("accuracy_score", 1)
+    fmt = data.get("formatting_score", 1)
+    nat = data.get("naturalness_score")
+    if task_category != "creative":
+        nat = "N/A"
+    score = _weighted_judge_score(acc, fmt, nat, task_category)
+    return JudgeResult(thought, acc, fmt, nat, score)
+
+
+def score_with_judge_llm(
+    *,
+    endpoint: str,
+    api_key: str,
+    judge_model: str,
+    document_content: str,
+    user_question: str,
+    model_answer: str,
+    gold_answer: str = "N/A",
+    rubric: str = "N/A",
+    task_category: str = "structural",
+) -> Tuple[float, JudgeResult]:
+    """
+    Run LLM-as-judge via LlmClient (provider auth/shims match production chat).
+
+    Shared by run_eval_on_examples_llm; DSPy optimize path still uses score_with_judge.
+    """
+    from llm_chat_eval import _EvalMockContext, _build_api_config
+    from plugin.framework.client.llm_client import LlmClient
+
+    user_body = (
+        f"Task category: {task_category}\n\n"
+        f"Document (input):\n{document_content}\n\n"
+        f"User question:\n{user_question}\n\n"
+        f"Model answer:\n{model_answer}\n\n"
+        f"Gold reference (optional):\n{gold_answer}\n\n"
+        f"Rubric (optional):\n{rubric}"
+    )
+    messages: list[dict[str, Any]] = [
+        {"role": "system", "content": JUDGE_SYSTEM_PROMPT},
+        {"role": "user", "content": user_body},
+    ]
+    cfg = _build_api_config(
+        endpoint=endpoint,
+        api_key=api_key,
+        model=judge_model,
+        max_tool_rounds=1,
+    )
+    client = LlmClient(cfg, _EvalMockContext())
+    resp = client.request_with_tools(
+        messages,
+        max_tokens=2048,
+        tools=None,
+        stream=False,
+        model=judge_model,
+        prepend_dev_build_system_prefix=False,
+    )
+    content = (resp.get("content") or "") if isinstance(resp, dict) else ""
+    result = _parse_judge_json(str(content), task_category)
+    return (result.score, result)
 
 
 @dataclass
@@ -396,6 +514,8 @@ def run_eval_on_examples_llm(
     debug_usage: bool = False,
     bust_cache: bool = True,
     quiet: bool = False,
+    judge_model: str | None = None,
+    gold_model: str | None = None,
     judge_lm: dspy.LM | None = None,
     gold_lm: dspy.LM | None = None,
 ) -> List[ExampleEval]:
@@ -404,6 +524,8 @@ def run_eval_on_examples_llm(
 
     - ``backend`` ``string``: in-memory HTML via ``StringDocState`` (default, no LibreOffice).
     - ``backend`` ``lo``: headless Writer + ``tools_lo`` (start/stop LO outside this function).
+    - ``judge_model``: OpenAI-compatible model id for LLM judge (preferred over ``judge_lm``).
+    - ``gold_model``: model id for on-the-fly gold generation (preferred over ``gold_lm``).
     """
     from plugin.framework.constants import get_writer_eval_chat_system_prompt
 
@@ -427,30 +549,29 @@ def run_eval_on_examples_llm(
             print(f"  Q: {question[:80]}{'...' if len(question) > 80 else ''}")
             print("  Calling model (LlmClient tool loop)...", flush=True)
 
-        if gold_lm and not gold:
-            gm = getattr(gold_lm, "model", None) or ""
-            if gm:
-                if not quiet:
-                    print(f"  Generating gold standard with {gm}...")
-                inst_g = base_instruction
-                if bust_cache:
-                    inst_g = f"{inst_g}\n\n[Eval gold: {uuid.uuid4().hex[:8]}]"
-                gold, _ug, gerr = run_llm_chat_eval(
-                    system_prompt=inst_g,
-                    document_content=doc,
-                    user_question=question,
-                    endpoint=endpoint,
-                    api_key=api_key,
-                    model=gm,
-                    backend=backend,  # type: ignore[arg-type]
-                    max_tool_rounds=max_tool_rounds,
-                    bust_cache=False,
-                    verbose=verbose,
-                )
-                if gerr and not quiet:
-                    print(f"  Gold generation error: {gerr}")
-                if not quiet:
-                    print(f"  Gold generated ({len(gold)} chars).")
+        gm = (gold_model or "").strip() or (getattr(gold_lm, "model", None) if gold_lm else "") or ""
+        if gm and not gold:
+            if not quiet:
+                print(f"  Generating gold standard with {gm}...")
+            inst_g = base_instruction
+            if bust_cache:
+                inst_g = f"{inst_g}\n\n[Eval gold: {uuid.uuid4().hex[:8]}]"
+            gold, _ug, gerr = run_llm_chat_eval(
+                system_prompt=inst_g,
+                document_content=doc,
+                user_question=question,
+                endpoint=endpoint,
+                api_key=api_key,
+                model=gm,
+                backend=backend,  # type: ignore[arg-type]
+                max_tool_rounds=max_tool_rounds,
+                bust_cache=False,
+                verbose=verbose,
+            )
+            if gerr and not quiet:
+                print(f"  Gold generation error: {gerr}")
+            if not quiet:
+                print(f"  Gold generated ({len(gold)} chars).")
 
         inst = base_instruction
         if bust_cache:
@@ -490,20 +611,34 @@ def run_eval_on_examples_llm(
             j_formatting = None
             j_naturalness = None
             is_non_trivial_task = getattr(ex, "is_non_trivial", False)
-            use_judge = bool(judge_lm) and is_non_trivial_task
+            jm = (judge_model or "").strip()
+            use_judge = is_non_trivial_task and bool(jm or judge_lm)
 
             if use_judge:
                 if not quiet:
                     print("  Calling judge...", flush=True)
-                j_score, j_result = score_with_judge(
-                    judge_lm,
-                    document_content=doc,
-                    user_question=question,
-                    model_answer=final,
-                    gold_answer=gold or "N/A",
-                    rubric=rubric or "N/A",
-                    task_category=category,
-                )
+                if jm:
+                    j_score, j_result = score_with_judge_llm(
+                        endpoint=endpoint,
+                        api_key=api_key,
+                        judge_model=jm,
+                        document_content=doc,
+                        user_question=question,
+                        model_answer=final,
+                        gold_answer=gold or "N/A",
+                        rubric=rubric or "N/A",
+                        task_category=category,
+                    )
+                else:
+                    j_score, j_result = score_with_judge(
+                        judge_lm,
+                        document_content=doc,
+                        user_question=question,
+                        model_answer=final,
+                        gold_answer=gold or "N/A",
+                        rubric=rubric or "N/A",
+                        task_category=category,
+                    )
                 j_reasoning = getattr(j_result, "thought_process", None)
                 j_accuracy = getattr(j_result, "accuracy_score", None)
                 j_formatting = getattr(j_result, "formatting_score", None)

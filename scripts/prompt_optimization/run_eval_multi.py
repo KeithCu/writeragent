@@ -7,7 +7,7 @@ default in-memory `--backend string`), but iterates over model configurations
 (see model_configs.py) and estimates cost using list prices (USD per 1M tokens).
 
 Usage:
-  export OPENROUTER_API_KEY="your-key"   # or OPENAI_API_KEY
+  export OPENROUTER_API_KEY="your-key"   # or OPENAI_API_KEY / WRITERAGENT_API_KEY
   cd scripts/prompt_optimization
   python run_eval_multi.py
   python run_eval_multi.py --backend lo  # LibreOffice instead of string simulator
@@ -15,19 +15,23 @@ Usage:
   python run_eval_multi.py -n 2
   python run_eval_multi.py -j 8   # 8 models in parallel (default)
   python run_eval_multi.py -j 1   # sequential, verbose per-example output
+  python run_eval_multi.py --allow-unknown-model --models llama3.2
 """
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
-import dspy
-
 from dataset import ALL_EXAMPLES, to_dspy_examples
+from eval_auth import (
+    require_api_key,
+    resolve_api_base,
+    resolve_api_key,
+    resolve_judge_model,
+)
 from eval_core import ExampleEval, run_eval_on_examples_llm
 from model_configs import MODEL_BY_ID, ModelConfig, get_default_models
 import tools_lo as _tools_lo
@@ -39,21 +43,11 @@ if str(REPO_ROOT) not in sys.path:
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-DEFAULT_API_BASE = "https://openrouter.ai/api/v1"
-
 
 def _parse_model_ids(arg: str | None) -> Sequence[str]:
     if not arg:
         return [m.openrouter_id for m in get_default_models()]
     return [s.strip() for s in arg.split(",") if s.strip()]
-
-
-def _get_lm(model_id: str, api_key: str, api_base: str) -> dspy.LM:
-    """Instantiate a dspy.LM with OpenRouter prefixing if needed."""
-    model = model_id
-    if "openrouter" in api_base.lower() and not model.startswith("openrouter/"):
-        model = "openrouter/" + model
-    return dspy.LM(model=model, api_key=api_key, api_base=api_base, model_type="chat")
 
 
 def _model_id_for_llm_client(model_id: str) -> str:
@@ -64,10 +58,27 @@ def _model_id_for_llm_client(model_id: str) -> str:
     return m
 
 
+def _model_config_for_id(model_id: str, *, allow_unknown: bool) -> ModelConfig:
+    if model_id in MODEL_BY_ID:
+        return MODEL_BY_ID[model_id]
+    if allow_unknown:
+        return ModelConfig(
+            openrouter_id=model_id,
+            display_name=model_id,
+            context_window_tokens=None,
+            input_cost_per_million=0.0,
+            output_cost_per_million=0.0,
+            notes="unknown pricing (use MODEL_BY_ID or OpenRouter catalog for cost/IpD)",
+        )
+    raise KeyError(model_id)
+
+
 def _estimate_cost_usd(
     results: Iterable[ExampleEval],
     cfg: ModelConfig,
 ) -> float:
+    if cfg.input_cost_per_million == 0.0 and cfg.output_cost_per_million == 0.0:
+        return 0.0
     total_cost = 0.0
     for r in results:
         total_cost += (
@@ -81,7 +92,7 @@ def _write_details(out_path: Path, all_details: list[dict[str, Any]]) -> None:
     """Write detailed per-example results to a separate file (e.g. eval_details.json/csv)."""
     detailed_path = out_path.parent / (out_path.stem + "_details" + out_path.suffix)
     detailed_path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     as_csv = detailed_path.suffix.lower() == ".csv"
     if as_csv:
         import csv
@@ -134,15 +145,14 @@ def _run_one_model(
     verbose: bool,
     debug_usage: bool,
     bust_cache: bool,
-    judge_model_id: str | None = None,
-    gold_model_id: str | None = None,
-    backend: str = "string",
+    judge_model_id: str | None,
+    gold_model_id: str | None,
+    backend: str,
+    allow_unknown: bool,
 ) -> dict[str, Any]:
     """Run eval for one model (used in a worker process). Returns summary dict."""
-    import dspy
     from dataset import ALL_EXAMPLES, to_dspy_examples
     from eval_core import summarize_results
-    from model_configs import MODEL_BY_ID
 
     _tools_lo.VERBOSE = verbose
     examples = to_dspy_examples(ALL_EXAMPLES, with_inputs=True)
@@ -150,16 +160,10 @@ def _run_one_model(
         examples = [ex for ex in examples if getattr(ex, "task_id", "") == example_arg]
     if n is not None:
         examples = examples[:n]
-    cfg = MODEL_BY_ID[model_id]
+    cfg = _model_config_for_id(model_id, allow_unknown=allow_unknown)
     model = _model_id_for_llm_client(model_id)
-
-    judge_lm = None
-    if judge_model_id:
-        judge_lm = _get_lm(judge_model_id, api_key, api_base)
-
-    gold_lm = None
-    if gold_model_id:
-        gold_lm = _get_lm(gold_model_id, api_key, api_base)
+    jm = _model_id_for_llm_client(judge_model_id) if judge_model_id else None
+    gm = _model_id_for_llm_client(gold_model_id) if gold_model_id else None
 
     results = run_eval_on_examples_llm(
         examples,
@@ -172,18 +176,19 @@ def _run_one_model(
         debug_usage=debug_usage,
         bust_cache=bust_cache,
         quiet=False,
-        judge_lm=judge_lm,
-        gold_lm=gold_lm,
+        judge_model=jm,
+        gold_model=gm,
     )
     summary = summarize_results(results)
     total_cost = _estimate_cost_usd(results, cfg)
+    pricing_known = cfg.input_cost_per_million > 0 or cfg.output_cost_per_million > 0
     avg_cost_per_example = total_cost / len(results) if results else 0.0
-    eps = 1e-9
-    # Intelligence per Dollar = (Correctness^2 / AvgCost). 
-    # Squaring the correctness (P=2) prioritizes quality/accuracy over raw cost, 
-    # ensuring "cheap but broken" models don't dominate the leaderboard.
-    ipd_correctness = (summary["avg_correctness"]**2) / max(avg_cost_per_example, eps) if avg_cost_per_example > 0 else 0.0
-    ipd_metric = (summary["avg_metric_score"]**2) / max(avg_cost_per_example, eps) if avg_cost_per_example > 0 else 0.0
+    if pricing_known and avg_cost_per_example > 0:
+        ipd_correctness = (summary["avg_correctness"] ** 2) / avg_cost_per_example
+        ipd_metric = (summary["avg_metric_score"] ** 2) / avg_cost_per_example
+    else:
+        ipd_correctness = 0.0
+        ipd_metric = 0.0
     details = []
     for r in results:
         details.append({
@@ -208,6 +213,7 @@ def _run_one_model(
             "context_window_tokens": cfg.context_window_tokens,
             "input_cost_per_million": cfg.input_cost_per_million,
             "output_cost_per_million": cfg.output_cost_per_million,
+            "pricing_known": pricing_known,
             "avg_correctness": summary["avg_correctness"],
             "avg_metric_score": summary["avg_metric_score"],
             "total_tokens": summary["total_tokens"],
@@ -216,7 +222,7 @@ def _run_one_model(
             "intelligence_per_dollar_correctness": ipd_correctness,
             "intelligence_per_dollar_metric": ipd_metric,
         },
-        "details": details
+        "details": details,
     }
 
 
@@ -231,21 +237,25 @@ def main() -> int:
         "--models",
         metavar="KEYS",
         help=(
-            "Comma-separated OpenRouter model ids (e.g. openai/gpt-oss-120b). "
+            "Comma-separated model ids (e.g. openai/gpt-oss-120b). "
             "Default: all in get_default_models()."
         ),
     )
     p.add_argument(
         "--api-base",
-        default=os.environ.get("OPENAI_API_BASE", DEFAULT_API_BASE),
-        help=f"API base URL (default: {DEFAULT_API_BASE}).",
+        default=None,
+        help="API base URL (default: WRITERAGENT_API_BASE / OPENAI_API_BASE / OpenRouter).",
     )
     p.add_argument(
         "--api-key",
         "-k",
-        default=os.environ.get("OPENROUTER_API_KEY")
-        or os.environ.get("OPENAI_API_KEY", ""),
-        help="API key (default: OPENROUTER_API_KEY or OPENAI_API_KEY env).",
+        default=None,
+        help="API key (default: WRITERAGENT_API_KEY / OPENAI_API_KEY / OPENROUTER_API_KEY).",
+    )
+    p.add_argument(
+        "--allow-unknown-model",
+        action="store_true",
+        help="Allow model ids not listed in model_configs.py (cost/IpD n/a).",
     )
     p.add_argument(
         "--example",
@@ -268,7 +278,7 @@ def main() -> int:
     p.add_argument(
         "--debug-usage",
         action="store_true",
-        help="Print raw get_lm_usage() when tokens=0 to debug token extraction.",
+        help="Print raw usage when tokens=0 to debug token extraction.",
     )
     p.add_argument(
         "--no-bust-cache",
@@ -283,15 +293,21 @@ def main() -> int:
     )
     p.add_argument(
         "--judge",
+        "-J",
         metavar="ID",
-        default="x-ai/grok-4.1-fast",
-        help="OpenRouter model id for the judge (default: x-ai/grok-4.1-fast).",
+        default=None,
+        help="Judge model id (default: Grok on OpenRouter; else first --models id on other endpoints).",
+    )
+    p.add_argument(
+        "--no-judge",
+        action="store_true",
+        help="Skip LLM judge; use expected_contains/reject_contains only.",
     )
     p.add_argument(
         "--gold-model",
         metavar="ID",
         default="anthropic/claude-sonnet-4.6",
-        help="OpenRouter model id for gold standard generation (default: anthropic/claude-sonnet-4.6).",
+        help="Model id for gold standard generation (default: anthropic/claude-sonnet-4.6).",
     )
     p.add_argument(
         "--generate-golds",
@@ -328,25 +344,28 @@ def main() -> int:
     )
     args = p.parse_args()
 
-    api_key = args.api_key
-    api_base = args.api_base
-    if not api_key and "openrouter" in api_base.lower():
-        print(
-            "Warning: OPENROUTER_API_KEY (or OPENAI_API_KEY) not set.",
-            file=sys.stderr,
-        )
+    api_base = resolve_api_base(cli_base=args.api_base)
+    api_key = resolve_api_key(cli_key=args.api_key)
+    require_api_key(api_key, api_base)
 
     model_summaries: list[dict[str, Any]] = []
     all_details: list[dict[str, Any]] = []
     model_ids = _parse_model_ids(args.models)
     unknown = [mid for mid in model_ids if mid not in MODEL_BY_ID]
-    if unknown:
+    if unknown and not args.allow_unknown_model:
         print(f"Unknown model id(s): {unknown}", file=sys.stderr)
-        print(
-            f"Known ids: {sorted(MODEL_BY_ID.keys())}",
-            file=sys.stderr,
-        )
+        print(f"Known ids: {sorted(MODEL_BY_ID.keys())}", file=sys.stderr)
+        print("Pass --allow-unknown-model for local/custom endpoints.", file=sys.stderr)
         return 1
+
+    judge_model_id: str | None = None
+    if not args.no_judge:
+        judge_model_id = resolve_judge_model(
+            cli_judge=args.judge,
+            endpoint=api_base,
+            model_ids=model_ids,
+        )
+        print(f"Judge model: {judge_model_id} @ {api_base}")
 
     # Dataset selection
     examples = to_dspy_examples(ALL_EXAMPLES, with_inputs=True)
@@ -430,67 +449,59 @@ def main() -> int:
     )
     sys.stdout.flush()
 
+    worker_kw = dict(
+        example_arg=args.example,
+        n=args.n,
+        verbose=args.verbose,
+        debug_usage=args.debug_usage,
+        bust_cache=not args.no_bust_cache,
+        judge_model_id=judge_model_id,
+        gold_model_id=args.gold_model,
+        backend=args.backend,
+        allow_unknown=args.allow_unknown_model,
+    )
+
     if args.backend == "lo":
         _tools_lo.LOBackend.start()
     try:
         if jobs <= 1:
-            # Sequential: verbose per-model and per-example output
             for model_id in model_ids:
-                cfg = MODEL_BY_ID[model_id]
-                model = model_id
+                cfg = _model_config_for_id(model_id, allow_unknown=args.allow_unknown_model)
                 print("=" * 60)
                 print(f"Model: {cfg.display_name} ({cfg.openrouter_id})")
-                print(f"  Context window: {cfg.context_window_tokens or 'unknown'} tokens")
-                print(f"  Pricing: ${cfg.input_cost_per_million}/M input, "
-                      f"${cfg.output_cost_per_million}/M output")
-                print(f"  Using model id: {model} @ {api_base}\n")
-                
-                res = _run_one_model(
-                    model_id,
-                    api_base,
-                    api_key,
-                    args.example,
-                    args.n,
-                    args.verbose,
-                    args.debug_usage,
-                    not args.no_bust_cache,
-                    args.judge,
-                    args.gold_model,
-                    args.backend,
-                )
+                if cfg.context_window_tokens:
+                    print(f"  Context window: {cfg.context_window_tokens} tokens")
+                if cfg.input_cost_per_million or cfg.output_cost_per_million:
+                    print(
+                        f"  Pricing: ${cfg.input_cost_per_million}/M input, "
+                        f"${cfg.output_cost_per_million}/M output"
+                    )
+                else:
+                    print("  Pricing: n/a (--allow-unknown-model)")
+                print(f"  Using model id: {model_id} @ {api_base}\n")
+
+                res = _run_one_model(model_id, api_base, api_key, **worker_kw)
                 model_summaries.append(res["summary"])
-                
-                # Add model_id to each detail for tracking
                 for d in res["details"]:
                     d["model_id"] = model_id
                 all_details.extend(res["details"])
-                
+
                 out_path = _out_path(args)
                 if out_path:
                     _write_results(out_path, model_summaries)
                     _write_details(out_path, all_details)
-                    
+
                 m = res["summary"]
-                print(f"Done: {m['openrouter_id']}  avg_correctness={m['avg_correctness']:.3f}  cost=${m['total_cost_usd']:.4f}  ({len(model_summaries)}/{len(model_ids)} models)")
+                cost_s = f"${m['total_cost_usd']:.4f}" if m.get("pricing_known") else "n/a"
+                print(
+                    f"Done: {m['openrouter_id']}  avg_correctness={m['avg_correctness']:.3f}  "
+                    f"cost={cost_s}  ({len(model_summaries)}/{len(model_ids)} models)"
+                )
         else:
-            # Parallel: worker processes, progress prints interleaved; save after each model
             out_path = _out_path(args)
             with ThreadPoolExecutor(max_workers=jobs) as pool:
                 futures = {
-                    pool.submit(
-                        _run_one_model,
-                        model_id,
-                        api_base,
-                        api_key,
-                        args.example,
-                        args.n,
-                        args.verbose,
-                        args.debug_usage,
-                        not args.no_bust_cache,
-                        args.judge,
-                        args.gold_model,
-                        args.backend,
-                    ): model_id
+                    pool.submit(_run_one_model, model_id, api_base, api_key, **worker_kw): model_id
                     for model_id in model_ids
                 }
                 for future in as_completed(futures):
@@ -498,27 +509,39 @@ def main() -> int:
                     try:
                         res = future.result()
                         model_summaries.append(res["summary"])
-                        
-                        # Add model_id to each detail for tracking
                         for d in res["details"]:
                             d["model_id"] = model_id
                         all_details.extend(res["details"])
-                        
                         if out_path:
                             _write_results(out_path, model_summaries)
                             _write_details(out_path, all_details)
-                        
                         m = res["summary"]
-                        print(f"Done: {m['openrouter_id']}  avg_correctness={m['avg_correctness']:.3f}  cost=${m['total_cost_usd']:.4f}  ({len(model_summaries)}/{len(model_ids)} models)")
+                        cost_s = f"${m['total_cost_usd']:.4f}" if m.get("pricing_known") else "n/a"
+                        print(
+                            f"Done: {m['openrouter_id']}  avg_correctness={m['avg_correctness']:.3f}  "
+                            f"cost={cost_s}  ({len(model_summaries)}/{len(model_ids)} models)"
+                        )
                     except Exception as e:
                         print(f"Model {model_id} failed: {e}", file=sys.stderr)
-                        cfg = MODEL_BY_ID[model_id]
+                        try:
+                            cfg = _model_config_for_id(
+                                model_id, allow_unknown=args.allow_unknown_model
+                            )
+                        except KeyError:
+                            cfg = ModelConfig(
+                                openrouter_id=model_id,
+                                display_name=model_id,
+                                context_window_tokens=None,
+                                input_cost_per_million=0.0,
+                                output_cost_per_million=0.0,
+                            )
                         model_summaries.append({
                             "openrouter_id": cfg.openrouter_id,
                             "display_name": cfg.display_name,
                             "context_window_tokens": cfg.context_window_tokens,
                             "input_cost_per_million": cfg.input_cost_per_million,
                             "output_cost_per_million": cfg.output_cost_per_million,
+                            "pricing_known": False,
                             "avg_correctness": 0.0,
                             "avg_metric_score": 0.0,
                             "total_tokens": 0,
@@ -533,34 +556,46 @@ def main() -> int:
         if args.backend == "lo":
             _tools_lo.LOBackend.stop()
 
-    # Print sorted summary
     if not model_summaries:
         print("No models were evaluated.")
         return 0
 
-    model_summaries.sort(
-        key=lambda m: m["intelligence_per_dollar_correctness"],
-        reverse=True,
-    )
+    any_pricing = any(m.get("pricing_known") for m in model_summaries)
+    if any_pricing:
+        model_summaries.sort(
+            key=lambda m: m["intelligence_per_dollar_correctness"],
+            reverse=True,
+        )
+    else:
+        model_summaries.sort(key=lambda m: m["avg_correctness"], reverse=True)
 
     print("=" * 60)
-    print("INTELLIGENCE PER DOLLAR (higher is better)")
+    if any_pricing:
+        print("INTELLIGENCE PER DOLLAR (higher is better)")
+    else:
+        print("RESULTS (sorted by avg correctness; cost/IpD n/a — unknown pricing)")
     print("=" * 60)
     print(
         f"{'Rank':<4}  {'Model':<32}  {'AvgCorr':>7}  {'AvgScore':>8}  "
         f"{'AvgToks':>10}  {'AvgCost($)':>11}  {'Value(C²/$)':>11}"
     )
+    n_ex = max(len(examples), 1)
     for idx, m in enumerate(model_summaries, start=1):
+        if m.get("pricing_known"):
+            cost_col = f"{m['avg_cost_per_example']:>11.5f}"
+            ipd_col = f"{m['intelligence_per_dollar_correctness']:>11.3f}"
+        else:
+            cost_col = f"{'n/a':>11}"
+            ipd_col = f"{'n/a':>11}"
         print(
             f"{idx:<4}  {m['openrouter_id']:<32}  "
             f"{m['avg_correctness']:>7.3f}  "
             f"{m['avg_metric_score']:>8.3f}  "
-            f"{m['total_tokens']/len(examples):>10.1f}  "
-            f"{m['avg_cost_per_example']:>11.5f}  "
-            f"{m['intelligence_per_dollar_correctness']:>11.3f}"
+            f"{m['total_tokens']/n_ex:>10.1f}  "
+            f"{cost_col}  "
+            f"{ipd_col}"
         )
 
-    # Write final results (JSON or CSV by extension); sequential run writes here, parallel already wrote incrementally
     out_path = _out_path(args)
     if out_path:
         _write_results(out_path, model_summaries)
@@ -574,4 +609,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

@@ -102,7 +102,8 @@ endif
         lo-start-log \
         writer calc draw impress \
         set-config vendor docker-build compile-translations merge-translations refresh-pot reset-lang preview-translations check ty mypy pyright pyrefly bandit ty-run mypy-run pyright-run pyrefly-run \
-        ruff ruff-fix ruff-format-check ruff-format-grammar
+        ruff ruff-fix ruff-format-check ruff-format-grammar \
+        eval-deps run_eval run_eval-smoke
 
 # ── Help ─────────────────────────────────────────────────────────────────────
 
@@ -150,6 +151,11 @@ help:
 	@echo "  make check-ext              Verify extension is registered"
 	@echo "  make set-config             List all config keys"
 	@echo "  make test                   Run ty, mypy, pyright, bandit, then pytest + in-process LO tests"
+	@echo ""
+	@echo "Benchmarks (prompt optimization / eval):"
+	@echo "  make eval-deps              uv pip install dspy-ai (after uv sync)"
+	@echo "  make run_eval               Run benchmark CLI (pass EVAL_ARGS=...)"
+	@echo "  make run_eval-smoke         Quick smoke: one model, one example"
 	@echo "  make test-run               Pytest + LO tests only (skip typecheck/bandit; for quick reruns)"
 	@echo "  make slowtests              Serialization verification + CrossHair (test_serialization_verification.py; not in make test)"
 	@echo "  make vhs                    Visualize Hypothesis Serialization: run fuzz tests with verbose output"
@@ -467,6 +473,20 @@ crosshair-check:
 
 crosshair-cover:
 	.venv/bin/crosshair cover -v $(CROSSHAIR_MODULE) 2>&1 | $(PYTHON) scripts/crosshair_stream.py cover
+
+# ── Benchmarks (scripts/prompt_optimization) ─────────────────────────────────
+
+PO_EVAL_REQ := scripts/prompt_optimization/requirements.txt
+EVAL_ARGS ?=
+
+eval-deps:
+	uv pip install -r $(PO_EVAL_REQ)
+
+run_eval:
+	$(PYTHON) scripts/benchmark.py $(EVAL_ARGS)
+
+run_eval-smoke:
+	$(MAKE) run_eval EVAL_ARGS="--models qwen/qwen3-coder-next -n 1 -j 1"
 
 # ── POC extension ───────────────────────────────────────────────────────────
 

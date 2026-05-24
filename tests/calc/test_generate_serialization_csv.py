@@ -22,6 +22,11 @@ sys.path.insert(0, str(REPO_ROOT))
 from tests.calc.serialization_cases import all_serialization_cases, case_input_grids  # noqa: E402
 
 _GEN_PATH = REPO_ROOT / "scripts" / "generate_serialization_spreadsheet.py"
+if not _GEN_PATH.is_file():
+    pytest.skip(
+        "scripts/generate_serialization_spreadsheet.py not available (e.g., bundled release builds)",
+        allow_module_level=True,
+    )
 _spec = importlib.util.spec_from_file_location("generate_serialization_spreadsheet", _GEN_PATH)
 assert _spec and _spec.loader
 gen = importlib.util.module_from_spec(_spec)
