@@ -449,10 +449,14 @@ The standardized Split-Grid format fixed the **child** hot path (`frombuffer` vs
 **Status: Experimental / Arch-Specific**
 A high-performance Cython implementation of the flattening loop has been developed to address the remaining Python bottleneck. 
 
-- **Performance Gain**: Achieved a **3.5x speedup** on the flattening stage.
-- **Data**: Ingress "pack" time for 100k cells dropped from **~8ms** (stdlib) to **~2ms** (Cython).
-- **Deployment**: Currently limited to specific architectures (e.g., Linux x86-64-v3). The system dynamically detects the binary and falls back to the optimized stdlib implementation on other platforms.
-- **Future**: Broad shipping requires CI-based multi-ABI builds (cibuildwheel).
+- **Performance Gain**: Achieved a **3.1x to 4x speedup** on the flattening stage.
+- **Data (100k cells)**:
+    - **Pure Python**: ~8.3 ms
+    - **Cython v1 (Generic)**: ~2.6 ms
+    - **Cython v3 (AVX2)**: ~2.5 ms
+- **Architecture Comparison**: The performance difference between **v1** (generic x86-64) and **v3** (AVX2-optimized) is negligible (~3%). This indicates that the flattening process is primarily **memory-bound** (traversing Python objects and writing to a buffer) rather than compute-bound.
+- **Deployment Strategy**: The project targets the **x86-64-v2** baseline for its standard native builds. Since v2 support began in **2009**, it covers effectively 100% of computers in active use today while providing better performance than the v1 legacy baseline.
+- **Dynamic Loading**: The system dynamically detects the binary and falls back to the optimized Pure Python implementation on other platforms.
 
 #### Priority 1 — Profile inside LibreOffice (gate for everything else)
 

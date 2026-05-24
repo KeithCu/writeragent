@@ -152,7 +152,7 @@ help:
 	@echo ""
 	@echo "Info:"
 	@echo "  make check-setup            Verify dev stack (Python, LO, make, ...)"
-	@echo "  make native                 Build Cython accelerator (default: x86-64-v3)"
+	@echo "  make native                 Build Cython accelerator (default: x86-64 v2)"
 	@echo "                              Set WRITERAGENT_ARCH=x86-64-v[1-4] to override."
 	@echo "  make check-ext              Verify extension is registered"
 	@echo "  make set-config             List all config keys"

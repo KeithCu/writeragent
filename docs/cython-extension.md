@@ -14,21 +14,25 @@ This document serves as a reference for compiling and packaging custom host-side
 
 ## x86-64 Micro-architecture Support
 
-The accelerator can be tuned for different x86-64 generations. By default, it builds for **v3** (AVX2/BMI2), which is common for modern dev machines.
+The accelerator can be tuned for different x86-64 generations. By default, it builds for **v2** (generic x86-64-v2), which provides a modern performance baseline. Because v2 support began in **2009**, it covers essentially 100% of computers still in active use today.
 
-| Level | Features | Recommended for |
-|-------|----------|-----------------|
-| **v1** | SSE, SSE2 | Maximum compatibility (older CPUs) |
-| **v2** | SSE4.2, SSSE3 | Standard baseline |
-| **v3** | AVX, AVX2, BMI2 | Modern desktops/laptops |
-| **v4** | AVX-512 | High-end servers |
+| Level | Since | Features | Recommended for | Compiler Flag |
+|-------|-------|----------|-----------------|---------------|
+| **v1** | 2003 | SSE, SSE2 | Legacy / Retro-computing | `x86-64` |
+| **v2 (Default)** | **2009** | SSE4.2, POPCNT, SSSE3 | **Universal Modern Baseline** | `x86-64-v2` |
+| **v3** | 2013 | AVX, AVX2, BMI2 | High-perf desktops (Last 10y) | `x86-64-v3` |
+| **v4** | 2017 | AVX-512 | Modern Servers / Workstations | `x86-64-v4` |
+
+**Why v2 for "All" users?**
+Support for x86-64-v2 was introduced with **Intel Nehalem (2008)** and **AMD Bulldozer (2011)**. By 2026, any machine that cannot run v2 is at least 15 years old and likely lacks the memory or OS support to run modern AI writing tools. Targeting v2 allows us to use more efficient instructions while remaining compatible with every plausible user environment.
 
 To build for a specific architecture, use:
 ```bash
-WRITERAGENT_ARCH=x86-64-v1 make native
+WRITERAGENT_ARCH=x86-64-v3 make native  # Optimizes for AVX2
 ```
 
-For general distribution, **v1** is the safest choice, while **v3** provides the best performance data for profiling.
+For general distribution, **v2** is the recommended choice, while **v3** can be used locally for performance analysis.
+
 > 
 > **Never vendor NumPy** into LibreOffice; the user **venv** remains where full NumPy/pandas live. A small Cython extension only accelerates **host-side pack** (and optionally other tight loops) inside the embedded interpreter.
 

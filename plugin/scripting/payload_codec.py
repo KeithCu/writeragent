@@ -27,28 +27,43 @@ log = logging.getLogger(__name__)
 
 # --- Optional Cython accelerator --------------------------------------------------
 
+_CYTHON_ACCELERATOR_DISABLED = False
+
 fast_flatten_grid_2d: Any = None
 fast_flatten_grid_1d: Any = None
-try:
-    # Try to import from plugin.contrib.vec_pack
-    from plugin.contrib.vec_pack import (
-        fast_flatten_grid_1d as _fast_1d,
-        fast_flatten_grid_2d as _fast_2d,
-    )
 
-    fast_flatten_grid_2d = _fast_2d
-    fast_flatten_grid_1d = _fast_1d
-    log.debug("payload_codec: Cython accelerator loaded successfully")
-except ImportError:
-    # Fallback to absolute import if needed (for some environments)
+
+def load_cython_accelerator() -> None:
+    """Attempt to load the Cython accelerator, or mark as disabled on failure."""
+    global fast_flatten_grid_2d, fast_flatten_grid_1d, _CYTHON_ACCELERATOR_DISABLED
+    if _CYTHON_ACCELERATOR_DISABLED:
+        return
+
     try:
-        import writeragent_vec as _wv  # type: ignore
+        # Try to import from plugin.contrib.vec_pack
+        from plugin.contrib.vec_pack import (
+            fast_flatten_grid_1d as _fast_1d,
+            fast_flatten_grid_2d as _fast_2d,
+        )
 
-        fast_flatten_grid_2d = _wv.fast_flatten_grid_2d
-        fast_flatten_grid_1d = _wv.fast_flatten_grid_1d
-        log.debug("payload_codec: Cython accelerator loaded via absolute import")
+        fast_flatten_grid_2d = _fast_2d
+        fast_flatten_grid_1d = _fast_1d
+        log.debug("payload_codec: Cython accelerator loaded successfully")
     except ImportError:
-        pass
+        # Fallback to absolute import if needed (for some environments)
+        try:
+            import writeragent_vec as _wv  # type: ignore
+
+            fast_flatten_grid_2d = _wv.fast_flatten_grid_2d
+            fast_flatten_grid_1d = _wv.fast_flatten_grid_1d
+            log.debug("payload_codec: Cython accelerator loaded via absolute import")
+        except ImportError:
+            _CYTHON_ACCELERATOR_DISABLED = True
+            log.debug("payload_codec: Cython accelerator not found, using pure Python")
+
+
+# Initial load attempt
+load_cython_accelerator()
 
 import importlib
 

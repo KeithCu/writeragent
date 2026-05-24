@@ -3,8 +3,10 @@ from Cython.Build import cythonize
 import os
 
 # Allow overriding arch via environment variable
-# Default to x86-64-v3 as requested
-arch = os.environ.get("WRITERAGENT_ARCH", "x86-64-v3")
+# Default to generic x86-64-v2 for modern compatibility
+arch = os.environ.get("WRITERAGENT_ARCH", "x86-64-v2")
+if arch == "x86-64-v1":
+    arch = "x86-64"
 
 extensions = [
     Extension(

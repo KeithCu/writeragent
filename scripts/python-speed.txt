@@ -1,0 +1,97 @@
+>>> Using Pure Python for Split-Grid packing.
+
+direction  kind     shape        cells wire_format       pack     dump     load materialize  total_ms  wire_KiB vs_json_wire                    mat_x  total_x e2e_faster  
+ingress    scalar   scalar           1 json_list        0.002    0.001    0.001       0.000     0.004      0.04 baseline (json)                                            
+ingress    scalar   scalar           1 split_grid       0.003    0.001    0.001       0.001     0.006      0.15 356% of json (153/43 B)         0.27x    0.65x             
+ingress    scalar   scalar           1 pickle5          0.002    0.000    0.000       0.000     0.003      0.04 102% of json (44/43 B)          0.93x    1.66x ★ pickle5   
+ingress    scalar   scalar           1 pickle5+sg       0.005    0.000    0.001       0.003     0.010      0.15 360% of json (155/43 B)         0.09x    0.43x             
+egress     scalar   scalar           1 json_list        0.002    0.001    0.001       0.000     0.004      0.04 baseline (json)                                            
+egress     scalar   scalar           1 pickle5          0.002    0.000    0.000       0.000     0.003      0.04 102% of json (43/42 B)          0.96x    1.49x             
+egress     scalar   scalar           1 pickle5+sg       0.002    0.000    0.000       0.000     0.003      0.04 102% of json (43/42 B)          0.94x    1.58x ★ pickle5+sg
+ingress    grid     3x3              9 json_list        0.003    0.003    0.002       0.001     0.008      0.21 baseline (json)                                            
+ingress    grid     3x3              9 split_grid       0.004    0.002    0.001       0.001     0.008      0.25 123% of json (258/210 B)        0.39x    1.02x             
+ingress    grid     3x3              9 pickle5          0.004    0.000    0.000       0.001     0.005      0.13 61% of json (129/210 B)         0.94x    1.69x ★ pickle5   
+ingress    grid     3x3              9 pickle5+sg       0.006    0.000    0.001       0.003     0.011      0.22 108% of json (227/210 B)        0.16x    0.77x             
+egress     grid     3x3              9 json_list        0.003    0.003    0.002       0.002     0.010      0.21 baseline (json)                                            
+egress     grid     3x3              9 split_grid       0.001    0.002    0.001       0.001     0.005      0.25 123% of json (260/212 B)        1.51x    1.86x ★ split_grid
+egress     grid     3x3              9 pickle5          0.003    0.000    0.000       0.002     0.006      0.13 62% of json (131/212 B)         1.06x    1.79x             
+egress     grid     3x3              9 pickle5+sg       0.005    0.000    0.001       0.002     0.008      0.22 108% of json (229/212 B)        1.07x    1.25x             
+ingress    grid     4x4             16 json_list        0.004    0.005    0.003       0.001     0.012      0.35 baseline (json)                                            
+ingress    grid     4x4             16 split_grid       0.005    0.002    0.001       0.001     0.009      0.33 96% of json (343/357 B)         0.51x    1.28x             
+ingress    grid     4x4             16 pickle5          0.004    0.000    0.001       0.001     0.005      0.19 55% of json (196/357 B)         1.02x    2.18x ★ pickle5   
+ingress    grid     4x4             16 pickle5+sg       0.007    0.000    0.001       0.003     0.012      0.28 80% of json (285/357 B)         0.21x    1.01x             
+egress     grid     4x4             16 json_list        0.003    0.005    0.003       0.003     0.013      0.35 baseline (json)                                            
+egress     grid     4x4             16 split_grid       0.001    0.002    0.001       0.002     0.005      0.34 97% of json (345/354 B)         2.20x    2.50x ★ split_grid
+egress     grid     4x4             16 pickle5          0.003    0.000    0.001       0.003     0.007      0.19 56% of json (198/354 B)         1.00x    1.98x             
+egress     grid     4x4             16 pickle5+sg       0.005    0.000    0.001       0.002     0.008      0.28 81% of json (287/354 B)         1.39x    1.68x             
+ingress    grid     10x10          100 json_list        0.007    0.022    0.012       0.003     0.044      2.02 baseline (json)                                            
+ingress    grid     10x10          100 split_grid       0.012    0.003    0.002       0.002     0.019      1.26 63% of json (1295/2064 B)       1.26x    2.38x             
+ingress    grid     10x10          100 pickle5          0.007    0.001    0.001       0.003     0.012      0.95 47% of json (976/2064 B)        1.06x    3.61x ★ pickle5   
+ingress    grid     10x10          100 pickle5+sg       0.014    0.001    0.001       0.004     0.019      0.95 47% of json (972/2064 B)        0.70x    2.30x             
+egress     grid     10x10          100 json_list        0.003    0.022    0.012       0.017     0.054      2.03 baseline (json)                                            
+egress     grid     10x10          100 split_grid       0.002    0.003    0.002       0.004     0.010      1.27 63% of json (1297/2074 B)       3.97x    5.24x             
+egress     grid     10x10          100 pickle5          0.003    0.001    0.001       0.017     0.023      0.96 47% of json (978/2074 B)        1.00x    2.41x             
+egress     grid     10x10          100 pickle5+sg       0.004    0.001    0.001       0.004     0.010      0.95 47% of json (974/2074 B)        3.89x    5.39x ★ pickle5+sg
+ingress    grid     100x100      10000 json_list        0.403    2.196    1.099       0.190     3.887    197.98 baseline (json)                                            
+ingress    grid     100x100      10000 split_grid       0.656    0.100    0.042       0.064     0.862    105.18 53% of json (107707/202736 B)    2.98x    4.51x             
+ingress    grid     100x100      10000 pickle5          0.402    0.081    0.077       0.189     0.750     88.33 45% of json (90445/202736 B)    1.00x    5.18x             
+ingress    grid     100x100      10000 pickle5+sg       0.609    0.002    0.003       0.008     0.622     78.48 40% of json (80361/202736 B)   23.23x    6.25x ★ pickle5+sg
+egress     grid     100x100      10000 json_list        0.068    2.240    1.101       1.510     4.919    198.13 baseline (json)                                            
+egress     grid     100x100      10000 split_grid       0.057    0.099    0.042       0.280     0.478    105.18 53% of json (107709/202886 B)    5.40x   10.29x             
+egress     grid     100x100      10000 pickle5          0.066    0.082    0.077       1.480     1.705     88.33 45% of json (90447/202886 B)    1.02x    2.88x             
+egress     grid     100x100      10000 pickle5+sg       0.006    0.002    0.003       0.221     0.232     78.48 40% of json (80363/202886 B)    6.84x   21.20x ★ pickle5+sg
+ingress    grid     1x1000        1000 json_list        0.041    0.225    0.109       0.018     0.394     19.80 baseline (json)                                            
+ingress    grid     1x1000        1000 split_grid       0.064    0.011    0.005       0.007     0.087     10.56 53% of json (10812/20280 B)     2.57x    4.51x             
+ingress    grid     1x1000        1000 pickle5          0.042    0.008    0.008       0.018     0.076      8.82 45% of json (9036/20280 B)      1.00x    5.15x             
+ingress    grid     1x1000        1000 pickle5+sg       0.060    0.001    0.001       0.003     0.065      7.96 40% of json (8151/20280 B)      5.90x    6.07x ★ pickle5+sg
+egress     grid     1x1000        1000 json_list        0.008    0.221    0.110       0.139     0.478     19.83 baseline (json)                                            
+egress     grid     1x1000        1000 split_grid       0.007    0.030    0.027       0.054     0.118     19.34 98% of json (19808/20303 B)     2.58x    4.05x             
+egress     grid     1x1000        1000 pickle5          0.009    0.008    0.009       0.150     0.175      8.83 45% of json (9041/20303 B)      0.93x    2.73x             
+egress     grid     1x1000        1000 pickle5+sg       0.006    0.005    0.005       0.051     0.066      9.92 50% of json (10155/20303 B)     2.75x    7.25x ★ pickle5+sg
+ingress    grid     1000x1        1000 json_list        0.140    0.262    0.144       0.063     0.609     21.76 baseline (json)                                            
+ingress    grid     1000x1        1000 split_grid       0.138    0.011    0.005       0.007     0.162     10.56 49% of json (10815/22284 B)     8.89x    3.77x ★ split_grid
+ingress    grid     1000x1        1000 pickle5          0.141    0.021    0.052       0.063     0.277     11.75 54% of json (12036/22284 B)     1.00x    2.20x             
+ingress    grid     1000x1        1000 pickle5+sg       0.181    0.001    0.001       0.003     0.185      7.96 37% of json (8154/22284 B)     19.13x    3.29x             
+egress     grid     1000x1        1000 json_list        0.009    0.218    0.108       0.143     0.477     19.80 baseline (json)                                            
+egress     grid     1000x1        1000 split_grid       0.007    0.011    0.005       0.027     0.050     10.56 53% of json (10814/20272 B)     5.23x    9.46x             
+egress     grid     1000x1        1000 pickle5          0.009    0.008    0.009       0.142     0.168      8.83 45% of json (9038/20272 B)      1.00x    2.84x             
+egress     grid     1000x1        1000 pickle5+sg       0.005    0.001    0.001       0.022     0.028      7.96 40% of json (8153/20272 B)      6.55x   17.28x ★ pickle5+sg
+ingress    list1d   10x1            10 json_list        0.003    0.004    0.002       0.001     0.010      0.24 baseline (json)                                            
+ingress    list1d   10x1            10 split_grid       0.004    0.001    0.001       0.001     0.008      0.25 103% of json (253/245 B)        0.79x    1.23x             
+ingress    list1d   10x1            10 pickle5          0.003    0.000    0.001       0.001     0.005      0.15 64% of json (156/245 B)         0.95x    1.82x ★ pickle5   
+ingress    list1d   10x1            10 pickle5+sg       0.007    0.000    0.001       0.003     0.012      0.22 94% of json (230/245 B)         0.28x    0.84x             
+egress     list1d   10x1            10 json_list        0.003    0.003    0.002       0.002     0.009      0.22 baseline (json)                                            
+egress     list1d   10x1            10 split_grid       0.001    0.001    0.001       0.001     0.004      0.25 111% of json (252/228 B)        1.64x    2.12x ★ split_grid
+egress     list1d   10x1            10 pickle5          0.002    0.000    0.000       0.002     0.005      0.12 56% of json (128/228 B)         0.98x    1.91x             
+egress     list1d   10x1            10 pickle5+sg       0.005    0.000    0.001       0.002     0.007      0.22 100% of json (229/228 B)        0.99x    1.27x             
+ingress    list1d   100x1          100 json_list        0.015    0.027    0.013       0.006     0.062      2.20 baseline (json)                                            
+ingress    list1d   100x1          100 split_grid       0.017    0.002    0.002       0.002     0.022      1.19 54% of json (1214/2251 B)       3.79x    2.77x ★ split_grid
+ingress    list1d   100x1          100 pickle5          0.015    0.002    0.004       0.006     0.028      1.21 55% of json (1236/2251 B)       1.00x    2.23x             
+ingress    list1d   100x1          100 pickle5+sg       0.023    0.000    0.001       0.003     0.027      0.93 42% of json (953/2251 B)        1.94x    2.24x             
+egress     list1d   100x1          100 json_list        0.003    0.022    0.011       0.015     0.051      2.00 baseline (json)                                            
+egress     list1d   100x1          100 split_grid       0.002    0.002    0.001       0.003     0.009      1.18 59% of json (1213/2046 B)       4.34x    5.70x ★ split_grid
+egress     list1d   100x1          100 pickle5          0.003    0.001    0.001       0.015     0.020      0.92 46% of json (938/2046 B)        1.00x    2.59x             
+egress     list1d   100x1          100 pickle5+sg       0.004    0.000    0.001       0.004     0.009      0.93 47% of json (952/2046 B)        4.01x    5.59x             
+ingress    grid     20000x5     100000 json_list        6.515   23.234   12.371       2.758    44.878   2018.41 baseline (json)                                            
+ingress    grid     20000x5     100000 split_grid       7.963    0.999    0.414       0.588     9.963   1041.85 52% of json (1066852/2066855 B)    4.69x    4.50x             
+ingress    grid     20000x5     100000 pickle5          6.379    1.310    2.172       2.749    12.610    957.23 47% of json (980200/2066855 B)    1.00x    3.56x             
+ingress    grid     20000x5     100000 pickle5+sg       8.322    0.015    0.015       0.004     8.355    781.42 39% of json (800172/2066855 B)  752.67x    5.37x ★ pickle5+sg
+egress     grid     20000x5     100000 json_list        1.406   23.181   12.332      19.468    56.387   2018.29 baseline (json)                                            
+egress     grid     20000x5     100000 split_grid       0.602    1.003    0.404       4.905     6.915   1041.85 52% of json (1066854/2066730 B)    3.97x    8.15x             
+egress     grid     20000x5     100000 pickle5          1.352    1.301    2.167      21.472    26.291    957.23 47% of json (980202/2066730 B)    0.91x    2.14x             
+egress     grid     20000x5     100000 pickle5+sg       0.022    0.018    0.015       4.312     4.368    781.42 39% of json (800174/2066730 B)    4.51x   12.91x ★ pickle5+sg
+
+Column guide:
+  direction     ingress = Host -> Child (LibreOffice Host sending data into the sandboxed Child worker).
+                egress = Child -> Host (sandboxed Child worker returning data back to the LibreOffice Host).
+  wire_format   json_list = nested floats in JSON (slow materialize).
+                split_grid = compact base64 float64 with sparse strings in JSON (fast materialize).
+                pickle5 = Pickle protocol 5 with nested lists (force=never; slow np.array materialize).
+                pickle5+sg = Pickle protocol 5 with split_grid envelope (force=always; fast frombuffer).
+  wire_KiB      Line/payload size on the wire for this row.
+  vs_json_wire  On comparing rows: size vs paired json_list row (same shape/direction). json_list row shows 'baseline (json)'.
+  materialize   timings for rebuilding data: ingress (child np.array or frombuffer) / egress (host unpack to lists).
+  mat_x, total_x, e2e_faster  Shown only for speedups relative to the baseline.
+  mat_x         Speedup factor (e.g. 4.74x): json_list materialize / format materialize.
+  total_x       Speedup factor (e.g. 2.06x): json_list total_ms / format total_ms.
+  e2e_faster    wire_format that won on total_ms for this shape.
