@@ -114,13 +114,12 @@ def split_python_addin_data_args(raw: Any) -> list[Any]:
     return items
 
 
-def calc_addin_args_to_python(
-    raw: Any,
+def calc_addin_args_from_split(
+    args: list[Any],
     true_strings: set[str] | None = None,
     false_strings: set[str] | None = None,
 ) -> list[Any] | list[list[Any]] | list[list[Any] | list[list[Any]]] | None:
-    """Convert varargs ``data`` into sandbox ``data``: single shape or list of per-range shapes."""
-    args = split_python_addin_data_args(raw)
+    """Convert pre-split varargs into sandbox ``data``: single shape or list of per-range shapes."""
     if not args:
         return None
     if len(args) == 1:
@@ -132,6 +131,15 @@ def calc_addin_args_to_python(
             py_range = []
         converted.append(py_range)
     return converted
+
+
+def calc_addin_args_to_python(
+    raw: Any,
+    true_strings: set[str] | None = None,
+    false_strings: set[str] | None = None,
+) -> list[Any] | list[list[Any]] | list[list[Any] | list[list[Any]]] | None:
+    """Convert varargs ``data`` into sandbox ``data``: single shape or list of per-range shapes."""
+    return calc_addin_args_from_split(split_python_addin_data_args(raw), true_strings, false_strings)
 
 
 def calc_addin_data_to_python(

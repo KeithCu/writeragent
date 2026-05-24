@@ -42,6 +42,21 @@ def test_execute_request_injects_data():
     assert r["result"] == 10
 
 
+def test_execute_request_injects_data_list_single_range():
+    r = _execute_request("result = (len(data_list), data_list[0] is data)", [1, 2, 3])
+    assert r["status"] == "ok"
+    assert r["result"] == [1, True]
+
+
+def test_execute_request_injects_data_list_multi_range():
+    from plugin.scripting.payload_codec import host_pack_multi_data
+
+    wire = host_pack_multi_data([[1.0, 2.0, 3.0], [4.0, 5.0]], force="never")
+    r = _execute_request("result = (len(data_list), data_list is data)", wire)
+    assert r["status"] == "ok"
+    assert r["result"] == [2, True]
+
+
 def test_blocked_import_os():
     r = _execute_request("import os\nresult = 1", None)
     assert r["status"] == "error"

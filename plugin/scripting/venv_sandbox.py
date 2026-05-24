@@ -22,7 +22,13 @@ from typing import Any
 log = logging.getLogger(__name__)
 
 from plugin.contrib.smolagents.local_python_executor import InterpreterError, LocalPythonExecutor
-from plugin.scripting.payload_codec import child_pack_result, child_unpack_data, describe_wire_value, is_split_grid
+from plugin.scripting.payload_codec import (
+    child_pack_result,
+    child_unpack_data,
+    describe_wire_value,
+    is_multi_data,
+    is_split_grid,
+)
 from plugin.scripting.timeout_limits import python_exec_timeout_default
 from plugin.framework.constants import AUTO_IMPORTS
 
@@ -114,13 +120,11 @@ def _serialize_result_impl(obj: Any) -> Any:
     pd_mod = _optional_module("pandas")
     if pd_mod is not None:
         if isinstance(obj, pd_mod.DataFrame):
-            return obj.to_dict(orient="records")
+            return child_pack_result(obj.to_dict(orient="records"))
         if isinstance(obj, pd_mod.Series):
             return child_pack_result(obj.to_numpy())
-    if isinstance(obj, (list, tuple)):
+    if isinstance(obj, (dict, list, tuple)):
         return child_pack_result(obj)
-    if isinstance(obj, dict):
-        return {str(k): serialize_result(v) for k, v in obj.items()}
     return obj
 
 
@@ -149,7 +153,9 @@ def run_sandboxed_code(code: str, data: Any | None = None, *, timeout_sec: int |
         if is_split_grid(data):
             log.debug("venv_sandbox injecting data %s", describe_wire_value(data))
         unpacked = child_unpack_data(data)
-        executor.send_variables({"data": unpacked})
+        variables: dict[str, Any] = {"data": unpacked}
+        variables["data_list"] = unpacked if is_multi_data(data) else [unpacked]
+        executor.send_variables(variables)
     try:
         code_output = executor(code)
         result = executor.state.get("result", code_output.output)

@@ -573,6 +573,11 @@ def host_unpack_data(wire: Any, *, as_nested_list: bool = True) -> Any:
         return [host_unpack_data(item, as_nested_list=as_nested_list) for item in items]
     if is_split_grid(wire):
         return host_unpack_split_grid(wire, as_nested_list=as_nested_list)
+    if isinstance(wire, dict):
+        return {k: host_unpack_data(v, as_nested_list=as_nested_list) for k, v in wire.items()}
+    if isinstance(wire, (list, tuple)):
+        unpacked = [host_unpack_data(v, as_nested_list=as_nested_list) for v in wire]
+        return type(wire)(unpacked)
     return wire
 
 
@@ -766,6 +771,37 @@ def child_pack_split_grid(arr: Any) -> dict[str, Any]:
         raise
 
 
+def _container_has_packable_nested(obj: Any) -> bool:
+    """True when *obj* contains ndarray/dict containers that need per-element packing."""
+    import numpy as np
+
+    if isinstance(obj, (dict, np.ndarray)):
+        return True
+    if isinstance(obj, (list, tuple)):
+        for item in obj:
+            if isinstance(item, (dict, np.ndarray)):
+                return True
+            if isinstance(item, (list, tuple)) and _container_has_packable_nested(item):
+                return True
+    return False
+
+
+def _needs_elementwise_pack(obj: Any) -> bool:
+    """True when a list/tuple should be packed element-wise instead of as one grid."""
+    import numpy as np
+
+    if isinstance(obj, dict):
+        return True
+    if not isinstance(obj, (list, tuple)) or not obj:
+        return False
+    for item in obj:
+        if isinstance(item, (dict, np.ndarray)):
+            return True
+        if isinstance(item, (list, tuple)) and _container_has_packable_nested(item):
+            return True
+    return False
+
+
 @deal.pre(lambda result, *_, **__: True)
 @deal.post(lambda _: True)
 @deal.raises(ValueError, TypeError, AttributeError)
@@ -794,7 +830,12 @@ def child_pack_result(
             return float(result)
         if isinstance(result, np.bool_):
             return bool(result)
+        if isinstance(result, dict):
+            return {str(k): child_pack_result(v, min_cells=min_cells, force=force) for k, v in result.items()}
         if isinstance(result, (list, tuple)):
+            if _needs_elementwise_pack(result):
+                packed = [child_pack_result(x, min_cells=min_cells, force=force) for x in result]
+                return type(result)(packed)
             if result and (type(result[0]) in (list, tuple)):
                 grid = [list(row) for row in result]
                 grid_shape: tuple[int, ...] = (len(grid), max((len(r) for r in grid), default=0))

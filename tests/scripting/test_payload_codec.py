@@ -757,3 +757,44 @@ def test_host_unpack_multi_data_mixed_grids():
     assert isinstance(child_decoded, list)
     assert len(child_decoded) == 2
 
+
+def test_child_pack_nested_dict_ndarray() -> None:
+    """Nested ndarray in dict values gets split_grid envelopes."""
+    np = pytest.importorskip("numpy")
+    arr = np.arange(12, dtype=np.float64).reshape(3, 4)
+    wire = child_pack_result({"mean": arr}, force="always")
+    assert is_split_grid(wire["mean"])
+    back = host_unpack_data(wire)
+    assert len(back["mean"]) == 3
+    assert len(back["mean"][0]) == 4
+
+
+def test_child_pack_list_of_ndarrays() -> None:
+    """List of ndarrays packs each element separately."""
+    np = pytest.importorskip("numpy")
+    a = np.arange(10, dtype=np.float64)
+    wire = child_pack_result([a, a], force="always")
+    assert len(wire) == 2
+    assert is_split_grid(wire[0])
+    assert is_split_grid(wire[1])
+    back = host_unpack_data(wire)
+    assert len(back) == 2
+    assert float(np.sum(back[0])) == pytest.approx(45.0)
+
+
+def test_child_pack_nested_dict_list_ndarray() -> None:
+    """Dict containing list containing ndarray is fully marshalled."""
+    np = pytest.importorskip("numpy")
+    wire = child_pack_result({"a": [np.arange(10, dtype=np.float64)]}, force="always")
+    assert is_split_grid(wire["a"][0])
+    back = host_unpack_data(wire)
+    assert len(back["a"]) == 1
+    assert len(back["a"][0]) == 10
+
+
+def test_child_pack_grid_regression() -> None:
+    """Plain 2D nested lists still use single-grid packing, not element-wise."""
+    wire = child_pack_result([[1.0, 2.0], [3.0, 4.0]], force="auto")
+    assert isinstance(wire, list)
+    assert wire == [[1.0, 2.0], [3.0, 4.0]]
+

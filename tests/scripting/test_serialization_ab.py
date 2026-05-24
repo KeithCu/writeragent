@@ -120,7 +120,7 @@ def test_venv_echo_parity(case: AbGridCase) -> None:
 def test_venv_expected_value(case: VenvTransformCase) -> None:
     """Known expected values must match under both force=always and force=never."""
     for force in ("always", "never"):
-        result = run_venv_roundtrip(case.grid, case.code, pack_force=force)
+        result = run_venv_roundtrip(case.grid, case.code, pack_force=force, grid_b=case.grid_b)
         if isinstance(case.expected, float):
             assert result == pytest.approx(case.expected), f"force={force}"
         else:

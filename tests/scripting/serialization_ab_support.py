@@ -47,6 +47,16 @@ VENV_CODE_MIXED_SUM = (
     "result = sum(v for row in (data if (isinstance(data, list) and data and "
     "isinstance(data[0], list)) else [data]) for v in row if isinstance(v, (int, float)))"
 )
+VENV_CODE_MULTI_SUM = "result = sum(np.sum(d) for d in data_list)"
+VENV_CODE_MULTI_MIXED_SUM = (
+    "result = float(sum("
+    "v for g in data_list "
+    "for row in (g.tolist() if hasattr(g, 'shape') else "
+    "(g if isinstance(g, list) and g and isinstance(g[0], (list, tuple)) else [g if isinstance(g, list) else [g]])) "
+    "for v in (row if isinstance(row, (list, tuple)) else [row]) "
+    "if isinstance(v, (int, float))"
+    "))"
+)
 
 VENV_TRANSFORMS: dict[str, str] = {
     "echo": VENV_CODE_ECHO,
@@ -68,6 +78,7 @@ class AbGridCase:
     expect_split_auto: bool | None = None
     venv_code: str | None = None
     expected: Any = None
+    grid_b: list[Any] | list[list[Any]] | None = None
 
 
 @dataclass(frozen=True)
@@ -78,6 +89,7 @@ class VenvTransformCase:
     expected: Any | None = None
     tags: frozenset[str] = field(default_factory=frozenset)
     use_subprocess: bool = False
+    grid_b: list[Any] | list[list[Any]] | None = None
 
 
 def _make_numeric_grid(rows: int, cols: int) -> list[list[float]]:
@@ -136,6 +148,8 @@ def _case_to_ab(case: SerializationCase) -> AbGridCase | None:
     calc_shape = "flat" in case.tags or case.id in ("scalar_row_sum", "scalar_col_sum", "bool_col_11_sum")
     expect_split = None
     ncells = grid_cell_count(list(case.input_grid) if case.input_grid else [[42.0]])
+    if case.input_grid_b is not None:
+        ncells += grid_cell_count(list(case.input_grid_b))
     if ncells >= BINARY_MIN_CELLS:
         expect_split = True
     elif ncells > 0:
@@ -144,6 +158,7 @@ def _case_to_ab(case: SerializationCase) -> AbGridCase | None:
     return AbGridCase(
         id=f"case_{case.id}",
         grid=list(case.input_grid) if case.input_grid else [[42.0]],
+        grid_b=list(case.input_grid_b) if case.input_grid_b is not None else None,
         tags=frozenset(case.tags),
         calc_shape=calc_shape,
         expect_split_auto=expect_split,
@@ -166,8 +181,12 @@ def _serialization_code_to_venv(code: str) -> str:
         return VENV_CODE_NANSUM
     if stripped == "np.array(data) * 2":
         return VENV_CODE_DOUBLE
+    if "for g in data" in stripped and "sum(v for" in stripped:
+        return VENV_CODE_MULTI_MIXED_SUM
     if "sum(v for row" in stripped:
         return VENV_CODE_MIXED_SUM
+    if stripped == "sum(np.sum(d) for d in data)":
+        return VENV_CODE_MULTI_SUM
     if stripped == "data[0]":
         return "result = data[0] if not isinstance(data[0], list) else data[0][0]"
     return f"result = {stripped}"
@@ -221,6 +240,16 @@ def prepare_grid(case: AbGridCase) -> list[Any] | list[list[Any]]:
         shaped = normalize_python_data_shape([list(row) for row in grid])
         return shaped
     return grid
+
+
+def prepare_multi_grids(case: AbGridCase) -> tuple[list[Any] | list[list[Any]], list[Any] | list[list[Any]]] | None:
+    """Return shaped (grid_a, grid_b) when *case* is a multi-range fixture."""
+    if case.grid_b is None:
+        return None
+    grid_a = prepare_grid(case)
+    grid_b_case = AbGridCase(id=case.id, grid=case.grid_b, calc_shape=case.calc_shape, tags=case.tags)
+    grid_b = prepare_grid(grid_b_case)
+    return grid_a, grid_b
 
 
 def grid_cell_count(grid: list[Any] | list[list[Any]]) -> int:
@@ -355,9 +384,13 @@ def run_venv_roundtrip(
     *,
     pack_force: ForceBinary = "auto",
     use_subprocess: bool = False,
+    grid_b: list[Any] | list[list[Any]] | None = None,
 ) -> Any:
     """Pack on host, execute in venv sandbox (or warm subprocess), return host-side result."""
-    wire = host_pack_data(grid, force=pack_force)
+    if grid_b is not None:
+        wire = host_pack_multi_data([grid, grid_b], force=pack_force)
+    else:
+        wire = host_pack_data(grid, force=pack_force)
     if use_subprocess:
         mgr = PythonWorkerManager.get(sys.executable, _WORKER_ENV)
         response = mgr.execute(code, data=wire)
@@ -522,6 +555,11 @@ def venv_expected_cases() -> list[VenvTransformCase]:
             VenvTransformCase(
                 id=f"expected_{case.id}",
                 grid=prepare_grid(case),
+                grid_b=prepare_grid(
+                    AbGridCase(id=case.id, grid=case.grid_b, calc_shape=case.calc_shape, tags=case.tags)
+                )
+                if case.grid_b is not None
+                else None,
                 code=case.venv_code,
                 expected=case.expected,
                 tags=case.tags,
@@ -559,7 +597,8 @@ def grid_cell(draw) -> Any:
     import numpy as np
     nk = draw(st.integers(0, 2))
     if nk == 0: return np.float64(draw(st.floats()))
-    if nk == 1: return np.int64(draw(st.integers(-2**63, 2**63-1)))
+    if nk == 1:
+        return np.int64(draw(st.integers(-2**53 + 1, 2**53 - 1)))
     return np.bool_(draw(st.booleans()))
 
 

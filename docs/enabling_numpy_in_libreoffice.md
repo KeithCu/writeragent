@@ -615,10 +615,12 @@ By using NumPy to calculate the `mean` across multiple ranges, we ensure our **m
 ### Data Representation in Python
 ...
 
-| Formula | `data` variable in Python |
-|---------|---------------------------|
-| `=PYTHON("...", A1:A5)` | flat list or 2D grid (unchanged) |
-| `=PYTHON("...", A1:A5, C1:C5)` | `[ range1_data, range2_data ]` |
+| Formula | `data` variable in Python | `data_list` variable in Python |
+|---------|---------------------------|--------------------------------|
+| `=PYTHON("...", A1:A5)` | flat list or 2D grid (unchanged) | `[data]` — always a one-element list |
+| `=PYTHON("...", A1:A5, C1:C5)` | `[ range1_data, range2_data ]` | same as `data` |
+
+Use `data_list` when you want generic logic that works for both single- and multi-range formulas, e.g. `[np.sum(d) for d in data_list]`. The `data` variable keeps backward-compatible shapes (flat/2D for one range; list of ranges for varargs).
 
 Example:
 

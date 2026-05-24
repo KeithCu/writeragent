@@ -210,6 +210,15 @@ def test_calc_addin_args_to_python_multi_range():
     assert result == [[1.0, 2.0, 3.0], [4.0, 5.0]]
 
 
+def test_calc_addin_args_from_split_matches_to_python():
+    col_a = ((1.0,), (2.0,))
+    col_b = ((3.0,), (4.0,))
+    args = split_python_addin_data_args((col_a, col_b))
+    from plugin.calc.calc_addin_data import calc_addin_args_from_split
+
+    assert calc_addin_args_from_split(args) == calc_addin_args_to_python((col_a, col_b))
+
+
 def test_check_python_multi_data_size_combined():
     ranges = [[1.0] * 100, [2.0] * 100]
     assert check_python_multi_data_size(ranges, max_cells=150) is not None

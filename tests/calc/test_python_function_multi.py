@@ -72,3 +72,17 @@ def test_execute_python_addin_wrapped_varargs_single_range():
             assert not is_multi_data(wire)
     finally:
         _clear_sessions()
+
+
+def test_execute_python_addin_splits_varargs_once():
+    ctx = _Ctx()
+    col = ((1.0,), (2.0,), (3.0,))
+    try:
+        with unittest.mock.patch("plugin.calc.python_function.split_python_addin_data_args") as mock_split:
+            mock_split.return_value = [col]
+            with unittest.mock.patch("plugin.calc.python_function.run_code_in_user_venv") as mock_run:
+                mock_run.return_value = {"status": "ok", "result": 6.0}
+                execute_python_addin(ctx, "result = sum(data)", col)
+                assert mock_split.call_count == 1
+    finally:
+        _clear_sessions()
