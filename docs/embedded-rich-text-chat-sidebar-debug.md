@@ -126,3 +126,34 @@ These are the most promising directions given the evidence:
 - `plugin/chatbot/rich_text.py`
 - `plugin/chatbot/panel_wiring.py`
 
+
+## Proposed Technical Strategies (May 2026)
+
+### 1. The "Lazy Peer" Solution (Fixing hasPeer=False)
+The root cause of the `hasPeer=False` failure is VCL's lazy window realization. The sidebar container exists as a UNO object but lacks a physical window handle (peer) at the moment of initialization.
+*   **Strategy:** Deferred Initialization.
+*   **Implementation:**
+    1.  In `_wireControls`, do **not** call `create_embedded_writer_doc` immediately.
+    2.  Register an **`XWindowListener`** on the sidebar's container window or the placeholder control's parent.
+    3.  Implement the **`windowShown`** event handler.
+    4.  Inside `windowShown`, verify if the peer now exists (`win.getPeer() is not None`).
+    5.  Trigger the `XFrame::initialize(win)` and `loadComponentFromURL` logic only at this point.
+    6.  **Guard:** Ensure this only runs once via a flag (e.g., `self._embedding_initialized`).
+
+### 2. "Simulated" Syntax Highlighting for Chat
+Since the sidebar is for read-only history, full Monaco-level tokenization is unnecessary and resource-intensive.
+*   **Strategy:** Character Style Mapping.
+*   **Implementation:** 
+    1.  Create a "CodeBlock" Character Style in the embedded Writer template (Monospace font, subtle background color).
+    2.  When parsing AI responses, identify markdown code blocks (` ` `python ... ` ` `).
+    3.  Insert the text into the embedded doc and apply the "CodeBlock" style to that specific text range using `XTextRange`.
+
+### 3. The "Floating Sticker" Backup (Wayland/Sandbox Fallback)
+If cross-process embedding remains blocked by Wayland security or Sandbox isolation, use a tethered window approach.
+*   **Strategy:** Borderless Subprocess Overlay.
+*   **Implementation:**
+    1.  Launch the Rich Text UI in a separate borderless `pywebview` subprocess.
+    2.  In LibreOffice, calculate the absolute screen coordinates of the sidebar area (`XWindow.getPosSize()` combined with frame coordinates).
+    3.  Send these coordinates to the subprocess via the stdin pipe.
+    4.  The subprocess window moves/resizes itself to perfectly "stick" to the sidebar area.
+    5.  Listen for LibreOffice window move/resize events to update the "sticker" position.

@@ -4,7 +4,7 @@ Architectural design for the **LibrePythonista-style Monaco editor** in WriterAg
 
 **Status (session 1 complete, verified):** Calc menu **Edit Python in Cell…** opens a Monaco/pywebview window in the user venv, edits any selected cell (empty or existing `=PYTHON()`), and writes back `=PYTHON("…")` on Save. Pipe IPC, bundled Monaco, formula parse/rebuild, venv-only spawn, and full-traceback failure dialogs are implemented. See `plugin/scripting/` and `plugin/calc/python_editor.py`.
 
-**Session 1 fixes (post-MVP):** venv path required (no LibreOffice embedded Python for the editor); `resolve_venv_python` tries `bin/python`, `bin/python3`, and `bin/python3.*`; `ready` is sent only after `window.events.loaded` / `shown` (not before `webview.start()`); child uses `http_server=True`; probe/save failures show child stderr + Python tracebacks via [`editor_diagnostics.py`](../plugin/scripting/editor_diagnostics.py).
+**Session 1 fixes (post-MVP):** venv path required (no LibreOffice embedded Python for the editor); `resolve_venv_python` tries `bin/python`, `bin/python3`, and `bin/python3.*`; `ready` is sent only after `window.events.loaded` / `shown` (not before `webview.start()`); child uses `http_server=True` with **absolute** path to `assets/editor/index.html` (relative `index.html` resolves against `plugin/scripting/` and 404s); probe/save failures show child stderr + Python tracebacks via [`editor_diagnostics.py`](../plugin/scripting/editor_diagnostics.py).
 
 ## 1. Architectural Overview
 
@@ -332,3 +332,4 @@ flowchart TD
 | Single session | Second open while editor running shows “already open” |
 | Child `sys.path` | [`editor_main.py`](../plugin/scripting/editor_main.py) bootstraps repo root so `plugin.scripting.editor_protocol` imports |
 | Save errors to UI | Bridge sends `error` + `traceback` to child (Monaco toolbar handling in 2A) |
+

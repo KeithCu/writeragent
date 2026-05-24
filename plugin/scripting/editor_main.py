@@ -147,7 +147,7 @@ def _bind_gui_ready(window: Any) -> None:
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO)
-    assets = os.environ.get("WRITERAGENT_EDITOR_ASSETS", os.path.join(_SCRIPT_DIR, "assets", "editor"))
+    assets = os.path.abspath(os.environ.get("WRITERAGENT_EDITOR_ASSETS", os.path.join(_SCRIPT_DIR, "assets", "editor")))
     index_html = os.path.join(assets, "index.html")
     if not os.path.isfile(index_html):
         _fatal(f"Editor assets not found: {index_html}")
@@ -161,18 +161,14 @@ def main() -> None:
     threading.Thread(target=_pipe_reader_loop, name="editor-stdin-reader", daemon=True).start()
 
     api = MonacoEditorApi()
-    cwd_before = os.getcwd()
+    # pywebview resolves relative URLs against dirname(sys.argv[0]) (plugin/scripting/),
+    # not cwd. Pass an absolute path so the HTTP server root is assets/editor/.
+    log.info("editor_main: assets=%s index=%s argv0=%s", assets, index_html, sys.argv[0])
+    print(f"editor_main: serving {index_html}", file=sys.stderr, flush=True)
     try:
-        os.chdir(assets)
-        try:
-            window = webview.create_window("PYTHON Editor", url="index.html", width=900, height=640, js_api=api)
-        except Exception as e:
-            _fatal(f"webview.create_window failed: {e}", exc=e)
-    finally:
-        try:
-            os.chdir(cwd_before)
-        except OSError:
-            pass
+        window = webview.create_window("PYTHON Editor", url=index_html, width=900, height=640, js_api=api)
+    except Exception as e:
+        _fatal(f"webview.create_window failed: {e}", exc=e)
 
     api.set_window(window)
     _bind_gui_ready(window)
