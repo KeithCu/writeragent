@@ -530,58 +530,75 @@ def venv_expected_cases() -> list[VenvTransformCase]:
 
 # --- Hypothesis strategies ---
 
-CURATED_STRINGS = st.sampled_from(
-    ["02138", "TRUE", "FALSCH", "hello", "café", "日本語", "3.14z"]
+# Diverse strings that Calc might contain (including edge cases like blank or numeric-looking)
+CALC_STRINGS = st.one_of(
+    st.sampled_from(["02138", "90210", "TRUE", "FALSCH", "0", "1", "1.5", "inf", "nan", "café", "日本語", "🎉", "long_string_" * 10]),
+    st.text(min_size=1, max_size=100),
+    st.text(alphabet=st.characters(whitelist_categories=("Zs", "Zl", "Zp")), min_size=1, max_size=5) # Blank strings
 )
 
 
 @strategies.composite
 def grid_cell(draw) -> Any:
+    # 0: None, 1: int, 2: float, 3: bool, 4: calc string, 5: numpy scalar
     kind = draw(st.integers(0, 5))
     if kind == 0:
         return None
     if kind == 1:
-        return draw(st.integers(-1000, 1000))
+        # Safe integer range for double-precision float (Calc's internal representation)
+        return draw(st.integers(-2**53 + 1, 2**53 - 1))
     if kind == 2:
-        return draw(st.floats(allow_nan=True, allow_infinity=True, width=32))
+        return draw(st.floats(allow_nan=True, allow_infinity=True, width=64))
     if kind == 3:
         return draw(st.booleans())
     if kind == 4:
-        return draw(CURATED_STRINGS)
-    return draw(st.text(min_size=1, max_size=12))
+        return draw(CALC_STRINGS)
+    # NumPy scalars can happen when venv returns data
+    import numpy as np
+    nk = draw(st.integers(0, 2))
+    if nk == 0: return np.float64(draw(st.floats()))
+    if nk == 1: return np.int64(draw(st.integers(-2**63, 2**63-1)))
+    return np.bool_(draw(st.booleans()))
 
 
 @strategies.composite
 def rectangular_grid(
     draw,
     *,
-    max_rows: int = 8,
-    max_cols: int = 8,
-    max_cells: int = 64,
+    max_rows: int = 15,
+    max_cols: int = 15,
+    max_cells: int = 150,
 ) -> list[Any] | list[list[Any]]:
+    # Favor sizes around the BINARY_MIN_CELLS threshold (10)
+    if draw(st.booleans()):
+        ncells = draw(st.integers(1, 25))
+    else:
+        ncells = draw(st.integers(1, max_cells))
+
     use_1d = draw(st.booleans())
     if use_1d:
-        n = draw(st.integers(1, min(12, max_cells)))
-        return [draw(grid_cell()) for _ in range(n)]
-    nrows = draw(st.integers(1, max_rows))
-    ncols = draw(st.integers(1, max_cols))
-    if nrows * ncols > max_cells:
-        nrows = max(1, max_cells // ncols)
+        return [draw(grid_cell()) for _ in range(ncells)]
+
+    # Attempt to generate rectangular 2D grids with approximately ncells
+    nrows = draw(st.integers(1, min(ncells, max_rows)))
+    ncols = (ncells + nrows - 1) // nrows
+    if ncols > max_cols:
+        ncols = max_cols
+    
     return [[draw(grid_cell()) for _ in range(ncols)] for _ in range(nrows)]
 
 
 @strategies.composite
 def numeric_rectangular_grid(draw) -> list[Any] | list[list[Any]]:
+    # Specifically for tests expecting NumPy-compatible numeric-only data
     use_1d = draw(st.booleans())
     if use_1d:
-        n = draw(st.integers(1, 12))
-        return [draw(st.one_of(st.integers(-100, 100), st.floats(width=32))) for _ in range(n)]
-    nrows = draw(st.integers(1, 6))
-    ncols = draw(st.integers(1, 6))
-    if nrows * ncols > 36:
-        nrows = max(1, 36 // ncols)
+        n = draw(st.integers(1, 20))
+        return [draw(st.one_of(st.none(), st.integers(-2**53, 2**53), st.floats())) for _ in range(n)]
+    nrows = draw(st.integers(1, 10))
+    ncols = draw(st.integers(1, 10))
     return [
-        [draw(st.one_of(st.none(), st.integers(-100, 100), st.floats(width=32))) for _ in range(ncols)]
+        [draw(st.one_of(st.none(), st.integers(-2**53, 2**53), st.floats())) for _ in range(ncols)]
         for _ in range(nrows)
     ]
 

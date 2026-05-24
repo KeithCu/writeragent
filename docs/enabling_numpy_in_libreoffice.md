@@ -17,6 +17,7 @@ For a short executive summary, see [WriterAgent architecture — Scientific Pyth
    - [NumPy serialization](#numpy-serialization)
 7. [Deferred roadmap](#7-deferred-roadmap)
 8. [Implementation status](#8-implementation-status)
+9. [Multi-Range Support (Varargs)](#9-multi-range-support-varargs)
 
 **Related:** [NumPy serialization](numpy-serialization.md) · [Jupyter notebook import](jupyter-notebook-import.md)
 
@@ -563,3 +564,62 @@ See [NumPy serialization](numpy-serialization.md) for behavior, benchmarks, opti
 - Venv ↔ LO **tool RPC** ([§7](#7-deferred-roadmap)) — [`writeragent_api.py`](../plugin/scripting/writeragent_api.py) stubs only.
 - Managed venv (Strategy 2), session persistence, worker idle shutdown, per-formula `timeout_sec`, Python edit dialog tiers 1–3.
 - **Jupyter notebook import** — see [jupyter-notebook-import.md](jupyter-notebook-import.md) (Writer import shipped; execution loop deferred).
+
+---
+
+## 9. Multi-Range Support (Varargs)
+
+**Status:** Proposed / Researching.
+
+Currently, `=PYTHON()` accepts exactly two arguments: `code` and one optional `data` range. To support complex analysis across non-contiguous blocks (e.g., `=PYTHON("np.mean(data)", A1:A10, C1:C10, E1:E10)`), the function must be converted to a **variable-argument (varargs)** pattern.
+
+### Technical Approach: UNO Varargs
+
+In the UNO IDL, defining the **last** parameter as a `sequence<any>` signals to Calc that the function accepts an arbitrary number of trailing arguments. Calc automatically packs all remaining inputs into a single tuple.
+
+**Proposed IDL Change:**
+```idl
+// extension/idl/XPythonFunction.idl
+interface XPythonFunction : com::sun::star::uno::XInterface
+{
+    // The 'data' parameter becomes a sequence containing all provided ranges
+    any python( [in] string code, [in] sequence< any > data );
+};
+```
+
+### Data Representation in Python
+
+When multiple ranges are passed, the `data` variable injected into the Python sandbox will be a **list of grids** (or a list of `ndarrays`).
+
+| Formula | `data` variable in Python |
+|---------|---------------------------|
+| `=PYTHON("...", A1:A5)` | `[ [row1], [row2], ... ]` (or 2D `ndarray`) |
+| `=PYTHON("...", A1:A5, C1:C5)` | `[ range1_data, range2_data ]` |
+
+This allows the user to write code like:
+```python
+result = np.concatenate(data).mean()  # data is a list of arrays
+# OR
+result = np.mean([np.mean(d) for d in data])
+```
+
+### Development Plan
+
+#### Phase 1: IDL and Infrastructure
+1.  **Modify IDL**: Update `XPythonFunction.idl` to use `sequence<any>` for the `data` parameter.
+2.  **Rebuild RDB**: Execute `scripts/rebuild_xprompt_rdb.sh` to update the binary type registry used by LibreOffice.
+3.  **Update Metadata**: Update `_PYTHON_SPEC` in `plugin/calc/python_addin.py` to reflect the support for multiple arguments and update the argument descriptions.
+
+#### Phase 2: Add-In Implementation
+1.  **Refactor `execute_python_addin`**: Modify `plugin/calc/python_function.py` to handle `data` as a sequence of inputs.
+2.  **Input Processing**: Iterate through the `data` tuple, applying `calc_addin_data_to_python` and size limit checks to each individual range.
+3.  **Variable Injection**: Decide on the final injection strategy (e.g., `data` is always the first range for backward compatibility, and a new `data_list` contains all ranges; or `data` becomes the list if `len > 1`).
+
+#### Phase 3: Serialization Expansion
+1.  **Multi-Payload Support**: Update `host_pack_data` to handle lists of ranges, potentially generating a list of `split_grid` envelopes.
+2.  **Worker Unpacking**: Ensure `child_unpack_data` in the worker process can recursively unpack a list of serialized grids into a list of NumPy arrays.
+
+#### Phase 4: Verification
+1.  **Hypothesis Expansion**: Add new strategies to `serialization_ab_support.py` to fuzz lists of varying-sized rectangular grids.
+2.  **UNO Integration Tests**: Create a new test suite in `tests/uno/` that executes multi-range formulas in a live Calc instance to verify the varargs plumbing and result coercion.
+

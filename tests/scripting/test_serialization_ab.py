@@ -183,6 +183,11 @@ def test_identity_echo_roundtrip(case: AbGridCase) -> None:
 @example(MIXED_WITH_ZIP)
 @example([[42.0]])
 @example([["02138"]])
+@example(["1", "2", "3"])
+@example([1, 2, 3.5])
+@example([True, False, 1])
+@example(["long_string_" * 50])
+@example([[float(i) for i in range(10)] for _ in range(10)])
 def test_hypothesis_codec_decode_parity(grid: list[Any] | list[list[Any]]) -> None:
     """Fuzz: codec child/host decode always vs never."""
     if not hypothesis_grid_ok(grid):
@@ -195,6 +200,11 @@ def test_hypothesis_codec_decode_parity(grid: list[Any] | list[list[Any]]) -> No
 @example([[float(i + 1) for i in range(10)]])
 @example(MIXED_WITH_ZIP)
 @example([[42.0]])
+@example(["1", "2", "3"])
+@example([1, 2, 3.5])
+@example([True, False, 1])
+@example(["long_string_" * 50])
+@example([[float(i) for i in range(10)] for _ in range(10)])
 def test_hypothesis_venv_echo_parity(grid: list[Any] | list[list[Any]]) -> None:
     """Fuzz: venv echo always vs never."""
     if not hypothesis_grid_ok(grid):

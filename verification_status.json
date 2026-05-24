@@ -1,0 +1,40 @@
+{
+  "framework": {
+    "config.py": {
+      "status": "planned",
+      "priority": "high"
+    },
+    "format_support.py": {
+      "status": "planned",
+      "priority": "medium"
+    }
+  },
+  "modules": {
+    "scripting": {
+      "payload_codec.py": {
+        "status": "partial",
+        "tool": "crosshair+deal+pytest",
+        "contracts": 8,
+        "functions_contracted": [
+          "_flatten_grid_to_components",
+          "host_pack_split_grid",
+          "host_pack_data",
+          "host_unpack_split_grid",
+          "child_unpack_split_grid",
+          "child_unpack_data",
+          "child_pack_split_grid",
+          "child_pack_result"
+        ],
+        "crosshair_last_run": "2026-05-23",
+        "crosshair_result": "no_counterexamples",
+        "crosshair_notes": [
+          "Core module targeted as full file in test_serialization_verification.py and Makefile crosshair-check",
+          "Most ensures report Not confirmed; no counterexamples found",
+          "child_pack_split_grid pre may report Unable to meet precondition (ndarray synthesis)",
+          "Round-trip invariants validated in pytest, not deal ensures"
+        ],
+        "ci_integration": false
+      }
+    }
+  }
+}

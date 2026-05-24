@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # WriterAgent - benchmark asymmetric serialization (host stdlib vs child NumPy).
 # Run outside LibreOffice: python scripts/bench_serialization.py
-"""Compare JSON nested lists, split_grid, and pickle5 for host→venv and venv→host paths.
+"""Compare JSON nested lists, split_grid, pickle5, and pickle5+sg for host→venv and venv→host paths.
 
 See plugin/scripting/payload_codec.py for why split_grid exists (NumPy frombuffer).
 """
@@ -177,7 +177,7 @@ class BenchRow:
     kind: str
     shape: str
     cells: int
-    wire_format: str  # json_list | split_grid | pickle5
+    wire_format: str  # json_list | split_grid | pickle5 | pickle5+sg
     host_pack_ms: float
     host_dump_ms: float
     peer_load_ms: float
@@ -188,7 +188,7 @@ class BenchRow:
     wire_vs_json: str = ""  # e.g. "52% of json" on split_grid rows
     mat_faster_x: float | None = None  # json_list mat / format mat; >1 => format faster
     total_faster_x: float | None = None  # json_list total / format total; >1 => format faster
-    faster_total: str = ""  # e.g. "★ pickle5"
+    faster_total: str = ""  # e.g. "★ pickle5+sg"
 
 
 def _median(times: list[float]) -> float:
@@ -284,17 +284,24 @@ def run_ingress(
 ) -> tuple[dict[str, float], int]:
     wire_holder: dict[str, Any] = {}
 
-    if wire_format == "pickle5":
+    if wire_format in ("pickle5", "pickle5+sg"):
+        pack_force: ForceBinary = "never" if wire_format == "pickle5" else "always"
+
         def pack() -> Any:
-            return host_pack_data(grid, min_cells=min_cells, force="always")
+            return host_pack_data(grid, min_cells=min_cells, force=pack_force)
+
         def dump(data: Any) -> bytes:
             b = pickle.dumps({"id": "b", "data": data}, protocol=5)
             wire_holder["bytes"] = b
             return b
+
         def load() -> Any:
             return pickle.loads(wire_holder["bytes"])["data"]
+
         def mat(data: Any) -> Any:
-            return child_unpack_data(data)
+            if wire_format == "pickle5+sg":
+                return child_unpack_data(data)
+            return child_materialize_list(data)
     elif wire_format == "split_grid":
         def pack() -> Any:
             return b64_host_pack_split_grid(grid)
@@ -325,7 +332,7 @@ def run_ingress(
         ("child_mat", lambda: mat(load())),
     ]
     times, _ = _bench_parts(parts, warmup=warmup, iters=iters)
-    if wire_format == "pickle5":
+    if wire_format in ("pickle5", "pickle5+sg"):
         wire_bytes = len(wire_holder.get("bytes", b""))
     else:
         wire_bytes = len(wire_holder.get("line", "").encode("utf-8"))
@@ -353,16 +360,21 @@ def run_egress(
 
     wire_holder: dict[str, Any] = {}
 
-    if wire_format == "pickle5":
+    if wire_format in ("pickle5", "pickle5+sg"):
+        pack_force: ForceBinary = "never" if wire_format == "pickle5" else "always"
+
         def pack() -> Any:
             r = kind_pack()
-            return child_pack_result(r, min_cells=min_cells, force="always")
+            return child_pack_result(r, min_cells=min_cells, force=pack_force)
+
         def dump(res: Any) -> bytes:
             b = pickle.dumps({"id": "b", "result": res}, protocol=5)
             wire_holder["bytes"] = b
             return b
+
         def load() -> Any:
             return pickle.loads(wire_holder["bytes"])["result"]
+
         def mat(res: Any) -> Any:
             return host_unpack_data(res, as_nested_list=True)
     elif wire_format == "split_grid":
@@ -399,7 +411,7 @@ def run_egress(
         ("host_mat", lambda: mat(load())),
     ]
     times, _ = _bench_parts(parts, warmup=warmup, iters=iters)
-    if wire_format == "pickle5":
+    if wire_format in ("pickle5", "pickle5+sg"):
         wire_bytes = len(wire_holder.get("bytes", b""))
     else:
         wire_bytes = len(wire_holder.get("line", "").encode("utf-8"))
@@ -412,13 +424,14 @@ def run_child_only(
     min_cells: int,
     warmup: int,
     iters: int,
-) -> tuple[float, float, float, float, float]:
+) -> tuple[float, float, float, float, float, float, float]:
     data_list = host_pack_data(grid, min_cells=min_cells, force="never")
     data_split_grid = b64_host_pack_split_grid(grid)
     data_pickle_split_grid = host_pack_data(grid, min_cells=min_cells, force="always")
     line_list = json.dumps({"data": data_list}) + "\n"
     line_split_grid = json.dumps({"data": data_split_grid}) + "\n"
-    bytes_pickle = pickle.dumps({"data": data_pickle_split_grid}, protocol=5)
+    bytes_pickle = pickle.dumps({"data": data_list}, protocol=5)
+    bytes_pickle_sg = pickle.dumps({"data": data_pickle_split_grid}, protocol=5)
 
     def mat_list() -> Any:
         return child_materialize_list(json.loads(line_list)["data"])
@@ -427,15 +440,20 @@ def run_child_only(
         return b64_child_unpack_split_grid(json.loads(line_split_grid)["data"])
 
     def mat_pickle5() -> Any:
-        return child_unpack_data(pickle.loads(bytes_pickle)["data"])
+        return child_materialize_list(pickle.loads(bytes_pickle)["data"])
+
+    def mat_pickle5_sg() -> Any:
+        return child_unpack_data(pickle.loads(bytes_pickle_sg)["data"])
 
     _, list_ms = _bench(mat_list, warmup=warmup, iters=iters)
     _, split_grid_ms = _bench(mat_split_grid, warmup=warmup, iters=iters)
     _, pickle5_ms = _bench(mat_pickle5, warmup=warmup, iters=iters)
-    
+    _, pickle5_sg_ms = _bench(mat_pickle5_sg, warmup=warmup, iters=iters)
+
     sp_split = list_ms / split_grid_ms if split_grid_ms > 0 else 0.0
     sp_pickle = list_ms / pickle5_ms if pickle5_ms > 0 else 0.0
-    return list_ms, split_grid_ms, pickle5_ms, sp_split, sp_pickle
+    sp_pickle_sg = list_ms / pickle5_sg_ms if pickle5_sg_ms > 0 else 0.0
+    return list_ms, split_grid_ms, pickle5_ms, pickle5_sg_ms, sp_split, sp_pickle, sp_pickle_sg
 
 
 
@@ -446,7 +464,9 @@ def main() -> None:
         print("NumPy required for child-side benchmarks. Install numpy in this interpreter.")
         sys.exit(1)
 
-    p = argparse.ArgumentParser(description="Benchmark list+json vs split_grid vs pickle5 (host Python / child NumPy).")
+    p = argparse.ArgumentParser(
+        description="Benchmark list+json vs split_grid vs pickle5 vs pickle5+sg (host Python / child NumPy)."
+    )
     p.add_argument("--direction", choices=("ingress", "egress", "both"), default="both")
     p.add_argument("--force-binary", choices=("auto", "always", "never"), default="auto")
     p.add_argument(
@@ -463,19 +483,30 @@ def main() -> None:
     force: ForceBinary = args.force_binary
 
     if args.child_only:
-        print("child_only: materialize ms — json_list (np.array) vs split_grid (frombuffer) vs pickle5 (np.array)")
-        print(f"{'shape':<12} {'cells':>8} {'json_list_ms':>14} {'split_grid_ms':>14} {'pickle5_ms':>14} {'split_x':>9} {'pickle_x':>9}")
+        print(
+            "child_only: materialize ms — json_list (np.array) vs split_grid (frombuffer) "
+            "vs pickle5 (np.array) vs pickle5+sg (frombuffer)"
+        )
+        print(
+            f"{'shape':<12} {'cells':>8} {'json_list_ms':>14} {'split_grid_ms':>14} "
+            f"{'pickle5_ms':>14} {'pickle5+sg_ms':>14} {'split_x':>9} {'pickle_x':>9} {'pickle+sg_x':>11}"
+        )
         for nrows, ncols, _ in grid_shapes():
             grid = make_grid(nrows, ncols)
-            list_ms, split_grid_ms, pickle5_ms, sp_split, sp_pickle = run_child_only(
+            list_ms, split_grid_ms, pickle5_ms, pickle5_sg_ms, sp_split, sp_pickle, sp_pickle_sg = run_child_only(
                 grid,
                 min_cells=args.min_cells,
                 warmup=args.warmup,
                 iters=args.iters,
             )
-            print(f"{shape_label(nrows, ncols):<12} {cell_count((nrows, ncols)):>8} {list_ms:>14.4f} {split_grid_ms:>14.4f} {pickle5_ms:>14.4f} {sp_split:>8.2f}x {sp_pickle:>8.2f}x")
-        print("\n  split_x  = how many times faster split_grid (frombuffer) is vs json_list (np.array).")
-        print("  pickle_x = how many times faster pickle5 is vs json_list (np.array).")
+            print(
+                f"{shape_label(nrows, ncols):<12} {cell_count((nrows, ncols)):>8} {list_ms:>14.4f} "
+                f"{split_grid_ms:>14.4f} {pickle5_ms:>14.4f} {pickle5_sg_ms:>14.4f} "
+                f"{sp_split:>8.2f}x {sp_pickle:>8.2f}x {sp_pickle_sg:>10.2f}x"
+            )
+        print("\n  split_x     = split_grid (frombuffer) vs json_list (np.array).")
+        print("  pickle_x    = pickle5 nested lists (np.array) vs json_list (np.array).")
+        print("  pickle+sg_x = pickle5+sg split_grid (frombuffer) vs json_list (np.array).")
         return
 
     rows: list[BenchRow] = []
@@ -487,7 +518,7 @@ def main() -> None:
         cells = cell_count(shape if nrows != 1 or ncols != 1 else (1,))
 
         if args.direction in ("ingress", "both"):
-            for wire_format in ("json_list", "split_grid", "pickle5"):
+            for wire_format in ("json_list", "split_grid", "pickle5", "pickle5+sg"):
                 if force == "never" and wire_format == "split_grid":
                     continue
                 t, wire_b = run_ingress(
@@ -517,7 +548,7 @@ def main() -> None:
                 )
 
         if args.direction in ("egress", "both"):
-            for wire_format in ("json_list", "split_grid", "pickle5"):
+            for wire_format in ("json_list", "split_grid", "pickle5", "pickle5+sg"):
                 if nrows == 1 and ncols == 1 and wire_format == "split_grid":
                     continue
                 t, wire_b = run_egress(
@@ -546,7 +577,7 @@ def main() -> None:
                     )
                 )
 
-    # Pair json_list vs split_grid vs pickle5 per shape for size and speed comparisons
+    # Pair json_list vs split_grid vs pickle5 vs pickle5+sg per shape for size and speed comparisons
     by_key: dict[tuple[str, str, str], dict[str, BenchRow]] = {}
     for r in rows:
         key = (r.direction, r.shape, r.kind)
@@ -560,7 +591,7 @@ def main() -> None:
         json_r.wire_vs_json = "baseline (json)"
         
         # Compare other formats to the JSON baseline
-        for fmt in ("split_grid", "pickle5"):
+        for fmt in ("split_grid", "pickle5", "pickle5+sg"):
             fmt_r = paths.get(fmt)
             if fmt_r is None:
                 continue
@@ -583,7 +614,7 @@ def main() -> None:
                     r.faster_total = f"★ {r.wire_format}"
 
     hdr = (
-        f"{'direction':<10} {'kind':<8} {'shape':<10} {'cells':>7} {'wire_format':<12} "
+        f"{'direction':<10} {'kind':<8} {'shape':<10} {'cells':>7} {'wire_format':<13} "
         f"{'pack':>8} {'dump':>8} {'load':>8} {'materialize':>11} {'total_ms':>9} "
         f"{'wire_KiB':>9} {'vs_json_wire':<28} {'mat_x':>8} {'total_x':>8} {'e2e_faster':<12}"
     )
@@ -593,7 +624,7 @@ def main() -> None:
         mat_x = f"{r.mat_faster_x:.2f}x" if r.mat_faster_x is not None else ""
         tot_x = f"{r.total_faster_x:.2f}x" if r.total_faster_x is not None else ""
         print(
-            f"{r.direction:<10} {r.kind:<8} {r.shape:<10} {r.cells:>7} {r.wire_format:<12} "
+            f"{r.direction:<10} {r.kind:<8} {r.shape:<10} {r.cells:>7} {r.wire_format:<13} "
             f"{r.host_pack_ms:>8.3f} {r.host_dump_ms:>8.3f} {r.peer_load_ms:>8.3f} {r.materialize_ms:>11.3f} "
             f"{r.total_ms:>9.3f} {wire_kib:>9.2f} {r.wire_vs_json:<28} {mat_x:>8} {tot_x:>8} {r.faster_total:<12}"
         )
@@ -604,7 +635,8 @@ def main() -> None:
         "                egress = Child -> Host (sandboxed Child worker returning data back to the LibreOffice Host).\n"
         "  wire_format   json_list = nested floats in JSON (slow materialize).\n"
         "                split_grid = compact base64 float64 with sparse strings in JSON (fast materialize).\n"
-        "                pickle5 = Split-Grid inside Pickle without Base64, raw binary bytes (fastest materialize).\n"
+        "                pickle5 = Pickle protocol 5 with nested lists (force=never; slow np.array materialize).\n"
+        "                pickle5+sg = Pickle protocol 5 with split_grid envelope (force=always; fast frombuffer).\n"
         "  wire_KiB      Line/payload size on the wire for this row.\n"
         "  vs_json_wire  On comparing rows: size vs paired json_list row "
         "(same shape/direction). json_list row shows 'baseline (json)'.\n"
