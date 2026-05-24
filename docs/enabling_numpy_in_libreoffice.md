@@ -350,7 +350,22 @@ Calc's legacy add-in bridge only accepts **one scalar** (number, text, or boolea
 
   3. Confirm with **Ctrl+Shift+Enter** (curly braces `{=…}` in each cell of the block is normal).
 
-  Each cell passes its row offset; `PYTHON` returns one prime per cell. Without the index argument, repeated evaluations in the same recalc pass return successive list elements (best-effort; prefer the `ROW()` form for reliability).
+#### Matrix Formula Optimization (Fast-Path)
+
+Calc Add-Ins are limited to returning a single scalar value per evaluation. To fill a 1,000-row column, Calc evaluates the formula 1,000 times. Without optimization, this would result in 1,000 separate IPC crossings and serialization "pack taxes".
+
+WriterAgent implements a **Worker Result Session** cache that detects when multiple cells are requesting data from the same Python execution:
+
+1. **The Efficiency Win**: The first cell in the range triggers the full Python worker execution. The resulting list (e.g., 1,000 items) is cached on the host side.
+2. **Cache Hits**: The remaining 999 cells see the same `code` and `data` signature. They bypass the Python worker entirely and pull their respective values from the host-side cache based on the index argument.
+3. **The `ROW()-n` Pattern**: By passing `ROW()-n` (where `n` is your starting row offset) as the second argument, you ensure each cell pulls the correct item from the list.
+
+**Benefits:**
+- **99.9% IPC Reduction**: For a 1,000-row range, you pay the serialization and subprocess cost only **once**.
+- **Snappy Recalcs**: Massive sheets remain responsive because the heavy numeric lifting is consolidated into a single background task.
+- **Order Safety**: Using `ROW()` ensures that even if Calc's internal engine evaluates cells out of order, each cell always receives the item matching its physical position.
+
+Without the index argument, repeated evaluations in the same recalc pass return successive list elements (best-effort; prefer the `ROW()` form for reliability).
 
 * **Grid egress over a data range** — use **two arguments only**: `=PYTHON("np.sum(data)"; B1:B10)` or `=PYTHON("(np.array(data) * 2).tolist()"; D6:G9)` as a matrix formula (**Ctrl+Shift+Enter**). The add-in IDL accepts only `(code, data)`; a third argument such as `ROW()-1` causes **Err:504** (error in parameter list). When the 2nd argument is the full range, `data` in Python is that grid; use `ROW()-n` as the 2nd argument only when it is the per-cell index, not together with a range.
 

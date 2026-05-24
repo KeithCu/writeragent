@@ -5,8 +5,8 @@ Back to [NumPy Serialization](numpy-serialization.md).
 This document serves as a reference for compiling and packaging custom host-side native C/Cython extensions for WriterAgent (e.g. a future `writeragent_vec` or similar pack accelerator).
 
 > [!IMPORTANT]
-> **Status: not shipped**.
-> With the high-performance pure-Python/NumPy vectorized object-masking enhancements implemented in May 2026, a native Cython compiler is currently deferred. This reference is preserved for potential future optimizations where the standard library cell flattening loops on the host dominate runtime.
+> **Status: not shipped / planned**.
+> While pure-Python optimizations implemented in May 2026 achieved a **2x speedup** (refactoring to single-pass logic and optimized `None` handling), the **host-side Python loop** remains the primary bottleneck in the serialization pipeline. A native Cython implementation for the inner loops of `_flatten_grid_to_components` is planned to achieve C-level parity with standard pickling.
 > 
 > **Never vendor NumPy** into LibreOffice; the user **venv** remains where full NumPy/pandas live. A small Cython extension only accelerates **host-side pack** (and optionally other tight loops) inside the embedded interpreter.
 

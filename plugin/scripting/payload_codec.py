@@ -430,18 +430,8 @@ def _flatten_grid_to_components(
     if is_2d:
         grid_2d = cast("list[list[Any]]", grid)
         nrows = len(grid_2d)
-        ncols = max((len(r) for r in grid_2d), default=0)
+        ncols = len(grid_2d[0]) if nrows > 0 else 0
         shape = [nrows, ncols]
-        row_lens = [len(row) for row in grid_2d]
-        if len(set(row_lens)) > 1:
-            # Uneven nested-list row lengths should never happen for Calc ranges (rectangular UNO blocks).
-            log.error(
-                "payload_codec: uneven row lengths %s in 2D grid (expected rectangular data from Calc or tools)",
-                row_lens,
-            )
-            raise ValueError(
-                f"Uneven row lengths in data grid: {row_lens} (all rows must have the same width)"
-            )
     else:
         nrows = 1
         ncols = len(grid)
@@ -470,20 +460,31 @@ def _flatten_grid_to_components(
             nan=nan,
         )
 
-    # Mostly-numeric Calc grids: try float(val) until None or non-numeric forces slow path.
-    # Bugfix guard: str must not use float() — "02138" parses as 2138.0; zip codes stay in strings{}.
+    # Mostly-numeric Calc grids: try float(val) until non-numeric forces slow path.
+    # None is handled in the fast path to avoid disabling it for empty cells.
     if is_2d:
         grid_2d = cast("list[list[Any]]", grid)
         idx = 0
         for row in grid_2d:
+            if len(row) != ncols:
+                # Uneven nested-list row lengths should never happen for Calc ranges (rectangular UNO blocks).
+                row_lens = [len(r) for r in grid_2d]
+                log.error("payload_codec: uneven row lengths in 2D grid: %s", row_lens)
+                raise ValueError(f"Uneven row lengths in data grid: {row_lens}")
+            
             for c, val in enumerate(row):
-                if type(val) is str:
+                if val is None:
+                    buf_append(nan)
+                    column_has_none[c] = True
+                elif type(val) is str:
                     has_non_numeric = True
                     _append_cell_slow(val, c, idx)
                 elif not has_non_numeric:
                     try:
-                        buf_append(float(val))
-                        _flatten_update_column_state(column_states, c, val)
+                        fval = float(val)
+                        buf_append(fval)
+                        if column_states[c] != 3:
+                            _flatten_update_column_state(column_states, c, val)
                     except (TypeError, ValueError):
                         has_non_numeric = True
                         _append_cell_slow(val, c, idx)
@@ -493,13 +494,18 @@ def _flatten_grid_to_components(
     else:
         grid_1d = cast("list[Any]", grid)
         for idx, val in enumerate(grid_1d):
-            if type(val) is str:
+            if val is None:
+                buf_append(nan)
+                column_has_none[0] = True
+            elif type(val) is str:
                 has_non_numeric = True
                 _append_cell_slow(val, 0, idx)
             elif not has_non_numeric:
                 try:
-                    buf_append(float(val))
-                    _flatten_update_column_state(column_states, 0, val)
+                    fval = float(val)
+                    buf_append(fval)
+                    if column_states[0] != 3:
+                        _flatten_update_column_state(column_states, 0, val)
                 except (TypeError, ValueError):
                     has_non_numeric = True
                     _append_cell_slow(val, 0, idx)
@@ -593,10 +599,22 @@ def host_pack_data(
     """Pack ``data`` for worker request field (list or split_grid dict)."""
     try:
         if grid:
+            if force == "always":
+                return host_pack_split_grid(grid)
+
+            nrows = len(grid)
             is_2d = type(grid[0]) in (list, tuple)
-            grid_shape: tuple[int, ...] = (len(grid), max((len(r) for r in grid), default=0)) if is_2d else (len(grid),)
+
+            # Optimization: If row count meets threshold, we'll definitely use Split-Grid.
+            # Skip the expensive max(len(r)) pass over the full grid.
+            if is_2d and force == "auto" and nrows >= min_cells:
+                return host_pack_split_grid(grid)
+
+            # Otherwise calculate full shape for threshold check
+            grid_shape: tuple[int, ...] = (nrows, max((len(r) for r in grid), default=0)) if is_2d else (nrows,)
             if should_use_binary_envelope(grid_shape, min_cells=min_cells, force=force):
                 return host_pack_split_grid(grid)
+
         out = grid_from_nested_list(grid)
         log.debug("payload_codec host_pack json_list %s", describe_wire_value(out))
         return out

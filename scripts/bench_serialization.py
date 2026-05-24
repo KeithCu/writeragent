@@ -212,23 +212,34 @@ def _bench(fn: Callable[[], Any], *, warmup: int, iters: int) -> tuple[Any, floa
 
 
 def _bench_parts(
-    parts: list[tuple[str, Callable[[], Any]]],
+    parts: list[tuple[str, Callable[[Any], Any]]],
     *,
     warmup: int,
     iters: int,
 ) -> tuple[dict[str, float], Any]:
     out: dict[str, float] = {}
-    last: Any = None
+    current_input: Any = None
+    
+    # Warmup all parts in sequence to ensure 'current_input' is populated for each stage
+    for _, fn in parts:
+        current_input = fn(current_input)
+    
+    # Measure each part
+    current_input = None
     for name, fn in parts:
-        for _ in range(warmup):
-            fn()
         samples: list[float] = []
+        # We need the result of the previous stage to benchmark this one
+        # but we don't want to include the previous stage's time in the current measurement.
+        # So we run it once outside the loop.
+        
         for _ in range(iters):
             t0 = time.perf_counter()
-            last = fn()
+            res = fn(current_input)
             samples.append((time.perf_counter() - t0) * 1000)
+        
         out[name] = _median(samples)
-    return out, last
+        current_input = fn(current_input) # Update for next stage
+    return out, current_input
 
 
 def make_grid(nrows: int, ncols: int) -> list[Any] | list[list[Any]]:
@@ -287,55 +298,43 @@ def run_ingress(
     if wire_format in ("pickle5", "pickle5+sg"):
         pack_force: ForceBinary = "never" if wire_format == "pickle5" else "always"
 
-        def pack() -> Any:
-            return host_pack_data(grid, min_cells=min_cells, force=pack_force)
-
-        def dump(data: Any) -> bytes:
-            b = pickle.dumps({"id": "b", "data": data}, protocol=5)
-            wire_holder["bytes"] = b
-            return b
-
-        def load() -> Any:
-            return pickle.loads(wire_holder["bytes"])["data"]
-
-        def mat(data: Any) -> Any:
-            if wire_format == "pickle5+sg":
-                return child_unpack_data(data)
-            return child_materialize_list(data)
+        parts = [
+            ("host_pack", lambda _: host_pack_data(grid, min_cells=min_cells, force=pack_force)),
+            ("host_dump", lambda data: pickle.dumps({"id": "b", "data": data}, protocol=5)),
+            ("child_load", lambda b: pickle.loads(b)["data"]),
+            ("child_mat", lambda data: child_unpack_data(data) if wire_format == "pickle5+sg" else child_materialize_list(data)),
+        ]
     elif wire_format == "split_grid":
-        def pack() -> Any:
-            return b64_host_pack_split_grid(grid)
-        def dump(data: Any) -> str:
-            line = json.dumps({"id": "b", "data": data}, default=str) + "\n"
-            wire_holder["line"] = line
-            return line
-        def load() -> Any:
-            return json.loads(wire_holder["line"])["data"]
-        def mat(data: Any) -> Any:
-            return b64_child_unpack_split_grid(data)
+        parts = [
+            ("host_pack", lambda _: b64_host_pack_split_grid(grid)),
+            ("host_dump", lambda data: json.dumps({"id": "b", "data": data}, default=str) + "\n"),
+            ("child_load", lambda line: json.loads(line)["data"]),
+            ("child_mat", lambda data: b64_child_unpack_split_grid(data)),
+        ]
     else:  # json_list
-        def pack() -> Any:
-            return host_pack_data(grid, min_cells=min_cells, force="never")
-        def dump(data: Any) -> str:
-            line = json.dumps({"id": "b", "data": data}, default=str) + "\n"
-            wire_holder["line"] = line
-            return line
-        def load() -> Any:
-            return json.loads(wire_holder["line"])["data"]
-        def mat(data: Any) -> Any:
-            return child_materialize_list(data)
+        parts = [
+            ("host_pack", lambda _: host_pack_data(grid, min_cells=min_cells, force="never")),
+            ("host_dump", lambda data: json.dumps({"id": "b", "data": data}, default=str) + "\n"),
+            ("child_load", lambda line: json.loads(line)["data"]),
+            ("child_mat", lambda data: child_materialize_list(data)),
+        ]
 
-    parts = [
-        ("host_pack", pack),
-        ("host_dump", lambda: dump(pack())),
-        ("child_load", load),
-        ("child_mat", lambda: mat(load())),
-    ]
-    times, _ = _bench_parts(parts, warmup=warmup, iters=iters)
-    if wire_format in ("pickle5", "pickle5+sg"):
-        wire_bytes = len(wire_holder.get("bytes", b""))
+    times, last_res = _bench_parts(parts, warmup=warmup, iters=iters)
+    
+    # Measure wire bytes from the result of the host_dump stage (index 1)
+    # We need to run the stages to get the wire format correctly.
+    # Actually _bench_parts returns the 'last' result which is the materialized data.
+    # We need to capture the dump result.
+    
+    # Re-running the first two stages to get wire size is cheap.
+    wire_data = parts[0][1](None)
+    wire_bytes_raw = parts[1][1](wire_data)
+    
+    if isinstance(wire_bytes_raw, str):
+        wire_bytes = len(wire_bytes_raw.encode("utf-8"))
     else:
-        wire_bytes = len(wire_holder.get("line", "").encode("utf-8"))
+        wire_bytes = len(wire_bytes_raw)
+        
     return times, wire_bytes
 
 
@@ -363,58 +362,42 @@ def run_egress(
     if wire_format in ("pickle5", "pickle5+sg"):
         pack_force: ForceBinary = "never" if wire_format == "pickle5" else "always"
 
-        def pack() -> Any:
-            r = kind_pack()
-            return child_pack_result(r, min_cells=min_cells, force=pack_force)
-
-        def dump(res: Any) -> bytes:
-            b = pickle.dumps({"id": "b", "result": res}, protocol=5)
-            wire_holder["bytes"] = b
-            return b
-
-        def load() -> Any:
-            return pickle.loads(wire_holder["bytes"])["result"]
-
-        def mat(res: Any) -> Any:
-            return host_unpack_data(res, as_nested_list=True)
+        parts = [
+            ("child_pack", lambda _: child_pack_result(kind_pack(), min_cells=min_cells, force=pack_force)),
+            ("child_dump", lambda res: pickle.dumps({"id": "b", "result": res}, protocol=5)),
+            ("host_load", lambda b: pickle.loads(b)["result"]),
+            ("host_mat", lambda res: host_unpack_data(res, as_nested_list=True)),
+        ]
     elif wire_format == "split_grid":
-        def pack() -> Any:
-            r = kind_pack()
+        def pack_b64(r):
             if isinstance(r, np.ndarray):
                 return b64_child_pack_split_grid(r)
             return b64_host_pack_split_grid(r)
-        def dump(res: Any) -> str:
-            line = json.dumps({"id": "b", "result": res}, default=str) + "\n"
-            wire_holder["line"] = line
-            return line
-        def load() -> Any:
-            return json.loads(wire_holder["line"])["result"]
-        def mat(res: Any) -> Any:
-            return b64_host_unpack_split_grid(res)
+            
+        parts = [
+            ("child_pack", lambda _: pack_b64(kind_pack())),
+            ("child_dump", lambda res: json.dumps({"id": "b", "result": res}, default=str) + "\n"),
+            ("host_load", lambda line: json.loads(line)["result"]),
+            ("host_mat", lambda res: b64_host_unpack_split_grid(res)),
+        ]
     else:  # json_list
-        def pack() -> Any:
-            r = kind_pack()
-            return child_pack_result(r, min_cells=min_cells, force="never")
-        def dump(res: Any) -> str:
-            line = json.dumps({"id": "b", "result": res}, default=str) + "\n"
-            wire_holder["line"] = line
-            return line
-        def load() -> Any:
-            return json.loads(wire_holder["line"])["result"]
-        def mat(res: Any) -> Any:
-            return host_unpack_data(res, as_nested_list=True)
+        parts = [
+            ("child_pack", lambda _: child_pack_result(kind_pack(), min_cells=min_cells, force="never")),
+            ("child_dump", lambda res: json.dumps({"id": "b", "result": res}, default=str) + "\n"),
+            ("host_load", lambda line: json.loads(line)["result"]),
+            ("host_mat", lambda res: host_unpack_data(res, as_nested_list=True)),
+        ]
 
-    parts = [
-        ("child_pack", pack),
-        ("child_dump", lambda: dump(pack())),
-        ("host_load", load),
-        ("host_mat", lambda: mat(load())),
-    ]
-    times, _ = _bench_parts(parts, warmup=warmup, iters=iters)
-    if wire_format in ("pickle5", "pickle5+sg"):
-        wire_bytes = len(wire_holder.get("bytes", b""))
+    times, last_res = _bench_parts(parts, warmup=warmup, iters=iters)
+    
+    wire_data = parts[0][1](None)
+    wire_bytes_raw = parts[1][1](wire_data)
+    
+    if isinstance(wire_bytes_raw, str):
+        wire_bytes = len(wire_bytes_raw.encode("utf-8"))
     else:
-        wire_bytes = len(wire_holder.get("line", "").encode("utf-8"))
+        wire_bytes = len(wire_bytes_raw)
+        
     return times, wire_bytes
 
 
