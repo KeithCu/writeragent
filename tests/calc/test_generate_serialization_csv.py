@@ -19,10 +19,10 @@ from openpyxl import load_workbook
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
-from tests.calc.serialization_cases import all_serialization_cases  # noqa: E402
+from tests.calc.serialization_cases import all_serialization_cases, case_input_grids  # noqa: E402
 
-_GEN_PATH = REPO_ROOT / "scripts" / "generate_serialization_test_csv.py"
-_spec = importlib.util.spec_from_file_location("generate_serialization_test_csv", _GEN_PATH)
+_GEN_PATH = REPO_ROOT / "scripts" / "generate_serialization_spreadsheet.py"
+_spec = importlib.util.spec_from_file_location("generate_serialization_spreadsheet", _GEN_PATH)
 assert _spec and _spec.loader
 gen = importlib.util.module_from_spec(_spec)
 sys.modules[_spec.name] = gen
@@ -34,58 +34,81 @@ def _case_by_id(case_id: str):
 
 
 def test_layout_python_formula_is_last_column():
-    layout = gen.SheetLayout(max_input_cols=10)
+    layout = gen.SheetLayout()
     assert layout.col_python_formula == layout.col_notes + 1
     assert layout.header()[-1] == "python_formula"
     assert "python_code" not in layout.header()
     assert layout.header()[3] == "col_1"
+    assert layout.header()[12] == "col_10"
 
 
-def test_max_input_cols_covers_row_10_and_grid_2x5():
-    cases = gen.ordered_cases()
-    max_cols = gen.max_input_cols_for_cases(cases)
-    assert max_cols >= 10
-    _, ncols_2x5 = gen.grid_dimensions(_case_by_id("grid_2x5_sum").input_grid)
-    _, ncols_row10 = gen.grid_dimensions(_case_by_id("row_10_sum").input_grid)
-    assert ncols_2x5 == 5
-    assert ncols_row10 == 10
-    assert max_cols >= ncols_2x5
-    assert max_cols >= ncols_row10
+def test_fixed_input_cols_two_groups_of_five():
+    layout = gen.SheetLayout()
+    assert layout.max_input_cols == 10
+    assert gen.group_col_start(0) == gen.COL_INPUT_START
+    assert gen.group_col_start(1) == gen.COL_INPUT_START + 5
 
 
 def test_generated_blocks_write_all_input_cells():
     cases = gen.ordered_cases()
-    layout = gen.SheetLayout(max_input_cols=gen.max_input_cols_for_cases(cases))
+    layout = gen.SheetLayout()
     row = 2
     for case in cases:
         block = gen.block_rows(layout, case, row)
-        nrows, ncols = gen.grid_dimensions(case.input_grid)
-        if nrows == 0:
+        grids = case_input_grids(case)
+        max_nrows = max((gen.grid_dimensions(g)[0] for g in grids), default=0)
+        if max_nrows == 0:
             row += len(block)
             continue
-        for dr in range(nrows):
-            data_row = block[1 + dr]
-            for c in range(ncols):
-                expected = case.input_grid[dr][c]
-                cell = data_row[gen.COL_INPUT_START + c]
-                if expected is None:
-                    assert cell in (None, ""), f"{case.id} row {dr + 1} col {c + 1} should be empty"
-                else:
-                    assert cell not in (None, ""), f"{case.id} row {dr + 1} col {c + 1} missing in sheet row"
-        data_top = row + 1 if nrows else row
-        expected_range = gen.data_range_a1(data_top, nrows, ncols)
+        for gi, grid in enumerate(grids):
+            nrows, ncols = gen.grid_dimensions(grid)
+            col_base = gen.group_col_start(gi)
+            for dr in range(nrows):
+                data_row = block[1 + dr]
+                for c in range(ncols):
+                    expected = grid[dr][c]
+                    cell = data_row[col_base + c]
+                    if expected is None:
+                        assert cell in (None, ""), f"{case.id} g{gi} row {dr + 1} col {c + 1} should be empty"
+                    else:
+                        assert cell not in (None, ""), f"{case.id} g{gi} row {dr + 1} col {c + 1} missing"
+        data_top = row + 1 if max_nrows else row
+        data_ranges = gen.data_ranges_for_case(case, data_top)
         header = block[0]
         py_formula = header[layout.col_python_formula]
-        if case.mode != "error" and nrows:
-            assert expected_range in py_formula, f"{case.id}: formula missing range {expected_range!r}"
+        if case.mode != "error" and data_ranges:
+            for ref in data_ranges:
+                assert ref in py_formula, f"{case.id}: formula missing range {ref!r}"
         assert py_formula.startswith("=PYTHON")
         assert not py_formula.startswith("#")
         row += len(block)
 
 
+def test_multi_range_formula_has_three_args():
+    layout = gen.SheetLayout()
+    case = _case_by_id("multi_two_2x2_sum")
+    block = gen.block_rows(layout, case, 2)
+    py_formula = block[0][layout.col_python_formula]
+    assert py_formula.startswith("=PYTHON")
+    inner = py_formula.split("(", 1)[1]
+    args_part = inner.rsplit(")", 1)[0]
+    assert args_part.count(",") == 2, f"expected 3-arg PYTHON, got {py_formula!r}"
+    assert "D" in py_formula and "I" in py_formula, "ranges should span group 1 (D) and group 2 (I)"
+
+
+def test_multi_range_writes_both_groups():
+    layout = gen.SheetLayout()
+    case = _case_by_id("multi_two_rows_sum")
+    block = gen.block_rows(layout, case, 2)
+    data_row = block[1]
+    assert data_row[gen.group_col_start(0)] == 1.0
+    assert data_row[gen.group_col_start(0) + 2] == 3.0
+    assert data_row[gen.group_col_start(1)] == 4.0
+    assert data_row[gen.group_col_start(1) + 2] == 6.0
+
+
 def test_bool_cells_use_numeric_one_zero():
-    cases = gen.ordered_cases()
-    layout = gen.SheetLayout(max_input_cols=gen.max_input_cols_for_cases(cases))
+    layout = gen.SheetLayout()
     for case_id in ("bool_true", "bool_false", "bool_col_11_sum"):
         case = _case_by_id(case_id)
         block = gen.block_rows(layout, case, 2)
@@ -117,7 +140,7 @@ def test_xlsx_input_cells_are_numeric(tmp_path: Path) -> None:
 
 
 def test_matrix_index_formula_has_two_args_only():
-    layout = gen.SheetLayout(max_input_cols=gen.max_input_cols_for_cases(gen.ordered_cases()))
+    layout = gen.SheetLayout()
     for case_id in ("grid_return_double", "grid_return_identity"):
         case = _case_by_id(case_id)
         block = gen.block_rows(layout, case, 2)
@@ -134,17 +157,6 @@ def test_matrix_index_formula_has_two_args_only():
         assert args_part.count(",") == 1, f"{case_id}: expected 2-arg PYTHON, got {py_formula!r}"
 
 
-def test_wide_case_formula_range_column_count():
-    layout = gen.SheetLayout(max_input_cols=gen.max_input_cols_for_cases(gen.ordered_cases()))
-    case = _case_by_id("row_10_sum")
-    block = gen.block_rows(layout, case, 2)
-    py_formula = block[0][layout.col_python_formula]
-    m = re.search(r"[,;]([A-Z]+\d+(?::[A-Z]+\d+)?)\)", py_formula)
-    assert m, py_formula
-    a1 = m.group(1)
-    assert "M" in a1 or a1.count(":") == 0
-
-
 def test_generate_xlsx_smoke(tmp_path: Path) -> None:
     gen.generate_all(tmp_path)
     xlsx = tmp_path / "serialization_tests.xlsx"
@@ -155,9 +167,10 @@ def test_generate_xlsx_smoke(tmp_path: Path) -> None:
     assert headers[-1] == "python_formula"
     assert "python_code" not in headers
     assert "col_1" in headers
+    assert "col_10" in headers
 
     case = _case_by_id("scalar_single_cell")
-    layout = gen.SheetLayout(max_input_cols=gen.max_input_cols_for_cases(gen.ordered_cases()))
+    layout = gen.SheetLayout()
     py_col = layout.col_python_formula + 1
     found_id = False
     for row in range(2, ws.max_row + 1):
@@ -177,10 +190,13 @@ def test_generate_xlsx_smoke(tmp_path: Path) -> None:
     assert not re.search(r"<f[^>]*>python\(", sheet_xml), "OOXML must not use lowercase python("
 
     section_ok = False
+    multi_ok = False
     for row in range(2, ws.max_row + 1):
         val = ws.cell(row=row, column=1).value
         if val == "[normal]":
             section_ok = True
-            break
+        if val == "[multi]":
+            multi_ok = True
     assert section_ok
+    assert multi_ok
     wb.close()

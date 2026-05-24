@@ -5,10 +5,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Generate manual =PYTHON() serialization test XLSX for LibreOffice Calc.
 
-Each test is a small block: input grid, Calc oracle, ``=PYTHON(...)``, and ``=IF(...)`` PASS/FAIL.
+Each test is a small block: input grid(s), Calc oracle, ``=PYTHON(...)``, and ``=IF(...)`` PASS/FAIL.
+
+Input area: two side-by-side groups of up to 5 columns × 5 rows (``col_1``…``col_5`` range 1,
+``col_6``…``col_10`` range 2). Single-range cases use group 1 only.
 
 Usage (from repo root):
-    python scripts/generate_serialization_test_csv.py
+    python scripts/generate_serialization_spreadsheet.py
 """
 from __future__ import annotations
 
@@ -29,10 +32,18 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from tests.calc.serialization_cases import SHEET_ORDER, SerializationCase, all_serialization_cases  # noqa: E402
+from tests.calc.serialization_cases import (  # noqa: E402
+    SHEET_ORDER,
+    SerializationCase,
+    all_serialization_cases,
+    case_input_grids,
+)
 
 DEFAULT_OUT = REPO_ROOT / "tests" / "fixtures"
-_MIN_INPUT_COLS = 4
+_GROUP_COLS = 5
+_GROUP_ROWS = 5
+_NUM_GROUPS = 2
+_MAX_INPUT_COLS = _GROUP_COLS * _NUM_GROUPS
 _SHEET_NAME = "serialization_tests"
 # XLSX follows Excel OOXML: comma argument separators. LibreOffice converts to locale
 # (semicolon in many EU locales) on import. Semicolons in the file → Err:508 on en-US Calc.
@@ -55,9 +66,9 @@ _WRAP = Alignment(wrap_text=True, vertical="top")
 
 @dataclass(frozen=True)
 class SheetLayout:
-    """Column indices for one generated sheet (input width drives formula columns)."""
+    """Column indices for one generated sheet (fixed 2×5 input groups)."""
 
-    max_input_cols: int
+    max_input_cols: int = _MAX_INPUT_COLS
 
     @property
     def col_calc_oracle(self) -> int:
@@ -98,13 +109,9 @@ class SheetLayout:
         ]
 
 
-def max_input_cols_for_cases(cases: list[SerializationCase]) -> int:
-    """Widest input grid across cases (minimum 4 columns for layout stability)."""
-    widest = _MIN_INPUT_COLS
-    for case in cases:
-        _, ncols = grid_dimensions(case.input_grid)
-        widest = max(widest, ncols)
-    return widest
+def group_col_start(group_index: int) -> int:
+    """0-based column index where input group *group_index* begins."""
+    return COL_INPUT_START + group_index * _GROUP_COLS
 
 
 def calc_col_letter(col_index: int) -> str:
@@ -122,50 +129,75 @@ def grid_dimensions(grid: list[list[Any]]) -> tuple[int, int]:
     return len(grid), max(len(r) for r in grid)
 
 
-def data_range_a1(top_row: int, nrows: int, ncols: int) -> str:
-    """Input grid starts at col_1 (Calc column D by default)."""
+def data_range_a1(top_row: int, nrows: int, ncols: int, *, col_start: int = COL_INPUT_START) -> str:
+    """Build an A1 range for a grid anchored at *col_start* (0-based)."""
     if nrows <= 0 or ncols <= 0:
         return ""
-    col_start = calc_col_letter(COL_INPUT_START)
-    col_end = calc_col_letter(COL_INPUT_START + ncols - 1)
+    col_start_letter = calc_col_letter(col_start)
+    col_end_letter = calc_col_letter(col_start + ncols - 1)
     if nrows == 1 and ncols == 1:
-        return f"{col_start}{top_row}"
+        return f"{col_start_letter}{top_row}"
     if nrows == 1:
-        return f"{col_start}{top_row}:{col_end}{top_row}"
+        return f"{col_start_letter}{top_row}:{col_end_letter}{top_row}"
     if ncols == 1:
-        return f"{col_start}{top_row}:{col_start}{top_row + nrows - 1}"
-    return f"{col_start}{top_row}:{col_end}{top_row + nrows - 1}"
+        return f"{col_start_letter}{top_row}:{col_start_letter}{top_row + nrows - 1}"
+    return f"{col_start_letter}{top_row}:{col_end_letter}{top_row + nrows - 1}"
+
+
+def data_ranges_for_case(case: SerializationCase, data_top: int) -> list[str]:
+    """A1 refs for each input grid in *case* (group 0 left, group 1 right)."""
+    ranges: list[str] = []
+    for gi, grid in enumerate(case_input_grids(case)):
+        nrows, ncols = grid_dimensions(grid)
+        if nrows <= 0 or ncols <= 0:
+            continue
+        ranges.append(data_range_a1(data_top, nrows, ncols, col_start=group_col_start(gi)))
+    return ranges
 
 
 def _calc_oracle_formula(
-    case: SerializationCase, data_range: str, block_top: int, *, nrows: int, ncols: int
+    case: SerializationCase,
+    data_ranges: list[str],
+    block_top: int,
+    *,
+    primary_nrows: int,
+    primary_ncols: int,
 ) -> str:
+    if not data_ranges:
+        if case.expected is not None and case.mode != "error":
+            return str(case.expected)
+        return ""
+
+    primary_range = data_ranges[0]
     if case.calc_oracle == "SUM":
-        return f"=SUM({data_range})"
+        if len(data_ranges) > 1:
+            return f"=SUM({data_ranges[0]}{_ARG_SEP}{data_ranges[1]})"
+        return f"=SUM({primary_range})"
     if case.calc_oracle == "MAX":
-        return f"=MAX({data_range})"
+        return f"=MAX({primary_range})"
     if case.calc_oracle == "INDEX_FIRST":
-        if nrows <= 1:
-            return f"=INDEX({data_range}{_ARG_SEP}1)"
-        return f"=INDEX({data_range}{_ARG_SEP}1{_ARG_SEP}1)"
+        if primary_nrows <= 1:
+            return f"=INDEX({primary_range}{_ARG_SEP}1)"
+        return f"=INDEX({primary_range}{_ARG_SEP}1{_ARG_SEP}1)"
     if case.calc_oracle == "MULT2":
-        return f"=INDEX({data_range}{_ARG_SEP}ROW()-{block_top - 1}{_ARG_SEP}COLUMN()-{COL_INPUT_START})*2"
+        return (
+            f"=INDEX({primary_range}{_ARG_SEP}ROW()-{block_top - 1}{_ARG_SEP}COLUMN()-{COL_INPUT_START})*2"
+        )
     if case.calc_oracle == "IDENTITY":
-        return f"=INDEX({data_range}{_ARG_SEP}ROW()-{block_top - 1}{_ARG_SEP}COLUMN()-{COL_INPUT_START})"
+        return f"=INDEX({primary_range}{_ARG_SEP}ROW()-{block_top - 1}{_ARG_SEP}COLUMN()-{COL_INPUT_START})"
     if case.expected is not None and case.mode != "error":
         return str(case.expected)
     return ""
 
 
-def _python_formula(case: SerializationCase, data_range: str, block_top: int) -> str:
+def _python_formula(case: SerializationCase, data_ranges: list[str]) -> str:
     # Single-line code only — np/pd/sp/math are auto-imported by venv_sandbox (AUTO_IMPORTS).
     code_one_line = " ".join(case.code.split())
     escaped = code_one_line.replace('"', '""')
-    if case.mode == "error" or not data_range:
+    if case.mode == "error" or not data_ranges:
         return f'={_CALC_PYTHON_FN}("{escaped}")'
-    # matrix_index: same 2-arg form as scalar; CSE + WorkerResultSession emit one scalar per cell.
-    # Do not add ROW() as a third arg — PYTHON IDL only accepts (code, data) → Err:504.
-    return f'={_CALC_PYTHON_FN}("{escaped}"{_ARG_SEP}{data_range})'
+    range_part = _ARG_SEP.join(data_ranges)
+    return f'={_CALC_PYTHON_FN}("{escaped}"{_ARG_SEP}{range_part})'
 
 
 def cell_sheet_value(val: Any) -> int | float | str | None:
@@ -201,32 +233,41 @@ def _compare_formula(layout: SheetLayout, case: SerializationCase, formula_row: 
 
 def block_rows(layout: SheetLayout, case: SerializationCase, block_top: int) -> list[list[Any]]:
     """One test block aligned with ``layout.header()``."""
-    nrows, ncols = grid_dimensions(case.input_grid)
-    data_top = block_top + 1 if nrows else block_top
-    data_range = data_range_a1(data_top, nrows, ncols)
+    grids = case_input_grids(case)
+    max_nrows = max((grid_dimensions(g)[0] for g in grids), default=0)
+    primary_nrows, primary_ncols = grid_dimensions(grids[0]) if grids else (0, 0)
+    data_top = block_top + 1 if max_nrows else block_top
+    data_ranges = data_ranges_for_case(case, data_top)
     width = layout.width
 
     header: list[Any] = [None] * width
     header[COL_TEST_ID] = case.id
     header[COL_DESCRIPTION] = case.description
     header[COL_TAGS] = ",".join(case.tags)
-    header[layout.col_calc_oracle] = (
-        _calc_oracle_formula(case, data_range, data_top, nrows=nrows, ncols=ncols)
-        if data_range
-        else _calc_oracle_formula(case, "", block_top, nrows=0, ncols=0)
+    header[layout.col_calc_oracle] = _calc_oracle_formula(
+        case,
+        data_ranges,
+        data_top,
+        primary_nrows=primary_nrows,
+        primary_ncols=primary_ncols,
     )
     header[layout.col_compare] = _compare_formula(layout, case, block_top)
     header[layout.col_expected] = str(case.expected if case.expected is not None else case.expected_error_substr or "")
     header[layout.col_notes] = case.notes
-    header[layout.col_python_formula] = _python_formula(case, data_range, data_top)
+    header[layout.col_python_formula] = _python_formula(case, data_ranges)
 
     lines: list[list[Any]] = [header]
-    for dr in range(nrows):
+    for dr in range(max_nrows):
         row: list[Any] = [None] * width
         row[COL_TEST_ID] = f"row_{dr + 1}"
-        for c in range(ncols):
-            val = case.input_grid[dr][c]
-            row[COL_INPUT_START + c] = cell_sheet_value(val)
+        for gi, grid in enumerate(grids):
+            if dr >= len(grid):
+                continue
+            _, ncols = grid_dimensions(grid)
+            col_base = group_col_start(gi)
+            for c in range(ncols):
+                val = grid[dr][c]
+                row[col_base + c] = cell_sheet_value(val)
         lines.append(row)
 
     lines.append([None] * width)
@@ -234,7 +275,7 @@ def block_rows(layout: SheetLayout, case: SerializationCase, block_top: int) -> 
 
 
 def ordered_cases() -> list[SerializationCase]:
-    """All cases in sheet order (normal → mixed → grid → nan → errors)."""
+    """All cases in sheet order (normal → multi → mixed → grid → nan → errors)."""
     by_sheet = {s: [] for s in SHEET_ORDER}
     for case in all_serialization_cases():
         by_sheet[case.sheet].append(case)
@@ -266,7 +307,7 @@ def _wrap_columns(layout: SheetLayout) -> set[int]:
 
 def build_sheet_rows(cases: list[SerializationCase]) -> tuple[SheetLayout, list[list[Any]]]:
     """Build flat rows with section band markers (``__section__:<name>`` in col 0)."""
-    layout = SheetLayout(max_input_cols=max_input_cols_for_cases(cases))
+    layout = SheetLayout()
     out: list[list[Any]] = [layout.header()]
     excel_row = 2
     prev_sheet: str | None = None
@@ -357,8 +398,10 @@ def write_combined_xlsx(path: Path, cases: list[SerializationCase]) -> SheetLayo
 
 
 def _write_readme(path: Path, layout: SheetLayout) -> None:
-    first_input = calc_col_letter(COL_INPUT_START)
-    last_input = calc_col_letter(COL_INPUT_START + layout.max_input_cols - 1)
+    group1_start = calc_col_letter(group_col_start(0))
+    group1_end = calc_col_letter(group_col_start(0) + _GROUP_COLS - 1)
+    group2_start = calc_col_letter(group_col_start(1))
+    group2_end = calc_col_letter(group_col_start(1) + _GROUP_COLS - 1)
     oracle_col = calc_col_letter(layout.col_calc_oracle)
     cmp_col = calc_col_letter(layout.col_compare)
     py_col = calc_col_letter(layout.col_python_formula)
@@ -379,15 +422,18 @@ Calc may show an import dialog on first open — accept defaults.
 |--------|-------------|---------|
 | A | `test_id` | Case id (data rows use `row_N`) |
 | B | `description` | What this test checks |
-| C | `tags` | e.g. `split_grid`, `below_threshold`, `bool` |
-| {first_input}–{last_input} | `col_1` … `col_{layout.max_input_cols}` | Input data (blank = empty Calc cell) |
+| C | `tags` | e.g. `split_grid`, `multi_range`, `bool` |
+| {group1_start}–{group1_end} | `col_1` … `col_5` | **Range 1** (single-range cases use this group only) |
+| {group2_start}–{group2_end} | `col_6` … `col_10` | **Range 2** (multi-range varargs only) |
 | {oracle_col} | `calc_oracle` | Native Calc reference (`=SUM`, `=MAX`, `=INDEX`, …) |
 | {cmp_col} | `compare_pass_fail` | `=IF(…;"PASS";"FAIL")` |
 | … | `expected` | Expected value (reference) |
 | … | `notes` | Extra hints |
-| {py_col} | `python_formula` | `=PYTHON("…", range)` (last column; uppercase **PYTHON**) |
+| {py_col} | `python_formula` | `=PYTHON("…", range)` or `=PYTHON("…", r1, r2)` |
 
-Green band rows label sections: **normal** → **mixed** → **grid** → **nan** → **errors**.
+Each group holds up to **5 columns × 5 rows**. Multi-range cases place range 0 in group 1 and range 1 in group 2; Python receives ``data[0]``, ``data[1]``, …
+
+Green band rows label sections: **normal** → **multi** → **mixed** → **grid** → **nan** → **errors**.
 
 Formulas use **comma** argument separators (Excel/XLSX). LibreOffice should convert them to semicolons if your locale requires it on import. If you still see **Err:508**, check **Tools → Options → LibreOffice Calc → Formula → Separators** and edit one formula in the bar (comma ↔ semicolon) to match.
 
@@ -404,7 +450,7 @@ Input grid (`col_1` …):
 
 ## Oracles
 
-- **SUM** — primary; touches every numeric/logical cell.
+- **SUM** — primary; touches every numeric/logical cell. Multi-range: ``=SUM(r1,r2)``.
 - **MAX** — one spot-check on 4×4 (answer 16).
 - **INDEX** — first cell (text/unicode) or per-cell grid egress.
 
@@ -427,7 +473,7 @@ Use ``np.sum(data)`` / ``np.max(data)`` (return values are coerced on the bridge
 ## Regenerate
 
 ```bash
-python scripts/generate_serialization_test_csv.py
+python scripts/generate_serialization_spreadsheet.py
 ```
 
 Cases live in `tests/calc/serialization_cases.py`.
@@ -440,7 +486,10 @@ def generate_all(output_dir: Path) -> None:
     cases = ordered_cases()
     layout = write_combined_xlsx(output_dir / "serialization_tests.xlsx", cases)
     _write_readme(output_dir / "serialization_tests.README.md", layout)
-    print(f"Wrote serialization_tests.xlsx ({len(cases)} cases, {layout.max_input_cols} input cols) + README to {output_dir}")
+    print(
+        f"Wrote serialization_tests.xlsx ({len(cases)} cases, "
+        f"{layout.max_input_cols} input cols, {_GROUP_COLS}×{_GROUP_ROWS} per group) + README to {output_dir}"
+    )
 
 
 def main() -> None:

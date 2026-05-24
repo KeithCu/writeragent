@@ -133,7 +133,7 @@ def _case_to_ab(case: SerializationCase) -> AbGridCase | None:
         return None
     if not case.input_grid and case.id != "scalar_single_cell":
         return None
-    calc_shape = "flat" in case.tags or case.id in ("scalar_row_sum", "scalar_col_sum", "row_10_sum", "bool_col_11_sum")
+    calc_shape = "flat" in case.tags or case.id in ("scalar_row_sum", "scalar_col_sum", "bool_col_11_sum")
     expect_split = None
     ncells = grid_cell_count(list(case.input_grid) if case.input_grid else [[42.0]])
     if ncells >= BINARY_MIN_CELLS:

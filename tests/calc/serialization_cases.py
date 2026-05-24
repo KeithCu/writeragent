@@ -5,7 +5,7 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""Calc-realistic =PYTHON() serialization cases (shared by CSV generator and UNO tests).
+"""Calc-realistic =PYTHON() serialization cases (shared by spreadsheet generator and UNO tests).
 
 Numeric checks use ``=SUM`` (primary — touches every cell) and ``=MAX`` (one easy
 spot-check on the 4×4 split_grid block). Text/bool use first-cell pickup; grids
@@ -20,7 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-SheetName = Literal["normal", "mixed", "grid", "nan", "errors"]
+SheetName = Literal["normal", "multi", "mixed", "grid", "nan", "errors"]
 CaseMode = Literal["scalar", "matrix_index", "matrix_session", "ingress_only", "error"]
 
 # No float() wrapper: inline =PYTHON("float(...)") breaks Calc's formula parser (#NAME?)
@@ -29,6 +29,7 @@ _SUM_CODE = "np.sum(data)"
 _MAX_CODE = "np.max(data)"
 _NANSUM_CODE = "np.nansum(data)"
 _GRID_DOUBLE_CODE = "np.array(data) * 2"
+_MULTI_SUM_CODE = "sum(np.sum(d) for d in data)"
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,16 @@ class SerializationCase:
     matrix_cols: int = 0
     tags: tuple[str, ...] = field(default_factory=tuple)
     notes: str = ""
+    input_grid_b: list[list[Any]] | None = None
+
+
+def case_input_grids(case: SerializationCase) -> tuple[list[list[Any]], ...]:
+    """Input grids for a case: group 1 (``input_grid``), optional group 2 (``input_grid_b``)."""
+    if case.input_grid_b is not None:
+        return (case.input_grid, case.input_grid_b)
+    if case.input_grid:
+        return (case.input_grid,)
+    return ()
 
 
 def _grid_4x4() -> list[list[float]]:
@@ -133,17 +144,6 @@ def all_serialization_cases() -> list[SerializationCase]:
             notes="10 cells: first size that uses split_grid (BINARY_MIN_CELLS). SUM 1..10 = 55.",
         ),
         SerializationCase(
-            id="row_10_sum",
-            sheet="normal",
-            description="1×10 row SUM — split_grid flat 1D shape",
-            input_grid=[[float(i + 1) for i in range(10)]],
-            code=_SUM_CODE,
-            calc_oracle="SUM",
-            expected=55.0,
-            tags=("split_grid", "flat"),
-            notes="10-cell row: split_grid with 1D shape on wire. SUM 1..10 = 55.",
-        ),
-        SerializationCase(
             id="grid_4x4_sum",
             sheet="normal",
             description="4×4 SUM — split_grid ingress (≥10 cells)",
@@ -185,7 +185,7 @@ def all_serialization_cases() -> list[SerializationCase]:
             calc_oracle="SUM",
             expected=1.0,
             tags=("bool", "below_threshold"),
-            notes="Manual CSV uses 1/0 (Calc logical SUM semantics; CSV import does not run =TRUE()).",
+            notes="Manual sheet uses 1/0 (Calc logical SUM semantics; import does not run =TRUE()).",
         ),
         SerializationCase(
             id="bool_false",
@@ -196,7 +196,7 @@ def all_serialization_cases() -> list[SerializationCase]:
             calc_oracle="SUM",
             expected=0.0,
             tags=("bool", "below_threshold"),
-            notes="Manual CSV uses 1/0 (Calc logical SUM semantics; CSV import does not run =FALSE()).",
+            notes="Manual sheet uses 1/0 (Calc logical SUM semantics; import does not run =FALSE()).",
         ),
         SerializationCase(
             id="bool_col_11_sum",
@@ -207,7 +207,66 @@ def all_serialization_cases() -> list[SerializationCase]:
             calc_oracle="SUM",
             expected=7.0,
             tags=("split_grid", "bool"),
-            notes="11 cells forces split_grid; CSV uses 1/0 per cell.",
+            notes="11 cells forces split_grid; sheet uses 1/0 per cell.",
+        ),
+        # --- multi: varargs (two ranges, small grids) ---
+        SerializationCase(
+            id="multi_two_2x2_sum",
+            sheet="multi",
+            description="Two 2×2 ranges — combined SUM (1+2+3+4+5+6+7+8=36)",
+            input_grid=[[1.0, 2.0], [3.0, 4.0]],
+            input_grid_b=[[5.0, 6.0], [7.0, 8.0]],
+            code=_MULTI_SUM_CODE,
+            calc_oracle="SUM",
+            expected=36.0,
+            tags=("multi_range", "varargs", "below_threshold"),
+            notes="data[0] and data[1] are 2×2; oracle =SUM(r1,r2).",
+        ),
+        SerializationCase(
+            id="multi_2x1_plus_1x2",
+            sheet="multi",
+            description="2×1 column + 1×2 row — shape mismatch (1+2+3+4=10)",
+            input_grid=[[1.0], [2.0]],
+            input_grid_b=[[3.0, 4.0]],
+            code=_MULTI_SUM_CODE,
+            calc_oracle="SUM",
+            expected=10.0,
+            tags=("multi_range", "varargs", "below_threshold"),
+            notes="Exercises list-of-grids wire (not one 2D block).",
+        ),
+        SerializationCase(
+            id="multi_two_rows_sum",
+            sheet="multi",
+            description="Two 1×3 rows — flat per-range lists (1+2+3+4+5+6=21)",
+            input_grid=[[1.0, 2.0, 3.0]],
+            input_grid_b=[[4.0, 5.0, 6.0]],
+            code=_MULTI_SUM_CODE,
+            calc_oracle="SUM",
+            expected=21.0,
+            tags=("multi_range", "varargs", "flat", "below_threshold"),
+        ),
+        SerializationCase(
+            id="multi_scalar_plus_row",
+            sheet="multi",
+            description="Single cell + 1×3 row — scalar range + flat list (5+1+2+3=11)",
+            input_grid=[[5.0]],
+            input_grid_b=[[1.0, 2.0, 3.0]],
+            code=_MULTI_SUM_CODE,
+            calc_oracle="SUM",
+            expected=11.0,
+            tags=("multi_range", "varargs", "below_threshold"),
+        ),
+        SerializationCase(
+            id="multi_mixed_small",
+            sheet="multi",
+            description="Mixed 2×2 + numeric 1×1 — numeric-only sum (1+2+3=6)",
+            input_grid=[[1.0, "a"], [2.0, "b"]],
+            input_grid_b=[[3.0]],
+            code="sum(v for g in data for row in g for v in row if isinstance(v, (int, float)))",
+            calc_oracle="SUM",
+            expected=6.0,
+            tags=("multi_range", "varargs", "mixed", "below_threshold"),
+            notes="Strings in range 1; Calc SUM skips text in oracle cells.",
         ),
         # --- mixed ---
         SerializationCase(
@@ -319,4 +378,4 @@ def cases_by_sheet(sheet: SheetName) -> list[SerializationCase]:
     return [c for c in all_serialization_cases() if c.sheet == sheet]
 
 
-SHEET_ORDER: tuple[SheetName, ...] = ("normal", "mixed", "grid", "nan", "errors")
+SHEET_ORDER: tuple[SheetName, ...] = ("normal", "multi", "mixed", "grid", "nan", "errors")

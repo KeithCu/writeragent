@@ -131,7 +131,7 @@ The implementation now also gracefully handles text that looks like a logical or
 
 This prevents `np.sum(data)` from failing when ranges contain text-based logicals, while strictly avoiding broad rules that might misinterpret arbitrary text labels.
 
-**Related fixes already shipped:** nested generator expressions in [`local_python_executor.evaluate_generatorexp`](../plugin/contrib/smolagents/local_python_executor.py) (mixed-grid `sum(v for row in data …)`); dynamic input columns in [`scripts/generate_serialization_test_csv.py`](../scripts/generate_serialization_test_csv.py).
+**Related fixes already shipped:** nested generator expressions in [`local_python_executor.evaluate_generatorexp`](../plugin/contrib/smolagents/local_python_executor.py) (mixed-grid `sum(v for row in data …)`); fixed 2×5 input groups in [`scripts/generate_serialization_spreadsheet.py`](../scripts/generate_serialization_spreadsheet.py).
 
 #### Calc logical display vs `=PYTHON()` — manual experiments
 
@@ -466,7 +466,7 @@ Add timing (debug menu, `testing_runner`, or temporary logs) on realistic sheets
 
 Possible deliverable: minimal LO harness (debug menu or UNO test) that prints legs A–D for one `=PYTHON()` call on a large numeric range.
 
-**Manual spreadsheet suite:** [`tests/fixtures/serialization_tests.xlsx`](../tests/fixtures/serialization_tests.xlsx) — one Calc sheet (import from XLSX) with Calc oracle vs `=PYTHON(...)` and PASS/FAIL compare formulas (`python_formula` is the last column). Regenerate with `python scripts/generate_serialization_test_csv.py`. Cases defined in [`tests/calc/serialization_cases.py`](../tests/calc/serialization_cases.py).
+**Manual spreadsheet suite:** [`tests/fixtures/serialization_tests.xlsx`](../tests/fixtures/serialization_tests.xlsx) — one Calc sheet (import from XLSX) with Calc oracle vs `=PYTHON(...)` and PASS/FAIL compare formulas (`python_formula` is the last column). Regenerate with `python scripts/generate_serialization_spreadsheet.py`. Cases defined in [`tests/calc/serialization_cases.py`](../tests/calc/serialization_cases.py).
 
 #### Priority 2 — Less data on the wire (best ROI, no protocol change)
 

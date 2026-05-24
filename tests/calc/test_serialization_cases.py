@@ -74,7 +74,7 @@ def test_split_grid_boundary_case():
     assert "boundary" in case.tags
 
 
-def test_row_10_split_grid_flat_shape():
-    case = next(c for c in all_serialization_cases() if c.id == "row_10_sum")
-    assert case.expected == 55.0
-    assert "split_grid" in case.tags
+def test_multi_sheet_has_cases():
+    multi = cases_by_sheet("multi")
+    assert len(multi) >= 4
+    assert all(c.input_grid_b is not None for c in multi)

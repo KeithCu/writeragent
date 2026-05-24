@@ -14,15 +14,18 @@ Calc may show an import dialog on first open — accept defaults.
 |--------|-------------|---------|
 | A | `test_id` | Case id (data rows use `row_N`) |
 | B | `description` | What this test checks |
-| C | `tags` | e.g. `split_grid`, `below_threshold`, `bool` |
-| D–M | `col_1` … `col_10` | Input data (blank = empty Calc cell) |
+| C | `tags` | e.g. `split_grid`, `multi_range`, `bool` |
+| D–H | `col_1` … `col_5` | **Range 1** (single-range cases use this group only) |
+| I–M | `col_6` … `col_10` | **Range 2** (multi-range varargs only) |
 | N | `calc_oracle` | Native Calc reference (`=SUM`, `=MAX`, `=INDEX`, …) |
 | O | `compare_pass_fail` | `=IF(…;"PASS";"FAIL")` |
 | … | `expected` | Expected value (reference) |
 | … | `notes` | Extra hints |
-| R | `python_formula` | `=PYTHON("…", range)` (last column; uppercase **PYTHON**) |
+| R | `python_formula` | `=PYTHON("…", range)` or `=PYTHON("…", r1, r2)` |
 
-Green band rows label sections: **normal** → **mixed** → **grid** → **nan** → **errors**.
+Each group holds up to **5 columns × 5 rows**. Multi-range cases place range 0 in group 1 and range 1 in group 2; Python receives ``data[0]``, ``data[1]``, …
+
+Green band rows label sections: **normal** → **multi** → **mixed** → **grid** → **nan** → **errors**.
 
 Formulas use **comma** argument separators (Excel/XLSX). LibreOffice should convert them to semicolons if your locale requires it on import. If you still see **Err:508**, check **Tools → Options → LibreOffice Calc → Formula → Separators** and edit one formula in the bar (comma ↔ semicolon) to match.
 
@@ -39,7 +42,7 @@ Input grid (`col_1` …):
 
 ## Oracles
 
-- **SUM** — primary; touches every numeric/logical cell.
+- **SUM** — primary; touches every numeric/logical cell. Multi-range: ``=SUM(r1,r2)``.
 - **MAX** — one spot-check on 4×4 (answer 16).
 - **INDEX** — first cell (text/unicode) or per-cell grid egress.
 
@@ -62,7 +65,7 @@ Use ``np.sum(data)`` / ``np.max(data)`` (return values are coerced on the bridge
 ## Regenerate
 
 ```bash
-python scripts/generate_serialization_test_csv.py
+python scripts/generate_serialization_spreadsheet.py
 ```
 
 Cases live in `tests/calc/serialization_cases.py`.
