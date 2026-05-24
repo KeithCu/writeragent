@@ -51,8 +51,9 @@ def _fatal(msg: str, *, exc: BaseException | None = None, code: int = 1) -> NoRe
 _bootstrap_plugin_import_path()
 try:
     from plugin.scripting.editor_protocol import message_type, read_message, write_message
+    from plugin.scripting.editor_jedi import JediSession
 except ImportError as e:
-    _fatal(f"editor_main: cannot import plugin.scripting.editor_protocol ({e}). sys.path={sys.path!r}", exc=e)
+    _fatal(f"editor_main: cannot import plugin.scripting dependencies ({e}). sys.path={sys.path!r}", exc=e)
 
 
 log = logging.getLogger(__name__)
@@ -117,6 +118,7 @@ class MonacoEditorApi:
 
     def __init__(self) -> None:
         self._window: Any = None
+        self._jedi = JediSession()
 
     def set_window(self, window: Any) -> None:
         self._window = window
@@ -129,6 +131,9 @@ class MonacoEditorApi:
             except queue.Empty:
                 break
         return batch
+
+    def get_completions(self, code: str, line: int, column: int) -> dict[str, Any]:
+        return self._jedi.get_completions(code, line, column)
 
     def notify_save(self, code: str, save_as_plain: bool = False, data_binding: str = "") -> None:
         if not isinstance(code, str):
