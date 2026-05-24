@@ -40,6 +40,7 @@ from tests.scripting.serialization_ab_support import (
     grid_cell_count,
     hypothesis_grid_ok,
     numeric_rectangular_grid,
+    multi_range_grid,
     prepare_grid,
     rectangular_grid,
     run_venv_roundtrip,
@@ -240,6 +241,22 @@ def test_multi_range_venv_echo(grids: list[list[Any] | list[list[Any]]], label: 
     assert len(result) == len(grids), label
     for idx, grid in enumerate(grids):
         assert flatten_semantic_cells(grid) == flatten_semantic_cells(result[idx]), f"{label}[{idx}]"
+
+
+@given(grids=multi_range_grid())
+@settings(max_examples=50, deadline=None)
+def test_hypothesis_multi_range_venv_echo(grids: list[list[Any] | list[list[Any]]]) -> None:
+    """Fuzz: multi-range venv echo."""
+    from tests.scripting.serialization_ab_support import run_multi_venv_echo
+
+    # Filter grids
+    if not all(hypothesis_grid_ok(g) for g in grids):
+        return
+
+    result = run_multi_venv_echo(grids, pack_force="auto")
+    assert len(result) == len(grids)
+    for idx, grid in enumerate(grids):
+        assert flatten_semantic_cells(grid) == flatten_semantic_cells(result[idx]), f"index {idx}"
 
 
 if __name__ == "__main__":

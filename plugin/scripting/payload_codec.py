@@ -44,8 +44,6 @@ PAYLOAD_SPLIT_GRID = "split_grid"
 PAYLOAD_MULTI_DATA = "multi_data"
 """Multiple Calc ranges: list of split_grid or nested-list payloads."""
 
-# TODO: multi_data contracts (CrossHair / @deal) — defer to a follow-up pass.
-
 # --- When to use binary envelope (default: at least 100 cells) -----------------------
 
 BINARY_MIN_CELLS = 100
@@ -79,11 +77,17 @@ def _is_multi_data_envelope(envelope: object) -> bool:
     if env_dict.get("__wa_payload__") != PAYLOAD_MULTI_DATA:
         return False
     items = env_dict.get("items")
-    return isinstance(items, list)
+    if not isinstance(items, list):
+        return False
+    return all(isinstance(item, (list, dict)) for item in items)
 
 
 def is_multi_data(obj: Any) -> bool:
     return _is_multi_data_envelope(obj)
+
+
+def _is_any_payload_envelope(obj: object) -> bool:
+    return _is_split_grid_envelope(obj) or _is_multi_data_envelope(obj)
 
 
 def _is_split_grid_envelope(envelope: object) -> bool:
@@ -104,6 +108,8 @@ def _is_ndarray(obj: object) -> bool:
     return type(obj).__name__ == "ndarray" and type(obj).__module__ == "numpy"
 
 
+@deal.pre(lambda grid, *_, **__: _is_grid_sequence(grid))
+@deal.post(lambda result, *_, **__: isinstance(result, list))
 def column_kinds_for_grid(grid: list[Any] | list[list[Any]]) -> list[str]:
     """Policy helper (tests): per-column int/float/bool from source types; mirrors host_pack_split_grid."""
     try:
@@ -599,6 +605,9 @@ def host_pack_data(
         raise
 
 
+@deal.pre(lambda grids, *_, **__: isinstance(grids, list) and all(_is_grid_sequence(g) for g in grids))
+@deal.post(lambda result, *_, **__: _is_multi_data_envelope(result))
+@deal.raises(ValueError)
 def host_pack_multi_data(
     grids: list[list[Any] | list[list[Any]]],
     *,
@@ -812,7 +821,8 @@ def _child_unpack_single_data(wire: Any) -> Any:
     return unpacked
 
 
-@deal.post(lambda result: result is not None)
+@deal.pre(lambda wire, *_, **__: _is_any_payload_envelope(wire) or isinstance(wire, (list, tuple, dict, str, int, float, bool)) or wire is None)
+@deal.post(lambda result, *_, **__: result is not None)
 @deal.raises(ValueError, TypeError, AttributeError)
 def child_unpack_data(wire: Any) -> Any:
     """Materialize worker ``data`` in venv (ndarray/list from split_grid, or np.array from numeric list)."""

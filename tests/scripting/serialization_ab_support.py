@@ -524,6 +524,8 @@ def _grid_is_numeric_only(grid: list[Any] | list[list[Any]]) -> bool:
 def venv_transform_cases() -> list[VenvTransformCase]:
     """Subset of grids × transforms for worker integration tests."""
     cases: list[VenvTransformCase] = []
+    
+    # Single-range cases (existing)
     key_grids = [
         c for c in all_ab_grid_cases()
         if c.id in (
@@ -557,6 +559,30 @@ def venv_transform_cases() -> list[VenvTransformCase]:
                     tags=grid_case.tags,
                 )
             )
+
+    # Multi-range cases
+    multi_numeric = [[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]]
+    cases.append(
+        VenvTransformCase(
+            id="multi_numeric_sum_all",
+            grid=multi_numeric[0],
+            grid_b=multi_numeric[1],
+            code="result = float(sum(np.sum(d) for d in data_list))",
+            expected=36.0,
+            tags=frozenset({"multi_range", "split_grid"}),
+        )
+    )
+    cases.append(
+        VenvTransformCase(
+            id="multi_numeric_concatenate",
+            grid=multi_numeric[0],
+            grid_b=multi_numeric[1],
+            code="result = np.concatenate(data_list).tolist()",
+            expected=[[1.0, 2.0], [3.0, 4.0], [5.0, 6.0], [7.0, 8.0]],
+            tags=frozenset({"multi_range", "split_grid"}),
+        )
+    )
+
     cases.append(
         VenvTransformCase(
             id="numeric_4x4_sum_subprocess",
@@ -693,6 +719,8 @@ def is_valid_grid_for_pack(grid: list[Any] | list[list[Any]]) -> bool:
 
 
 def _grid_has_string_cell(grid: list[Any] | list[list[Any]]) -> bool:
+    if not grid:
+        return False
     if isinstance(grid[0], (list, tuple)):
         return any(isinstance(cell, str) for row in grid for cell in row)
     return any(isinstance(cell, str) for cell in grid)
@@ -702,6 +730,8 @@ def _grid_has_blank_string(grid: list[Any] | list[list[Any]]) -> bool:
     def is_blank(cell: Any) -> bool:
         return isinstance(cell, str) and cell.strip() == ""
 
+    if not grid:
+        return False
     if isinstance(grid[0], (list, tuple)):
         return any(is_blank(cell) for row in grid for cell in row)
     return any(is_blank(cell) for cell in grid)
@@ -718,9 +748,19 @@ def hypothesis_grid_ok(grid: list[Any] | list[list[Any]]) -> bool:
     return True
 
 
+@strategies.composite
+def multi_range_grid(
+    draw,
+    *,
+    min_ranges: int = 2,
+    max_ranges: int = 5,
+) -> list[list[Any] | list[list[Any]]]:
+    """Generate a list of 1D/2D grids for multi-range serialization fuzzing."""
+    num_ranges = draw(st.integers(min_ranges, max_ranges))
+    return [draw(rectangular_grid()) for _ in range(num_ranges)]
+
+
 # --- Multi-range (varargs) helpers ---
-# TODO(multi-range): Hypothesis strategy for list-of-grids; CrossHair on host_pack_multi_data;
-# TODO(multi-range): extend venv_transform_cases with np.concatenate(data) / per-range transforms.
 
 MULTI_RANGE_FIXTURES: list[tuple[list[list[Any] | list[list[Any]]], str]] = [
     ([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], "multi_two_numeric_cols"),
@@ -758,9 +798,7 @@ def run_multi_venv_echo(
     result = response.get("result")
     if result is None:
         return None
-    if is_multi_data(result):
-        return host_unpack_data(result, as_nested_list=True)
-    return result
+    return host_unpack_data(result, as_nested_list=True)
 
 
 __all__ = [
@@ -795,4 +833,5 @@ __all__ = [
     "multi_range_child_materialization",
     "run_multi_venv_echo",
     "BINARY_MIN_CELLS",
+    "multi_range_grid",
 ]
