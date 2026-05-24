@@ -21,6 +21,20 @@ html, body {
   cursor: pointer;
 }
 
+.toolbar-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.toolbar-check input {
+  margin: 0;
+  cursor: pointer;
+}
+
 #data-binding {
   font-size: 12px;
   opacity: 0.9;

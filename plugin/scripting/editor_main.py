@@ -113,10 +113,10 @@ class MonacoEditorApi:
                 break
         return batch
 
-    def notify_save(self, code: str) -> None:
+    def notify_save(self, code: str, save_as_plain: bool = False) -> None:
         if not isinstance(code, str):
             code = str(code) if code is not None else ""
-        _write_parent({"type": "save", "code": code})
+        _write_parent({"type": "save", "code": code, "save_as_plain": bool(save_as_plain)})
 
     def notify_cancel(self) -> None:
         global _shutting_down

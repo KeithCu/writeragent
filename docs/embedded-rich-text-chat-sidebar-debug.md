@@ -157,3 +157,47 @@ If cross-process embedding remains blocked by Wayland security or Sandbox isolat
     3.  Send these coordinates to the subprocess via the stdin pipe.
     4.  The subprocess window moves/resizes itself to perfectly "stick" to the sidebar area.
     5.  Listen for LibreOffice window move/resize events to update the "sticker" position.
+
+---
+
+## Update: Successful Implementation (May 2026)
+
+We have successfully resolved the `hasPeer=False` blocker and established a working rich-text embedding. The code is currently disabled in `plugin/chatbot/panel_wiring.py` for safety before check-in.
+
+### 1. The "Lazy Peer" Solution (Verified)
+The solution was to defer initialization using the `XWindowListener` pattern:
+*   **Listener:** `EmbeddedWriterListener` waits for `windowShown`.
+*   **Async Break:** Uses `post_to_main_thread` to call `create_embedded_writer_doc`, preventing the synchronous recursion loop that crashed LO 25.x in previous attempts.
+*   **Guard:** A global `_EMBEDDING_STARTED` set prevents multiple concurrent embedding attempts.
+
+### 2. UI Polish "Nuclear" Settings (Verified)
+To make Writer look like a chat sidebar, we discovered the following optimal UNO properties:
+*   **Web View:** `vs.IsOnlineLayout = True`.
+*   **Ruler Kill:** `vs.ShowRulers`, `vs.ShowHoriRuler`, `vs.ShowVertRuler = False`.
+*   **Shadow Kill:** `vs.ShowShadows = False` (Crucial for removing gray page borders).
+*   **Boundary Kill:** `vs.ShowTextBoundaries = False`.
+*   **Scaling:** `vs.ZoomType = 1` (Page Width) works best when combined with dynamic page width.
+*   **Dynamic Width:** Calculating `style.Width` based on placeholder pixel width (px * 26.458 to 1/100mm) ensures the text reflows correctly into the sidebar.
+*   **Background:** `style.BackColor = 0xFFFFFF` (White).
+
+### 3. Next Steps / Things to Try
+While we made great progress, some UI artifacts remain:
+*   **Persistent Gray Bar:** A thick gray bar sometimes remains on the left/right. This may be the **Application Background** color showing through if the `OnlineLayout` page doesn't perfectly fill the window.
+*   **Reflow Tuning:** The pixel-to-1/100mm conversion might need adjustment for high-DPI displays.
+*   **Paragraph Indents:** Set the "Standard" paragraph style indents to 0 to prevent the "pushed-in" text look.
+*   **Code Block Refinement:** Improve the regex-based simulated syntax highlighting.
+
+### Detailed Observations (Post-MVP UI Polish)
+
+1.  **The "Gray Bar" Mystery:** Despite setting `BackColor = 0xFFFFFF` and `IsOnlineLayout = True`, a dark gray border persists. This is likely the "Application Background" (the area outside the paper). 
+    *   **Hypothesis:** In `OnlineLayout`, Writer may still center the "virtual page" and show the background if the window is wider than the page.
+    *   **Try:** Use the `ConfigurationProvider` to temporarily override `org.openoffice.Office.Common/Appearance/ApplicationBackground` just for the sidebar session, or find a VCL-level property on the `container_window` to set its background color.
+
+2.  **Window Resizing:** The `on_window_resized` listener is in place but may have a slight lag or precision issue with the pixel-to-1/100mm conversion (`26.458` factor).
+    *   **Try:** Query the system DPI via `XDevice` to get a more accurate conversion factor than the 96 DPI constant.
+
+3.  **Paragraph Formatting:** The text still looks "pushed in."
+    *   **Try:** Explicitly modify the "Standard" or "Default" Paragraph Style to set `ParaLeftMargin`, `ParaRightMargin`, `ParaFirstLineIndent`, and `ParaTopMargin` all to 0.
+
+4.  **Simulated Syntax Highlighting:** The current regex-based approach in `append_rich_text` works for basic blocks.
+    *   **Try:** Add support for inline backticks (` `code` `) and better handling of nested triple-backticks.

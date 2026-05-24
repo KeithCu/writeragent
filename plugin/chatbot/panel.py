@@ -341,6 +341,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self._approval_event = None
         self._approval_ui_backup = None
         self._approval_query_for_engine = None
+        self.embedded_doc = None
+        self.embedded_frame = None
+        self.embedded_container = None
         if HAS_RECORDING:
             assert _AudioRecorderCls is not None
             self.audio_recorder = _AudioRecorderCls()
@@ -364,6 +367,13 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             global_event_bus.subscribe("grammar:status", self._on_grammar_status, weak=True)
         except Exception:
             log.exception("SendButtonListener event subscribe error")
+
+    def set_embedded_doc(self, doc, frame, container):
+        """Enable rich-text rendering via an embedded Writer document."""
+        self.embedded_doc = doc
+        self.embedded_frame = frame
+        self.embedded_container = container
+        log.info("SendButtonListener: Rich text mode enabled (embedded Writer doc)")
 
     @property
     def state(self):
@@ -597,9 +607,15 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             if isinstance(e, (DisposedException, RuntimeException, UnoException)):
                 log.debug("_scroll_response_to_bottom failed (likely disposed): %s", e)
 
-    def _append_response(self, text, is_thinking=False):
-        """Append text to the response area."""
+    def _append_response(self, text, is_thinking=False, role="assistant"):
+        """Append text to the response area (supports rich text if embedded_doc is ready)."""
         try:
+            if self.embedded_doc:
+                from plugin.chatbot.rich_text import append_rich_text
+
+                self.queue_executor.post(append_rich_text, self.embedded_doc, text, role=role)
+                return
+
             if self.response_control and self.response_control.getModel():
                 from plugin.chatbot.dialogs import get_control_text, set_control_text
 
@@ -1066,6 +1082,20 @@ class ClearButtonListener(BaseActionListener):
             self.send_listener._finish_inline_web_approval(False)
             return
         self.session.clear()
+
+        if self.send_listener and self.send_listener.embedded_doc:
+            try:
+                self.send_listener.embedded_doc.getText().setString("")
+                if self.greeting:
+                    from plugin.chatbot.rich_text import append_rich_text
+
+                    append_rich_text(self.send_listener.embedded_doc, self.greeting, role="assistant")
+            except Exception:
+                log.exception("Error clearing rich text sidebar")
+            if self.status_control:
+                self.status_control.setText("")
+            return
+
         if self.response_control and self.response_control.getModel():
             from plugin.chatbot.dialogs import set_control_text
 

@@ -6,6 +6,10 @@ Architectural design for the **LibrePythonista-style Monaco editor** in WriterAg
 
 **Session 1 fixes (post-MVP):** venv path required (no LibreOffice embedded Python for the editor); `resolve_venv_python` tries `bin/python`, `bin/python3`, and `bin/python3.*`; `ready` is sent only after `window.events.loaded` / `shown` (not before `webview.start()`); child uses `http_server=True` with **absolute** path to `assets/editor/index.html` (relative `index.html` resolves against `plugin/scripting/` and 404s); probe/save failures show child stderr + Python tracebacks via [`editor_diagnostics.py`](../plugin/scripting/editor_diagnostics.py).
 
+**Dual save modes:** Monaco always edits **stripped Python source** (inline `=PYTHON("…")` code is parsed on load; plain-text cells use `getString`). Toolbar checkbox **Save as plain text** writes `cell.setString(code)` only (for `=PYTHON($A$1; …)` workflows elsewhere). Default Save wraps `=PYTHON("…")` via `setFormula`, preserving existing data-range suffixes. Opening `=PYTHON($A$1; …)` on the formula cell remains blocked; edit the code storage cell instead.
+
+---
+
 ## 1. Architectural Overview
 
 The editor is a **separate native window** in the user's configured Python venv. It talks to LibreOffice over **stdin/stdout** (length-prefixed JSON), not TCP sockets.
@@ -33,9 +37,9 @@ Same framing idea as [`worker_harness.py`](../plugin/scripting/worker_harness.py
 | `type` | Direction | Purpose |
 |--------|-----------|---------|
 | `ready` | child → LO | GUI up (`window.events.loaded` or `shown`); safe to send `load` |
-| `load` | LO → child | Initial `code`, optional `title` |
-| `save` | child → LO | User saved; includes `code` |
-| `saved` / `error` | LO → child | Apply result in UI |
+| `load` | LO → child | Initial `code` (stripped Python only—never `=PYTHON()`), optional `title`, `data_binding`, `plain_text_label` |
+| `save` | child → LO | User saved; includes `code` and optional `save_as_plain` (default false) |
+| `saved` / `error` | LO → child | Apply result in UI; `saved` may include `save_as_plain` |
 | `closed` / `cancel` | either | Tear down session |
 
 ---
@@ -59,11 +63,11 @@ Same framing idea as [`worker_harness.py`](../plugin/scripting/worker_harness.py
 ## 4. Dependencies
 
 - **Settings → Python → `scripting.python_venv_path`:** must point at the venv where you run `pip install pywebview`. The Monaco editor **does not** use LibreOffice’s embedded Python.
-- **`pywebview`** and GUI backends in that venv. For robust cross-platform support (especially in isolated venvs on Linux), it is recommended to install the Qt6 backend:
+- **`pywebview`** and GUI backends in that venv. For robust cross-platform support (especially in isolated venvs on Linux/Python 3.14), the following stack is verified:
   ```bash
   pip install pywebview PyQt6 PyQt6-WebEngine qtpy
   ```
-  - **Why:** `pywebview` requires a GUI driver. While it can use system GTK, a venv often cannot see system bindings. Installing `PyQt6` + `WebEngine` + `qtpy` provides a self-contained Chromium-based browser engine inside the venv.
+  - **Why:** `pywebview` requires a GUI driver. While it can use system GTK, a venv often cannot see system bindings. `PyQt6` + `WebEngine` provides a self-contained Chromium-based browser engine. `qtpy` is a mandatory shim for the `pywebview` Qt driver.
 - **Linux GUI:** child inherits `DISPLAY`, `WAYLAND_DISPLAY`, `XDG_RUNTIME_DIR`, `DBUS_SESSION_BUS_ADDRESS`, `LD_LIBRARY_PATH` from the LO process. Optional `WRITERAGENT_PYWEBVIEW_GUI=qt|gtk` for [`editor_main.py`](../plugin/scripting/editor_main.py).
 - **Monaco:** vendored under `assets/editor/vs/` (~14MB); refresh with [`scripts/fetch_monaco_editor.sh`](../scripts/fetch_monaco_editor.sh).
 - **`jedi`** (session 2+): optional, persistent `Environment` in child — see below.
@@ -112,6 +116,7 @@ plugin/
 
 tests/
 ├── calc/test_python_formula_edit.py
+├── calc/test_python_editor_save_modes.py
 └── scripting/
     ├── test_editor_protocol.py
     └── test_editor_diagnostics.py
@@ -327,7 +332,8 @@ flowchart TD
 | Topic | Behavior |
 |-------|----------|
 | Cell selection | Uses sheet controller selection ([`python_editor.py`](../plugin/calc/python_editor.py)), same idea as Calc extend/edit |
-| Empty / non-PYTHON cells | Editor opens; Save writes `=PYTHON("code")` via [`build_new_python_formula`](../plugin/calc/python_formula_edit.py) |
+| Empty / non-PYTHON cells | Editor opens; Save (default) writes `=PYTHON("code")`; plain-text checkbox writes raw script via `setString` |
+| Load source | Inline PYTHON → stripped `code`; plain cell → `getString()`; Monaco never shows `=PYTHON()` |
 | Data ranges | Hidden in Monaco; preserved on Save via [`rebuild_python_formula`](../plugin/calc/python_formula_edit.py) + `data_suffix`; read-only toolbar `Data: …` (no hint comments in formula string) |
 | Formula strings | Reads `getFormula()`, `FormulaLocal`, `Formula`; normalizes leading `=`, array braces, smart quotes |
 | Unparsed PYTHON (e.g. `=PYTHON(A1; B1)`) | Blocked with msgbox — cannot safely preserve data args |
@@ -335,3 +341,18 @@ flowchart TD
 | Child `sys.path` | [`editor_main.py`](../plugin/scripting/editor_main.py) bootstraps repo root so `plugin.scripting.editor_protocol` imports |
 | Save errors to UI | Bridge sends `error` + `traceback` to child (Monaco toolbar handling in 2A) |
 
+
+---
+
+## 9. Appendix: Learnings from Rich Text Sidebar Embedding
+
+The following architectural "landmines" were discovered during parallel work on the native sidebar embedding (PR #91) and are applicable to any native UI work in LibreOffice.
+
+### The "Lazy Peer" Lifecycle
+LibreOffice (VCL) realizes GUI window handles (peers) lazily. Calling `initialize()` or `setVisible()` on a container that hasn't been rendered yet will fail or cause recursion.
+*   **The Pattern:** Always use an `XWindowListener` and wait for the `windowShown` event.
+*   **The Recursive Trap:** Calling `setVisible(True)` inside a synchronous event handler can trigger nested events. 
+*   **The Fix:** Use `post_to_main_thread` (QueueExecutor) to defer the actual embedding to the next event loop turn.
+
+### WebView vs. Writer-as-UI
+While `pywebview` is excellent for floating IDE windows (Monaco), for **docked sidebar** content, an embedded Writer document is the preferred path for zero-latency, theme-aware rich text.

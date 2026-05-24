@@ -245,6 +245,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         self.toolpanel = None
         self.m_panelRootWindow = None
         self.session = None  # Created in _wireControls
+        self.embedded_doc = None
+        self.embedded_frame = None
+        self.embedded_container = None
 
     def _on_config_changed(self, **kwargs):
         """Event bus listener for config changes."""
@@ -297,6 +300,30 @@ class ChatPanelElement(unohelper.Base, XUIElement):
     def _render_session_history(self, session, response_ctrl, model, greeting=""):
         """Update the response control with the contents of the given session."""
         try:
+            if self.embedded_doc:
+                from plugin.chatbot.rich_text import append_rich_text
+
+                # Clear embedded doc first if we are re-rendering
+                try:
+                    self.embedded_doc.getText().setString("")
+                except Exception:
+                    pass
+
+                if greeting:
+                    append_rich_text(self.embedded_doc, greeting, role="assistant")
+
+                for msg in session.messages:
+                    role = msg.get("role", "")
+                    content = msg.get("content", "")
+                    if role == "user":
+                        append_rich_text(self.embedded_doc, content, role="user")
+                    elif role == "assistant":
+                        if content:
+                            append_rich_text(self.embedded_doc, content, role="assistant")
+                        elif msg.get("tool_calls"):
+                            append_rich_text(self.embedded_doc, "[Thinking...]", role="assistant")
+                return
+
             if response_ctrl and response_ctrl.getModel():
                 text = greeting + "\n" if greeting else ""
 

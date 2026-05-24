@@ -56,6 +56,42 @@ def _parse_cell_python_formula(cell: Any) -> tuple[str, PythonFormulaParts | Non
     return "", None, None
 
 
+def _load_cell_editor_code(cell: Any) -> tuple[str, PythonFormulaParts | None, str | None]:
+    """Return Monaco source: stripped PYTHON code or plain cell text."""
+    code, parts, source = _parse_cell_python_formula(cell)
+    if parts is not None:
+        return code, parts, source
+    if _cell_has_unparsed_python(cell):
+        return "", None, None
+    try:
+        plain = cell.getString()
+        if plain:
+            return str(plain), None, None
+    except Exception:
+        log.debug("python_editor: getString failed", exc_info=True)
+    return "", None, None
+
+
+def build_editor_formula_save(
+    *,
+    parsed_parts: PythonFormulaParts | None,
+    new_code: str,
+    cell_has_unparsed_python: bool,
+) -> str | dict[str, Any]:
+    """Build ``=PYTHON("…")`` for formula-mode save, or an error dict when args cannot be preserved."""
+    if parsed_parts is not None:
+        return rebuild_python_formula(parsed_parts, new_code)
+    if cell_has_unparsed_python:
+        return {
+            "type": "error",
+            "message": _(
+                "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
+                "Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\"; A1:B10)."
+            ),
+        }
+    return build_new_python_formula(new_code)
+
+
 def _cell_has_unparsed_python(cell: Any) -> bool:
     """True when the cell looks like PYTHON but strict parse failed (data binding at risk)."""
     for raw in _cell_formula_strings(cell):
@@ -104,6 +140,13 @@ def _get_active_calc_cell(ctx: Any) -> tuple[Any, Any, str] | None:
     return model, cell, formula
 
 
+def _recalculate_after_save(doc: Any) -> None:
+    try:
+        doc.calculateAll()
+    except Exception:
+        log.debug("calculateAll after editor save failed", exc_info=True)
+
+
 def _apply_formula_save(
     doc: Any,
     cell: Any,
@@ -111,24 +154,35 @@ def _apply_formula_save(
     parsed_parts: PythonFormulaParts | None,
     new_code: str,
 ) -> dict[str, Any]:
-    if parsed_parts is not None:
-        new_formula = rebuild_python_formula(parsed_parts, new_code)
-    elif _cell_has_unparsed_python(cell):
-        return {
-            "type": "error",
-            "message": _(
-                "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-                "Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\"; A1:B10)."
-            ),
-        }
-    else:
-        new_formula = build_new_python_formula(new_code)
+    new_formula = build_editor_formula_save(
+        parsed_parts=parsed_parts,
+        new_code=new_code,
+        cell_has_unparsed_python=_cell_has_unparsed_python(cell),
+    )
+    if isinstance(new_formula, dict):
+        return new_formula
     cell.setFormula(new_formula)
-    try:
-        doc.calculateAll()
-    except Exception:
-        log.debug("calculateAll after editor save failed", exc_info=True)
-    return {"type": "saved", "ok": True}
+    _recalculate_after_save(doc)
+    return {"type": "saved", "ok": True, "save_as_plain": False}
+
+
+def _apply_plain_text_save(doc: Any, cell: Any, *, new_code: str) -> dict[str, Any]:
+    cell.setString(new_code)
+    _recalculate_after_save(doc)
+    return {"type": "saved", "ok": True, "save_as_plain": True}
+
+
+def _apply_cell_save(
+    doc: Any,
+    cell: Any,
+    *,
+    parsed_parts: PythonFormulaParts | None,
+    new_code: str,
+    save_as_plain: bool,
+) -> dict[str, Any]:
+    if save_as_plain:
+        return _apply_plain_text_save(doc, cell, new_code=new_code)
+    return _apply_formula_save(doc, cell, parsed_parts=parsed_parts, new_code=new_code)
 
 
 def _launch_editor_with_code(
@@ -142,8 +196,14 @@ def _launch_editor_with_code(
 ) -> None:
     data_binding = format_data_binding_display(parsed_parts.data_suffix) if parsed_parts else ""
 
-    def on_save(code: str) -> dict[str, Any]:
-        return _apply_formula_save(doc, cell, parsed_parts=parsed_parts, new_code=code)
+    def on_save(code: str, save_as_plain: bool) -> dict[str, Any]:
+        return _apply_cell_save(
+            doc,
+            cell,
+            parsed_parts=parsed_parts,
+            new_code=code,
+            save_as_plain=save_as_plain,
+        )
 
     def on_closed() -> None:
         log.debug("Python cell editor closed")
@@ -175,6 +235,7 @@ def _launch_editor_with_code(
         "type": "load",
         "code": initial_code,
         "title": _("PYTHON cell editor"),
+        "plain_text_label": _("Save as plain text"),
     }
     if data_binding:
         load_msg["data_binding"] = data_binding
@@ -211,7 +272,7 @@ def _open_python_cell_editor_impl(ctx: Any) -> None:
         return
     doc, cell, _formula = resolved
 
-    initial_code, parsed_parts, source_formula = _parse_cell_python_formula(cell)
+    initial_code, parsed_parts, source_formula = _load_cell_editor_code(cell)
     log.info(
         "python_editor: initial_code len=%s parsed=%s source=%r",
         len(initial_code),

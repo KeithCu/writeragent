@@ -52,10 +52,16 @@
           if (msg.title) {
             document.title = msg.title;
           }
+          if (msg.plain_text_label) {
+            var labelEl = document.getElementById("plain-text-save-text");
+            if (labelEl) {
+              labelEl.textContent = msg.plain_text_label;
+            }
+          }
           setDataBinding(msg.data_binding || "");
           applyLoad(msg.code || "");
         } else if (msg.type === "saved") {
-          setStatus("Saved.");
+          setStatus(msg.save_as_plain ? "Saved as plain text." : "Saved.");
         } else if (msg.type === "error") {
           setStatus(msg.message || "Error");
         }
@@ -82,8 +88,10 @@
 
   document.getElementById("btn-save").addEventListener("click", function () {
     var code = editor ? editor.getValue() : pendingCode;
+    var plainEl = document.getElementById("chk-plain-text");
+    var saveAsPlain = plainEl ? plainEl.checked : false;
     if (window.pywebview && window.pywebview.api) {
-      window.pywebview.api.notify_save(code);
+      window.pywebview.api.notify_save(code, saveAsPlain);
       setStatus("Saving…");
     }
   });
