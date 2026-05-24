@@ -21,9 +21,28 @@ from __future__ import annotations
 import array
 import logging
 import math
+import sys
+import os
 from typing import Any, Literal, cast
 
 log = logging.getLogger(__name__)
+
+# --- Optional Cython accelerator --------------------------------------------------
+
+fast_flatten_grid_2d: Any = None
+try:
+    # Try to import from plugin.contrib.vec_pack
+    from plugin.contrib.vec_pack import fast_flatten_grid_2d as _fast_flatten
+    fast_flatten_grid_2d = _fast_flatten
+    log.debug("payload_codec: Cython accelerator loaded successfully")
+except ImportError:
+    # Fallback to absolute import if needed (for some environments)
+    try:
+        import writeragent_vec as _wv
+        fast_flatten_grid_2d = _wv.fast_flatten_grid_2d
+        log.debug("payload_codec: Cython accelerator loaded via absolute import")
+    except ImportError:
+        pass
 
 import importlib
 
@@ -464,33 +483,42 @@ def _flatten_grid_to_components(
     # None is handled in the fast path to avoid disabling it for empty cells.
     if is_2d:
         grid_2d = cast("list[list[Any]]", grid)
-        idx = 0
-        for row in grid_2d:
-            if len(row) != ncols:
-                # Uneven nested-list row lengths should never happen for Calc ranges (rectangular UNO blocks).
-                row_lens = [len(r) for r in grid_2d]
-                log.error("payload_codec: uneven row lengths in 2D grid: %s", row_lens)
-                raise ValueError(f"Uneven row lengths in data grid: {row_lens}")
-            
-            for c, val in enumerate(row):
-                if val is None:
-                    buf_append(nan)
-                    column_has_none[c] = True
-                elif type(val) is str:
-                    has_non_numeric = True
-                    _append_cell_slow(val, c, idx)
-                elif not has_non_numeric:
-                    try:
-                        fval = float(val)
-                        buf_append(fval)
-                        if column_states[c] != 3:
-                            _flatten_update_column_state(column_states, c, val)
-                    except (TypeError, ValueError):
+        use_stdlib = True
+        if fast_flatten_grid_2d is not None:
+            try:
+                buf, strings, column_states, column_has_none, has_non_numeric = fast_flatten_grid_2d(grid_2d, ncols)
+                use_stdlib = False
+            except Exception as e:
+                log.debug("payload_codec: Cython accelerator failed, falling back to stdlib: %s", e)
+        
+        if use_stdlib:
+            idx = 0
+            for row in grid_2d:
+                if len(row) != ncols:
+                    # Uneven nested-list row lengths should never happen for Calc ranges (rectangular UNO blocks).
+                    row_lens = [len(r) for r in grid_2d]
+                    log.error("payload_codec: uneven row lengths in 2D grid: %s", row_lens)
+                    raise ValueError(f"Uneven row lengths in data grid: {row_lens}")
+                
+                for c, val in enumerate(row):
+                    if val is None:
+                        buf_append(nan)
+                        column_has_none[c] = True
+                    elif type(val) is str:
                         has_non_numeric = True
                         _append_cell_slow(val, c, idx)
-                else:
-                    _append_cell_slow(val, c, idx)
-                idx += 1
+                    elif not has_non_numeric:
+                        try:
+                            fval = float(val)
+                            buf_append(fval)
+                            if column_states[c] != 3:
+                                _flatten_update_column_state(column_states, c, val)
+                        except (TypeError, ValueError):
+                            has_non_numeric = True
+                            _append_cell_slow(val, c, idx)
+                    else:
+                        _append_cell_slow(val, c, idx)
+                    idx += 1
     else:
         grid_1d = cast("list[Any]", grid)
         for idx, val in enumerate(grid_1d):

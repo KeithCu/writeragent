@@ -80,18 +80,20 @@ else
 endif
 
 # Prefer project .venv so "make test" uses venv even when shell isn't activated
+PROJECT_ROOT := $(shell pwd)
 ifneq ($(wildcard .venv/bin/python),)
-    PYTHON := .venv/bin/python
+    PYTHON := $(PROJECT_ROOT)/.venv/bin/python
 endif
 ifeq ($(OS),Windows_NT)
 ifneq ($(wildcard .venv/Scripts/python.exe),)
-    PYTHON := .venv/Scripts/python.exe
+    PYTHON := $(PROJECT_ROOT)/.venv/Scripts/python.exe
 endif
 endif
 
 # ── Phony targets ────────────────────────────────────────────────────────────
 
 .PHONY: help build build-no-recording release release-build repack repack-deploy register-built-oxt manifest xcu clean \
+        native build-native clean-native \
         proxy-stubs \
         openrouter-catalog \
         install install-force uninstall cache \
@@ -113,9 +115,11 @@ help:
 	@echo "================================="
 	@echo ""
 	@echo "Build:"
-	@echo "  make build                  Build .oxt with tests (runs ty + ruff, then gettext/UI steps)"
+	@echo "  make build                  Build .oxt with tests (regular build, no Cython)"
+	@echo "  make build-native           Build .oxt with Cython accelerator"
 	@echo "  make openrouter-catalog     Fetch Orca slim OpenRouter catalog + refresh default_models.py (network)"
-	@echo "  make release                Full verification: test source, build stripped bundle with tests, test bundle, build final .oxt, then register (unopkg; no LO start)"
+	@echo "  make release                Regular build with full verification: test source, build stripped bundle,"
+	@echo "                              test bundle, build final .oxt. (Includes Cython if pre-built via 'make native')"
 	@echo "  make build-no-recording     Build .oxt without voice recording (no plugin/contrib/audio, no Record button)"
 	@echo "  make xcu                    Generate XCS/XCU from config schemas"
 	@echo "  make clean                  Remove build artifacts"
@@ -148,6 +152,8 @@ help:
 	@echo ""
 	@echo "Info:"
 	@echo "  make check-setup            Verify dev stack (Python, LO, make, ...)"
+	@echo "  make native                 Build Cython accelerator (default: x86-64-v3)"
+	@echo "                              Set WRITERAGENT_ARCH=x86-64-v[1-4] to override."
 	@echo "  make check-ext              Verify extension is registered"
 	@echo "  make set-config             List all config keys"
 	@echo "  make test                   Run ty, mypy, pyright, bandit, then pytest + in-process LO tests"
@@ -272,12 +278,33 @@ register-built-oxt:
 manifest:
 	$(PYTHON) $(SCRIPTS)/generate_manifest.py
 
+native:
+	cd native/writeragent_vec && $(PYTHON) setup.py build_ext --inplace
+	$(MKDIR) plugin/contrib/vec_pack
+	cp native/writeragent_vec/src/writeragent_vec/*.so plugin/contrib/vec_pack/ 2>/dev/null || \
+	cp native/writeragent_vec/src/writeragent_vec/*.pyd plugin/contrib/vec_pack/ 2>/dev/null || true
+	echo "try:" > plugin/contrib/vec_pack/__init__.py
+	echo "    from .pack import fast_flatten_grid_2d" >> plugin/contrib/vec_pack/__init__.py
+	echo "except ImportError:" >> plugin/contrib/vec_pack/__init__.py
+	echo "    fast_flatten_grid_2d = None" >> plugin/contrib/vec_pack/__init__.py
+
+# Convenience target to build with Cython accelerator
+build-native: native build
+
+clean-native:
+	$(RM_RF) native/writeragent_vec/build
+	$(RM_RF) native/writeragent_vec/src/writeragent_vec/*.so
+	$(RM_RF) native/writeragent_vec/src/writeragent_vec/*.pyd
+	$(RM_RF) native/writeragent_vec/src/writeragent_vec/*.c
+	$(RM_RF) plugin/contrib/vec_pack/*.so
+	$(RM_RF) plugin/contrib/vec_pack/*.pyd
+
 proxy-stubs:
 	$(PYTHON) scripts/generate_tool_proxies.py > plugin/scripting/writeragent_api.py
 
 xcu: manifest
 
-clean:
+clean: clean-native
 	$(RM_RF) build
 	find . -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
 	find . -name "*.pyc" -delete 2>/dev/null || true

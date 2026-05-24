@@ -444,6 +444,16 @@ The standardized Split-Grid format fixed the **child** hot path (`frombuffer` vs
 
 **Suggested next sprint:** (1) LO profile → (2) product/prompt fixes → (3) host opaque blob or single-pass UNO→bytes **only if** step 1 points there.
 
+#### Experimental Cython Accelerator (May 2026)
+
+**Status: Experimental / Arch-Specific**
+A high-performance Cython implementation of the flattening loop has been developed to address the remaining Python bottleneck. 
+
+- **Performance Gain**: Achieved a **3.5x speedup** on the flattening stage.
+- **Data**: Ingress "pack" time for 100k cells dropped from **~8ms** (stdlib) to **~2ms** (Cython).
+- **Deployment**: Currently limited to specific architectures (e.g., Linux x86-64-v3). The system dynamically detects the binary and falls back to the optimized stdlib implementation on other platforms.
+- **Future**: Broad shipping requires CI-based multi-ABI builds (cibuildwheel).
+
 #### Priority 1 — Profile inside LibreOffice (gate for everything else)
 
 [`scripts/bench_serialization.py`](../scripts/bench_serialization.py) is asymmetric and **skips** the production step that still costs most on the host: **UNO range read → one Python object per cell** in [`calc_addin_data_to_python`](../plugin/calc/calc_addin_data.py), then [`pack_calc_data_for_wire`](../plugin/calc/calc_addin_data.py).

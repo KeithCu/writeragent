@@ -52,6 +52,8 @@ dev = [
     "deal",
     "crosshair-tool",
     "hypothesis",
+    "Cython",
+    "setuptools",
 ]
 
 [tool.ruff]
