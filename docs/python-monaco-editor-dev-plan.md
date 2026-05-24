@@ -40,7 +40,7 @@ Same framing idea as [`worker_harness.py`](../plugin/scripting/worker_harness.py
 |--------|-----------|---------|
 | `ready` | child → LO | GUI up (`window.events.loaded` or `shown`); safe to send `load` |
 | `load` | LO → child | Initial `code` (stripped Python only—never `=PYTHON()`), optional `title`, `data_binding`, `plain_text_label` |
-| `save` | child → LO | User saved; includes `code` and optional `save_as_plain` (default false) |
+| `save` | child → LO | User saved; includes `code`, optional `save_as_plain` (default false), optional `data_binding` (range text for formula suffix) |
 | `saved` / `error` | LO → child | Apply result in UI; `saved` may include `save_as_plain` |
 | `closed` / `cancel` | either | Tear down session |
 
@@ -83,7 +83,7 @@ Same framing idea as [`worker_harness.py`](../plugin/scripting/worker_harness.py
 | Feature | Notes |
 |---------|--------|
 | Syntax validation | Debounced `compile()` on LO main thread; squiggles in Monaco |
-| Range picker | `GlobalCalcRangeSelector` via pipe + main thread |
+| Range picker | `GlobalCalcRangeSelector` via pipe + main thread (**deferred**; editable textbox for data ranges shipped first) |
 | Theme sync | LO VCL → `vs` / `vs-dark` |
 | Flatpak/Snap spawn | `flatpak-spawn --host` |
 | Formula bar button | Optional |
@@ -339,7 +339,7 @@ flowchart TD
 | Cell selection | Uses sheet controller selection ([`python_editor.py`](../plugin/calc/python_editor.py)), same idea as Calc extend/edit |
 | Empty / non-PYTHON cells | Editor opens; Save (default) writes `=PYTHON("code")`; plain-text checkbox writes raw script via `setString` |
 | Load source | Inline PYTHON → stripped `code`; plain cell → `getString()`; Monaco never shows `=PYTHON()` |
-| Data ranges | Hidden in Monaco; preserved on Save via [`rebuild_python_formula`](../plugin/calc/python_formula_edit.py) + `data_suffix`; read-only toolbar `Data: …` (no hint comments in formula string) |
+| Data ranges | Editable toolbar textbox (`data_binding` on load/save); written into `=PYTHON("code"; …)` suffix via [`python_formula_edit.py`](../plugin/calc/python_formula_edit.py); single range → `data`, multiple comma/semicolon-separated → `data_list` |
 | Formula strings | Reads `getFormula()`, `FormulaLocal`, `Formula`; normalizes leading `=`, array braces, smart quotes |
 | Unparsed PYTHON (e.g. `=PYTHON(A1; B1)`) | Blocked with msgbox — cannot safely preserve data args |
 | Single session | Second open while editor running shows “already open” |

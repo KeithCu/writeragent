@@ -171,6 +171,43 @@ def format_data_binding_display(data_suffix: str) -> str:
     return s.strip()
 
 
+def parse_data_binding_text(text: str) -> list[str]:
+    """Parse editor textbox content into formula data arguments."""
+    raw = (text or "").strip()
+    if not raw:
+        return []
+    if raw.startswith("[") and raw.endswith("]"):
+        raw = raw[1:-1].strip()
+    parts = [p.strip() for p in re.split(r"[,;]", raw) if p.strip()]
+    return [p for p in parts if '"' not in p]
+
+
+def format_data_binding_text(data_args: list[str]) -> str:
+    """Format data args for the editor textbox (comma-separated)."""
+    cleaned = [a.strip() for a in data_args if a.strip()]
+    return ", ".join(cleaned)
+
+
+def build_data_suffix(data_args: list[str]) -> str:
+    """Build the ``data_suffix`` fragment from parsed range/index tokens."""
+    args = [a.strip() for a in data_args if a.strip()]
+    if not args:
+        return ")"
+    return f';{";".join(args)})'
+
+
+def rebuild_python_formula_with_data(
+    code: str,
+    data_args: list[str],
+    *,
+    parts: PythonFormulaParts | None = None,
+) -> str:
+    """Build ``=PYTHON("…"; ranges…)`` from code and data arguments."""
+    escaped = escape_code_for_formula(code)
+    prefix = parts.prefix if parts is not None else "=PYTHON("
+    return f'{prefix}"{escaped}"{build_data_suffix(data_args)}'
+
+
 def cell_looks_python_like(formula: str) -> bool:
     """True if *formula* appears to be a PYTHON call (even if strict parse failed)."""
     if not formula:

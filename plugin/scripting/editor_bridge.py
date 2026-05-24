@@ -33,7 +33,7 @@ class EditorSession:
         self,
         proc: "subprocess.Popen[bytes]",
         *,
-        on_save: Callable[[str, bool], dict[str, Any]],
+        on_save: Callable[..., dict[str, Any]],
         on_closed: Callable[[], None],
         executor: QueueExecutor | None = None,
     ) -> None:
@@ -142,10 +142,13 @@ class EditorSession:
                 code = ""
 
             save_as_plain = bool(msg.get("save_as_plain"))
+            data_binding = msg.get("data_binding")
+            if data_binding is not None and not isinstance(data_binding, str):
+                data_binding = str(data_binding)
 
             def _handle_save() -> None:
                 try:
-                    result = self._on_save(code, save_as_plain)
+                    result = self._on_save(code, save_as_plain, data_binding)
                     if not isinstance(result, dict):
                         result = {"type": "saved", "ok": True}
                     self.send(result)

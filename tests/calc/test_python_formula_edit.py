@@ -7,11 +7,15 @@
 from __future__ import annotations
 
 from plugin.calc.python_formula_edit import (
+    build_data_suffix,
     build_new_python_formula,
     format_data_binding_display,
+    format_data_binding_text,
     normalize_formula_string,
+    parse_data_binding_text,
     parse_python_formula,
     rebuild_python_formula,
+    rebuild_python_formula_with_data,
     replace_python_code,
 )
 
@@ -105,4 +109,40 @@ def test_format_data_binding_display():
     assert format_data_binding_display(")") == ""
     assert format_data_binding_display(";A1:B10)") == "A1:B10"
     assert format_data_binding_display(";A1; C1:C5)") == "A1; C1:C5"
+
+
+def test_parse_data_binding_text_single():
+    assert parse_data_binding_text("A1:C1") == ["A1:C1"]
+    assert parse_data_binding_text("  Sheet1.A1:B2  ") == ["Sheet1.A1:B2"]
+
+
+def test_parse_data_binding_text_multi():
+    assert parse_data_binding_text("A1:C1, C1:C5") == ["A1:C1", "C1:C5"]
+    assert parse_data_binding_text("A1; C1:C5") == ["A1", "C1:C5"]
+    assert parse_data_binding_text("[A1:C1, C1:C5]") == ["A1:C1", "C1:C5"]
+
+
+def test_parse_data_binding_text_empty():
+    assert parse_data_binding_text("") == []
+    assert parse_data_binding_text("   ") == []
+
+
+def test_build_data_suffix():
+    assert build_data_suffix([]) == ")"
+    assert build_data_suffix(["A1:B10"]) == ";A1:B10)"
+    assert build_data_suffix(["A1:B10", "C1:C5"]) == ";A1:B10;C1:C5)"
+
+
+def test_rebuild_python_formula_with_data():
+    formula = rebuild_python_formula_with_data("np.sum(data)", ["A1:A10"])
+    assert formula == '=PYTHON("np.sum(data)";A1:A10)'
+    reparsed = parse_python_formula(formula)
+    assert reparsed is not None
+    assert reparsed.code == "np.sum(data)"
+
+
+def test_format_data_binding_text_round_trip():
+    args = ["A1:B10", "C1:C5"]
+    text = format_data_binding_text(args)
+    assert parse_data_binding_text(text) == args
 

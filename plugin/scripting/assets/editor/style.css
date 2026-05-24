@@ -35,13 +35,29 @@ html, body {
   cursor: pointer;
 }
 
-#data-binding {
+.data-binding-label {
   font-size: 12px;
-  opacity: 0.9;
-  max-width: 55%;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  user-select: none;
   white-space: nowrap;
+}
+
+.data-binding-label.disabled {
+  opacity: 0.55;
+}
+
+#data-binding-input {
+  flex: 1 1 140px;
+  min-width: 120px;
+  max-width: 320px;
+  font-size: 12px;
+  padding: 3px 6px;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+}
+
+#data-binding-input:disabled {
+  opacity: 0.55;
+  background: #eee;
 }
 
 #status {

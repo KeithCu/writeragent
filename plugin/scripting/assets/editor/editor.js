@@ -5,6 +5,7 @@
   var editor = null;
   var pendingCode = "";
   var statusClearTimer = null;
+  var dataBindingTitle = "Calc injects `data` and `data_list` from these range(s) at runtime.";
 
   function setStatus(text, kind) {
     var el = document.getElementById("status");
@@ -39,17 +40,39 @@
     return text;
   }
 
+  function getDataBindingInput() {
+    return document.getElementById("data-binding-input");
+  }
+
+  function getPlainTextCheckbox() {
+    return document.getElementById("chk-plain-text");
+  }
+
   function setDataBinding(text) {
-    var el = document.getElementById("data-binding");
-    if (!el) {
-      return;
+    var input = getDataBindingInput();
+    if (input) {
+      input.value = text || "";
     }
-    if (text) {
-      el.textContent = "Data: " + text;
-      el.title = "Calc injects `data` and `data_list` from these range(s) at runtime.";
-    } else {
-      el.textContent = "Data: (none)";
-      el.title = "Add range(s) in the =PYTHON() formula to inject `data` / `data_list`.";
+  }
+
+  function getDataBindingValue() {
+    var input = getDataBindingInput();
+    return input ? input.value.trim() : "";
+  }
+
+  function updateDataBindingEnabled() {
+    var plainEl = getPlainTextCheckbox();
+    var input = getDataBindingInput();
+    var label = document.getElementById("data-binding-label");
+    var disabled = plainEl ? plainEl.checked : false;
+    if (input) {
+      input.disabled = disabled;
+      input.title = disabled
+        ? "Data ranges apply only when saving as a =PYTHON() formula."
+        : dataBindingTitle;
+    }
+    if (label) {
+      label.classList.toggle("disabled", disabled);
     }
   }
 
@@ -85,6 +108,7 @@
             }
           }
           setDataBinding(msg.data_binding || "");
+          updateDataBindingEnabled();
           applyLoad(msg.code || "");
         } else if (msg.type === "saved") {
           setStatus(msg.save_as_plain ? "Saved as plain text." : "Saved.", "ok");
@@ -117,10 +141,11 @@
 
   document.getElementById("btn-save").addEventListener("click", function () {
     var code = editor ? editor.getValue() : pendingCode;
-    var plainEl = document.getElementById("chk-plain-text");
+    var plainEl = getPlainTextCheckbox();
     var saveAsPlain = plainEl ? plainEl.checked : false;
+    var dataBinding = saveAsPlain ? "" : getDataBindingValue();
     if (window.pywebview && window.pywebview.api) {
-      window.pywebview.api.notify_save(code, saveAsPlain);
+      window.pywebview.api.notify_save(code, saveAsPlain, dataBinding);
       setStatus("Saving…", "");
     }
   });
@@ -131,6 +156,17 @@
     }
     window.close();
   });
+
+  var plainCheckbox = getPlainTextCheckbox();
+  if (plainCheckbox) {
+    plainCheckbox.addEventListener("change", updateDataBindingEnabled);
+  }
+
+  var dataInput = getDataBindingInput();
+  if (dataInput) {
+    dataInput.title = dataBindingTitle;
+  }
+  updateDataBindingEnabled();
 
   if (typeof require !== "undefined") {
     initMonaco();

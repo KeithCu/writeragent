@@ -15,6 +15,60 @@ from plugin.calc.python_editor import (
 from plugin.calc.python_formula_edit import parse_python_formula
 
 
+def test_build_editor_formula_save_new_cell_with_data_binding():
+    result = build_editor_formula_save(
+        parsed_parts=None,
+        new_code="np.mean(data)",
+        cell_has_unparsed_python=False,
+        data_binding_text="A1:A10",
+    )
+    assert result == '=PYTHON("np.mean(data)";A1:A10)'
+
+
+def test_build_editor_formula_save_multi_range_from_textbox():
+    result = build_editor_formula_save(
+        parsed_parts=None,
+        new_code="sum(d) for d in data_list",
+        cell_has_unparsed_python=False,
+        data_binding_text="A1:A5, C1:C5",
+    )
+    assert isinstance(result, str)
+    assert "A1:A5" in result
+    assert "C1:C5" in result
+
+
+def test_build_editor_formula_save_clear_data_binding():
+    parts = parse_python_formula('=PYTHON("x"; A1:B10)')
+    assert parts is not None
+    result = build_editor_formula_save(
+        parsed_parts=parts,
+        new_code="x = 1",
+        cell_has_unparsed_python=False,
+        data_binding_text="",
+    )
+    assert result == '=PYTHON("x = 1")'
+
+
+def test_apply_cell_save_with_data_binding():
+    doc = MagicMock()
+    cell = MagicMock()
+
+    result = _apply_cell_save(
+        doc,
+        cell,
+        parsed_parts=None,
+        new_code="np.sum(data)",
+        save_as_plain=False,
+        data_binding_text="D1:D10",
+    )
+
+    assert result == {"type": "saved", "ok": True, "save_as_plain": False}
+    formula = cell.setFormula.call_args[0][0]
+    assert "D1:D10" in formula
+    assert "np.sum(data)" in formula
+    doc.calculateAll.assert_called_once()
+
+
 def test_build_editor_formula_save_new_cell():
     result = build_editor_formula_save(
         parsed_parts=None,

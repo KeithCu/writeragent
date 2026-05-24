@@ -15,8 +15,10 @@ from plugin.calc.python_formula_edit import (
     build_new_python_formula,
     cell_looks_python_like,
     format_data_binding_display,
+    parse_data_binding_text,
     parse_python_formula,
     rebuild_python_formula,
+    rebuild_python_formula_with_data,
 )
 from plugin.chatbot.dialogs import msgbox
 from plugin.framework.i18n import _
@@ -77,8 +79,12 @@ def build_editor_formula_save(
     parsed_parts: PythonFormulaParts | None,
     new_code: str,
     cell_has_unparsed_python: bool,
+    data_binding_text: str | None = None,
 ) -> str | dict[str, Any]:
     """Build ``=PYTHON("…")`` for formula-mode save, or an error dict when args cannot be preserved."""
+    if data_binding_text is not None:
+        data_args = parse_data_binding_text(data_binding_text)
+        return rebuild_python_formula_with_data(new_code, data_args, parts=parsed_parts)
     if parsed_parts is not None:
         return rebuild_python_formula(parsed_parts, new_code)
     if cell_has_unparsed_python:
@@ -153,11 +159,13 @@ def _apply_formula_save(
     *,
     parsed_parts: PythonFormulaParts | None,
     new_code: str,
+    data_binding_text: str | None = None,
 ) -> dict[str, Any]:
     new_formula = build_editor_formula_save(
         parsed_parts=parsed_parts,
         new_code=new_code,
         cell_has_unparsed_python=_cell_has_unparsed_python(cell),
+        data_binding_text=data_binding_text,
     )
     if isinstance(new_formula, dict):
         return new_formula
@@ -179,10 +187,17 @@ def _apply_cell_save(
     parsed_parts: PythonFormulaParts | None,
     new_code: str,
     save_as_plain: bool,
+    data_binding_text: str | None = None,
 ) -> dict[str, Any]:
     if save_as_plain:
         return _apply_plain_text_save(doc, cell, new_code=new_code)
-    return _apply_formula_save(doc, cell, parsed_parts=parsed_parts, new_code=new_code)
+    return _apply_formula_save(
+        doc,
+        cell,
+        parsed_parts=parsed_parts,
+        new_code=new_code,
+        data_binding_text=data_binding_text,
+    )
 
 
 def _launch_editor_with_code(
@@ -196,13 +211,15 @@ def _launch_editor_with_code(
 ) -> None:
     data_binding = format_data_binding_display(parsed_parts.data_suffix) if parsed_parts else ""
 
-    def on_save(code: str, save_as_plain: bool) -> dict[str, Any]:
+    def on_save(code: str, save_as_plain: bool, data_binding: str | None = None) -> dict[str, Any]:
+        binding = None if save_as_plain else data_binding
         return _apply_cell_save(
             doc,
             cell,
             parsed_parts=parsed_parts,
             new_code=code,
             save_as_plain=save_as_plain,
+            data_binding_text=binding,
         )
 
     def on_closed() -> None:
@@ -237,8 +254,7 @@ def _launch_editor_with_code(
         "title": _("PYTHON cell editor"),
         "plain_text_label": _("Save as plain text"),
     }
-    if data_binding:
-        load_msg["data_binding"] = data_binding
+    load_msg["data_binding"] = data_binding
     try:
         session.send(load_msg)
     except Exception as e:

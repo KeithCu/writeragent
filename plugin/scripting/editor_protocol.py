@@ -2,7 +2,16 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Length-prefixed JSON messages for the Monaco editor child process (stdin/stdout)."""
+"""Length-prefixed JSON messages for the Monaco editor child process (stdin/stdout).
+
+Message types (``type`` field):
+
+- ``ready`` child → LO
+- ``load`` LO → child: ``code``, optional ``title``, ``data_binding``, ``plain_text_label``
+- ``save`` child → LO: ``code``, optional ``save_as_plain``, ``data_binding`` (range text for formula suffix)
+- ``saved`` / ``error`` LO → child
+- ``closed`` / ``cancel`` either direction
+"""
 
 from __future__ import annotations
 
