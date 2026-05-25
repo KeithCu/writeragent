@@ -135,3 +135,28 @@ def test_run_venv_self_check_timeout():
         ok, msg = run_venv_self_check("/x/python", timeout=1.0)
     assert ok is False
     assert "Timed out" in msg
+
+
+def test_run_venv_self_check_reports_architecture():
+    """Live self-check includes platform.machine() in the output."""
+    ok, msg = run_venv_self_check(sys.executable, timeout=10.0)
+    assert ok is True
+    import platform
+    expected_arch = platform.machine()
+    assert expected_arch in msg
+
+
+def test_format_self_check_success_with_arch():
+    from plugin.scripting.venv_probe import _format_self_check_success
+    data = {"v": "3.12.0", "arch": "ARM64", "p": {}, "sci": [], "ui": []}
+    msg = _format_self_check_success(data)
+    assert "Python 3.12.0 (ARM64)" in msg
+    assert "responds OK" in msg
+
+
+def test_format_self_check_success_without_arch():
+    from plugin.scripting.venv_probe import _format_self_check_success
+    data = {"v": "3.11.5", "p": {}, "sci": [], "ui": []}
+    msg = _format_self_check_success(data)
+    assert "Python 3.11.5 responds OK" in msg
+    assert "(" not in msg.split("\n")[0]

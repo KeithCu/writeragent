@@ -81,6 +81,7 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 
 - **Execute Python**: Use your own virtual environment (running any version of Python) to access libraries like `numpy`, `pandas`, etc.
 - **Enable it**: Set path in **Settings → Python**. Exposed to LLMs in Writer, Calc, and Draw / Impress.
+- **Recommended packages**: `pip install numpy pandas sympy scipy matplotlib scikit-learn` (scientific); `pip install pywebview jedi PyQt6 PyQt6-WebEngine qtpy` (Monaco editor UI). `numpy`, `pandas`, `sympy`, and `math` are auto-imported as `np`, `pd`, `sp`. Use the **Test** button in Settings to see which are installed.
 - **Agentic Analysis**: The AI can run Numpy computations and return structured results (as JSON) to update your document.
 - **New Calc Formula**: Use `=PYTHON(3 ** 8")` or pass a range: `=PYTHON("sum(data)", A1:A10)`. The **`data`** variable is a special variable containing the cell values, dynamically injected into your Python script's execution namespace at runtime ([Data Handoff Guide](docs/enabling_numpy_in_libreoffice.md#data-handoff-and-shaping)). Single-cell or single-entry inputs are automatically unpacked to Python scalars (and coerced to standard Python `int`s when they represent whole numbers), enabling intuitive formulas like `=PYTHON("sp.prime(data)", 100000)`.
 - **Multi-Range Support**: (*In version 0.8.6.*) `=PYTHON()` now supports an arbitrary number of non-contiguous ranges (e.g., `=PYTHON("np.mean(data)", A1:A10, C1:C10)`) for complex cross-block analysis.

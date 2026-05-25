@@ -54,7 +54,14 @@ USE_DOCKER ?=
 ifeq ($(OS),Windows_NT)
     # Use Git Bash as shell so Unix commands (sleep, rm, cat, tail...) work everywhere.
     # Run install.ps1 to ensure Git for Windows is installed.
-    BASH_PATH := $(firstword $(wildcard C:/Program\ Files/Git/usr/bin/bash.exe) $(wildcard C:/Program\ Files/Git/bin/bash.exe))
+    # Use 8.3 short path (Progra~1) to avoid spaces that break $(firstword) and SHELL.
+    BASH_PATH := $(wildcard C:/Progra~1/Git/usr/bin/bash.exe)
+    ifeq ($(BASH_PATH),)
+        BASH_PATH := $(wildcard C:/Progra~1/Git/bin/bash.exe)
+    endif
+    ifeq ($(BASH_PATH),)
+        BASH_PATH := $(wildcard C:/Program\ Files/Git/usr/bin/bash.exe)
+    endif
     ifneq ($(BASH_PATH),)
         SHELL   := $(BASH_PATH)
     endif
@@ -80,7 +87,7 @@ else
 endif
 
 # Prefer project .venv so "make test" uses venv even when shell isn't activated
-PROJECT_ROOT := $(shell pwd)
+PROJECT_ROOT := $(CURDIR)
 ifneq ($(wildcard .venv/bin/python),)
     PYTHON := $(PROJECT_ROOT)/.venv/bin/python
 endif

@@ -66,7 +66,7 @@ def resolve_venv_python(venv_dir: str) -> Optional[str]:
 # forbidden by the sandbox and will cause an InterpreterError. Use explicit try/except import blocks.
 _DIAGNOSTIC_SCRIPT = """
 import platform
-res = {'v': platform.python_version(), 'p': {}}
+res = {'v': platform.python_version(), 'arch': platform.machine(), 'p': {}}
 sci = ['numpy', 'pandas', 'scipy', 'sklearn', 'matplotlib', 'sympy']
 ui = ['webview', 'jedi', 'PyQt6', 'PyQt6.QtWebEngineWidgets', 'qtpy']
 res['sci'] = sci
@@ -145,11 +145,13 @@ result = res
 
 def _format_self_check_success(data: dict[str, Any]) -> str:
     version = data.get("v", "unknown")
+    arch = data.get("arch", "")
     packages = data.get("p", {})
     sci_list = data.get("sci", [])
     ui_list = data.get("ui", [])
 
-    msg_lines = [f"Python {version} responds OK."]
+    header = f"Python {version} ({arch})" if arch else f"Python {version}"
+    msg_lines = [f"{header} responds OK."]
 
     def format_group(title, keys):
         found = []

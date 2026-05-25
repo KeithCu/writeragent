@@ -90,7 +90,7 @@ class PythonWorkerManager:
                     # Trusted IPC: bytes from our own worker_harness child over a private pipe.
                     response = pickle.loads(response_bytes)  # nosec B301
                     return self._normalize_response(response)
-                except (BrokenPipeError, pickle.UnpicklingError, RuntimeError, subprocess.TimeoutExpired) as e:
+                except (BrokenPipeError, pickle.UnpicklingError, RuntimeError, subprocess.TimeoutExpired, OSError) as e:
                     log.warning("Python worker failed (attempt %s): %s", attempt + 1, e)
                     self._terminate_worker()
                     if attempt == 1:
@@ -138,6 +138,15 @@ class PythonWorkerManager:
 
     def _read_response_bytes(self, stdout: IO[bytes], timeout_sec: int) -> bytes:
         assert self._proc is not None
+        # Windows select.select() only supports sockets, not pipes (raises
+        # WinError 10038).  Use a thread-based blocking read there instead.
+        if os.name == "nt":
+            return self._read_response_bytes_threaded(stdout, timeout_sec)
+        return self._read_response_bytes_select(stdout, timeout_sec)
+
+    def _read_response_bytes_select(self, stdout: IO[bytes], timeout_sec: int) -> bytes:
+        """POSIX path: use select() to poll the pipe with a timeout."""
+        assert self._proc is not None
         end = time.time() + timeout_sec
 
         def _read_exact(n: int) -> bytes:
@@ -166,6 +175,33 @@ class PythonWorkerManager:
             return b""
 
         return payload
+
+    def _read_response_bytes_threaded(self, stdout: IO[bytes], timeout_sec: int) -> bytes:
+        """Windows path: blocking read in a daemon thread with join-timeout."""
+        result: list[bytes] = [b""]
+        error: list[BaseException | None] = [None]
+
+        def _reader() -> None:
+            try:
+                header = stdout.read(4)
+                if not header or len(header) < 4:
+                    return
+                size = struct.unpack("!I", header)[0]
+                payload = stdout.read(size)
+                if len(payload) < size:
+                    return
+                result[0] = payload
+            except Exception as exc:
+                error[0] = exc
+
+        t = threading.Thread(target=_reader, daemon=True)
+        t.start()
+        t.join(timeout=timeout_sec)
+        if t.is_alive():
+            raise subprocess.TimeoutExpired(cmd=self.exe, timeout=timeout_sec)
+        if error[0] is not None:
+            raise error[0]
+        return result[0]
 
     def _terminate_worker(self) -> None:
         proc = self._proc
