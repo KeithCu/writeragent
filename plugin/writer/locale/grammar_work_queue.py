@@ -2,7 +2,74 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Grammar work queue: work items, batch dedup, pure enqueue/stale helpers, sequential LLM worker."""
+"""Grammar work queue: work items, batch dedup, pure enqueue/stale helpers, sequential LLM worker.
+
+Queue dedup / stale-suppression mental model
+=============================================
+
+The grammar queue must ensure that for any given ``inflight_key``, only the
+**newest** snapshot (highest ``enqueue_seq``) ever reaches the LLM.  Three
+independent layers enforce this invariant, each catching a scenario the others
+miss:
+
+**Layer 1 — Tail-replace at enqueue time** (``enqueue`` + ``tail_enqueue_operation``)
+
+    When a new item is enqueued, the queue mutex is acquired and the *last*
+    element of the internal deque is inspected.  If it shares the same
+    ``inflight_key`` and has a lower ``enqueue_seq``, it is overwritten
+    in-place (O(1)).  This collapses back-to-back keystrokes that arrive
+    before the worker thread wakes up and drains the queue.
+
+    *Blind spot*: If the worker already drained the queue between two
+    keystrokes (common during typing bursts — the worker pulls items within
+    microseconds), the queue is empty when the next enqueue arrives and there
+    is no tail to replace.
+
+**Layer 2 — Batch-drain dedup** (``_drain_loop`` dict accumulator + ``deduplicate_grammar_batch``)
+
+    After the worker wakes on the first ``get()``, it enters a tight
+    ``get(timeout=GRAMMAR_WORKER_PAUSE_TIMEOUT_S)`` loop that collects every
+    pending item into a ``batch_by_key`` dict keyed by ``inflight_key``.
+    For each key only the item with the highest ``enqueue_seq`` is kept.
+    The result is then passed through ``deduplicate_grammar_batch`` — which
+    applies the same highest-seq-wins rule — as a canonical safety net (it is
+    also the standalone pure function used by tests and any external caller).
+
+    *Why both the dict and ``deduplicate_grammar_batch``?*  The dict handles
+    the fast path during draining; ``deduplicate_grammar_batch`` is defense-
+    in-depth and the single source of truth for the dedup contract.
+
+    *Blind spot*: Neither can detect items that were already consumed in a
+    *previous* batch and whose ``inflight_key`` was re-enqueued while the
+    worker was busy with the LLM.
+
+**Layer 3 — Pre-execute and post-LLM stale checks** (``_latest_seq`` map)
+
+    ``enqueue`` records the newest ``enqueue_seq`` per ``inflight_key`` in
+    ``_latest_seq`` (under ``_seq_lock``).  Before sending a batch item to
+    the LLM, the worker calls ``_is_stale`` — if a newer enqueue has been
+    recorded since this item was drained, it is skipped.  After the LLM
+    returns, ``inflight_superseded`` is checked again before writing to the
+    sentence cache, catching items superseded during the (possibly slow)
+    HTTP round-trip.
+
+**``inflight_key`` design**
+
+    Complete sentences: ``{doc_id}|{locale}|{hash(text)[:16]}``.  Unique
+    per sentence, stable if the sentence is unchanged — so two different
+    sentences in the same paragraph never collide.
+
+    Incomplete sentences: ``{doc_id}|{locale}|INCOMPLETE_WRITER_AGENT_INTERNAL_STRING``.
+    All partial drafts for the active typing spot share one key, ensuring
+    every keystroke supersedes the previous draft.
+
+**``enqueue_seq`` as generation stamp**
+
+    A global monotonic counter (``next_enqueue_seq``), not a queue position.
+    It records *when* a snapshot was created.  Queue FIFO only orders
+    ``get()`` calls; ``enqueue_seq`` records supersede relationships across
+    batches, tail-replaces, and stale checks.
+"""
 
 from __future__ import annotations
 
@@ -166,10 +233,10 @@ def deduplicate_grammar_batch(batch: list[GrammarWorkItem]) -> list[GrammarWorkI
     best_by_key: dict[str, GrammarWorkItem] = {}
     for item in batch:
         prev = best_by_key.get(item.inflight_key)
-        if prev is None or item.enqueue_seq > prev.enqueue_seq:
+        if should_replace_for_key(prev, item):
             best_by_key[item.inflight_key] = item
-        elif prev is not None and item.enqueue_seq < prev.enqueue_seq:
-            log.info("[grammar] queue dedup: dropped older same-key item seq=%s key=%s (newer seq=%s kept)", item.enqueue_seq, item.inflight_key, prev.enqueue_seq)
+        else:
+            log.info("[grammar] queue dedup: dropped older same-key item seq=%s key=%s (newer seq=%s kept)", item.enqueue_seq, item.inflight_key, prev.enqueue_seq if prev else None)
     return list(best_by_key.values())
 
 
@@ -211,6 +278,35 @@ def tail_enqueue_operation(tail: GrammarWorkItem | None, incoming: GrammarWorkIt
     if incoming.enqueue_seq > tail.enqueue_seq:
         return "replace_tail"
     return "skip_tail"
+
+
+def should_replace_for_key(existing: GrammarWorkItem | None, incoming: GrammarWorkItem) -> bool:
+    """True if ``incoming`` should replace ``existing`` in a per-key accumulator.
+
+    Used by both the ``_drain_loop`` dict accumulator (Layer 2 fast path) and
+    ``deduplicate_grammar_batch`` (canonical pure dedup).  A missing ``existing``
+    (first item for this key) always returns True.
+    """
+    return existing is None or incoming.enqueue_seq > existing.enqueue_seq
+
+
+def filter_stale_and_group(
+    survivors: list[GrammarWorkItem],
+    is_stale_fn: Any,
+) -> dict[tuple[str, str], list[GrammarWorkItem]]:
+    """Drop stale items and group the rest by ``(doc_id, grammar_bcp47)``.
+
+    ``is_stale_fn`` is called with each item; items for which it returns True
+    are skipped (with an obs log).  Returns a dict mapping
+    ``(doc_id, locale)`` to the non-stale items in that group.
+    """
+    groups: dict[tuple[str, str], list[GrammarWorkItem]] = defaultdict(list)
+    for item in survivors:
+        if is_stale_fn(item):
+            grammar_obs("queue_stale_skip", doc_id=item.doc_id, locale=item.grammar_bcp47, seq=item.enqueue_seq, inflight_key=item.inflight_key)
+            continue
+        groups[(item.doc_id, item.grammar_bcp47)].append(item)
+    return dict(groups)
 
 
 _ENQUEUE_SEQ_LOCK = threading.Lock()
@@ -776,7 +872,15 @@ def run_llm_and_cache_batch(
             pass
 
 class GrammarWorkQueue:
-    """Single-worker sequential queue for grammar LLM requests (stampede + per-key supersede)."""
+    """Single-worker sequential queue for grammar LLM requests (stampede + per-key supersede).
+
+    TD4 note: an ``InflightTracker`` wrapper around ``_seq_lock`` + ``_latest_seq``
+    was evaluated and rejected — the tracker would absorb 2 fields and 3 thin methods
+    but ``GrammarWorkQueue`` is already small enough that an extra indirection adds more
+    cognitive load than it removes.  The pure functions (``should_replace_for_key``,
+    ``filter_stale_and_group``, ``is_stale``, ``inflight_superseded``,
+    ``record_enqueue_latest``) keep the logic testable without wrapping the state.
+    """
 
     def __init__(self) -> None:
         self._q: queue.Queue[GrammarWorkItem | None] = queue.Queue()
@@ -791,10 +895,6 @@ class GrammarWorkQueue:
         if len(compact) <= max_len:
             return compact
         return f"{compact[:max_len]}\u2026"
-
-    def _latest_seq_for(self, inflight_key: str) -> int | None:
-        with self._seq_lock:
-            return self._latest_seq.get(inflight_key)
 
     def _is_stale(self, item: GrammarWorkItem) -> bool:
         with self._seq_lock:
@@ -849,11 +949,11 @@ class GrammarWorkQueue:
             first = self._q.get()
             if first is None:
                 break
-            # Collapse same-key items as they arrive instead of appending all of
-            # them to a list and dedup-ing at the end. During typing bursts the
-            # worker pulls items in microseconds, so the queue is empty between
-            # keystrokes and ``enqueue``'s tail-replace path can't help \u2014 without
-            # this dict the batch routinely held 20+ identical INCOMPLETE keys.
+            # Layer 2 fast path: collapse same-key items as they arrive instead
+            # of appending all then dedup-ing.  During typing bursts the worker
+            # pulls items in microseconds, so the queue is empty between
+            # keystrokes and Layer 1 tail-replace can't help — without this dict
+            # the batch routinely held 20+ identical INCOMPLETE keys.
             batch_by_key: dict[str, GrammarWorkItem] = {first.inflight_key: first}
             while True:
                 try:
@@ -861,21 +961,19 @@ class GrammarWorkQueue:
                     if more is None:
                         return
                     prev = batch_by_key.get(more.inflight_key)
-                    if prev is None or more.enqueue_seq > prev.enqueue_seq:
+                    if should_replace_for_key(prev, more):
                         batch_by_key[more.inflight_key] = more
                 except queue.Empty:
                     break
             batch = list(batch_by_key.values())
             grammar_obs("queue_drain_batch", batch_size=len(batch), seqs=tuple(x.enqueue_seq for x in batch), keys=tuple(x.inflight_key for x in batch))
+            # Canonical dedup (defense-in-depth — the dict above already did
+            # same-key newest-wins, but deduplicate_grammar_batch is the single
+            # source of truth for the dedup contract).
             survivors = deduplicate_grammar_batch(batch)
             grammar_obs("queue_drain_survivors", survivor_count=len(survivors), seqs=tuple(x.enqueue_seq for x in survivors))
 
-            groups: dict[tuple[str, str], list[GrammarWorkItem]] = defaultdict(list)
-            for item in survivors:
-                if self._is_stale(item):
-                    grammar_obs("queue_stale_skip", doc_id=item.doc_id, locale=item.grammar_bcp47, seq=item.enqueue_seq, inflight_key=item.inflight_key)
-                    continue
-                groups[(item.doc_id, item.grammar_bcp47)].append(item)
+            groups = filter_stale_and_group(survivors, self._is_stale)
 
             for (doc_id, locale), group_items in groups.items():
                 try:

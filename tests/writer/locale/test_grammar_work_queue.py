@@ -10,10 +10,12 @@ from plugin.writer.locale.grammar_work_queue import (
     GrammarWorkQueue,
     GrammarWorkItem,
     deduplicate_grammar_batch,
+    filter_stale_and_group,
     inflight_superseded,
     is_stale,
     record_enqueue_latest,
     run_llm_and_cache_batch,
+    should_replace_for_key,
     tail_enqueue_operation,
 )
 from plugin.writer.locale.grammar_proofread_text import NormalizedProofError, grammar_inflight_key
@@ -329,6 +331,86 @@ def test_is_stale_and_inflight_superseded() -> None:
     assert inflight_superseded(latest, "k", 7) is True
     cur = _item(9, key="k")
     assert is_stale(latest, cur) is False
+
+
+# ---------------------------------------------------------------------------
+# Tests for should_replace_for_key (TD4 extraction)
+# ---------------------------------------------------------------------------
+
+def test_should_replace_for_key_first_item_always_replaces() -> None:
+    """Missing existing (None) means the incoming item is the first for this key."""
+    assert should_replace_for_key(None, _item(1)) is True
+
+
+def test_should_replace_for_key_newer_wins() -> None:
+    assert should_replace_for_key(_item(3), _item(5)) is True
+
+
+def test_should_replace_for_key_older_loses() -> None:
+    assert should_replace_for_key(_item(5), _item(3)) is False
+
+
+def test_should_replace_for_key_equal_seq_loses() -> None:
+    """Same seq does not replace — only strictly newer wins."""
+    assert should_replace_for_key(_item(4), _item(4)) is False
+
+
+# ---------------------------------------------------------------------------
+# Tests for filter_stale_and_group (TD4 extraction)
+# ---------------------------------------------------------------------------
+
+def test_filter_stale_and_group_skips_stale() -> None:
+    items = [_item(1, key="k1"), _item(2, key="k2"), _item(3, key="k3")]
+    stale_keys = {"k2"}
+    groups = filter_stale_and_group(items, lambda it: it.inflight_key in stale_keys)
+    all_items = [it for g in groups.values() for it in g]
+    assert len(all_items) == 2
+    keys = {it.inflight_key for it in all_items}
+    assert "k2" not in keys
+
+
+def test_filter_stale_and_group_groups_by_doc_locale() -> None:
+    a = _make_item("S1.", doc_id="doc_a", locale="en-US", seq=1, inflight_key="a1")
+    b = _make_item("S2.", doc_id="doc_b", locale="fr-FR", seq=2, inflight_key="b1")
+    c = _make_item("S3.", doc_id="doc_a", locale="en-US", seq=3, inflight_key="a2")
+    groups = filter_stale_and_group([a, b, c], lambda _: False)
+    assert ("doc_a", "en-US") in groups
+    assert ("doc_b", "fr-FR") in groups
+    assert len(groups[("doc_a", "en-US")]) == 2
+    assert len(groups[("doc_b", "fr-FR")]) == 1
+
+
+def test_filter_stale_and_group_all_stale_returns_empty() -> None:
+    items = [_item(1), _item(2)]
+    groups = filter_stale_and_group(items, lambda _: True)
+    assert groups == {}
+
+
+def test_drain_batch_accumulation_matches_deduplicate() -> None:
+    """Verify that dict-based accumulation (Layer 2 fast path) produces the same
+    result as ``deduplicate_grammar_batch`` for the same input."""
+    key = "d|en-US|k1"
+    items = [
+        _item(1, key=key),
+        _item(5, key=key),
+        _item(3, key=key),
+        _item(2, key="other"),
+    ]
+    # Simulate dict accumulator (same logic as _drain_loop)
+    batch_by_key: dict[str, GrammarWorkItem] = {}
+    for it in items:
+        prev = batch_by_key.get(it.inflight_key)
+        if should_replace_for_key(prev, it):
+            batch_by_key[it.inflight_key] = it
+    dict_result = sorted(batch_by_key.values(), key=lambda x: x.inflight_key)
+
+    # Canonical dedup
+    dedup_result = sorted(deduplicate_grammar_batch(items), key=lambda x: x.inflight_key)
+
+    assert len(dict_result) == len(dedup_result)
+    for a, b in zip(dict_result, dedup_result):
+        assert a.inflight_key == b.inflight_key
+        assert a.enqueue_seq == b.enqueue_seq
 
 
 def test_run_llm_and_cache_batch_success() -> None:
