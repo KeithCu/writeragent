@@ -88,7 +88,7 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 - **Multi-Range Support**: `=PYTHON()` supports an arbitrary number of non-contiguous ranges (e.g., `=PYTHON("np.mean(data)", A1:A10, C1:C10)`) for complex cross-block analysis.
 - **Shared Code Cell**: You can store your code in a cell (e.g., `A1`) and reference it across multiple formulas (e.g., `=PYTHON($A$1; B1)`). 
 - **Safety & Isolation**: Code runs safely in a separate process and is evaluated by a [custom AST-based executor](plugin/contrib/smolagents/local_python_executor.py) (adapted from [Hugging Face smolagents](https://github.com/huggingface/smolagents)) that acts as a secure sandbox which blocks dangerous modules (like `os`, `subprocess`, or `sys`) and functions (like `eval` or `exec`), ensuring that the AI can only perform safe, mathematical, and data-processing tasks. 
-- **Color-syntax highlighting** - Python color-coded editing (if the external venv has: `pywebview jedi PyQt6 PyQt6-WebEngine qtpy`y)
+- **Color-syntax highlighting** - Python color-coded editing (if the external venv has: `pywebview jedi PyQt6 PyQt6-WebEngine qtpy`)
 - **High performance**: Compact pickle Protocol 5 + Split-grid [binary blob serialization for numbers](docs/numpy-serialization.md), 2 faster and 50% smaller than standard JSON lists.
 
 
