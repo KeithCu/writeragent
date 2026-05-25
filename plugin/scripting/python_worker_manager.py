@@ -58,6 +58,10 @@ class PythonWorkerManager:
                 mgr._terminate_worker()
             _instances.clear()
 
+    def warm(self) -> None:
+        """Spawn the worker and trigger auto-imports (numpy etc.) so the next real execute is instant."""
+        self.execute("result = None", timeout_sec=30)
+
     def execute(self, code: str, *, data: Any = None, timeout_sec: int | None = None) -> dict[str, Any]:
         """Run *code* in the warm worker; state from prior calls is not visible."""
         if timeout_sec is None:

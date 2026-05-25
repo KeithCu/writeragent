@@ -17,6 +17,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.scripting.python_worker_manager import PythonWorkerManager
+from plugin.scripting.subprocess_env import scrub_subprocess_env
 from plugin.scripting.worker_harness import _execute_request, _serialize
 from plugin.tests.testing_utils import setup_uno_mocks
 
@@ -323,6 +324,32 @@ def test_split_grid_pickle_and_json_round_trip():
     # Host unpacks
     unpacked_host_pickle_from_child = host_unpack_split_grid(child_wire_pickle)
     assert unpacked_host_pickle_from_child == grid
+
+
+def test_warm_spawns_and_primes_worker():
+    """warm() makes the next execute instant by pre-spawning the process and triggering auto-imports."""
+    PythonWorkerManager.shutdown_all()
+    mgr = PythonWorkerManager.get(sys.executable, {"PATH": "/usr/bin:/bin"})
+    assert mgr._proc is None
+    mgr.warm()
+    assert mgr._proc is not None and mgr._proc.poll() is None
+    r = mgr.execute("result = 42")
+    assert r["status"] == "ok"
+    assert r["result"] == 42
+    PythonWorkerManager.shutdown_all()
+
+
+@patch("plugin.scripting.run_venv_code.get_config_str", return_value="")
+@patch("plugin.scripting.run_venv_code.resolve_libreoffice_python", return_value=sys.executable)
+def test_warm_venv_worker_resolves_and_warms(mock_lo_python, mock_cfg):
+    from plugin.scripting.run_venv_code import warm_venv_worker
+
+    PythonWorkerManager.shutdown_all()
+    ctx = MagicMock()
+    warm_venv_worker(ctx)
+    mgr = PythonWorkerManager.get(sys.executable, scrub_subprocess_env({"PATH": "/usr/bin:/bin"}))
+    assert mgr._proc is not None and mgr._proc.poll() is None
+    PythonWorkerManager.shutdown_all()
 
 
 def test_split_grid_integration_pickle_mode():

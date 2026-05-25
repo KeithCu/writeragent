@@ -17,9 +17,10 @@ from plugin.framework.uno_context import get_ctx, get_desktop
 from plugin.framework.config import get_config_str, set_config
 from plugin.framework.i18n import _
 from plugin.chatbot.dialogs import add_dialog_label, add_dialog_edit, add_dialog_button, msgbox
+from plugin.framework.worker_pool import run_in_background
 from plugin.scripting.editor_diagnostics import exception_traceback
 from plugin.scripting.editor_session_launch import launch_monaco_editor, monaco_editor_available
-from plugin.scripting.run_venv_code import run_code_in_user_venv
+from plugin.scripting.run_venv_code import run_code_in_user_venv, warm_venv_worker
 from plugin.writer.format import insert_content_at_position
 from plugin.doc.document_helpers import is_calc, is_writer, is_draw
 from plugin.calc.bridge import CalcBridge
@@ -484,6 +485,7 @@ def run_python_dialog(uno_ctx: Any = None) -> None:
     initial_code = get_config_str(uno_ctx, config_key)
 
     _exe, monaco_ok = monaco_editor_available(uno_ctx)
+    run_in_background(warm_venv_worker, uno_ctx, name="warm-venv-worker")
     if monaco_ok and _exe:
         if _run_python_monaco(uno_ctx, doc, config_key=config_key, initial_code=initial_code, exe=_exe):
             return

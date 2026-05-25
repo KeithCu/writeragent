@@ -66,3 +66,17 @@ def run_code_in_user_venv(
     child_env = scrub_subprocess_env(dict(os.environ))
     manager = PythonWorkerManager.get(exe, child_env)
     return manager.execute(code, data=data, timeout_sec=timeout_sec)
+
+
+def warm_venv_worker(uno_ctx: Any) -> None:
+    """Pre-warm the venv subprocess (spawn + trigger auto-imports). Safe to call from a background thread."""
+    venv_dir = get_config_str(uno_ctx, "scripting.python_venv_path").strip()
+    if venv_dir:
+        exe = resolve_venv_python(venv_dir)
+    else:
+        exe = resolve_libreoffice_python()
+    if not exe:
+        return
+    child_env = scrub_subprocess_env(dict(os.environ))
+    manager = PythonWorkerManager.get(exe, child_env)
+    manager.warm()

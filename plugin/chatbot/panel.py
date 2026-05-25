@@ -667,13 +667,15 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         return self._cached_scrollbar
 
     def _should_auto_scroll(self):
-        """Check scrollbar position once and return a boolean decision."""
-        from plugin.chatbot.rich_text import is_scrolled_to_bottom
-        scrollbar = self._get_scrollbar()
-        result = is_scrolled_to_bottom(scrollbar)
-        if not result:
-            log.debug("_should_auto_scroll: user scrolled up, skipping auto-scroll")
-        return result
+        """Check scrollbar position and return a boolean decision.
+
+        TODO: Implement sticky scroll — detect when user has scrolled up via
+        the accessible scrollbar (find_vertical_scrollbar / is_scrolled_to_bottom)
+        and return False so new content doesn't yank the view. Currently always
+        returns True (always scroll to bottom) because the accessible tree
+        navigation needs further debugging on real LO sessions.
+        """
+        return True
 
     def _append_response(self, text, is_thinking=False, role="assistant"):
         """Append text to the response area (supports rich text if embedded_doc is ready)."""
