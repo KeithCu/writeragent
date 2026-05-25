@@ -206,8 +206,20 @@ WHEN TO SAVE (do this proactively, don't wait to be asked):
 - You discover something about the environment.
 Prioritize what reduces future user steering."""
 
-# Brief hint for gateway tool JSON schemas (full rules: WRITER_SPECIALIZED_DELEGATION_TEMPLATE).
+# Brief hint for gateway tool JSON schemas (full rules: SPECIALIZED_TASK_RULES).
 DELEGATE_SPECIALIZED_TASK_PARAM_HINT = "Instructions for the sub-agent: it has the full tool/API surface for this domain (all parameters). Be specific enough to use that power—vague tasks leave choices underspecified."
+
+# Shared guidance for writing good `task` strings when delegating to specialized sub-agents.
+# This is the main source of duplication we are trying to reduce in the system prompt.
+SPECIALIZED_TASK_RULES = (
+    "Rules for `task`: Treat it as a complete natural-language specification, not a summary. "
+    "Enumerate what must be true (types, layout, numbers, colors, style names, anchors, text). "
+    "If the user was vague, state explicit defaults in the task rather than leaving them undefined. "
+    "Prefer **concrete, capability-rich** instructions over \"minimal\" or \"basic\" when the user is open to it: "
+    "name specific variants (e.g. exact shape presets, styles, or operations) so the sub-agent can use the full API instead of picking a boring default. "
+    "Example (domain=shapes): `upsert_shape` can use on the order of **400+** distinct preset `shape_type` strings. "
+    "Example (domain=footnotes): Quote the **exact** document sentence or unique substring where the note must attach so the sub-agent can know where to put the footnote anchor."
+)
 
 # Shape catalog size: LibreOffice core maps ~400+ preset names (e.g. svx EnhancedCustomShapeTypeNames.cxx).
 # Single-line blocks: MCP tool descriptions and many clients do not render newlines inside JSON strings.
@@ -216,26 +228,23 @@ WRITER_SPECIALIZED_DELEGATION_TEMPLATE = (
     "When the user needs those, call delegate_to_specialized_writer_toolset with: domain one of: {domains} "
     "and a `task` string that fully specifies what the sub-agent must do. The sub-agent only sees tools for that domain, "
     "but they are the real tools: **full parameter lists and full LibreOffice/UNO access** for that area (nothing is dumbed down for the sub-agent). "
-    "Rules for `task`: Treat it as a complete natural-language specification, not a summary. Enumerate what must be true "
-    "(types, layout, numbers, colors, style names, anchors, text). If the user was vague, state explicit defaults in the task rather than leaving them undefined. "
-    "Prefer **concrete, capability-rich** instructions over \"minimal\" or \"basic\" when the user is open to it: name specific variants "
-    "(e.g. exact shape presets, styles, or operations) so the sub-agent can use the full API instead of picking a boring default. "
     "document_research: use for information in other personal/business documents in the same folder (one delegation per file set). "
     "web_research: use for public web topics. "
-    "Example (domain=shapes): `upsert_shape` can use on the order of **400+** distinct preset `shape_type` strings. "
-    "Example (domain=footnotes): Quote the **exact** document sentence or unique substring where the note must attach so the sub-agent can know where to put the footnote anchor."
+    f"{SPECIALIZED_TASK_RULES}"
 )
 
 CALC_SPECIALIZED_DELEGATION_TEMPLATE = (
     "SPECIALIZED CALC (nested tools): The default tool list hides advanced Calc features. "
     "When the user needs those, call delegate_to_specialized_calc_toolset with: domain one of: {domains} "
-    "and a `task` string that fully specifies what the sub-agent must do. The sub-agent has full tool access for that domain."
+    "and a `task` string that fully specifies what the sub-agent must do. The sub-agent has full tool access for that domain. "
+    f"{SPECIALIZED_TASK_RULES}"
 )
 
 DRAW_SPECIALIZED_DELEGATION_TEMPLATE = (
     "SPECIALIZED DRAW (nested tools): The default tool list hides advanced Draw/Impress features. "
     "When the user needs those, call delegate_to_specialized_draw_toolset with: domain one of: {domains} "
-    "and a `task` string that fully specifies what the sub-agent must do. The sub-agent has full tool access for that domain."
+    "and a `task` string that fully specifies what the sub-agent must do. The sub-agent has full tool access for that domain. "
+    f"{SPECIALIZED_TASK_RULES}"
 )
 
 CHAT_RESPONSE_FORMAT = """CHAT RESPONSE FORMAT: Format your conversational responses as HTML (use <p>, <strong>, <em>, <code>, <ul>, <ol>, <h2>, <pre>, <br>). Do NOT use Markdown formatting (no #, **, ```, etc.) in chat responses. The sidebar renders HTML natively."""
