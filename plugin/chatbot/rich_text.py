@@ -18,6 +18,7 @@
 import logging
 import os
 import tempfile
+from typing import Any, cast
 from plugin.chatbot.listeners import BaseWindowListener
 
 log = logging.getLogger(__name__)
@@ -315,7 +316,7 @@ def create_embedded_writer_doc(ctx, parent_window, placeholder_ctrl):
 
             # Set language to "none" (zxx) to suppress all spell/grammar checking
             if style_families.hasByName("ParagraphStyles"):
-                from typing import cast, Any
+                from typing import cast
                 ps = style_families.getByName("ParagraphStyles")
                 no_lang = cast("Any", uno.createUnoStruct("com.sun.star.lang.Locale"))
                 no_lang.Language = "zxx"
@@ -388,6 +389,68 @@ def create_embedded_writer_doc(ctx, parent_window, placeholder_ctrl):
     except Exception as e:
         log.exception("Error in create_embedded_writer_doc: %s", e)
         return None, None, None
+
+def _tighten_list_indent(body_range):
+    """Tighten indentation on list paragraphs within *body_range*.
+
+    The HTML filter imports <ul>/<ol> as indented paragraphs using ParaLeftMargin
+    (not Writer's NumberingRules mechanism). This function detects paragraphs with
+    non-zero ParaLeftMargin and reduces them to tight values suitable for the
+    narrow sidebar.
+    """
+    import uno
+    try:
+        enum = body_range.createEnumeration()
+    except Exception as e:
+        log.debug("_tighten_list_indent: createEnumeration failed: %s", e)
+        return
+
+    para_count = 0
+    tightened = 0
+    processed_levels = set()
+    while enum.hasMoreElements():
+        para = enum.nextElement()
+        para_count += 1
+        try:
+            if not para.getPropertyValue("NumberingIsNumber"):
+                continue
+        except Exception:
+            continue
+
+        try:
+            level = para.getPropertyValue("NumberingLevel")
+            list_id = para.getPropertyValue("ListId")
+        except Exception:
+            continue
+
+        key = (list_id, level)
+        if key in processed_levels:
+            continue
+        processed_levels.add(key)
+
+        try:
+            rules = para.getPropertyValue("NumberingRules")
+            props = list(rules.getByIndex(level))
+            # Read the existing FirstLineOffset so we can position the bullet
+            # with a small left gap while preserving the original bullet-to-text spacing
+            flo = 0
+            for p in props:
+                if p.Name == "FirstLineOffset":
+                    flo = p.Value
+                    break
+            for p in props:
+                if p.Name == "LeftMargin":
+                    log.debug("_tighten_list_indent: level=%d orig LeftMargin=%s text=%r", level, p.Value, para.getString()[:40])
+                    p.Value = abs(flo) + 115 + level * 225
+            any_props = uno.Any("[]com.sun.star.beans.PropertyValue", cast("Any", tuple(props)))
+            uno.invoke(rules, "replaceByIndex", (level, any_props))
+            para.NumberingRules = rules
+            tightened += 1
+        except Exception as e:
+            log.debug("_tighten_list_indent: failed for level %d: %s", level, e)
+
+    log.debug("_tighten_list_indent: scanned %d paragraphs, tightened %d", para_count, tightened)
+
 
 def _insert_html_at_cursor(doc, cursor, html_fragment):
     """Import an HTML fragment into *doc* at *cursor* using Writer's HTML filter.
@@ -617,7 +680,7 @@ def append_rich_text(doc, text, role="assistant", auto_scroll=True):
 
         # Body content via HTML import
         cursor.gotoEnd(False)
-        content_start = cursor.getStart()
+        pre_len = doc.CharacterCount
 
         if text and text.strip():
             html_tags = ("<p>", "<br", "</h", "<ul", "<ol", "<li", "<strong", "<em", "<code", "<pre", "<div", "<table")
@@ -633,11 +696,13 @@ def append_rich_text(doc, text, role="assistant", auto_scroll=True):
             else:
                 text_obj.insertString(cursor, text, False)
 
-            # Apply role color to the inserted body text
-            cursor.gotoEnd(False)
-            body_range = text_obj.createTextCursorByRange(content_start)
-            body_range.gotoRange(cursor.getStart(), True)
+            # Build a range covering only the newly inserted content
+            body_range = text_obj.createTextCursor()
+            body_range.gotoStart(False)
+            body_range.goRight(pre_len, False)
+            body_range.gotoEnd(True)
             body_range.CharColor = user_color if role == "user" else assistant_color
+            _tighten_list_indent(body_range)
 
         if should_scroll:
             scroll_to_bottom(doc)

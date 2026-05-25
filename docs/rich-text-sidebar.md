@@ -17,12 +17,9 @@ These are the priority tasks to resolve remaining layout quirks and implement ne
     *   **`processEventsToIdle()`:** Execute `toolkit.processEventsToIdle()` immediately after `view_cursor.gotoEnd(False)` to force VCL to process the "make cursor visible" event synchronously.
     *   **Alternative Interfaces:** Check if the embedded Writer's controller or view supports `com.sun.star.view.XScrollable`.
 
-### [ ] Task 2: Fix Bullets / List Spacing & Horizontal Indentation
-*   **Issue:** List bullets and numbered items currently take up far too much horizontal space and indentation, which looks extremely squished and awkward in the narrow sidebar layout.
-*   **Goal:** Adjust style margins so bullets and list hierarchies have a minimal indentation offset.
-*   **Avenues of Investigation:**
-    *   Identify the exact paragraph/list styles applied to lists in the embedded document.
-    *   Set the `ParaLeftMargin`, `FirstLineIndent`, and list levels margins to a tighter, compact 1/100mm equivalent to reduce indent space.
+### [x] Task 2: Fix Bullets / List Spacing & Horizontal Indentation
+*   **Issue:** List bullets and numbered items took up far too much horizontal space, leaving text squished in the narrow sidebar.
+*   **Solution:** Post-process `NumberingRules` on newly inserted paragraphs only. See section 10 below for full details.
 
 ### [ ] Task 3: Paragraph Padding & Margin Cleanup
 *   **Issue:** Standard paragraphs still look slightly "pushed in" or have excess default margins/padding.
@@ -264,4 +261,34 @@ In light or dark modes, the hardcoded white background (`0xFFFFFF`) of the embed
 2.  **Embedded Canvas Blending:** Overwrites `/org.openoffice.Office.UI/ColorScheme/.../DocColor` with the dynamic background color. This ensures the canvas borders around the virtual page blend seamlessly, resolving the "gray bar centering borders" mystery.
 
 ---
+
+### 10. List Spacing / NumberingRules Tightening (May 25, 2026)
+
+#### Problem
+
+The HTML filter (`HTML (StarWriter)`) imports `<ul><li>` content as Writer list paragraphs with `NumberingIsNumber=True`. The default `LeftMargin` in NumberingRules is ~1251 (12.5mm) for level 0 and ~2501 for level 1 -- far too wide for the narrow sidebar, wasting most of the horizontal text area on indentation.
+
+#### Key Findings
+
+1. **The indentation lives in `NumberingRules`, not `ParaLeftMargin`.** Despite the paragraphs being list items, `ParaLeftMargin` is 0. All indent information is in the `NumberingRules` XIndexAccess (per-level property sequences with `LeftMargin` and `FirstLineOffset` keys).
+
+2. **`body_range.createEnumeration()` on a cursor created from a captured `TextRange` position only returns 1 paragraph** after `insertDocumentFromURL`. The position reference becomes stale because the HTML import restructures paragraphs. The fix: use `doc.CharacterCount` before insertion, then create a fresh cursor with `goRight(pre_len, False)` + `gotoEnd(True)` to span exactly the new content.
+
+3. **`FirstLineOffset` controls bullet-to-text spacing.** This value (typically around -625) should NOT be modified -- it provides the natural breathing room between the bullet glyph and the text. Only `LeftMargin` (which controls total indent from the left edge) needs tightening.
+
+4. **Deduplication by `(ListId, level)`.** Paragraphs sharing the same list and level share NumberingRules. Modifying once via `uno.invoke(rules, "replaceByIndex", ...)` + reassigning `para.NumberingRules = rules` updates all paragraphs in that list at that level.
+
+#### Implementation
+
+`_tighten_list_indent(body_range)` in `plugin/chatbot/rich_text.py`:
+- Enumerates paragraphs in the body_range (only newly inserted content).
+- Skips non-list paragraphs (`NumberingIsNumber=False`).
+- For each unique `(ListId, level)`, reads the existing `FirstLineOffset` and sets `LeftMargin = abs(FirstLineOffset) + 115 + level * 225`. This positions the bullet ~1.15mm from the left edge at level 0, preserving the original bullet-to-text gap.
+- Uses reflective `uno.invoke(rules, "replaceByIndex", ...)` because Python UNO proxies don't expose a direct `replaceByIndex`.
+
+#### What Could Be Done Next
+
+- **Nested list level spacing tuning:** The `level * 225` increment could be made configurable or adjusted based on sidebar width.
+- **Ordered lists (numbered):** Same mechanism applies but verify that `IndentAt` / `FirstLineIndent` behave identically for numbered lists.
+- **Streaming path:** Currently only `append_rich_text` (the HTML import path) triggers tightening. The streaming path (`append_text_chunk`) inserts plain text with no list formatting, so it doesn't need it.
 

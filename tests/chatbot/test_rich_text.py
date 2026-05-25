@@ -29,6 +29,9 @@ class MockTextCursor:
     def gotoStart(self, select):
         pass
 
+    def goRight(self, count, select):
+        pass
+
     def getStart(self):
         return self
 
@@ -71,6 +74,10 @@ class MockDoc:
     def __init__(self):
         self._text = MockText()
         self._controller = MagicMock()
+
+    @property
+    def CharacterCount(self):
+        return len(self._text._content)
 
     def getText(self):
         return self._text
@@ -412,6 +419,115 @@ class EmbeddedWriterListenerGuardTests(unittest.TestCase):
             listener.on_window_resized(None)
             mock_scroll.assert_called_once_with(doc)
             container.setPosSize.assert_called_with(1, 2, 3, 4, 15)
+
+
+class TightenListIndentTests(unittest.TestCase):
+    """Tests for _tighten_list_indent post-processing helper."""
+
+    def _make_list_para(self, text="• item", level=0, list_id="list1", is_number=True):
+        """Create a mock paragraph that uses NumberingRules."""
+        import sys
+        mock_uno = sys.modules["uno"]
+
+        para = MagicMock()
+        props = {
+            "NumberingIsNumber": is_number,
+            "NumberingLevel": level,
+            "ListId": list_id,
+        }
+        para.getPropertyValue.side_effect = lambda name: props[name]
+        para.getString.return_value = text
+
+        rule_prop_left = MagicMock()
+        rule_prop_left.Name = "LeftMargin"
+        rule_prop_left.Value = 635
+
+        rule_prop_flo = MagicMock()
+        rule_prop_flo.Name = "FirstLineOffset"
+        rule_prop_flo.Value = -635
+
+        rule_prop_other = MagicMock()
+        rule_prop_other.Name = "BulletChar"
+        rule_prop_other.Value = "\u2022"
+
+        rules = MagicMock()
+        rules.getByIndex.return_value = [rule_prop_left, rule_prop_flo, rule_prop_other]
+        props["NumberingRules"] = rules
+
+        return para, rules
+
+    def _make_body_range(self, paragraphs):
+        """Create a mock body_range whose createEnumeration yields paragraphs."""
+        enum = MagicMock()
+        enum.hasMoreElements.side_effect = [True] * len(paragraphs) + [False]
+        enum.nextElement.side_effect = paragraphs
+        body_range = MagicMock()
+        body_range.createEnumeration.return_value = enum
+        return body_range
+
+    def test_tightens_list_paragraph(self):
+        import sys
+        mock_uno = sys.modules["uno"]
+        mock_uno.Any.side_effect = lambda type_str, val: val
+        mock_uno.invoke.side_effect = lambda obj, method, args: None
+        mock_uno.invoke.reset_mock()
+
+        from plugin.chatbot.rich_text import _tighten_list_indent
+
+        para, rules = self._make_list_para(level=0)
+        body_range = self._make_body_range([para])
+
+        _tighten_list_indent(body_range)
+
+        mock_uno.invoke.assert_called_once()
+
+    def test_skips_non_list_paragraph(self):
+        import sys
+        mock_uno = sys.modules["uno"]
+        mock_uno.invoke.reset_mock()
+
+        from plugin.chatbot.rich_text import _tighten_list_indent
+
+        para, _ = self._make_list_para(is_number=False)
+        body_range = self._make_body_range([para])
+
+        _tighten_list_indent(body_range)
+
+        mock_uno.invoke.assert_not_called()
+
+    def test_deduplicates_by_list_id_and_level(self):
+        import sys
+        mock_uno = sys.modules["uno"]
+        mock_uno.Any.side_effect = lambda type_str, val: val
+        mock_uno.invoke.side_effect = lambda obj, method, args: None
+        mock_uno.invoke.reset_mock()
+
+        from plugin.chatbot.rich_text import _tighten_list_indent
+
+        para1, _ = self._make_list_para(text="item 1", level=0, list_id="same")
+        para2, _ = self._make_list_para(text="item 2", level=0, list_id="same")
+        body_range = self._make_body_range([para1, para2])
+
+        _tighten_list_indent(body_range)
+
+        self.assertEqual(mock_uno.invoke.call_count, 1)
+
+    def test_processes_different_levels(self):
+        import sys
+        mock_uno = sys.modules["uno"]
+        mock_uno.Any.side_effect = lambda type_str, val: val
+        mock_uno.invoke.side_effect = lambda obj, method, args: None
+        mock_uno.invoke.reset_mock()
+
+        from plugin.chatbot.rich_text import _tighten_list_indent
+
+        para1, _ = self._make_list_para(level=0, list_id="L1")
+        para2, _ = self._make_list_para(level=1, list_id="L1")
+        body_range = self._make_body_range([para1, para2])
+
+        _tighten_list_indent(body_range)
+
+        self.assertEqual(mock_uno.invoke.call_count, 2)
 
 
 if __name__ == "__main__":
