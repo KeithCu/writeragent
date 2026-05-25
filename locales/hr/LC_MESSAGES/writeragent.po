@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-25 02:12-0400\n"
+"POT-Creation-Date: 2026-05-25 13:29-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Croatian <LL@li.org>\n"
@@ -19,8 +19,8 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require sub-agent delegation (USE_SUB_AGENT). Enable "
-"sub-agents in configuration."
+"Document research reads require sub-agent delegation (USE_SUB_AGENT). Enable"
+" sub-agents in configuration."
 msgstr ""
 "Čitanja istraživanja dokumenta zahtijevaju delegiranje pod-agentu "
 "(USE_SUB_AGENT). Omogućite pod-agente u konfiguraciji."
@@ -28,8 +28,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Poziv alata prebačen na '{0}'. Nalazite se u načinu rada specijaliziranog "
@@ -105,8 +105,8 @@ msgid ""
 "At this moment we can not process your request, please try again later.  If "
 "this is happening for a long period of time, please let us know via Discord"
 msgstr ""
-"Trenutačno ne možemo obraditi vaš zahtjev, pokušajte ponovno kasnije. Ako se "
-"ovo događa dulje vrijeme, javite nam se putem Discorda"
+"Trenutačno ne možemo obraditi vaš zahtjev, pokušajte ponovno kasnije. Ako se"
+" ovo događa dulje vrijeme, javite nam se putem Discorda"
 
 #: plugin/contrib/aihordeclient/__init__.py
 msgid "Problem requesting kudos"
@@ -134,8 +134,8 @@ msgid ""
 "Seems that «{}» has problems, double check it, create a new one or join "
 "Discord to ask for help"
 msgstr ""
-"Čini se da «{}» ima problema, provjerite ga, stvorite novi ili se pridružite "
-"Discordu kako biste zatražili pomoć"
+"Čini se da «{}» ima problema, provjerite ga, stvorite novi ili se pridružite"
+" Discordu kako biste zatražili pomoć"
 
 #: plugin/contrib/aihordeclient/__init__.py
 msgid "We hit an error, still: "
@@ -198,7 +198,8 @@ msgstr "Ovaj model zahtijeva više vremena od vaše trenutne konfiguracije."
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr ""
 "Pokušajte s drugim modelom. {0} bi zahtijevao više vremena nego što ste "
 "konfigurirali."
@@ -289,7 +290,8 @@ msgstr ""
 "postavkama."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr "Veza odbijena. Radi li vaš lokalni AI poslužitelj (Ollama/LM Studio)?"
 
 #: plugin/framework/errors.py
@@ -320,7 +322,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "AI: Mogu vam pomoći s formulama, analizom podataka i šarenim grafikonima. "
 "Isprobajte me!"
@@ -364,9 +367,8 @@ msgstr ""
 "koristite drugi model."
 
 #: plugin/calc/python_function.py
-#, fuzzy
 msgid "Image inserted"
-msgstr "Postavke slike"
+msgstr "Slika umetnuta"
 
 #: plugin/calc/python_editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
@@ -392,16 +394,16 @@ msgstr "WriterAgent: Proširi odabir (Calc)"
 #: plugin/calc/python_editor.py
 msgid ""
 "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\"; "
-"A1:B10)."
+"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\";"
+" A1:B10)."
 msgstr ""
 "Nije bilo moguće sačuvati argumente PYTHON formule ove ćelije (npr. rasponi "
 "podataka). Uredite formulu u programu Calc ili koristite citirani niz koda "
 "kao što je =PYTHON(\"kod\"; A1:B10)."
 
 #: plugin/calc/python_editor.py
-msgid "PYTHON cell editor"
-msgstr "PYTHON uređivač ćelija"
+msgid "Python cell editor"
+msgstr "Python uređivač ćelija"
 
 #: plugin/calc/python_editor.py
 msgid "Save as plain text"
@@ -409,7 +411,7 @@ msgstr "Spremi kao običan tekst"
 
 #: plugin/calc/python_editor.py plugin/scripting/python_runner.py
 msgid "Save"
-msgstr ""
+msgstr "Spremi"
 
 #: plugin/calc/python_editor.py
 msgid "The Python editor failed unexpectedly."
@@ -425,10 +427,13 @@ msgid ""
 "in another cell). Edit it in the formula bar, or use =PYTHON(\"code\"; "
 "range) with quoted code."
 msgstr ""
+"Ova PYTHON formula koristi oblik koji uređivač ne može sigurno prepisati "
+"(npr. kod u drugoj ćeliji). Uredite je u traci formule ili koristite "
+"=PYTHON(\"kod\"; raspon) s citiranim kodom."
 
 #: plugin/calc/python_editor.py
 msgid "No Python interpreter available for the editor."
-msgstr ""
+msgstr "Nijedan Python tumač nije dostupan za uređivač."
 
 #: plugin/calc/python_editor.py
 #, python-format
@@ -439,11 +444,15 @@ msgid ""
 "In that venv run: pip install pywebview\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
+"Nije moguće uvesti webview (pywebview) s Pythonom iz Postavke → Python:\n"
+"%(exe)s\n"
+"\n"
+"U tom venv-u pokrenite: pip install pywebview\n"
+"(naziv za uvoz je webview, naziv paketa je pywebview)."
 
 #: plugin/calc/python_editor.py
-#, fuzzy
 msgid "unknown error"
-msgstr "Nepoznata pogreška"
+msgstr "nepoznata pogreška"
 
 #: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Extend Selection"
@@ -614,8 +623,8 @@ msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
 "this!]"
 msgstr ""
-"[Interna pogreška: Nije moguće identificirati vrstu dokumenta za {0}. Molimo "
-"prijavite ovo!]"
+"[Interna pogreška: Nije moguće identificirati vrstu dokumenta za {0}. Molimo"
+" prijavite ovo!]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -675,8 +684,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Nije pronađen uređivač (instalirajte Kate ili Gedit ili postavite EDITOR). "
-"Putanja:\n"
+"Nije pronađen uređivač (instalirajte Kate ili Gedit ili postavite EDITOR). Putanja:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -705,7 +713,8 @@ msgstr "[Pozadinski agent '{0}' nije pronađen.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Pozadinski agent '{0}' nije dostupan. Provjerite postavke (putanja, "
 "instalacija).]"
@@ -850,7 +859,8 @@ msgstr "Nepoznata pogreška"
 msgid ""
 "Script executed successfully, but returned no result and produced no output."
 msgstr ""
-"Skripta je uspješno izvršena, ali nije vratila rezultat niti proizvela izlaz."
+"Skripta je uspješno izvršena, ali nije vratila rezultat niti proizvela "
+"izlaz."
 
 #: plugin/scripting/python_runner.py
 msgid "Unsupported document type for result insertion."
@@ -858,11 +868,11 @@ msgstr "Nepodržana vrsta dokumenta za umetanje rezultata."
 
 #: plugin/scripting/python_runner.py
 msgid "Script executed successfully."
-msgstr ""
+msgstr "Skripta uspješno izvršena."
 
 #: plugin/scripting/python_runner.py
 msgid "Script saved."
-msgstr ""
+msgstr "Skripta spremljena."
 
 #: plugin/scripting/python_runner.py plugin/xdl_strings.py
 msgid "Close"
@@ -1200,11 +1210,11 @@ msgid "Path / URL"
 msgstr "Putanja / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Putanja do backend CLI-ja (npr. aider) ili URL ACP poslužitelja (npr. http://"
-"localhost:8000 za Hermes). Prazno = pokušaj zadano."
+"Putanja do backend CLI-ja (npr. aider) ili URL ACP poslužitelja (npr. "
+"http://localhost:8000 za Hermes). Prazno = pokušaj zadano."
 
 msgid "Extra arguments"
 msgstr "Dodatni argumenti"
@@ -1289,10 +1299,12 @@ msgid "How many days cache entries should be considered valid."
 msgstr "Koliko dana se unosi u predmemoriji smatraju valjanima."
 
 msgid "Rich Text Chat Sidebar"
-msgstr ""
+msgstr "Bočna traka za obogaćeni tekst (Rich Text)"
 
 msgid "Use embedded Writer document for chat display (requires restart)"
 msgstr ""
+"Koristi ugrađeni Writer dokument za prikaz razgovora (zahtijeva ponovno "
+"pokretanje)"
 
 msgid "Doc"
 msgstr "Dokument"
@@ -1302,8 +1314,8 @@ msgstr "Omogući AI provjeru gramatike (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "Kada je uključeno, WriterAgent registrira svoj AI provjerivač gramatike u "
 "Linguistic; provjereni tekst koristi vaš API (Alati → Opcije → AI). "
@@ -1323,8 +1335,8 @@ msgid ""
 "When on, AI grammar skips background requests while sidebar chat or agent "
 "runs, to avoid concurrent API calls."
 msgstr ""
-"Kada je uključeno, AI gramatika preskače pozadinske zahtjeve dok bočna traka "
-"chata ili agent radi, kako bi se izbjegli istovremeni API pozivi."
+"Kada je uključeno, AI gramatika preskače pozadinske zahtjeve dok bočna traka"
+" chata ili agent radi, kako bi se izbjegli istovremeni API pozivi."
 
 msgid "Grammar batch sentences"
 msgstr "Skupna obrada rečenica"
@@ -1335,8 +1347,8 @@ msgid ""
 "cause model errors."
 msgstr ""
 "Broj rečenica za slanje po LLM zahtjevu (1-8). 1 (zadano) je najpouzdanije; "
-"veće vrijednosti su brže i jeftinije, ali mogu doseći ograničenja tokena ili "
-"uzrokovati pogreške modela."
+"veće vrijednosti su brže i jeftinije, ali mogu doseći ograničenja tokena ili"
+" uzrokovati pogreške modela."
 
 msgid "Detect and correct sentence language"
 msgstr "Otkrij i ispravi jezik rečenice"
@@ -1374,11 +1386,11 @@ msgid "Enable MCP Server"
 msgstr "Omogući MCP poslužitelj"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Samo localhost, bez provjere autentičnosti. Klijenti koriste http://"
-"localhost:<port>/mcp (streamable HTTP)."
+"Samo localhost, bez provjere autentičnosti. Klijenti koriste "
+"http://localhost:<port>/mcp (streamable HTTP)."
 
 msgid "MCP Port"
 msgstr "MCP priključak"
@@ -1391,8 +1403,8 @@ msgid ""
 "the browser Origin. For other hosts, add mcp.cors_allowed_origins in "
 "writeragent.json."
 msgstr ""
-"Automatski za .local, .lan, .home.arpa, .internal, .intern i LAN IP adrese u "
-"izvorištu (Origin) preglednika. Za ostale glavne sustave dodajte "
+"Automatski za .local, .lan, .home.arpa, .internal, .intern i LAN IP adrese u"
+" izvorištu (Origin) preglednika. Za ostale glavne sustave dodajte "
 "mcp.cors_allowed_origins u writeragent.json."
 
 msgid "Python"
@@ -1406,9 +1418,10 @@ msgid ""
 "empty, run_venv_python_script uses this process's sys.executable (basic "
 "stdlib); use a venv for numpy/pandas."
 msgstr ""
-"Ako je postavljeno, pokreće alate u tom venv-u (bin/python ili Scripts/"
-"python.exe). Ako je prazno, run_venv_python_script koristi sys.executable "
-"ovog procesa (osnovni stdlib); koristite venv za numpy/pandas."
+"Ako je postavljeno, pokreće alate u tom venv-u (bin/python ili "
+"Scripts/python.exe). Ako je prazno, run_venv_python_script koristi "
+"sys.executable ovog procesa (osnovni stdlib); koristite venv za "
+"numpy/pandas."
 
 msgid "Test"
 msgstr "Test"
@@ -1427,8 +1440,8 @@ msgid "Max Calc data cells"
 msgstr "Maks. broj ćelija podataka u Calc-u"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
 "Maksimalan broj ćelija u =PYTHON() podacima ili podacima/data_range-u "
 "funkcije Run Python Script. Veće vrijednosti troše više RAM-a i vremena; "

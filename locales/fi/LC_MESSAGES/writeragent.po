@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-25 02:12-0400\n"
+"POT-Creation-Date: 2026-05-25 13:29-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Finnish <LL@li.org>\n"
@@ -396,7 +396,8 @@ msgstr ""
 "kuten =PYTHON(\"koodi\"; A1:B10)."
 
 #: plugin/calc/python_editor.py
-msgid "PYTHON cell editor"
+#, fuzzy
+msgid "Python cell editor"
 msgstr "PYTHON-solueditori"
 
 #: plugin/calc/python_editor.py
