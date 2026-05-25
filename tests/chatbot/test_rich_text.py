@@ -294,11 +294,11 @@ class AppendRichTextScrollTests(unittest.TestCase):
         append_rich_text(doc, "hi", role="assistant", auto_scroll=True)
         doc.getCurrentController().getViewCursor().gotoEnd.assert_called_with(False)
 
-    def test_scrolls_even_when_auto_scroll_false(self):
+    def test_no_scroll_when_auto_scroll_false(self):
         from plugin.chatbot.rich_text import append_rich_text
         doc = MockDoc()
         append_rich_text(doc, "hi", role="assistant", auto_scroll=False)
-        doc.getCurrentController().getViewCursor().gotoEnd.assert_called_with(False)
+        doc.getCurrentController().getViewCursor().gotoEnd.assert_not_called()
 
     def test_default_auto_scroll_is_true(self):
         from plugin.chatbot.rich_text import append_rich_text

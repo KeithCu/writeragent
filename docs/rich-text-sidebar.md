@@ -8,14 +8,11 @@ This document outlines the design, active roadmap, and historical timeline of de
 
 These are the priority tasks to resolve remaining layout quirks and implement new features enabled by the rich-text sidebar.
 
-### [ ] Task 1: Fix Scroll-to-Bottom Auto-Scrolling (High Priority)
-*   **Issue:** Streamed chat content exceeding the visible viewport area does not trigger auto-scroll. The user must manually scroll down.
-*   **Goal:** Investigate why standard view cursor updates (`view_cursor.gotoEnd(False)`) do not force viewport updates in the embedded frame.
-*   **Avenues of Investigation:**
-    *   **VCL-Level Child Scrollbar:** Traverse the VCL component window children (not just the accessible tree) to locate the native scroll bar object and invoke programmatic scrolling.
-    *   **Page Layout Fallback:** Experiment with disabling `OnlineLayout` (normal page layout) to see if `.uno:GoToEndOfDoc` or standard page jumps succeed in updating the viewport, then style the margins/boundaries to hide the page gaps.
-    *   **`processEventsToIdle()`:** Execute `toolkit.processEventsToIdle()` immediately after `view_cursor.gotoEnd(False)` to force VCL to process the "make cursor visible" event synchronously.
-    *   **Alternative Interfaces:** Check if the embedded Writer's controller or view supports `com.sun.star.view.XScrollable`.
+### [x] Task 1: Fix Scroll-to-Bottom Auto-Scrolling (High Priority — Fixed)
+*   **Issue:** Streamed chat content exceeding the visible viewport area did not trigger auto-scroll. The user had to manually scroll down.
+*   **Root Cause:** In Online/Browse layout mode, the embedded Writer's internal "make cursor visible" mechanism is completely non-functional for embedded frames. No UNO approach (ViewCursor, select, dispatch, page jumps, VCL scrollbar) could scroll the viewport.
+*   **Solution:** Switched from `ShowOnlineLayout = True` to normal page layout with `ZoomType = PAGE_WIDTH`. In page mode, Writer's internal `SwEditWin::MakeVisible()` fires correctly when the view cursor moves across page boundaries, and `.uno:GoToEndOfDoc` triggers proper viewport scrolling. Page styled with zero margins and width matching the sidebar container so the visual result is seamless.
+*   **Files Changed:** `plugin/chatbot/rich_text.py` (`create_embedded_writer_doc` view settings, `scroll_to_bottom` simplified), `plugin/chatbot/panel.py` (`_get_scrollbar`, `_should_auto_scroll`, `_append_response` logging).
 
 ### [x] Task 2: Fix Bullets / List Spacing & Horizontal Indentation
 *   **Issue:** List bullets and numbered items took up far too much horizontal space, leaving text squished in the narrow sidebar.
@@ -227,8 +224,18 @@ When the embedded Writer sidebar receives streamed chat content that exceeds the
 5.  **No accessibility scrollbar exists.** `find_vertical_scrollbar(frame)` traverses the accessible tree from `frame.getComponentWindow().getAccessible()` but finds zero `SCROLL_BAR` role children. The embedded Writer may not have a visible scrollbar at all — content simply renders beyond the visible area.
 6.  **`post_to_main_thread` from within `queue_executor.post` never fires.** The nested post to the main thread queue doesn't get drained during the streaming loop. Fixed by calling `scroll_to_bottom(doc)` directly.
 
-#### Current Status
-`scroll_to_bottom` is reduced to a minimal `view_cursor.gotoEnd(False)` which at least doesn't actively scroll to the top. The view does not auto-scroll to show new content.
+#### Current Status (Updated May 25, 2026)
+
+**Root cause found:** In Online/Browse layout mode (`ShowOnlineLayout = True`), the embedded Writer's internal "make cursor visible" mechanism is broken. All UNO approaches (ViewCursor.gotoEnd, controller.select, .uno:GoToEndOfDoc, jumpToLastPage) move the logical cursor but the viewport remains static. The VCL peer tree exposes no scrollbar objects (all `impl=?`, no accessible tree).
+
+**Fix:** Switched to normal **page layout mode** (`ShowOnlineLayout = False`) with `ZoomType = PAGE_WIDTH`. In page mode, Writer's internal MakeVisible fires correctly when the cursor moves to content on a different page. Combined with zero margins and page width matching the sidebar container, the visual result is nearly identical to online layout but scrolling works.
+
+`scroll_to_bottom` is now streamlined to:
+1. `view_cursor.gotoEnd(False)` — positions cursor at document end.
+2. `.uno:GoToEndOfDoc` dispatch — triggers Writer's viewport scroll to follow cursor.
+3. `processEventsToIdle()` — flushes VCL repaint synchronously.
+
+The `auto_scroll` parameter is now properly honored by `append_rich_text` (previously ignored). Debug introspection helpers (`_dump_scroll_debug_once`, `find_vcl_scrollbar`, `traverse_window_tree`) remain for future diagnostics.
 
 ---
 

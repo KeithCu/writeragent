@@ -252,6 +252,21 @@ def _register_core_handlers():
     register_action_handler("main", "RunCalcTests", lambda: _run_test_suite(importlib.import_module("plugin.tests.calc.test_calc_uno"), is_calc, "calc.tests") if _tests_bundled() else _show_tests_unavailable("calc.tests"))
     register_action_handler("main", "RunCalcIntegrationTests", lambda: _run_test_suite(importlib.import_module("plugin.tests.calc.test_calc_uno"), is_calc, "calc.integration_tests") if _tests_bundled() else _show_tests_unavailable("calc.integration_tests"))
     register_action_handler("main", "RunDrawTests", lambda: _run_test_suite(importlib.import_module("plugin.tests.draw.test_draw_uno"), is_draw, "draw.tests") if _tests_bundled() else _show_tests_unavailable("draw.tests"))
+    def _force_scroll_rich_text():
+        """Debug action: force scroll_to_bottom on the active sidebar's embedded doc."""
+        try:
+            from plugin.chatbot.rich_text import scroll_to_bottom
+            from plugin.framework.uno_context import get_active_document
+            doc = get_active_document()
+            if doc:
+                scroll_to_bottom(doc)
+                log.info("ForceScrollRichText: scroll_to_bottom invoked on active doc")
+            else:
+                log.warning("ForceScrollRichText: no active document")
+        except Exception as e:
+            log.exception("ForceScrollRichText error: %s", e)
+
+    register_action_handler("main", "ForceScrollRichText", _force_scroll_rich_text)
     register_action_handler("main", "NoOp", lambda: None)
 
     def _run_python():

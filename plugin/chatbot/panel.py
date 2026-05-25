@@ -673,24 +673,28 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 log.debug("_scroll_response_to_bottom failed (likely disposed): %s", e)
 
     def _get_scrollbar(self):
-        """Return the cached scrollbar accessible, finding it on first call."""
+        """Return the cached scrollbar accessible, finding it on first call.
+
+        Tries VCL peer scrollbar first (find_vcl_scrollbar), then falls back to
+        the accessible tree (find_vertical_scrollbar).
+        """
         if self._cached_scrollbar is None and self.embedded_frame:
-            from plugin.chatbot.rich_text import find_vertical_scrollbar
-            self._cached_scrollbar = find_vertical_scrollbar(self.embedded_frame)
+            from plugin.chatbot.rich_text import find_vcl_scrollbar, find_vertical_scrollbar
+            container = getattr(self, "embedded_container", None)
+            self._cached_scrollbar = find_vcl_scrollbar(self.embedded_frame, container)
+            if not self._cached_scrollbar:
+                self._cached_scrollbar = find_vertical_scrollbar(self.embedded_frame)
             if self._cached_scrollbar:
-                log.debug("_get_scrollbar: found vertical scrollbar accessible")
+                log.info("_get_scrollbar: scrollbar found (type=%s)", type(self._cached_scrollbar).__name__)
             else:
-                log.debug("_get_scrollbar: scrollbar not found in accessible tree")
+                log.info("_get_scrollbar: no scrollbar found in VCL or accessible tree")
         return self._cached_scrollbar
 
     def _should_auto_scroll(self):
-        """Check scrollbar position and return a boolean decision.
+        """Always returns True for now — forces scroll to bottom on every append.
 
-        TODO: Implement sticky scroll — detect when user has scrolled up via
-        the accessible scrollbar (find_vertical_scrollbar / is_scrolled_to_bottom)
-        and return False so new content doesn't yank the view. Currently always
-        returns True (always scroll to bottom) because the accessible tree
-        navigation needs further debugging on real LO sessions.
+        Future: implement sticky scroll by reading VCL scrollbar position and
+        returning False when user has manually scrolled up.
         """
         return True
 
@@ -699,6 +703,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         try:
             if self.embedded_doc:
                 auto_scroll = self._should_auto_scroll()
+                log.debug("_append_response: rich-text len=%d role=%s auto_scroll=%s", len(text) if text else 0, role, auto_scroll)
                 if role == "user":
                     from plugin.chatbot.rich_text import append_rich_text
                     self.queue_executor.post(append_rich_text, self.embedded_doc, text, role="user", auto_scroll=auto_scroll)
