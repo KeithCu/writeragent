@@ -99,7 +99,8 @@ def test_worker_skips_when_agent_active_and_pause_enabled() -> None:
         patch("plugin.writer.locale.ai_grammar_proofreader.time.sleep"),
         patch("plugin.framework.client.llm_client.LlmClient") as client_cls,
     ):
-        proofreader._run_llm_and_cache(
+        api = proofreader._get_testing_api()
+        api["run_llm_and_cache"](
             ctx=None,
             text="test",
             enqueue_seq=3,

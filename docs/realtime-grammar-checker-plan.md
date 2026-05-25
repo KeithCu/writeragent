@@ -631,6 +631,74 @@ One alternative is to move to a **single global cache** where every entry is tag
 
 ---
 
+## Technical Debt Reduction Plan (Safe, Incremental Cleanup)
+
+**Goal**: Reduce long-term maintenance burden, improve testability and reasoning, and lower the risk of future subtle bugs — **without changing observable behavior** for users or breaking existing tests.
+
+This section focuses strictly on debt removal and internal quality (refactorings, extraction, documentation of hard parts, better boundaries, removal of accumulated hacks). It complements (and can subsume) the existing "Code health and maintainability" items (C1–C15).
+
+### Guiding Principles for Grammar Debt Work
+
+- **Characterization first**: Before any behavioral change, add or strengthen tests that would fail if the refactoring regressed the current (correct) behavior.
+- **Small, reviewable steps**: Prefer many tiny PRs over large ones. Each step must pass the full grammar test suite (`python -m plugin.testing_runner` for native + relevant pytest files).
+- **No user-visible changes**: Squiggle behavior, cache semantics, persistence format, performance characteristics, and error messages must remain identical unless a bug is being fixed as part of the cleanup.
+- **Leverage existing framework**: Where safe, use `framework.errors`, `framework.logging`, `framework.json_utils`, event bus patterns, etc. instead of growing grammar-specific duplicates.
+- **Document the hard parts**: The sophisticated pieces (inflight dedup, stale supersede, BreakIterator + abbrev logic, document-embedded persistence) must have clear "why" comments for the next reader.
+- **Update docs + AGENTS.md** when patterns change (per project rules).
+
+### Prioritized Technical Debt Items (TDx)
+
+These are ordered roughly by risk/reward and dependency. Lower numbers are safer to do earlier.
+
+| ID  | Area | Debt Description | Primary Files | Risk | Payoff | Suggested Approach |
+|-----|------|------------------|---------------|------|--------|--------------------|
+| **TD1** | UNO bootstrap | Duplicated path-hack boilerplate (4× `os.path.dirname` + `sys.path` manipulation) so the file can be loaded directly by LO as a UNO component. | `ai_grammar_proofreader.py:15-25` (and similar in other UNO-loaded files) | Low | Medium | **In progress / partial** — Extracted to `plugin/framework/uno_bootstrap.py`. Updated grammar proofreader (4 levels + lib) and panel_factory (3 levels). Added basic idempotency test in `tests/framework/test_constants.py`. Still need to update main.py and any remaining sites + improve docs. |
+| **TD2** | Testability seams | Heavy reliance on module-level re-exports, `noqa: F401`, and private aliases (`_run_llm_and_cache`, `_GrammarWorkQueue`, etc.) to make the proofreader testable from outside the UNO environment. | `ai_grammar_proofreader.py:79-85`, work queue, cache | Low-Medium | High | **In progress** — Added `_get_testing_api()` single seam. Migrated one direct `_run_llm_and_cache` call in tests to use it. Legacy aliases kept for compatibility during transition. |
+| **TD3** | Global mutable state & lifecycle | Scattered module-level caches, locks, and maps (`_SENTENCE_CACHE`, `_doc_persistence_instances`, `_lang_detect_cache`, `_doc_locales_cache`, `_ignored_rules`, etc.). Lifetime and ownership are implicit. | `grammar_proofread_cache.py`, `grammar_persistence.py`, `grammar_work_queue.py`, `grammar_proofread_locale.py` | Medium | High | Introduce small container / registry objects with explicit `shutdown` / `clear_for_doc` methods. Make more caches take `(ctx, doc_id)` explicitly. Reduce reliance on module globals for anything with document scope. |
+| **TD4** | Over-clever queue logic | The tail-replace dedup (reaching into `queue.Queue` internal `_q.mutex` + `deque`), `inflight_key` + `enqueue_seq` scheme, and multi-layer stale suppression is powerful but has a long bug history (see multiple appendices). It is the highest cognitive-load code in the grammar system. | `grammar_work_queue.py` (enqueue, `deduplicate_grammar_batch`, stale guards) | Medium (if touched carelessly) | High (long-term) | (a) Add a large comment block explaining the *full mental model* (why tail replace + seq + post-execute stale check are all needed). (b) Extract more pure functions for the dedup/stale decisions so they can be unit-tested in isolation. (c) Consider a small internal `DeduplicationPolicy` object if it reduces branching. Do **not** change the algorithm without exhaustive tests first. |
+| **TD5** | Error handling fragility | Nested try/except "log and continue" patterns in the hot `doProofreading` path and worker (C1). Some errors are swallowed that should at least increment a diagnostic counter. | `ai_grammar_proofreader.py`, `grammar_work_queue.py`, `grammar_proofread_locale.py` | Low | Medium | Implement the tiered error handling table from Appendix B. Introduce a small set of `_safe_*` helpers with clear contracts. Make sure all paths that return empty results still emit structured `grammar_obs` events. |
+| **TD6** | Constant & magic number sprawl | Thresholds, caps, timeouts, and sizes are defined in multiple files with varying documentation quality (C12). Some appear in prompts, some only in code. | `grammar_proofread_locale.py`, `grammar_proofread_text.py`, `grammar_work_queue.py`, `grammar_proofread_cache.py` | Low | Medium | Centralize in one well-documented module (or a `GRAMMAR_CONSTANTS` dataclass + docstring). Add units and rationale comments everywhere. Expose the most important ones via the existing config system where it makes sense for power users. |
+| **TD7** | UNO listener & persistence fragility | The long history of subtle bugs (wrong `documentEvent` vs `documentEventOccured`, wrong `hasByName` vs `XPropertySetInfo.hasPropertyByName`) lives in `grammar_persistence.py`. The pattern is easy to get wrong again in future listeners. | `grammar_persistence.py` + tests that caught the bugs | Low-Medium | Medium | Extract a small `uno_listeners.py` helper module with verified base classes or factory functions for common XDocumentEventListener + disposing patterns. Add a "how to write a correct LO listener" comment with the two bugs that were fixed. |
+| **TD8** | Import graph & package cohesion | `grammar_proofread_locale.py` is intentionally a "DAG root" (must not import siblings). Other modules pull in many pieces. `ai_grammar_proofreader.py` does a lot of re-exporting. `grammar_fsm_state.py` exists but appears lightly connected. | Whole `plugin/writer/locale/` package | Low | Medium | (a) Add a `locale/__init__.py` that clearly documents the intended import order and what each module owns. (b) Evaluate whether `grammar_fsm_state.py` is pulling its weight or is premature extraction — either fully integrate it or prune it before it becomes dead weight. (c) Reduce the number of cross-imports where possible by moving small pure helpers. |
+| **TD9** | Observability & diagnostics debt | `grammar_obs` is useful but under-used in some paths. Batch stats, supersede counts, and LLM durations are only partially instrumented (see C10). Hard to answer "why did this sentence get re-checked?" from logs alone. | `grammar_work_queue.py`, `grammar_proofread_cache.py`, `ai_grammar_proofreader.py` | Low | Medium | Systematically add `grammar_obs` (or structured logging) at every decision point in the enqueue → dedup → stale → execute → cache path. Make the existing queue diagnostics use the same mechanism. This pays for itself in future debugging. |
+| **TD10** | Dead / legacy config surface | References to removed keys (e.g. `doc.grammar_proofreader_wait_timeout_ms`) still linger in some places (C13). | Config schemas, UI bindings, any remaining call sites | Very Low | Low | Mechanical removal pass + test that the keys no longer appear in generated settings. |
+
+### Recommended Phasing
+
+**Phase 0 (Foundation – do first)**
+- TD9 (observability) + strengthen the existing test matrix for the queue/cache/persistence boundaries.
+- Run full `make test` (including native grammar tests) after every change.
+
+**Phase 1 (Low-risk hygiene)**
+- TD6 (constants), TD1 (path bootstrap extraction), TD8 (package documentation + FSM evaluation).
+
+**Phase 2 (Testability & boundaries)**
+- TD2 (test seams), TD5 (error handling), TD7 (listener helpers).
+
+**Phase 3 (Harder state & algorithm work)**
+- TD3 (global state), TD4 (queue logic documentation + pure extraction). These have the highest chance of introducing subtle regressions if not surrounded by excellent tests first.
+
+### Verification Requirements (Mandatory)
+
+For any TD item that touches runtime behavior:
+1. All existing grammar tests (pytest under `tests/writer/locale/` + native tests via `testing_runner`) must pass before and after.
+2. Add at least one new regression-style test that would have caught the class of bug being cleaned up (e.g., a test that the extracted bootstrap helper is a no-op on second call).
+3. If the change affects persistence or cache format, verify round-trips with old documents (the v2 payload work already has good patterns for this).
+4. Update this plan document with "Completed" status and links to the commits/PRs.
+5. If the change affects any documented behavior in AGENTS.md or other docs, update them.
+
+### Relationship to Existing C Items
+
+Many TD items above are direct expansions or renamings of the C1–C15 items already in the backlog. The TD numbering is intended to give them more visibility and a dedicated "safe cleanup" track separate from product features (P items) or new tests (T items).
+
+When an item is completed, mark it here **and** update the corresponding C-row status.
+
+---
+
+**Status of this plan**: Draft – ready for review and incremental execution. No work should begin until the Phase 0 observability and test gaps are addressed.
+
+---
+
 ## Future Architecture: Tighter Coupling to the Agent Platform (2026+)
 
 These are longer-horizon ideas that treat the grammar checker less as an independent "linguistic service" and more as a specialized, always-on consumer of the rest of the WriterAgent machinery (cancellation/prioritization, memory, style guidance, document research, and the main agent loop). They accept higher complexity in exchange for consistency and leverage.

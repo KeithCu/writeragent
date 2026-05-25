@@ -37,25 +37,17 @@ from com.sun.star.container import NoSuchElementException
 # Common exceptions for UI components that may be disposed during layout/refresh
 UNO_DISPOSED_EXCEPTIONS = (DisposedException, RuntimeException, UnoException)
 
-# Ensure the extension's install directory is on sys.path
-# so that "plugin.xxx" imports work correctly. This file lives at
-# plugin/chatbot/panel_factory.py; the extension root (directory
-# containing the "plugin" package) is 3 dirname steps up — not 4:
-# unopkg extracts to .../WriterAgent.oxt/plugin/chatbot/... and adding
-# the parent of WriterAgent.oxt breaks ``import plugin``.
-_this_file = os.path.abspath(__file__)
-for _i in range(3):
-    _this_file = os.path.dirname(_this_file)
-_ext_root = _this_file
-if _ext_root not in sys.path:
-    sys.path.insert(0, _ext_root)
+# Ensure the extension's install directory is on sys.path so that normal
+# "import plugin.xxx" statements work when LibreOffice loads this module.
+# See plugin/framework/uno_bootstrap.py for the centralized implementation
+# and rationale (this used to be duplicated fragile path logic).
+from plugin.framework.uno_bootstrap import ensure_plugin_on_path
 
-# Add contrib (and plugin/contrib/audio for sounddevice when recording is enabled) so this file can be loaded by LibreOffice
-_vendor_dir = os.path.join(_ext_root, "contrib")
-if _vendor_dir not in sys.path:
-    sys.path.insert(0, _vendor_dir)
-_audio_dir = os.path.join(_ext_root, "plugin", "contrib", "audio")
-if _audio_dir not in sys.path:
+ensure_plugin_on_path(__file__, levels_up=3, also_add_contrib=True)
+
+# Audio contrib path (development + certain bundled layouts)
+_audio_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "plugin", "contrib", "audio")
+if os.path.isdir(_audio_dir) and _audio_dir not in sys.path:
     sys.path.insert(0, _audio_dir)
 
 # Recording available only if audio_recorder (and thus plugin/contrib/audio) is present

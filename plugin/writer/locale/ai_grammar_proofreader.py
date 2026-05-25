@@ -8,21 +8,14 @@ from __future__ import annotations
 
 import importlib
 import logging
-import os
-import sys
 import time  # noqa: F401 — tests patch ``ai_grammar_proofreader.time.sleep``
 
-# LO loads this file as a standalone UNO component; set up path like panel_factory.py
-# so ``import plugin...`` works (file is plugin/writer/locale/ai_grammar_proofreader.py).
-_this_file = os.path.abspath(__file__)
-for _i in range(4):
-    _this_file = os.path.dirname(_this_file)
-_ext_root = _this_file
-if _ext_root not in sys.path:
-    sys.path.insert(0, _ext_root)
-_lib_dir = os.path.join(_ext_root, "plugin", "lib")
-if os.path.isdir(_lib_dir) and _lib_dir not in sys.path:
-    sys.path.insert(0, _lib_dir)
+# Ensure we can do normal plugin.* imports even when LO loads this file
+# directly as a standalone UNO component (XProofreader service).
+from plugin.framework.uno_bootstrap import ensure_plugin_on_path
+
+ensure_plugin_on_path(__file__, levels_up=4, also_add_lib=True)
+
 from typing import Any, Sequence, cast
 
 import unohelper
@@ -76,7 +69,32 @@ from plugin.writer.locale.grammar_work_queue import (
     slice_preview_debug,
 )
 
-# Tests and legacy call sites: module-level aliases
+# --- Testing seam (TD2) -------------------------------------------------
+# Tests reach into a few internal pieces. We provide a single accessor
+# instead of scattering many `_private = public` aliases at module level.
+# This makes the test surface explicit and easier to evolve.
+
+
+def _get_testing_api():
+    """Return a dict of objects that unit tests commonly need to patch or call.
+
+    This is the supported (internal) testing seam for the grammar proofreader.
+    Do not use in production code.
+    """
+    return {
+        "run_llm_and_cache": _run_llm_and_cache,
+        "GrammarWorkQueue": _GrammarWorkQueue,
+        "grammar_obs": grammar_obs,
+        "emit_grammar_status": emit_grammar_status,
+        "slice_preview_debug": slice_preview_debug,
+        "inflight_key": grammar_inflight_key,
+        "looks_complete_sentence": looks_complete_sentence,
+        "count_nonspace_chars": count_nonspace_chars,
+    }
+
+
+# Legacy / direct aliases kept for now to avoid breaking existing tests in one step.
+# Long-term goal (TD2): migrate tests to _get_testing_api() and remove these.
 _slice_preview_debug = slice_preview_debug
 _grammar_obs = grammar_obs
 _emit_grammar_status = emit_grammar_status
