@@ -180,7 +180,7 @@ def _locale_tuple() -> tuple[Any, ...]:
     try:
         for tag in GRAMMAR_REGISTRY_LOCALE_TAGS:
             la, ctry = bcp47_to_uno_lang_country(tag)
-            out.append(cast("Any", uno_mod.createUnoStruct("com.sun.star.lang.Locale", Language=la, Country=ctry, Variant="")))
+            out.append(uno_mod.createUnoStruct("com.sun.star.lang.Locale", Language=la, Country=ctry, Variant=""))
         return tuple(out)
     except Exception as e:
         log.error("[grammar] _locale_tuple: Locale construction failed: %s", e, exc_info=True)
@@ -213,7 +213,7 @@ def _create_empty_result(proofreader: Any, a_document_identifier: Any, a_text: s
     if uno_mod is None:
         raise RuntimeError("uno not available")
     try:
-        a_res = cast("Any", uno_mod.createUnoStruct("com.sun.star.linguistic2.ProofreadingResult"))
+        a_res = uno_mod.createUnoStruct("com.sun.star.linguistic2.ProofreadingResult")
         a_res.aDocumentIdentifier = a_document_identifier
         a_res.aText = a_text
         a_res.aLocale = a_locale
@@ -257,7 +257,7 @@ def _errors_to_uno_tuple(norms: Sequence[NormalizedProofError]) -> tuple[Any, ..
     out: list[Any] = []
     for idx, e in enumerate(norms):
         try:
-            a_err = cast("Any", uno_mod.createUnoStruct("com.sun.star.linguistic2.SingleProofreadingError"))
+            a_err = uno_mod.createUnoStruct("com.sun.star.linguistic2.SingleProofreadingError")
             a_err.nErrorStart = e.n_error_start
             a_err.nErrorLength = e.n_error_length
             a_err.nErrorType = _proofreading_markup_type()

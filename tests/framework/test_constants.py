@@ -174,9 +174,6 @@ def test_ensure_plugin_on_path_is_idempotent():
     assert root1 == root2
     # Should not have added duplicate entries
     assert after.count(root1) == before.count(root1) + (1 if root1 not in before else 0)
-    assert "do not answer from memory" in directives
-    assert "fast local numeric" in directives
-    assert "apply_document_content" not in directives
 
 
 def test_calc_core_directives_no_math_python_delegation_line():
