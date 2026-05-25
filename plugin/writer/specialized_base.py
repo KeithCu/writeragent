@@ -60,8 +60,7 @@ class DelegateToSpecializedWriter(DelegateToSpecializedBase):
         "Delegates a specialized task to a sub-agent with a focused toolset. "
         f"document_research {DELEGATION_USER_FILE_DATA_HINT}; web_research {DELEGATION_PUBLIC_WEB_HINT}. "
         "Also: charts, fields, styles, page, textframes, embedded (active doc OLE only), shapes, indexes, "
-        "bookmarks, tracking, footnotes, forms, images, sections, mail_merge, bibliography, watermark, "
-        "autotext, toc_enhancement, document_automation, security, document_management, collaboration, customization."
+        "bookmarks, tracking, footnotes, forms, images."
     )
 
     uno_services = ["com.sun.star.text.TextDocument"]
@@ -187,6 +186,8 @@ class ToolWriterDocumentResearchBase(ToolWriterSpecialBase):
     specialized_domain_description: ClassVar[str | None] = f"{DELEGATION_USER_FILE_DATA_HINT}; one delegation for file(s), sub-agent matches descriptions"
 
 
+'''
+# Mock domain base classes: uncomment when implementations are ready.
 class ToolWriterSectionBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "sections"
     specialized_domain_description: ClassVar[str | None] = "Manage document sections, protection, columns, and properties."
@@ -251,6 +252,7 @@ class ToolWriterCustomizationBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "customization"
     specialized_domain_description: ClassVar[str | None] = "Customize keyboard shortcuts, menu items, and custom commands."
     intent = "edit"
+'''
 
 
 class SpecializedWorkflowFinished(ToolBase):
