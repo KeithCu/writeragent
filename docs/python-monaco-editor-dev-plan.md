@@ -74,7 +74,7 @@ Same framing idea as [`worker_harness.py`](../plugin/scripting/worker_harness.py
 - **Monaco:** vendored under `plugin/contrib/scripting/assets/editor/vs/` (python-only prune + Terser; typically ~4–5 MB on disk). Refresh: `make fetch-monaco` ([`scripts/fetch_monaco_editor.sh`](../scripts/fetch_monaco_editor.sh)). Re-strip comments anytime: `make minify-editor-js` ([`scripts/minify_editor_js.sh`](../scripts/minify_editor_js.sh); requires Node.js).
 - **`jedi`** (session 2+): optional, persistent `Environment` in child — see below.
 
-**Note:** [`python_runner.py`](../plugin/scripting/python_runner.py) still offers a native multiline dialog for other flows (e.g. **Run Python Script…**). The Calc Monaco menu does **not** fall back to that dialog when pywebview is missing—it explains how to fix the configured venv instead.
+**Note:** **Run Python Script…** opens Monaco when the configured venv has pywebview (Python syntax highlighting, **Run** button, editor stays open after execution). If pywebview is unavailable, it falls back to the native multiline dialog in [`python_runner.py`](../plugin/scripting/python_runner.py). The Calc **Edit Python in Cell…** menu does **not** fall back—it explains how to fix the configured venv instead.
 
 ---
 
@@ -118,6 +118,7 @@ plugin/
     ├── editor_diagnostics.py
     ├── editor_protocol.py
     ├── editor_main.py
+    ├── editor_session_launch.py    # Shared spawn/reuse for Calc + Run Python Script
     └── editor_jedi.py                # Jedi stub (Phase 2D finish)
 
 tests/
@@ -148,6 +149,7 @@ tests/
 8. Edit cell A, Save, select cell B, run **Edit Python in Cell…** again — editor reloads B’s code (no blocking dialog).
 9. Right-click a cell — **Edit Python in Cell…** should appear at the bottom of the cell context menu.
 10. On save error (if reproducible), toolbar shows red error text and the editor stays open.
+11. **Run Python Script…** (Writer/Calc/Draw): with venv + pywebview, opens Monaco with colored Python, **Run** / **Save** / **Close** buttons (no Data/plain-text controls). **Run** executes and inserts result; **Save** persists script to config only; **Close** hides the editor. Without pywebview, the plain multiline dialog appears (no error msgbox).
 
 **If it fails:** the msgbox should include child stderr and a Python traceback. Also check `writeragent_debug.log` under the LO user profile (`writeragent.json` directory). Common causes: wrong venv path in Settings, pywebview not installed in *that* venv, or missing display/GTK backend on Linux.
 
@@ -277,12 +279,12 @@ Port spawn helpers from LibrePythonista (see analysis doc): detect sandbox, wrap
 
 ### Phase 3 — Broader surfaces
 
-| Item | Rationale |
-|------|-----------|
-| **Run Python Script… → Monaco** | Reuse bridge with `load` from `last_python_script_*` config keys; save writes config not formula. Same child process, different `on_save` handler. |
-| **Formula bar button** | Needs LO UI extension research (Calc input line customization). High effort; do after context menu. |
-| **Tier-2 document store** | [`enabling_numpy_in_libreoffice.md`](enabling_numpy_in_libreoffice.md) Tier 2 (formula key + side store) is a **separate** product decision — do not mix with Monaco until formula-in-cell workflow is stable. |
-| **Core extension split** | Keep all editor code in `plugin/scripting/` + thin `plugin/calc/python_editor.py` per [`ROADMAP.md`](../docs/ROADMAP.md) Phase 3–4 so a future core OXT can ship `=PYTHON()` + editor without the LLM stack. |
+| Item | Rationale | Status |
+|------|-----------|--------|
+| **Run Python Script… → Monaco** | Reuse bridge with `load` from `last_python_script_*` config keys; **Run** persists config and executes (not formula save). Falls back to native dialog when pywebview unavailable. Shared launcher: [`editor_session_launch.py`](../plugin/scripting/editor_session_launch.py). | **Done** |
+| **Formula bar button** | Needs LO UI extension research (Calc input line customization). High effort; do after context menu. | |
+| **Tier-2 document store** | [`enabling_numpy_in_libreoffice.md`](enabling_numpy_in_libreoffice.md) Tier 2 (formula key + side store) is a **separate** product decision — do not mix with Monaco until formula-in-cell workflow is stable. | |
+| **Core extension split** | Keep all editor code in `plugin/scripting/` + thin `plugin/calc/python_editor.py` per [`ROADMAP.md`](../docs/ROADMAP.md) Phase 3–4 so a future core OXT can ship `=PYTHON()` + editor without the LLM stack. | |
 
 ---
 
@@ -294,6 +296,7 @@ Phase 2B: + validate | validate_result
 Phase 2C: + pick_range | range_result
 Phase 2D: + completions (child-internal, optional calc_symbols from LO)
 Phase 2E: load.theme field (no new type)
+Phase 3:  load.mode / save_label / show_plain_text / show_data_binding / status_ok_text (no new IPC types)
 ```
 
 Consider a top-level `seq: int` on all messages once 2B is in place so async validate/range responses never apply out of order.

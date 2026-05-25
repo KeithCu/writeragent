@@ -23,9 +23,10 @@ from plugin.calc.python_formula_edit import (
 from plugin.chatbot.dialogs import msgbox
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_desktop
-from plugin.scripting.editor_bridge import EditorSession, get_active_session, set_active_session, _PERSISTENT_EDITOR
+from plugin.scripting.editor_bridge import get_active_session, set_active_session
 from plugin.scripting.editor_diagnostics import failure_message
-from plugin.scripting.editor_launcher import probe_webview_import, resolve_editor_python, spawn_editor_process
+from plugin.scripting.editor_launcher import probe_webview_import, resolve_editor_python
+from plugin.scripting.editor_session_launch import launch_monaco_editor
 
 log = logging.getLogger("writeragent.scripting")
 
@@ -216,7 +217,7 @@ def _launch_editor_with_code(
 ) -> None:
     data_binding = format_data_binding_display(parsed_parts.data_suffix) if parsed_parts else ""
 
-    def on_save(code: str, save_as_plain: bool, data_binding: str | None = None) -> dict[str, Any]:
+    def on_save(code: str, save_as_plain: bool, data_binding: str | None = None, _action: str = "cell_save") -> dict[str, Any]:
         binding = None if save_as_plain else data_binding
         return _apply_cell_save(
             doc,
@@ -230,52 +231,25 @@ def _launch_editor_with_code(
     def on_closed() -> None:
         log.debug("Python cell editor closed")
 
-    if _PERSISTENT_EDITOR.is_running:
-        log.info("python_editor: reusing running Monaco background process")
-        proc = _PERSISTENT_EDITOR.proc
-        assert proc is not None
-        session = EditorSession(proc, on_save=on_save, on_closed=on_closed)
-        set_active_session(session)
-    else:
-        log.info("python_editor: background process not running, spawning a new one")
-        try:
-            proc = spawn_editor_process(exe)
-        except OSError as e:
-            log.exception("Failed to spawn editor")
-            msgbox(ctx, "WriterAgent", failure_message(_("Could not start the Python editor."), exc=e))
-            return
-
-        session = EditorSession(proc, on_save=on_save, on_closed=on_closed)
-        set_active_session(session)
-        session.start_reader()
-
-        if not session.wait_for_ready(ctx, timeout_sec=45.0):
-            detail = session.read_stderr_tail()
-            set_active_session(None)
-            msgbox(ctx, "WriterAgent", failure_message(_("The Python editor window did not start."), detail=detail))
-            return
-
-    if not session.is_running:
-        detail = session.read_stderr_tail()
-        set_active_session(None)
-        msgbox(ctx, "WriterAgent", failure_message(_("The Python editor exited before it could load your code."), detail=detail))
-        return
-
     load_msg: dict[str, Any] = {
         "type": "load",
+        "mode": "calc_cell",
         "code": initial_code,
         "title": _("PYTHON cell editor"),
         "plain_text_label": _("Save as plain text"),
         "save_as_plain": editor_load_save_as_plain(parsed_parts=parsed_parts, initial_code=initial_code),
+        "save_label": _("Save"),
+        "show_plain_text": True,
+        "show_data_binding": True,
+        "data_binding": data_binding,
     }
-    load_msg["data_binding"] = data_binding
-    try:
-        session.send(load_msg)
-    except Exception as e:
-        log.exception("Failed to send load to editor")
-        set_active_session(None)
-        msgbox(ctx, "WriterAgent", failure_message(_("Could not talk to the Python editor."), detail=session.read_stderr_tail(), exc=e))
-        return
+    launch_monaco_editor(
+        ctx,
+        exe=exe,
+        load_message=load_msg,
+        on_save=on_save,
+        on_closed=on_closed,
+    )
 
 
 def open_python_cell_editor(ctx: Any) -> None:

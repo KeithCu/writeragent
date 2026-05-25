@@ -82,6 +82,10 @@ html, body {
   white-space: nowrap;
 }
 
+.toolbar-hidden {
+  display: none !important;
+}
+
 #editor {
   height: calc(100% - 42px);
   width: 100%;

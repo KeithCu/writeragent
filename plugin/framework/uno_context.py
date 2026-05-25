@@ -46,6 +46,13 @@ def get_ctx():
     Prefers ``uno.getComponentContext()`` (always fresh).
     Falls back to the stored bootstrap ctx if uno is not importable.
     """
+    # BUGFIX: In standalone runner processes (like test runners), uno.getComponentContext()
+    # returns a local standalone pyuno context that lacks a VCL instance. Attempting to
+    # instantiate com.sun.star.frame.Desktop on this local context causes a segmentation fault.
+    # We prefer the explicitly set _fallback_ctx (which holds the remote connection context)
+    # to prevent standalone runs from trying to use the local PyUNO context.
+    if _fallback_ctx is not None:
+        return _fallback_ctx
     try:
         import uno
 

@@ -224,12 +224,15 @@ class PersistentEditor:
             data_binding = msg.get("data_binding")
             if data_binding is not None and not isinstance(data_binding, str):
                 data_binding = str(data_binding)
+            action = msg.get("action", "cell_save")
+            if not isinstance(action, str):
+                action = "cell_save"
 
             def _handle_save() -> None:
                 try:
                     on_save = self.on_save
                     if on_save is not None:
-                        result = on_save(code, save_as_plain, data_binding)
+                        result = on_save(code, save_as_plain, data_binding, action)
                     else:
                         result = {"type": "saved", "ok": True}
                     if not isinstance(result, dict):

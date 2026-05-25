@@ -17,6 +17,8 @@ from plugin.framework.uno_context import get_ctx, get_desktop
 from plugin.framework.config import get_config_str, set_config
 from plugin.framework.i18n import _
 from plugin.chatbot.dialogs import add_dialog_label, add_dialog_edit, add_dialog_button, msgbox
+from plugin.scripting.editor_diagnostics import exception_traceback
+from plugin.scripting.editor_session_launch import launch_monaco_editor, monaco_editor_available
 from plugin.scripting.run_venv_code import run_code_in_user_venv
 from plugin.writer.format import insert_content_at_position
 from plugin.doc.document_helpers import is_calc, is_writer, is_draw
@@ -366,6 +368,108 @@ def insert_result_into_draw(doc: Any, uno_ctx: Any, result: Any) -> None:
     """
 
 
+def resolve_run_script_config_key(doc: Any) -> str:
+    """Return the config key for persisting Run Python Script code for *doc*."""
+    if doc:
+        if is_calc(doc):
+            return "last_python_script_calc"
+        if is_writer(doc):
+            return "last_python_script_writer"
+        if is_draw(doc):
+            return "last_python_script_draw"
+    return "last_python_script"
+
+
+def execute_and_insert_result(ctx: Any, doc: Any, code: str) -> dict[str, Any]:
+    """Run *code* in the user venv and insert the result into *doc* when possible."""
+    try:
+        response = run_code_in_user_venv(ctx, code)
+    except Exception as e:
+        log.exception("execute_and_insert_result failed")
+        return {"ok": False, "message": str(e), "traceback": exception_traceback(e)}
+
+    if response.get("status") != "ok":
+        error_msg = response.get("message", _("Unknown error"))
+        log.error("Python script failed: %s", error_msg)
+        return {"ok": False, "message": error_msg}
+
+    result_data = response.get("result")
+    stdout = response.get("stdout")
+
+    if result_data is None and not stdout:
+        return {
+            "ok": True,
+            "status_ok_text": _("Script executed successfully, but returned no result and produced no output."),
+            "stdout": stdout,
+            "result": result_data,
+        }
+
+    if doc:
+        if is_calc(doc):
+            insert_result_into_calc(doc, ctx, result_data)
+        elif is_writer(doc):
+            formatted = format_result_for_writer(result_data)
+            if formatted:
+                insert_content_at_position(doc, ctx, formatted, "selection")
+        elif is_draw(doc):
+            insert_result_into_draw(doc, ctx, result_data)
+        else:
+            return {"ok": False, "message": _("Unsupported document type for result insertion.")}
+
+    if stdout:
+        log.info("Python script stdout: %s", stdout)
+
+    return {
+        "ok": True,
+        "status_ok_text": _("Script executed successfully."),
+        "stdout": stdout,
+        "result": result_data,
+    }
+
+
+def _run_python_monaco(ctx: Any, doc: Any, *, config_key: str, initial_code: str, exe: str) -> bool:
+    """Open Monaco for Run Python Script. Return True when the editor session started."""
+    run_ok_text = _("Script executed successfully.")
+    save_ok_text = _("Script saved.")
+
+    def on_save(
+        code: str,
+        _save_as_plain: bool,
+        _data_binding: str | None = None,
+        action: str = "run",
+    ) -> dict[str, Any]:
+        set_config(ctx, config_key, code)
+        if action == "save":
+            return {"type": "saved", "ok": True, "status_ok_text": save_ok_text}
+        outcome = execute_and_insert_result(ctx, doc, code)
+        if not outcome.get("ok"):
+            return {
+                "type": "error",
+                "message": outcome.get("message", _("Unknown error")),
+                "traceback": outcome.get("traceback"),
+            }
+        return {
+            "type": "saved",
+            "ok": True,
+            "status_ok_text": outcome.get("status_ok_text", run_ok_text),
+        }
+
+    load_msg: dict[str, Any] = {
+        "type": "load",
+        "mode": "run_script",
+        "code": initial_code,
+        "title": _("Run Python Script"),
+        "run_label": _("Run"),
+        "save_label": _("Save"),
+        "close_label": _("Close"),
+        "show_plain_text": False,
+        "show_data_binding": False,
+        "status_ok_text": run_ok_text,
+        "saved_ok_text": save_ok_text,
+    }
+    return launch_monaco_editor(ctx, exe=exe, load_message=load_msg, on_save=on_save)
+
+
 def run_python_dialog(uno_ctx: Any = None) -> None:
     """Entry point for the 'Run Python Script...' menu command."""
     if uno_ctx is None:
@@ -373,63 +477,36 @@ def run_python_dialog(uno_ctx: Any = None) -> None:
     
     desktop = get_desktop(uno_ctx)
     doc = desktop.getCurrentComponent()
-    
-    config_key = "last_python_script"
-    if doc:
-        if is_calc(doc):
-            config_key = "last_python_script_calc"
-        elif is_writer(doc):
-            config_key = "last_python_script_writer"
-        elif is_draw(doc):
-            config_key = "last_python_script_draw"
-    
+
+    config_key = resolve_run_script_config_key(doc)
+
     # Load last script from config
     initial_code = get_config_str(uno_ctx, config_key)
-    
+
+    _exe, monaco_ok = monaco_editor_available(uno_ctx)
+    if monaco_ok and _exe:
+        if _run_python_monaco(uno_ctx, doc, config_key=config_key, initial_code=initial_code, exe=_exe):
+            return
+
     code = show_python_input_dialog(uno_ctx, initial_text=initial_code)
     if not code:
         return
-        
+
     # Save the script to config for next time
     set_config(uno_ctx, config_key, code)
 
-    # Run the code
     try:
-        # Note: run_code_in_user_venv handles venv resolution and worker management
-        response = run_code_in_user_venv(uno_ctx, code)
-        
-        if response.get("status") == "ok":
-            result_data = response.get("result")
-            
-            if result_data is None and not response.get("stdout"):
-                msgbox(uno_ctx, _("Success"), _("Script executed successfully, but returned no result and produced no output."))
-                return
-
-            if not doc:
-                return
-
-            if is_calc(doc):
-                insert_result_into_calc(doc, uno_ctx, result_data)
-            elif is_writer(doc):
-                formatted = format_result_for_writer(result_data)
-                if formatted:
-                    insert_content_at_position(doc, uno_ctx, formatted, "selection")
-            elif is_draw(doc):
-                insert_result_into_draw(doc, uno_ctx, result_data)
-            else:
-                # Fallback for other document types or if type detection fails
-                msgbox(uno_ctx, _("Error"), _("Unsupported document type for result insertion."))
-            
-            if response.get("stdout"):
-                log.info("Python script stdout: %s", response.get("stdout"))
-                # Optionally show stdout in a message box if there's no result?
-                if result_data is None:
-                    msgbox(uno_ctx, _("Output"), response.get("stdout"))
-        else:
-            error_msg = response.get("message", _("Unknown error"))
-            log.error("Python script failed: %s", error_msg)
-            msgbox(uno_ctx, _("Execution Error"), error_msg)
-            
+        outcome = execute_and_insert_result(uno_ctx, doc, code)
+        if not outcome.get("ok"):
+            msgbox(uno_ctx, _("Execution Error"), outcome.get("message", _("Unknown error")))
+            return
+        if outcome.get("status_ok_text") == _(
+            "Script executed successfully, but returned no result and produced no output."
+        ):
+            msgbox(uno_ctx, _("Success"), outcome["status_ok_text"])
+            return
+        if outcome.get("stdout") and outcome.get("result") is None:
+            msgbox(uno_ctx, _("Output"), outcome.get("stdout"))
     except Exception as e:
         log.exception("run_python_dialog execution failed")
         msgbox(uno_ctx, _("Error"), str(e))

@@ -16,36 +16,32 @@ def test_open_second_cell_reuses_running_editor_and_sends_load():
     ctx = MagicMock()
     doc_b = MagicMock()
     cell_b = MagicMock()
-    mock_proc = MagicMock()
-    sent_messages: list[dict] = []
 
     existing_session = MagicMock()
     existing_session.is_running = True
 
-    def fake_send(msg: dict) -> None:
-        sent_messages.append(msg)
+    captured: dict = {}
+
+    def fake_launch(_ctx, *, exe, load_message, on_save, on_closed=None):
+        captured["load_message"] = load_message
+        captured["on_save"] = on_save
+        return True
 
     with patch.object(pe, "get_active_session", return_value=existing_session):
         with patch.object(pe, "_get_active_calc_cell", return_value=(doc_b, cell_b, "")):
             with patch.object(pe, "_load_cell_editor_code", return_value=("print(2)", None, None)):
                 with patch.object(pe, "resolve_editor_python", return_value=("/venv/bin/python", None)):
                     with patch.object(pe, "probe_webview_import", return_value=(True, "")):
-                        with patch.object(pe, "_PERSISTENT_EDITOR") as mock_persistent:
-                            mock_persistent.is_running = True
-                            mock_persistent.proc = mock_proc
-                            with patch("plugin.calc.python_editor_context_menu.install_calc_cell_context_menu"):
-                                with patch.object(pe, "EditorSession") as mock_session_cls:
-                                    new_session = MagicMock()
-                                    new_session.is_running = True
-                                    new_session.send = fake_send
-                                    mock_session_cls.return_value = new_session
+                        with patch("plugin.calc.python_editor_context_menu.install_calc_cell_context_menu"):
+                            with patch.object(pe, "launch_monaco_editor", side_effect=fake_launch):
+                                pe.open_python_cell_editor(ctx)
 
-                                    pe.open_python_cell_editor(ctx)
-
-    assert sent_messages, "expected a load message for the new cell"
-    load_msg = sent_messages[-1]
+    load_msg = captured.get("load_message")
+    assert load_msg is not None, "expected a load message for the new cell"
     assert load_msg["type"] == "load"
     assert load_msg["code"] == "print(2)"
+    assert load_msg.get("mode") == "calc_cell"
+    assert load_msg.get("show_plain_text") is True
+    assert load_msg.get("show_data_binding") is True
     assert load_msg.get("save_as_plain") is True
-    mock_session_cls.assert_called_once()
-    assert mock_session_cls.call_args.kwargs["on_save"] is not None
+    assert captured.get("on_save") is not None

@@ -628,3 +628,88 @@ One alternative is to move to a **single global cache** where every entry is tag
 - **Scanning Overhead**: Scans on document close/save scale with the size of the global cache (though negligible at `MAX_CACHE_SIZE=2048`).
 
 **Conclusion:** The **Hybrid L1/L2** approach is preferred because it leverages existing `DocumentPersistence` logic. It treats the document state as primary and the global memory as a "volatile optimizer." The memory redundancy (storing a sentence in both the global LRU and the document's active map) is minimal (a few hundred KB) compared to the architectural simplicity.
+
+---
+
+## Future Architecture: Tighter Coupling to the Agent Platform (2026+)
+
+These are longer-horizon ideas that treat the grammar checker less as an independent "linguistic service" and more as a specialized, always-on consumer of the rest of the WriterAgent machinery (cancellation/prioritization, memory, style guidance, document research, and the main agent loop). They accept higher complexity in exchange for consistency and leverage.
+
+### G1. First-class SendCancellation / Priority participation
+
+**Problem today:** Grammar work runs on its own daemon thread + queue with a simple "pause during active agent session" heuristic. Heavy scrolling or background checks can still contend with an active chat/research session for the LLM (even with `llm_request_lane`).
+
+**Idea:** Make `GrammarWorkItem` and the work queue participate in the `SendCancellation` / `agent_session` system more deeply.
+
+- When a main-chat send is active, the grammar worker can be told to de-prioritize (or temporarily suspend) work for the *current foreground document*.
+- Use the same `SendCancellation` scope (or a lightweight derived "background priority token") so that a user hitting Stop in chat also drains/supersedes in-flight grammar requests for that document.
+- This reuses the existing registration + hook machinery in `queue_executor.py` instead of growing a second cancellation system.
+
+**Benefits:** Consistent "user is busy, back off" behavior across chat and grammar. Fewer surprising LLM calls when the user is in the middle of a big research task.
+
+**Cost / Risk:** Adds another cross-cutting concern to the already subtle cancellation paths. Needs careful testing that grammar still makes forward progress when no chat is active.
+
+**Related existing work:** `SendCancellation`, `agent_session`, `bind_send_stop_checker`, the pause-during-agent flag, and `llm_request_lane`.
+
+### G2. Structural / document-context hints to the LLM
+
+**Current state:** The LLM for grammar sees only the raw sentence text + locale (plus a few system instructions).
+
+**Proposal:** On enqueue, attach a small amount of structural context derived from the LO-DOM / document tree:
+
+- Is this sentence inside a heading (and at what level)?
+- Table cell? (row/col headers if available)
+- Footnote / endnote / comment?
+- List item / caption / frame text?
+- Tracked change deletion vs. insertion?
+
+Feed this as a compact prefix or structured field in the grammar prompt (e.g. "Context: Heading 2 | Table cell under 'Revenue' column").
+
+**Rationale:** Many grammar and style rules are highly context-dependent. Models are already good at this when given the hint; we just don't give it today. This is cheap relative to the value and reuses the same `get_document_tree` / proximity machinery the main agent uses.
+
+**Implementation notes:**
+- Do the structural lookup in the main thread during `doProofreading` (or lazily in the work item) and attach it to `GrammarWorkItem`.
+- Keep the hint small and stable for cache keys (or normalize it away for caching so a sentence moving from body text to a table doesn't create a duplicate cache entry).
+- This is a natural consumer of the LO-DOM work.
+
+### G3. Consume agent memory + house style for grammar suggestions
+
+**Idea:** Let the grammar proofreader read from the same memory / style sources the main agent does (`USER.md`, persistent memory entries tagged as "style", `additional_instructions`, or a new "grammar_style" bucket).
+
+Examples of leverage:
+- Preferred terminology ("use 'sign in' not 'log in' in this document")
+- Tone ("keep suggestions concise and direct; this is technical documentation")
+- Domain conventions the user has taught the agent
+
+When the LLM is called for grammar, inject a compact "House style notes for this document" section (similar to how the main chat injects memory).
+
+**Benefits:** Grammar stops feeling like a generic external checker and starts feeling like "the same AI that knows my document and preferences." This is a big part of making the whole product feel coherent rather than a collection of features.
+
+**Trade-offs:** 
+- Cache keys become (sentence + active style snapshot). This increases cache invalidation surface.
+- Need a clean way to say "these style notes are grammar-relevant" vs. full agent memory.
+- Privacy / persistence: style notes that affect squiggles should probably live in the same document-embedded storage as the grammar cache itself.
+
+**Related:** `plugin/chatbot/memory.py`, the librarian mode, `additional_instructions` config key, and how the main tool loop injects context.
+
+### G4. Confidence tiers and "review vs. mechanical" underlining
+
+**Current behavior:** All LLM-flagged issues get the same `TextMarkupType.PROOFREADING` underline. The user has no visual signal of how certain the model was.
+
+**Proposal:** Extend `SingleProofreadingError` payloads (and the cache format) with a simple `confidence` or `tier` field returned by the grammar LLM:
+
+- `mechanical` / high-confidence (spelling patterns, obvious agreement, punctuation the model is very sure about)
+- `style` / medium (voice, concision, preferred phrasing)
+- `suggestion` / lower (the model thinks this could be improved but is hedging)
+
+Map these to different underline colors or dash styles if UNO allows, or at minimum expose them in the grammar dialog / tooltip so advanced users can filter.
+
+This also lets power users configure "only show mechanical errors from the AI proofreader; send style suggestions to the sidebar chat instead."
+
+**Why now:** The model is already capable of this distinction when asked. The infrastructure (JSON round-tripping, cache, persistence) already carries arbitrary per-error metadata. The missing piece is prompting + a small schema extension.
+
+This turns the grammar checker from a binary "error or not" into something that can participate in the broader "agent does the obvious stuff, human + chat does the judgment calls" workflow.
+
+---
+
+**When to pursue these:** After the current backlog items around cache size, batch diagnostics, and quote-aware splitting are under control. These directions increase coupling between grammar and the rest of the platform; they are most valuable once the grammar engine itself feels solid and low-drama.

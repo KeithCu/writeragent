@@ -155,12 +155,26 @@ class MonacoEditorApi:
     def get_completions(self, code: str, line: int, column: int) -> dict[str, Any]:
         return self._jedi.get_completions(code, line, column)
 
-    def notify_save(self, code: str, save_as_plain: bool = False, data_binding: str = "") -> None:
+    def notify_save(self, code: str, save_as_plain: bool = False, data_binding: str = "", action: str = "cell_save") -> None:
         if not isinstance(code, str):
             code = str(code) if code is not None else ""
         if not isinstance(data_binding, str):
             data_binding = str(data_binding) if data_binding is not None else ""
-        _write_parent({"type": "save", "code": code, "save_as_plain": bool(save_as_plain), "data_binding": data_binding})
+        payload: dict[str, Any] = {
+            "type": "save",
+            "code": code,
+            "save_as_plain": bool(save_as_plain),
+            "data_binding": data_binding,
+        }
+        if action and action != "cell_save":
+            payload["action"] = action
+        _write_parent(payload)
+
+    def notify_run(self, code: str) -> None:
+        self.notify_save(code, action="run")
+
+    def notify_save_script(self, code: str) -> None:
+        self.notify_save(code, action="save")
 
     def notify_cancel(self) -> None:
         log.info("editor_main: notify_cancel called; hiding window")

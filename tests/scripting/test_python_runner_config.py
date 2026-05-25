@@ -9,24 +9,34 @@ sys.path.append(os.getcwd())
 from plugin.scripting.python_runner import run_python_dialog
 
 class TestPythonRunnerConfig(unittest.TestCase):
+    @patch('plugin.scripting.python_runner.monaco_editor_available', return_value=(None, False))
     @patch('plugin.scripting.python_runner.get_ctx')
     @patch('plugin.scripting.python_runner.get_desktop')
     @patch('plugin.scripting.python_runner.is_writer')
     @patch('plugin.scripting.python_runner.is_calc')
     @patch('plugin.scripting.python_runner.is_draw')
     @patch('plugin.scripting.python_runner.get_config_str')
-    @patch('plugin.scripting.python_runner.show_python_input_dialog')
+    @patch('plugin.scripting.python_runner.execute_and_insert_result', return_value={"ok": True})
     @patch('plugin.scripting.python_runner.set_config')
-    @patch('plugin.scripting.python_runner.run_code_in_user_venv')
-    def test_run_python_dialog_keys(self, mock_run, mock_set, mock_show, mock_get, 
-                                   mock_is_draw, mock_is_calc, mock_is_writer, 
-                                   mock_desktop, mock_ctx):
+    @patch('plugin.scripting.python_runner.show_python_input_dialog')
+    def test_run_python_dialog_keys(
+        self,
+        mock_show,
+        mock_set,
+        mock_execute,
+        mock_get,
+        mock_is_draw,
+        mock_is_calc,
+        mock_is_writer,
+        mock_desktop,
+        mock_ctx,
+        mock_monaco,
+    ):
         mock_ctx_val = MagicMock()
         mock_ctx.return_value = mock_ctx_val
         mock_doc = MagicMock()
         mock_desktop.return_value.getCurrentComponent.return_value = mock_doc
         mock_show.return_value = "print('hello')"
-        mock_run.return_value = {"status": "ok", "result": None, "stdout": ""}
 
         # Test Writer
         mock_is_writer.return_value = True
