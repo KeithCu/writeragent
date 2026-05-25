@@ -45,11 +45,6 @@ from plugin.framework.uno_bootstrap import ensure_plugin_on_path
 
 ensure_plugin_on_path(__file__, levels_up=3, also_add_contrib=True)
 
-# Audio contrib path (development + certain bundled layouts)
-_audio_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "plugin", "contrib", "audio")
-if os.path.isdir(_audio_dir) and _audio_dir not in sys.path:
-    sys.path.insert(0, _audio_dir)
-
 # Recording available only if audio_recorder (and thus plugin/contrib/audio) is present
 try:
     from plugin.chatbot.audio_recorder import AudioRecorder  # noqa: F401

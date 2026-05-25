@@ -6,27 +6,29 @@
 
 from __future__ import annotations
 
-import os
-import sys
 from dataclasses import dataclass
 from typing import Any
 
 import unohelper
 
 
-def ensure_addin_paths() -> None:
-    """Insert extension root and plugin/ on sys.path (idempotent).
+from plugin.framework.uno_bootstrap import ensure_plugin_on_path
 
-    Calc UNO entry modules (``python_addin`` / ``prompt_addin``) must duplicate this
-    bootstrap inline before any ``from plugin...`` import — ``unopkg`` loads them without
-    ``plugin`` on ``sys.path`` yet.
+
+def ensure_addin_paths() -> str:
     """
-    calc_dir = os.path.dirname(os.path.abspath(__file__))
-    plugin_dir = os.path.dirname(calc_dir)
-    ext_root = os.path.dirname(plugin_dir)
-    for path in (ext_root, plugin_dir, calc_dir):
-        if path not in sys.path:
-            sys.path.insert(0, path)
+    Legacy wrapper around the central bootstrap for Calc add-ins.
+
+    Prefer calling ensure_plugin_on_path directly in new code.
+    This function is kept for backward compatibility during the TD1 migration.
+    """
+    # levels_up=3 from inside plugin/calc/
+    # also_add_plugin_dir gives us the plugin/ directory itself
+    return ensure_plugin_on_path(
+        __file__,
+        levels_up=3,
+        also_add_plugin_dir=True,
+    )
 
 
 @dataclass(frozen=True)

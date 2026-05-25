@@ -7,20 +7,15 @@
 from __future__ import annotations
 
 import logging
-import os
-import sys
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from plugin.framework.client.llm_client import LlmClient
 
-# unopkg writeRegistryInfo imports this file before ``plugin`` is on sys.path (see python_addin.py).
-_calc_dir = os.path.dirname(os.path.abspath(__file__))
-_plugin_dir = os.path.dirname(_calc_dir)
-_ext_root = os.path.dirname(_plugin_dir)
-for _path in (_ext_root, _plugin_dir, _calc_dir):
-    if _path not in sys.path:
-        sys.path.insert(0, _path)
+# unopkg writeRegistryInfo imports this file before ``plugin`` is on sys.path.
+from plugin.framework.uno_bootstrap import ensure_plugin_on_path
+
+ensure_plugin_on_path(__file__, levels_up=3, also_add_plugin_dir=True)
 
 import unohelper  # noqa: E402
 

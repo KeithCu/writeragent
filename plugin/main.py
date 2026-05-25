@@ -17,36 +17,20 @@
 from __future__ import annotations
 
 import sys
-import os
 import logging
 
-# Ensure the extension's install directory is on sys.path
-# so that "plugin.xxx" imports work correctly.
-# We must do this before any imports from "plugin.xyz"
-_plugin_dir = os.path.dirname(os.path.abspath(__file__))
-_ext_root = os.path.dirname(_plugin_dir)
-if _ext_root not in sys.path:
-    sys.path.insert(0, _ext_root)
-if _plugin_dir not in sys.path:
-    sys.path.insert(0, _plugin_dir)
+from plugin.framework.uno_bootstrap import ensure_plugin_on_path
 
-
-# Add the vendor directory so cross-platform audio wheels (sounddevice, cffi) can be found
-# Root vendor/: used during development/tests.
-_root_dir = os.path.dirname(_plugin_dir)
-_vendor_root = os.path.join(_root_dir, "vendor")
-if os.path.isdir(_vendor_root) and _vendor_root not in sys.path:
-    sys.path.insert(0, _vendor_root)
-
-# plugin/lib/: used in the bundled .oxt (see scripts/build_oxt.py)
-_lib_dir = os.path.join(_plugin_dir, "lib")
-if os.path.isdir(_lib_dir) and _lib_dir not in sys.path:
-    sys.path.insert(0, _lib_dir)
-
-# plugin/vendor/: legacy/future audio wheels path; kept for fallback
-_vendor_plugin = os.path.join(_plugin_dir, "vendor")
-if os.path.isdir(_vendor_plugin) and _vendor_plugin not in sys.path:
-    sys.path.insert(0, _vendor_plugin)
+# Central bootstrap for UNO-loaded entry points.
+# This replaces the previous manual sys.path manipulation that was duplicated
+# across main.py and the Calc add-ins (see TD1).
+ensure_plugin_on_path(
+    __file__,
+    levels_up=2,                    # plugin/main.py → plugin/ → extension root
+    also_add_plugin_dir=True,
+    also_add_lib=True,
+    also_add_vendor=True,           # root-level vendor/ for dev audio wheels
+)
 
 import unohelper
 from typing import TYPE_CHECKING, Any, Callable, Protocol, cast
