@@ -220,6 +220,8 @@ WRITER_SPECIALIZED_DELEGATION_TEMPLATE = (
     "(types, layout, numbers, colors, style names, anchors, text). If the user was vague, state explicit defaults in the task rather than leaving them undefined. "
     "Prefer **concrete, capability-rich** instructions over \"minimal\" or \"basic\" when the user is open to it: name specific variants "
     "(e.g. exact shape presets, styles, or operations) so the sub-agent can use the full API instead of picking a boring default. "
+    "document_research: use for information in other personal/business documents in the same folder (one delegation per file set). "
+    "web_research: use for public web topics. "
     "Example (domain=shapes): `upsert_shape` can use on the order of **400+** distinct preset `shape_type` strings. "
     "Example (domain=footnotes): Quote the **exact** document sentence or unique substring where the note must attach so the sub-agent can know where to put the footnote anchor."
 )
@@ -373,7 +375,7 @@ DEFAULT_DRAW_CHAT_SYSTEM_PROMPT = ""
 
 
 def _get_specialized_domains_str(base_cls, *, agent_label: str | None = None) -> str:
-    """Build a semicolon-separated 'domain: description' list for specialized toolsets (inline-safe)."""
+    """Build a compact domain list for delegation hints and MCP schemas."""
     parts = []
     for cls in base_cls.__subclasses__():
         domain = getattr(cls, "specialized_domain", None)
@@ -414,9 +416,13 @@ def get_specialized_delegation_for_model(model) -> str:
 
 
 def format_specialized_domains_description(special_base_class, *, agent_label: str | None = None) -> str:
-    """Domain enum help for MCP/OpenAPI (matches chat / delegate hint domain list)."""
+    """Domain enum help for MCP/OpenAPI (more compact than the full delegation hint)."""
     domains = _get_specialized_domains_str(special_base_class, agent_label=agent_label)
-    return f"domain one of: {domains}" if domains else "The specialized domain to activate."
+    if not domains:
+        return "The specialized domain to activate."
+    # Compact form for the enum property description to reduce bloat in MCP schema
+    compact = domains.replace("; ", ", ")
+    return f"domain one of: {compact}"
 
 
 def get_specialized_delegation_tool_hint(special_base_class, agent_label: str) -> str:

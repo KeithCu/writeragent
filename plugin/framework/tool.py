@@ -120,10 +120,16 @@ def to_mcp_schema(tool, *, doc_type: str | None = None):
     agent_label = getattr(tool, "_agent_label", None)
     special_base = getattr(tool, "_special_base_class", None)
     if agent_label and special_base is not None:
-        from plugin.framework.constants import format_specialized_domains_description, get_specialized_delegation_tool_hint
+        from plugin.framework.constants import format_specialized_domains_description
 
-        hint = get_specialized_delegation_tool_hint(special_base, agent_label)
-        desc = f"{desc} {hint}".strip() if desc else hint
+        # For MCP schemas, use a compact description to avoid duplicating the long domain list
+        # (the detailed domain guidance lives in the 'domain' property description instead).
+        # The full verbose guidance with examples is still used in chat system prompts.
+        desc = (
+            f"{desc} Delegates a task to a focused {agent_label} sub-agent. "
+            "See the 'domain' property for available areas and the 'task' parameter rules."
+        ).strip()
+
         props = input_schema.get("properties")
         if isinstance(props, dict) and "domain" in props and isinstance(props["domain"], dict):
             props["domain"]["description"] = format_specialized_domains_description(special_base, agent_label=agent_label)
