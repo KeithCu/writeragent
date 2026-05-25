@@ -23,7 +23,7 @@ from plugin.chatbot.listeners import BaseWindowListener
 log = logging.getLogger(__name__)
 
 USER_COLOR = 0x2A6099
-ASSISTANT_COLOR = 0x000000
+ASSISTANT_COLOR = 0x1E293B
 
 _EMBEDDING_STARTED = set()
 
@@ -238,6 +238,9 @@ def create_embedded_writer_doc(ctx, parent_window, placeholder_ctrl):
                     std_para.ParaFirstLineIndent = 0
                     std_para.ParaTopMargin = 0
                     std_para.ParaBottomMargin = 200
+                    std_para.CharFontName = "Liberation Sans"
+                    std_para.CharFontNameAsian = "Liberation Sans"
+                    std_para.CharFontNameComplex = "Liberation Sans"
 
             # Default font size
             import uno

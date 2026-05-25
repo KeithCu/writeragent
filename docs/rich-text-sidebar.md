@@ -45,6 +45,15 @@ These are the priority tasks to resolve remaining layout quirks and implement ne
     *   Robust handling of nested triple-backticks.
     *   Applying a dedicated "CodeBlock" character style (monospace font, distinct background) in the embedded template.
 
+### [ ] Task 7: Color/Theme Customization & Configuration
+*   **Goal:** Make assistant and user chat text colors configurable in `writeragent.json` and expose them in the Settings dialog (e.g. via color choices or color pickers) instead of hardcoding them in `rich_text.py`.
+*   **Alternative Colors to Try/Test:**
+    *   **Deep Slate Gray (`0x1E293B`)**: Current default. Modern, professional, soft, and highly readable.
+    *   **Soft Charcoal (`0x2B2B2B`)**: Neutral dark gray, extremely gentle on the eyes, and slightly softer than 100% black.
+    *   **Dark Slate / Slate-700 (`0x334155`)**: Elegant lighter slate gray.
+    *   **Deep Indigo / Navy (`0x1E1B4B`)**: Rich indigo/navy for a premium designer aesthetic.
+    *   **Classic Pure Black (`0x000000`)**: Traditional high-contrast black.
+
 ---
 
 ## Completed Milestones
@@ -69,6 +78,9 @@ These are the priority tasks to resolve remaining layout quirks and implement ne
 *   **Scaling:** `vs.ZoomType = 1` (Page Width) combined with dynamic page width.
 *   **Dynamic Width:** Calculating `style.Width` based on placeholder pixel width (`px * 26.458` to 1/100mm) ensures the text reflows correctly into the sidebar.
 *   **Background:** `style.BackColor = 0xFFFFFF` (White).
+
+### 4. Text Color & Contrast Softening
+*   Changed `ASSISTANT_COLOR` from harsh pure black (`0x000000`) to a modern, softer Deep Slate Gray (`0x1E293B`) for the white background.
 
 ---
 

@@ -135,10 +135,10 @@ class AppendRichTextTests(unittest.TestCase):
         prefix_cursor = created_cursors[0]
         self.assertEqual(prefix_cursor.CharColor, USER_COLOR)
 
-    def test_assistant_color_is_black(self):
+    def test_assistant_color_is_deep_slate_gray(self):
         from plugin.chatbot.rich_text import ASSISTANT_COLOR
 
-        self.assertEqual(ASSISTANT_COLOR, 0x000000)
+        self.assertEqual(ASSISTANT_COLOR, 0x1E293B)
 
     def test_user_color_is_indigo_blue(self):
         from plugin.chatbot.rich_text import USER_COLOR
