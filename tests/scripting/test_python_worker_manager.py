@@ -110,7 +110,10 @@ class TestReadResponseBytesSelect:
     def test_reads_valid_response(self):
         response = {"status": "ok", "result": "hello", "id": "test"}
         raw = _pack_response(response)
-        stdout = io.BytesIO(raw)
+        r_fd, w_fd = os.pipe()
+        os.write(w_fd, raw)
+        os.close(w_fd)
+        stdout = os.fdopen(r_fd, "rb")
         mgr = PythonWorkerManager.__new__(PythonWorkerManager)
         mgr.exe = "python"
         # _read_response_bytes_select needs _proc with a poll() method
@@ -119,6 +122,7 @@ class TestReadResponseBytesSelect:
                 return None
         mgr._proc = FakeProc()
         got = mgr._read_response_bytes_select(stdout, timeout_sec=5)
+        stdout.close()
         assert got
         decoded = pickle.loads(got)
         assert decoded["result"] == "hello"
