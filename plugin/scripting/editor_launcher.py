@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+import sys
 from typing import Any, cast
 
 from plugin.scripting.editor_diagnostics import failure_detail
@@ -100,6 +101,6 @@ def spawn_editor_process(exe: str, *, assets_dir: str | None = None) -> subproce
         "text": False,
         "bufsize": 0,
     }
-    if os.name != "nt":
+    if sys.platform != "win32":
         popen_kw["preexec_fn"] = os.setsid
     return cast("subprocess.Popen[bytes]", subprocess.Popen([exe, _EDITOR_MAIN], **popen_kw))

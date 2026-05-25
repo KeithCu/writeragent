@@ -220,7 +220,7 @@ class _DocIndex:
     __slots__ = ("terms", "para_texts", "para_count", "build_ms", "language")
 
     def __init__(self):
-        self.terms = {}  # stem -> set[int]
+        self.terms: dict[str, set[int]] = {}
         self.para_texts = {}  # int -> str
         self.para_count = 0
         self.build_ms = 0.0
@@ -229,9 +229,9 @@ class _DocIndex:
     def query_and(self, stem_groups):
         if not stem_groups:
             return set()
-        sets = []
+        sets: list[set[int]] = []
         for group in stem_groups:
-            s = set()
+            s: set[int] = set()
             for stem in group:
                 ps = self.terms.get(stem)
                 if ps:

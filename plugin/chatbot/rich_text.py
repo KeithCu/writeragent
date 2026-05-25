@@ -45,7 +45,7 @@ _HTML_TAG_RE = re.compile(
 USER_COLOR = 0x2A6099
 ASSISTANT_COLOR = 0x1E293B
 
-_EMBEDDING_STARTED = set()
+_EMBEDDING_STARTED: set[int] = set()
 
 # Threshold in scrollbar units — if within this many units of max, treat as "at bottom"
 _SCROLL_BOTTOM_THRESHOLD = 10

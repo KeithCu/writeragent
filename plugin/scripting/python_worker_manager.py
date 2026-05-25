@@ -16,6 +16,7 @@ import os
 import select
 import signal
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -131,7 +132,7 @@ class PythonWorkerManager:
             "text": False,
             "bufsize": 0,
         }
-        if os.name != "nt":
+        if sys.platform != "win32":
             popen_kw["preexec_fn"] = os.setsid
         self._proc = subprocess.Popen([self.exe, _HARNESS_PATH], **popen_kw)
         log.debug("Started Python worker pid=%s exe=%s", self._proc.pid, self.exe)
@@ -140,7 +141,7 @@ class PythonWorkerManager:
         assert self._proc is not None
         # Windows select.select() only supports sockets, not pipes (raises
         # WinError 10038).  Use a thread-based blocking read there instead.
-        if os.name == "nt":
+        if sys.platform == "win32":
             return self._read_response_bytes_threaded(stdout, timeout_sec)
         return self._read_response_bytes_select(stdout, timeout_sec)
 
@@ -210,7 +211,7 @@ class PythonWorkerManager:
             return
         try:
             if proc.poll() is None:
-                if os.name == "nt":
+                if sys.platform == "win32":
                     proc.kill()
                 else:
                     try:
