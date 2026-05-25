@@ -101,6 +101,8 @@ def spawn_editor_process(exe: str, *, assets_dir: str | None = None) -> subproce
         "text": False,
         "bufsize": 0,
     }
-    if sys.platform != "win32":
+    if sys.platform == "win32":
+        popen_kw["creationflags"] = subprocess.CREATE_NO_WINDOW
+    else:
         popen_kw["preexec_fn"] = os.setsid
     return cast("subprocess.Popen[bytes]", subprocess.Popen([exe, _EDITOR_MAIN], **popen_kw))

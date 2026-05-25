@@ -87,7 +87,8 @@ class PythonWorkerManager:
 
                     response_bytes = self._read_response_bytes(stdout, timeout_sec)
                     if not response_bytes:
-                        raise RuntimeError("Worker closed stdout without a response")
+                        stderr_out = self._drain_stderr()
+                        raise RuntimeError(f"Worker closed stdout without a response{stderr_out}")
                     # Trusted IPC: bytes from our own worker_harness child over a private pipe.
                     response = pickle.loads(response_bytes)  # nosec B301
                     return self._normalize_response(response)
@@ -132,7 +133,9 @@ class PythonWorkerManager:
             "text": False,
             "bufsize": 0,
         }
-        if sys.platform != "win32":
+        if sys.platform == "win32":
+            popen_kw["creationflags"] = subprocess.CREATE_NO_WINDOW
+        else:
             popen_kw["preexec_fn"] = os.setsid
         self._proc = subprocess.Popen([self.exe, _HARNESS_PATH], **popen_kw)
         log.debug("Started Python worker pid=%s exe=%s", self._proc.pid, self.exe)
@@ -203,6 +206,24 @@ class PythonWorkerManager:
         if error[0] is not None:
             raise error[0]
         return result[0]
+
+    def _drain_stderr(self) -> str:
+        """Read any pending stderr from the crashed worker for diagnostics."""
+        if self._proc is None or self._proc.stderr is None:
+            return ""
+        try:
+            # Worker already exited (stdout closed); wait briefly then read stderr.
+            self._proc.wait(timeout=2)
+        except Exception:
+            pass
+        try:
+            stderr_bytes = self._proc.stderr.read()
+        except Exception:
+            return ""
+        if not stderr_bytes:
+            return ""
+        text = stderr_bytes.decode("utf-8", errors="replace").strip()
+        return f"\nWorker stderr:\n{text}"
 
     def _terminate_worker(self) -> None:
         proc = self._proc

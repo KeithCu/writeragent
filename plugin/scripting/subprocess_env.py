@@ -10,15 +10,20 @@
 from __future__ import annotations
 
 _BLOCKED_ENV_SUBSTR = ("KEY", "TOKEN", "SECRET", "PASSWORD", "AUTH", "CREDENTIAL")
+# LibreOffice sets PYTHONHOME/PYTHONPATH to its bundled stdlib; letting these
+# leak into a venv subprocess causes SRE module mismatch and import failures.
+_BLOCKED_ENV_EXACT = {"PYTHONHOME", "PYTHONPATH"}
 
 
 def scrub_subprocess_env(base: dict[str, str] | None) -> dict[str, str]:
-    """Drop likely-secret vars from the environment passed to venv Python."""
+    """Drop likely-secret vars and LO Python overrides from the environment passed to venv Python."""
     if not base:
         return {}
     out: dict[str, str] = {}
     for k, v in base.items():
         ku = k.upper()
+        if ku in _BLOCKED_ENV_EXACT:
+            continue
         if any(s in ku for s in _BLOCKED_ENV_SUBSTR):
             continue
         out[k] = v

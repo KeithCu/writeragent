@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import select
+import sys
 import threading
 import time
 from collections import deque
@@ -110,7 +111,7 @@ class PersistentEditor:
                 if len(text) > max_bytes:
                     return text[-max_bytes:].strip()
                 return text.strip()
-        if self._proc is None:
+        if self._proc is None or sys.platform == "win32":
             return ""
         stderr = self._proc.stderr
         if stderr is None:
@@ -145,17 +146,28 @@ class PersistentEditor:
             return
         stderr = proc.stderr
         try:
-            while proc.poll() is None:
-                ready, _, _ = select.select([stderr], [], [], 0.5)
-                if not ready:
-                    continue
-                raw = stderr.readline()
-                if not raw:
-                    break
-                line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
-                if line:
-                    log.debug("editor child: %s", line)
-                    self._append_stderr_line(line)
+            if sys.platform == "win32":
+                # Windows: blocking readline (pipe close on exit unblocks).
+                while proc.poll() is None:
+                    raw = stderr.readline()
+                    if not raw:
+                        break
+                    line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
+                    if line:
+                        log.debug("editor child: %s", line)
+                        self._append_stderr_line(line)
+            else:
+                while proc.poll() is None:
+                    ready, _, _ = select.select([stderr], [], [], 0.5)
+                    if not ready:
+                        continue
+                    raw = stderr.readline()
+                    if not raw:
+                        break
+                    line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
+                    if line:
+                        log.debug("editor child: %s", line)
+                        self._append_stderr_line(line)
         except Exception:
             log.debug("editor stderr drain failed", exc_info=True)
         finally:
@@ -199,19 +211,34 @@ class PersistentEditor:
             return
         stdout = self._proc.stdout
         try:
-            while self._proc is not None and self._proc.poll() is None:
-                ready, _, _ = select.select([stdout], [], [], 0.5)
-                if not ready:
-                    continue
-                msg = read_message(stdout)
-                if msg is None:
-                    break
-                self._dispatch_incoming(msg)
+            if sys.platform == "win32":
+                self._read_loop_blocking(stdout)
+            else:
+                self._read_loop_select(stdout)
         except Exception:
             log.exception("Editor pipe reader failed")
         finally:
             log.info("editor_bridge: persistent reader loop finished.")
             self._handle_disconnect()
+
+    def _read_loop_select(self, stdout: Any) -> None:
+        """POSIX: use select() to poll the pipe with periodic liveness checks."""
+        while self._proc is not None and self._proc.poll() is None:
+            ready, _, _ = select.select([stdout], [], [], 0.5)
+            if not ready:
+                continue
+            msg = read_message(stdout)
+            if msg is None:
+                break
+            self._dispatch_incoming(msg)
+
+    def _read_loop_blocking(self, stdout: Any) -> None:
+        """Windows: blocking read (pipe close on process exit unblocks read)."""
+        while self._proc is not None:
+            msg = read_message(stdout)
+            if msg is None:
+                break
+            self._dispatch_incoming(msg)
 
     def _dispatch_incoming(self, msg: dict[str, Any]) -> None:
         kind = message_type(msg)
