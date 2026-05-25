@@ -104,6 +104,7 @@ class EmbeddedWriterListener(BaseWindowListener):
         self.on_ready_callback = on_ready_callback
         self.initialized = False
         self.container_window = None
+        self.doc = None
 
     def on_window_shown(self, rEvent):
         if self.initialized:
@@ -132,6 +133,8 @@ class EmbeddedWriterListener(BaseWindowListener):
             try:
                 ps = self.placeholder_ctrl.getPosSize()
                 self.container_window.setPosSize(ps.X, ps.Y, ps.Width, ps.Height, 15)
+                if hasattr(self, "doc") and self.doc:
+                    scroll_to_bottom(self.doc)
             except Exception:
                 pass
 
@@ -141,6 +144,7 @@ class EmbeddedWriterListener(BaseWindowListener):
             doc, frame, container = create_embedded_writer_doc(self.ctx, self.parent_window, self.placeholder_ctrl)
             if doc and frame:
                 self.container_window = container
+                self.doc = doc
                 self.on_ready_callback(doc, frame, container)
             else:
                 log.error("EmbeddedWriterListener: Failed to create embedded Writer doc.")
@@ -348,23 +352,169 @@ def _insert_html_at_cursor(doc, cursor, html_fragment):
                 pass
 
 
+_LOGGED_ACCESSIBLE_TREE = False
+
+
+def find_accessible_window_recursive(win):
+    """Recursively search for a window that supports XAccessible."""
+    if not win:
+        return None
+    try:
+        import uno
+        accessible = win.queryInterface(uno.getTypeByName("com.sun.star.accessibility.XAccessible"))
+        if accessible:
+            return accessible
+    except Exception:
+        pass
+        
+    try:
+        if hasattr(win, "getWindows"):
+            for child in win.getWindows():
+                res = find_accessible_window_recursive(child)
+                if res:
+                    return res
+    except Exception:
+        pass
+    return None
+
+
+def traverse_window_tree(win, results, depth=0):
+    """Recursively map the entire VCL window peer hierarchy."""
+    if not win:
+        return
+    try:
+        impl_name = "?"
+        try:
+            impl_name = win.getImplementationName()
+        except Exception:
+            pass
+        has_acc = "No"
+        try:
+            import uno
+            acc = win.queryInterface(uno.getTypeByName("com.sun.star.accessibility.XAccessible"))
+            if acc:
+                has_acc = "Yes"
+        except Exception:
+            pass
+        results.append((depth, impl_name, has_acc))
+        
+        if hasattr(win, "getWindows"):
+            for child in win.getWindows():
+                traverse_window_tree(child, results, depth + 1)
+    except Exception as e:
+        results.append((depth, "ERROR", str(e)))
+
+
+def traverse_accessible_tree(accessible_obj, results, depth=0):
+    """Recursively traverse the accessible tree and record role names and names."""
+    if not accessible_obj:
+        return
+    try:
+        ctx = accessible_obj.getAccessibleContext()
+        if not ctx:
+            return
+        role = ctx.getAccessibleRole()
+        name = ctx.getAccessibleName()
+        
+        # Translate role to constant string name if possible
+        role_name = str(role)
+        try:
+            from com.sun.star.accessibility import AccessibleRole
+            for attr in dir(AccessibleRole):
+                if getattr(AccessibleRole, attr) == role:
+                    role_name = attr
+                    break
+        except Exception:
+            pass
+            
+        results.append((depth, role_name, name))
+        
+        if depth > 12:
+            return
+            
+        count = ctx.getAccessibleChildCount()
+        for i in range(count):
+            child = ctx.getAccessibleChild(i)
+            traverse_accessible_tree(child, results, depth + 1)
+    except Exception as e:
+        results.append((depth, "ERROR", str(e)))
+
+
 def scroll_to_bottom(doc):
     """Attempt to scroll the embedded document view to the bottom.
 
     NOTE: In an embedded Writer with Web/Online layout, standard UNO cursor and
-    dispatch approaches do not reliably scroll the view. This is a best-effort
-    implementation — `gotoEnd` on the view cursor is the least harmful approach
-    that positions the caret at the end without jumping the view to the top.
+    dispatch approaches do not reliably scroll the view. This function implements
+    a robust, multi-strategy best-effort approach:
+    1. Positions the ViewCursor at the end of the text.
+    2. Force scrolls the viewport by selecting a non-empty range at the end of
+       the document (moving left by 1 character) to bring it into view, and
+       immediately collapses the selection so text is not highlighted.
+    3. Runs an active frame dispatch `.uno:GoToEndOfDoc` to simulate a user action.
+    4. Triggers processEventsToIdle() on the VCL toolkit to force layout and rendering updates.
     """
     try:
         controller = doc.getCurrentController()
         if not controller:
             return
+        
+        # 1. View cursor movement (moves the logical cursor)
         view_cursor = controller.getViewCursor()
         if view_cursor:
-            view_cursor.gotoEnd(False)
-    except Exception:
-        pass
+            try:
+                view_cursor.gotoEnd(False)
+                log.debug("scroll_to_bottom: Tier 1 (ViewCursor gotoEnd) executed successfully")
+            except Exception as e:
+                log.debug("view_cursor.gotoEnd failed: %s", e)
+            
+        # 2. Force scroll via Selection (Writer forces view to follow a non-empty selection)
+        try:
+            text_obj = doc.getText()
+            if text_obj and text_obj.getString():
+                scroll_cursor = text_obj.createTextCursor()
+                if scroll_cursor:
+                    scroll_cursor.gotoEnd(False)
+                    scroll_cursor.goLeft(1, True)  # select the last character/paragraph mark
+                    controller.select(scroll_cursor)
+                    
+                    # Immediately collapse selection back to a caret at the end
+                    collapse_cursor = text_obj.createTextCursor()
+                    if collapse_cursor:
+                        collapse_cursor.gotoEnd(False)
+                        controller.select(collapse_cursor)
+                    log.debug("scroll_to_bottom: Tier 2 (Selection-based scroll) executed successfully")
+        except Exception as e:
+            log.debug("selection-based scroll failed: %s", e)
+
+        # 3. Frame dispatch fallback with frame activation
+        frame = controller.getFrame()
+        if frame:
+            try:
+                frame.activate()
+                from plugin.framework.uno_context import get_ctx
+                ctx = get_ctx()
+                if ctx:
+                    smgr = getattr(ctx, "ServiceManager", getattr(ctx, "getServiceManager", lambda: None)())
+                    if smgr:
+                        dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+                        if dispatcher:
+                            dispatcher.executeDispatch(frame, ".uno:GoToEndOfDoc", "", 0, ())
+                            log.debug("scroll_to_bottom: Tier 3 (GoToEndOfDoc dispatch) executed successfully")
+            except Exception as e:
+                log.debug("dispatch-based scroll failed: %s", e)
+
+        # 4. Flush GUI event queue to force synchronous VCL updates
+        try:
+            from plugin.framework.uno_context import get_toolkit
+            toolkit = get_toolkit()
+            if toolkit and hasattr(toolkit, "processEventsToIdle"):
+                toolkit.processEventsToIdle()
+                log.debug("scroll_to_bottom: Tier 4 (VCL processEventsToIdle) executed successfully")
+        except Exception as e:
+            log.debug("processEventsToIdle failed: %s", e)
+
+    except Exception as e:
+        log.info("scroll_to_bottom error: %s", e)
 
 
 def append_rich_text(doc, text, role="assistant", auto_scroll=True):

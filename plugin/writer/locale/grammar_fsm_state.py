@@ -75,7 +75,6 @@ def next_language_state(state: LanguageValidationState, event: GrammarEvent) -> 
             item, text = state.chunk[0]
             if d_lang and d_lang != state.target_bcp47:
                 effects.append(LogEffect("info", "[grammar] Single item language mismatch: %s -> %s. Proceeding with new locale.", (state.target_bcp47, d_lang)))
-                effects.append(ApplyLanguageChangeEffect(item.doc_id, text, d_lang))
                 # We return the chunk with the NEW target_bcp47 to proceed to grammar stage immediately.
                 return FsmTransition(dataclasses.replace(state, is_done=True, status="done", target_bcp47=d_lang, result_chunk=state.chunk), effects)
 
@@ -85,7 +84,6 @@ def next_language_state(state: LanguageValidationState, event: GrammarEvent) -> 
             item, text = state.chunk[idx]
             if d_lang and d_lang != state.target_bcp47:
                 effects.append(LogEffect("info", "[grammar] Language mismatch detected: %s vs %s. Triggering locale change.", (d_lang, state.target_bcp47)))
-                effects.append(ApplyLanguageChangeEffect(item.doc_id, text, d_lang))
                 effects.append(RequeueIndividualItemEffect(item, text, d_lang, state.target_bcp47))
             else:
                 matching_chunk.append((item, text))
@@ -153,6 +151,10 @@ def next_grammar_state(state: GrammarCheckState, event: GrammarEvent) -> FsmTran
                 original_bcp47=state.original_bcp47,
                 elapsed_ms=elapsed_ms
             ))
+            if state.original_bcp47 and state.original_bcp47 != state.bcp47:
+                for item, text in state.chunk:
+                    effects.append(ApplyLanguageChangeEffect(item.doc_id, text, state.bcp47))
+
 
         return FsmTransition(dataclasses.replace(state, is_done=True, status="done"), effects)
 

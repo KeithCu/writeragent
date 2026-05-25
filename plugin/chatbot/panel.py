@@ -420,6 +420,23 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                             append_rich_text(self.embedded_doc, line, role="assistant", auto_scroll=auto_scroll)
                     if content:
                         append_rich_text(self.embedded_doc, content, role="assistant", auto_scroll=auto_scroll)
+
+            # Schedule a deferred scroll to bottom on the main thread after 200ms
+            # to run after the send button transition and layout resizing settle down.
+            if auto_scroll:
+                import threading
+                from plugin.framework.queue_executor import post_to_main_thread
+                from plugin.chatbot.rich_text import scroll_to_bottom
+
+                def do_deferred():
+                    try:
+                        post_to_main_thread(scroll_to_bottom, self.embedded_doc)
+                    except Exception:
+                        pass
+
+                timer = threading.Timer(0.2, do_deferred)
+                timer.daemon = True
+                timer.start()
         except Exception:
             log.exception("rerender_rich_text_session failed")
 

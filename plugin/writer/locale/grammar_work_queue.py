@@ -219,6 +219,8 @@ class GrammarWorkItem:
     doc_id: str
     inflight_key: str
     enqueue_seq: int
+    original_bcp47: str = ""
+
 
 
 @dataclass(frozen=True)
@@ -538,9 +540,11 @@ def _handle_requeue_individual_item_effect(effect: Any, ec: GrammarEffectContext
             grammar_bcp47=effect.new_bcp47,
             enqueue_seq=next_enqueue_seq(),
             inflight_key=requeue_inflight_key,
-            text=effect.text
+            text=effect.text,
+            original_bcp47=effect.original_bcp47
         )
         ec.gq.enqueue(new_item)
+
 
 
 def _handle_process_grammar_results_effect(effect: Any, ec: GrammarEffectContext) -> None:
@@ -730,7 +734,8 @@ def run_llm_and_cache_batch(
     grammar_bcp47 = items[0].grammar_bcp47
     gq_to_use = grammar_queue or _grammar_queue_singleton
     if not original_bcp47:
-        original_bcp47 = grammar_bcp47
+        original_bcp47 = items[0].original_bcp47 or grammar_bcp47
+
 
     try:
         if not config.is_grammar_enabled(ctx):

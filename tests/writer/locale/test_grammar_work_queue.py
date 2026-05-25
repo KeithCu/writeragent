@@ -532,6 +532,11 @@ def test_locale_mismatch_proceeds_and_double_caches(
             '{"errors": [{"wrong": "\u65e5\u672c\u8a9e", "correct": "\u306b\u307b\u3093\u3054", "type": "grammar", "reason": "test"}]}' # Grammar
         ]
     
+        # Track execution order
+        call_order = []
+        mock_cache_put.side_effect = lambda *args, **kwargs: call_order.append(("cache_put", args[0]))
+        mock_apply.side_effect = lambda *args, **kwargs: call_order.append(("apply", args[3]))
+
         item = GrammarWorkItem(
             ctx=ctx,
             text="\u65e5\u672c\u8a9e\u3067\u66f8\u3044\u3066\u3044\u307e\u3059\u3002",
@@ -564,6 +569,13 @@ def test_locale_mismatch_proceeds_and_double_caches(
         # Check zh-CN cache put (the loop breaker)
         args_zh, _ = mock_cache_put.call_args_list[1]
         assert args_zh[0] == "zh-CN"
+
+        # 4. Verify call order: caching must happen BEFORE applying language change in LibreOffice
+        assert call_order == [
+            ("cache_put", "ja-JP"),
+            ("cache_put", "zh-CN"),
+            ("apply", "ja-JP"),
+        ]
 
 
 def test_language_detect_skips_llm_when_persisted_grammar_exists() -> None:

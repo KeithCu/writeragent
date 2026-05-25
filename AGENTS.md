@@ -170,6 +170,7 @@ UNO helpers are split: [`uno_context.py`](plugin/framework/uno_context.py), [`do
 | Topic | Doc |
 |-------|-----|
 | Chat sidebar implementation | [docs/chat-sidebar-implementation.md](docs/chat-sidebar-implementation.md) |
+| Embedded rich-text sidebar | [docs/rich-text-sidebar.md](docs/rich-text-sidebar.md) |
 | Streaming / threading | [docs/streaming-and-threading.md](docs/streaming-and-threading.md) |
 | Smol vs main chat HTTP | [docs/smol-main-chat-tool-architecture.md](docs/smol-main-chat-tool-architecture.md) |
 | Writer specialized tool tiers | [docs/writer-specialized-toolsets.md](docs/writer-specialized-toolsets.md) |

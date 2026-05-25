@@ -38,6 +38,9 @@ class MockTextCursor:
     def insertDocumentFromURL(self, url, props):
         pass
 
+    def goLeft(self, count, select):
+        pass
+
 
 class MockText:
     """Minimal mock for XText."""
@@ -111,7 +114,6 @@ class AppendRichTextTests(unittest.TestCase):
 
     def test_scroll_to_bottom_called(self):
         doc = self._call("test")
-        doc.getCurrentController().select.assert_called()
         doc.getCurrentController().getViewCursor().gotoEnd.assert_called_with(False)
 
     def test_user_color(self):
@@ -160,7 +162,6 @@ class AppendTextChunkTests(unittest.TestCase):
 
         doc = MockDoc()
         append_text_chunk(doc, "x")
-        doc.getCurrentController().select.assert_called()
         doc.getCurrentController().getViewCursor().gotoEnd.assert_called_with(False)
 
 
@@ -206,15 +207,13 @@ class AppendTextChunkScrollTests(unittest.TestCase):
         from plugin.chatbot.rich_text import append_text_chunk
         doc = MockDoc()
         append_text_chunk(doc, "hi", auto_scroll=True)
-        doc.getCurrentController().select.assert_called()
         doc.getCurrentController().getViewCursor().gotoEnd.assert_called_with(False)
 
     def test_scrolls_even_when_auto_scroll_false(self):
         from plugin.chatbot.rich_text import append_text_chunk
         doc = MockDoc()
         append_text_chunk(doc, "hi", auto_scroll=False)
-        doc.getCurrentController().select.assert_called()
-        doc.getCurrentController().getViewCursor().gotoEnd.assert_called_with(False)
+        doc.getCurrentController().getViewCursor().gotoEnd.assert_not_called()
 
     def test_text_still_appended_with_auto_scroll_false(self):
         from plugin.chatbot.rich_text import append_text_chunk
@@ -230,21 +229,18 @@ class AppendRichTextScrollTests(unittest.TestCase):
         from plugin.chatbot.rich_text import append_rich_text
         doc = MockDoc()
         append_rich_text(doc, "hi", role="assistant", auto_scroll=True)
-        doc.getCurrentController().select.assert_called()
         doc.getCurrentController().getViewCursor().gotoEnd.assert_called_with(False)
 
     def test_scrolls_even_when_auto_scroll_false(self):
         from plugin.chatbot.rich_text import append_rich_text
         doc = MockDoc()
         append_rich_text(doc, "hi", role="assistant", auto_scroll=False)
-        doc.getCurrentController().select.assert_called()
         doc.getCurrentController().getViewCursor().gotoEnd.assert_called_with(False)
 
     def test_default_auto_scroll_is_true(self):
         from plugin.chatbot.rich_text import append_rich_text
         doc = MockDoc()
         append_rich_text(doc, "hi", role="assistant")
-        doc.getCurrentController().select.assert_called()
         doc.getCurrentController().getViewCursor().gotoEnd.assert_called_with(False)
 
 
@@ -332,6 +328,34 @@ class EmbeddedWriterListenerGuardTests(unittest.TestCase):
             listener2 = self._module.EmbeddedWriterListener(MagicMock(), parent_window, MagicMock(), MagicMock())
             listener2.on_window_shown(None)
             self.assertFalse(listener2.initialized)
+
+    def test_on_window_resized_without_doc(self):
+        """Verify on_window_resized works safely without doc initialized."""
+        placeholder = MagicMock()
+        placeholder.getPosSize.return_value = MagicMock(X=1, Y=2, Width=3, Height=4)
+        container = MagicMock()
+        
+        listener = self._module.EmbeddedWriterListener(MagicMock(), MagicMock(), placeholder, MagicMock())
+        listener.container_window = container
+        listener.on_window_resized(None)
+        
+        container.setPosSize.assert_called_with(1, 2, 3, 4, 15)
+
+    def test_on_window_resized_with_doc(self):
+        """Verify on_window_resized calls scroll_to_bottom when doc is present."""
+        placeholder = MagicMock()
+        placeholder.getPosSize.return_value = MagicMock(X=1, Y=2, Width=3, Height=4)
+        container = MagicMock()
+        doc = MagicMock()
+        
+        listener = self._module.EmbeddedWriterListener(MagicMock(), MagicMock(), placeholder, MagicMock())
+        listener.container_window = container
+        listener.doc = doc
+        
+        with patch("plugin.chatbot.rich_text.scroll_to_bottom") as mock_scroll:
+            listener.on_window_resized(None)
+            mock_scroll.assert_called_once_with(doc)
+            container.setPosSize.assert_called_with(1, 2, 3, 4, 15)
 
 
 if __name__ == "__main__":
