@@ -7,7 +7,7 @@
 Message types (``type`` field):
 
 - ``ready`` child → LO
-- ``load`` LO → child: ``code``, optional ``title``, ``data_binding``, ``plain_text_label``
+- ``load`` LO → child: ``code``, optional ``title``, ``data_binding``, ``plain_text_label``, optional ``save_as_plain`` (initial checkbox: off for ``=PYTHON()``, on for plain-string cells)
 - ``save`` child → LO: ``code``, optional ``save_as_plain``, ``data_binding`` (range text for formula suffix)
 - ``saved`` / ``error`` LO → child
 - ``closed`` / ``cancel`` either direction

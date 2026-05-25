@@ -10,6 +10,7 @@ import logging
 import select
 import threading
 import time
+from collections import deque
 from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
@@ -34,6 +35,10 @@ class PersistentEditor:
         self._proc: subprocess.Popen[bytes] | None = None
         self._stdin_lock = threading.Lock()
         self._reader_thread: threading.Thread | None = None
+        self._stderr_thread: threading.Thread | None = None
+        self._stderr_tail_lock = threading.Lock()
+        self._stderr_tail = deque[str]()
+        self._stderr_tail_max_chars = 65536
         self._ready_event = threading.Event()
         self._closed_event = threading.Event()
 
@@ -57,7 +62,11 @@ class PersistentEditor:
         self._proc = proc
         self._ready_event.clear()
         self._closed_event.clear()
+        with self._stderr_tail_lock:
+            self._stderr_tail.clear()
         self._reader_thread = run_in_background(self._read_loop, name="editor-pipe-reader", daemon=True)
+        if proc.stderr is not None:
+            self._stderr_thread = run_in_background(self._stderr_drain_loop, name="editor-stderr-drain", daemon=True)
 
     def terminate(self) -> None:
         """Force terminate the subprocess."""
@@ -95,6 +104,12 @@ class PersistentEditor:
 
     def read_stderr_tail(self, max_bytes: int = 65536) -> str:
         """Best-effort read of child stderr (for startup failure messages)."""
+        with self._stderr_tail_lock:
+            if self._stderr_tail:
+                text = "\n".join(self._stderr_tail)
+                if len(text) > max_bytes:
+                    return text[-max_bytes:].strip()
+                return text.strip()
         if self._proc is None:
             return ""
         stderr = self._proc.stderr
@@ -115,6 +130,44 @@ class PersistentEditor:
         if not chunks:
             return ""
         return b"".join(chunks).decode("utf-8", errors="replace").strip()
+
+    def _append_stderr_line(self, line: str) -> None:
+        if not line:
+            return
+        with self._stderr_tail_lock:
+            self._stderr_tail.append(line)
+            while self._stderr_tail and sum(len(s) + 1 for s in self._stderr_tail) > self._stderr_tail_max_chars:
+                self._stderr_tail.popleft()
+
+    def _stderr_drain_loop(self) -> None:
+        proc = self._proc
+        if proc is None or proc.stderr is None:
+            return
+        stderr = proc.stderr
+        try:
+            while proc.poll() is None:
+                ready, _, _ = select.select([stderr], [], [], 0.5)
+                if not ready:
+                    continue
+                raw = stderr.readline()
+                if not raw:
+                    break
+                line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
+                if line:
+                    log.debug("editor child: %s", line)
+                    self._append_stderr_line(line)
+        except Exception:
+            log.debug("editor stderr drain failed", exc_info=True)
+        finally:
+            try:
+                remainder = stderr.read()
+                if remainder:
+                    for piece in remainder.decode("utf-8", errors="replace").splitlines():
+                        if piece:
+                            log.debug("editor child: %s", piece)
+                            self._append_stderr_line(piece)
+            except Exception:
+                log.debug("editor stderr drain tail read failed", exc_info=True)
 
     def wait_for_ready(self, ctx: Any, timeout_sec: float = 30.0) -> bool:
         """Wait for ``ready`` while pumping LibreOffice UI events."""

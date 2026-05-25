@@ -69,6 +69,11 @@ VENV_AUTHORIZED_IMPORTS: tuple[str, ...] = (
     "typing",
     "copy",
     "pprint",
+    "webview",
+    "jedi",
+    "PyQt6",
+    "PyQt6.QtWebEngineWidgets",
+    "qtpy",
 )
 
 

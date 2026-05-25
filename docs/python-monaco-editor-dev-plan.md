@@ -2,7 +2,7 @@
 
 Architectural design for the **LibrePythonista-style Monaco editor** in WriterAgent.
 
-**Status (session 1 complete, Phase 2A lifecycle + save feedback):** Calc menu **Edit Python in Cell…** opens a Monaco/pywebview window in the user venv, edits any selected cell (empty or existing `=PYTHON()`), and writes back `=PYTHON("…")` on Save. WM close (title-bar X) sends `closed` immediately so LibreOffice clears the session; Save shows green/red toolbar status. Pipe IPC, bundled Monaco, formula parse/rebuild, venv-only spawn, and full-traceback failure dialogs are implemented. See `plugin/scripting/` and `plugin/calc/python_editor.py`.
+**Status (Phase 2A complete):** Calc **Edit Python in Cell…** (menubar + cell right-click) opens a Monaco/pywebview window in the user venv. A **persistent background child** stays warm between edits; switching cells reloads the editor (no “already open” block). Dual save modes, editable **Data:** range textbox, save feedback, WM-close lifecycle, stderr drain to debug log, and full-traceback failure dialogs are implemented. Jedi autocompletion is wired but **stub-only** (no debounce/background thread yet). See `plugin/scripting/` and `plugin/calc/python_editor.py`.
 
 **`=PYTHON()` is not localized:** The Calc add-in always registers the English function name `PYTHON` (programmatic `python`). Formulas stored by Calc must use that token in `getFormula()` / `FormulaLocal`. A localized alias (e.g. a translated function name) is a **bug** in add-in registration — do **not** add `FormulaOpCodeMapper` workarounds in the editor or formula parser.
 
@@ -24,11 +24,11 @@ The editor is a **separate native window** in the user's configured Python venv.
 | Editor diagnostics | [`plugin/scripting/editor_diagnostics.py`](../plugin/scripting/editor_diagnostics.py) | Msgbox text: stderr + `traceback.format_exception` |
 | Editor bridge | [`plugin/scripting/editor_bridge.py`](../plugin/scripting/editor_bridge.py) | Pipe reader thread; UNO on main thread via [`QueueExecutor`](../plugin/framework/queue_executor.py) |
 | Editor process | [`plugin/scripting/editor_main.py`](../plugin/scripting/editor_main.py) | `pywebview` + Monaco (venv only) |
-| Calc integration | [`plugin/calc/python_editor.py`](../plugin/calc/python_editor.py), [`python_formula_edit.py`](../plugin/calc/python_formula_edit.py) | Active cell `=PYTHON()` load/save |
+| Calc integration | [`plugin/calc/python_editor.py`](../plugin/calc/python_editor.py), [`python_formula_edit.py`](../plugin/calc/python_formula_edit.py), [`python_editor_context_menu.py`](../plugin/calc/python_editor_context_menu.py) | Active cell `=PYTHON()` load/save; cell context menu |
 | Protocol | [`plugin/scripting/editor_protocol.py`](../plugin/scripting/editor_protocol.py) | `!I` length + UTF-8 JSON |
 | Frontend | [`plugin/scripting/assets/editor/`](../plugin/scripting/assets/editor/) | Bundled Monaco `vs/` (see [`scripts/fetch_monaco_editor.sh`](../scripts/fetch_monaco_editor.sh)) |
 
-Menu: `org.extension.writeragent:scripting.edit_python_cell` in [`extension/Addons.xcu`](../extension/Addons.xcu) (Calc only).
+Menu: `org.extension.writeragent:scripting.edit_python_cell` in [`extension/Addons.xcu`](../extension/Addons.xcu) (Calc menubar). Cell right-click uses [`python_editor_context_menu.py`](../plugin/calc/python_editor_context_menu.py) (`XContextMenuInterceptor` — LibreOffice has no static Addons.xcu merge point for Calc cell popups).
 
 ---
 
@@ -39,7 +39,7 @@ Same framing idea as [`worker_harness.py`](../plugin/scripting/worker_harness.py
 | `type` | Direction | Purpose |
 |--------|-----------|---------|
 | `ready` | child → LO | GUI up (`window.events.loaded` or `shown`); safe to send `load` |
-| `load` | LO → child | Initial `code` (stripped Python only—never `=PYTHON()`), optional `title`, `data_binding`, `plain_text_label` |
+| `load` | LO → child | Initial `code` (stripped Python only—never `=PYTHON()`), optional `title`, `data_binding`, `plain_text_label`, optional `save_as_plain` (checkbox: off for `=PYTHON()`, on for plain-string cells, off when empty) |
 | `save` | child → LO | User saved; includes `code`, optional `save_as_plain` (default false), optional `data_binding` (range text for formula suffix) |
 | `saved` / `error` | LO → child | Apply result in UI; `saved` may include `save_as_plain` |
 | `closed` / `cancel` | either | Tear down session |
@@ -87,7 +87,7 @@ Same framing idea as [`worker_harness.py`](../plugin/scripting/worker_harness.py
 | Theme sync | LO VCL → `vs` / `vs-dark` |
 | Flatpak/Snap spawn | `flatpak-spawn --host` |
 | Formula bar button | Optional |
-| Jedi completions | Persistent `jedi.Environment` in child; **do not** recreate env per keystroke; debounced `Script.complete`; results via `_ui_queue` + `poll_messages` |
+| Jedi completions | **Stub shipped** in [`editor_jedi.py`](../plugin/scripting/editor_jedi.py) + `get_completions` in JS; Phase 2D adds debounce, background thread, Settings hint |
 
 ### Autocompletion (Jedi)
 
@@ -102,27 +102,34 @@ Same framing idea as [`worker_harness.py`](../plugin/scripting/worker_harness.py
 ```text
 plugin/
 ├── calc/
-│   ├── python_editor.py       # Menu entry, launch bridge
-│   └── python_formula_edit.py # Parse/rebuild =PYTHON() formulas
+│   ├── python_editor.py              # Menu entry, launch bridge
+│   ├── python_editor_context_menu.py # Calc cell right-click entry
+│   └── python_formula_edit.py        # Parse/rebuild =PYTHON() formulas
 └── scripting/
     ├── editor_launcher.py
-    ├── editor_bridge.py
+    ├── editor_bridge.py              # PersistentEditor + pipe reader + stderr drain
     ├── editor_diagnostics.py
     ├── editor_protocol.py
     ├── editor_main.py
+    ├── editor_jedi.py                # Jedi stub (Phase 2D finish)
     └── assets/editor/
         ├── index.html
         ├── editor.js
         ├── style.css
-        └── vs/                  # Monaco bundle (generated)
+        └── vs/                       # Monaco bundle (generated)
 
 tests/
-├── calc/test_python_formula_edit.py
-├── calc/test_python_editor_save_modes.py
+├── calc/
+│   ├── test_python_formula_edit.py
+│   ├── test_python_editor_save_modes.py
+│   ├── test_python_editor_multi_cell.py
+│   └── test_python_editor_context_menu.py
 └── scripting/
     ├── test_editor_protocol.py
     ├── test_editor_diagnostics.py
-    └── test_editor_main_closed.py
+    ├── test_editor_main_closed.py
+    ├── test_editor_jedi.py
+    └── test_editor_stderr_drain.py
 ```
 
 ---
@@ -136,7 +143,9 @@ tests/
 5. **WriterAgent → Edit Python in Cell…** — Monaco window should open.
 6. Edit, **Save** — cell should become/update `=PYTHON("…")` and recalc; toolbar shows green **Saved.** briefly.
 7. Close the editor with the window **X** (not Cancel), reopen immediately — should **not** show “already open.”
-8. On save error (if reproducible), toolbar shows red error text and the editor stays open.
+8. Edit cell A, Save, select cell B, run **Edit Python in Cell…** again — editor reloads B’s code (no blocking dialog).
+9. Right-click a cell — **Edit Python in Cell…** should appear at the bottom of the cell context menu.
+10. On save error (if reproducible), toolbar shows red error text and the editor stays open.
 
 **If it fails:** the msgbox should include child stderr and a Python traceback. Also check `writeragent_debug.log` under the LO user profile (`writeragent.json` directory). Common causes: wrong venv path in Settings, pywebview not installed in *that* venv, or missing display/GTK backend on Linux.
 
@@ -154,8 +163,9 @@ Session 1 proves the **pipe + subprocess + Monaco** spine. The work below is ord
 |------|--------|--------|
 | **Window lifecycle** | Wire `window.events.closed` (pywebview) to send `closed`; bridge clears session when child exits. | **Done** |
 | **Save feedback** | Green status on `saved` (auto-clear ~3s); red status on `error` with message; editor stays open. | **Done** |
-| **Context menu** | Duplicate menu entry under Calc cell context in [`extension/Addons.xcu`](../extension/Addons.xcu) (same URL as menubar). Users expect right-click on a `=PYTHON()` cell. | |
-| **stderr logging** | Session 1 surfaces child stderr in failure msgboxes (64KB tail) and logs probe/spawn errors. Optional: continuous stderr drain to `writeragent_debug.log` while the editor runs. | |
+| **Context menu** | Calc cell right-click via [`python_editor_context_menu.py`](../plugin/calc/python_editor_context_menu.py) (`XContextMenuInterceptor`; same dispatch URL as menubar). | **Done** |
+| **stderr logging** | Continuous stderr drain thread in [`editor_bridge.py`](../plugin/scripting/editor_bridge.py) (`editor-stderr-drain`); lines logged at debug; tail kept for failure msgboxes. | **Done** |
+| **Multi-cell reload** | Editor open on cell A → Save → select B → menu again sends fresh `load` (callbacks retargeted; `save_as_plain` reflects B’s cell type). | **Done** |
 
 **Protocol:** no new message types required.
 
@@ -328,8 +338,8 @@ flowchart TD
 ### Success criteria for “editor feature complete”
 
 - **Session 1 (done):** native LO + configured venv with pywebview: menubar **Edit Python in Cell…**, edit any selected Calc cell, Save updates `=PYTHON()` and recalc; failures show full tracebacks.
-- **Phase 2A (partial):** WM close clears session; save toolbar feedback (green/red).
-- **Later:** context menu, range insert, squiggles, Jedi completions, theme sync, Flatpak spawn.
+- **Phase 2A (done):** context menu, stderr drain, multi-cell reload, persistent child reuse.
+- **Later:** syntax squiggles (2B), range picker button (2C), Jedi finish (2D), theme sync (2E), Flatpak spawn (2F).
 - `make test` green; typecheck clean; no UNO calls off main thread in bridge code paths.
 
 ### Session 1 behavior reference
@@ -342,7 +352,8 @@ flowchart TD
 | Data ranges | Editable toolbar textbox (`data_binding` on load/save); written into `=PYTHON("code"; …)` suffix via [`python_formula_edit.py`](../plugin/calc/python_formula_edit.py); single range → `data`, multiple comma/semicolon-separated → `data_list` |
 | Formula strings | Reads `getFormula()`, `FormulaLocal`, `Formula`; normalizes leading `=`, array braces, smart quotes |
 | Unparsed PYTHON (e.g. `=PYTHON(A1; B1)`) | Blocked with msgbox — cannot safely preserve data args |
-| Single session | Second open while editor running shows “already open” |
+| Single session | One **persistent child** process; **multi-cell reload** retargets save callbacks and sends `load` (assumes user saved before switching). WM close hides window and clears session; process stays warm. |
+| Child stderr | `editor-stderr-drain` thread logs lines at debug; `read_stderr_tail()` uses ring buffer for failure dialogs. |
 | Child `sys.path` | [`editor_main.py`](../plugin/scripting/editor_main.py) bootstraps repo root so `plugin.scripting.editor_protocol` imports |
 | Save errors to UI | Bridge sends `error` + `traceback` to child; red toolbar status (Phase 2A) |
 | Formula function name | Always English `PYTHON`; localized tokens are a bug, not supported |

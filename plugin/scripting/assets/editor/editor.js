@@ -107,6 +107,10 @@
               labelEl.textContent = msg.plain_text_label;
             }
           }
+          var plainEl = getPlainTextCheckbox();
+          if (plainEl && typeof msg.save_as_plain === "boolean") {
+            plainEl.checked = msg.save_as_plain;
+          }
           setDataBinding(msg.data_binding || "");
           updateDataBindingEnabled();
           applyLoad(msg.code || "");

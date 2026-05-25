@@ -335,6 +335,31 @@ result = float("nan")
 result = [[1.0, np.nan, 3.0]]     # matrix formula → 1, blank, 3
 ```
 
+### Gotcha: Silent Blank Cells from NaN Poisoning (and how to display "NaN")
+
+If a spreadsheet range contains empty cells, calling standard functions like `np.mean(data)` or `np.sum(data)` will be poisoned by the `None` or `nan` values and evaluate to float `nan`.
+
+Because `nan` is coerced to an empty string (`""`) on egress to keep downstream spreadsheet formulas healthy, the target cell will appear **completely blank** with no error messages.
+
+If you encounter this and either want to compute a correct value ignoring blanks, or explicitly display `"NaN"` in the sheet, use one of the following patterns:
+
+#### 1. Ignore blank/empty cells in calculation
+* **NumPy float conversion (works for any range size):**
+  ```python
+  np.nanmean(np.array(data, dtype=float))
+  ```
+* **Pure Python list comprehension (for small ranges < 10 cells):**
+  ```python
+  np.mean([x for x in data if x is not None])
+  ```
+
+#### 2. Explicitly display "NaN" in the sheet
+If you want `nan` results to be visible to the user as `"NaN"` instead of being swallowed into a blank cell:
+```python
+val = np.nanmean(np.array(data, dtype=float))
+result = "NaN" if np.isnan(val) else val
+```
+
 #### 2. Normal (Single-Cell) Formulas vs. Matrix (Array) Formulas
 Calc's legacy add-in bridge only accepts **one scalar** (number, text, or boolean) per `=PYTHON()` evaluation. It cannot receive a Python list/tuple as a native array return (that yields `#VALUE!` even with **Ctrl+Shift+Enter**).
 

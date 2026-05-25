@@ -11,8 +11,24 @@ from unittest.mock import MagicMock
 from plugin.calc.python_editor import (
     _apply_cell_save,
     build_editor_formula_save,
+    editor_load_save_as_plain,
 )
 from plugin.calc.python_formula_edit import parse_python_formula
+
+
+def test_editor_load_save_as_plain_python_formula():
+    parts = parse_python_formula('=PYTHON("x"; A1:B10)')
+    assert parts is not None
+    assert editor_load_save_as_plain(parsed_parts=parts, initial_code="x") is False
+
+
+def test_editor_load_save_as_plain_plain_string_cell():
+    assert editor_load_save_as_plain(parsed_parts=None, initial_code="np.mean(data)") is True
+
+
+def test_editor_load_save_as_plain_empty_cell():
+    assert editor_load_save_as_plain(parsed_parts=None, initial_code="") is False
+    assert editor_load_save_as_plain(parsed_parts=None, initial_code="   ") is False
 
 
 def test_build_editor_formula_save_new_cell_with_data_binding():

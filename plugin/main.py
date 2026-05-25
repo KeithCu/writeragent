@@ -271,6 +271,13 @@ def _register_core_handlers():
 
     register_action_handler("scripting", "edit_python_cell", _edit_python_cell)
 
+    try:
+        from plugin.calc.python_editor_context_menu import install_calc_cell_context_menu
+
+        install_calc_cell_context_menu(get_ctx())
+    except Exception:
+        log.debug("Calc cell context menu install failed", exc_info=True)
+
     def _import_ipynb():
         from plugin.notebook.import_dialog import run_import_ipynb_dialog
         run_import_ipynb_dialog(get_ctx())

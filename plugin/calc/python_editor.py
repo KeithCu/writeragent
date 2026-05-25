@@ -180,6 +180,11 @@ def _apply_plain_text_save(doc: Any, cell: Any, *, new_code: str) -> dict[str, A
     return {"type": "saved", "ok": True, "save_as_plain": True}
 
 
+def editor_load_save_as_plain(*, parsed_parts: PythonFormulaParts | None, initial_code: str) -> bool:
+    """Default plain-text checkbox on editor load: on for plain cells, off for ``=PYTHON()`` or empty."""
+    return parsed_parts is None and bool(initial_code.strip())
+
+
 def _apply_cell_save(
     doc: Any,
     cell: Any,
@@ -261,6 +266,7 @@ def _launch_editor_with_code(
         "code": initial_code,
         "title": _("PYTHON cell editor"),
         "plain_text_label": _("Save as plain text"),
+        "save_as_plain": editor_load_save_as_plain(parsed_parts=parsed_parts, initial_code=initial_code),
     }
     load_msg["data_binding"] = data_binding
     try:
@@ -276,6 +282,9 @@ def open_python_cell_editor(ctx: Any) -> None:
     """Launch Monaco editor for the active Calc cell (creates or edits ``=PYTHON()``)."""
     log.info("python_editor: open_python_cell_editor")
     try:
+        from plugin.calc.python_editor_context_menu import install_calc_cell_context_menu
+
+        install_calc_cell_context_menu(ctx)
         _open_python_cell_editor_impl(ctx)
     except Exception as e:
         log.exception("python_editor: unhandled failure")
@@ -284,10 +293,7 @@ def open_python_cell_editor(ctx: Any) -> None:
 
 def _open_python_cell_editor_impl(ctx: Any) -> None:
     existing = get_active_session()
-    if existing is not None:
-        if existing.is_running:
-            msgbox(ctx, "WriterAgent", _("The Python editor is already open."))
-            return
+    if existing is not None and not existing.is_running:
         set_active_session(None)
 
     resolved = _get_active_calc_cell(ctx)

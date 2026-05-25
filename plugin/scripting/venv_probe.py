@@ -57,64 +57,116 @@ def resolve_venv_python(venv_dir: str) -> Optional[str]:
     return None
 
 
-_DIAGNOSTIC_SCRIPT = (
-    "import platform\n"
-    "res = {'v': platform.python_version()}\n"
-    "pkgs = {}\n"
-    "try:\n"
-    "    import numpy\n"
-    "    pkgs['numpy'] = 'present'\n"
-    "except ImportError:\n"
-    "    pkgs['numpy'] = None\n"
-    "try:\n"
-    "    import pandas\n"
-    "    pkgs['pandas'] = 'present'\n"
-    "except ImportError:\n"
-    "    pkgs['pandas'] = None\n"
-    "try:\n"
-    "    import scipy\n"
-    "    pkgs['scipy'] = 'present'\n"
-    "except ImportError:\n"
-    "    pkgs['scipy'] = None\n"
-    "try:\n"
-    "    import sklearn\n"
-    "    pkgs['sklearn'] = 'present'\n"
-    "except ImportError:\n"
-    "    pkgs['sklearn'] = None\n"
-    "try:\n"
-    "    import matplotlib\n"
-    "    pkgs['matplotlib'] = 'present'\n"
-    "except ImportError:\n"
-    "    pkgs['matplotlib'] = None\n"
-    "res['p'] = pkgs\n"
-    "result = res"
-)
+# NOTE for AI agents: The diagnostic script below runs in a sandboxed LocalPythonExecutor.
+# Do NOT use dynamic execution primitives like __import__(), eval(), or exec(), as they are
+# forbidden by the sandbox and will cause an InterpreterError. Use explicit try/except import blocks.
+_DIAGNOSTIC_SCRIPT = """
+import platform
+res = {'v': platform.python_version(), 'p': {}}
+sci = ['numpy', 'pandas', 'scipy', 'sklearn', 'matplotlib', 'sympy']
+ui = ['webview', 'jedi', 'PyQt6', 'PyQt6.QtWebEngineWidgets', 'qtpy']
+res['sci'] = sci
+res['ui'] = ui
+
+# Explicit try/except blocks for each package (forbidden to use __import__ loop in sandbox)
+try:
+    import numpy
+    res['p']['numpy'] = 'present'
+except ImportError:
+    res['p']['numpy'] = None
+
+try:
+    import pandas
+    res['p']['pandas'] = 'present'
+except ImportError:
+    res['p']['pandas'] = None
+
+try:
+    import scipy
+    res['p']['scipy'] = 'present'
+except ImportError:
+    res['p']['scipy'] = None
+
+try:
+    import sklearn
+    res['p']['sklearn'] = 'present'
+except ImportError:
+    res['p']['sklearn'] = None
+
+try:
+    import matplotlib
+    res['p']['matplotlib'] = 'present'
+except ImportError:
+    res['p']['matplotlib'] = None
+
+try:
+    import sympy
+    res['p']['sympy'] = 'present'
+except ImportError:
+    res['p']['sympy'] = None
+
+try:
+    import webview
+    res['p']['webview'] = 'present'
+except ImportError:
+    res['p']['webview'] = None
+
+try:
+    import jedi
+    res['p']['jedi'] = 'present'
+except ImportError:
+    res['p']['jedi'] = None
+
+try:
+    import PyQt6
+    res['p']['PyQt6'] = 'present'
+except ImportError:
+    res['p']['PyQt6'] = None
+
+try:
+    import PyQt6.QtWebEngineWidgets
+    res['p']['PyQt6.QtWebEngineWidgets'] = 'present'
+except ImportError:
+    res['p']['PyQt6.QtWebEngineWidgets'] = None
+
+try:
+    import qtpy
+    res['p']['qtpy'] = 'present'
+except ImportError:
+    res['p']['qtpy'] = None
+
+result = res
+"""
 
 
 def _format_self_check_success(data: dict[str, Any]) -> str:
     version = data.get("v", "unknown")
     packages = data.get("p", {})
-    if not isinstance(packages, dict):
-        packages = {}
+    sci_list = data.get("sci", [])
+    ui_list = data.get("ui", [])
 
     msg_lines = [f"Python {version} responds OK."]
 
-    found = []
-    missing = []
-    requested = ["numpy", "pandas"]
-    others = [p for p in packages if p not in requested]
+    def format_group(title, keys):
+        found = []
+        missing = []
+        for k in keys:
+            if packages.get(k) == "present":
+                found.append(k)
+            else:
+                missing.append(k)
 
-    for p in requested + others:
-        ver = packages.get(p)
-        if ver:
-            found.append(f"{p} ({ver})" if ver != "present" else p)
-        else:
-            missing.append(p)
+        lines = [f"\n{title}:"]
+        if found:
+            lines.append(f"  Present: {', '.join(found)}")
+        if missing:
+            lines.append(f"  Missing: {', '.join(missing)}")
+        return lines
 
-    if found:
-        msg_lines.append(f"Packages: {', '.join(found)}")
-    if missing:
-        msg_lines.append(f"Missing: {', '.join(missing)}")
+    if sci_list:
+        msg_lines.extend(format_group("Scientific Libraries", sci_list))
+    if ui_list:
+        msg_lines.extend(format_group("UI / Monaco Libraries", ui_list))
 
     return "\n".join(msg_lines)
 
