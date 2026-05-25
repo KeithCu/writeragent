@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-22 23:42-0400\n"
+"POT-Creation-Date: 2026-05-24 20:40-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Estonian <LL@li.org>\n"
@@ -363,6 +363,10 @@ msgstr ""
 "Mudel kordab sama osa (lõputu tsükkel). Proovige uuesti või kasutage teist "
 "mudelit."
 
+#: plugin/calc/python_editor_context_menu.py plugin/main.py
+msgid "Edit Python in Cell..."
+msgstr "Redigeeri Pythonit lahtris..."
+
 #: plugin/calc/editselection.py plugin/writer/editselection.py
 msgid "Please enter edit instructions!"
 msgstr "Palun sisestage redigeerimisjuhised!"
@@ -379,6 +383,74 @@ msgstr "WriterAgent: valiku redigeerimine (Calc)"
 #: plugin/calc/editselection.py
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: valiku laiendamine (Calc)"
+
+#: plugin/calc/python_editor.py
+msgid ""
+"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
+"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\";"
+" A1:B10)."
+msgstr ""
+"Selle lahtri PYTHON-valemi argumente (nt andmevahemikke) ei saanud "
+"säilitada. Redigeeri valemit Calcis või kasuta jutumärkides koodistringi, "
+"näiteks =PYTHON(\"kood\"; A1:B10)."
+
+#: plugin/calc/python_editor.py
+msgid "Could not start the Python editor."
+msgstr "Pythoni redaktorit ei saanud käivitada."
+
+#: plugin/calc/python_editor.py
+msgid "The Python editor window did not start."
+msgstr "Pythoni redaktori aken ei käivitunud."
+
+#: plugin/calc/python_editor.py
+msgid "The Python editor exited before it could load your code."
+msgstr "Pythoni redaktor sulgus enne, kui see jõudis koodi laadida."
+
+#: plugin/calc/python_editor.py
+msgid "PYTHON cell editor"
+msgstr "PYTHON-lahtri redaktor"
+
+#: plugin/calc/python_editor.py
+msgid "Save as plain text"
+msgstr "Salvesta lihttekstina"
+
+#: plugin/calc/python_editor.py
+msgid "Could not talk to the Python editor."
+msgstr "Pythoni redaktoriga ei saanud ühendust."
+
+#: plugin/calc/python_editor.py
+msgid "The Python editor failed unexpectedly."
+msgstr "Pythoni redaktor tõrkus ootamatult."
+
+#: plugin/calc/python_editor.py
+msgid "Select a cell in a Calc spreadsheet to edit Python."
+msgstr "Pythoni redigeerimiseks vali Calci arvutustabelist lahter."
+
+#: plugin/calc/python_editor.py
+msgid ""
+"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
+"in another cell). Edit it in the formula bar, or use =PYTHON(\"code\"; "
+"range) with quoted code."
+msgstr ""
+
+#: plugin/calc/python_editor.py
+msgid "No Python interpreter available for the editor."
+msgstr ""
+
+#: plugin/calc/python_editor.py
+#, python-format
+msgid ""
+"Cannot import webview (pywebview) with the Python from Settings → Python:\n"
+"%(exe)s\n"
+"\n"
+"In that venv run: pip install pywebview\n"
+"(import name is webview, package name is pywebview)."
+msgstr ""
+
+#: plugin/calc/python_editor.py
+#, fuzzy
+msgid "unknown error"
+msgstr "Tundmatu viga"
 
 #: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Extend Selection"
@@ -1326,6 +1398,14 @@ msgid ""
 msgstr ""
 "Pythoni skripti käivitamise, =PYTHON() ja run_venv_python_script "
 "funktsioonide ajalimiit."
+
+msgid "Max Calc data cells"
+msgstr ""
+
+msgid ""
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
+msgstr ""
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writeri dokumenditööriistad (sh navigeerimine ja otsing)"

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-22 23:42-0400\n"
+"POT-Creation-Date: 2026-05-24 20:40-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Bulgarian <LL@li.org>\n"
@@ -373,6 +373,10 @@ msgstr ""
 "Моделът повтаря един и същ откъс (безкраен цикъл). Опитайте отново или "
 "използвайте друг модел."
 
+#: plugin/calc/python_editor_context_menu.py plugin/main.py
+msgid "Edit Python in Cell..."
+msgstr "Редактиране на Python в клетка..."
+
 #: plugin/calc/editselection.py plugin/writer/editselection.py
 msgid "Please enter edit instructions!"
 msgstr "Моля, въведете инструкции за редактиране!"
@@ -389,6 +393,82 @@ msgstr "WriterAgent: Редактиране на селекцията (Calc)"
 #: plugin/calc/editselection.py
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Разширяване на селекцията (Calc)"
+
+#: plugin/calc/python_editor.py
+msgid ""
+"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
+"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\";"
+" A1:B10)."
+msgstr ""
+"Неуспешно запазване на аргументите на PYTHON формулата в тази клетка (напр. "
+"диапазони от данни). Редактирайте формулата в Calc или използвайте цитиран "
+"кодов низ, като например =PYTHON(\"код\"; A1:B10)."
+
+#: plugin/calc/python_editor.py
+msgid "Could not start the Python editor."
+msgstr "Неуспешно стартиране на редактора на Python."
+
+#: plugin/calc/python_editor.py
+msgid "The Python editor window did not start."
+msgstr "Прозорецът на редактора на Python не се стартира."
+
+#: plugin/calc/python_editor.py
+msgid "The Python editor exited before it could load your code."
+msgstr "Редакторът на Python се затвори, преди да успее да зареди вашия код."
+
+#: plugin/calc/python_editor.py
+msgid "PYTHON cell editor"
+msgstr "PYTHON редактор на клетки"
+
+#: plugin/calc/python_editor.py
+msgid "Save as plain text"
+msgstr "Запазване като обикновен текст"
+
+#: plugin/calc/python_editor.py
+msgid "Could not talk to the Python editor."
+msgstr "Неуспешна връзка с редактора на Python."
+
+#: plugin/calc/python_editor.py
+msgid "The Python editor failed unexpectedly."
+msgstr "Редакторът на Python приключи неочаквано."
+
+#: plugin/calc/python_editor.py
+msgid "Select a cell in a Calc spreadsheet to edit Python."
+msgstr ""
+"Изберете клетка в електронна таблица на Calc, за да редактирате Python."
+
+#: plugin/calc/python_editor.py
+msgid ""
+"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
+"in another cell). Edit it in the formula bar, or use =PYTHON(\"code\"; "
+"range) with quoted code."
+msgstr ""
+"Тази PYTHON формула използва форма, която редакторът не може безопасно да "
+"пренапише (напр. код в друга клетка). Редактирайте я в лентата за формули "
+"или използвайте =PYTHON(\"код\"; диапазон) с цитиран код."
+
+#: plugin/calc/python_editor.py
+msgid "No Python interpreter available for the editor."
+msgstr "Няма наличен Python интерпретатор за редактора."
+
+#: plugin/calc/python_editor.py
+#, python-format
+msgid ""
+"Cannot import webview (pywebview) with the Python from Settings → Python:\n"
+"%(exe)s\n"
+"\n"
+"In that venv run: pip install pywebview\n"
+"(import name is webview, package name is pywebview)."
+msgstr ""
+"Неуспешно импортиране на webview (pywebview) с Python от Настройки → Python:\n"
+"%(exe)s\n"
+"\n"
+"В тази виртуална среда (venv) изпълнете: pip install pywebview\n"
+"(името за импортиране е webview, името на пакета е pywebview)."
+
+#: plugin/calc/python_editor.py
+msgid "unknown error"
+msgstr "неизвестна грешка"
 
 #: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Extend Selection"
@@ -1339,6 +1419,17 @@ msgid ""
 msgstr ""
 "Ограничение във времето за изпълнение на Python скрипт, =PYTHON() и "
 "run_venv_python_script."
+
+msgid "Max Calc data cells"
+msgstr "Максимален брой клетки с данни в Calc"
+
+msgid ""
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
+msgstr ""
+"Максимален брой клетки в данни на =PYTHON() или данни/диапазон от данни при "
+"изпълнение на Python скрипт. По-големите стойности използват повече RAM и "
+"време; четенето на UNO диапазон все още е доминиращо."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Инструменти за документи в Writer (включително навигация и търсене)"

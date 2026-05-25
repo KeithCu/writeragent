@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-22 23:42-0400\n"
+"POT-Creation-Date: 2026-05-24 20:40-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Chinese (Traditional) <LL@li.org>\n"
@@ -334,6 +334,10 @@ msgid ""
 "different model."
 msgstr "模型正在重複相同的區塊（無限迴圈）。請重試或使用不同的模型。"
 
+#: plugin/calc/python_editor_context_menu.py plugin/main.py
+msgid "Edit Python in Cell..."
+msgstr "編輯儲存格中的 Python..."
+
 #: plugin/calc/editselection.py plugin/writer/editselection.py
 msgid "Please enter edit instructions!"
 msgstr "請輸入編輯指示！"
@@ -350,6 +354,79 @@ msgstr "WriterAgent：編輯選取 (Calc)"
 #: plugin/calc/editselection.py
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent：擴展選取 (Calc)"
+
+#: plugin/calc/python_editor.py
+msgid ""
+"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
+"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\";"
+" A1:B10)."
+msgstr ""
+"無法保留此儲存格的 PYTHON 公式引數（例如資料範圍）。請在 Calc 中編輯公式，或使用引號括住的程式碼字串，例如 "
+"=PYTHON(\"code\"; A1:B10)。"
+
+#: plugin/calc/python_editor.py
+msgid "Could not start the Python editor."
+msgstr "無法啟動 Python 編輯器。"
+
+#: plugin/calc/python_editor.py
+msgid "The Python editor window did not start."
+msgstr "Python 編輯器視窗未啟動。"
+
+#: plugin/calc/python_editor.py
+msgid "The Python editor exited before it could load your code."
+msgstr "Python 編輯器在載入您的程式碼前已結束。"
+
+#: plugin/calc/python_editor.py
+msgid "PYTHON cell editor"
+msgstr "PYTHON 儲存格編輯器"
+
+#: plugin/calc/python_editor.py
+msgid "Save as plain text"
+msgstr "另存為純文字"
+
+#: plugin/calc/python_editor.py
+msgid "Could not talk to the Python editor."
+msgstr "無法與 Python 編輯器通訊。"
+
+#: plugin/calc/python_editor.py
+msgid "The Python editor failed unexpectedly."
+msgstr "Python 編輯器發生非預期的失敗。"
+
+#: plugin/calc/python_editor.py
+msgid "Select a cell in a Calc spreadsheet to edit Python."
+msgstr "請選取 Calc 試算表中的儲存格以編輯 Python。"
+
+#: plugin/calc/python_editor.py
+msgid ""
+"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
+"in another cell). Edit it in the formula bar, or use =PYTHON(\"code\"; "
+"range) with quoted code."
+msgstr ""
+"此 PYTHON 公式使用了編輯器無法安全重寫的格式（例如其他儲存格中的程式碼）。請在公式列中編輯它，或使用 =PYTHON(\"code\"; "
+"range) 並將程式碼加上引號。"
+
+#: plugin/calc/python_editor.py
+msgid "No Python interpreter available for the editor."
+msgstr "編輯器沒有可用的 Python 直譯器。"
+
+#: plugin/calc/python_editor.py
+#, python-format
+msgid ""
+"Cannot import webview (pywebview) with the Python from Settings → Python:\n"
+"%(exe)s\n"
+"\n"
+"In that venv run: pip install pywebview\n"
+"(import name is webview, package name is pywebview)."
+msgstr ""
+"無法從「設定」→「Python」中的 Python 匯入 webview (pywebview)：\n"
+"%(exe)s\n"
+"\n"
+"請在該虛擬環境 (venv) 中執行：pip install pywebview\n"
+"（匯入名稱為 webview，套件名稱為 pywebview）。"
+
+#: plugin/calc/python_editor.py
+msgid "unknown error"
+msgstr "未知的錯誤"
 
 #: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Extend Selection"
@@ -1257,6 +1334,16 @@ msgid ""
 "Wall-clock limit for Run Python Script, =PYTHON(), and "
 "run_venv_python_script."
 msgstr "執行 Python 指令碼、=PYTHON() 及 run_venv_python_script 的實際執行時間限制。"
+
+msgid "Max Calc data cells"
+msgstr "Calc 資料儲存格上限"
+
+msgid ""
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
+msgstr ""
+"=PYTHON() 資料或執行 Python 指令碼資料/資料範圍 (data/data_range) "
+"的最大儲存格數。較大的數值會消耗更多記憶體與時間；UNO 範圍讀取仍是主要的效能瓶頸。"
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer 文件工具（包含導覽與搜尋）"

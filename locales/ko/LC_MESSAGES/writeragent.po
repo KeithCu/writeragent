@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-22 23:42-0400\n"
+"POT-Creation-Date: 2026-05-24 20:40-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Korean <LL@li.org>\n"
@@ -336,6 +336,10 @@ msgid ""
 "different model."
 msgstr "모델이 동일한 청크를 반복하고 있습니다(무한 루프). 다시 시도하거나 다른 모델을 사용하세요."
 
+#: plugin/calc/python_editor_context_menu.py plugin/main.py
+msgid "Edit Python in Cell..."
+msgstr "셀에서 Python 편집..."
+
 #: plugin/calc/editselection.py plugin/writer/editselection.py
 msgid "Please enter edit instructions!"
 msgstr "편집 지침을 입력하십시오!"
@@ -352,6 +356,79 @@ msgstr "WriterAgent: 선택 영역 편집 (Calc)"
 #: plugin/calc/editselection.py
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: 선택 영역 확장 (Calc)"
+
+#: plugin/calc/python_editor.py
+msgid ""
+"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
+"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\";"
+" A1:B10)."
+msgstr ""
+"이 셀의 PYTHON 수식 인수(예: 데이터 범위)를 유지할 수 없습니다. Calc에서 수식을 편집하거나 =PYTHON(\"code\";"
+" A1:B10)과 같이 따옴표로 묶인 코드 문자열을 사용하십시오."
+
+#: plugin/calc/python_editor.py
+msgid "Could not start the Python editor."
+msgstr "Python 편집기를 시작할 수 없습니다."
+
+#: plugin/calc/python_editor.py
+msgid "The Python editor window did not start."
+msgstr "Python 편집기 창이 시작되지 않았습니다."
+
+#: plugin/calc/python_editor.py
+msgid "The Python editor exited before it could load your code."
+msgstr "Python 편집기가 코드를 로드하기 전에 종료되었습니다."
+
+#: plugin/calc/python_editor.py
+msgid "PYTHON cell editor"
+msgstr "PYTHON 셀 편집기"
+
+#: plugin/calc/python_editor.py
+msgid "Save as plain text"
+msgstr "일반 텍스트로 저장"
+
+#: plugin/calc/python_editor.py
+msgid "Could not talk to the Python editor."
+msgstr "Python 편집기와 통신할 수 없습니다."
+
+#: plugin/calc/python_editor.py
+msgid "The Python editor failed unexpectedly."
+msgstr "Python 편집기가 예기치 않게 실패했습니다."
+
+#: plugin/calc/python_editor.py
+msgid "Select a cell in a Calc spreadsheet to edit Python."
+msgstr "Python을 편집하려면 Calc 스프레드시트에서 셀을 선택하십시오."
+
+#: plugin/calc/python_editor.py
+msgid ""
+"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
+"in another cell). Edit it in the formula bar, or use =PYTHON(\"code\"; "
+"range) with quoted code."
+msgstr ""
+"이 PYTHON 수식은 편집기가 안전하게 다시 작성할 수 없는 형식을 사용하고 있습니다(예: 다른 셀의 코드). 수식 입력줄에서 "
+"편집하거나 따옴표로 묶은 코드와 함께 =PYTHON(\"코드\"; 범위)를 사용하십시오."
+
+#: plugin/calc/python_editor.py
+msgid "No Python interpreter available for the editor."
+msgstr "편집기에 사용할 수 있는 Python 인터프리터가 없습니다."
+
+#: plugin/calc/python_editor.py
+#, python-format
+msgid ""
+"Cannot import webview (pywebview) with the Python from Settings → Python:\n"
+"%(exe)s\n"
+"\n"
+"In that venv run: pip install pywebview\n"
+"(import name is webview, package name is pywebview)."
+msgstr ""
+"설정 → Python에서 지정한 Python으로 webview(pywebview)를 가져올 수 없습니다: \n"
+"%(exe)s\n"
+"\n"
+"해당 가상 환경(venv)에서 다음을 실행하십시오: pip install pywebview\n"
+"(가져오기 이름은 webview, 패키지 이름은 pywebview입니다)."
+
+#: plugin/calc/python_editor.py
+msgid "unknown error"
+msgstr "알 수 없는 오류"
 
 #: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Extend Selection"
@@ -1271,6 +1348,16 @@ msgid ""
 "Wall-clock limit for Run Python Script, =PYTHON(), and "
 "run_venv_python_script."
 msgstr "Python 스크립트 실행, =PYTHON() 및 run_venv_python_script에 대한 실제 시간 제한입니다."
+
+msgid "Max Calc data cells"
+msgstr "최대 Calc 데이터 셀"
+
+msgid ""
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
+msgstr ""
+"=PYTHON() 데이터 또는 Python 스크립트 실행 데이터/데이터_범위의 최대 셀 수입니다. 값이 클수록 더 많은 RAM과 시간이 "
+"소요되며, UNO 범위 읽기가 여전히 주된 작업입니다."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer 문서 도구 (탐색 및 검색 포함)"

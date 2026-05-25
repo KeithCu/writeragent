@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-22 23:42-0400\n"
+"POT-Creation-Date: 2026-05-24 20:40-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Catalan <LL@li.org>\n"
@@ -367,6 +367,10 @@ msgstr ""
 "El model repeteix el mateix fragment (bucle infinit). Torneu-ho a provar o "
 "utilitzeu un model diferent."
 
+#: plugin/calc/python_editor_context_menu.py plugin/main.py
+msgid "Edit Python in Cell..."
+msgstr "Edita el Python a la cel·la..."
+
 #: plugin/calc/editselection.py plugin/writer/editselection.py
 msgid "Please enter edit instructions!"
 msgstr "Si us plau, introduïu les instruccions d'edició!"
@@ -383,6 +387,82 @@ msgstr "WriterAgent: Edita la selecció (Calc)"
 #: plugin/calc/editselection.py
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Amplia la selecció (Calc)"
+
+#: plugin/calc/python_editor.py
+msgid ""
+"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
+"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\";"
+" A1:B10)."
+msgstr ""
+"No s'han pogut preservar els arguments de la fórmula PYTHON d'aquesta cel·la"
+" (p. ex., intervals de dades). Editeu la fórmula al Calc, o utilitzeu una "
+"cadena de codi entre cometes com ara =PYTHON(\"codi\"; A1:B10)."
+
+#: plugin/calc/python_editor.py
+msgid "Could not start the Python editor."
+msgstr "No s'ha pogut iniciar l'editor de Python."
+
+#: plugin/calc/python_editor.py
+msgid "The Python editor window did not start."
+msgstr "La finestra de l'editor de Python no s'ha iniciat."
+
+#: plugin/calc/python_editor.py
+msgid "The Python editor exited before it could load your code."
+msgstr "L'editor de Python ha sortit abans de poder carregar el vostre codi."
+
+#: plugin/calc/python_editor.py
+msgid "PYTHON cell editor"
+msgstr "Editor de cel·les PYTHON"
+
+#: plugin/calc/python_editor.py
+msgid "Save as plain text"
+msgstr "Desa com a text sense format"
+
+#: plugin/calc/python_editor.py
+msgid "Could not talk to the Python editor."
+msgstr "No s'ha pogut comunicar amb l'editor de Python."
+
+#: plugin/calc/python_editor.py
+msgid "The Python editor failed unexpectedly."
+msgstr "L'editor de Python ha fallat inesperadament."
+
+#: plugin/calc/python_editor.py
+msgid "Select a cell in a Calc spreadsheet to edit Python."
+msgstr ""
+"Seleccioneu una cel·la en un full de càlcul del Calc per editar Python."
+
+#: plugin/calc/python_editor.py
+msgid ""
+"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
+"in another cell). Edit it in the formula bar, or use =PYTHON(\"code\"; "
+"range) with quoted code."
+msgstr ""
+"Aquesta fórmula PYTHON utilitza un formulari que l'editor no pot reescriure "
+"amb seguretat (p. ex., codi en una altra cel·la). Editeu-la a la barra de "
+"fórmules, o utilitzeu =PYTHON(\"codi\"; interval) amb el codi entre cometes."
+
+#: plugin/calc/python_editor.py
+msgid "No Python interpreter available for the editor."
+msgstr "No hi ha cap intèrpret de Python disponible per a l'editor."
+
+#: plugin/calc/python_editor.py
+#, python-format
+msgid ""
+"Cannot import webview (pywebview) with the Python from Settings → Python:\n"
+"%(exe)s\n"
+"\n"
+"In that venv run: pip install pywebview\n"
+"(import name is webview, package name is pywebview)."
+msgstr ""
+"No es pot importar webview (pywebview) amb el Python de Paràmetres → Python:\n"
+"%(exe)s\n"
+"\n"
+"En aquest venv executeu: pip install pywebview\n"
+"(el nom d'importació és webview, el nom del paquet és pywebview)."
+
+#: plugin/calc/python_editor.py
+msgid "unknown error"
+msgstr "error desconegut"
 
 #: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Extend Selection"
@@ -1340,6 +1420,17 @@ msgid ""
 msgstr ""
 "Límit de temps real per a Executa l'script de Python, =PYTHON() i "
 "run_venv_python_script."
+
+msgid "Max Calc data cells"
+msgstr "Màxim de cel·les de dades del Calc"
+
+msgid ""
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
+msgstr ""
+"Nombre màxim de cel·les en dades de =PYTHON() o dades/interval_de_dades de "
+"l'Execució de script de Python. Els valors més grans utilitzen més memòria "
+"RAM i temps; la lectura d'intervals UNO continua sent el factor dominant."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Eines de document del Writer (incloent-hi la navegació i la cerca)"

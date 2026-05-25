@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-22 23:42-0400\n"
+"POT-Creation-Date: 2026-05-24 20:40-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Japanese <LL@li.org>\n"
@@ -336,6 +336,10 @@ msgid ""
 "different model."
 msgstr "モデルが同じチャンクを繰り返しています（無限ループ）。もう一度お試しいただくか、別のモデルをご使用ください。"
 
+#: plugin/calc/python_editor_context_menu.py plugin/main.py
+msgid "Edit Python in Cell..."
+msgstr "セル内のPythonを編集..."
+
 #: plugin/calc/editselection.py plugin/writer/editselection.py
 msgid "Please enter edit instructions!"
 msgstr "編集の指示を入力してください！"
@@ -352,6 +356,79 @@ msgstr "WriterAgent: 選択範囲の編集 (Calc)"
 #: plugin/calc/editselection.py
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: 選択範囲の拡張 (Calc)"
+
+#: plugin/calc/python_editor.py
+msgid ""
+"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
+"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\";"
+" A1:B10)."
+msgstr ""
+"このセルのPYTHON数式引数（データ範囲など）を保持できませんでした。Calcで数式を編集するか、=PYTHON(\"code\"; A1:B10) "
+"のように引用符で囲まれたコード文字列を使用してください。"
+
+#: plugin/calc/python_editor.py
+msgid "Could not start the Python editor."
+msgstr "Pythonエディターを起動できませんでした。"
+
+#: plugin/calc/python_editor.py
+msgid "The Python editor window did not start."
+msgstr "Pythonエディターウィンドウが起動しませんでした。"
+
+#: plugin/calc/python_editor.py
+msgid "The Python editor exited before it could load your code."
+msgstr "Pythonエディターはコードを読み込む前に終了しました。"
+
+#: plugin/calc/python_editor.py
+msgid "PYTHON cell editor"
+msgstr "PYTHONセルエディター"
+
+#: plugin/calc/python_editor.py
+msgid "Save as plain text"
+msgstr "プレーンテキストとして保存"
+
+#: plugin/calc/python_editor.py
+msgid "Could not talk to the Python editor."
+msgstr "Pythonエディターと通信できませんでした。"
+
+#: plugin/calc/python_editor.py
+msgid "The Python editor failed unexpectedly."
+msgstr "Pythonエディターが予期せず終了しました。"
+
+#: plugin/calc/python_editor.py
+msgid "Select a cell in a Calc spreadsheet to edit Python."
+msgstr "Pythonを編集するには、Calcスプレッドシートのセルを選択してください。"
+
+#: plugin/calc/python_editor.py
+msgid ""
+"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
+"in another cell). Edit it in the formula bar, or use =PYTHON(\"code\"; "
+"range) with quoted code."
+msgstr ""
+"このPYTHON数式は、エディタで安全に書き換えられない形式（他のセル内のコードなど）を使用しています。数式バーで編集するか、=PYTHON(\"コード\";"
+" 範囲) を使用してコードを引用符で囲んでください。"
+
+#: plugin/calc/python_editor.py
+msgid "No Python interpreter available for the editor."
+msgstr "エディタで使用可能なPythonインタプリタがありません。"
+
+#: plugin/calc/python_editor.py
+#, python-format
+msgid ""
+"Cannot import webview (pywebview) with the Python from Settings → Python:\n"
+"%(exe)s\n"
+"\n"
+"In that venv run: pip install pywebview\n"
+"(import name is webview, package name is pywebview)."
+msgstr ""
+"設定 → Python からのPythonでwebview (pywebview) をインポートできません:\n"
+"%(exe)s\n"
+"\n"
+"その仮想環境 (venv) で以下を実行してください: pip install pywebview\n"
+"(インポート名は webview、パッケージ名は pywebview です)。"
+
+#: plugin/calc/python_editor.py
+msgid "unknown error"
+msgstr "不明なエラー"
 
 #: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Extend Selection"
@@ -1268,6 +1345,16 @@ msgid ""
 "run_venv_python_script."
 msgstr ""
 "「Python スクリプトの実行」、=PYTHON()、および run_venv_python_script の実行時間制限（ウォールクロック時間）"
+
+msgid "Max Calc data cells"
+msgstr "Calcの最大データセル数"
+
+msgid ""
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
+msgstr ""
+"=PYTHON() データまたは「Pythonスクリプトを実行」の data/data_range "
+"における最大セル数。値を大きくするとメモリと時間を消費します。UNO範囲の読み取りが依然として支配的です。"
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer ドキュメントツール (ナビゲーションと検索を含む)"

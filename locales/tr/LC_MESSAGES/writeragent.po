@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-22 23:42-0400\n"
+"POT-Creation-Date: 2026-05-24 20:40-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Turkish <LL@li.org>\n"
@@ -371,6 +371,10 @@ msgstr ""
 "Model aynı parçayı tekrarlıyor (sonsuz döngü). Tekrar deneyin veya farklı "
 "bir model kullanın."
 
+#: plugin/calc/python_editor_context_menu.py plugin/main.py
+msgid "Edit Python in Cell..."
+msgstr "Hücredeki Python'u Düzenle..."
+
 #: plugin/calc/editselection.py plugin/writer/editselection.py
 msgid "Please enter edit instructions!"
 msgstr "Lütfen düzenleme talimatlarını girin!"
@@ -387,6 +391,81 @@ msgstr "WriterAgent: Seçimi Düzenle (Calc)"
 #: plugin/calc/editselection.py
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Seçimi Genişlet (Calc)"
+
+#: plugin/calc/python_editor.py
+msgid ""
+"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
+"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\";"
+" A1:B10)."
+msgstr ""
+"Bu hücrenin PYTHON formül bağımsız değişkenleri (ör. veri aralıkları) "
+"korunamadı. Formülü Calc içinde düzenleyin veya =PYTHON(\"kod\"; A1:B10) "
+"gibi tırnak içinde bir kod dizisi kullanın."
+
+#: plugin/calc/python_editor.py
+msgid "Could not start the Python editor."
+msgstr "Python düzenleyicisi başlatılamadı."
+
+#: plugin/calc/python_editor.py
+msgid "The Python editor window did not start."
+msgstr "Python düzenleyici penceresi başlatılamadı."
+
+#: plugin/calc/python_editor.py
+msgid "The Python editor exited before it could load your code."
+msgstr "Python düzenleyicisi kodunuzu yükleyemeden kapandı."
+
+#: plugin/calc/python_editor.py
+msgid "PYTHON cell editor"
+msgstr "PYTHON hücre düzenleyicisi"
+
+#: plugin/calc/python_editor.py
+msgid "Save as plain text"
+msgstr "Düz metin olarak kaydet"
+
+#: plugin/calc/python_editor.py
+msgid "Could not talk to the Python editor."
+msgstr "Python düzenleyicisi ile iletişim kurulamadı."
+
+#: plugin/calc/python_editor.py
+msgid "The Python editor failed unexpectedly."
+msgstr "Python düzenleyicisi beklenmedik bir şekilde başarısız oldu."
+
+#: plugin/calc/python_editor.py
+msgid "Select a cell in a Calc spreadsheet to edit Python."
+msgstr "Python'u düzenlemek için bir Calc hesap tablosunda bir hücre seçin."
+
+#: plugin/calc/python_editor.py
+msgid ""
+"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
+"in another cell). Edit it in the formula bar, or use =PYTHON(\"code\"; "
+"range) with quoted code."
+msgstr ""
+"Bu PYTHON formülü, düzenleyicinin güvenli bir şekilde yeniden yazamayacağı "
+"bir biçim kullanıyor (örneğin başka bir hücredeki kod). Formül çubuğunda "
+"düzenleyin veya tırnak içinde kod ile =PYTHON(\"kod\"; aralık) kullanın."
+
+#: plugin/calc/python_editor.py
+msgid "No Python interpreter available for the editor."
+msgstr "Düzenleyici için kullanılabilir Python yorumlayıcısı yok."
+
+#: plugin/calc/python_editor.py
+#, python-format
+msgid ""
+"Cannot import webview (pywebview) with the Python from Settings → Python:\n"
+"%(exe)s\n"
+"\n"
+"In that venv run: pip install pywebview\n"
+"(import name is webview, package name is pywebview)."
+msgstr ""
+"Ayarlar → Python kısmındaki Python ile webview (pywebview) içe aktarılamıyor:\n"
+"%(exe)s\n"
+"\n"
+"Bu sanal ortamda (venv) şunu çalıştırın: pip install pywebview\n"
+"(içe aktarma adı webview, paket adı pywebview'dir)."
+
+#: plugin/calc/python_editor.py
+msgid "unknown error"
+msgstr "bilinmeyen hata"
 
 #: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Extend Selection"
@@ -1335,6 +1414,17 @@ msgid ""
 msgstr ""
 "Python Betiğini Çalıştır, =PYTHON() ve run_venv_python_script için duvar "
 "saati sınırı."
+
+msgid "Max Calc data cells"
+msgstr "Maksimum Calc veri hücresi"
+
+msgid ""
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
+msgstr ""
+"=PYTHON() verisindeki veya Python Betiği Çalıştır verisi/veri_aralığındaki "
+"maksimum hücre sayısı. Daha büyük değerler daha fazla bellek ve zaman "
+"harcar; UNO aralık okuma işlemi yine de baskındır."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer belge araçları (gezinme ve arama dahil)"

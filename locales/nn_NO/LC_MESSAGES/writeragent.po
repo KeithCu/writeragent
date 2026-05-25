@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-22 23:42-0400\n"
+"POT-Creation-Date: 2026-05-24 20:40-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Norwegian Nynorsk <LL@li.org>\n"
@@ -365,6 +365,10 @@ msgstr ""
 "Modellen gjentar den same biten (uendeleg løkke). Prøv på nytt eller bruk "
 "ein annan modell."
 
+#: plugin/calc/python_editor_context_menu.py plugin/main.py
+msgid "Edit Python in Cell..."
+msgstr "Rediger Python i celle..."
+
 #: plugin/calc/editselection.py plugin/writer/editselection.py
 msgid "Please enter edit instructions!"
 msgstr "Ver venleg og skriv inn instruksjonar for redigering!"
@@ -381,6 +385,82 @@ msgstr "WriterAgent: Rediger utval (Calc)"
 #: plugin/calc/editselection.py
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Utvid utval (Calc)"
+
+#: plugin/calc/python_editor.py
+msgid ""
+"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
+"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\";"
+" A1:B10)."
+msgstr ""
+"Kunne ikkje ta vare på PYTHON-formelargumenta i denne cella (t.d. "
+"dataområde). Rediger formelen i Calc, eller bruk ein sitert kodestreng som "
+"=PYTHON(\"kode\"; A1:B10)."
+
+#: plugin/calc/python_editor.py
+msgid "Could not start the Python editor."
+msgstr "Kunne ikkje starta Python-redigeringsprogrammet."
+
+#: plugin/calc/python_editor.py
+msgid "The Python editor window did not start."
+msgstr "Vindauget for Python-redigering starta ikkje."
+
+#: plugin/calc/python_editor.py
+msgid "The Python editor exited before it could load your code."
+msgstr ""
+"Python-redigeringsprogrammet avslutta før det kunne lasta inn koden din."
+
+#: plugin/calc/python_editor.py
+msgid "PYTHON cell editor"
+msgstr "PYTHON-celleredigering"
+
+#: plugin/calc/python_editor.py
+msgid "Save as plain text"
+msgstr "Lagre som rein tekst"
+
+#: plugin/calc/python_editor.py
+msgid "Could not talk to the Python editor."
+msgstr "Kunne ikkje kommunisera med Python-redigeringsprogrammet."
+
+#: plugin/calc/python_editor.py
+msgid "The Python editor failed unexpectedly."
+msgstr "Python-redigeringsprogrammet feila uventa."
+
+#: plugin/calc/python_editor.py
+msgid "Select a cell in a Calc spreadsheet to edit Python."
+msgstr "Vel ei celle i eit Calc-rekneark for å redigera Python."
+
+#: plugin/calc/python_editor.py
+msgid ""
+"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
+"in another cell). Edit it in the formula bar, or use =PYTHON(\"code\"; "
+"range) with quoted code."
+msgstr ""
+"Denne PYTHON-formelen bruker ei form som redigeringsprogrammet ikkje trygt "
+"kan skrive om (t.d. kode i ei anna celle). Rediger ho i formellinja, eller "
+"bruk =PYTHON(\"kode\"; område) med koden i hermeteikn."
+
+#: plugin/calc/python_editor.py
+msgid "No Python interpreter available for the editor."
+msgstr "Ingen Python-tolkar tilgjengeleg for redigeringsprogrammet."
+
+#: plugin/calc/python_editor.py
+#, python-format
+msgid ""
+"Cannot import webview (pywebview) with the Python from Settings → Python:\n"
+"%(exe)s\n"
+"\n"
+"In that venv run: pip install pywebview\n"
+"(import name is webview, package name is pywebview)."
+msgstr ""
+"Kan ikkje importere webview (pywebview) med Python frå Innstillingar → Python:\n"
+"%(exe)s\n"
+"\n"
+"Køyr denne kommandoen i det virtuelle miljøet (venv): pip install pywebview\n"
+"(importnamnet er webview, pakkenamnet er pywebview)."
+
+#: plugin/calc/python_editor.py
+msgid "unknown error"
+msgstr "ukjend feil"
 
 #: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Extend Selection"
@@ -1327,6 +1407,17 @@ msgid ""
 msgstr ""
 "Tidsgrense for køyring av Python-skript, =PYTHON() og "
 "run_venv_python_script."
+
+msgid "Max Calc data cells"
+msgstr "Maksimalt tal på Calc-dataceller"
+
+msgid ""
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
+msgstr ""
+"Maksimalt tal på celler i =PYTHON()-data eller «Køyr Python-"
+"skript»-data/dataområde. Større verdiar brukar meir minne og tid; lesing av "
+"UNO-område er framleis den største faktoren."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Verktøy for Writer-dokument (inkludert navigasjon og søk)"

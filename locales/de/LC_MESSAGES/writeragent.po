@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: WriterAgent 1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-22 23:42-0400\n"
+"POT-Creation-Date: 2026-05-24 20:40-0400\n"
 "PO-Revision-Date: 2024-03-21 12:00+0000\n"
 "Last-Translator: \n"
 "Language-Team: German\n"
@@ -369,6 +369,10 @@ msgstr ""
 "Das Modell wiederholt denselben Block (Endlosschleife). Versuchen Sie es "
 "erneut oder verwenden Sie ein anderes Modell."
 
+#: plugin/calc/python_editor_context_menu.py plugin/main.py
+msgid "Edit Python in Cell..."
+msgstr "Python in Zelle bearbeiten..."
+
 #: plugin/calc/editselection.py plugin/writer/editselection.py
 msgid "Please enter edit instructions!"
 msgstr "Bitte geben Sie Bearbeitungsanweisungen ein!"
@@ -385,6 +389,85 @@ msgstr "WriterAgent: Auswahl bearbeiten (Calc)"
 #: plugin/calc/editselection.py
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Auswahl erweitern (Calc)"
+
+#: plugin/calc/python_editor.py
+msgid ""
+"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
+"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\";"
+" A1:B10)."
+msgstr ""
+"Die PYTHON-Formelargumente dieser Zelle (z. B. Datenbereiche) konnten nicht "
+"beibehalten werden. Bearbeiten Sie die Formel in Calc oder verwenden Sie "
+"einen in Anführungszeichen gesetzten Code-String wie =PYTHON(\"Code\"; "
+"A1:B10)."
+
+#: plugin/calc/python_editor.py
+msgid "Could not start the Python editor."
+msgstr "Der Python-Editor konnte nicht gestartet werden."
+
+#: plugin/calc/python_editor.py
+msgid "The Python editor window did not start."
+msgstr "Das Fenster des Python-Editors wurde nicht gestartet."
+
+#: plugin/calc/python_editor.py
+msgid "The Python editor exited before it could load your code."
+msgstr ""
+"Der Python-Editor wurde beendet, bevor der Code geladen werden konnte."
+
+#: plugin/calc/python_editor.py
+msgid "PYTHON cell editor"
+msgstr "PYTHON-Zelleneditor"
+
+#: plugin/calc/python_editor.py
+msgid "Save as plain text"
+msgstr "Als reinen Text speichern"
+
+#: plugin/calc/python_editor.py
+msgid "Could not talk to the Python editor."
+msgstr "Die Kommunikation mit dem Python-Editor ist fehlgeschlagen."
+
+#: plugin/calc/python_editor.py
+msgid "The Python editor failed unexpectedly."
+msgstr "Der Python-Editor wurde unerwartet beendet."
+
+#: plugin/calc/python_editor.py
+msgid "Select a cell in a Calc spreadsheet to edit Python."
+msgstr ""
+"Wählen Sie eine Zelle in einer Calc-Tabelle aus, um Python zu bearbeiten."
+
+#: plugin/calc/python_editor.py
+msgid ""
+"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
+"in another cell). Edit it in the formula bar, or use =PYTHON(\"code\"; "
+"range) with quoted code."
+msgstr ""
+"Diese PYTHON-Formel verwendet eine Form, die der Editor nicht sicher "
+"umschreiben kann (z. B. Code in einer anderen Zelle). Bearbeiten Sie sie in "
+"der Bearbeitungsleiste oder verwenden Sie =PYTHON(\"Code\"; Bereich) mit "
+"Code in Anführungszeichen."
+
+#: plugin/calc/python_editor.py
+msgid "No Python interpreter available for the editor."
+msgstr "Kein Python-Interpreter für den Editor verfügbar."
+
+#: plugin/calc/python_editor.py
+#, python-format
+msgid ""
+"Cannot import webview (pywebview) with the Python from Settings → Python:\n"
+"%(exe)s\n"
+"\n"
+"In that venv run: pip install pywebview\n"
+"(import name is webview, package name is pywebview)."
+msgstr ""
+"Kann webview (pywebview) nicht mit dem Python aus Einstellungen → Python importieren:\n"
+"%(exe)s\n"
+"\n"
+"Führen Sie in diesem venv aus: pip install pywebview\n"
+"(Importname ist webview, Paketname ist pywebview)."
+
+#: plugin/calc/python_editor.py
+msgid "unknown error"
+msgstr "Unbekannter Fehler"
 
 #: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Extend Selection"
@@ -1341,6 +1424,18 @@ msgid ""
 msgstr ""
 "Zeitlimit für „Python-Skript ausführen“, =PYTHON() und "
 "run_venv_python_script."
+
+msgid "Max Calc data cells"
+msgstr "Maximale Calc-Datenzellen"
+
+msgid ""
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
+msgstr ""
+"Maximale Zellen in =PYTHON()-Daten oder „Python-Skript "
+"ausführen“-Daten/Datenbereich. Größere Werte verbrauchen mehr "
+"Arbeitsspeicher und Zeit; das Lesen des UNO-Bereichs ist weiterhin der "
+"dominierende Faktor."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer-Dokumentenwerkzeuge (einschließlich Navigation und Suche)"

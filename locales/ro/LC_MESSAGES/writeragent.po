@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-22 23:42-0400\n"
+"POT-Creation-Date: 2026-05-24 20:40-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Romanian <LL@li.org>\n"
@@ -369,6 +369,10 @@ msgstr ""
 "Modelul repetă același fragment (buclă infinită). Încercați din nou sau "
 "folosiți un alt model."
 
+#: plugin/calc/python_editor_context_menu.py plugin/main.py
+msgid "Edit Python in Cell..."
+msgstr "Editează Python în celulă..."
+
 #: plugin/calc/editselection.py plugin/writer/editselection.py
 msgid "Please enter edit instructions!"
 msgstr "Vă rugăm să introduceți instrucțiunile de editare!"
@@ -385,6 +389,82 @@ msgstr "WriterAgent: Editare selecție (Calc)"
 #: plugin/calc/editselection.py
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Extindere selecție (Calc)"
+
+#: plugin/calc/python_editor.py
+msgid ""
+"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
+"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\";"
+" A1:B10)."
+msgstr ""
+"Nu s-au putut păstra argumentele formulei PYTHON ale acestei celule (de ex. "
+"intervale de date). Editați formula în Calc sau folosiți un șir de cod între"
+" ghilimele, cum ar fi =PYTHON(\"cod\"; A1:B10)."
+
+#: plugin/calc/python_editor.py
+msgid "Could not start the Python editor."
+msgstr "Nu s-a putut porni editorul Python."
+
+#: plugin/calc/python_editor.py
+msgid "The Python editor window did not start."
+msgstr "Fereastra editorului Python nu a pornit."
+
+#: plugin/calc/python_editor.py
+msgid "The Python editor exited before it could load your code."
+msgstr "Editorul Python s-a închis înainte de a putea încărca codul."
+
+#: plugin/calc/python_editor.py
+msgid "PYTHON cell editor"
+msgstr "Editor de celule PYTHON"
+
+#: plugin/calc/python_editor.py
+msgid "Save as plain text"
+msgstr "Salvează ca text simplu"
+
+#: plugin/calc/python_editor.py
+msgid "Could not talk to the Python editor."
+msgstr "Nu s-a putut comunica cu editorul Python."
+
+#: plugin/calc/python_editor.py
+msgid "The Python editor failed unexpectedly."
+msgstr "Editorul Python a eșuat în mod neașteptat."
+
+#: plugin/calc/python_editor.py
+msgid "Select a cell in a Calc spreadsheet to edit Python."
+msgstr ""
+"Selectați o celulă dintr-o foaie de calcul Calc pentru a edita Python."
+
+#: plugin/calc/python_editor.py
+msgid ""
+"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
+"in another cell). Edit it in the formula bar, or use =PYTHON(\"code\"; "
+"range) with quoted code."
+msgstr ""
+"Această formulă PYTHON utilizează o formă pe care editorul nu o poate "
+"rescrie în siguranță (de ex. cod într-o altă celulă). Editați-o în bara de "
+"formule sau utilizați =PYTHON(\"cod\"; zonă) cu codul între ghilimele."
+
+#: plugin/calc/python_editor.py
+msgid "No Python interpreter available for the editor."
+msgstr "Niciun interpretor Python disponibil pentru editor."
+
+#: plugin/calc/python_editor.py
+#, python-format
+msgid ""
+"Cannot import webview (pywebview) with the Python from Settings → Python:\n"
+"%(exe)s\n"
+"\n"
+"In that venv run: pip install pywebview\n"
+"(import name is webview, package name is pywebview)."
+msgstr ""
+"Nu se poate importa webview (pywebview) cu Python din Setări → Python:\n"
+"%(exe)s\n"
+"\n"
+"În acel venv rulați: pip install pywebview\n"
+"(numele de import este webview, numele pachetului este pywebview)."
+
+#: plugin/calc/python_editor.py
+msgid "unknown error"
+msgstr "eroare necunoscută"
 
 #: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Extend Selection"
@@ -1343,6 +1423,17 @@ msgid ""
 msgstr ""
 "Limită de timp real pentru Run Python Script, =PYTHON() și "
 "run_venv_python_script."
+
+msgid "Max Calc data cells"
+msgstr "Număr maxim de celule de date Calc"
+
+msgid ""
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
+msgstr ""
+"Numărul maxim de celule în datele =PYTHON() sau datele/zona de date Run "
+"Python Script. Valorile mai mari utilizează mai multă memorie RAM și timp; "
+"citirea zonei UNO rămâne dominantă."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Instrumente pentru documente Writer (inclusiv navigare și căutare)"

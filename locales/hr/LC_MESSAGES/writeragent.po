@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-22 23:42-0400\n"
+"POT-Creation-Date: 2026-05-24 20:40-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Croatian <LL@li.org>\n"
@@ -366,6 +366,10 @@ msgstr ""
 "Model ponavlja isti isječak (beskonačna petlja). Pokušajte ponovno ili "
 "koristite drugi model."
 
+#: plugin/calc/python_editor_context_menu.py plugin/main.py
+msgid "Edit Python in Cell..."
+msgstr "Uredi Python u ćeliji..."
+
 #: plugin/calc/editselection.py plugin/writer/editselection.py
 msgid "Please enter edit instructions!"
 msgstr "Molimo unesite upute za uređivanje!"
@@ -382,6 +386,74 @@ msgstr "WriterAgent: Uredi odabir (Calc)"
 #: plugin/calc/editselection.py
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Proširi odabir (Calc)"
+
+#: plugin/calc/python_editor.py
+msgid ""
+"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
+"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\";"
+" A1:B10)."
+msgstr ""
+"Nije bilo moguće sačuvati argumente PYTHON formule ove ćelije (npr. rasponi "
+"podataka). Uredite formulu u programu Calc ili koristite citirani niz koda "
+"kao što je =PYTHON(\"kod\"; A1:B10)."
+
+#: plugin/calc/python_editor.py
+msgid "Could not start the Python editor."
+msgstr "Nije bilo moguće pokrenuti Python uređivač."
+
+#: plugin/calc/python_editor.py
+msgid "The Python editor window did not start."
+msgstr "Prozor Python uređivača se nije pokrenuo."
+
+#: plugin/calc/python_editor.py
+msgid "The Python editor exited before it could load your code."
+msgstr "Python uređivač se zatvorio prije nego što je mogao učitati vaš kod."
+
+#: plugin/calc/python_editor.py
+msgid "PYTHON cell editor"
+msgstr "PYTHON uređivač ćelija"
+
+#: plugin/calc/python_editor.py
+msgid "Save as plain text"
+msgstr "Spremi kao običan tekst"
+
+#: plugin/calc/python_editor.py
+msgid "Could not talk to the Python editor."
+msgstr "Nije bilo moguće komunicirati s Python uređivačem."
+
+#: plugin/calc/python_editor.py
+msgid "The Python editor failed unexpectedly."
+msgstr "Python uređivač je neočekivano prestao s radom."
+
+#: plugin/calc/python_editor.py
+msgid "Select a cell in a Calc spreadsheet to edit Python."
+msgstr "Odaberite ćeliju u Calc proračunskoj tablici za uređivanje Pythona."
+
+#: plugin/calc/python_editor.py
+msgid ""
+"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
+"in another cell). Edit it in the formula bar, or use =PYTHON(\"code\"; "
+"range) with quoted code."
+msgstr ""
+
+#: plugin/calc/python_editor.py
+msgid "No Python interpreter available for the editor."
+msgstr ""
+
+#: plugin/calc/python_editor.py
+#, python-format
+msgid ""
+"Cannot import webview (pywebview) with the Python from Settings → Python:\n"
+"%(exe)s\n"
+"\n"
+"In that venv run: pip install pywebview\n"
+"(import name is webview, package name is pywebview)."
+msgstr ""
+
+#: plugin/calc/python_editor.py
+#, fuzzy
+msgid "unknown error"
+msgstr "Nepoznata pogreška"
 
 #: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Extend Selection"
@@ -1332,6 +1404,14 @@ msgid ""
 msgstr ""
 "Ograničenje zidnog sata za Run Python Script, =PYTHON() i "
 "run_venv_python_script."
+
+msgid "Max Calc data cells"
+msgstr ""
+
+msgid ""
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
+msgstr ""
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Alati za Writer dokumente (uključujući navigaciju i pretraživanje)"

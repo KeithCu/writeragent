@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-22 23:42-0400\n"
+"POT-Creation-Date: 2026-05-24 20:40-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Bengali <LL@li.org>\n"
@@ -373,6 +373,10 @@ msgstr ""
 "মডেলটি একই অংশ বারবার পুনরাবৃত্তি করছে (ইনফিনিট লুপ)। আবার চেষ্টা করুন অথবা "
 "অন্য একটি মডেল ব্যবহার করুন।"
 
+#: plugin/calc/python_editor_context_menu.py plugin/main.py
+msgid "Edit Python in Cell..."
+msgstr "সেল-এ পাইথন সম্পাদনা করুন..."
+
 #: plugin/calc/editselection.py plugin/writer/editselection.py
 msgid "Please enter edit instructions!"
 msgstr "অনুগ্রহ করে সম্পাদনার নির্দেশাবলী লিখুন!"
@@ -389,6 +393,74 @@ msgstr "WriterAgent: নির্বাচন সম্পাদনা করু
 #: plugin/calc/editselection.py
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: নির্বাচন প্রসারিত করুন (Calc)"
+
+#: plugin/calc/python_editor.py
+msgid ""
+"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
+"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\";"
+" A1:B10)."
+msgstr ""
+"এই সেল-এর PYTHON ফর্মুলা আর্গুমেন্টগুলি (যেমন ডেটা রেঞ্জ) সংরক্ষণ করা সম্ভব "
+"হয়নি। Calc-এ ফর্মুলাটি সম্পাদনা করুন, অথবা =PYTHON(\"code\"; A1:B10)-এর মতো"
+" একটি উদ্ধৃত কোড স্ট্রিং ব্যবহার করুন।"
+
+#: plugin/calc/python_editor.py
+msgid "Could not start the Python editor."
+msgstr "পাইথন এডিটর শুরু করা সম্ভব হয়নি।"
+
+#: plugin/calc/python_editor.py
+msgid "The Python editor window did not start."
+msgstr "পাইথন এডিটর উইন্ডোটি শুরু হয়নি।"
+
+#: plugin/calc/python_editor.py
+msgid "The Python editor exited before it could load your code."
+msgstr "আপনার কোড লোড করার আগেই পাইথন এডিটর বন্ধ হয়ে গেছে।"
+
+#: plugin/calc/python_editor.py
+msgid "PYTHON cell editor"
+msgstr "PYTHON সেল এডিটর"
+
+#: plugin/calc/python_editor.py
+msgid "Save as plain text"
+msgstr "প্লেইন টেক্সট হিসেবে সংরক্ষণ করুন"
+
+#: plugin/calc/python_editor.py
+msgid "Could not talk to the Python editor."
+msgstr "পাইথন এডিটরের সাথে যোগাযোগ করা সম্ভব হয়নি।"
+
+#: plugin/calc/python_editor.py
+msgid "The Python editor failed unexpectedly."
+msgstr "পাইথন এডিটরটি অপ্রত্যাশিতভাবে ব্যর্থ হয়েছে।"
+
+#: plugin/calc/python_editor.py
+msgid "Select a cell in a Calc spreadsheet to edit Python."
+msgstr "পাইথন সম্পাদনা করতে Calc স্প্রেডশিটে একটি সেল নির্বাচন করুন।"
+
+#: plugin/calc/python_editor.py
+msgid ""
+"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
+"in another cell). Edit it in the formula bar, or use =PYTHON(\"code\"; "
+"range) with quoted code."
+msgstr ""
+
+#: plugin/calc/python_editor.py
+msgid "No Python interpreter available for the editor."
+msgstr ""
+
+#: plugin/calc/python_editor.py
+#, python-format
+msgid ""
+"Cannot import webview (pywebview) with the Python from Settings → Python:\n"
+"%(exe)s\n"
+"\n"
+"In that venv run: pip install pywebview\n"
+"(import name is webview, package name is pywebview)."
+msgstr ""
+
+#: plugin/calc/python_editor.py
+#, fuzzy
+msgid "unknown error"
+msgstr "অজানা ত্রুটি"
 
 #: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Extend Selection"
@@ -1329,6 +1401,14 @@ msgid ""
 msgstr ""
 "Run Python Script, =PYTHON(), এবং run_venv_python_script-এর জন্য ওয়াল-ক্লক "
 "সীমা।"
+
+msgid "Max Calc data cells"
+msgstr ""
+
+msgid ""
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
+msgstr ""
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer ডকুমেন্ট টুলস (নেভিগেশন এবং অনুসন্ধান সহ)"
