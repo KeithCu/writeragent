@@ -19,6 +19,8 @@ import json
 import struct
 from typing import Any, IO
 
+EDITOR_DEFAULT_TITLE = " "
+
 # Cap payloads to avoid accidental OOM from a corrupted length header.
 _MAX_PAYLOAD_BYTES = 16 * 1024 * 1024
 

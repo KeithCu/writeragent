@@ -485,8 +485,8 @@ def run_python_dialog(uno_ctx: Any = None) -> None:
     initial_code = get_config_str(uno_ctx, config_key)
 
     _exe, monaco_ok = monaco_editor_available(uno_ctx)
-    run_in_background(warm_venv_worker, uno_ctx, name="warm-venv-worker")
     if monaco_ok and _exe:
+        run_in_background(warm_venv_worker, uno_ctx, name="warm-venv-worker")
         if _run_python_monaco(uno_ctx, doc, config_key=config_key, initial_code=initial_code, exe=_exe):
             return
 

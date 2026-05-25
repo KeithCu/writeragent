@@ -201,3 +201,60 @@ While we made great progress, some UI artifacts remain:
 
 4.  **Simulated Syntax Highlighting:** The current regex-based approach in `append_rich_text` works for basic blocks.
     *   **Try:** Add support for inline backticks (` `code` `) and better handling of nested triple-backticks.
+
+---
+
+## Scroll-to-Bottom Investigation (May 25, 2026)
+
+### Problem
+
+When the embedded Writer sidebar receives streamed chat content that exceeds the visible area, the view does not auto-scroll to show the latest text. The user can see content is inserted (if they manually scroll), but the viewport stays at the top.
+
+### Approaches Tested (all failed to visually scroll)
+
+| Approach | Behavior |
+|----------|----------|
+| `view_cursor.gotoEnd(False)` | Cursor moves logically; no visual scroll |
+| `view_cursor.jumpToLastPage()` + `jumpToEndOfPage()` | Returns success; no visual scroll (Online/Web layout has no real "pages") |
+| `.uno:GoToEndOfDoc` dispatch to embedded frame | Dispatch succeeds (returns State=1); no visual scroll |
+| `controller.select(end_cursor)` | **Scrolls to TOP** — actively harmful |
+| `frame.activate()` | Combined with select, causes scroll-to-top |
+| Accessibility scrollbar (`find_vertical_scrollbar`) | Returns "no scrollbar found" — the embedded Writer view does not expose a scrollbar via `AccessibleRole.SCROLL_BAR` in its accessible tree |
+| `post_to_main_thread(scroll_to_bottom, doc)` | Callback never executes during streaming (nested post inside queue_executor.post path) — fixed by calling directly |
+
+### Key Findings
+
+1. **Online/Web Layout disables page-based scrolling.** With `ShowOnlineLayout = True`, the document is a single continuous page. `jumpToLastPage()` is a no-op, `.uno:GoToEndOfDoc` moves the cursor but the viewport doesn't follow.
+
+2. **`controller.select()` scrolls to the TOP.** This is the opposite of what's needed — likely it "shows the beginning of the selection."
+
+3. **`frame.activate()` resets the view.** Combined with select, it forces the view to the document start.
+
+4. **The embedded Writer's view does NOT auto-follow the cursor.** In a normal standalone Writer window, moving the view cursor causes the viewport to follow. In an embedded Writer (parented to a toolpanel container window), this "follow cursor" behavior is disabled or broken.
+
+5. **No accessibility scrollbar exists.** `find_vertical_scrollbar(frame)` traverses the accessible tree from `frame.getComponentWindow().getAccessible()` but finds zero `SCROLL_BAR` role children. The embedded Writer may not have a visible scrollbar at all — content simply renders beyond the visible area.
+
+6. **`post_to_main_thread` from within `queue_executor.post` never fires.** The nested post to the main thread queue doesn't get drained during the streaming loop. Fixed by calling `scroll_to_bottom(doc)` directly (since `append_text_chunk` already runs on the main thread via `queue_executor.post`).
+
+### Current Status
+
+`scroll_to_bottom` is reduced to a minimal `view_cursor.gotoEnd(False)` which at least doesn't actively scroll to the top. The view does not auto-scroll to show new content.
+
+### Research Directions
+
+1. **Disable Online/Web layout.** Use normal page layout mode. The dispatch `.uno:GoToEndOfDoc` MAY work with page-based layout since the view is expected to follow the cursor across page boundaries. Trade-off: page breaks will appear, margins may look odd.
+
+2. **VCL-level scroll.** The component window returned by `frame.getComponentWindow()` is a VCL `Window`. LibreOffice source (`vcl/source/window/scrwnd.cxx`) may expose scroll methods. From Python/UNO, this likely requires finding the VCL scrollbar deeper in the widget tree (not the accessible tree). The forum post at https://forum.openoffice.org/en/forum/viewtopic.php?t=107402 suggests: `comp = thiscomponent.currentcontroller.frame.getcomponentwindow; compchild = comp.getAccessibleContext.getAccessibleChild(0)` — iterate to find the scrollbar. The child index may vary.
+
+3. **XScrollable interface.** Check if the embedded Writer's controller or view supports `com.sun.star.view.XScrollable` or similar interfaces that allow programmatic scroll position control.
+
+4. **Workaround: limit visible content.** Instead of scrolling, keep only the last N messages in the embedded doc and clear older ones. This avoids the need to scroll at all.
+
+5. **Alternative embedding.** Replace the embedded Writer with an embedded browser/HTML view (e.g., the XUL/HTML viewer pattern used in some LO extensions), where scrolling is trivial via JS.
+
+6. **`processEventsToIdle()` after cursor move.** Call `toolkit.processEventsToIdle()` after moving the view cursor to force VCL to process the "make cursor visible" event synchronously. This may trigger the viewport update that's otherwise deferred and lost.
+
+### Files Involved
+
+- `plugin/chatbot/rich_text.py` — `scroll_to_bottom()`, `append_text_chunk()`, `append_rich_text()`, `find_vertical_scrollbar()`
+- `plugin/chatbot/panel.py` — `_append_response()`, `_should_auto_scroll()`, `queue_executor.post()`

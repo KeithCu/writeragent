@@ -28,6 +28,10 @@ def resolve_libreoffice_python() -> Optional[str]:
         return None
     if os.name != "nt" and not os.access(exe, os.X_OK):
         return None
+    # Reject LibreOffice binaries (soffice, libreoffice, oosplash) that are not Python
+    basename = os.path.basename(exe).lower()
+    if not basename.startswith("python"):
+        return None
     return exe
 
 

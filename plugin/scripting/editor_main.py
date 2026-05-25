@@ -53,7 +53,7 @@ def _fatal(msg: str, *, exc: BaseException | None = None, code: int = 1) -> NoRe
 _bootstrap_plugin_import_path()
 try:
     from plugin.scripting.editor_launcher import _ASSETS_DIR
-    from plugin.scripting.editor_protocol import message_type, read_message, write_message
+    from plugin.scripting.editor_protocol import EDITOR_DEFAULT_TITLE, message_type, read_message, write_message
     from plugin.scripting.editor_jedi import JediSession
 except ImportError as e:
     _fatal(f"editor_main: cannot import plugin.scripting dependencies ({e}). sys.path={sys.path!r}", exc=e)
@@ -145,6 +145,9 @@ class MonacoEditorApi:
                         _closed_sent = False
                     try:
                         if self._window is not None:
+                            title = msg.get("title")
+                            if title:
+                                self._window.title = title
                             self._window.show()
                     except Exception:
                         log.exception("editor_main: failed to show window on load")
@@ -250,7 +253,7 @@ def main() -> None:
     print(f"editor_main: serving {index_html}", file=sys.stderr, flush=True)
     global _window
     try:
-        window = webview.create_window("PYTHON Editor", url=index_html, width=900, height=640, js_api=api)
+        window = webview.create_window(EDITOR_DEFAULT_TITLE, url=index_html, width=900, height=640, js_api=api)
         _window = window
     except Exception as e:
         _fatal(f"webview.create_window failed: {e}", exc=e)

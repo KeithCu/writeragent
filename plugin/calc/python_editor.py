@@ -235,7 +235,7 @@ def _launch_editor_with_code(
         "type": "load",
         "mode": "calc_cell",
         "code": initial_code,
-        "title": _("PYTHON cell editor"),
+        "title": _("Python cell editor"),
         "plain_text_label": _("Save as plain text"),
         "save_as_plain": editor_load_save_as_plain(parsed_parts=parsed_parts, initial_code=initial_code),
         "save_label": _("Save"),

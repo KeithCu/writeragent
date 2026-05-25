@@ -112,6 +112,7 @@ class AppendRichTextTests(unittest.TestCase):
     def test_scroll_to_bottom_called(self):
         doc = self._call("test")
         doc.getCurrentController().select.assert_called()
+        doc.getCurrentController().getViewCursor().gotoEnd.assert_called_with(False)
 
     def test_user_color(self):
         """Verify the prefix cursor gets USER_COLOR via createTextCursorByRange."""
@@ -160,6 +161,7 @@ class AppendTextChunkTests(unittest.TestCase):
         doc = MockDoc()
         append_text_chunk(doc, "x")
         doc.getCurrentController().select.assert_called()
+        doc.getCurrentController().getViewCursor().gotoEnd.assert_called_with(False)
 
 
 class IsScrolledToBottomTests(unittest.TestCase):
@@ -205,14 +207,16 @@ class AppendTextChunkScrollTests(unittest.TestCase):
         doc = MockDoc()
         append_text_chunk(doc, "hi", auto_scroll=True)
         doc.getCurrentController().select.assert_called()
+        doc.getCurrentController().getViewCursor().gotoEnd.assert_called_with(False)
 
-    def test_no_scroll_when_auto_scroll_false(self):
+    def test_scrolls_even_when_auto_scroll_false(self):
         from plugin.chatbot.rich_text import append_text_chunk
         doc = MockDoc()
         append_text_chunk(doc, "hi", auto_scroll=False)
-        doc.getCurrentController().select.assert_not_called()
+        doc.getCurrentController().select.assert_called()
+        doc.getCurrentController().getViewCursor().gotoEnd.assert_called_with(False)
 
-    def test_text_still_appended_when_not_scrolling(self):
+    def test_text_still_appended_with_auto_scroll_false(self):
         from plugin.chatbot.rich_text import append_text_chunk
         doc = MockDoc()
         append_text_chunk(doc, "hello", auto_scroll=False)
@@ -227,18 +231,21 @@ class AppendRichTextScrollTests(unittest.TestCase):
         doc = MockDoc()
         append_rich_text(doc, "hi", role="assistant", auto_scroll=True)
         doc.getCurrentController().select.assert_called()
+        doc.getCurrentController().getViewCursor().gotoEnd.assert_called_with(False)
 
-    def test_no_scroll_when_auto_scroll_false(self):
+    def test_scrolls_even_when_auto_scroll_false(self):
         from plugin.chatbot.rich_text import append_rich_text
         doc = MockDoc()
         append_rich_text(doc, "hi", role="assistant", auto_scroll=False)
-        doc.getCurrentController().select.assert_not_called()
+        doc.getCurrentController().select.assert_called()
+        doc.getCurrentController().getViewCursor().gotoEnd.assert_called_with(False)
 
     def test_default_auto_scroll_is_true(self):
         from plugin.chatbot.rich_text import append_rich_text
         doc = MockDoc()
         append_rich_text(doc, "hi", role="assistant")
         doc.getCurrentController().select.assert_called()
+        doc.getCurrentController().getViewCursor().gotoEnd.assert_called_with(False)
 
 
 class FindVerticalScrollbarTests(unittest.TestCase):

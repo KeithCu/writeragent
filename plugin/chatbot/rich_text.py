@@ -348,6 +348,25 @@ def _insert_html_at_cursor(doc, cursor, html_fragment):
                 pass
 
 
+def scroll_to_bottom(doc):
+    """Attempt to scroll the embedded document view to the bottom.
+
+    NOTE: In an embedded Writer with Web/Online layout, standard UNO cursor and
+    dispatch approaches do not reliably scroll the view. This is a best-effort
+    implementation — `gotoEnd` on the view cursor is the least harmful approach
+    that positions the caret at the end without jumping the view to the top.
+    """
+    try:
+        controller = doc.getCurrentController()
+        if not controller:
+            return
+        view_cursor = controller.getViewCursor()
+        if view_cursor:
+            view_cursor.gotoEnd(False)
+    except Exception:
+        pass
+
+
 def append_rich_text(doc, text, role="assistant", auto_scroll=True):
     """Append a complete message to the embedded Writer document.
 
@@ -358,7 +377,7 @@ def append_rich_text(doc, text, role="assistant", auto_scroll=True):
     If *auto_scroll* is False, the view is not moved after inserting content.
     """
     try:
-        should_scroll = auto_scroll
+        should_scroll = True
 
         text_obj = doc.getText()
         cursor = text_obj.createTextCursor()
@@ -403,10 +422,7 @@ def append_rich_text(doc, text, role="assistant", auto_scroll=True):
             body_range.CharColor = USER_COLOR if role == "user" else ASSISTANT_COLOR
 
         if should_scroll:
-            controller = doc.getCurrentController()
-            if controller:
-                cursor.gotoEnd(False)
-                controller.select(cursor)
+            scroll_to_bottom(doc)
 
     except Exception as e:
         log.exception("Error in append_rich_text: %s", e)
@@ -418,17 +434,14 @@ def append_text_chunk(doc, text, auto_scroll=True):
     If *auto_scroll* is False, the view is not moved after inserting content.
     """
     try:
-        should_scroll = auto_scroll
-
         text_obj = doc.getText()
         cursor = text_obj.createTextCursor()
         cursor.gotoEnd(False)
         cursor.CharColor = ASSISTANT_COLOR
         text_obj.insertString(cursor, text, False)
+        log.debug("append_text_chunk: inserted %d chars, auto_scroll=%s", len(text), auto_scroll)
 
-        if should_scroll:
-            controller = doc.getCurrentController()
-            if controller:
-                controller.select(cursor)
+        if auto_scroll:
+            scroll_to_bottom(doc)
     except Exception as e:
         log.exception("Error in append_text_chunk: %s", e)
