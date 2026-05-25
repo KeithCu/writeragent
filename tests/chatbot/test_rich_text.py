@@ -530,5 +530,133 @@ class TightenListIndentTests(unittest.TestCase):
         self.assertEqual(mock_uno.invoke.call_count, 2)
 
 
+class HtmlDetectionRegexTests(unittest.TestCase):
+    """Tests for _HTML_TAG_RE used in append_rich_text HTML detection."""
+
+    def _matches(self, text):
+        from plugin.chatbot.rich_text import _HTML_TAG_RE
+        return bool(_HTML_TAG_RE.search(text))
+
+    # --- True positives ---
+
+    def test_p_tag(self):
+        self.assertTrue(self._matches("<p>hello</p>"))
+
+    def test_p_with_attrs(self):
+        self.assertTrue(self._matches('<p class="intro">text</p>'))
+
+    def test_br_self_closing(self):
+        self.assertTrue(self._matches("<br/>"))
+
+    def test_br_space_closing(self):
+        self.assertTrue(self._matches("<br />"))
+
+    def test_br_uppercase(self):
+        self.assertTrue(self._matches("<BR>"))
+
+    def test_closing_h1(self):
+        self.assertTrue(self._matches("</h1>"))
+
+    def test_closing_h2(self):
+        self.assertTrue(self._matches("</h2>"))
+
+    def test_closing_h6(self):
+        self.assertTrue(self._matches("</h6>"))
+
+    def test_ul(self):
+        self.assertTrue(self._matches("<ul>"))
+
+    def test_ol_uppercase(self):
+        self.assertTrue(self._matches("<OL>"))
+
+    def test_li(self):
+        self.assertTrue(self._matches("<li>"))
+
+    def test_strong(self):
+        self.assertTrue(self._matches("<strong>bold</strong>"))
+
+    def test_strong_mixed_case(self):
+        self.assertTrue(self._matches("<Strong>text</Strong>"))
+
+    def test_em(self):
+        self.assertTrue(self._matches("<em>italic</em>"))
+
+    def test_code(self):
+        self.assertTrue(self._matches("<code>x</code>"))
+
+    def test_pre(self):
+        self.assertTrue(self._matches("<pre>block</pre>"))
+
+    def test_div(self):
+        self.assertTrue(self._matches("<div>content</div>"))
+
+    def test_table(self):
+        self.assertTrue(self._matches("<table>"))
+
+    def test_html_embedded_in_prose(self):
+        self.assertTrue(self._matches("some text\n<ul>\n<li>item</li>\n</ul>"))
+
+    def test_p_all_uppercase(self):
+        self.assertTrue(self._matches("<P>"))
+
+    def test_tag_at_start(self):
+        self.assertTrue(self._matches("<div>first thing"))
+
+    def test_tag_at_end(self):
+        self.assertTrue(self._matches("last thing<br/>"))
+
+    # --- True negatives ---
+
+    def test_plain_text(self):
+        self.assertFalse(self._matches("Hello world"))
+
+    def test_math_comparisons(self):
+        self.assertFalse(self._matches("a < b and c > d"))
+
+    def test_numeric_comparisons(self):
+        self.assertFalse(self._matches("3 < 5 and 10 > 7"))
+
+    def test_prevent_not_p(self):
+        self.assertFalse(self._matches("<prevent>"))
+
+    def test_tablet_not_table(self):
+        self.assertFalse(self._matches("<tablet>"))
+
+    def test_preview_not_pre(self):
+        self.assertFalse(self._matches("Use <preview> mode"))
+
+    def test_coding_not_code(self):
+        self.assertFalse(self._matches("<coding>"))
+
+    def test_olive_not_ol(self):
+        self.assertFalse(self._matches("the <olive> tree"))
+
+    def test_empty_string(self):
+        self.assertFalse(self._matches(""))
+
+    def test_email_angle_brackets(self):
+        self.assertFalse(self._matches("email@<domain>"))
+
+    def test_lt_without_gt(self):
+        self.assertFalse(self._matches("a < b"))
+
+    def test_emphasis_not_em(self):
+        self.assertFalse(self._matches("<emphasis>"))
+
+    def test_listing_not_li(self):
+        self.assertFalse(self._matches("<listing>"))
+
+    def test_division_not_div(self):
+        self.assertFalse(self._matches("<division>"))
+
+    # --- Edge cases ---
+
+    def test_large_plain_text(self):
+        self.assertFalse(self._matches("x" * 1_000_000))
+
+    def test_large_text_with_tag_at_end(self):
+        self.assertTrue(self._matches("x" * 1_000_000 + "<p>"))
+
+
 if __name__ == "__main__":
     unittest.main()

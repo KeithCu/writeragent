@@ -17,11 +17,30 @@
 
 import logging
 import os
+import re
 import tempfile
 from typing import Any, cast
 from plugin.chatbot.listeners import BaseWindowListener
 
 log = logging.getLogger(__name__)
+
+_HTML_TAG_RE = re.compile(
+    r"<(?:"
+    r"p[>\s/]"
+    r"|br[\s/>]"
+    r"|/h[1-6]"
+    r"|ul[\s/>]"
+    r"|ol[\s/>]"
+    r"|li[\s/>]"
+    r"|strong[\s/>]"
+    r"|em[\s/>]"
+    r"|code[\s/>]"
+    r"|pre[\s/>]"
+    r"|div[\s/>]"
+    r"|table[\s/>]"
+    r")",
+    re.IGNORECASE,
+)
 
 USER_COLOR = 0x2A6099
 ASSISTANT_COLOR = 0x1E293B
@@ -919,8 +938,8 @@ def append_rich_text(doc, text, role="assistant", auto_scroll=True):
         pre_len = doc.CharacterCount
 
         if text and text.strip():
-            html_tags = ("<p>", "<br", "</h", "<ul", "<ol", "<li", "<strong", "<em", "<code", "<pre", "<div", "<table")
-            looks_html = any(tag in text.lower() for tag in html_tags)
+            looks_html = bool(_HTML_TAG_RE.search(text))
+            log.debug("append_rich_text: looks_html=%s len=%d snippet=%r", looks_html, len(text), text[:120])
 
             if looks_html:
                 try:

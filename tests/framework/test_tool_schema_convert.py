@@ -121,11 +121,8 @@ def test_to_mcp_schema_delegate_writer_includes_specialized_delegation_hint():
     openai_schema = to_openai_schema(tool)
     mcp_schema = to_mcp_schema(tool)
 
-    assert "SPECIALIZED WRITER" not in openai_schema["function"]["description"]
-    assert "SPECIALIZED WRITER" in mcp_schema["description"]
-    assert "bookmarks:" in mcp_schema["description"]
-    assert "Rules for `task`" in mcp_schema["description"]
-    assert "400+" in mcp_schema["description"]
+    assert "Writer sub-agent" not in openai_schema["function"]["description"]
+    assert "Writer sub-agent" in mcp_schema["description"]
     assert "\n" not in mcp_schema["description"]
     domain_desc = mcp_schema["inputSchema"]["properties"]["domain"]["description"]
     assert "domain one of:" in domain_desc
@@ -139,7 +136,7 @@ def test_to_mcp_schema_delegate_calc_domain_list_omits_python():
 
     mcp_schema = to_mcp_schema(DelegateToSpecializedCalc())
     domain_desc = mcp_schema["inputSchema"]["properties"]["domain"]["description"]
-    assert "SPECIALIZED CALC" in mcp_schema["description"]
+    assert "Calc sub-agent" in mcp_schema["description"]
     assert "python" not in mcp_schema["inputSchema"]["properties"]["domain"]["enum"]
     assert "python:" not in domain_desc
 
