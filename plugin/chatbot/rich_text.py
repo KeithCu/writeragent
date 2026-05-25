@@ -127,94 +127,109 @@ def create_embedded_writer_doc(ctx, parent_window, placeholder_ctrl):
         layout = frame.LayoutManager
         if layout:
             layout.setVisible(False)
-            
-        # Configure View Settings (Web view / OnlineLayout, no rulers, no shadows)
-        controller = doc.getCurrentController()
-        if controller:
-            try:
-                vs = controller.getViewSettings()
-                
-                # Use IsOnlineLayout (The "Web View" internal name)
-                if hasattr(vs, "IsOnlineLayout"):
-                    vs.IsOnlineLayout = True
-                elif hasattr(vs, "OnlineLayout"):
-                    vs.OnlineLayout = True
-                
-                # FORCE 100% Zoom (to avoid "Fit to Height" behavior)
-                if hasattr(vs, "ZoomType"):
-                    vs.ZoomType = 3 # 3 = BY_VALUE (Fixed)
-                if hasattr(vs, "ZoomValue"):
-                    vs.ZoomValue = 100 # 100%
-                
-                # Remove the dark gray shadow and margin boundaries
-                if hasattr(vs, "ShowShadows"):
-                    vs.ShowShadows = False
-                if hasattr(vs, "ShowTextBoundaries"):
-                    vs.ShowTextBoundaries = False
-                if hasattr(vs, "ShowTableBoundaries"):
-                    vs.ShowTableBoundaries = False
-                if hasattr(vs, "ShowObjectBoundaries"):
-                    vs.ShowObjectBoundaries = False
-                
-                # Zoom to fill the width (Page Width = 1)
-                if hasattr(vs, "ZoomType"):
-                    vs.ZoomType = 1 
-                
-                # Hide rulers aggressively
-                for prop in ["ShowRulers", "ShowHoriRuler", "ShowVertRuler", "ShowRuler"]:
-                    if hasattr(vs, prop):
-                        setattr(vs, prop, False)
-                
-                # Scrollbars
-                if hasattr(vs, "ShowHoriScrollBar"):
-                    vs.ShowHoriScrollBar = False
-                if hasattr(vs, "ShowVertScrollBar"):
-                    vs.ShowVertScrollBar = True
-                    
-            except Exception as e:
-                log.debug("Failed to set view settings: %s", e)
 
-        # 6. Document Styling (Zero Margins and 10pt Font)
+        # 6. Page and paragraph styles FIRST (before view settings, so zoom calculates correctly)
         try:
-            # Set Margins to zero and set a matching page width
             style_families = doc.getStyleFamilies()
+
+            # Page styles: zero margins, width matching the container
             if style_families.hasByName("PageStyles"):
                 page_styles = style_families.getByName("PageStyles")
+                pixel_w = placeholder_ctrl.getPosSize().Width
+                mm100_w = int(pixel_w * 26.458)  # 1px ~ 0.26458mm at 96 DPI
                 for i in range(page_styles.getCount()):
                     style = page_styles.getByIndex(i)
                     try:
-                        # Convert placeholder pixel width to 1/100mm (Approx 96 DPI fallback)
-                        pixel_w = placeholder_ctrl.getPosSize().Width
-                        mm100_w = int(pixel_w * 26.458) # 1px approx 0.26458mm
-                        
-                        style.Width = max(2000, mm100_w) 
+                        style.Width = max(2000, mm100_w)
                         style.LeftMargin = 0
                         style.RightMargin = 0
                         style.TopMargin = 0
                         style.BottomMargin = 0
                         style.HeaderIsOn = False
                         style.FooterIsOn = False
-                        # Set background to pure white
                         style.BackColor = 0xFFFFFF
                     except Exception:
                         pass
-            
-            # Set Default Font to 10pt across the whole doc
+
+            # Paragraph styles: zero indents
+            if style_families.hasByName("ParagraphStyles"):
+                para_styles = style_families.getByName("ParagraphStyles")
+                if para_styles.hasByName("Standard"):
+                    std_para = para_styles.getByName("Standard")
+                    std_para.ParaLeftMargin = 0
+                    std_para.ParaRightMargin = 0
+                    std_para.ParaFirstLineIndent = 0
+                    std_para.ParaTopMargin = 0
+                    std_para.ParaBottomMargin = 200
+
+            # Default font size
             text = doc.getText()
             cursor = text.createTextCursor()
             cursor.gotoStart(False)
             cursor.gotoEnd(True)
             cursor.CharHeight = 10.0
-            
+
             # Disable spellcheck/grammar markers
             settings = doc.getSettings()
             if hasattr(settings, "ShowSpellErrors"):
                 settings.ShowSpellErrors = False
             if hasattr(settings, "ShowGrammarErrors"):
                 settings.ShowGrammarErrors = False
-                
+
         except Exception as e:
             log.debug("Failed to set document styles: %s", e)
+
+        # 7. View settings — enable Web/Browse mode so text reflows to fill the window
+        controller = doc.getCurrentController()
+        if controller:
+            try:
+                vs = controller.getViewSettings()
+
+                # Web/Browse mode: text reflows to window width, no page boundaries.
+                # Canonical property name in LO source is "ShowOnlineLayout".
+                online_set = False
+                for prop in ("ShowOnlineLayout", "IsOnlineLayout", "OnlineLayout"):
+                    if hasattr(vs, prop):
+                        setattr(vs, prop, True)
+                        online_set = True
+                        log.debug("Set %s = True", prop)
+                        break
+                if not online_set:
+                    log.warning("Could not enable web/browse mode — no OnlineLayout property found")
+
+                # Fixed 100% zoom
+                if hasattr(vs, "ZoomType"):
+                    vs.ZoomType = 3  # BY_VALUE
+                if hasattr(vs, "ZoomValue"):
+                    vs.ZoomValue = 100
+
+                # Hide visual clutter
+                for prop in ("ShowShadows", "ShowTextBoundaries", "ShowTableBoundaries", "ShowObjectBoundaries"):
+                    if hasattr(vs, prop):
+                        setattr(vs, prop, False)
+
+                for prop in ("ShowRulers", "ShowHoriRuler", "ShowVertRuler", "ShowRuler"):
+                    if hasattr(vs, prop):
+                        setattr(vs, prop, False)
+
+                if hasattr(vs, "ShowHoriScrollBar"):
+                    vs.ShowHoriScrollBar = False
+                if hasattr(vs, "ShowVertScrollBar"):
+                    vs.ShowVertScrollBar = True
+
+            except Exception as e:
+                log.debug("Failed to set view settings: %s", e)
+
+        # 8. Set document background color to white (area around the page in web view)
+        try:
+            config_provider = smgr.createInstanceWithContext("com.sun.star.configuration.ConfigurationProvider", ctx)
+            node_args = (PropertyValue("nodepath", 0, "/org.openoffice.Office.UI/ColorScheme/ColorSchemes/org.openoffice.Office.UI:ColorScheme['LibreOffice']/DocColor", 0),)
+            config_update = config_provider.createInstanceWithArguments("com.sun.star.configuration.ConfigurationUpdateAccess", node_args)
+            if config_update and hasattr(config_update, "Color"):
+                config_update.Color = 0xFFFFFF
+                config_update.commitChanges()
+        except Exception:
+            log.debug("Could not set DocColor via ConfigurationProvider (non-fatal)")
 
         log.info("create_embedded_writer_doc: Successfully initialized embedded Writer")
         return doc, frame, container_window

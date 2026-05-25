@@ -253,7 +253,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
     # 7. Rich Text Sidebar Initialization (Lazy Peer Solution)
     # Register XWindowListener to wait for root_window to be shown (peer realized)
     try:
-        # from plugin.chatbot.rich_text import EmbeddedWriterListener
+        from plugin.chatbot.rich_text import EmbeddedWriterListener
 
         def on_rich_text_ready(doc, frame, container):
             log.info("Rich text ready callback triggered")
@@ -282,8 +282,8 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
             except Exception as e:
                 log.error("Initial rich-text render failed: %s", e)
 
-        # rich_listener = EmbeddedWriterListener(self.ctx, root_window, controls["response"], on_rich_text_ready)
-        # root_window.addWindowListener(rich_listener)
+        rich_listener = EmbeddedWriterListener(self.ctx, root_window, controls["response"], on_rich_text_ready)
+        root_window.addWindowListener(rich_listener)
         log.debug("EmbeddedWriterListener added to root_window")
     except Exception as e:
         log.error("Rich text initialization setup failed: %s", e)
