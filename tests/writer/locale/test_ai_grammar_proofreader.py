@@ -78,8 +78,7 @@ def mock_bi():
 
 from plugin.writer.locale import ai_grammar_proofreader as proofreader
 from plugin.writer.locale import grammar_proofread_cache as gc
-from plugin.writer.locale import grammar_proofread_text as gt
-from plugin.writer.locale.grammar_work_queue import GrammarWorkItem, GrammarWorkQueue
+from plugin.writer.locale.grammar_work_queue import GrammarWorkQueue
 # =============================================================================
 # Worker Tests (Mocked)
 # =============================================================================
@@ -96,7 +95,6 @@ def test_worker_skips_when_agent_active_and_pause_enabled() -> None:
         patch("plugin.framework.config.get_config_int", return_value=0),
         patch("plugin.framework.config.get_config_bool", side_effect=_get_config_bool),
         patch("plugin.framework.queue_executor.is_agent_active", return_value=True),
-        patch("plugin.writer.locale.ai_grammar_proofreader.time.sleep"),
         patch("plugin.framework.client.llm_client.LlmClient") as client_cls,
     ):
         api = proofreader._get_testing_api()
@@ -132,16 +130,18 @@ def test_apply_proofreading_end_positions_skips_tab_after_sentence() -> None:
     assert r.nBehindEndOfSentencePosition == 4
 
 def test_sentence_terminators_cover_multilingual_cases() -> None:
-    assert proofreader._looks_complete_sentence("Hello world.")
-    assert proofreader._looks_complete_sentence("مرحبا بالعالم؟")
-    assert proofreader._looks_complete_sentence("これは文です。")
-    assert proofreader._looks_complete_sentence("यह एक वाक्य है।")
-    assert not proofreader._looks_complete_sentence("incomplete clause")
+    api = proofreader._get_testing_api()
+    assert api["looks_complete_sentence"]("Hello world.")
+    assert api["looks_complete_sentence"]("مرحبا بالعالم？")
+    assert api["looks_complete_sentence"]("これは文です。")
+    assert api["looks_complete_sentence"]("यह एक वाक्य है।")
+    assert not api["looks_complete_sentence"]("incomplete clause")
 
 def test_partial_threshold_counts_nonspace_chars() -> None:
-    assert proofreader._count_nonspace_chars("a b c") == 3
-    assert proofreader._count_nonspace_chars("too short") < proofreader.GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS
-    assert proofreader._count_nonspace_chars("this is long enough") >= proofreader.GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS
+    api = proofreader._get_testing_api()
+    assert api["count_nonspace_chars"]("a b c") == 3
+    assert api["count_nonspace_chars"]("too short") < api["GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS"]
+    assert api["count_nonspace_chars"]("this is long enough") >= api["GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS"]
 
 def test_run_llm_skips_split_when_proofread_sentence_text_set() -> None:
     def _get_config_bool(_ctx: object, key: str) -> bool:
@@ -157,7 +157,6 @@ def test_run_llm_skips_split_when_proofread_sentence_text_set() -> None:
         patch("plugin.framework.queue_executor.is_agent_active", return_value=False),
         patch("plugin.framework.queue_executor.llm_request_lane") as lane_ctx,
         patch("plugin.framework.client.llm_client.LlmClient") as client_cls,
-        patch("plugin.writer.locale.ai_grammar_proofreader.time.sleep"),
         patch("plugin.writer.locale.grammar_proofread_text.split_into_sentences", side_effect=_split_must_not_run),
         patch("plugin.writer.locale.grammar_proofread_json.parse_grammar_json", return_value=[]),
         patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[]),
@@ -166,7 +165,8 @@ def test_run_llm_skips_split_when_proofread_sentence_text_set() -> None:
         lane_ctx.return_value.__enter__ = MagicMock()
         lane_ctx.return_value.__exit__ = MagicMock()
         client_cls.return_value.chat_completion_sync.return_value = '{"errors":[]}'
-        proofreader._run_llm_and_cache(None, "Hello.", 1, "d|en", "en-US")
+        api = proofreader._get_testing_api()
+        api["run_llm_and_cache"](None, "Hello.", 1, "d|en", "en-US")
 
 def test_partial_sentence_adds_prompt_note() -> None:
     def _get_config_bool(_ctx, key: str) -> bool:
@@ -181,7 +181,6 @@ def test_partial_sentence_adds_prompt_note() -> None:
         patch("plugin.framework.queue_executor.is_agent_active", return_value=False),
         patch("plugin.framework.queue_executor.llm_request_lane") as lane_ctx,
         patch("plugin.framework.client.llm_client.LlmClient") as client_cls,
-        patch("plugin.writer.locale.ai_grammar_proofreader.time.sleep"),
         patch("plugin.writer.locale.grammar_proofread_json.parse_grammar_json", return_value=[]),
         patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[]),
         patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence"),
@@ -190,7 +189,8 @@ def test_partial_sentence_adds_prompt_note() -> None:
         lane_ctx.return_value.__exit__ = MagicMock()
         client = client_cls.return_value
         client.chat_completion_sync.return_value = '{"errors":[]}'
-        proofreader._run_llm_and_cache(None, "This is long enough...", 0, "doc|en", "en-US", partial_sentence=True)
+        api = proofreader._get_testing_api()
+        api["run_llm_and_cache"](None, "This is long enough...", 0, "doc|en", "en-US", partial_sentence=True)
     args, _ = client.chat_completion_sync.call_args
     assert "partial sentence" in args[0][0]["content"]
 

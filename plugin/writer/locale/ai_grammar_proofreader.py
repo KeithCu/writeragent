@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import importlib
 import logging
-import time  # noqa: F401 — tests patch ``ai_grammar_proofreader.time.sleep``
 
 # Ensure we can do normal plugin.* imports even when LO loads this file
 # directly as a standalone UNO component (XProofreader service).
@@ -49,30 +48,28 @@ _GRAMMAR_DISABLED_NOTICE_EMITTED = False
 
 from plugin.writer.locale.grammar_proofread_cache import cache_get_sentence, ignore_rule_add, ignore_rules_clear
 from plugin.writer.locale.grammar_proofread_locale import (
-    GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS,  # noqa: F401 — module API for tests (`proofreader.GRAMMAR_*`)
-    GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS,  # noqa: F401
     GRAMMAR_REGISTRY_LOCALE_TAGS,
     bcp47_to_uno_lang_country,
-    count_nonspace_chars,
     looks_complete_sentence,
     normalize_uno_locale_to_bcp47,
 )
 from plugin.writer.locale.grammar_proofread_text import NormalizedProofError, candidate_sentence_spans_for_proofreading, filter_sentence_spans_for_thresholds, grammar_inflight_key
 from plugin.writer.locale.grammar_work_queue import (
     GrammarWorkItem,
-    GrammarWorkQueue as _GrammarWorkQueue,  # noqa: F401 — test hook ``proofreader._GrammarWorkQueue``
     emit_grammar_status,
     grammar_obs,
     grammar_queue,
     next_enqueue_seq,
-    run_llm_and_cache as _run_llm_and_cache,  # noqa: F401 — test hook ``proofreader._run_llm_and_cache``
     slice_preview_debug,
 )
 
 # --- Testing seam (TD2) -------------------------------------------------
-# Tests reach into a few internal pieces. We provide a single accessor
-# instead of scattering many `_private = public` aliases at module level.
-# This makes the test surface explicit and easier to evolve.
+# Single explicit entry point for unit tests that need to invoke or patch
+# cross-module helpers (run_llm_and_cache lives in the work queue; locale
+# helpers are pure but were historically reached via this module for UNO
+# bootstrap reasons). Production code uses the clean imported names directly;
+# no module-level private aliases or F401 test hacks remain.
+# See docs/realtime-grammar-checker-plan.md (TD2).
 
 
 def _get_testing_api():
@@ -80,27 +77,35 @@ def _get_testing_api():
 
     This is the supported (internal) testing seam for the grammar proofreader.
     Do not use in production code.
+
+    Keys include both worker entry points and the pure helpers used for
+    sentence gating / obs. GRAMMAR_* consts are included for threshold tests.
     """
+    # Lazy imports for symbols that are test-only (never referenced in
+    # production paths in this module). This avoids top-level unused imports
+    # and the previous `as _Foo` (F401 test-hook) pattern.
+    from plugin.writer.locale.grammar_work_queue import (
+        GrammarWorkQueue,
+        run_llm_and_cache,
+    )
+    from plugin.writer.locale.grammar_proofread_locale import (
+        GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS,
+        GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS,
+        count_nonspace_chars,
+    )
+
     return {
-        "run_llm_and_cache": _run_llm_and_cache,
-        "GrammarWorkQueue": _GrammarWorkQueue,
+        "run_llm_and_cache": run_llm_and_cache,
+        "GrammarWorkQueue": GrammarWorkQueue,
         "grammar_obs": grammar_obs,
         "emit_grammar_status": emit_grammar_status,
         "slice_preview_debug": slice_preview_debug,
         "inflight_key": grammar_inflight_key,
         "looks_complete_sentence": looks_complete_sentence,
         "count_nonspace_chars": count_nonspace_chars,
+        "GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS": GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS,
+        "GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS": GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS,
     }
-
-
-# Legacy / direct aliases kept for now to avoid breaking existing tests in one step.
-# Long-term goal (TD2): migrate tests to _get_testing_api() and remove these.
-_slice_preview_debug = slice_preview_debug
-_grammar_obs = grammar_obs
-_emit_grammar_status = emit_grammar_status
-_count_nonspace_chars = count_nonspace_chars
-_looks_complete_sentence = looks_complete_sentence
-_grammar_inflight_key = grammar_inflight_key
 
 
 def _proofreading_markup_type() -> int:
@@ -333,15 +338,15 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                 _GRAMMAR_DISABLED_NOTICE_EMITTED = True
                 log.info("[grammar] doProofreading: disabled (Doc tab → Enable AI grammar checker)")
             # Commented out to avoid excessive noise in debug logs when the AI grammar checker is disabled
-            # _grammar_obs("do_proofreading_skip", reason="grammar_disabled", doc_id=a_doc_id, len_aText=len(a_text), n_start_lo=n_start, n_suggested_behind_end=n_suggested_end, locale_raw=loc_raw)
+            # grammar_obs("do_proofreading_skip", reason="grammar_disabled", doc_id=a_doc_id, len_aText=len(a_text), n_start_lo=n_start, n_suggested_behind_end=n_suggested_end, locale_raw=loc_raw)
             return None
 
         _GRAMMAR_DISABLED_NOTICE_EMITTED = False
         if grammar_bcp47 is None:
-            _grammar_obs("do_proofreading_skip", reason="locale_not_registered", doc_id=a_doc_id, len_aText=len(a_text), n_start_lo=n_start, n_suggested_behind_end=n_suggested_end, locale_raw=loc_raw)
+            grammar_obs("do_proofreading_skip", reason="locale_not_registered", doc_id=a_doc_id, len_aText=len(a_text), n_start_lo=n_start, n_suggested_behind_end=n_suggested_end, locale_raw=loc_raw)
             return None
 
-        _grammar_obs("do_proofreading_entry", doc_id=a_doc_id, len_aText=len(a_text), n_start_lo=n_start, n_suggested_behind_end=n_suggested_end, grammar_bcp47=grammar_bcp47, locale_raw=loc_raw, text_preview=_slice_preview_debug(a_text))
+        grammar_obs("do_proofreading_entry", doc_id=a_doc_id, len_aText=len(a_text), n_start_lo=n_start, n_suggested_behind_end=n_suggested_end, grammar_bcp47=grammar_bcp47, locale_raw=loc_raw, text_preview=slice_preview_debug(a_text))
         return grammar_bcp47
 
     def _resolve_work_spans(self, a_doc_id: str, loc_key: str, a_text: str, n_start: int, n_suggested_end: int) -> list[tuple[int, int, str]]:
@@ -349,7 +354,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         raw_spans = candidate_sentence_spans_for_proofreading(self.ctx, loc_key, a_text, n_start, n_suggested_end)
         work_spans = filter_sentence_spans_for_thresholds(raw_spans)
         if not work_spans:
-            _grammar_obs("do_proofreading_skip", reason="no_eligible_sentences_or_incomplete_short", doc_id=a_doc_id, n_start_lo=n_start, raw_candidates=len(raw_spans), grammar_bcp47=loc_key)
+            grammar_obs("do_proofreading_skip", reason="no_eligible_sentences_or_incomplete_short", doc_id=a_doc_id, n_start_lo=n_start, raw_candidates=len(raw_spans), grammar_bcp47=loc_key)
             return []
         return work_spans
 
@@ -359,7 +364,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         uncached_spans: list[tuple[int, int, str]] = []
         for sent_start, _sent_end, sent_text in work_spans:
             cached = cache_get_sentence(loc_key, sent_text, ctx=self.ctx, doc_id=a_doc_id)
-            _grammar_obs("do_proofreading_sentence_cache", doc_id=a_doc_id, sent_start=sent_start, sent_len=len(sent_text), cache_hit=cached is not None, sent_preview=_slice_preview_debug(sent_text, 48))
+            grammar_obs("do_proofreading_sentence_cache", doc_id=a_doc_id, sent_start=sent_start, sent_len=len(sent_text), cache_hit=cached is not None, sent_preview=slice_preview_debug(sent_text, 48))
             if cached is None:
                 uncached_spans.append((sent_start, _sent_end, sent_text))
                 continue
@@ -373,10 +378,10 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         """Enqueue uncached sentences for background processing."""
         for sent_start, sent_end, sent_text in uncached_spans:
             seq = next_enqueue_seq()
-            complete_sentence = _looks_complete_sentence(sent_text)
-            inflight_key = _grammar_inflight_key(a_doc_id, loc_key, sent_text, complete_sentence)
-            _grammar_obs("do_proofreading_enqueue", doc_id=a_doc_id, grammar_bcp47=loc_key, inflight_key=inflight_key, enqueue_seq=seq, n_start=sent_start, n_end=sent_end, slice_len=len(sent_text), partial_sentence_arg=not complete_sentence)
-            _emit_grammar_status("start", sent_text, result="queued")
+            complete_sentence = looks_complete_sentence(sent_text)
+            inflight_key = grammar_inflight_key(a_doc_id, loc_key, sent_text, complete_sentence)
+            grammar_obs("do_proofreading_enqueue", doc_id=a_doc_id, grammar_bcp47=loc_key, inflight_key=inflight_key, enqueue_seq=seq, n_start=sent_start, n_end=sent_end, slice_len=len(sent_text), partial_sentence_arg=not complete_sentence)
+            emit_grammar_status("start", sent_text, result="queued")
             grammar_queue.enqueue(GrammarWorkItem(ctx=self.ctx, text=sent_text, grammar_bcp47=loc_key, partial_sentence=not complete_sentence, doc_id=a_doc_id, inflight_key=inflight_key, enqueue_seq=seq))
 
     # --- XProofreader ---
@@ -404,7 +409,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             covered_end = max(end for _s, end, _t in work_spans)
             _apply_proofreading_end_positions(a_res, aText, covered_end)
 
-            _grammar_obs(
+            grammar_obs(
                 "do_proofreading_covered_span",
                 doc_id=aDocumentIdentifier,
                 grammar_bcp47=loc_key,
@@ -421,13 +426,13 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                 a_res.aErrors = _cached_errors_to_uno_tuple(tuple(combined_errors), self.ctx, aDocumentIdentifier)
 
             if not uncached_spans:
-                _grammar_obs("do_proofreading_cache_all_hit", doc_id=aDocumentIdentifier, grammar_bcp47=loc_key, sentence_count=len(work_spans), error_count=len(combined_errors))
+                grammar_obs("do_proofreading_cache_all_hit", doc_id=aDocumentIdentifier, grammar_bcp47=loc_key, sentence_count=len(work_spans), error_count=len(combined_errors))
                 return a_res
 
             cached_ct = len(work_spans) - len(uncached_spans)
             miss_reason = "partial_miss" if cached_ct > 0 else "all_uncached"
 
-            _grammar_obs("do_proofreading_cache_partial_hit", doc_id=aDocumentIdentifier, grammar_bcp47=loc_key, cached_count=cached_ct, uncached_count=len(uncached_spans), errors_returned=len(combined_errors), miss_reason=miss_reason)
+            grammar_obs("do_proofreading_cache_partial_hit", doc_id=aDocumentIdentifier, grammar_bcp47=loc_key, cached_count=cached_ct, uncached_count=len(uncached_spans), errors_returned=len(combined_errors), miss_reason=miss_reason)
 
             self._enqueue_misses(aDocumentIdentifier, aText, loc_key, uncached_spans)
             log.info("[grammar] doProofreading: async miss returning partial or empty errors; sentence cache fills in background")
