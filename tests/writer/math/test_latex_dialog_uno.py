@@ -85,7 +85,8 @@ def test_insert_latex_math_dialog_success() -> None:
 
     # We patch show_latex_input_dialog to return a valid LaTeX string and True for display_block
     latex_input = r"a^2 + b^2 = c^2"
-    with patch("plugin.writer.math.latex_dialog.show_latex_input_dialog", return_value=(latex_input, True)):
+    with patch("plugin.writer.math.latex_dialog.monaco_editor_available", return_value=(None, False)), \
+         patch("plugin.writer.math.latex_dialog.show_latex_input_dialog", return_value=(latex_input, True)):
         # Call the dialog insertion entry point
         insert_latex_math_dialog(_test_ctx)
 
@@ -110,7 +111,8 @@ def test_insert_latex_math_dialog_cancelled() -> None:
     assert _test_doc is not None and _test_ctx is not None
 
     initial_count = _embed_count(_test_doc)
-    with patch("plugin.writer.math.latex_dialog.show_latex_input_dialog", return_value=None):
+    with patch("plugin.writer.math.latex_dialog.monaco_editor_available", return_value=(None, False)), \
+         patch("plugin.writer.math.latex_dialog.show_latex_input_dialog", return_value=None):
         insert_latex_math_dialog(_test_ctx)
         # Verify no new formula was embedded
         assert _embed_count(_test_doc) == initial_count
@@ -130,3 +132,41 @@ def test_insert_latex_math_dialog_non_writer_fails() -> None:
         mock_msgbox.assert_called_once()
         args = mock_msgbox.call_args[0]
         assert "available in Writer" in args[2] or "Error" in args[1]
+
+
+@native_test
+def test_insert_latex_math_dialog_monaco_success() -> None:
+    assert _test_doc is not None and _test_ctx is not None
+
+    mock_exe = "mock_python"
+    latex_input = r"E = m c^2"
+
+    with patch("plugin.writer.math.latex_dialog.monaco_editor_available", return_value=(mock_exe, True)), \
+         patch("plugin.writer.math.latex_dialog.launch_monaco_editor") as mock_launch:
+
+        insert_latex_math_dialog(_test_ctx)
+
+        # Verify launch_monaco_editor was called with the correct options
+        mock_launch.assert_called_once()
+        kwargs = mock_launch.call_args[1]
+        assert kwargs["exe"] == mock_exe
+
+        load_msg = kwargs["load_message"]
+        assert load_msg["mode"] == "latex"
+        assert load_msg["language"] == "latex"
+        assert "centered paragraph" in load_msg["plain_text_label"]
+        assert load_msg["show_data_binding"] is False
+
+        # Test the on_save callback defined in insert_latex_math_dialog
+        on_save = kwargs["on_save"]
+
+        # Call on_save manually to verify the conversion and insertion logic
+        res = on_save(latex_input, True)
+        assert res["type"] == "saved"
+        assert res["ok"] is True
+        assert res["status_ok_text"] == "Formula inserted."
+
+        # Verify config was updated
+        assert get_config(_test_ctx, "last_latex_input") == latex_input
+        assert get_config(_test_ctx, "last_latex_display_block") is True
+

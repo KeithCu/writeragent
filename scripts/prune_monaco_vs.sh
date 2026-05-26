@@ -15,7 +15,7 @@ rm -rf "$VS/language"
 for lang_dir in "$VS/basic-languages"/*/; do
   [[ -d "$lang_dir" ]] || continue
   base="$(basename "$lang_dir")"
-  if [[ "$base" != "python" ]]; then
+  if [[ "$base" != "python" && "$base" != "latex" ]]; then
     rm -rf "$lang_dir"
   fi
 done

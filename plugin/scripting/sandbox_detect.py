@@ -11,7 +11,8 @@ from __future__ import annotations
 
 import os
 
-_cached_sandbox: str | None = ...  # type: ignore[assignment]  # sentinel
+_NOT_SET = "__not_set__"
+_cached_sandbox: str | None = _NOT_SET  # type: ignore[assignment]  # sentinel
 
 
 def detect_sandbox() -> str | None:
@@ -20,7 +21,7 @@ def detect_sandbox() -> str | None:
     The result is cached because sandbox status cannot change at runtime.
     """
     global _cached_sandbox
-    if _cached_sandbox is not ...:
+    if _cached_sandbox is not _NOT_SET:
         return _cached_sandbox
 
     if os.path.exists("/.flatpak-info") or os.environ.get("FLATPAK_ID"):
@@ -47,4 +48,4 @@ def wrap_command_for_sandbox(cmd: list[str]) -> list[str]:
 def _reset_cache() -> None:
     """Reset the cached detection result (for tests only)."""
     global _cached_sandbox
-    _cached_sandbox = ...  # type: ignore[assignment]
+    _cached_sandbox = _NOT_SET  # type: ignore[assignment]

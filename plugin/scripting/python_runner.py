@@ -458,6 +458,7 @@ def _run_python_monaco(ctx: Any, doc: Any, *, config_key: str, initial_code: str
     load_msg: dict[str, Any] = {
         "type": "load",
         "mode": "run_script",
+        "language": "python",
         "code": initial_code,
         "title": _("Run Python Script"),
         "run_label": _("Run"),

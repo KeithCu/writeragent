@@ -18,6 +18,7 @@ from plugin.chatbot.dialogs import add_dialog_label, add_dialog_edit, add_dialog
 from plugin.framework.i18n import _
 from plugin.doc.document_helpers import is_writer
 from plugin.writer.math.math_mml_convert import convert_latex_to_starmath, insert_writer_math_formula
+from plugin.scripting.editor_session_launch import launch_monaco_editor, monaco_editor_available
 
 log = logging.getLogger("writeragent.writer")
 
@@ -137,6 +138,58 @@ def insert_latex_math_dialog(ctx: Any) -> None:
         last_latex = str(get_config(ctx, "last_latex_input") or "e = m c^2")
         last_display = bool(get_config(ctx, "last_latex_display_block"))
 
+        # Check if Monaco editor is available
+        exe, available = monaco_editor_available(ctx)
+        if available and exe:
+            log.info("insert_latex_math_dialog: using Monaco editor")
+
+            def on_save(code: str, save_as_plain: bool, data_binding: str | None = None, _action: str = "cell_save") -> dict[str, Any]:
+                # save_as_plain checkbox represents display_block for LaTeX editor!
+                display_block = save_as_plain
+                if not code:
+                    return {"type": "saved", "ok": True}
+
+                # Convert to StarMath
+                conv_res = convert_latex_to_starmath(ctx, code, display_block=display_block)
+                if not conv_res.ok:
+                    error_msg = conv_res.error_message or _("Unknown conversion error")
+                    return {"type": "error", "message": error_msg}
+
+                # Save settings
+                set_config(ctx, "last_latex_input", code)
+                set_config(ctx, "last_latex_display_block", display_block)
+
+                # Insert into document
+                controller = doc.getCurrentController()
+                view_cursor = controller.getViewCursor()
+                insert_writer_math_formula(doc, view_cursor, conv_res.starmath or "", display_block=display_block)
+                return {"type": "saved", "ok": True, "status_ok_text": _("Formula inserted.")}
+
+            def on_closed() -> None:
+                log.debug("LaTeX Monaco editor closed")
+
+            load_msg: dict[str, Any] = {
+                "type": "load",
+                "mode": "latex",
+                "language": "latex",
+                "code": last_latex,
+                "title": _("LaTeX Math Editor"),
+                "plain_text_label": _("Insert as display block (centered paragraph)"),
+                "save_as_plain": last_display,
+                "save_label": _("Insert"),
+                "show_plain_text": True,
+                "show_data_binding": False,
+            }
+            launch_monaco_editor(
+                ctx,
+                exe=exe,
+                load_message=load_msg,
+                on_save=on_save,
+                on_closed=on_closed,
+            )
+            return
+
+        # Otherwise, fall back cleanly to native dialog
         res = show_latex_input_dialog(ctx, initial_text=last_latex, initial_display=last_display)
         if res is None:
             return  # Cancelled

@@ -234,6 +234,7 @@ def _launch_editor_with_code(
     load_msg: dict[str, Any] = {
         "type": "load",
         "mode": "calc_cell",
+        "language": "python",
         "code": initial_code,
         "title": _("Python cell editor"),
         "plain_text_label": _("Save as plain text"),
