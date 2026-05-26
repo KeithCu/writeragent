@@ -173,25 +173,23 @@ else:
 
 
 class EmbeddedWriterListener(BaseWindowListener):
-    """Wait for the sidebar window to be shown (realized) before embedding Writer.
+    """Manages the lifetime of an embedded Writer document used for rich-text
+    rendering inside a sidebar panel.
 
-    BUGFIX (shutdown / close-time errors): This listener (and the embedded Writer
-    Frame + swriter document + container window it creates) were previously never
-    removed or disposed when the sidebar panel was torn down by LibreOffice's
-    XUIElement / deck lifecycle or on full Writer exit. This caused:
-    - Dangling XWindowListener registrations on the root XDialog (root_window).
-    - The private:factory/swriter document + hosting XFrame / container_window
-      left alive with no explicit close, leading to VCL peer errors, "object
-      has been disposed" noise, or segfaults during process shutdown.
-    - post_to_main_thread callbacks and resize handlers could still touch the
-      objects after their UNO peers were destroyed.
+    The embedded content (XFrame + swriter document + container window) must be
+    explicitly closed before the parent sidebar dialog is torn down by VCL,
+    otherwise LibreOffice tends to crash with Signal 11 during DeInitVCL.
 
-    Strategy (updated): We now primarily trigger full disposal of the embedded
-    Writer (frame + doc + container) from `on_window_hidden` for proactive
-    cleanup when the sidebar panel is deactivated. The `disposing()` path
-    remains as a safety net. This addresses cases where normal XUIElement
-    disposal hooks are not reached in time during late `DeInitVCL` shutdown.
-    All paths set `_disposed` and remove the listener.
+    Disposal strategy (as of 2026-06):
+    - Primary reliable trigger: XDocumentEventListener on the host document
+      model (OnPrepareUnload / OnUnload). This is registered in __init__ when
+      a doc_model is provided.
+    - Proactive path: on_window_hidden (when the sidebar panel is hidden).
+    - Safety net: the normal XEventListener.disposing path.
+
+    All paths funnel through _initiate_disposal() → _dispose_embedded_objects(),
+    which closes the frame first, then the document and container (with a
+    peer-alive guard on the container window).
     """
 
     def __init__(self, ctx, parent_window, placeholder_ctrl, on_ready_callback, doc_model=None):
@@ -206,28 +204,17 @@ class EmbeddedWriterListener(BaseWindowListener):
         self.frame = None          # XFrame — we store it so disposing() can close it first
         self._disposed = False
         self._doc_listener = None
-        log.info("[RICH-LIFECYCLE] EmbeddedWriterListener.__init__ parent_window=%s placeholder=%s doc_model=%s",
-                 id(parent_window) if parent_window else None,
-                 id(placeholder_ctrl) if placeholder_ctrl else None,
-                 id(doc_model) if doc_model else None)
+        log.debug("[RICH-LIFECYCLE] EmbeddedWriterListener.__init__ parent_window=%s placeholder=%s doc_model=%s",
+                  id(parent_window) if parent_window else None,
+                  id(placeholder_ctrl) if placeholder_ctrl else None,
+                  id(doc_model) if doc_model else None)
 
     def disposing(self, Source):
-        """XEventListener hook: clean up on parent window disposal or explicit teardown.
+        """XEventListener safety-net disposal path.
 
-        This is the *only* public entry point for normal shutdown.
-
-        Idempotency contract:
-        - The `_disposed` flag lives here. We check it first and return early.
-        - We remove ourselves as a listener from the parent window.
-        - We then delegate the actual UNO object cleanup (close/dispose + ref
-          clearing) to the private helper below.
-
-        Historical bug (fixed 2026-06): Previously this method set
-        `self._disposed = True` *before* calling the helper. The helper had an
-        early return on the flag, so the close/dispose work and the
-        `container_window = None` / `doc = None` lines were never reached.
-        The embedded Writer document + frame + container were leaked, which
-        produced the "errors when I close LO Writer" the user reported.
+        In practice the document model listener (see __init__) is the primary
+        reliable trigger. This method remains as a backstop and for cases where
+        the listener is torn down directly.
         """
         log.info("[RICH-LIFECYCLE] EmbeddedWriterListener.disposing called (Source=%s, _disposed=%s, initialized=%s)",
                  id(Source) if Source else None, self._disposed, self.initialized)
@@ -238,20 +225,33 @@ class EmbeddedWriterListener(BaseWindowListener):
 
         log.info("[RICH-SHUTDOWN] EmbeddedWriterListener.disposing ENTERED (safety net path) for root_window id=%s", id(self.parent_window))
 
+        self._initiate_disposal("disposing (safety net)")
+        log.info("[RICH-SHUTDOWN] EmbeddedWriterListener.disposing COMPLETED")
+
+    def _initiate_disposal(self, reason: str):
+        """Centralized disposal trigger.
+
+        This method exists to avoid duplicating the "remove listener + set flag +
+        call real disposal" sequence in multiple places (disposing, on_window_hidden,
+        and potentially future triggers).
+
+        All real disposal paths should go through here (or call _dispose_embedded_objects
+        directly only in exceptional cases).
+        """
+        if self._disposed:
+            return
+
+        log.info("[RICH-SHUTDOWN] Initiating disposal (%s)", reason)
+
         try:
             if self.parent_window and hasattr(self.parent_window, "removeWindowListener"):
                 self.parent_window.removeWindowListener(self)
-                log.info("[RICH-SHUTDOWN]   -> removed self as WindowListener")
+                log.info("[RICH-SHUTDOWN]   -> removed self as WindowListener (%s)", reason)
         except Exception as e:
-            log.info("[RICH-SHUTDOWN]   -> removeWindowListener failed: %s", e)
+            log.info("[RICH-SHUTDOWN]   -> removeWindowListener failed (%s): %s", reason, e)
 
-        # We only reach here on the first disposal. Set the flag for idempotency
-        # *after* the listener removal has succeeded, then do the actual object
-        # cleanup. This is the correct division: disposing() owns the flag and
-        # the XEventListener contract; the helper owns only the UNO close/dispose work.
         self._disposed = True
         self._dispose_embedded_objects()
-        log.info("[RICH-SHUTDOWN] EmbeddedWriterListener.disposing COMPLETED")
 
     def _dispose_embedded_objects(self):
         """Perform the actual best-effort disposal of the embedded Writer objects.
@@ -328,15 +328,15 @@ class EmbeddedWriterListener(BaseWindowListener):
         log.info("[RICH-SHUTDOWN] _dispose_embedded_objects finished and refs cleared")
 
     def on_window_shown(self, rEvent):
-        log.info("[RICH-LIFECYCLE] EmbeddedWriterListener.on_window_shown called _disposed=%s initialized=%s",
-                 self._disposed, self.initialized)
+        log.debug("[RICH-LIFECYCLE] EmbeddedWriterListener.on_window_shown called _disposed=%s initialized=%s",
+                  self._disposed, self.initialized)
 
         if self._disposed or self.initialized:
             return
             
         parent_id = id(self.parent_window)
         if parent_id in _EMBEDDING_STARTED:
-            log.info("[RICH-LIFECYCLE] on_window_shown: already in _EMBEDDING_STARTED, skipping")
+            log.debug("[RICH-LIFECYCLE] on_window_shown: already in _EMBEDDING_STARTED, skipping")
             return
             
         log.debug("EmbeddedWriterListener.on_window_shown: checking for peer")
@@ -373,17 +373,7 @@ class EmbeddedWriterListener(BaseWindowListener):
         if self._disposed:
             return
 
-        log.info("[RICH-SHUTDOWN] Initiating disposal from on_window_hidden (proactive cleanup)")
-
-        try:
-            if self.parent_window and hasattr(self.parent_window, "removeWindowListener"):
-                self.parent_window.removeWindowListener(self)
-                log.info("[RICH-SHUTDOWN]   -> removed self as WindowListener (from hidden)")
-        except Exception as e:
-            log.info("[RICH-SHUTDOWN]   -> removeWindowListener from on_window_hidden failed: %s", e)
-
-        self._disposed = True
-        self._dispose_embedded_objects()
+        self._initiate_disposal("on_window_hidden (proactive)")
         log.info("[RICH-SHUTDOWN] EmbeddedWriterListener disposal completed via on_window_hidden path")
 
     def _deferred_init(self):

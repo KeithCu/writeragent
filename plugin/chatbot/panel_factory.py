@@ -244,15 +244,15 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         self.embedded_doc = None
         self.embedded_frame = None
         self.embedded_container = None
-        log.info("[RICH-LIFECYCLE] ChatPanelElement.__init__ resource_url=%s parent_window=%s",
-                 resource_url, id(parent_window) if parent_window else None)
+        log.debug("[RICH-LIFECYCLE] ChatPanelElement.__init__ resource_url=%s parent_window=%s",
+                  resource_url, id(parent_window) if parent_window else None)
 
     def _on_config_changed(self, **kwargs):
         """Event bus listener for config changes."""
         self._refresh_controls_from_config()
 
     def getRealInterface(self) -> XInterface:  # pyright: ignore[reportIncompatibleMethodOverride]
-        log.info("[RICH-LIFECYCLE] ChatPanelElement.getRealInterface called (toolpanel already exists=%s)", bool(self.toolpanel))
+        log.debug("[RICH-LIFECYCLE] ChatPanelElement.getRealInterface called (toolpanel already exists=%s)", bool(self.toolpanel))
         if not self.toolpanel:
             try:
                 # Ensure extension on path early so _wireControls imports work
@@ -269,8 +269,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         return cast("XInterface", self.toolpanel)
 
     def _getOrCreatePanelRootWindow(self):
-        log.info("[RICH-LIFECYCLE] _getOrCreatePanelRootWindow entered (xParentWindow=%s)",
-                 id(self.xParentWindow) if self.xParentWindow else None)
+        log.debug("[RICH-LIFECYCLE] _getOrCreatePanelRootWindow entered (xParentWindow=%s)",
+                  id(self.xParentWindow) if self.xParentWindow else None)
         base_url = get_extension_url()
         dialog_url = base_url + "/" + XDL_PATH
         log.debug("dialog_url: %s" % dialog_url)

@@ -1156,34 +1156,13 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                     log.info("[RICH-SHUTDOWN]   rich_listener.disposing raised: %s", e)
                 self._rich_listener = None
 
-            # Direct best-effort disposal of any embedded refs still held here
-            # (defensive; the listener path above usually covers it).
-            peer_alive = False
-            try:
-                container = getattr(self, "embedded_container", None)
-                if container and container.getPeer():
-                    peer_alive = True
-            except Exception:
-                pass
-
+            # Defensive nulling of our local references.
+            #
+            # The real close/disposal work is performed by EmbeddedWriterListener
+            # (via the document model event listener + on_window_hidden + this
+            # safety-net disposing call). This loop is now mostly belt-and-suspenders
+            # and just clears our cached handles.
             for attr in ("embedded_doc", "embedded_frame", "embedded_container"):
-                obj = getattr(self, attr, None)
-                if obj is None:
-                    continue
-                try:
-                    if attr == "embedded_container" and not peer_alive:
-                        log.info("[RICH-SHUTDOWN] SendButtonListener: skipping direct %s close/dispose (GUI peer is dead)", attr)
-                        setattr(self, attr, None)
-                        continue
-
-                    if hasattr(obj, "close"):
-                        obj.close(True)
-                        log.info("[RICH-SHUTDOWN] SendButtonListener: closed %s directly", attr)
-                    elif hasattr(obj, "dispose"):
-                        obj.dispose()
-                        log.info("[RICH-SHUTDOWN] SendButtonListener: disposed %s directly", attr)
-                except Exception as e:
-                    log.info("[RICH-SHUTDOWN] SendButtonListener: %s close/dispose raised: %s", attr, e)
                 setattr(self, attr, None)
             self._cached_scrollbar = None
         except Exception as e:
