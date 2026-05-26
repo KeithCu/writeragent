@@ -74,8 +74,10 @@ def probe_webview_import(exe: str) -> tuple[bool, str]:
     if exe in _PROBE_CACHE:
         return _PROBE_CACHE[exe]
     try:
+        from plugin.scripting.sandbox_detect import wrap_command_for_sandbox
+
         r = subprocess.run(
-            [exe, "-c", _WEBVIEW_PROBE_CODE],
+            wrap_command_for_sandbox([exe, "-c", _WEBVIEW_PROBE_CODE]),
             capture_output=True,
             timeout=30,
             env=build_editor_child_env(),
@@ -116,4 +118,6 @@ def spawn_editor_process(exe: str, *, assets_dir: str | None = None) -> subproce
         popen_kw["creationflags"] = subprocess.CREATE_NO_WINDOW
     else:
         popen_kw["preexec_fn"] = os.setsid
-    return cast("subprocess.Popen[bytes]", subprocess.Popen([exe, _EDITOR_MAIN], **popen_kw))
+    from plugin.scripting.sandbox_detect import wrap_command_for_sandbox
+
+    return cast("subprocess.Popen[bytes]", subprocess.Popen(wrap_command_for_sandbox([exe, _EDITOR_MAIN]), **popen_kw))

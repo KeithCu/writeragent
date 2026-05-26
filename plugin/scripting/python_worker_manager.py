@@ -137,7 +137,9 @@ class PythonWorkerManager:
             popen_kw["creationflags"] = subprocess.CREATE_NO_WINDOW
         else:
             popen_kw["preexec_fn"] = os.setsid
-        self._proc = subprocess.Popen([self.exe, _HARNESS_PATH], **popen_kw)
+        from plugin.scripting.sandbox_detect import wrap_command_for_sandbox
+
+        self._proc = subprocess.Popen(wrap_command_for_sandbox([self.exe, _HARNESS_PATH]), **popen_kw)
         log.debug("Started Python worker pid=%s exe=%s", self._proc.pid, self.exe)
 
     def _read_response_bytes(self, stdout: IO[bytes], timeout_sec: int) -> bytes:

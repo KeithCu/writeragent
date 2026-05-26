@@ -61,7 +61,9 @@ class ACPConnection:
         if self._env:
             env.update(self._env)
 
-        self._proc = subprocess.Popen(self._cmd_line, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, cwd=self._cwd)
+        from plugin.scripting.sandbox_detect import wrap_command_for_sandbox
+
+        self._proc = subprocess.Popen(wrap_command_for_sandbox(self._cmd_line), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, cwd=self._cwd)
         self._running = True
         self._reader_thread = run_in_background(self._reader_loop, daemon=True, name="acp-reader")
 
