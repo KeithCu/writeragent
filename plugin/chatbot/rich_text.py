@@ -79,6 +79,14 @@ _SCROLL_DEBUG_DUMPED = False
 _VCL_SCROLLBAR_CACHE: Any = None
 _VCL_SCROLLBAR_SEARCHED = False
 
+# Temporary loud diagnostic flag for the "rich text sidebar never auto-scrolls during streaming" investigation (2026-05).
+# When True, append_text_chunk / append_rich_text and scroll_to_bottom emit extra INFO lines (visible in normal writeragent_debug.log)
+# showing CharacterCount before/after each insert, the auto_scroll decision, entry/exit of aggressive steps, ViewData pre/post deltas,
+# and results of scrollbar discovery probes. This lets us see exactly where the viewport fails to follow new text.
+# Set back to False once the reliable "always scroll on new text" method is identified and the root cause understood.
+# (Part of the step-by-step "add logging then try one thing at a time" approach.)
+_SCROLL_DIAG = False
+
 
 def find_vertical_scrollbar(frame):
     """Navigate the accessible tree of an embedded frame to find the vertical scrollbar.
@@ -1378,6 +1386,13 @@ def scroll_to_bottom(doc, aggressive: bool = False):
         if frame:
             _dump_scroll_debug_once(doc, frame)
 
+        if _SCROLL_DIAG:
+            try:
+                cur_len = doc.CharacterCount
+                log.info("[SCROLL-DIAG] scroll_to_bottom entry: aggressive=%s doc_len=%d", aggressive, cur_len)
+            except Exception:
+                pass
+
         # 1. Core lightweight work that every caller gets (cursor + dispatch)
         view_cursor = controller.getViewCursor()
         if view_cursor:
@@ -1404,6 +1419,21 @@ def scroll_to_bottom(doc, aggressive: bool = False):
         #    take the lightweight path below to prevent infinite re-entrancy loops.
         if aggressive:
             _sample_viewdata(controller, tag="pre")
+
+            # One-time diagnostic probe (when _SCROLL_DIAG): exercise the existing VCL + accessible
+            # scrollbar finders so we can see in the log whether any usable XScrollBar or a11y scrollbar
+            # exists for this embedded frame during real streaming. This is pure observation for now
+            # (no value is set; that would be a later "Method A" experiment).
+            if _SCROLL_DIAG and not _VCL_SCROLLBAR_SEARCHED:
+                try:
+                    from plugin.chatbot.rich_text import find_vcl_scrollbar, find_vertical_scrollbar
+                    # Pass None for container_window on this diagnostic path (the finder falls back gracefully;
+                    # the authoritative container is only easily available in the panel resize/scrollbar cache paths).
+                    vcl_sb = find_vcl_scrollbar(frame, None)
+                    a11y_sb = find_vertical_scrollbar(frame) if not vcl_sb else None
+                    log.info("[SCROLL-DIAG] scrollbar probe: vcl=%s a11y=%s", bool(vcl_sb), bool(a11y_sb))
+                except Exception as e:
+                    log.info("[SCROLL-DIAG] scrollbar probe error: %s", e)
 
             # "Tell it to scroll to the end after doing an insert."
             # The plain-text path does this with response_control.setSelection(length, length)
@@ -1465,6 +1495,8 @@ def scroll_to_bottom(doc, aggressive: bool = False):
                 log.debug("scroll_to_bottom[aggressive]: final invalidate/idle failed: %s", e)
 
             _sample_viewdata(controller, tag="post")
+            if _SCROLL_DIAG:
+                log.info("[SCROLL-DIAG] scroll_to_bottom aggressive path complete (select + zoom + invalidate + idles done)")
         else:
             # Lightweight path: one final idle so the basic cursor movement has a chance,
             # but nothing that can trigger resize listeners and cause loops.
@@ -1475,6 +1507,9 @@ def scroll_to_bottom(doc, aggressive: bool = False):
                     toolkit.processEventsToIdle()
             except Exception:
                 pass
+
+            if _SCROLL_DIAG:
+                log.info("[SCROLL-DIAG] scroll_to_bottom lightweight path (resize/timer/debug caller)")
 
     except Exception as e:
         log.debug("scroll_to_bottom error: %s", e)
@@ -1512,6 +1547,7 @@ def append_rich_text(doc, text, role="assistant", auto_scroll=True):
 
         # Body content via HTML import
         cursor.gotoEnd(False)
+        cursor.CharWeight = 100.0  # Reset to normal after bold prefix
         pre_len = doc.CharacterCount
 
         if text and text.strip():
@@ -1536,8 +1572,40 @@ def append_rich_text(doc, text, role="assistant", auto_scroll=True):
             body_range.CharColor = user_color if role == "user" else assistant_color
             _tighten_list_indent(body_range)
 
+        if _SCROLL_DIAG:
+            try:
+                final_len = doc.CharacterCount
+                log.info("[SCROLL-DIAG] append_rich_text: pre=%d post=%d role=%s auto_scroll=%s → calling scroll_to_bottom(aggressive=True)",
+                         pre_len, final_len, role, auto_scroll)
+            except Exception:
+                pass
+
         if auto_scroll:
             scroll_to_bottom(doc, aggressive=True)
+
+            # Next experiment (2026-05-26, based on [SCROLL-DIAG] logs from first logging pass):
+            # Even with aggressive=True (select + zoom flicker + invalidate + idles) the visual
+            # viewport often fails to follow during streaming or after the final HTML rerender.
+            # Logs showed: Y sometimes not advancing on the post sample for that call, plus a storm
+            # of on_window_resized lightweight scrolls interleaving. Scrollbar surfaces never found.
+            # Simplest next "one thing at a time" (Method C variant): after a real content append's
+            # first aggressive scroll, schedule one short post-layout aggressive kick. This re-uses
+            # the exact timer + post_to_main_thread pattern already used in rerender_rich_text_session.
+            # Only active under _SCROLL_DIAG so it is pure experiment logging + one extra behavior
+            # we can turn off instantly. Delay chosen small (80 ms) to be after immediate layout
+            # but before user would notice lag.
+            if _SCROLL_DIAG:
+                log.info("[SCROLL-DIAG] scheduling 80ms post-layout aggressive follow-up scroll (after append_rich_text)")
+                import threading
+                from plugin.framework.queue_executor import post_to_main_thread
+                def _followup_scroll():
+                    try:
+                        scroll_to_bottom(doc, aggressive=True)
+                    except Exception:
+                        pass
+                t = threading.Timer(0.08, lambda: post_to_main_thread(_followup_scroll))
+                t.daemon = True
+                t.start()
 
     except Exception as e:
         log.exception("Error in append_rich_text: %s", e)
@@ -1554,10 +1622,40 @@ def append_text_chunk(doc, text, auto_scroll=True):
         cursor.gotoEnd(False)
         bg_color, user_color, assistant_color = get_theme_colors(doc)
         cursor.CharColor = assistant_color
+        pre_len = doc.CharacterCount
         text_obj.insertString(cursor, text, False)
+        post_len = doc.CharacterCount
         log.debug("append_text_chunk: inserted %d chars, auto_scroll=%s", len(text), auto_scroll)
+
+        if _SCROLL_DIAG:
+            log.info("[SCROLL-DIAG] append_text_chunk: pre=%d post=%d len_delta=%d auto_scroll=%s → calling scroll_to_bottom(aggressive=True)",
+                     pre_len, post_len, len(text), auto_scroll)
 
         if auto_scroll:
             scroll_to_bottom(doc, aggressive=True)
+
+            # Next experiment (2026-05-26, based on [SCROLL-DIAG] logs from first logging pass):
+            # Even with aggressive=True (select + zoom flicker + invalidate + idles) the visual
+            # viewport often fails to follow during streaming or after the final HTML rerender.
+            # Logs showed: Y sometimes not advancing on the post sample for that call, plus a storm
+            # of on_window_resized lightweight scrolls interleaving. Scrollbar surfaces never found.
+            # Simplest next "one thing at a time" (Method C variant): after a real content append's
+            # first aggressive scroll, schedule one short post-layout aggressive kick. This re-uses
+            # the exact timer + post_to_main_thread pattern already used in rerender_rich_text_session.
+            # Only active under _SCROLL_DIAG so it is pure experiment logging + one extra behavior
+            # we can turn off instantly. Delay chosen small (80 ms) to be after immediate layout
+            # but before user would notice lag.
+            if _SCROLL_DIAG:
+                log.info("[SCROLL-DIAG] scheduling 80ms post-layout aggressive follow-up scroll (after append_text_chunk)")
+                import threading
+                from plugin.framework.queue_executor import post_to_main_thread
+                def _followup_scroll():
+                    try:
+                        scroll_to_bottom(doc, aggressive=True)
+                    except Exception:
+                        pass
+                t = threading.Timer(0.08, lambda: post_to_main_thread(_followup_scroll))
+                t.daemon = True
+                t.start()
     except Exception as e:
         log.exception("Error in append_text_chunk: %s", e)

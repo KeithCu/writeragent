@@ -111,7 +111,7 @@ class BatchingStreamQueue:
 
     Typical usage:
         raw_q = queue.Queue()
-        batched = BatchingStreamQueue(raw_q)
+        batched = BatchingStreamQueue(raw_q, batch_interval=1.0)
         ...
         # pass batched.content_cb() as append_callback to the LLM client
         # or to any code that used to do lambda t: q.put((CHUNK, t))
@@ -123,7 +123,7 @@ class BatchingStreamQueue:
         #  which does the flush for you)
     """
 
-    def __init__(self, raw_q: queue.Queue[Any], batch_interval: float = 0.25):
+    def __init__(self, raw_q: queue.Queue[Any], batch_interval: float):
         self._raw = raw_q
         self._interval = batch_interval
         self._content_buf: list[str] = []

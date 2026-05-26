@@ -83,7 +83,7 @@ log = logging.getLogger(__name__)
 # of each burst ("send data every N ms max, or when done" / flush on boundary).
 # Change this one constant to experiment with different smoothing cadences.
 # 0.25 = 250 ms (current recommended default for "leisurely but still alive" feel).
-CHAT_STREAM_BATCH_INTERVAL = 0.25  # seconds
+CHAT_STREAM_BATCH_INTERVAL = 1.0  # seconds
 
 
 class ToolLoopHost(Protocol):
@@ -591,7 +591,7 @@ class ToolCallingMixin:
 
         elif isinstance(effect, SpawnLLMWorkerEffect):
             self._refresh_active_tools_for_session()
-            self._spawn_llm_worker(self._active_q, self._active_client, self._active_max_tokens, self._active_tools, effect.round_num, query_text=self._active_query_text)
+            self._spawn_llm_worker(self._active_batched_q or self._active_q, self._active_client, self._active_max_tokens, self._active_tools, effect.round_num, query_text=self._active_query_text)
 
         elif isinstance(effect, UpdateActivityStateEffect):
             if effect.action == "tool_execute":
