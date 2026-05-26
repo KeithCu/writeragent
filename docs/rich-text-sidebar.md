@@ -113,85 +113,67 @@ The pattern mirrors the good examples that already existed (grammar document lis
 
 See also: AGENTS.md (double-dispose, streaming drain, UNO ctx rules), `docs/streaming-and-threading.md`, and the grammar persistence teardown as the prior art for document-scoped listeners.
 
-### 2026-06 Persistent Signal 11 on Writer Exit — Investigation & Resolution
+### 2026-06 Shutdown Lifecycle — Investigation & Current Status
 
-**Final Status (late May 2026):** The crash has been resolved in testing. The root cause was fragile lifetime management of an embedded `XFrame` + `swriter` document inside a sidebar panel. The winning strategy was to tie disposal primarily to the **host document's lifecycle** rather than sidebar UI hooks.
+#### The Fundamental Problem
 
-#### Executive Summary for Senior Reviewers
+The rich-text sidebar hosts a complete embedded Writer document (`XFrame` + `private:factory/swriter` + container window) parented to the sidebar's VCL dialog via `toolkit.createWindow` using the root window's peer. During `DeInitVCL`, the parent `VclBuilder` dialog begins destruction while the child frame/document may still be alive, producing use-after-free crashes (Signal 11) in `Window::dispose`.
 
-The rich-text sidebar hosts a complete embedded Writer document (`XFrame` + `private:factory/swriter` + container window) parented to the sidebar's VCL dialog via `toolkit.createWindow` using the root window's peer. During `DeInitVCL`, the parent `VclBuilder` dialog could begin destruction while the child frame/document were still alive, producing use-after-free crashes in `Window::dispose`.
+#### The Timing Dilemma (Unsolved)
 
-Standard sidebar disposal mechanisms (`ChatPanelElement.disposing`, `SendButtonListener` rich-text paths, `EmbeddedWriterListener` as `XWindowListener`, and even `on_window_hidden`) proved unreliable or too late in the exact shutdown sequences that mattered. The reliable hook turned out to be `XDocumentEventListener` events (`OnPrepareUnload` / `OnUnload`) on the **host document model** itself.
+Every available disposal hook fires at the wrong time:
 
-Key defensive techniques that proved essential:
-- Peer liveness check (`container_window.getPeer()`) before touching VCL objects.
-- Strict shutdown ordering (close `XFrame` first).
-- Centralized disposal logic.
+| Hook | When it fires | Problem |
+|------|---------------|---------|
+| `on_window_hidden` | When sidebar is hidden (including for modal dialogs) | Fires when LO shows the save dialog on close. If user cancels, sidebar comes back but editor is destroyed. |
+| `OnPrepareUnload` (XDocumentEventListener) | Before the save dialog | Same problem as `on_window_hidden` — fires before the user confirms close. Canceling leaves the editor gone. The peer is already dead by this point too. |
+| `OnUnload` (XDocumentEventListener) | After save dialog, during unload | Too late — VCL teardown already underway. `frame.close(True)` crashes. |
+| Model `disposing()` (XEventListener on doc model) | When document model is being destroyed | Too late — same crash as OnUnload. |
+| `EmbeddedWriterListener.disposing()` (XWindowListener) | When the listener's source is being disposed | Unreliable — often never delivered in crashing close paths. |
+| `ChatPanelElement.disposing` | Sidebar panel lifecycle | Unreliable — not delivered before VCL teardown in many sequences. |
 
-#### Instrumentation That Made Diagnosis Possible
+**Key observation from logs:** `container_window.getPeer()` is already `False` (peer dead) by the time `OnPrepareUnload` fires. VCL destroys the sidebar panel's native window structure *before* asking the user about saving.
 
-Two log prefixes were added for easy grepping during the investigation:
+#### What Was Tried (May 2026 Investigation)
 
+1. **`on_window_hidden` as proactive disposal** — Prevented the crash but caused a user-facing bug: clicking Close → Cancel on the save dialog left the sidebar with a destroyed editor.
+
+2. **`OnPrepareUnload` as primary trigger** — Same behavior as `on_window_hidden` — fires before the save dialog resolves.
+
+3. **`OnPrepareUnload` with re-creation on `on_window_shown`** — After disposing on `OnPrepareUnload`, attempted to re-create the embedded editor if `on_window_shown` fired (indicating user canceled). Failed because `on_window_shown` is never delivered after the cancel — the peer was already dead and LO doesn't re-fire window events.
+
+4. **Only model `disposing()` (no document events)** — Crashes (Signal 11) because by that point calling `frame.close(True)` hits dead VCL objects.
+
+5. **Skip all close/dispose when peer is dead (just null refs)** — Crashes. Even without our explicit close calls, VCL's own `VclBuilder::disposeBuilder` hits the still-registered child window during `DeInitVCL`.
+
+#### Why "Just Let GC Handle It" Doesn't Work
+
+Python GC releasing references to UNO objects doesn't control C++ VCL window lifetimes. The embedded container window remains registered in VCL's window tree via the parent relationship established by `toolkit.createWindow`. During `DeInitVCL`, `VclBuilder::disposeBuilder` walks child windows — if the child's internal state is inconsistent (partially torn down), Signal 11 occurs.
+
+#### Current State (Accepted Trade-off)
+
+- **`on_window_hidden`** — no-op. Does not dispose.
+- **`documentEventOccured`** — no-op. Does not react to `OnPrepareUnload` or `OnUnload`.
+- **`disposing()` safety net** — still calls `_initiate_disposal()` → `_dispose_embedded_objects()` which closes frame/doc only if peer is alive, skips container_window if peer is dead.
+- **Accepted behavior:** Signal 11 may occur on Writer exit with the rich-text sidebar enabled. The file is already saved by that point so no data loss occurs.
+
+#### Ideas for Future Resolution
+
+1. **LibreOffice patch:** Register a `VclEventId::WindowClose` or `VclEventId::ObjectDying` handler at the VCL level (C++ side) that detaches the child frame before `VclBuilder` destruction. This would require an LO core change.
+
+2. **Avoid `toolkit.createWindow` parenting entirely:** Use a top-level borderless window positioned over the sidebar area (the "floating sticker" approach from Strategy 3 in the archive below). Eliminates the parent-child VCL relationship that causes the crash.
+
+3. **Intercept the close at the UI dispatch level:** Register a `XDispatchProviderInterceptor` on `.uno:CloseDoc` / `.uno:Quit` to do cleanup before LO begins its close sequence. This might fire early enough (before any VCL teardown) and after the user has already confirmed via the save dialog.
+
+4. **XTerminateListener:** Register on the Desktop's `XDesktop` interface. `queryTermination()` is called before close begins and can be vetoed. Could do cleanup there. However, this fires per-application (not per-document) and may have ordering issues with the sidebar.
+
+5. **XCloseListener on the host document:** `queryClosing()` is called before the document is closed and can be vetoed. This fires before `OnPrepareUnload` and before the save dialog. Could dispose embedded objects and allow close to proceed, but has the same cancel problem unless we can detect the save dialog result.
+
+#### Instrumentation
+
+Two log prefixes remain for diagnosis:
 - `[RICH-LIFECYCLE]` — creation, wiring, and normal runtime events.
 - `[RICH-SHUTDOWN]` — every entry into a disposal path and the state at that moment.
-
-This made it immediately obvious that creation always succeeded, but virtually no shutdown hooks were being delivered in the crashing close sequences.
-
-#### Why Sidebar UI Hooks Were Insufficient
-
-Repeated repros showed that in the failing close paths (often involving the Python editor), none of the following were observed before the segfault:
-
-- `on_window_hidden` on `EmbeddedWriterListener`
-- `ChatPanelElement.disposing`
-- Rich-text disposal block in `SendButtonListener.disposing`
-- `EmbeddedWriterListener.disposing` (via its `XEventListener` registration)
-
-This is consistent with the fact that `DeInitVCL` can tear down VCL windows and `VclBuilder` dialogs in ways that bypass normal `XWindowListener` and `XUIElement` notification for child content.
-
-#### What Finally Worked — The Document Event Listener Strategy
-
-The successful approach (implemented in the May 26 "prevent crashes on shutdown" changes) is:
-
-1. Pass the host document model into `EmbeddedWriterListener` at construction time (from `panel_wiring.py`).
-2. Register a small `XDocumentEventListener` (`SidebarDocumentEventListener`) on that model.
-3. On `OnPrepareUnload` or `OnUnload` (or the model's `disposing`), call the listener's `disposing()` method.
-4. All real teardown funnels through a single `_initiate_disposal(reason)` helper that:
-   - Removes the `XWindowListener` registration.
-   - Sets the `_disposed` guard.
-   - Calls `_dispose_embedded_objects()`.
-5. `_dispose_embedded_objects()` always attempts frame → document → container, but skips the container window if its GUI peer is already dead.
-
-Additional protective measures kept:
-- `on_window_hidden` still triggers proactive disposal (useful for normal sidebar hide scenarios).
-- The original `disposing()` path remains as a final safety net.
-- Peer-alive guard before touching the container window.
-
-#### Evolution of the Code (Summary)
-
-- Early attempts relied purely on sidebar UI disposal hooks → insufficient.
-- Added `on_window_hidden` path + heavy logging → revealed that the event often wasn't delivered either.
-- Breakthrough: switched primary trigger to the host document's `XDocumentEventListener`.
-- Cleanup phase: extracted `_initiate_disposal()` to eliminate duplication, demoted noisy creation logs to DEBUG, condensed historical comments, added clarifying documentation.
-
-The final architecture treats the embedded frame/document as a resource whose lifetime should be tied more closely to the document it belongs to than to the transient sidebar UI chrome.
-
-#### Lessons & Recommendations
-
-- **Document model events are more reliable than sidebar panel events** for resources that must outlive the visible UI but must die before full VCL teardown.
-- **Always guard VCL peer operations** during shutdown. A dead peer is one of the fastest ways to get a Signal 11 in late `DeInitVCL`.
-- **Centralize disposal logic.** Having one `_initiate_disposal` method made the multiple trigger paths manageable and auditable.
-- The heavy `[RICH-LIFECYCLE]` / `[RICH-SHUTDOWN]` instrumentation was invaluable. It should be easy to re-enable (or left at DEBUG level) for any future lifetime-sensitive changes in this area.
-- The invariant "our child VCL objects must be gone before the parent dialog's VclBuilder starts destroying windows" is now the guiding principle for this code.
-
-#### Current State (Recommended)
-
-- Primary disposal: host document `XDocumentEventListener`.
-- Proactive: `on_window_hidden`.
-- Safety net: `disposing()`.
-- All paths go through the same guarded, ordered teardown with peer checks.
-- Logging remains (mostly at DEBUG for lifecycle, INFO for actual shutdown actions).
-
-The feature can now be used with `rich_text_sidebar=true` without triggering the previous shutdown crashes in tested scenarios.
 
 ---
 

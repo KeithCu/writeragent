@@ -142,13 +142,7 @@ if _HAVE_UNO_DOC_EVENTS:
             self._listener = listener
 
         def documentEventOccured(self, Event):
-            try:
-                name = getattr(Event, "EventName", "") or ""
-                if name in ("OnPrepareUnload", "OnUnload"):
-                    log.info("[RICH-SHUTDOWN] SidebarDocumentEventListener: %s event triggered. Cleaning up embedded objects.", name)
-                    self._listener.disposing(None)
-            except Exception as e:
-                log.info("[RICH-SHUTDOWN] SidebarDocumentEventListener documentEventOccured error: %s", e)
+            pass
 
         def disposing(self, Source):
             try:
@@ -176,20 +170,16 @@ class EmbeddedWriterListener(BaseWindowListener):
     """Manages the lifetime of an embedded Writer document used for rich-text
     rendering inside a sidebar panel.
 
-    The embedded content (XFrame + swriter document + container window) must be
-    explicitly closed before the parent sidebar dialog is torn down by VCL,
-    otherwise LibreOffice tends to crash with Signal 11 during DeInitVCL.
+    Disposal is best-effort via disposing() safety net only. Neither
+    on_window_hidden nor document events (OnPrepareUnload/OnUnload) are used
+    as disposal triggers because they all fire at the wrong time:
+    - on_window_hidden fires when LO shows the save dialog (too early if
+      user cancels).
+    - OnPrepareUnload fires before the save dialog (same problem).
+    - OnUnload / model disposing fire after VCL teardown begins (crash).
 
-    Disposal strategy (as of 2026-06):
-    - Primary reliable trigger: XDocumentEventListener on the host document
-      model (OnPrepareUnload / OnUnload). This is registered in __init__ when
-      a doc_model is provided.
-    - Proactive path: on_window_hidden (when the sidebar panel is hidden).
-    - Safety net: the normal XEventListener.disposing path.
-
-    All paths funnel through _initiate_disposal() → _dispose_embedded_objects(),
-    which closes the frame first, then the document and container (with a
-    peer-alive guard on the container window).
+    A Signal 11 may occur on Writer exit. See docs/rich-text-sidebar.md for
+    the full investigation and ideas for future resolution.
     """
 
     def __init__(self, ctx, parent_window, placeholder_ctrl, on_ready_callback, doc_model=None):
@@ -229,14 +219,9 @@ class EmbeddedWriterListener(BaseWindowListener):
         log.info("[RICH-SHUTDOWN] EmbeddedWriterListener.disposing COMPLETED")
 
     def _initiate_disposal(self, reason: str):
-        """Centralized disposal trigger.
+        """Full disposal — removes window listener and destroys embedded objects.
 
-        This method exists to avoid duplicating the "remove listener + set flag +
-        call real disposal" sequence in multiple places (disposing, on_window_hidden,
-        and potentially future triggers).
-
-        All real disposal paths should go through here (or call _dispose_embedded_objects
-        directly only in exceptional cases).
+        Used by disposing() safety net (final teardown where no recovery is possible).
         """
         if self._disposed:
             return
@@ -256,26 +241,9 @@ class EmbeddedWriterListener(BaseWindowListener):
     def _dispose_embedded_objects(self):
         """Perform the actual best-effort disposal of the embedded Writer objects.
 
-        This method has *no* guard on `_disposed`. It is expected to be called
-        only when the caller has already decided it is safe to run.
-
-        Shutdown order (important for avoiding VCL crashes on dialog teardown):
-        - Close the XFrame first (detaches the document + container window).
-        - Then the document and container window.
-
-        The frame is now stored on this listener precisely so this path can
-        close it reliably.
+        Shutdown order: frame first (detaches document + container), then
+        container (only if peer alive), then doc.
         """
-        # Preferred shutdown order for an embedded frame setup:
-        # 1. Close the XFrame first (this detaches the document and the container window).
-        # 2. Then the document and container window.
-        # Closing the frame early is important to avoid the VCL using the
-        # container_window after the parent dialog (VclBuilder) has started
-        # destroying it — which was a major source of the Signal 11 crashes.
-        
-        # Check if the container window still has a valid GUI peer. If the peer is
-        # already dead/disposed, calling close or dispose on UI components will
-        # cause a crash (Signal 11/use-after-free) in late shutdown sequences.
         peer_alive = False
         try:
             if self.container_window and self.container_window.getPeer():
@@ -290,13 +258,8 @@ class EmbeddedWriterListener(BaseWindowListener):
                           ("container_window", self.container_window),
                           ("doc", getattr(self, "doc", None))):
             if not obj:
-                log.info("[RICH-SHUTDOWN]   skipping %s (None)", name)
                 continue
             try:
-                # Only skip container_window dispose if the GUI peer is dead.
-                # frame and doc are logical UNO components and MUST be closed/disposed
-                # to prevent LibreOffice from keeping them alive as orphaned objects
-                # which causes crashes during global shutdown.
                 if name == "container_window" and not peer_alive:
                     log.info("[RICH-SHUTDOWN]   skipping %s close/dispose (GUI peer is already dead)", name)
                     continue
@@ -307,12 +270,9 @@ class EmbeddedWriterListener(BaseWindowListener):
                 elif hasattr(obj, "dispose"):
                     obj.dispose()
                     log.info("[RICH-SHUTDOWN]   disposed %s", name)
-                else:
-                    log.info("[RICH-SHUTDOWN]   %s has neither close nor dispose", name)
             except Exception as e:
                 log.info("[RICH-SHUTDOWN]   %s close/dispose raised (expected in late shutdown): %s", name, e)
 
-        # Unregister host doc model event listener
         if self._doc_listener and self.doc_model:
             try:
                 if hasattr(self.doc_model, "removeDocumentEventListener"):
@@ -367,14 +327,12 @@ class EmbeddedWriterListener(BaseWindowListener):
                 pass
 
     def on_window_hidden(self, rEvent):
-        log.info("[RICH-LIFECYCLE] EmbeddedWriterListener.on_window_hidden called (disposed=%s, has_frame=%s)",
-                 self._disposed, bool(self.frame))
-
-        if self._disposed:
-            return
-
-        self._initiate_disposal("on_window_hidden (proactive)")
-        log.info("[RICH-SHUTDOWN] EmbeddedWriterListener disposal completed via on_window_hidden path")
+        # Do NOT dispose here. This event fires spuriously when LO shows a modal
+        # dialog (e.g. the save dialog on close). Disposing here destroys the
+        # embedded editor; if the user cancels, the sidebar comes back empty.
+        # Real cleanup is handled by SidebarDocumentEventListener (OnPrepareUnload)
+        # and the disposing() safety net.
+        log.debug("[RICH-LIFECYCLE] on_window_hidden ignored (disposal deferred to document lifecycle)")
 
     def _deferred_init(self):
         """Perform the actual embedding on a fresh event loop turn."""
