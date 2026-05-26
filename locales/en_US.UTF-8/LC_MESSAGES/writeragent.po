@@ -19,21 +19,21 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require sub-agent delegation (USE_SUB_AGENT). Enable"
-" sub-agents in configuration."
+"Document research reads require sub-agent delegation (USE_SUB_AGENT). Enable "
+"sub-agents in configuration."
 msgstr ""
-"Document research reads require sub-agent delegation (USE_SUB_AGENT). Enable"
-" sub-agents in configuration."
+"Document research reads require sub-agent delegation (USE_SUB_AGENT). Enable "
+"sub-agents in configuration."
 
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
-" call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
+"call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
-" call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
+"call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 
 #: plugin/notebook/import_dialog.py
@@ -197,8 +197,7 @@ msgstr "This model takes more time than your current configuration."
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid ""
-"Please try another model. {0} would take more time than you configured."
+msgid "Please try another model. {0} would take more time than you configured."
 msgstr ""
 "Please try another model. {0} would take more time than you configured."
 
@@ -283,8 +282,7 @@ msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
 msgstr "Request Timed Out. Try increasing 'Request Timeout' in Settings."
 
 #: plugin/framework/errors.py
-msgid ""
-"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 
@@ -316,11 +314,9 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try "
-"me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
 msgstr ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try "
-"me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
 
 #: plugin/framework/constants.py
 msgid ""
@@ -388,12 +384,12 @@ msgstr "WriterAgent: Extend Selection (Calc)"
 #: plugin/calc/python_editor.py
 msgid ""
 "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\";"
-" A1:B10)."
+"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\"; "
+"A1:B10)."
 msgstr ""
 "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\";"
-" A1:B10)."
+"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\"; "
+"A1:B10)."
 
 #: plugin/calc/python_editor.py
 msgid "Python cell editor"
@@ -707,8 +703,7 @@ msgstr "[Agent backend '{0}' not found.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid ""
-"[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Agent backend '{0}' is not available. Check Settings (path, install).]"
 
@@ -1199,11 +1194,11 @@ msgid "Path / URL"
 msgstr "Path / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
-"http://localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
+"localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
-"http://localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
+"localhost:8000 for Hermes). Empty = try default."
 
 msgid "Extra arguments"
 msgstr "Extra arguments"
@@ -1261,8 +1256,7 @@ msgid "Edit Selection Extra Tokens"
 msgstr "Edit Selection Extra Tokens"
 
 msgid "Extra tokens beyond original text length. 0 = same length as original."
-msgstr ""
-"Extra tokens beyond original text length. 0 = same length as original."
+msgstr "Extra tokens beyond original text length. 0 = same length as original."
 
 msgid "Show Web Search Thinking"
 msgstr "Show Web Search Thinking"
@@ -1299,12 +1293,12 @@ msgstr "Enable AI grammar checker (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
-" after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
+"after you pause typing. Off by default."
 msgstr ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
-" after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
+"after you pause typing. Off by default."
 
 msgid "Grammar check model (optional)"
 msgstr "Grammar check model (optional)"
@@ -1369,11 +1363,11 @@ msgid "Enable MCP Server"
 msgstr "Enable MCP Server"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
-" HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
+"HTTP)."
 msgstr ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
-" HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
+"HTTP)."
 
 msgid "MCP Port"
 msgstr "MCP Port"
@@ -1422,11 +1416,11 @@ msgid "Max Calc data cells"
 msgstr "Max Calc data cells"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
-" values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
+"values use more RAM and time; UNO range read still dominates."
 msgstr ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
-" values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
+"values use more RAM and time; UNO range read still dominates."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer document tools (including navigation and search)"

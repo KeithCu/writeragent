@@ -396,9 +396,8 @@ msgstr ""
 "kuten =PYTHON(\"koodi\"; A1:B10)."
 
 #: plugin/calc/python_editor.py
-#, fuzzy
 msgid "Python cell editor"
-msgstr "PYTHON-solueditori"
+msgstr "Python-solueditori"
 
 #: plugin/calc/python_editor.py
 msgid "Save as plain text"
