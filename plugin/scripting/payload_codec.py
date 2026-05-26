@@ -85,7 +85,7 @@ PAYLOAD_MULTI_DATA = "multi_data"
 """Multiple Calc ranges: list of split_grid or nested-list payloads."""
 
 PAYLOAD_IMAGE = "image"
-"""Matplotlib figure or other visualization serialized as PNG bytes."""
+"""Matplotlib figure or other visualization serialized as SVG or PNG bytes."""
 
 # --- When to use binary envelope (default: at least 100 cells) -----------------------
 

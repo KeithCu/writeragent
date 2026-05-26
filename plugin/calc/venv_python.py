@@ -154,8 +154,10 @@ class RunVenvPythonScript(ToolCalcPythonBase):
 
         result = res.get("result")
         if res.get("status") == "ok" and is_image_payload(result):
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
-                img = cast("dict[str, Any]", result)
+            img = cast("dict[str, Any]", result)
+            fmt = img.get("format", "png")
+            suffix = ".svg" if fmt == "svg" else ".png"
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
                 tmp.write(img["data"])
                 tmp_path = tmp.name
             return {"status": "ok", "message": "Plot generated", "image_path": os.path.abspath(tmp_path)}

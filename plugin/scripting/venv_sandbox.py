@@ -132,14 +132,22 @@ def serialize_result(obj: Any) -> Any:
         raise
 
 
-def _figure_to_image_payload(fig: Any) -> dict[str, Any]:
-    """Render a matplotlib Figure to PNG bytes wrapped in an image payload envelope."""
+def _figure_to_image_payload(fig: Any, *, fmt: str = "svg") -> dict[str, Any]:
+    """Render a matplotlib Figure to an image payload envelope.
+
+    *fmt* ``"svg"`` (default) produces resolution-independent vector graphics that
+    render crisply at any zoom in LibreOffice Calc/Writer.  ``"png"`` produces a
+    150 DPI raster, preferred when the consumer cannot handle SVG (e.g. chat HTML).
+    """
     import io
 
     buf = io.BytesIO()
-    fig.savefig(buf, format="png", bbox_inches="tight", dpi=150)
+    if fmt == "svg":
+        fig.savefig(buf, format="svg", bbox_inches="tight")
+    else:
+        fig.savefig(buf, format="png", bbox_inches="tight", dpi=150)
     buf.seek(0)
-    return {"__wa_payload__": "image", "format": "png", "data": buf.read()}
+    return {"__wa_payload__": "image", "format": fmt, "data": buf.read()}
 
 
 def _serialize_result_impl(obj: Any) -> Any:

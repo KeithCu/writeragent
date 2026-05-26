@@ -17,6 +17,10 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """General utilities for Calc tools."""
 
+from __future__ import annotations
+
+from typing import Any, Tuple
+
 from plugin.framework.errors import UnoObjectError
 
 
@@ -31,3 +35,20 @@ def resolve_sheet(doc, sheet_name=None):
     if hasattr(controller, "getActiveSheet"):
         return controller.getActiveSheet()
     return doc.getSheets().getByIndex(0)
+
+
+def get_cell_geometry(sheet: Any, cell: Any) -> Tuple[Any, Any]:
+    """Return (Position, Size) for *cell*, collapsing merged areas to get correct coordinates.
+
+    Standard ``cell.Position`` / ``cell.Size`` return the top-left sub-cell geometry
+    when cells are merged, which is wrong for overlay placement.  This helper detects
+    the merge and asks for the full merged area's geometry instead.
+    """
+    try:
+        if getattr(cell, "IsMerged", False):
+            cursor = sheet.createCursorByRange(cell)
+            cursor.collapseToMergedArea()
+            return cursor.Position, cursor.Size
+    except Exception:
+        pass
+    return cell.Position, cell.Size

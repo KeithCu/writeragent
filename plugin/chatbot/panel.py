@@ -1156,13 +1156,19 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                     log.info("[RICH-SHUTDOWN]   rich_listener.disposing raised: %s", e)
                 self._rich_listener = None
 
-            # Defensive nulling of our local references.
-            #
-            # The real close/disposal work is performed by EmbeddedWriterListener
-            # (via the document model event listener + on_window_hidden + this
-            # safety-net disposing call). This loop is now mostly belt-and-suspenders
-            # and just clears our cached handles.
-            for attr in ("embedded_doc", "embedded_frame", "embedded_container"):
+            # Best-effort close/dispose of our local embedded refs.
+            # Frame first, then doc, then container — matching the shutdown
+            # order in EmbeddedWriterListener._dispose_embedded_objects().
+            for attr in ("embedded_frame", "embedded_doc", "embedded_container"):
+                obj = getattr(self, attr, None)
+                if obj is not None:
+                    try:
+                        if hasattr(obj, "close"):
+                            obj.close(True)
+                        elif hasattr(obj, "dispose"):
+                            obj.dispose()
+                    except Exception:
+                        pass
                 setattr(self, attr, None)
             self._cached_scrollbar = None
         except Exception as e:

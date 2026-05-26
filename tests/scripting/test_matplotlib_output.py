@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Tests for matplotlib figure detection, PNG serialization, and image payload codec."""
+"""Tests for matplotlib figure detection, SVG/PNG serialization, and image payload codec."""
 
 from __future__ import annotations
 
@@ -23,8 +23,13 @@ PNG_MAGIC = b"\x89PNG"
 # ---------------------------------------------------------------------------
 
 
-def test_is_image_payload_valid():
+def test_is_image_payload_valid_png():
     payload = {"__wa_payload__": "image", "format": "png", "data": b"\x89PNG\r\n\x1a\nfake"}
+    assert is_image_payload(payload) is True
+
+
+def test_is_image_payload_valid_svg():
+    payload = {"__wa_payload__": "image", "format": "svg", "data": b"<svg xmlns=...></svg>"}
     assert is_image_payload(payload) is True
 
 
@@ -65,13 +70,31 @@ def test_host_unpack_data_passthrough():
 # ---------------------------------------------------------------------------
 
 
-def test_figure_to_image_payload():
+def test_figure_to_image_payload_svg_default():
+    """Default format is SVG for crisp rendering in LibreOffice."""
     plt = pytest.importorskip("matplotlib.pyplot")
     from plugin.scripting.venv_sandbox import _figure_to_image_payload
 
     fig, ax = plt.subplots()
     ax.plot([1, 2, 3])
     payload = _figure_to_image_payload(fig)
+    plt.close(fig)
+
+    assert payload["__wa_payload__"] == PAYLOAD_IMAGE
+    assert payload["format"] == "svg"
+    assert isinstance(payload["data"], bytes)
+    assert b"<svg" in payload["data"]
+    assert is_image_payload(payload) is True
+
+
+def test_figure_to_image_payload_png_explicit():
+    """Explicit fmt='png' produces a PNG raster."""
+    plt = pytest.importorskip("matplotlib.pyplot")
+    from plugin.scripting.venv_sandbox import _figure_to_image_payload
+
+    fig, ax = plt.subplots()
+    ax.plot([1, 2, 3])
+    payload = _figure_to_image_payload(fig, fmt="png")
     plt.close(fig)
 
     assert payload["__wa_payload__"] == PAYLOAD_IMAGE
@@ -82,6 +105,7 @@ def test_figure_to_image_payload():
 
 
 def test_serialize_result_figure():
+    """serialize_result produces an SVG image payload by default."""
     plt = pytest.importorskip("matplotlib.pyplot")
     from plugin.scripting.venv_sandbox import serialize_result
 
@@ -91,7 +115,8 @@ def test_serialize_result_figure():
     plt.close(fig)
 
     assert is_image_payload(result)
-    assert result["data"][:4] == PNG_MAGIC
+    assert result["format"] == "svg"
+    assert b"<svg" in result["data"]
 
 
 # ---------------------------------------------------------------------------
@@ -100,7 +125,7 @@ def test_serialize_result_figure():
 
 
 def test_plt_show_capture():
-    """plt.show() with no explicit result assignment should produce an image payload."""
+    """plt.show() with no explicit result assignment should produce an SVG image payload."""
     pytest.importorskip("matplotlib")
     from plugin.scripting.venv_sandbox import run_sandboxed_code
 
@@ -110,11 +135,12 @@ def test_plt_show_capture():
     )
     assert res["status"] == "ok"
     assert is_image_payload(res["result"])
-    assert res["result"]["data"][:4] == PNG_MAGIC
+    assert res["result"]["format"] == "svg"
+    assert b"<svg" in res["result"]["data"]
 
 
 def test_explicit_figure_result():
-    """result = fig should produce an image payload via serialize_result."""
+    """result = fig should produce an SVG image payload via serialize_result."""
     pytest.importorskip("matplotlib")
     from plugin.scripting.venv_sandbox import run_sandboxed_code
 
@@ -124,7 +150,8 @@ def test_explicit_figure_result():
     )
     assert res["status"] == "ok"
     assert is_image_payload(res["result"])
-    assert res["result"]["data"][:4] == PNG_MAGIC
+    assert res["result"]["format"] == "svg"
+    assert b"<svg" in res["result"]["data"]
 
 
 def test_non_matplotlib_code_unaffected():

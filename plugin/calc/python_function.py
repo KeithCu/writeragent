@@ -184,13 +184,15 @@ def finalize_python_return(
 
 
 def _insert_image_result_on_sheet(ctx: Any, payload: dict[str, Any]) -> None:
-    """Write image payload PNG bytes to a temp file and insert as a shape on the active sheet."""
+    """Write image payload bytes to a temp file and insert as a cell-anchored shape on the active sheet."""
     import uno
     from com.sun.star.awt import Size
 
-    png_bytes = payload["data"]
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
-        tmp.write(png_bytes)
+    img_bytes = payload["data"]
+    fmt = payload.get("format", "png")
+    suffix = ".svg" if fmt == "svg" else ".png"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(img_bytes)
         tmp_path = tmp.name
 
     file_url = uno.systemPathToFileUrl(os.path.abspath(tmp_path))
@@ -198,12 +200,26 @@ def _insert_image_result_on_sheet(ctx: Any, payload: dict[str, Any]) -> None:
     desktop = smgr.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
     doc = desktop.getCurrentComponent()
     ctrl = doc.getCurrentController()
-    draw_page = ctrl.getActiveSheet().DrawPage
+    sheet = ctrl.getActiveSheet()
+    draw_page = sheet.DrawPage
 
     shape = doc.createInstance("com.sun.star.drawing.GraphicObjectShape")
     shape.setSize(Size(15000, 10000))
     draw_page.add(shape)
     shape.setPropertyValue("GraphicURL", file_url)
+
+    # Anchor the image to the active cell so it moves/scales with the grid.
+    try:
+        from plugin.calc.calc_utils import get_cell_geometry
+        selection = ctrl.getSelection()
+        if selection is not None:
+            addr = selection.getRangeAddress()
+            cell = sheet.getCellByPosition(addr.StartColumn, addr.StartRow)
+            _pos, cell_size = get_cell_geometry(sheet, cell)
+            shape.setPropertyValue("Anchor", cell)
+            shape.setPropertyValue("ResizeWithCell", True)
+    except Exception:
+        log.debug("_insert_image_result_on_sheet: could not anchor to cell", exc_info=True)
 
 
 def _format_error_for_display(exc: BaseException) -> str:
