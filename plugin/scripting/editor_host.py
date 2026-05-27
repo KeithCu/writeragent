@@ -2,28 +2,145 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Pipe bridge between LibreOffice and the Monaco editor child process."""
+"""Monaco editor host: spawn child process, pipe bridge, and session launch."""
 
 from __future__ import annotations
 
 import logging
+import os
 import select
+import subprocess
 import sys
 import threading
 import time
 from collections import deque
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 if TYPE_CHECKING:
-    import subprocess
+    import subprocess as subprocess_types
 
+from plugin.chatbot.dialogs import msgbox
+from plugin.framework.event_bus import global_event_bus
+from plugin.framework.i18n import _
 from plugin.framework.queue_executor import QueueExecutor, default_executor
 from plugin.framework.worker_pool import run_in_background
-from plugin.scripting.editor_diagnostics import exception_traceback
-from plugin.scripting.editor_protocol import message_type, read_message, write_message
-from plugin.framework.event_bus import global_event_bus
+from plugin.scripting.editor_ipc import (
+    exception_traceback,
+    failure_detail,
+    failure_message,
+    message_type,
+    read_message,
+    write_message,
+)
+from plugin.scripting.subprocess_helpers import scrub_subprocess_env, wrap_command_for_sandbox
+from plugin.scripting.venv_worker import resolve_venv_python
 
 log = logging.getLogger(__name__)
+
+# --- Launcher ---
+
+_EDITOR_MAIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "editor_main.py")
+_ASSETS_DIR = os.path.normpath(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "contrib", "scripting", "assets", "editor")
+)
+
+_WEBVIEW_PROBE_CODE = """\
+import sys
+import traceback
+try:
+    import webview
+    print(getattr(webview, "__file__", "ok"))
+except Exception:
+    traceback.print_exc()
+    sys.exit(1)
+"""
+
+
+def build_editor_child_env(*, assets_dir: str | None = None) -> dict[str, str]:
+    """Environment for editor subprocess (venv python + GUI session variables)."""
+    env = scrub_subprocess_env(dict(os.environ))
+    env["WRITERAGENT_EDITOR_ASSETS"] = assets_dir or _ASSETS_DIR
+    for key in ("DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "LD_LIBRARY_PATH"):
+        if key in os.environ and key not in env:
+            env[key] = os.environ[key]
+    return env
+
+
+def resolve_editor_python(uno_ctx: Any) -> tuple[str | None, str]:
+    """Return (venv python executable, error message). Monaco requires a user venv."""
+    from plugin.framework.config import get_config_str
+
+    venv_dir = get_config_str(uno_ctx, "scripting.python_venv_path").strip()
+    if not venv_dir:
+        return (
+            None,
+            "Set the Python venv path in WriterAgent Settings → Python (same venv where you ran "
+            "'pip install pywebview'). LibreOffice's built-in Python cannot run the Monaco editor.",
+        )
+    exe = resolve_venv_python(venv_dir)
+    if not exe:
+        return (
+            None,
+            f"No python executable found under configured venv: {venv_dir!r} "
+            "(expected bin/python, bin/python3, or bin/python3.x).",
+        )
+    return exe, ""
+
+
+_PROBE_CACHE: dict[str, tuple[bool, str]] = {}
+
+
+def probe_webview_import(exe: str) -> tuple[bool, str]:
+    """Return whether *exe* can ``import webview`` (pywebview package), with diagnostics (cached)."""
+    if exe in _PROBE_CACHE:
+        return _PROBE_CACHE[exe]
+    try:
+        r = subprocess.run(
+            wrap_command_for_sandbox([exe, "-c", _WEBVIEW_PROBE_CODE]),
+            capture_output=True,
+            timeout=30,
+            env=build_editor_child_env(),
+            text=True,
+        )
+    except (subprocess.TimeoutExpired, OSError) as e:
+        log.warning("probe_webview_import failed for %s: %s", exe, e, exc_info=True)
+        res = (False, failure_detail(exc=e))
+        _PROBE_CACHE[exe] = res
+        return res
+    detail = (r.stdout or "").strip()
+    if r.stderr:
+        detail = f"{detail}\n{r.stderr}".strip() if detail else r.stderr.strip()
+    if r.returncode == 0:
+        res = (True, detail)
+        _PROBE_CACHE[exe] = res
+        return res
+    if not detail:
+        detail = f"exit code {r.returncode}"
+    log.warning("probe_webview_import: %s returned %s: %s", exe, r.returncode, detail)
+    res = (False, detail)
+    _PROBE_CACHE[exe] = res
+    return res
+
+
+def spawn_editor_process(exe: str, *, assets_dir: str | None = None) -> subprocess.Popen[bytes]:
+    """Start editor_main.py with stdin/stdout pipes."""
+    env = build_editor_child_env(assets_dir=assets_dir)
+    popen_kw: dict[str, Any] = {
+        "stdin": subprocess.PIPE,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "env": env,
+        "text": False,
+        "bufsize": 0,
+    }
+    if sys.platform == "win32":
+        popen_kw["creationflags"] = subprocess.CREATE_NO_WINDOW
+    else:
+        popen_kw["preexec_fn"] = os.setsid
+    return cast("subprocess.Popen[bytes]", subprocess.Popen(wrap_command_for_sandbox([exe, _EDITOR_MAIN]), **popen_kw))
+
+
+# --- Pipe bridge ---
 
 _SESSION_LOCK = threading.RLock()
 _ACTIVE_SESSION: EditorSession | None = None
@@ -33,7 +150,7 @@ class PersistentEditor:
     """Manages a single Monaco editor subprocess and keeps it alive in the background."""
 
     def __init__(self) -> None:
-        self._proc: subprocess.Popen[bytes] | None = None
+        self._proc: subprocess_types.Popen[bytes] | None = None
         self._stdin_lock = threading.Lock()
         self._reader_thread: threading.Thread | None = None
         self._stderr_thread: threading.Thread | None = None
@@ -55,10 +172,10 @@ class PersistentEditor:
         return self._proc.poll() is None
 
     @property
-    def proc(self) -> subprocess.Popen[bytes] | None:
+    def proc(self) -> subprocess_types.Popen[bytes] | None:
         return self._proc
 
-    def start(self, proc: subprocess.Popen[bytes]) -> None:
+    def start(self, proc: subprocess_types.Popen[bytes]) -> None:
         """Start the reader thread for the spawned process."""
         self._proc = proc
         self._ready_event.clear()
@@ -218,7 +335,7 @@ class PersistentEditor:
         except Exception:
             log.exception("Editor pipe reader failed")
         finally:
-            log.info("editor_bridge: persistent reader loop finished.")
+            log.info("editor_host: persistent reader loop finished.")
             self._handle_disconnect()
 
     def _read_loop_select(self, stdout: Any) -> None:
@@ -319,7 +436,7 @@ class EditorSession:
 
     def __init__(
         self,
-        proc: "subprocess.Popen[bytes]",
+        proc: "subprocess_types.Popen[bytes]",
         *,
         on_save: Callable[..., dict[str, Any]],
         on_closed: Callable[[], None],
@@ -384,8 +501,88 @@ def terminate_persistent_editor() -> None:
 def _on_config_changed(**kwargs: Any) -> None:
     key = kwargs.get("key", "")
     if key == "scripting.python_venv_path":
-        log.info("editor_bridge: scripting.python_venv_path changed, terminating background Monaco process")
+        log.info("editor_host: scripting.python_venv_path changed, terminating background Monaco process")
         terminate_persistent_editor()
 
 
 global_event_bus.subscribe("config:changed", _on_config_changed)
+
+
+# --- Session launch ---
+
+
+def monaco_editor_available(ctx: Any) -> tuple[str | None, bool]:
+    """Return (venv python exe, True) when Monaco can launch, else (exe or None, False)."""
+    exe, err = resolve_editor_python(ctx)
+    if not exe:
+        log.debug("monaco_editor_available: no venv python (%s)", err)
+        return None, False
+    if _PERSISTENT_EDITOR.is_running:
+        log.debug("monaco_editor_available: Monaco editor process already running, skipping probe")
+        return exe, True
+    webview_ok, detail = probe_webview_import(exe)
+    if not webview_ok:
+        log.debug("monaco_editor_available: webview probe failed for %s: %s", exe, detail[:200] if detail else "")
+        return exe, False
+    return exe, True
+
+
+def launch_monaco_editor(
+    ctx: Any,
+    *,
+    exe: str,
+    load_message: dict[str, Any],
+    on_save: Callable[..., dict[str, Any]],
+    on_closed: Callable[[], None] | None = None,
+) -> bool:
+    """Start or reuse the Monaco child process and send *load_message*. Return True on success."""
+    closed_handler = on_closed if on_closed is not None else (lambda: None)
+
+    if _PERSISTENT_EDITOR.is_running:
+        log.info("editor_host: reusing running Monaco background process")
+        proc = _PERSISTENT_EDITOR.proc
+        assert proc is not None
+        session = EditorSession(proc, on_save=on_save, on_closed=closed_handler)
+        set_active_session(session)
+    else:
+        log.info("editor_host: spawning new Monaco background process")
+        try:
+            proc = spawn_editor_process(exe)
+        except OSError as e:
+            log.exception("Failed to spawn editor")
+            msgbox(ctx, "WriterAgent", failure_message(_("Could not start the Python editor."), exc=e))
+            return False
+
+        session = EditorSession(proc, on_save=on_save, on_closed=closed_handler)
+        set_active_session(session)
+        session.start_reader()
+
+        if not session.wait_for_ready(ctx, timeout_sec=45.0):
+            detail = session.read_stderr_tail()
+            set_active_session(None)
+            msgbox(ctx, "WriterAgent", failure_message(_("The Python editor window did not start."), detail=detail))
+            return False
+
+    if not session.is_running:
+        detail = session.read_stderr_tail()
+        set_active_session(None)
+        msgbox(
+            ctx,
+            "WriterAgent",
+            failure_message(_("The Python editor exited before it could load your code."), detail=detail),
+        )
+        return False
+
+    try:
+        session.send(load_message)
+    except Exception as e:
+        log.exception("Failed to send load to editor")
+        set_active_session(None)
+        msgbox(
+            ctx,
+            "WriterAgent",
+            failure_message(_("Could not talk to the Python editor."), detail=session.read_stderr_tail(), exc=e),
+        )
+        return False
+
+    return True

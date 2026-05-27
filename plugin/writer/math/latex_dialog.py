@@ -18,7 +18,7 @@ from plugin.chatbot.dialogs import add_dialog_label, add_dialog_edit, add_dialog
 from plugin.framework.i18n import _
 from plugin.doc.document_helpers import is_writer
 from plugin.writer.math.math_mml_convert import convert_latex_to_starmath, insert_writer_math_formula
-from plugin.scripting.editor_session_launch import launch_monaco_editor, monaco_editor_available
+from plugin.scripting.editor_host import launch_monaco_editor, monaco_editor_available
 
 log = logging.getLogger("writeragent.writer")
 

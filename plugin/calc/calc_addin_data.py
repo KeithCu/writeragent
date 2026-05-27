@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from plugin.scripting.data_limits import python_max_data_cells_default
+from plugin.scripting.config_limits import python_max_data_cells_default
 from plugin.scripting.payload_codec import ForceBinary, host_pack_data, host_pack_multi_data, is_multi_data, is_split_grid, wire_cell_count
 
 

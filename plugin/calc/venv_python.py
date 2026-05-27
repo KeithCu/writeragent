@@ -5,7 +5,7 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""LLM tool: run Python in the user-configured venv (see plugin/scripting/run_venv_code.py)."""
+"""LLM tool: run Python in the user-configured venv (see plugin/scripting/venv_worker.py)."""
 
 from __future__ import annotations
 
@@ -19,9 +19,9 @@ from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_addin_data import check_python_data_size, finalize_python_data, pack_calc_data_for_wire, values_from_inspector_range
 from plugin.calc.inspector import CellInspector
 from plugin.framework.constants import PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE
-from plugin.scripting.data_limits import configured_python_max_data_cells
+from plugin.scripting.config_limits import configured_python_max_data_cells
 from plugin.scripting.payload_codec import is_image_payload
-from plugin.scripting.run_venv_code import run_code_in_user_venv
+from plugin.scripting.venv_worker import run_code_in_user_venv
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext

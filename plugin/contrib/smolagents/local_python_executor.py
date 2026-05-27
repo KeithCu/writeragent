@@ -1626,8 +1626,8 @@ def evaluate_python_code(
             Maximum time in seconds allowed for code execution. Set to `None` to disable timeout.
     """
     # WriterAgent (2026-05): hot cache for ast.parse + static sandbox policy on unchanged code.
-    # Fresh executor state every call; does not cache execution results (see python_code_hot_cache.py).
-    from plugin.scripting.python_code_hot_cache import get_hot_entry
+    # Fresh executor state every call; does not cache execution results (see sandbox_cache.py).
+    from plugin.scripting.sandbox_cache import get_hot_entry
 
     hot = get_hot_entry(code, authorized_imports)
     if hot.error is not None:

@@ -36,7 +36,7 @@ def test_cython_active_if_available() -> None:
     if os.path.exists("plugin/contrib/vec_pack/pack.cpython-312-x86_64-linux-gnu.so"):
         assert fast_flatten_grid_2d is not None, "Cython 2D accelerator should be loaded"
         assert fast_flatten_grid_1d is not None, "Cython 1D accelerator should be loaded"
-from plugin.scripting.python_worker_manager import PythonWorkerManager
+from plugin.scripting.venv_worker import PythonWorkerManager
 from tests.scripting.payload_codec_test_support import MIXED_WITH_ZIP, NUMERIC_4X4
 from tests.scripting.serialization_ab_support import (
     VENV_CODE_ECHO,

@@ -30,7 +30,7 @@ from plugin.scripting.payload_codec import (
     is_multi_data,
     is_split_grid,
 )
-from plugin.scripting.timeout_limits import python_exec_timeout_default
+from plugin.scripting.config_limits import python_exec_timeout_default
 from plugin.framework.constants import AUTO_IMPORTS
 
 # Curated by WriterAgent (see docs/enabling_numpy_in_libreoffice.md)—not "whatever is in the venv".

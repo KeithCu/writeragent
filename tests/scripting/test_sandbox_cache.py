@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Tests for python_code_hot_cache (parse + static validation LRU)."""
+"""Tests for sandbox_cache (parse + static validation LRU)."""
 
 from __future__ import annotations
 
@@ -12,9 +12,8 @@ from unittest.mock import patch
 import pytest
 
 from plugin.contrib.smolagents.local_python_executor import BASE_BUILTIN_MODULES
-from plugin.scripting import python_code_hot_cache as hot_cache
-from plugin.scripting.python_code_hot_cache import clear_python_code_hot_cache, get_hot_entry
-from plugin.scripting.sandbox_static_validate import validate_sandbox_ast
+from plugin.scripting import sandbox_cache as hot_cache
+from plugin.scripting.sandbox_cache import clear_python_code_hot_cache, get_hot_entry, validate_sandbox_ast
 from plugin.scripting.worker_harness import _execute_request
 from plugin.tests.testing_utils import setup_uno_mocks
 
@@ -50,7 +49,7 @@ def test_blocked_import_cached_error() -> None:
     e1 = get_hot_entry(code, imports)
     assert e1.error is not None
     assert "os" in e1.error
-    with patch("plugin.scripting.sandbox_static_validate.validate_sandbox_ast") as mock_validate:
+    with patch("plugin.scripting.sandbox_cache.validate_sandbox_ast") as mock_validate:
         e2 = get_hot_entry(code, imports)
         mock_validate.assert_not_called()
     assert e2.error == e1.error
@@ -87,7 +86,7 @@ def test_lru_eviction() -> None:
 def test_ast_parse_skipped_on_cache_hit() -> None:
     imports = list(BASE_BUILTIN_MODULES)
     code = "result = 40 + 2"
-    with patch("plugin.scripting.python_code_hot_cache.ast.parse", wraps=ast.parse) as mock_parse:
+    with patch("plugin.scripting.sandbox_cache.ast.parse", wraps=ast.parse) as mock_parse:
         get_hot_entry(code, imports)
         get_hot_entry(code, imports)
     assert mock_parse.call_count == 1

@@ -25,9 +25,9 @@ from plugin.calc.calc_addin_data import (
 )
 from plugin.framework.errors import format_error_payload
 from plugin.framework.i18n import _
-from plugin.scripting.data_limits import configured_python_max_data_cells
+from plugin.scripting.config_limits import configured_python_max_data_cells
 from plugin.scripting.payload_codec import is_image_payload, is_split_grid
-from plugin.scripting.run_venv_code import run_code_in_user_venv
+from plugin.scripting.venv_worker import run_code_in_user_venv
 
 log = logging.getLogger(__name__)
 

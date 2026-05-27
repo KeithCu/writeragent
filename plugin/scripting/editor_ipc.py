@@ -2,21 +2,13 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Length-prefixed JSON messages for the Monaco editor child process (stdin/stdout).
-
-Message types (``type`` field):
-
-- ``ready`` child → LO
-- ``load`` LO → child: ``code``, optional ``title``, ``data_binding``, ``plain_text_label``, optional ``save_as_plain`` (initial checkbox: off for ``=PYTHON()``, on for plain-string cells)
-- ``save`` child → LO: ``code``, optional ``save_as_plain``, ``data_binding`` (range text for formula suffix)
-- ``saved`` / ``error`` LO → child
-- ``closed`` / ``cancel`` either direction
-"""
+"""Monaco editor IPC protocol and failure formatting for user-visible dialogs."""
 
 from __future__ import annotations
 
 import json
 import struct
+import traceback
 from typing import Any, IO
 
 EDITOR_DEFAULT_TITLE = " "
@@ -56,3 +48,26 @@ def message_type(message: dict[str, Any]) -> str:
     """Return the ``type`` field or empty string."""
     raw = message.get("type")
     return str(raw) if raw is not None else ""
+
+
+def exception_traceback(exc: BaseException) -> str:
+    """Full traceback string for *exc*."""
+    return "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+
+
+def failure_detail(*, detail: str = "", exc: BaseException | None = None) -> str:
+    """Combine subprocess stderr, probe output, and/or an exception traceback."""
+    chunks: list[str] = []
+    if detail.strip():
+        chunks.append(detail.strip())
+    if exc is not None:
+        chunks.append(exception_traceback(exc).rstrip())
+    return "\n\n".join(chunks)
+
+
+def failure_message(summary: str, *, detail: str = "", exc: BaseException | None = None) -> str:
+    """Build a msgbox body: *summary* plus optional detail/traceback blocks."""
+    body = failure_detail(detail=detail, exc=exc)
+    if body:
+        return f"{summary}\n\n{body}"
+    return summary

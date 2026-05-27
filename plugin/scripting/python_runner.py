@@ -18,9 +18,9 @@ from plugin.framework.config import get_config_str, set_config
 from plugin.framework.i18n import _
 from plugin.chatbot.dialogs import add_dialog_label, add_dialog_edit, add_dialog_button, msgbox
 from plugin.framework.worker_pool import run_in_background
-from plugin.scripting.editor_diagnostics import exception_traceback
-from plugin.scripting.editor_session_launch import launch_monaco_editor, monaco_editor_available
-from plugin.scripting.run_venv_code import run_code_in_user_venv, warm_venv_worker
+from plugin.scripting.editor_ipc import exception_traceback
+from plugin.scripting.editor_host import launch_monaco_editor, monaco_editor_available
+from plugin.scripting.venv_worker import run_code_in_user_venv, warm_venv_worker
 from plugin.writer.format import insert_content_at_position
 from plugin.doc.document_helpers import is_calc, is_writer, is_draw
 from plugin.calc.bridge import CalcBridge

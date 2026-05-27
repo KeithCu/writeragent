@@ -67,7 +67,7 @@ def assert_cython_vs_python_parity(
         result_python = run_venv_roundtrip(grid, code, pack_force="always")
 
     assert_semantically_equal(result_cython, result_python, label=f"{label} (Cython vs Python)")
-from plugin.scripting.python_worker_manager import PythonWorkerManager
+from plugin.scripting.venv_worker import PythonWorkerManager
 from plugin.scripting.worker_harness import _execute_request
 from tests.calc.serialization_cases import SerializationCase, all_serialization_cases
 from tests.scripting.payload_codec_test_support import (

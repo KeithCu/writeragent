@@ -9,7 +9,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 import pytest
 
-from plugin.scripting import editor_jedi as ej
+from plugin.scripting import editor_main as ej
 
 
 def test_jedi_completions_mapping(monkeypatch):

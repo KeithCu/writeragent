@@ -5,22 +5,26 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""Tests for scripting.python_exec_timeout limits and resolution."""
+"""Tests for scripting config limits (timeout, max data cells)."""
 
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from plugin.scripting.timeout_limits import (
+from plugin.scripting.config_limits import (
     configured_python_exec_timeout,
+    configured_python_max_data_cells,
     python_exec_timeout_default,
     python_exec_timeout_max,
     python_exec_timeout_min,
+    python_max_data_cells_default,
+    python_max_data_cells_max,
+    python_max_data_cells_min,
     resolve_python_exec_timeout,
 )
 
 
-def test_schema_limits_from_manifest():
+def test_timeout_schema_limits_from_manifest():
     assert python_exec_timeout_default() == 10
     assert python_exec_timeout_min() == 1
     assert python_exec_timeout_max() == 600
@@ -71,3 +75,35 @@ def test_settings_field_specs_include_python_exec_timeout():
 
     names = {f["name"] for f in get_settings_field_specs(MagicMock())}
     assert "scripting__python_exec_timeout" in names
+
+
+def test_max_data_cells_schema_limits_from_manifest():
+    assert python_max_data_cells_default() == 250_000
+    assert python_max_data_cells_min() == 1000
+    assert python_max_data_cells_max() == 2_000_000
+
+
+@patch("plugin.framework.config.get_config_int", return_value=250_000)
+def test_configured_python_max_data_cells(mock_get):
+    ctx = MagicMock()
+    assert configured_python_max_data_cells(ctx) == 250_000
+    mock_get.assert_called_once_with(ctx, "scripting.python_max_data_cells")
+
+
+@patch("plugin.framework.config.get_config_int", return_value=9_999_999)
+def test_configured_python_max_data_cells_clamps_high(mock_get):
+    ctx = MagicMock()
+    assert configured_python_max_data_cells(ctx) == 2_000_000
+
+
+@patch("plugin.framework.config.get_config_int", return_value=0)
+def test_configured_python_max_data_cells_clamps_low(mock_get):
+    ctx = MagicMock()
+    assert configured_python_max_data_cells(ctx) == 1000
+
+
+def test_settings_field_specs_include_python_max_data_cells():
+    from plugin.chatbot.settings_dialog import get_settings_field_specs
+
+    names = {f["name"] for f in get_settings_field_specs(MagicMock())}
+    assert "scripting__python_max_data_cells" in names

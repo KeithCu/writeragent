@@ -52,14 +52,73 @@ def _fatal(msg: str, *, exc: BaseException | None = None, code: int = 1) -> NoRe
 
 _bootstrap_plugin_import_path()
 try:
-    from plugin.scripting.editor_launcher import _ASSETS_DIR
-    from plugin.scripting.editor_protocol import EDITOR_DEFAULT_TITLE, message_type, read_message, write_message
-    from plugin.scripting.editor_jedi import JediSession
+    from plugin.scripting.editor_host import _ASSETS_DIR
+    from plugin.scripting.editor_ipc import EDITOR_DEFAULT_TITLE, message_type, read_message, write_message
 except ImportError as e:
     _fatal(f"editor_main: cannot import plugin.scripting dependencies ({e}). sys.path={sys.path!r}", exc=e)
 
 
 log = logging.getLogger(__name__)
+
+# Try to import jedi dynamically. If missing, we degrade gracefully without autocomplete.
+try:
+    import jedi  # type: ignore
+except ImportError:
+    jedi = None
+
+
+class JediSession:
+    """Manages the persistent jedi.Environment for sub-10ms completions."""
+
+    def __init__(self) -> None:
+        self._env: Any = None
+        if jedi is None:
+            log.warning("jedi is not installed in the current Python environment")
+            return
+
+        try:
+            self._env = jedi.create_environment(sys.executable)
+            log.info("Successfully created persistent Jedi environment for %s", sys.executable)
+        except Exception as e:
+            log.warning("Could not create persistent Jedi environment, falling back to default: %s", e)
+
+    def is_available(self) -> bool:
+        return jedi is not None
+
+    def get_completions(self, code: str, line: int, column: int) -> dict[str, Any]:
+        if not self.is_available() or jedi is None:
+            return {"items": []}
+
+        try:
+            from plugin.scripting.venv_sandbox import apply_auto_imports
+
+            code, lines_added = apply_auto_imports(code)
+            target_line = line + lines_added
+            col_idx = max(0, column - 1)
+
+            script = jedi.Script(code, environment=self._env)
+            completions = script.complete(target_line, col_idx)
+
+            items = []
+            for comp in completions:
+                try:
+                    doc = comp.docstring()
+                except Exception:
+                    doc = ""
+
+                items.append({
+                    "label": comp.name,
+                    "kind": comp.type,
+                    "insertText": comp.name,
+                    "detail": comp.description or "",
+                    "documentation": doc or "",
+                })
+
+            return {"items": items}
+        except Exception:
+            log.exception("Jedi completions failed")
+            return {"items": []}
+
 
 _ui_queue: queue.Queue[dict[str, Any]] = queue.Queue()
 _stdout_lock = threading.Lock()

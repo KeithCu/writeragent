@@ -23,10 +23,15 @@ from plugin.calc.python_formula_edit import (
 from plugin.chatbot.dialogs import msgbox
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_desktop
-from plugin.scripting.editor_bridge import get_active_session, set_active_session, _PERSISTENT_EDITOR
-from plugin.scripting.editor_diagnostics import failure_message
-from plugin.scripting.editor_launcher import probe_webview_import, resolve_editor_python
-from plugin.scripting.editor_session_launch import launch_monaco_editor
+from plugin.scripting.editor_host import (
+    _PERSISTENT_EDITOR,
+    get_active_session,
+    launch_monaco_editor,
+    probe_webview_import,
+    resolve_editor_python,
+    set_active_session,
+)
+from plugin.scripting.editor_ipc import failure_message
 
 log = logging.getLogger("writeragent.scripting")
 

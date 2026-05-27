@@ -18,7 +18,7 @@ from typing import Any
 project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
 
-from plugin.scripting.python_worker_manager import PythonWorkerManager
+from plugin.scripting.venv_worker import PythonWorkerManager
 from tests.scripting.serialization_ab_support import (
     VENV_TRANSFORMS,
     all_codec_ab_cases,

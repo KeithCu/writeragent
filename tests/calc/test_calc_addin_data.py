@@ -20,7 +20,7 @@ from plugin.calc.calc_addin_data import (
     split_python_addin_data_args,
     values_from_inspector_range,
 )
-from plugin.scripting.data_limits import python_max_data_cells_default
+from plugin.scripting.config_limits import python_max_data_cells_default
 from plugin.scripting.payload_codec import child_unpack_data, is_multi_data, is_split_grid, wire_cell_count
 
 

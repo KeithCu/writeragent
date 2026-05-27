@@ -5,14 +5,37 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""Detect Flatpak / Snap sandboxes and wrap subprocess commands to escape them."""
+"""Subprocess spawn helpers: env scrubbing and Flatpak/Snap sandbox escape."""
 
 from __future__ import annotations
 
 import os
 
+_BLOCKED_ENV_SUBSTR = ("KEY", "TOKEN", "SECRET", "PASSWORD", "AUTH", "CREDENTIAL")
+# LibreOffice sets PYTHONHOME/PYTHONPATH to its bundled stdlib; letting these
+# leak into a venv subprocess causes SRE module mismatch and import failures.
+_BLOCKED_ENV_EXACT = {"PYTHONHOME", "PYTHONPATH"}
+
 _NOT_SET = "__not_set__"
 _cached_sandbox: str | None = _NOT_SET  # type: ignore[assignment]  # sentinel
+
+
+def scrub_subprocess_env(base: dict[str, str] | None) -> dict[str, str]:
+    """Drop likely-secret vars and LO Python overrides from the environment passed to venv Python."""
+    if not base:
+        return {}
+    out: dict[str, str] = {}
+    for k, v in base.items():
+        ku = k.upper()
+        if ku in _BLOCKED_ENV_EXACT:
+            continue
+        if any(s in ku for s in _BLOCKED_ENV_SUBSTR):
+            continue
+        out[k] = v
+    out.setdefault("PYTHONIOENCODING", "utf-8")
+    out.setdefault("PYTHONUTF8", "1")
+    out.setdefault("PYTHONDONTWRITEBYTECODE", "1")
+    return out
 
 
 def detect_sandbox() -> str | None:

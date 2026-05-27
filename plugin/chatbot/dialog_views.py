@@ -325,7 +325,7 @@ class ScriptingVenvTestListener(BaseActionListener):
     def on_action_performed(self, rEvent):
         from plugin.framework.queue_executor import post_to_main_thread
         from plugin.framework.worker_pool import run_in_background
-        from plugin.scripting.venv_probe import probe_venv_path
+        from plugin.scripting.venv_worker import probe_venv_path
 
         path_ctrl = get_optional(self._dlg, "scripting__python_venv_path")
         raw = get_control_text(path_ctrl) if path_ctrl else ""
