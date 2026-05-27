@@ -182,16 +182,32 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
         h = parent_h if parent_h > 0 else 400
         deck_w = width
         self._last_deck_w = deck_w
-        # Use min(parent_w, deck_w) as the target width to match the visible sidebar column
-        # and guarantee that the panel is never wider than its container, preventing horizontal scrollbars.
-        if parent_w > 0 and deck_w > 0:
-            eff_w = min(parent_w, deck_w)
-        elif deck_w > 0:
+        # 1. Docked State (deck_w <= 450): nWidth / deck_w is the exact, correct visible width
+        # of the docked column. Sizing the panel exactly to deck_w ensures a perfect scrollbar-free fit.
+        if deck_w > 0 and deck_w <= 450:
             eff_w = deck_w
-        elif parent_w > 0:
-            eff_w = parent_w
         else:
-            eff_w = 180
+            # 2. Detached/Floating State (deck_w > 450): Sfx2/LO passes a huge deck_hint (e.g. 1109px).
+            # Walk up parent peer hierarchy to get the actual visible OS floating window width.
+            visible_parent_w = parent_w
+            try:
+                peer = self.parent_window.getPeer()
+                if peer:
+                    parent_peer = peer.getParent()
+                    if parent_peer:
+                        pr = parent_peer.getPosSize()
+                        if pr.Width > 0:
+                            visible_parent_w = pr.Width
+            except Exception:
+                pass
+            if visible_parent_w > 0 and deck_w > 0:
+                eff_w = min(visible_parent_w, deck_w)
+            elif deck_w > 0:
+                eff_w = deck_w
+            elif visible_parent_w > 0:
+                eff_w = visible_parent_w
+            else:
+                eff_w = 180
 
         try:
             before = self.PanelWindow.getPosSize()

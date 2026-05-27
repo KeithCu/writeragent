@@ -95,7 +95,28 @@ class _PanelResizeListener(BaseWindowListener):
         if r.Width <= 0 or r.Height <= 0:
             return
         _resize_debug("_capture_initial: starting snapshot for win W=%d H=%d" % (r.Width, r.Height))
-        info = {"win_w": r.Width, "win_h": r.Height, "ctrls": {}}
+        # Reconstruct the true default window width from the loaded XDL control width (172 units)
+        # to bypass any pre-resizing of the root window (180 units default).
+        win_w = r.Width
+        base_ctrl = self._c.get("response") or self._c.get("query") or self._c.get("model_selector")
+        if base_ctrl:
+            try:
+                base_w = base_ctrl.getPosSize().Width
+                if base_w > 0:
+                    win_w = int(base_w * 180 / 172)
+            except Exception:
+                pass
+        # Capture the minimum width required to fit the Clear button (plus a fixed margin) without shrinking
+        min_client_w = int(win_w * 164 / 180)
+        clear_ctrl = self._c.get("clear")
+        if clear_ctrl:
+            try:
+                cr = clear_ctrl.getPosSize()
+                if cr.Width > 0:
+                    min_client_w = cr.X + cr.Width + 6
+            except Exception:
+                pass
+        info = {"win_w": win_w, "win_h": r.Height, "ctrls": {}, "min_w": min_client_w}
         resp = self._c.get("response")
         if resp:
             rr = resp.getPosSize()
@@ -169,16 +190,50 @@ class _PanelResizeListener(BaseWindowListener):
                         deck = self._deck_w_getter()
                     except Exception:
                         deck = None
-                if deck is not None and deck > 0:
-                    target_w = min(pw, deck)
+
+                # Get the actual visible OS window width by walking up to the parent peer.
+                # This bypasses the LibreOffice bug where the deck window is not resized in detached mode.
+                visible_pw = pw
+                try:
+                    peer = self._parent_window.getPeer()
+                    if peer:
+                        parent_peer = peer.getParent()
+                        if parent_peer:
+                            v_pr = parent_peer.getPosSize()
+                            if v_pr.Width > 0:
+                                visible_pw = v_pr.Width
+                except Exception:
+                    pass
+
+                _SAFETY_MARGIN = 12
+                # Distinguish docked vs detached states
+                is_docked = (deck is not None and deck > 0 and deck <= 450)
+                if not is_docked and visible_pw > 0:
+                    # In docked mode, the actual window width w (sized by VCL layout) is significantly
+                    # smaller than the full LO frame width (visible_pw).
+                    # In detached mode, w is resized to match the floating window width (visible_pw - 12).
+                    if w < visible_pw - 80:
+                        is_docked = True
+
+                target_w = 0
+                if is_docked:
+                    # In docked mode, the deck width is exactly the correct width.
+                    # Do not resize the root window win here, keep w = deck (already set by getHeightForWidth).
+                    # This ensures perfect fit without any safety margins or min_w overrides.
+                    if deck is not None:
+                        target_w = deck
                 else:
-                    target_w = pw
+                    if deck is not None and deck > 0:
+                        target_w = min(visible_pw, deck) - _SAFETY_MARGIN
+                    else:
+                        target_w = visible_pw - _SAFETY_MARGIN
 
-                # Prevent runaway width under floating/detached deck bugs by clamping to a maximum of 1.4x the default width
-                max_allowed = int(initial["win_w"] * 1.4)
-                target_w = min(target_w, max_allowed)
+                    # Ensure target_w is at least the minimum width required to fit the controls (like clear button) without shrinking
+                    min_w = initial.get("min_w", 0)
+                    if min_w > 0:
+                        target_w = max(target_w, min_w)
 
-                if target_w > 0 and abs(w - target_w) > 1:
+                if not is_docked and target_w > 0 and abs(w - target_w) > 1:
                     _resize_debug("_relayout: sync root W %d -> target W %d (parent=%s deck=%s)" % (w, target_w, pw, deck))
                     win.setPosSize(0, 0, target_w, h, 15)
                     r = win.getPosSize()

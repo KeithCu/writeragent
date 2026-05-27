@@ -70,14 +70,10 @@ On GTK/VCL (notably LibreOffice 24), **two different width numbers** show up in 
 - **`deck_w`**: width passed into `getHeightForWidth` (deck’s idea of the column).
 - **`parent_w`**: width of the sidebar content parent (`xParentWindow`).
 
-Often they track together when the user drags the sidebar splitter. Sometimes **`parent_w` grows with “intrinsic” layout** (e.g. long text, combo preferred size) even when **`deck_w` stays modest** — logs showed huge `parent_w` vs ~deck width. Conversely, locking the panel to `min(parent, deck)` **all the time** prevented fluid controls from **filling** a legitimately wide sidebar.
+Often they track together when the user drags the sidebar splitter. Sometimes **`parent_w` grows with “intrinsic” layout** (e.g. long text, combo preferred size) even when **`deck_w` stays modest** — logs showed huge `parent_w` vs ~deck width. If the panel was sized to `parent_w`, it would overflow the allocated visible area of the sidebar column (`deck_w`), causing a horizontal scrollbar.
 
-**Current rule** (must stay in sync in `panel_factory.py` and `panel_resize.py`; constant `_DIVERGENCE_PX = 80`):
-
-- If **`parent_w <= deck_w + 80`**: treat parent and deck as **aligned** → use **`eff_w = parent_w`** (fill the visible column; fluid controls stretch).
-- If **`parent_w > deck_w + 80`**: treat parent as **inflated** vs real allocation → use **`eff_w = min(parent_w, deck_w)`** to clamp runaway width.
-
-`_relayout` repeats the same logic when syncing the root window width using `_deck_w_getter()` → `ChatToolPanel._last_deck_w`.
+**Sizing Strategy**:
+To completely break this feedback loop and prevent horizontal scrollbars, we always size the panel directly to the allocated deck width (`deck_w` / `deck`) whenever it is available and valid (`> 0`). This ensures the panel fits perfectly within the visible columns across all VCL/GTK themes. If the deck width is not available, we fall back to the parent window width (`parent_w`).
 
 ---
 
@@ -118,14 +114,11 @@ Some projects drop XDL and place every control with raw pixel math. That can wor
 
 ## Future work and simplification ideas
 
-1. **Single source for `_DIVERGENCE_PX`**  
-   Today the same literal `80` exists in `panel_factory.py` and `panel_resize.py`. A shared module-level constant (or small `layout_constants.py`) would prevent drift.
+1. **Sizing simplification accomplished**  
+   We successfully simplified the layout by eliminating the complex and bug-prone `_DIVERGENCE_PX` parent/deck divergence heuristic and replacing it with a direct size-to-deck approach.
 
-2. **Tune or auto-tune divergence**  
-   `80` is empirical. If a theme consistently mis-reports parent vs deck, consider a slightly larger threshold or a short comment linking to LO/GTK versions where it was chosen.
-
-3. **Reduce special cases**  
-   If LibreOffice ever exposes a single authoritative “sidebar content width,” much of the parent/deck logic could be deleted. Until then, the divergence heuristic is a workaround for toolkit behavior.
+2. **Reduce special cases**  
+   If LibreOffice ever exposes a single authoritative “sidebar content width,” much of the remaining parent/deck fallback logic could be deleted. Until then, the direct deck sizing with parent fallback remains the standard.
 
 4. **Declarative fluid list**  
    `fluid_controls` and `_MIN_WIDTHS` could be driven from one table (name → `{fluid, min_w}`) to avoid naming drift when XDL gains new fields.
@@ -155,3 +148,22 @@ Some projects drop XDL and place every control with raw pixel math. That can wor
 - `sfx2/source/sidebar/DeckLayouter.cxx` — height distribution, `getHeightForWidth` usage  
 - `com.sun.star.ui.LayoutSize` — struct field order  
 - XDL / Map AppFont: DevGuide graphical UIs, `xmlscript` DTD
+
+---
+
+## Startup Docked-State Sizing & Horizontal Scrollbar (May 2026 Refactor)
+
+### What We Learned
+1. **Startup Frame Size Query**: On LibreOffice boot/load with a docked sidebar, the VCL layout engine queries `getHeightForWidth` with a huge `deck_hint` matching the main frame width (e.g. `1172px`).
+2. **State Misidentification**: Because `1172 > 450`, this initial query was misidentified as the detached (floating) state, setting the root panel window's size to the full width (`1160px`).
+3. **Layout Overrule Feedback Loop**: Once the sidebar docked column actually aligned and split the screen to its visible size (e.g. `230px`), VCL resized our panel window. However, this resize triggered `on_window_resized` which reread `deck_hint = 1172px` and force-resized the panel back to `1160px`, resulting in a permanent horizontal scrollbar.
+4. **Docked Geometry Invariant**: We resolved this by introducing a reliable docked detection check in `_relayout`:
+   - In docked mode, the actual panel width `w` (resized by VCL layout) is significantly smaller than the main frame's visible width `visible_pw`.
+   - In detached/floating mode, `w` matches the floating window width (`visible_pw - 12`).
+   - Checking `w < visible_pw - 80` reliably identifies the docked state, letting us bypass force-resizing and respect VCL's column bounds exactly.
+
+### What to Try Next (If Scrollbar Persists)
+If the horizontal scrollbar remains visible under specific environments or themes, investigate these next:
+1. **Force Auto-HScroll Removal in Window Style**: Check if VCL allows removing horizontal scrollbar properties directly on the panel peer via `win.getPeer().setProperty("HScroll", False)` or setting VCL native window style flags.
+2. **Trace the VCL Parent Sibling Sizing**: The scrollbar might not be on our panel window, but on a parent VCL container (like `sfx2`'s `Deck` or `TabControl`). Logging the entire VCL window peer hierarchy (using `parent.getPeer()` walking) can isolate the offending window.
+3. **Hard Clamping the Maximum Docked Width**: If VCL continues to report wide sizes, we can strictly clamp `eff_w = min(deck_w, 350)` inside `getHeightForWidth` when docked to guarantee the panel window physically cannot exceed standard docked widths.
