@@ -105,19 +105,18 @@ import uno
 
 log = logging.getLogger("writeragent.grammar")
 
-_doc_locales_cache: dict[str, tuple[float, list[str]]] = {}
-_lang_detect_cache: collections.OrderedDict[str, str] = collections.OrderedDict()
-
 def _get_cached_language(text: str) -> str | None:
-    if text in _lang_detect_cache:
-        _lang_detect_cache.move_to_end(text)
-        return _lang_detect_cache[text]
+    with grammar_persistence.grammar_registry.lock:
+        if text in grammar_persistence.grammar_registry.lang_detect_cache:
+            grammar_persistence.grammar_registry.lang_detect_cache.move_to_end(text)
+            return grammar_persistence.grammar_registry.lang_detect_cache[text]
     return None
 
 def _put_cached_language(text: str, lang: str) -> None:
-    _lang_detect_cache[text] = lang
-    if len(_lang_detect_cache) > 1000:
-        _lang_detect_cache.popitem(last=False)
+    with grammar_persistence.grammar_registry.lock:
+        grammar_persistence.grammar_registry.lang_detect_cache[text] = lang
+        if len(grammar_persistence.grammar_registry.lang_detect_cache) > 1000:
+            grammar_persistence.grammar_registry.lang_detect_cache.popitem(last=False)
 
 # Super simple locale detection: 1k chars around cursor should be "good enough" for most cases.
 # Historical overkill (styles, first 50 paragraphs, LinguProperties) was removed to prioritize
@@ -125,7 +124,8 @@ def _put_cached_language(text: str, lang: str) -> None:
 # or a smarter text portion enumeration within the visible range.
 def _get_cached_document_locales(ctx: Any, doc_id: str) -> list[str]:
     now = time.time()
-    cached = _doc_locales_cache.get(doc_id)
+    with grammar_persistence.grammar_registry.lock:
+        cached = grammar_persistence.grammar_registry.doc_locales_cache.get(doc_id)
     if cached is not None and now - cached[0] < 60:
         return cached[1]
 
@@ -162,7 +162,8 @@ def _get_cached_document_locales(ctx: Any, doc_id: str) -> list[str]:
 
     try:
         locs = queue_executor.execute_on_main_thread(_query_locales)
-        _doc_locales_cache[doc_id] = (now, locs)
+        with grammar_persistence.grammar_registry.lock:
+            grammar_persistence.grammar_registry.doc_locales_cache[doc_id] = (now, locs)
         return locs
     except Exception as e:
         log.warning("Failed to get cached locales: %s", e)
@@ -978,3 +979,5 @@ class GrammarWorkQueue:
 _grammar_queue_singleton = GrammarWorkQueue()
 
 grammar_queue: GrammarWorkQueue = _grammar_queue_singleton
+
+_lang_detect_cache = grammar_persistence.grammar_registry.lang_detect_cache

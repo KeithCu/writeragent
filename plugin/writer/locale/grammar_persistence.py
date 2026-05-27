@@ -12,6 +12,7 @@ be garbage-collected.
 
 from __future__ import annotations
 
+import collections
 import json
 import logging
 import threading
@@ -37,8 +38,69 @@ try:
 except ImportError:
     pass
 
-_doc_persistence_instances: dict[str, "DocumentPersistence"] = {}
-_doc_map_lock = threading.Lock()
+class GrammarRegistry:
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.doc_persistence_instances: dict[str, "DocumentPersistence"] = {}
+        self.sentence_cache: collections.OrderedDict[str, tuple[str, str, bool, list[dict[str, Any]]]] = collections.OrderedDict()
+        self.ignored_rules: set[str] = set()
+        self.doc_locales_cache: dict[str, tuple[float, list[str]]] = {}
+        self.lang_detect_cache: collections.OrderedDict[str, str] = collections.OrderedDict()
+
+    def get_persistence(self, ctx: Any, doc_id: str | None) -> DocumentPersistence | None:
+        if ctx is None or not doc_id:
+            return None
+        with self.lock:
+            existing = self.doc_persistence_instances.get(doc_id)
+            if existing is not None:
+                return existing
+            dp = DocumentPersistence(ctx, doc_id)
+            self.doc_persistence_instances[doc_id] = dp
+            return dp
+
+    def remove_persistence(self, doc_id: str) -> None:
+        with self.lock:
+            self.doc_persistence_instances.pop(doc_id, None)
+
+    def clear_for_doc(self, doc_id: str) -> None:
+        with self.lock:
+            self.doc_locales_cache.pop(doc_id, None)
+            dp = self.doc_persistence_instances.pop(doc_id, None)
+            if dp:
+                try:
+                    dp._unregister_listeners()
+                    with dp._lock:
+                        dp._memory_cache.clear()
+                        dp._session_accessed.clear()
+                except Exception as e:
+                    log.debug("[grammar] GrammarRegistry.clear_for_doc failure: %s", e)
+                dp._model = None
+                dp._teardown_done = True
+
+    def clear_all(self, ctx: Any | None = None) -> None:
+        with self.lock:
+            self.sentence_cache.clear()
+            self.ignored_rules.clear()
+            self.doc_locales_cache.clear()
+            self.lang_detect_cache.clear()
+            snap = list(self.doc_persistence_instances.values())
+            self.doc_persistence_instances.clear()
+        
+        for dp in snap:
+            try:
+                dp._unregister_listeners()
+                with dp._lock:
+                    dp._memory_cache.clear()
+                    dp._session_accessed.clear()
+            except Exception as e:
+                log.debug("[grammar] GrammarRegistry.clear_all persistence cleanup failure: %s", e)
+            dp._model = None
+            dp._teardown_done = True
+
+    def shutdown(self) -> None:
+        self.clear_all()
+
+grammar_registry = GrammarRegistry()
 
 
 _DESKTOP_ITER_HARD_CAP = 1024
@@ -293,8 +355,7 @@ class DocumentPersistence(GrammarPersistence):
         with self._lock:
             self._memory_cache.clear()
             self._session_accessed.clear()
-        with _doc_map_lock:
-            _doc_persistence_instances.pop(self._doc_id, None)
+        grammar_registry.remove_persistence(self._doc_id)
         self._model = None
 
     def get(self, fp: str) -> list[dict[str, Any]] | None:
@@ -319,29 +380,11 @@ class DocumentPersistence(GrammarPersistence):
 
 def get_persistence(ctx: Any, doc_id: str | None = None) -> GrammarPersistence | None:
     """Return per-document persistence for grammar sentence cache."""
-    if ctx is None or not doc_id:
-        return None
-    with _doc_map_lock:
-        existing = _doc_persistence_instances.get(doc_id)
-        if existing is not None:
-            return existing
-        dp = DocumentPersistence(ctx, doc_id)
-        _doc_persistence_instances[doc_id] = dp
-        return dp
+    return grammar_registry.get_persistence(ctx, doc_id)
 
 
 def clear_all_document_persistence(ctx: Any) -> None:
     """Remove every ``DocumentPersistence`` (listeners + map); for tests / reset without doc_id."""
-    with _doc_map_lock:
-        snap = list(_doc_persistence_instances.values())
-        _doc_persistence_instances.clear()
-    for dp in snap:
-        try:
-            dp._unregister_listeners()
-            with dp._lock:
-                dp._memory_cache.clear()
-                dp._session_accessed.clear()
-        except Exception as e:
-            log.debug("[grammar] clear_all_document_persistence item: %s", e)
-        dp._model = None
-        dp._teardown_done = True
+    grammar_registry.clear_all(ctx)
+
+_doc_persistence_instances = grammar_registry.doc_persistence_instances

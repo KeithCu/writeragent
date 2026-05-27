@@ -14,12 +14,10 @@ import re
 import threading
 from typing import Any
 
-from .grammar_persistence import clear_all_document_persistence, get_persistence
+from .grammar_persistence import clear_all_document_persistence, get_persistence, grammar_registry
 from .grammar_proofread_locale import GRAMMAR_CACHE_NORMALIZATION_RE, looks_complete_sentence
 from . import grammar_proofread_json
 
-_CACHE_LOCK = threading.Lock()
-_ignored_rules: set[str] = set()
 MAX_CACHE_SIZE = 2048
 
 
@@ -43,36 +41,28 @@ def normalize_reason(reason: str) -> str:
 # effectiveness (catches typical typing chains) and CPU (few memory touches).
 MAX_RECENT_INCOMPLETE_SCAN = 10
 
-_SENTENCE_CACHE: collections.OrderedDict[str, tuple[str, str, bool, list[dict[str, Any]]]] = collections.OrderedDict()
-
-
 def cache_clear(ctx: Any | None = None, doc_id: str | None = None) -> None:
     """Clear proofreading cache (e.g. tests)."""
-    with _CACHE_LOCK:
-        _SENTENCE_CACHE.clear()
-    if not ctx:
-        return
-    if doc_id:
+    grammar_registry.clear_all(ctx)
+    if doc_id and ctx:
         p = get_persistence(ctx, doc_id)
         if p:
             p.clear()
-    else:
-        clear_all_document_persistence(ctx)
 
 
 def ignore_rules_clear() -> None:
-    with _CACHE_LOCK:
-        _ignored_rules.clear()
+    with grammar_registry.lock:
+        grammar_registry.ignored_rules.clear()
 
 
 def ignore_rule_add(rule_id: str) -> None:
-    with _CACHE_LOCK:
-        _ignored_rules.add(str(rule_id))
+    with grammar_registry.lock:
+        grammar_registry.ignored_rules.add(str(rule_id))
 
 
 def ignored_rules_snapshot() -> set[str]:
-    with _CACHE_LOCK:
-        return set(_ignored_rules)
+    with grammar_registry.lock:
+        return set(grammar_registry.ignored_rules)
 
 
 def _normalize_for_sentence_cache(text: str) -> str:
@@ -157,11 +147,11 @@ def _populate_memory_cache_only(locale_key: str, sentence: str, errors: list[dic
     is_complete = _is_complete_sentence(canon)
     cloned_errors = [dict(e) for e in clipped]
 
-    with _CACHE_LOCK:
-        _SENTENCE_CACHE[key] = (fp, canon, is_complete, cloned_errors)
-        _SENTENCE_CACHE.move_to_end(key)
-        while len(_SENTENCE_CACHE) > MAX_CACHE_SIZE:
-            _SENTENCE_CACHE.popitem(last=False)
+    with grammar_registry.lock:
+        grammar_registry.sentence_cache[key] = (fp, canon, is_complete, cloned_errors)
+        grammar_registry.sentence_cache.move_to_end(key)
+        while len(grammar_registry.sentence_cache) > MAX_CACHE_SIZE:
+            grammar_registry.sentence_cache.popitem(last=False)
 
     return fp, canon, is_complete, key, cloned_errors
 
@@ -169,12 +159,12 @@ def _populate_memory_cache_only(locale_key: str, sentence: str, errors: list[dic
 def cache_get_sentence(locale_key: str, sentence: str, ctx: Any | None = None, doc_id: str | None = None) -> list[dict[str, Any]] | None:
     """Return cached errors for this exact sentence (relative to sentence start = 0)."""
     key = make_sentence_key(locale_key, sentence)
-    with _CACHE_LOCK:
-        hit = _SENTENCE_CACHE.get(key)
+    with grammar_registry.lock:
+        hit = grammar_registry.sentence_cache.get(key)
         if hit:
             cached_fp, _canon, _is_complete, errors = hit
             if cached_fp == sentence_identity_fp(sentence):
-                _SENTENCE_CACHE.move_to_end(key)
+                grammar_registry.sentence_cache.move_to_end(key)
                 return list(errors)
 
     if ctx and doc_id:
@@ -210,14 +200,14 @@ def cache_put_sentence(
         return
 
     if not is_complete:
-        with _CACHE_LOCK:
+        with grammar_registry.lock:
             prefix = sentence_cache_key_prefix(locale_key)
             scan_count = 0
             to_remove: list[str] = []
             # Newest-first: typing chains keep superseded incompletes near the LRU end;
             # bounded scan finds the immediate predecessor quickly.
-            # Prefix filter before scan_count \u2014 budget counts this locale only.
-            for k, v in reversed(_SENTENCE_CACHE.items()):
+            # Prefix filter before scan_count — budget counts this locale only.
+            for k, v in reversed(grammar_registry.sentence_cache.items()):
                 if not k.startswith(prefix):
                     continue
                 if scan_count >= MAX_RECENT_INCOMPLETE_SCAN:
@@ -227,9 +217,11 @@ def cache_put_sentence(
                     to_remove.append(k)
                 scan_count += 1
             for k in to_remove:
-                _SENTENCE_CACHE.pop(k, None)
+                grammar_registry.sentence_cache.pop(k, None)
 
 
 def clear_sentence_cache(ctx: Any | None = None) -> None:
     """Clear sentence cache (for tests)."""
     cache_clear(ctx)
+
+_SENTENCE_CACHE = grammar_registry.sentence_cache
