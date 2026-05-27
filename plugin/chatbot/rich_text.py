@@ -24,17 +24,6 @@ from plugin.chatbot.listeners import BaseWindowListener
 
 log = logging.getLogger(__name__)
 
-# Extremely loud module-level banner so that the very first lines of writeragent_debug.log
-# on import will immediately prove WHICH copy of rich_text.py LibreOffice is actually executing.
-# This is critical for diagnosing extension caching issues during the rich-text sidebar
-# crash-on-close investigation (VclBuilder child window ownership).
-log.info("")
-log.info("=" * 80)
-log.info("[RICH-LIFECYCLE] *** INSTRUMENTED rich_text.py VERSION 2026-05-26-CRASH-DIAG loaded from: %s", __file__)
-log.info("[RICH-LIFECYCLE] *** This is the version containing the pure-Python VCL child walk + defang diagnostics.")
-log.info("=" * 80)
-log.info("")
-
 _HAVE_UNO_DOC_EVENTS = False
 _XDocumentEventListener: Any = None
 _unohelper: Any = None
@@ -70,44 +59,6 @@ USER_COLOR = 0x2A6099
 ASSISTANT_COLOR = 0x1E293B
 
 _EMBEDDING_STARTED: set[int] = set()
-
-# Threshold in scrollbar units — if within this many units of max, treat as "at bottom"
-_SCROLL_BOTTOM_THRESHOLD = 10
-
-'''
-# One-time dump guards for scroll debugging
-_SCROLL_DEBUG_DUMPED = False
-_VCL_SCROLLBAR_CACHE: Any = None
-_VCL_SCROLLBAR_SEARCHED = False
-
-# Temporary loud diagnostic flag for the "rich text sidebar never auto-scrolls during streaming" investigation (2026-05).
-_SCROLL_DIAG = False
-'''
-
-
-'''
-def find_vertical_scrollbar(frame):
-    """Navigate the accessible tree of an embedded frame to find the vertical scrollbar."""
-    ...  # commented out — scrollbar never found in embedded frames
-'''
-
-
-def is_scrolled_to_bottom(scrollbar_accessible):
-    """Check if the scrollbar is at or near its maximum (bottom).
-
-    Returns True if at bottom or if the state cannot be determined (safe default).
-    """
-    if scrollbar_accessible is None:
-        return True
-    try:
-        current = scrollbar_accessible.getCurrentValue()
-        maximum = scrollbar_accessible.getMaximumValue()
-        at_bottom = current >= maximum - _SCROLL_BOTTOM_THRESHOLD
-        log.debug("is_scrolled_to_bottom: current=%s max=%s -> %s", current, maximum, at_bottom)
-        return at_bottom
-    except Exception as e:
-        log.debug("is_scrolled_to_bottom: exception reading scrollbar: %s", e)
-        return True
 
 if _HAVE_UNO_DOC_EVENTS:
     assert _unohelper is not None
@@ -1045,79 +996,6 @@ def _insert_html_at_cursor(doc, cursor, html_fragment):
                 pass
 
 
-_LOGGED_ACCESSIBLE_TREE = False
-
-
-def find_accessible_window_recursive(win):
-    """Recursively search for a window that supports XAccessible."""
-    if not win:
-        return None
-    try:
-        import uno
-        accessible = win.queryInterface(uno.getTypeByName("com.sun.star.accessibility.XAccessible"))
-        if accessible:
-            return accessible
-    except Exception:
-        pass
-        
-    try:
-        if hasattr(win, "getWindows"):
-            for child in win.getWindows():
-                res = find_accessible_window_recursive(child)
-                if res:
-                    return res
-    except Exception:
-        pass
-    return None
-
-
-'''
-def traverse_window_tree(win, results, depth=0):
-    ...  # commented out — VCL tree dump, used only by _dump_scroll_debug_once
-
-def traverse_accessible_tree(accessible_obj, results, depth=0):
-    ...  # commented out — accessible tree dump, used only by _dump_scroll_debug_once
-
-def find_vcl_scrollbar(frame, container_window=None):
-    ...  # commented out — VCL scrollbar search, never found anything
-
-def _find_scrollbar_in_tree(win, candidates, depth=0):
-    ...  # commented out — recursive VCL scrollbar helper
-
-def _dump_scroll_debug_once(doc, frame):
-    ...  # commented out — one-time VCL/accessible tree dump
-
-def _get_cached_vcl_scrollbar(frame, container_window=None):
-    ...  # commented out — scrollbar cache wrapper
-'''
-
-
-def _sample_viewdata(controller, tag=""):
-    """Read and log the compact ViewData for the embedded Online Writer view.
-
-    Format observed on this machine: "679;784;100;284;284;5369;5884;0;0"
-    We treat field[1] as the primary Y scroll position and the later fields
-    as growing document size. This is called on every scroll_to_bottom so we
-    can watch the numbers evolve (or stay stuck) during streaming.
-    """
-    try:
-        vd = getattr(controller, "ViewData", None)
-        if vd and isinstance(vd, str):
-            parts = vd.split(";")
-            # Log a compact human-readable sample at INFO so it is always visible
-            # in a normal writeragent_debug.log without needing DEBUG level.
-            log.info("VIEWDATA sample%s: %s  (Y~%s  doc~%s/%s)",
-                     f"[{tag}]" if tag else "",
-                     vd,
-                     parts[1] if len(parts) > 1 else "?",
-                     parts[5] if len(parts) > 5 else "?",
-                     parts[6] if len(parts) > 6 else "?")
-            return parts
-    except Exception as e:
-        log.debug("_sample_viewdata failed: %s", e)
-    return None
-
-
 def scroll_to_bottom(doc, aggressive: bool = False):
     """Scroll the embedded document view to the bottom (Online/Browse layout).
 
@@ -1146,27 +1024,10 @@ def scroll_to_bottom(doc, aggressive: bool = False):
             except Exception as e:
                 log.debug("view_cursor.gotoEnd failed: %s", e)
 
-        '''
-        if frame:
-            try:
-                from plugin.framework.uno_context import get_ctx
-                ctx = get_ctx()
-                if ctx:
-                    smgr = getattr(ctx, "ServiceManager", getattr(ctx, "getServiceManager", lambda: None)())
-                    if smgr:
-                        dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-                        if dispatcher:
-                            dispatcher.executeDispatch(frame, ".uno:GoToEndOfDoc", "", 0, ())
-            except Exception as e:
-                log.debug("scroll_to_bottom: GoToEndOfDoc dispatch failed: %s", e)
-        '''
-
         # 2. Aggressive path: screenDown loop with layout settling.
         #    All other callers (on_window_resized, deferred timers, debug force-scroll, etc.)
         #    take the lightweight path below to prevent infinite re-entrancy loops.
         if aggressive:
-            _sample_viewdata(controller, tag="pre")
-
             # screenDown loop with layout settling: HTML imports trigger
             # multi-stage layout recalculation — a single processEventsToIdle
             # flushes one wave but those events schedule more layout work.
@@ -1187,8 +1048,6 @@ def scroll_to_bottom(doc, aggressive: bool = False):
                     log.info("scroll_to_bottom[aggressive]: screenDown paged %d screens", total_pages)
             except Exception as e:
                 log.debug("scroll_to_bottom[aggressive]: screenDown loop failed: %s", e)
-
-            _sample_viewdata(controller, tag="post")
         else:
             # Lightweight path: one final idle so the basic cursor movement has a chance,
             # but nothing that can trigger resize listeners and cause loops.

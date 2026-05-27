@@ -228,41 +228,6 @@ class AppendTextChunkTests(unittest.TestCase):
         doc.getCurrentController().getViewCursor().gotoEnd.assert_called_with(False)
 
 
-class IsScrolledToBottomTests(unittest.TestCase):
-    """Tests for is_scrolled_to_bottom helper."""
-
-    def test_none_scrollbar_returns_true(self):
-        from plugin.chatbot.rich_text import is_scrolled_to_bottom
-        self.assertTrue(is_scrolled_to_bottom(None))
-
-    def test_at_maximum_returns_true(self):
-        from plugin.chatbot.rich_text import is_scrolled_to_bottom
-        sb = MagicMock()
-        sb.getCurrentValue.return_value = 500
-        sb.getMaximumValue.return_value = 500
-        self.assertTrue(is_scrolled_to_bottom(sb))
-
-    def test_near_maximum_within_threshold_returns_true(self):
-        from plugin.chatbot.rich_text import is_scrolled_to_bottom, _SCROLL_BOTTOM_THRESHOLD
-        sb = MagicMock()
-        sb.getCurrentValue.return_value = 500 - _SCROLL_BOTTOM_THRESHOLD
-        sb.getMaximumValue.return_value = 500
-        self.assertTrue(is_scrolled_to_bottom(sb))
-
-    def test_scrolled_up_returns_false(self):
-        from plugin.chatbot.rich_text import is_scrolled_to_bottom
-        sb = MagicMock()
-        sb.getCurrentValue.return_value = 100
-        sb.getMaximumValue.return_value = 500
-        self.assertFalse(is_scrolled_to_bottom(sb))
-
-    def test_exception_returns_true(self):
-        from plugin.chatbot.rich_text import is_scrolled_to_bottom
-        sb = MagicMock()
-        sb.getCurrentValue.side_effect = Exception("disposed")
-        self.assertTrue(is_scrolled_to_bottom(sb))
-
-
 class AppendTextChunkScrollTests(unittest.TestCase):
     """Tests for conditional scrolling in append_text_chunk."""
 
@@ -305,37 +270,6 @@ class AppendRichTextScrollTests(unittest.TestCase):
         doc = MockDoc()
         append_rich_text(doc, "hi", role="assistant")
         doc.getCurrentController().getViewCursor().gotoEnd.assert_called_with(False)
-
-
-class FindVerticalScrollbarTests(unittest.TestCase):
-    """Tests for find_vertical_scrollbar accessible tree navigation."""
-
-    def test_returns_none_for_no_component_window(self):
-        from plugin.chatbot.rich_text import find_vertical_scrollbar
-        frame = MagicMock()
-        frame.getComponentWindow.return_value = None
-        self.assertIsNone(find_vertical_scrollbar(frame))
-
-    def test_finds_scrollbar_in_accessible_tree(self):
-        from plugin.chatbot.rich_text import find_vertical_scrollbar
-
-        # Build a mock accessible tree: frame -> comp_window -> accessible -> child0 -> scrollbar_child
-        scrollbar_child = MagicMock()
-        scrollbar_child.getCurrentValue.return_value = 0
-        scrollbar_child_ctx = MagicMock()
-
-        with patch("plugin.chatbot.rich_text.AccessibleRole", create=True) as MockRole:
-            MockRole = MagicMock()
-            scrollbar_child_ctx.getAccessibleRole.return_value = MockRole.SCROLL_BAR
-
-            # We need to patch AccessibleRole inside the function
-            # Instead, let's test the structure without the role import
-            # by directly calling and checking None (since role won't match mock)
-            frame = MagicMock()
-            result = find_vertical_scrollbar(frame)
-            # Due to import of com.sun.star.accessibility inside the function,
-            # this will return None in test env (no UNO runtime)
-            self.assertIsNone(result)
 
 
 class EmbeddedWriterListenerGuardTests(unittest.TestCase):
