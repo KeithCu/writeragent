@@ -7,7 +7,7 @@ log = logging.getLogger(__name__)
 
 # Chat sidebar resize/layout tracing is very noisy. Set True to log these steps
 # to the debug log even when log_level is DEBUG.
-PANEL_RESIZE_VERBOSE_DEBUG = False
+PANEL_RESIZE_VERBOSE_DEBUG = True  # Verbose helper still on for extra detail if logger allows it.
 
 
 def _resize_debug(msg: str, *args: object) -> None:
@@ -68,6 +68,7 @@ class _PanelResizeListener(BaseWindowListener):
         self._initial = None  # captured from XDL-loaded pixel positions
         self._in_relayout = False
         self._root_window = None  # Set by owner when attaching, for self-removal on dispose
+        self._first_relayout = True  # used to be slightly more conservative on the very first layout after startup
 
     def disposing(self, Source):
         """Defensive: try to remove ourselves if we were given the root window."""
@@ -192,12 +193,29 @@ class _PanelResizeListener(BaseWindowListener):
             min_from_gap = resp_bottom + gap_below_response
             bottom_top_new = max(min_from_gap, candidate)
 
+        # NOTE (2026-05): This layout / stretch / clamping logic (and the 4px margins
+        # below) is restored from commit af649476 because it had better real-world
+        # horizontal scrollbar behavior in the plain text sidebar. When the user
+        # widened the sidebar, the scrollbar would often disappear.
+        #
+        # Later experiments (tightening margins to 2px and removing the final margin
+        # in the safety clamp) made the H scrollbar more persistent / always visible.
+        # Future changes here should be made very cautiously.
+        #
         # Simple stretch policy (horizontal width policy lives in getHeightForWidth).
         # Only these fields are stretched to fill; everything else stays at XDL snapshot
         # width and is only right-clamped if it would overflow.
         stretch = _STRETCH_CONTROLS
 
         top_of_bottom = h
+
+        # Smallest possible extension of the first-relayout conservatism:
+        # Give bottom-row controls (model_selector, clear, etc.) a bit more
+        # right margin on the very first layout when the sidebar restores wide.
+        # This is the minimal targeted change to pull max_child_right leftward
+        # on startup without affecting runtime widening.
+        right_margin = 6 if self._first_relayout else 4
+
         for name, ctrl in self._c.items():
             if not ctrl or name == "response":
                 continue
@@ -208,7 +226,7 @@ class _PanelResizeListener(BaseWindowListener):
 
             if name in stretch:
                 new_x = ox
-                new_w = max(_MIN_WIDTHS.get(name, 40), w - ox - 2)
+                new_w = max(_MIN_WIDTHS.get(name, 40), w - ox - right_margin)
             else:
                 # Buttons, labels, checkboxes, backend_indicator, etc. — keep XDL width, left-anchored.
                 new_x = ox
@@ -216,8 +234,8 @@ class _PanelResizeListener(BaseWindowListener):
 
             # Final safety: no control may extend past the current window right edge.
             # This is the only remaining "prevent H scrollbar" clamp.
-            if new_x + new_w > w:
-                new_w = max(20, w - new_x)
+            if new_x + new_w > w - right_margin:
+                new_w = max(20, w - new_x - right_margin)
 
             if oy >= resp_bottom:
                 if bottom_top_new is not None and bottom_top_initial is not None:
@@ -242,9 +260,28 @@ class _PanelResizeListener(BaseWindowListener):
             gap = gap_below_response if gap_below_response >= 0 else 2
             new_rh = max(30, top_of_bottom - gap - ry)
 
-            new_rw = max(_MIN_WIDTHS.get("response", 40), w - rx - 2)
-            if rx + new_rw > w:
-                new_rw = max(20, w - rx)
+            # On the very first layout (especially when the sidebar is restored to a
+            # previous wide width on app start), be a bit more conservative with the
+            # response width so the deck doesn't immediately decide it needs an H
+            # scrollbar. Runtime widening behavior is unchanged.
+            right_margin = 8 if self._first_relayout else 4
+            new_rw = max(_MIN_WIDTHS.get("response", 40), w - rx - right_margin)
+            if rx + new_rw > w - right_margin:
+                new_rw = max(20, w - rx - right_margin)
+
+            # High-signal one-time diagnostic for the critical first layout on startup.
+            # Promoted to INFO so it reliably appears in writeragent_debug.log.
+            if self._first_relayout:
+                try:
+                    log.info("[FIRST RELAYOUT SIZES] root_w=%d response_w=%d (x=%d) clear_right=%d model_sel_right=%d",
+                              w,
+                              new_rw, rx,
+                              (self._c.get("clear").getPosSize().X + self._c.get("clear").getPosSize().Width) if self._c.get("clear") else -1,
+                              (self._c.get("model_selector").getPosSize().X + self._c.get("model_selector").getPosSize().Width) if self._c.get("model_selector") else -1)
+                except Exception:
+                    pass
+
+            self._first_relayout = False
 
             cur = resp_ctrl.getPosSize()
             if cur.X != rx or cur.Y != ry or cur.Width != new_rw or cur.Height != new_rh:

@@ -194,6 +194,11 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
             _tp.resize_listener = _resize
         _resize.relayout_now(root_window)
 
+        # One-time marker for the very first layout after the panel is created.
+        # Extremely useful for diagnosing the "starts wide on restart → scrollbar" case.
+        log.info("[FIRST LAYOUT] root_w=%d (this is the initial size on app start / sidebar show)",
+                 root_window.getPosSize().Width)
+
         # Lightweight layout sanity log (always emitted at DEBUG after first wiring).
         # Helps catch cases where child controls would overflow the allocated panel width.
         try:
@@ -207,7 +212,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
                         max_right = max(max_right, pr.X + pr.Width)
                     except Exception:
                         pass
-            log.debug("layout_sanity: root_w=%d max_child_right=%d overflow=%s" % (rw, max_right, "YES" if max_right > rw - 1 else "no"))
+            log.debug("layout_sanity: root_w=%d max_child_right=%d overflow=%s" % (rw, max_right, "YES" if max_right > rw - 2 else "no"))
         except Exception:
             pass
 
@@ -285,15 +290,6 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
                         set_control_visible(controls["response_label"], False)
                 except Exception:
                     log.debug("Failed to hide response controls")
-
-                # Force the rich text container to the final size the main layout
-                # computed for the response area (keeps it in sync with plain text).
-                try:
-                    if container and controls.get("response"):
-                        ps = controls["response"].getPosSize()
-                        container.setPosSize(ps.X, ps.Y, ps.Width, ps.Height, 15)
-                except Exception:
-                    log.debug("Failed to sync rich text container size")
 
                 # Initial render into the new rich-text document
                 try:
