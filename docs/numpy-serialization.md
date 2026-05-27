@@ -256,13 +256,13 @@ We **do not** distinguish empty Calc cells from Python/NumPy NaN on the wire (bo
 
 ### Benchmark results (2026-05)
 
-Asymmetric simulation: **host** = stdlib pack/serialize; **child** = deserialize + materialize. Timings are median values; the automatic `split_grid` envelope is triggered when **at least 10 cells** (smaller grids fall back to standard JSON lists). We compare three main strategies:
+Asymmetric simulation: **host** = stdlib pack/serialize; **child** = deserialize + materialize. Timings are median values; the automatic `split_grid` envelope is triggered when **at least 10 cells** (smaller grids fall back to standard JSON lists). The bench compares four transport + envelope strategies:
 1. `json_list` (standard nested lists over JSON wire, materializing using `np.array(list)`).
-2. `split_grid` (JSON-based: flattened float64 bytes encoded in Base64 over JSON wire, materializing using `np.frombuffer`).
-3. `pickle5` (Standard Python pickle of nested lists, which still requires expensive `np.array(list)` conversions in the child).
-4. **`pickle5+sg`** (**Winner**: Split-Grid inside Pickle: packing raw binary float64 buffers directly in the dictionary envelope, materializing at C-speed via `np.frombuffer`).
+2. **`json+sg`** (split_grid envelope with Base64 `b64` buffer inside a JSON line, materializing using `np.frombuffer`).
+3. `pickle5` (Pickle protocol 5 of nested lists, which still requires expensive `np.array(list)` conversions in the child).
+4. **`pickle5+sg`** (**Winner**: split_grid envelope with raw `buffer` bytes inside Pickle5, materializing at C-speed via `np.frombuffer`).
 
-Additionally, for child-side materialization comparison, we also preserve historical results for **`pure_pickle`** (standard Python pickle of nested lists, which still requires expensive `np.array(list)` conversions in the child) to demonstrate why pure pickle is not enough compared to Split-Grid inside Pickle.
+`--child-only` also reports `pickle5` vs `pickle5+sg` materialize times to show why plain pickle is not enough without the split_grid envelope.
 
 #### 1. End-to-End Serialization Timings (Ingress)
 
@@ -292,7 +292,7 @@ timings in milliseconds (isolated stages):
 
 timings in milliseconds (measuring CPU time required to deserialize and instantiate the array in the child):
 
-| Shape | Cells | `json_list` (np.array) | `split_grid` (frombuffer) | `pure_pickle` (np.array) [Historical] | `pickle_split_grid` (frombuffer) [New] | `split_grid` Speedup | `pure_pickle` Speedup | `pickle_split_grid` Speedup |
+| Shape | Cells | `json_list` (np.array) | `json+sg` (frombuffer) | `pickle5` (np.array) | `pickle5+sg` (frombuffer) | `json+sg` Speedup | `pickle5` Speedup | `pickle5+sg` Speedup |
 |-------|-------|------------------------|---------------------------|---------------------------------------|---------------------------------------|----------------------|-----------------------|-----------------------------|
 | **Scalar** | 1 | 0.0023 ms | 0.0055 ms | 0.0011 ms | 0.0041 ms | 0.41x | 1.84x | 0.56x |
 | **3×3** | 9 | 0.0048 ms | 0.0055 ms | 0.0024 ms | 0.0041 ms | 0.88x | 2.13x | 1.18x |
@@ -402,18 +402,18 @@ With the highly optimized pure-Python/NumPy vectorized object-masking strategy i
 
 ### Benchmark checklist (regression / future optimizations)
 
-Re-run when changing [`payload_codec.py`](../plugin/scripting/payload_codec.py) or considering vendored codecs or mmap. **Standalone bench (outside LO):** [`scripts/bench_serialization.py`](../scripts/bench_serialization.py) — asymmetric host (stdlib) vs child (NumPy), ingress and egress, scalar/list/ndarray sizes up to 100 000 cells (includes 20 000×5); compares JSON lists vs `split_grid` (`np.frombuffer` + `reshape` for numeric). Production policy matches bench defaults (`BINARY_MIN_CELLS = 100`).
+Re-run when changing [`payload_codec.py`](../plugin/scripting/payload_codec.py) or considering vendored codecs or mmap. **Standalone bench (outside LO):** [`scripts/bench_serialization.py`](../scripts/bench_serialization.py) — asymmetric host (stdlib) vs child (NumPy), ingress and egress, scalar/list/ndarray sizes up to 100 000 cells (includes 20 000×5); compares `json_list`, `json+sg`, `pickle5`, and `pickle5+sg`. Production path is `pickle5+sg`; `json+sg` is the historical JSON/Base64 diagnostic lane. Production policy matches bench defaults (`BINARY_MIN_CELLS = 100`).
 
 ```bash
 python scripts/bench_serialization.py --direction both
 python scripts/bench_serialization.py --child-only   # isolate np.array vs frombuffer
-# Planned: --candidates for orjson/msgpack/zlib vs split_grid
+# Planned: --candidates for orjson/msgpack/zlib vs json+sg / pickle5+sg
 ```
 
 Checklist (same legs the script runs):
 
 1. **Baseline (list path)** — host pack list + `json.dumps` + child `json.loads` + `np.array(data)`.
-2. **With envelope (target)** — host `split_grid` + same wire + child `frombuffer`; compare `mat` column and `wire_B`.
+2. **With envelope** — `json+sg` (Base64 split_grid in JSON) and `pickle5+sg` (production buffer in Pickle5) + child `frombuffer`; compare `mat` column and `wire_B`.
 2b. **Vendored Codecs** — same payload with vendored **msgpack** (or custom packer) on host only vs stdlib; measure OXT size and cold-import cost in LO.
 3. **Mmap** — host writes temp binary file; child `np.memmap`; measure with `N×M` at 10⁴, 10⁵, 10⁶ cells (under cap).
 4. **Egress** — `result = large_ndarray`: compare `.tolist()` + JSON vs compact binary envelope vs scalar-only return.

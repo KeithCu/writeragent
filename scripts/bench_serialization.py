@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # WriterAgent - benchmark asymmetric serialization (host stdlib vs child NumPy).
 # Run outside LibreOffice: python scripts/bench_serialization.py
-"""Compare JSON nested lists, split_grid, pickle5, and pickle5+sg for host→venv and venv→host paths.
+"""Compare json_list, json+sg, pickle5, and pickle5+sg for host→venv and venv→host paths.
 
-See plugin/scripting/payload_codec.py for why split_grid exists (NumPy frombuffer).
+See plugin/scripting/payload_codec.py for why the split_grid envelope exists (NumPy frombuffer).
 """
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Literal
+from typing import Any, Callable
 
 project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
@@ -29,135 +29,14 @@ from plugin.scripting.payload_codec import (  # noqa: E402
     child_unpack_data,
     host_pack_data,
     host_unpack_data,
-    should_use_binary_envelope,
     fast_flatten_grid_2d,
 )
-
-import base64
-import math
-from plugin.scripting.payload_codec import (
-    PAYLOAD_SPLIT_GRID,
-    SPLIT_GRID_WIRE_DTYPE,
-    _flatten_grid_to_components,
-    envelope_uniform_column_kind,
-    envelope_column_kinds,
-    _host_cell_from_float,
-    _apply_column_kinds_to_ndarray,
+from tests.scripting.payload_codec_test_support import (  # noqa: E402
+    legacy_b64_child_pack_split_grid,
+    legacy_b64_child_unpack_split_grid,
+    legacy_b64_host_pack_split_grid,
+    legacy_b64_host_unpack_split_grid,
 )
-
-def b64_host_pack_split_grid(grid: list[Any] | list[list[Any]]) -> dict[str, Any]:
-    if not grid:
-        return {
-            "__wa_payload__": PAYLOAD_SPLIT_GRID,
-            "dtype": SPLIT_GRID_WIRE_DTYPE,
-            "column_kinds": [],
-            "shape": [0],
-            "strings": {},
-            "b64": "",
-        }
-    buf, strings, column_kinds, shape = _flatten_grid_to_components(grid)
-    return {
-        "__wa_payload__": PAYLOAD_SPLIT_GRID,
-        "dtype": SPLIT_GRID_WIRE_DTYPE,
-        "column_kinds": column_kinds,
-        "shape": shape,
-        "strings": strings,
-        "b64": base64.b64encode(buf.tobytes()).decode("ascii"),
-    }
-
-def b64_host_unpack_split_grid(envelope: dict[str, Any]) -> list[Any] | list[list[Any]]:
-    import array
-    b64_str = envelope.get("b64", "")
-    raw = base64.b64decode(b64_str.encode("ascii"))
-    buf = array.array("d")
-    buf.frombytes(raw)
-    shape = envelope["shape"]
-    is_1d = len(shape) == 1
-    nrows, ncols = (shape[0], 1) if is_1d else (shape[0], shape[1])
-    raw_strings = envelope.get("strings", {})
-    strings = {int(k): v for k, v in raw_strings.items()} if raw_strings else {}
-    uniform = envelope_uniform_column_kind(envelope, ncols=ncols)
-
-    flat_list: list[Any]
-    if not strings and uniform is not None:
-        if uniform == "int":
-            flat_list = [None if math.isnan(v) else int(v) for v in buf]
-        else:
-            flat_list = [None if math.isnan(v) else v for v in buf]
-    else:
-        column_kinds = envelope_column_kinds(envelope, ncols=ncols)
-        col_is_int = [k == "int" for k in column_kinds]
-        flat_list = [
-            strings[i] if i in strings else 
-            (None if math.isnan(val) else (int(val) if col_is_int[0 if is_1d else i % ncols] else val))
-            for i, val in enumerate(buf)
-        ]
-
-    if is_1d:
-        return flat_list
-    return [flat_list[r * ncols : (r + 1) * ncols] for r in range(nrows)]
-
-def b64_child_pack_split_grid(arr: Any) -> dict[str, Any]:
-    import numpy as np
-    if not isinstance(arr, np.ndarray):
-        arr = np.asarray(arr)
-    ncols = int(arr.shape[1]) if arr.ndim == 2 else 1
-    if np.issubdtype(arr.dtype, np.integer):
-        column_kinds = ["int"] * ncols
-    else:
-        column_kinds = ["float"] * ncols
-    wire_arr = np.ascontiguousarray(arr, dtype=np.float64)
-    return {
-        "__wa_payload__": PAYLOAD_SPLIT_GRID,
-        "dtype": SPLIT_GRID_WIRE_DTYPE,
-        "column_kinds": column_kinds,
-        "shape": list(wire_arr.shape),
-        "strings": {},
-        "b64": base64.b64encode(wire_arr.tobytes()).decode("ascii"),
-    }
-
-def b64_child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
-    import numpy as np
-    shape = envelope["shape"]
-    is_1d = len(shape) == 1
-    nrows, ncols = (shape[0], 1) if is_1d else (shape[0], shape[1])
-    b64_str = envelope.get("b64", "")
-    raw = base64.b64decode(b64_str.encode("ascii"))
-    uniform = envelope_uniform_column_kind(envelope, ncols=ncols)
-    column_kinds = envelope_column_kinds(envelope, ncols=ncols)
-    raw_strings = envelope.get("strings", {})
-    strings = {int(k): v for k, v in raw_strings.items()} if raw_strings else {}
-
-    if not strings:
-        arr = np.frombuffer(raw, dtype=np.float64)
-        if not is_1d:
-            arr = arr.reshape((nrows, ncols))
-        return _apply_column_kinds_to_ndarray(
-            arr, column_kinds, ncols=ncols, is_1d=is_1d, uniform=uniform
-        )
-
-    flat_list = np.frombuffer(raw, dtype=np.float64).tolist()
-    col_is_int = [k == "int" for k in column_kinds]
-    any_int = any(col_is_int)
-
-    if not any_int:
-        for i, val in enumerate(flat_list):
-            if i in strings:
-                flat_list[i] = strings[i]
-            elif math.isnan(val):
-                flat_list[i] = None
-    else:
-        for i, val in enumerate(flat_list):
-            if i in strings:
-                flat_list[i] = strings[i]
-            elif math.isnan(val):
-                flat_list[i] = None
-            elif col_is_int[0 if is_1d else i % ncols]:
-                flat_list[i] = int(val)
-
-    if is_1d:
-        return flat_list
-    return [flat_list[r * ncols : (r + 1) * ncols] for r in range(nrows)]
 
 
 def child_materialize_list(wire: Any) -> Any:
@@ -167,18 +46,13 @@ def child_materialize_list(wire: Any) -> Any:
     return np.array(wire, dtype=np.float64)
 
 
-def child_materialize_split_grid(wire: Any) -> Any:
-    """Production split_grid path decoded at C-speed using child_unpack_data."""
-    return child_unpack_data(wire)
-
-
 @dataclass
 class BenchRow:
     direction: str
     kind: str
     shape: str
     cells: int
-    wire_format: str  # json_list | split_grid | pickle5 | pickle5+sg
+    wire_format: str  # json_list | json+sg | pickle5 | pickle5+sg
     host_pack_ms: float
     host_dump_ms: float
     peer_load_ms: float
@@ -186,7 +60,7 @@ class BenchRow:
     total_ms: float
     wire_bytes: int
     json_wire_bytes: int | None = None  # paired json_list size for comparison
-    wire_vs_json: str = ""  # e.g. "52% of json" on split_grid rows
+    wire_vs_json: str = ""  # e.g. "52% of json" on json+sg rows
     mat_faster_x: float | None = None  # json_list mat / format mat; >1 => format faster
     total_faster_x: float | None = None  # json_list total / format total; >1 => format faster
     faster_total: str = ""  # e.g. "★ pickle5+sg"
@@ -220,26 +94,23 @@ def _bench_parts(
 ) -> tuple[dict[str, float], Any]:
     out: dict[str, float] = {}
     current_input: Any = None
-    
+
     # Warmup all parts in sequence to ensure 'current_input' is populated for each stage
     for _, fn in parts:
         current_input = fn(current_input)
-    
+
     # Measure each part
     current_input = None
     for name, fn in parts:
         samples: list[float] = []
-        # We need the result of the previous stage to benchmark this one
-        # but we don't want to include the previous stage's time in the current measurement.
-        # So we run it once outside the loop.
-        
+
         for _ in range(iters):
             t0 = time.perf_counter()
-            res = fn(current_input)
+            fn(current_input)
             samples.append((time.perf_counter() - t0) * 1000)
-        
+
         out[name] = _median(samples)
-        current_input = fn(current_input) # Update for next stage
+        current_input = fn(current_input)
     return out, current_input
 
 
@@ -294,8 +165,6 @@ def run_ingress(
     iters: int,
     wire_format: str,
 ) -> tuple[dict[str, float], int]:
-    wire_holder: dict[str, Any] = {}
-
     if wire_format in ("pickle5", "pickle5+sg"):
         pack_force: ForceBinary = "never" if wire_format == "pickle5" else "always"
 
@@ -305,12 +174,12 @@ def run_ingress(
             ("child_load", lambda b: pickle.loads(b)["data"]),
             ("child_mat", lambda data: child_unpack_data(data) if wire_format == "pickle5+sg" else child_materialize_list(data)),
         ]
-    elif wire_format == "split_grid":
+    elif wire_format == "json+sg":
         parts = [
-            ("host_pack", lambda _: b64_host_pack_split_grid(grid)),
+            ("host_pack", lambda _: legacy_b64_host_pack_split_grid(grid)),
             ("host_dump", lambda data: json.dumps({"id": "b", "data": data}, default=str) + "\n"),
             ("child_load", lambda line: json.loads(line)["data"]),
-            ("child_mat", lambda data: b64_child_unpack_split_grid(data)),
+            ("child_mat", lambda data: legacy_b64_child_unpack_split_grid(data)),
         ]
     else:  # json_list
         parts = [
@@ -320,22 +189,16 @@ def run_ingress(
             ("child_mat", lambda data: child_materialize_list(data)),
         ]
 
-    times, last_res = _bench_parts(parts, warmup=warmup, iters=iters)
-    
-    # Measure wire bytes from the result of the host_dump stage (index 1)
-    # We need to run the stages to get the wire format correctly.
-    # Actually _bench_parts returns the 'last' result which is the materialized data.
-    # We need to capture the dump result.
-    
-    # Re-running the first two stages to get wire size is cheap.
+    times, _last_res = _bench_parts(parts, warmup=warmup, iters=iters)
+
     wire_data = parts[0][1](None)
     wire_bytes_raw = parts[1][1](wire_data)
-    
+
     if isinstance(wire_bytes_raw, str):
         wire_bytes = len(wire_bytes_raw.encode("utf-8"))
     else:
         wire_bytes = len(wire_bytes_raw)
-        
+
     return times, wire_bytes
 
 
@@ -358,8 +221,6 @@ def run_egress(
         arr = np.random.rand(nrows, ncols) if ncols > 1 else np.random.rand(nrows)
         kind_pack = lambda: arr
 
-    wire_holder: dict[str, Any] = {}
-
     if wire_format in ("pickle5", "pickle5+sg"):
         pack_force: ForceBinary = "never" if wire_format == "pickle5" else "always"
 
@@ -369,17 +230,17 @@ def run_egress(
             ("host_load", lambda b: pickle.loads(b)["result"]),
             ("host_mat", lambda res: host_unpack_data(res, as_nested_list=True)),
         ]
-    elif wire_format == "split_grid":
-        def pack_b64(r):
+    elif wire_format == "json+sg":
+        def pack_b64(r: Any) -> dict[str, Any]:
             if isinstance(r, np.ndarray):
-                return b64_child_pack_split_grid(r)
-            return b64_host_pack_split_grid(r)
-            
+                return legacy_b64_child_pack_split_grid(r)
+            return legacy_b64_host_pack_split_grid(r)
+
         parts = [
             ("child_pack", lambda _: pack_b64(kind_pack())),
             ("child_dump", lambda res: json.dumps({"id": "b", "result": res}, default=str) + "\n"),
             ("host_load", lambda line: json.loads(line)["result"]),
-            ("host_mat", lambda res: b64_host_unpack_split_grid(res)),
+            ("host_mat", lambda res: legacy_b64_host_unpack_split_grid(res)),
         ]
     else:  # json_list
         parts = [
@@ -389,16 +250,16 @@ def run_egress(
             ("host_mat", lambda res: host_unpack_data(res, as_nested_list=True)),
         ]
 
-    times, last_res = _bench_parts(parts, warmup=warmup, iters=iters)
-    
+    times, _last_res = _bench_parts(parts, warmup=warmup, iters=iters)
+
     wire_data = parts[0][1](None)
     wire_bytes_raw = parts[1][1](wire_data)
-    
+
     if isinstance(wire_bytes_raw, str):
         wire_bytes = len(wire_bytes_raw.encode("utf-8"))
     else:
         wire_bytes = len(wire_bytes_raw)
-        
+
     return times, wire_bytes
 
 
@@ -410,18 +271,18 @@ def run_child_only(
     iters: int,
 ) -> tuple[float, float, float, float, float, float, float]:
     data_list = host_pack_data(grid, min_cells=min_cells, force="never")
-    data_split_grid = b64_host_pack_split_grid(grid)
+    data_json_sg = legacy_b64_host_pack_split_grid(grid)
     data_pickle_split_grid = host_pack_data(grid, min_cells=min_cells, force="always")
     line_list = json.dumps({"data": data_list}) + "\n"
-    line_split_grid = json.dumps({"data": data_split_grid}) + "\n"
+    line_json_sg = json.dumps({"data": data_json_sg}) + "\n"
     bytes_pickle = pickle.dumps({"data": data_list}, protocol=5)
     bytes_pickle_sg = pickle.dumps({"data": data_pickle_split_grid}, protocol=5)
 
     def mat_list() -> Any:
         return child_materialize_list(json.loads(line_list)["data"])
 
-    def mat_split_grid() -> Any:
-        return b64_child_unpack_split_grid(json.loads(line_split_grid)["data"])
+    def mat_json_sg() -> Any:
+        return legacy_b64_child_unpack_split_grid(json.loads(line_json_sg)["data"])
 
     def mat_pickle5() -> Any:
         return child_materialize_list(pickle.loads(bytes_pickle)["data"])
@@ -430,15 +291,14 @@ def run_child_only(
         return child_unpack_data(pickle.loads(bytes_pickle_sg)["data"])
 
     _, list_ms = _bench(mat_list, warmup=warmup, iters=iters)
-    _, split_grid_ms = _bench(mat_split_grid, warmup=warmup, iters=iters)
+    _, json_sg_ms = _bench(mat_json_sg, warmup=warmup, iters=iters)
     _, pickle5_ms = _bench(mat_pickle5, warmup=warmup, iters=iters)
     _, pickle5_sg_ms = _bench(mat_pickle5_sg, warmup=warmup, iters=iters)
 
-    sp_split = list_ms / split_grid_ms if split_grid_ms > 0 else 0.0
+    sp_json_sg = list_ms / json_sg_ms if json_sg_ms > 0 else 0.0
     sp_pickle = list_ms / pickle5_ms if pickle5_ms > 0 else 0.0
     sp_pickle_sg = list_ms / pickle5_sg_ms if pickle5_sg_ms > 0 else 0.0
-    return list_ms, split_grid_ms, pickle5_ms, pickle5_sg_ms, sp_split, sp_pickle, sp_pickle_sg
-
+    return list_ms, json_sg_ms, pickle5_ms, pickle5_sg_ms, sp_json_sg, sp_pickle, sp_pickle_sg
 
 
 def main() -> None:
@@ -449,7 +309,7 @@ def main() -> None:
         sys.exit(1)
 
     p = argparse.ArgumentParser(
-        description="Benchmark list+json vs split_grid vs pickle5 vs pickle5+sg (host Python / child NumPy)."
+        description="Benchmark json_list vs json+sg vs pickle5 vs pickle5+sg (host Python / child NumPy)."
     )
     p.add_argument("--direction", choices=("ingress", "egress", "both"), default="both")
     p.add_argument("--force-binary", choices=("auto", "always", "never"), default="auto")
@@ -457,7 +317,7 @@ def main() -> None:
         "--min-cells",
         type=int,
         default=BINARY_MIN_CELLS,
-        help="Use split_grid when cell count is at least this (default 10)",
+        help="Use split_grid envelope when cell count is at least this (default from payload_codec)",
     )
     p.add_argument("--warmup", type=int, default=3)
     p.add_argument("--iters", type=int, default=15)
@@ -473,16 +333,16 @@ def main() -> None:
 
     if args.child_only:
         print(
-            "child_only: materialize ms — json_list (np.array) vs split_grid (frombuffer) "
+            "child_only: materialize ms — json_list (np.array) vs json+sg (frombuffer) "
             "vs pickle5 (np.array) vs pickle5+sg (frombuffer)"
         )
         print(
-            f"{'shape':<12} {'cells':>8} {'json_list_ms':>14} {'split_grid_ms':>14} "
-            f"{'pickle5_ms':>14} {'pickle5+sg_ms':>14} {'split_x':>9} {'pickle_x':>9} {'pickle+sg_x':>11}"
+            f"{'shape':<12} {'cells':>8} {'json_list_ms':>14} {'json+sg_ms':>14} "
+            f"{'pickle5_ms':>14} {'pickle5+sg_ms':>14} {'json+sg_x':>9} {'pickle_x':>9} {'pickle+sg_x':>11}"
         )
         for nrows, ncols, _ in grid_shapes():
             grid = make_grid(nrows, ncols)
-            list_ms, split_grid_ms, pickle5_ms, pickle5_sg_ms, sp_split, sp_pickle, sp_pickle_sg = run_child_only(
+            list_ms, json_sg_ms, pickle5_ms, pickle5_sg_ms, sp_json_sg, sp_pickle, sp_pickle_sg = run_child_only(
                 grid,
                 min_cells=args.min_cells,
                 warmup=args.warmup,
@@ -490,12 +350,12 @@ def main() -> None:
             )
             print(
                 f"{shape_label(nrows, ncols):<12} {cell_count((nrows, ncols)):>8} {list_ms:>14.4f} "
-                f"{split_grid_ms:>14.4f} {pickle5_ms:>14.4f} {pickle5_sg_ms:>14.4f} "
-                f"{sp_split:>8.2f}x {sp_pickle:>8.2f}x {sp_pickle_sg:>10.2f}x"
+                f"{json_sg_ms:>14.4f} {pickle5_ms:>14.4f} {pickle5_sg_ms:>14.4f} "
+                f"{sp_json_sg:>8.2f}x {sp_pickle:>8.2f}x {sp_pickle_sg:>10.2f}x"
             )
-        print("\n  split_x     = split_grid (frombuffer) vs json_list (np.array).")
-        print("  pickle_x    = pickle5 nested lists (np.array) vs json_list (np.array).")
-        print("  pickle+sg_x = pickle5+sg split_grid (frombuffer) vs json_list (np.array).")
+        print("\n  json+sg_x    = json+sg (frombuffer) vs json_list (np.array).")
+        print("  pickle_x     = pickle5 nested lists (np.array) vs json_list (np.array).")
+        print("  pickle+sg_x  = pickle5+sg split_grid (frombuffer) vs json_list (np.array).")
         return
 
     rows: list[BenchRow] = []
@@ -507,8 +367,8 @@ def main() -> None:
         cells = cell_count(shape if nrows != 1 or ncols != 1 else (1,))
 
         if args.direction in ("ingress", "both"):
-            for wire_format in ("json_list", "split_grid", "pickle5", "pickle5+sg"):
-                if force == "never" and wire_format == "split_grid":
+            for wire_format in ("json_list", "json+sg", "pickle5", "pickle5+sg"):
+                if force == "never" and wire_format == "json+sg":
                     continue
                 t, wire_b = run_ingress(
                     grid,
@@ -537,8 +397,8 @@ def main() -> None:
                 )
 
         if args.direction in ("egress", "both"):
-            for wire_format in ("json_list", "split_grid", "pickle5", "pickle5+sg"):
-                if nrows == 1 and ncols == 1 and wire_format == "split_grid":
+            for wire_format in ("json_list", "json+sg", "pickle5", "pickle5+sg"):
+                if nrows == 1 and ncols == 1 and wire_format == "json+sg":
                     continue
                 t, wire_b = run_egress(
                     nrows,
@@ -566,7 +426,7 @@ def main() -> None:
                     )
                 )
 
-    # Pair json_list vs split_grid vs pickle5 vs pickle5+sg per shape for size and speed comparisons
+    # Pair json_list vs json+sg vs pickle5 vs pickle5+sg per shape for size and speed comparisons
     by_key: dict[tuple[str, str, str], dict[str, BenchRow]] = {}
     for r in rows:
         key = (r.direction, r.shape, r.kind)
@@ -578,9 +438,8 @@ def main() -> None:
         json_b = json_r.wire_bytes
         json_r.json_wire_bytes = json_b
         json_r.wire_vs_json = "baseline (json)"
-        
-        # Compare other formats to the JSON baseline
-        for fmt in ("split_grid", "pickle5", "pickle5+sg"):
+
+        for fmt in ("json+sg", "pickle5", "pickle5+sg"):
             fmt_r = paths.get(fmt)
             if fmt_r is None:
                 continue
@@ -593,8 +452,7 @@ def main() -> None:
                 fmt_r.mat_faster_x = json_r.materialize_ms / fmt_r.materialize_ms
             if fmt_r.total_ms > 0:
                 fmt_r.total_faster_x = json_r.total_ms / fmt_r.total_ms
-        
-        # Find the overall fastest format for this key
+
         valid_paths = [r for r in paths.values() if r.total_ms > 0]
         if valid_paths:
             fastest_r = min(valid_paths, key=lambda x: x.total_ms)
@@ -623,7 +481,7 @@ def main() -> None:
         "  direction     ingress = Host -> Child (LibreOffice Host sending data into the sandboxed Child worker).\n"
         "                egress = Child -> Host (sandboxed Child worker returning data back to the LibreOffice Host).\n"
         "  wire_format   json_list = nested floats in JSON (slow materialize).\n"
-        "                split_grid = compact base64 float64 with sparse strings in JSON (fast materialize).\n"
+        "                json+sg = split_grid envelope with Base64 buffer in a JSON line (fast frombuffer).\n"
         "                pickle5 = Pickle protocol 5 with nested lists (force=never; slow np.array materialize).\n"
         "                pickle5+sg = Pickle protocol 5 with split_grid envelope (force=always; fast frombuffer).\n"
         "  wire_KiB      Line/payload size on the wire for this row.\n"
