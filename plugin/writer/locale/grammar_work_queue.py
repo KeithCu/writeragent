@@ -796,10 +796,5 @@ _lang_detect_cache = grammar_persistence.grammar_registry.lang_detect_cache
 
 # Test / legacy aliases (TD2 seam tests patch these names on grammar_work_queue).
 _detect_languages = detect_languages_for_chunk
-from .grammar_worker_llm import (  # noqa: E402
-    get_cached_language as _get_cached_language,
-    language_detect_llm_sync as _language_detect_llm_sync,
-    put_cached_language as _put_cached_language,
-)
 
 _call_grammar_llm = call_grammar_llm

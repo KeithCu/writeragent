@@ -62,13 +62,13 @@
 |---------|------|
 | `make manifest` | Generates [`plugin/_manifest.py`](plugin/_manifest.py) (gitignored). Used by type-check and tests on clean checkouts. Missing manifest → [`load_manifest()`](plugin/framework/module_base.py) raises **`RuntimeError`**. |
 | `make check` | **`ty`** only |
-| `make build` | **`ty`** + **`ruff`** + bundle |
+| `make build` | **`ty`** + **`ruff-fix`** then **`ruff`** + bundle |
 | `make typecheck` | **`ty`** + **mypy** + **pyright** |
 | `make test` | Full typecheck + **bandit** (see `[tool.bandit]` in [`pyproject.toml`](pyproject.toml)) + pytest + LO tests (skip if no `soffice`) |
 | `make release` | **`make test`** then **`release-build`** (includes **`openrouter-catalog`** → [`extension/metadata/openrouter_models.json`](extension/metadata/openrouter_models.json)—not in OXT—plus [`default_models.py`](plugin/framework/default_models.py), translations, OXT) |
 | `make fix-uno` | Link system UNO into `.venv` so `import uno` resolves for checkers |
 
-**Ruff:** `[tool.ruff]` line length **320** (Ruff’s maximum; fits dense one-line calls without wrapping); `[tool.ruff.format]` **`skip-magic-trailing-comma` true**—see [`pyproject.toml`](pyproject.toml). **`make build`** runs **`ruff check`**; not part of **`make test`**.
+**Ruff:** `[tool.ruff]` line length **320** (Ruff’s maximum; fits dense one-line calls without wrapping); `[tool.ruff.format]` **`skip-magic-trailing-comma` true**—see [`pyproject.toml`](pyproject.toml). **`make build`** runs **`ruff-fix`** then **`ruff check`** (`ruff-for-build`); standalone **`make ruff`** is check-only. Not part of **`make test`**.
 
 **Optional:** **`make pyrefly`** — not in **`make test`**; see [`docs/type-checking.md`](docs/type-checking.md).
 

@@ -214,6 +214,12 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
         else:
             eff_w = 220
 
+        # Simple safety against huge deck_hints (common on docked columns).
+        # Allow the user to widen the sidebar comfortably, but never trust
+        # frame-width hints (1100+) when the real column is narrower.
+        if deck_w > 600:
+            eff_w = min(eff_w, max(480, parent_w if parent_w > 0 else 480))
+
         log.debug("getHeightForWidth deck_hint=%s parent=%sx%s current_root=%s eff_W=%s" % (deck_w, parent_w, parent_h, "%sx%s" % (before.Width, before.Height) if before else None, eff_w))
         try:
             self.PanelWindow.setPosSize(0, 0, eff_w, h, 15)
@@ -296,6 +302,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             except Exception as e:
                 if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
                     log.debug("Failed to set panel root window visible (likely disposed): %s", e)
+
         # Constrain panel only when parent already has size (layout may be 0x0 here).
         try:
             parent_rect = self.xParentWindow.getPosSize()

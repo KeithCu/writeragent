@@ -119,7 +119,7 @@ endif
         lo-start-log \
         writer calc draw impress \
         set-config vendor docker-build compile-translations merge-translations refresh-pot reset-lang preview-translations check ty mypy pyright pyrefly bandit ty-run mypy-run pyright-run pyrefly-run \
-        ruff ruff-fix ruff-format-check ruff-format-grammar \
+        ruff ruff-fix ruff-for-build ruff-format-check ruff-format-grammar \
         eval-deps run_eval run_eval-smoke \
         fetch-monaco prune-monaco minify-editor-js
 
@@ -189,6 +189,7 @@ help:
 	@echo "  make pyrefly                Experimental Meta Pyrefly checker (same scope as ty; not part of make test)"
 	@echo "  make ruff                   Ruff lint (plugin/, excludes contrib + tests; see pyproject.toml)"
 	@echo "  make ruff-fix               Ruff with --fix; make ruff-format-check = ruff format --check"
+	@echo "  make ruff-for-build         Ruff --fix then check (used by make build)"
 	@echo "  make ruff-format-grammar    Ruff format ai_grammar_proofreader.py only (project line-length 320)"
 	@echo ""
 	@echo "Monaco editor assets:"
@@ -239,16 +240,16 @@ preview-translations: refresh-pot
 
 
 ifeq ($(USE_DOCKER),1)
-build: ty ruff preview-translations compile-translations
+build: ty ruff-for-build preview-translations compile-translations
 	@$(MAKE) docker-build
 else
-build: ty ruff preview-translations vendor manifest compile-translations
+build: ty ruff-for-build preview-translations vendor manifest compile-translations
 	@echo "Building $(EXTENSION_NAME).oxt (with tests)..."
 	$(PYTHON) $(SCRIPTS)/build_oxt.py --output build/$(EXTENSION_NAME).oxt $(if $(filter 1,$(NO_RECORDING)),--no-recording)
 	@echo "Done: build/$(EXTENSION_NAME).oxt  (bundle in build/bundle/)"
 endif
 
-build-no-recording: ty ruff preview-translations vendor manifest compile-translations
+build-no-recording: ty ruff-for-build preview-translations vendor manifest compile-translations
 	@echo "Building $(EXTENSION_NAME).oxt (no voice recording)..."
 	$(PYTHON) $(SCRIPTS)/build_oxt.py --no-recording --output build/$(EXTENSION_NAME).oxt
 	@echo "Done: build/$(EXTENSION_NAME).oxt  (bundle in build/bundle/)"
@@ -649,6 +650,9 @@ ruff:
 
 ruff-fix:
 	$(PYTHON) -m ruff check plugin --fix
+
+# Build gate: auto-fix then verify (standalone `make ruff` remains check-only).
+ruff-for-build: ruff-fix ruff
 
 ruff-format-check:
 	$(PYTHON) -m ruff format --check plugin

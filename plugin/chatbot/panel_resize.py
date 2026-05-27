@@ -208,7 +208,7 @@ class _PanelResizeListener(BaseWindowListener):
 
             if name in stretch:
                 new_x = ox
-                new_w = max(_MIN_WIDTHS.get(name, 40), w - ox - 4)
+                new_w = max(_MIN_WIDTHS.get(name, 40), w - ox - 2)
             else:
                 # Buttons, labels, checkboxes, backend_indicator, etc. — keep XDL width, left-anchored.
                 new_x = ox
@@ -216,8 +216,8 @@ class _PanelResizeListener(BaseWindowListener):
 
             # Final safety: no control may extend past the current window right edge.
             # This is the only remaining "prevent H scrollbar" clamp.
-            if new_x + new_w > w - 4:
-                new_w = max(20, w - new_x - 4)
+            if new_x + new_w > w:
+                new_w = max(20, w - new_x)
 
             if oy >= resp_bottom:
                 if bottom_top_new is not None and bottom_top_initial is not None:
@@ -242,9 +242,9 @@ class _PanelResizeListener(BaseWindowListener):
             gap = gap_below_response if gap_below_response >= 0 else 2
             new_rh = max(30, top_of_bottom - gap - ry)
 
-            new_rw = max(_MIN_WIDTHS.get("response", 40), w - rx - 4)
-            if rx + new_rw > w - 4:
-                new_rw = max(20, w - rx - 4)
+            new_rw = max(_MIN_WIDTHS.get("response", 40), w - rx - 2)
+            if rx + new_rw > w:
+                new_rw = max(20, w - rx)
 
             cur = resp_ctrl.getPosSize()
             if cur.X != rx or cur.Y != ry or cur.Width != new_rw or cur.Height != new_rh:
