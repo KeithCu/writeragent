@@ -10,9 +10,11 @@
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import subprocess
 
 _BLOCKED_ENV_SUBSTR = ("KEY", "TOKEN", "SECRET", "PASSWORD", "AUTH", "CREDENTIAL")
 # LibreOffice sets PYTHONHOME/PYTHONPATH to its bundled stdlib; letting these

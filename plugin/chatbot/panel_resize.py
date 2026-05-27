@@ -148,8 +148,17 @@ class _PanelResizeListener(BaseWindowListener):
         if w <= 0 or h <= 0:
             return
 
-        # Match getHeightForWidth: fill parent when aligned; clamp when parent >> deck.
-        _DIVERGENCE_PX = 80
+        if self._initial is None:
+            self._capture_initial(win)
+
+        if self._initial is None:
+            log.warning("_relayout: no initial state, skip")
+            return
+
+        initial = cast("dict[str, Any]", self._initial)
+
+        # Match getHeightForWidth: use min(pw, deck) as the target width if available.
+        # This breaks layout feedback loops and prevents horizontal scrollbars from appearing.
         if self._parent_window:
             try:
                 pr = self._parent_window.getPosSize()
@@ -160,10 +169,15 @@ class _PanelResizeListener(BaseWindowListener):
                         deck = self._deck_w_getter()
                     except Exception:
                         deck = None
-                if deck is not None and deck > 0 and pw > deck + _DIVERGENCE_PX:
+                if deck is not None and deck > 0:
                     target_w = min(pw, deck)
                 else:
                     target_w = pw
+
+                # Prevent runaway width under floating/detached deck bugs by clamping to a maximum of 1.4x the default width
+                max_allowed = int(initial["win_w"] * 1.4)
+                target_w = min(target_w, max_allowed)
+
                 if target_w > 0 and abs(w - target_w) > 1:
                     _resize_debug("_relayout: sync root W %d -> target W %d (parent=%s deck=%s)" % (w, target_w, pw, deck))
                     win.setPosSize(0, 0, target_w, h, 15)
@@ -175,14 +189,6 @@ class _PanelResizeListener(BaseWindowListener):
         _resize_debug("_relayout: win W=%d H=%d (have_initial=%s)" % (w, h, bool(self._initial)))
         fluid_debug = {}
 
-        if self._initial is None:
-            self._capture_initial(win)
-
-        if self._initial is None:
-            log.warning("_relayout: no initial state, skip")
-            return
-
-        initial = cast("dict[str, Any]", self._initial)
         cast("int", initial["win_w"])
         ih = cast("int", initial["win_h"])
         resp_bottom = int(initial.get("resp_bottom", 0))
@@ -256,6 +262,11 @@ class _PanelResizeListener(BaseWindowListener):
                     new_w = max(new_w, min(min_w, max(10, avail)))
                 else:
                     new_w = min_w
+
+            # Prevent any control from overflowing the right edge of the window,
+            # which would trigger LibreOffice to show a horizontal scrollbar.
+            if new_x + new_w > w - fixed_margin:
+                new_w = max(10, w - new_x - fixed_margin)
             if name in fluid_controls:
                 fluid_debug[name] = new_w
 
@@ -297,6 +308,10 @@ class _PanelResizeListener(BaseWindowListener):
             min_rw = _MIN_WIDTHS.get("response")
             if min_rw is not None and new_rw < min_rw:
                 new_rw = max(new_rw, min(min_rw, max(10, resp_avail)))
+
+            # Prevent overflow on response control
+            if rx + new_rw > w - fixed_margin:
+                new_rw = max(10, w - rx - fixed_margin)
 
             cur = resp_ctrl.getPosSize()
             if cur.X != rx or cur.Y != ry or cur.Width != new_rw or cur.Height != new_rh:
