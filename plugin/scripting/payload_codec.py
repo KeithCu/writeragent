@@ -33,33 +33,91 @@ fast_flatten_grid_2d: Any = None
 fast_flatten_grid_1d: Any = None
 
 
+def _verify_accelerator(fn2d: Any, fn1d: Any) -> bool:
+    """Perform a runtime canary test to ensure the Cython binary is correct and compatible."""
+    try:
+        if fn2d is None or fn1d is None:
+            return False
+
+        # 2D Test: [[1.0, None], ["text", 2.0]]
+        test_2d = [[1.0, None], ["text", 2.0]]
+        buf2, strings2, _, has_none2, non_num2 = fn2d(test_2d, 2)
+
+        if not (
+            len(buf2) == 4
+            and buf2[0] == 1.0
+            and math.isnan(buf2[1])
+            and math.isnan(buf2[2])
+            and buf2[3] == 2.0
+            and strings2 == {2: "text"}
+            and has_none2 == [False, True]
+            and non_num2 is True
+        ):
+            log.warning("payload_codec: Cython 2D canary failed")
+            return False
+
+        # 1D Test: [1.0, "a", None]
+        test_1d = [1.0, "a", None]
+        buf1, strings1, _, has_none1, non_num1 = fn1d(test_1d)
+        if not (
+            len(buf1) == 3
+            and buf1[0] == 1.0
+            and math.isnan(buf1[1])
+            and math.isnan(buf1[2])
+            and strings1 == {1: "a"}
+            and has_none1 == [True]
+            and non_num1 is True
+        ):
+            log.warning("payload_codec: Cython 1D canary failed")
+            return False
+
+        return True
+    except Exception as e:
+        log.warning("payload_codec: Cython canary exception: %s", e)
+        return False
+
+
 def load_cython_accelerator() -> None:
-    """Attempt to load the Cython accelerator, or mark as disabled on failure."""
+    """Attempt to load the Cython accelerator and verify it via a runtime canary test."""
     global fast_flatten_grid_2d, fast_flatten_grid_1d, _CYTHON_ACCELERATOR_DISABLED
     if _CYTHON_ACCELERATOR_DISABLED:
         return
 
+    # Check for accelerator in both possible locations
+    fn2d = None
+    fn1d = None
+    loc = "none"
+
     try:
-        # Try to import from plugin.contrib.vec_pack
+        # Preferred: plugin.contrib.vec_pack
         import plugin.contrib.vec_pack as _vp
 
-        fast_flatten_grid_2d = getattr(_vp, "fast_flatten_grid_2d", None)
-        fast_flatten_grid_1d = getattr(_vp, "fast_flatten_grid_1d", None)
-        if fast_flatten_grid_2d is not None:
-            log.debug("payload_codec: Cython accelerator loaded successfully")
-        else:
-            _CYTHON_ACCELERATOR_DISABLED = True
+        fn2d = getattr(_vp, "fast_flatten_grid_2d", None)
+        fn1d = getattr(_vp, "fast_flatten_grid_1d", None)
+        loc = "contrib"
     except ImportError:
-        # Fallback to absolute import if needed (for some environments)
+        # Fallback: absolute import (mostly for dev/standalone tests)
         try:
             import writeragent_vec as _wv  # type: ignore
 
-            fast_flatten_grid_2d = _wv.fast_flatten_grid_2d
-            fast_flatten_grid_1d = _wv.fast_flatten_grid_1d
-            log.debug("payload_codec: Cython accelerator loaded via absolute import")
+            fn2d = _wv.fast_flatten_grid_2d
+            fn1d = _wv.fast_flatten_grid_1d
+            loc = "absolute"
         except ImportError:
+            pass
+
+    # Perform the canary check before assigning to global state
+    if fn2d is not None and fn1d is not None:
+        if _verify_accelerator(fn2d, fn1d):
+            fast_flatten_grid_2d = fn2d
+            fast_flatten_grid_1d = fn1d
+            log.debug("payload_codec: Cython accelerator (%s) verified and loaded", loc)
+        else:
             _CYTHON_ACCELERATOR_DISABLED = True
-            log.debug("payload_codec: Cython accelerator not found, using pure Python")
+            log.warning("payload_codec: Cython accelerator found but failed parity check; using pure Python")
+    else:
+        _CYTHON_ACCELERATOR_DISABLED = True
+        log.debug("payload_codec: Cython accelerator not found, using pure Python")
 
 
 # Initial load attempt

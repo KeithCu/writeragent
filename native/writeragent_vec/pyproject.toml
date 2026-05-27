@@ -18,10 +18,10 @@ where = ["src"]
 [tool.cibuildwheel]
 # Build only Python 3.11-3.14
 build = "cp311-* cp312-* cp313-* cp314-*"
+enable = ["cpython-prerelease"]
 
-# Skip 32-bit builds and musl if not needed (musl is slower to build and less common for LO)
-# We match audio's platform list but cibuildwheel handles the specifics.
-skip = "*-win32 *-manylinux_i686 *-musllinux_i686"
+# Skip 32-bit builds and musl entirely
+skip = "*-win32 *-manylinux_i686 *-musllinux_*"
 
 # Environment variables for the build
 environment = { WRITERAGENT_ARCH="x86-64" }
@@ -35,7 +35,7 @@ manylinux-aarch64-image = "manylinux2014"
 
 # macOS specific config
 [tool.cibuildwheel.macos]
-archs = ["x86_64", "arm64", "universal2"]
+archs = ["universal2"]
 
 # Windows specific config
 [tool.cibuildwheel.windows]
