@@ -42,7 +42,8 @@ WriterAgent already ships a substantial subset of the Python-in-Excel vision. Be
 | Monaco code editor | Webview-based Monaco child process | **Shipped** - [plugin/scripting/editor_bridge.py](plugin/scripting/editor_bridge.py) |
 | AI code generation | `=PROMPT()` + `run_venv_python_script` chat tool | **Shipped** |
 | High-perf serialization | Pickle5 + Split-Grid (20x faster than JSON) | **Shipped** - [plugin/scripting/payload_codec.py](plugin/scripting/payload_codec.py) |
-| Matrix formula (spill) | Ctrl+Shift+Enter + ROW() indexing + session cache | **Shipped** |
+| Matrix formula (indexed spill) | Ctrl+Shift+Enter + ROW() indexing + worker result session cache | **Shipped** (manual range; not Excel auto-spill) |
+| Excel-style dynamic auto-spill | Auto-fill adjacent cells; `#SPILL!` when blocked | **Not shipped** — see [enabling_numpy §7](enabling_numpy_in_libreoffice.md#calc-ux-and-output-enhancements) |
 | Error coercion (int->float, NaN->empty) | `to_calc_compatible` pipeline | **Shipped** |
 
 **Key architectural advantage over Microsoft:** WriterAgent runs **locally** (user venv subprocess), not in a cloud container. This means zero network latency, offline support, and no compute tier restrictions -- the exact "competitive enhancements" that Section 9 of the spec calls out.
@@ -78,6 +79,21 @@ These are the features from the spec that do **not** yet exist, ordered by incre
 5. **Python Object cards** -- rich metadata preview for non-scalar returns
 6. **Diagnostics pane** -- structured error display with cell navigation
 7. **AI-driven code synthesis enhancements** -- Copilot-style completion in Python cells
+
+### Backlog not yet phased
+
+These items are tracked in [enabling_numpy_in_libreoffice.md — Calc UX and output enhancements](enabling_numpy_in_libreoffice.md#calc-ux-and-output-enhancements) and [python-in-excel-ideas.md §10](python-in-excel-ideas.md#10-writeragent-calc-enhancement-backlog). They are **not** assigned to Phases 1–7 yet:
+
+| Item | Suggested phase / area |
+|------|------------------------|
+| **Dynamic auto-spill** (2D result → adjacent cells, blocked-cell error) | New work on `python_function.py` + spill detection; related to matrix cache |
+| **DataFrame → rich table** egress | Extend Phase 5 or **Phase 5b** (styled Calc table, not just object card) |
+| **JSON-structured `result` envelope** | `payload_codec` + host apply path; agent-driven multi-cell updates |
+| **Inline result preview** | Phase 3 (editor UX) or Phase 6 (diagnostics-adjacent) |
+| **Formula-bar Jedi / IntelliSense** | [python-monaco-editor-dev-plan.md](python-monaco-editor-dev-plan.md) Phase 2D + Calc formula bar |
+| **Named ranges / structured tables / headers in `data`** | **Phase 8** or `calc_addin_data.py` subsection (data handoff) |
+| **AST / hot-path compile cache** | Performance; [enabling_numpy §7](enabling_numpy_in_libreoffice.md#calc-ux-and-output-enhancements) |
+| **Cell-level traceback snippet** | Phase 6 (diagnostics); short form in cell until pane ships |
 
 ---
 

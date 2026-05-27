@@ -450,3 +450,34 @@ Integrating standard output streams directly beneath the cell—similar to a sta
 Microsoft restricts users to a curated subset of packages provided by Anaconda.7 Users cannot install specialized, proprietary, or custom enterprise libraries.
 
 A platform that supports custom package management—allowing teams to load arbitrary internal utilities and specialized domain tools—will provide a significant competitive advantage in the enterprise market.
+
+## 10. WriterAgent Calc Enhancement Backlog
+
+Sections 1–9 above describe **Microsoft Python in Excel**. WriterAgent implements a **local, offline** variant: **`=PYTHON(code, data?)`** plus a user venv subprocess ([enabling_numpy_in_libreoffice.md](enabling_numpy_in_libreoffice.md)). It does **not** implement `=PY` / `xl()` string parsing inside Python code (see §1.4 in this document and the explicit `data` argument design in the enabling doc).
+
+This section maps Excel concepts to **WriterAgent status** and points to the detailed backlog. **Do not duplicate** implementation phases here — see [python-in-excel-dev-plan.md](python-in-excel-dev-plan.md).
+
+### Summary table
+
+| Bucket | Excel reference (this doc) | WriterAgent status | Detail |
+|--------|---------------------------|-------------------|--------|
+| **Dynamic spill** | §1.1 Excel Value spill; §7.1 `#SPILL!` | **Manual matrix only** (Ctrl+Shift+Enter + `ROW()` index + result cache) | Auto-spill → backlog |
+| **Output handling** | §1.1 deserialization; §5 plots/cards | **Plots shipped**; table + JSON egress → backlog | [enabling_numpy §7](enabling_numpy_in_libreoffice.md#calc-ux-and-output-enhancements) |
+| **UI** | §2 Monaco task pane; §8 shortcuts | **Monaco partial** (Calc cell editor shipped; grouping/range picker incomplete) | [python-monaco-editor-dev-plan.md](python-monaco-editor-dev-plan.md) |
+| **Data handoff** | §1.2 `xl()` ranges, names, tables, `headers` | **Range args only**; names/tables/labels → backlog | [enabling_numpy §6](enabling_numpy_in_libreoffice.md#data-handoff-and-shaping) |
+| **Perf / debug** | §7 diagnostics, error codes | **Cell error string**; diagnostics pane Phase 6; AST cache → backlog | [python-in-excel-dev-plan.md](python-in-excel-dev-plan.md) Phase 6 |
+
+### Backlog (why it matters)
+
+- **Dynamic array spill** — Excel fills adjacent cells automatically and reports `#SPILL!` when blocked (§1.1, §7.1). WriterAgent users must pre-select a matrix range and index into a cached list; auto-spill would match analyst expectations for DataFrame returns.
+- **DataFrame → rich table** — Excel can spill values or show object cards (§1.1, §5.1). WriterAgent today writes raw grids or coerced scalars; a styled Calc table egress would preserve headers and formats for dashboards.
+- **JSON-structured output** — Agent workflows benefit from typed multi-cell update payloads in one `result`, not only flat lists (complements WriterAgent’s chat compute → insert tools pattern).
+- **matplotlib → embedded image** — **Shipped**: figures/`plt` return as sheet images (§5.2 analogue). See [python-in-excel-dev-plan.md](python-in-excel-dev-plan.md) Phase 2.
+- **Monaco editor improvements** — §2 task-pane UX; WriterAgent has Calc **Edit Python in Cell…** with dual save modes; sheet grouping and point-and-click range insert remain open ([python-monaco-editor-dev-plan.md](python-monaco-editor-dev-plan.md)).
+- **Inline result preview** — §9.3 “output beneath the cell” (Jupyter-like). Distinct from object cards (§5.1) and the diagnostics pane (§7.2).
+- **Formula-bar IntelliSense (Jedi)** — §2.1 IntelliSense in the editing surface; WriterAgent wires Jedi in the Monaco child only; formula-bar completion is backlog.
+- **Named ranges / structured tables / label preservation** — §1.2 `xl()` for names, `Employees[#All]`, and `headers=True`. WriterAgent passes literal ranges as `data`; resolving names and table objects with column indices is backlog.
+- **AST / hot-path cache** — Faster recalc when many cells share unchanged code (separate from matrix result cache and session persistence).
+- **Cell-level traceback** — §7.2 diagnostics with stack trace and navigation; WriterAgent should show a short trace in the cell until the full pane ships (Phase 6).
+
+Full design notes: [enabling_numpy_in_libreoffice.md — Calc UX and output enhancements](enabling_numpy_in_libreoffice.md#calc-ux-and-output-enhancements).
