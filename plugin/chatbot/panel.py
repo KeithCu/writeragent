@@ -449,7 +449,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                         # a soon-to-be-disposed (or already gone) document.
                         if getattr(self, "embedded_doc", None) is None:
                             return
-                        post_to_main_thread(scroll_to_bottom, self.embedded_doc)
+                        post_to_main_thread(scroll_to_bottom, self.embedded_doc, True)
                     except Exception:
                         pass
 
@@ -691,23 +691,10 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             if isinstance(e, (DisposedException, RuntimeException, UnoException)):
                 log.debug("_scroll_response_to_bottom failed (likely disposed): %s", e)
 
+    '''
     def _get_scrollbar(self):
-        """Return the cached scrollbar accessible, finding it on first call.
-
-        Tries VCL peer scrollbar first (find_vcl_scrollbar), then falls back to
-        the accessible tree (find_vertical_scrollbar).
-        """
-        if self._cached_scrollbar is None and self.embedded_frame:
-            from plugin.chatbot.rich_text import find_vcl_scrollbar, find_vertical_scrollbar
-            container = getattr(self, "embedded_container", None)
-            self._cached_scrollbar = find_vcl_scrollbar(self.embedded_frame, container)
-            if not self._cached_scrollbar:
-                self._cached_scrollbar = find_vertical_scrollbar(self.embedded_frame)
-            if self._cached_scrollbar:
-                log.info("_get_scrollbar: scrollbar found (type=%s)", type(self._cached_scrollbar).__name__)
-            else:
-                log.info("_get_scrollbar: no scrollbar found in VCL or accessible tree")
-        return self._cached_scrollbar
+        ...  # commented out — scrollbar was never found in embedded frames
+    '''
 
     def _should_auto_scroll(self):
         """Always returns True for now — forces scroll to bottom on every append.

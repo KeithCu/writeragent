@@ -10,30 +10,13 @@ These are the priority tasks to resolve remaining layout quirks and implement ne
 
 ### [x] Task 1: Fix Scroll-to-Bottom Auto-Scrolling (High Priority — Fixed)
 *   **Issue:** Streamed chat content exceeding the visible viewport area did not trigger auto-scroll. The user had to manually scroll down.
-*   **Root Cause:** In Online/Browse layout mode (which we keep for continuous reflow in the narrow sidebar), the embedded Writer's internal "make cursor visible" mechanism is non-functional for embedded frames. Standard UNO approaches (ViewCursor.gotoEnd, controller.select, .uno:GoToEndOfDoc, jumpToLastPage) moved the logical cursor but produced no visual scroll (or even scrolled to the top).
-*   **Solution (what actually shipped):** Kept `ShowOnlineLayout = True` + 100% BY_VALUE zoom for seamless narrow-sidebar reflow (page layout would have required different margin/width math and lost the "continuous flow" feel). Implemented a robust `scroll_to_bottom` with two paths:
-    - Lightweight (most callers: resize, timers, debug): cursor + `.uno:GoToEndOfDoc` dispatch + `processEventsToIdle`.
-    - Aggressive (only on real insert sites in `append_rich_text` / `append_text_chunk` with `auto_scroll=True`): the above + `controller.select(collapsed end caret)` + zoom flicker (to force MakeVisible) + component invalidate + final idle. One-time ViewData / VCL tree debug dumps remain for diagnostics.
-*   **Why the doc previously said "switched to page layout":** An early plan / commit message described that approach; the final implementation kept online layout and solved scrolling via the aggressive workaround instead. (See §8 for the full investigation history.)
-*   **Files Changed:** `plugin/chatbot/rich_text.py` (view settings kept online, `scroll_to_bottom` with aggressive/light paths + ViewData logging), `plugin/chatbot/panel.py` (rerender, _append_response, deferred scroll timer).
-*   **2026-05-26 diagnostic logging pass (re-investigation):** Added `_SCROLL_DIAG` flag + `[SCROLL-DIAG]` INFO logs in `append_text_chunk`, `append_rich_text`, and both paths of `scroll_to_bottom` (plus a one-time VCL/a11y scrollbar probe). These emit CharacterCount deltas, auto_scroll decisions, aggressive step completion, ViewData pre/post on every streaming insert, and whether any scrollbar surface was discoverable. Purpose: make the "never scrolls during live chunks" symptom fully visible in writeragent_debug.log so the next one-thing-at-a-time experiment (XScrollBar drive / ViewData write / post-layout timer strengthening) can be chosen with data. No behavior change. (See plan in .cursor/plans/ for the step-by-step.)
-*   **Log analysis from first real run with the new diagnostics:** Aggressive path (select collapsed-end + zoom flicker + invalidate + multiple idles) **is** executing on every `append_text_chunk` (including 500+ char batched deltas) and on the final `append_rich_text` rerender. Scrollbar probe always returned vcl=False + a11y=False (Method A blocked for this LO build). Critical: for several aggressive calls (especially the big HTML rerender replace), the `VIEWDATA sample[post]` showed **identical Y** to the pre sample for that call (e.g. stayed at 8794 while content was replaced), even though CharacterCount deltas were correct. Meanwhile a storm of `on_window_resized` → lightweight `scroll_to_bottom` calls were firing in the same 10-20 ms windows. This matches the "layout not settled + MakeVisible still dead in embedded online frame + resize fighting" hypotheses. (Raw excerpts in the agent chat transcript for this session.)
-*   **Second one-thing-at-a-time experiment (immediately after log review):** Implemented the smallest Method C variant — an 80 ms `threading.Timer` + `post_to_main_thread(scroll_to_bottom, ..., aggressive=True)` scheduled from inside the `if auto_scroll:` block in both `append_text_chunk` and `append_rich_text` (only when `_SCROLL_DIAG`). This guarantees one extra aggressive kick after the insert + first scroll + any immediate reflow/resize/layout work has had a moment to settle. Re-uses the exact timer+post pattern already present in `rerender_rich_text_session`. New log lines: `[SCROLL-DIAG] scheduling 80ms post-layout...` + a second set of aggressive entry / VIEWDATA pre/post / "complete" lines ~80 ms later. Rebuild + next stream will show whether the delayed kick moves the viewport (and advances Y) when the immediate one did not. Change is tiny, fully guarded, and trivial to revert by setting the flag False.
-*   **2026-05-26 web research + full session archive (saved for a completely fresh future session):** After the 80 ms kick experiment also failed to move the visual viewport (delayed aggressive calls ran, ViewData Y still frequently stuck on post samples, resize lightweight storms continued, no VCL/a11y scrollbar surface ever found), a broad web search was performed across OpenOffice/LO forums, StackOverflow, mailing lists, and API references for "LibreOffice UNO scroll Writer embedded", "ViewData restoreViewData Writer", accessibility scrollbars, alternative .uno: scroll dispatches, XTextViewCursor tricks, etc.
-
-    **Key external findings (this exact symptom is a known, recurring pain point):**
-    - In Online/Web/Browse layout (our deliberate choice for narrow-sidebar reflow) and especially in *embedded* Writer frames, the normal "cursor/selection moves → viewport follows" contract is often broken or disabled.
-    - The two categories of workarounds that have repeatedly succeeded for other developers when the cursor + select + GoToEndOfDoc + zoom + invalidate sequence fails:
-      1. **Accessibility tree scrollbar actions** (most cited practical success): Walk `frame.getComponentWindow().getAccessible()` (or deeper `.windows(0)` etc.), look for children whose `AccessibleName` contains "Vertical scroll bar" (or role `SCROLL_BAR`; names can be localized or "null"), then call `.getAccessibleContext().doAccessibleAction(0 or 1 or ...)` on it. The resulting object often also supports `XAccessibleValue` for direct get/set of scroll position. Several working Basic examples exist for exactly this in LO 7.x Writer documents.
-      2. **ViewData parse + restoreViewData write** (the other recurring precise-control hack): The 9-field semicolon string we are already logging (e.g. "679;784;100;284;284;5369;5884;0;0") is the payload of `controller.getViewData()` / `restoreViewData(string)`. Community reports show bumping specific fields (commonly indices 4 and/or 6 for vertical scroll, with increments like ~192 "line" units on some systems) and restoring *can* move the viewport when cursor methods do not. Caveats reported: sometimes a no-op until after an edit+save; can be version/DPI/document-layout sensitive; one tester saw no effect.
-
-    **Concrete next experiments to try in a new fresh session (all minimal, behind `_SCROLL_DIAG`, easy to revert):**
-    - Extend the existing scrollbar probe (already called on every append) into a deeper, recursive accessibility walk. Log *every* child's name + role + whether it supports XAccessibleAction / XAccessibleValue. When a plausible scroll child is found, try the `doAccessibleAction` calls (0–3) + value manipulation and watch the next VIEWDATA samples + visual result.
-    - Add a guarded ViewData write path inside the aggressive block (and the 80 ms follow-up): after the current commands, parse the string we just sampled, compute a high Y from the size fields, call `controller.restoreViewData(newString)`, then one more idle + invalidate. Log pre/post Y and whether the viewport followed.
-    - Cheap supplements to layer on the existing aggressive path: after the collapsed-end select, try `viewCursor.screenDown()` / small `goUp(2)+goDown(2)` dances, or dispatch `.uno:ScrollToNext` (with/without the ScrollNextPrev property that the macro recorder sometimes emits). These have helped some people wake MakeVisible when plain gotoEnd did not.
-    - (Lower priority) Re-test the whole sequence after forcing an explicit edit+save on the embedded doc, or after temporarily switching out of + back into Online layout.
-
-    **Session close note:** All raw writeragent_debug.log excerpts from the two instrumented runs (first logging pass + 80 ms kick run), the exact code changes made, the full web search queries, and the fetched forum/SO thread contents are preserved in the agent chat transcript for the May 26 2026 session. This file (docs/rich-text-sidebar.md) now contains the distilled, actionable summary. The current investigation pass is complete. Start any future work on this bug from a clean slate using only the leads documented here.
+*   **Root Cause:** In Online/Browse layout mode (which we keep for continuous reflow in the narrow sidebar), the embedded Writer's internal "make cursor visible" (`MakeVisible` / cursor-follow) mechanism is non-functional for embedded frames. The only way to physically move the viewport in these frames is through `SwView::SetVisArea()` in the C++ layer, which is triggered by `XTextViewCursor.screenDown()` (dispatching `FN_PAGEDOWN` → `PageDownCursor` → fallback `PageDown()` when cursor is at end).
+*   **Solution (shipped 2026-05-26):** `scroll_to_bottom` with two paths:
+    - **Lightweight** (resize, timers): `viewCursor.gotoEnd(False)` + `processEventsToIdle`.
+    - **Aggressive** (only on real insert sites in `append_rich_text` / `append_text_chunk` with `auto_scroll=True`): `viewCursor.gotoEnd(False)` followed by a **3-round `processEventsToIdle` + `screenDown` loop**. Each round flushes pending VCL/layout events then pages the viewport forward until `screenDown()` returns false. Three rounds are needed because HTML imports trigger multi-stage layout recalculation — one `processEventsToIdle` flushes the first wave of events, but those events schedule more layout work that requires additional flushes. ViewData sampling (`_sample_viewdata`) remains for ongoing diagnostics.
+*   A 200ms deferred aggressive scroll in `panel.py` `rerender_rich_text_session` catches the final HTML rerender (which replaces streaming text with formatted HTML and resets the layout).
+*   **Files Changed:** `plugin/chatbot/rich_text.py` (`scroll_to_bottom` with aggressive/light paths), `plugin/chatbot/panel.py` (deferred scroll in rerender).
+*   **Why three rounds:** After a large insert (especially HTML import via `append_rich_text`), the document height reported in ViewData is stale. The cursor Y position (set by `gotoEnd`) can be far past the stale document extent (e.g. Y~22000 with doc height still at ~10000). In this state, `screenDown()` thinks the cursor is already past the end and returns false immediately. A `processEventsToIdle` call recalculates the layout partially — but the recalculation itself generates new events that schedule further layout work. The second and third rounds flush these cascading updates, allowing `screenDown` to correctly page the viewport forward.
 
 ### [x] Smoothing: 250 ms producer-side batching for streamed display text (2026-05)
 *   **Goal:** Reduce visual stutter / micro-updates during streaming (both plain-text and rich-text paths) without changing the consumer drain loop (still 0.1 s timeout).
@@ -410,43 +393,50 @@ The current regex-based approach in `append_rich_text` works for basic blocks.
 
 ---
 
-### 8. Scroll-to-Bottom Detailed Investigation (May 25, 2026)
+### 8. Scroll-to-Bottom Detailed Investigation (May 2026)
 
 #### Problem
 When the embedded Writer sidebar receives streamed chat content that exceeds the visible area, the view does not auto-scroll to show the latest text. The user can see content is inserted (if they manually scroll), but the viewport stays at the top.
 
-#### Approaches Tested (All Failed to Visually Scroll)
+#### Approaches Tested — What Failed
 
-| Approach | Behavior | Why It Failed / Details |
-|----------|----------|-------------------------|
-| `view_cursor.gotoEnd(False)` | Cursor moves logically; no visual scroll | Viewport does not follow the cursor automatically. |
-| `view_cursor.jumpToLastPage()` + `jumpToEndOfPage()` | Returns success; no visual scroll | Online/Web layout has no real "pages," making page-bound jumps a no-op. |
-| `.uno:GoToEndOfDoc` dispatch | Dispatch succeeds (State=1); no visual scroll | Moves the cursor inside the document logically but the viewport remains static. |
-| `controller.select(end_cursor)` | **Scrolls to TOP** — actively harmful | LibreOffice attempts to make the start of selection visible, resulting in viewport jumping to the top of the chat history. |
-| `frame.activate()` | Combined with select, causes scroll-to-top | Resets/refreshes focus which defaults the view back to the document start. |
-| Accessibility scrollbar (`find_vertical_scrollbar`) | Returns "no scrollbar found" | The embedded Writer view does not expose a scrollbar via `AccessibleRole.SCROLL_BAR` in its accessible tree. |
-| `post_to_main_thread(scroll_to_bottom, doc)` | Callback never executes during streaming | The callback was nested inside the queue execution flow and was not drained in time. Fixed by direct synchronous invocation. |
+| Approach | Behavior | Why It Failed |
+|----------|----------|---------------|
+| `view_cursor.gotoEnd(False)` | Cursor moves logically; no visual scroll | Viewport does not follow cursor in embedded frames. |
+| `view_cursor.jumpToLastPage()` + `jumpToEndOfPage()` | Returns success; no visual scroll | Online/Web layout has no real "pages." |
+| `.uno:GoToEndOfDoc` dispatch | Dispatch succeeds; no visual scroll | Moves cursor logically but viewport stays static. |
+| `controller.select(end_cursor)` | **Scrolls to WRONG POSITION** — actively harmful | Jumps viewport to a mid-document position (~Y 11000) instead of the end. Even with a collapsed cursor at the absolute document end, select() scrolls to the wrong place. |
+| Zoom flicker (toggle zoom to force MakeVisible) | No effect | MakeVisible is broken in embedded Browse-mode frames regardless. |
+| `controller.restoreViewData(string)` | No effect on viewport | LO source analysis confirmed: `restoreViewData(string)` only affects cursor position, NOT viewport scroll position. The `ReadUserData` path specifically skips `SetVisArea` when `IsNewLayout()` returns true (which it does in Browse mode). |
+| Accessibility scrollbar (`find_vertical_scrollbar`) | Returns "no scrollbar found" | Embedded Writer does not expose a scrollbar via `AccessibleRole.SCROLL_BAR`. |
+| VCL scrollbar (`find_vcl_scrollbar`) | Returns "no candidates" | No VCL scrollbar peers found in the embedded frame's window tree. |
+| 80ms deferred aggressive scroll timer | Timer fires; still no visual scroll | The underlying scroll mechanism (select + zoom flicker) was broken, so repeating it later didn't help. |
 
-#### Key Findings
+#### What Worked: `XTextViewCursor.screenDown()` Loop
 
-1.  **Online/Web Layout disables page-based scrolling.** With `ShowOnlineLayout = True`, the document is a single continuous page. `jumpToLastPage()` is a no-op, `.uno:GoToEndOfDoc` moves the cursor but the viewport doesn't follow.
-2.  **`controller.select()` scrolls to the TOP.** This is the opposite of what's needed — likely it "shows the beginning of the selection."
-3.  **`frame.activate()` resets the view.** Combined with select, it forces the view to the document start.
-4.  **The embedded Writer's view does NOT auto-follow the cursor.** In a normal standalone Writer window, moving the view cursor causes the viewport to follow. In an embedded Writer (parented to a toolpanel container window), this "follow cursor" behavior is disabled or broken.
-5.  **No accessibility scrollbar exists.** `find_vertical_scrollbar(frame)` traverses the accessible tree from `frame.getComponentWindow().getAccessible()` but finds zero `SCROLL_BAR` role children. The embedded Writer may not have a visible scrollbar at all — content simply renders beyond the visible area.
-6.  **`post_to_main_thread` from within `queue_executor.post` never fires.** The nested post to the main thread queue doesn't get drained during the streaming loop. Fixed by calling `scroll_to_bottom(doc)` directly.
+**The working mechanism** is `viewCursor.screenDown()` in a loop. Each `screenDown()` call dispatches `FN_PAGEDOWN` in the C++ layer, which calls `PageDownCursor`. When the cursor is at or near the document end, `PageDownCursor` falls back to `PageDown()` — a pure viewport scroll that calls `SwView::SetVisArea()`. This is the **only** mechanism that physically moves the viewport in embedded Browse-mode frames.
 
-#### Current Status (Updated May 25, 2026)
+**Critical implementation detail — multi-round layout settling:** A single `processEventsToIdle` + `screenDown` loop is insufficient after large inserts (especially HTML imports). The document height reported in ViewData remains stale after the first `processEventsToIdle` because the layout recalculation generates cascading events that schedule further layout work. The fix uses **3 rounds** of `processEventsToIdle` + `screenDown` loop:
+1. Round 1: flushes initial pending events. `screenDown` may page 0 (cursor Y is past stale doc height).
+2. Round 2: flushes the cascading layout events from round 1. Doc height updates. `screenDown` can now page forward.
+3. Round 3: catches any remaining layout tail. Usually pages 0 (already at bottom).
 
-**Root cause found (and still true):** In Online/Browse layout mode (`ShowOnlineLayout = True` — which we deliberately keep for continuous text reflow in the narrow sidebar), the embedded Writer's internal "make cursor visible" mechanism is broken for hosted frames. All basic UNO approaches move the logical cursor but the viewport does not follow (or actively jumps to the top on select).
+**Other key finding — `controller.select()` is harmful:** Even with a freshly created collapsed TextCursor at `gotoEnd(False)`, `controller.select()` scrolls the viewport to a wrong mid-document position (observed consistently as Y~11000-12000 regardless of document length). Removing this call was essential — it was actively undoing the work of `screenDown`.
 
-**Actual fix shipped (2026-05):** Kept online layout + 100% zoom for visual seamlessness. Added a dual-path `scroll_to_bottom`:
-- Every caller gets the lightweight core (gotoEnd + GoToEndOfDoc dispatch + idle).
-- Real insert paths (`append_*` with `auto_scroll=True`) also get the aggressive workaround: `controller.select(collapsed caret at absolute end)` + zoom flicker (to kick MakeVisible) + invalidate + extra idles + ViewData sampling.
+#### Key Findings (Summary)
 
-This matches the "aggressive only on hot path" discipline so resize/debug callers cannot cause re-entrancy loops. The earlier plan text that said "switched to page layout and simplified" was aspirational and was corrected in the 2026-06 lifecycle update.
+1. **`MakeVisible` is broken in embedded Browse-mode frames.** All cursor-based UNO methods (gotoEnd, select, GoToEndOfDoc) move the logical cursor but the viewport does not follow.
+2. **`controller.select()` scrolls to the WRONG position** — not to the top as initially thought, but to a specific wrong Y coordinate mid-document.
+3. **`restoreViewData` does NOT control viewport scroll.** LO source confirms it only sets cursor position; the viewport positioning code is skipped in Browse/Online layout mode.
+4. **No scrollbar surfaces exist.** Neither VCL peers nor accessible tree objects expose a scrollbar for the embedded Writer frame.
+5. **`screenDown()` is the only working scroll API** because it is the only UNO path that triggers `SwView::SetVisArea()` in embedded frames.
+6. **Layout recalculation is multi-stage.** HTML imports trigger cascading layout events that require multiple `processEventsToIdle` calls to fully settle. Without this, `screenDown` sees a stale document height and refuses to scroll.
 
-The `auto_scroll` parameter is now properly honored. Debug helpers (`_dump_scroll_debug_once`, `find_vcl_scrollbar`, `traverse_window_tree`, `_sample_viewdata`) remain for future diagnostics.
+#### Current Status (Fixed, 2026-05-26)
+
+**Working solution shipped.** `scroll_to_bottom` uses `viewCursor.gotoEnd(False)` + 3-round `processEventsToIdle` / `screenDown` loop on the aggressive path. All dead workaround code (zoom flicker, select, GoToEndOfDoc dispatch, scrollbar probes, VCL tree dumps, `_SCROLL_DIAG` blocks) has been commented out. `_sample_viewdata` (ViewData logging) is retained for ongoing diagnostics.
+
+The `auto_scroll` parameter is properly honored. A 200ms deferred aggressive scroll in `panel.py` `rerender_rich_text_session` catches the final HTML rerender.
 
 ---
 

@@ -74,64 +74,22 @@ _EMBEDDING_STARTED: set[int] = set()
 # Threshold in scrollbar units — if within this many units of max, treat as "at bottom"
 _SCROLL_BOTTOM_THRESHOLD = 10
 
+'''
 # One-time dump guards for scroll debugging
 _SCROLL_DEBUG_DUMPED = False
 _VCL_SCROLLBAR_CACHE: Any = None
 _VCL_SCROLLBAR_SEARCHED = False
 
 # Temporary loud diagnostic flag for the "rich text sidebar never auto-scrolls during streaming" investigation (2026-05).
-# When True, append_text_chunk / append_rich_text and scroll_to_bottom emit extra INFO lines (visible in normal writeragent_debug.log)
-# showing CharacterCount before/after each insert, the auto_scroll decision, entry/exit of aggressive steps, ViewData pre/post deltas,
-# and results of scrollbar discovery probes. This lets us see exactly where the viewport fails to follow new text.
-# Set back to False once the reliable "always scroll on new text" method is identified and the root cause understood.
-# (Part of the step-by-step "add logging then try one thing at a time" approach.)
 _SCROLL_DIAG = False
+'''
 
 
+'''
 def find_vertical_scrollbar(frame):
-    """Navigate the accessible tree of an embedded frame to find the vertical scrollbar.
-
-    Returns the accessible object supporting XAccessibleValue, or None.
-    The caller should cache the result to avoid repeated tree traversal.
-    """
-    try:
-        from com.sun.star.accessibility import AccessibleRole
-
-        comp_window = frame.getComponentWindow()
-        if not comp_window:
-            log.debug("find_vertical_scrollbar: no component window")
-            return None
-        accessible = comp_window.getAccessible()
-        if not accessible:
-            log.debug("find_vertical_scrollbar: no accessible on component window")
-            return None
-        ctx = accessible.getAccessibleContext()
-        top_count = ctx.getAccessibleChildCount()
-        log.debug("find_vertical_scrollbar: top-level accessible has %d children", top_count)
-        for top_idx in range(top_count):
-            top_child = ctx.getAccessibleChild(top_idx)
-            top_ctx = top_child.getAccessibleContext()
-            child_count = top_ctx.getAccessibleChildCount()
-            log.debug("find_vertical_scrollbar: child[%d] has %d sub-children, role=%s name=%r", top_idx, child_count, top_ctx.getAccessibleRole(), top_ctx.getAccessibleName())
-            for i in range(child_count):
-                child = top_ctx.getAccessibleChild(i)
-                child_ctx = child.getAccessibleContext()
-                role = child_ctx.getAccessibleRole()
-                name = child_ctx.getAccessibleName()
-                if role == AccessibleRole.SCROLL_BAR:
-                    log.debug("find_vertical_scrollbar: found SCROLL_BAR at [%d][%d] name=%r", top_idx, i, name)
-                    try:
-                        val = child.getCurrentValue()
-                        max_val = child.getMaximumValue()
-                        log.debug("find_vertical_scrollbar: current=%s max=%s", val, max_val)
-                        return child
-                    except AttributeError:
-                        log.debug("find_vertical_scrollbar: SCROLL_BAR has no getCurrentValue")
-                        continue
-    except Exception as e:
-        log.debug("find_vertical_scrollbar: %s", e)
-    log.debug("find_vertical_scrollbar: no scrollbar found")
-    return None
+    """Navigate the accessible tree of an embedded frame to find the vertical scrollbar."""
+    ...  # commented out — scrollbar never found in embedded frames
+'''
 
 
 def is_scrolled_to_bottom(scrollbar_accessible):
@@ -1113,226 +1071,25 @@ def find_accessible_window_recursive(win):
     return None
 
 
+'''
 def traverse_window_tree(win, results, depth=0):
-    """Recursively map the entire VCL window peer hierarchy."""
-    if not win:
-        return
-    try:
-        impl_name = "?"
-        try:
-            impl_name = win.getImplementationName()
-        except Exception:
-            pass
-        has_acc = "No"
-        try:
-            import uno
-            acc = win.queryInterface(uno.getTypeByName("com.sun.star.accessibility.XAccessible"))
-            if acc:
-                has_acc = "Yes"
-        except Exception:
-            pass
-        results.append((depth, impl_name, has_acc))
-        
-        if hasattr(win, "getWindows"):
-            for child in win.getWindows():
-                traverse_window_tree(child, results, depth + 1)
-    except Exception as e:
-        results.append((depth, "ERROR", str(e)))
-
+    ...  # commented out — VCL tree dump, used only by _dump_scroll_debug_once
 
 def traverse_accessible_tree(accessible_obj, results, depth=0):
-    """Recursively traverse the accessible tree and record role names and names."""
-    if not accessible_obj:
-        return
-    try:
-        ctx = accessible_obj.getAccessibleContext()
-        if not ctx:
-            return
-        role = ctx.getAccessibleRole()
-        name = ctx.getAccessibleName()
-        
-        # Translate role to constant string name if possible
-        role_name = str(role)
-        try:
-            from com.sun.star.accessibility import AccessibleRole
-            for attr in dir(AccessibleRole):
-                if getattr(AccessibleRole, attr) == role:
-                    role_name = attr
-                    break
-        except Exception:
-            pass
-            
-        results.append((depth, role_name, name))
-        
-        if depth > 12:
-            return
-            
-        count = ctx.getAccessibleChildCount()
-        for i in range(count):
-            child = ctx.getAccessibleChild(i)
-            traverse_accessible_tree(child, results, depth + 1)
-    except Exception as e:
-        results.append((depth, "ERROR", str(e)))
-
+    ...  # commented out — accessible tree dump, used only by _dump_scroll_debug_once
 
 def find_vcl_scrollbar(frame, container_window=None):
-    """Traverse VCL window peers to find a scrollbar supporting XScrollBar.
-
-    Walks getWindows() recursion from the frame's component window and optional
-    container_window, looking for objects whose implementation name contains
-    "Scroll" or that support com.sun.star.awt.XScrollBar.
-
-    Returns the scrollbar peer or None.
-    """
-    candidates = []
-    try:
-        comp_window = frame.getComponentWindow() if frame else None
-        roots = [w for w in (comp_window, container_window) if w]
-
-        for root in roots:
-            _find_scrollbar_in_tree(root, candidates, depth=0)
-
-        if candidates:
-            log.info("find_vcl_scrollbar: found %d candidate(s)", len(candidates))
-            for impl, obj in candidates:
-                log.info("  candidate impl=%s", impl)
-            return candidates[0][1]
-    except Exception as e:
-        log.debug("find_vcl_scrollbar: %s", e)
-    return None
-
+    ...  # commented out — VCL scrollbar search, never found anything
 
 def _find_scrollbar_in_tree(win, candidates, depth=0):
-    """Recursively search VCL window tree for scrollbar-like objects."""
-    if not win or depth > 15:
-        return
-    try:
-        impl_name = ""
-        try:
-            impl_name = win.getImplementationName() or ""
-        except Exception:
-            pass
-
-        # Check by implementation name
-        if "scroll" in impl_name.lower():
-            candidates.append((impl_name, win))
-            log.info("_find_scrollbar_in_tree: depth=%d impl=%s (name match)", depth, impl_name)
-
-        # Check XScrollBar interface
-        try:
-            import uno
-            xsb = win.queryInterface(uno.getTypeByName("com.sun.star.awt.XScrollBar"))
-            if xsb:
-                candidates.append((impl_name + " [XScrollBar]", xsb))
-                log.info("_find_scrollbar_in_tree: depth=%d impl=%s supports XScrollBar", depth, impl_name)
-        except Exception:
-            pass
-
-        # Recurse into children
-        if hasattr(win, "getWindows"):
-            try:
-                children = win.getWindows()
-                for child in children:
-                    _find_scrollbar_in_tree(child, candidates, depth + 1)
-            except Exception:
-                pass
-    except Exception as e:
-        log.debug("_find_scrollbar_in_tree: depth=%d error: %s", depth, e)
-
+    ...  # commented out — recursive VCL scrollbar helper
 
 def _dump_scroll_debug_once(doc, frame):
-    """One-time dump of VCL window tree and accessible tree for scroll debugging."""
-    global _SCROLL_DEBUG_DUMPED
-    if _SCROLL_DEBUG_DUMPED:
-        return
-    _SCROLL_DEBUG_DUMPED = True
-
-    log.info("=== SCROLL DEBUG: One-time VCL/Accessible tree dump ===")
-    try:
-        comp_window = frame.getComponentWindow() if frame else None
-        container_window = frame.getContainerWindow() if frame else None
-
-        # VCL window tree
-        if comp_window:
-            results = []
-            traverse_window_tree(comp_window, results, depth=0)
-            log.info("VCL Window Tree (componentWindow):")
-            for depth, impl, has_acc in results:
-                log.info("  %s impl=%s accessible=%s", "  " * depth, impl, has_acc)
-
-        if container_window and container_window != comp_window:
-            results = []
-            traverse_window_tree(container_window, results, depth=0)
-            log.info("VCL Window Tree (containerWindow):")
-            for depth, impl, has_acc in results:
-                log.info("  %s impl=%s accessible=%s", "  " * depth, impl, has_acc)
-
-        # Accessible tree
-        if comp_window:
-            try:
-                accessible = comp_window.getAccessible()
-                if accessible:
-                    results = []
-                    traverse_accessible_tree(accessible, results, depth=0)
-                    log.info("Accessible Tree (componentWindow):")
-                    for depth, role_name, name in results:
-                        log.info("  %s role=%s name=%r", "  " * depth, role_name, name)
-            except Exception as e:
-                log.info("  (accessible tree error: %s)", e)
-
-        # View settings dump
-        try:
-            controller = doc.getCurrentController()
-            if controller:
-                vs = controller.getViewSettings()
-                scroll_props = []
-                for prop_name in dir(vs):
-                    if any(k in prop_name.lower() for k in ("scroll", "visible", "caret", "online", "zoom")):
-                        try:
-                            val = getattr(vs, prop_name)
-                            if not callable(val):
-                                scroll_props.append((prop_name, val))
-                        except Exception:
-                            pass
-                if scroll_props:
-                    log.info("ViewSettings scroll/visible props:")
-                    for pn, pv in scroll_props:
-                        log.info("  %s = %s", pn, pv)
-        except Exception as e:
-            log.info("  (view settings dump error: %s)", e)
-
-        # === Critical: Log the raw ViewData string (this is the viewport scroll state) ===
-        # We have never seen the actual payload on this machine because previous
-        # write attempts masked the successful read. Log it at INFO the first time.
-        try:
-            ctl = doc.getCurrentController() if doc else None
-            if ctl:
-                vd = getattr(ctl, "ViewData", None)
-                if vd and isinstance(vd, str):
-                    log.info("RAW CONTROLLER VIEWDATA (first seen): %s", vd)
-                elif vd is not None:
-                    log.info("controller.ViewData present but not str: type=%s repr=%r", type(vd), vd)
-                else:
-                    log.info("controller has no ViewData attribute or it is None")
-        except Exception as e:
-            log.info("  (failed to read controller.ViewData during dump: %s)", e)
-
-    except Exception as e:
-        log.info("_dump_scroll_debug_once error: %s", e)
-    log.info("=== END SCROLL DEBUG DUMP ===")
-
+    ...  # commented out — one-time VCL/accessible tree dump
 
 def _get_cached_vcl_scrollbar(frame, container_window=None):
-    """Return the cached VCL scrollbar, searching on first call."""
-    global _VCL_SCROLLBAR_CACHE, _VCL_SCROLLBAR_SEARCHED
-    if not _VCL_SCROLLBAR_SEARCHED:
-        _VCL_SCROLLBAR_SEARCHED = True
-        _VCL_SCROLLBAR_CACHE = find_vcl_scrollbar(frame, container_window)
-        if _VCL_SCROLLBAR_CACHE:
-            log.info("_get_cached_vcl_scrollbar: cached scrollbar found")
-        else:
-            log.info("_get_cached_vcl_scrollbar: no VCL scrollbar found")
-    return _VCL_SCROLLBAR_CACHE
+    ...  # commented out — scrollbar cache wrapper
+'''
 
 
 def _sample_viewdata(controller, tag=""):
@@ -1364,14 +1121,15 @@ def _sample_viewdata(controller, tag=""):
 def scroll_to_bottom(doc, aggressive: bool = False):
     """Scroll the embedded document view to the bottom (Online/Browse layout).
 
-    The "aggressive" path (repeated zoom flicker + extra invalidate + per-call
-    ViewData sampling) is only enabled on actual text insertion paths
-    (append_text_chunk / append_rich_text when auto_scroll=True). All other
-    callers (resize listener, debug menu, deferred rerender timer, etc.) use
-    the lightweight path to avoid re-entrancy / infinite loops.
+    The "aggressive" path uses a screenDown loop with repeated
+    processEventsToIdle calls to let the layout engine settle between
+    rounds. This is the only mechanism that reliably moves the viewport
+    in embedded Browse-mode frames where MakeVisible/cursor-follow is
+    broken. Only enabled on actual text insertion paths
+    (append_text_chunk / append_rich_text when auto_scroll=True).
 
-    The one-time tree + first ViewData dump still happens on the very first
-    call regardless of the flag.
+    All other callers (resize listener, deferred rerender timer, etc.)
+    use the lightweight path to avoid re-entrancy / infinite loops.
     """
     if not doc:
         return
@@ -1380,20 +1138,7 @@ def scroll_to_bottom(doc, aggressive: bool = False):
         if not controller:
             return
 
-        frame = controller.getFrame()
-
-        # One-time debug dump (tree + first raw ViewData) — happens only on the very first call
-        if frame:
-            _dump_scroll_debug_once(doc, frame)
-
-        if _SCROLL_DIAG:
-            try:
-                cur_len = doc.CharacterCount
-                log.info("[SCROLL-DIAG] scroll_to_bottom entry: aggressive=%s doc_len=%d", aggressive, cur_len)
-            except Exception:
-                pass
-
-        # 1. Core lightweight work that every caller gets (cursor + dispatch)
+        # 1. Core lightweight work that every caller gets (cursor)
         view_cursor = controller.getViewCursor()
         if view_cursor:
             try:
@@ -1401,6 +1146,7 @@ def scroll_to_bottom(doc, aggressive: bool = False):
             except Exception as e:
                 log.debug("view_cursor.gotoEnd failed: %s", e)
 
+        '''
         if frame:
             try:
                 from plugin.framework.uno_context import get_ctx
@@ -1413,90 +1159,36 @@ def scroll_to_bottom(doc, aggressive: bool = False):
                             dispatcher.executeDispatch(frame, ".uno:GoToEndOfDoc", "", 0, ())
             except Exception as e:
                 log.debug("scroll_to_bottom: GoToEndOfDoc dispatch failed: %s", e)
+        '''
 
-        # 2. Aggressive path (zoom flicker + extra invalidate + per-call sampling) ONLY on text inserts.
+        # 2. Aggressive path: screenDown loop with layout settling.
         #    All other callers (on_window_resized, deferred timers, debug force-scroll, etc.)
         #    take the lightweight path below to prevent infinite re-entrancy loops.
         if aggressive:
             _sample_viewdata(controller, tag="pre")
 
-            # One-time diagnostic probe (when _SCROLL_DIAG): exercise the existing VCL + accessible
-            # scrollbar finders so we can see in the log whether any usable XScrollBar or a11y scrollbar
-            # exists for this embedded frame during real streaming. This is pure observation for now
-            # (no value is set; that would be a later "Method A" experiment).
-            if _SCROLL_DIAG and not _VCL_SCROLLBAR_SEARCHED:
-                try:
-                    from plugin.chatbot.rich_text import find_vcl_scrollbar, find_vertical_scrollbar
-                    # Pass None for container_window on this diagnostic path (the finder falls back gracefully;
-                    # the authoritative container is only easily available in the panel resize/scrollbar cache paths).
-                    vcl_sb = find_vcl_scrollbar(frame, None)
-                    a11y_sb = find_vertical_scrollbar(frame) if not vcl_sb else None
-                    log.info("[SCROLL-DIAG] scrollbar probe: vcl=%s a11y=%s", bool(vcl_sb), bool(a11y_sb))
-                except Exception as e:
-                    log.info("[SCROLL-DIAG] scrollbar probe error: %s", e)
-
-            # "Tell it to scroll to the end after doing an insert."
-            # The plain-text path does this with response_control.setSelection(length, length)
-            # (a collapsed caret at the absolute buffer end), which causes the AWT control
-            # to scroll the view to make that caret visible.
-            #
-            # For the embedded Writer we do the exact analogue on the controller
-            # (which implements XSelectionSupplier): create a fresh collapsed TextCursor
-            # at the absolute document end and select() it. This must be done *after*
-            # the insert so the document length is up-to-date. We do it here because
-            # the aggressive path is only entered from the real append_text_chunk /
-            # append_rich_text call sites (right after their insertString / HTML import).
-            #
-            # If a prior select() attempt scrolled to the top, it was because the
-            # range passed had its *start* earlier in the document; a freshly
-            # created .gotoEnd(False) caret is guaranteed collapsed at the very end.
+            # screenDown loop with layout settling: HTML imports trigger
+            # multi-stage layout recalculation — a single processEventsToIdle
+            # flushes one wave but those events schedule more layout work.
+            # We iterate: flush events, then screenDown until exhausted,
+            # repeating up to 3 times so the layout can fully settle.
             try:
-                text = doc.getText()
-                caret = text.createTextCursor()
-                caret.gotoEnd(False)  # collapsed zero-width at absolute end
-                controller.select(caret)
-                log.info("scroll_to_bottom[aggressive]: controller.select(collapsed-end-caret) — the 'tell it' step")
-                # Give VCL a chance to react to the selection change (the thing that
-                # actually drives scrolling in the view).
-                from plugin.framework.uno_context import get_toolkit as _get_sel_tk
-                _sel_tk = _get_sel_tk()
-                if _sel_tk and hasattr(_sel_tk, "processEventsToIdle"):
-                    _sel_tk.processEventsToIdle()
+                from plugin.framework.uno_context import get_toolkit as _get_layout_tk
+                _layout_tk = _get_layout_tk()
+                vc = controller.getViewCursor()
+                if vc and hasattr(vc, "screenDown") and _layout_tk and hasattr(_layout_tk, "processEventsToIdle"):
+                    total_pages = 0
+                    for _attempt in range(3):
+                        _layout_tk.processEventsToIdle()
+                        pages = 0
+                        while pages < 50 and vc.screenDown():
+                            pages += 1
+                        total_pages += pages
+                    log.info("scroll_to_bottom[aggressive]: screenDown paged %d screens", total_pages)
             except Exception as e:
-                log.debug("scroll_to_bottom[aggressive]: select(collapsed end) failed: %s", e)
-
-            try:
-                vs = controller.getViewSettings()
-                if vs and hasattr(vs, "ZoomValue"):
-                    orig = vs.ZoomValue
-                    delta = 1 if orig < 150 else -1
-                    vs.ZoomValue = orig + delta
-                    from plugin.framework.uno_context import get_toolkit as _get_tk
-                    tk = _get_tk()
-                    if tk and hasattr(tk, "processEventsToIdle"):
-                        tk.processEventsToIdle()
-                    vs.ZoomValue = orig
-                    if tk and hasattr(tk, "processEventsToIdle"):
-                        tk.processEventsToIdle()
-                    log.info("scroll_to_bottom[aggressive]: zoom flicker (%d->%d->%d)", orig, orig + delta, orig)
-            except Exception as e:
-                log.debug("scroll_to_bottom[aggressive]: zoom flicker failed: %s", e)
-
-            try:
-                if frame:
-                    comp = frame.getComponentWindow()
-                    if comp and hasattr(comp, "invalidate"):
-                        comp.invalidate(15)
-                from plugin.framework.uno_context import get_toolkit
-                toolkit = get_toolkit()
-                if toolkit and hasattr(toolkit, "processEventsToIdle"):
-                    toolkit.processEventsToIdle()
-            except Exception as e:
-                log.debug("scroll_to_bottom[aggressive]: final invalidate/idle failed: %s", e)
+                log.debug("scroll_to_bottom[aggressive]: screenDown loop failed: %s", e)
 
             _sample_viewdata(controller, tag="post")
-            if _SCROLL_DIAG:
-                log.info("[SCROLL-DIAG] scroll_to_bottom aggressive path complete (select + zoom + invalidate + idles done)")
         else:
             # Lightweight path: one final idle so the basic cursor movement has a chance,
             # but nothing that can trigger resize listeners and cause loops.
@@ -1507,9 +1199,6 @@ def scroll_to_bottom(doc, aggressive: bool = False):
                     toolkit.processEventsToIdle()
             except Exception:
                 pass
-
-            if _SCROLL_DIAG:
-                log.info("[SCROLL-DIAG] scroll_to_bottom lightweight path (resize/timer/debug caller)")
 
     except Exception as e:
         log.debug("scroll_to_bottom error: %s", e)
@@ -1572,40 +1261,8 @@ def append_rich_text(doc, text, role="assistant", auto_scroll=True):
             body_range.CharColor = user_color if role == "user" else assistant_color
             _tighten_list_indent(body_range)
 
-        if _SCROLL_DIAG:
-            try:
-                final_len = doc.CharacterCount
-                log.info("[SCROLL-DIAG] append_rich_text: pre=%d post=%d role=%s auto_scroll=%s → calling scroll_to_bottom(aggressive=True)",
-                         pre_len, final_len, role, auto_scroll)
-            except Exception:
-                pass
-
         if auto_scroll:
             scroll_to_bottom(doc, aggressive=True)
-
-            # Next experiment (2026-05-26, based on [SCROLL-DIAG] logs from first logging pass):
-            # Even with aggressive=True (select + zoom flicker + invalidate + idles) the visual
-            # viewport often fails to follow during streaming or after the final HTML rerender.
-            # Logs showed: Y sometimes not advancing on the post sample for that call, plus a storm
-            # of on_window_resized lightweight scrolls interleaving. Scrollbar surfaces never found.
-            # Simplest next "one thing at a time" (Method C variant): after a real content append's
-            # first aggressive scroll, schedule one short post-layout aggressive kick. This re-uses
-            # the exact timer + post_to_main_thread pattern already used in rerender_rich_text_session.
-            # Only active under _SCROLL_DIAG so it is pure experiment logging + one extra behavior
-            # we can turn off instantly. Delay chosen small (80 ms) to be after immediate layout
-            # but before user would notice lag.
-            if _SCROLL_DIAG:
-                log.info("[SCROLL-DIAG] scheduling 80ms post-layout aggressive follow-up scroll (after append_rich_text)")
-                import threading
-                from plugin.framework.queue_executor import post_to_main_thread
-                def _followup_scroll():
-                    try:
-                        scroll_to_bottom(doc, aggressive=True)
-                    except Exception:
-                        pass
-                t = threading.Timer(0.08, lambda: post_to_main_thread(_followup_scroll))
-                t.daemon = True
-                t.start()
 
     except Exception as e:
         log.exception("Error in append_rich_text: %s", e)
@@ -1622,40 +1279,11 @@ def append_text_chunk(doc, text, auto_scroll=True):
         cursor.gotoEnd(False)
         bg_color, user_color, assistant_color = get_theme_colors(doc)
         cursor.CharColor = assistant_color
-        pre_len = doc.CharacterCount
         text_obj.insertString(cursor, text, False)
-        post_len = doc.CharacterCount
         log.debug("append_text_chunk: inserted %d chars, auto_scroll=%s", len(text), auto_scroll)
-
-        if _SCROLL_DIAG:
-            log.info("[SCROLL-DIAG] append_text_chunk: pre=%d post=%d len_delta=%d auto_scroll=%s → calling scroll_to_bottom(aggressive=True)",
-                     pre_len, post_len, len(text), auto_scroll)
 
         if auto_scroll:
             scroll_to_bottom(doc, aggressive=True)
 
-            # Next experiment (2026-05-26, based on [SCROLL-DIAG] logs from first logging pass):
-            # Even with aggressive=True (select + zoom flicker + invalidate + idles) the visual
-            # viewport often fails to follow during streaming or after the final HTML rerender.
-            # Logs showed: Y sometimes not advancing on the post sample for that call, plus a storm
-            # of on_window_resized lightweight scrolls interleaving. Scrollbar surfaces never found.
-            # Simplest next "one thing at a time" (Method C variant): after a real content append's
-            # first aggressive scroll, schedule one short post-layout aggressive kick. This re-uses
-            # the exact timer + post_to_main_thread pattern already used in rerender_rich_text_session.
-            # Only active under _SCROLL_DIAG so it is pure experiment logging + one extra behavior
-            # we can turn off instantly. Delay chosen small (80 ms) to be after immediate layout
-            # but before user would notice lag.
-            if _SCROLL_DIAG:
-                log.info("[SCROLL-DIAG] scheduling 80ms post-layout aggressive follow-up scroll (after append_text_chunk)")
-                import threading
-                from plugin.framework.queue_executor import post_to_main_thread
-                def _followup_scroll():
-                    try:
-                        scroll_to_bottom(doc, aggressive=True)
-                    except Exception:
-                        pass
-                t = threading.Timer(0.08, lambda: post_to_main_thread(_followup_scroll))
-                t.daemon = True
-                t.start()
     except Exception as e:
         log.exception("Error in append_text_chunk: %s", e)
