@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import re
+from dataclasses import dataclass
 from typing import Any
 
 _log = logging.getLogger("writeragent.grammar")
@@ -105,6 +106,38 @@ for _t in GRAMMAR_REGISTRY_LOCALE_TAGS:
         _CANON_BY_LANG_NO_REGION[key] = _t
 
 
+@dataclass(frozen=True)
+class _LocaleTagShim:
+    """Minimal Locale-like object for ``normalize_uno_locale_to_bcp47`` on LLM tags."""
+
+    Language: str
+    Country: str = ""
+
+
+def normalize_detected_bcp47(tag: str | None) -> str | None:
+    """Map an LLM-detected BCP-47 tag onto a supported registry tag (same rules as UNO locales)."""
+    if not tag or not str(tag).strip():
+        return None
+    raw = str(tag).strip().replace("_", "-")
+    if raw in GRAMMAR_REGISTRY_LOCALES:
+        return raw
+    parts = raw.split("-")
+    lang = parts[0]
+    if not lang:
+        return None
+    country = parts[1].upper() if len(parts) > 1 else ""
+    return normalize_uno_locale_to_bcp47(_LocaleTagShim(lang, country))
+
+
+def grammar_bcp47_tags_match(a: str | None, b: str | None) -> bool:
+    """True when two tags denote the same supported grammar locale (e.g. ``ja`` vs ``ja-JP``)."""
+    if not a or not b:
+        return False
+    na = normalize_detected_bcp47(a) or a
+    nb = normalize_detected_bcp47(b) or b
+    return na == nb
+
+
 def normalize_uno_locale_to_bcp47(a_locale: Any) -> str | None:
     """Map a document ``Locale`` to our canonical BCP-47, or None if the language is not supported.
 
@@ -164,6 +197,10 @@ def grammar_english_name_for_bcp47(bcp47: str) -> str:
 GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS = 8192
 GRAMMAR_PROOFREAD_MAX_RESPONSE_TOKENS = 3072
 GRAMMAR_BATCH_MAX_SENTENCES = 8
+# Language-detect JSON is tiny, but reasoning models (e.g. mercury-2) may spend budget on
+# internal reasoning before content; 50 tokens was observed to return content=null.
+GRAMMAR_LANGUAGE_DETECT_MAX_TOKENS_SINGLE = 256
+GRAMMAR_LANGUAGE_DETECT_MAX_TOKENS_PER_BATCH_ITEM = 150
 
 GRAMMAR_SYSTEM_PROMPT_TEMPLATE = (
     "You are a strict grammar and style checker. Reply with a single JSON object only, "

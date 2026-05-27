@@ -578,59 +578,22 @@ def test_locale_mismatch_proceeds_and_double_caches(
         ]
 
 
-def test_language_detect_skips_llm_when_persisted_grammar_exists() -> None:
-    """Persisted grammar for sentence (fp) implies skip language-detect LLM (reopen heuristic)."""
-    from plugin.writer.locale.grammar_fsm_state import EventKind, ExecuteLanguageDetectEffect
-    from plugin.writer.locale.grammar_work_queue import _handle_grammar_effect, _lang_detect_cache
+def test_language_validation_does_not_trust_persisted_grammar_heuristic() -> None:
+    """With detect-language on, embedded grammar must not skip the detect LLM."""
+    from plugin.writer.locale.grammar_work_queue import GrammarWorkerContext, _run_language_validation, _lang_detect_cache
 
     item = _make_item("The cat sat.", doc_id="doc99")
-    effect = ExecuteLanguageDetectEffect(chunk=[(item, item.text)], detect_lang_instruction="")
-
+    ec = GrammarWorkerContext(
+        ctx=object(),
+        client=MagicMock(),
+        gq=None,
+        model="m",
+        original_bcp47="en-US",
+        grammar_bcp47="en-US",
+        max_tok=100,
+    )
     mock_p = MagicMock()
     mock_p.get.return_value = []
-
-    mock_client = MagicMock()
-    mock_lane = MagicMock()
-    mock_lane.__enter__ = MagicMock(return_value=None)
-    mock_lane.__exit__ = MagicMock(return_value=None)
-
-    try:
-        _lang_detect_cache.pop(item.text, None)
-        with patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=mock_p) as mock_get_p:
-            with patch("plugin.writer.locale.grammar_work_queue._get_cached_language", return_value=None):
-                with patch("plugin.framework.queue_executor.llm_request_lane", return_value=mock_lane):
-                    ev = _handle_grammar_effect(
-                        effect,
-                        client=mock_client,
-                        ctx=object(),
-                        gq=None,
-                        model="m",
-                        original_bcp47="en-US",
-                        grammar_bcp47="en-US",
-                        max_tok=100,
-                        detect_lang_instruction="",
-                    )
-        mock_client.chat_completion_sync.assert_not_called()
-        assert ev is not None
-        assert ev.kind == EventKind.LANG_DETECT_DONE
-        assert ev.data.get("detected_langs") == ["en-US"]
-        mock_get_p.assert_called_once()
-    finally:
-        _lang_detect_cache.pop(item.text, None)
-
-
-def test_language_detect_calls_llm_when_no_persisted_grammar() -> None:
-    from plugin.writer.locale.grammar_fsm_state import EventKind, ExecuteLanguageDetectEffect
-    from plugin.writer.locale.grammar_work_queue import _handle_grammar_effect, _lang_detect_cache
-
-    item = _make_item("Fresh sentence.", doc_id="doc100")
-    effect = ExecuteLanguageDetectEffect(chunk=[(item, item.text)], detect_lang_instruction="")
-
-    mock_p = MagicMock()
-    mock_p.get.return_value = None
-
-    mock_client = MagicMock()
-    mock_client.chat_completion_sync.return_value = '{"detected_language_bcp47": "en-US"}'
     mock_lane = MagicMock()
     mock_lane.__enter__ = MagicMock(return_value=None)
     mock_lane.__exit__ = MagicMock(return_value=None)
@@ -640,20 +603,99 @@ def test_language_detect_calls_llm_when_no_persisted_grammar() -> None:
         with patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=mock_p):
             with patch("plugin.writer.locale.grammar_work_queue._get_cached_language", return_value=None):
                 with patch("plugin.framework.queue_executor.llm_request_lane", return_value=mock_lane):
-                    ev = _handle_grammar_effect(
-                        effect,
-                        client=mock_client,
-                        ctx=object(),
-                        gq=None,
-                        model="m",
-                        original_bcp47="en-US",
-                        grammar_bcp47="en-US",
-                        max_tok=100,
-                        detect_lang_instruction="",
-                    )
+                    with patch(
+                        "plugin.writer.locale.grammar_work_queue._detect_languages",
+                        return_value=["en-US"],
+                    ) as mock_detect:
+                        decision = _run_language_validation([(item, item.text)], "en-US", "", ec)
+        mock_detect.assert_called_once()
+        assert mock_detect.call_args.kwargs.get("trust_persisted_grammar_as_lang") is False
+        assert decision is not None
+        assert decision.result_chunk == [(item, item.text)]
+    finally:
+        _lang_detect_cache.pop(item.text, None)
+
+
+def test_language_detect_skips_llm_when_persisted_grammar_exists() -> None:
+    """Persisted grammar for sentence (fp) implies skip language-detect LLM (reopen heuristic)."""
+    from plugin.writer.locale.grammar_work_queue import GrammarWorkerContext, _detect_languages, _lang_detect_cache
+
+    item = _make_item("The cat sat.", doc_id="doc99")
+    ec = GrammarWorkerContext(
+        ctx=object(),
+        client=MagicMock(),
+        gq=None,
+        model="m",
+        original_bcp47="en-US",
+        grammar_bcp47="en-US",
+        max_tok=100,
+    )
+
+    mock_p = MagicMock()
+    mock_p.get.return_value = []
+
+    try:
+        _lang_detect_cache.pop(item.text, None)
+        with patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=mock_p) as mock_get_p:
+            with patch("plugin.writer.locale.grammar_work_queue._get_cached_language", return_value=None):
+                detected = _detect_languages([(item, item.text)], "", ec)
+        ec.client.chat_completion_sync.assert_not_called()
+        assert detected == ["en-US"]
+        mock_get_p.assert_called_once()
+    finally:
+        _lang_detect_cache.pop(item.text, None)
+
+
+def test_language_detect_llm_sync_retries_on_empty_content() -> None:
+    from plugin.writer.locale.grammar_work_queue import GrammarWorkerContext, _language_detect_llm_sync
+
+    mock_client = MagicMock()
+    mock_client.chat_completion_sync.side_effect = ["", '{"detected_language_bcp47": "fr-FR"}']
+    ec = GrammarWorkerContext(
+        ctx=object(),
+        client=mock_client,
+        gq=None,
+        model="test-model",
+        original_bcp47="en-US",
+        grammar_bcp47="en-US",
+        max_tok=100,
+    )
+    out = _language_detect_llm_sync(ec, [{"role": "user", "content": "Bonjour"}], 50)
+    assert out == '{"detected_language_bcp47": "fr-FR"}'
+    assert mock_client.chat_completion_sync.call_count == 2
+    assert mock_client.chat_completion_sync.call_args_list[1].kwargs["max_tokens"] >= 256
+
+
+def test_language_detect_calls_llm_when_no_persisted_grammar() -> None:
+    from plugin.writer.locale.grammar_work_queue import GrammarWorkerContext, _detect_languages, _lang_detect_cache
+
+    item = _make_item("Fresh sentence.", doc_id="doc100")
+    mock_client = MagicMock()
+    mock_client.chat_completion_sync.return_value = '{"detected_language_bcp47": "en-US"}'
+    ec = GrammarWorkerContext(
+        ctx=object(),
+        client=mock_client,
+        gq=None,
+        model="m",
+        original_bcp47="en-US",
+        grammar_bcp47="en-US",
+        max_tok=100,
+    )
+
+    mock_p = MagicMock()
+    mock_p.get.return_value = None
+
+    mock_lane = MagicMock()
+    mock_lane.__enter__ = MagicMock(return_value=None)
+    mock_lane.__exit__ = MagicMock(return_value=None)
+
+    try:
+        _lang_detect_cache.pop(item.text, None)
+        with patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=mock_p):
+            with patch("plugin.writer.locale.grammar_work_queue._get_cached_language", return_value=None):
+                with patch("plugin.framework.queue_executor.llm_request_lane", return_value=mock_lane):
+                    detected = _detect_languages([(item, item.text)], "", ec)
         mock_client.chat_completion_sync.assert_called_once()
-        assert ev is not None
-        assert ev.kind == EventKind.LANG_DETECT_DONE
-        assert ev.data.get("detected_langs") == ["en-US"]
+        assert detected == ["en-US"]
     finally:
         _lang_detect_cache.pop(item.text, None)
