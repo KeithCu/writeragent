@@ -25,6 +25,7 @@ import pytest
 
 from plugin.scripting.venv_worker import (
     PythonWorkerManager,
+    _worker_error_message,
     probe_venv_path,
     resolve_libreoffice_python,
     resolve_venv_python,
@@ -37,6 +38,15 @@ from plugin.scripting.worker_harness import _execute_request, _serialize
 from plugin.tests.testing_utils import setup_uno_mocks
 
 setup_uno_mocks()
+
+
+def test_worker_error_message_strips_command_path():
+    long_cmd = ["/very/long/path/to/python", "/very/long/path/to/worker_harness.py"]
+    exc = subprocess.TimeoutExpired(cmd=long_cmd, timeout=3)
+    msg = _worker_error_message(exc)
+    assert msg == "Python worker failed: timed out after 3 seconds"
+    assert "Command" not in msg
+    assert "/very/long" not in msg
 
 
 def test_serialize_numpy_scalar():

@@ -33,6 +33,19 @@ from plugin.scripting.subprocess_helpers import scrub_subprocess_env, wrap_comma
 
 log = logging.getLogger(__name__)
 
+_TIMEOUT_AFTER = " timed out after "
+
+
+def _worker_error_message(exc: BaseException) -> str:
+    """Build a short user-facing worker error without subprocess command paths."""
+    if isinstance(exc, subprocess.TimeoutExpired):
+        return f"Python worker failed: timed out after {exc.timeout} seconds"
+    text = str(exc)
+    if text.startswith("Command ") and _TIMEOUT_AFTER in text:
+        return f"Python worker failed:{text[text.index(_TIMEOUT_AFTER):]}"
+    return f"Python worker failed: {text}"
+
+
 _HARNESS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "worker_harness.py")
 _instances: dict[str, PythonWorkerManager] = {}
 _registry_lock = threading.Lock()
@@ -313,7 +326,7 @@ class PythonWorkerManager:
                     log.warning("Python worker failed (attempt %s): %s", attempt + 1, e)
                     self._terminate_worker()
                     if attempt == 1:
-                        return {"status": "error", "message": f"Python worker failed: {e}"}
+                        return {"status": "error", "message": _worker_error_message(e)}
             return {"status": "error", "message": "Python worker failed"}
 
     def _normalize_response(self, response: dict[str, Any]) -> dict[str, Any]:

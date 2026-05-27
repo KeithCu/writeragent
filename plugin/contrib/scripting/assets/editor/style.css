@@ -62,8 +62,11 @@ html, body {
 
 #status {
   margin-left: auto;
+  min-width: 0;
+  flex: 1 1 0;
   font-size: 12px;
   opacity: 0.85;
+  text-align: right;
 }
 
 #status.status-ok {
@@ -76,10 +79,8 @@ html, body {
   color: #cf222e;
   font-weight: 500;
   opacity: 1;
-  max-width: 40%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  word-break: break-word;
 }
 
 .toolbar-hidden {
