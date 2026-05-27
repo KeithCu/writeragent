@@ -10,6 +10,9 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
+from typing import Any
 
 _BLOCKED_ENV_SUBSTR = ("KEY", "TOKEN", "SECRET", "PASSWORD", "AUTH", "CREDENTIAL")
 # LibreOffice sets PYTHONHOME/PYTHONPATH to its bundled stdlib; letting these
@@ -54,6 +57,37 @@ def detect_sandbox() -> str | None:
     else:
         _cached_sandbox = None
     return _cached_sandbox
+
+
+_PIPE_BUF_TARGET = 1024 * 1024
+
+
+def optimize_pipe(pipe_fd: int) -> None:
+    """Raise venv-worker pipe capacity toward 1 MiB on Linux (default ~64 KiB).
+
+    Large pickle IPC (split-grid / NumPy) can exceed the default pipe buffer;
+    F_SETPIPE_SZ requests a larger kernel ring buffer so host and child block less.
+    No-op on macOS/Windows (no supported API). Silently no-ops when caps deny resize.
+    """
+    if sys.platform != "linux":
+        return
+    import fcntl
+
+    try:
+        fcntl.fcntl(pipe_fd, fcntl.F_SETPIPE_SZ, _PIPE_BUF_TARGET)
+    except OSError:
+        pass
+
+
+def optimize_popen_pipes(proc: subprocess.Popen[Any]) -> None:
+    """Apply :func:`optimize_pipe` to stdin/stdout/stderr of a piped child process."""
+    for stream in (proc.stdin, proc.stdout, proc.stderr):
+        if stream is None:
+            continue
+        try:
+            optimize_pipe(stream.fileno())
+        except (OSError, ValueError):
+            pass
 
 
 def wrap_command_for_sandbox(cmd: list[str]) -> list[str]:

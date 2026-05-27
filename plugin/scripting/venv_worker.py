@@ -29,7 +29,7 @@ from plugin.scripting.config_limits import (
     resolve_python_exec_timeout,
 )
 from plugin.scripting.payload_codec import host_unpack_data
-from plugin.scripting.subprocess_helpers import scrub_subprocess_env, wrap_command_for_sandbox
+from plugin.scripting.subprocess_helpers import optimize_popen_pipes, scrub_subprocess_env, wrap_command_for_sandbox
 
 log = logging.getLogger(__name__)
 
@@ -368,6 +368,7 @@ class PythonWorkerManager:
         else:
             popen_kw["preexec_fn"] = os.setsid
         self._proc = subprocess.Popen(wrap_command_for_sandbox([self.exe, _HARNESS_PATH]), **popen_kw)
+        optimize_popen_pipes(self._proc)
         log.debug("Started Python worker pid=%s exe=%s", self._proc.pid, self.exe)
 
     def _read_response_bytes(self, stdout: IO[bytes], timeout_sec: int) -> bytes:

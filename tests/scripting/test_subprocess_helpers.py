@@ -10,9 +10,16 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from plugin.scripting.subprocess_helpers import _reset_cache, detect_sandbox, wrap_command_for_sandbox
+from plugin.scripting.subprocess_helpers import (
+    _PIPE_BUF_TARGET,
+    _reset_cache,
+    detect_sandbox,
+    optimize_pipe,
+    optimize_popen_pipes,
+    wrap_command_for_sandbox,
+)
 
 
 class DetectSandboxTests(unittest.TestCase):
@@ -86,6 +93,55 @@ class WrapCommandTests(unittest.TestCase):
         original = cmd.copy()
         wrap_command_for_sandbox(cmd)
         self.assertEqual(cmd, original)
+
+
+class PipeOptimizeTests(unittest.TestCase):
+    @patch("plugin.scripting.subprocess_helpers.sys.platform", "linux")
+    @patch("fcntl.fcntl")
+    def test_optimize_pipe_calls_fcntl(self, mock_fcntl: MagicMock) -> None:
+        optimize_pipe(7)
+        mock_fcntl.assert_called_once()
+        args = mock_fcntl.call_args[0]
+        self.assertEqual(args[0], 7)
+        self.assertEqual(args[2], _PIPE_BUF_TARGET)
+
+    @patch("plugin.scripting.subprocess_helpers.sys.platform", "linux")
+    @patch("fcntl.fcntl", side_effect=OSError("cap denied"))
+    def test_optimize_pipe_swallows_oserror(self, _mock_fcntl: MagicMock) -> None:
+        optimize_pipe(3)
+
+    @patch("plugin.scripting.subprocess_helpers.optimize_pipe")
+    def test_optimize_popen_pipes_iterates_streams(self, mock_optimize: MagicMock) -> None:
+        proc = MagicMock()
+        proc.stdin.fileno.return_value = 10
+        proc.stdout.fileno.return_value = 11
+        proc.stderr.fileno.return_value = 12
+        optimize_popen_pipes(proc)
+        self.assertEqual(mock_optimize.call_count, 3)
+        mock_optimize.assert_any_call(10)
+        mock_optimize.assert_any_call(11)
+        mock_optimize.assert_any_call(12)
+
+    @patch("plugin.scripting.subprocess_helpers.optimize_pipe")
+    def test_optimize_popen_pipes_skips_none_streams(self, mock_optimize: MagicMock) -> None:
+        proc = MagicMock()
+        proc.stdin = None
+        proc.stdout.fileno.return_value = 11
+        proc.stderr = None
+        optimize_popen_pipes(proc)
+        mock_optimize.assert_called_once_with(11)
+
+    @patch("plugin.scripting.subprocess_helpers.sys.platform", "win32")
+    @patch("fcntl.fcntl")
+    def test_optimize_pipe_noop_on_windows(self, mock_fcntl: MagicMock) -> None:
+        optimize_pipe(5)
+        mock_fcntl.assert_not_called()
+
+    @patch("plugin.scripting.subprocess_helpers.sys.platform", "darwin")
+    @patch("fcntl.fcntl")
+    def test_optimize_pipe_noop_on_macos(self, mock_fcntl: MagicMock) -> None:
+        optimize_pipe(5)
+        mock_fcntl.assert_not_called()
 
 
 if __name__ == "__main__":

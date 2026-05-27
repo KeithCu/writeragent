@@ -161,7 +161,7 @@ When executing Python code or transporting dense matrix data on Linux, the compu
 
 #### 1. Under-the-Hood Mechanics (How Linux Handles It)
 - **UNIX Pipes via `pipe2(2)`**: When `PythonWorkerManager` spawns the venv subprocess, it specifies `stdin=subprocess.PIPE` and `stdout=subprocess.PIPE`. Under the hood, Python calls the Linux kernel's `pipe2(2)` system call to establish private, unidirectional in-memory data channels.
-- **Kernel-Buffered Transit**: These pipes are backed by kernel-space ring buffers (defaulting to **64 KiB** since Linux 2.6.11, and dynamically scaling or configurable up to 1 MiB). 
+- **Kernel-Buffered Transit**: These pipes are backed by kernel-space ring buffers (defaulting to **64 KiB** since Linux 2.6.11, and dynamically scaling or configurable up to 1 MiB). On Linux, [`PythonWorkerManager`](plugin/scripting/venv_worker.py) requests **1 MiB** via `F_SETPIPE_SZ` when spawning the worker ([`optimize_popen_pipes`](plugin/scripting/subprocess_helpers.py)). 
 - **Zero Disk/Network Overhead**: Data is written by the host directly to the kernel pipe buffer and read by the child process from the same buffer. The transaction resides entirely in RAM, completely bypassing the disk subsystem, filesystem page cache, or local socket loopback overhead.
 - **Efficient Context Switching**: The data is copied via fast kernel-space memory maps (`copy_to_user` and `copy_from_user`). On modern Linux schedulers, context switches between the host and the warm worker take a mere **1 to 5 microseconds**.
 
