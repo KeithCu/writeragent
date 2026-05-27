@@ -39,7 +39,7 @@ WriterAgent already ships a substantial subset of the Python-in-Excel vision. Be
 | Multi-range references | Varargs IDL + `multi_data` envelope | **Shipped** - [plugin/calc/calc_addin_data.py](plugin/calc/calc_addin_data.py) |
 | Anaconda package ecosystem | User-provided venv (numpy, pandas, scipy, etc.) | **Shipped** - local, no cloud dependency |
 | Cloud sandbox execution | Venv subprocess + AST sandbox | **Shipped** - [plugin/scripting/](plugin/scripting/) |
-| Monaco code editor | Webview-based Monaco child process | **Shipped** - [plugin/scripting/editor_bridge.py](plugin/scripting/editor_bridge.py) |
+| Monaco code editor | Webview-based Monaco child process | **Shipped** - [plugin/scripting/editor_host.py](plugin/scripting/editor_host.py) |
 | AI code generation | `=PROMPT()` + `run_venv_python_script` chat tool | **Shipped** |
 | High-perf serialization | Pickle5 + Split-Grid (20x faster than JSON) | **Shipped** - [plugin/scripting/payload_codec.py](plugin/scripting/payload_codec.py) |
 | Matrix formula (indexed spill) | Ctrl+Shift+Enter + ROW() indexing + worker result session cache | **Shipped** (manual range; not Excel auto-spill) |
@@ -103,7 +103,7 @@ These items are tracked in [enabling_numpy_in_libreoffice.md — Calc UX and out
 
 **What to build:**
 
-- Add a **`PythonSessionManager`** alongside [PythonWorkerManager](plugin/scripting/python_worker_manager.py) that maintains a **persistent namespace** per workbook
+- Add a **`PythonSessionManager`** alongside [PythonWorkerManager](plugin/scripting/venv_worker.py) that maintains a **persistent namespace** per workbook
 - New config key `scripting.python_session_mode` (default `"isolated"`, option `"shared"`) in [plugin/scripting/module.yaml](plugin/scripting/module.yaml)
 - Modify [worker_harness.py](plugin/scripting/worker_harness.py) to accept a `session_id` field; when present, reuse the `LocalPythonExecutor` instance instead of creating a new one
 - Row-major evaluation order: leverage Calc's existing recalc order (already left-to-right, top-to-bottom within a sheet)
@@ -113,7 +113,7 @@ These items are tracked in [enabling_numpy_in_libreoffice.md — Calc UX and out
 **Key files to modify:**
 - [plugin/scripting/worker_harness.py](plugin/scripting/worker_harness.py) -- add `session_id` routing, `reset_session` handler
 - [plugin/scripting/venv_sandbox.py](plugin/scripting/venv_sandbox.py) -- session-aware executor cache
-- [plugin/scripting/python_worker_manager.py](plugin/scripting/python_worker_manager.py) -- forward session_id
+- [plugin/scripting/venv_worker.py](plugin/scripting/venv_worker.py) -- forward session_id
 - [plugin/calc/python_function.py](plugin/calc/python_function.py) -- derive session_id from workbook URL
 - [plugin/scripting/module.yaml](plugin/scripting/module.yaml) -- new config key
 
@@ -177,20 +177,20 @@ These items are tracked in [enabling_numpy_in_libreoffice.md — Calc UX and out
 - Robust point-and-click range insertion from Calc while the editor is open.
 - Dedicated toolbar button / more polished UX for "Edit Python in cell".
 
-**What exists (shared infrastructure):** [editor_bridge.py](plugin/scripting/editor_bridge.py), [editor_session_launch.py](plugin/scripting/editor_session_launch.py), and the webview Monaco process (already used by the "Run Python Script" feature).
+**What exists (shared infrastructure):** [editor_host.py](plugin/scripting/editor_host.py) (spawn, bridge, session launch), and the webview Monaco process (already used by the "Run Python Script" feature).
 
 **Remaining work (from original plan):**
 
 - **Cell-edit mode:** When user double-clicks a `=PYTHON()` cell (or uses a keyboard shortcut), open the Monaco editor pre-loaded with that cell's code. On save, write back to the formula
 - Wire a Calc cell selection listener that detects `=PYTHON()` and enables an "Edit in Python Editor" toolbar button or context menu entry
-- **Sheet-level grouping view:** Add a `list_python_cells` message type in [editor_protocol.py](plugin/scripting/editor_protocol.py) -- host enumerates all `=PYTHON()` cells in the workbook and sends grouped-by-sheet metadata to Monaco
+- **Sheet-level grouping view:** Add a `list_python_cells` message type in [editor_protocol.py](plugin/scripting/editor_ipc.py) -- host enumerates all `=PYTHON()` cells in the workbook and sends grouped-by-sheet metadata to Monaco
 - **Point-and-click range insertion:** When the editor is open, cell range selections in Calc send an `insert_reference` message to Monaco with the range address (e.g. `A1:B10`)
-- The `data_binding` field in the save message already exists in [editor_bridge.py](plugin/scripting/editor_bridge.py) -- use it for the data range argument
+- The `data_binding` field in the save message already exists in [editor_bridge.py](plugin/scripting/editor_host.py) -- use it for the data range argument
 
 **Key files to modify:**
 - [plugin/scripting/python_runner.py](plugin/scripting/python_runner.py) -- add Calc cell-edit launch path
-- [plugin/scripting/editor_bridge.py](plugin/scripting/editor_bridge.py) -- `insert_reference` message handler
-- [plugin/scripting/editor_protocol.py](plugin/scripting/editor_protocol.py) -- new message types
+- [plugin/scripting/editor_host.py](plugin/scripting/editor_host.py) -- `insert_reference` message handler
+- [plugin/scripting/editor_ipc.py](plugin/scripting/editor_ipc.py) -- new message types
 - New: cell selection listener (UNO `XSelectionChangeListener`) in a Calc-specific module
 - [extension/Addons.xcu](extension/Addons.xcu) -- toolbar button or menu entry
 
@@ -208,7 +208,7 @@ These items are tracked in [enabling_numpy_in_libreoffice.md — Calc UX and out
 - Separate from session mode -- init scripts work even in isolated mode (they just run once per workbook load, not persistently)
 
 **Key files to modify:**
-- [plugin/scripting/python_worker_manager.py](plugin/scripting/python_worker_manager.py) -- `init_script` request type
+- [plugin/scripting/venv_worker.py](plugin/scripting/venv_worker.py) -- `init_script` request type
 - [plugin/calc/python_function.py](plugin/calc/python_function.py) -- check/run init on first eval
 - Settings UI in [plugin/scripting/module.yaml](plugin/scripting/module.yaml)
 - New: `plugin/scripting/init_scripts.py` -- read/write init from document properties

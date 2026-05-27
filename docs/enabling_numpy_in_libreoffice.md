@@ -49,7 +49,7 @@ Appending the user’s `site-packages` to LibreOffice’s `sys.path` and `import
 
 ### Chosen: warm worker + fresh sandbox per call
 
-1. **Persistent worker:** [`PythonWorkerManager`](plugin/scripting/python_worker_manager.py) spawns the venv’s `python` once per executable path and keeps it alive.
+1. **Persistent worker:** [`PythonWorkerManager`](plugin/scripting/venv_worker.py) spawns the venv’s `python` once per executable path and keeps it alive.
 2. **Fresh namespace per request:** [`worker_harness.py`](plugin/scripting/worker_harness.py) → [`venv_sandbox.py`](plugin/scripting/venv_sandbox.py) runs each call in a new [`LocalPythonExecutor`](plugin/contrib/smolagents/local_python_executor.py) — no variables carry over between `run_venv_python_script` / `=PYTHON()` invocations.
 3. **JSON line protocol:** One request per line on stdin, one response per line on stdout. Bidirectional **tool RPC** from the venv back into LibreOffice is **not** wired yet ([§7](#7-deferred-roadmap)).
 
@@ -83,7 +83,7 @@ Module implementation: `plugin/scripting/` (no top-level `python/` package — a
 |-------|--------|-------|
 | Chat tool **`run_venv_python_script`** | [`plugin/calc/venv_python.py`](plugin/calc/venv_python.py) | Specialized domain `python`; Writer/Calc/Draw when delegated |
 | Calc **`=PYTHON(code, data?)`** | [`plugin/calc/python_addin.py`](plugin/calc/python_addin.py) / [`plugin/calc/python_function.py`](plugin/calc/python_function.py) | Same runner as the chat tool |
-| Shared runner | [`plugin/scripting/run_venv_code.py`](plugin/scripting/run_venv_code.py) | Only entry for venv subprocess execution |
+| Shared runner | [`plugin/scripting/venv_worker.py`](plugin/scripting/venv_worker.py) | Only entry for venv subprocess execution |
 | In-process **`execute_python_script`** | [`plugin/calc/python_executor.py`](plugin/calc/python_executor.py) | LO embedded Python, stdlib sandbox, `lp()` / `set_range` helpers; **not** used by `=PYTHON()` |
 
 Both venv paths assign JSON-serializable output to **`result`**. NumPy arrays and pandas objects are serialized in the worker. There is **no UNO API inside the child process** today.
@@ -181,11 +181,16 @@ When executing Python code or transporting dense matrix data on Linux, the compu
 ```
 plugin/
 ├── scripting/
-│   ├── run_venv_code.py          # Single entry: run_code_in_user_venv
-│   ├── python_worker_manager.py  # Warm subprocess, JSON protocol
-│   ├── worker_harness.py         # Stdin/stdout loop in venv
+│   ├── venv_worker.py            # Path resolve, warm worker, run_code_in_user_venv
+│   ├── subprocess_helpers.py     # Env scrub, Flatpak spawn
+│   ├── config_limits.py          # Timeout + max data cells from module.yaml
+│   ├── sandbox_cache.py          # AST policy + parse hot cache
+│   ├── worker_harness.py         # Stdin/stdout loop in venv (child entry)
 │   ├── venv_sandbox.py           # LocalPythonExecutor + VENV_AUTHORIZED_IMPORTS
 │   ├── payload_codec.py          # split_grid pack/unpack (host stdlib / child NumPy)
+│   ├── editor_host.py            # Monaco spawn + pipe bridge
+│   ├── editor_main.py            # Monaco child entry (pywebview)
+│   ├── editor_ipc.py             # Editor JSON protocol + diagnostics
 │   ├── writeragent_api.py        # Generated stubs (RPC not wired)
 │   └── python_runner.py          # Settings dialog / manual run UI
 ├── calc/
@@ -203,8 +208,8 @@ Jupyter `.ipynb` import (Writer menu, vendored nbformat): [jupyter-notebook-impo
 | Key | Shipped | Role |
 |-----|---------|------|
 | `scripting.python_venv_path` | Yes | Absolute venv directory; empty → `sys.executable` |
-| `scripting.python_exec_timeout` | Yes | Wall-clock seconds per run (default **10**, clamp **1–600**); see [`timeout_limits.py`](plugin/scripting/timeout_limits.py) |
-| `scripting.python_max_data_cells` | Yes | Max cells in `=PYTHON()` / Run Python Script `data` / `data_range` (default **250 000**, clamp **1 000–2 000 000**); see [`data_limits.py`](plugin/scripting/data_limits.py) |
+| `scripting.python_exec_timeout` | Yes | Wall-clock seconds per run (default **10**, clamp **1–600**); see [`config_limits.py`](plugin/scripting/config_limits.py) |
+| `scripting.python_max_data_cells` | Yes | Max cells in `=PYTHON()` / Run Python Script `data` / `data_range` (default **250 000**, clamp **1 000–2 000 000**); see [`config_limits.py`](plugin/scripting/config_limits.py) |
 
 Defined in [`plugin/scripting/module.yaml`](plugin/scripting/module.yaml) / Settings → Python (`scripting__python_venv_path`, `scripting__python_exec_timeout`, `scripting__python_max_data_cells`).
 
@@ -230,7 +235,7 @@ Defined in [`plugin/scripting/module.yaml`](plugin/scripting/module.yaml) / Sett
 | `stdout` | Optional | Captured prints / executor logs |
 | `message` / `error` | `status == "error"` | Failure text |
 
-Implementation: [`worker_harness.py`](plugin/scripting/worker_harness.py), [`python_worker_manager.py`](plugin/scripting/python_worker_manager.py) (env scrub for `KEY`/`TOKEN`/`SECRET`/`PASSWORD`/`AUTH`, `PYTHONIOENCODING=utf-8`, `PYTHONUTF8=1`, `PYTHONDONTWRITEBYTECODE=1`, process-group kill on timeout — patterns aligned with robust agent runners such as Hermes).
+Implementation: [`worker_harness.py`](plugin/scripting/worker_harness.py), [`venv_worker.py`](plugin/scripting/venv_worker.py) (env scrub for `KEY`/`TOKEN`/`SECRET`/`PASSWORD`/`AUTH`, `PYTHONIOENCODING=utf-8`, `PYTHONUTF8=1`, `PYTHONDONTWRITEBYTECODE=1`, process-group kill on timeout — patterns aligned with robust agent runners such as Hermes).
 
 ### Safety model
 
@@ -254,7 +259,7 @@ WriterAgent removed upstream’s `find_spec` import pre-check at executor init (
 | `PythonWorkerManager` | One subprocess per resolved venv `python`; respawns on crash/timeout |
 | `worker_harness.py` | Read loop; delegates to `venv_sandbox.run_sandboxed_code` |
 | `venv_sandbox.py` | New `LocalPythonExecutor` per request; inject `data`; serialize `result` |
-| **Code hot cache** | [`python_code_hot_cache.py`](../plugin/scripting/python_code_hot_cache.py): SHA-256 keyed LRU (default 4096) caches **parsed AST** + **static** sandbox policy (imports, dunder attrs, forbidden syntax) per unchanged source + import allowlist. Skips re-parse and re-validation on recalc; **does not** cache execution `result` or variables. Separate from host [Worker Result Session](#matrix-formula-optimization-fast-path). Also used by in-process [`execute_python_script`](../plugin/calc/python_executor.py). |
+| **Code hot cache** | [`python_code_hot_cache.py`](../plugin/scripting/sandbox_cache.py): SHA-256 keyed LRU (default 4096) caches **parsed AST** + **static** sandbox policy (imports, dunder attrs, forbidden syntax) per unchanged source + import allowlist. Skips re-parse and re-validation on recalc; **does not** cache execution `result` or variables. Separate from host [Worker Result Session](#matrix-formula-optimization-fast-path). Also used by in-process [`execute_python_script`](../plugin/calc/python_executor.py). |
 
 No `reset` command, no cross-call variable cache. Optional **session persistence** would be an explicit product decision ([§7](#7-deferred-roadmap)).
 
@@ -270,7 +275,7 @@ See [`plugin/calc/venv_python.py`](plugin/calc/venv_python.py) — parameters `c
 
 ## 6. The `=PYTHON()` Calc function
 
-Users and the LLM run Python from Calc via **`=PYTHON()`**. Same runner as **`run_venv_python_script`** ([`run_venv_code.py`](plugin/scripting/run_venv_code.py)). Configure **Settings → Python** → `scripting.python_venv_path` ([§3](#3-user-guide)).
+Users and the LLM run Python from Calc via **`=PYTHON()`**. Same runner as **`run_venv_python_script`** ([`venv_worker.py`](plugin/scripting/venv_worker.py)). Configure **Settings → Python** → `scripting.python_venv_path` ([§3](#3-user-guide)).
 
 ### Formula parameters
 
@@ -657,14 +662,14 @@ Backlog items inspired by Microsoft Python in Excel ([python-in-excel-ideas.md](
 
 | Component | Status |
 |-----------|--------|
-| Warm worker + JSON / Pickle protocol | [`python_worker_manager.py`](../plugin/scripting/python_worker_manager.py), [`worker_harness.py`](../plugin/scripting/worker_harness.py), [`run_venv_code.py`](../plugin/scripting/run_venv_code.py) |
+| Warm worker + JSON / Pickle protocol | [`venv_worker.py`](../plugin/scripting/venv_worker.py), [`worker_harness.py`](../plugin/scripting/worker_harness.py), [`venv_worker.py`](../plugin/scripting/venv_worker.py) |
 | AST sandbox per request | [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) + vendored [`local_python_executor.py`](../plugin/contrib/smolagents/local_python_executor.py) |
-| Parse + static validation hot cache | [`python_code_hot_cache.py`](../plugin/scripting/python_code_hot_cache.py), [`sandbox_static_validate.py`](../plugin/scripting/sandbox_static_validate.py) — [`tests/scripting/test_python_code_hot_cache.py`](../tests/scripting/test_python_code_hot_cache.py) |
+| Parse + static validation hot cache | [`python_code_hot_cache.py`](../plugin/scripting/sandbox_cache.py), [`sandbox_static_validate.py`](../plugin/scripting/sandbox_cache.py) — [`tests/scripting/test_sandbox_cache.py`](../tests/scripting/test_sandbox_cache.py) |
 | `run_venv_python_script` / `=PYTHON()` | [`venv_python.py`](../plugin/calc/venv_python.py), [`python_function.py`](../plugin/calc/python_function.py) |
 | **Pickle5 + Split-Grid** | **Default serialization**: Direct raw binary double-precision buffer in dictionary envelope via Pickle5, zero-copy C-speed `np.frombuffer` materialization in child. |
 | **JSON Split-Grid** | Backward-compatible Base64 envelope fallback for diagnostic tracing/JSON environments. |
 | Calc ingress | [`pack_calc_data_for_wire`](../plugin/calc/calc_addin_data.py) |
-| Bench + tests | [`scripts/bench_serialization.py`](../scripts/bench_serialization.py), [`tests/scripting/test_payload_codec.py`](../tests/scripting/test_payload_codec.py), [`tests/scripting/test_run_venv_code.py`](../tests/scripting/test_run_venv_code.py) |
+| Bench + tests | [`scripts/bench_serialization.py`](../scripts/bench_serialization.py), [`tests/scripting/test_payload_codec.py`](../tests/scripting/test_payload_codec.py), [`tests/scripting/test_venv_worker.py`](../tests/scripting/test_venv_worker.py) |
 
 See [NumPy serialization](numpy-serialization.md) for behavior, benchmarks, optimization tiers, and native host-extension notes. Jupyter `.ipynb` import (separate feature): [jupyter-notebook-import.md](jupyter-notebook-import.md).
 

@@ -344,12 +344,12 @@ The implementation was simplified in May 2026 to unify the 1D and 2D packing pat
 |----------|------|
 | [`plugin/scripting/payload_codec.py`](../plugin/scripting/payload_codec.py) | Single source: unified pack/unpack, threshold, `describe_wire_value` for logs |
 | [`plugin/calc/calc_addin_data.py`](../plugin/calc/calc_addin_data.py) | `pack_calc_data_for_wire()` after range read; `count_cells()` understands split_grid envelopes |
-| [`plugin/scripting/python_worker_manager.py`](../plugin/scripting/python_worker_manager.py) | `_normalize_response`: `host_unpack_data` on worker `result` (all callers); respects `column_kinds` |
+| [`plugin/scripting/venv_worker.py`](../plugin/scripting/venv_worker.py) | `_normalize_response`: `host_unpack_data` on worker `result` (all callers); respects `column_kinds` |
 | [`plugin/calc/python_function.py`](../plugin/calc/python_function.py) | `=PYTHON()` ingress pack + matrix/session flattening (result already unpacked) |
 | [`plugin/calc/venv_python.py`](../plugin/calc/venv_python.py) | Chat tool ingress pack |
 | [`plugin/scripting/venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) | `child_unpack_data` before inject; `child_pack_result` in `serialize_result` |
 | [`tests/scripting/test_payload_codec.py`](../tests/scripting/test_payload_codec.py) | Unit tests (threshold, round-trip, mixed text → lists) |
-| [`tests/scripting/test_run_venv_code.py`](../tests/scripting/test_run_venv_code.py) | Harness integration with split_grid payloads |
+| [`tests/scripting/test_venv_worker.py`](../tests/scripting/test_venv_worker.py) | Harness integration with split_grid payloads |
 
 **Policy:** `BINARY_MIN_CELLS = 100` — 2D grids with **≥ 10 cells** use `split_grid`; smaller grids use standard Pickle lists.
 
@@ -377,10 +377,10 @@ Calc UNO range
 |-------|--------|--------------|-------------------------------------------|
 | Range read | [`calc_addin_data.py`](../plugin/calc/calc_addin_data.py) | Cell scalars in nested lists | O(cells) once at read |
 | Host pack | [`payload_codec.py`](../plugin/scripting/payload_codec.py) | **Single-pass** flattening loop; handles `None` in fast path | **Bottleneck** (Python loop) |
-| Host encode | [`python_worker_manager.py`](../plugin/scripting/python_worker_manager.py) | `pickle.dumps` of request dict | **Instant** (binary buffer) |
+| Host encode | [`venv_worker.py`](../plugin/scripting/venv_worker.py) | `pickle.dumps` of request dict | **Instant** (binary buffer) |
 | Child unpack | [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) | `frombuffer` + `reshape` → ndarray | **Instant** (C-speed) |
 | Return | [`serialize_result`](../plugin/scripting/venv_sandbox.py) | `child_pack_result` for ndarray/list; DataFrame still `to_dict(orient="records")` | Large ndarray egress as binary buffer, not `.tolist()` |
-| Host decode | [`python_worker_manager.py`](../plugin/scripting/python_worker_manager.py) | `_normalize_response` → `host_unpack_data` on `result` | Nested lists for LLM, smol observations, Calc matrix/session |
+| Host decode | [`venv_worker.py`](../plugin/scripting/venv_worker.py) | `_normalize_response` → `host_unpack_data` on `result` | Nested lists for LLM, smol observations, Calc matrix/session |
 | Calc return | [`python_function.py`](../plugin/calc/python_function.py) | `finalize_python_return` / session flattening | Per-cell scalars for legacy add-in bridge |
 
 **Pickle Protocol 5:** Standardized as the exclusive production serialization protocol on the worker path. Opaque msgpack, mmap, and shared memory remain deferred. [`SafeSerializer`](../plugin/contrib/smolagents/serialization.py) (`__type__: ndarray`) is **not** on the worker path — only [`payload_codec.py`](../plugin/scripting/payload_codec.py).
@@ -418,7 +418,7 @@ Checklist (same legs the script runs):
 3. **Mmap** — host writes temp binary file; child `np.memmap`; measure with `N×M` at 10⁴, 10⁵, 10⁶ cells (under cap).
 4. **Egress** — `result = large_ndarray`: compare `.tolist()` + JSON vs compact binary envelope vs scalar-only return.
 5. **Matrix formulas** — count worker invocations per recalc with and without `ROW()-1` index arg.
-6. **Cross-platform** — temp file delete on timeout ([`python_worker_manager.py`](../plugin/scripting/python_worker_manager.py) process-group kill), Windows path length, UTF-8 JSON for non-ASCII cells (keep JSON branch for mixed data).
+6. **Cross-platform** — temp file delete on timeout ([`venv_worker.py`](../plugin/scripting/venv_worker.py) process-group kill), Windows path length, UTF-8 JSON for non-ASCII cells (keep JSON branch for mixed data).
 
 Record: cells/sec host→child, cells/sec child→host, bytes on wire, and whether timeout (`scripting.python_exec_timeout`) fires due to serialization alone.
 

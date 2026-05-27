@@ -6,7 +6,7 @@ Architectural design for the **LibrePythonista-style Monaco editor** in WriterAg
 
 **`=PYTHON()` is not localized:** The Calc add-in always registers the English function name `PYTHON` (programmatic `python`). Formulas stored by Calc must use that token in `getFormula()` / `FormulaLocal`. A localized alias (e.g. a translated function name) is a **bug** in add-in registration — do **not** add `FormulaOpCodeMapper` workarounds in the editor or formula parser.
 
-**Session 1 fixes (post-MVP):** venv path required (no LibreOffice embedded Python for the editor); `resolve_venv_python` tries `bin/python`, `bin/python3`, and `bin/python3.*`; `ready` is sent only after `window.events.loaded` / `shown` (not before `webview.start()`); child uses `http_server=True` with **absolute** path to `assets/editor/index.html` (relative `index.html` resolves against `plugin/scripting/` and 404s); probe/save failures show child stderr + Python tracebacks via [`editor_diagnostics.py`](../plugin/scripting/editor_diagnostics.py).
+**Session 1 fixes (post-MVP):** venv path required (no LibreOffice embedded Python for the editor); `resolve_venv_python` tries `bin/python`, `bin/python3`, and `bin/python3.*`; `ready` is sent only after `window.events.loaded` / `shown` (not before `webview.start()`); child uses `http_server=True` with **absolute** path to `assets/editor/index.html` (relative `index.html` resolves against `plugin/scripting/` and 404s); probe/save failures show child stderr + Python tracebacks via [`editor_diagnostics.py`](../plugin/scripting/editor_ipc.py).
 
 **Dual save modes:** Monaco always edits **stripped Python source** (inline `=PYTHON("…")` code is parsed on load; plain-text cells use `getString`). Toolbar checkbox **Save as plain text** writes `cell.setString(code)` only (for `=PYTHON($A$1; …)` workflows elsewhere). Default Save wraps `=PYTHON("…")` via `setFormula`, preserving existing data-range suffixes. Opening `=PYTHON($A$1; …)` on the formula cell remains blocked; edit the code storage cell instead.
 
@@ -20,12 +20,12 @@ The editor is a **separate native window** in the user's configured Python venv.
 
 | Component | Module | Role |
 |-----------|--------|------|
-| Editor launcher | [`plugin/scripting/editor_launcher.py`](../plugin/scripting/editor_launcher.py) | Require Settings venv, probe `import webview`, `Popen` child |
-| Editor diagnostics | [`plugin/scripting/editor_diagnostics.py`](../plugin/scripting/editor_diagnostics.py) | Msgbox text: stderr + `traceback.format_exception` |
-| Editor bridge | [`plugin/scripting/editor_bridge.py`](../plugin/scripting/editor_bridge.py) | Pipe reader thread; UNO on main thread via [`QueueExecutor`](../plugin/framework/queue_executor.py) |
+| Editor launcher | [`plugin/scripting/editor_host.py`](../plugin/scripting/editor_host.py) | Require Settings venv, probe `import webview`, `Popen` child |
+| Editor diagnostics | [`plugin/scripting/editor_ipc.py`](../plugin/scripting/editor_ipc.py) | Msgbox text: stderr + `traceback.format_exception` |
+| Editor bridge | [`plugin/scripting/editor_host.py`](../plugin/scripting/editor_host.py) | Pipe reader thread; UNO on main thread via [`QueueExecutor`](../plugin/framework/queue_executor.py) |
 | Editor process | [`plugin/scripting/editor_main.py`](../plugin/scripting/editor_main.py) | `pywebview` + Monaco (venv only) |
 | Calc integration | [`plugin/calc/python_editor.py`](../plugin/calc/python_editor.py), [`python_formula_edit.py`](../plugin/calc/python_formula_edit.py), [`python_editor_context_menu.py`](../plugin/calc/python_editor_context_menu.py) | Active cell `=PYTHON()` load/save; cell context menu |
-| Protocol | [`plugin/scripting/editor_protocol.py`](../plugin/scripting/editor_protocol.py) | `!I` length + UTF-8 JSON |
+| Protocol | [`plugin/scripting/editor_ipc.py`](../plugin/scripting/editor_ipc.py) | `!I` length + UTF-8 JSON |
 | Frontend | [`plugin/contrib/scripting/assets/editor/`](../plugin/contrib/scripting/assets/editor/) | Bundled Monaco `vs/` (see [`scripts/fetch_monaco_editor.sh`](../scripts/fetch_monaco_editor.sh)) |
 
 Menu: `org.extension.writeragent:scripting.edit_python_cell` in [`extension/Addons.xcu`](../extension/Addons.xcu) (Calc menubar). Cell right-click uses [`python_editor_context_menu.py`](../plugin/calc/python_editor_context_menu.py) (`XContextMenuInterceptor` — LibreOffice has no static Addons.xcu merge point for Calc cell popups).
@@ -87,7 +87,7 @@ Same framing idea as [`worker_harness.py`](../plugin/scripting/worker_harness.py
 | Theme sync | LO VCL → `vs` / `vs-dark` |
 | Flatpak/Snap spawn | `flatpak-spawn --host` |
 | Formula bar button | Optional |
-| Jedi completions | **Stub shipped** in [`editor_jedi.py`](../plugin/scripting/editor_jedi.py) + `get_completions` in JS; Phase 2D adds debounce, background thread, Settings hint |
+| Jedi completions | **Stub shipped** in [`editor_jedi.py`](../plugin/scripting/editor_main.py) + `get_completions` in JS; Phase 2D adds debounce, background thread, Settings hint |
 
 ### Autocompletion (Jedi)
 
@@ -113,13 +113,9 @@ plugin/
 │           ├── style.css
 │           └── vs/                   # Monaco bundle (generated)
 └── scripting/
-    ├── editor_launcher.py
-    ├── editor_bridge.py              # PersistentEditor + pipe reader + stderr drain
-    ├── editor_diagnostics.py
-    ├── editor_protocol.py
-    ├── editor_main.py
-    ├── editor_session_launch.py    # Shared spawn/reuse for Calc + Run Python Script
-    └── editor_jedi.py                # Jedi stub (Phase 2D finish)
+    ├── editor_host.py                # Spawn, PersistentEditor, session launch
+    ├── editor_ipc.py                 # JSON protocol + failure formatting
+    └── editor_main.py                # pywebview child entry (+ JediSession)
 
 tests/
 ├── calc/
@@ -128,11 +124,10 @@ tests/
 │   ├── test_python_editor_multi_cell.py
 │   └── test_python_editor_context_menu.py
 └── scripting/
-    ├── test_editor_protocol.py
-    ├── test_editor_diagnostics.py
+    ├── test_editor_host.py
+    ├── test_editor_ipc.py
     ├── test_editor_main_closed.py
-    ├── test_editor_jedi.py
-    └── test_editor_stderr_drain.py
+    └── test_editor_jedi.py
 ```
 
 ---
@@ -168,7 +163,7 @@ Session 1 proves the **pipe + subprocess + Monaco** spine. The work below is ord
 | **Window lifecycle** | Wire `window.events.closed` (pywebview) to send `closed`; bridge clears session when child exits. | **Done** |
 | **Save feedback** | Green status on `saved` (auto-clear ~3s); red status on `error` with message; editor stays open. | **Done** |
 | **Context menu** | Calc cell right-click via [`python_editor_context_menu.py`](../plugin/calc/python_editor_context_menu.py) (`XContextMenuInterceptor`; same dispatch URL as menubar). | **Done** |
-| **stderr logging** | Continuous stderr drain thread in [`editor_bridge.py`](../plugin/scripting/editor_bridge.py) (`editor-stderr-drain`); lines logged at debug; tail kept for failure msgboxes. | **Done** |
+| **stderr logging** | Continuous stderr drain thread in [`editor_bridge.py`](../plugin/scripting/editor_host.py) (`editor-stderr-drain`); lines logged at debug; tail kept for failure msgboxes. | **Done** |
 | **Multi-cell reload** | Editor open on cell A → Save → select B → menu again sends fresh `load` (callbacks retargeted; `save_as_plain` reflects B’s cell type). | **Done** |
 
 **Protocol:** no new message types required.
@@ -227,7 +222,7 @@ Session 1 proves the **pipe + subprocess + Monaco** spine. The work below is ord
 
 **Goal:** IntelliSense that feels instant after warm-up.
 
-**New module:** [`plugin/scripting/editor_jedi.py`](../plugin/scripting/editor_jedi.py) — imported **only** from `editor_main.py` (not from LO).
+**New module:** [`plugin/scripting/editor_main.py`](../plugin/scripting/editor_main.py) — imported **only** from `editor_main.py` (not from LO).
 
 ```text
 EditorSession.start()
@@ -269,7 +264,7 @@ Defer custom per-color mapping until simple binary dark/light works.
 
 **Goal:** `Popen` from inside Flatpak can reach the host venv.
 
-Port spawn helpers from LibrePythonista (see analysis doc): detect sandbox, wrap invocation with `flatpak-spawn --host` or snap equivalent. Centralize in [`editor_launcher.py`](../plugin/scripting/editor_launcher.py) beside existing `resolve_venv_python`.
+Port spawn helpers from LibrePythonista (see analysis doc): detect sandbox, wrap invocation with `flatpak-spawn --host` or snap equivalent. Centralize in [`editor_launcher.py`](../plugin/scripting/editor_host.py) beside existing `resolve_venv_python`.
 
 **Tests:** hard to automate; maintain a manual matrix in this doc (Flatpak LO + host venv path).
 
@@ -281,7 +276,7 @@ Port spawn helpers from LibrePythonista (see analysis doc): detect sandbox, wrap
 
 | Item | Rationale | Status |
 |------|-----------|--------|
-| **Run Python Script… → Monaco** | Reuse bridge with `load` from `last_python_script_*` config keys; **Run** persists config and executes (not formula save). Falls back to native dialog when pywebview unavailable. Shared launcher: [`editor_session_launch.py`](../plugin/scripting/editor_session_launch.py). | **Done** |
+| **Run Python Script… → Monaco** | Reuse bridge with `load` from `last_python_script_*` config keys; **Run** persists config and executes (not formula save). Falls back to native dialog when pywebview unavailable. Shared launcher: [`editor_session_launch.py`](../plugin/scripting/editor_host.py). | **Done** |
 | **Formula bar button** | Needs LO UI extension research (Calc input line customization). High effort; do after context menu. | |
 | **Tier-2 document store** | [`enabling_numpy_in_libreoffice.md`](enabling_numpy_in_libreoffice.md) Tier 2 (formula key + side store) is a **separate** product decision — do not mix with Monaco until formula-in-cell workflow is stable. | |
 | **Core extension split** | Keep all editor code in `plugin/scripting/` + thin `plugin/calc/python_editor.py` per [`ROADMAP.md`](../docs/ROADMAP.md) Phase 3–4 so a future core OXT can ship `=PYTHON()` + editor without the LLM stack. | |
