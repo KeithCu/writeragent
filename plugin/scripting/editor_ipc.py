@@ -2,11 +2,11 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Monaco editor IPC protocol and failure formatting for user-visible dialogs."""
+"""Monaco editor IPC protocol (pickle protocol 5) and failure formatting for user-visible dialogs."""
 
 from __future__ import annotations
 
-import json
+import pickle
 import struct
 import traceback
 from typing import Any, IO
@@ -15,10 +15,11 @@ EDITOR_DEFAULT_TITLE = " "
 
 # Cap payloads to avoid accidental OOM from a corrupted length header.
 _MAX_PAYLOAD_BYTES = 16 * 1024 * 1024
+_PICKLE_PROTOCOL = 5
 
 
 def read_message(stream: IO[bytes]) -> dict[str, Any] | None:
-    """Read one message from *stream*. Returns None on clean EOF."""
+    """Read one pickle-framed message from *stream*. Returns None on clean EOF."""
     header = stream.read(4)
     if not header or len(header) < 4:
         return None
@@ -28,15 +29,19 @@ def read_message(stream: IO[bytes]) -> dict[str, Any] | None:
     payload = stream.read(size)
     if len(payload) < size:
         return None
-    decoded = json.loads(payload.decode("utf-8"))
+    try:
+        # Trusted IPC: bytes from WriterAgent host or editor_main child over a private pipe.
+        decoded = pickle.loads(payload)  # nosec B301
+    except pickle.UnpicklingError as e:
+        raise ValueError(f"Invalid editor message pickle: {e}") from e
     if not isinstance(decoded, dict):
-        raise ValueError("Editor message must be a JSON object")
+        raise ValueError("Editor message must be a dict")
     return decoded
 
 
 def write_message(stream: IO[bytes], message: dict[str, Any]) -> None:
-    """Write one JSON object to *stream* with a 4-byte big-endian length prefix."""
-    payload = json.dumps(message, ensure_ascii=False).encode("utf-8")
+    """Write one dict to *stream* as pickle protocol 5 with a 4-byte big-endian length prefix."""
+    payload = pickle.dumps(message, protocol=_PICKLE_PROTOCOL)
     if len(payload) > _MAX_PAYLOAD_BYTES:
         raise ValueError("Editor message exceeds maximum payload size")
     stream.write(struct.pack("!I", len(payload)))

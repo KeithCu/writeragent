@@ -190,7 +190,7 @@ plugin/
 │   ├── payload_codec.py          # split_grid pack/unpack (host stdlib / child NumPy)
 │   ├── editor_host.py            # Monaco spawn + pipe bridge
 │   ├── editor_main.py            # Monaco child entry (pywebview)
-│   ├── editor_ipc.py             # Editor JSON protocol + diagnostics
+│   ├── editor_ipc.py             # Editor pickle protocol 5 + diagnostics
 │   ├── writeragent_api.py        # Generated stubs (RPC not wired)
 │   └── python_runner.py          # Settings dialog / manual run UI
 ├── calc/

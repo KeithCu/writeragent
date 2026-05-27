@@ -14,7 +14,7 @@ Architectural design for the **LibrePythonista-style Monaco editor** in WriterAg
 
 ## 1. Architectural Overview
 
-The editor is a **separate native window** in the user's configured Python venv. It talks to LibreOffice over **stdin/stdout** (length-prefixed JSON), not TCP sockets.
+The editor is a **separate native window** in the user's configured Python venv. It talks to LibreOffice over **stdin/stdout** (length-prefixed pickle protocol 5), not TCP sockets.
 
 ### Core components
 
@@ -25,7 +25,7 @@ The editor is a **separate native window** in the user's configured Python venv.
 | Editor bridge | [`plugin/scripting/editor_host.py`](../plugin/scripting/editor_host.py) | Pipe reader thread; UNO on main thread via [`QueueExecutor`](../plugin/framework/queue_executor.py) |
 | Editor process | [`plugin/scripting/editor_main.py`](../plugin/scripting/editor_main.py) | `pywebview` + Monaco (venv only) |
 | Calc integration | [`plugin/calc/python_editor.py`](../plugin/calc/python_editor.py), [`python_formula_edit.py`](../plugin/calc/python_formula_edit.py), [`python_editor_context_menu.py`](../plugin/calc/python_editor_context_menu.py) | Active cell `=PYTHON()` load/save; cell context menu |
-| Protocol | [`plugin/scripting/editor_ipc.py`](../plugin/scripting/editor_ipc.py) | `!I` length + UTF-8 JSON |
+| Protocol | [`plugin/scripting/editor_ipc.py`](../plugin/scripting/editor_ipc.py) | `!I` length + pickle protocol 5 |
 | Frontend | [`plugin/contrib/scripting/assets/editor/`](../plugin/contrib/scripting/assets/editor/) | Bundled Monaco `vs/` (see [`scripts/fetch_monaco_editor.sh`](../scripts/fetch_monaco_editor.sh)) |
 
 Menu: `org.extension.writeragent:scripting.edit_python_cell` in [`extension/Addons.xcu`](../extension/Addons.xcu) (Calc menubar). Cell right-click uses [`python_editor_context_menu.py`](../plugin/calc/python_editor_context_menu.py) (`XContextMenuInterceptor` — LibreOffice has no static Addons.xcu merge point for Calc cell popups).
@@ -34,7 +34,7 @@ Menu: `org.extension.writeragent:scripting.edit_python_cell` in [`extension/Addo
 
 ## 2. IPC protocol (pipe)
 
-Same framing idea as [`worker_harness.py`](../plugin/scripting/worker_harness.py) (`struct.pack("!I", …)`), but payloads are **JSON** (not pickle).
+Same framing as [`worker_harness.py`](../plugin/scripting/worker_harness.py) (`struct.pack("!I", …)` + **pickle protocol 5**).
 
 | `type` | Direction | Purpose |
 |--------|-----------|---------|
@@ -114,7 +114,7 @@ plugin/
 │           └── vs/                   # Monaco bundle (generated)
 └── scripting/
     ├── editor_host.py                # Spawn, PersistentEditor, session launch
-    ├── editor_ipc.py                 # JSON protocol + failure formatting
+    ├── editor_ipc.py                 # Pickle protocol 5 + failure formatting
     └── editor_main.py                # pywebview child entry (+ JediSession)
 
 tests/

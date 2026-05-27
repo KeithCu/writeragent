@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import io
-import json
+import pickle
 import struct
 
 import pytest
@@ -50,6 +50,25 @@ def test_invalid_size_raises():
     buf.write(struct.pack("!I", 32 * 1024 * 1024))
     buf.seek(0)
     with pytest.raises(ValueError, match="Invalid editor message size"):
+        read_message(buf)
+
+
+def test_invalid_pickle_raises():
+    buf = io.BytesIO()
+    buf.write(struct.pack("!I", 8))
+    buf.write(b"notpickl")
+    buf.seek(0)
+    with pytest.raises(ValueError, match="Invalid editor message pickle"):
+        read_message(buf)
+
+
+def test_non_dict_pickle_raises():
+    buf = io.BytesIO()
+    payload = pickle.dumps(["not", "a", "dict"], protocol=5)
+    buf.write(struct.pack("!I", len(payload)))
+    buf.write(payload)
+    buf.seek(0)
+    with pytest.raises(ValueError, match="Editor message must be a dict"):
         read_message(buf)
 
 
