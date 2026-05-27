@@ -124,13 +124,13 @@ def test_serialize_result_figure():
 # ---------------------------------------------------------------------------
 
 
-def test_plt_show_capture():
-    """plt.show() with no explicit result assignment should produce an SVG image payload."""
+def test_implicit_open_figure_capture():
+    """Open pyplot figure with no result assignment should produce an SVG image payload (post-run get_fignums)."""
     pytest.importorskip("matplotlib")
     from plugin.scripting.venv_sandbox import run_sandboxed_code
 
     res = run_sandboxed_code(
-        "import matplotlib.pyplot as plt\nplt.plot([1, 2, 3])\nplt.show()",
+        "import matplotlib.pyplot as plt\nplt.plot([1, 2, 3])",
         timeout_sec=30,
     )
     assert res["status"] == "ok"
