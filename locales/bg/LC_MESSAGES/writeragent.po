@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-25 09:15-0400\n"
+"POT-Creation-Date: 2026-05-27 16:26-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Bulgarian <LL@li.org>\n"
@@ -505,6 +505,15 @@ msgid "Unknown conversion error"
 msgstr "Неизвестна грешка при преобразуването"
 
 #: plugin/writer/math/latex_dialog.py
+#, fuzzy
+msgid "Formula inserted."
+msgstr "Изображението е вмъкнато"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "LaTeX Math Editor"
+msgstr ""
+
+#: plugin/writer/math/latex_dialog.py
 msgid "LaTeX Conversion Error"
 msgstr "Грешка при преобразуване на LaTeX"
 
@@ -809,19 +818,19 @@ msgstr "Височина:"
 msgid "Width:"
 msgstr "Ширина:"
 
-#: plugin/scripting/editor_session_launch.py
+#: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
 msgstr "Неуспешно стартиране на редактора на Python."
 
-#: plugin/scripting/editor_session_launch.py
+#: plugin/scripting/editor_host.py
 msgid "The Python editor window did not start."
 msgstr "Прозорецът на редактора на Python не се стартира."
 
-#: plugin/scripting/editor_session_launch.py
+#: plugin/scripting/editor_host.py
 msgid "The Python editor exited before it could load your code."
 msgstr "Редакторът на Python се затвори, преди да успее да зареди вашия код."
 
-#: plugin/scripting/editor_session_launch.py
+#: plugin/scripting/editor_host.py
 msgid "Could not talk to the Python editor."
 msgstr "Неуспешна връзка с редактора на Python."
 

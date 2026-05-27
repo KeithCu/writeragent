@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: WriterAgent 1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-25 13:29-0400\n"
+"POT-Creation-Date: 2026-05-27 16:26-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: \n"
 "Language-Team: Swedish\n"
@@ -14,8 +14,8 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require sub-agent delegation (USE_SUB_AGENT). Enable "
-"sub-agents in configuration."
+"Document research reads require sub-agent delegation (USE_SUB_AGENT). Enable"
+" sub-agents in configuration."
 msgstr ""
 "Dokumentforskning kräver delegering till underagent (USE_SUB_AGENT). "
 "Aktivera underagenter i konfigurationen."
@@ -23,8 +23,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Verktygsanrop har växlats till '{0}'. Du befinner dig i ett läge för "
@@ -120,8 +120,8 @@ msgid ""
 "You have made too many requests, please wait for them to finish, and try "
 "again later"
 msgstr ""
-"Du har gjort för många förfrågningar, vänligen vänta på att de ska slutföras "
-"och försök igen senare"
+"Du har gjort för många förfrågningar, vänligen vänta på att de ska slutföras"
+" och försök igen senare"
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
@@ -193,7 +193,8 @@ msgstr "Denna modell tar längre tid än din nuvarande konfiguration."
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr ""
 "Vänligen prova en annan modell. {0} skulle ta längre tid än du konfigurerat."
 
@@ -282,7 +283,8 @@ msgstr ""
 "Inställningar."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr "Anslutning nekad. Är din lokala AI-server (Ollama/LM Studio) igång?"
 
 #: plugin/framework/errors.py
@@ -313,7 +315,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "AI: Jag kan hjälpa dig med formler, dataanalys och färgglada diagram. Prova "
 "mig!"
@@ -384,8 +387,8 @@ msgstr "WriterAgent: Utöka markering (Calc)"
 #: plugin/calc/python_editor.py
 msgid ""
 "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\"; "
-"A1:B10)."
+"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\";"
+" A1:B10)."
 msgstr ""
 "Kunde inte bevara cellens PYTHON-formelargument (t.ex. dataområden). "
 "Redigera formeln i Calc, eller använd en citerad kodsträng som "
@@ -434,8 +437,7 @@ msgid ""
 "In that venv run: pip install pywebview\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"Kan inte importera webview (pywebview) med Python från Inställningar → "
-"Python:\n"
+"Kan inte importera webview (pywebview) med Python från Inställningar → Python:\n"
 "%(exe)s\n"
 "\n"
 "Kör följande i den venv:\n"
@@ -489,6 +491,14 @@ msgstr "Detta kommando är endast tillgängligt i Writer-dokument."
 #: plugin/writer/math/latex_dialog.py
 msgid "Unknown conversion error"
 msgstr "Okänt konverteringsfel"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Formula inserted."
+msgstr "Formel infogad."
+
+#: plugin/writer/math/latex_dialog.py
+msgid "LaTeX Math Editor"
+msgstr "LaTeX-formeleditor"
 
 #: plugin/writer/math/latex_dialog.py
 msgid "LaTeX Conversion Error"
@@ -597,8 +607,8 @@ msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[Inget kompatibelt LibreOffice-dokument (Writer, Calc eller Draw) hittades i "
-"det aktiva fönstret.]"
+"[Inget kompatibelt LibreOffice-dokument (Writer, Calc eller Draw) hittades i"
+" det aktiva fönstret.]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -676,8 +686,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Ingen editor hittades (installera Kate eller Gedit, eller sätt EDITOR). "
-"Sökväg:\n"
+"Ingen editor hittades (installera Kate eller Gedit, eller sätt EDITOR). Sökväg:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -706,10 +715,11 @@ msgstr "[Agent-backend '{0}' hittades inte.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
-"[Agent-backend '{0}' är inte tillgänglig. Kontrollera Inställningar (sökväg, "
-"installation).]"
+"[Agent-backend '{0}' är inte tillgänglig. Kontrollera Inställningar (sökväg,"
+" installation).]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
@@ -753,8 +763,8 @@ msgid ""
 "A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
 "check for updates and install the latest extension."
 msgstr ""
-"En nyare WriterAgent (%s) är tillgänglig. Använd Verktyg → Tilläggshanterare "
-"för att söka efter uppdateringar och installera det senaste tillägget."
+"En nyare WriterAgent (%s) är tillgänglig. Använd Verktyg → Tilläggshanterare"
+" för att söka efter uppdateringar och installera det senaste tillägget."
 
 #: plugin/chatbot/librarian.py
 msgid "Switching to document mode..."
@@ -797,19 +807,19 @@ msgstr "Höjd:"
 msgid "Width:"
 msgstr "Bredd:"
 
-#: plugin/scripting/editor_session_launch.py
+#: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
 msgstr "Kunde inte starta Python-redigeraren."
 
-#: plugin/scripting/editor_session_launch.py
+#: plugin/scripting/editor_host.py
 msgid "The Python editor window did not start."
 msgstr "Python-redigerarens fönster startade inte."
 
-#: plugin/scripting/editor_session_launch.py
+#: plugin/scripting/editor_host.py
 msgid "The Python editor exited before it could load your code."
 msgstr "Python-redigeraren avslutades innan koden kunde läsas in."
 
-#: plugin/scripting/editor_session_launch.py
+#: plugin/scripting/editor_host.py
 msgid "Could not talk to the Python editor."
 msgstr "Kunde inte kommunicera med Python-redigeraren."
 
@@ -1201,11 +1211,11 @@ msgid "Path / URL"
 msgstr "Sökväg / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Sökväg till backend CLI (t.ex. aider) eller ACP-serverns URL (t.ex. http://"
-"localhost:8000 för Hermes). Tom = prova standard."
+"Sökväg till backend CLI (t.ex. aider) eller ACP-serverns URL (t.ex. "
+"http://localhost:8000 för Hermes). Tom = prova standard."
 
 msgid "Extra arguments"
 msgstr "Extra argument"
@@ -1301,12 +1311,12 @@ msgstr "Aktivera AI-grammatikkontroll (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "När funktionen är på registrerar WriterAgent sin AI-grammatikgranskare hos "
-"Linguistic; kontrollerad text använder ditt API (Verktyg → Alternativ → AI). "
-"Understrykningar visas kort efter att du slutar skriva. Avstängd som "
+"Linguistic; kontrollerad text använder ditt API (Verktyg → Alternativ → AI)."
+" Understrykningar visas kort efter att du slutar skriva. Avstängd som "
 "standard."
 
 msgid "Grammar check model (optional)"
@@ -1373,11 +1383,11 @@ msgid "Enable MCP Server"
 msgstr "Aktivera MCP-server"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Endast localhost, ingen autentisering. Klienter använder http://localhost:"
-"<port>/mcp (strömbar HTTP)."
+"Endast localhost, ingen autentisering. Klienter använder "
+"http://localhost:<port>/mcp (strömbar HTTP)."
 
 msgid "MCP Port"
 msgstr "MCP-port"
@@ -1405,8 +1415,8 @@ msgid ""
 "empty, run_venv_python_script uses this process's sys.executable (basic "
 "stdlib); use a venv for numpy/pandas."
 msgstr ""
-"Om inställd, körs verktyg i den venv-miljön (bin/python eller Scripts/"
-"python.exe). Om tom använder run_venv_python_script processens "
+"Om inställd, körs verktyg i den venv-miljön (bin/python eller "
+"Scripts/python.exe). Om tom använder run_venv_python_script processens "
 "sys.executable (grundläggande stdlib); använd en venv för numpy/pandas."
 
 msgid "Test"
@@ -1418,18 +1428,19 @@ msgstr "Tidsgräns för Python-skript (sekunder)"
 msgid ""
 "Wall-clock limit for Run Python Script, =PYTHON(), and "
 "run_venv_python_script."
-msgstr "Tidsgräns för Kör Python-skript, =PYTHON() och run_venv_python_script."
+msgstr ""
+"Tidsgräns för Kör Python-skript, =PYTHON() och run_venv_python_script."
 
 msgid "Max Calc data cells"
 msgstr "Max antal Calc-dataceller"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
-"Maximalt antal celler i =PYTHON()-data eller Run Python Script-data/"
-"data_range. Större värden förbrukar mer RAM och tid; UNO-områdesläsning "
-"dominerar fortfarande."
+"Maximalt antal celler i =PYTHON()-data eller Run Python Script-"
+"data/data_range. Större värden förbrukar mer RAM och tid; UNO-områdesläsning"
+" dominerar fortfarande."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer-dokumentverktyg (inklusive navigering och sökning)"

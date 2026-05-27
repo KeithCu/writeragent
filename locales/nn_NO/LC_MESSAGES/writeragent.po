@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-25 13:29-0400\n"
+"POT-Creation-Date: 2026-05-27 16:26-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Norwegian Nynorsk <LL@li.org>\n"
@@ -495,6 +495,15 @@ msgid "Unknown conversion error"
 msgstr "Ukjend konverteringsfeil"
 
 #: plugin/writer/math/latex_dialog.py
+#, fuzzy
+msgid "Formula inserted."
+msgstr "Bilete sett inn"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "LaTeX Math Editor"
+msgstr ""
+
+#: plugin/writer/math/latex_dialog.py
 msgid "LaTeX Conversion Error"
 msgstr "LaTeX-konverteringsfeil"
 
@@ -801,20 +810,20 @@ msgstr "Høgd:"
 msgid "Width:"
 msgstr "Breidd:"
 
-#: plugin/scripting/editor_session_launch.py
+#: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
 msgstr "Kunne ikkje starta Python-redigeringsprogrammet."
 
-#: plugin/scripting/editor_session_launch.py
+#: plugin/scripting/editor_host.py
 msgid "The Python editor window did not start."
 msgstr "Vindauget for Python-redigering starta ikkje."
 
-#: plugin/scripting/editor_session_launch.py
+#: plugin/scripting/editor_host.py
 msgid "The Python editor exited before it could load your code."
 msgstr ""
 "Python-redigeringsprogrammet avslutta før det kunne lasta inn koden din."
 
-#: plugin/scripting/editor_session_launch.py
+#: plugin/scripting/editor_host.py
 msgid "Could not talk to the Python editor."
 msgstr "Kunne ikkje kommunisera med Python-redigeringsprogrammet."
 

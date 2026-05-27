@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-25 19:50-0400\n"
+"POT-Creation-Date: 2026-05-27 16:26-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -450,6 +450,14 @@ msgid "Unknown conversion error"
 msgstr ""
 
 #: plugin/writer/math/latex_dialog.py
+msgid "Formula inserted."
+msgstr ""
+
+#: plugin/writer/math/latex_dialog.py
+msgid "LaTeX Math Editor"
+msgstr ""
+
+#: plugin/writer/math/latex_dialog.py
 msgid "LaTeX Conversion Error"
 msgstr ""
 
@@ -737,19 +745,19 @@ msgstr ""
 msgid "Width:"
 msgstr ""
 
-#: plugin/scripting/editor_session_launch.py
+#: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
 msgstr ""
 
-#: plugin/scripting/editor_session_launch.py
+#: plugin/scripting/editor_host.py
 msgid "The Python editor window did not start."
 msgstr ""
 
-#: plugin/scripting/editor_session_launch.py
+#: plugin/scripting/editor_host.py
 msgid "The Python editor exited before it could load your code."
 msgstr ""
 
-#: plugin/scripting/editor_session_launch.py
+#: plugin/scripting/editor_host.py
 msgid "Could not talk to the Python editor."
 msgstr ""
 

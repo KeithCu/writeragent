@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: WriterAgent 1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-25 13:29-0400\n"
+"POT-Creation-Date: 2026-05-27 16:26-0400\n"
 "PO-Revision-Date: 2024-03-21 12:00+0000\n"
 "Last-Translator: \n"
 "Language-Team: German\n"
@@ -504,6 +504,15 @@ msgid "Unknown conversion error"
 msgstr "Unbekannter Konvertierungsfehler"
 
 #: plugin/writer/math/latex_dialog.py
+#, fuzzy
+msgid "Formula inserted."
+msgstr "Bild eingefügt"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "LaTeX Math Editor"
+msgstr ""
+
+#: plugin/writer/math/latex_dialog.py
 msgid "LaTeX Conversion Error"
 msgstr "LaTeX-Konvertierungsfehler"
 
@@ -813,19 +822,19 @@ msgstr "Höhe:"
 msgid "Width:"
 msgstr "Breite:"
 
-#: plugin/scripting/editor_session_launch.py
+#: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
 msgstr "Der Python-Editor konnte nicht gestartet werden."
 
-#: plugin/scripting/editor_session_launch.py
+#: plugin/scripting/editor_host.py
 msgid "The Python editor window did not start."
 msgstr "Das Fenster des Python-Editors wurde nicht gestartet."
 
-#: plugin/scripting/editor_session_launch.py
+#: plugin/scripting/editor_host.py
 msgid "The Python editor exited before it could load your code."
 msgstr "Der Python-Editor wurde beendet, bevor der Code geladen werden konnte."
 
-#: plugin/scripting/editor_session_launch.py
+#: plugin/scripting/editor_host.py
 msgid "Could not talk to the Python editor."
 msgstr "Die Kommunikation mit dem Python-Editor ist fehlgeschlagen."
 

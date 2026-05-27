@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-25 13:29-0400\n"
+"POT-Creation-Date: 2026-05-27 16:26-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Italian <LL@li.org>\n"
@@ -19,8 +19,8 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require sub-agent delegation (USE_SUB_AGENT). Enable "
-"sub-agents in configuration."
+"Document research reads require sub-agent delegation (USE_SUB_AGENT). Enable"
+" sub-agents in configuration."
 msgstr ""
 "Le letture di ricerca del documento richiedono la delega a un sotto-agente "
 "(USE_SUB_AGENT). Abilitare i sotto-agenti nella configurazione."
@@ -28,8 +28,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Chiamata allo strumento passata a '{0}'. Sei in una modalità set di "
@@ -105,8 +105,8 @@ msgid ""
 "At this moment we can not process your request, please try again later.  If "
 "this is happening for a long period of time, please let us know via Discord"
 msgstr ""
-"Al momento non possiamo elaborare la tua richiesta, riprova più tardi. Se il "
-"problema persiste per un lungo periodo, faccelo sapere tramite Discord"
+"Al momento non possiamo elaborare la tua richiesta, riprova più tardi. Se il"
+" problema persiste per un lungo periodo, faccelo sapere tramite Discord"
 
 #: plugin/contrib/aihordeclient/__init__.py
 msgid "Problem requesting kudos"
@@ -125,8 +125,8 @@ msgid ""
 "You have made too many requests, please wait for them to finish, and try "
 "again later"
 msgstr ""
-"Hai effettuato troppe richieste, attendi il loro completamento e riprova più "
-"tardi"
+"Hai effettuato troppe richieste, attendi il loro completamento e riprova più"
+" tardi"
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
@@ -157,8 +157,8 @@ msgstr "Orda contattata"
 msgid ""
 "When trying to ask for the image, the Horde was too slow, try again later"
 msgstr ""
-"Nel tentativo di richiedere l'immagine, l'Orda è stata troppo lenta, riprova "
-"più tardi"
+"Nel tentativo di richiedere l'immagine, l'Orda è stata troppo lenta, riprova"
+" più tardi"
 
 #: plugin/contrib/aihordeclient/__init__.py
 msgid "to learn to earn kudos. Detail:"
@@ -199,7 +199,8 @@ msgstr ""
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr ""
 "Prova un altro modello. {0} richiederebbe più tempo di quanto configurato."
 
@@ -274,7 +275,8 @@ msgstr "Endpoint non trovato (404). Controllare l'URL e il nome del modello."
 #: plugin/framework/errors.py
 #, python-brace-format
 msgid "Server error ({0}). The AI provider is having issues."
-msgstr "Errore del server ({0}). Il provider AI sta riscontrando dei problemi."
+msgstr ""
+"Errore del server ({0}). Il provider AI sta riscontrando dei problemi."
 
 #: plugin/framework/errors.py
 #, python-brace-format
@@ -288,7 +290,8 @@ msgstr ""
 "Impostazioni."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Connessione rifiutata. Il tuo server IA locale (Ollama/LM Studio) è in "
 "esecuzione?"
@@ -321,7 +324,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "AI: Posso aiutarti con formule, analisi dati e grafici colorati. Provami!"
 
@@ -330,8 +334,8 @@ msgid ""
 "AI: I can help you create and edit polished, colorful shapes in Draw and "
 "Impress. Try me!"
 msgstr ""
-"AI: Posso aiutarti a creare e modificare forme rifinite e colorate in Draw e "
-"Impress. Provami!"
+"AI: Posso aiutarti a creare e modificare forme rifinite e colorate in Draw e"
+" Impress. Provami!"
 
 #: plugin/framework/constants.py
 msgid ""
@@ -361,8 +365,8 @@ msgid ""
 "The model is repeating the same chunk (infinite loop). Try again or use a "
 "different model."
 msgstr ""
-"Il modello sta ripetendo lo stesso blocco (ciclo infinito). Riprova o usa un "
-"modello diverso."
+"Il modello sta ripetendo lo stesso blocco (ciclo infinito). Riprova o usa un"
+" modello diverso."
 
 #: plugin/calc/python_function.py
 msgid "Image inserted"
@@ -392,8 +396,8 @@ msgstr "WriterAgent: Estendi selezione (Calc)"
 #: plugin/calc/python_editor.py
 msgid ""
 "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\"; "
-"A1:B10)."
+"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\";"
+" A1:B10)."
 msgstr ""
 "Impossibile mantenere gli argomenti della formula PYTHON di questa cella "
 "(es. intervalli di dati). Modifica la formula in Calc o usa una stringa di "
@@ -426,8 +430,8 @@ msgid ""
 "in another cell). Edit it in the formula bar, or use =PYTHON(\"code\"; "
 "range) with quoted code."
 msgstr ""
-"Questa formula PYTHON utilizza un formato che l'editor non può riscrivere in "
-"sicurezza (ad es. codice in un'altra cella). Modificala nella barra della "
+"Questa formula PYTHON utilizza un formato che l'editor non può riscrivere in"
+" sicurezza (ad es. codice in un'altra cella). Modificala nella barra della "
 "formula o usa =PYTHON(\"codice\"; intervallo) con il codice tra virgolette."
 
 #: plugin/calc/python_editor.py
@@ -443,8 +447,7 @@ msgid ""
 "In that venv run: pip install pywebview\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"Impossibile importare webview (pywebview) con il Python da Impostazioni → "
-"Python:\n"
+"Impossibile importare webview (pywebview) con il Python da Impostazioni → Python:\n"
 "%(exe)s\n"
 "\n"
 "In quel venv esegui: pip install pywebview\n"
@@ -497,6 +500,14 @@ msgstr "Questo comando è disponibile solo nei documenti Writer."
 #: plugin/writer/math/latex_dialog.py
 msgid "Unknown conversion error"
 msgstr "Errore di conversione sconosciuto"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Formula inserted."
+msgstr "Formula inserita."
+
+#: plugin/writer/math/latex_dialog.py
+msgid "LaTeX Math Editor"
+msgstr "Editor di formule LaTeX"
 
 #: plugin/writer/math/latex_dialog.py
 msgid "LaTeX Conversion Error"
@@ -684,8 +695,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Nessun editor trovato (installare Kate o Gedit, oppure impostare EDITOR). "
-"Percorso:\n"
+"Nessun editor trovato (installare Kate o Gedit, oppure impostare EDITOR). Percorso:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -714,7 +724,8 @@ msgstr "[Backend agente '{0}' non trovato.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Backend agente '{0}' non disponibile. Controllare le impostazioni "
 "(percorso, installazione).]"
@@ -806,19 +817,19 @@ msgstr "Altezza:"
 msgid "Width:"
 msgstr "Larghezza:"
 
-#: plugin/scripting/editor_session_launch.py
+#: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
 msgstr "Impossibile avviare l'editor Python."
 
-#: plugin/scripting/editor_session_launch.py
+#: plugin/scripting/editor_host.py
 msgid "The Python editor window did not start."
 msgstr "La finestra dell'editor Python non è stata avviata."
 
-#: plugin/scripting/editor_session_launch.py
+#: plugin/scripting/editor_host.py
 msgid "The Python editor exited before it could load your code."
 msgstr "L'editor Python è stato chiuso prima di poter caricare il codice."
 
-#: plugin/scripting/editor_session_launch.py
+#: plugin/scripting/editor_host.py
 msgid "Could not talk to the Python editor."
 msgstr "Impossibile comunicare con l'editor Python."
 
@@ -915,8 +926,8 @@ msgstr "Avvio del server MCP non riuscito"
 #: plugin/mcp/__init__.py
 msgid "Check writeragent_debug.log in your LibreOffice user config folder"
 msgstr ""
-"Controllare writeragent_debug.log nella cartella di configurazione utente di "
-"LibreOffice"
+"Controllare writeragent_debug.log nella cartella di configurazione utente di"
+" LibreOffice"
 
 #: plugin/mcp/__init__.py
 msgid "MCP server is not running"
@@ -1212,8 +1223,8 @@ msgid "Path / URL"
 msgstr "Percorso / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
 "Percorso verso la CLI del backend (es. aider) o URL del server ACP (es. "
 "http://localhost:8000 per Hermes). Vuoto = prova il predefinito."
@@ -1231,8 +1242,8 @@ msgid ""
 "Agent name on the ACP server (e.g. hermes). Empty = auto-discover first "
 "agent."
 msgstr ""
-"Nome dell'agente sul server ACP (es. hermes). Vuoto = rileva automaticamente "
-"il primo agente."
+"Nome dell'agente sul server ACP (es. hermes). Vuoto = rileva automaticamente"
+" il primo agente."
 
 msgid "Calc spreadsheet tools"
 msgstr "Strumenti foglio di calcolo Calc"
@@ -1307,8 +1318,8 @@ msgstr "Barra laterale chat Rich Text"
 
 msgid "Use embedded Writer document for chat display (requires restart)"
 msgstr ""
-"Usa documento Writer incorporato per la visualizzazione della chat (richiede "
-"il riavvio)"
+"Usa documento Writer incorporato per la visualizzazione della chat (richiede"
+" il riavvio)"
 
 msgid "Doc"
 msgstr "Doc"
@@ -1318,12 +1329,12 @@ msgstr "Abilita correttore grammaticale AI (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "Se attivo, WriterAgent registra il suo correttore grammaticale AI in "
-"Linguistica; il testo controllato utilizza la tua API (Strumenti → Opzioni → "
-"AI). Le sottolineature appaiono poco dopo aver interrotto la digitazione. "
+"Linguistica; il testo controllato utilizza la tua API (Strumenti → Opzioni →"
+" AI). Le sottolineature appaiono poco dopo aver interrotto la digitazione. "
 "Disattivato per impostazione predefinita."
 
 msgid "Grammar check model (optional)"
@@ -1340,8 +1351,8 @@ msgid ""
 "runs, to avoid concurrent API calls."
 msgstr ""
 "Se attivo, la grammatica AI salta le richieste in background mentre la chat "
-"nella barra laterale o l'agente sono in esecuzione, per evitare chiamate API "
-"simultanee."
+"nella barra laterale o l'agente sono in esecuzione, per evitare chiamate API"
+" simultanee."
 
 msgid "Grammar batch sentences"
 msgstr "Analisi grammaticale a blocchi"
@@ -1351,8 +1362,8 @@ msgid ""
 "reliable; higher values are faster and cheaper but may hit token limits or "
 "cause model errors."
 msgstr ""
-"Numero di frasi da inviare per richiesta LLM (1-8). 1 (predefinito) è il più "
-"affidabile; valori più alti sono più veloci ed economici ma potrebbero "
+"Numero di frasi da inviare per richiesta LLM (1-8). 1 (predefinito) è il più"
+" affidabile; valori più alti sono più veloci ed economici ma potrebbero "
 "raggiungere i limiti di token o causare errori del modello."
 
 msgid "Detect and correct sentence language"
@@ -1391,11 +1402,11 @@ msgid "Enable MCP Server"
 msgstr "Abilita server MCP"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Solo localhost, nessuna autenticazione. I client utilizzano http://localhost:"
-"<port>/mcp (HTTP trasmissibile)."
+"Solo localhost, nessuna autenticazione. I client utilizzano "
+"http://localhost:<port>/mcp (HTTP trasmissibile)."
 
 msgid "MCP Port"
 msgstr "Porta MCP"
@@ -1409,8 +1420,8 @@ msgid ""
 "writeragent.json."
 msgstr ""
 "Automatico per .local, .lan, .home.arpa, .internal, .intern e IP LAN "
-"nell'Origin del browser. Per altri host, aggiungere mcp.cors_allowed_origins "
-"in writeragent.json."
+"nell'Origin del browser. Per altri host, aggiungere mcp.cors_allowed_origins"
+" in writeragent.json."
 
 msgid "Python"
 msgstr "Python"
@@ -1423,9 +1434,10 @@ msgid ""
 "empty, run_venv_python_script uses this process's sys.executable (basic "
 "stdlib); use a venv for numpy/pandas."
 msgstr ""
-"Se impostato, esegue gli strumenti in quel venv (bin/python o Scripts/"
-"python.exe). Se vuoto, run_venv_python_script utilizza sys.executable di "
-"questo processo (stdlib di base); utilizzare un venv per numpy/pandas."
+"Se impostato, esegue gli strumenti in quel venv (bin/python o "
+"Scripts/python.exe). Se vuoto, run_venv_python_script utilizza "
+"sys.executable di questo processo (stdlib di base); utilizzare un venv per "
+"numpy/pandas."
 
 msgid "Test"
 msgstr "Test"
@@ -1444,11 +1456,11 @@ msgid "Max Calc data cells"
 msgstr "Numero massimo di celle dati Calc"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
-"Numero massimo di celle in =PYTHON() data o Run Python Script data/"
-"data_range. Valori più grandi utilizzano più RAM e tempo; la lettura "
+"Numero massimo di celle in =PYTHON() data o Run Python Script "
+"data/data_range. Valori più grandi utilizzano più RAM e tempo; la lettura "
 "dell'intervallo UNO rimane predominante."
 
 msgid "Writer document tools (including navigation and search)"
