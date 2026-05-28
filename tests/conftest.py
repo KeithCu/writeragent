@@ -54,7 +54,10 @@ class MockXSupportedLocales: pass
 class MockXServiceDisplayName: pass
 class MockXServiceInfo: pass
 class MockXServiceName: pass
-class MockPropertyValue: pass
+class MockPropertyValue:
+    def __init__(self, Name=None, Value=None):
+        self.Name = Name
+        self.Value = Value
 
 
 @pytest.fixture(autouse=True)

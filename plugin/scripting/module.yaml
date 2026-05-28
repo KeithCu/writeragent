@@ -59,3 +59,10 @@ config:
         label: Isolated (default)
       - value: shared
         label: Shared kernel
+
+  force_internal_script_editor:
+    type: bool
+    default: false
+    widget: checkbox
+    label: Force internal script editor
+    helper: If checked, bypasses the Monaco script editor and uses the LibreOffice dialog.

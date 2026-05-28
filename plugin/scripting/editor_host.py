@@ -561,6 +561,11 @@ global_event_bus.subscribe("config:changed", _on_config_changed)
 
 def monaco_editor_available(ctx: Any) -> tuple[str | None, bool]:
     """Return (venv python exe, True) when Monaco can launch, else (exe or None, False)."""
+    from plugin.framework.config import get_config
+    if get_config(ctx, "scripting.force_internal_script_editor"):
+        log.debug("monaco_editor_available: bypassed by scripting.force_internal_script_editor")
+        return None, False
+
     exe, err = resolve_editor_python(ctx)
     if not exe:
         log.debug("monaco_editor_available: no venv python (%s)", err)

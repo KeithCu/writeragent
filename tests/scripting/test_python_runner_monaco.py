@@ -136,6 +136,10 @@ def test_show_python_input_dialog_save_button():
     code_edit.getModel.return_value = code_edit_model
     dlg.getControl.return_value = code_edit
 
+    script_select = MagicMock()
+    script_select.getSelectedItemPos.return_value = 0
+    script_select.getItems.return_value = ["Sample"]
+
     btn_save = MagicMock()
     listeners = []
     btn_save.addActionListener.side_effect = lambda l: listeners.append(l)
@@ -143,6 +147,8 @@ def test_show_python_input_dialog_save_button():
     def fake_get_control(name):
         if name == "BtnSave":
             return btn_save
+        if name == "ScriptSelect":
+            return script_select
         return code_edit
     dlg.getControl.side_effect = fake_get_control
 
@@ -184,3 +190,84 @@ def test_persistent_editor_dispatches_script_actions():
             pe._dispatch_incoming({"type": "delete_script", "name": "MyScript"})
             mock_set.assert_called_with(pe.ctx, "saved_python_scripts", {"NewScript": "x = 1"})
 
+
+def test_show_python_input_dialog_save_as_button():
+    ctx = MagicMock()
+    desktop = MagicMock()
+    frame = MagicMock()
+    parent_window = MagicMock()
+    desktop.getCurrentFrame.return_value = frame
+    frame.getContainerWindow.return_value = parent_window
+
+    smgr = MagicMock()
+    dlg_model = MagicMock()
+    dlg = MagicMock()
+    toolkit = MagicMock()
+
+    ctx.getServiceManager.return_value = smgr
+    
+    def fake_create(service, _ctx):
+        if "UnoControlDialogModel" in service:
+            return dlg_model
+        if "UnoControlDialog" in service:
+            return dlg
+        if "Toolkit" in service:
+            return toolkit
+        return MagicMock()
+    smgr.createInstanceWithContext.side_effect = fake_create
+
+    # Mock elements in the dialog
+    code_edit_model = MagicMock()
+    code_edit_model.Text = "print('hello world')"
+    code_edit = MagicMock()
+    code_edit.getModel.return_value = code_edit_model
+    
+    script_select = MagicMock()
+    script_select.getSelectedItemPos.return_value = 0
+    script_select.getItems.return_value = ["Sample"]
+
+    btn_save_as = MagicMock()
+    listeners = []
+    btn_save_as.addActionListener.side_effect = lambda l: listeners.append(l)
+    
+    def fake_get_control(name):
+        if name == "ScriptSelect":
+            return script_select
+        if name == "BtnSaveAs":
+            return btn_save_as
+        return code_edit
+    dlg.getControl.side_effect = fake_get_control
+
+    with patch.object(pr, "get_desktop", return_value=desktop):
+        with patch.object(pr, "get_config", return_value={}):
+            with patch.object(pr, "set_config") as mock_set:
+                with patch.object(pr, "input_box", return_value=("scriptk", None)) as mock_input:
+                    # Mock dlg.execute to trigger the Save As listener
+                    def fake_execute():
+                        for listener in listeners:
+                            if "SaveAsListener" in type(listener).__name__:
+                                listener.actionPerformed(MagicMock())
+                    dlg.execute.side_effect = fake_execute
+
+                    pr.show_python_input_dialog(ctx, "print('hello')", "last_python_script_writer")
+
+                    mock_input.assert_called_once()
+                    mock_set.assert_called_once_with(ctx, "saved_python_scripts", {"scriptk": "print('hello world')"})
+
+
+def test_monaco_editor_available_respects_force_internal():
+    from plugin.scripting.editor_host import monaco_editor_available
+    ctx = MagicMock()
+    
+    with patch("plugin.framework.config.get_config", return_value=True) as mock_get:
+        exe, ok = monaco_editor_available(ctx)
+        assert exe is None
+        assert ok is False
+        mock_get.assert_called_with(ctx, "scripting.force_internal_script_editor")
+ 
+    with patch("plugin.framework.config.get_config", return_value=False):
+        with patch("plugin.scripting.editor_host.resolve_editor_python", return_value=("/fake/python", None)):
+            with patch("plugin.scripting.editor_host.probe_webview_import", return_value=(True, "")):
+                exe, ok = monaco_editor_available(ctx)
+                assert exe == "/fake/python"
+                assert ok is True

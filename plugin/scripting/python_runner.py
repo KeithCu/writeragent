@@ -11,12 +11,13 @@ import logging
 from typing import Any, cast
 import uno
 import unohelper
-from com.sun.star.awt import XActionListener
+from com.sun.star.awt import XActionListener, XItemListener
 
 from plugin.framework.uno_context import get_ctx, get_desktop
-from plugin.framework.config import get_config_str, set_config
+from plugin.framework.config import get_config, get_config_str, set_config
 from plugin.framework.i18n import _
-from plugin.chatbot.dialogs import add_dialog_label, add_dialog_edit, add_dialog_button, msgbox
+from plugin.chatbot.dialogs import add_dialog_label, add_dialog_edit, add_dialog_button, msgbox, show_approval_dialog
+from plugin.chatbot.dialog_views import input_box
 from plugin.framework.worker_pool import run_in_background
 from plugin.scripting.editor_ipc import exception_traceback
 from plugin.scripting.editor_host import launch_monaco_editor, monaco_editor_available
@@ -28,6 +29,20 @@ from plugin.calc.manipulator import CellManipulator
 from plugin.calc.address_utils import index_to_column
 
 log = logging.getLogger("writeragent.scripting")
+
+
+def add_dialog_listbox(dlg_model: Any, name: str, items: list[str], x: int, y: int, width: int, height: int) -> Any:
+    lb = dlg_model.createInstance("com.sun.star.awt.UnoControlListBoxModel")
+    lb.Name = name
+    lb.PositionX = x
+    lb.PositionY = y
+    lb.Width = width
+    lb.Height = height
+    lb.Dropdown = True
+    lb.MultiSelection = False
+    lb.StringItemList = tuple(items)
+    dlg_model.insertByName(name, lb)
+    return lb
 
 
 def show_python_input_dialog(ctx: Any, initial_text: str = "", config_key: str = "last_python_script") -> str | None:
@@ -55,6 +70,18 @@ def show_python_input_dialog(ctx: Any, initial_text: str = "", config_key: str =
         add_dialog_button(dlg_model, "BtnSave", _("Save"), 62, 8, 50, 14)
         add_dialog_button(dlg_model, "BtnCancel", _("Close"), 116, 8, 50, 14)
 
+        # Retrieve saved scripts for the dropdown population
+        saved_scripts = get_config(ctx, "saved_python_scripts")
+        if not isinstance(saved_scripts, dict):
+            saved_scripts = {}
+        script_names = ["Sample"] + sorted(list(saved_scripts.keys()))
+
+        # Add script selector UI elements
+        add_dialog_label(dlg_model, "ScriptLbl", _("Script:"), 172, 10, 22, 10, multiline=False)
+        add_dialog_listbox(dlg_model, "ScriptSelect", script_names, 196, 8, 60, 14)
+        add_dialog_button(dlg_model, "BtnSaveAs", _("Save As..."), 260, 8, 44, 14)
+        add_dialog_button(dlg_model, "BtnDelete", _("Delete"), 308, 8, 34, 14)
+
         # Status and instructions placed below buttons (Y = 26)
         add_dialog_label(dlg_model, "InstructionLbl", _("Enter Python code to execute in the user virtual environment.\nAssign the result to the 'result' variable."), 8, 26, 334, 20)
         
@@ -72,7 +99,35 @@ def show_python_input_dialog(ctx: Any, initial_text: str = "", config_key: str =
         toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
         dlg.createPeer(toolkit, parent_window)
 
+        # Pre-select "Sample" initially
+        select_ctrl = dlg.getControl("ScriptSelect")
+        if select_ctrl:
+            select_ctrl.selectItemPos(0, True)
+
         _outcome: list[str | None] | None = None
+        _current_scripts = dict(saved_scripts)
+
+        class _ScriptSelectListener(unohelper.Base, XItemListener):
+            def itemStateChanged(self, rEvent):
+                try:
+                    pos = select_ctrl.getSelectedItemPos()
+                    items = select_ctrl.getItems()
+                    if pos >= 0 and pos < len(items):
+                        name = items[pos]
+                        code_ctrl = dlg.getControl("CodeEdit")
+                        if name == "Sample":
+                            # Load the unsaved scratchpad code
+                            t = get_config_str(ctx, config_key)
+                            code_ctrl.setText(t)
+                        else:
+                            # Load the named script code
+                            t = _current_scripts.get(name, "")
+                            code_ctrl.setText(t)
+                except Exception:
+                    log.exception("Failed to change script selection")
+
+            def disposing(self, Source):
+                pass
 
         class _RunListener(unohelper.Base, XActionListener):
             def actionPerformed(self, rEvent):
@@ -93,11 +148,100 @@ def show_python_input_dialog(ctx: Any, initial_text: str = "", config_key: str =
                 try:
                     ec = dlg.getControl("CodeEdit")
                     t = (ec.getModel().Text or "").strip()
-                    set_config(ctx, config_key, t)
+                    
+                    pos = select_ctrl.getSelectedItemPos()
+                    items = select_ctrl.getItems()
                     lbl = dlg.getControl("InstructionLbl")
-                    lbl.getModel().Label = _("Script saved successfully.")
+                    
+                    if pos >= 0 and pos < len(items) and items[pos] != "Sample":
+                        name = items[pos]
+                        _current_scripts[name] = t
+                        set_config(ctx, "saved_python_scripts", _current_scripts)
+                        lbl.getModel().Label = _("Script '%s' saved successfully.") % name
+                    else:
+                        set_config(ctx, config_key, t)
+                        lbl.getModel().Label = _("Sample scratchpad saved successfully.")
                 except Exception:
                     log.exception("Save failed in dialog")
+
+            def disposing(self, Source):
+                pass
+
+        class _SaveAsListener(unohelper.Base, XActionListener):
+            def actionPerformed(self, rEvent):
+                try:
+                    ec = dlg.getControl("CodeEdit")
+                    t = (ec.getModel().Text or "").strip()
+                    
+                    pos = select_ctrl.getSelectedItemPos()
+                    items = select_ctrl.getItems()
+                    curr_name = items[pos] if (pos >= 0 and pos < len(items) and items[pos] != "Sample") else ""
+                    
+                    name, _unused = input_box(ctx, _("Enter script name:"), _("Save Script"), curr_name)
+                    if not name:
+                        return
+                    name = name.strip()
+                    if not name:
+                        return
+                        
+                    _current_scripts[name] = t
+                    set_config(ctx, "saved_python_scripts", _current_scripts)
+                    
+                    # Refresh select dropdown
+                    new_names = ["Sample"] + sorted(list(_current_scripts.keys()))
+                    select_ctrl.removeItems(0, select_ctrl.getItemCount())
+                    select_ctrl.addItems(tuple(new_names), 0)
+                    
+                    # Auto-select the newly saved script
+                    for idx, nm in enumerate(new_names):
+                        if nm == name:
+                            select_ctrl.selectItemPos(idx, True)
+                            break
+                            
+                    lbl = dlg.getControl("InstructionLbl")
+                    lbl.getModel().Label = _("Script '%s' saved successfully.") % name
+                except Exception:
+                    log.exception("Save As failed in dialog")
+
+            def disposing(self, Source):
+                pass
+
+        class _DeleteListener(unohelper.Base, XActionListener):
+            def actionPerformed(self, rEvent):
+                try:
+                    pos = select_ctrl.getSelectedItemPos()
+                    items = select_ctrl.getItems()
+                    if pos < 0 or pos >= len(items):
+                        return
+                    
+                    name = items[pos]
+                    lbl = dlg.getControl("InstructionLbl")
+                    
+                    if name == "Sample":
+                        if show_approval_dialog(ctx, _("Are you sure you want to clear the Sample scratchpad?"), _("Clear Script")):
+                            dlg.getControl("CodeEdit").setText("")
+                            set_config(ctx, config_key, "")
+                            lbl.getModel().Label = _("Sample scratchpad cleared.")
+                    else:
+                        if show_approval_dialog(ctx, _("Are you sure you want to delete script '%s'?") % name, _("Delete Script")):
+                            _current_scripts.pop(name, None)
+                            set_config(ctx, "saved_python_scripts", _current_scripts)
+                            
+                            # Refresh dropdown list
+                            new_names = ["Sample"] + sorted(list(_current_scripts.keys()))
+                            select_ctrl.removeItems(0, select_ctrl.getItemCount())
+                            select_ctrl.addItems(tuple(new_names), 0)
+                            
+                            # Reset selection to Sample
+                            select_ctrl.selectItemPos(0, True)
+                            
+                            # Load Sample code
+                            t = get_config_str(ctx, config_key)
+                            dlg.getControl("CodeEdit").setText(t)
+                            
+                            lbl.getModel().Label = _("Script '%s' deleted.") % name
+                except Exception:
+                    log.exception("Delete failed in dialog")
 
             def disposing(self, Source):
                 pass
@@ -111,8 +255,11 @@ def show_python_input_dialog(ctx: Any, initial_text: str = "", config_key: str =
             def disposing(self, Source):
                 pass
 
+        select_ctrl.addItemListener(_ScriptSelectListener())
         dlg.getControl("BtnRun").addActionListener(_RunListener())
         dlg.getControl("BtnSave").addActionListener(_SaveListener())
+        dlg.getControl("BtnSaveAs").addActionListener(_SaveAsListener())
+        dlg.getControl("BtnDelete").addActionListener(_DeleteListener())
         dlg.getControl("BtnCancel").addActionListener(_CancelListener())
         
         # Set focus to the edit control

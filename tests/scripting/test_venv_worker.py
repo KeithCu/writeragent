@@ -267,25 +267,25 @@ def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mo
 
     # Call with no timeout and verify it gets default timeout of 10s
     run_code_in_user_venv(ctx, "result = 1")
-    mock_execute.assert_called_once_with("result = 1", data=None, timeout_sec=10, session_id=None)
+    mock_execute.assert_called_once_with("result = 1", data=None, timeout_sec=10, session_id=None, init_script=None, init_session_id=None, init_script_hash=None)
 
     mock_execute.reset_mock()
 
     # Call with a custom timeout in the allowed range (e.g. 100s) and verify it is allowed
     run_code_in_user_venv(ctx, "result = 1", timeout_sec=100)
-    mock_execute.assert_called_once_with("result = 1", data=None, timeout_sec=100, session_id=None)
+    mock_execute.assert_called_once_with("result = 1", data=None, timeout_sec=100, session_id=None, init_script=None, init_session_id=None, init_script_hash=None)
 
     mock_execute.reset_mock()
 
     # Call with a timeout exceeding 600s (e.g. 1000s) and verify it gets capped to 600s
     run_code_in_user_venv(ctx, "result = 1", timeout_sec=1000)
-    mock_execute.assert_called_once_with("result = 1", data=None, timeout_sec=600, session_id=None)
+    mock_execute.assert_called_once_with("result = 1", data=None, timeout_sec=600, session_id=None, init_script=None, init_session_id=None, init_script_hash=None)
 
     mock_execute.reset_mock()
 
     # Call with 0s timeout and verify it gets set to 1s floor
     run_code_in_user_venv(ctx, "result = 1", timeout_sec=0)
-    mock_execute.assert_called_once_with("result = 1", data=None, timeout_sec=1, session_id=None)
+    mock_execute.assert_called_once_with("result = 1", data=None, timeout_sec=1, session_id=None, init_script=None, init_session_id=None, init_script_hash=None)
 
 
 def test_split_grid_pickle_and_json_round_trip():
