@@ -31,7 +31,7 @@ if hasattr(ast, "Match"):
 if hasattr(ast, "MatchStar"):
     _FORBIDDEN_NODE_TYPES = _FORBIDDEN_NODE_TYPES + (ast.MatchStar,)  # type: ignore[attr-defined]
 
-_DEFAULT_MAX_ENTRIES = 1024
+_DEFAULT_MAX_ENTRIES = 256
 
 
 def validate_sandbox_ast(module: ast.Module, authorized_imports: list[str]) -> str | None:

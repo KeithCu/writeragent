@@ -4,7 +4,7 @@ overview: Map the Microsoft Python-in-Excel feature ideas onto WriterAgent's exi
 todos:
   - id: phase1-session
     content: "Phase 1: Session persistence -- shared kernel mode for =PYTHON() cells with row-major variable sharing"
-    status: pending
+    status: completed
   - id: phase2-matplotlib
     content: "Phase 2: Matplotlib visualization pipeline -- figure detection, PNG serialization, image insertion in Calc"
     status: completed
@@ -72,7 +72,7 @@ Other phases remain largely as originally described (see below). The plan is kep
 
 These are the features from the spec that do **not** yet exist, ordered by incremental value and dependency:
 
-1. **Session persistence** -- cells share state (row-major kernel), the foundational behavior difference
+1. **Session persistence** -- cells share state (row-major kernel) (**shipped** — Settings → Python → Shared kernel; WriterAgent → Reset Python Session)
 2. **Matplotlib/visualization pipeline** -- chart output from Python code into cells (**largely complete** — see Current Status and Phase 2 section)
 3. **Enhanced Monaco editor UX for Calc** -- sheet-level code grouping, per-cell editing (**partial implementation exists**)
 4. **Initialization scripts** -- per-workbook init.py for global imports/helpers
@@ -99,9 +99,11 @@ These items are tracked in [enabling_numpy_in_libreoffice.md — Calc UX and out
 
 ## Phase 1: Session Persistence (Shared Kernel Mode)
 
-**The single biggest gap.** Today each `=PYTHON()` cell gets a fresh `LocalPythonExecutor` namespace -- variables do not carry between cells. The Excel model uses row-major stateful execution where a DataFrame created in A1 is available in B2.
+**Status (2026):** Shipped. Default remains **Isolated** (one namespace per `=PYTHON()` call). Enable **Shared kernel** in Settings → Python so variables persist across cells in the same Calc workbook (Calc recalc order is already row-major). **WriterAgent → Reset Python Session** clears the workbook namespace (visible in Writer, Calc, and Draw; only applies when a Calc spreadsheet is active and shared mode is on).
 
-**What to build:**
+**Original gap:** Each `=PYTHON()` cell used a fresh `LocalPythonExecutor` namespace. The Excel model uses row-major stateful execution where a DataFrame created in A1 is available in B2.
+
+**What was built:**
 
 - Add a **`PythonSessionManager`** alongside [PythonWorkerManager](plugin/scripting/venv_worker.py) that maintains a **persistent namespace** per workbook
 - New config key `scripting.python_session_mode` (default `"isolated"`, option `"shared"`) in [plugin/scripting/module.yaml](plugin/scripting/module.yaml)
@@ -117,7 +119,9 @@ These items are tracked in [enabling_numpy_in_libreoffice.md — Calc UX and out
 - [plugin/calc/python_function.py](plugin/calc/python_function.py) -- derive session_id from workbook URL
 - [plugin/scripting/module.yaml](plugin/scripting/module.yaml) -- new config key
 
-**Tests:** `tests/scripting/test_session_persistence.py` -- verify cross-cell variable visibility, session reset, isolation between workbooks.
+**Tests:** [`tests/scripting/test_session_persistence.py`](../tests/scripting/test_session_persistence.py) — cross-cell visibility, session reset, isolation between workbooks.
+
+**Key files:** [`session_manager.py`](../plugin/scripting/session_manager.py) (workbook `calc:` session id + menubar reset), plus worker/sandbox/harness changes listed above.
 
 ---
 
@@ -204,8 +208,8 @@ These items are tracked in [enabling_numpy_in_libreoffice.md — Calc UX and out
 
 - Store init script in workbook custom document properties (ODS `UserDefinedProperties`) or a hidden sheet named `__python_init__`
 - On workbook open (or first `=PYTHON()` eval in a session), execute the init script in the session namespace before any cell code
-- Settings UI: add an "Edit Initialization Script" button in Settings -> Python that opens the Monaco editor with the init script
-- Separate from session mode -- init scripts work even in isolated mode (they just run once per workbook load, not persistently)
+- Settings UI: add an "Edit Initialization Script" Menu  that opens the Monaco editor with the init script.
+- Separate from session mode feature-- init scripts work even in isolated mode (they just run once per workbook load, not persistently)
 
 **Key files to modify:**
 - [plugin/scripting/venv_worker.py](plugin/scripting/venv_worker.py) -- `init_script` request type

@@ -6,10 +6,10 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""Long-lived venv worker: one JSON request per line on stdin, one response per line on stdout.
+"""Long-lived venv worker: length-prefixed pickle requests on stdin, responses on stdout.
 
-Each request runs user code in a **fresh** LocalPythonExecutor namespace. The process stays
-warm; only interpreter state is discarded between requests.
+Each execute request runs user code in LocalPythonExecutor. Without ``session_id`` the
+namespace is fresh per call; with ``session_id`` the same executor is reused (shared kernel).
 """
 from __future__ import annotations
 
@@ -23,11 +23,32 @@ _PROJECT_ROOT = os.path.abspath(os.path.join(_SCRIPT_DIR, "..", ".."))
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
-from plugin.scripting.venv_sandbox import run_sandboxed_code, serialize_result
+from plugin.scripting.venv_sandbox import reset_sandbox_session, run_sandboxed_code, serialize_result
 
 
-def _execute_request(code: str, data: Any | None) -> dict[str, Any]:
-    return run_sandboxed_code(code, data=data)
+def _execute_request(
+    code: str,
+    data: Any | None,
+    *,
+    session_id: str | None = None,
+) -> dict[str, Any]:
+    return run_sandboxed_code(code, data=data, session_id=session_id)
+
+
+def _handle_request(request: dict[str, Any]) -> dict[str, Any]:
+    action = request.get("action")
+    if action == "reset_session":
+        session_id = request.get("session_id")
+        if not isinstance(session_id, str) or not session_id.strip():
+            return {"status": "error", "message": "No session_id provided."}
+        return reset_sandbox_session(session_id)
+
+    code = request.get("code")
+    if not isinstance(code, str) or not code.strip():
+        return {"status": "error", "message": "No code provided."}
+    session_id = request.get("session_id")
+    sid = session_id if isinstance(session_id, str) and session_id.strip() else None
+    return _execute_request(code, request.get("data"), session_id=sid)
 
 
 # Back-compat for tests: from plugin.scripting.worker_harness import _serialize
@@ -57,11 +78,7 @@ def main() -> None:
             # Trusted IPC: bytes from WriterAgent host that spawned this harness process.
             request = pickle.loads(payload)  # nosec B301
             req_id = str(request.get("id", ""))
-            code = request.get("code")
-            if not isinstance(code, str) or not code.strip():
-                response: dict[str, Any] = {"status": "error", "message": "No code provided."}
-            else:
-                response = _execute_request(code, request.get("data"))
+            response = _handle_request(request)
         except pickle.UnpicklingError as e:
             response = {"status": "error", "message": f"Invalid pickle request: {e}"}
         except Exception as e:

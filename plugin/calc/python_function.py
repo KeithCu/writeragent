@@ -27,6 +27,7 @@ from plugin.framework.errors import format_error_payload
 from plugin.framework.i18n import _
 from plugin.scripting.config_limits import configured_python_max_data_cells
 from plugin.scripting.payload_codec import is_image_payload, is_split_grid
+from plugin.scripting.session_manager import workbook_session_id
 from plugin.scripting.venv_worker import run_code_in_user_venv
 
 log = logging.getLogger(__name__)
@@ -276,7 +277,8 @@ def execute_python_addin(
         if isinstance(cached, WorkerResultSession) and cached.next_index < len(cached.flat):
             res = {"status": "ok", "result": cached.raw}
         else:
-            res = run_code_in_user_venv(ctx, code, data=worker_data)
+            session_id = workbook_session_id(ctx)
+            res = run_code_in_user_venv(ctx, code, data=worker_data, session_id=session_id)
         log.debug("PYTHON res from worker: %r", res)
         if res.get("status") == "ok":
             result = res.get("result")

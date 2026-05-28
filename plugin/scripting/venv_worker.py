@@ -300,13 +300,33 @@ class PythonWorkerManager:
         """Spawn the worker and trigger auto-imports (numpy etc.) so the next real execute is instant."""
         self.execute("result = None", timeout_sec=30)
 
-    def execute(self, code: str, *, data: Any = None, timeout_sec: int | None = None) -> dict[str, Any]:
-        """Run *code* in the warm worker; state from prior calls is not visible."""
+    def execute(
+        self,
+        code: str | None = None,
+        *,
+        data: Any = None,
+        timeout_sec: int | None = None,
+        session_id: str | None = None,
+        action: str | None = None,
+    ) -> dict[str, Any]:
+        """Run *code* in the warm worker, or handle *action* (e.g. reset_session).
+
+        Without *session_id*, each execute uses a fresh namespace in the child. With
+        *session_id*, the child reuses one LocalPythonExecutor per id.
+        """
         if timeout_sec is None:
             timeout_sec = python_exec_timeout_default()
-        request: dict[str, Any] = {"id": str(uuid.uuid4()), "code": code}
-        if data is not None:
-            request["data"] = data
+        request: dict[str, Any] = {"id": str(uuid.uuid4())}
+        if action:
+            request["action"] = action
+            if session_id:
+                request["session_id"] = session_id
+        else:
+            request["code"] = code if code is not None else ""
+            if data is not None:
+                request["data"] = data
+            if session_id:
+                request["session_id"] = session_id
 
         payload = pickle.dumps(request, protocol=5)
         header = struct.pack("!I", len(payload))
@@ -488,16 +508,54 @@ class PythonWorkerManager:
 # --- Public entrypoints ---
 
 
+def _resolve_worker_python(uno_ctx: Any) -> tuple[str | None, dict[str, Any] | None]:
+    """Return (exe, error_response) for the configured venv / LO interpreter."""
+    venv_dir = get_config_str(uno_ctx, "scripting.python_venv_path").strip()
+    if venv_dir:
+        exe = resolve_venv_python(venv_dir)
+        if not exe:
+            return None, {
+                "status": "error",
+                "message": f"No python executable found under configured venv: {venv_dir!r}",
+            }
+        log.debug("run_venv_code: using venv interpreter under %s", venv_dir)
+        return exe, None
+    exe = resolve_libreoffice_python()
+    if not exe:
+        return None, {
+            "status": "error",
+            "message": (
+                "Could not resolve a Python interpreter (sys.executable missing, not a file, or not executable). "
+                "Set scripting.python_venv_path in Settings → Python for a dedicated venv, or fix the LibreOffice install."
+            ),
+        }
+    log.debug("run_venv_code: using process interpreter %s (no venv path set)", exe)
+    return exe, None
+
+
+def _worker_manager_for_ctx(uno_ctx: Any) -> tuple[PythonWorkerManager | None, dict[str, Any] | None]:
+    exe, err = _resolve_worker_python(uno_ctx)
+    if err is not None:
+        return None, err
+    assert exe is not None
+    child_env = scrub_subprocess_env(dict(os.environ))
+    return PythonWorkerManager.get(exe, child_env), None
+
+
 def run_code_in_user_venv(
     uno_ctx: Any,
     code: str,
     *,
     data: Any = None,
     timeout_sec: int | None = None,
+    session_id: str | None = None,
     active_domain: str | None = None,
     python_tool_domain: str | None = None,
 ) -> Dict[str, Any]:
-    """Execute *code* via :class:`PythonWorkerManager` (warm process, isolated namespace per call).
+    """Execute *code* via :class:`PythonWorkerManager` (warm process).
+
+    Without *session_id*, each call uses an isolated namespace in the child. With
+    *session_id*, the child reuses one namespace per workbook (shared kernel).
 
     *active_domain* / *python_tool_domain* are reserved for future venv→LO tool RPC (not wired yet).
     """
@@ -505,33 +563,36 @@ def run_code_in_user_venv(
     if not (code or "").strip():
         return {"status": "error", "message": "No code provided."}
 
-    venv_dir = get_config_str(uno_ctx, "scripting.python_venv_path").strip()
-    if venv_dir:
-        exe = resolve_venv_python(venv_dir)
-        if not exe:
-            return {
-                "status": "error",
-                "message": f"No python executable found under configured venv: {venv_dir!r}",
-            }
-        log.debug("run_venv_code: using venv interpreter under %s", venv_dir)
-    else:
-        exe = resolve_libreoffice_python()
-        if not exe:
-            return {
-                "status": "error",
-                "message": (
-                    "Could not resolve a Python interpreter (sys.executable missing, not a file, or not executable). "
-                    "Set scripting.python_venv_path in Settings → Python for a dedicated venv, or fix the LibreOffice install."
-                ),
-            }
-        log.debug("run_venv_code: using process interpreter %s (no venv path set)", exe)
+    manager, err = _worker_manager_for_ctx(uno_ctx)
+    if err is not None:
+        return err
+    assert manager is not None
 
     configured = configured_python_exec_timeout(uno_ctx)
     timeout_sec = resolve_python_exec_timeout(timeout_sec, configured=configured)
 
-    child_env = scrub_subprocess_env(dict(os.environ))
-    manager = PythonWorkerManager.get(exe, child_env)
-    return manager.execute(code, data=data, timeout_sec=timeout_sec)
+    return manager.execute(code, data=data, timeout_sec=timeout_sec, session_id=session_id)
+
+
+def reset_python_session(uno_ctx: Any, session_id: str, *, timeout_sec: int | None = None) -> Dict[str, Any]:
+    """Drop the shared-kernel executor for *session_id* in the warm worker."""
+    if not (session_id or "").strip():
+        return {"status": "error", "message": "No session_id provided."}
+
+    manager, err = _worker_manager_for_ctx(uno_ctx)
+    if err is not None:
+        return err
+    assert manager is not None
+
+    configured = configured_python_exec_timeout(uno_ctx)
+    timeout_sec = resolve_python_exec_timeout(timeout_sec, configured=configured)
+
+    return manager.execute(
+        None,
+        timeout_sec=timeout_sec,
+        session_id=session_id,
+        action="reset_session",
+    )
 
 
 def warm_venv_worker(uno_ctx: Any) -> None:

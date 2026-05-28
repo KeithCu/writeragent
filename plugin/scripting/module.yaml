@@ -2,6 +2,10 @@ name: scripting
 title: Python
 requires: [config]
 
+actions:
+  reset_python_session:
+    title: "Reset Python Session"
+
 config:
   python_venv_path:
     type: string
@@ -40,3 +44,16 @@ config:
     label: Max Calc data cells
     helper: Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger values use more RAM and time; UNO range read still dominates.
     public: true
+
+  python_session_mode:
+    type: string
+    default: isolated
+    widget: select
+    label: Python session mode
+    helper: "Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace per workbook (variables carry between cells)."
+    public: true
+    options:
+      - value: isolated
+        label: Isolated (default)
+      - value: shared
+        label: Shared kernel

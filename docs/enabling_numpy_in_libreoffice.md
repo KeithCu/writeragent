@@ -640,6 +640,8 @@ Phased implementation plan: [python-in-excel-dev-plan.md](python-in-excel-dev-pl
 
 ### Calc UX and output enhancements
 
+**Shared kernel (shipped):** Settings → Python → **Python session mode** → **Shared kernel** keeps one Python namespace per Calc workbook across `=PYTHON()` cells (default **Isolated** preserves the old one-namespace-per-cell behavior). Use **WriterAgent → Reset Python Session** to clear variables for the active spreadsheet. Implementation: [`session_manager.py`](../plugin/scripting/session_manager.py), [`python-in-excel-dev-plan.md`](python-in-excel-dev-plan.md) Phase 1.
+
 Backlog items inspired by Microsoft Python in Excel ([python-in-excel-ideas.md](python-in-excel-ideas.md) §10). **Status: not implemented** unless noted otherwise.
 
 | Enhancement | Design note |
@@ -666,6 +668,7 @@ Backlog items inspired by Microsoft Python in Excel ([python-in-excel-ideas.md](
 | AST sandbox per request | [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) + vendored [`local_python_executor.py`](../plugin/contrib/smolagents/local_python_executor.py) |
 | Parse + static validation hot cache | [`python_code_hot_cache.py`](../plugin/scripting/sandbox_cache.py), [`sandbox_static_validate.py`](../plugin/scripting/sandbox_cache.py) — [`tests/scripting/test_sandbox_cache.py`](../tests/scripting/test_sandbox_cache.py) |
 | `run_venv_python_script` / `=PYTHON()` | [`venv_python.py`](../plugin/calc/venv_python.py), [`python_function.py`](../plugin/calc/python_function.py) |
+| Shared kernel (`python_session_mode`) | [`session_manager.py`](../plugin/scripting/session_manager.py), [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) — [`tests/scripting/test_session_persistence.py`](../tests/scripting/test_session_persistence.py) |
 | **Pickle5 + Split-Grid** | **Default serialization**: Direct raw binary double-precision buffer in dictionary envelope via Pickle5, zero-copy C-speed `np.frombuffer` materialization in child. |
 | **JSON Split-Grid** | Backward-compatible Base64 envelope fallback for diagnostic tracing/JSON environments. |
 | Calc ingress | [`pack_calc_data_for_wire`](../plugin/calc/calc_addin_data.py) |

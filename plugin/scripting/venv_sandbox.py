@@ -17,6 +17,7 @@ import ast
 import importlib
 import logging
 import sys
+import threading
 from typing import Any
 
 log = logging.getLogger(__name__)
@@ -77,6 +78,11 @@ VENV_AUTHORIZED_IMPORTS: tuple[str, ...] = (
     "qtpy",
     "plugin.scripting.payload_codec",
 )
+
+# Shared-kernel executors keyed by workbook session_id (calc:…). Cleared on reset_session
+# or worker process exit; not tied to document close in Phase 1.
+_SESSION_EXECUTORS: dict[str, LocalPythonExecutor] = {}
+_SESSION_LOCK = threading.Lock()
 
 
 def is_module_imported(code_str: str, module_name: str) -> bool:
@@ -170,19 +176,7 @@ def _serialize_result_impl(obj: Any) -> Any:
     return obj
 
 
-def run_sandboxed_code(code: str, data: Any | None = None, *, timeout_sec: int | None = None) -> dict[str, Any]:
-    """Run *code* in a fresh LocalPythonExecutor (new namespace per call)."""
-    if timeout_sec is None:
-        timeout_sec = python_exec_timeout_default()
-
-    # Force non-interactive backend so plt.show() doesn't block in the subprocess.
-    mpl = optional_module("matplotlib")
-    if mpl is not None:
-        mpl.use("Agg")
-
-    # Automatically prepend imports if they are available in the environment and not explicitly imported
-    code, _ = apply_auto_imports(code)
-
+def _new_executor(timeout_sec: int) -> LocalPythonExecutor:
     executor = LocalPythonExecutor(
         additional_authorized_imports=list(VENV_AUTHORIZED_IMPORTS),
         timeout_seconds=timeout_sec,
@@ -190,13 +184,45 @@ def run_sandboxed_code(code: str, data: Any | None = None, *, timeout_sec: int |
     # Upstream only merges BASE_PYTHON_TOOLS (sum, len, …) after send_tools(); without this,
     # static_tools stays None and builtins like sum() are rejected.
     executor.send_tools({})
-    if data is not None:
-        if is_split_grid(data):
-            log.debug("venv_sandbox injecting data %s", describe_wire_value(data))
-        unpacked = child_unpack_data(data)
-        variables: dict[str, Any] = {"data": unpacked}
-        variables["data_list"] = unpacked if is_multi_data(data) else [unpacked]
-        executor.send_variables(variables)
+    return executor
+
+
+def _get_or_create_session_executor(session_id: str, timeout_sec: int) -> LocalPythonExecutor:
+    with _SESSION_LOCK:
+        executor = _SESSION_EXECUTORS.get(session_id)
+        if executor is None:
+            executor = _new_executor(timeout_sec)
+            _SESSION_EXECUTORS[session_id] = executor
+        return executor
+
+
+def reset_sandbox_session(session_id: str) -> dict[str, Any]:
+    """Drop the persistent executor for *session_id* (idempotent)."""
+    if not (session_id or "").strip():
+        return {"status": "error", "message": "No session_id provided."}
+    with _SESSION_LOCK:
+        _SESSION_EXECUTORS.pop(session_id, None)
+    return {"status": "ok"}
+
+
+def clear_all_sandbox_sessions() -> None:
+    """Clear every cached session executor (tests)."""
+    with _SESSION_LOCK:
+        _SESSION_EXECUTORS.clear()
+
+
+def _inject_data(executor: LocalPythonExecutor, data: Any | None) -> None:
+    if data is None:
+        return
+    if is_split_grid(data):
+        log.debug("venv_sandbox injecting data %s", describe_wire_value(data))
+    unpacked = child_unpack_data(data)
+    variables: dict[str, Any] = {"data": unpacked}
+    variables["data_list"] = unpacked if is_multi_data(data) else [unpacked]
+    executor.send_variables(variables)
+
+
+def _run_on_executor(executor: LocalPythonExecutor, code: str) -> dict[str, Any]:
     try:
         code_output = executor(code)
         result = executor.state.get("result", code_output.output)
@@ -236,3 +262,34 @@ def run_sandboxed_code(code: str, data: Any | None = None, *, timeout_sec: int |
             "traceback": traceback.format_exc(),
             "stdout": "",
         }
+
+
+def run_sandboxed_code(
+    code: str,
+    data: Any | None = None,
+    *,
+    timeout_sec: int | None = None,
+    session_id: str | None = None,
+) -> dict[str, Any]:
+    """Run *code* in LocalPythonExecutor.
+
+    Without *session_id*, each call uses a new namespace. With *session_id*, reuse one
+    executor per id (shared kernel / workbook session).
+    """
+    if timeout_sec is None:
+        timeout_sec = python_exec_timeout_default()
+
+    # Force non-interactive backend so plt.show() doesn't block in the subprocess.
+    mpl = optional_module("matplotlib")
+    if mpl is not None:
+        mpl.use("Agg")
+
+    code, _ = apply_auto_imports(code)
+
+    if session_id:
+        executor = _get_or_create_session_executor(session_id, timeout_sec)
+    else:
+        executor = _new_executor(timeout_sec)
+
+    _inject_data(executor, data)
+    return _run_on_executor(executor, code)
