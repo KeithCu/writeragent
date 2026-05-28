@@ -16,6 +16,7 @@ from plugin.notebook.writer_importer import (
     _STYLE_NOTEBOOK_IN,
     _append_body_text_block,
     _append_body_paragraph,
+    _apply_no_spellcheck_for_import,
     _cell_heading,
     _coerce_notebook_text,
     _create_import_para_style,
@@ -204,6 +205,33 @@ def test_ensure_notebook_import_styles_creates_and_resolves():
     assert doc.createInstance.call_count == 1
     assert para_styles.insertByName.call_count == 1
     assert in_style == _STYLE_NOTEBOOK_IN
+
+
+def test_apply_no_spellcheck_for_import_sets_zxx():
+    doc = MagicMock()
+    para_styles = MagicMock()
+    para_styles.hasByName.return_value = True
+    style = MagicMock()
+    para_styles.getByName.return_value = style
+    families = MagicMock()
+    families.getByName.return_value = para_styles
+    doc.getStyleFamilies.return_value = families
+
+    loc = MagicMock()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("plugin.notebook.writer_importer._no_spellcheck_locale", lambda: loc)
+        _apply_no_spellcheck_for_import(doc)
+
+    doc.setPropertyValue.assert_any_call("CharLocale", loc)
+    style.setPropertyValue.assert_any_call("CharLocale", loc)
+
+
+def test_no_spellcheck_locale_uses_zxx():
+    from plugin.notebook.writer_importer import _no_spellcheck_locale
+
+    loc = _no_spellcheck_locale()
+    assert loc.Language == "zxx"
+    assert loc.Country == ""
 
 
 def test_resolve_para_style_case_insensitive():

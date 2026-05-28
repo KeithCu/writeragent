@@ -444,6 +444,52 @@ def _get_para_styles(doc: Any) -> Any | None:
         return None
 
 
+def _no_spellcheck_locale() -> Any:
+    """Locale that disables Writer spell/grammar checking (ISO 639-2 ``zxx``)."""
+    import uno
+
+    loc = uno.createUnoStruct("com.sun.star.lang.Locale")
+    loc.Language = "zxx"
+    loc.Country = ""
+    return loc
+
+
+def _apply_no_spellcheck_for_import(doc: Any) -> None:
+    """Notebook bodies are code/markdown — suppress spellcheck for imported content."""
+    loc = _no_spellcheck_locale()
+    for prop in ("CharLocale", "CharLocaleAsian", "CharLocaleComplex"):
+        try:
+            doc.setPropertyValue(prop, loc)
+        except Exception:
+            log.debug("notebook import could not set document %s", prop, exc_info=True)
+    para_styles = _get_para_styles(doc)
+    if para_styles is None:
+        return
+    for style_name in (
+        "Standard",
+        _STYLE_BODY,
+        _STYLE_CELL_HEADING,
+        _STYLE_SECTION_HEADING,
+        _STYLE_OUTPUT,
+        _STYLE_NOTEBOOK_IN,
+    ):
+        resolved = _resolve_para_style(doc, style_name)
+        if not resolved:
+            continue
+        try:
+            if not para_styles.hasByName(resolved):
+                continue
+            style = para_styles.getByName(resolved)
+        except Exception:
+            log.debug("notebook import could not open style %r", resolved, exc_info=True)
+            continue
+        for prop in ("CharLocale", "CharLocaleAsian", "CharLocaleComplex"):
+            try:
+                style.setPropertyValue(prop, loc)
+            except Exception:
+                log.debug("notebook import could not set %s on %r", prop, resolved, exc_info=True)
+
+
 def _create_import_para_style(
     doc: Any,
     para_styles: Any,
@@ -483,11 +529,15 @@ def _ensure_notebook_import_styles(doc: Any) -> str | None:
         return None
     parent_heading = _resolve_para_style(doc, _STYLE_CELL_HEADING) or "Heading 3"
     
+    no_lang = _no_spellcheck_locale()
     property_updates: dict[str, Any] = {
         "ParaAdjust": 0,
         "ParaLeftMargin": -1270,  # Out-dented by 1/2 inch (12.7 mm)
         "ParaTopMargin": _NOTEBOOK_IN_MARGIN_TOP,
         "ParaBottomMargin": _NOTEBOOK_IN_MARGIN_BOTTOM,
+        "CharLocale": no_lang,
+        "CharLocaleAsian": no_lang,
+        "CharLocaleComplex": no_lang,
     }
     
     try:
@@ -737,6 +787,8 @@ def import_ipynb_to_writer(doc: Any, path: str, ctx: Any | None = None) -> dict[
     nb = read_ipynb(path)
     cell_count = len(nb.cells)
     log.info("notebook import read_ipynb cells=%d read_ms=%d", cell_count, _mono_ms(read_t0))
+
+    _apply_no_spellcheck_for_import(doc)
 
     stats = {
         "cells": 0,
