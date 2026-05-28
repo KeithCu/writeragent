@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-27 23:10-0400\n"
+"POT-Creation-Date: 2026-05-28 16:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Catalan <LL@li.org>\n"
@@ -36,6 +36,30 @@ msgstr ""
 "especialitzat. Heu de cridar «specialized_workflow_finished» quan hàgiu "
 "acabat per restaurar el conjunt complet d'API."
 
+#: plugin/notebook/notebook_runner.py
+msgid "Cell execution failed."
+msgstr "L'execució de la cel·la ha fallat."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Notebook run is only supported in LibreOffice Writer."
+msgstr "L'execució de quaderns només s'admet al LibreOffice Writer."
+
+#: plugin/notebook/notebook_runner.py
+msgid ""
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
+msgstr ""
+"Aquest document no té cap quadern importat. Utilitzeu primer Eines → Importa"
+" el quadern Jupyter…."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Could not find notebook cell for this control."
+msgstr "No s'ha pogut trobar la cel·la del quadern per a aquest control."
+
+#: plugin/notebook/notebook_runner.py plugin/notebook/import_dialog.py
+msgid "Open a Writer document first."
+msgstr "Obriu primer un document del Writer."
+
 #: plugin/notebook/import_dialog.py
 msgid "Import Jupyter Notebook"
 msgstr "Importa quadern Jupyter"
@@ -47,10 +71,6 @@ msgstr "Quadern Jupyter"
 #: plugin/notebook/import_dialog.py
 msgid "All files"
 msgstr "Tots els fitxers"
-
-#: plugin/notebook/import_dialog.py
-msgid "Open a Writer document first."
-msgstr "Obriu primer un document del Writer."
 
 #: plugin/notebook/import_dialog.py
 msgid "Import Notebook is only supported in LibreOffice Writer."
@@ -73,6 +93,10 @@ msgstr ""
 "Cel·les: {cells} (codi: {code}, markdown: {markdown})\n"
 "Camps d'entrada de codi al document: {shapes}\n"
 "Imatges de sortida: {images}"
+
+#: plugin/notebook/writer_importer.py
+msgid "Run code cell"
+msgstr "Executa la cel·la de codi"
 
 #: plugin/contrib/aihordeclient/__init__.py plugin/chatbot/panel.py
 msgid "Starting..."
@@ -351,6 +375,7 @@ msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "Error HTTP {0} del proveïdor d'IA: {1}"
 
 #: plugin/framework/client/errors.py plugin/calc/python_function.py
+#: plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
 msgstr "Error: {0}"
@@ -371,6 +396,65 @@ msgstr ""
 msgid "Image inserted"
 msgstr "Imatge inserida"
 
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Initialization script saved. It will run automatically on the next =PYTHON()"
+" recalc."
+msgstr ""
+"S'ha desat l'script d'inicialització. S'executarà automàticament en el "
+"proper recàlcul de =PYTHON()."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script ran successfully."
+msgstr "L'script d'inicialització s'ha executat correctament."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script cleared."
+msgstr "S'ha esborrat l'script d'inicialització."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script failed."
+msgstr "L'script d'inicialització ha fallat."
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Edit Initialization Script applies to Calc spreadsheets. Open a Calc "
+"workbook and try again."
+msgstr ""
+"L'edició de l'script d'inicialització s'aplica als fulls de càlcul del Calc."
+" Obriu un llibre de treball del Calc i torneu-ho a provar."
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"The Python editor requires a configured venv with pywebview. Set Settings → "
+"Python → Python venv path and install pywebview in that venv."
+msgstr ""
+"L'editor Python requereix un venv configurat amb pywebview. Establiu "
+"Paràmetres → Python → Camí del venv de Python i instal·leu pywebview en "
+"aquest venv."
+
+#: plugin/calc/init_script_editor.py
+msgid "Workbook Initialization Script"
+msgstr "Script d'inicialització del llibre de treball"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "Executa"
+
+#: plugin/calc/init_script_editor.py plugin/calc/python_editor.py
+#: plugin/scripting/python_runner.py
+msgid "Save"
+msgstr "Desa"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "Tanca"
+
+#: plugin/calc/init_script_editor.py
+msgid "Could not open the Python editor."
+msgstr "No s'ha pogut obrir l'editor Python."
+
 #: plugin/calc/python_editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
 msgstr "Edita el Python a la cel·la..."
@@ -380,7 +464,7 @@ msgid "Please enter edit instructions!"
 msgstr "Si us plau, introduïu les instruccions d'edició!"
 
 #: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/xdl_strings.py
+#: plugin/chatbot/dialogs.py plugin/xdl_strings.py
 msgid "Input"
 msgstr "Entrada"
 
@@ -409,10 +493,6 @@ msgstr "Editor de cel·les Python"
 #: plugin/calc/python_editor.py
 msgid "Save as plain text"
 msgstr "Desa com a text sense format"
-
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
-msgid "Save"
-msgstr "Desa"
 
 #: plugin/calc/python_editor.py
 msgid "The Python editor failed unexpectedly."
@@ -833,17 +913,99 @@ msgstr "L'editor de Python ha sortit abans de poder carregar el vostre codi."
 msgid "Could not talk to the Python editor."
 msgstr "No s'ha pogut comunicar amb l'editor de Python."
 
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
+"Writer document with an imported Jupyter notebook and try again."
+msgstr ""
+"Restablir la sessió Python per als quaderns s'aplica al LibreOffice Writer. "
+"Obriu un document del Writer amb un quadern Jupyter importat i torneu-ho a "
+"provar."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… first."
+msgstr ""
+"Aquest document del Writer no té cap registre de quadern importat. Utilitzeu"
+" primer Eines → Importa el quadern Jupyter…."
+
+#: plugin/scripting/session_manager.py
+msgid "Could not resolve notebook Python session."
+msgstr "No s'ha pogut resoldre la sessió Python del quadern."
+
+#: plugin/scripting/session_manager.py
+msgid "Notebook Python session reset for this document."
+msgstr "S'ha restablert la sessió Python del quadern per a aquest document."
+
+#: plugin/scripting/session_manager.py
+msgid "Could not reset Python session."
+msgstr "No s'ha pogut restablir la sessió Python."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
+"try again."
+msgstr ""
+"Restablir la sessió Python s'aplica als fulls de càlcul del Calc. Obriu un "
+"llibre de treball del Calc i torneu-ho a provar."
+
+#: plugin/scripting/session_manager.py
+msgid "Python session reset for this workbook."
+msgstr "S'ha restablert la sessió Python per a aquest llibre de treball."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Initialization script and any in-memory init state were reset for this "
+"workbook. Cell variables were already isolated per cell."
+msgstr ""
+"S'ha restablert el script d'inicialització i qualsevol estat d'inici a la "
+"memòria per a aquest llibre de treball. Les variables de cel·la ja estaven "
+"aïllades per cel·la."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Python session mode is Isolated (each =PYTHON() cell uses its own "
+"variables). There is no shared cell session to reset. Add an initialization "
+"script if you need to clear expensive one-time workbook setup."
+msgstr ""
+"El mode de sessió de Python és aïllat (cada cel·la =PYTHON() utilitza les "
+"seves pròpies variables). No hi ha cap sessió de cel·la compartida per "
+"restablir. Afegiu un script d'inicialització si necessiteu esborrar una "
+"configuració costosa del llibre de treball d'una sola vegada."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… to enable notebook Python session reset."
+msgstr ""
+"Aquest document del Writer no té cap registre de quadern importat. Utilitzeu"
+" Eines → Importa el quadern Jupyter… per habilitar el restabliment de la "
+"sessió de Python del quadern."
+
+#: plugin/scripting/init_scripts.py
+#, python-brace-format
+msgid ""
+"Initialization script is too large to store in the document ({0} bytes)."
+msgstr ""
+"El script d'inicialització és massa gran per emmagatzemar-lo al document "
+"({0} bytes)."
+
 #: plugin/scripting/python_runner.py
 msgid "Run Python Script"
 msgstr "Executa l'script de Python"
 
 #: plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "Executa"
+msgid "Script:"
+msgstr "Script:"
 
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "Tanca"
+#: plugin/scripting/python_runner.py
+msgid "Save As..."
+msgstr "Anomena i desa..."
+
+#: plugin/scripting/python_runner.py
+msgid "Delete"
+msgstr "Suprimeix"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -854,8 +1016,47 @@ msgstr ""
 "Assigneu el resultat a la variable 'result'."
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved successfully."
-msgstr "Script desat correctament."
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "El script «%s» s'ha desat correctament."
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad saved successfully."
+msgstr "El bloc de notes de prova s'ha desat correctament."
+
+#: plugin/scripting/python_runner.py
+msgid "Enter script name:"
+msgstr "Introduïu el nom del script:"
+
+#: plugin/scripting/python_runner.py
+msgid "Save Script"
+msgstr "Desa l'script"
+
+#: plugin/scripting/python_runner.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr "Esteu segur que voleu esborrar el bloc de notes de mostres?"
+
+#: plugin/scripting/python_runner.py
+msgid "Clear Script"
+msgstr "Esborra l'script"
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad cleared."
+msgstr "S'ha esborrat el bloc de notes de mostres."
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Are you sure you want to delete script '%s'?"
+msgstr "Esteu segur que voleu suprimir l'script «%s»?"
+
+#: plugin/scripting/python_runner.py
+msgid "Delete Script"
+msgstr "Suprimeix l'script"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "S'ha suprimit l'script «%s»."
 
 #: plugin/scripting/python_runner.py
 #, python-format
@@ -1004,6 +1205,14 @@ msgstr "Tauler d'avaluació"
 #: plugin/main.py
 msgid "Run Python Script..."
 msgstr "Executa l'script de Python..."
+
+#: plugin/main.py
+msgid "Edit Initialization Script..."
+msgstr "Edita l'script d'inicialització..."
+
+#: plugin/main.py
+msgid "Reset Python Session"
+msgstr "Restableix la sessió de Python"
 
 #: plugin/main.py
 msgid "Import Jupyter Notebook..."
@@ -1466,6 +1675,32 @@ msgstr ""
 "Nombre màxim de cel·les en dades de =PYTHON() o dades/interval_de_dades de "
 "l'Execució de script de Python. Els valors més grans utilitzen més memòria "
 "RAM i temps; la lectura d'intervals UNO continua sent el factor dominant."
+
+msgid "Python session mode"
+msgstr "Mode de sessió de Python"
+
+msgid ""
+"Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace "
+"per workbook (variables carry between cells)."
+msgstr ""
+"Isolat: cada cel·la =PYTHON() obté un espai de noms nou. Compartit: un espai"
+" de noms per llibre de treball (les variables es mantenen entre cel·les)."
+
+msgid "Isolated (default)"
+msgstr "Isolat (predeterminat)"
+
+msgid "Shared kernel"
+msgstr "Kernel compartit"
+
+msgid "Force internal script editor"
+msgstr "Força l'editor de scripts intern"
+
+msgid ""
+"If checked, bypasses the Monaco script editor and uses the LibreOffice "
+"dialog."
+msgstr ""
+"Si està marcat, evita l'editor de scripts Monaco i utilitza el diàleg del "
+"LibreOffice."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Eines de document del Writer (incloent-hi la navegació i la cerca)"

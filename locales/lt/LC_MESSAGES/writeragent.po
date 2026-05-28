@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-27 23:10-0400\n"
+"POT-Creation-Date: 2026-05-28 16:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Lithuanian <LL@li.org>\n"
@@ -36,6 +36,30 @@ msgstr ""
 "rinkinio režimu. Norėdami atkurti visą API rinkinį, baigę darbą turite "
 "iškviesti „specialized_workflow_finished“."
 
+#: plugin/notebook/notebook_runner.py
+msgid "Cell execution failed."
+msgstr "Ląstelės vykdymas nepavyko."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Notebook run is only supported in LibreOffice Writer."
+msgstr "Užrašinės vykdymas palaikomas tik „LibreOffice Writer“ programoje."
+
+#: plugin/notebook/notebook_runner.py
+msgid ""
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
+msgstr ""
+"Šiame dokumente nėra importuotos užrašinės. Pirmiausia naudokite „Įrankiai“ "
+"→ „Importuoti „Jupyter“ užrašinę…“."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Could not find notebook cell for this control."
+msgstr "Nepavyko rasti šio valdiklio užrašinės ląstelės."
+
+#: plugin/notebook/notebook_runner.py plugin/notebook/import_dialog.py
+msgid "Open a Writer document first."
+msgstr "Pirmiausia atidarykite „Writer“ dokumentą."
+
 #: plugin/notebook/import_dialog.py
 msgid "Import Jupyter Notebook"
 msgstr "Importuoti „Jupyter“ užrašinę"
@@ -47,10 +71,6 @@ msgstr "„Jupyter“ užrašinė"
 #: plugin/notebook/import_dialog.py
 msgid "All files"
 msgstr "Visi failai"
-
-#: plugin/notebook/import_dialog.py
-msgid "Open a Writer document first."
-msgstr "Pirmiausia atidarykite „Writer“ dokumentą."
 
 #: plugin/notebook/import_dialog.py
 msgid "Import Notebook is only supported in LibreOffice Writer."
@@ -74,6 +94,10 @@ msgstr ""
 "Ląstelės: {cells} (kodas: {code}, „markdown“: {markdown})\n"
 "Kodo įvesties laukai dokumente: {shapes}\n"
 "Išvesties paveikslai: {images}"
+
+#: plugin/notebook/writer_importer.py
+msgid "Run code cell"
+msgstr "Vykdyti kodo ląstelę"
 
 #: plugin/contrib/aihordeclient/__init__.py plugin/chatbot/panel.py
 msgid "Starting..."
@@ -348,6 +372,7 @@ msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "HTTP klaida {0} iš DI teikėjo: {1}"
 
 #: plugin/framework/client/errors.py plugin/calc/python_function.py
+#: plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
 msgstr "Klaida: {0}"
@@ -368,6 +393,65 @@ msgstr ""
 msgid "Image inserted"
 msgstr "Paveikslėlis įterptas"
 
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Initialization script saved. It will run automatically on the next =PYTHON()"
+" recalc."
+msgstr ""
+"Inicijavimo scenarijus įrašytas. Jis bus automatiškai vykdomas kito "
+"=PYTHON() perskaičiavimo metu."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script ran successfully."
+msgstr "Inicijavimo scenarijus sėkmingai įvykdytas."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script cleared."
+msgstr "Inicijavimo scenarijus išvalytas."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script failed."
+msgstr "Inicijavimo scenarijus nepavyko."
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Edit Initialization Script applies to Calc spreadsheets. Open a Calc "
+"workbook and try again."
+msgstr ""
+"„Redaguoti inicijavimo scenarijų“ taikoma „Calc“ skaičiuoklėms. Atidarykite "
+"„Calc“ darbaknygę ir bandykite dar kartą."
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"The Python editor requires a configured venv with pywebview. Set Settings → "
+"Python → Python venv path and install pywebview in that venv."
+msgstr ""
+"Python redaktoriui reikalinga sukonfigūruota venv aplinka su „pywebview“. "
+"Nustatykite Nuostatos → Python → Python venv kelias ir įdiekite „pywebview“ "
+"šioje venv aplinkoje."
+
+#: plugin/calc/init_script_editor.py
+msgid "Workbook Initialization Script"
+msgstr "Darbaknygės inicijavimo scenarijus"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "Vykdyti"
+
+#: plugin/calc/init_script_editor.py plugin/calc/python_editor.py
+#: plugin/scripting/python_runner.py
+msgid "Save"
+msgstr "Įrašyti"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "Užverti"
+
+#: plugin/calc/init_script_editor.py
+msgid "Could not open the Python editor."
+msgstr "Nepavyko atverti Python redaktoriaus."
+
 #: plugin/calc/python_editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
 msgstr "Redaguoti Python langelyje..."
@@ -377,7 +461,7 @@ msgid "Please enter edit instructions!"
 msgstr "Įveskite redagavimo instrukcijas!"
 
 #: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/xdl_strings.py
+#: plugin/chatbot/dialogs.py plugin/xdl_strings.py
 msgid "Input"
 msgstr "Įvestis"
 
@@ -406,10 +490,6 @@ msgstr "Python langelių redaktorius"
 #: plugin/calc/python_editor.py
 msgid "Save as plain text"
 msgstr "Įrašyti kaip paprastąjį tekstą"
-
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
-msgid "Save"
-msgstr "Įrašyti"
 
 #: plugin/calc/python_editor.py
 msgid "The Python editor failed unexpectedly."
@@ -826,17 +906,99 @@ msgstr "Python redaktorius užsidarė nespėjęs įkelti jūsų kodo."
 msgid "Could not talk to the Python editor."
 msgstr "Nepavyko susisiekti su Python redaktoriumi."
 
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
+"Writer document with an imported Jupyter notebook and try again."
+msgstr ""
+"Python seanso nustatymas iš naujo užrašų knygelėms taikomas „LibreOffice "
+"Writer“. Atverkite „Writer“ dokumentą su importuota „Jupyter“ užrašų knygele"
+" ir bandykite dar kartą."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… first."
+msgstr ""
+"Šis „Writer“ dokumentas neturi importuoto užrašų knygelių registro. "
+"Pirmiausia naudokite Įrankiai → Importuoti „Jupyter“ užrašų knygelę…"
+
+#: plugin/scripting/session_manager.py
+msgid "Could not resolve notebook Python session."
+msgstr "Nepavyko nustatyti užrašų knygelės Python seanso."
+
+#: plugin/scripting/session_manager.py
+msgid "Notebook Python session reset for this document."
+msgstr "Užrašų knygelės Python seansas šiam dokumentui nustatytas iš naujo."
+
+#: plugin/scripting/session_manager.py
+msgid "Could not reset Python session."
+msgstr "Nepavyko nustatyti Python seanso iš naujo."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
+"try again."
+msgstr ""
+"Python seanso nustatymas iš naujo taikomas „Calc“ skaičiuoklėms. Atverkite "
+"„Calc“ darbaknygę ir bandykite dar kartą."
+
+#: plugin/scripting/session_manager.py
+msgid "Python session reset for this workbook."
+msgstr "Python seansas šiai darbaknygei nustatytas iš naujo."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Initialization script and any in-memory init state were reset for this "
+"workbook. Cell variables were already isolated per cell."
+msgstr ""
+"Inicijavimo scenarijus ir bet kokia atmintyje buvusi inicijavimo būsena šiai"
+" skaičiuoklės knygai buvo nustatyti iš naujo. Ląstelių kintamieji jau buvo "
+"izoliuoti kiekvienai ląstelei."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Python session mode is Isolated (each =PYTHON() cell uses its own "
+"variables). There is no shared cell session to reset. Add an initialization "
+"script if you need to clear expensive one-time workbook setup."
+msgstr ""
+"Python seanso veiksena yra izoliuota (kiekviena =PYTHON() ląstelė naudoja "
+"savo kintamuosius). Nėra bendro ląstelės seanso, kurį reikėtų nustatyti iš "
+"naujo. Pridėkite inicijavimo scenarijų, jei reikia išvalyti brangiai "
+"kainuojančią vienkartinę skaičiuoklės knygos sąranką."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… to enable notebook Python session reset."
+msgstr ""
+"Šiame Writer dokumente nėra importuoto užrašų knygelės registro. Naudokite "
+"Priemonės → Importuoti Jupyter užrašų knygelę…, kad įgalintumėte užrašų "
+"knygelės Python seanso nustatymą iš naujo."
+
+#: plugin/scripting/init_scripts.py
+#, python-brace-format
+msgid ""
+"Initialization script is too large to store in the document ({0} bytes)."
+msgstr ""
+"Inicijavimo scenarijus yra per didelis, kad jį būtų galima išsaugoti "
+"dokumente ({0} baitų)."
+
 #: plugin/scripting/python_runner.py
 msgid "Run Python Script"
 msgstr "Vykdyti „Python“ scenarijų"
 
 #: plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "Vykdyti"
+msgid "Script:"
+msgstr "Scenarijus:"
 
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "Užverti"
+#: plugin/scripting/python_runner.py
+msgid "Save As..."
+msgstr "Įrašyti kaip..."
+
+#: plugin/scripting/python_runner.py
+msgid "Delete"
+msgstr "Ištrinti"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -847,8 +1009,47 @@ msgstr ""
 "Rezultatą priskirkite kintamajam „result“."
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved successfully."
-msgstr "Scenarijus sėkmingai įrašytas."
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "Scenarijus „%s“ sėkmingai įrašytas."
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad saved successfully."
+msgstr "Pavyzdinė užrašų sritis sėkmingai įrašyta."
+
+#: plugin/scripting/python_runner.py
+msgid "Enter script name:"
+msgstr "Įveskite scenarijaus pavadinimą:"
+
+#: plugin/scripting/python_runner.py
+msgid "Save Script"
+msgstr "Įrašyti scenarijų"
+
+#: plugin/scripting/python_runner.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr "Ar tikrai norite išvalyti pavyzdžių užrašinę?"
+
+#: plugin/scripting/python_runner.py
+msgid "Clear Script"
+msgstr "Išvalyti scenarijų"
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad cleared."
+msgstr "Pavyzdžių užrašinė išvalyta."
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Are you sure you want to delete script '%s'?"
+msgstr "Ar tikrai norite pašalinti scenarijų „%s“?"
+
+#: plugin/scripting/python_runner.py
+msgid "Delete Script"
+msgstr "Pašalinti scenarijų"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "Scenarijus „%s“ pašalintas."
 
 #: plugin/scripting/python_runner.py
 #, python-format
@@ -997,6 +1198,14 @@ msgstr "Vertinimo skydelis"
 #: plugin/main.py
 msgid "Run Python Script..."
 msgstr "Vykdyti „Python“ scenarijų..."
+
+#: plugin/main.py
+msgid "Edit Initialization Script..."
+msgstr "Redaguoti inicijavimo scenarijų..."
+
+#: plugin/main.py
+msgid "Reset Python Session"
+msgstr "Atstatyti „Python“ seansą"
 
 #: plugin/main.py
 msgid "Import Jupyter Notebook..."
@@ -1458,6 +1667,33 @@ msgstr ""
 "Didžiausias langelių skaičius „=PYTHON()“ duomenyse arba „Run Python Script“"
 " duomenų srityje. Didesnės reikšmės naudoja daugiau operatyviosios atminties"
 " ir laiko; UNO srities skaitymas vis tiek išlieka pagrindiniu veiksniu."
+
+msgid "Python session mode"
+msgstr "„Python“ seanso veiksena"
+
+msgid ""
+"Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace "
+"per workbook (variables carry between cells)."
+msgstr ""
+"Izoliuotas: kiekvienas =PYTHON() langelis gauna naują vardų sritį. "
+"Bendrinamas: viena vardų sritis visai darbo knygai (kintamieji išlieka tarp "
+"langelių)."
+
+msgid "Isolated (default)"
+msgstr "Izoliuotas (numatytasis)"
+
+msgid "Shared kernel"
+msgstr "Bendrinamas branduolys"
+
+msgid "Force internal script editor"
+msgstr "Priverstinai naudoti vidinį scenarijų rengyklę"
+
+msgid ""
+"If checked, bypasses the Monaco script editor and uses the LibreOffice "
+"dialog."
+msgstr ""
+"Jei pažymėta, apeinama „Monaco“ scenarijų rengyklė ir naudojamas "
+"„LibreOffice“ dialogas."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "„Writer“ dokumentų įrankiai (įskaitant naršymą ir paiešką)"

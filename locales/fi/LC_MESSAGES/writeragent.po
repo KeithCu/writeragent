@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-27 23:10-0400\n"
+"POT-Creation-Date: 2026-05-28 16:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Finnish <LL@li.org>\n"
@@ -36,6 +36,30 @@ msgstr ""
 "kutsuttava 'specialized_workflow_finished', kun olet valmis, jotta voit "
 "palauttaa täyden API-joukon."
 
+#: plugin/notebook/notebook_runner.py
+msgid "Cell execution failed."
+msgstr "Solun suoritus epäonnistui."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Notebook run is only supported in LibreOffice Writer."
+msgstr "Muistikirjan suoritus on tuettu vain LibreOffice Writerissa."
+
+#: plugin/notebook/notebook_runner.py
+msgid ""
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
+msgstr ""
+"Tässä asiakirjassa ei ole tuotua muistikirjaa. Käytä ensin Työkalut → Tuo "
+"Jupyter-muistikirja…"
+
+#: plugin/notebook/notebook_runner.py
+msgid "Could not find notebook cell for this control."
+msgstr "Tälle ohjauselementille ei löytynyt muistikirjan solua."
+
+#: plugin/notebook/notebook_runner.py plugin/notebook/import_dialog.py
+msgid "Open a Writer document first."
+msgstr "Avaa ensin Writer-asiakirja."
+
 #: plugin/notebook/import_dialog.py
 msgid "Import Jupyter Notebook"
 msgstr "Tuo Jupyter-muistikirja"
@@ -47,10 +71,6 @@ msgstr "Jupyter-muistikirja"
 #: plugin/notebook/import_dialog.py
 msgid "All files"
 msgstr "Kaikki tiedostot"
-
-#: plugin/notebook/import_dialog.py
-msgid "Open a Writer document first."
-msgstr "Avaa ensin Writer-asiakirja."
 
 #: plugin/notebook/import_dialog.py
 msgid "Import Notebook is only supported in LibreOffice Writer."
@@ -73,6 +93,10 @@ msgstr ""
 "Soluja: {cells} (koodia: {code}, markdownia: {markdown})\n"
 "Koodin syöttökenttiä asiakirjassa: {shapes}\n"
 "Tulostekuvia: {images}"
+
+#: plugin/notebook/writer_importer.py
+msgid "Run code cell"
+msgstr "Suorita koodisolu"
 
 #: plugin/contrib/aihordeclient/__init__.py plugin/chatbot/panel.py
 msgid "Starting..."
@@ -347,6 +371,7 @@ msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "HTTP-virhe {0} tekoälypalveluntarjoajalta: {1}"
 
 #: plugin/framework/client/errors.py plugin/calc/python_function.py
+#: plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
 msgstr "Virhe: {0}"
@@ -367,6 +392,65 @@ msgstr ""
 msgid "Image inserted"
 msgstr "Kuva lisätty"
 
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Initialization script saved. It will run automatically on the next =PYTHON()"
+" recalc."
+msgstr ""
+"Alustuskomentosarja tallennettu. Se suoritetaan automaattisesti seuraavan "
+"=PYTHON()-uudelleenlaskennan yhteydessä."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script ran successfully."
+msgstr "Alustuskomentosarja suoritettiin onnistuneesti."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script cleared."
+msgstr "Alustuskomentosarja tyhjennetty."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script failed."
+msgstr "Alustuskomentosarja epäonnistui."
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Edit Initialization Script applies to Calc spreadsheets. Open a Calc "
+"workbook and try again."
+msgstr ""
+"Muokkaa alustuskomentosarjaa -toiminto koskee Calc-laskentataulukoita. Avaa "
+"Calc-työkirja ja yritä uudelleen."
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"The Python editor requires a configured venv with pywebview. Set Settings → "
+"Python → Python venv path and install pywebview in that venv."
+msgstr ""
+"Python-editori vaatii määritetyn venv-ympäristön, jossa on pywebview. Aseta "
+"Asetukset → Python → Python venv -polku ja asenna pywebview kyseiseen venv-"
+"ympäristöön."
+
+#: plugin/calc/init_script_editor.py
+msgid "Workbook Initialization Script"
+msgstr "Työkirjan alustusskripti"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "Suorita"
+
+#: plugin/calc/init_script_editor.py plugin/calc/python_editor.py
+#: plugin/scripting/python_runner.py
+msgid "Save"
+msgstr "Tallenna"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "Sulje"
+
+#: plugin/calc/init_script_editor.py
+msgid "Could not open the Python editor."
+msgstr "Python-editoria ei voitu avata."
+
 #: plugin/calc/python_editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
 msgstr "Muokkaa Pythonia solussa..."
@@ -376,7 +460,7 @@ msgid "Please enter edit instructions!"
 msgstr "Syötä muokkausohjeet!"
 
 #: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/xdl_strings.py
+#: plugin/chatbot/dialogs.py plugin/xdl_strings.py
 msgid "Input"
 msgstr "Syöte"
 
@@ -405,10 +489,6 @@ msgstr "Python-solueditori"
 #: plugin/calc/python_editor.py
 msgid "Save as plain text"
 msgstr "Tallenna pelkkänä tekstinä"
-
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
-msgid "Save"
-msgstr "Tallenna"
 
 #: plugin/calc/python_editor.py
 msgid "The Python editor failed unexpectedly."
@@ -824,17 +904,96 @@ msgstr "Python-editori sulkeutui ennen kuin se ehti ladata koodisi."
 msgid "Could not talk to the Python editor."
 msgstr "Yhteyden muodostaminen Python-editoriin epäonnistui."
 
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
+"Writer document with an imported Jupyter notebook and try again."
+msgstr ""
+"Muistikirjojen Python-istunnon nollaus koskee LibreOffice Writeria. Avaa "
+"Writer-asiakirja, jossa on tuotu Jupyter-muistikirja, ja yritä uudelleen."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… first."
+msgstr ""
+"Tässä Writer-asiakirjassa ei ole tuotua muistikirjarekisteriä. Käytä ensin "
+"Työkalut → Tuo Jupyter-muistikirja… -toimintoa."
+
+#: plugin/scripting/session_manager.py
+msgid "Could not resolve notebook Python session."
+msgstr "Muistikirjan Python-istuntoa ei voitu selvittää."
+
+#: plugin/scripting/session_manager.py
+msgid "Notebook Python session reset for this document."
+msgstr "Muistikirjan Python-istunto on nollattu tälle asiakirjalle."
+
+#: plugin/scripting/session_manager.py
+msgid "Could not reset Python session."
+msgstr "Python-istuntoa ei voitu nollata."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
+"try again."
+msgstr ""
+"Python-istunnon nollaus koskee Calc-laskentataulukoita. Avaa Calc-työkirja "
+"ja yritä uudelleen."
+
+#: plugin/scripting/session_manager.py
+msgid "Python session reset for this workbook."
+msgstr "Python-istunto on nollattu tälle työkirjalle."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Initialization script and any in-memory init state were reset for this "
+"workbook. Cell variables were already isolated per cell."
+msgstr ""
+"Alustuskomentosarja ja kaikki muistissa oleva alustustila on nollattu tälle "
+"työkirjalle. Solumuuttujat oli jo eristetty solukohtaisesti."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Python session mode is Isolated (each =PYTHON() cell uses its own "
+"variables). There is no shared cell session to reset. Add an initialization "
+"script if you need to clear expensive one-time workbook setup."
+msgstr ""
+"Python-istunnon tila on Eristetty (jokainen =PYTHON()-solu käyttää omia "
+"muuttujiaan). Nollattavaa jaettua soluistuntoa ei ole. Lisää "
+"alustuskomentosarja, jos haluat tyhjentää työkirjan kalliit kertaluonteiset "
+"asetukset."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… to enable notebook Python session reset."
+msgstr ""
+"Tässä Writer-asiakirjassa ei ole tuotua Jupyter-muistikirjarekisteriä. Käytä"
+" Työkalut → Tuo Jupyter-muistikirja… ottaaksesi muistikirjan Python-istunnon"
+" nollauksen käyttöön."
+
+#: plugin/scripting/init_scripts.py
+#, python-brace-format
+msgid ""
+"Initialization script is too large to store in the document ({0} bytes)."
+msgstr ""
+"Alustuskomentosarja on liian suuri tallennettavaksi asiakirjaan ({0} tavua)."
+
 #: plugin/scripting/python_runner.py
 msgid "Run Python Script"
 msgstr "Suorita Python-skripti"
 
 #: plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "Suorita"
+msgid "Script:"
+msgstr "Komentosarja:"
 
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "Sulje"
+#: plugin/scripting/python_runner.py
+msgid "Save As..."
+msgstr "Tallenna nimellä..."
+
+#: plugin/scripting/python_runner.py
+msgid "Delete"
+msgstr "Poista"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -845,8 +1004,47 @@ msgstr ""
 "Sijoita tulos 'result'-muuttujaan."
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved successfully."
-msgstr "Skripti tallennettiin onnistuneesti."
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "Komentosarja \"%s\" tallennettiin onnistuneesti."
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad saved successfully."
+msgstr "Luonnoslehtiö tallennettiin onnistuneesti."
+
+#: plugin/scripting/python_runner.py
+msgid "Enter script name:"
+msgstr "Kirjoita komentosarjan nimi:"
+
+#: plugin/scripting/python_runner.py
+msgid "Save Script"
+msgstr "Tallenna skripti"
+
+#: plugin/scripting/python_runner.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr "Haluatko varmasti tyhjentää esimerkkilehtiön?"
+
+#: plugin/scripting/python_runner.py
+msgid "Clear Script"
+msgstr "Tyhjennä skripti"
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad cleared."
+msgstr "Esimerkkilehtiö tyhjennetty."
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Are you sure you want to delete script '%s'?"
+msgstr "Haluatko varmasti poistaa skriptin \"%s\"?"
+
+#: plugin/scripting/python_runner.py
+msgid "Delete Script"
+msgstr "Poista skripti"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "Skripti \"%s\" poistettu."
 
 #: plugin/scripting/python_runner.py
 #, python-format
@@ -993,6 +1191,14 @@ msgstr "Arvioinnin koontinäyttö"
 #: plugin/main.py
 msgid "Run Python Script..."
 msgstr "Suorita Python-skripti..."
+
+#: plugin/main.py
+msgid "Edit Initialization Script..."
+msgstr "Muokkaa alustusskriptiä..."
+
+#: plugin/main.py
+msgid "Reset Python Session"
+msgstr "Nollaa Python-istunto"
 
 #: plugin/main.py
 msgid "Import Jupyter Notebook..."
@@ -1454,6 +1660,32 @@ msgstr ""
 "=PYTHON()-datan tai Run Python Script -datan/data_range-alueen solujen "
 "enimmäismäärä. Suuremmat arvot kuluttavat enemmän RAM-muistia ja aikaa; UNO-"
 "alueen luku on silti hallitseva tekijä."
+
+msgid "Python session mode"
+msgstr "Python-istunnon tila"
+
+msgid ""
+"Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace "
+"per workbook (variables carry between cells)."
+msgstr ""
+"Eristetty: jokainen =PYTHON()-solu saa oman nimiavaruuden. Jaettu: yksi "
+"nimiavaruus työkirjaa kohden (muuttujat säilyvät solujen välillä)."
+
+msgid "Isolated (default)"
+msgstr "Eristetty (oletus)"
+
+msgid "Shared kernel"
+msgstr "Jaettu ydin"
+
+msgid "Force internal script editor"
+msgstr "Pakota sisäinen skriptieditori"
+
+msgid ""
+"If checked, bypasses the Monaco script editor and uses the LibreOffice "
+"dialog."
+msgstr ""
+"Jos valittu, ohittaa Monaco-skriptieditorin ja käyttää LibreOfficen "
+"valintaikkunaa."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer-asiakirjatyökalut (mukaan lukien siirtyminen ja haku)"

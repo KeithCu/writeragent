@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-27 23:10-0400\n"
+"POT-Creation-Date: 2026-05-28 16:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Turkish <LL@li.org>\n"
@@ -36,6 +36,30 @@ msgstr ""
 " API setini geri yüklemek için işiniz bittiğinde "
 "'specialized_workflow_finished' komutunu çağırmalısınız."
 
+#: plugin/notebook/notebook_runner.py
+msgid "Cell execution failed."
+msgstr "Hücre yürütme başarısız oldu."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Notebook run is only supported in LibreOffice Writer."
+msgstr "Not defteri çalıştırma yalnızca LibreOffice Writer'da desteklenir."
+
+#: plugin/notebook/notebook_runner.py
+msgid ""
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
+msgstr ""
+"Bu belgede içe aktarılmış bir not defteri yok. Önce Araçlar → Jupyter Not "
+"Defterini İçe Aktar… seçeneğini kullanın."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Could not find notebook cell for this control."
+msgstr "Bu denetim için not defteri hücresi bulunamadı."
+
+#: plugin/notebook/notebook_runner.py plugin/notebook/import_dialog.py
+msgid "Open a Writer document first."
+msgstr "Önce bir Writer belgesi açın."
+
 #: plugin/notebook/import_dialog.py
 msgid "Import Jupyter Notebook"
 msgstr "Jupyter Notebook'u İçe Aktar"
@@ -47,10 +71,6 @@ msgstr "Jupyter Notebook"
 #: plugin/notebook/import_dialog.py
 msgid "All files"
 msgstr "Tüm dosyalar"
-
-#: plugin/notebook/import_dialog.py
-msgid "Open a Writer document first."
-msgstr "Önce bir Writer belgesi açın."
 
 #: plugin/notebook/import_dialog.py
 msgid "Import Notebook is only supported in LibreOffice Writer."
@@ -74,6 +94,10 @@ msgstr ""
 "Hücreler: {cells} (kod: {code}, markdown: {markdown})\n"
 "Belgedeki kod giriş alanları: {shapes}\n"
 "Çıktı görselleri: {images}"
+
+#: plugin/notebook/writer_importer.py
+msgid "Run code cell"
+msgstr "Kod hücresini çalıştır"
 
 #: plugin/contrib/aihordeclient/__init__.py plugin/chatbot/panel.py
 msgid "Starting..."
@@ -355,6 +379,7 @@ msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "Yapay Zeka Sağlayıcısından HTTP Hatası {0}: {1}"
 
 #: plugin/framework/client/errors.py plugin/calc/python_function.py
+#: plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
 msgstr "Hata: {0}"
@@ -375,6 +400,65 @@ msgstr ""
 msgid "Image inserted"
 msgstr "Görüntü eklendi"
 
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Initialization script saved. It will run automatically on the next =PYTHON()"
+" recalc."
+msgstr ""
+"Başlatma betiği kaydedildi. Bir sonraki =PYTHON() yeniden hesaplamasında "
+"otomatik olarak çalışacaktır."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script ran successfully."
+msgstr "Başlatma betiği başarıyla çalıştırıldı."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script cleared."
+msgstr "Başlatma betiği temizlendi."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script failed."
+msgstr "Başlatma betiği başarısız oldu."
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Edit Initialization Script applies to Calc spreadsheets. Open a Calc "
+"workbook and try again."
+msgstr ""
+"Başlatma Betiğini Düzenle, Calc elektronik tabloları için geçerlidir. Bir "
+"Calc çalışma kitabı açın ve tekrar deneyin."
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"The Python editor requires a configured venv with pywebview. Set Settings → "
+"Python → Python venv path and install pywebview in that venv."
+msgstr ""
+"Python düzenleyicisi, pywebview içeren yapılandırılmış bir venv gerektirir. "
+"Ayarlar → Python → Python venv yolu kısmını ayarlayın ve bu venv içinde "
+"pywebview'i kurun."
+
+#: plugin/calc/init_script_editor.py
+msgid "Workbook Initialization Script"
+msgstr "Çalışma Kitabı Başlatma Betiği"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "Çalıştır"
+
+#: plugin/calc/init_script_editor.py plugin/calc/python_editor.py
+#: plugin/scripting/python_runner.py
+msgid "Save"
+msgstr "Kaydet"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "Kapat"
+
+#: plugin/calc/init_script_editor.py
+msgid "Could not open the Python editor."
+msgstr "Python düzenleyicisi açılamadı."
+
 #: plugin/calc/python_editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
 msgstr "Hücredeki Python'u Düzenle..."
@@ -384,7 +468,7 @@ msgid "Please enter edit instructions!"
 msgstr "Lütfen düzenleme talimatlarını girin!"
 
 #: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/xdl_strings.py
+#: plugin/chatbot/dialogs.py plugin/xdl_strings.py
 msgid "Input"
 msgstr "Girdi"
 
@@ -413,10 +497,6 @@ msgstr "Python hücre düzenleyici"
 #: plugin/calc/python_editor.py
 msgid "Save as plain text"
 msgstr "Düz metin olarak kaydet"
-
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
-msgid "Save"
-msgstr "Kaydet"
 
 #: plugin/calc/python_editor.py
 msgid "The Python editor failed unexpectedly."
@@ -832,17 +912,96 @@ msgstr "Python düzenleyicisi kodunuzu yükleyemeden kapandı."
 msgid "Could not talk to the Python editor."
 msgstr "Python düzenleyicisi ile iletişim kurulamadı."
 
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
+"Writer document with an imported Jupyter notebook and try again."
+msgstr ""
+"Not defterleri için Python Oturumunu Sıfırla işlemi LibreOffice Writer için "
+"geçerlidir. İçe aktarılmış bir Jupyter not defteri içeren bir Writer belgesi"
+" açın ve tekrar deneyin."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… first."
+msgstr ""
+"Bu Writer belgesinde içe aktarılmış bir not defteri kaydı bulunmuyor. Önce "
+"Araçlar → Jupyter Not Defteri İçe Aktar… seçeneğini kullanın."
+
+#: plugin/scripting/session_manager.py
+msgid "Could not resolve notebook Python session."
+msgstr "Not defteri Python oturumu çözümlenemedi."
+
+#: plugin/scripting/session_manager.py
+msgid "Notebook Python session reset for this document."
+msgstr "Bu belge için not defteri Python oturumu sıfırlandı."
+
+#: plugin/scripting/session_manager.py
+msgid "Could not reset Python session."
+msgstr "Python oturumu sıfırlanamadı."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
+"try again."
+msgstr ""
+"Python Oturumunu Sıfırla işlemi Calc elektronik tabloları için geçerlidir. "
+"Bir Calc çalışma kitabı açın ve tekrar deneyin."
+
+#: plugin/scripting/session_manager.py
+msgid "Python session reset for this workbook."
+msgstr "Bu çalışma kitabı için Python oturumu sıfırlandı."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Initialization script and any in-memory init state were reset for this "
+"workbook. Cell variables were already isolated per cell."
+msgstr ""
+"Bu çalışma kitabı için başlatma betiği ve bellek içi başlatma durumu "
+"sıfırlandı. Hücre değişkenleri zaten hücre bazında yalıtılmıştı."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Python session mode is Isolated (each =PYTHON() cell uses its own "
+"variables). There is no shared cell session to reset. Add an initialization "
+"script if you need to clear expensive one-time workbook setup."
+msgstr ""
+"Python oturum modu Yalıtılmış (her =PYTHON() hücresi kendi değişkenlerini "
+"kullanır). Sıfırlanacak paylaşılan bir hücre oturumu yok. Maliyetli tek "
+"seferlik çalışma kitabı kurulumunu temizlemeniz gerekiyorsa bir başlatma "
+"betiği ekleyin."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… to enable notebook Python session reset."
+msgstr ""
+"Bu Writer belgesinde içe aktarılmış bir not defteri kaydı yok. Not defteri "
+"Python oturum sıfırlamasını etkinleştirmek için Araçlar → Jupyter Not "
+"Defterini İçe Aktar… seçeneğini kullanın."
+
+#: plugin/scripting/init_scripts.py
+#, python-brace-format
+msgid ""
+"Initialization script is too large to store in the document ({0} bytes)."
+msgstr "Başlatma betiği belgede saklanamayacak kadar büyük ({0} bayt)."
+
 #: plugin/scripting/python_runner.py
 msgid "Run Python Script"
 msgstr "Python Betiğini Çalıştır"
 
 #: plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "Çalıştır"
+msgid "Script:"
+msgstr "Betik:"
 
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "Kapat"
+#: plugin/scripting/python_runner.py
+msgid "Save As..."
+msgstr "Farklı Kaydet..."
+
+#: plugin/scripting/python_runner.py
+msgid "Delete"
+msgstr "Sil"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -853,8 +1012,47 @@ msgstr ""
 "Sonucu 'result' değişkenine atayın."
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved successfully."
-msgstr "Betik başarıyla kaydedildi."
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "'%s' betiği başarıyla kaydedildi."
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad saved successfully."
+msgstr "Örnek karalama defteri başarıyla kaydedildi."
+
+#: plugin/scripting/python_runner.py
+msgid "Enter script name:"
+msgstr "Betik adını girin:"
+
+#: plugin/scripting/python_runner.py
+msgid "Save Script"
+msgstr "Betik Kaydet"
+
+#: plugin/scripting/python_runner.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr "Örnek karalama defterini temizlemek istediğinizden emin misiniz?"
+
+#: plugin/scripting/python_runner.py
+msgid "Clear Script"
+msgstr "Betik Temizle"
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad cleared."
+msgstr "Örnek karalama defteri temizlendi."
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Are you sure you want to delete script '%s'?"
+msgstr "'%s' betiğini silmek istediğinizden emin misiniz?"
+
+#: plugin/scripting/python_runner.py
+msgid "Delete Script"
+msgstr "Betik Sil"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "'%s' betiği silindi."
 
 #: plugin/scripting/python_runner.py
 #, python-format
@@ -1002,6 +1200,14 @@ msgstr "Değerlendirme Panosu"
 #: plugin/main.py
 msgid "Run Python Script..."
 msgstr "Python Betiğini Çalıştır..."
+
+#: plugin/main.py
+msgid "Edit Initialization Script..."
+msgstr "Başlatma Betiğini Düzenle..."
+
+#: plugin/main.py
+msgid "Reset Python Session"
+msgstr "Python Oturumunu Sıfırla"
 
 #: plugin/main.py
 msgid "Import Jupyter Notebook..."
@@ -1460,6 +1666,32 @@ msgstr ""
 "=PYTHON() verisindeki veya Python Betiği Çalıştır verisi/veri_aralığındaki "
 "maksimum hücre sayısı. Daha büyük değerler daha fazla bellek ve zaman "
 "harcar; UNO aralık okuma işlemi yine de baskındır."
+
+msgid "Python session mode"
+msgstr "Python oturum modu"
+
+msgid ""
+"Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace "
+"per workbook (variables carry between cells)."
+msgstr ""
+"Yalıtılmış: her =PYTHON() hücresi yeni bir ad alanı alır. Paylaşılan: "
+"çalışma kitabı başına bir ad alanı (değişkenler hücreler arasında taşınır)."
+
+msgid "Isolated (default)"
+msgstr "Yalıtılmış (varsayılan)"
+
+msgid "Shared kernel"
+msgstr "Paylaşılan çekirdek"
+
+msgid "Force internal script editor"
+msgstr "Dahili betik düzenleyiciyi zorla"
+
+msgid ""
+"If checked, bypasses the Monaco script editor and uses the LibreOffice "
+"dialog."
+msgstr ""
+"İşaretliyse, Monaco betik düzenleyiciyi atlar ve LibreOffice iletişim "
+"kutusunu kullanır."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer belge araçları (gezinme ve arama dahil)"

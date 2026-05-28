@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-27 23:10-0400\n"
+"POT-Creation-Date: 2026-05-28 16:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Hindi <LL@li.org>\n"
@@ -36,6 +36,30 @@ msgstr ""
 "सेट को पुनर्स्थापित करने के लिए आपको कार्य पूरा होने पर "
 "'specialized_workflow_finished' कॉल करना होगा।"
 
+#: plugin/notebook/notebook_runner.py
+msgid "Cell execution failed."
+msgstr "सेल निष्पादन विफल रहा।"
+
+#: plugin/notebook/notebook_runner.py
+msgid "Notebook run is only supported in LibreOffice Writer."
+msgstr "नोटबुक रन केवल LibreOffice Writer में समर्थित है।"
+
+#: plugin/notebook/notebook_runner.py
+msgid ""
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
+msgstr ""
+"इस दस्तावेज़ में कोई आयातित नोटबुक नहीं है। पहले उपकरण → Jupyter नोटबुक आयात"
+" करें… का उपयोग करें।"
+
+#: plugin/notebook/notebook_runner.py
+msgid "Could not find notebook cell for this control."
+msgstr "इस नियंत्रण के लिए नोटबुक सेल नहीं मिल सका।"
+
+#: plugin/notebook/notebook_runner.py plugin/notebook/import_dialog.py
+msgid "Open a Writer document first."
+msgstr "पहले एक Writer दस्तावेज़ खोलें।"
+
 #: plugin/notebook/import_dialog.py
 msgid "Import Jupyter Notebook"
 msgstr "Jupyter नोटबुक आयात करें"
@@ -47,10 +71,6 @@ msgstr "Jupyter नोटबुक"
 #: plugin/notebook/import_dialog.py
 msgid "All files"
 msgstr "सभी फ़ाइलें"
-
-#: plugin/notebook/import_dialog.py
-msgid "Open a Writer document first."
-msgstr "पहले एक Writer दस्तावेज़ खोलें।"
 
 #: plugin/notebook/import_dialog.py
 msgid "Import Notebook is only supported in LibreOffice Writer."
@@ -73,6 +93,10 @@ msgstr ""
 "सेल्स: {cells} (कोड: {code}, मार्कडाउन: {markdown})\n"
 "दस्तावेज़ में कोड इनपुट फ़ील्ड: {shapes}\n"
 "आउटपुट चित्र: {images}"
+
+#: plugin/notebook/writer_importer.py
+msgid "Run code cell"
+msgstr "कोड सेल चलाएँ"
 
 #: plugin/contrib/aihordeclient/__init__.py plugin/chatbot/panel.py
 msgid "Starting..."
@@ -356,6 +380,7 @@ msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "AI प्रदाता से HTTP त्रुटि {0}: {1}"
 
 #: plugin/framework/client/errors.py plugin/calc/python_function.py
+#: plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
 msgstr "त्रुटि: {0}"
@@ -376,6 +401,65 @@ msgstr ""
 msgid "Image inserted"
 msgstr "छवि सम्मिलित की गई"
 
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Initialization script saved. It will run automatically on the next =PYTHON()"
+" recalc."
+msgstr ""
+"आरंभीकरण स्क्रिप्ट सहेजी गई। यह अगली =PYTHON() पुनर्गणना पर स्वचालित रूप से "
+"चलेगी।"
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script ran successfully."
+msgstr "आरंभीकरण स्क्रिप्ट सफलतापूर्वक चली।"
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script cleared."
+msgstr "आरंभीकरण स्क्रिप्ट साफ़ कर दी गई।"
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script failed."
+msgstr "आरंभीकरण स्क्रिप्ट विफल रही।"
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Edit Initialization Script applies to Calc spreadsheets. Open a Calc "
+"workbook and try again."
+msgstr ""
+"आरंभीकरण स्क्रिप्ट संपादित करें Calc स्प्रेडशीट पर लागू होता है। एक Calc "
+"वर्कबुक खोलें और पुनः प्रयास करें।"
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"The Python editor requires a configured venv with pywebview. Set Settings → "
+"Python → Python venv path and install pywebview in that venv."
+msgstr ""
+"Python संपादक के लिए pywebview के साथ एक कॉन्फ़िगर किए गए venv की आवश्यकता "
+"है। Settings → Python → Python venv path सेट करें और उस venv में pywebview "
+"इंस्टॉल करें।"
+
+#: plugin/calc/init_script_editor.py
+msgid "Workbook Initialization Script"
+msgstr "वर्कबुक आरंभीकरण स्क्रिप्ट"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "चलाएँ"
+
+#: plugin/calc/init_script_editor.py plugin/calc/python_editor.py
+#: plugin/scripting/python_runner.py
+msgid "Save"
+msgstr "सहेजें"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "बंद करें"
+
+#: plugin/calc/init_script_editor.py
+msgid "Could not open the Python editor."
+msgstr "Python संपादक को खोला नहीं जा सका।"
+
 #: plugin/calc/python_editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
 msgstr "सेल में पायथन संपादित करें..."
@@ -385,7 +469,7 @@ msgid "Please enter edit instructions!"
 msgstr "कृपया संपादन निर्देश दर्ज करें!"
 
 #: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/xdl_strings.py
+#: plugin/chatbot/dialogs.py plugin/xdl_strings.py
 msgid "Input"
 msgstr "इनपुट"
 
@@ -414,10 +498,6 @@ msgstr "पायथन सेल एडिटर"
 #: plugin/calc/python_editor.py
 msgid "Save as plain text"
 msgstr "सादे टेक्स्ट के रूप में सहेजें"
-
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
-msgid "Save"
-msgstr "सहेजें"
 
 #: plugin/calc/python_editor.py
 msgid "The Python editor failed unexpectedly."
@@ -834,17 +914,98 @@ msgstr "आपका कोड लोड होने से पहले ही
 msgid "Could not talk to the Python editor."
 msgstr "पायथन एडिटर से संपर्क नहीं हो सका।"
 
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
+"Writer document with an imported Jupyter notebook and try again."
+msgstr ""
+"नोटबुक्स के लिए Python सत्र रीसेट करना LibreOffice Writer पर लागू होता है। "
+"एक आयातित Jupyter नोटबुक के साथ एक Writer दस्तावेज़ खोलें और पुनः प्रयास "
+"करें।"
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… first."
+msgstr ""
+"इस Writer दस्तावेज़ में कोई आयातित नोटबुक रजिस्ट्री नहीं है। पहले Tools → "
+"Import Jupyter Notebook… का उपयोग करें।"
+
+#: plugin/scripting/session_manager.py
+msgid "Could not resolve notebook Python session."
+msgstr "नोटबुक Python सत्र को हल नहीं किया जा सका।"
+
+#: plugin/scripting/session_manager.py
+msgid "Notebook Python session reset for this document."
+msgstr "इस दस्तावेज़ के लिए नोटबुक Python सत्र रीसेट कर दिया गया है।"
+
+#: plugin/scripting/session_manager.py
+msgid "Could not reset Python session."
+msgstr "Python सत्र को रीसेट नहीं किया जा सका।"
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
+"try again."
+msgstr ""
+"Python सत्र रीसेट करना Calc स्प्रेडशीट पर लागू होता है। एक Calc वर्कबुक "
+"खोलें और पुनः प्रयास करें।"
+
+#: plugin/scripting/session_manager.py
+msgid "Python session reset for this workbook."
+msgstr "इस वर्कबुक के लिए Python सत्र रीसेट कर दिया गया है।"
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Initialization script and any in-memory init state were reset for this "
+"workbook. Cell variables were already isolated per cell."
+msgstr ""
+"इस वर्कबुक के लिए आरंभीकरण स्क्रिप्ट और किसी भी इन-मेमोरी इनिट स्थिति को "
+"रीसेट कर दिया गया था। सेल वेरिएबल पहले से ही प्रति सेल अलग-थलग थे।"
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Python session mode is Isolated (each =PYTHON() cell uses its own "
+"variables). There is no shared cell session to reset. Add an initialization "
+"script if you need to clear expensive one-time workbook setup."
+msgstr ""
+"पायथन सत्र मोड 'आइसोलेटेड' (प्रत्येक =PYTHON() सेल अपने स्वयं के वेरिएबल का "
+"उपयोग करता है) है। रीसेट करने के लिए कोई साझा सेल सत्र नहीं है। यदि आपको "
+"महंगे वन-टाइम वर्कबुक सेटअप को क्लियर करने की आवश्यकता है, तो एक आरंभीकरण "
+"स्क्रिप्ट जोड़ें।"
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… to enable notebook Python session reset."
+msgstr ""
+"इस राइटर दस्तावेज़ में कोई आयातित नोटबुक रजिस्ट्री नहीं है। नोटबुक पायथन "
+"सत्र रीसेट को सक्षम करने के लिए टूल्स → जुपिटर नोटबुक आयात करें… का उपयोग "
+"करें।"
+
+#: plugin/scripting/init_scripts.py
+#, python-brace-format
+msgid ""
+"Initialization script is too large to store in the document ({0} bytes)."
+msgstr ""
+"आरंभीकरण स्क्रिप्ट दस्तावेज़ में संग्रहीत करने के लिए बहुत बड़ी है ({0} "
+"बाइट्स)।"
+
 #: plugin/scripting/python_runner.py
 msgid "Run Python Script"
 msgstr "पायथन स्क्रिप्ट चलाएँ"
 
 #: plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "चलाएँ"
+msgid "Script:"
+msgstr "स्क्रिप्ट:"
 
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "बंद करें"
+#: plugin/scripting/python_runner.py
+msgid "Save As..."
+msgstr "इस रूप में सहेजें..."
+
+#: plugin/scripting/python_runner.py
+msgid "Delete"
+msgstr "मिटाएं"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -855,8 +1016,47 @@ msgstr ""
 "परिणाम को 'result' वेरिएबल में असाइन करें।"
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved successfully."
-msgstr "स्क्रिप्ट सफलतापूर्वक सहेजी गई।"
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "स्क्रिप्ट '%s' सफलतापूर्वक सहेजी गई।"
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad saved successfully."
+msgstr "सैंपल स्क्रैचपैड सफलतापूर्वक सहेजा गया।"
+
+#: plugin/scripting/python_runner.py
+msgid "Enter script name:"
+msgstr "स्क्रिप्ट का नाम दर्ज करें:"
+
+#: plugin/scripting/python_runner.py
+msgid "Save Script"
+msgstr "स्क्रिप्ट सहेजें"
+
+#: plugin/scripting/python_runner.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr "क्या आप वाकई सैंपल स्क्रैचपैड को साफ़ करना चाहते हैं?"
+
+#: plugin/scripting/python_runner.py
+msgid "Clear Script"
+msgstr "स्क्रिप्ट साफ़ करें"
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad cleared."
+msgstr "सैंपल स्क्रैचपैड साफ़ कर दिया गया है।"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Are you sure you want to delete script '%s'?"
+msgstr "क्या आप वाकई स्क्रिप्ट '%s' को हटाना चाहते हैं?"
+
+#: plugin/scripting/python_runner.py
+msgid "Delete Script"
+msgstr "स्क्रिप्ट हटाएं"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "स्क्रिप्ट '%s' हटा दी गई है।"
 
 #: plugin/scripting/python_runner.py
 #, python-format
@@ -1003,6 +1203,14 @@ msgstr "मूल्यांकन डैशबोर्ड"
 #: plugin/main.py
 msgid "Run Python Script..."
 msgstr "पायथन स्क्रिप्ट चलाएँ..."
+
+#: plugin/main.py
+msgid "Edit Initialization Script..."
+msgstr "आरंभीकरण स्क्रिप्ट संपादित करें..."
+
+#: plugin/main.py
+msgid "Reset Python Session"
+msgstr "पायथन सत्र रीसेट करें"
 
 #: plugin/main.py
 msgid "Import Jupyter Notebook..."
@@ -1457,6 +1665,32 @@ msgid ""
 msgstr ""
 "=PYTHON() डेटा या रन पायथन स्क्रिप्ट डेटा/डेटा_रेंज में अधिकतम सेल। बड़े मान"
 " अधिक RAM और समय का उपयोग करते हैं; UNO रेंज रीड अभी भी प्रभावी है।"
+
+msgid "Python session mode"
+msgstr "पायथन सत्र मोड"
+
+msgid ""
+"Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace "
+"per workbook (variables carry between cells)."
+msgstr ""
+"पृथक: प्रत्येक =PYTHON() सेल को एक नया नेमस्पेस मिलता है। साझा: प्रति "
+"वर्कबुक एक नेमस्पेस (वेरिएबल सेल के बीच बने रहते हैं)।"
+
+msgid "Isolated (default)"
+msgstr "पृथक (डिफ़ॉल्ट)"
+
+msgid "Shared kernel"
+msgstr "साझा कर्नल"
+
+msgid "Force internal script editor"
+msgstr "आंतरिक स्क्रिप्ट संपादक को बाध्य करें"
+
+msgid ""
+"If checked, bypasses the Monaco script editor and uses the LibreOffice "
+"dialog."
+msgstr ""
+"यदि चेक किया गया है, तो यह मोनाको स्क्रिप्ट संपादक को बायपास करता है और "
+"लिब्रे ऑफिस संवाद का उपयोग करता है।"
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer दस्तावेज़ उपकरण (नेविगेशन और खोज सहित)"

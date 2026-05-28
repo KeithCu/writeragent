@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-27 23:10-0400\n"
+"POT-Creation-Date: 2026-05-28 16:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Korean <LL@li.org>\n"
@@ -33,6 +33,28 @@ msgstr ""
 "도구 호출이 '{0}'(으)로 전환되었습니다. 현재 특수 도구 모드입니다. 전체 API 세트를 복원하려면 작업 완료 후 "
 "'specialized_workflow_finished'를 호출해야 합니다."
 
+#: plugin/notebook/notebook_runner.py
+msgid "Cell execution failed."
+msgstr "셀 실행에 실패했습니다."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Notebook run is only supported in LibreOffice Writer."
+msgstr "노트북 실행은 LibreOffice Writer에서만 지원됩니다."
+
+#: plugin/notebook/notebook_runner.py
+msgid ""
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
+msgstr "이 문서에는 가져온 노트북이 없습니다. 먼저 도구 → Jupyter 노트북 가져오기…를 사용하십시오."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Could not find notebook cell for this control."
+msgstr "이 컨트롤에 대한 노트북 셀을 찾을 수 없습니다."
+
+#: plugin/notebook/notebook_runner.py plugin/notebook/import_dialog.py
+msgid "Open a Writer document first."
+msgstr "먼저 Writer 문서를 여십시오."
+
 #: plugin/notebook/import_dialog.py
 msgid "Import Jupyter Notebook"
 msgstr "Jupyter Notebook 가져오기"
@@ -44,10 +66,6 @@ msgstr "Jupyter Notebook"
 #: plugin/notebook/import_dialog.py
 msgid "All files"
 msgstr "모든 파일"
-
-#: plugin/notebook/import_dialog.py
-msgid "Open a Writer document first."
-msgstr "먼저 Writer 문서를 여십시오."
 
 #: plugin/notebook/import_dialog.py
 msgid "Import Notebook is only supported in LibreOffice Writer."
@@ -70,6 +88,10 @@ msgstr ""
 "셀: {cells} (코드: {code}, 마크다운: {markdown})\n"
 "문서 내 코드 입력 필드: {shapes}\n"
 "출력 이미지: {images}"
+
+#: plugin/notebook/writer_importer.py
+msgid "Run code cell"
+msgstr "코드 셀 실행"
 
 #: plugin/contrib/aihordeclient/__init__.py plugin/chatbot/panel.py
 msgid "Starting..."
@@ -322,6 +344,7 @@ msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "AI 공급자로부터 HTTP 오류 {0} 발생: {1}"
 
 #: plugin/framework/client/errors.py plugin/calc/python_function.py
+#: plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
 msgstr "오류: {0}"
@@ -340,6 +363,60 @@ msgstr "모델이 동일한 청크를 반복하고 있습니다(무한 루프). 
 msgid "Image inserted"
 msgstr "이미지 삽입됨"
 
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Initialization script saved. It will run automatically on the next =PYTHON()"
+" recalc."
+msgstr "초기화 스크립트가 저장되었습니다. 다음 =PYTHON() 재계산 시 자동으로 실행됩니다."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script ran successfully."
+msgstr "초기화 스크립트가 성공적으로 실행되었습니다."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script cleared."
+msgstr "초기화 스크립트가 삭제되었습니다."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script failed."
+msgstr "초기화 스크립트 실행에 실패했습니다."
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Edit Initialization Script applies to Calc spreadsheets. Open a Calc "
+"workbook and try again."
+msgstr "초기화 스크립트 편집은 Calc 스프레드시트에 적용됩니다. Calc 통합 문서를 열고 다시 시도하십시오."
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"The Python editor requires a configured venv with pywebview. Set Settings → "
+"Python → Python venv path and install pywebview in that venv."
+msgstr ""
+"Python 편집기를 사용하려면 pywebview가 포함된 venv 설정이 필요합니다. 설정 → Python → Python venv "
+"경로를 지정하고 해당 venv에 pywebview를 설치하십시오."
+
+#: plugin/calc/init_script_editor.py
+msgid "Workbook Initialization Script"
+msgstr "통합 문서 초기화 스크립트"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "실행"
+
+#: plugin/calc/init_script_editor.py plugin/calc/python_editor.py
+#: plugin/scripting/python_runner.py
+msgid "Save"
+msgstr "저장"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "닫기"
+
+#: plugin/calc/init_script_editor.py
+msgid "Could not open the Python editor."
+msgstr "Python 편집기를 열 수 없습니다."
+
 #: plugin/calc/python_editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
 msgstr "셀에서 Python 편집..."
@@ -349,7 +426,7 @@ msgid "Please enter edit instructions!"
 msgstr "편집 지침을 입력하십시오!"
 
 #: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/xdl_strings.py
+#: plugin/chatbot/dialogs.py plugin/xdl_strings.py
 msgid "Input"
 msgstr "입력"
 
@@ -377,10 +454,6 @@ msgstr "Python 셀 편집기"
 #: plugin/calc/python_editor.py
 msgid "Save as plain text"
 msgstr "일반 텍스트로 저장"
-
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
-msgid "Save"
-msgstr "저장"
 
 #: plugin/calc/python_editor.py
 msgid "The Python editor failed unexpectedly."
@@ -786,17 +859,87 @@ msgstr "Python 편집기가 코드를 로드하기 전에 종료되었습니다.
 msgid "Could not talk to the Python editor."
 msgstr "Python 편집기와 통신할 수 없습니다."
 
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
+"Writer document with an imported Jupyter notebook and try again."
+msgstr ""
+"노트북용 Python 세션 재설정은 LibreOffice Writer에 적용됩니다. Jupyter 노트북을 가져온 Writer 문서를 "
+"열고 다시 시도하십시오."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… first."
+msgstr "이 Writer 문서에는 가져온 노트북 레지스트리가 없습니다. 먼저 도구 → Jupyter 노트북 가져오기…를 사용하십시오."
+
+#: plugin/scripting/session_manager.py
+msgid "Could not resolve notebook Python session."
+msgstr "노트북 Python 세션을 확인할 수 없습니다."
+
+#: plugin/scripting/session_manager.py
+msgid "Notebook Python session reset for this document."
+msgstr "이 문서에 대한 노트북 Python 세션이 재설정되었습니다."
+
+#: plugin/scripting/session_manager.py
+msgid "Could not reset Python session."
+msgstr "Python 세션을 재설정할 수 없습니다."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
+"try again."
+msgstr "Python 세션 재설정은 Calc 스프레드시트에 적용됩니다. Calc 통합 문서를 열고 다시 시도하십시오."
+
+#: plugin/scripting/session_manager.py
+msgid "Python session reset for this workbook."
+msgstr "이 통합 문서에 대한 Python 세션이 재설정되었습니다."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Initialization script and any in-memory init state were reset for this "
+"workbook. Cell variables were already isolated per cell."
+msgstr ""
+"이 통합 문서에 대한 초기화 스크립트 및 모든 메모리 내 초기화 상태가 재설정되었습니다. 셀 변수는 이미 셀별로 격리되어 있습니다."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Python session mode is Isolated (each =PYTHON() cell uses its own "
+"variables). There is no shared cell session to reset. Add an initialization "
+"script if you need to clear expensive one-time workbook setup."
+msgstr ""
+"Python 세션 모드가 격리됨(각 =PYTHON() 셀이 자체 변수를 사용)으로 설정되어 있습니다. 재설정할 공유 셀 세션이 없습니다."
+" 비용이 많이 드는 일회성 통합 문서 설정이 필요한 경우 초기화 스크립트를 추가하십시오."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… to enable notebook Python session reset."
+msgstr ""
+"이 Writer 문서에는 가져온 노트북 레지스트리가 없습니다. 노트북 Python 세션 재설정을 활성화하려면 도구 → Jupyter "
+"노트북 가져오기…를 사용하십시오."
+
+#: plugin/scripting/init_scripts.py
+#, python-brace-format
+msgid ""
+"Initialization script is too large to store in the document ({0} bytes)."
+msgstr "초기화 스크립트가 너무 커서 문서에 저장할 수 없습니다({0} 바이트)."
+
 #: plugin/scripting/python_runner.py
 msgid "Run Python Script"
 msgstr "Python 스크립트 실행"
 
 #: plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "실행"
+msgid "Script:"
+msgstr "스크립트:"
 
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "닫기"
+#: plugin/scripting/python_runner.py
+msgid "Save As..."
+msgstr "다른 이름으로 저장..."
+
+#: plugin/scripting/python_runner.py
+msgid "Delete"
+msgstr "삭제"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -807,8 +950,47 @@ msgstr ""
 "결과를 'result' 변수에 할당하세요."
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved successfully."
-msgstr "스크립트가 성공적으로 저장되었습니다."
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "스크립트 '%s'이(가) 성공적으로 저장되었습니다."
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad saved successfully."
+msgstr "샘플 스크래치패드가 성공적으로 저장되었습니다."
+
+#: plugin/scripting/python_runner.py
+msgid "Enter script name:"
+msgstr "스크립트 이름 입력:"
+
+#: plugin/scripting/python_runner.py
+msgid "Save Script"
+msgstr "스크립트 저장"
+
+#: plugin/scripting/python_runner.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr "샘플 스크래치패드를 지우시겠습니까?"
+
+#: plugin/scripting/python_runner.py
+msgid "Clear Script"
+msgstr "스크립트 지우기"
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad cleared."
+msgstr "샘플 스크래치패드가 지워졌습니다."
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Are you sure you want to delete script '%s'?"
+msgstr "스크립트 '%s'을(를) 삭제하시겠습니까?"
+
+#: plugin/scripting/python_runner.py
+msgid "Delete Script"
+msgstr "스크립트 삭제"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "스크립트 '%s'이(가) 삭제되었습니다."
 
 #: plugin/scripting/python_runner.py
 #, python-format
@@ -951,6 +1133,14 @@ msgstr "평가 대시보드"
 #: plugin/main.py
 msgid "Run Python Script..."
 msgstr "Python 스크립트 실행..."
+
+#: plugin/main.py
+msgid "Edit Initialization Script..."
+msgstr "초기화 스크립트 편집..."
+
+#: plugin/main.py
+msgid "Reset Python Session"
+msgstr "Python 세션 재설정"
 
 #: plugin/main.py
 msgid "Import Jupyter Notebook..."
@@ -1391,6 +1581,30 @@ msgid ""
 msgstr ""
 "=PYTHON() 데이터 또는 Python 스크립트 실행 데이터/데이터_범위의 최대 셀 수입니다. 값이 클수록 더 많은 RAM과 시간이 "
 "소요되며, UNO 범위 읽기가 여전히 주된 작업입니다."
+
+msgid "Python session mode"
+msgstr "Python 세션 모드"
+
+msgid ""
+"Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace "
+"per workbook (variables carry between cells)."
+msgstr ""
+"격리됨: 각 =PYTHON() 셀은 독립된 네임스페이스를 가집니다. 공유됨: 통합 문서당 하나의 네임스페이스를 공유합니다(변수가 셀 간에"
+" 유지됨)."
+
+msgid "Isolated (default)"
+msgstr "격리됨 (기본값)"
+
+msgid "Shared kernel"
+msgstr "공유 커널"
+
+msgid "Force internal script editor"
+msgstr "내부 스크립트 편집기 강제 사용"
+
+msgid ""
+"If checked, bypasses the Monaco script editor and uses the LibreOffice "
+"dialog."
+msgstr "선택 시, Monaco 스크립트 편집기를 우회하고 LibreOffice 대화 상자를 사용합니다."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer 문서 도구 (탐색 및 검색 포함)"

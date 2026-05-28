@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-27 23:10-0400\n"
+"POT-Creation-Date: 2026-05-28 16:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Romanian <LL@li.org>\n"
@@ -36,6 +36,30 @@ msgstr ""
 "instrumente specializat. Trebuie să apelați „specialized_workflow_finished” "
 "când ați terminat pentru a restaura setul complet de API-uri."
 
+#: plugin/notebook/notebook_runner.py
+msgid "Cell execution failed."
+msgstr "Execuția celulei a eșuat."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Notebook run is only supported in LibreOffice Writer."
+msgstr "Executarea notebook-ului este suportată doar în LibreOffice Writer."
+
+#: plugin/notebook/notebook_runner.py
+msgid ""
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
+msgstr ""
+"Acest document nu are niciun notebook importat. Utilizați mai întâi "
+"Instrumente → Importă notebook Jupyter…"
+
+#: plugin/notebook/notebook_runner.py
+msgid "Could not find notebook cell for this control."
+msgstr "Nu s-a putut găsi celula notebook pentru acest control."
+
+#: plugin/notebook/notebook_runner.py plugin/notebook/import_dialog.py
+msgid "Open a Writer document first."
+msgstr "Deschideți mai întâi un document Writer."
+
 #: plugin/notebook/import_dialog.py
 msgid "Import Jupyter Notebook"
 msgstr "Importare Jupyter Notebook"
@@ -47,10 +71,6 @@ msgstr "Jupyter Notebook"
 #: plugin/notebook/import_dialog.py
 msgid "All files"
 msgstr "Toate fișierele"
-
-#: plugin/notebook/import_dialog.py
-msgid "Open a Writer document first."
-msgstr "Deschideți mai întâi un document Writer."
 
 #: plugin/notebook/import_dialog.py
 msgid "Import Notebook is only supported in LibreOffice Writer."
@@ -73,6 +93,10 @@ msgstr ""
 "Celule: {cells} (cod: {code}, markdown: {markdown})\n"
 "Câmpuri de introducere cod în document: {shapes}\n"
 "Imagini de ieșire: {images}"
+
+#: plugin/notebook/writer_importer.py
+msgid "Run code cell"
+msgstr "Execută celula de cod"
 
 #: plugin/contrib/aihordeclient/__init__.py plugin/chatbot/panel.py
 msgid "Starting..."
@@ -353,6 +377,7 @@ msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "Eroare HTTP {0} de la furnizorul AI: {1}"
 
 #: plugin/framework/client/errors.py plugin/calc/python_function.py
+#: plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
 msgstr "Eroare: {0}"
@@ -373,6 +398,64 @@ msgstr ""
 msgid "Image inserted"
 msgstr "Imagine inserată"
 
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Initialization script saved. It will run automatically on the next =PYTHON()"
+" recalc."
+msgstr ""
+"Scriptul de inițializare a fost salvat. Acesta va rula automat la următoarea"
+" recalculare =PYTHON()."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script ran successfully."
+msgstr "Scriptul de inițializare a rulat cu succes."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script cleared."
+msgstr "Scriptul de inițializare a fost șters."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script failed."
+msgstr "Scriptul de inițializare a eșuat."
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Edit Initialization Script applies to Calc spreadsheets. Open a Calc "
+"workbook and try again."
+msgstr ""
+"Editarea scriptului de inițializare se aplică foilor de calcul Calc. "
+"Deschideți un registru de lucru Calc și încercați din nou."
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"The Python editor requires a configured venv with pywebview. Set Settings → "
+"Python → Python venv path and install pywebview in that venv."
+msgstr ""
+"Editorul Python necesită un venv configurat cu pywebview. Setați Setări → "
+"Python → Cale venv Python și instalați pywebview în acel venv."
+
+#: plugin/calc/init_script_editor.py
+msgid "Workbook Initialization Script"
+msgstr "Script de inițializare a registrului de lucru"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "Execută"
+
+#: plugin/calc/init_script_editor.py plugin/calc/python_editor.py
+#: plugin/scripting/python_runner.py
+msgid "Save"
+msgstr "Salvare"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "Închide"
+
+#: plugin/calc/init_script_editor.py
+msgid "Could not open the Python editor."
+msgstr "Nu s-a putut deschide editorul Python."
+
 #: plugin/calc/python_editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
 msgstr "Editează Python în celulă..."
@@ -382,7 +465,7 @@ msgid "Please enter edit instructions!"
 msgstr "Vă rugăm să introduceți instrucțiunile de editare!"
 
 #: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/xdl_strings.py
+#: plugin/chatbot/dialogs.py plugin/xdl_strings.py
 msgid "Input"
 msgstr "Intrare"
 
@@ -411,10 +494,6 @@ msgstr "Editor de celule Python"
 #: plugin/calc/python_editor.py
 msgid "Save as plain text"
 msgstr "Salvează ca text simplu"
-
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
-msgid "Save"
-msgstr "Salvare"
 
 #: plugin/calc/python_editor.py
 msgid "The Python editor failed unexpectedly."
@@ -836,17 +915,100 @@ msgstr "Editorul Python s-a închis înainte de a putea încărca codul."
 msgid "Could not talk to the Python editor."
 msgstr "Nu s-a putut comunica cu editorul Python."
 
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
+"Writer document with an imported Jupyter notebook and try again."
+msgstr ""
+"Resetarea sesiunii Python pentru notebook-uri se aplică în LibreOffice "
+"Writer. Deschideți un document Writer cu un notebook Jupyter importat și "
+"încercați din nou."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… first."
+msgstr ""
+"Acest document Writer nu are un registru de notebook-uri importate. "
+"Utilizați mai întâi Instrumente → Importă notebook Jupyter…."
+
+#: plugin/scripting/session_manager.py
+msgid "Could not resolve notebook Python session."
+msgstr "Nu s-a putut rezolva sesiunea Python a notebook-ului."
+
+#: plugin/scripting/session_manager.py
+msgid "Notebook Python session reset for this document."
+msgstr ""
+"Sesiunea Python a notebook-ului a fost resetată pentru acest document."
+
+#: plugin/scripting/session_manager.py
+msgid "Could not reset Python session."
+msgstr "Nu s-a putut reseta sesiunea Python."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
+"try again."
+msgstr ""
+"Resetarea sesiunii Python se aplică foilor de calcul Calc. Deschideți un "
+"registru de lucru Calc și încercați din nou."
+
+#: plugin/scripting/session_manager.py
+msgid "Python session reset for this workbook."
+msgstr "Sesiunea Python a fost resetată pentru acest registru de lucru."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Initialization script and any in-memory init state were reset for this "
+"workbook. Cell variables were already isolated per cell."
+msgstr ""
+"Scriptul de inițializare și orice stare de inițializare din memorie au fost "
+"resetate pentru acest registru de lucru. Variabilele celulelor erau deja "
+"izolate pentru fiecare celulă."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Python session mode is Isolated (each =PYTHON() cell uses its own "
+"variables). There is no shared cell session to reset. Add an initialization "
+"script if you need to clear expensive one-time workbook setup."
+msgstr ""
+"Modul de sesiune Python este Izolat (fiecare celulă =PYTHON() își folosește "
+"propriile variabile). Nu există nicio sesiune de celulă partajată de "
+"resetat. Adăugați un script de inițializare dacă trebuie să ștergeți "
+"configurările costisitoare de configurare unică a registrului de lucru."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… to enable notebook Python session reset."
+msgstr ""
+"Acest document Writer nu are niciun registru de notebook importat. Utilizați"
+" Instrumente → Importă notebook Jupyter… pentru a activa resetarea sesiunii "
+"Python a notebook-ului."
+
+#: plugin/scripting/init_scripts.py
+#, python-brace-format
+msgid ""
+"Initialization script is too large to store in the document ({0} bytes)."
+msgstr ""
+"Scriptul de inițializare este prea mare pentru a fi stocat în document ({0} "
+"octeți)."
+
 #: plugin/scripting/python_runner.py
 msgid "Run Python Script"
 msgstr "Execută script Python"
 
 #: plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "Execută"
+msgid "Script:"
+msgstr "Script:"
 
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "Închide"
+#: plugin/scripting/python_runner.py
+msgid "Save As..."
+msgstr "Salvare ca..."
+
+#: plugin/scripting/python_runner.py
+msgid "Delete"
+msgstr "Șterge"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -857,8 +1019,47 @@ msgstr ""
 "Atribuiți rezultatul variabilei „result”."
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved successfully."
-msgstr "Script salvat cu succes."
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "Scriptul „%s” a fost salvat cu succes."
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad saved successfully."
+msgstr "Ciorna de probă a fost salvată cu succes."
+
+#: plugin/scripting/python_runner.py
+msgid "Enter script name:"
+msgstr "Introduceți numele scriptului:"
+
+#: plugin/scripting/python_runner.py
+msgid "Save Script"
+msgstr "Salvează scriptul"
+
+#: plugin/scripting/python_runner.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr "Sigur doriți să goliți zona de lucru pentru exemple?"
+
+#: plugin/scripting/python_runner.py
+msgid "Clear Script"
+msgstr "Șterge scriptul"
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad cleared."
+msgstr "Zona de lucru pentru exemple a fost golită."
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Are you sure you want to delete script '%s'?"
+msgstr "Sigur doriți să ștergeți scriptul „%s”?"
+
+#: plugin/scripting/python_runner.py
+msgid "Delete Script"
+msgstr "Șterge scriptul"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "Scriptul „%s” a fost șters."
 
 #: plugin/scripting/python_runner.py
 #, python-format
@@ -1007,6 +1208,14 @@ msgstr "Tablou de bord evaluare"
 #: plugin/main.py
 msgid "Run Python Script..."
 msgstr "Execută script Python..."
+
+#: plugin/main.py
+msgid "Edit Initialization Script..."
+msgstr "Editează scriptul de inițializare..."
+
+#: plugin/main.py
+msgid "Reset Python Session"
+msgstr "Resetează sesiunea Python"
 
 #: plugin/main.py
 msgid "Import Jupyter Notebook..."
@@ -1469,6 +1678,33 @@ msgstr ""
 "Numărul maxim de celule în datele =PYTHON() sau datele/zona de date Run "
 "Python Script. Valorile mai mari utilizează mai multă memorie RAM și timp; "
 "citirea zonei UNO rămâne dominantă."
+
+msgid "Python session mode"
+msgstr "Mod sesiune Python"
+
+msgid ""
+"Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace "
+"per workbook (variables carry between cells)."
+msgstr ""
+"Izolat: fiecare celulă =PYTHON() primește un spațiu de nume nou. Partajat: "
+"un spațiu de nume per registru de lucru (variabilele se păstrează între "
+"celule)."
+
+msgid "Isolated (default)"
+msgstr "Izolat (implicit)"
+
+msgid "Shared kernel"
+msgstr "Kernel partajat"
+
+msgid "Force internal script editor"
+msgstr "Forțează editorul de script intern"
+
+msgid ""
+"If checked, bypasses the Monaco script editor and uses the LibreOffice "
+"dialog."
+msgstr ""
+"Dacă este bifat, omite editorul de script Monaco și utilizează dialogul "
+"LibreOffice."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Instrumente pentru documente Writer (inclusiv navigare și căutare)"

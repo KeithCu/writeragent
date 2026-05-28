@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-27 23:10-0400\n"
+"POT-Creation-Date: 2026-05-28 16:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Bulgarian <LL@li.org>\n"
@@ -37,6 +37,30 @@ msgstr ""
 "„specialized_workflow_finished“, когато приключите, за да възстановите "
 "пълния набор от API."
 
+#: plugin/notebook/notebook_runner.py
+msgid "Cell execution failed."
+msgstr "Изпълнението на клетката е неуспешно."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Notebook run is only supported in LibreOffice Writer."
+msgstr "Изпълнението на тетрадка се поддържа само в LibreOffice Writer."
+
+#: plugin/notebook/notebook_runner.py
+msgid ""
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
+msgstr ""
+"Този документ няма импортирана тетрадка. Първо използвайте Инструменти → "
+"Импортиране на Jupyter тетрадка…"
+
+#: plugin/notebook/notebook_runner.py
+msgid "Could not find notebook cell for this control."
+msgstr "Неуспешно намиране на клетка от тетрадка за този контролен елемент."
+
+#: plugin/notebook/notebook_runner.py plugin/notebook/import_dialog.py
+msgid "Open a Writer document first."
+msgstr "Първо отворете документ на Writer."
+
 #: plugin/notebook/import_dialog.py
 msgid "Import Jupyter Notebook"
 msgstr "Импортиране на Jupyter Notebook"
@@ -48,10 +72,6 @@ msgstr "Jupyter Notebook"
 #: plugin/notebook/import_dialog.py
 msgid "All files"
 msgstr "Всички файлове"
-
-#: plugin/notebook/import_dialog.py
-msgid "Open a Writer document first."
-msgstr "Първо отворете документ на Writer."
 
 #: plugin/notebook/import_dialog.py
 msgid "Import Notebook is only supported in LibreOffice Writer."
@@ -74,6 +94,10 @@ msgstr ""
 "Клетки: {cells} (код: {code}, markdown: {markdown})\n"
 "Полета за въвеждане на код в документа: {shapes}\n"
 "Изходни изображения: {images}"
+
+#: plugin/notebook/writer_importer.py
+msgid "Run code cell"
+msgstr "Изпълнение на клетка с код"
 
 #: plugin/contrib/aihordeclient/__init__.py plugin/chatbot/panel.py
 msgid "Starting..."
@@ -357,6 +381,7 @@ msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "HTTP грешка {0} от AI доставчика: {1}"
 
 #: plugin/framework/client/errors.py plugin/calc/python_function.py
+#: plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
 msgstr "Грешка: {0}"
@@ -377,6 +402,65 @@ msgstr ""
 msgid "Image inserted"
 msgstr "Изображението е вмъкнато"
 
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Initialization script saved. It will run automatically on the next =PYTHON()"
+" recalc."
+msgstr ""
+"Скриптът за инициализация е записан. Той ще се изпълни автоматично при "
+"следващото преизчисляване на =PYTHON()."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script ran successfully."
+msgstr "Скриптът за инициализация се изпълни успешно."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script cleared."
+msgstr "Скриптът за инициализация е изчистен."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script failed."
+msgstr "Скриптът за инициализация е неуспешен."
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Edit Initialization Script applies to Calc spreadsheets. Open a Calc "
+"workbook and try again."
+msgstr ""
+"Редактирането на скрипт за инициализация се прилага за електронни таблици в "
+"Calc. Отворете работна книга в Calc и опитайте отново."
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"The Python editor requires a configured venv with pywebview. Set Settings → "
+"Python → Python venv path and install pywebview in that venv."
+msgstr ""
+"Редакторът на Python изисква конфигурирана виртуална среда (venv) с "
+"pywebview. Задайте Настройки → Python → Път до Python venv и инсталирайте "
+"pywebview в тази среда."
+
+#: plugin/calc/init_script_editor.py
+msgid "Workbook Initialization Script"
+msgstr "Скрипт за инициализация на работната книга"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "Изпълнение"
+
+#: plugin/calc/init_script_editor.py plugin/calc/python_editor.py
+#: plugin/scripting/python_runner.py
+msgid "Save"
+msgstr "Записване"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "Затваряне"
+
+#: plugin/calc/init_script_editor.py
+msgid "Could not open the Python editor."
+msgstr "Редакторът на Python не можа да бъде отворен."
+
 #: plugin/calc/python_editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
 msgstr "Редактиране на Python в клетка..."
@@ -386,7 +470,7 @@ msgid "Please enter edit instructions!"
 msgstr "Моля, въведете инструкции за редактиране!"
 
 #: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/xdl_strings.py
+#: plugin/chatbot/dialogs.py plugin/xdl_strings.py
 msgid "Input"
 msgstr "Вход"
 
@@ -415,10 +499,6 @@ msgstr "Python клетъчен редактор"
 #: plugin/calc/python_editor.py
 msgid "Save as plain text"
 msgstr "Запазване като обикновен текст"
-
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
-msgid "Save"
-msgstr "Записване"
 
 #: plugin/calc/python_editor.py
 msgid "The Python editor failed unexpectedly."
@@ -835,17 +915,98 @@ msgstr "Редакторът на Python се затвори, преди да у
 msgid "Could not talk to the Python editor."
 msgstr "Неуспешна връзка с редактора на Python."
 
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
+"Writer document with an imported Jupyter notebook and try again."
+msgstr ""
+"Нулирането на Python сесията за бележници се прилага за LibreOffice Writer. "
+"Отворете документ на Writer с импортиран Jupyter бележник и опитайте отново."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… first."
+msgstr ""
+"Този документ на Writer няма регистър на импортирани бележници. Първо "
+"използвайте Инструменти → Импортиране на Jupyter бележник…"
+
+#: plugin/scripting/session_manager.py
+msgid "Could not resolve notebook Python session."
+msgstr "Неуспешно разрешаване на Python сесията на бележника."
+
+#: plugin/scripting/session_manager.py
+msgid "Notebook Python session reset for this document."
+msgstr "Python сесията на бележника е нулирана за този документ."
+
+#: plugin/scripting/session_manager.py
+msgid "Could not reset Python session."
+msgstr "Неуспешно нулиране на Python сесията."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
+"try again."
+msgstr ""
+"Нулирането на Python сесията се прилага за електронни таблици на Calc. "
+"Отворете работна книга на Calc и опитайте отново."
+
+#: plugin/scripting/session_manager.py
+msgid "Python session reset for this workbook."
+msgstr "Python сесията е нулирана за тази работна книга."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Initialization script and any in-memory init state were reset for this "
+"workbook. Cell variables were already isolated per cell."
+msgstr ""
+"Инициализиращият скрипт и всяко състояние на инициализация в паметта бяха "
+"нулирани за тази работна книга. Променливите на клетките вече бяха изолирани"
+" за всяка клетка."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Python session mode is Isolated (each =PYTHON() cell uses its own "
+"variables). There is no shared cell session to reset. Add an initialization "
+"script if you need to clear expensive one-time workbook setup."
+msgstr ""
+"Режимът на сесията на Python е „Изолиран“ (всяка клетка =PYTHON() използва "
+"свои собствени променливи). Няма споделена сесия на клетките за нулиране. "
+"Добавете инициализиращ скрипт, ако трябва да изчистите скъпоструваща "
+"еднократна настройка на работната книга."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… to enable notebook Python session reset."
+msgstr ""
+"Този документ на Writer няма импортиран регистър на тетрадки. Използвайте "
+"Инструменти → Импортиране на Jupyter Notebook…, за да активирате нулирането "
+"на Python сесията на тетрадката."
+
+#: plugin/scripting/init_scripts.py
+#, python-brace-format
+msgid ""
+"Initialization script is too large to store in the document ({0} bytes)."
+msgstr ""
+"Инициализиращият скрипт е твърде голям, за да бъде съхранен в документа ({0}"
+" байта)."
+
 #: plugin/scripting/python_runner.py
 msgid "Run Python Script"
 msgstr "Изпълнение на Python скрипт"
 
 #: plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "Изпълнение"
+msgid "Script:"
+msgstr "Скрипт:"
 
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "Затваряне"
+#: plugin/scripting/python_runner.py
+msgid "Save As..."
+msgstr "Запис като..."
+
+#: plugin/scripting/python_runner.py
+msgid "Delete"
+msgstr "Изтриване"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -856,8 +1017,47 @@ msgstr ""
 "Присвоете резултата на променливата „result“."
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved successfully."
-msgstr "Скриптът е записан успешно."
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "Скриптът „%s“ е записан успешно."
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad saved successfully."
+msgstr "Примерното работно поле е записано успешно."
+
+#: plugin/scripting/python_runner.py
+msgid "Enter script name:"
+msgstr "Въведете име на скрипта:"
+
+#: plugin/scripting/python_runner.py
+msgid "Save Script"
+msgstr "Запазване на скрипт"
+
+#: plugin/scripting/python_runner.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr "Сигурни ли сте, че искате да изчистите работната област за примери?"
+
+#: plugin/scripting/python_runner.py
+msgid "Clear Script"
+msgstr "Изчистване на скрипт"
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad cleared."
+msgstr "Работната област за примери е изчистена."
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Are you sure you want to delete script '%s'?"
+msgstr "Сигурни ли сте, че искате да изтриете скрипта „%s“?"
+
+#: plugin/scripting/python_runner.py
+msgid "Delete Script"
+msgstr "Изтриване на скрипт"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "Скриптът „%s“ е изтрит."
 
 #: plugin/scripting/python_runner.py
 #, python-format
@@ -1005,6 +1205,14 @@ msgstr "Табло за оценка"
 #: plugin/main.py
 msgid "Run Python Script..."
 msgstr "Изпълнение на Python скрипт..."
+
+#: plugin/main.py
+msgid "Edit Initialization Script..."
+msgstr "Редактиране на скрипта за инициализация..."
+
+#: plugin/main.py
+msgid "Reset Python Session"
+msgstr "Нулиране на сесията на Python"
 
 #: plugin/main.py
 msgid "Import Jupyter Notebook..."
@@ -1465,6 +1673,33 @@ msgstr ""
 "Максимален брой клетки в данни на =PYTHON() или данни/диапазон от данни при "
 "изпълнение на Python скрипт. По-големите стойности използват повече RAM и "
 "време; четенето на UNO диапазон все още е доминиращо."
+
+msgid "Python session mode"
+msgstr "Режим на сесията на Python"
+
+msgid ""
+"Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace "
+"per workbook (variables carry between cells)."
+msgstr ""
+"Изолиран: всяка =PYTHON() клетка получава ново пространство от имена. "
+"Споделен: едно пространство от имена за работна книга (променливите се "
+"пренасят между клетките)."
+
+msgid "Isolated (default)"
+msgstr "Изолиран (по подразбиране)"
+
+msgid "Shared kernel"
+msgstr "Споделено ядро"
+
+msgid "Force internal script editor"
+msgstr "Принудително използване на вградения редактор на скриптове"
+
+msgid ""
+"If checked, bypasses the Monaco script editor and uses the LibreOffice "
+"dialog."
+msgstr ""
+"Ако е отметнато, заобикаля редактора на скриптове Monaco и използва "
+"диалоговия прозорец на LibreOffice."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Инструменти за документи в Writer (включително навигация и търсене)"

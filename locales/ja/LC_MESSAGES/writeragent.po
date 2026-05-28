@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-27 23:10-0400\n"
+"POT-Creation-Date: 2026-05-28 16:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Japanese <LL@li.org>\n"
@@ -33,6 +33,29 @@ msgstr ""
 "ツールコールが '{0}' に切り替えられました。特殊ツールセットモードに入っています。完了したら "
 "'specialized_workflow_finished' を呼び出して、APIのフルセットを復元してください。"
 
+#: plugin/notebook/notebook_runner.py
+msgid "Cell execution failed."
+msgstr "セルの実行に失敗しました。"
+
+#: plugin/notebook/notebook_runner.py
+msgid "Notebook run is only supported in LibreOffice Writer."
+msgstr "ノートブックの実行はLibreOffice Writerでのみサポートされています。"
+
+#: plugin/notebook/notebook_runner.py
+msgid ""
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
+msgstr ""
+"このドキュメントにはインポートされたノートブックがありません。先に「ツール」→「Jupyterノートブックをインポート…」を使用してください。"
+
+#: plugin/notebook/notebook_runner.py
+msgid "Could not find notebook cell for this control."
+msgstr "このコントロールに対応するノートブックセルが見つかりませんでした。"
+
+#: plugin/notebook/notebook_runner.py plugin/notebook/import_dialog.py
+msgid "Open a Writer document first."
+msgstr "先にWriterドキュメントを開いてください。"
+
 #: plugin/notebook/import_dialog.py
 msgid "Import Jupyter Notebook"
 msgstr "Jupyter Notebookをインポート"
@@ -44,10 +67,6 @@ msgstr "Jupyter Notebook"
 #: plugin/notebook/import_dialog.py
 msgid "All files"
 msgstr "すべてのファイル"
-
-#: plugin/notebook/import_dialog.py
-msgid "Open a Writer document first."
-msgstr "先にWriterドキュメントを開いてください。"
 
 #: plugin/notebook/import_dialog.py
 msgid "Import Notebook is only supported in LibreOffice Writer."
@@ -70,6 +89,10 @@ msgstr ""
 "セル数: {cells} (コード: {code}, マークダウン: {markdown})\n"
 "ドキュメント内のコード入力フィールド: {shapes}\n"
 "出力画像: {images}"
+
+#: plugin/notebook/writer_importer.py
+msgid "Run code cell"
+msgstr "コードセルを実行"
 
 #: plugin/contrib/aihordeclient/__init__.py plugin/chatbot/panel.py
 msgid "Starting..."
@@ -322,6 +345,7 @@ msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "AIプロバイダーからの HTTP エラー {0}: {1}"
 
 #: plugin/framework/client/errors.py plugin/calc/python_function.py
+#: plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
 msgstr "エラー: {0}"
@@ -340,6 +364,60 @@ msgstr "モデルが同じチャンクを繰り返しています（無限ルー
 msgid "Image inserted"
 msgstr "画像が挿入されました"
 
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Initialization script saved. It will run automatically on the next =PYTHON()"
+" recalc."
+msgstr "初期化スクリプトを保存しました。次回の=PYTHON()再計算時に自動的に実行されます。"
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script ran successfully."
+msgstr "初期化スクリプトが正常に実行されました。"
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script cleared."
+msgstr "初期化スクリプトをクリアしました。"
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script failed."
+msgstr "初期化スクリプトの実行に失敗しました。"
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Edit Initialization Script applies to Calc spreadsheets. Open a Calc "
+"workbook and try again."
+msgstr "「初期化スクリプトを編集」はCalcスプレッドシートに適用されます。Calcワークブックを開いてから再度試してください。"
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"The Python editor requires a configured venv with pywebview. Set Settings → "
+"Python → Python venv path and install pywebview in that venv."
+msgstr ""
+"Pythonエディターには、pywebviewがインストールされたvenvの設定が必要です。「設定」→「Python」→「Python "
+"venvパス」を設定し、そのvenvにpywebviewをインストールしてください。"
+
+#: plugin/calc/init_script_editor.py
+msgid "Workbook Initialization Script"
+msgstr "ワークブック初期化スクリプト"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "実行"
+
+#: plugin/calc/init_script_editor.py plugin/calc/python_editor.py
+#: plugin/scripting/python_runner.py
+msgid "Save"
+msgstr "保存"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "閉じる"
+
+#: plugin/calc/init_script_editor.py
+msgid "Could not open the Python editor."
+msgstr "Pythonエディターを開けませんでした。"
+
 #: plugin/calc/python_editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
 msgstr "セル内のPythonを編集..."
@@ -349,7 +427,7 @@ msgid "Please enter edit instructions!"
 msgstr "編集の指示を入力してください！"
 
 #: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/xdl_strings.py
+#: plugin/chatbot/dialogs.py plugin/xdl_strings.py
 msgid "Input"
 msgstr "入力"
 
@@ -377,10 +455,6 @@ msgstr "Python セルエディター"
 #: plugin/calc/python_editor.py
 msgid "Save as plain text"
 msgstr "プレーンテキストとして保存"
-
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
-msgid "Save"
-msgstr "保存"
 
 #: plugin/calc/python_editor.py
 msgid "The Python editor failed unexpectedly."
@@ -787,17 +861,85 @@ msgstr "Pythonエディターはコードを読み込む前に終了しました
 msgid "Could not talk to the Python editor."
 msgstr "Pythonエディターと通信できませんでした。"
 
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
+"Writer document with an imported Jupyter notebook and try again."
+msgstr ""
+"「ノートブックのPythonセッションをリセット」はLibreOffice "
+"Writerに適用されます。JupyterノートブックをインポートしたWriterドキュメントを開いて、もう一度試してください。"
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… first."
+msgstr ""
+"このWriterドキュメントにはインポートされたノートブックレジストリがありません。「ツール」→「Jupyterノートブックをインポート…」を先に実行してください。"
+
+#: plugin/scripting/session_manager.py
+msgid "Could not resolve notebook Python session."
+msgstr "ノートブックのPythonセッションを解決できませんでした。"
+
+#: plugin/scripting/session_manager.py
+msgid "Notebook Python session reset for this document."
+msgstr "このドキュメントのノートブックPythonセッションをリセットしました。"
+
+#: plugin/scripting/session_manager.py
+msgid "Could not reset Python session."
+msgstr "Pythonセッションをリセットできませんでした。"
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
+"try again."
+msgstr "「Pythonセッションをリセット」はCalcスプレッドシートに適用されます。Calcワークブックを開いて、もう一度試してください。"
+
+#: plugin/scripting/session_manager.py
+msgid "Python session reset for this workbook."
+msgstr "このワークブックのPythonセッションをリセットしました。"
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Initialization script and any in-memory init state were reset for this "
+"workbook. Cell variables were already isolated per cell."
+msgstr "このブックの初期化スクリプトおよびメモリ内の初期化状態はリセットされました。セル変数はすでにセルごとに分離されています。"
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Python session mode is Isolated (each =PYTHON() cell uses its own "
+"variables). There is no shared cell session to reset. Add an initialization "
+"script if you need to clear expensive one-time workbook setup."
+msgstr ""
+"Pythonセッションモードは「分離」です（各=PYTHON()セルは独自の変数を使用します）。リセットすべき共有セルセッションはありません。高コストな一度限りのブック設定をクリアする必要がある場合は、初期化スクリプトを追加してください。"
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… to enable notebook Python session reset."
+msgstr ""
+"このWriterドキュメントにはインポートされたノートブックレジストリがありません。ノートブックのPythonセッションリセットを有効にするには、「ツール」→「Jupyterノートブックをインポート…」を使用してください。"
+
+#: plugin/scripting/init_scripts.py
+#, python-brace-format
+msgid ""
+"Initialization script is too large to store in the document ({0} bytes)."
+msgstr "初期化スクリプトが大きすぎてドキュメントに保存できません（{0}バイト）。"
+
 #: plugin/scripting/python_runner.py
 msgid "Run Python Script"
 msgstr "Pythonスクリプトを実行"
 
 #: plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "実行"
+msgid "Script:"
+msgstr "スクリプト:"
 
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "閉じる"
+#: plugin/scripting/python_runner.py
+msgid "Save As..."
+msgstr "名前を付けて保存..."
+
+#: plugin/scripting/python_runner.py
+msgid "Delete"
+msgstr "削除"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -808,8 +950,47 @@ msgstr ""
 "結果を 'result' 変数に代入してください。"
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved successfully."
-msgstr "スクリプトを保存しました。"
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "スクリプト '%s' を正常に保存しました。"
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad saved successfully."
+msgstr "サンプルスクラッチパッドを正常に保存しました。"
+
+#: plugin/scripting/python_runner.py
+msgid "Enter script name:"
+msgstr "スクリプト名を入力してください:"
+
+#: plugin/scripting/python_runner.py
+msgid "Save Script"
+msgstr "スクリプトを保存"
+
+#: plugin/scripting/python_runner.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr "サンプルスクラッチパッドをクリアしてもよろしいですか？"
+
+#: plugin/scripting/python_runner.py
+msgid "Clear Script"
+msgstr "スクリプトをクリア"
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad cleared."
+msgstr "サンプルスクラッチパッドをクリアしました。"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Are you sure you want to delete script '%s'?"
+msgstr "スクリプト '%s' を削除してもよろしいですか？"
+
+#: plugin/scripting/python_runner.py
+msgid "Delete Script"
+msgstr "スクリプトを削除"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "スクリプト '%s' を削除しました。"
 
 #: plugin/scripting/python_runner.py
 #, python-format
@@ -952,6 +1133,14 @@ msgstr "評価ダッシュボード"
 #: plugin/main.py
 msgid "Run Python Script..."
 msgstr "Pythonスクリプトを実行..."
+
+#: plugin/main.py
+msgid "Edit Initialization Script..."
+msgstr "初期化スクリプトを編集..."
+
+#: plugin/main.py
+msgid "Reset Python Session"
+msgstr "Pythonセッションをリセット"
 
 #: plugin/main.py
 msgid "Import Jupyter Notebook..."
@@ -1388,6 +1577,30 @@ msgid ""
 msgstr ""
 "=PYTHON() データまたは「Pythonスクリプトを実行」の data/data_range "
 "における最大セル数。値を大きくするとメモリと時間を消費します。UNO範囲の読み取りが依然として支配的です。"
+
+msgid "Python session mode"
+msgstr "Pythonセッションモード"
+
+msgid ""
+"Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace "
+"per workbook (variables carry between cells)."
+msgstr ""
+"分離モード: 各 =PYTHON() セルは独立した名前空間を持ちます。共有モード: "
+"ブックごとに1つの名前空間を共有します（変数がセル間で引き継がれます）。"
+
+msgid "Isolated (default)"
+msgstr "分離モード (デフォルト)"
+
+msgid "Shared kernel"
+msgstr "共有カーネル"
+
+msgid "Force internal script editor"
+msgstr "内部スクリプトエディターを強制"
+
+msgid ""
+"If checked, bypasses the Monaco script editor and uses the LibreOffice "
+"dialog."
+msgstr "チェックを入れると、Monacoスクリプトエディターをバイパスし、LibreOfficeのダイアログを使用します。"
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer ドキュメントツール (ナビゲーションと検索を含む)"

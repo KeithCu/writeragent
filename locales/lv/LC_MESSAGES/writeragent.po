@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-27 23:10-0400\n"
+"POT-Creation-Date: 2026-05-28 16:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Latvian <LL@li.org>\n"
@@ -36,6 +36,31 @@ msgstr ""
 "režīmā. Jums jāizsauc 'specialized_workflow_finished', kad esat pabeidzis, "
 "lai atjaunotu pilnu API kopu."
 
+#: plugin/notebook/notebook_runner.py
+msgid "Cell execution failed."
+msgstr "Šūnas izpilde neizdevās."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Notebook run is only supported in LibreOffice Writer."
+msgstr ""
+"Piezīmju grāmatiņas palaišana tiek atbalstīta tikai LibreOffice Writer."
+
+#: plugin/notebook/notebook_runner.py
+msgid ""
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
+msgstr ""
+"Šajā dokumentā nav importētas piezīmju grāmatiņas. Vispirms izmantojiet Rīki"
+" → Importēt Jupyter piezīmju grāmatiņu…"
+
+#: plugin/notebook/notebook_runner.py
+msgid "Could not find notebook cell for this control."
+msgstr "Neizdevās atrast piezīmju grāmatiņas šūnu šim vadīklas elementam."
+
+#: plugin/notebook/notebook_runner.py plugin/notebook/import_dialog.py
+msgid "Open a Writer document first."
+msgstr "Vispirms atveriet Writer dokumentu."
+
 #: plugin/notebook/import_dialog.py
 msgid "Import Jupyter Notebook"
 msgstr "Importēt Jupyter piezīmju grāmatiņu"
@@ -47,10 +72,6 @@ msgstr "Jupyter piezīmju grāmatiņa"
 #: plugin/notebook/import_dialog.py
 msgid "All files"
 msgstr "Visi faili"
-
-#: plugin/notebook/import_dialog.py
-msgid "Open a Writer document first."
-msgstr "Vispirms atveriet Writer dokumentu."
 
 #: plugin/notebook/import_dialog.py
 msgid "Import Notebook is only supported in LibreOffice Writer."
@@ -74,6 +95,10 @@ msgstr ""
 "Šūnas: {cells} (kods: {code}, markdown: {markdown})\n"
 "Koda ievades lauki dokumentā: {shapes}\n"
 "Izvades attēli: {images}"
+
+#: plugin/notebook/writer_importer.py
+msgid "Run code cell"
+msgstr "Izpildīt koda šūnu"
 
 #: plugin/contrib/aihordeclient/__init__.py plugin/chatbot/panel.py
 msgid "Starting..."
@@ -352,6 +377,7 @@ msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "HTTP kļūda {0} no AI pakalpojumu sniedzēja: {1}"
 
 #: plugin/framework/client/errors.py plugin/calc/python_function.py
+#: plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
 msgstr "Kļūda: {0}"
@@ -372,6 +398,65 @@ msgstr ""
 msgid "Image inserted"
 msgstr "Attēls ievietots"
 
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Initialization script saved. It will run automatically on the next =PYTHON()"
+" recalc."
+msgstr ""
+"Inicializācijas skripts saglabāts. Tas automātiski tiks izpildīts nākamajā "
+"=PYTHON() pārrēķinā."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script ran successfully."
+msgstr "Inicializācijas skripts veiksmīgi izpildīts."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script cleared."
+msgstr "Inicializācijas skripts notīrīts."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script failed."
+msgstr "Inicializācijas skripts neizdevās."
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Edit Initialization Script applies to Calc spreadsheets. Open a Calc "
+"workbook and try again."
+msgstr ""
+"Rediģēt inicializācijas skriptu attiecas uz Calc izklājlapām. Atveriet Calc "
+"darbgrāmatu un mēģiniet vēlreiz."
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"The Python editor requires a configured venv with pywebview. Set Settings → "
+"Python → Python venv path and install pywebview in that venv."
+msgstr ""
+"Python redaktoram ir nepieciešama konfigurēta venv vide ar pywebview. "
+"Iestatiet Settings → Python → Python venv path un instalējiet pywebview šajā"
+" venv vidē."
+
+#: plugin/calc/init_script_editor.py
+msgid "Workbook Initialization Script"
+msgstr "Darbgrāmatas inicializācijas skripts"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "Izpildīt"
+
+#: plugin/calc/init_script_editor.py plugin/calc/python_editor.py
+#: plugin/scripting/python_runner.py
+msgid "Save"
+msgstr "Saglabāt"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "Aizvērt"
+
+#: plugin/calc/init_script_editor.py
+msgid "Could not open the Python editor."
+msgstr "Neizdevās atvērt Python redaktoru."
+
 #: plugin/calc/python_editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
 msgstr "Rediģēt Python šūnā..."
@@ -381,7 +466,7 @@ msgid "Please enter edit instructions!"
 msgstr "Lūdzu, ievadiet rediģēšanas instrukcijas!"
 
 #: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/xdl_strings.py
+#: plugin/chatbot/dialogs.py plugin/xdl_strings.py
 msgid "Input"
 msgstr "Ievade"
 
@@ -410,10 +495,6 @@ msgstr "Python šūnu redaktors"
 #: plugin/calc/python_editor.py
 msgid "Save as plain text"
 msgstr "Saglabāt kā vienkāršu tekstu"
-
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
-msgid "Save"
-msgstr "Saglabāt"
 
 #: plugin/calc/python_editor.py
 msgid "The Python editor failed unexpectedly."
@@ -832,17 +913,99 @@ msgstr "Python redaktors aizvērās, pirms tas paspēja ielādēt jūsu kodu."
 msgid "Could not talk to the Python editor."
 msgstr "Neizdevās sazināties ar Python redaktoru."
 
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
+"Writer document with an imported Jupyter notebook and try again."
+msgstr ""
+"Python sesijas atiestatīšana piezīmjdatoriem attiecas uz LibreOffice Writer."
+" Atveriet Writer dokumentu ar importētu Jupyter piezīmjdatoru un mēģiniet "
+"vēlreiz."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… first."
+msgstr ""
+"Šajā Writer dokumentā nav importēta piezīmjdatoru reģistra. Vispirms "
+"izmantojiet Tools → Import Jupyter Notebook…."
+
+#: plugin/scripting/session_manager.py
+msgid "Could not resolve notebook Python session."
+msgstr "Neizdevās atrisināt piezīmjdatora Python sesiju."
+
+#: plugin/scripting/session_manager.py
+msgid "Notebook Python session reset for this document."
+msgstr "Piezīmjdatora Python sesija šim dokumentam ir atiestatīta."
+
+#: plugin/scripting/session_manager.py
+msgid "Could not reset Python session."
+msgstr "Neizdevās atiestatīt Python sesiju."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
+"try again."
+msgstr ""
+"Python sesijas atiestatīšana attiecas uz Calc izklājlapām. Atveriet Calc "
+"darbgrāmatu un mēģiniet vēlreiz."
+
+#: plugin/scripting/session_manager.py
+msgid "Python session reset for this workbook."
+msgstr "Python sesija šai darbgrāmatai ir atiestatīta."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Initialization script and any in-memory init state were reset for this "
+"workbook. Cell variables were already isolated per cell."
+msgstr ""
+"Šīs darbgrāmatas inicializācijas skripts un jebkurš atmiņā esošais "
+"inicializācijas stāvoklis tika atiestatīts. Šūnu mainīgie jau bija izolēti "
+"katrai šūnai."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Python session mode is Isolated (each =PYTHON() cell uses its own "
+"variables). There is no shared cell session to reset. Add an initialization "
+"script if you need to clear expensive one-time workbook setup."
+msgstr ""
+"Python sesijas režīms ir izolēts (katra =PYTHON() šūna izmanto savus "
+"mainīgos). Nav kopīgas šūnu sesijas, ko atiestatīt. Pievienojiet "
+"inicializācijas skriptu, ja nepieciešams notīrīt dārgu vienreizēju "
+"darbgrāmatas iestatīšanu."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… to enable notebook Python session reset."
+msgstr ""
+"Šim Writer dokumentam nav importēta piezīmju grāmatiņas reģistra. "
+"Izmantojiet Rīki → Importēt Jupyter piezīmju grāmatiņu…, lai iespējotu "
+"piezīmju grāmatiņas Python sesijas atiestatīšanu."
+
+#: plugin/scripting/init_scripts.py
+#, python-brace-format
+msgid ""
+"Initialization script is too large to store in the document ({0} bytes)."
+msgstr ""
+"Inicializācijas skripts ir pārāk liels, lai to saglabātu dokumentā ({0} "
+"baiti)."
+
 #: plugin/scripting/python_runner.py
 msgid "Run Python Script"
 msgstr "Izpildīt Python skriptu"
 
 #: plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "Izpildīt"
+msgid "Script:"
+msgstr "Skripts:"
 
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "Aizvērt"
+#: plugin/scripting/python_runner.py
+msgid "Save As..."
+msgstr "Saglabāt kā..."
+
+#: plugin/scripting/python_runner.py
+msgid "Delete"
+msgstr "Dzēst"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -853,8 +1016,47 @@ msgstr ""
 "Piešķiriet rezultātu mainīgajam 'result'."
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved successfully."
-msgstr "Skripts veiksmīgi saglabāts."
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "Skripts '%s' veiksmīgi saglabāts."
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad saved successfully."
+msgstr "Piezīmju bloka paraugs veiksmīgi saglabāts."
+
+#: plugin/scripting/python_runner.py
+msgid "Enter script name:"
+msgstr "Ievadiet skripta nosaukumu:"
+
+#: plugin/scripting/python_runner.py
+msgid "Save Script"
+msgstr "Saglabāt skriptu"
+
+#: plugin/scripting/python_runner.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr "Vai esat pārliecināts, ka vēlaties notīrīt paraugu piezīmju bloku?"
+
+#: plugin/scripting/python_runner.py
+msgid "Clear Script"
+msgstr "Notīrīt skriptu"
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad cleared."
+msgstr "Paraugu piezīmju bloks notīrīts."
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Are you sure you want to delete script '%s'?"
+msgstr "Vai esat pārliecināts, ka vēlaties dzēst skriptu '%s'?"
+
+#: plugin/scripting/python_runner.py
+msgid "Delete Script"
+msgstr "Dzēst skriptu"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "Skripts '%s' dzēsts."
 
 #: plugin/scripting/python_runner.py
 #, python-format
@@ -1003,6 +1205,14 @@ msgstr "Novērtēšanas informācijas panelis"
 #: plugin/main.py
 msgid "Run Python Script..."
 msgstr "Palaist Python skriptu..."
+
+#: plugin/main.py
+msgid "Edit Initialization Script..."
+msgstr "Rediģēt inicializācijas skriptu..."
+
+#: plugin/main.py
+msgid "Reset Python Session"
+msgstr "Atiestatīt Python sesiju"
 
 #: plugin/main.py
 msgid "Import Jupyter Notebook..."
@@ -1462,6 +1672,32 @@ msgstr ""
 "Maksimālais šūnu skaits =PYTHON() datos vai Run Python Script "
 "data/data_range. Lielākas vērtības patērē vairāk RAM un laika; UNO apgabala "
 "nolasīšana joprojām ir dominējošā."
+
+msgid "Python session mode"
+msgstr "Python sesijas režīms"
+
+msgid ""
+"Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace "
+"per workbook (variables carry between cells)."
+msgstr ""
+"Izolēts: katra =PYTHON() šūna iegūst jaunu nosaukumvietu. Koplietots: viena "
+"nosaukumvieta visai darbgrāmatai (mainīgie tiek saglabāti starp šūnām)."
+
+msgid "Isolated (default)"
+msgstr "Izolēts (noklusējums)"
+
+msgid "Shared kernel"
+msgstr "Koplietots kodols"
+
+msgid "Force internal script editor"
+msgstr "Piespiest izmantot iekšējo skriptu redaktoru"
+
+msgid ""
+"If checked, bypasses the Monaco script editor and uses the LibreOffice "
+"dialog."
+msgstr ""
+"Ja atzīmēts, tiek apiets Monaco skriptu redaktors un izmantots LibreOffice "
+"dialoglodziņš."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer dokumentu rīki (tostarp navigācija un meklēšana)"

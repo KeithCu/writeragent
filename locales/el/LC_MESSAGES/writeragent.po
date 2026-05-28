@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-27 23:10-0400\n"
+"POT-Creation-Date: 2026-05-28 16:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Greek <LL@li.org>\n"
@@ -36,6 +36,31 @@ msgstr ""
 "συνόλου εργαλείων. Πρέπει να καλέσετε το 'specialized_workflow_finished' "
 "όταν τελειώσετε για να επαναφέρετε το πλήρες σύνολο των API."
 
+#: plugin/notebook/notebook_runner.py
+msgid "Cell execution failed."
+msgstr "Η εκτέλεση του κελιού απέτυχε."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Notebook run is only supported in LibreOffice Writer."
+msgstr "Η εκτέλεση σημειωματάριου υποστηρίζεται μόνο στο LibreOffice Writer."
+
+#: plugin/notebook/notebook_runner.py
+msgid ""
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
+msgstr ""
+"Αυτό το έγγραφο δεν έχει εισαγόμενο σημειωματάριο. Χρησιμοποιήστε πρώτα "
+"Εργαλεία → Εισαγωγή σημειωματάριου Jupyter…."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Could not find notebook cell for this control."
+msgstr ""
+"Δεν ήταν δυνατή η εύρεση κελιού σημειωματάριου για αυτό το στοιχείο ελέγχου."
+
+#: plugin/notebook/notebook_runner.py plugin/notebook/import_dialog.py
+msgid "Open a Writer document first."
+msgstr "Ανοίξτε πρώτα ένα έγγραφο του Writer."
+
 #: plugin/notebook/import_dialog.py
 msgid "Import Jupyter Notebook"
 msgstr "Εισαγωγή Jupyter Notebook"
@@ -47,10 +72,6 @@ msgstr "Jupyter Notebook"
 #: plugin/notebook/import_dialog.py
 msgid "All files"
 msgstr "Όλα τα αρχεία"
-
-#: plugin/notebook/import_dialog.py
-msgid "Open a Writer document first."
-msgstr "Ανοίξτε πρώτα ένα έγγραφο του Writer."
 
 #: plugin/notebook/import_dialog.py
 msgid "Import Notebook is only supported in LibreOffice Writer."
@@ -73,6 +94,10 @@ msgstr ""
 "Κελιά: {cells} (κώδικας: {code}, markdown: {markdown})\n"
 "Πεδία εισαγωγής κώδικα στο έγγραφο: {shapes}\n"
 "Εικόνες εξόδου: {images}"
+
+#: plugin/notebook/writer_importer.py
+msgid "Run code cell"
+msgstr "Εκτέλεση κελιού κώδικα"
 
 #: plugin/contrib/aihordeclient/__init__.py plugin/chatbot/panel.py
 msgid "Starting..."
@@ -362,6 +387,7 @@ msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "Σφάλμα HTTP {0} από τον πάροχο AI: {1}"
 
 #: plugin/framework/client/errors.py plugin/calc/python_function.py
+#: plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
 msgstr "Σφάλμα: {0}"
@@ -382,6 +408,65 @@ msgstr ""
 msgid "Image inserted"
 msgstr "Η εικόνα εισήχθη"
 
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Initialization script saved. It will run automatically on the next =PYTHON()"
+" recalc."
+msgstr ""
+"Το σενάριο αρχικοποίησης αποθηκεύτηκε. Θα εκτελεστεί αυτόματα κατά τον "
+"επόμενο επανυπολογισμό =PYTHON()."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script ran successfully."
+msgstr "Το σενάριο αρχικοποίησης εκτελέστηκε με επιτυχία."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script cleared."
+msgstr "Το σενάριο αρχικοποίησης διαγράφηκε."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script failed."
+msgstr "Το σενάριο αρχικοποίησης απέτυχε."
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Edit Initialization Script applies to Calc spreadsheets. Open a Calc "
+"workbook and try again."
+msgstr ""
+"Η επεξεργασία σεναρίου αρχικοποίησης εφαρμόζεται σε υπολογιστικά φύλλα του "
+"Calc. Ανοίξτε ένα βιβλίο εργασίας του Calc και δοκιμάστε ξανά."
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"The Python editor requires a configured venv with pywebview. Set Settings → "
+"Python → Python venv path and install pywebview in that venv."
+msgstr ""
+"Ο επεξεργαστής Python απαιτεί ένα ρυθμισμένο venv με pywebview. Ορίστε το "
+"Settings → Python → Python venv path και εγκαταστήστε το pywebview σε αυτό "
+"το venv."
+
+#: plugin/calc/init_script_editor.py
+msgid "Workbook Initialization Script"
+msgstr "Σενάριο αρχικοποίησης βιβλίου εργασίας"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "Εκτέλεση"
+
+#: plugin/calc/init_script_editor.py plugin/calc/python_editor.py
+#: plugin/scripting/python_runner.py
+msgid "Save"
+msgstr "Αποθήκευση"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "Κλείσιμο"
+
+#: plugin/calc/init_script_editor.py
+msgid "Could not open the Python editor."
+msgstr "Δεν ήταν δυνατό το άνοιγμα του επεξεργαστή Python."
+
 #: plugin/calc/python_editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
 msgstr "Επεξεργασία Python στο κελί..."
@@ -391,7 +476,7 @@ msgid "Please enter edit instructions!"
 msgstr "Παρακαλώ εισάγετε οδηγίες επεξεργασίας!"
 
 #: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/xdl_strings.py
+#: plugin/chatbot/dialogs.py plugin/xdl_strings.py
 msgid "Input"
 msgstr "Είσοδος"
 
@@ -421,10 +506,6 @@ msgstr "Πρόγραμμα επεξεργασίας κελιών Python"
 #: plugin/calc/python_editor.py
 msgid "Save as plain text"
 msgstr "Αποθήκευση ως απλό κείμενο"
-
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
-msgid "Save"
-msgstr "Αποθήκευση"
 
 #: plugin/calc/python_editor.py
 msgid "The Python editor failed unexpectedly."
@@ -848,17 +929,100 @@ msgstr ""
 msgid "Could not talk to the Python editor."
 msgstr "Δεν ήταν δυνατή η επικοινωνία με τον επεξεργαστή Python."
 
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
+"Writer document with an imported Jupyter notebook and try again."
+msgstr ""
+"Η επαναφορά της συνεδρίας Python για σημειωματάρια εφαρμόζεται στο "
+"LibreOffice Writer. Ανοίξτε ένα έγγραφο Writer με ένα εισαγόμενο "
+"σημειωματάριο Jupyter και δοκιμάστε ξανά."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… first."
+msgstr ""
+"Αυτό το έγγραφο Writer δεν έχει μητρώο εισαγόμενων σημειωματαρίων. "
+"Χρησιμοποιήστε πρώτα το Tools → Import Jupyter Notebook…."
+
+#: plugin/scripting/session_manager.py
+msgid "Could not resolve notebook Python session."
+msgstr "Δεν ήταν δυνατή η επίλυση της συνεδρίας Python του σημειωματαρίου."
+
+#: plugin/scripting/session_manager.py
+msgid "Notebook Python session reset for this document."
+msgstr ""
+"Η συνεδρία Python του σημειωματαρίου επαναφέρθηκε για αυτό το έγγραφο."
+
+#: plugin/scripting/session_manager.py
+msgid "Could not reset Python session."
+msgstr "Δεν ήταν δυνατή η επαναφορά της συνεδρίας Python."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
+"try again."
+msgstr ""
+"Η επαναφορά της συνεδρίας Python εφαρμόζεται σε υπολογιστικά φύλλα Calc. "
+"Ανοίξτε ένα βιβλίο εργασίας Calc και δοκιμάστε ξανά."
+
+#: plugin/scripting/session_manager.py
+msgid "Python session reset for this workbook."
+msgstr "Η συνεδρία Python επαναφέρθηκε για αυτό το βιβλίο εργασίας."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Initialization script and any in-memory init state were reset for this "
+"workbook. Cell variables were already isolated per cell."
+msgstr ""
+"Το σενάριο αρχικοποίησης και οποιαδήποτε κατάσταση αρχικοποίησης στη μνήμη "
+"επαναφέρθηκαν για αυτό το βιβλίο εργασίας. Οι μεταβλητές κελιών ήταν ήδη "
+"απομονωμένες ανά κελί."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Python session mode is Isolated (each =PYTHON() cell uses its own "
+"variables). There is no shared cell session to reset. Add an initialization "
+"script if you need to clear expensive one-time workbook setup."
+msgstr ""
+"Η λειτουργία συνεδρίας Python είναι Απομονωμένη (κάθε κελί =PYTHON() "
+"χρησιμοποιεί τις δικές του μεταβλητές). Δεν υπάρχει κοινόχρηστη συνεδρία "
+"κελιών για επαναφορά. Προσθέστε ένα σενάριο αρχικοποίησης εάν χρειάζεται να "
+"εκκαθαρίσετε δαπανηρές ρυθμίσεις βιβλίου εργασίας που γίνονται μία φορά."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… to enable notebook Python session reset."
+msgstr ""
+"Αυτό το έγγραφο Writer δεν έχει εισαγμένο μητρώο σημειωματάριου. "
+"Χρησιμοποιήστε Εργαλεία → Εισαγωγή Jupyter Notebook… για να ενεργοποιήσετε "
+"την επαναφορά συνεδρίας Python του σημειωματάριου."
+
+#: plugin/scripting/init_scripts.py
+#, python-brace-format
+msgid ""
+"Initialization script is too large to store in the document ({0} bytes)."
+msgstr ""
+"Το σενάριο αρχικοποίησης είναι πολύ μεγάλο για αποθήκευση στο έγγραφο ({0} "
+"bytes)."
+
 #: plugin/scripting/python_runner.py
 msgid "Run Python Script"
 msgstr "Εκτέλεση σεναρίου Python"
 
 #: plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "Εκτέλεση"
+msgid "Script:"
+msgstr "Σενάριο:"
 
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "Κλείσιμο"
+#: plugin/scripting/python_runner.py
+msgid "Save As..."
+msgstr "Αποθήκευση ως..."
+
+#: plugin/scripting/python_runner.py
+msgid "Delete"
+msgstr "Διαγραφή"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -869,8 +1033,47 @@ msgstr ""
 "Αναθέστε το αποτέλεσμα στη μεταβλητή 'result'."
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved successfully."
-msgstr "Το σενάριο αποθηκεύτηκε με επιτυχία."
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "Το σενάριο '%s' αποθηκεύτηκε με επιτυχία."
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad saved successfully."
+msgstr "Το πρόχειρο δείγμα αποθηκεύτηκε με επιτυχία."
+
+#: plugin/scripting/python_runner.py
+msgid "Enter script name:"
+msgstr "Εισαγάγετε όνομα σεναρίου:"
+
+#: plugin/scripting/python_runner.py
+msgid "Save Script"
+msgstr "Αποθήκευση σεναρίου"
+
+#: plugin/scripting/python_runner.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr "Είστε βέβαιοι ότι θέλετε να καθαρίσετε το πρόχειρο δειγμάτων;"
+
+#: plugin/scripting/python_runner.py
+msgid "Clear Script"
+msgstr "Καθαρισμός σεναρίου"
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad cleared."
+msgstr "Το πρόχειρο δειγμάτων καθαρίστηκε."
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Are you sure you want to delete script '%s'?"
+msgstr "Είστε βέβαιοι ότι θέλετε να διαγράψετε το σενάριο '%s';"
+
+#: plugin/scripting/python_runner.py
+msgid "Delete Script"
+msgstr "Διαγραφή σεναρίου"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "Το σενάριο '%s' διαγράφηκε."
 
 #: plugin/scripting/python_runner.py
 #, python-format
@@ -1019,6 +1222,14 @@ msgstr "Πίνακας ελέγχου αξιολόγησης"
 #: plugin/main.py
 msgid "Run Python Script..."
 msgstr "Εκτέλεση σεναρίου Python..."
+
+#: plugin/main.py
+msgid "Edit Initialization Script..."
+msgstr "Επεξεργασία σεναρίου αρχικοποίησης..."
+
+#: plugin/main.py
+msgid "Reset Python Session"
+msgstr "Επαναφορά συνεδρίας Python"
 
 #: plugin/main.py
 msgid "Import Jupyter Notebook..."
@@ -1485,6 +1696,33 @@ msgstr ""
 "Μέγιστος αριθμός κελιών σε δεδομένα =PYTHON() ή δεδομένα/data_range του Run "
 "Python Script. Μεγαλύτερες τιμές καταναλώνουν περισσότερη μνήμη RAM και "
 "χρόνο· η ανάγνωση εύρους UNO εξακολουθεί να κυριαρχεί."
+
+msgid "Python session mode"
+msgstr "Λειτουργία συνεδρίας Python"
+
+msgid ""
+"Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace "
+"per workbook (variables carry between cells)."
+msgstr ""
+"Απομονωμένο: κάθε κελί =PYTHON() αποκτά έναν νέο χώρο ονομάτων. Κοινόχρηστο:"
+" ένας χώρος ονομάτων ανά βιβλίο εργασίας (οι μεταβλητές μεταφέρονται μεταξύ "
+"των κελιών)."
+
+msgid "Isolated (default)"
+msgstr "Απομονωμένο (προεπιλογή)"
+
+msgid "Shared kernel"
+msgstr "Κοινόχρηστος πυρήνας"
+
+msgid "Force internal script editor"
+msgstr "Επιβολή εσωτερικού προγράμματος επεξεργασίας σεναρίων"
+
+msgid ""
+"If checked, bypasses the Monaco script editor and uses the LibreOffice "
+"dialog."
+msgstr ""
+"Αν επιλεγεί, παρακάμπτει το πρόγραμμα επεξεργασίας σεναρίων Monaco και "
+"χρησιμοποιεί τον διάλογο του LibreOffice."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr ""

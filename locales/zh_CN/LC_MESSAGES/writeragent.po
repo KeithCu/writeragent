@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-27 23:10-0400\n"
+"POT-Creation-Date: 2026-05-28 16:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Chinese (Simplified) <LL@li.org>\n"
@@ -33,6 +33,28 @@ msgstr ""
 "工具调用已切换到 '{0}'。您现在处于专用工具集模式。完成时必须调用 'specialized_workflow_finished' 以恢复完整的 "
 "API 集。"
 
+#: plugin/notebook/notebook_runner.py
+msgid "Cell execution failed."
+msgstr "单元格执行失败。"
+
+#: plugin/notebook/notebook_runner.py
+msgid "Notebook run is only supported in LibreOffice Writer."
+msgstr "仅 LibreOffice Writer 支持运行 Notebook。"
+
+#: plugin/notebook/notebook_runner.py
+msgid ""
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
+msgstr "此文档未导入 Notebook。请先使用“工具”→“导入 Jupyter Notebook…”。"
+
+#: plugin/notebook/notebook_runner.py
+msgid "Could not find notebook cell for this control."
+msgstr "找不到此控件对应的 Notebook 单元格。"
+
+#: plugin/notebook/notebook_runner.py plugin/notebook/import_dialog.py
+msgid "Open a Writer document first."
+msgstr "请先打开一个 Writer 文档。"
+
 #: plugin/notebook/import_dialog.py
 msgid "Import Jupyter Notebook"
 msgstr "导入 Jupyter Notebook"
@@ -44,10 +66,6 @@ msgstr "Jupyter Notebook"
 #: plugin/notebook/import_dialog.py
 msgid "All files"
 msgstr "所有文件"
-
-#: plugin/notebook/import_dialog.py
-msgid "Open a Writer document first."
-msgstr "请先打开一个 Writer 文档。"
 
 #: plugin/notebook/import_dialog.py
 msgid "Import Notebook is only supported in LibreOffice Writer."
@@ -70,6 +88,10 @@ msgstr ""
 "单元格：{cells}（代码：{code}，Markdown：{markdown}）\n"
 "文档中的代码输入域：{shapes}\n"
 "输出图像：{images}"
+
+#: plugin/notebook/writer_importer.py
+msgid "Run code cell"
+msgstr "运行代码单元格"
 
 #: plugin/contrib/aihordeclient/__init__.py plugin/chatbot/panel.py
 msgid "Starting..."
@@ -320,6 +342,7 @@ msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "来自 AI 提供商的 HTTP 错误 {0}: {1}"
 
 #: plugin/framework/client/errors.py plugin/calc/python_function.py
+#: plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
 msgstr "错误：{0}"
@@ -338,6 +361,60 @@ msgstr "模型正在重复相同的块（无限循环）。请重试或使用其
 msgid "Image inserted"
 msgstr "已插入图像"
 
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Initialization script saved. It will run automatically on the next =PYTHON()"
+" recalc."
+msgstr "初始化脚本已保存。它将在下次 =PYTHON() 重新计算时自动运行。"
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script ran successfully."
+msgstr "初始化脚本运行成功。"
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script cleared."
+msgstr "初始化脚本已清除。"
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script failed."
+msgstr "初始化脚本失败。"
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Edit Initialization Script applies to Calc spreadsheets. Open a Calc "
+"workbook and try again."
+msgstr "“编辑初始化脚本”仅适用于 Calc 电子表格。请打开一个 Calc 工作簿后再试。"
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"The Python editor requires a configured venv with pywebview. Set Settings → "
+"Python → Python venv path and install pywebview in that venv."
+msgstr ""
+"Python 编辑器需要配置包含 pywebview 的 venv。请设置“设置”→“Python”→“Python venv 路径”并在该 venv "
+"中安装 pywebview。"
+
+#: plugin/calc/init_script_editor.py
+msgid "Workbook Initialization Script"
+msgstr "工作簿初始化脚本"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "运行"
+
+#: plugin/calc/init_script_editor.py plugin/calc/python_editor.py
+#: plugin/scripting/python_runner.py
+msgid "Save"
+msgstr "保存"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "关闭"
+
+#: plugin/calc/init_script_editor.py
+msgid "Could not open the Python editor."
+msgstr "无法打开 Python 编辑器。"
+
 #: plugin/calc/python_editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
 msgstr "在单元格中编辑 Python..."
@@ -347,7 +424,7 @@ msgid "Please enter edit instructions!"
 msgstr "请输入编辑指令！"
 
 #: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/xdl_strings.py
+#: plugin/chatbot/dialogs.py plugin/xdl_strings.py
 msgid "Input"
 msgstr "输入"
 
@@ -375,10 +452,6 @@ msgstr "Python 单元格编辑器"
 #: plugin/calc/python_editor.py
 msgid "Save as plain text"
 msgstr "另存为纯文本"
-
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
-msgid "Save"
-msgstr "保存"
 
 #: plugin/calc/python_editor.py
 msgid "The Python editor failed unexpectedly."
@@ -778,17 +851,83 @@ msgstr "Python 编辑器在加载您的代码前已退出。"
 msgid "Could not talk to the Python editor."
 msgstr "无法与 Python 编辑器通信。"
 
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
+"Writer document with an imported Jupyter notebook and try again."
+msgstr ""
+"重置笔记本的 Python 会话仅适用于 LibreOffice Writer。请打开一个已导入 Jupyter 笔记本的 Writer 文档并重试。"
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… first."
+msgstr "此 Writer 文档没有已导入的笔记本注册表。请先使用“工具”→“导入 Jupyter 笔记本…”。"
+
+#: plugin/scripting/session_manager.py
+msgid "Could not resolve notebook Python session."
+msgstr "无法解析笔记本 Python 会话。"
+
+#: plugin/scripting/session_manager.py
+msgid "Notebook Python session reset for this document."
+msgstr "已重置此文档的笔记本 Python 会话。"
+
+#: plugin/scripting/session_manager.py
+msgid "Could not reset Python session."
+msgstr "无法重置 Python 会话。"
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
+"try again."
+msgstr "重置 Python 会话仅适用于 Calc 电子表格。请打开一个 Calc 工作簿并重试。"
+
+#: plugin/scripting/session_manager.py
+msgid "Python session reset for this workbook."
+msgstr "已重置此工作簿的 Python 会话。"
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Initialization script and any in-memory init state were reset for this "
+"workbook. Cell variables were already isolated per cell."
+msgstr "此工作簿的初始化脚本及任何内存中初始化状态均已重置。单元格变量已按单元格隔离。"
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Python session mode is Isolated (each =PYTHON() cell uses its own "
+"variables). There is no shared cell session to reset. Add an initialization "
+"script if you need to clear expensive one-time workbook setup."
+msgstr ""
+"Python 会话模式为“隔离”（每个 =PYTHON() "
+"单元格使用其各自的变量）。没有可重置的共享单元格会话。如果需要清除昂贵的一次性工作簿设置，请添加初始化脚本。"
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… to enable notebook Python session reset."
+msgstr "此 Writer 文档没有导入的笔记本注册表。请使用“工具”→“导入 Jupyter 笔记本…”以启用笔记本 Python 会话重置。"
+
+#: plugin/scripting/init_scripts.py
+#, python-brace-format
+msgid ""
+"Initialization script is too large to store in the document ({0} bytes)."
+msgstr "初始化脚本过大，无法存储在文档中（{0} 字节）。"
+
 #: plugin/scripting/python_runner.py
 msgid "Run Python Script"
 msgstr "运行 Python 脚本"
 
 #: plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "运行"
+msgid "Script:"
+msgstr "脚本："
 
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "关闭"
+#: plugin/scripting/python_runner.py
+msgid "Save As..."
+msgstr "另存为..."
+
+#: plugin/scripting/python_runner.py
+msgid "Delete"
+msgstr "删除"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -799,8 +938,47 @@ msgstr ""
 "将结果赋值给 'result' 变量。"
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved successfully."
-msgstr "脚本已成功保存。"
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "脚本“%s”保存成功。"
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad saved successfully."
+msgstr "示例草稿板保存成功。"
+
+#: plugin/scripting/python_runner.py
+msgid "Enter script name:"
+msgstr "输入脚本名称："
+
+#: plugin/scripting/python_runner.py
+msgid "Save Script"
+msgstr "保存脚本"
+
+#: plugin/scripting/python_runner.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr "您确定要清除示例草稿板吗？"
+
+#: plugin/scripting/python_runner.py
+msgid "Clear Script"
+msgstr "清除脚本"
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad cleared."
+msgstr "示例草稿板已清除。"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Are you sure you want to delete script '%s'?"
+msgstr "您确定要删除脚本“%s”吗？"
+
+#: plugin/scripting/python_runner.py
+msgid "Delete Script"
+msgstr "删除脚本"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "脚本“%s”已删除。"
 
 #: plugin/scripting/python_runner.py
 #, python-format
@@ -943,6 +1121,14 @@ msgstr "评估仪表板"
 #: plugin/main.py
 msgid "Run Python Script..."
 msgstr "运行 Python 脚本..."
+
+#: plugin/main.py
+msgid "Edit Initialization Script..."
+msgstr "编辑初始化脚本..."
+
+#: plugin/main.py
+msgid "Reset Python Session"
+msgstr "重置 Python 会话"
 
 #: plugin/main.py
 msgid "Import Jupyter Notebook..."
@@ -1374,6 +1560,28 @@ msgid ""
 " values use more RAM and time; UNO range read still dominates."
 msgstr ""
 "=PYTHON() 数据或运行 Python 脚本数据/数据区域的最大单元格数。较大的值会占用更多内存和时间；UNO 区域读取仍然是主要耗时部分。"
+
+msgid "Python session mode"
+msgstr "Python 会话模式"
+
+msgid ""
+"Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace "
+"per workbook (variables carry between cells)."
+msgstr "隔离模式：每个 =PYTHON() 单元格拥有独立的命名空间。共享模式：每个工作簿共享一个命名空间（变量可在单元格间传递）。"
+
+msgid "Isolated (default)"
+msgstr "隔离模式（默认）"
+
+msgid "Shared kernel"
+msgstr "共享内核"
+
+msgid "Force internal script editor"
+msgstr "强制使用内置脚本编辑器"
+
+msgid ""
+"If checked, bypasses the Monaco script editor and uses the LibreOffice "
+"dialog."
+msgstr "如果勾选，将绕过 Monaco 脚本编辑器并使用 LibreOffice 原生对话框。"
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer 文档工具（包括导航和搜索）"

@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: WriterAgent 1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-27 23:10-0400\n"
+"POT-Creation-Date: 2026-05-28 16:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: \n"
 "Language-Team: Swedish\n"
@@ -31,6 +31,30 @@ msgstr ""
 "specialiserade verktyg. Du måste anropa 'specialized_workflow_finished' när "
 "du är klar för att återställa hela uppsättningen API:er."
 
+#: plugin/notebook/notebook_runner.py
+msgid "Cell execution failed."
+msgstr "Cellkörning misslyckades."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Notebook run is only supported in LibreOffice Writer."
+msgstr "Notebook-körning stöds endast i LibreOffice Writer."
+
+#: plugin/notebook/notebook_runner.py
+msgid ""
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
+msgstr ""
+"Detta dokument har ingen importerad notebook. Använd Verktyg → Importera "
+"Jupyter Notebook… först."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Could not find notebook cell for this control."
+msgstr "Kunde inte hitta notebook-cell för denna kontroll."
+
+#: plugin/notebook/notebook_runner.py plugin/notebook/import_dialog.py
+msgid "Open a Writer document first."
+msgstr "Öppna ett Writer-dokument först."
+
 #: plugin/notebook/import_dialog.py
 msgid "Import Jupyter Notebook"
 msgstr "Importera Jupyter Notebook"
@@ -42,10 +66,6 @@ msgstr "Jupyter Notebook"
 #: plugin/notebook/import_dialog.py
 msgid "All files"
 msgstr "Alla filer"
-
-#: plugin/notebook/import_dialog.py
-msgid "Open a Writer document first."
-msgstr "Öppna ett Writer-dokument först."
 
 #: plugin/notebook/import_dialog.py
 msgid "Import Notebook is only supported in LibreOffice Writer."
@@ -68,6 +88,10 @@ msgstr ""
 "Celler: {cells} (kod: {code}, markdown: {markdown})\n"
 "Kodinmatningsfält i dokumentet: {shapes}\n"
 "Utdata-bilder: {images}"
+
+#: plugin/notebook/writer_importer.py
+msgid "Run code cell"
+msgstr "Kör kodcell"
 
 #: plugin/contrib/aihordeclient/__init__.py plugin/chatbot/panel.py
 msgid "Starting..."
@@ -343,6 +367,7 @@ msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "HTTP-fel {0} från AI-leverantör: {1}"
 
 #: plugin/framework/client/errors.py plugin/calc/python_function.py
+#: plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
 msgstr "Fel: {0}"
@@ -363,6 +388,65 @@ msgstr ""
 msgid "Image inserted"
 msgstr "Bild infogad"
 
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Initialization script saved. It will run automatically on the next =PYTHON()"
+" recalc."
+msgstr ""
+"Initieringsskript sparat. Det körs automatiskt vid nästa "
+"=PYTHON()-omberäkning."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script ran successfully."
+msgstr "Initieringsskriptet kördes utan problem."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script cleared."
+msgstr "Initieringsskriptet rensades."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script failed."
+msgstr "Initieringsskriptet misslyckades."
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Edit Initialization Script applies to Calc spreadsheets. Open a Calc "
+"workbook and try again."
+msgstr ""
+"Redigera initieringsskript gäller för Calc-kalkylblad. Öppna en Calc-"
+"arbetsbok och försök igen."
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"The Python editor requires a configured venv with pywebview. Set Settings → "
+"Python → Python venv path and install pywebview in that venv."
+msgstr ""
+"Python-redigeraren kräver en konfigurerad venv med pywebview. Ställ in "
+"Inställningar → Python → Sökväg till Python-venv och installera pywebview i "
+"den venv:en."
+
+#: plugin/calc/init_script_editor.py
+msgid "Workbook Initialization Script"
+msgstr "Initieringsskript för arbetsbok"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "Kör"
+
+#: plugin/calc/init_script_editor.py plugin/calc/python_editor.py
+#: plugin/scripting/python_runner.py
+msgid "Save"
+msgstr "Spara"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "Stäng"
+
+#: plugin/calc/init_script_editor.py
+msgid "Could not open the Python editor."
+msgstr "Det gick inte att öppna Python-redigeraren."
+
 #: plugin/calc/python_editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
 msgstr "Redigera Python i cell..."
@@ -372,7 +456,7 @@ msgid "Please enter edit instructions!"
 msgstr "Vänligen ange redigeringsinstruktioner!"
 
 #: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/xdl_strings.py
+#: plugin/chatbot/dialogs.py plugin/xdl_strings.py
 msgid "Input"
 msgstr "Inmatning"
 
@@ -401,10 +485,6 @@ msgstr "Python-cellredigerare"
 #: plugin/calc/python_editor.py
 msgid "Save as plain text"
 msgstr "Spara som oformaterad text"
-
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
-msgid "Save"
-msgstr "Spara"
 
 #: plugin/calc/python_editor.py
 msgid "The Python editor failed unexpectedly."
@@ -822,17 +902,97 @@ msgstr "Python-redigeraren avslutades innan koden kunde läsas in."
 msgid "Could not talk to the Python editor."
 msgstr "Kunde inte kommunicera med Python-redigeraren."
 
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
+"Writer document with an imported Jupyter notebook and try again."
+msgstr ""
+"Återställ Python-session för anteckningsböcker gäller för LibreOffice "
+"Writer. Öppna ett Writer-dokument med en importerad Jupyter-anteckningsbok "
+"och försök igen."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… first."
+msgstr ""
+"Detta Writer-dokument har inget register för importerade anteckningsböcker. "
+"Använd Verktyg → Importera Jupyter-anteckningsbok… först."
+
+#: plugin/scripting/session_manager.py
+msgid "Could not resolve notebook Python session."
+msgstr "Det gick inte att lösa Python-sessionen för anteckningsboken."
+
+#: plugin/scripting/session_manager.py
+msgid "Notebook Python session reset for this document."
+msgstr "Python-session för anteckningsbok återställd för detta dokument."
+
+#: plugin/scripting/session_manager.py
+msgid "Could not reset Python session."
+msgstr "Det gick inte att återställa Python-sessionen."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
+"try again."
+msgstr ""
+"Återställ Python-session gäller för Calc-kalkylblad. Öppna en Calc-arbetsbok"
+" och försök igen."
+
+#: plugin/scripting/session_manager.py
+msgid "Python session reset for this workbook."
+msgstr "Python-session återställd för denna arbetsbok."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Initialization script and any in-memory init state were reset for this "
+"workbook. Cell variables were already isolated per cell."
+msgstr ""
+"Initieringsskript och eventuellt initieringstillstånd i minnet har "
+"återställts för denna arbetsbok. Cellvariabler var redan isolerade per cell."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Python session mode is Isolated (each =PYTHON() cell uses its own "
+"variables). There is no shared cell session to reset. Add an initialization "
+"script if you need to clear expensive one-time workbook setup."
+msgstr ""
+"Python-sessionsläge är Isolerat (varje =PYTHON()-cell använder sina egna "
+"variabler). Det finns ingen delad cellsession att återställa. Lägg till ett "
+"initieringsskript om du behöver rensa resurskrävande engångsinställningar "
+"för arbetsboken."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… to enable notebook Python session reset."
+msgstr ""
+"Detta Writer-dokument har inget importerat notebook-register. Använd Verktyg"
+" → Importera Jupyter Notebook… för att aktivera återställning av Python-"
+"session för notebook."
+
+#: plugin/scripting/init_scripts.py
+#, python-brace-format
+msgid ""
+"Initialization script is too large to store in the document ({0} bytes)."
+msgstr ""
+"Initieringsskriptet är för stort för att lagras i dokumentet ({0} byte)."
+
 #: plugin/scripting/python_runner.py
 msgid "Run Python Script"
 msgstr "Kör Python-skript"
 
 #: plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "Kör"
+msgid "Script:"
+msgstr "Skript:"
 
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "Stäng"
+#: plugin/scripting/python_runner.py
+msgid "Save As..."
+msgstr "Spara som..."
+
+#: plugin/scripting/python_runner.py
+msgid "Delete"
+msgstr "Ta bort"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -843,8 +1003,47 @@ msgstr ""
 "Tilldela resultatet till variabeln 'result'."
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved successfully."
-msgstr "Skriptet har sparats."
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "Skriptet \"%s\" har sparats."
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad saved successfully."
+msgstr "Exempelanteckningsblock har sparats."
+
+#: plugin/scripting/python_runner.py
+msgid "Enter script name:"
+msgstr "Ange skriptnamn:"
+
+#: plugin/scripting/python_runner.py
+msgid "Save Script"
+msgstr "Spara skript"
+
+#: plugin/scripting/python_runner.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr "Är du säker på att du vill rensa exempelblocket?"
+
+#: plugin/scripting/python_runner.py
+msgid "Clear Script"
+msgstr "Rensa skript"
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad cleared."
+msgstr "Exempelblocket har rensats."
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Are you sure you want to delete script '%s'?"
+msgstr "Är du säker på att du vill ta bort skriptet \"%s\"?"
+
+#: plugin/scripting/python_runner.py
+msgid "Delete Script"
+msgstr "Ta bort skript"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "Skriptet \"%s\" har tagits bort."
 
 #: plugin/scripting/python_runner.py
 #, python-format
@@ -991,6 +1190,14 @@ msgstr "Utvärderingspanel"
 #: plugin/main.py
 msgid "Run Python Script..."
 msgstr "Kör Python-skript..."
+
+#: plugin/main.py
+msgid "Edit Initialization Script..."
+msgstr "Redigera initieringsskript..."
+
+#: plugin/main.py
+msgid "Reset Python Session"
+msgstr "Återställ Python-session"
 
 #: plugin/main.py
 msgid "Import Jupyter Notebook..."
@@ -1444,6 +1651,32 @@ msgstr ""
 "Maximalt antal celler i =PYTHON()-data eller Run Python Script-"
 "data/data_range. Större värden förbrukar mer RAM och tid; UNO-områdesläsning"
 " dominerar fortfarande."
+
+msgid "Python session mode"
+msgstr "Python-sessionsläge"
+
+msgid ""
+"Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace "
+"per workbook (variables carry between cells)."
+msgstr ""
+"Isolerad: varje =PYTHON()-cell får ett nytt namnområde. Delad: ett "
+"namnområde per arbetsbok (variabler följer med mellan celler)."
+
+msgid "Isolated (default)"
+msgstr "Isolerad (standard)"
+
+msgid "Shared kernel"
+msgstr "Delad kärna"
+
+msgid "Force internal script editor"
+msgstr "Tvinga intern skriptredigerare"
+
+msgid ""
+"If checked, bypasses the Monaco script editor and uses the LibreOffice "
+"dialog."
+msgstr ""
+"Om markerad, förbigås Monaco-skriptredigeraren och LibreOffice-dialogrutan "
+"används istället."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer-dokumentverktyg (inklusive navigering och sökning)"

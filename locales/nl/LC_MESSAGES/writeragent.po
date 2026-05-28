@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-27 23:10-0400\n"
+"POT-Creation-Date: 2026-05-28 16:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Dutch <LL@li.org>\n"
@@ -36,6 +36,30 @@ msgstr ""
 "toolset-modus. U moet 'specialized_workflow_finished' aanroepen wanneer u "
 "klaar bent om de volledige set API's te herstellen."
 
+#: plugin/notebook/notebook_runner.py
+msgid "Cell execution failed."
+msgstr "Celuitvoering mislukt."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Notebook run is only supported in LibreOffice Writer."
+msgstr "Notebook uitvoeren wordt alleen ondersteund in LibreOffice Writer."
+
+#: plugin/notebook/notebook_runner.py
+msgid ""
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
+msgstr ""
+"Dit document heeft geen geïmporteerd notebook. Gebruik eerst Extra → Jupyter"
+" Notebook importeren…."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Could not find notebook cell for this control."
+msgstr "Kon geen notebookcel vinden voor dit besturingselement."
+
+#: plugin/notebook/notebook_runner.py plugin/notebook/import_dialog.py
+msgid "Open a Writer document first."
+msgstr "Open eerst een Writer-document."
+
 #: plugin/notebook/import_dialog.py
 msgid "Import Jupyter Notebook"
 msgstr "Jupyter Notebook importeren"
@@ -47,10 +71,6 @@ msgstr "Jupyter Notebook"
 #: plugin/notebook/import_dialog.py
 msgid "All files"
 msgstr "Alle bestanden"
-
-#: plugin/notebook/import_dialog.py
-msgid "Open a Writer document first."
-msgstr "Open eerst een Writer-document."
 
 #: plugin/notebook/import_dialog.py
 msgid "Import Notebook is only supported in LibreOffice Writer."
@@ -73,6 +93,10 @@ msgstr ""
 "Cellen: {cells} (code: {code}, markdown: {markdown})\n"
 "Code-invoervelden in document: {shapes}\n"
 "Uitvoer-afbeeldingen: {images}"
+
+#: plugin/notebook/writer_importer.py
+msgid "Run code cell"
+msgstr "Codecel uitvoeren"
 
 #: plugin/contrib/aihordeclient/__init__.py plugin/chatbot/panel.py
 msgid "Starting..."
@@ -351,6 +375,7 @@ msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "HTTP-fout {0} van AI-provider: {1}"
 
 #: plugin/framework/client/errors.py plugin/calc/python_function.py
+#: plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
 msgstr "Fout: {0}"
@@ -371,6 +396,65 @@ msgstr ""
 msgid "Image inserted"
 msgstr "Afbeelding ingevoegd"
 
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Initialization script saved. It will run automatically on the next =PYTHON()"
+" recalc."
+msgstr ""
+"Initialisatiescript opgeslagen. Het wordt automatisch uitgevoerd bij de "
+"volgende =PYTHON() herberekening."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script ran successfully."
+msgstr "Initialisatiescript succesvol uitgevoerd."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script cleared."
+msgstr "Initialisatiescript gewist."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script failed."
+msgstr "Initialisatiescript mislukt."
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Edit Initialization Script applies to Calc spreadsheets. Open a Calc "
+"workbook and try again."
+msgstr ""
+"Initialisatiescript bewerken is van toepassing op Calc-werkbladen. Open een "
+"Calc-werkmap en probeer het opnieuw."
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"The Python editor requires a configured venv with pywebview. Set Settings → "
+"Python → Python venv path and install pywebview in that venv."
+msgstr ""
+"De Python-editor vereist een geconfigureerde venv met pywebview. Stel "
+"Instellingen → Python → Python venv-pad in en installeer pywebview in die "
+"venv."
+
+#: plugin/calc/init_script_editor.py
+msgid "Workbook Initialization Script"
+msgstr "Initialisatiescript voor werkmap"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "Uitvoeren"
+
+#: plugin/calc/init_script_editor.py plugin/calc/python_editor.py
+#: plugin/scripting/python_runner.py
+msgid "Save"
+msgstr "Opslaan"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "Sluiten"
+
+#: plugin/calc/init_script_editor.py
+msgid "Could not open the Python editor."
+msgstr "Kon de Python-editor niet openen."
+
 #: plugin/calc/python_editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
 msgstr "Python bewerken in cel..."
@@ -380,7 +464,7 @@ msgid "Please enter edit instructions!"
 msgstr "Voer bewerkingsinstructies in!"
 
 #: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/xdl_strings.py
+#: plugin/chatbot/dialogs.py plugin/xdl_strings.py
 msgid "Input"
 msgstr "Invoer"
 
@@ -409,10 +493,6 @@ msgstr "Python-celleditor"
 #: plugin/calc/python_editor.py
 msgid "Save as plain text"
 msgstr "Opslaan als platte tekst"
-
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
-msgid "Save"
-msgstr "Opslaan"
 
 #: plugin/calc/python_editor.py
 msgid "The Python editor failed unexpectedly."
@@ -831,17 +911,97 @@ msgstr "De Python-editor is afgesloten voordat uw code kon worden geladen."
 msgid "Could not talk to the Python editor."
 msgstr "Kon niet communiceren met de Python-editor."
 
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
+"Writer document with an imported Jupyter notebook and try again."
+msgstr ""
+"Python-sessie voor notebooks opnieuw instellen is van toepassing op "
+"LibreOffice Writer. Open een Writer-document met een geïmporteerd Jupyter-"
+"notebook en probeer het opnieuw."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… first."
+msgstr ""
+"Dit Writer-document heeft geen register voor geïmporteerde notebooks. "
+"Gebruik eerst Extra → Jupyter-notebook importeren…"
+
+#: plugin/scripting/session_manager.py
+msgid "Could not resolve notebook Python session."
+msgstr "Kon de Python-sessie van het notebook niet bepalen."
+
+#: plugin/scripting/session_manager.py
+msgid "Notebook Python session reset for this document."
+msgstr "Python-sessie van notebook opnieuw ingesteld voor dit document."
+
+#: plugin/scripting/session_manager.py
+msgid "Could not reset Python session."
+msgstr "Kon de Python-sessie niet opnieuw instellen."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
+"try again."
+msgstr ""
+"Python-sessie opnieuw instellen is van toepassing op Calc-werkbladen. Open "
+"een Calc-werkmap en probeer het opnieuw."
+
+#: plugin/scripting/session_manager.py
+msgid "Python session reset for this workbook."
+msgstr "Python-sessie opnieuw ingesteld voor deze werkmap."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Initialization script and any in-memory init state were reset for this "
+"workbook. Cell variables were already isolated per cell."
+msgstr ""
+"Initialisatiescript en eventuele in-memory init-status zijn gereset voor dit"
+" werkboek. Celvariabelen waren al per cel geïsoleerd."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Python session mode is Isolated (each =PYTHON() cell uses its own "
+"variables). There is no shared cell session to reset. Add an initialization "
+"script if you need to clear expensive one-time workbook setup."
+msgstr ""
+"Python-sessiemodus is Geïsoleerd (elke =PYTHON()-cel gebruikt zijn eigen "
+"variabelen). Er is geen gedeelde celsessie om te resetten. Voeg een "
+"initialisatiescript toe als u dure eenmalige werkboekinstellingen wilt "
+"wissen."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… to enable notebook Python session reset."
+msgstr ""
+"Dit Writer-document heeft geen geïmporteerd notebookregister. Gebruik Extra "
+"→ Jupyter Notebook importeren… om het resetten van de Python-sessie van het "
+"notebook in te schakelen."
+
+#: plugin/scripting/init_scripts.py
+#, python-brace-format
+msgid ""
+"Initialization script is too large to store in the document ({0} bytes)."
+msgstr ""
+"Initialisatiescript is te groot om in het document op te slaan ({0} bytes)."
+
 #: plugin/scripting/python_runner.py
 msgid "Run Python Script"
 msgstr "Python-script uitvoeren"
 
 #: plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "Uitvoeren"
+msgid "Script:"
+msgstr "Script:"
 
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "Sluiten"
+#: plugin/scripting/python_runner.py
+msgid "Save As..."
+msgstr "Opslaan als..."
+
+#: plugin/scripting/python_runner.py
+msgid "Delete"
+msgstr "Verwijderen"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -852,8 +1012,47 @@ msgstr ""
 "Wijs het resultaat toe aan de variabele 'result'."
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved successfully."
-msgstr "Script is succesvol opgeslagen."
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "Script '%s' succesvol opgeslagen."
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad saved successfully."
+msgstr "Voorbeeld-kladblok succesvol opgeslagen."
+
+#: plugin/scripting/python_runner.py
+msgid "Enter script name:"
+msgstr "Voer scriptnaam in:"
+
+#: plugin/scripting/python_runner.py
+msgid "Save Script"
+msgstr "Script opslaan"
+
+#: plugin/scripting/python_runner.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr "Weet u zeker dat u het voorbeeld-kladblok wilt wissen?"
+
+#: plugin/scripting/python_runner.py
+msgid "Clear Script"
+msgstr "Script wissen"
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad cleared."
+msgstr "Voorbeeld-kladblok gewist."
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Are you sure you want to delete script '%s'?"
+msgstr "Weet u zeker dat u script '%s' wilt verwijderen?"
+
+#: plugin/scripting/python_runner.py
+msgid "Delete Script"
+msgstr "Script verwijderen"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "Script '%s' verwijderd."
 
 #: plugin/scripting/python_runner.py
 #, python-format
@@ -1001,6 +1200,14 @@ msgstr "Evaluatiedashboard"
 #: plugin/main.py
 msgid "Run Python Script..."
 msgstr "Python-script uitvoeren..."
+
+#: plugin/main.py
+msgid "Edit Initialization Script..."
+msgstr "Initialisatiescript bewerken..."
+
+#: plugin/main.py
+msgid "Reset Python Session"
+msgstr "Python-sessie opnieuw instellen"
 
 #: plugin/main.py
 msgid "Import Jupyter Notebook..."
@@ -1461,6 +1668,32 @@ msgstr ""
 "Maximum aantal cellen in =PYTHON() data of Run Python Script "
 "data/data_range. Grotere waarden verbruiken meer RAM en tijd; het lezen van "
 "het UNO-bereik blijft de grootste factor."
+
+msgid "Python session mode"
+msgstr "Python-sessiemodus"
+
+msgid ""
+"Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace "
+"per workbook (variables carry between cells)."
+msgstr ""
+"Geïsoleerd: elke =PYTHON()-cel krijgt een nieuwe naamruimte. Gedeeld: één "
+"naamruimte per werkmap (variabelen worden tussen cellen onthouden)."
+
+msgid "Isolated (default)"
+msgstr "Geïsoleerd (standaard)"
+
+msgid "Shared kernel"
+msgstr "Gedeelde kernel"
+
+msgid "Force internal script editor"
+msgstr "Interne script-editor forceren"
+
+msgid ""
+"If checked, bypasses the Monaco script editor and uses the LibreOffice "
+"dialog."
+msgstr ""
+"Indien aangevinkt, wordt de Monaco-script-editor omzeild en het LibreOffice-"
+"dialoogvenster gebruikt."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer-documenttools (inclusief navigatie en zoeken)"

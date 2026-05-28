@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-27 23:10-0400\n"
+"POT-Creation-Date: 2026-05-28 16:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Indonesian <LL@li.org>\n"
@@ -36,6 +36,30 @@ msgstr ""
 "khusus. Anda harus memanggil 'specialized_workflow_finished' setelah selesai"
 " untuk memulihkan rangkaian API lengkap."
 
+#: plugin/notebook/notebook_runner.py
+msgid "Cell execution failed."
+msgstr "Eksekusi sel gagal."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Notebook run is only supported in LibreOffice Writer."
+msgstr "Menjalankan notebook hanya didukung di LibreOffice Writer."
+
+#: plugin/notebook/notebook_runner.py
+msgid ""
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
+msgstr ""
+"Dokumen ini tidak memiliki notebook yang diimpor. Gunakan Alat → Impor "
+"Jupyter Notebook… terlebih dahulu."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Could not find notebook cell for this control."
+msgstr "Tidak dapat menemukan sel notebook untuk kontrol ini."
+
+#: plugin/notebook/notebook_runner.py plugin/notebook/import_dialog.py
+msgid "Open a Writer document first."
+msgstr "Buka dokumen Writer terlebih dahulu."
+
 #: plugin/notebook/import_dialog.py
 msgid "Import Jupyter Notebook"
 msgstr "Impor Jupyter Notebook"
@@ -47,10 +71,6 @@ msgstr "Jupyter Notebook"
 #: plugin/notebook/import_dialog.py
 msgid "All files"
 msgstr "Semua berkas"
-
-#: plugin/notebook/import_dialog.py
-msgid "Open a Writer document first."
-msgstr "Buka dokumen Writer terlebih dahulu."
 
 #: plugin/notebook/import_dialog.py
 msgid "Import Notebook is only supported in LibreOffice Writer."
@@ -73,6 +93,10 @@ msgstr ""
 "Sel: {cells} (kode: {code}, markdown: {markdown})\n"
 "Kolom input kode dalam dokumen: {shapes}\n"
 "Gambar output: {images}"
+
+#: plugin/notebook/writer_importer.py
+msgid "Run code cell"
+msgstr "Jalankan sel kode"
 
 #: plugin/contrib/aihordeclient/__init__.py plugin/chatbot/panel.py
 msgid "Starting..."
@@ -354,6 +378,7 @@ msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "Kesalahan HTTP {0} dari Penyedia AI: {1}"
 
 #: plugin/framework/client/errors.py plugin/calc/python_function.py
+#: plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
 msgstr "Kesalahan: {0}"
@@ -374,6 +399,65 @@ msgstr ""
 msgid "Image inserted"
 msgstr "Gambar disisipkan"
 
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Initialization script saved. It will run automatically on the next =PYTHON()"
+" recalc."
+msgstr ""
+"Skrip inisialisasi disimpan. Skrip akan berjalan secara otomatis pada "
+"penghitungan ulang =PYTHON() berikutnya."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script ran successfully."
+msgstr "Skrip inisialisasi berhasil dijalankan."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script cleared."
+msgstr "Skrip inisialisasi dibersihkan."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script failed."
+msgstr "Skrip inisialisasi gagal."
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Edit Initialization Script applies to Calc spreadsheets. Open a Calc "
+"workbook and try again."
+msgstr ""
+"Edit Skrip Inisialisasi berlaku untuk lembar kerja Calc. Buka buku kerja "
+"Calc dan coba lagi."
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"The Python editor requires a configured venv with pywebview. Set Settings → "
+"Python → Python venv path and install pywebview in that venv."
+msgstr ""
+"Editor Python memerlukan venv yang dikonfigurasi dengan pywebview. Atur "
+"Pengaturan → Python → Jalur venv Python dan instal pywebview di venv "
+"tersebut."
+
+#: plugin/calc/init_script_editor.py
+msgid "Workbook Initialization Script"
+msgstr "Skrip Inisialisasi Buku Kerja"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "Jalankan"
+
+#: plugin/calc/init_script_editor.py plugin/calc/python_editor.py
+#: plugin/scripting/python_runner.py
+msgid "Save"
+msgstr "Simpan"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "Tutup"
+
+#: plugin/calc/init_script_editor.py
+msgid "Could not open the Python editor."
+msgstr "Tidak dapat membuka editor Python."
+
 #: plugin/calc/python_editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
 msgstr "Edit Python di Sel..."
@@ -383,7 +467,7 @@ msgid "Please enter edit instructions!"
 msgstr "Harap masukkan instruksi penyuntingan!"
 
 #: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/xdl_strings.py
+#: plugin/chatbot/dialogs.py plugin/xdl_strings.py
 msgid "Input"
 msgstr "Masukan"
 
@@ -412,10 +496,6 @@ msgstr "Penyunting sel Python"
 #: plugin/calc/python_editor.py
 msgid "Save as plain text"
 msgstr "Simpan sebagai teks biasa"
-
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
-msgid "Save"
-msgstr "Simpan"
 
 #: plugin/calc/python_editor.py
 msgid "The Python editor failed unexpectedly."
@@ -832,17 +912,96 @@ msgstr "Editor Python keluar sebelum dapat memuat kode Anda."
 msgid "Could not talk to the Python editor."
 msgstr "Tidak dapat berkomunikasi dengan editor Python."
 
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
+"Writer document with an imported Jupyter notebook and try again."
+msgstr ""
+"Atur Ulang Sesi Python untuk buku catatan berlaku untuk LibreOffice Writer. "
+"Buka dokumen Writer dengan buku catatan Jupyter yang diimpor dan coba lagi."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… first."
+msgstr ""
+"Dokumen Writer ini tidak memiliki registri buku catatan yang diimpor. "
+"Gunakan Alat → Impor Buku Catatan Jupyter… terlebih dahulu."
+
+#: plugin/scripting/session_manager.py
+msgid "Could not resolve notebook Python session."
+msgstr "Tidak dapat menyelesaikan sesi Python buku catatan."
+
+#: plugin/scripting/session_manager.py
+msgid "Notebook Python session reset for this document."
+msgstr "Sesi Python buku catatan diatur ulang untuk dokumen ini."
+
+#: plugin/scripting/session_manager.py
+msgid "Could not reset Python session."
+msgstr "Tidak dapat mengatur ulang sesi Python."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
+"try again."
+msgstr ""
+"Atur Ulang Sesi Python berlaku untuk lembar kerja Calc. Buka buku kerja Calc"
+" dan coba lagi."
+
+#: plugin/scripting/session_manager.py
+msgid "Python session reset for this workbook."
+msgstr "Sesi Python diatur ulang untuk buku kerja ini."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Initialization script and any in-memory init state were reset for this "
+"workbook. Cell variables were already isolated per cell."
+msgstr ""
+"Skrip inisialisasi dan status inisialisasi dalam memori telah diatur ulang "
+"untuk buku kerja ini. Variabel sel sudah diisolasi per sel."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Python session mode is Isolated (each =PYTHON() cell uses its own "
+"variables). There is no shared cell session to reset. Add an initialization "
+"script if you need to clear expensive one-time workbook setup."
+msgstr ""
+"Mode sesi Python adalah Terisolasi (setiap sel =PYTHON() menggunakan "
+"variabelnya sendiri). Tidak ada sesi sel bersama untuk diatur ulang. "
+"Tambahkan skrip inisialisasi jika Anda perlu menghapus pengaturan buku kerja"
+" satu kali yang memakan sumber daya."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… to enable notebook Python session reset."
+msgstr ""
+"Dokumen Writer ini tidak memiliki registri notebook yang diimpor. Gunakan "
+"Alat → Impor Jupyter Notebook… untuk mengaktifkan pengaturan ulang sesi "
+"Python notebook."
+
+#: plugin/scripting/init_scripts.py
+#, python-brace-format
+msgid ""
+"Initialization script is too large to store in the document ({0} bytes)."
+msgstr ""
+"Skrip inisialisasi terlalu besar untuk disimpan dalam dokumen ({0} bita)."
+
 #: plugin/scripting/python_runner.py
 msgid "Run Python Script"
 msgstr "Jalankan Skrip Python"
 
 #: plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "Jalankan"
+msgid "Script:"
+msgstr "Skrip:"
 
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "Tutup"
+#: plugin/scripting/python_runner.py
+msgid "Save As..."
+msgstr "Simpan Sebagai..."
+
+#: plugin/scripting/python_runner.py
+msgid "Delete"
+msgstr "Hapus"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -853,8 +1012,47 @@ msgstr ""
 "Tetapkan hasilnya ke variabel 'result'."
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved successfully."
-msgstr "Skrip berhasil disimpan."
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "Skrip '%s' berhasil disimpan."
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad saved successfully."
+msgstr "Buku catatan sampel berhasil disimpan."
+
+#: plugin/scripting/python_runner.py
+msgid "Enter script name:"
+msgstr "Masukkan nama skrip:"
+
+#: plugin/scripting/python_runner.py
+msgid "Save Script"
+msgstr "Simpan Skrip"
+
+#: plugin/scripting/python_runner.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr "Apakah Anda yakin ingin mengosongkan papan coretan Sampel?"
+
+#: plugin/scripting/python_runner.py
+msgid "Clear Script"
+msgstr "Hapus Skrip"
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad cleared."
+msgstr "Papan coretan Sampel telah dikosongkan."
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Are you sure you want to delete script '%s'?"
+msgstr "Apakah Anda yakin ingin menghapus skrip '%s'?"
+
+#: plugin/scripting/python_runner.py
+msgid "Delete Script"
+msgstr "Hapus Skrip"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "Skrip '%s' telah dihapus."
 
 #: plugin/scripting/python_runner.py
 #, python-format
@@ -1001,6 +1199,14 @@ msgstr "Dasbor Evaluasi"
 #: plugin/main.py
 msgid "Run Python Script..."
 msgstr "Jalankan Skrip Python..."
+
+#: plugin/main.py
+msgid "Edit Initialization Script..."
+msgstr "Sunting Skrip Inisialisasi..."
+
+#: plugin/main.py
+msgid "Reset Python Session"
+msgstr "Atur Ulang Sesi Python"
 
 #: plugin/main.py
 msgid "Import Jupyter Notebook..."
@@ -1458,6 +1664,32 @@ msgstr ""
 "Jumlah sel maksimum dalam data =PYTHON() atau data/data_range Jalankan Skrip"
 " Python. Nilai yang lebih besar menggunakan lebih banyak RAM dan waktu; "
 "pembacaan rentang UNO tetap yang paling dominan."
+
+msgid "Python session mode"
+msgstr "Mode sesi Python"
+
+msgid ""
+"Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace "
+"per workbook (variables carry between cells)."
+msgstr ""
+"Terisolasi: setiap sel =PYTHON() mendapatkan namespace baru. Berbagi: satu "
+"namespace per buku kerja (variabel terbawa antar sel)."
+
+msgid "Isolated (default)"
+msgstr "Terisolasi (bawaan)"
+
+msgid "Shared kernel"
+msgstr "Kernel berbagi"
+
+msgid "Force internal script editor"
+msgstr "Paksa penyunting skrip internal"
+
+msgid ""
+"If checked, bypasses the Monaco script editor and uses the LibreOffice "
+"dialog."
+msgstr ""
+"Jika dicentang, melewati penyunting skrip Monaco dan menggunakan dialog "
+"LibreOffice."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Alat dokumen Writer (termasuk navigasi dan pencarian)"

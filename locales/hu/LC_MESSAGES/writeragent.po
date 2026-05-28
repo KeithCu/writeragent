@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-27 23:10-0400\n"
+"POT-Creation-Date: 2026-05-28 16:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Hungarian <LL@li.org>\n"
@@ -36,6 +36,30 @@ msgstr ""
 "teljes API-készlet visszaállításához a munka végeztével meg kell hívnia a "
 "„specialized_workflow_finished” parancsot."
 
+#: plugin/notebook/notebook_runner.py
+msgid "Cell execution failed."
+msgstr "A cella végrehajtása sikertelen."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Notebook run is only supported in LibreOffice Writer."
+msgstr "A jegyzetfüzet futtatása csak a LibreOffice Writerben támogatott."
+
+#: plugin/notebook/notebook_runner.py
+msgid ""
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
+msgstr ""
+"Ez a dokumentum nem tartalmaz importált jegyzetfüzetet. Először használja az"
+" Eszközök → Jupyter-jegyzetfüzet importálása… menüpontot."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Could not find notebook cell for this control."
+msgstr "Nem található jegyzetfüzetcella ehhez a vezérlőhöz."
+
+#: plugin/notebook/notebook_runner.py plugin/notebook/import_dialog.py
+msgid "Open a Writer document first."
+msgstr "Először nyisson meg egy Writer-dokumentumot."
+
 #: plugin/notebook/import_dialog.py
 msgid "Import Jupyter Notebook"
 msgstr "Jupyter Notebook importálása"
@@ -47,10 +71,6 @@ msgstr "Jupyter Notebook"
 #: plugin/notebook/import_dialog.py
 msgid "All files"
 msgstr "Minden fájl"
-
-#: plugin/notebook/import_dialog.py
-msgid "Open a Writer document first."
-msgstr "Először nyisson meg egy Writer-dokumentumot."
 
 #: plugin/notebook/import_dialog.py
 msgid "Import Notebook is only supported in LibreOffice Writer."
@@ -73,6 +93,10 @@ msgstr ""
 "Cellák: {cells} (kód: {code}, markdown: {markdown})\n"
 "Kódbeviteli mezők a dokumentumban: {shapes}\n"
 "Kimeneti képek: {images}"
+
+#: plugin/notebook/writer_importer.py
+msgid "Run code cell"
+msgstr "Kódcella futtatása"
 
 #: plugin/contrib/aihordeclient/__init__.py plugin/chatbot/panel.py
 msgid "Starting..."
@@ -352,6 +376,7 @@ msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "HTTP-hiba {0} az MI-szolgáltatótól: {1}"
 
 #: plugin/framework/client/errors.py plugin/calc/python_function.py
+#: plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
 msgstr "Hiba: {0}"
@@ -372,6 +397,65 @@ msgstr ""
 msgid "Image inserted"
 msgstr "Kép beszúrva"
 
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Initialization script saved. It will run automatically on the next =PYTHON()"
+" recalc."
+msgstr ""
+"Az inicializáló parancsfájl mentve. A következő =PYTHON() újraszámításkor "
+"automatikusan lefut."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script ran successfully."
+msgstr "Az inicializáló parancsfájl sikeresen lefutott."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script cleared."
+msgstr "Az inicializáló parancsfájl törölve."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script failed."
+msgstr "Az inicializáló parancsfájl futtatása sikertelen."
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Edit Initialization Script applies to Calc spreadsheets. Open a Calc "
+"workbook and try again."
+msgstr ""
+"Az inicializáló parancsfájl szerkesztése a Calc táblázatokra vonatkozik. "
+"Nyisson meg egy Calc munkafüzetet, és próbálja újra."
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"The Python editor requires a configured venv with pywebview. Set Settings → "
+"Python → Python venv path and install pywebview in that venv."
+msgstr ""
+"A Python-szerkesztőhöz egy konfigurált, pywebview-t tartalmazó venv "
+"szükséges. Állítsa be a Beállítások → Python → Python venv útvonalat, és "
+"telepítse a pywebview-t abban a venv-ben."
+
+#: plugin/calc/init_script_editor.py
+msgid "Workbook Initialization Script"
+msgstr "Munkafüzet-inicializáló parancsfájl"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "Futtatás"
+
+#: plugin/calc/init_script_editor.py plugin/calc/python_editor.py
+#: plugin/scripting/python_runner.py
+msgid "Save"
+msgstr "Mentés"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "Bezárás"
+
+#: plugin/calc/init_script_editor.py
+msgid "Could not open the Python editor."
+msgstr "Nem sikerült megnyitni a Python-szerkesztőt."
+
 #: plugin/calc/python_editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
 msgstr "Python szerkesztése cellában..."
@@ -381,7 +465,7 @@ msgid "Please enter edit instructions!"
 msgstr "Kérjük, adja meg a szerkesztési utasításokat!"
 
 #: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/xdl_strings.py
+#: plugin/chatbot/dialogs.py plugin/xdl_strings.py
 msgid "Input"
 msgstr "Bevitel"
 
@@ -410,10 +494,6 @@ msgstr "Python cella-szerkesztő"
 #: plugin/calc/python_editor.py
 msgid "Save as plain text"
 msgstr "Mentés egyszerű szövegként"
-
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
-msgid "Save"
-msgstr "Mentés"
 
 #: plugin/calc/python_editor.py
 msgid "The Python editor failed unexpectedly."
@@ -833,17 +913,101 @@ msgstr "A Python-szerkesztő kilépett, mielőtt betölthette volna a kódot."
 msgid "Could not talk to the Python editor."
 msgstr "Nem sikerült kommunikálni a Python-szerkesztővel."
 
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
+"Writer document with an imported Jupyter notebook and try again."
+msgstr ""
+"A jegyzetfüzetek Python-munkamenetének alaphelyzetbe állítása a LibreOffice "
+"Writerre vonatkozik. Nyisson meg egy Writer-dokumentumot egy importált "
+"Jupyter-jegyzetfüzettel, és próbálja újra."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… first."
+msgstr ""
+"Ez a Writer-dokumentum nem rendelkezik importált jegyzetfüzet-"
+"nyilvántartással. Először használja az Eszközök → Jupyter-jegyzetfüzet "
+"importálása… menüpontot."
+
+#: plugin/scripting/session_manager.py
+msgid "Could not resolve notebook Python session."
+msgstr "Nem sikerült feloldani a jegyzetfüzet Python-munkamenetét."
+
+#: plugin/scripting/session_manager.py
+msgid "Notebook Python session reset for this document."
+msgstr ""
+"A jegyzetfüzet Python-munkamenete alaphelyzetbe állítva ehhez a "
+"dokumentumhoz."
+
+#: plugin/scripting/session_manager.py
+msgid "Could not reset Python session."
+msgstr "Nem sikerült alaphelyzetbe állítani a Python-munkamenetet."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
+"try again."
+msgstr ""
+"A Python-munkamenet alaphelyzetbe állítása a Calc-táblázatokra vonatkozik. "
+"Nyisson meg egy Calc-munkafüzetet, és próbálja újra."
+
+#: plugin/scripting/session_manager.py
+msgid "Python session reset for this workbook."
+msgstr "Python-munkamenet alaphelyzetbe állítva ehhez a munkafüzethez."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Initialization script and any in-memory init state were reset for this "
+"workbook. Cell variables were already isolated per cell."
+msgstr ""
+"A munkafüzet inicializációs parancsfájlja és a memóriabeli kezdeti állapot "
+"alaphelyzetbe állt. A cellaváltozók már cellánként izolálva voltak."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Python session mode is Isolated (each =PYTHON() cell uses its own "
+"variables). There is no shared cell session to reset. Add an initialization "
+"script if you need to clear expensive one-time workbook setup."
+msgstr ""
+"A Python munkamenet módja izolált (minden =PYTHON() cella saját változókat "
+"használ). Nincs megosztott cellamunkamenet, amit alaphelyzetbe lehetne "
+"állítani. Adjon meg egy inicializációs parancsfájlt, ha törölni szeretné a "
+"költséges, egyszeri munkafüzet-beállításokat."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… to enable notebook Python session reset."
+msgstr ""
+"Ez a Writer-dokumentum nem tartalmaz importált notebook-nyilvántartást. "
+"Használja az Eszközök → Jupyter Notebook importálása… menüpontot a notebook "
+"Python-munkamenetének alaphelyzetbe állításához."
+
+#: plugin/scripting/init_scripts.py
+#, python-brace-format
+msgid ""
+"Initialization script is too large to store in the document ({0} bytes)."
+msgstr ""
+"Az inicializációs parancsfájl túl nagy a dokumentumban való tároláshoz ({0} "
+"bájt)."
+
 #: plugin/scripting/python_runner.py
 msgid "Run Python Script"
 msgstr "Python-szkript futtatása"
 
 #: plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "Futtatás"
+msgid "Script:"
+msgstr "Parancsfájl:"
 
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "Bezárás"
+#: plugin/scripting/python_runner.py
+msgid "Save As..."
+msgstr "Mentés másként…"
+
+#: plugin/scripting/python_runner.py
+msgid "Delete"
+msgstr "Törlés"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -854,8 +1018,47 @@ msgstr ""
 "A végeredményt rendelje a „result” változóhoz."
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved successfully."
-msgstr "A parancsfájl sikeresen mentve."
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "A(z) „%s” parancsfájl sikeresen mentve."
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad saved successfully."
+msgstr "A mintajegyzetfüzet sikeresen mentve."
+
+#: plugin/scripting/python_runner.py
+msgid "Enter script name:"
+msgstr "Adja meg a parancsfájl nevét:"
+
+#: plugin/scripting/python_runner.py
+msgid "Save Script"
+msgstr "Parancsfájl mentése"
+
+#: plugin/scripting/python_runner.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr "Biztosan törölni szeretné a mintajegyzetfüzetet?"
+
+#: plugin/scripting/python_runner.py
+msgid "Clear Script"
+msgstr "Parancsfájl törlése"
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad cleared."
+msgstr "A mintajegyzetfüzet törölve."
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Are you sure you want to delete script '%s'?"
+msgstr "Biztosan törölni szeretné a(z) „%s” parancsfájlt?"
+
+#: plugin/scripting/python_runner.py
+msgid "Delete Script"
+msgstr "Parancsfájl törlése"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "A(z) „%s” parancsfájl törölve."
 
 #: plugin/scripting/python_runner.py
 #, python-format
@@ -1004,6 +1207,14 @@ msgstr "Értékelési irányítópult"
 #: plugin/main.py
 msgid "Run Python Script..."
 msgstr "Python-szkript futtatása..."
+
+#: plugin/main.py
+msgid "Edit Initialization Script..."
+msgstr "Inicializáló parancsfájl szerkesztése…"
+
+#: plugin/main.py
+msgid "Reset Python Session"
+msgstr "Python-munkamenet alaphelyzetbe állítása"
 
 #: plugin/main.py
 msgid "Import Jupyter Notebook..."
@@ -1467,6 +1678,32 @@ msgstr ""
 "A =PYTHON() adatok vagy a Run Python Script data/data_range maximális "
 "cellaszáma. A nagyobb értékek több RAM-ot és időt igényelnek; az UNO-"
 "tartomány olvasása továbbra is meghatározó."
+
+msgid "Python session mode"
+msgstr "Python-munkamenet módja"
+
+msgid ""
+"Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace "
+"per workbook (variables carry between cells)."
+msgstr ""
+"Elszigetelt: minden =PYTHON() cella külön névtérrel rendelkezik. Megosztott:"
+" munkafüzetenként egy névtér (a változók átvihetők a cellák között)."
+
+msgid "Isolated (default)"
+msgstr "Elszigetelt (alapértelmezett)"
+
+msgid "Shared kernel"
+msgstr "Megosztott kernel"
+
+msgid "Force internal script editor"
+msgstr "Belső parancsfájl-szerkesztő kényszerítése"
+
+msgid ""
+"If checked, bypasses the Monaco script editor and uses the LibreOffice "
+"dialog."
+msgstr ""
+"Ha be van jelölve, kihagyja a Monaco parancsfájl-szerkesztőt, és a "
+"LibreOffice párbeszédablakát használja."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer-dokumentumeszközök (beleértve a navigációt és a keresést)"

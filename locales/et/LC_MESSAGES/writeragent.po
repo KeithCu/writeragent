@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-27 23:10-0400\n"
+"POT-Creation-Date: 2026-05-28 16:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Estonian <LL@li.org>\n"
@@ -36,6 +36,30 @@ msgstr ""
 "tööriistakomplekti režiimis. Täieliku API-de komplekti taastamiseks peate "
 "töö lõpetamisel kutsuma funktsiooni 'specialized_workflow_finished'."
 
+#: plugin/notebook/notebook_runner.py
+msgid "Cell execution failed."
+msgstr "Lahtri käivitamine ebaõnnestus."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Notebook run is only supported in LibreOffice Writer."
+msgstr "Märkmiku käivitamine on toetatud ainult LibreOffice Writeris."
+
+#: plugin/notebook/notebook_runner.py
+msgid ""
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
+msgstr ""
+"Selles dokumendis pole imporditud märkmikku. Kasutage esmalt Tööriistad → "
+"Impordi Jupyteri märkmik…"
+
+#: plugin/notebook/notebook_runner.py
+msgid "Could not find notebook cell for this control."
+msgstr "Selle juhtelemendi jaoks ei leitud märkmiku lahtrit."
+
+#: plugin/notebook/notebook_runner.py plugin/notebook/import_dialog.py
+msgid "Open a Writer document first."
+msgstr "Ava esmalt Writeri dokument."
+
 #: plugin/notebook/import_dialog.py
 msgid "Import Jupyter Notebook"
 msgstr "Impordi Jupyter Notebook"
@@ -47,10 +71,6 @@ msgstr "Jupyter Notebook"
 #: plugin/notebook/import_dialog.py
 msgid "All files"
 msgstr "Kõik failid"
-
-#: plugin/notebook/import_dialog.py
-msgid "Open a Writer document first."
-msgstr "Ava esmalt Writeri dokument."
 
 #: plugin/notebook/import_dialog.py
 msgid "Import Notebook is only supported in LibreOffice Writer."
@@ -73,6 +93,10 @@ msgstr ""
 "Lahtreid: {cells} (kood: {code}, markdown: {markdown})\n"
 "Koodi sisestusvälju dokumendis: {shapes}\n"
 "Väljundpilte: {images}"
+
+#: plugin/notebook/writer_importer.py
+msgid "Run code cell"
+msgstr "Käivita koodilahter"
 
 #: plugin/contrib/aihordeclient/__init__.py plugin/chatbot/panel.py
 msgid "Starting..."
@@ -347,6 +371,7 @@ msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "HTTP-tõrge {0} AI-teenuse pakkujalt: {1}"
 
 #: plugin/framework/client/errors.py plugin/calc/python_function.py
+#: plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
 msgstr "Tõrge: {0}"
@@ -367,6 +392,65 @@ msgstr ""
 msgid "Image inserted"
 msgstr "Pilt sisestatud"
 
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Initialization script saved. It will run automatically on the next =PYTHON()"
+" recalc."
+msgstr ""
+"Lähtestusskript on salvestatud. See käivitub automaatselt järgmisel "
+"=PYTHON() ümberarvutusel."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script ran successfully."
+msgstr "Lähtestusskript käivitus edukalt."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script cleared."
+msgstr "Lähtestusskript on tühjendatud."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script failed."
+msgstr "Lähtestusskript ebaõnnestus."
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Edit Initialization Script applies to Calc spreadsheets. Open a Calc "
+"workbook and try again."
+msgstr ""
+"Lähtestusskripti muutmine kehtib Calci arvutustabelite kohta. Avage Calci "
+"töövihik ja proovige uuesti."
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"The Python editor requires a configured venv with pywebview. Set Settings → "
+"Python → Python venv path and install pywebview in that venv."
+msgstr ""
+"Python-redaktor vajab konfigureeritud venv-i koos pywebview-iga. Määrake "
+"Sätted → Python → Pythoni venv-i tee ja installige pywebview sellesse "
+"venv-i."
+
+#: plugin/calc/init_script_editor.py
+msgid "Workbook Initialization Script"
+msgstr "Töövihiku lähtestusskript"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "Käivita"
+
+#: plugin/calc/init_script_editor.py plugin/calc/python_editor.py
+#: plugin/scripting/python_runner.py
+msgid "Save"
+msgstr "Salvesta"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "Sulge"
+
+#: plugin/calc/init_script_editor.py
+msgid "Could not open the Python editor."
+msgstr "Python-redaktorit ei saanud avada."
+
 #: plugin/calc/python_editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
 msgstr "Redigeeri Pythonit lahtris..."
@@ -376,7 +460,7 @@ msgid "Please enter edit instructions!"
 msgstr "Palun sisestage redigeerimisjuhised!"
 
 #: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/xdl_strings.py
+#: plugin/chatbot/dialogs.py plugin/xdl_strings.py
 msgid "Input"
 msgstr "Sisend"
 
@@ -405,10 +489,6 @@ msgstr "Python-lahtriredaktor"
 #: plugin/calc/python_editor.py
 msgid "Save as plain text"
 msgstr "Salvesta lihttekstina"
-
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
-msgid "Save"
-msgstr "Salvesta"
 
 #: plugin/calc/python_editor.py
 msgid "The Python editor failed unexpectedly."
@@ -823,17 +903,94 @@ msgstr "Pythoni redaktor sulgus enne, kui see jõudis koodi laadida."
 msgid "Could not talk to the Python editor."
 msgstr "Pythoni redaktoriga ei saanud ühendust."
 
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
+"Writer document with an imported Jupyter notebook and try again."
+msgstr ""
+"Pythoni seansi lähtestamine märkmike jaoks kehtib LibreOffice Writeri kohta."
+" Avage Writeri dokument imporditud Jupyteri märkmikuga ja proovige uuesti."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… first."
+msgstr ""
+"Sellel Writeri dokumendil pole imporditud märkmike registrit. Kasutage "
+"esmalt Tööriistad → Impordi Jupyteri märkmik…"
+
+#: plugin/scripting/session_manager.py
+msgid "Could not resolve notebook Python session."
+msgstr "Märkmiku Pythoni seanssi ei saanud lahendada."
+
+#: plugin/scripting/session_manager.py
+msgid "Notebook Python session reset for this document."
+msgstr "Märkmiku Pythoni seanss on selle dokumendi jaoks lähtestatud."
+
+#: plugin/scripting/session_manager.py
+msgid "Could not reset Python session."
+msgstr "Pythoni seanssi ei saanud lähtestada."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
+"try again."
+msgstr ""
+"Pythoni seansi lähtestamine kehtib Calci arvutustabelite kohta. Avage Calci "
+"töövihik ja proovige uuesti."
+
+#: plugin/scripting/session_manager.py
+msgid "Python session reset for this workbook."
+msgstr "Pythoni seanss on selle töövihiku jaoks lähtestatud."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Initialization script and any in-memory init state were reset for this "
+"workbook. Cell variables were already isolated per cell."
+msgstr ""
+"Selle töövihiku lähtestusskript ja kogu mälusisene lähtestusolek lähtestati."
+" Lahtrimuutujad olid juba lahtripõhiselt eraldatud."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Python session mode is Isolated (each =PYTHON() cell uses its own "
+"variables). There is no shared cell session to reset. Add an initialization "
+"script if you need to clear expensive one-time workbook setup."
+msgstr ""
+"Pythoni seansirežiim on eraldatud (iga =PYTHON() lahter kasutab oma "
+"muutujaid). Lähtestatavat jagatud lahtriseanssi pole. Kui peate kuluka "
+"ühekordse töövihiku seadistuse tühjendama, lisage lähtestusskript."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… to enable notebook Python session reset."
+msgstr ""
+"Sellel Writeri dokumendil pole imporditud märkmikuregistrit. Märkmiku "
+"Pythoni seansi lähtestamise lubamiseks kasutage Tööriistad → Impordi "
+"Jupyteri märkmik…"
+
+#: plugin/scripting/init_scripts.py
+#, python-brace-format
+msgid ""
+"Initialization script is too large to store in the document ({0} bytes)."
+msgstr "Lähtestusskript on dokumendis salvestamiseks liiga suur ({0} baiti)."
+
 #: plugin/scripting/python_runner.py
 msgid "Run Python Script"
 msgstr "Käivita Pythoni skript"
 
 #: plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "Käivita"
+msgid "Script:"
+msgstr "Skript:"
 
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "Sulge"
+#: plugin/scripting/python_runner.py
+msgid "Save As..."
+msgstr "Salvesta nimega..."
+
+#: plugin/scripting/python_runner.py
+msgid "Delete"
+msgstr "Kustuta"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -844,8 +1001,47 @@ msgstr ""
 "Omista tulemus muutujale 'result'."
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved successfully."
-msgstr "Skript on edukalt salvestatud."
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "Skript „%s“ on edukalt salvestatud."
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad saved successfully."
+msgstr "Näidisplokk on edukalt salvestatud."
+
+#: plugin/scripting/python_runner.py
+msgid "Enter script name:"
+msgstr "Sisestage skripti nimi:"
+
+#: plugin/scripting/python_runner.py
+msgid "Save Script"
+msgstr "Salvesta skript"
+
+#: plugin/scripting/python_runner.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr "Kas oled kindel, et soovid näidiste mustandivälja tühjendada?"
+
+#: plugin/scripting/python_runner.py
+msgid "Clear Script"
+msgstr "Tühjenda skript"
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad cleared."
+msgstr "Näidiste mustandiväli on tühjendatud."
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Are you sure you want to delete script '%s'?"
+msgstr "Kas oled kindel, et soovid skripti '%s' kustutada?"
+
+#: plugin/scripting/python_runner.py
+msgid "Delete Script"
+msgstr "Kustuta skript"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "Skript '%s' on kustutatud."
 
 #: plugin/scripting/python_runner.py
 #, python-format
@@ -993,6 +1189,14 @@ msgstr "Hindamise töölaud"
 #: plugin/main.py
 msgid "Run Python Script..."
 msgstr "Käivita Pythoni skript..."
+
+#: plugin/main.py
+msgid "Edit Initialization Script..."
+msgstr "Muuda lähtestusskripti..."
+
+#: plugin/main.py
+msgid "Reset Python Session"
+msgstr "Lähtesta Pythoni seanss"
 
 #: plugin/main.py
 msgid "Import Jupyter Notebook..."
@@ -1451,6 +1655,32 @@ msgstr ""
 "Maksimaalne elementide arv =PYTHON() andmetes või käsu „Run Python Script“ "
 "andmevahemikus. Suuremad väärtused nõuavad rohkem muutmälu ja aega; UNO "
 "vahemiku lugemine on endiselt domineeriv tegur."
+
+msgid "Python session mode"
+msgstr "Pythoni seansi režiim"
+
+msgid ""
+"Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace "
+"per workbook (variables carry between cells)."
+msgstr ""
+"Eraldatud: iga =PYTHON() lahter saab uue nimeruumi. Jagatud: üks nimeruum "
+"töövihiku kohta (muutujad kanduvad lahtrite vahel edasi)."
+
+msgid "Isolated (default)"
+msgstr "Eraldatud (vaikimisi)"
+
+msgid "Shared kernel"
+msgstr "Jagatud tuum"
+
+msgid "Force internal script editor"
+msgstr "Sunni kasutama sisemist skriptiredaktorit"
+
+msgid ""
+"If checked, bypasses the Monaco script editor and uses the LibreOffice "
+"dialog."
+msgstr ""
+"Kui see on märgitud, jäetakse Monaco skriptiredaktor vahele ja kasutatakse "
+"LibreOffice'i dialoogi."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writeri dokumenditööriistad (sh navigeerimine ja otsing)"

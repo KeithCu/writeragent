@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-27 23:10-0400\n"
+"POT-Creation-Date: 2026-05-28 16:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Polish <LL@li.org>\n"
@@ -36,6 +36,32 @@ msgstr ""
 "zestawu narzędzi. Musisz wywołać „specialized_workflow_finished” po "
 "zakończeniu, aby przywrócić pełny zestaw interfejsów API."
 
+#: plugin/notebook/notebook_runner.py
+#, fuzzy
+msgid "Cell execution failed."
+msgstr "(Połączenie nieudane)"
+
+#: plugin/notebook/notebook_runner.py
+#, fuzzy
+msgid "Notebook run is only supported in LibreOffice Writer."
+msgstr ""
+"Importowanie notatnika jest obsługiwane tylko w programie LibreOffice "
+"Writer."
+
+#: plugin/notebook/notebook_runner.py
+msgid ""
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
+msgstr ""
+
+#: plugin/notebook/notebook_runner.py
+msgid "Could not find notebook cell for this control."
+msgstr ""
+
+#: plugin/notebook/notebook_runner.py plugin/notebook/import_dialog.py
+msgid "Open a Writer document first."
+msgstr "Najpierw otwórz dokument programu Writer."
+
 #: plugin/notebook/import_dialog.py
 msgid "Import Jupyter Notebook"
 msgstr "Importuj notatnik Jupyter"
@@ -47,10 +73,6 @@ msgstr "Notatnik Jupyter"
 #: plugin/notebook/import_dialog.py
 msgid "All files"
 msgstr "Wszystkie pliki"
-
-#: plugin/notebook/import_dialog.py
-msgid "Open a Writer document first."
-msgstr "Najpierw otwórz dokument programu Writer."
 
 #: plugin/notebook/import_dialog.py
 msgid "Import Notebook is only supported in LibreOffice Writer."
@@ -75,6 +97,10 @@ msgstr ""
 "Komórki: {cells} (kod: {code}, markdown: {markdown})\n"
 "Pola wprowadzania kodu w dokumencie: {shapes}\n"
 "Obrazy wyjściowe: {images}"
+
+#: plugin/notebook/writer_importer.py
+msgid "Run code cell"
+msgstr ""
 
 #: plugin/contrib/aihordeclient/__init__.py plugin/chatbot/panel.py
 msgid "Starting..."
@@ -356,6 +382,7 @@ msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "Błąd HTTP {0} od dostawcy AI: {1}"
 
 #: plugin/framework/client/errors.py plugin/calc/python_function.py
+#: plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
 msgstr "Błąd: {0}"
@@ -376,6 +403,62 @@ msgstr ""
 msgid "Image inserted"
 msgstr "Wstawiono obraz"
 
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Initialization script saved. It will run automatically on the next =PYTHON()"
+" recalc."
+msgstr ""
+
+#: plugin/calc/init_script_editor.py
+#, fuzzy
+msgid "Initialization script ran successfully."
+msgstr "Skrypt został pomyślnie zapisany."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script cleared."
+msgstr ""
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script failed."
+msgstr ""
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Edit Initialization Script applies to Calc spreadsheets. Open a Calc "
+"workbook and try again."
+msgstr ""
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"The Python editor requires a configured venv with pywebview. Set Settings → "
+"Python → Python venv path and install pywebview in that venv."
+msgstr ""
+"Edytor Python wymaga skonfigurowanego środowiska venv z biblioteką "
+"pywebview. Ustaw Ustawienia → Python → Ścieżka venv Python i zainstaluj "
+"pywebview w tym środowisku."
+
+#: plugin/calc/init_script_editor.py
+msgid "Workbook Initialization Script"
+msgstr "Skrypt inicjujący skoroszyt"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "Uruchom"
+
+#: plugin/calc/init_script_editor.py plugin/calc/python_editor.py
+#: plugin/scripting/python_runner.py
+msgid "Save"
+msgstr "Zapisz"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "Zamknij"
+
+#: plugin/calc/init_script_editor.py
+msgid "Could not open the Python editor."
+msgstr "Nie można otworzyć edytora Python."
+
 #: plugin/calc/python_editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
 msgstr "Edytuj Pythona w komórce..."
@@ -385,7 +468,7 @@ msgid "Please enter edit instructions!"
 msgstr "Proszę wprowadzić instrukcje edycji!"
 
 #: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/xdl_strings.py
+#: plugin/chatbot/dialogs.py plugin/xdl_strings.py
 msgid "Input"
 msgstr "Dane wejściowe"
 
@@ -414,10 +497,6 @@ msgstr "Edytor komórek Python"
 #: plugin/calc/python_editor.py
 msgid "Save as plain text"
 msgstr "Zapisz jako zwykły tekst"
-
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
-msgid "Save"
-msgstr "Zapisz"
 
 #: plugin/calc/python_editor.py
 msgid "The Python editor failed unexpectedly."
@@ -837,17 +916,98 @@ msgstr "Edytor języka Python został zamknięty przed załadowaniem kodu."
 msgid "Could not talk to the Python editor."
 msgstr "Nie można było nawiązać połączenia z edytorem języka Python."
 
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
+"Writer document with an imported Jupyter notebook and try again."
+msgstr ""
+"Resetowanie sesji Python dla notatników dotyczy programu LibreOffice Writer."
+" Otwórz dokument programu Writer z zaimportowanym notatnikiem Jupyter i "
+"spróbuj ponownie."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… first."
+msgstr ""
+"Ten dokument programu Writer nie posiada rejestru zaimportowanych "
+"notatników. Najpierw użyj Narzędzia → Importuj notatnik Jupyter…"
+
+#: plugin/scripting/session_manager.py
+msgid "Could not resolve notebook Python session."
+msgstr "Nie można rozpoznać sesji Python notatnika."
+
+#: plugin/scripting/session_manager.py
+msgid "Notebook Python session reset for this document."
+msgstr "Sesja Python notatnika została zresetowana dla tego dokumentu."
+
+#: plugin/scripting/session_manager.py
+msgid "Could not reset Python session."
+msgstr "Nie można zresetować sesji Python."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
+"try again."
+msgstr ""
+"Resetowanie sesji Python dotyczy arkuszy kalkulacyjnych Calc. Otwórz "
+"skoroszyt programu Calc i spróbuj ponownie."
+
+#: plugin/scripting/session_manager.py
+msgid "Python session reset for this workbook."
+msgstr "Sesja Python została zresetowana dla tego skoroszytu."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Initialization script and any in-memory init state were reset for this "
+"workbook. Cell variables were already isolated per cell."
+msgstr ""
+"Skrypt inicjujący oraz wszelki stan inicjalizacji w pamięci zostały "
+"zresetowane dla tego skoroszytu. Zmienne komórek były już odizolowane dla "
+"każdej komórki."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Python session mode is Isolated (each =PYTHON() cell uses its own "
+"variables). There is no shared cell session to reset. Add an initialization "
+"script if you need to clear expensive one-time workbook setup."
+msgstr ""
+"Tryb sesji Python to Izolowany (każda komórka =PYTHON() używa własnych "
+"zmiennych). Brak współdzielonej sesji komórek do zresetowania. Dodaj skrypt "
+"inicjujący, jeśli musisz wyczyścić kosztowną, jednorazową konfigurację "
+"skoroszytu."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… to enable notebook Python session reset."
+msgstr ""
+"Ten dokument Writer nie ma zaimportowanego rejestru notatnika. Użyj "
+"Narzędzia → Importuj notatnik Jupyter…, aby włączyć resetowanie sesji Python"
+" notatnika."
+
+#: plugin/scripting/init_scripts.py
+#, python-brace-format
+msgid ""
+"Initialization script is too large to store in the document ({0} bytes)."
+msgstr ""
+"Skrypt inicjujący jest zbyt duży, aby zapisać go w dokumencie ({0} bajtów)."
+
 #: plugin/scripting/python_runner.py
 msgid "Run Python Script"
 msgstr "Uruchom skrypt Python"
 
 #: plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "Uruchom"
+msgid "Script:"
+msgstr "Skrypt:"
 
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "Zamknij"
+#: plugin/scripting/python_runner.py
+msgid "Save As..."
+msgstr "Zapisz jako..."
+
+#: plugin/scripting/python_runner.py
+msgid "Delete"
+msgstr "Usuń"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -858,8 +1018,47 @@ msgstr ""
 "Przypisz wynik do zmiennej „result”."
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved successfully."
-msgstr "Skrypt został pomyślnie zapisany."
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "Skrypt „%s” został pomyślnie zapisany."
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad saved successfully."
+msgstr "Przykładowy notatnik został pomyślnie zapisany."
+
+#: plugin/scripting/python_runner.py
+msgid "Enter script name:"
+msgstr "Wprowadź nazwę skryptu:"
+
+#: plugin/scripting/python_runner.py
+msgid "Save Script"
+msgstr "Zapisz skrypt"
+
+#: plugin/scripting/python_runner.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr "Czy na pewno chcesz wyczyścić notatnik przykładów?"
+
+#: plugin/scripting/python_runner.py
+msgid "Clear Script"
+msgstr "Wyczyść skrypt"
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad cleared."
+msgstr "Notatnik przykładów wyczyszczony."
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Are you sure you want to delete script '%s'?"
+msgstr "Czy na pewno chcesz usunąć skrypt „%s”?"
+
+#: plugin/scripting/python_runner.py
+msgid "Delete Script"
+msgstr "Usuń skrypt"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "Skrypt „%s” został usunięty."
 
 #: plugin/scripting/python_runner.py
 #, python-format
@@ -1008,6 +1207,14 @@ msgstr "Panel oceny"
 #: plugin/main.py
 msgid "Run Python Script..."
 msgstr "Uruchom skrypt Python..."
+
+#: plugin/main.py
+msgid "Edit Initialization Script..."
+msgstr "Edytuj skrypt inicjujący..."
+
+#: plugin/main.py
+msgid "Reset Python Session"
+msgstr "Zresetuj sesję Python"
 
 #: plugin/main.py
 msgid "Import Jupyter Notebook..."
@@ -1470,6 +1677,33 @@ msgstr ""
 "Maksymalna liczba komórek w danych =PYTHON() lub danych/zakresie danych Run "
 "Python Script. Większe wartości zużywają więcej pamięci RAM i czasu; odczyt "
 "zakresu UNO nadal dominuje."
+
+msgid "Python session mode"
+msgstr "Tryb sesji Python"
+
+msgid ""
+"Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace "
+"per workbook (variables carry between cells)."
+msgstr ""
+"Izolowany: każda komórka =PYTHON() otrzymuje nowy obszar nazw. "
+"Współdzielony: jeden obszar nazw na skoroszyt (zmienne są przenoszone między"
+" komórkami)."
+
+msgid "Isolated (default)"
+msgstr "Izolowany (domyślnie)"
+
+msgid "Shared kernel"
+msgstr "Współdzielony kernel"
+
+msgid "Force internal script editor"
+msgstr "Wymuś wewnętrzny edytor skryptów"
+
+msgid ""
+"If checked, bypasses the Monaco script editor and uses the LibreOffice "
+"dialog."
+msgstr ""
+"Jeśli zaznaczono, pomija edytor skryptów Monaco i używa okna dialogowego "
+"LibreOffice."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Narzędzia dokumentu Writer (w tym nawigacja i wyszukiwanie)"

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-27 23:10-0400\n"
+"POT-Creation-Date: 2026-05-28 16:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Chinese (Traditional) <LL@li.org>\n"
@@ -33,6 +33,28 @@ msgstr ""
 "工具呼叫已切換至 '{0}'。您現在處於專用工具集模式。完成後，您必須呼叫 'specialized_workflow_finished' 以恢復完整的"
 " API 集。"
 
+#: plugin/notebook/notebook_runner.py
+msgid "Cell execution failed."
+msgstr "儲存格執行失敗。"
+
+#: plugin/notebook/notebook_runner.py
+msgid "Notebook run is only supported in LibreOffice Writer."
+msgstr "Notebook 執行僅支援於 LibreOffice Writer。"
+
+#: plugin/notebook/notebook_runner.py
+msgid ""
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
+msgstr "此文件未匯入任何 Notebook。請先使用「工具」→「匯入 Jupyter Notebook…」。"
+
+#: plugin/notebook/notebook_runner.py
+msgid "Could not find notebook cell for this control."
+msgstr "找不到此控制項對應的 Notebook 儲存格。"
+
+#: plugin/notebook/notebook_runner.py plugin/notebook/import_dialog.py
+msgid "Open a Writer document first."
+msgstr "請先開啟一份 Writer 文件。"
+
 #: plugin/notebook/import_dialog.py
 msgid "Import Jupyter Notebook"
 msgstr "匯入 Jupyter Notebook"
@@ -44,10 +66,6 @@ msgstr "Jupyter Notebook"
 #: plugin/notebook/import_dialog.py
 msgid "All files"
 msgstr "所有檔案"
-
-#: plugin/notebook/import_dialog.py
-msgid "Open a Writer document first."
-msgstr "請先開啟一份 Writer 文件。"
 
 #: plugin/notebook/import_dialog.py
 msgid "Import Notebook is only supported in LibreOffice Writer."
@@ -70,6 +88,10 @@ msgstr ""
 "儲存格：{cells} (程式碼：{code}, Markdown：{markdown})\n"
 "文件中的程式碼輸入欄位：{shapes}\n"
 "輸出影像：{images}"
+
+#: plugin/notebook/writer_importer.py
+msgid "Run code cell"
+msgstr "執行程式碼儲存格"
 
 #: plugin/contrib/aihordeclient/__init__.py plugin/chatbot/panel.py
 msgid "Starting..."
@@ -320,6 +342,7 @@ msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "來自 AI 提供者的 HTTP 錯誤 {0}：{1}"
 
 #: plugin/framework/client/errors.py plugin/calc/python_function.py
+#: plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
 msgstr "錯誤：{0}"
@@ -338,6 +361,60 @@ msgstr "模型正在重複相同的區塊（無限迴圈）。請重試或使用
 msgid "Image inserted"
 msgstr "已插入影像"
 
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Initialization script saved. It will run automatically on the next =PYTHON()"
+" recalc."
+msgstr "初始化指令碼已儲存。它將在下次 =PYTHON() 重新計算時自動執行。"
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script ran successfully."
+msgstr "初始化指令碼執行成功。"
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script cleared."
+msgstr "初始化指令碼已清除。"
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script failed."
+msgstr "初始化指令碼執行失敗。"
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Edit Initialization Script applies to Calc spreadsheets. Open a Calc "
+"workbook and try again."
+msgstr "「編輯初始化指令碼」適用於 Calc 試算表。請開啟 Calc 活頁簿後再試一次。"
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"The Python editor requires a configured venv with pywebview. Set Settings → "
+"Python → Python venv path and install pywebview in that venv."
+msgstr ""
+"Python 編輯器需要已設定包含 pywebview 的 venv。請設定「設定」→「Python」→「Python venv 路徑」並在該 venv"
+" 中安裝 pywebview。"
+
+#: plugin/calc/init_script_editor.py
+msgid "Workbook Initialization Script"
+msgstr "活頁簿初始化指令碼"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "執行"
+
+#: plugin/calc/init_script_editor.py plugin/calc/python_editor.py
+#: plugin/scripting/python_runner.py
+msgid "Save"
+msgstr "儲存"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "關閉"
+
+#: plugin/calc/init_script_editor.py
+msgid "Could not open the Python editor."
+msgstr "無法開啟 Python 編輯器。"
+
 #: plugin/calc/python_editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
 msgstr "編輯儲存格中的 Python..."
@@ -347,7 +424,7 @@ msgid "Please enter edit instructions!"
 msgstr "請輸入編輯指示！"
 
 #: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/xdl_strings.py
+#: plugin/chatbot/dialogs.py plugin/xdl_strings.py
 msgid "Input"
 msgstr "輸入"
 
@@ -375,10 +452,6 @@ msgstr "Python 儲存格編輯器"
 #: plugin/calc/python_editor.py
 msgid "Save as plain text"
 msgstr "另存為純文字"
-
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
-msgid "Save"
-msgstr "儲存"
 
 #: plugin/calc/python_editor.py
 msgid "The Python editor failed unexpectedly."
@@ -778,17 +851,85 @@ msgstr "Python 編輯器在載入您的程式碼前已結束。"
 msgid "Could not talk to the Python editor."
 msgstr "無法與 Python 編輯器通訊。"
 
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
+"Writer document with an imported Jupyter notebook and try again."
+msgstr ""
+"「重設筆記本的 Python 工作階段」適用於 LibreOffice Writer。請開啟一個已匯入 Jupyter 筆記本的 Writer "
+"文件後再試一次。"
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… first."
+msgstr "此 Writer 文件沒有已匯入的筆記本登錄。請先使用「工具」→「匯入 Jupyter 筆記本…」。"
+
+#: plugin/scripting/session_manager.py
+msgid "Could not resolve notebook Python session."
+msgstr "無法解析筆記本 Python 工作階段。"
+
+#: plugin/scripting/session_manager.py
+msgid "Notebook Python session reset for this document."
+msgstr "已為此文件重設筆記本 Python 工作階段。"
+
+#: plugin/scripting/session_manager.py
+msgid "Could not reset Python session."
+msgstr "無法重設 Python 工作階段。"
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
+"try again."
+msgstr "「重設 Python 工作階段」適用於 Calc 試算表。請開啟一個 Calc 活頁簿後再試一次。"
+
+#: plugin/scripting/session_manager.py
+msgid "Python session reset for this workbook."
+msgstr "已為此活頁簿重設 Python 工作階段。"
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Initialization script and any in-memory init state were reset for this "
+"workbook. Cell variables were already isolated per cell."
+msgstr "此活頁簿的初始化指令碼與任何記憶體中的初始化狀態皆已重設。儲存格變數已針對每個儲存格進行隔離。"
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Python session mode is Isolated (each =PYTHON() cell uses its own "
+"variables). There is no shared cell session to reset. Add an initialization "
+"script if you need to clear expensive one-time workbook setup."
+msgstr ""
+"Python 工作階段模式為「隔離」（每個 =PYTHON() "
+"儲存格使用各自的變數）。沒有可重設的共用儲存格工作階段。若需要清除昂貴的一次性活頁簿設定，請新增初始化指令碼。"
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… to enable notebook Python session reset."
+msgstr ""
+"此 Writer 文件沒有匯入的筆記本登錄檔。請使用「工具」→「匯入 Jupyter 筆記本…」來啟用筆記本 Python 工作階段重設功能。"
+
+#: plugin/scripting/init_scripts.py
+#, python-brace-format
+msgid ""
+"Initialization script is too large to store in the document ({0} bytes)."
+msgstr "初始化指令碼過大，無法儲存於文件中（{0} 位元組）。"
+
 #: plugin/scripting/python_runner.py
 msgid "Run Python Script"
 msgstr "執行 Python 指令稿"
 
 #: plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "執行"
+msgid "Script:"
+msgstr "指令碼："
 
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "關閉"
+#: plugin/scripting/python_runner.py
+msgid "Save As..."
+msgstr "另存新檔..."
+
+#: plugin/scripting/python_runner.py
+msgid "Delete"
+msgstr "刪除"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -799,8 +940,47 @@ msgstr ""
 "將結果指派給 'result' 變數。"
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved successfully."
-msgstr "指令碼已成功儲存。"
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "指令碼「%s」已成功儲存。"
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad saved successfully."
+msgstr "範例暫存區已成功儲存。"
+
+#: plugin/scripting/python_runner.py
+msgid "Enter script name:"
+msgstr "輸入指令碼名稱："
+
+#: plugin/scripting/python_runner.py
+msgid "Save Script"
+msgstr "儲存指令碼"
+
+#: plugin/scripting/python_runner.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr "您確定要清除範例暫存區嗎？"
+
+#: plugin/scripting/python_runner.py
+msgid "Clear Script"
+msgstr "清除指令碼"
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad cleared."
+msgstr "範例暫存區已清除。"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Are you sure you want to delete script '%s'?"
+msgstr "您確定要刪除指令碼「%s」嗎？"
+
+#: plugin/scripting/python_runner.py
+msgid "Delete Script"
+msgstr "刪除指令碼"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "指令碼「%s」已刪除。"
 
 #: plugin/scripting/python_runner.py
 #, python-format
@@ -943,6 +1123,14 @@ msgstr "評估儀表板"
 #: plugin/main.py
 msgid "Run Python Script..."
 msgstr "執行 Python 指令碼..."
+
+#: plugin/main.py
+msgid "Edit Initialization Script..."
+msgstr "編輯初始化指令碼..."
+
+#: plugin/main.py
+msgid "Reset Python Session"
+msgstr "重設 Python 工作階段"
 
 #: plugin/main.py
 msgid "Import Jupyter Notebook..."
@@ -1377,6 +1565,28 @@ msgid ""
 msgstr ""
 "=PYTHON() 資料或執行 Python 指令碼資料/資料範圍 (data/data_range) "
 "的最大儲存格數。較大的數值會消耗更多記憶體與時間；UNO 範圍讀取仍是主要的效能瓶頸。"
+
+msgid "Python session mode"
+msgstr "Python 工作階段模式"
+
+msgid ""
+"Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace "
+"per workbook (variables carry between cells)."
+msgstr "隔離模式：每個 =PYTHON() 儲存格皆擁有獨立的命名空間。共用模式：每個活頁簿共用一個命名空間（變數可在儲存格間傳遞）。"
+
+msgid "Isolated (default)"
+msgstr "隔離模式（預設）"
+
+msgid "Shared kernel"
+msgstr "共用核心"
+
+msgid "Force internal script editor"
+msgstr "強制使用內建指令碼編輯器"
+
+msgid ""
+"If checked, bypasses the Monaco script editor and uses the LibreOffice "
+"dialog."
+msgstr "若勾選此項，將略過 Monaco 指令碼編輯器並改用 LibreOffice 對話方塊。"
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer 文件工具（包含導覽與搜尋）"

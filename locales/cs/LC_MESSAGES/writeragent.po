@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-27 23:10-0400\n"
+"POT-Creation-Date: 2026-05-28 16:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Czech <LL@li.org>\n"
@@ -36,6 +36,31 @@ msgstr ""
 "Po dokončení musíte zavolat 'specialized_workflow_finished' pro obnovení "
 "plné sady rozhraní API."
 
+#: plugin/notebook/notebook_runner.py
+msgid "Cell execution failed."
+msgstr "Spuštění buňky selhalo."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Notebook run is only supported in LibreOffice Writer."
+msgstr ""
+"Spuštění poznámkového bloku je podporováno pouze v LibreOffice Writer."
+
+#: plugin/notebook/notebook_runner.py
+msgid ""
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
+msgstr ""
+"Tento dokument neobsahuje žádný importovaný poznámkový blok. Nejprve "
+"použijte Nástroje → Importovat Jupyter Notebook…"
+
+#: plugin/notebook/notebook_runner.py
+msgid "Could not find notebook cell for this control."
+msgstr "Pro tento ovládací prvek nebyla nalezena buňka poznámkového bloku."
+
+#: plugin/notebook/notebook_runner.py plugin/notebook/import_dialog.py
+msgid "Open a Writer document first."
+msgstr "Nejprve otevřete dokument Writeru."
+
 #: plugin/notebook/import_dialog.py
 msgid "Import Jupyter Notebook"
 msgstr "Importovat Jupyter Notebook"
@@ -47,10 +72,6 @@ msgstr "Jupyter Notebook"
 #: plugin/notebook/import_dialog.py
 msgid "All files"
 msgstr "Všechny soubory"
-
-#: plugin/notebook/import_dialog.py
-msgid "Open a Writer document first."
-msgstr "Nejprve otevřete dokument Writeru."
 
 #: plugin/notebook/import_dialog.py
 msgid "Import Notebook is only supported in LibreOffice Writer."
@@ -73,6 +94,10 @@ msgstr ""
 "Buňky: {cells} (kód: {code}, markdown: {markdown})\n"
 "Vstupní pole kódu v dokumentu: {shapes}\n"
 "Výstupní obrázky: {images}"
+
+#: plugin/notebook/writer_importer.py
+msgid "Run code cell"
+msgstr "Spustit buňku kódu"
 
 #: plugin/contrib/aihordeclient/__init__.py plugin/chatbot/panel.py
 msgid "Starting..."
@@ -351,6 +376,7 @@ msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "Chyba HTTP {0} od poskytovatele AI: {1}"
 
 #: plugin/framework/client/errors.py plugin/calc/python_function.py
+#: plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
 msgstr "Chyba: {0}"
@@ -371,6 +397,64 @@ msgstr ""
 msgid "Image inserted"
 msgstr "Obrázek vložen"
 
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Initialization script saved. It will run automatically on the next =PYTHON()"
+" recalc."
+msgstr ""
+"Inicializační skript byl uložen. Automaticky se spustí při příštím přepočtu "
+"=PYTHON()."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script ran successfully."
+msgstr "Inicializační skript byl úspěšně spuštěn."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script cleared."
+msgstr "Inicializační skript byl vymazán."
+
+#: plugin/calc/init_script_editor.py
+msgid "Initialization script failed."
+msgstr "Inicializační skript selhal."
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"Edit Initialization Script applies to Calc spreadsheets. Open a Calc "
+"workbook and try again."
+msgstr ""
+"Upravit inicializační skript lze pouze v sešitech Calc. Otevřete sešit Calc "
+"a zkuste to znovu."
+
+#: plugin/calc/init_script_editor.py
+msgid ""
+"The Python editor requires a configured venv with pywebview. Set Settings → "
+"Python → Python venv path and install pywebview in that venv."
+msgstr ""
+"Editor Python vyžaduje nakonfigurované venv s pywebview. Nastavte Nastavení "
+"→ Python → Cesta k venv Pythonu a nainstalujte pywebview v tomto venv."
+
+#: plugin/calc/init_script_editor.py
+msgid "Workbook Initialization Script"
+msgstr "Inicializační skript sešitu"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "Spustit"
+
+#: plugin/calc/init_script_editor.py plugin/calc/python_editor.py
+#: plugin/scripting/python_runner.py
+msgid "Save"
+msgstr "Uložit"
+
+#: plugin/calc/init_script_editor.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "Zavřít"
+
+#: plugin/calc/init_script_editor.py
+msgid "Could not open the Python editor."
+msgstr "Editor Python se nepodařilo otevřít."
+
 #: plugin/calc/python_editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
 msgstr "Upravit Python v buňce..."
@@ -380,7 +464,7 @@ msgid "Please enter edit instructions!"
 msgstr "Prosím, zadejte pokyny pro úpravy!"
 
 #: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/xdl_strings.py
+#: plugin/chatbot/dialogs.py plugin/xdl_strings.py
 msgid "Input"
 msgstr "Vstup"
 
@@ -409,10 +493,6 @@ msgstr "Editor buněk Python"
 #: plugin/calc/python_editor.py
 msgid "Save as plain text"
 msgstr "Uložit jako prostý text"
-
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
-msgid "Save"
-msgstr "Uložit"
 
 #: plugin/calc/python_editor.py
 msgid "The Python editor failed unexpectedly."
@@ -828,17 +908,97 @@ msgstr "Editor Pythonu byl ukončen dříve, než mohl načíst váš kód."
 msgid "Could not talk to the Python editor."
 msgstr "Nepodařilo se komunikovat s editorem Pythonu."
 
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
+"Writer document with an imported Jupyter notebook and try again."
+msgstr ""
+"Reset relace Pythonu pro poznámkové bloky se vztahuje na LibreOffice Writer."
+" Otevřete dokument Writeru s importovaným poznámkovým blokem Jupyter a "
+"zkuste to znovu."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… first."
+msgstr ""
+"Tento dokument Writeru nemá žádný registr importovaných poznámkových bloků. "
+"Nejprve použijte Nástroje → Importovat poznámkový blok Jupyter…"
+
+#: plugin/scripting/session_manager.py
+msgid "Could not resolve notebook Python session."
+msgstr "Nepodařilo se vyřešit relaci Pythonu poznámkového bloku."
+
+#: plugin/scripting/session_manager.py
+msgid "Notebook Python session reset for this document."
+msgstr "Relace Pythonu poznámkového bloku byla pro tento dokument resetována."
+
+#: plugin/scripting/session_manager.py
+msgid "Could not reset Python session."
+msgstr "Relaci Pythonu se nepodařilo resetovat."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
+"try again."
+msgstr ""
+"Reset relace Pythonu se vztahuje na tabulky Calc. Otevřete sešit Calc a "
+"zkuste to znovu."
+
+#: plugin/scripting/session_manager.py
+msgid "Python session reset for this workbook."
+msgstr "Relace Pythonu byla pro tento sešit resetována."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Initialization script and any in-memory init state were reset for this "
+"workbook. Cell variables were already isolated per cell."
+msgstr ""
+"Inicializační skript a veškerý stav inicializace v paměti byly pro tento "
+"sešit resetovány. Proměnné buněk již byly izolovány pro každou buňku."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Python session mode is Isolated (each =PYTHON() cell uses its own "
+"variables). There is no shared cell session to reset. Add an initialization "
+"script if you need to clear expensive one-time workbook setup."
+msgstr ""
+"Režim relace Pythonu je Izolovaný (každá buňka =PYTHON() používá své vlastní"
+" proměnné). Neexistuje žádná sdílená relace buněk, kterou by bylo možné "
+"resetovat. Pokud potřebujete vymazat náročné jednorázové nastavení sešitu, "
+"přidejte inicializační skript."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. Use Tools → Import "
+"Jupyter Notebook… to enable notebook Python session reset."
+msgstr ""
+"Tento dokument Writeru nemá importovaný registr poznámkového bloku. Použijte"
+" Nástroje → Importovat Jupyter Notebook… pro povolení resetování relace "
+"Pythonu v poznámkovém bloku."
+
+#: plugin/scripting/init_scripts.py
+#, python-brace-format
+msgid ""
+"Initialization script is too large to store in the document ({0} bytes)."
+msgstr ""
+"Inicializační skript je příliš velký pro uložení v dokumentu ({0} bajtů)."
+
 #: plugin/scripting/python_runner.py
 msgid "Run Python Script"
 msgstr "Spustit skript v Pythonu"
 
 #: plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "Spustit"
+msgid "Script:"
+msgstr "Skript:"
 
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "Zavřít"
+#: plugin/scripting/python_runner.py
+msgid "Save As..."
+msgstr "Uložit jako..."
+
+#: plugin/scripting/python_runner.py
+msgid "Delete"
+msgstr "Odstranit"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -849,8 +1009,47 @@ msgstr ""
 "Výsledek přiřaďte do proměnné 'result'."
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved successfully."
-msgstr "Skript byl úspěšně uložen."
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "Skript „%s“ byl úspěšně uložen."
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad saved successfully."
+msgstr "Ukázkový poznámkový blok byl úspěšně uložen."
+
+#: plugin/scripting/python_runner.py
+msgid "Enter script name:"
+msgstr "Zadejte název skriptu:"
+
+#: plugin/scripting/python_runner.py
+msgid "Save Script"
+msgstr "Uložit skript"
+
+#: plugin/scripting/python_runner.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr "Opravdu chcete vymazat vzorový poznámkový blok?"
+
+#: plugin/scripting/python_runner.py
+msgid "Clear Script"
+msgstr "Vymazat skript"
+
+#: plugin/scripting/python_runner.py
+msgid "Sample scratchpad cleared."
+msgstr "Vzorový poznámkový blok byl vymazán."
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Are you sure you want to delete script '%s'?"
+msgstr "Opravdu chcete smazat skript „%s“?"
+
+#: plugin/scripting/python_runner.py
+msgid "Delete Script"
+msgstr "Smazat skript"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "Skript „%s“ byl smazán."
 
 #: plugin/scripting/python_runner.py
 #, python-format
@@ -999,6 +1198,14 @@ msgstr "Informační panel hodnocení"
 #: plugin/main.py
 msgid "Run Python Script..."
 msgstr "Spustit skript Python..."
+
+#: plugin/main.py
+msgid "Edit Initialization Script..."
+msgstr "Upravit inicializační skript..."
+
+#: plugin/main.py
+msgid "Reset Python Session"
+msgstr "Resetovat relaci Pythonu"
 
 #: plugin/main.py
 msgid "Import Jupyter Notebook..."
@@ -1458,6 +1665,32 @@ msgstr ""
 "Maximální počet buněk v datech =PYTHON() nebo v datech/oblasti dat skriptu "
 "Run Python Script. Vyšší hodnoty spotřebovávají více paměti RAM a času; "
 "čtení oblasti UNO je stále dominantní."
+
+msgid "Python session mode"
+msgstr "Režim relace Pythonu"
+
+msgid ""
+"Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace "
+"per workbook (variables carry between cells)."
+msgstr ""
+"Izolovaný: každá buňka =PYTHON() získá nový jmenný prostor. Sdílený: jeden "
+"jmenný prostor na sešit (proměnné se přenášejí mezi buňkami)."
+
+msgid "Isolated (default)"
+msgstr "Izolovaný (výchozí)"
+
+msgid "Shared kernel"
+msgstr "Sdílené jádro"
+
+msgid "Force internal script editor"
+msgstr "Vynutit interní editor skriptů"
+
+msgid ""
+"If checked, bypasses the Monaco script editor and uses the LibreOffice "
+"dialog."
+msgstr ""
+"Pokud je zaškrtnuto, obejde editor skriptů Monaco a použije dialogové okno "
+"LibreOffice."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Nástroje dokumentu Writer (včetně navigace a vyhledávání)"
