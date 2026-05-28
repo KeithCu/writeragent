@@ -29,8 +29,6 @@ PLATFORMS = [
     "macosx_10_9_universal2",
     "manylinux2014_x86_64",
     "manylinux2014_aarch64",
-    "musllinux_1_1_x86_64",
-    "musllinux_1_1_aarch64",
 ]
 
 def run_command(cmd, cwd=None):

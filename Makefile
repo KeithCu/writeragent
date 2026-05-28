@@ -257,7 +257,7 @@ build-no-recording: ty ruff-for-build preview-translations vendor manifest compi
 # Sub-make so ordering holds even with make -j: full test (typecheck + pytest + LO) then release bundle.
 # Full verification: typecheck, bandit, then build a stripped bundle with tests
 # to verify stripping doesn't break logic, then finally build the clean release oxt.
-release:
+release: clean
 	@$(MAKE) typecheck
 	@$(MAKE) bandit
 	@echo "Building stripped bundle for verification..."
@@ -338,8 +338,6 @@ clean-native:
 	$(RM_RF) native/writeragent_vec/src/writeragent_vec/*.so
 	$(RM_RF) native/writeragent_vec/src/writeragent_vec/*.pyd
 	$(RM_RF) native/writeragent_vec/src/writeragent_vec/*.c
-	$(RM_RF) plugin/contrib/vec_pack/*.so
-	$(RM_RF) plugin/contrib/vec_pack/*.pyd
 
 proxy-stubs:
 	$(PYTHON) scripts/generate_tool_proxies.py > plugin/scripting/writeragent_api.py
