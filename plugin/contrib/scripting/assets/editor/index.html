@@ -12,12 +12,12 @@
     <button type="button" id="btn-run" class="toolbar-hidden">Run</button>
     <button type="button" id="btn-save">Save</button>
     <button type="button" id="btn-cancel">Cancel</button>
-    <label id="plain-text-save-label" class="toolbar-check">
+    <label id="plain-text-save-label" class="toolbar-check toolbar-hidden">
       <input type="checkbox" id="chk-plain-text" />
       <span id="plain-text-save-text">Save as plain text</span>
     </label>
-    <label id="data-binding-label" class="data-binding-label" for="data-binding-input">Data:</label>
-    <input type="text" id="data-binding-input" placeholder="A1:C1  or  A1:C1, C1:C5" spellcheck="false" />
+    <label id="data-binding-label" class="data-binding-label toolbar-hidden" for="data-binding-input">Data:</label>
+    <input type="text" id="data-binding-input" class="toolbar-hidden" placeholder="A1:C1  or  A1:C1, C1:C5" spellcheck="false" />
     <span id="status"></span>
   </header>
   <div id="editor"></div>

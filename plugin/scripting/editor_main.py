@@ -244,9 +244,21 @@ class MonacoEditorApi:
         log.info("editor_main: notify_cancel called; hiding window")
         _send_closed_once()
         try:
+            threading.Timer(0.01, lambda: _clear_editor_async(self._window)).start()
+        except Exception:
+            pass
+        try:
             self._window.hide()
         except Exception:
             pass
+
+
+def _clear_editor_async(win: Any) -> None:
+    try:
+        if win is not None:
+            win.evaluate_js("if(window.editor){window.editor.setValue('');}")
+    except Exception:
+        pass
 
 
 def _handle_window_closing() -> bool:
@@ -255,6 +267,10 @@ def _handle_window_closing() -> bool:
     _send_closed_once()
     try:
         if _window is not None:
+            try:
+                threading.Timer(0.01, lambda: _clear_editor_async(_window)).start()
+            except Exception:
+                pass
             _window.hide()
     except Exception:
         log.exception("editor_main: failed to hide window during close interception")
