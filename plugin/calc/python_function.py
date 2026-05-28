@@ -215,9 +215,15 @@ def _insert_image_result_on_sheet(ctx: Any, payload: dict[str, Any]) -> None:
         if selection is not None:
             addr = selection.getRangeAddress()
             cell = sheet.getCellByPosition(addr.StartColumn, addr.StartRow)
-            _pos, cell_size = get_cell_geometry(sheet, cell)
+            # Bugfix: merged cells report sub-cell geometry via raw cell.Position/Size.
+            # Use calc_utils merged-aware geometry so overlays land on the full merged area.
+            cell_pos, cell_size = get_cell_geometry(sheet, cell)
             shape.setPropertyValue("Anchor", cell)
             shape.setPropertyValue("ResizeWithCell", True)
+            if hasattr(shape, "setPosition"):
+                shape.setPosition(cell_pos)
+            if hasattr(shape, "setSize"):
+                shape.setSize(cell_size)
     except Exception:
         log.debug("_insert_image_result_on_sheet: could not anchor to cell", exc_info=True)
 

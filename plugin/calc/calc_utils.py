@@ -44,11 +44,24 @@ def get_cell_geometry(sheet: Any, cell: Any) -> Tuple[Any, Any]:
     when cells are merged, which is wrong for overlay placement.  This helper detects
     the merge and asks for the full merged area's geometry instead.
     """
+    geometry_target = get_cell_geometry_target(sheet, cell)
+    try:
+        return geometry_target.Position, geometry_target.Size
+    except Exception:
+        return cell.Position, cell.Size
+
+
+def get_cell_geometry_target(sheet: Any, cell: Any) -> Any:
+    """Return the UNO object whose Position/Size should drive placement.
+
+    For merged cells this is a collapsed cursor/range over the full merged area;
+    otherwise this is the original cell.
+    """
     try:
         if getattr(cell, "IsMerged", False):
             cursor = sheet.createCursorByRange(cell)
             cursor.collapseToMergedArea()
-            return cursor.Position, cursor.Size
+            return cursor
     except Exception:
         pass
-    return cell.Position, cell.Size
+    return cell
