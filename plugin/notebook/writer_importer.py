@@ -22,6 +22,13 @@ from com.sun.star.awt import Point, Size
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 
 from plugin.contrib.nbformat import read_ipynb
+from plugin.notebook.cell_registry import (
+    NotebookDocState,
+    insert_output_start_bookmark,
+    new_code_cell_entry,
+    save_notebook_source_path,
+    save_registry,
+)
 from plugin.writer.images.image_tools import (
     _apply_graphic_properties,
     _create_embedded_graphic,
@@ -697,7 +704,21 @@ def import_ipynb_to_writer(doc: Any, path: str, ctx: Any | None = None) -> dict[
     }
 
     notebook_in = _ensure_notebook_import_styles(doc)
-    _import_cells(doc, nb, stats, cell_count, run_t0, ctx=ctx, notebook_in=notebook_in)
+    # Re-import replaces the whole registry (merge UX is Phase 3).
+    registry_state = NotebookDocState(source_path=path)
+    _import_cells(
+        doc,
+        nb,
+        stats,
+        cell_count,
+        run_t0,
+        ctx=ctx,
+        notebook_in=notebook_in,
+        registry_state=registry_state,
+    )
+    if registry_state.code_cells:
+        save_registry(doc, registry_state)
+        save_notebook_source_path(doc, path)
     flush_ui_idle(ctx)
 
     stats["controls"] = stats["shapes"]
@@ -721,6 +742,7 @@ def _import_cells(
     ctx: Any | None = None,
     *,
     notebook_in: str | None = None,
+    registry_state: NotebookDocState | None = None,
 ) -> None:
     first_cell = True
     for idx, cell in enumerate(nb.cells):
@@ -754,19 +776,26 @@ def _import_cells(
             _append_markdown_cell(doc, source, lead_break=True)
         elif cell_type == "code":
             stats["code"] += 1
+            field_name = f"nb_cell_{idx}_code"
+            if registry_state is not None:
+                entry = new_code_cell_entry(idx, ec, field_name)
+                registry_state.code_cells.append(entry)
             _insert_code_input_in_flow(
                 doc,
-                name=f"nb_cell_{idx}_code",
+                name=field_name,
                 source=source,
                 controls_before=stats["shapes"],
             )
             stats["shapes"] += 1
+            _append_section_heading(doc, "Output")
+            if registry_state is not None and registry_state.code_cells:
+                bm_name = registry_state.code_cells[-1].output_start_bookmark
+                insert_output_start_bookmark(doc, bm_name)
             out_text = _format_outputs_for_body(outputs, idx)
-            if out_text.strip() or _outputs_contain_image(outputs):
-                _append_section_heading(doc, "Output")
-                if out_text.strip():
-                    stats["outputs"] += len([o for o in outputs if format_output_text(o).strip()])
-                    _append_body_text_block(doc, out_text, _STYLE_OUTPUT, lead_break=True)
+            if out_text.strip():
+                stats["outputs"] += len([o for o in outputs if format_output_text(o).strip()])
+                _append_body_text_block(doc, out_text, _STYLE_OUTPUT, lead_break=True)
+            if _outputs_contain_image(outputs):
                 images_added = _import_image_outputs_in_flow(doc, outputs, idx, images_before=stats["images"], ctx=ctx)
                 stats["images"] += images_added
         else:

@@ -146,12 +146,17 @@ def test_import_stack_cursor_seeds_existing_shapes(monkeypatch):
     assert stack._max_bottom == 1500 + 400 + 100
 
 
-def _writer_doc_mock():
+def _writer_doc_mock(*, with_bookmarks: bool = False):
     body_cursor = MagicMock()
     body_text = MagicMock()
     body_text.createTextCursor.return_value = body_cursor
     doc = MagicMock()
     doc.getText.return_value = body_text
+    if with_bookmarks:
+        bookmarks = MagicMock()
+        bookmarks.hasByName.return_value = False
+        doc.getBookmarks.return_value = bookmarks
+        doc.createInstance.side_effect = lambda service: MagicMock()
     return doc, body_text, body_cursor
 
 
@@ -392,3 +397,69 @@ def test_import_ipynb_inserts_image_output(tmp_path, monkeypatch):
     assert stats["images"] == 1
     assert stats["shapes"] == 1
     assert len(insert_calls) == 1  # code field only; image via insert_image_at_locator
+
+
+def test_import_code_cell_without_outputs_still_adds_output_heading(tmp_path, monkeypatch):
+    ipynb = tmp_path / "code_only.ipynb"
+    ipynb.write_text(
+        '{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":['
+        '{"cell_type":"code","metadata":{},"source":"x=1","outputs":[]}'
+        "]}",
+        encoding="utf-8",
+    )
+
+    doc, body_text, _ = _writer_doc_mock(with_bookmarks=True)
+
+    class FakeSize:
+        def __init__(self, w, h):
+            self.Width = w
+            self.Height = h
+
+    monkeypatch.setattr("plugin.notebook.writer_importer.Size", FakeSize)
+    monkeypatch.setattr("plugin.notebook.cell_registry.insert_output_start_bookmark", lambda _d, _n: True)
+
+    import_ipynb_to_writer(doc, str(ipynb))
+
+    inserted = [call.args[1] for call in body_text.insertString.call_args_list]
+    assert "Output" in inserted
+
+
+def test_import_ipynb_saves_registry_with_two_code_cells(tmp_path, monkeypatch):
+    ipynb = tmp_path / "two_code.ipynb"
+    ipynb.write_text(
+        '{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":['
+        '{"cell_type":"code","metadata":{},"source":"a=1","execution_count":1,"outputs":[]},'
+        '{"cell_type":"code","metadata":{},"source":"b=2","execution_count":2,"outputs":[]}'
+        "]}",
+        encoding="utf-8",
+    )
+
+    doc, _, _ = _writer_doc_mock(with_bookmarks=True)
+
+    class FakeSize:
+        def __init__(self, w, h):
+            self.Width = w
+            self.Height = h
+
+    monkeypatch.setattr("plugin.notebook.writer_importer.Size", FakeSize)
+    monkeypatch.setattr("plugin.notebook.cell_registry.insert_output_start_bookmark", lambda _d, _n: True)
+
+    saved: list = []
+
+    def capture_save(d, state):
+        saved.append(state)
+
+    monkeypatch.setattr("plugin.notebook.writer_importer.save_registry", capture_save)
+    monkeypatch.setattr("plugin.notebook.writer_importer.save_notebook_source_path", MagicMock())
+
+    import_ipynb_to_writer(doc, str(ipynb))
+
+    assert len(saved) == 1
+    state = saved[0]
+    assert state.source_path == str(ipynb)
+    assert len(state.code_cells) == 2
+    assert state.code_cells[0].code_field_name == "nb_cell_0_code"
+    assert state.code_cells[1].code_field_name == "nb_cell_1_code"
+    assert state.code_cells[0].execution_count == 1
+    assert state.code_cells[1].execution_count == 2
+    assert state.code_cells[0].output_start_bookmark.startswith("nb_out_")
