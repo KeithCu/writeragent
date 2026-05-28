@@ -109,6 +109,13 @@ ui = ['webview', 'jedi', 'PyQt6', 'PyQt6.QtWebEngineWidgets', 'qtpy']
 res['sci'] = sci
 res['ui'] = ui
 
+# Check for Cython accelerator
+try:
+    from plugin.scripting.payload_codec import fast_flatten_grid_2d
+    res['cython'] = 'optimized' if fast_flatten_grid_2d is not None else 'python'
+except ImportError:
+    res['cython'] = 'missing'
+
 # Explicit try/except blocks for each package (forbidden to use __import__ loop in sandbox)
 try:
     import numpy

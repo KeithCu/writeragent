@@ -326,9 +326,12 @@ class ScriptingVenvTestListener(BaseActionListener):
         from plugin.framework.queue_executor import post_to_main_thread
         from plugin.framework.worker_pool import run_in_background
         from plugin.scripting.venv_worker import probe_venv_path
+        from plugin.scripting.payload_codec import fast_flatten_grid_2d
 
         path_ctrl = get_optional(self._dlg, "scripting__python_venv_path")
         raw = get_control_text(path_ctrl) if path_ctrl else ""
+        
+        host_optimized = fast_flatten_grid_2d is not None
 
         def work():
             try:
@@ -339,7 +342,17 @@ class ScriptingVenvTestListener(BaseActionListener):
 
             def ui():
                 title = _("Venv OK") if ok else _("Venv check failed")
-                msgbox(self._ctx, title, msg)
+                
+                host_status = "Active (Optimized)" if host_optimized else "Inactive (Pure Python)"
+                
+                # Splice the host status right after the Python version line
+                parts = msg.split("\n", 1)
+                if len(parts) > 1:
+                    final_msg = f"{parts[0]}\nCython Accelerator: {host_status}\n{parts[1]}"
+                else:
+                    final_msg = f"{msg}\nCython Accelerator: {host_status}"
+                
+                msgbox(self._ctx, title, final_msg)
 
             post_to_main_thread(ui)
 

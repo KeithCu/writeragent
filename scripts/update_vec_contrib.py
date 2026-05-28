@@ -99,6 +99,14 @@ def harvest_wheels(input_dir):
     print(f"Found {len(found_wheels)} wheels in {input_dir}")
 
     for wheel in found_wheels:
+        # Skip Windows ARM64 and macOS builds for now as requested
+        if "win_arm64" in wheel.name:
+            print(f"Skipping {wheel.name} (Windows ARM64 disabled)")
+            continue
+        if "macosx" in wheel.name:
+            print(f"Skipping {wheel.name} (macOS disabled)")
+            continue
+
         print(f"Processing {wheel.name}...")
         with zipfile.ZipFile(wheel, 'r') as zip_ref:
             for file_info in zip_ref.infolist():
