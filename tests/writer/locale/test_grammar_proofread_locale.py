@@ -184,9 +184,9 @@ def test_fingerprint_for_text() -> None:
     assert fp1 == gl.fingerprint_for_text(text1)
 
 
-def test_grammar_inflight_key_complete_uses_fingerprint_prefix() -> None:
+def test_grammar_inflight_key_complete_uses_full_fingerprint() -> None:
     text = "Hello world."
-    assert gl.grammar_inflight_key("doc1", "en-US", text, is_complete=True) == f"doc1|en-US|{gl.fingerprint_for_text(text)[:16]}"
+    assert gl.grammar_inflight_key("doc1", "en-US", text, is_complete=True) == f"doc1|en-US|{gl.fingerprint_for_text(text)}"
 
 
 def test_grammar_inflight_key_incomplete_stable() -> None:

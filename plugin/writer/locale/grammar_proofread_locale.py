@@ -93,7 +93,7 @@ def grammar_inflight_key(a_document_identifier: str, loc_key: str, sent_text: st
     - Incomplete sentences use a fixed 'INCOMPLETE' key to prevent typing floods.
     """
     if is_complete:
-        context = fingerprint_for_text(sent_text)[:16]
+        context = fingerprint_for_text(sent_text)
     else:
         context = "INCOMPLETE_WRITER_AGENT_INTERNAL_STRING"
     return f"{a_document_identifier}|{loc_key}|{context}"
