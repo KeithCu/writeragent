@@ -180,19 +180,6 @@ The native grammar checker pairs **sentence-bound work units** with **sentence-l
 
 ## Shipped implementation reference
 
-### Code and packaging
-
-- **UNO component**: [`plugin/writer/locale/ai_grammar_proofreader.py`](../plugin/writer/locale/ai_grammar_proofreader.py) — `WriterAgentAiGrammarProofreader` (`unohelper` + `XProofreader`, locales, service info). Standalone entrypoint: extends `sys.path` like [`plugin/chatbot/panel_factory.py`](../plugin/chatbot/panel_factory.py) so `import plugin.*` works when LO loads the module. The service constructor must remain **`__init__(self, ctx, *args)`** because LibreOffice may instantiate proofreaders with `createInstanceWithArgumentsAndContext`.
-- **Pure Python modules**: [`grammar_proofread_locale.py`](../plugin/writer/locale/grammar_proofread_locale.py) — **`GRAMMAR_REGISTRY_LOCALE_TAGS`**, UNO `Locale` ↔ BCP-47 bridging; Unicode sentence terminals, `looks_complete_sentence`, abbrev table, worker caps and system prompt templates (**single and batch**), `fingerprint_for_text`, `grammar_inflight_key`. [`grammar_proofread_json.py`](../plugin/writer/locale/grammar_proofread_json.py) — JSON wire parsing (`parse_grammar_json`, language-detect parsers, error compress/decompress). [`grammar_proofread_text.py`](../plugin/writer/locale/grammar_proofread_text.py) — BreakIterator orchestration, `split_into_sentences`, offset normalization. [`grammar_proofread_cache.py`](../plugin/writer/locale/grammar_proofread_cache.py) — sentence LRU + ignore rules. [`grammar_obs.py`](../plugin/writer/locale/grammar_obs.py) — DEBUG `grammar_obs`, sidebar `emit_grammar_status`, `slice_preview_debug`. [`grammar_worker_llm.py`](../plugin/writer/locale/grammar_worker_llm.py) — sync grammar + language-detect LLM calls, prompt build, JSON parse. [`grammar_work_queue.py`](../plugin/writer/locale/grammar_work_queue.py) — `GrammarWorkItem`, `GrammarWorkQueue`, `run_llm_and_cache_batch` (chunk orchestration).
-- **Linear worker phases**: `run_llm_and_cache_batch` delegates to `_worker_*` helpers, then optional `_run_language_validation` and `_run_grammar_check`. Pure branch rules live in [`grammar_worker_phases.py`](../plugin/writer/locale/grammar_worker_phases.py); sync LLM wire lives in [`grammar_worker_llm.py`](../plugin/writer/locale/grammar_worker_llm.py).
-- **Registry**: [`extension/registry/org/openoffice/Office/LinguisticWriterAgentGrammar.xcu`](../extension/registry/org/openoffice/Office/LinguisticWriterAgentGrammar.xcu) — fuses `org.extension.writeragent.comp.pyuno.AiGrammarProofreader` under `GrammarCheckers` with `Locales` set to a space-separated list of BCP-47 tags (one `oor:string-list` `<value>`, matching Lightproof). Tags are defined as **`GRAMMAR_REGISTRY_LOCALE_TAGS`** in [`grammar_proofread_locale.py`](../plugin/writer/locale/grammar_proofread_locale.py) (same coverage as shipped gettext `locales/` plus `en-US` / `en-GB`). Must stay aligned with `getLocales()` (UNO `Locale` per tag) and `GRAMMAR_REGISTRY_LOCALE_TAGS` (unit test enforces parity). Document **regional** `CharLocale` values normalize to the canonical tag per language for cache and the LLM prompt.
-- **Bundle**: [`scripts/manifest_registry.py`](../scripts/manifest_registry.py) — `META-INF/manifest.xml` always lists the Python UNO module and `registry/org/openoffice/Office/LinguisticWriterAgentGrammar.xcu` in default `make manifest` / `make build` output.
-
-### Configuration
-
-- **All settings (Doc tab)**: `doc.grammar_proofreader_*` in [`plugin/doc/module.yaml`](../plugin/doc/module.yaml) — enable (default **off**), wait timeout (ms), optional model (empty = same as chat `text_model`), `doc.grammar_proofreader_batch_sentences` (default **1**, max **8**), and `doc.grammar_proofreader_pause_during_agent` (default **off**). LLM max output tokens (**2048**) and the **pathological** slice ceiling **`GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS`** are **fixed in code** in [`grammar_proofread_locale.py`](../plugin/writer/locale/grammar_proofread_locale.py). The Doc tab also inlines Calc's **Max Rows Display** (`calc.max_rows_display` via `config_inline: doc` in [`plugin/calc/module.yaml`](../plugin/calc/module.yaml)).
-- **Diagnostics**: logger name `writeragent.grammar` — `INFO` lines prefixed `[grammar]` for each `doProofreading` call, cache hit/miss, worker skip/supersede, LLM request/result counts, and `WARNING` with stack trace on worker failure. Ensure `init_logging` has run (first grammar call attempts it); see `writeragent_debug.log` under the LO user config directory (see [`AGENTS.md`](../AGENTS.md)).
-
 ### Runtime behavior
 
 #### Foreground path (`doProofreading`) and UI hooks
@@ -355,13 +342,6 @@ So **`enqueue_seq` is a generation stamp for supersede/dedup semantics**, not a 
 | **Enqueue-time monotonic value** | e.g. `time.monotonic()` at enqueue as the order key. Requires discipline if two enqueues share an identical timestamp resolution; still needs to be stored on each `GrammarWorkItem` and mirrored (like `_latest_seq`) for stale checks. |
 | **Post-LLM staleness guard** | **Shipped:** `inflight_superseded(inflight_key, enqueue_seq)` after `chat_completion_sync` returns and before `cache_put_sentence`. |
 
-### Tests
-
-- Unit: [`plugin/tests/writer/locale/test_grammar_proofread_engine.py`](../plugin/tests/writer/locale/test_grammar_proofread_engine.py) — JSON parsing, offset normalization, sentence cache roundtrip, trailing whitespace cache normalization, ignore rules, overlap expansion.
-- Unit (work queue dedup): [`plugin/tests/writer/locale/test_grammar_work_queue.py`](../plugin/tests/writer/locale/test_grammar_work_queue.py) — same-key supersede, reverse-prefix chain reproducer, distinct `inflight_key` survival, **paragraph batching success, and LLM result-mismatch fallback**.
-- Unit (queue / worker): [`plugin/tests/writer/locale/test_ai_grammar_proofreader_worker.py`](../plugin/tests/writer/locale/test_ai_grammar_proofreader_worker.py) — `GrammarWorkQueue` stale detection, legacy Lightproof finalize regression helper, pinned `proofread_sentence_text` worker path.
-- UNO (native runner): [`plugin/tests/writer/locale/test_grammar_uno.py`](../plugin/tests/writer/locale/test_grammar_uno.py) — cache path, `ignoreRule`, incremental overlap (relocated paths; run via `plugin.testing_runner`).
-
 ### Risks (still relevant)
 
 | Risk | Mitigation shipped / notes |
@@ -422,19 +402,6 @@ Two tables: **product / hardening** (user-visible or systemic improvements) and 
 | C12 | Constants documentation | Document all `GRAMMAR_*` constants in `grammar_proofread_locale.py` with **units**, **default values**, and **rationale** (e.g., why 8192 chars, why 2048 tokens) as inline comments or a module-level docstring section. |
 | C13 | Remove dead code | Delete any remaining references to `doc.grammar_proofreader_wait_timeout_ms` (config reads, UI bindings, validation) that are now defunct. |
 | C15 | Update normalization comment | Correct the stale comment in `_normalize_for_sentence_cache` (grammar_proofread_cache.py) which claims it uses a subset of terminators. |
-
-### Tests
-
-| ID | Task | Notes |
-|----|------|-------|
-| T1 | HTTP 429 backoff tests | Add unit tests `test_429_backoff_retry_succeeds` (retry after delay, succeeds) and `test_429_exhausted_returns_empty` (max retries exhausted, returns empty errors) in `test_grammar_work_queue.py`. |
-| T2 | Batch mismatch edge cases | Add tests for LLM returning **fewer results** than sentences, **malformed JSON** in batch response, and **empty batch chunk** — verify fallback to individual processing and graceful degradation in `run_llm_and_cache_batch`. |
-| T3 | Cache pruning and promotion | Add `test_memory_cache_promotion_on_persistence_hit` (verify document-persistence hits populate the in-memory LRU) in `test_grammar_proofread_cache.py`. |
-| T4 | Locale normalization roundtrips | Add tests in `test_grammar_proofread_locale.py` verifying `en_US`→`en-US`, `fr_FR`→`fr-FR`, `de_DE`→`de-DE`, `zh_CN`→`zh-CN` normalization, and confirm unsupported locales return empty `getLocales()` list. |
-| T5 | Stale sequence race condition | Add test `test_stale_sequence_race_skips_superseded` in `test_ai_grammar_proofreader_worker.py`: enqueue item A, then B (same `inflight_key`, `enqueue_seq+1`), ensure A is skipped during drain and only B is processed/cached. |
-| T6 | Duplicate substring guard | Add regression test `test_duplicate_substring_normalization` in `test_grammar_proofread_locale.py`: verify `normalize_errors_for_text` correctly anchors errors when the same substring (e.g., `"the the"`) appears multiple times in a sentence. |
-| T7 | Whitespace normalization | Add test `test_strip_zero_width_chars` in `test_grammar_proofread_text.py`: verify `split_into_sentences` strips carriage return (CR), form feed (FF), vertical tab (VT), NUL, and normalizes tab to space. |
-| T8 | Trailing punctuation normalization | Add test `test_trailing_punct_compaction` in `test_grammar_proofread_cache.py`: verify `_normalize_for_sentence_cache` maps `"Hello!?"` → `"Hello!"`, `"Hello?.."` → `"Hello?"`, and `"Test..."` → `"Test."` for cache key sharing. |
 
 ---
 
