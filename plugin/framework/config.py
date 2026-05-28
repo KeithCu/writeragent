@@ -322,6 +322,28 @@ class WriterAgentConfig:
     last_latex_input: str = r"x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}"
     last_latex_display_block: bool = False
 
+    # Persists multiple user-saved Python scripts (name -> code)
+    saved_python_scripts: Dict[str, str] = dataclasses.field(
+        default_factory=lambda: {
+            "Prime Numbers": (
+                "# Calculate primes, sharing the sieve via sp.primerange().\n"
+                "low, high = sp.prime(1000), sp.prime(1010)\n\n"
+                "result = {\n"
+                "    \"title\": \"Prime Numbers in Range\",\n"
+                "    \"primes\": [\n"
+                "        {\"position\": i, \"prime\": p}\n"
+                "        for i, p in zip(range(1000, 1011),\n"
+                "                        list(sp.primerange(low, high + 1)))\n"
+                "    ]\n"
+                "}"
+            ),
+            "Hello WriterAgent": (
+                "# A simple hello world script\n"
+                "result = \"Hello from WriterAgent Python script!\""
+            )
+        }
+    )
+
     # Store arbitrary module.yaml config entries
     _extra_config: Dict[str, Any] = dataclasses.field(default_factory=dict)
 

@@ -162,3 +162,25 @@ def test_show_python_input_dialog_save_button():
 
             mock_set.assert_called_once_with(ctx, "last_python_script_writer", "print('hello world')")
 
+
+def test_persistent_editor_dispatches_script_actions():
+    from plugin.scripting.editor_host import PersistentEditor
+    pe = PersistentEditor()
+    pe.ctx = MagicMock()
+    pe.send = MagicMock()
+
+    with patch("plugin.framework.config.get_config", return_value={"MyScript": "print(123)"}) as mock_get:
+        with patch("plugin.framework.config.set_config") as mock_set:
+            # 1. request_scripts
+            pe._dispatch_incoming({"type": "request_scripts"})
+            mock_get.assert_called_with(pe.ctx, "saved_python_scripts")
+            pe.send.assert_called_with({"type": "scripts_list", "scripts": {"MyScript": "print(123)"}})
+
+            # 2. save_script
+            pe._dispatch_incoming({"type": "save_script", "name": "NewScript", "code": "x = 1"})
+            mock_set.assert_called_with(pe.ctx, "saved_python_scripts", {"MyScript": "print(123)", "NewScript": "x = 1"})
+
+            # 3. delete_script
+            pe._dispatch_incoming({"type": "delete_script", "name": "MyScript"})
+            mock_set.assert_called_with(pe.ctx, "saved_python_scripts", {"NewScript": "x = 1"})
+

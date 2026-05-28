@@ -87,6 +87,81 @@ html, body {
   display: none !important;
 }
 
+#script-manager-container {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-left: 1px solid #d0d7de;
+  border-right: 1px solid #d0d7de;
+  padding: 0 10px;
+  margin: 0 4px;
+}
+
+#script-manager-container label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #57606a;
+  white-space: nowrap;
+}
+
+#script-select {
+  padding: 3px 24px 3px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  background-color: #f6r8fa;
+  cursor: pointer;
+  outline: none;
+  min-width: 130px;
+  max-width: 200px;
+}
+
+#script-select:focus {
+  border-color: #0969da;
+  box-shadow: 0 0 0 3px rgba(9, 105, 218, 0.3);
+}
+
+#btn-save-as {
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #24292f;
+  background-color: #f6f8fa;
+  border: 1px solid rgba(27, 31, 36, 0.15);
+  border-radius: 6px;
+  box-shadow: 0 1px 0 rgba(27, 31, 36, 0.04);
+  cursor: pointer;
+  transition: 80ms cubic-bezier(0.33, 1, 0.68, 1);
+}
+
+#btn-save-as:hover {
+  background-color: #f3f4f6;
+  border-color: rgba(27, 31, 36, 0.15);
+}
+
+#btn-save-as:active {
+  background-color: #ebecf0;
+}
+
+#btn-delete-script {
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #cf222e;
+  background-color: #f6f8fa;
+  border: 1px solid rgba(27, 31, 36, 0.15);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: 80ms cubic-bezier(0.33, 1, 0.68, 1);
+}
+
+#btn-delete-script:hover {
+  color: #ffffff;
+  background-color: #cf222e;
+  border-color: #cf222e;
+}
+
 #editor {
   height: calc(100% - 42px);
   width: 100%;

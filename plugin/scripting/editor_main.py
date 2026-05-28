@@ -166,6 +166,15 @@ def _pipe_reader_loop() -> None:
             if msg is None:
                 break
             kind = message_type(msg)
+            # Direct evaluate to companion JS
+            try:
+                if _window is not None:
+                    import json
+                    msg_str = json.dumps(msg)
+                    _window.evaluate_js(f"if(window.handleScriptsManagerMessage){{window.handleScriptsManagerMessage({msg_str});}}")
+            except Exception:
+                pass
+
             if kind in ("saved", "error", "load"):
                 _ui_queue.put(msg)
             elif kind == "closed":
@@ -239,6 +248,15 @@ class MonacoEditorApi:
 
     def notify_save_script(self, code: str) -> None:
         self.notify_save(code, action="save")
+
+    def request_scripts(self) -> None:
+        _write_parent({"type": "request_scripts"})
+
+    def save_script(self, name: str, code: str) -> None:
+        _write_parent({"type": "save_script", "name": name, "code": code})
+
+    def delete_script(self, name: str) -> None:
+        _write_parent({"type": "delete_script", "name": name})
 
     def notify_cancel(self) -> None:
         log.info("editor_main: notify_cancel called; hiding window")

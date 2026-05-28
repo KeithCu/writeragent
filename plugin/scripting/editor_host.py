@@ -163,6 +163,7 @@ class PersistentEditor:
         self.on_save: Callable[..., dict[str, Any]] | None = None
         self.on_closed: Callable[[], None] | None = None
         self.executor: QueueExecutor = default_executor
+        self.ctx: Any = None
 
     @property
     def is_running(self) -> bool:
@@ -358,6 +359,54 @@ class PersistentEditor:
 
     def _dispatch_incoming(self, msg: dict[str, Any]) -> None:
         kind = message_type(msg)
+        if kind == "request_scripts":
+            def _handle_request() -> None:
+                from plugin.framework.config import get_config
+                scripts = get_config(self.ctx, "saved_python_scripts")
+                if not isinstance(scripts, dict):
+                    scripts = {}
+                log.info("editor_host: request_scripts called. Found %d scripts.", len(scripts))
+                self.send({"type": "scripts_list", "scripts": scripts})
+            self.executor.execute(_handle_request)
+            return
+
+        if kind == "save_script":
+            name = msg.get("name", "")
+            code = msg.get("code", "")
+            def _handle_save_named() -> None:
+                from plugin.framework.config import get_config, set_config
+                scripts = get_config(self.ctx, "saved_python_scripts")
+                if not isinstance(scripts, dict):
+                    scripts = {}
+                scripts[name] = code
+                set_config(self.ctx, "saved_python_scripts", scripts)
+                log.info("editor_host: save_script called for '%s'. Total scripts: %d", name, len(scripts))
+                self.send({
+                    "type": "scripts_list",
+                    "scripts": scripts,
+                    "status_ok_text": f"Saved script '{name}'."
+                })
+            self.executor.execute(_handle_save_named)
+            return
+
+        if kind == "delete_script":
+            name = msg.get("name", "")
+            def _handle_delete() -> None:
+                from plugin.framework.config import get_config, set_config
+                scripts = get_config(self.ctx, "saved_python_scripts")
+                if not isinstance(scripts, dict):
+                    scripts = {}
+                scripts.pop(name, None)
+                set_config(self.ctx, "saved_python_scripts", scripts)
+                log.info("editor_host: delete_script called for '%s'. Total scripts: %d", name, len(scripts))
+                self.send({
+                    "type": "scripts_list",
+                    "scripts": scripts,
+                    "status_ok_text": f"Deleted script '{name}'."
+                })
+            self.executor.execute(_handle_delete)
+            return
+
         if kind == "save":
             code = msg.get("code")
             if not isinstance(code, str):
@@ -537,6 +586,7 @@ def launch_monaco_editor(
     """Start or reuse the Monaco child process and send *load_message*. Return True on success."""
     from plugin.chatbot.dialogs import msgbox
 
+    _PERSISTENT_EDITOR.ctx = ctx
     closed_handler = on_closed if on_closed is not None else (lambda: None)
 
     if _PERSISTENT_EDITOR.is_running:
