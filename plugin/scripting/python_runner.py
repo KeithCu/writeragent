@@ -17,7 +17,7 @@ from plugin.framework.uno_context import get_ctx, get_desktop
 from plugin.framework.config import get_config, get_config_str, set_config
 from plugin.framework.i18n import _
 from plugin.chatbot.dialogs import add_dialog_label, add_dialog_edit, add_dialog_button, msgbox, show_approval_dialog
-from plugin.chatbot.dialog_views import input_box
+from plugin.chatbot.dialogs import show_text_input_dialog
 from plugin.framework.worker_pool import run_in_background
 from plugin.scripting.editor_ipc import exception_traceback
 from plugin.scripting.editor_host import launch_monaco_editor, monaco_editor_available
@@ -177,10 +177,9 @@ def show_python_input_dialog(ctx: Any, initial_text: str = "", config_key: str =
                     items = select_ctrl.getItems()
                     curr_name = items[pos] if (pos >= 0 and pos < len(items) and items[pos] != "Sample") else ""
                     
-                    name, _unused = input_box(ctx, _("Enter script name:"), _("Save Script"), curr_name)
+                    name = show_text_input_dialog(ctx, _("Enter script name:"), _("Save Script"), curr_name)
                     if not name:
                         return
-                    name = name.strip()
                     if not name:
                         return
                         

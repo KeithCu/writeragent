@@ -241,7 +241,7 @@ def test_show_python_input_dialog_save_as_button():
     with patch.object(pr, "get_desktop", return_value=desktop):
         with patch.object(pr, "get_config", return_value={}):
             with patch.object(pr, "set_config") as mock_set:
-                with patch.object(pr, "input_box", return_value=("scriptk", None)) as mock_input:
+                with patch.object(pr, "show_text_input_dialog", return_value="scriptk") as mock_input:
                     # Mock dlg.execute to trigger the Save As listener
                     def fake_execute():
                         for listener in listeners:

@@ -16,7 +16,7 @@ import re
 import struct
 import tempfile
 import time
-from typing import Any
+from typing import Any, cast
 
 from com.sun.star.awt import Point, Size
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
@@ -448,7 +448,7 @@ def _no_spellcheck_locale() -> Any:
     """Locale that disables Writer spell/grammar checking (ISO 639-2 ``zxx``)."""
     import uno
 
-    loc = uno.createUnoStruct("com.sun.star.lang.Locale")
+    loc = cast("Any", uno.createUnoStruct("com.sun.star.lang.Locale"))
     loc.Language = "zxx"
     loc.Country = ""
     return loc

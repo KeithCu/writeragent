@@ -46,6 +46,7 @@ In line with WriterAgent's design philosophy, **we actively reject any bundled p
       size = rng.component.Size
   ```
 * **Application to WriterAgent:** Any UI features or image overlay tools we build for Calc must handle merged cells correctly. Adopting this cursor-collapsing geometry formula ensures our overlay coordinate calculations are 100% reliable.
+* **WriterAgent invariant:** Calc placement code must use `plugin.calc.calc_utils.get_cell_geometry(...)` (merged-aware collapse behavior) instead of reading `cell.Position` / `cell.Size` directly.
 
 ### 5. Matplotlib SVG Embedding & Anchoring (`CmdAddImageLinked`)
 * **The Feature:** Converts a Matplotlib plot to SVG in the temp directory and inserts it into Calc's `SpreadsheetDrawPage` with robust grid-locked properties:

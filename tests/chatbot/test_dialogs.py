@@ -36,7 +36,8 @@ from plugin.chatbot.dialogs import (
     add_dialog_label,
     add_dialog_edit,
     add_dialog_hyperlink,
-    translate_dialog
+    show_text_input_dialog,
+    translate_dialog,
 )
 
 
@@ -297,3 +298,85 @@ def test_translate_dialog_combobox_stringitemlist_on_model(mock_i18n_translate):
     translate_dialog(mock_dlg)
 
     assert combo.model.StringItemList == ("T_aa", "T_bb")
+
+
+def _mock_text_input_dialog_uno(text_on_ok: str):
+    """Build ctx/desktop/smgr/dlg mocks for show_text_input_dialog tests."""
+    ctx = MagicMock()
+    desktop = MagicMock()
+    frame = MagicMock()
+    parent_window = MagicMock()
+    desktop.getCurrentFrame.return_value = frame
+    frame.getContainerWindow.return_value = parent_window
+
+    smgr = MagicMock()
+    dlg_model = MagicMock()
+    dlg = MagicMock()
+    toolkit = MagicMock()
+
+    ctx.getServiceManager.return_value = smgr
+
+    def fake_create(service, _ctx):
+        if "UnoControlDialogModel" in service:
+            return dlg_model
+        if "UnoControlDialog" in service:
+            return dlg
+        if "Toolkit" in service:
+            return toolkit
+        return MagicMock()
+
+    smgr.createInstanceWithContext.side_effect = fake_create
+
+    text_edit_model = MagicMock()
+    text_edit_model.Text = text_on_ok
+    text_edit = MagicMock()
+    text_edit.getModel.return_value = text_edit_model
+
+    ok_listeners = []
+    cancel_listeners = []
+
+    def fake_get_control(name):
+        if name == "TextEdit":
+            return text_edit
+        if name == "BtnOK":
+            btn = MagicMock()
+            btn.addActionListener.side_effect = lambda l: ok_listeners.append(l)
+            return btn
+        if name == "BtnCancel":
+            btn = MagicMock()
+            btn.addActionListener.side_effect = lambda l: cancel_listeners.append(l)
+            return btn
+        return MagicMock()
+
+    dlg.getControl.side_effect = fake_get_control
+    return ctx, desktop, dlg, ok_listeners, cancel_listeners, text_edit
+
+
+@patch("plugin.chatbot.dialogs.get_desktop")
+def test_show_text_input_dialog_ok_returns_stripped_text(mock_get_desktop):
+    ctx, desktop, dlg, ok_listeners, _cancel_listeners, _text_edit = _mock_text_input_dialog_uno("  myname  ")
+    mock_get_desktop.return_value = desktop
+
+    def fake_execute():
+        for listener in ok_listeners:
+            listener.actionPerformed(MagicMock())
+
+    dlg.execute.side_effect = fake_execute
+
+    result = show_text_input_dialog(ctx, "Enter name:", "Title", "default")
+    assert result == "myname"
+
+
+@patch("plugin.chatbot.dialogs.get_desktop")
+def test_show_text_input_dialog_cancel_returns_none(mock_get_desktop):
+    ctx, desktop, dlg, _ok_listeners, cancel_listeners, _text_edit = _mock_text_input_dialog_uno("ignored")
+    mock_get_desktop.return_value = desktop
+
+    def fake_execute():
+        for listener in cancel_listeners:
+            listener.actionPerformed(MagicMock())
+
+    dlg.execute.side_effect = fake_execute
+
+    result = show_text_input_dialog(ctx, "Enter name:", "Title", "")
+    assert result is None

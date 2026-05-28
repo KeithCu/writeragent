@@ -203,6 +203,80 @@ def show_web_search_query_edit_dialog(ctx, parent_frame, initial_text) -> str | 
         return None
 
 
+def show_text_input_dialog(ctx, message: str, title: str = "", default: str = "") -> str | None:
+    """Modal single-line text input (no LLM / prompt controls).
+
+    Used for short names (e.g. Save Script As). Returns stripped text on OK, ``None`` on Cancel.
+    """
+    if not ctx:
+        log.warning("show_text_input_dialog: no ctx")
+        return None
+    try:
+        desktop = get_desktop(ctx)
+        frame = desktop.getCurrentFrame()
+        if frame is None:
+            log.warning("show_text_input_dialog: no frame")
+            return None
+        parent_window = frame.getContainerWindow()
+        if parent_window is None:
+            log.warning("show_text_input_dialog: no container window")
+            return None
+
+        smgr = ctx.getServiceManager()
+        dlg_model = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialogModel", ctx)
+        dlg_model.Title = _(title) if title else _("Input")
+        dlg_model.Width = 280
+        dlg_model.Height = 90
+
+        add_dialog_label(dlg_model, "PromptLbl", str(message), 8, 8, 264, 10, multiline=False)
+        add_dialog_edit(dlg_model, "TextEdit", default or "", 8, 22, 264, 14, readonly=False)
+
+        add_dialog_button(dlg_model, "BtnOK", _("OK"), 150, 58, 60, 14)
+        add_dialog_button(dlg_model, "BtnCancel", _("Cancel"), 216, 58, 56, 14)
+
+        dlg = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialog", ctx)
+        dlg.setModel(dlg_model)
+        toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
+        dlg.createPeer(toolkit, parent_window)
+
+        _outcome: list[str | None] | None = None
+
+        class _OkListener(unohelper.Base, XActionListener):
+            def actionPerformed(self, rEvent):
+                nonlocal _outcome
+                try:
+                    ec = dlg.getControl("TextEdit")
+                    t = (ec.getModel().Text or "").strip() if ec and ec.getModel() else ""
+                except Exception:
+                    t = ""
+                _outcome = [t]
+                dlg.endDialog(1)
+
+            def disposing(self, Source):
+                pass
+
+        class _CancelListener(unohelper.Base, XActionListener):
+            def actionPerformed(self, rEvent):
+                nonlocal _outcome
+                _outcome = [None]
+                dlg.endDialog(0)
+
+            def disposing(self, Source):
+                pass
+
+        dlg.getControl("BtnOK").addActionListener(_OkListener())
+        dlg.getControl("BtnCancel").addActionListener(_CancelListener())
+        dlg.getControl("TextEdit").setFocus()
+        dlg.execute()
+        dlg.dispose()
+        if _outcome is None:
+            return None
+        return _outcome[0]
+    except Exception:
+        log.exception("show_text_input_dialog failed")
+        return None
+
+
 # ── Clipboard ────────────────────────────────────────────────────────
 
 
