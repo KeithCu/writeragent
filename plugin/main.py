@@ -288,6 +288,13 @@ def _register_core_handlers():
 
     register_action_handler("scripting", "reset_python_session", _reset_python_session)
 
+    def _edit_calc_init_script():
+        from plugin.calc.init_script_editor import open_calc_init_script_editor
+
+        open_calc_init_script_editor(get_ctx())
+
+    register_action_handler("scripting", "edit_calc_init_script", _edit_calc_init_script)
+
     try:
         from plugin.calc.python_editor_context_menu import install_calc_cell_context_menu
 
@@ -489,6 +496,7 @@ def get_menu_text(command):
         "main.EvaluationDashboard": _("Evaluation Dashboard"),
         "scripting.run_python_dialog": _("Run Python Script..."),
         "scripting.edit_python_cell": _("Edit Python in Cell..."),
+        "scripting.edit_calc_init_script": _("Edit Initialization Script..."),
         "scripting.reset_python_session": _("Reset Python Session"),
         "scripting.import_ipynb": _("Import Jupyter Notebook..."),
         "writer.insert_latex_dialog": _("Insert LaTeX Math..."),

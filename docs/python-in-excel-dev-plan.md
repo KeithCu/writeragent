@@ -13,7 +13,7 @@ todos:
     status: in_progress
   - id: phase4-init
     content: "Phase 4: Initialization scripts -- per-workbook startup scripts for global imports and helpers"
-    status: pending
+    status: completed
   - id: phase5-objects
     content: "Phase 5: Python Object cards -- rich preview for DataFrames and complex returns (requires Phase 1)"
     status: pending
@@ -202,20 +202,13 @@ These items are tracked in [enabling_numpy_in_libreoffice.md — Calc UX and out
 
 ## Phase 4: Initialization Scripts
 
-**Goal:** Per-workbook startup scripts that run when the workbook opens, registering global imports, helpers, and styling defaults (Section 4 of the spec).
+**Status (2026):** Shipped. One init script per Calc workbook in `UserDefinedProperties` (`WriterAgentCalcInitScript`). **WriterAgent → Edit Initialization Script…** (Calc only) opens Monaco; save persists to the document and clears in-memory init/cell sessions.
 
-**What to build:**
+**Semantics:** Init is **orthogonal** to **Python session mode**. Isolated mode still runs the init script **once** in a persistent `calc:…:init` worker session; each `=PYTHON()` cell gets a fresh namespace **seeded** from that snapshot (imports/helpers shared, cell variables not). Shared kernel runs init once, seeds the workbook session once, then reuses it for cells. **Reset Python Session** clears both. Script changes are detected via SHA-256 hash on each eval; saving in the init editor also calls `reset_python_session`. Optional **OnUnload** reset ([`python_workbook_lifecycle.py`](../plugin/calc/python_workbook_lifecycle.py)) is implemented but callers are commented out—reopen may reuse cached init until the script changes or the worker restarts.
 
-- Store init script in workbook custom document properties (ODS `UserDefinedProperties`) or a hidden sheet named `__python_init__`
-- On workbook open (or first `=PYTHON()` eval in a session), execute the init script in the session namespace before any cell code
-- Settings UI: add an "Edit Initialization Script" Menu  that opens the Monaco editor with the init script.
-- Separate from session mode feature-- init scripts work even in isolated mode (they just run once per workbook load, not persistently)
+**Key files:** [`init_scripts.py`](../plugin/scripting/init_scripts.py), [`init_script_editor.py`](../plugin/calc/init_script_editor.py), [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) (`init_script` / `init_session_id` on worker requests), [`python_function.py`](../plugin/calc/python_function.py), [`session_manager.py`](../plugin/scripting/session_manager.py).
 
-**Key files to modify:**
-- [plugin/scripting/venv_worker.py](plugin/scripting/venv_worker.py) -- `init_script` request type
-- [plugin/calc/python_function.py](plugin/calc/python_function.py) -- check/run init on first eval
-- Settings UI in [plugin/scripting/module.yaml](plugin/scripting/module.yaml)
-- New: `plugin/scripting/init_scripts.py` -- read/write init from document properties
+**Tests:** [`tests/scripting/test_init_scripts.py`](../tests/scripting/test_init_scripts.py).
 
 ---
 

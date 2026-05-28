@@ -74,6 +74,16 @@ def _workbook_session_key(doc: Any) -> str:
     return new_id
 
 
+def calc_workbook_base_session_id(doc: Any) -> str:
+    """Worker session id for shared-kernel ``=PYTHON()`` (not the ``:init`` session)."""
+    return f"calc:{_workbook_session_key(doc)}"
+
+
+def calc_init_session_id(doc: Any) -> str:
+    """Persistent worker session that runs the workbook init script once."""
+    return f"{calc_workbook_base_session_id(doc)}:init"
+
+
 def workbook_session_id(ctx: Any) -> str | None:
     """Return ``calc:…`` session id when shared mode and active doc is Calc, else ``None``."""
     if python_session_mode(ctx) != "shared":
@@ -81,7 +91,7 @@ def workbook_session_id(ctx: Any) -> str | None:
     doc = _calc_document(ctx)
     if doc is None:
         return None
-    return f"calc:{_workbook_session_key(doc)}"
+    return calc_workbook_base_session_id(doc)
 
 
 def notebook_session_id(ctx: Any, doc: Any | None = None) -> str | None:
@@ -130,38 +140,50 @@ def reset_notebook_python_session(ctx: Any) -> None:
     msgbox(ctx, "WriterAgent", _("Error: {0}").format(msg))
 
 
-def _reset_calc_shared_session(ctx: Any) -> None:
-    if python_session_mode(ctx) != "shared":
-        msgbox(
-            ctx,
-            "WriterAgent",
-            _(
-                "Python session mode is Isolated. Enable Shared kernel in Settings → Python "
-                "to keep variables between =PYTHON() cells, then use Reset Python Session."
-            ),
-        )
-        return
-
+def _reset_calc_python_sessions(ctx: Any) -> None:
     doc = _calc_document(ctx)
     if doc is None:
         msgbox(
             ctx,
             "WriterAgent",
             _(
-                "Reset Python Session applies to Calc spreadsheets with =PYTHON() in shared "
-                "kernel mode. Open a Calc workbook and try again."
+                "Reset Python Session applies to Calc spreadsheets. "
+                "Open a Calc workbook and try again."
             ),
         )
         return
 
-    session_id = f"calc:{_workbook_session_key(doc)}"
+    from plugin.scripting.init_scripts import get_calc_init_script
+
+    session_id = calc_workbook_base_session_id(doc)
     res = reset_python_session(ctx, session_id)
-    if res.get("status") == "ok":
-        msgbox(ctx, "WriterAgent", _("Python session reset for this workbook."))
+    if res.get("status") != "ok":
+        msg = res.get("message") or _("Could not reset Python session.")
+        msgbox(ctx, "WriterAgent", _("Error: {0}").format(msg))
         return
 
-    msg = res.get("message") or _("Could not reset Python session.")
-    msgbox(ctx, "WriterAgent", _("Error: {0}").format(msg))
+    has_init = bool((get_calc_init_script(doc) or "").strip())
+    if python_session_mode(ctx) == "shared":
+        msgbox(ctx, "WriterAgent", _("Python session reset for this workbook."))
+    elif has_init:
+        msgbox(
+            ctx,
+            "WriterAgent",
+            _(
+                "Initialization script and any in-memory init state were reset for this workbook. "
+                "Cell variables were already isolated per cell."
+            ),
+        )
+    else:
+        msgbox(
+            ctx,
+            "WriterAgent",
+            _(
+                "Python session mode is Isolated (each =PYTHON() cell uses its own variables). "
+                "There is no shared cell session to reset. Add an initialization script if you "
+                "need to clear expensive one-time workbook setup."
+            ),
+        )
 
 
 def reset_workbook_python_session(ctx: Any) -> None:
@@ -180,4 +202,4 @@ def reset_workbook_python_session(ctx: Any) -> None:
             ),
         )
         return
-    _reset_calc_shared_session(ctx)
+    _reset_calc_python_sessions(ctx)

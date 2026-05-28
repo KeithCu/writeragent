@@ -27,10 +27,10 @@ WriterAgent can **read** Jupyter notebooks (nbformat v4) and **import** them int
 |-------------------|----------|
 | Vendored **nbformat v4** read — [`plugin/contrib/nbformat/`](../plugin/contrib/nbformat/): `read_ipynb(path)`, `reads(json_string)` → `NotebookNode` with `rejoin_lines` (multi-line `source`, stream `text`, MIME bundles) | **nbformat v3** upgrade ([`nbformat/v4/convert.py`](https://github.com/jupyter/nbformat/blob/main/nbformat/v4/convert.py) in upstream) |
 | Menu: **Tools → Import Jupyter Notebook…** — [`import_dialog.py`](../plugin/notebook/import_dialog.py) (file picker, Writer-only check, stats msgbox) | Full CommonMark/HTML renderer for all markdown (only HTML-tagged cells today) |
-| Import engine — [`writer_importer.py`](../plugin/notebook/writer_importer.py): per-cell headings, body text, in-flow code fields, embedded plot images | Run buttons / re-execute imported cells |
+| Import engine — [`writer_importer.py`](../plugin/notebook/writer_importer.py): per-cell headings, body text, in-flow code fields, embedded plot images | Run buttons / re-execute imported cells (Phase 1 — [dev plan](notebook-interactive-dev-plan.md)) |
+| **Notebook registry (Phase 0)** — [`cell_registry.py`](../plugin/notebook/cell_registry.py): `WriterAgentNotebookJson` on the document (code cells, stable `cell_id`, output bookmarks `nb_out_*`); `WriterAgentNotebookSourcePath`; **Reset Python Session** clears `notebook:…` kernel ([`session_manager.py`](../plugin/scripting/session_manager.py)) | Export back to `.ipynb` |
 | Output images: `image/png`, `image/jpeg` in `display_data` / `execute_result` | Batched background decode queue (see [Image loading](#image-loading-and-ui-threading)) |
-| Tests: [`tests/contrib/test_nbformat_read.py`](../tests/contrib/test_nbformat_read.py), [`tests/notebook/test_writer_importer.py`](../tests/notebook/test_writer_importer.py), [`tests/writer/test_image_tools_safe_property.py`](../tests/writer/test_image_tools_safe_property.py) | JSON schema validation (`fastjsonschema`), `traitlets`, `jupyter_core` |
-| | Export back to `.ipynb`, shared **kernel** with venv worker |
+| Tests: [`tests/contrib/test_nbformat_read.py`](../tests/contrib/test_nbformat_read.py), [`tests/notebook/`](../tests/notebook/), [`tests/writer/test_image_tools_safe_property.py`](../tests/writer/test_image_tools_safe_property.py) | JSON schema validation (`fastjsonschema`), `traitlets`, `jupyter_core` |
 
 **Why vendored nbformat, not PyPI:** Same pattern as [`local_python_executor.py`](../plugin/contrib/smolagents/local_python_executor.py) — no extra deps in the OXT; LO embedded Python stays light. Do not `pip install nbformat` into LibreOffice.
 
@@ -54,7 +54,7 @@ For each cell in order, the importer appends to the **document body**:
 | **All cells** | **Heading 2** — `Cell N: Markdown` / `Cell N: Code` / `Cell N: Raw` |
 | **code (gutter)** | **`WriterAgent Notebook In`** — left-aligned `[In [k]]` or `[In [ ]]` when not executed (separate line before the cell heading, Jupyter-style breadcrumb) |
 | **markdown** | If source contains HTML tags (e.g. Colab badge `<a>…<img>…`): **HTML (StarWriter)** import via [`insert_html_at_cursor`](../plugin/writer/ops.py). Otherwise **Text Body** plain text (`# headings`, etc.) |
-| **code (body)** | **Heading 3** “Code” → in-flow **TextField** (`nb_cell_{index}_code`, multiline) → optional **Heading 3** “Output” → **Preformatted Text** stdout/stderr/errors → embedded **images** |
+| **code (body)** | **Heading 3** “Code” → in-flow **TextField** (`nb_cell_{index}_code`, multiline) → **Heading 3** “Output” (always; bookmark `nb_out_*` for later run refresh) → **Preformatted Text** stdout/stderr/errors when present → embedded **images** |
 | **raw** | **Text Body** — raw cell source |
 
 **Code fields (in-flow, not draw page):** Each code cell gets one `com.sun.star.form.component.TextField` inside a `ControlShape`, anchored **`AS_CHARACTER`**, inserted with `text.insertTextContent` at **document end** after the “Code” heading — same pattern as Writer [`CreateFormControl`](../plugin/writer/specialized/forms.py). Height scales with line count (capped); width ~140 mm (`_DEFAULT_WIDTH` in 1/100 mm).
@@ -127,6 +127,7 @@ There is **no** documented LibreOffice UNO API for “load this image in the bac
 ```
 plugin/
 ├── notebook/                     # Writer .ipynb import (menu + UNO importer)
+│   ├── cell_registry.py          # Document registry + output bookmarks
 │   ├── import_dialog.py          # File picker, completion msgbox
 │   └── writer_importer.py        # Cell loop, body text, code fields, images
 └── contrib/nbformat/             # Vendored .ipynb reader (nbformat v4 only)
@@ -141,10 +142,12 @@ Vendored nbformat details: [`plugin/contrib/nbformat/README.md`](../plugin/contr
 
 ## Deferred roadmap
 
+**Phased implementation plan (Run / Stop / shared kernel / export):** [notebook-interactive-dev-plan.md](notebook-interactive-dev-plan.md).
+
 - **nbformat v3** — port upstream `v4/convert.py` for legacy `.ipynb` files.
 - **Full markdown rendering** — CommonMark/HTML for all markdown cells (today: HTML-tagged cells only).
-- **Run / re-execute** — buttons on imported code cells; optional shared **kernel** with the venv worker ([core compute bridge](enabling_numpy_in_libreoffice.md)).
-- **Export to `.ipynb`** — round-trip Writer document → notebook file.
+- **Run / re-execute** — buttons on imported code cells; execute in shared `notebook:…` kernel — see [notebook-interactive-dev-plan.md](notebook-interactive-dev-plan.md) Phases 1–2. (Phase 0 shipped: registry + session id + reset only.)
+- **Export to `.ipynb`** — round-trip Writer document → notebook file — see dev plan Phase 5.
 - **Background import** — batched image decode queue; main-thread UNO inserts with periodic `processEventsToIdle`.
 
 ---
@@ -156,8 +159,9 @@ Vendored nbformat details: [`plugin/contrib/nbformat/README.md`](../plugin/contr
 | Component | Status |
 |-----------|--------|
 | Vendored **nbformat v4** reader | [`plugin/contrib/nbformat/`](../plugin/contrib/nbformat/), [`tests/contrib/test_nbformat_read.py`](../tests/contrib/test_nbformat_read.py) |
-| **Writer `.ipynb` import** | [`plugin/notebook/`](../plugin/notebook/) (`import_dialog.py`, `writer_importer.py`), [`tests/notebook/test_writer_importer.py`](../tests/notebook/test_writer_importer.py) |
+| **Writer `.ipynb` import** | [`plugin/notebook/`](../plugin/notebook/) (`import_dialog.py`, `writer_importer.py`, `cell_registry.py`), [`tests/notebook/`](../tests/notebook/) |
+| **Notebook document model (Phase 0)** | Registry in UserDefinedProperties; `notebook:…` session id; **WriterAgent → Reset Python Session** on imported notebooks |
 
 ### Not shipped / deferred
 
-- Export to `.ipynb`, shared kernel with venv worker, Run on imported cells, full HTML/CommonMark markdown rendering, nbformat v3 upgrade, JSON schema validation (`fastjsonschema`), batched background image decode.
+- Export to `.ipynb`, Run on imported cells (execute in `notebook:…` kernel), full HTML/CommonMark markdown rendering, nbformat v3 upgrade, JSON schema validation (`fastjsonschema`), batched background image decode.

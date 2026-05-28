@@ -90,6 +90,20 @@
               <value>_self</value>
             </prop>
           </node>
+          <node oor:name="M3d_py_init" oor:op="replace">
+            <prop oor:name="Title">
+              <value xml:lang="en-US">Edit Initialization Script...</value>
+            </prop>
+            <prop oor:name="URL">
+              <value>org.extension.writeragent:scripting.edit_calc_init_script</value>
+            </prop>
+            <prop oor:name="Context" oor:type="xs:string">
+              <value>com.sun.star.sheet.SpreadsheetDocument</value>
+            </prop>
+            <prop oor:name="Target" oor:type="xs:string">
+              <value>_self</value>
+            </prop>
+          </node>
           <node oor:name="M3d_py_reset" oor:op="replace">
             <prop oor:name="Title">
               <value xml:lang="en-US">Reset Python Session</value>

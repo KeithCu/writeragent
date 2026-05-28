@@ -31,8 +31,18 @@ def _execute_request(
     data: Any | None,
     *,
     session_id: str | None = None,
+    init_script: str | None = None,
+    init_session_id: str | None = None,
+    init_script_hash: str | None = None,
 ) -> dict[str, Any]:
-    return run_sandboxed_code(code, data=data, session_id=session_id)
+    return run_sandboxed_code(
+        code,
+        data=data,
+        session_id=session_id,
+        init_script=init_script,
+        init_session_id=init_session_id,
+        init_script_hash=init_script_hash,
+    )
 
 
 def _handle_request(request: dict[str, Any]) -> dict[str, Any]:
@@ -48,7 +58,17 @@ def _handle_request(request: dict[str, Any]) -> dict[str, Any]:
         return {"status": "error", "message": "No code provided."}
     session_id = request.get("session_id")
     sid = session_id if isinstance(session_id, str) and session_id.strip() else None
-    return _execute_request(code, request.get("data"), session_id=sid)
+    init_script = request.get("init_script")
+    init_session_id = request.get("init_session_id")
+    init_hash = request.get("init_script_hash")
+    return _execute_request(
+        code,
+        request.get("data"),
+        session_id=sid,
+        init_script=init_script if isinstance(init_script, str) else None,
+        init_session_id=init_session_id if isinstance(init_session_id, str) else None,
+        init_script_hash=init_hash if isinstance(init_hash, str) else None,
+    )
 
 
 # Back-compat for tests: from plugin.scripting.worker_harness import _serialize

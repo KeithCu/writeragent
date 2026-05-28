@@ -308,6 +308,9 @@ class PythonWorkerManager:
         timeout_sec: int | None = None,
         session_id: str | None = None,
         action: str | None = None,
+        init_script: str | None = None,
+        init_session_id: str | None = None,
+        init_script_hash: str | None = None,
     ) -> dict[str, Any]:
         """Run *code* in the warm worker, or handle *action* (e.g. reset_session).
 
@@ -327,6 +330,12 @@ class PythonWorkerManager:
                 request["data"] = data
             if session_id:
                 request["session_id"] = session_id
+            if init_script:
+                request["init_script"] = init_script
+            if init_session_id:
+                request["init_session_id"] = init_session_id
+            if init_script_hash:
+                request["init_script_hash"] = init_script_hash
 
         payload = pickle.dumps(request, protocol=5)
         header = struct.pack("!I", len(payload))
@@ -549,6 +558,9 @@ def run_code_in_user_venv(
     data: Any = None,
     timeout_sec: int | None = None,
     session_id: str | None = None,
+    init_script: str | None = None,
+    init_session_id: str | None = None,
+    init_script_hash: str | None = None,
     active_domain: str | None = None,
     python_tool_domain: str | None = None,
 ) -> Dict[str, Any]:
@@ -571,7 +583,15 @@ def run_code_in_user_venv(
     configured = configured_python_exec_timeout(uno_ctx)
     timeout_sec = resolve_python_exec_timeout(timeout_sec, configured=configured)
 
-    return manager.execute(code, data=data, timeout_sec=timeout_sec, session_id=session_id)
+    return manager.execute(
+        code,
+        data=data,
+        timeout_sec=timeout_sec,
+        session_id=session_id,
+        init_script=init_script,
+        init_session_id=init_session_id,
+        init_script_hash=init_script_hash,
+    )
 
 
 def reset_python_session(uno_ctx: Any, session_id: str, *, timeout_sec: int | None = None) -> Dict[str, Any]:

@@ -27,6 +27,9 @@ from plugin.framework.errors import format_error_payload
 from plugin.framework.i18n import _
 from plugin.scripting.config_limits import configured_python_max_data_cells
 from plugin.scripting.payload_codec import is_image_payload, is_split_grid
+# Optional: reset worker init/cell sessions on workbook close (see python_workbook_lifecycle.py).
+# from plugin.calc.python_workbook_lifecycle import ensure_calc_workbook_unload_resets_python
+from plugin.scripting.init_scripts import build_python_eval_init_kwargs, get_calc_document_from_ctx
 from plugin.scripting.session_manager import workbook_session_id
 from plugin.scripting.venv_worker import run_code_in_user_venv
 
@@ -278,7 +281,18 @@ def execute_python_addin(
             res = {"status": "ok", "result": cached.raw}
         else:
             session_id = workbook_session_id(ctx)
-            res = run_code_in_user_venv(ctx, code, data=worker_data, session_id=session_id)
+            init_kwargs: dict[str, Any] = {}
+            doc = get_calc_document_from_ctx(ctx)
+            if doc is not None:
+                # ensure_calc_workbook_unload_resets_python(ctx, doc)
+                init_kwargs = build_python_eval_init_kwargs(doc, session_id=session_id)
+            res = run_code_in_user_venv(
+                ctx,
+                code,
+                data=worker_data,
+                session_id=session_id,
+                **init_kwargs,
+            )
         log.debug("PYTHON res from worker: %r", res)
         if res.get("status") == "ok":
             result = res.get("result")

@@ -84,6 +84,20 @@ VENV_AUTHORIZED_IMPORTS: tuple[str, ...] = (
 _SESSION_EXECUTORS: dict[str, LocalPythonExecutor] = {}
 _SESSION_LOCK = threading.Lock()
 
+# Init scripts run once in calc:{workbook}:init; isolated cells seed from that snapshot.
+_INIT_SCRIPT_HASH: dict[str, str] = {}
+_CELL_SESSION_INIT_DIGEST: dict[str, str] = {}
+_INIT_STATE_SKIP_KEYS = frozenset(
+    {
+        "__name__",
+        "_print_outputs",
+        "_operations_count",
+        "result",
+        "data",
+        "data_list",
+    }
+)
+
 
 def is_module_imported(code_str: str, module_name: str) -> bool:
     """Check if ``module_name`` is imported in any form in ``code_str``."""
@@ -196,12 +210,49 @@ def _get_or_create_session_executor(session_id: str, timeout_sec: int) -> LocalP
         return executor
 
 
+def _related_init_session_id(session_id: str) -> str | None:
+    """Return ``calc:…:init`` companion for a ``calc:…`` workbook session, if applicable."""
+    if session_id.startswith("calc:") and not session_id.endswith(":init"):
+        return f"{session_id}:init"
+    return None
+
+
+def _cell_session_for_init(init_session_id: str) -> str | None:
+    if init_session_id.endswith(":init"):
+        return init_session_id[: -len(":init")]
+    return None
+
+
+def _clear_init_session_unlocked(init_session_id: str) -> None:
+    cell_sid = _cell_session_for_init(init_session_id)
+    _SESSION_EXECUTORS.pop(init_session_id, None)
+    _INIT_SCRIPT_HASH.pop(init_session_id, None)
+    if cell_sid:
+        _SESSION_EXECUTORS.pop(cell_sid, None)
+        _CELL_SESSION_INIT_DIGEST.pop(cell_sid, None)
+
+
+def _invalidate_init_session(init_session_id: str) -> None:
+    with _SESSION_LOCK:
+        _clear_init_session_unlocked(init_session_id)
+
+
 def reset_sandbox_session(session_id: str) -> dict[str, Any]:
-    """Drop the persistent executor for *session_id* (idempotent)."""
+    """Drop the persistent executor for *session_id* (idempotent).
+
+    Also clears the workbook's ``:init`` session when resetting a ``calc:…`` cell session.
+    """
     if not (session_id or "").strip():
         return {"status": "error", "message": "No session_id provided."}
     with _SESSION_LOCK:
         _SESSION_EXECUTORS.pop(session_id, None)
+        init_sid = _related_init_session_id(session_id)
+        if init_sid:
+            _SESSION_EXECUTORS.pop(init_sid, None)
+            _INIT_SCRIPT_HASH.pop(init_sid, None)
+        if session_id.endswith(":init"):
+            _INIT_SCRIPT_HASH.pop(session_id, None)
+        _CELL_SESSION_INIT_DIGEST.pop(session_id, None)
     return {"status": "ok"}
 
 
@@ -209,6 +260,61 @@ def clear_all_sandbox_sessions() -> None:
     """Clear every cached session executor (tests)."""
     with _SESSION_LOCK:
         _SESSION_EXECUTORS.clear()
+        _INIT_SCRIPT_HASH.clear()
+        _CELL_SESSION_INIT_DIGEST.clear()
+
+
+def _snapshot_init_bindings(init_session_id: str) -> dict[str, Any]:
+    """Copy user-visible names from the init executor (references, not deep copies)."""
+    with _SESSION_LOCK:
+        executor = _SESSION_EXECUTORS.get(init_session_id)
+    if executor is None:
+        return {}
+    return {
+        key: value
+        for key, value in executor.state.items()
+        if key not in _INIT_STATE_SKIP_KEYS and not (isinstance(key, str) and key.startswith("_"))
+    }
+
+
+def _seed_executor_from_init(executor: LocalPythonExecutor, init_session_id: str) -> None:
+    bindings = _snapshot_init_bindings(init_session_id)
+    if bindings:
+        executor.send_variables(bindings)
+
+
+def _ensure_init_executed(
+    init_session_id: str,
+    init_script: str,
+    *,
+    timeout_sec: int,
+    init_script_hash: str | None = None,
+) -> dict[str, Any] | None:
+    """Run *init_script* once in the persistent init session. Returns error dict or None."""
+    script = (init_script or "").strip()
+    if not script:
+        return None
+
+    digest = init_script_hash or ""
+    with _SESSION_LOCK:
+        prior = _INIT_SCRIPT_HASH.get(init_session_id)
+        if prior is not None and prior != digest:
+            _clear_init_session_unlocked(init_session_id)
+        elif prior == digest and init_session_id in _SESSION_EXECUTORS:
+            return None
+
+    init_executor = _get_or_create_session_executor(init_session_id, timeout_sec)
+    init_code, _ = apply_auto_imports(script)
+    result = _run_on_executor(init_executor, init_code)
+    if result.get("status") != "ok":
+        with _SESSION_LOCK:
+            _SESSION_EXECUTORS.pop(init_session_id, None)
+            _INIT_SCRIPT_HASH.pop(init_session_id, None)
+        return result
+
+    with _SESSION_LOCK:
+        _INIT_SCRIPT_HASH[init_session_id] = digest
+    return None
 
 
 def _inject_data(executor: LocalPythonExecutor, data: Any | None) -> None:
@@ -270,11 +376,18 @@ def run_sandboxed_code(
     *,
     timeout_sec: int | None = None,
     session_id: str | None = None,
+    init_script: str | None = None,
+    init_session_id: str | None = None,
+    init_script_hash: str | None = None,
 ) -> dict[str, Any]:
     """Run *code* in LocalPythonExecutor.
 
     Without *session_id*, each call uses a new namespace. With *session_id*, reuse one
     executor per id (shared kernel / workbook session).
+
+    When *init_script* is set, it runs once in *init_session_id* (typically ``calc:…:init``).
+    Isolated cell runs seed a fresh executor from that snapshot; shared kernel seeds the
+    workbook session executor once, then reuses it for cell code.
     """
     if timeout_sec is None:
         timeout_sec = python_exec_timeout_default()
@@ -284,12 +397,33 @@ def run_sandboxed_code(
     if mpl is not None:
         mpl.use("Agg")
 
+    init_sid = init_session_id if isinstance(init_session_id, str) and init_session_id.strip() else None
+    if init_sid and (init_script or "").strip():
+        init_err = _ensure_init_executed(
+            init_sid,
+            init_script or "",
+            timeout_sec=timeout_sec,
+            init_script_hash=init_script_hash,
+        )
+        if init_err is not None:
+            return init_err
+
     code, _ = apply_auto_imports(code)
 
     if session_id:
         executor = _get_or_create_session_executor(session_id, timeout_sec)
+        if init_sid:
+            with _SESSION_LOCK:
+                digest = _INIT_SCRIPT_HASH.get(init_sid)
+                seeded = _CELL_SESSION_INIT_DIGEST.get(session_id)
+            if digest and seeded != digest:
+                _seed_executor_from_init(executor, init_sid)
+                with _SESSION_LOCK:
+                    _CELL_SESSION_INIT_DIGEST[session_id] = digest
     else:
         executor = _new_executor(timeout_sec)
+        if init_sid:
+            _seed_executor_from_init(executor, init_sid)
 
     _inject_data(executor, data)
     return _run_on_executor(executor, code)
