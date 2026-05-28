@@ -153,7 +153,7 @@ def test_build_python_eval_init_kwargs():
     doc = _DocWithUserDefinedProperties(props)
     set_calc_init_script(doc, "import pandas as pd")
     with patch("plugin.scripting.session_manager._workbook_session_key", return_value="doc-1"):
-        kw = build_python_eval_init_kwargs(doc, session_id=None)
+        kw = build_python_eval_init_kwargs(doc)
     assert kw["init_script"] == "import pandas as pd"
     assert kw["init_session_id"] == "calc:doc-1:init"
     assert kw["init_script_hash"]

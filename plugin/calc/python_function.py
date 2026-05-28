@@ -285,7 +285,7 @@ def execute_python_addin(
             doc = get_calc_document_from_ctx(ctx)
             if doc is not None:
                 # ensure_calc_workbook_unload_resets_python(ctx, doc)
-                init_kwargs = build_python_eval_init_kwargs(doc, session_id=session_id)
+                init_kwargs = build_python_eval_init_kwargs(doc)
             res = run_code_in_user_venv(
                 ctx,
                 code,

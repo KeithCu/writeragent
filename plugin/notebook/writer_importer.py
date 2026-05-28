@@ -22,8 +22,10 @@ from com.sun.star.awt import Point, Size
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 
 from plugin.contrib.nbformat import read_ipynb
+from plugin.framework.i18n import _
 from plugin.notebook.cell_registry import (
     NotebookDocState,
+    cell_id_to_hex,
     insert_output_start_bookmark,
     new_code_cell_entry,
     save_notebook_source_path,
@@ -47,6 +49,9 @@ _MAX_FIELD_HEIGHT = 20000
 _STACK_MARGIN_X = 5000
 _STACK_GAP = 400
 _STACK_INITIAL_BOTTOM = 800
+_RUN_BUTTON_SIZE = 600
+# com.sun.star.form.FormButtonType.URL — numeric avoids import when UNO stubs are absent (pytest).
+_FORM_BUTTON_URL = 1
 _PROGRESS_EVERY_N_CELLS = 10
 _SLOW_ADD_MS = 2000
 _MAX_IMPORT_TEXT_CHARS = 50_000
@@ -611,6 +616,47 @@ def _append_section_heading(doc: Any, title: str) -> None:
     _append_body_paragraph(doc, title, _STYLE_SECTION_HEADING, lead_break=True)
 
 
+def _insert_run_button_in_flow(
+    doc: Any,
+    *,
+    cell_id: str,
+    controls_before: int,
+) -> None:
+    """In-flow play control: runs ``notebook.run_cell.{hex}`` via protocol handler."""
+    hex_id = cell_id_to_hex(cell_id)
+    t0 = time.monotonic()
+    model = doc.createInstance("com.sun.star.form.component.CommandButton")
+    if model is None:
+        raise RuntimeError("Failed to create form CommandButton")
+    model.Name = f"nb_run_{hex_id}"
+    model.Label = "\u25b6"
+    if hasattr(model, "HelpText"):
+        model.HelpText = _("Run code cell")
+    model.ButtonType = _FORM_BUTTON_URL
+    model.TargetURL = f"org.extension.writeragent:notebook.run_cell.{hex_id}"
+
+    shape = doc.createInstance("com.sun.star.drawing.ControlShape")
+    if shape is None:
+        raise RuntimeError("Failed to create ControlShape for run button")
+    shape.setSize(Size(_RUN_BUTTON_SIZE, _RUN_BUTTON_SIZE))
+    shape.Control = model
+    shape.setPropertyValue("AnchorType", AS_CHARACTER)
+
+    text = doc.getText()
+    cursor = text.createTextCursor()
+    cursor.gotoEnd(False)
+    t_add = time.monotonic()
+    text.insertTextContent(cursor, shape, False)
+    _log_shape_add(
+        step="run_button",
+        name=model.Name,
+        shapes_before=controls_before,
+        create_ms=_mono_ms(t0),
+        add_ms=_mono_ms(t_add),
+        shape_h=_RUN_BUTTON_SIZE,
+    )
+
+
 def _insert_code_input_in_flow(
     doc: Any,
     *,
@@ -717,6 +763,9 @@ def import_ipynb_to_writer(doc: Any, path: str, ctx: Any | None = None) -> dict[
         registry_state=registry_state,
     )
     if registry_state.code_cells:
+        from plugin.notebook.notebook_runner import init_registry_execution_counter
+
+        init_registry_execution_counter(registry_state)
         save_registry(doc, registry_state)
         save_notebook_source_path(doc, path)
     flush_ui_idle(ctx)
@@ -780,6 +829,10 @@ def _import_cells(
             if registry_state is not None:
                 entry = new_code_cell_entry(idx, ec, field_name)
                 registry_state.code_cells.append(entry)
+            if registry_state is not None and registry_state.code_cells:
+                entry = registry_state.code_cells[-1]
+                _insert_run_button_in_flow(doc, cell_id=entry.cell_id, controls_before=stats["shapes"])
+                stats["shapes"] += 1
             _insert_code_input_in_flow(
                 doc,
                 name=field_name,

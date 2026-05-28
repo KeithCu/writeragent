@@ -32,7 +32,7 @@ from tests.writer.test_document_helpers import (  # noqa: E402
 
 def test_state_json_round_trip():
     cell = new_code_cell_entry(0, 1, "nb_cell_0_code")
-    state = NotebookDocState(source_path="/tmp/a.ipynb", code_cells=[cell])
+    state = NotebookDocState(source_path="/tmp/a.ipynb", code_cells=[cell], next_execution_count=2)
     raw = state_to_json(state)
     restored = state_from_json(raw)
     assert restored is not None
@@ -42,6 +42,15 @@ def test_state_json_round_trip():
     assert restored.code_cells[0].code_field_name == "nb_cell_0_code"
     assert restored.code_cells[0].execution_count == 1
     assert restored.code_cells[0].output_start_bookmark.startswith("nb_out_")
+    assert restored.next_execution_count == 2
+
+
+def test_state_from_json_infers_next_execution_count():
+    cell = new_code_cell_entry(0, 3, "nb_cell_0_code")
+    raw = json.dumps({"version": 1, "source_path": "", "code_cells": [cell.to_dict()]})
+    restored = state_from_json(raw)
+    assert restored is not None
+    assert restored.next_execution_count == 4
 
 
 def test_new_code_cell_entry_bookmark_name_matches_id():

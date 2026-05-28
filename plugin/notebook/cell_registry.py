@@ -58,23 +58,55 @@ class NotebookDocState:
     version: int = _REGISTRY_VERSION
     source_path: str = ""
     code_cells: list[NotebookCodeCell] = field(default_factory=list)
+    next_execution_count: int = 1
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "version": self.version,
             "source_path": self.source_path,
             "code_cells": [c.to_dict() for c in self.code_cells],
+            "next_execution_count": self.next_execution_count,
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> NotebookDocState:
         cells_raw = data.get("code_cells") or []
         cells = [NotebookCodeCell.from_dict(c) for c in cells_raw if isinstance(c, dict)]
+        next_ec = data.get("next_execution_count")
+        if next_ec is None:
+            max_ec = 0
+            for cell in cells:
+                if cell.execution_count is not None:
+                    max_ec = max(max_ec, int(cell.execution_count))
+            next_ec = max_ec + 1 if max_ec else 1
         return cls(
             version=int(data.get("version") or _REGISTRY_VERSION),
             source_path=str(data.get("source_path") or ""),
             code_cells=cells,
+            next_execution_count=int(next_ec),
         )
+
+
+def cell_id_to_hex(cell_id: str) -> str:
+    return cell_id.replace("-", "")
+
+
+def cell_id_from_hex(hex_id: str) -> str | None:
+    """Restore UUID from registry hex (32 chars) or return None if invalid."""
+    h = (hex_id or "").strip().lower()
+    if len(h) != 32 or any(c not in "0123456789abcdef" for c in h):
+        return None
+    return f"{h[0:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:32]}"
+
+
+def find_cell_by_hex(state: NotebookDocState, hex_id: str) -> NotebookCodeCell | None:
+    uuid_form = cell_id_from_hex(hex_id)
+    if uuid_form is None:
+        return None
+    for cell in state.code_cells:
+        if cell.cell_id == uuid_form or cell_id_to_hex(cell.cell_id) == hex_id.strip().lower():
+            return cell
+    return None
 
 
 def _bookmark_name_for_cell_id(cell_id: str) -> str:

@@ -15,11 +15,74 @@ from plugin.chatbot.dialogs import msgbox
 from plugin.framework.i18n import _
 from plugin.framework.worker_pool import run_in_background
 from plugin.scripting.editor_host import launch_monaco_editor, monaco_editor_available
-from plugin.scripting.init_scripts import get_calc_document_from_ctx, get_calc_init_script, set_calc_init_script
-from plugin.scripting.session_manager import calc_workbook_base_session_id
-from plugin.scripting.venv_worker import reset_python_session, warm_venv_worker
+from plugin.scripting.init_scripts import (
+    calc_init_session_id,
+    get_calc_document_from_ctx,
+    get_calc_init_script,
+    init_script_hash,
+    set_calc_init_script,
+)
+from plugin.scripting.session_manager import calc_workbook_base_session_id, workbook_session_id
+from plugin.scripting.venv_worker import reset_python_session, run_code_in_user_venv, warm_venv_worker
 
 log = logging.getLogger("writeragent.scripting")
+
+
+def _persist_init_script(ctx: Any, doc: Any, code: str) -> str | None:
+    """Write UD prop and clear worker sessions. Returns user-visible error text or None."""
+    err = set_calc_init_script(doc, code)
+    if err:
+        return err
+    reset_python_session(ctx, calc_workbook_base_session_id(doc))
+    return None
+
+
+def handle_init_script_editor_action(
+    ctx: Any,
+    doc: Any,
+    code: str,
+    *,
+    action: str,
+) -> dict[str, Any]:
+    """Handle Save or Run from the init script Monaco editor."""
+    save_ok_text = _(
+        "Initialization script saved. It will run automatically on the next =PYTHON() recalc."
+    )
+    run_ok_text = _("Initialization script ran successfully.")
+
+    err = _persist_init_script(ctx, doc, code)
+    if err:
+        return {"type": "error", "message": err}
+
+    if action == "save":
+        return {"type": "saved", "ok": True, "status_ok_text": save_ok_text}
+
+    init_code = (code or "").strip()
+    if not init_code:
+        return {
+            "type": "saved",
+            "ok": True,
+            "status_ok_text": _("Initialization script cleared."),
+        }
+
+    res = run_code_in_user_venv(
+        ctx,
+        "result = None",
+        session_id=workbook_session_id(ctx),
+        init_script=init_code,
+        init_session_id=calc_init_session_id(doc),
+        init_script_hash=init_script_hash(init_code),
+    )
+    if res.get("status") != "ok":
+        return {
+            "type": "error",
+            "message": res.get("message") or _("Initialization script failed."),
+        }
+    stdout = (res.get("stdout") or "").strip()
+    status = run_ok_text
+    if stdout:
+        status = f"{status}\n{stdout}"
+    return {"type": "saved", "ok": True, "status_ok_text": status}
 
 
 def open_calc_init_script_editor(ctx: Any) -> None:
@@ -47,17 +110,18 @@ def open_calc_init_script_editor(ctx: Any) -> None:
         )
         return
 
-    save_ok_text = _("Initialization script saved.")
+    save_ok_text = _(
+        "Initialization script saved. It will run automatically on the next =PYTHON() recalc."
+    )
+    run_ok_text = _("Initialization script ran successfully.")
 
-    def on_save(code: str, _save_as_plain: bool, _data_binding: str | None = None, action: str = "save") -> dict[str, Any]:
-        if action != "save":
-            return {"type": "saved", "ok": True, "status_ok_text": save_ok_text}
-        err = set_calc_init_script(doc, code)
-        if err:
-            return {"type": "error", "message": err}
-        # Drop init + shared cell sessions so the new script runs on next =PYTHON().
-        reset_python_session(ctx, calc_workbook_base_session_id(doc))
-        return {"type": "saved", "ok": True, "status_ok_text": save_ok_text}
+    def on_save(
+        code: str,
+        _save_as_plain: bool,
+        _data_binding: str | None = None,
+        action: str = "run",
+    ) -> dict[str, Any]:
+        return handle_init_script_editor_action(ctx, doc, code, action=action)
 
     load_msg: dict[str, Any] = {
         "type": "load",
@@ -65,12 +129,12 @@ def open_calc_init_script_editor(ctx: Any) -> None:
         "language": "python",
         "code": initial_code,
         "title": _("Workbook Initialization Script"),
-        "run_label": _("Save"),
+        "run_label": _("Run"),
         "save_label": _("Save"),
         "close_label": _("Close"),
         "show_plain_text": False,
         "show_data_binding": False,
-        "status_ok_text": save_ok_text,
+        "status_ok_text": run_ok_text,
         "saved_ok_text": save_ok_text,
     }
 

@@ -13,7 +13,7 @@ from typing import Any
 from plugin.doc.document_helpers import get_document_property, is_calc, set_document_property
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_desktop
-from plugin.scripting.session_manager import calc_init_session_id, calc_workbook_base_session_id
+from plugin.scripting.session_manager import calc_init_session_id
 
 log = logging.getLogger(__name__)
 
@@ -55,12 +55,8 @@ def init_script_hash(code: str) -> str:
     return hashlib.sha256(code.encode("utf-8")).hexdigest()
 
 
-def build_python_eval_init_kwargs(
-    doc: Any,
-    *,
-    session_id: str | None,
-) -> dict[str, Any]:
-    """Worker kwargs for init execution before a ``=PYTHON()`` cell runs."""
+def build_python_eval_init_kwargs(doc: Any) -> dict[str, Any]:
+    """Kwargs for ``run_code_in_user_venv`` init execution (pass with separate ``session_id=``)."""
     init_code = (get_calc_init_script(doc) or "").strip()
     if not init_code:
         return {}
@@ -68,5 +64,4 @@ def build_python_eval_init_kwargs(
         "init_script": init_code,
         "init_session_id": calc_init_session_id(doc),
         "init_script_hash": init_script_hash(init_code),
-        "cell_session_id": session_id,
     }

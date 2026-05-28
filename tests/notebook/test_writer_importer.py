@@ -316,8 +316,8 @@ def test_import_ipynb_code_cells_use_insert_text_content(tmp_path, monkeypatch):
 
     assert stats["cells"] == 4
     assert stats["code"] == 2
-    assert stats["shapes"] == 2
-    assert body_text.insertTextContent.call_count == 2
+    assert stats["shapes"] == 4
+    assert body_text.insertTextContent.call_count == 4
     inserted = [call.args[1] for call in body_text.insertString.call_args_list]
     assert "[In [1]]\tCell 2: Code" in inserted
     assert "[In [2]]\tCell 4: Code" in inserted
@@ -395,8 +395,8 @@ def test_import_ipynb_inserts_image_output(tmp_path, monkeypatch):
 
     assert stats["code"] == 1
     assert stats["images"] == 1
-    assert stats["shapes"] == 1
-    assert len(insert_calls) == 1  # code field only; image via insert_image_at_locator
+    assert stats["shapes"] == 2
+    assert len(insert_calls) == 2  # run button + code field; image via insert_image_at_locator
 
 
 def test_import_code_cell_without_outputs_still_adds_output_heading(tmp_path, monkeypatch):

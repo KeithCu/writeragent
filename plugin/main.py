@@ -409,9 +409,18 @@ def _run_test_suite(test_func, doc_checker, test_name):
         msgbox(ctx, test_name, _("Tests failed to run: {0}").format(str(e)))
 
 
+_NOTEBOOK_RUN_CELL_PREFIX = "notebook.run_cell."
+
+
 def _dispatch_command(command):
     """Dispatch command using handler registry, falling back to module actions."""
     bootstrap()
+    if command.startswith(_NOTEBOOK_RUN_CELL_PREFIX):
+        from plugin.framework.uno_context import get_ctx
+        from plugin.notebook.notebook_runner import run_cell_by_hex
+
+        run_cell_by_hex(get_ctx(), command[len(_NOTEBOOK_RUN_CELL_PREFIX) :])
+        return
     # First try the action registry
     handler = _ACTION_HANDLERS.get(command)
     if handler:
