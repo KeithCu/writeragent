@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-28 16:02-0400\n"
+"POT-Creation-Date: 2026-05-28 22:51-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Hindi <LL@li.org>\n"
@@ -898,6 +898,91 @@ msgstr "ऊँचाई:"
 msgid "Width:"
 msgstr "चौड़ाई:"
 
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Document scripts are too large to store in the document ({0} bytes)."
+msgstr ""
+"दस्तावेज़ स्क्रिप्ट दस्तावेज़ में संग्रहीत करने के लिए बहुत बड़ी हैं ({0} "
+"बाइट्स)।"
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+#: plugin/scripting/python_runner.py
+msgid "No document is open to save scripts."
+msgstr "स्क्रिप्ट सहेजने के लिए कोई दस्तावेज़ खुला नहीं है।"
+
+#: plugin/scripting/document_scripts.py
+msgid ""
+"Document is read-only or properties cannot be written. Script saved to your "
+"personal library instead."
+msgstr ""
+"दस्तावेज़ 'रीड-ओनली' है या गुणों को लिखा नहीं जा सकता। इसके बजाय स्क्रिप्ट "
+"को आपकी व्यक्तिगत लाइब्रेरी में सहेजा गया।"
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+msgid "Script name cannot be empty."
+msgstr "स्क्रिप्ट का नाम खाली नहीं हो सकता।"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document."
+msgstr "इस दस्तावेज़ में '{0}' नाम की एक स्क्रिप्ट पहले से मौजूद है।"
+
+#: plugin/scripting/document_scripts.py
+msgid "My Scripts"
+msgstr "मेरी स्क्रिप्ट्स"
+
+#: plugin/scripting/document_scripts.py
+msgid "This Document"
+msgstr "यह दस्तावेज़"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts."
+msgstr "स्क्रिप्ट '{0}' को 'मेरी स्क्रिप्ट्स' में सहेजा गया।"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to this document."
+msgstr "स्क्रिप्ट '{0}' को इस दस्तावेज़ में सहेजा गया।"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}'."
+msgstr "स्क्रिप्ट '{0}' सहेजी गई।"
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open to attach scripts."
+msgstr "स्क्रिप्ट संलग्न करने के लिए कोई दस्तावेज़ खुला नहीं है।"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Attached script '{0}' to this document."
+msgstr "इस दस्तावेज़ में '{0}' स्क्रिप्ट संलग्न की गई।"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in My Scripts."
+msgstr "My Scripts में '{0}' नाम की एक स्क्रिप्ट पहले से मौजूद है।"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Copied script '{0}' to My Scripts."
+msgstr "'{0}' स्क्रिप्ट को My Scripts में कॉपी किया गया।"
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open."
+msgstr "कोई दस्तावेज़ खुला नहीं है।"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted document script '{0}'."
+msgstr "दस्तावेज़ स्क्रिप्ट '{0}' को हटा दिया गया।"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted script '{0}'."
+msgstr "स्क्रिप्ट '{0}' को हटा दिया गया।"
+
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
 msgstr "पायथन एडिटर शुरू नहीं किया जा सका।"
@@ -1000,6 +1085,10 @@ msgid "Script:"
 msgstr "स्क्रिप्ट:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach"
+msgstr "संलग्न करें"
+
+#: plugin/scripting/python_runner.py
 msgid "Save As..."
 msgstr "इस रूप में सहेजें..."
 
@@ -1017,6 +1106,16 @@ msgstr ""
 
 #: plugin/scripting/python_runner.py
 #, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s इसके बजाय My Scripts में सहेजा गया।"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "स्क्रिप्ट '%s' को इस दस्तावेज़ में सहेजा गया।"
+
+#: plugin/scripting/python_runner.py
+#, python-format
 msgid "Script '%s' saved successfully."
 msgstr "स्क्रिप्ट '%s' सफलतापूर्वक सहेजी गई।"
 
@@ -1029,8 +1128,33 @@ msgid "Enter script name:"
 msgstr "स्क्रिप्ट का नाम दर्ज करें:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach to Document"
+msgstr "दस्तावेज़ से संलग्न करें"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr ""
+"इस दस्तावेज़ में '{0}' नाम की एक स्क्रिप्ट पहले से मौजूद है। क्या आप इसे "
+"अधिलेखित (overwrite) करना चाहते हैं?"
+
+#: plugin/scripting/python_runner.py
+msgid "Attach Script"
+msgstr "स्क्रिप्ट संलग्न करें"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' attached to this document."
+msgstr "स्क्रिप्ट '%s' इस दस्तावेज़ से संलग्न की गई।"
+
+#: plugin/scripting/python_runner.py
 msgid "Save Script"
 msgstr "स्क्रिप्ट सहेजें"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "क्या '{0}' स्क्रिप्ट को इस दस्तावेज़ में सहेजें?"
 
 #: plugin/scripting/python_runner.py
 msgid "Are you sure you want to clear the Sample scratchpad?"
@@ -1091,10 +1215,6 @@ msgid "Script executed successfully."
 msgstr "स्क्रिप्ट सफलतापूर्वक निष्पादित हुई।"
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved."
-msgstr "स्क्रिप्ट सहेजी गई।"
-
-#: plugin/scripting/python_runner.py
 msgid "Execution Error"
 msgstr "निष्पादन त्रुटि"
 
@@ -1105,6 +1225,10 @@ msgstr "सफलता"
 #: plugin/scripting/python_runner.py
 msgid "Output"
 msgstr "आउटपुट"
+
+#: plugin/scripting/python_runner.py
+msgid "Script saved."
+msgstr "स्क्रिप्ट सहेजी गई।"
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -1519,13 +1643,26 @@ msgstr "वेब कैश वैधता (दिन)"
 msgid "How many days cache entries should be considered valid."
 msgstr "कैश प्रविष्टियों को कितने दिनों तक वैध माना जाना चाहिए।"
 
-msgid "Rich Text Chat Sidebar"
-msgstr "रिच टेक्स्ट चैट साइडबार"
+msgid "Rich Text Chat Sidebar (embedded Writer)"
+msgstr "रिच टेक्स्ट चैट साइडबार (एम्बेडेड Writer)"
 
-msgid "Use embedded Writer document for chat display (requires restart)"
+msgid ""
+"Experimental: embeds a Writer frame in the sidebar (requires restart). If "
+"both rich-text options are enabled, this wins over Rich Text Control."
 msgstr ""
-"चैट प्रदर्शन के लिए एम्बेडेड Writer दस्तावेज़ का उपयोग करें (पुनः प्रारंभ "
-"आवश्यक है)"
+"प्रायोगिक: साइडबार में एक Writer फ्रेम एम्बेड करता है (पुनः आरंभ आवश्यक है)।"
+" यदि दोनों रिच-टेक्स्ट विकल्प सक्षम हैं, तो यह रिच टेक्स्ट कंट्रोल पर "
+"प्राथमिकता लेगा।"
+
+msgid "Rich Text Control Sidebar"
+msgstr "रिच टेक्स्ट कंट्रोल साइडबार"
+
+msgid ""
+"Formatted chat via RichTextControl (on by default). Requires restart. "
+"Uncheck for plain-text chat only."
+msgstr ""
+"RichTextControl के माध्यम से स्वरूपित चैट (डिफ़ॉल्ट रूप से चालू)। पुनः आरंभ "
+"आवश्यक है। केवल सादे टेक्स्ट चैट के लिए इसे अनचेक करें।"
 
 msgid "Doc"
 msgstr "दस्तावेज़"
@@ -1691,6 +1828,17 @@ msgid ""
 msgstr ""
 "यदि चेक किया गया है, तो यह मोनाको स्क्रिप्ट संपादक को बायपास करता है और "
 "लिब्रे ऑफिस संवाद का उपयोग करता है।"
+
+msgid "Modeless Run Python Script dialog"
+msgstr "मॉडललेस रन पायथन स्क्रिप्ट संवाद"
+
+msgid ""
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
+msgstr ""
+"जब चुना जाता है, तो सादा-टेक्स्ट रन पायथन स्क्रिप्ट संवाद तैरता रहता है ताकि"
+" आप दस्तावेज़ के खुले रहने के दौरान उसे संपादित कर सकें। क्लासिक मोडल संवाद "
+"के लिए इसे अनचेक करें।"
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer दस्तावेज़ उपकरण (नेविगेशन और खोज सहित)"

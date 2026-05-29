@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-28 16:02-0400\n"
+"POT-Creation-Date: 2026-05-28 22:51-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Norwegian Nynorsk <LL@li.org>\n"
@@ -893,6 +893,89 @@ msgstr "Høgd:"
 msgid "Width:"
 msgstr "Breidd:"
 
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Document scripts are too large to store in the document ({0} bytes)."
+msgstr "Dokumentskript er for store til å lagrast i dokumentet ({0} byte)."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+#: plugin/scripting/python_runner.py
+msgid "No document is open to save scripts."
+msgstr "Ingen dokument er opne for å lagre skript."
+
+#: plugin/scripting/document_scripts.py
+msgid ""
+"Document is read-only or properties cannot be written. Script saved to your "
+"personal library instead."
+msgstr ""
+"Dokumentet er skrivebeskytta eller eigenskapar kan ikkje skrivast. Skriptet "
+"vart lagra i det personlege biblioteket ditt i staden."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+msgid "Script name cannot be empty."
+msgstr "Skriptnamnet kan ikkje vere tomt."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document."
+msgstr "Eit skript med namnet «{0}» finst allereie i dette dokumentet."
+
+#: plugin/scripting/document_scripts.py
+msgid "My Scripts"
+msgstr "Mine skript"
+
+#: plugin/scripting/document_scripts.py
+msgid "This Document"
+msgstr "Dette dokumentet"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts."
+msgstr "Lagra skriptet «{0}» i Mine skript."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to this document."
+msgstr "Lagra skriptet «{0}» i dette dokumentet."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}'."
+msgstr "Lagra skriptet «{0}»."
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open to attach scripts."
+msgstr "Ingen dokument er opne for å leggje til skript."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Attached script '{0}' to this document."
+msgstr "La til skriptet «{0}» i dette dokumentet."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in My Scripts."
+msgstr "Eit skript med namnet «{0}» finst allereie i Mine skript."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Copied script '{0}' to My Scripts."
+msgstr "Kopierte skriptet «{0}» til Mine skript."
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open."
+msgstr "Ingen dokument er opne."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted document script '{0}'."
+msgstr "Sletta dokumentskriptet «{0}»."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted script '{0}'."
+msgstr "Sletta skriptet «{0}»."
+
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
 msgstr "Kunne ikkje starta Python-redigeringsprogrammet."
@@ -994,6 +1077,10 @@ msgid "Script:"
 msgstr "Skript:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach"
+msgstr "Legg til"
+
+#: plugin/scripting/python_runner.py
 msgid "Save As..."
 msgstr "Lagre som…"
 
@@ -1011,6 +1098,16 @@ msgstr ""
 
 #: plugin/scripting/python_runner.py
 #, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s Lagra i Mine skript i staden."
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "Skriptet «%s» er lagra i dette dokumentet."
+
+#: plugin/scripting/python_runner.py
+#, python-format
 msgid "Script '%s' saved successfully."
 msgstr "Skriptet «%s» vart lagra."
 
@@ -1023,8 +1120,33 @@ msgid "Enter script name:"
 msgstr "Skriv inn skriptnamn:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach to Document"
+msgstr "Fest til dokument"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr ""
+"Eit skript med namnet «{0}» finst allereie i dette dokumentet. Vil du skrive"
+" over?"
+
+#: plugin/scripting/python_runner.py
+msgid "Attach Script"
+msgstr "Fest skript"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' attached to this document."
+msgstr "Skriptet «%s» er festa til dette dokumentet."
+
+#: plugin/scripting/python_runner.py
 msgid "Save Script"
 msgstr "Lagre skript"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "Vil du lagre skriptet «{0}» i dette dokumentet?"
 
 #: plugin/scripting/python_runner.py
 msgid "Are you sure you want to clear the Sample scratchpad?"
@@ -1087,10 +1209,6 @@ msgid "Script executed successfully."
 msgstr "Skript køyrt utan feil."
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved."
-msgstr "Skript lagra."
-
-#: plugin/scripting/python_runner.py
 msgid "Execution Error"
 msgstr "Køyringsfeil"
 
@@ -1101,6 +1219,10 @@ msgstr "Vellukka"
 #: plugin/scripting/python_runner.py
 msgid "Output"
 msgstr "Utdata"
+
+#: plugin/scripting/python_runner.py
+msgid "Script saved."
+msgstr "Skript lagra."
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -1513,11 +1635,26 @@ msgstr "Gyldigheit for nettbuffer (dagar)"
 msgid "How many days cache entries should be considered valid."
 msgstr "Kor mange dagar bufferinnslag skal reknast som gyldige."
 
-msgid "Rich Text Chat Sidebar"
-msgstr "Sidepanel for rik tekst-chat"
+msgid "Rich Text Chat Sidebar (embedded Writer)"
+msgstr "Sidepanel for rik tekst-chat (innebygd Writer)"
 
-msgid "Use embedded Writer document for chat display (requires restart)"
-msgstr "Bruk innebygd Writer-dokument for chat-vising (krev omstart)"
+msgid ""
+"Experimental: embeds a Writer frame in the sidebar (requires restart). If "
+"both rich-text options are enabled, this wins over Rich Text Control."
+msgstr ""
+"Eksperimentelt: byggjer inn ei Writer-ramme i sidepanelet (krev omstart). "
+"Dersom begge alternativ for rik tekst er aktiverte, vil dette vinne over "
+"kontrollen for rik tekst."
+
+msgid "Rich Text Control Sidebar"
+msgstr "Sidepanel for kontroll av rik tekst"
+
+msgid ""
+"Formatted chat via RichTextControl (on by default). Requires restart. "
+"Uncheck for plain-text chat only."
+msgstr ""
+"Formatert chat via RichTextControl (på som standard). Krev omstart. Fjern "
+"merkinga for berre rein tekst-chat."
 
 msgid "Doc"
 msgstr "Dokument"
@@ -1683,6 +1820,17 @@ msgid ""
 msgstr ""
 "Dersom avkryssa, vert Monaco-skriptredigeringa forbigått og LibreOffice-"
 "dialogen vert brukt i staden."
+
+msgid "Modeless Run Python Script dialog"
+msgstr "Moduslaus dialog for køyring av Python-skript"
+
+msgid ""
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
+msgstr ""
+"Når denne er merka av, vil dialogboksen «Køyr Python-skript» flyta slik at "
+"du kan redigera dokumentet medan han er open. Fjern merkinga for den "
+"klassiske modale dialogboksen."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Verktøy for Writer-dokument (inkludert navigasjon og søk)"

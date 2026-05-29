@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-28 16:02-0400\n"
+"POT-Creation-Date: 2026-05-28 22:51-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Japanese <LL@li.org>\n"
@@ -845,6 +845,87 @@ msgstr "高さ:"
 msgid "Width:"
 msgstr "幅:"
 
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Document scripts are too large to store in the document ({0} bytes)."
+msgstr "ドキュメントスクリプトが大きすぎてドキュメントに保存できません ({0} バイト)。"
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+#: plugin/scripting/python_runner.py
+msgid "No document is open to save scripts."
+msgstr "スクリプトを保存するためのドキュメントが開かれていません。"
+
+#: plugin/scripting/document_scripts.py
+msgid ""
+"Document is read-only or properties cannot be written. Script saved to your "
+"personal library instead."
+msgstr "ドキュメントが読み取り専用か、プロパティを書き込めません。代わりに個人用ライブラリにスクリプトを保存しました。"
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+msgid "Script name cannot be empty."
+msgstr "スクリプト名を空にすることはできません。"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document."
+msgstr "'{0}' という名前のスクリプトは、このドキュメント内に既に存在します。"
+
+#: plugin/scripting/document_scripts.py
+msgid "My Scripts"
+msgstr "マイ スクリプト"
+
+#: plugin/scripting/document_scripts.py
+msgid "This Document"
+msgstr "このドキュメント"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts."
+msgstr "スクリプト '{0}' を「マイ スクリプト」に保存しました。"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to this document."
+msgstr "スクリプト '{0}' をこのドキュメントに保存しました。"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}'."
+msgstr "スクリプト '{0}' を保存しました。"
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open to attach scripts."
+msgstr "スクリプトを添付するためのドキュメントが開かれていません。"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Attached script '{0}' to this document."
+msgstr "このドキュメントにスクリプト '{0}' を添付しました。"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in My Scripts."
+msgstr "'{0}' という名前のスクリプトはすでに「マイ スクリプト」に存在します。"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Copied script '{0}' to My Scripts."
+msgstr "スクリプト '{0}' を「マイ スクリプト」にコピーしました。"
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open."
+msgstr "ドキュメントが開かれていません。"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted document script '{0}'."
+msgstr "ドキュメントスクリプト '{0}' を削除しました。"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted script '{0}'."
+msgstr "スクリプト '{0}' を削除しました。"
+
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
 msgstr "Pythonエディターを起動できませんでした。"
@@ -934,6 +1015,10 @@ msgid "Script:"
 msgstr "スクリプト:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach"
+msgstr "添付"
+
+#: plugin/scripting/python_runner.py
 msgid "Save As..."
 msgstr "名前を付けて保存..."
 
@@ -951,6 +1036,16 @@ msgstr ""
 
 #: plugin/scripting/python_runner.py
 #, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s 代わりに「マイ スクリプト」に保存されました。"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "スクリプト '%s' をこのドキュメントに保存しました。"
+
+#: plugin/scripting/python_runner.py
+#, python-format
 msgid "Script '%s' saved successfully."
 msgstr "スクリプト '%s' を正常に保存しました。"
 
@@ -963,8 +1058,31 @@ msgid "Enter script name:"
 msgstr "スクリプト名を入力してください:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach to Document"
+msgstr "ドキュメントに添付"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr "'{0}' という名前のスクリプトは既にこのドキュメントに存在します。上書きしますか？"
+
+#: plugin/scripting/python_runner.py
+msgid "Attach Script"
+msgstr "スクリプトを添付"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' attached to this document."
+msgstr "スクリプト '%s' をこのドキュメントに添付しました。"
+
+#: plugin/scripting/python_runner.py
 msgid "Save Script"
 msgstr "スクリプトを保存"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "スクリプト '{0}' をこのドキュメントに保存しますか？"
 
 #: plugin/scripting/python_runner.py
 msgid "Are you sure you want to clear the Sample scratchpad?"
@@ -1023,10 +1141,6 @@ msgid "Script executed successfully."
 msgstr "スクリプトは正常に実行されました。"
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved."
-msgstr "スクリプトが保存されました。"
-
-#: plugin/scripting/python_runner.py
 msgid "Execution Error"
 msgstr "実行エラー"
 
@@ -1037,6 +1151,10 @@ msgstr "成功"
 #: plugin/scripting/python_runner.py
 msgid "Output"
 msgstr "出力"
+
+#: plugin/scripting/python_runner.py
+msgid "Script saved."
+msgstr "スクリプトが保存されました。"
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -1447,11 +1565,25 @@ msgstr "Web キャッシュの有効期間 (日数)"
 msgid "How many days cache entries should be considered valid."
 msgstr "キャッシュエントリが有効と見なされる日数。"
 
-msgid "Rich Text Chat Sidebar"
-msgstr "リッチテキストチャットサイドバー"
+msgid "Rich Text Chat Sidebar (embedded Writer)"
+msgstr "リッチテキストチャットサイドバー (Writer埋め込み)"
 
-msgid "Use embedded Writer document for chat display (requires restart)"
-msgstr "チャット表示に埋め込みWriterドキュメントを使用する (再起動が必要)"
+msgid ""
+"Experimental: embeds a Writer frame in the sidebar (requires restart). If "
+"both rich-text options are enabled, this wins over Rich Text Control."
+msgstr ""
+"実験的機能: サイドバーにWriterフレームを埋め込みます "
+"(再起動が必要)。両方のリッチテキストオプションが有効な場合、こちらがリッチテキストコントロールより優先されます。"
+
+msgid "Rich Text Control Sidebar"
+msgstr "リッチテキストコントロールサイドバー"
+
+msgid ""
+"Formatted chat via RichTextControl (on by default). Requires restart. "
+"Uncheck for plain-text chat only."
+msgstr ""
+"RichTextControlによる書式付きチャット "
+"(デフォルトでオン)。再起動が必要です。プレーンテキストのみのチャットにする場合はチェックを外してください。"
 
 msgid "Doc"
 msgstr "文書"
@@ -1601,6 +1733,15 @@ msgid ""
 "If checked, bypasses the Monaco script editor and uses the LibreOffice "
 "dialog."
 msgstr "チェックを入れると、Monacoスクリプトエディターをバイパスし、LibreOfficeのダイアログを使用します。"
+
+msgid "Modeless Run Python Script dialog"
+msgstr "モードレスのPythonスクリプト実行ダイアログ"
+
+msgid ""
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
+msgstr ""
+"チェックを入れると、プレーンテキストの「Pythonスクリプトの実行」ダイアログがフローティング表示になり、ダイアログを開いたままドキュメントを編集できます。チェックを外すと、従来のモーダルダイアログに戻ります。"
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer ドキュメントツール (ナビゲーションと検索を含む)"

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-28 16:02-0400\n"
+"POT-Creation-Date: 2026-05-28 22:51-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Dutch <LL@li.org>\n"
@@ -895,6 +895,90 @@ msgstr "Hoogte:"
 msgid "Width:"
 msgstr "Breedte:"
 
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Document scripts are too large to store in the document ({0} bytes)."
+msgstr ""
+"Document-scripts zijn te groot om in het document op te slaan ({0} bytes)."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+#: plugin/scripting/python_runner.py
+msgid "No document is open to save scripts."
+msgstr "Er is geen document geopend om scripts op te slaan."
+
+#: plugin/scripting/document_scripts.py
+msgid ""
+"Document is read-only or properties cannot be written. Script saved to your "
+"personal library instead."
+msgstr ""
+"Document is alleen-lezen of eigenschappen kunnen niet worden geschreven. "
+"Script is in plaats daarvan opgeslagen in uw persoonlijke bibliotheek."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+msgid "Script name cannot be empty."
+msgstr "Scriptnaam mag niet leeg zijn."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document."
+msgstr "Een script met de naam '{0}' bestaat al in dit document."
+
+#: plugin/scripting/document_scripts.py
+msgid "My Scripts"
+msgstr "Mijn scripts"
+
+#: plugin/scripting/document_scripts.py
+msgid "This Document"
+msgstr "Dit document"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts."
+msgstr "Script '{0}' opgeslagen in Mijn scripts."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to this document."
+msgstr "Script '{0}' opgeslagen in dit document."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}'."
+msgstr "Script '{0}' opgeslagen."
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open to attach scripts."
+msgstr "Er is geen document geopend om scripts aan te koppelen."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Attached script '{0}' to this document."
+msgstr "Script '{0}' aan dit document gekoppeld."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in My Scripts."
+msgstr "Een script met de naam '{0}' bestaat al in Mijn scripts."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Copied script '{0}' to My Scripts."
+msgstr "Script '{0}' gekopieerd naar Mijn scripts."
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open."
+msgstr "Er is geen document geopend."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted document script '{0}'."
+msgstr "Document-script '{0}' verwijderd."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted script '{0}'."
+msgstr "Script '{0}' verwijderd."
+
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
 msgstr "Kon de Python-editor niet starten."
@@ -996,6 +1080,10 @@ msgid "Script:"
 msgstr "Script:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach"
+msgstr "Koppelen"
+
+#: plugin/scripting/python_runner.py
 msgid "Save As..."
 msgstr "Opslaan als..."
 
@@ -1013,6 +1101,16 @@ msgstr ""
 
 #: plugin/scripting/python_runner.py
 #, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s In plaats daarvan opgeslagen in Mijn scripts."
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "Script '%s' opgeslagen in dit document."
+
+#: plugin/scripting/python_runner.py
+#, python-format
 msgid "Script '%s' saved successfully."
 msgstr "Script '%s' succesvol opgeslagen."
 
@@ -1025,8 +1123,32 @@ msgid "Enter script name:"
 msgstr "Voer scriptnaam in:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach to Document"
+msgstr "Aan document koppelen"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr ""
+"Er bestaat al een script met de naam '{0}' in dit document. Overschrijven?"
+
+#: plugin/scripting/python_runner.py
+msgid "Attach Script"
+msgstr "Script koppelen"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' attached to this document."
+msgstr "Script '%s' gekoppeld aan dit document."
+
+#: plugin/scripting/python_runner.py
 msgid "Save Script"
 msgstr "Script opslaan"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "Script '{0}' opslaan in dit document?"
 
 #: plugin/scripting/python_runner.py
 msgid "Are you sure you want to clear the Sample scratchpad?"
@@ -1089,10 +1211,6 @@ msgid "Script executed successfully."
 msgstr "Script succesvol uitgevoerd."
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved."
-msgstr "Script opgeslagen."
-
-#: plugin/scripting/python_runner.py
 msgid "Execution Error"
 msgstr "Uitvoeringsfout"
 
@@ -1103,6 +1221,10 @@ msgstr "Succes"
 #: plugin/scripting/python_runner.py
 msgid "Output"
 msgstr "Uitvoer"
+
+#: plugin/scripting/python_runner.py
+msgid "Script saved."
+msgstr "Script opgeslagen."
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -1521,12 +1643,26 @@ msgstr "Geldigheid internetcache (dagen)"
 msgid "How many days cache entries should be considered valid."
 msgstr "Hoeveel dagen cache-items als geldig moeten worden beschouwd."
 
-msgid "Rich Text Chat Sidebar"
-msgstr "Rich Text Chat-zijbalk"
+msgid "Rich Text Chat Sidebar (embedded Writer)"
+msgstr "Rich Text Chat-zijbalk (ingesloten Writer)"
 
-msgid "Use embedded Writer document for chat display (requires restart)"
+msgid ""
+"Experimental: embeds a Writer frame in the sidebar (requires restart). If "
+"both rich-text options are enabled, this wins over Rich Text Control."
 msgstr ""
-"Ingebed Writer-document gebruiken voor chatweergave (vereist herstart)"
+"Experimenteel: sluit een Writer-kader in de zijbalk in (vereist herstart). "
+"Als beide rich-text-opties zijn ingeschakeld, krijgt deze voorrang op Rich "
+"Text Control."
+
+msgid "Rich Text Control Sidebar"
+msgstr "Rich Text Control-zijbalk"
+
+msgid ""
+"Formatted chat via RichTextControl (on by default). Requires restart. "
+"Uncheck for plain-text chat only."
+msgstr ""
+"Geformatteerde chat via RichTextControl (standaard ingeschakeld). Vereist "
+"herstart. Schakel uit voor alleen platte-tekstchat."
 
 msgid "Doc"
 msgstr "Doc"
@@ -1694,6 +1830,17 @@ msgid ""
 msgstr ""
 "Indien aangevinkt, wordt de Monaco-script-editor omzeild en het LibreOffice-"
 "dialoogvenster gebruikt."
+
+msgid "Modeless Run Python Script dialog"
+msgstr "Modeless dialoogvenster Python-script uitvoeren"
+
+msgid ""
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
+msgstr ""
+"Indien aangevinkt, blijft het dialoogvenster 'Python-script uitvoeren' "
+"zwevend, zodat u het document kunt bewerken terwijl het geopend is. Schakel "
+"dit uit voor het klassieke modale dialoogvenster."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer-documenttools (inclusief navigatie en zoeken)"

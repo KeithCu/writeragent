@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-28 16:02-0400\n"
+"POT-Creation-Date: 2026-05-28 22:51-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Bengali <LL@li.org>\n"
@@ -897,6 +897,89 @@ msgstr "উচ্চতা:"
 msgid "Width:"
 msgstr "প্রস্থ:"
 
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Document scripts are too large to store in the document ({0} bytes)."
+msgstr "ডকুমেন্ট স্ক্রিপ্টগুলি নথিতে সংরক্ষণ করার জন্য খুব বড় ({0} বাইট)।"
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+#: plugin/scripting/python_runner.py
+msgid "No document is open to save scripts."
+msgstr "স্ক্রিপ্ট সংরক্ষণ করার জন্য কোনো ডকুমেন্ট খোলা নেই।"
+
+#: plugin/scripting/document_scripts.py
+msgid ""
+"Document is read-only or properties cannot be written. Script saved to your "
+"personal library instead."
+msgstr ""
+"ডকুমেন্টটি শুধুমাত্র-পঠনযোগ্য (read-only) অথবা বৈশিষ্ট্যগুলি লেখা সম্ভব নয়।"
+" পরিবর্তে আপনার ব্যক্তিগত লাইব্রেরিতে স্ক্রিপ্টটি সংরক্ষণ করা হয়েছে।"
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+msgid "Script name cannot be empty."
+msgstr "স্ক্রিপ্টের নাম খালি রাখা যাবে না।"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document."
+msgstr "এই ডকুমেন্টে '{0}' নামের একটি স্ক্রিপ্ট ইতিমধ্যেই বিদ্যমান।"
+
+#: plugin/scripting/document_scripts.py
+msgid "My Scripts"
+msgstr "আমার স্ক্রিপ্টসমূহ"
+
+#: plugin/scripting/document_scripts.py
+msgid "This Document"
+msgstr "এই ডকুমেন্ট"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts."
+msgstr "'{0}' স্ক্রিপ্টটি 'আমার স্ক্রিপ্টসমূহ'-এ সংরক্ষণ করা হয়েছে।"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to this document."
+msgstr "'{0}' স্ক্রিপ্টটি এই ডকুমেন্টে সংরক্ষণ করা হয়েছে।"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}'."
+msgstr "'{0}' স্ক্রিপ্টটি সংরক্ষণ করা হয়েছে।"
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open to attach scripts."
+msgstr "স্ক্রিপ্ট সংযুক্ত করার জন্য কোনো নথি খোলা নেই।"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Attached script '{0}' to this document."
+msgstr "এই নথিতে '{0}' স্ক্রিপ্টটি সংযুক্ত করা হয়েছে।"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in My Scripts."
+msgstr "My Scripts-এ '{0}' নামের একটি স্ক্রিপ্ট ইতিমধ্যেই বিদ্যমান।"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Copied script '{0}' to My Scripts."
+msgstr "My Scripts-এ '{0}' স্ক্রিপ্টটি অনুলিপি করা হয়েছে।"
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open."
+msgstr "কোনো নথি খোলা নেই।"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted document script '{0}'."
+msgstr "নথির স্ক্রিপ্ট '{0}' মুছে ফেলা হয়েছে।"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted script '{0}'."
+msgstr "স্ক্রিপ্ট '{0}' মুছে ফেলা হয়েছে।"
+
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
 msgstr "পাইথন এডিটর শুরু করা সম্ভব হয়নি।"
@@ -998,6 +1081,10 @@ msgid "Script:"
 msgstr "স্ক্রিপ্ট:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach"
+msgstr "সংযুক্ত করুন"
+
+#: plugin/scripting/python_runner.py
 msgid "Save As..."
 msgstr "Save As..."
 
@@ -1015,6 +1102,16 @@ msgstr ""
 
 #: plugin/scripting/python_runner.py
 #, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s পরিবর্তে My Scripts-এ সংরক্ষিত হয়েছে।"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "স্ক্রিপ্ট '%s' এই নথিতে সংরক্ষিত হয়েছে।"
+
+#: plugin/scripting/python_runner.py
+#, python-format
 msgid "Script '%s' saved successfully."
 msgstr "'%s' স্ক্রিপ্ট সফলভাবে সংরক্ষিত হয়েছে।"
 
@@ -1027,8 +1124,32 @@ msgid "Enter script name:"
 msgstr "স্ক্রিপ্টের নাম লিখুন:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach to Document"
+msgstr "ডকুমেন্টের সাথে সংযুক্ত করুন"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr ""
+"'{0}' নামের একটি স্ক্রিপ্ট এই ডকুমেন্টে ইতিমধ্যেই বিদ্যমান। ওভাররাইট করবেন?"
+
+#: plugin/scripting/python_runner.py
+msgid "Attach Script"
+msgstr "স্ক্রিপ্ট সংযুক্ত করুন"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' attached to this document."
+msgstr "'%s' স্ক্রিপ্টটি এই ডকুমেন্টের সাথে সংযুক্ত করা হয়েছে।"
+
+#: plugin/scripting/python_runner.py
 msgid "Save Script"
 msgstr "স্ক্রিপ্ট সংরক্ষণ করুন"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "'{0}' স্ক্রিপ্টটি এই ডকুমেন্টে সংরক্ষণ করবেন?"
 
 #: plugin/scripting/python_runner.py
 msgid "Are you sure you want to clear the Sample scratchpad?"
@@ -1088,10 +1209,6 @@ msgid "Script executed successfully."
 msgstr "স্ক্রিপ্ট সফলভাবে কার্যকর হয়েছে।"
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved."
-msgstr "স্ক্রিপ্ট সংরক্ষিত হয়েছে।"
-
-#: plugin/scripting/python_runner.py
 msgid "Execution Error"
 msgstr "এক্সিকিউশন ত্রুটি"
 
@@ -1102,6 +1219,10 @@ msgstr "সফল"
 #: plugin/scripting/python_runner.py
 msgid "Output"
 msgstr "আউটপুট"
+
+#: plugin/scripting/python_runner.py
+msgid "Script saved."
+msgstr "স্ক্রিপ্ট সংরক্ষিত হয়েছে।"
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -1514,13 +1635,26 @@ msgstr "ওয়েব ক্যাশে বৈধতা (দিন)"
 msgid "How many days cache entries should be considered valid."
 msgstr "ক্যাশে এন্ট্রিগুলো কত দিনের জন্য বৈধ বলে গণ্য করা উচিত।"
 
-msgid "Rich Text Chat Sidebar"
-msgstr "রিচ টেক্সট চ্যাট সাইডবার"
+msgid "Rich Text Chat Sidebar (embedded Writer)"
+msgstr "রিচ টেক্সট চ্যাট সাইডবার (এমবেডেড Writer)"
 
-msgid "Use embedded Writer document for chat display (requires restart)"
+msgid ""
+"Experimental: embeds a Writer frame in the sidebar (requires restart). If "
+"both rich-text options are enabled, this wins over Rich Text Control."
 msgstr ""
-"চ্যাট প্রদর্শনের জন্য এমবেডেড রাইটার ডকুমেন্ট ব্যবহার করুন (রিস্টার্ট "
-"প্রয়োজন)"
+"পরীক্ষামূলক: সাইডবারে একটি Writer ফ্রেম এমবেড করে (রিস্টার্ট প্রয়োজন)। যদি "
+"উভয় রিচ-টেক্সট বিকল্প সক্রিয় থাকে, তবে এটি রিচ টেক্সট কন্ট্রোলের চেয়ে "
+"অগ্রাধিকার পাবে।"
+
+msgid "Rich Text Control Sidebar"
+msgstr "রিচ টেক্সট কন্ট্রোল সাইডবার"
+
+msgid ""
+"Formatted chat via RichTextControl (on by default). Requires restart. "
+"Uncheck for plain-text chat only."
+msgstr ""
+"RichTextControl-এর মাধ্যমে ফরম্যাট করা চ্যাট (ডিফল্টরূপে চালু)। রিস্টার্ট "
+"প্রয়োজন। শুধুমাত্র প্লেইন-টেক্সট চ্যাটের জন্য এটি আনচেক করুন।"
 
 msgid "Doc"
 msgstr "ডক"
@@ -1686,6 +1820,17 @@ msgid ""
 msgstr ""
 "যদি চেক করা থাকে, তবে মোনাকো (Monaco) স্ক্রিপ্ট এডিটর এড়িয়ে লিবারঅফিস "
 "(LibreOffice) ডায়ালগ ব্যবহার করা হবে।"
+
+msgid "Modeless Run Python Script dialog"
+msgstr "মডেললেস রান পাইথন স্ক্রিপ্ট ডায়ালগ"
+
+msgid ""
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
+msgstr ""
+"যখন টিক দেওয়া থাকে, তখন প্লেইন-টেক্সট রান পাইথন স্ক্রিপ্ট ডায়ালগটি ভাসমান "
+"অবস্থায় থাকে যাতে আপনি খোলা থাকা অবস্থায় নথিতে সম্পাদনা করতে পারেন। "
+"ক্লাসিক মোডাল ডায়ালগের জন্য টিক চিহ্ন তুলে দিন।"
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer ডকুমেন্ট টুলস (নেভিগেশন এবং অনুসন্ধান সহ)"

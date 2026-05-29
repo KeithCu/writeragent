@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-28 16:02-0400\n"
+"POT-Creation-Date: 2026-05-28 22:51-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Ukrainian <LL@li.org>\n"
@@ -901,6 +901,90 @@ msgstr "Висота:"
 msgid "Width:"
 msgstr "Ширина:"
 
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Document scripts are too large to store in the document ({0} bytes)."
+msgstr ""
+"Скрипти документа занадто великі для збереження в документі ({0} байтів)."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+#: plugin/scripting/python_runner.py
+msgid "No document is open to save scripts."
+msgstr "Немає відкритого документа для збереження скриптів."
+
+#: plugin/scripting/document_scripts.py
+msgid ""
+"Document is read-only or properties cannot be written. Script saved to your "
+"personal library instead."
+msgstr ""
+"Документ доступний лише для читання або властивості не можуть бути записані."
+" Скрипт збережено у вашій особистій бібліотеці."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+msgid "Script name cannot be empty."
+msgstr "Назва скрипта не може бути порожньою."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document."
+msgstr "Скрипт з назвою «{0}» вже існує в цьому документі."
+
+#: plugin/scripting/document_scripts.py
+msgid "My Scripts"
+msgstr "Мої скрипти"
+
+#: plugin/scripting/document_scripts.py
+msgid "This Document"
+msgstr "Цей документ"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts."
+msgstr "Скрипт «{0}» збережено в «Мої скрипти»."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to this document."
+msgstr "Скрипт «{0}» збережено в цьому документі."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}'."
+msgstr "Скрипт «{0}» збережено."
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open to attach scripts."
+msgstr "Не відкрито жодного документа для прикріплення скриптів."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Attached script '{0}' to this document."
+msgstr "Скрипт «{0}» прикріплено до цього документа."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in My Scripts."
+msgstr "Скрипт з назвою «{0}» вже існує в «Моїх скриптах»."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Copied script '{0}' to My Scripts."
+msgstr "Скрипт «{0}» скопійовано в «Мої скрипти»."
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open."
+msgstr "Не відкрито жодного документа."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted document script '{0}'."
+msgstr "Видалено скрипт документа «{0}»."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted script '{0}'."
+msgstr "Видалено скрипт «{0}»."
+
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
 msgstr "Не вдалося запустити редактор Python."
@@ -1003,6 +1087,10 @@ msgid "Script:"
 msgstr "Сценарій:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach"
+msgstr "Прикріпити"
+
+#: plugin/scripting/python_runner.py
 msgid "Save As..."
 msgstr "Зберегти як..."
 
@@ -1020,6 +1108,16 @@ msgstr ""
 
 #: plugin/scripting/python_runner.py
 #, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s Збережено в «Мої скрипти» натомість."
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "Скрипт «%s» збережено в цьому документі."
+
+#: plugin/scripting/python_runner.py
+#, python-format
 msgid "Script '%s' saved successfully."
 msgstr "Сценарій «%s» успішно збережено."
 
@@ -1032,8 +1130,31 @@ msgid "Enter script name:"
 msgstr "Введіть назву сценарію:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach to Document"
+msgstr "Прикріпити до документа"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr "Сценарій з назвою «{0}» вже існує в цьому документі. Перезаписати?"
+
+#: plugin/scripting/python_runner.py
+msgid "Attach Script"
+msgstr "Прикріпити сценарій"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' attached to this document."
+msgstr "Сценарій «%s» прикріплено до цього документа."
+
+#: plugin/scripting/python_runner.py
 msgid "Save Script"
 msgstr "Зберегти скрипт"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "Зберегти сценарій «{0}» у цьому документі?"
 
 #: plugin/scripting/python_runner.py
 msgid "Are you sure you want to clear the Sample scratchpad?"
@@ -1094,10 +1215,6 @@ msgid "Script executed successfully."
 msgstr "Скрипт успішно виконано."
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved."
-msgstr "Скрипт збережено."
-
-#: plugin/scripting/python_runner.py
 msgid "Execution Error"
 msgstr "Помилка виконання"
 
@@ -1108,6 +1225,10 @@ msgstr "Успішно"
 #: plugin/scripting/python_runner.py
 msgid "Output"
 msgstr "Вивід"
+
+#: plugin/scripting/python_runner.py
+msgid "Script saved."
+msgstr "Скрипт збережено."
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -1523,13 +1644,26 @@ msgstr "Термін дії вебкешу (днів)"
 msgid "How many days cache entries should be considered valid."
 msgstr "Скільки днів записи в кеші вважатимуться дійсними."
 
-msgid "Rich Text Chat Sidebar"
-msgstr "Бічна панель чату з форматованим текстом"
+msgid "Rich Text Chat Sidebar (embedded Writer)"
+msgstr "Бічна панель чату з форматованим текстом (вбудований Writer)"
 
-msgid "Use embedded Writer document for chat display (requires restart)"
+msgid ""
+"Experimental: embeds a Writer frame in the sidebar (requires restart). If "
+"both rich-text options are enabled, this wins over Rich Text Control."
 msgstr ""
-"Використовувати вбудований документ Writer для відображення чату (потрібен "
-"перезапуск)"
+"Експериментально: вбудовує фрейм Writer у бічну панель (потрібен "
+"перезапуск). Якщо ввімкнено обидва параметри форматованого тексту, цей має "
+"пріоритет над елементом керування форматованим текстом."
+
+msgid "Rich Text Control Sidebar"
+msgstr "Бічна панель елемента керування форматованим текстом"
+
+msgid ""
+"Formatted chat via RichTextControl (on by default). Requires restart. "
+"Uncheck for plain-text chat only."
+msgstr ""
+"Форматований чат через RichTextControl (увімкнено за замовчуванням). "
+"Потрібен перезапуск. Зніміть прапорець для чату лише з простим текстом."
 
 msgid "Doc"
 msgstr "Документ"
@@ -1700,6 +1834,17 @@ msgid ""
 msgstr ""
 "Якщо позначено, ігнорує редактор скриптів Monaco та використовує діалогове "
 "вікно LibreOffice."
+
+msgid "Modeless Run Python Script dialog"
+msgstr "Неблокувальне діалогове вікно запуску сценарію Python"
+
+msgid ""
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
+msgstr ""
+"Якщо встановлено, діалогове вікно «Запустити сценарій Python» залишається "
+"поверх інших вікон, що дозволяє редагувати документ, не закриваючи його. "
+"Зніміть прапорець для використання класичного модального діалогового вікна."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Інструменти документа Writer (включаючи навігацію та пошук)"

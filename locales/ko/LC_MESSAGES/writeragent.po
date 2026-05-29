@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-28 16:02-0400\n"
+"POT-Creation-Date: 2026-05-28 22:51-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Korean <LL@li.org>\n"
@@ -843,6 +843,87 @@ msgstr "높이:"
 msgid "Width:"
 msgstr "너비:"
 
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Document scripts are too large to store in the document ({0} bytes)."
+msgstr "문서 스크립트가 너무 커서 문서에 저장할 수 없습니다({0} 바이트)."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+#: plugin/scripting/python_runner.py
+msgid "No document is open to save scripts."
+msgstr "저장할 문서가 열려 있지 않습니다."
+
+#: plugin/scripting/document_scripts.py
+msgid ""
+"Document is read-only or properties cannot be written. Script saved to your "
+"personal library instead."
+msgstr "문서가 읽기 전용이거나 속성을 쓸 수 없습니다. 대신 개인 라이브러리에 스크립트가 저장되었습니다."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+msgid "Script name cannot be empty."
+msgstr "스크립트 이름은 비워둘 수 없습니다."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document."
+msgstr "'{0}'이라는 이름의 스크립트가 이 문서에 이미 존재합니다."
+
+#: plugin/scripting/document_scripts.py
+msgid "My Scripts"
+msgstr "내 스크립트"
+
+#: plugin/scripting/document_scripts.py
+msgid "This Document"
+msgstr "이 문서"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts."
+msgstr "'{0}' 스크립트를 '내 스크립트'에 저장했습니다."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to this document."
+msgstr "'{0}' 스크립트를 이 문서에 저장했습니다."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}'."
+msgstr "'{0}' 스크립트를 저장했습니다."
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open to attach scripts."
+msgstr "스크립트를 첨부할 문서가 열려 있지 않습니다."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Attached script '{0}' to this document."
+msgstr "이 문서에 '{0}' 스크립트를 첨부했습니다."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in My Scripts."
+msgstr "'{0}'이라는 이름의 스크립트가 '내 스크립트'에 이미 존재합니다."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Copied script '{0}' to My Scripts."
+msgstr "'{0}' 스크립트를 '내 스크립트'로 복사했습니다."
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open."
+msgstr "문서가 열려 있지 않습니다."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted document script '{0}'."
+msgstr "문서 스크립트 '{0}'을(를) 삭제했습니다."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted script '{0}'."
+msgstr "스크립트 '{0}'을(를) 삭제했습니다."
+
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
 msgstr "Python 편집기를 시작할 수 없습니다."
@@ -934,6 +1015,10 @@ msgid "Script:"
 msgstr "스크립트:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach"
+msgstr "첨부"
+
+#: plugin/scripting/python_runner.py
 msgid "Save As..."
 msgstr "다른 이름으로 저장..."
 
@@ -951,6 +1036,16 @@ msgstr ""
 
 #: plugin/scripting/python_runner.py
 #, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s 대신 '내 스크립트'에 저장되었습니다."
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "스크립트 '%s'이(가) 이 문서에 저장되었습니다."
+
+#: plugin/scripting/python_runner.py
+#, python-format
 msgid "Script '%s' saved successfully."
 msgstr "스크립트 '%s'이(가) 성공적으로 저장되었습니다."
 
@@ -963,8 +1058,31 @@ msgid "Enter script name:"
 msgstr "스크립트 이름 입력:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach to Document"
+msgstr "문서에 첨부"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr "'{0}'이라는 이름의 스크립트가 이 문서에 이미 존재합니다. 덮어쓰시겠습니까?"
+
+#: plugin/scripting/python_runner.py
+msgid "Attach Script"
+msgstr "스크립트 첨부"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' attached to this document."
+msgstr "'%s' 스크립트가 이 문서에 첨부되었습니다."
+
+#: plugin/scripting/python_runner.py
 msgid "Save Script"
 msgstr "스크립트 저장"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "'{0}' 스크립트를 이 문서에 저장하시겠습니까?"
 
 #: plugin/scripting/python_runner.py
 msgid "Are you sure you want to clear the Sample scratchpad?"
@@ -1023,10 +1141,6 @@ msgid "Script executed successfully."
 msgstr "스크립트가 성공적으로 실행되었습니다."
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved."
-msgstr "스크립트가 저장되었습니다."
-
-#: plugin/scripting/python_runner.py
 msgid "Execution Error"
 msgstr "실행 오류"
 
@@ -1037,6 +1151,10 @@ msgstr "성공"
 #: plugin/scripting/python_runner.py
 msgid "Output"
 msgstr "출력"
+
+#: plugin/scripting/python_runner.py
+msgid "Script saved."
+msgstr "스크립트가 저장되었습니다."
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -1447,11 +1565,24 @@ msgstr "웹 캐시 유효 기간 (일)"
 msgid "How many days cache entries should be considered valid."
 msgstr "캐시 항목을 유효한 것으로 간주할 일수입니다."
 
-msgid "Rich Text Chat Sidebar"
-msgstr "서식 있는 텍스트 채팅 사이드바"
+msgid "Rich Text Chat Sidebar (embedded Writer)"
+msgstr "서식 있는 텍스트 채팅 사이드바 (Writer 내장)"
 
-msgid "Use embedded Writer document for chat display (requires restart)"
-msgstr "채팅 표시에 포함된 Writer 문서 사용 (재시작 필요)"
+msgid ""
+"Experimental: embeds a Writer frame in the sidebar (requires restart). If "
+"both rich-text options are enabled, this wins over Rich Text Control."
+msgstr ""
+"실험적 기능: 사이드바에 Writer 프레임을 내장합니다 (재시작 필요). 두 서식 있는 텍스트 옵션이 모두 활성화된 경우, 이 옵션이 "
+"서식 있는 텍스트 컨트롤보다 우선합니다."
+
+msgid "Rich Text Control Sidebar"
+msgstr "서식 있는 텍스트 컨트롤 사이드바"
+
+msgid ""
+"Formatted chat via RichTextControl (on by default). Requires restart. "
+"Uncheck for plain-text chat only."
+msgstr ""
+"RichTextControl을 통한 서식 있는 채팅 (기본값). 재시작이 필요합니다. 일반 텍스트 채팅만 사용하려면 체크를 해제하세요."
 
 msgid "Doc"
 msgstr "문서"
@@ -1605,6 +1736,16 @@ msgid ""
 "If checked, bypasses the Monaco script editor and uses the LibreOffice "
 "dialog."
 msgstr "선택 시, Monaco 스크립트 편집기를 우회하고 LibreOffice 대화 상자를 사용합니다."
+
+msgid "Modeless Run Python Script dialog"
+msgstr "모덜리스 Python 스크립트 실행 대화 상자"
+
+msgid ""
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
+msgstr ""
+"이 항목을 선택하면 일반 텍스트 'Python 스크립트 실행' 대화 상자가 플로팅 상태가 되어 대화 상자가 열려 있는 동안에도 문서를 "
+"편집할 수 있습니다. 선택을 해제하면 기존의 모달 대화 상자 방식으로 작동합니다."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer 문서 도구 (탐색 및 검색 포함)"

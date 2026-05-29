@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: WriterAgent 1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-28 16:02-0400\n"
+"POT-Creation-Date: 2026-05-28 22:51-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: \n"
 "Language-Team: Swedish\n"
@@ -886,6 +886,89 @@ msgstr "Höjd:"
 msgid "Width:"
 msgstr "Bredd:"
 
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Document scripts are too large to store in the document ({0} bytes)."
+msgstr "Dokumentskripten är för stora för att lagras i dokumentet ({0} byte)."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+#: plugin/scripting/python_runner.py
+msgid "No document is open to save scripts."
+msgstr "Inget dokument är öppet för att spara skript."
+
+#: plugin/scripting/document_scripts.py
+msgid ""
+"Document is read-only or properties cannot be written. Script saved to your "
+"personal library instead."
+msgstr ""
+"Dokumentet är skrivskyddat eller så kan egenskaper inte skrivas. Skriptet "
+"sparades i ditt personliga bibliotek istället."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+msgid "Script name cannot be empty."
+msgstr "Skriptnamnet får inte vara tomt."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document."
+msgstr "Ett skript med namnet '{0}' finns redan i detta dokument."
+
+#: plugin/scripting/document_scripts.py
+msgid "My Scripts"
+msgstr "Mina skript"
+
+#: plugin/scripting/document_scripts.py
+msgid "This Document"
+msgstr "Detta dokument"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts."
+msgstr "Skriptet '{0}' sparades i Mina skript."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to this document."
+msgstr "Skriptet '{0}' sparades i detta dokument."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}'."
+msgstr "Skriptet '{0}' sparades."
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open to attach scripts."
+msgstr "Inget dokument är öppet för att bifoga skript."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Attached script '{0}' to this document."
+msgstr "Bifogade skriptet \"{0}\" till detta dokument."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in My Scripts."
+msgstr "Ett skript med namnet \"{0}\" finns redan i Mina skript."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Copied script '{0}' to My Scripts."
+msgstr "Kopierade skriptet \"{0}\" till Mina skript."
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open."
+msgstr "Inget dokument är öppet."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted document script '{0}'."
+msgstr "Tog bort dokumentskriptet \"{0}\"."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted script '{0}'."
+msgstr "Tog bort skriptet \"{0}\"."
+
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
 msgstr "Kunde inte starta Python-redigeraren."
@@ -987,6 +1070,10 @@ msgid "Script:"
 msgstr "Skript:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach"
+msgstr "Bifoga"
+
+#: plugin/scripting/python_runner.py
 msgid "Save As..."
 msgstr "Spara som..."
 
@@ -1004,6 +1091,16 @@ msgstr ""
 
 #: plugin/scripting/python_runner.py
 #, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s Sparades i Mina skript istället."
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "Skriptet \"%s\" sparades i detta dokument."
+
+#: plugin/scripting/python_runner.py
+#, python-format
 msgid "Script '%s' saved successfully."
 msgstr "Skriptet \"%s\" har sparats."
 
@@ -1016,8 +1113,32 @@ msgid "Enter script name:"
 msgstr "Ange skriptnamn:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach to Document"
+msgstr "Bifoga till dokument"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr ""
+"Ett skript med namnet ”{0}” finns redan i detta dokument. Skriva över?"
+
+#: plugin/scripting/python_runner.py
+msgid "Attach Script"
+msgstr "Bifoga skript"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' attached to this document."
+msgstr "Skriptet ”%s” har bifogats till detta dokument."
+
+#: plugin/scripting/python_runner.py
 msgid "Save Script"
 msgstr "Spara skript"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "Spara skriptet ”{0}” i detta dokument?"
 
 #: plugin/scripting/python_runner.py
 msgid "Are you sure you want to clear the Sample scratchpad?"
@@ -1078,10 +1199,6 @@ msgid "Script executed successfully."
 msgstr "Skriptet kördes utan problem."
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved."
-msgstr "Skript sparat."
-
-#: plugin/scripting/python_runner.py
 msgid "Execution Error"
 msgstr "Körningsfel"
 
@@ -1092,6 +1209,10 @@ msgstr "Lyckades"
 #: plugin/scripting/python_runner.py
 msgid "Output"
 msgstr "Utdata"
+
+#: plugin/scripting/python_runner.py
+msgid "Script saved."
+msgstr "Skript sparat."
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -1507,11 +1628,25 @@ msgstr "Giltighetstid för webbcache (dagar)"
 msgid "How many days cache entries should be considered valid."
 msgstr "Antal dagar som cache-poster ska anses vara giltiga."
 
-msgid "Rich Text Chat Sidebar"
-msgstr "Sidopanel för RTF-chatt"
+msgid "Rich Text Chat Sidebar (embedded Writer)"
+msgstr "Sidopanel för RTF-chatt (inbäddad Writer)"
 
-msgid "Use embedded Writer document for chat display (requires restart)"
-msgstr "Använd inbäddat Writer-dokument för chattvisning (kräver omstart)"
+msgid ""
+"Experimental: embeds a Writer frame in the sidebar (requires restart). If "
+"both rich-text options are enabled, this wins over Rich Text Control."
+msgstr ""
+"Experimentell: bäddar in en Writer-ram i sidopanelen (kräver omstart). Om "
+"båda RTF-alternativen är aktiverade prioriteras detta framför RTF-kontroll."
+
+msgid "Rich Text Control Sidebar"
+msgstr "Sidopanel för RTF-kontroll"
+
+msgid ""
+"Formatted chat via RichTextControl (on by default). Requires restart. "
+"Uncheck for plain-text chat only."
+msgstr ""
+"Formaterad chatt via RichTextControl (aktiverad som standard). Kräver "
+"omstart. Avmarkera för endast textchatt."
 
 msgid "Doc"
 msgstr "Dok"
@@ -1677,6 +1812,17 @@ msgid ""
 msgstr ""
 "Om markerad, förbigås Monaco-skriptredigeraren och LibreOffice-dialogrutan "
 "används istället."
+
+msgid "Modeless Run Python Script dialog"
+msgstr "Modallös dialogruta för att köra Python-skript"
+
+msgid ""
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
+msgstr ""
+"När markerad flyter dialogrutan Kör Python-skript som vanlig text så att du "
+"kan redigera dokumentet medan den är öppen. Avmarkera för den klassiska "
+"modala dialogrutan."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer-dokumentverktyg (inklusive navigering och sökning)"

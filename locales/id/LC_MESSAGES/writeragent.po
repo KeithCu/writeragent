@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-28 16:02-0400\n"
+"POT-Creation-Date: 2026-05-28 22:51-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Indonesian <LL@li.org>\n"
@@ -896,6 +896,89 @@ msgstr "Tinggi:"
 msgid "Width:"
 msgstr "Lebar:"
 
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Document scripts are too large to store in the document ({0} bytes)."
+msgstr "Skrip dokumen terlalu besar untuk disimpan dalam dokumen ({0} bita)."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+#: plugin/scripting/python_runner.py
+msgid "No document is open to save scripts."
+msgstr "Tidak ada dokumen yang terbuka untuk menyimpan skrip."
+
+#: plugin/scripting/document_scripts.py
+msgid ""
+"Document is read-only or properties cannot be written. Script saved to your "
+"personal library instead."
+msgstr ""
+"Dokumen bersifat baca-saja atau properti tidak dapat ditulis. Skrip disimpan"
+" ke pustaka pribadi Anda sebagai gantinya."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+msgid "Script name cannot be empty."
+msgstr "Nama skrip tidak boleh kosong."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document."
+msgstr "Skrip bernama '{0}' sudah ada di dokumen ini."
+
+#: plugin/scripting/document_scripts.py
+msgid "My Scripts"
+msgstr "Skrip Saya"
+
+#: plugin/scripting/document_scripts.py
+msgid "This Document"
+msgstr "Dokumen Ini"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts."
+msgstr "Skrip '{0}' disimpan ke Skrip Saya."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to this document."
+msgstr "Skrip '{0}' disimpan ke dokumen ini."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}'."
+msgstr "Skrip '{0}' disimpan."
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open to attach scripts."
+msgstr "Tidak ada dokumen yang terbuka untuk melampirkan skrip."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Attached script '{0}' to this document."
+msgstr "Skrip '{0}' telah dilampirkan ke dokumen ini."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in My Scripts."
+msgstr "Skrip bernama '{0}' sudah ada di Skrip Saya."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Copied script '{0}' to My Scripts."
+msgstr "Skrip '{0}' telah disalin ke Skrip Saya."
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open."
+msgstr "Tidak ada dokumen yang terbuka."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted document script '{0}'."
+msgstr "Skrip dokumen '{0}' telah dihapus."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted script '{0}'."
+msgstr "Skrip '{0}' telah dihapus."
+
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
 msgstr "Tidak dapat memulai editor Python."
@@ -996,6 +1079,10 @@ msgid "Script:"
 msgstr "Skrip:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach"
+msgstr "Lampirkan"
+
+#: plugin/scripting/python_runner.py
 msgid "Save As..."
 msgstr "Simpan Sebagai..."
 
@@ -1013,6 +1100,16 @@ msgstr ""
 
 #: plugin/scripting/python_runner.py
 #, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s Disimpan ke Skrip Saya sebagai gantinya."
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "Skrip '%s' disimpan ke dokumen ini."
+
+#: plugin/scripting/python_runner.py
+#, python-format
 msgid "Script '%s' saved successfully."
 msgstr "Skrip '%s' berhasil disimpan."
 
@@ -1025,8 +1122,31 @@ msgid "Enter script name:"
 msgstr "Masukkan nama skrip:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach to Document"
+msgstr "Lampirkan ke Dokumen"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr "Skrip bernama '{0}' sudah ada di dokumen ini. Timpa?"
+
+#: plugin/scripting/python_runner.py
+msgid "Attach Script"
+msgstr "Lampirkan Skrip"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' attached to this document."
+msgstr "Skrip '%s' dilampirkan ke dokumen ini."
+
+#: plugin/scripting/python_runner.py
 msgid "Save Script"
 msgstr "Simpan Skrip"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "Simpan skrip '{0}' ke dokumen ini?"
 
 #: plugin/scripting/python_runner.py
 msgid "Are you sure you want to clear the Sample scratchpad?"
@@ -1087,10 +1207,6 @@ msgid "Script executed successfully."
 msgstr "Skrip berhasil dijalankan."
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved."
-msgstr "Skrip disimpan."
-
-#: plugin/scripting/python_runner.py
 msgid "Execution Error"
 msgstr "Kesalahan Eksekusi"
 
@@ -1101,6 +1217,10 @@ msgstr "Berhasil"
 #: plugin/scripting/python_runner.py
 msgid "Output"
 msgstr "Output"
+
+#: plugin/scripting/python_runner.py
+msgid "Script saved."
+msgstr "Skrip disimpan."
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -1518,12 +1638,26 @@ msgstr "Validitas Cache Web (Hari)"
 msgid "How many days cache entries should be considered valid."
 msgstr "Berapa hari entri cache harus dianggap valid."
 
-msgid "Rich Text Chat Sidebar"
-msgstr "Bilah Samping Obrolan Teks Kaya"
+msgid "Rich Text Chat Sidebar (embedded Writer)"
+msgstr "Bilah Samping Obrolan Teks Kaya (Writer tersemat)"
 
-msgid "Use embedded Writer document for chat display (requires restart)"
+msgid ""
+"Experimental: embeds a Writer frame in the sidebar (requires restart). If "
+"both rich-text options are enabled, this wins over Rich Text Control."
 msgstr ""
-"Gunakan dokumen Writer tersemat untuk tampilan obrolan (perlu dimulai ulang)"
+"Eksperimental: menyematkan bingkai Writer di bilah samping (perlu mulai "
+"ulang). Jika kedua opsi teks kaya diaktifkan, opsi ini lebih diutamakan "
+"daripada Kontrol Teks Kaya."
+
+msgid "Rich Text Control Sidebar"
+msgstr "Bilah Samping Kontrol Teks Kaya"
+
+msgid ""
+"Formatted chat via RichTextControl (on by default). Requires restart. "
+"Uncheck for plain-text chat only."
+msgstr ""
+"Obrolan terformat melalui RichTextControl (aktif secara default). Perlu "
+"mulai ulang. Hapus centang untuk obrolan teks biasa saja."
 
 msgid "Doc"
 msgstr "Dok"
@@ -1690,6 +1824,17 @@ msgid ""
 msgstr ""
 "Jika dicentang, melewati penyunting skrip Monaco dan menggunakan dialog "
 "LibreOffice."
+
+msgid "Modeless Run Python Script dialog"
+msgstr "Dialog Jalankan Skrip Python Tanpa Modal"
+
+msgid ""
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
+msgstr ""
+"Jika dicentang, dialog Jalankan Skrip Python teks biasa akan melayang "
+"sehingga Anda dapat menyunting dokumen saat dialog terbuka. Hapus centang "
+"untuk dialog modal klasik."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Alat dokumen Writer (termasuk navigasi dan pencarian)"

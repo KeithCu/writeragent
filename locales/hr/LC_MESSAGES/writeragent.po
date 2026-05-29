@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-28 16:02-0400\n"
+"POT-Creation-Date: 2026-05-28 22:51-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Croatian <LL@li.org>\n"
@@ -892,6 +892,89 @@ msgstr "Visina:"
 msgid "Width:"
 msgstr "Širina:"
 
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Document scripts are too large to store in the document ({0} bytes)."
+msgstr "Skripte dokumenta su prevelike za pohranu u dokument ({0} bajtova)."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+#: plugin/scripting/python_runner.py
+msgid "No document is open to save scripts."
+msgstr "Nijedan dokument nije otvoren za spremanje skripti."
+
+#: plugin/scripting/document_scripts.py
+msgid ""
+"Document is read-only or properties cannot be written. Script saved to your "
+"personal library instead."
+msgstr ""
+"Dokument je samo za čitanje ili se svojstva ne mogu zapisati. Skripta je "
+"umjesto toga spremljena u vašu osobnu biblioteku."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+msgid "Script name cannot be empty."
+msgstr "Naziv skripte ne može biti prazan."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document."
+msgstr "Skripta pod nazivom '{0}' već postoji u ovom dokumentu."
+
+#: plugin/scripting/document_scripts.py
+msgid "My Scripts"
+msgstr "Moje skripte"
+
+#: plugin/scripting/document_scripts.py
+msgid "This Document"
+msgstr "Ovaj dokument"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts."
+msgstr "Skripta '{0}' spremljena u Moje skripte."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to this document."
+msgstr "Skripta '{0}' spremljena u ovaj dokument."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}'."
+msgstr "Skripta '{0}' je spremljena."
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open to attach scripts."
+msgstr "Nijedan dokument nije otvoren za pridruživanje skripti."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Attached script '{0}' to this document."
+msgstr "Skripta '{0}' je pridružena ovom dokumentu."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in My Scripts."
+msgstr "Skripta pod nazivom '{0}' već postoji u Mojim skriptama."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Copied script '{0}' to My Scripts."
+msgstr "Skripta '{0}' je kopirana u Moje skripte."
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open."
+msgstr "Nijedan dokument nije otvoren."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted document script '{0}'."
+msgstr "Izbrisana je skripta dokumenta '{0}'."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted script '{0}'."
+msgstr "Izbrisana je skripta '{0}'."
+
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
 msgstr "Nije bilo moguće pokrenuti Python uređivač."
@@ -994,6 +1077,10 @@ msgid "Script:"
 msgstr "Skripta:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach"
+msgstr "Pridruži"
+
+#: plugin/scripting/python_runner.py
 msgid "Save As..."
 msgstr "Spremi kao..."
 
@@ -1011,6 +1098,16 @@ msgstr ""
 
 #: plugin/scripting/python_runner.py
 #, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s Spremljeno u Moje skripte."
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "Skripta '%s' je spremljena u ovaj dokument."
+
+#: plugin/scripting/python_runner.py
+#, python-format
 msgid "Script '%s' saved successfully."
 msgstr "Skripta '%s' uspješno spremljena."
 
@@ -1023,8 +1120,32 @@ msgid "Enter script name:"
 msgstr "Unesite naziv skripte:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach to Document"
+msgstr "Priloži dokumentu"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr ""
+"Skripta naziva '{0}' već postoji u ovom dokumentu. Želite li je prebrisati?"
+
+#: plugin/scripting/python_runner.py
+msgid "Attach Script"
+msgstr "Priloži skriptu"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' attached to this document."
+msgstr "Skripta '%s' priložena ovom dokumentu."
+
+#: plugin/scripting/python_runner.py
 msgid "Save Script"
 msgstr "Spremi skriptu"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "Spremiti skriptu '{0}' u ovaj dokument?"
 
 #: plugin/scripting/python_runner.py
 msgid "Are you sure you want to clear the Sample scratchpad?"
@@ -1086,10 +1207,6 @@ msgid "Script executed successfully."
 msgstr "Skripta uspješno izvršena."
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved."
-msgstr "Skripta spremljena."
-
-#: plugin/scripting/python_runner.py
 msgid "Execution Error"
 msgstr "Pogreška pri izvršavanju"
 
@@ -1100,6 +1217,10 @@ msgstr "Uspjeh"
 #: plugin/scripting/python_runner.py
 msgid "Output"
 msgstr "Izlaz"
+
+#: plugin/scripting/python_runner.py
+msgid "Script saved."
+msgstr "Skripta spremljena."
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -1517,13 +1638,27 @@ msgstr "Valjanost web predmemorije (dana)"
 msgid "How many days cache entries should be considered valid."
 msgstr "Koliko dana se unosi u predmemoriji smatraju valjanima."
 
-msgid "Rich Text Chat Sidebar"
-msgstr "Bočna traka za obogaćeni tekst (Rich Text)"
+msgid "Rich Text Chat Sidebar (embedded Writer)"
+msgstr "Bočna traka za obogaćeni tekst (ugrađeni Writer)"
 
-msgid "Use embedded Writer document for chat display (requires restart)"
+msgid ""
+"Experimental: embeds a Writer frame in the sidebar (requires restart). If "
+"both rich-text options are enabled, this wins over Rich Text Control."
 msgstr ""
-"Koristi ugrađeni Writer dokument za prikaz razgovora (zahtijeva ponovno "
-"pokretanje)"
+"Eksperimentalno: ugrađuje Writer okvir u bočnu traku (zahtijeva ponovno "
+"pokretanje). Ako su omogućene obje opcije za obogaćeni tekst, ova ima "
+"prednost pred kontrolom za obogaćeni tekst."
+
+msgid "Rich Text Control Sidebar"
+msgstr "Bočna traka kontrole za obogaćeni tekst"
+
+msgid ""
+"Formatted chat via RichTextControl (on by default). Requires restart. "
+"Uncheck for plain-text chat only."
+msgstr ""
+"Formatirani razgovor putem RichTextControl (uključeno prema zadanim "
+"postavkama). Zahtijeva ponovno pokretanje. Odznačite za razgovor samo "
+"običnim tekstom."
 
 msgid "Doc"
 msgstr "Dokument"
@@ -1691,6 +1826,17 @@ msgid ""
 msgstr ""
 "Ako je označeno, zaobilazi Monaco uređivač skripti i koristi LibreOffice "
 "dijaloški okvir."
+
+msgid "Modeless Run Python Script dialog"
+msgstr "Nemodalni dijaloški okvir za pokretanje Python skripte"
+
+msgid ""
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
+msgstr ""
+"Kada je označeno, dijaloški okvir za pokretanje Python skripte (Run Python "
+"Script) lebdi tako da možete uređivati dokument dok je otvoren. Odznačite za"
+" klasični modalni dijaloški okvir."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Alati za Writer dokumente (uključujući navigaciju i pretraživanje)"

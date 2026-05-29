@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-28 16:02-0400\n"
+"POT-Creation-Date: 2026-05-28 22:51-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Urdu <LL@li.org>\n"
@@ -894,6 +894,90 @@ msgstr "اونچائی:"
 msgid "Width:"
 msgstr "چوڑائی:"
 
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Document scripts are too large to store in the document ({0} bytes)."
+msgstr ""
+"دستاویز کی اسکرپٹس دستاویز میں محفوظ کرنے کے لیے بہت بڑی ہیں ({0} بائٹس)۔"
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+#: plugin/scripting/python_runner.py
+msgid "No document is open to save scripts."
+msgstr "اسکرپٹس محفوظ کرنے کے لیے کوئی دستاویز کھلی نہیں ہے۔"
+
+#: plugin/scripting/document_scripts.py
+msgid ""
+"Document is read-only or properties cannot be written. Script saved to your "
+"personal library instead."
+msgstr ""
+"دستاویز صرف پڑھنے کے لیے ہے یا خصوصیات لکھی نہیں جا سکتیں۔ اسکرپٹ اس کے "
+"بجائے آپ کی ذاتی لائبریری میں محفوظ کر دی گئی ہے۔"
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+msgid "Script name cannot be empty."
+msgstr "اسکرپٹ کا نام خالی نہیں ہو سکتا۔"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document."
+msgstr "اس دستاویز میں '{0}' نام کی اسکرپٹ پہلے سے موجود ہے۔"
+
+#: plugin/scripting/document_scripts.py
+msgid "My Scripts"
+msgstr "میری اسکرپٹس"
+
+#: plugin/scripting/document_scripts.py
+msgid "This Document"
+msgstr "یہ دستاویز"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts."
+msgstr "اسکرپٹ '{0}' کو 'میری اسکرپٹس' میں محفوظ کر دیا گیا۔"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to this document."
+msgstr "اسکرپٹ '{0}' کو اس دستاویز میں محفوظ کر دیا گیا۔"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}'."
+msgstr "اسکرپٹ '{0}' محفوظ کر دی گئی۔"
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open to attach scripts."
+msgstr "اسکرپٹس منسلک کرنے کے لیے کوئی دستاویز کھلی نہیں ہے۔"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Attached script '{0}' to this document."
+msgstr "اسکرپٹ '{0}' کو اس دستاویز سے منسلک کر دیا گیا۔"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in My Scripts."
+msgstr "My Scripts میں '{0}' نام کی ایک اسکرپٹ پہلے سے موجود ہے۔"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Copied script '{0}' to My Scripts."
+msgstr "اسکرپٹ '{0}' کو My Scripts میں کاپی کر دیا گیا۔"
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open."
+msgstr "کوئی دستاویز کھلی نہیں ہے۔"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted document script '{0}'."
+msgstr "دستاویز کی اسکرپٹ '{0}' حذف کر دی گئی۔"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted script '{0}'."
+msgstr "اسکرپٹ '{0}' حذف کر دی گئی۔"
+
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
 msgstr "پائتھون ایڈیٹر شروع نہیں کیا جا سکا۔"
@@ -994,6 +1078,10 @@ msgid "Script:"
 msgstr "اسکرپٹ:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach"
+msgstr "منسلک کریں"
+
+#: plugin/scripting/python_runner.py
 msgid "Save As..."
 msgstr "محفوظ کریں بطور..."
 
@@ -1011,6 +1099,16 @@ msgstr ""
 
 #: plugin/scripting/python_runner.py
 #, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s اس کے بجائے My Scripts میں محفوظ کر دیا گیا۔"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "اسکرپٹ '%s' اس دستاویز میں محفوظ کر دی گئی۔"
+
+#: plugin/scripting/python_runner.py
+#, python-format
 msgid "Script '%s' saved successfully."
 msgstr "اسکرپٹ '%s' کامیابی کے ساتھ محفوظ ہو گئی۔"
 
@@ -1023,8 +1121,32 @@ msgid "Enter script name:"
 msgstr "اسکرپٹ کا نام درج کریں:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach to Document"
+msgstr "دستاویز کے ساتھ منسلک کریں"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr ""
+"اس دستاویز میں '{0}' نام کی اسکرپٹ پہلے سے موجود ہے۔ کیا اسے اوور رائٹ کریں؟"
+
+#: plugin/scripting/python_runner.py
+msgid "Attach Script"
+msgstr "اسکرپٹ منسلک کریں"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' attached to this document."
+msgstr "اسکرپٹ '%s' اس دستاویز کے ساتھ منسلک کر دی گئی ہے۔"
+
+#: plugin/scripting/python_runner.py
 msgid "Save Script"
 msgstr "اسکرپٹ محفوظ کریں"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "کیا اسکرپٹ '{0}' کو اس دستاویز میں محفوظ کریں؟"
 
 #: plugin/scripting/python_runner.py
 msgid "Are you sure you want to clear the Sample scratchpad?"
@@ -1087,10 +1209,6 @@ msgid "Script executed successfully."
 msgstr "اسکرپٹ کامیابی کے ساتھ چلایا گیا۔"
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved."
-msgstr "اسکرپٹ محفوظ کر لیا گیا۔"
-
-#: plugin/scripting/python_runner.py
 msgid "Execution Error"
 msgstr "ایگزیکیوشن کی خرابی"
 
@@ -1101,6 +1219,10 @@ msgstr "کامیابی"
 #: plugin/scripting/python_runner.py
 msgid "Output"
 msgstr "آؤٹ پٹ"
+
+#: plugin/scripting/python_runner.py
+msgid "Script saved."
+msgstr "اسکرپٹ محفوظ کر لیا گیا۔"
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -1513,13 +1635,26 @@ msgstr "ویب کیشے کی درستگی (دن)"
 msgid "How many days cache entries should be considered valid."
 msgstr "کیشے کے اندراجات کو کتنے دنوں تک درست سمجھا جانا چاہیے۔"
 
-msgid "Rich Text Chat Sidebar"
-msgstr "رچ ٹیکسٹ چیٹ سائڈبار"
+msgid "Rich Text Chat Sidebar (embedded Writer)"
+msgstr "رچ ٹیکسٹ چیٹ سائڈبار (ایمبیڈڈ رائٹر)"
 
-msgid "Use embedded Writer document for chat display (requires restart)"
+msgid ""
+"Experimental: embeds a Writer frame in the sidebar (requires restart). If "
+"both rich-text options are enabled, this wins over Rich Text Control."
 msgstr ""
-"چیٹ ڈسپلے کے لیے ایمبیڈڈ رائٹر دستاویز استعمال کریں (دوبارہ شروع کرنے کی "
-"ضرورت ہے)"
+"تجرباتی: سائڈبار میں رائٹر فریم کو ایمبیڈ کرتا ہے (دوبارہ شروع کرنے کی ضرورت"
+" ہے)۔ اگر دونوں رچ ٹیکسٹ آپشنز فعال ہوں، تو یہ رچ ٹیکسٹ کنٹرول پر فوقیت "
+"رکھتا ہے۔"
+
+msgid "Rich Text Control Sidebar"
+msgstr "رچ ٹیکسٹ کنٹرول سائڈبار"
+
+msgid ""
+"Formatted chat via RichTextControl (on by default). Requires restart. "
+"Uncheck for plain-text chat only."
+msgstr ""
+"رچ ٹیکسٹ کنٹرول کے ذریعے فارمیٹ شدہ چیٹ (پہلے سے فعال)۔ دوبارہ شروع کرنے کی "
+"ضرورت ہے۔ صرف سادہ ٹیکسٹ چیٹ کے لیے اسے غیر منتخب کریں۔"
 
 msgid "Doc"
 msgstr "دستاویز"
@@ -1684,6 +1819,17 @@ msgid ""
 msgstr ""
 "اگر منتخب ہو، تو Monaco اسکرپٹ ایڈیٹر کو نظر انداز کر کے LibreOffice کا "
 "ڈائیلاگ استعمال کرتا ہے۔"
+
+msgid "Modeless Run Python Script dialog"
+msgstr "موڈلیس رن پائتھن اسکرپٹ ڈائیلاگ"
+
+msgid ""
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
+msgstr ""
+"جب منتخب کیا جائے تو، سادہ متن 'رن پائتھن اسکرپٹ' ڈائیلاگ تیرتا رہتا ہے تاکہ"
+" آپ دستاویز کے کھلے ہونے کے دوران اس میں ترمیم کر سکیں۔ کلاسک موڈل ڈائیلاگ "
+"کے لیے اسے غیر منتخب کریں۔"
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer دستاویز کے ٹولز (بشمول نیویگیشن اور تلاش)"

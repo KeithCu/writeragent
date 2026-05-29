@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-28 16:02-0400\n"
+"POT-Creation-Date: 2026-05-28 22:51-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Latvian <LL@li.org>\n"
@@ -897,6 +897,90 @@ msgstr "Augstums:"
 msgid "Width:"
 msgstr "Platums:"
 
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Document scripts are too large to store in the document ({0} bytes)."
+msgstr ""
+"Dokumenta skripti ir pārāk lieli, lai tos saglabātu dokumentā ({0} baiti)."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+#: plugin/scripting/python_runner.py
+msgid "No document is open to save scripts."
+msgstr "Nav atvērts neviens dokuments, kurā saglabāt skriptus."
+
+#: plugin/scripting/document_scripts.py
+msgid ""
+"Document is read-only or properties cannot be written. Script saved to your "
+"personal library instead."
+msgstr ""
+"Dokuments ir tikai lasāms vai rekvizītus nevar ierakstīt. Skripts tā vietā "
+"saglabāts jūsu personīgajā bibliotēkā."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+msgid "Script name cannot be empty."
+msgstr "Skripta nosaukums nevar būt tukšs."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document."
+msgstr "Skripts ar nosaukumu '{0}' šajā dokumentā jau pastāv."
+
+#: plugin/scripting/document_scripts.py
+msgid "My Scripts"
+msgstr "Mani skripti"
+
+#: plugin/scripting/document_scripts.py
+msgid "This Document"
+msgstr "Šis dokuments"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts."
+msgstr "Skripts '{0}' saglabāts mapē Mani skripti."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to this document."
+msgstr "Skripts '{0}' saglabāts šajā dokumentā."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}'."
+msgstr "Skripts '{0}' saglabāts."
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open to attach scripts."
+msgstr "Nav atvērts neviens dokuments, kuram pievienot skriptus."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Attached script '{0}' to this document."
+msgstr "Skripts '{0}' pievienots šim dokumentam."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in My Scripts."
+msgstr "Skripts ar nosaukumu '{0}' jau pastāv sadaļā \"Mani skripti\"."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Copied script '{0}' to My Scripts."
+msgstr "Skripts '{0}' nokopēts uz \"Mani skripti\"."
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open."
+msgstr "Nav atvērts neviens dokuments."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted document script '{0}'."
+msgstr "Dzēsts dokumenta skripts '{0}'."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted script '{0}'."
+msgstr "Dzēsts skripts '{0}'."
+
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
 msgstr "Neizdevās palaist Python redaktoru."
@@ -1000,6 +1084,10 @@ msgid "Script:"
 msgstr "Skripts:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach"
+msgstr "Pievienot"
+
+#: plugin/scripting/python_runner.py
 msgid "Save As..."
 msgstr "Saglabāt kā..."
 
@@ -1017,6 +1105,16 @@ msgstr ""
 
 #: plugin/scripting/python_runner.py
 #, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s Tā vietā saglabāts sadaļā \"Mani skripti\"."
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "Skripts '%s' saglabāts šajā dokumentā."
+
+#: plugin/scripting/python_runner.py
+#, python-format
 msgid "Script '%s' saved successfully."
 msgstr "Skripts '%s' veiksmīgi saglabāts."
 
@@ -1029,8 +1127,31 @@ msgid "Enter script name:"
 msgstr "Ievadiet skripta nosaukumu:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach to Document"
+msgstr "Pievienot dokumentam"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr "Skripts ar nosaukumu '{0}' šajā dokumentā jau pastāv. Pārrakstīt?"
+
+#: plugin/scripting/python_runner.py
+msgid "Attach Script"
+msgstr "Pievienot skriptu"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' attached to this document."
+msgstr "Skripts '%s' ir pievienots šim dokumentam."
+
+#: plugin/scripting/python_runner.py
 msgid "Save Script"
 msgstr "Saglabāt skriptu"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "Saglabāt skriptu '{0}' šajā dokumentā?"
 
 #: plugin/scripting/python_runner.py
 msgid "Are you sure you want to clear the Sample scratchpad?"
@@ -1093,10 +1214,6 @@ msgid "Script executed successfully."
 msgstr "Skripts veiksmīgi izpildīts."
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved."
-msgstr "Skripts saglabāts."
-
-#: plugin/scripting/python_runner.py
 msgid "Execution Error"
 msgstr "Izpildes kļūda"
 
@@ -1107,6 +1224,10 @@ msgstr "Veiksmīgi"
 #: plugin/scripting/python_runner.py
 msgid "Output"
 msgstr "Izvade"
+
+#: plugin/scripting/python_runner.py
+msgid "Script saved."
+msgstr "Skripts saglabāts."
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -1525,13 +1646,27 @@ msgstr "Tīmekļa kešatmiņas derīguma termiņš (dienās)"
 msgid "How many days cache entries should be considered valid."
 msgstr "Cik dienas kešatmiņas ieraksti jāuzskata par derīgiem."
 
-msgid "Rich Text Chat Sidebar"
-msgstr "Bagātinātā teksta tērzēšanas sānjosla"
+msgid "Rich Text Chat Sidebar (embedded Writer)"
+msgstr "Bagātinātā teksta tērzēšanas sānjosla (iegultais Writer)"
 
-msgid "Use embedded Writer document for chat display (requires restart)"
+msgid ""
+"Experimental: embeds a Writer frame in the sidebar (requires restart). If "
+"both rich-text options are enabled, this wins over Rich Text Control."
 msgstr ""
-"Izmantot iegulto Writer dokumentu tērzēšanas attēlošanai (nepieciešama "
-"restartēšana)"
+"Eksperimentāli: iegulst Writer ietvaru sānjoslā (nepieciešama restartēšana)."
+" Ja ir iespējotas abas bagātinātā teksta opcijas, šī ir prioritāra pār "
+"bagātinātā teksta vadīklu."
+
+msgid "Rich Text Control Sidebar"
+msgstr "Bagātinātā teksta vadīklas sānjosla"
+
+msgid ""
+"Formatted chat via RichTextControl (on by default). Requires restart. "
+"Uncheck for plain-text chat only."
+msgstr ""
+"Formatēta tērzēšana, izmantojot RichTextControl (pēc noklusējuma ieslēgts). "
+"Nepieciešama restartēšana. Noņemiet atzīmi, lai izmantotu tikai vienkārša "
+"teksta tērzēšanu."
 
 msgid "Doc"
 msgstr "Dokuments"
@@ -1698,6 +1833,18 @@ msgid ""
 msgstr ""
 "Ja atzīmēts, tiek apiets Monaco skriptu redaktors un izmantots LibreOffice "
 "dialoglodziņš."
+
+msgid "Modeless Run Python Script dialog"
+msgstr "Nesaistīts Python skripta izpildes dialoglodziņš"
+
+msgid ""
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
+msgstr ""
+"Ja šī izvēles rūtiņa ir atzīmēta, vienkāršā teksta dialoglodziņš \"Palaist "
+"Python skriptu\" paliek virs citiem logiem, ļaujot rediģēt dokumentu, kamēr "
+"tas ir atvērts. Noņemiet atzīmi, lai izmantotu klasisko modālo "
+"dialoglodziņu."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer dokumentu rīki (tostarp navigācija un meklēšana)"

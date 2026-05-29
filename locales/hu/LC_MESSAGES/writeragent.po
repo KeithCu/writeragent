@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-28 16:02-0400\n"
+"POT-Creation-Date: 2026-05-28 22:51-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Hungarian <LL@li.org>\n"
@@ -897,6 +897,91 @@ msgstr "Magasság:"
 msgid "Width:"
 msgstr "Szélesség:"
 
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Document scripts are too large to store in the document ({0} bytes)."
+msgstr ""
+"A dokumentum-szkriptek túl nagyok a dokumentumban való tároláshoz ({0} "
+"bájt)."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+#: plugin/scripting/python_runner.py
+msgid "No document is open to save scripts."
+msgstr "Nincs megnyitott dokumentum a szkriptek mentéséhez."
+
+#: plugin/scripting/document_scripts.py
+msgid ""
+"Document is read-only or properties cannot be written. Script saved to your "
+"personal library instead."
+msgstr ""
+"A dokumentum írásvédett, vagy a tulajdonságok nem írhatók. A szkript "
+"helyette a személyes könyvtárába lett mentve."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+msgid "Script name cannot be empty."
+msgstr "A szkript neve nem lehet üres."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document."
+msgstr "A(z) „{0}” nevű szkript már létezik ebben a dokumentumban."
+
+#: plugin/scripting/document_scripts.py
+msgid "My Scripts"
+msgstr "Saját szkriptek"
+
+#: plugin/scripting/document_scripts.py
+msgid "This Document"
+msgstr "Ez a dokumentum"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts."
+msgstr "A(z) „{0}” szkript mentve a Saját szkriptek közé."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to this document."
+msgstr "A(z) „{0}” szkript mentve ebbe a dokumentumba."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}'."
+msgstr "A(z) „{0}” szkript mentve."
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open to attach scripts."
+msgstr "Nincs megnyitott dokumentum a parancsfájlok csatolásához."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Attached script '{0}' to this document."
+msgstr "A(z) „{0}” parancsfájl csatolva ehhez a dokumentumhoz."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in My Scripts."
+msgstr "A(z) „{0}” nevű parancsfájl már létezik a Saját parancsfájlok között."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Copied script '{0}' to My Scripts."
+msgstr "A(z) „{0}” parancsfájl átmásolva a Saját parancsfájlok közé."
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open."
+msgstr "Nincs megnyitott dokumentum."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted document script '{0}'."
+msgstr "A(z) „{0}” dokumentumparancsfájl törölve."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted script '{0}'."
+msgstr "A(z) „{0}” parancsfájl törölve."
+
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
 msgstr "Nem sikerült elindítani a Python-szerkesztőt."
@@ -1002,6 +1087,10 @@ msgid "Script:"
 msgstr "Parancsfájl:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach"
+msgstr "Csatolás"
+
+#: plugin/scripting/python_runner.py
 msgid "Save As..."
 msgstr "Mentés másként…"
 
@@ -1019,6 +1108,16 @@ msgstr ""
 
 #: plugin/scripting/python_runner.py
 #, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s Helyette mentve a Saját parancsfájlok közé."
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "A(z) „%s” parancsfájl mentve ehhez a dokumentumhoz."
+
+#: plugin/scripting/python_runner.py
+#, python-format
 msgid "Script '%s' saved successfully."
 msgstr "A(z) „%s” parancsfájl sikeresen mentve."
 
@@ -1031,8 +1130,32 @@ msgid "Enter script name:"
 msgstr "Adja meg a parancsfájl nevét:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach to Document"
+msgstr "Dokumentumhoz csatolás"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr ""
+"A(z) „{0}” nevű parancsfájl már létezik ebben a dokumentumban. Felülírja?"
+
+#: plugin/scripting/python_runner.py
+msgid "Attach Script"
+msgstr "Parancsfájl csatolása"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' attached to this document."
+msgstr "A(z) „%s” parancsfájl a dokumentumhoz csatolva."
+
+#: plugin/scripting/python_runner.py
 msgid "Save Script"
 msgstr "Parancsfájl mentése"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "Mentse a(z) „{0}” parancsfájlt ebbe a dokumentumba?"
 
 #: plugin/scripting/python_runner.py
 msgid "Are you sure you want to clear the Sample scratchpad?"
@@ -1095,10 +1218,6 @@ msgid "Script executed successfully."
 msgstr "A parancsfájl sikeresen lefutott."
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved."
-msgstr "Parancsfájl mentve."
-
-#: plugin/scripting/python_runner.py
 msgid "Execution Error"
 msgstr "Végrehajtási hiba"
 
@@ -1109,6 +1228,10 @@ msgstr "Siker"
 #: plugin/scripting/python_runner.py
 msgid "Output"
 msgstr "Kimenet"
+
+#: plugin/scripting/python_runner.py
+msgid "Script saved."
+msgstr "Parancsfájl mentve."
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -1527,13 +1650,27 @@ msgstr "Webes gyorsítótár érvényessége (nap)"
 msgid "How many days cache entries should be considered valid."
 msgstr "Hány napig legyenek érvényesek a gyorsítótár-bejegyzések."
 
-msgid "Rich Text Chat Sidebar"
-msgstr "Rich Text csevegő oldalsáv"
+msgid "Rich Text Chat Sidebar (embedded Writer)"
+msgstr "Rich Text csevegő oldalsáv (beágyazott Writer)"
 
-msgid "Use embedded Writer document for chat display (requires restart)"
+msgid ""
+"Experimental: embeds a Writer frame in the sidebar (requires restart). If "
+"both rich-text options are enabled, this wins over Rich Text Control."
 msgstr ""
-"Beágyazott Writer-dokumentum használata a csevegés megjelenítéséhez "
-"(újraindítást igényel)"
+"Kísérleti: Writer-keretet ágyaz az oldalsávba (újraindítást igényel). Ha "
+"mindkét rich-text beállítás engedélyezve van, ez felülbírálja a Rich Text "
+"vezérlőt."
+
+msgid "Rich Text Control Sidebar"
+msgstr "Rich Text vezérlő oldalsáv"
+
+msgid ""
+"Formatted chat via RichTextControl (on by default). Requires restart. "
+"Uncheck for plain-text chat only."
+msgstr ""
+"Formázott csevegés a RichTextControl használatával (alapértelmezés szerint "
+"bekapcsolva). Újraindítást igényel. Törölje a jelölést a csak egyszerű "
+"szöveges csevegéshez."
 
 msgid "Doc"
 msgstr "Dokumentum"
@@ -1704,6 +1841,18 @@ msgid ""
 msgstr ""
 "Ha be van jelölve, kihagyja a Monaco parancsfájl-szerkesztőt, és a "
 "LibreOffice párbeszédablakát használja."
+
+msgid "Modeless Run Python Script dialog"
+msgstr "Nem modális Python-parancsfájl futtatása párbeszédablak"
+
+msgid ""
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
+msgstr ""
+"Ha be van jelölve, az egyszerű szöveges Python-szkript futtatása "
+"párbeszédablak lebegő módban jelenik meg, így a dokumentum szerkeszthető "
+"marad, miközben az ablak nyitva van. A klasszikus modális párbeszédablakhoz "
+"vegye ki a jelölést."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer-dokumentumeszközök (beleértve a navigációt és a keresést)"

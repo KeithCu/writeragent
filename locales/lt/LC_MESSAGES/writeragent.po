@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-28 16:02-0400\n"
+"POT-Creation-Date: 2026-05-28 22:51-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Lithuanian <LL@li.org>\n"
@@ -890,6 +890,89 @@ msgstr "Aukštis:"
 msgid "Width:"
 msgstr "Plotis:"
 
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Document scripts are too large to store in the document ({0} bytes)."
+msgstr "Dokumento scenarijai yra per dideli saugoti dokumente ({0} baitų)."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+#: plugin/scripting/python_runner.py
+msgid "No document is open to save scripts."
+msgstr "Nėra atidaryto dokumento scenarijams įrašyti."
+
+#: plugin/scripting/document_scripts.py
+msgid ""
+"Document is read-only or properties cannot be written. Script saved to your "
+"personal library instead."
+msgstr ""
+"Dokumentas yra tik skaitymo režimu arba savybių įrašyti negalima. Scenarijus"
+" įrašytas į jūsų asmeninę biblioteką."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+msgid "Script name cannot be empty."
+msgstr "Scenarijaus pavadinimas negali būti tuščias."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document."
+msgstr "Scenarijus pavadinimu „{0}“ šiame dokumente jau yra."
+
+#: plugin/scripting/document_scripts.py
+msgid "My Scripts"
+msgstr "Mano scenarijai"
+
+#: plugin/scripting/document_scripts.py
+msgid "This Document"
+msgstr "Šis dokumentas"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts."
+msgstr "Scenarijus „{0}“ įrašytas į „Mano scenarijus“."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to this document."
+msgstr "Scenarijus „{0}“ įrašytas į šį dokumentą."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}'."
+msgstr "Scenarijus „{0}“ įrašytas."
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open to attach scripts."
+msgstr "Nėra atidaryto dokumento scenarijams pridėti."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Attached script '{0}' to this document."
+msgstr "Prie šio dokumento pridėtas scenarijus „{0}“."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in My Scripts."
+msgstr "Scenarijus pavadinimu „{0}“ jau yra „Mano scenarijuose“."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Copied script '{0}' to My Scripts."
+msgstr "Scenarijus „{0}“ nukopijuotas į „Mano scenarijus“."
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open."
+msgstr "Nėra atidaryto dokumento."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted document script '{0}'."
+msgstr "Pašalintas dokumento scenarijus „{0}“."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted script '{0}'."
+msgstr "Pašalintas scenarijus „{0}“."
+
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
 msgstr "Nepavyko paleisti Python redaktoriaus."
@@ -993,6 +1076,10 @@ msgid "Script:"
 msgstr "Scenarijus:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach"
+msgstr "Pridėti"
+
+#: plugin/scripting/python_runner.py
 msgid "Save As..."
 msgstr "Įrašyti kaip..."
 
@@ -1010,6 +1097,16 @@ msgstr ""
 
 #: plugin/scripting/python_runner.py
 #, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s Įrašyta į „Mano scenarijus“."
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "Scenarijus „%s“ įrašytas į šį dokumentą."
+
+#: plugin/scripting/python_runner.py
+#, python-format
 msgid "Script '%s' saved successfully."
 msgstr "Scenarijus „%s“ sėkmingai įrašytas."
 
@@ -1022,8 +1119,31 @@ msgid "Enter script name:"
 msgstr "Įveskite scenarijaus pavadinimą:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach to Document"
+msgstr "Pridėti prie dokumento"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr "Scenarijus pavadinimu „{0}“ šiame dokumente jau yra. Perrašyti?"
+
+#: plugin/scripting/python_runner.py
+msgid "Attach Script"
+msgstr "Pridėti scenarijų"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' attached to this document."
+msgstr "Scenarijus „%s“ pridėtas prie šio dokumento."
+
+#: plugin/scripting/python_runner.py
 msgid "Save Script"
 msgstr "Įrašyti scenarijų"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "Įrašyti scenarijų „{0}“ į šį dokumentą?"
 
 #: plugin/scripting/python_runner.py
 msgid "Are you sure you want to clear the Sample scratchpad?"
@@ -1086,10 +1206,6 @@ msgid "Script executed successfully."
 msgstr "Scriptas sėkmingai įvykdytas."
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved."
-msgstr "Scenarijus įrašytas."
-
-#: plugin/scripting/python_runner.py
 msgid "Execution Error"
 msgstr "Vykdymo klaida"
 
@@ -1100,6 +1216,10 @@ msgstr "Sėkmė"
 #: plugin/scripting/python_runner.py
 msgid "Output"
 msgstr "Išvestis"
+
+#: plugin/scripting/python_runner.py
+msgid "Script saved."
+msgstr "Scenarijus įrašytas."
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -1516,13 +1636,27 @@ msgstr "Žiniatinklio podėlio galiojimas (dienomis)"
 msgid "How many days cache entries should be considered valid."
 msgstr "Kiek dienų podėlio įrašai turėtų būti laikomi galiojančiais."
 
-msgid "Rich Text Chat Sidebar"
-msgstr "„Rich Text“ pokalbių šoninė juosta"
+msgid "Rich Text Chat Sidebar (embedded Writer)"
+msgstr "Raiškiojo teksto pokalbių šoninė juosta (įdėtasis Writer)"
 
-msgid "Use embedded Writer document for chat display (requires restart)"
+msgid ""
+"Experimental: embeds a Writer frame in the sidebar (requires restart). If "
+"both rich-text options are enabled, this wins over Rich Text Control."
 msgstr ""
-"Naudoti įdėtąjį „Writer“ dokumentą pokalbių rodymui (reikia paleisti iš "
-"naujo)"
+"Eksperimentinė funkcija: įdeda Writer kadrą į šoninę juostą (reikia paleisti"
+" iš naujo). Jei įjungtos abi raiškiojo teksto parinktys, ši turi pirmenybę "
+"prieš raiškiojo teksto valdiklį."
+
+msgid "Rich Text Control Sidebar"
+msgstr "Raiškiojo teksto valdiklio šoninė juosta"
+
+msgid ""
+"Formatted chat via RichTextControl (on by default). Requires restart. "
+"Uncheck for plain-text chat only."
+msgstr ""
+"Pokalbiai su formatavimu naudojant „RichTextControl“ (įjungta pagal "
+"numatytuosius nustatymus). Reikia paleisti iš naujo. Išjunkite, jei norite "
+"tik paprasto teksto pokalbių."
 
 msgid "Doc"
 msgstr "Dokumentas"
@@ -1694,6 +1828,17 @@ msgid ""
 msgstr ""
 "Jei pažymėta, apeinama „Monaco“ scenarijų rengyklė ir naudojamas "
 "„LibreOffice“ dialogas."
+
+msgid "Modeless Run Python Script dialog"
+msgstr "Nerežiminis Python scenarijaus vykdymo dialogas"
+
+msgid ""
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
+msgstr ""
+"Kai pažymėta, paprasto teksto „Python“ scenarijaus vykdymo dialogas išlieka "
+"viršuje, todėl galite redaguoti dokumentą, kol jis atidarytas. Atžymėkite, "
+"jei norite naudoti klasikinį modalinį dialogą."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "„Writer“ dokumentų įrankiai (įskaitant naršymą ir paiešką)"

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-28 16:02-0400\n"
+"POT-Creation-Date: 2026-05-28 22:51-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Romanian <LL@li.org>\n"
@@ -899,6 +899,91 @@ msgstr "Înălțime:"
 msgid "Width:"
 msgstr "Lățime:"
 
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Document scripts are too large to store in the document ({0} bytes)."
+msgstr ""
+"Scripturile documentului sunt prea mari pentru a fi stocate în document ({0}"
+" octeți)."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+#: plugin/scripting/python_runner.py
+msgid "No document is open to save scripts."
+msgstr "Niciun document nu este deschis pentru a salva scripturile."
+
+#: plugin/scripting/document_scripts.py
+msgid ""
+"Document is read-only or properties cannot be written. Script saved to your "
+"personal library instead."
+msgstr ""
+"Documentul este doar în citire sau proprietățile nu pot fi scrise. Scriptul "
+"a fost salvat în biblioteca personală."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+msgid "Script name cannot be empty."
+msgstr "Numele scriptului nu poate fi gol."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document."
+msgstr "Un script numit „{0}” există deja în acest document."
+
+#: plugin/scripting/document_scripts.py
+msgid "My Scripts"
+msgstr "Scripturile mele"
+
+#: plugin/scripting/document_scripts.py
+msgid "This Document"
+msgstr "Acest document"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts."
+msgstr "Scriptul „{0}” a fost salvat în Scripturile mele."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to this document."
+msgstr "Scriptul „{0}” a fost salvat în acest document."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}'."
+msgstr "Scriptul „{0}” a fost salvat."
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open to attach scripts."
+msgstr "Niciun document nu este deschis pentru a atașa scripturi."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Attached script '{0}' to this document."
+msgstr "Scriptul „{0}” a fost atașat acestui document."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in My Scripts."
+msgstr "Un script numit „{0}” există deja în Scripturile mele."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Copied script '{0}' to My Scripts."
+msgstr "Scriptul „{0}” a fost copiat în Scripturile mele."
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open."
+msgstr "Niciun document nu este deschis."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted document script '{0}'."
+msgstr "Scriptul de document „{0}” a fost șters."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted script '{0}'."
+msgstr "Scriptul „{0}” a fost șters."
+
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
 msgstr "Nu s-a putut porni editorul Python."
@@ -1003,6 +1088,10 @@ msgid "Script:"
 msgstr "Script:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach"
+msgstr "Atașare"
+
+#: plugin/scripting/python_runner.py
 msgid "Save As..."
 msgstr "Salvare ca..."
 
@@ -1020,6 +1109,16 @@ msgstr ""
 
 #: plugin/scripting/python_runner.py
 #, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s Salvat în Scripturile mele în schimb."
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "Scriptul „%s” a fost salvat în acest document."
+
+#: plugin/scripting/python_runner.py
+#, python-format
 msgid "Script '%s' saved successfully."
 msgstr "Scriptul „%s” a fost salvat cu succes."
 
@@ -1032,8 +1131,31 @@ msgid "Enter script name:"
 msgstr "Introduceți numele scriptului:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach to Document"
+msgstr "Atașare la document"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr "Un script numit „{0}” există deja în acest document. Suprascrieți?"
+
+#: plugin/scripting/python_runner.py
+msgid "Attach Script"
+msgstr "Atașare script"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' attached to this document."
+msgstr "Scriptul „%s” a fost atașat la acest document."
+
+#: plugin/scripting/python_runner.py
 msgid "Save Script"
 msgstr "Salvează scriptul"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "Salvați scriptul „{0}” în acest document?"
 
 #: plugin/scripting/python_runner.py
 msgid "Are you sure you want to clear the Sample scratchpad?"
@@ -1096,10 +1218,6 @@ msgid "Script executed successfully."
 msgstr "Script executat cu succes."
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved."
-msgstr "Script salvat."
-
-#: plugin/scripting/python_runner.py
 msgid "Execution Error"
 msgstr "Eroare de execuție"
 
@@ -1110,6 +1228,10 @@ msgstr "Succes"
 #: plugin/scripting/python_runner.py
 msgid "Output"
 msgstr "Ieșire"
+
+#: plugin/scripting/python_runner.py
+msgid "Script saved."
+msgstr "Script salvat."
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -1529,13 +1651,26 @@ msgstr "Valabilitate cache web (zile)"
 msgid "How many days cache entries should be considered valid."
 msgstr "Câte zile ar trebui să fie considerate valide intrările din cache."
 
-msgid "Rich Text Chat Sidebar"
-msgstr "Bară laterală pentru chat text îmbogățit"
+msgid "Rich Text Chat Sidebar (embedded Writer)"
+msgstr "Bară laterală chat text îmbogățit (Writer încorporat)"
 
-msgid "Use embedded Writer document for chat display (requires restart)"
+msgid ""
+"Experimental: embeds a Writer frame in the sidebar (requires restart). If "
+"both rich-text options are enabled, this wins over Rich Text Control."
 msgstr ""
-"Utilizați documentul Writer încorporat pentru afișarea chatului (necesită "
-"repornire)"
+"Experimental: încorporează un cadru Writer în bara laterală (necesită "
+"repornire). Dacă ambele opțiuni de text îmbogățit sunt activate, aceasta are"
+" prioritate față de Controlul text îmbogățit."
+
+msgid "Rich Text Control Sidebar"
+msgstr "Bară laterală control text îmbogățit"
+
+msgid ""
+"Formatted chat via RichTextControl (on by default). Requires restart. "
+"Uncheck for plain-text chat only."
+msgstr ""
+"Chat formatat prin RichTextControl (activat implicit). Necesită repornire. "
+"Debifați pentru chat doar text simplu."
 
 msgid "Doc"
 msgstr "Doc"
@@ -1705,6 +1840,17 @@ msgid ""
 msgstr ""
 "Dacă este bifat, omite editorul de script Monaco și utilizează dialogul "
 "LibreOffice."
+
+msgid "Modeless Run Python Script dialog"
+msgstr "Dialog de rulare script Python nemodal"
+
+msgid ""
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
+msgstr ""
+"Dacă este bifată, fereastra de dialog „Execută script Python” (text simplu) "
+"va pluti, permițându-vă să editați documentul în timp ce aceasta este "
+"deschisă. Debifați pentru a reveni la fereastra de dialog modală clasică."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Instrumente pentru documente Writer (inclusiv navigare și căutare)"

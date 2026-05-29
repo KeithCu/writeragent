@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-28 16:02-0400\n"
+"POT-Creation-Date: 2026-05-28 22:51-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Turkish <LL@li.org>\n"
@@ -896,6 +896,89 @@ msgstr "Yükseklik:"
 msgid "Width:"
 msgstr "Genişlik:"
 
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Document scripts are too large to store in the document ({0} bytes)."
+msgstr "Belge betikleri belgeye kaydedilemeyecek kadar büyük ({0} bayt)."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+#: plugin/scripting/python_runner.py
+msgid "No document is open to save scripts."
+msgstr "Betikleri kaydetmek için açık bir belge yok."
+
+#: plugin/scripting/document_scripts.py
+msgid ""
+"Document is read-only or properties cannot be written. Script saved to your "
+"personal library instead."
+msgstr ""
+"Belge salt okunur veya özellikler yazılamıyor. Betik bunun yerine kişisel "
+"kitaplığınıza kaydedildi."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+msgid "Script name cannot be empty."
+msgstr "Betik adı boş olamaz."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document."
+msgstr "'{0}' adlı bir betik bu belgede zaten var."
+
+#: plugin/scripting/document_scripts.py
+msgid "My Scripts"
+msgstr "Betiklerim"
+
+#: plugin/scripting/document_scripts.py
+msgid "This Document"
+msgstr "Bu Belge"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts."
+msgstr "'{0}' betiği Betiklerim'e kaydedildi."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to this document."
+msgstr "'{0}' betiği bu belgeye kaydedildi."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}'."
+msgstr "'{0}' betiği kaydedildi."
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open to attach scripts."
+msgstr "Betik eklemek için açık bir belge yok."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Attached script '{0}' to this document."
+msgstr "'{0}' betiği bu belgeye eklendi."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in My Scripts."
+msgstr "'{0}' adında bir betik zaten 'Betiklerim' içinde mevcut."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Copied script '{0}' to My Scripts."
+msgstr "'{0}' betiği 'Betiklerim'e kopyalandı."
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open."
+msgstr "Açık bir belge yok."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted document script '{0}'."
+msgstr "Belge betiği '{0}' silindi."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted script '{0}'."
+msgstr "'{0}' betiği silindi."
+
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
 msgstr "Python düzenleyicisi başlatılamadı."
@@ -996,6 +1079,10 @@ msgid "Script:"
 msgstr "Betik:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach"
+msgstr "Ekle"
+
+#: plugin/scripting/python_runner.py
 msgid "Save As..."
 msgstr "Farklı Kaydet..."
 
@@ -1013,6 +1100,16 @@ msgstr ""
 
 #: plugin/scripting/python_runner.py
 #, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s yerine 'Betiklerim'e kaydedildi."
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "'%s' betiği bu belgeye kaydedildi."
+
+#: plugin/scripting/python_runner.py
+#, python-format
 msgid "Script '%s' saved successfully."
 msgstr "'%s' betiği başarıyla kaydedildi."
 
@@ -1025,8 +1122,31 @@ msgid "Enter script name:"
 msgstr "Betik adını girin:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach to Document"
+msgstr "Belgeye Ekle"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr "'{0}' adlı bir betik bu belgede zaten var. Üzerine yazılsın mı?"
+
+#: plugin/scripting/python_runner.py
+msgid "Attach Script"
+msgstr "Betik Ekle"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' attached to this document."
+msgstr "'%s' betiği bu belgeye eklendi."
+
+#: plugin/scripting/python_runner.py
 msgid "Save Script"
 msgstr "Betik Kaydet"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "'{0}' betiği bu belgeye kaydedilsin mi?"
 
 #: plugin/scripting/python_runner.py
 msgid "Are you sure you want to clear the Sample scratchpad?"
@@ -1088,10 +1208,6 @@ msgid "Script executed successfully."
 msgstr "Betik başarıyla çalıştırıldı."
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved."
-msgstr "Betik kaydedildi."
-
-#: plugin/scripting/python_runner.py
 msgid "Execution Error"
 msgstr "Yürütme Hatası"
 
@@ -1102,6 +1218,10 @@ msgstr "Başarılı"
 #: plugin/scripting/python_runner.py
 msgid "Output"
 msgstr "Çıktı"
+
+#: plugin/scripting/python_runner.py
+msgid "Script saved."
+msgstr "Betik kaydedildi."
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -1518,13 +1638,27 @@ msgstr "Web Önbelleği Geçerlilik Süresi (Gün)"
 msgid "How many days cache entries should be considered valid."
 msgstr "Önbellek girdilerinin kaç gün geçerli kabul edileceği."
 
-msgid "Rich Text Chat Sidebar"
-msgstr "Zengin Metin Sohbet Kenar Çubuğu"
+msgid "Rich Text Chat Sidebar (embedded Writer)"
+msgstr "Zengin Metin Sohbet Kenar Çubuğu (gömülü Writer)"
 
-msgid "Use embedded Writer document for chat display (requires restart)"
+msgid ""
+"Experimental: embeds a Writer frame in the sidebar (requires restart). If "
+"both rich-text options are enabled, this wins over Rich Text Control."
 msgstr ""
-"Sohbet görünümü için gömülü Writer belgesini kullan (yeniden başlatma "
-"gerektirir)"
+"Deneysel: Kenar çubuğuna bir Writer çerçevesi gömer (yeniden başlatma "
+"gerektirir). Her iki zengin metin seçeneği de etkinleştirilirse, bu seçenek "
+"Zengin Metin Denetimi'ne tercih edilir."
+
+msgid "Rich Text Control Sidebar"
+msgstr "Zengin Metin Denetimi Kenar Çubuğu"
+
+msgid ""
+"Formatted chat via RichTextControl (on by default). Requires restart. "
+"Uncheck for plain-text chat only."
+msgstr ""
+"RichTextControl aracılığıyla biçimlendirilmiş sohbet (varsayılan olarak "
+"açık). Yeniden başlatma gerektirir. Yalnızca düz metin sohbeti için işareti "
+"kaldırın."
 
 msgid "Doc"
 msgstr "Belge"
@@ -1692,6 +1826,17 @@ msgid ""
 msgstr ""
 "İşaretliyse, Monaco betik düzenleyiciyi atlar ve LibreOffice iletişim "
 "kutusunu kullanır."
+
+msgid "Modeless Run Python Script dialog"
+msgstr "Kalıcı olmayan Python Betiğini Çalıştır iletişim kutusu"
+
+msgid ""
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
+msgstr ""
+"İşaretlendiğinde, düz metin Python Betiğini Çalıştır iletişim kutusu yüzer "
+"hale gelir, böylece belge açıkken düzenleme yapabilirsiniz. Klasik kalıcı "
+"iletişim kutusu için işareti kaldırın."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer belge araçları (gezinme ve arama dahil)"

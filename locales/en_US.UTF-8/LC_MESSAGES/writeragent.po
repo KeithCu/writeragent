@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-28 16:02-0400\n"
+"POT-Creation-Date: 2026-05-28 22:51-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: English (US) <LL@li.org>\n"
@@ -884,6 +884,89 @@ msgstr "Height:"
 msgid "Width:"
 msgstr "Width:"
 
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Document scripts are too large to store in the document ({0} bytes)."
+msgstr "Document scripts are too large to store in the document ({0} bytes)."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+#: plugin/scripting/python_runner.py
+msgid "No document is open to save scripts."
+msgstr "No document is open to save scripts."
+
+#: plugin/scripting/document_scripts.py
+msgid ""
+"Document is read-only or properties cannot be written. Script saved to your "
+"personal library instead."
+msgstr ""
+"Document is read-only or properties cannot be written. Script saved to your "
+"personal library instead."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+msgid "Script name cannot be empty."
+msgstr "Script name cannot be empty."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document."
+msgstr "A script named '{0}' already exists in this document."
+
+#: plugin/scripting/document_scripts.py
+msgid "My Scripts"
+msgstr "My Scripts"
+
+#: plugin/scripting/document_scripts.py
+msgid "This Document"
+msgstr "This Document"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts."
+msgstr "Saved script '{0}' to My Scripts."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to this document."
+msgstr "Saved script '{0}' to this document."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}'."
+msgstr "Saved script '{0}'."
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open to attach scripts."
+msgstr "No document is open to attach scripts."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Attached script '{0}' to this document."
+msgstr "Attached script '{0}' to this document."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in My Scripts."
+msgstr "A script named '{0}' already exists in My Scripts."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Copied script '{0}' to My Scripts."
+msgstr "Copied script '{0}' to My Scripts."
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open."
+msgstr "No document is open."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted document script '{0}'."
+msgstr "Deleted document script '{0}'."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted script '{0}'."
+msgstr "Deleted script '{0}'."
+
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
 msgstr "Could not start the Python editor."
@@ -982,6 +1065,10 @@ msgid "Script:"
 msgstr "Script:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach"
+msgstr "Attach"
+
+#: plugin/scripting/python_runner.py
 msgid "Save As..."
 msgstr "Save As..."
 
@@ -999,6 +1086,16 @@ msgstr ""
 
 #: plugin/scripting/python_runner.py
 #, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s Saved to My Scripts instead."
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "Script '%s' saved to this document."
+
+#: plugin/scripting/python_runner.py
+#, python-format
 msgid "Script '%s' saved successfully."
 msgstr "Script '%s' saved successfully."
 
@@ -1011,8 +1108,31 @@ msgid "Enter script name:"
 msgstr "Enter script name:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach to Document"
+msgstr "Attach to Document"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr "A script named '{0}' already exists in this document. Overwrite?"
+
+#: plugin/scripting/python_runner.py
+msgid "Attach Script"
+msgstr "Attach Script"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' attached to this document."
+msgstr "Script '%s' attached to this document."
+
+#: plugin/scripting/python_runner.py
 msgid "Save Script"
 msgstr "Save Script"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "Save script '{0}' to this document?"
 
 #: plugin/scripting/python_runner.py
 msgid "Are you sure you want to clear the Sample scratchpad?"
@@ -1072,10 +1192,6 @@ msgid "Script executed successfully."
 msgstr "Script executed successfully."
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved."
-msgstr "Script saved."
-
-#: plugin/scripting/python_runner.py
 msgid "Execution Error"
 msgstr "Execution Error"
 
@@ -1086,6 +1202,10 @@ msgstr "Success"
 #: plugin/scripting/python_runner.py
 msgid "Output"
 msgstr "Output"
+
+#: plugin/scripting/python_runner.py
+msgid "Script saved."
+msgstr "Script saved."
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -1499,11 +1619,25 @@ msgstr "Web Cache Validity (Days)"
 msgid "How many days cache entries should be considered valid."
 msgstr "How many days cache entries should be considered valid."
 
-msgid "Rich Text Chat Sidebar"
-msgstr "Rich Text Chat Sidebar"
+msgid "Rich Text Chat Sidebar (embedded Writer)"
+msgstr "Rich Text Chat Sidebar (embedded Writer)"
 
-msgid "Use embedded Writer document for chat display (requires restart)"
-msgstr "Use embedded Writer document for chat display (requires restart)"
+msgid ""
+"Experimental: embeds a Writer frame in the sidebar (requires restart). If "
+"both rich-text options are enabled, this wins over Rich Text Control."
+msgstr ""
+"Experimental: embeds a Writer frame in the sidebar (requires restart). If "
+"both rich-text options are enabled, this wins over Rich Text Control."
+
+msgid "Rich Text Control Sidebar"
+msgstr "Rich Text Control Sidebar"
+
+msgid ""
+"Formatted chat via RichTextControl (on by default). Requires restart. "
+"Uncheck for plain-text chat only."
+msgstr ""
+"Formatted chat via RichTextControl (on by default). Requires restart. "
+"Uncheck for plain-text chat only."
 
 msgid "Doc"
 msgstr "Doc"
@@ -1667,6 +1801,16 @@ msgid ""
 msgstr ""
 "If checked, bypasses the Monaco script editor and uses the LibreOffice "
 "dialog."
+
+msgid "Modeless Run Python Script dialog"
+msgstr "Modeless Run Python Script dialog"
+
+msgid ""
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
+msgstr ""
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer document tools (including navigation and search)"

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-28 16:02-0400\n"
+"POT-Creation-Date: 2026-05-28 22:51-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Finnish <LL@li.org>\n"
@@ -888,6 +888,91 @@ msgstr "Korkeus:"
 msgid "Width:"
 msgstr "Leveys:"
 
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Document scripts are too large to store in the document ({0} bytes)."
+msgstr ""
+"Asiakirjan skriptit ovat liian suuria tallennettavaksi asiakirjaan ({0} "
+"tavua)."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+#: plugin/scripting/python_runner.py
+msgid "No document is open to save scripts."
+msgstr "Yhtään asiakirjaa ei ole avattu skriptien tallentamista varten."
+
+#: plugin/scripting/document_scripts.py
+msgid ""
+"Document is read-only or properties cannot be written. Script saved to your "
+"personal library instead."
+msgstr ""
+"Asiakirja on kirjoitussuojattu tai ominaisuuksia ei voi kirjoittaa. Skripti "
+"tallennettiin sen sijaan henkilökohtaiseen kirjastoosi."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+msgid "Script name cannot be empty."
+msgstr "Skriptin nimi ei voi olla tyhjä."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document."
+msgstr "Skripti nimeltä '{0}' on jo olemassa tässä asiakirjassa."
+
+#: plugin/scripting/document_scripts.py
+msgid "My Scripts"
+msgstr "Omat skriptit"
+
+#: plugin/scripting/document_scripts.py
+msgid "This Document"
+msgstr "Tämä asiakirja"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts."
+msgstr "Skripti '{0}' tallennettiin Omiin skripteihin."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to this document."
+msgstr "Skripti '{0}' tallennettiin tähän asiakirjaan."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}'."
+msgstr "Skripti '{0}' tallennettiin."
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open to attach scripts."
+msgstr "Ei avointa asiakirjaa skriptien liittämistä varten."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Attached script '{0}' to this document."
+msgstr "Skripti '{0}' liitetty tähän asiakirjaan."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in My Scripts."
+msgstr "Skripti nimeltä '{0}' on jo olemassa Omissa skripteissä."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Copied script '{0}' to My Scripts."
+msgstr "Skripti '{0}' kopioitu Omiin skripteihin."
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open."
+msgstr "Ei avointa asiakirjaa."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted document script '{0}'."
+msgstr "Asiakirjan skripti '{0}' poistettu."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted script '{0}'."
+msgstr "Skripti '{0}' poistettu."
+
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
 msgstr "Python-editoria ei voitu käynnistää."
@@ -988,6 +1073,10 @@ msgid "Script:"
 msgstr "Komentosarja:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach"
+msgstr "Liitä"
+
+#: plugin/scripting/python_runner.py
 msgid "Save As..."
 msgstr "Tallenna nimellä..."
 
@@ -1005,6 +1094,16 @@ msgstr ""
 
 #: plugin/scripting/python_runner.py
 #, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s Tallennettu sen sijaan Omiin skripteihin."
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "Skripti '%s' tallennettu tähän asiakirjaan."
+
+#: plugin/scripting/python_runner.py
+#, python-format
 msgid "Script '%s' saved successfully."
 msgstr "Komentosarja \"%s\" tallennettiin onnistuneesti."
 
@@ -1017,8 +1116,31 @@ msgid "Enter script name:"
 msgstr "Kirjoita komentosarjan nimi:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach to Document"
+msgstr "Liitä asiakirjaan"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr "Asiakirjassa on jo komentosarja nimeltä '{0}'. Korvataanko se?"
+
+#: plugin/scripting/python_runner.py
+msgid "Attach Script"
+msgstr "Liitä komentosarja"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' attached to this document."
+msgstr "Komentosarja '%s' liitetty tähän asiakirjaan."
+
+#: plugin/scripting/python_runner.py
 msgid "Save Script"
 msgstr "Tallenna skripti"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "Tallennetaanko komentosarja '{0}' tähän asiakirjaan?"
 
 #: plugin/scripting/python_runner.py
 msgid "Are you sure you want to clear the Sample scratchpad?"
@@ -1081,10 +1203,6 @@ msgid "Script executed successfully."
 msgstr "Skripti suoritettu onnistuneesti."
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved."
-msgstr "Skripti tallennettu."
-
-#: plugin/scripting/python_runner.py
 msgid "Execution Error"
 msgstr "Suoritusvirhe"
 
@@ -1095,6 +1213,10 @@ msgstr "Onnistui"
 #: plugin/scripting/python_runner.py
 msgid "Output"
 msgstr "Tuloste"
+
+#: plugin/scripting/python_runner.py
+msgid "Script saved."
+msgstr "Skripti tallennettu."
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -1511,13 +1633,26 @@ msgstr "Verkkovälimuistin voimassaoloaika (päivinä)"
 msgid "How many days cache entries should be considered valid."
 msgstr "Kuinka monta päivää välimuistimerkintöjen katsotaan olevan voimassa."
 
-msgid "Rich Text Chat Sidebar"
-msgstr "RTF-keskustelun sivupalkki"
+msgid "Rich Text Chat Sidebar (embedded Writer)"
+msgstr "RTF-keskustelun sivupalkki (upotettu Writer)"
 
-msgid "Use embedded Writer document for chat display (requires restart)"
+msgid ""
+"Experimental: embeds a Writer frame in the sidebar (requires restart). If "
+"both rich-text options are enabled, this wins over Rich Text Control."
 msgstr ""
-"Käytä upotettua Writer-asiakirjaa keskustelun näyttämiseen (vaatii "
-"uudelleenkäynnistyksen)"
+"Kokeellinen: upottaa Writer-kehyksen sivupalkkiin (vaatii "
+"uudelleenkäynnistyksen). Jos molemmat RTF-valinnat ovat käytössä, tämä "
+"ohittaa Rich Text Controlin."
+
+msgid "Rich Text Control Sidebar"
+msgstr "Rich Text Control -sivupalkki"
+
+msgid ""
+"Formatted chat via RichTextControl (on by default). Requires restart. "
+"Uncheck for plain-text chat only."
+msgstr ""
+"Muotoiltu keskustelu RichTextControlin kautta (oletuksena päällä). Vaatii "
+"uudelleenkäynnistyksen. Poista valinta, jos haluat vain pelkkää tekstiä."
 
 msgid "Doc"
 msgstr "Asiakirja"
@@ -1686,6 +1821,17 @@ msgid ""
 msgstr ""
 "Jos valittu, ohittaa Monaco-skriptieditorin ja käyttää LibreOfficen "
 "valintaikkunaa."
+
+msgid "Modeless Run Python Script dialog"
+msgstr "Malliton Python-komentosarjan suoritusikkuna"
+
+msgid ""
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
+msgstr ""
+"Kun valittuna, pelkkää tekstiä sisältävä Suorita Python-skripti "
+"-valintaikkuna on kelluva, jolloin voit muokata asiakirjaa sen ollessa auki."
+" Poista valinta palataksesi perinteiseen modaaliseen valintaikkunaan."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer-asiakirjatyökalut (mukaan lukien siirtyminen ja haku)"

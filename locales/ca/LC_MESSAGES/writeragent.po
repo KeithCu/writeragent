@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-28 16:02-0400\n"
+"POT-Creation-Date: 2026-05-28 22:51-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Catalan <LL@li.org>\n"
@@ -897,6 +897,91 @@ msgstr "Alçada:"
 msgid "Width:"
 msgstr "Amplada:"
 
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Document scripts are too large to store in the document ({0} bytes)."
+msgstr ""
+"Els scripts del document són massa grans per emmagatzemar-los al document "
+"({0} bytes)."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+#: plugin/scripting/python_runner.py
+msgid "No document is open to save scripts."
+msgstr "No hi ha cap document obert per desar els scripts."
+
+#: plugin/scripting/document_scripts.py
+msgid ""
+"Document is read-only or properties cannot be written. Script saved to your "
+"personal library instead."
+msgstr ""
+"El document és de només lectura o no es poden escriure les propietats. "
+"L'script s'ha desat a la vostra biblioteca personal."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+msgid "Script name cannot be empty."
+msgstr "El nom de l'script no pot estar buit."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document."
+msgstr "Ja existeix un script anomenat «{0}» en aquest document."
+
+#: plugin/scripting/document_scripts.py
+msgid "My Scripts"
+msgstr "Els meus scripts"
+
+#: plugin/scripting/document_scripts.py
+msgid "This Document"
+msgstr "Aquest document"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts."
+msgstr "S'ha desat l'script «{0}» a Els meus scripts."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to this document."
+msgstr "S'ha desat l'script «{0}» en aquest document."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}'."
+msgstr "S'ha desat l'script «{0}»."
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open to attach scripts."
+msgstr "No hi ha cap document obert per adjuntar scripts."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Attached script '{0}' to this document."
+msgstr "S'ha adjuntat l'script «{0}» a aquest document."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in My Scripts."
+msgstr "Ja existeix un script anomenat «{0}» a Els meus scripts."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Copied script '{0}' to My Scripts."
+msgstr "S'ha copiat l'script «{0}» a Els meus scripts."
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open."
+msgstr "No hi ha cap document obert."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted document script '{0}'."
+msgstr "S'ha suprimit l'script del document «{0}»."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted script '{0}'."
+msgstr "S'ha suprimit l'script «{0}»."
+
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
 msgstr "No s'ha pogut iniciar l'editor de Python."
@@ -1000,6 +1085,10 @@ msgid "Script:"
 msgstr "Script:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach"
+msgstr "Adjunta"
+
+#: plugin/scripting/python_runner.py
 msgid "Save As..."
 msgstr "Anomena i desa..."
 
@@ -1017,6 +1106,16 @@ msgstr ""
 
 #: plugin/scripting/python_runner.py
 #, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s S'ha desat a Els meus scripts en el seu lloc."
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "L'script «%s» s'ha desat en aquest document."
+
+#: plugin/scripting/python_runner.py
+#, python-format
 msgid "Script '%s' saved successfully."
 msgstr "El script «%s» s'ha desat correctament."
 
@@ -1029,8 +1128,33 @@ msgid "Enter script name:"
 msgstr "Introduïu el nom del script:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach to Document"
+msgstr "Adjunta al document"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr ""
+"Ja existeix un script anomenat «{0}» en aquest document. Voleu "
+"sobreescriure'l?"
+
+#: plugin/scripting/python_runner.py
+msgid "Attach Script"
+msgstr "Adjunta l'script"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' attached to this document."
+msgstr "S'ha adjuntat l'script «%s» a aquest document."
+
+#: plugin/scripting/python_runner.py
 msgid "Save Script"
 msgstr "Desa l'script"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "Voleu desar l'script «{0}» en aquest document?"
 
 #: plugin/scripting/python_runner.py
 msgid "Are you sure you want to clear the Sample scratchpad?"
@@ -1093,10 +1217,6 @@ msgid "Script executed successfully."
 msgstr "L'script s'ha executat correctament."
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved."
-msgstr "L'script s'ha desat."
-
-#: plugin/scripting/python_runner.py
 msgid "Execution Error"
 msgstr "Error d'execució"
 
@@ -1107,6 +1227,10 @@ msgstr "Èxit"
 #: plugin/scripting/python_runner.py
 msgid "Output"
 msgstr "Sortida"
+
+#: plugin/scripting/python_runner.py
+msgid "Script saved."
+msgstr "L'script s'ha desat."
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -1525,13 +1649,26 @@ msgid "How many days cache entries should be considered valid."
 msgstr ""
 "Quants dies s'han de considerar vàlides les entrades de la memòria cau."
 
-msgid "Rich Text Chat Sidebar"
-msgstr "Barra lateral de xat de text enriquit"
+msgid "Rich Text Chat Sidebar (embedded Writer)"
+msgstr "Barra lateral de xat amb text enriquit (Writer incrustat)"
 
-msgid "Use embedded Writer document for chat display (requires restart)"
+msgid ""
+"Experimental: embeds a Writer frame in the sidebar (requires restart). If "
+"both rich-text options are enabled, this wins over Rich Text Control."
 msgstr ""
-"Utilitza un document del Writer incrustat per a la visualització del xat "
-"(requereix reiniciar)"
+"Experimental: incrusta un marc del Writer a la barra lateral (requereix "
+"reiniciar). Si ambdues opcions de text enriquit estan activades, aquesta té "
+"prioritat sobre el control de text enriquit."
+
+msgid "Rich Text Control Sidebar"
+msgstr "Barra lateral de control de text enriquit"
+
+msgid ""
+"Formatted chat via RichTextControl (on by default). Requires restart. "
+"Uncheck for plain-text chat only."
+msgstr ""
+"Xat formatat mitjançant RichTextControl (activat per defecte). Requereix "
+"reiniciar. Desmarqueu-ho per a xat només en text pla."
 
 msgid "Doc"
 msgstr "Doc"
@@ -1701,6 +1838,17 @@ msgid ""
 msgstr ""
 "Si està marcat, evita l'editor de scripts Monaco i utilitza el diàleg del "
 "LibreOffice."
+
+msgid "Modeless Run Python Script dialog"
+msgstr "Diàleg d'execució d'script de Python no modal"
+
+msgid ""
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
+msgstr ""
+"Si està marcada, el diàleg Executa l'script de Python de text pla flota "
+"perquè pugueu editar el document mentre està obert. Desmarqueu-la per al "
+"diàleg modal clàssic."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Eines de document del Writer (incloent-hi la navegació i la cerca)"

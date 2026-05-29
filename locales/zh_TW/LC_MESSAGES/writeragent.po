@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-28 16:02-0400\n"
+"POT-Creation-Date: 2026-05-28 22:51-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Chinese (Traditional) <LL@li.org>\n"
@@ -835,6 +835,87 @@ msgstr "高度："
 msgid "Width:"
 msgstr "寬度："
 
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Document scripts are too large to store in the document ({0} bytes)."
+msgstr "文件指令碼過大，無法儲存於文件中（{0} 位元組）。"
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+#: plugin/scripting/python_runner.py
+msgid "No document is open to save scripts."
+msgstr "沒有開啟任何文件以儲存指令碼。"
+
+#: plugin/scripting/document_scripts.py
+msgid ""
+"Document is read-only or properties cannot be written. Script saved to your "
+"personal library instead."
+msgstr "文件為唯讀狀態，或無法寫入屬性。指令碼已改為儲存至您的個人程式庫。"
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+msgid "Script name cannot be empty."
+msgstr "指令碼名稱不得為空。"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document."
+msgstr "名為「{0}」的指令碼已存在於此文件中。"
+
+#: plugin/scripting/document_scripts.py
+msgid "My Scripts"
+msgstr "我的指令碼"
+
+#: plugin/scripting/document_scripts.py
+msgid "This Document"
+msgstr "本文件"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts."
+msgstr "已將指令碼「{0}」儲存至「我的指令碼」。"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to this document."
+msgstr "已將指令碼「{0}」儲存至本文件。"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}'."
+msgstr "已儲存指令碼「{0}」。"
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open to attach scripts."
+msgstr "沒有開啟任何文件以附加指令碼。"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Attached script '{0}' to this document."
+msgstr "已將指令碼「{0}」附加至此文件。"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in My Scripts."
+msgstr "名為「{0}」的指令碼已存在於「我的指令碼」中。"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Copied script '{0}' to My Scripts."
+msgstr "已將指令碼「{0}」複製到「我的指令碼」。"
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open."
+msgstr "沒有開啟任何文件。"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted document script '{0}'."
+msgstr "已刪除文件指令碼「{0}」。"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted script '{0}'."
+msgstr "已刪除指令碼「{0}」。"
+
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
 msgstr "無法啟動 Python 編輯器。"
@@ -924,6 +1005,10 @@ msgid "Script:"
 msgstr "指令碼："
 
 #: plugin/scripting/python_runner.py
+msgid "Attach"
+msgstr "附加"
+
+#: plugin/scripting/python_runner.py
 msgid "Save As..."
 msgstr "另存新檔..."
 
@@ -941,6 +1026,16 @@ msgstr ""
 
 #: plugin/scripting/python_runner.py
 #, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s 已改為儲存至「我的指令碼」。"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "指令碼「%s」已儲存至此文件。"
+
+#: plugin/scripting/python_runner.py
+#, python-format
 msgid "Script '%s' saved successfully."
 msgstr "指令碼「%s」已成功儲存。"
 
@@ -953,8 +1048,31 @@ msgid "Enter script name:"
 msgstr "輸入指令碼名稱："
 
 #: plugin/scripting/python_runner.py
+msgid "Attach to Document"
+msgstr "附加至文件"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr "名為「{0}」的指令稿已存在於此文件中。是否覆寫？"
+
+#: plugin/scripting/python_runner.py
+msgid "Attach Script"
+msgstr "附加指令稿"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' attached to this document."
+msgstr "指令稿「%s」已附加至此文件。"
+
+#: plugin/scripting/python_runner.py
 msgid "Save Script"
 msgstr "儲存指令碼"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "是否將指令稿「{0}」儲存至此文件？"
 
 #: plugin/scripting/python_runner.py
 msgid "Are you sure you want to clear the Sample scratchpad?"
@@ -1013,10 +1131,6 @@ msgid "Script executed successfully."
 msgstr "指令碼執行成功。"
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved."
-msgstr "指令碼已儲存。"
-
-#: plugin/scripting/python_runner.py
 msgid "Execution Error"
 msgstr "執行錯誤"
 
@@ -1027,6 +1141,10 @@ msgstr "成功"
 #: plugin/scripting/python_runner.py
 msgid "Output"
 msgstr "輸出"
+
+#: plugin/scripting/python_runner.py
+msgid "Script saved."
+msgstr "指令碼已儲存。"
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -1437,11 +1555,21 @@ msgstr "網頁快取有效期限 (天)"
 msgid "How many days cache entries should be considered valid."
 msgstr "快取項目應視為有效的天數。"
 
-msgid "Rich Text Chat Sidebar"
-msgstr "RTF 聊天側邊欄"
+msgid "Rich Text Chat Sidebar (embedded Writer)"
+msgstr "RTF 聊天側邊欄（嵌入式 Writer）"
 
-msgid "Use embedded Writer document for chat display (requires restart)"
-msgstr "使用嵌入式 Writer 文件顯示聊天內容（需要重新啟動）"
+msgid ""
+"Experimental: embeds a Writer frame in the sidebar (requires restart). If "
+"both rich-text options are enabled, this wins over Rich Text Control."
+msgstr "實驗性功能：在側邊欄嵌入 Writer 框架（需要重新啟動）。若同時啟用兩個 RTF 選項，此選項將優先於「RTF 控制項」。"
+
+msgid "Rich Text Control Sidebar"
+msgstr "RTF 控制項側邊欄"
+
+msgid ""
+"Formatted chat via RichTextControl (on by default). Requires restart. "
+"Uncheck for plain-text chat only."
+msgstr "透過 RichTextControl 進行格式化聊天（預設開啟）。需要重新啟動。若僅需純文字聊天，請取消勾選。"
 
 msgid "Doc"
 msgstr "文件"
@@ -1587,6 +1715,15 @@ msgid ""
 "If checked, bypasses the Monaco script editor and uses the LibreOffice "
 "dialog."
 msgstr "若勾選此項，將略過 Monaco 指令碼編輯器並改用 LibreOffice 對話方塊。"
+
+msgid "Modeless Run Python Script dialog"
+msgstr "非強制回應的執行 Python 指令稿對話方塊"
+
+msgid ""
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
+msgstr ""
+"勾選此選項後，「執行 Python 指令碼」純文字對話方塊將會浮動，讓您可以在開啟對話方塊的同時編輯文件。取消勾選則會恢復為傳統的強制回應對話方塊。"
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer 文件工具（包含導覽與搜尋）"

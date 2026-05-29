@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-28 16:02-0400\n"
+"POT-Creation-Date: 2026-05-28 22:51-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Czech <LL@li.org>\n"
@@ -892,6 +892,91 @@ msgstr "Výška:"
 msgid "Width:"
 msgstr "Šířka:"
 
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Document scripts are too large to store in the document ({0} bytes)."
+msgstr ""
+"Skripty dokumentu jsou příliš velké pro uložení do dokumentu ({0} bajtů)."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+#: plugin/scripting/python_runner.py
+msgid "No document is open to save scripts."
+msgstr "Pro uložení skriptů není otevřen žádný dokument."
+
+#: plugin/scripting/document_scripts.py
+msgid ""
+"Document is read-only or properties cannot be written. Script saved to your "
+"personal library instead."
+msgstr ""
+"Dokument je pouze pro čtení nebo nelze zapsat vlastnosti. Skript byl místo "
+"toho uložen do vaší osobní knihovny."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+msgid "Script name cannot be empty."
+msgstr "Název skriptu nesmí být prázdný."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document."
+msgstr "Skript s názvem '{0}' již v tomto dokumentu existuje."
+
+#: plugin/scripting/document_scripts.py
+msgid "My Scripts"
+msgstr "Moje skripty"
+
+#: plugin/scripting/document_scripts.py
+msgid "This Document"
+msgstr "Tento dokument"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts."
+msgstr "Skript '{0}' byl uložen do složky Moje skripty."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to this document."
+msgstr "Skript '{0}' byl uložen do tohoto dokumentu."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}'."
+msgstr "Skript '{0}' byl uložen."
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open to attach scripts."
+msgstr ""
+"Není otevřen žádný dokument, ke kterému by bylo možné připojit skripty."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Attached script '{0}' to this document."
+msgstr "Skript „{0}“ byl připojen k tomuto dokumentu."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in My Scripts."
+msgstr "Skript s názvem „{0}“ již v Mých skriptech existuje."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Copied script '{0}' to My Scripts."
+msgstr "Skript „{0}“ byl zkopírován do Mých skriptů."
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open."
+msgstr "Není otevřen žádný dokument."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted document script '{0}'."
+msgstr "Skript dokumentu „{0}“ byl odstraněn."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted script '{0}'."
+msgstr "Skript „{0}“ byl odstraněn."
+
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
 msgstr "Nepodařilo se spustit editor Pythonu."
@@ -993,6 +1078,10 @@ msgid "Script:"
 msgstr "Skript:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach"
+msgstr "Připojit"
+
+#: plugin/scripting/python_runner.py
 msgid "Save As..."
 msgstr "Uložit jako..."
 
@@ -1010,6 +1099,16 @@ msgstr ""
 
 #: plugin/scripting/python_runner.py
 #, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s Uloženo místo toho do Mých skriptů."
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "Skript „%s“ byl uložen do tohoto dokumentu."
+
+#: plugin/scripting/python_runner.py
+#, python-format
 msgid "Script '%s' saved successfully."
 msgstr "Skript „%s“ byl úspěšně uložen."
 
@@ -1022,8 +1121,31 @@ msgid "Enter script name:"
 msgstr "Zadejte název skriptu:"
 
 #: plugin/scripting/python_runner.py
+msgid "Attach to Document"
+msgstr "Připojit k dokumentu"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr "Skript s názvem „{0}“ již v tomto dokumentu existuje. Přepsat?"
+
+#: plugin/scripting/python_runner.py
+msgid "Attach Script"
+msgstr "Připojit skript"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' attached to this document."
+msgstr "Skript „%s“ byl připojen k tomuto dokumentu."
+
+#: plugin/scripting/python_runner.py
 msgid "Save Script"
 msgstr "Uložit skript"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "Uložit skript „{0}“ do tohoto dokumentu?"
 
 #: plugin/scripting/python_runner.py
 msgid "Are you sure you want to clear the Sample scratchpad?"
@@ -1086,10 +1208,6 @@ msgid "Script executed successfully."
 msgstr "Skript byl úspěšně spuštěn."
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved."
-msgstr "Skript byl uložen."
-
-#: plugin/scripting/python_runner.py
 msgid "Execution Error"
 msgstr "Chyba při provádění"
 
@@ -1100,6 +1218,10 @@ msgstr "Úspěch"
 #: plugin/scripting/python_runner.py
 msgid "Output"
 msgstr "Výstup"
+
+#: plugin/scripting/python_runner.py
+msgid "Script saved."
+msgstr "Skript byl uložen."
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -1518,12 +1640,26 @@ msgid "How many days cache entries should be considered valid."
 msgstr ""
 "Počet dní, po které mají být položky v mezipaměti považovány za platné."
 
-msgid "Rich Text Chat Sidebar"
-msgstr "Postranní panel chatu s formátovaným textem"
+msgid "Rich Text Chat Sidebar (embedded Writer)"
+msgstr "Postranní panel chatu s formátovaným textem (vložený Writer)"
 
-msgid "Use embedded Writer document for chat display (requires restart)"
+msgid ""
+"Experimental: embeds a Writer frame in the sidebar (requires restart). If "
+"both rich-text options are enabled, this wins over Rich Text Control."
 msgstr ""
-"Použít vložený dokument Writeru pro zobrazení chatu (vyžaduje restart)"
+"Experimentální: vloží rámec Writeru do postranního panelu (vyžaduje "
+"restart). Pokud jsou povoleny obě možnosti formátovaného textu, tato má "
+"přednost před ovládacím prvkem Rich Text."
+
+msgid "Rich Text Control Sidebar"
+msgstr "Postranní panel ovládacího prvku Rich Text"
+
+msgid ""
+"Formatted chat via RichTextControl (on by default). Requires restart. "
+"Uncheck for plain-text chat only."
+msgstr ""
+"Chat s formátováním pomocí RichTextControl (standardně zapnuto). Vyžaduje "
+"restart. Zrušte zaškrtnutí pro chat pouze s prostým textem."
 
 msgid "Doc"
 msgstr "Dokument"
@@ -1691,6 +1827,17 @@ msgid ""
 msgstr ""
 "Pokud je zaškrtnuto, obejde editor skriptů Monaco a použije dialogové okno "
 "LibreOffice."
+
+msgid "Modeless Run Python Script dialog"
+msgstr "Nemodální dialog Spustit skript Python"
+
+msgid ""
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
+msgstr ""
+"Pokud je zaškrtnuto, dialogové okno Spustit skript Pythonu bude plovoucí, "
+"takže můžete upravovat dokument, zatímco je otevřené. Zrušením zaškrtnutí "
+"přepnete na klasické modální dialogové okno."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Nástroje dokumentu Writer (včetně navigace a vyhledávání)"

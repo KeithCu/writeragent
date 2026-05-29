@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-28 16:02-0400\n"
+"POT-Creation-Date: 2026-05-28 22:51-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Chinese (Simplified) <LL@li.org>\n"
@@ -835,6 +835,87 @@ msgstr "高度："
 msgid "Width:"
 msgstr "宽度："
 
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Document scripts are too large to store in the document ({0} bytes)."
+msgstr "文档脚本过大，无法存储在文档中（{0} 字节）。"
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+#: plugin/scripting/python_runner.py
+msgid "No document is open to save scripts."
+msgstr "没有打开可保存脚本的文档。"
+
+#: plugin/scripting/document_scripts.py
+msgid ""
+"Document is read-only or properties cannot be written. Script saved to your "
+"personal library instead."
+msgstr "文档为只读或无法写入属性。脚本已保存到您的个人库中。"
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
+msgid "Script name cannot be empty."
+msgstr "脚本名称不能为空。"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document."
+msgstr "名为“{0}”的脚本已存在于此文档中。"
+
+#: plugin/scripting/document_scripts.py
+msgid "My Scripts"
+msgstr "我的脚本"
+
+#: plugin/scripting/document_scripts.py
+msgid "This Document"
+msgstr "当前文档"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts."
+msgstr "脚本“{0}”已保存到“我的脚本”。"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}' to this document."
+msgstr "脚本“{0}”已保存到当前文档。"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Saved script '{0}'."
+msgstr "脚本“{0}”已保存。"
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open to attach scripts."
+msgstr "没有打开任何文档以附加脚本。"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Attached script '{0}' to this document."
+msgstr "已将脚本“{0}”附加到此文档。"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in My Scripts."
+msgstr "名为“{0}”的脚本已存在于“我的脚本”中。"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Copied script '{0}' to My Scripts."
+msgstr "已将脚本“{0}”复制到“我的脚本”。"
+
+#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
+msgid "No document is open."
+msgstr "没有打开任何文档。"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted document script '{0}'."
+msgstr "已删除文档脚本“{0}”。"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid "Deleted script '{0}'."
+msgstr "已删除脚本“{0}”。"
+
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
 msgstr "无法启动 Python 编辑器。"
@@ -922,6 +1003,10 @@ msgid "Script:"
 msgstr "脚本："
 
 #: plugin/scripting/python_runner.py
+msgid "Attach"
+msgstr "附加"
+
+#: plugin/scripting/python_runner.py
 msgid "Save As..."
 msgstr "另存为..."
 
@@ -939,6 +1024,16 @@ msgstr ""
 
 #: plugin/scripting/python_runner.py
 #, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s 已保存到“我的脚本”。"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "脚本“%s”已保存到此文档。"
+
+#: plugin/scripting/python_runner.py
+#, python-format
 msgid "Script '%s' saved successfully."
 msgstr "脚本“%s”保存成功。"
 
@@ -951,8 +1046,31 @@ msgid "Enter script name:"
 msgstr "输入脚本名称："
 
 #: plugin/scripting/python_runner.py
+msgid "Attach to Document"
+msgstr "附加到文档"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr "名为“{0}”的脚本已存在于此文档中。是否覆盖？"
+
+#: plugin/scripting/python_runner.py
+msgid "Attach Script"
+msgstr "附加脚本"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Script '%s' attached to this document."
+msgstr "脚本“%s”已附加到此文档。"
+
+#: plugin/scripting/python_runner.py
 msgid "Save Script"
 msgstr "保存脚本"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "将脚本“{0}”保存到此文档？"
 
 #: plugin/scripting/python_runner.py
 msgid "Are you sure you want to clear the Sample scratchpad?"
@@ -1011,10 +1129,6 @@ msgid "Script executed successfully."
 msgstr "脚本执行成功。"
 
 #: plugin/scripting/python_runner.py
-msgid "Script saved."
-msgstr "脚本已保存。"
-
-#: plugin/scripting/python_runner.py
 msgid "Execution Error"
 msgstr "执行错误"
 
@@ -1025,6 +1139,10 @@ msgstr "成功"
 #: plugin/scripting/python_runner.py
 msgid "Output"
 msgstr "输出"
+
+#: plugin/scripting/python_runner.py
+msgid "Script saved."
+msgstr "脚本已保存。"
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -1435,11 +1553,21 @@ msgstr "Web 缓存有效期 (天)"
 msgid "How many days cache entries should be considered valid."
 msgstr "缓存条目应被视为有效的天数。"
 
-msgid "Rich Text Chat Sidebar"
-msgstr "富文本聊天侧边栏"
+msgid "Rich Text Chat Sidebar (embedded Writer)"
+msgstr "富文本聊天侧边栏（嵌入式 Writer）"
 
-msgid "Use embedded Writer document for chat display (requires restart)"
-msgstr "使用嵌入式 Writer 文档显示聊天内容（需要重启）"
+msgid ""
+"Experimental: embeds a Writer frame in the sidebar (requires restart). If "
+"both rich-text options are enabled, this wins over Rich Text Control."
+msgstr "实验性功能：在侧边栏中嵌入 Writer 框架（需要重启）。如果同时启用了两个富文本选项，此选项将优先于“富文本控件”。"
+
+msgid "Rich Text Control Sidebar"
+msgstr "富文本控件侧边栏"
+
+msgid ""
+"Formatted chat via RichTextControl (on by default). Requires restart. "
+"Uncheck for plain-text chat only."
+msgstr "通过 RichTextControl 进行格式化聊天（默认开启）。需要重启。取消勾选则仅使用纯文本聊天。"
 
 msgid "Doc"
 msgstr "文档"
@@ -1582,6 +1710,15 @@ msgid ""
 "If checked, bypasses the Monaco script editor and uses the LibreOffice "
 "dialog."
 msgstr "如果勾选，将绕过 Monaco 脚本编辑器并使用 LibreOffice 原生对话框。"
+
+msgid "Modeless Run Python Script dialog"
+msgstr "非模态运行 Python 脚本对话框"
+
+msgid ""
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
+msgstr ""
+"选中此项后，“运行 Python 脚本”纯文本对话框将以浮动窗口形式显示，以便您在打开对话框的同时编辑文档。取消选中则恢复为传统的模态对话框。"
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer 文档工具（包括导航和搜索）"
