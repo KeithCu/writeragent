@@ -1,8 +1,18 @@
 # RichTextControl sidebar spike — feasibility and dev plan
 
-**Status:** Proposal / spike only (not implemented)  
+**Status:** Phase 0 + Phase 2 + styling parity; **on by default** via `rich_text_control_sidebar` (requires restart). Hidden Writer → formatted copy into RichTextControl; theme role colors, Liberation Sans 10pt, list tightening via shared `append_rich_text`.  
+**Config:** Settings → **Rich Text Control Sidebar** (default **on**). **Rich Text Chat Sidebar** (embedded Writer) stays off unless enabled — if both are on, embedded Writer wins.  
+**Code:** [`plugin/chatbot/rich_text_control.py`](../plugin/chatbot/rich_text_control.py), wired from [`panel_wiring.py`](../plugin/chatbot/panel_wiring.py).  
+**Streaming:** Plain text chunks during assistant stream; HTML clipboard paste on `rerender_rich_text_session` when the final message contains HTML tags.  
+**Tests:** [`tests/chatbot/test_rich_text_control.py`](../tests/chatbot/test_rich_text_control.py), [`tests/chatbot/test_rich_text_control_uno.py`](../tests/chatbot/test_rich_text_control_uno.py).  
 **Audience:** Developers evaluating alternatives to plain-text sidebar chat and embedded Writer (`rich_text_sidebar`)  
 **Related:** [rich-text-sidebar.md](rich-text-sidebar.md), [chat-sidebar-implementation.md](chat-sidebar-implementation.md), [AGENTS.md](../AGENTS.md)
+
+---
+
+## Spike results (automated)
+
+UNO test `_disabled_test_rich_text_control_html_clipboard_paste` (in [`test_rich_text_control_uno.py`](../tests/chatbot/test_rich_text_control_uno.py), currently **skipped** via `SKIP_NATIVE_RUN_ALL`) exercises hidden Writer → clipboard → paste into a dialog `TextField` with `RichText=true`. Re-enable when the `_process_idle` / `_copy_formatted_from_hidden_doc_to_control` path is stable in headless LO. Manual sidebar QA still recommended (see checklist below).
 
 ---
 
@@ -12,7 +22,7 @@
 
 LibreOffice exposes a **`RichTextControl`** (`com.sun.star.form.component.RichTextControl`) that can sit on a **`TextField`** form model with **`RichText=true`**. That control can live in a **dialog** (`UnoControlDialogModel`), which means it can live in the **sidebar panel** — the same place WriterAgent already hosts `ChatPanelDialog.xdl` via `ContainerWindowProvider`. It is **not** tied to the document window the way **text frames** or in-flow **form fields** are.
 
-What it is **not**:
+What it is **not**:so
 
 - An HTML/Markdown renderer (LO-native character/paragraph attributes via `TextRange`, same family as form rich-text / EditEngine)
 - Available from XDL (`dlg:textfield` has `multiline` but **no `richtext` attribute** in [dialog.dtd](https://github.com/LibreOffice/core/blob/master/xmlscript/dtd/dialog.dtd))
@@ -182,7 +192,7 @@ If Phase 2 works for **batch** paste but not **streaming**, RichText might still
 
 **Do not replace `rich_text_sidebar` immediately.** Possible incremental path:
 
-1. New config flag: `chat.rich_text_control_sidebar` (default **false**).
+1. Config flag `rich_text_control_sidebar` (default **true** since 2026-05).
 2. When enabled: replace `response` plain field with programmatic RichText `TextField` in [`panel_wiring.py`](../plugin/chatbot/panel_wiring.py) (keep XDL for chrome; hide plain `response` like embedded path does).
 3. Streaming: plain append during stream; optional styled rerender on `STREAM_DONE` (similar to current HTML rerender).
 4. Keep embedded Writer path until RichText proves strictly better on lifecycle + resize.
