@@ -239,6 +239,17 @@ class _PanelResizeListener(BaseWindowListener):
             if name in stretch:
                 new_x = ox
                 new_w = max(_MIN_WIDTHS.get(name, 40), w - ox - right_margin)
+                if name == "query":
+                    resp_ctrl = self._c.get("response")
+                    if resp_ctrl:
+                        try:
+                            from plugin.chatbot.rich_text_control import sidebar_content_right_edge
+
+                            cap = sidebar_content_right_edge(win, resp_ctrl) - new_x
+                            if cap > 0:
+                                new_w = min(new_w, max(_MIN_WIDTHS.get("query", 40), cap))
+                        except Exception as e:
+                            log.debug("query width clamp to clear: %s", e)
             else:
                 # Buttons, labels, checkboxes, backend_indicator, etc. — keep XDL width, left-anchored.
                 new_x = ox

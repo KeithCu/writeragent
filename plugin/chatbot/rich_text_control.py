@@ -38,11 +38,61 @@ CHAT_PARA_SIDE_MARGIN = 250
 _SERIF_FONT_MARKERS = ("serif", "times", "roman", "courier", "mono")
 
 
-def _content_bounds_from_placeholder(ps):
-    """Return (x, y, width, height) for the rich control inside the placeholder rect."""
+def _layout_right_edge_for_rich_control(root_window, placeholder_ctrl) -> int:
+    """Right edge for the transcript: Clear button (same row as Send/Stop), capped by panel width."""
+    ps = placeholder_ctrl.getPosSize()
+    right = int(ps.X) + int(ps.Width)
+    try:
+        if root_window is not None and hasattr(root_window, "getControl"):
+            clear_ctrl = root_window.getControl("clear")
+            if clear_ctrl is not None:
+                cr = clear_ctrl.getPosSize()
+                clear_right = int(cr.X) + int(cr.Width)
+                if clear_right > int(ps.X):
+                    right = clear_right
+    except Exception as e:
+        log.debug("_layout_right_edge_for_rich_control: %s", e)
+    try:
+        if root_window is not None:
+            root_w = int(root_window.getPosSize().Width)
+            if root_w > 0:
+                right = min(right, root_w - 4)
+    except Exception:
+        pass
+    return right
+
+
+def sidebar_content_right_edge(root_window, placeholder_ctrl) -> int:
+    """Right edge (exclusive) for chat content; query field uses the same clamp as RichTextControl."""
+    return _layout_right_edge_for_rich_control(root_window, placeholder_ctrl) - RICH_CONTROL_EDGE_INSET
+
+
+def _content_bounds_for_rich_control(root_window, placeholder_ctrl):
+    """Return (x, y, width, height) for the rich control inside the response area."""
+    ps = placeholder_ctrl.getPosSize()
     inset = RICH_CONTROL_EDGE_INSET
-    x, y, w, h = int(ps.X), int(ps.Y), int(ps.Width), int(ps.Height)
-    return x + inset, y + inset, max(20, w - 2 * inset), max(20, h - 2 * inset)
+    x = int(ps.X) + inset
+    y = int(ps.Y) + inset
+    right = _layout_right_edge_for_rich_control(root_window, placeholder_ctrl)
+    w = max(20, right - x - inset)
+    h = max(20, int(ps.Height) - 2 * inset)
+    return x, y, w, h
+
+
+def sync_rich_control_bounds(rich_control, root_window, placeholder_ctrl) -> bool:
+    """Position the rich control over the response area without exceeding the button row width."""
+    if rich_control is None or placeholder_ctrl is None:
+        return False
+    try:
+        bx, by, bw, bh = _content_bounds_for_rich_control(root_window, placeholder_ctrl)
+        cur = rich_control.getPosSize()
+        if int(cur.X) == bx and int(cur.Y) == by and int(cur.Width) == bw and int(cur.Height) == bh:
+            return False
+        rich_control.setPosSize(bx, by, bw, bh, 15)
+        return True
+    except Exception as e:
+        log.debug("sync_rich_control_bounds failed: %s", e)
+        return False
 
 
 def _apply_sidebar_para_margins(cursor) -> None:
@@ -279,8 +329,7 @@ def _try_dialog_embedded_rich_control(root_window, placeholder_ctrl):
             log.debug("create_sidebar_rich_text_control: dialog-embedded skipped (no createInstance)")
             return None
 
-        ps = placeholder_ctrl.getPosSize()
-        bx, by, bw, bh = _content_bounds_from_placeholder(ps)
+        bx, by, bw, bh = _content_bounds_for_rich_control(root_window, placeholder_ctrl)
         embedded = dlg_model.createInstance("com.sun.star.form.component.TextField")
         if embedded is None:
             log.debug("create_sidebar_rich_text_control: dialog createInstance(TextField) returned None")
@@ -356,18 +405,12 @@ class RichTextControlListener(BaseWindowListener):
         """
         if self._disposed or self._syncing_bounds or not self.rich_control or not self.placeholder_ctrl:
             return
+        if self._syncing_bounds:
+            return
+        self._syncing_bounds = True
         try:
-            ps = self.placeholder_ctrl.getPosSize()
-            bx, by, bw, bh = _content_bounds_from_placeholder(ps)
-            cur = self.rich_control.getPosSize()
-            if int(cur.X) == bx and int(cur.Y) == by and int(cur.Width) == bw and int(cur.Height) == bh:
-                return
-            self._syncing_bounds = True
-            try:
-                self.rich_control.setPosSize(bx, by, bw, bh, 15)
-            finally:
-                self._syncing_bounds = False
-        except Exception:
+            sync_rich_control_bounds(self.rich_control, self.root_window, self.placeholder_ctrl)
+        finally:
             self._syncing_bounds = False
 
     def _deferred_init(self):
@@ -389,6 +432,7 @@ class RichTextControlListener(BaseWindowListener):
                     pass
                 return
             self.rich_control = control
+            sync_rich_control_bounds(control, self.root_window, self.placeholder_ctrl)
             self.on_ready_callback(control)
         except Exception:
             log.exception("RichTextControlListener deferred init failed")
@@ -441,8 +485,7 @@ def create_sidebar_rich_text_control(ctx, root_window, placeholder_ctrl):
             log.error("create_sidebar_rich_text_control: could not create RichText control peer")
             return None
 
-        ps = placeholder_ctrl.getPosSize()
-        bx, by, bw, bh = _content_bounds_from_placeholder(ps)
+        bx, by, bw, bh = _content_bounds_for_rich_control(root_window, placeholder_ctrl)
         control.setPosSize(bx, by, bw, bh, 15)
         control.setVisible(True)
         _apply_rich_control_style_defaults(control, style_window=root_window)
@@ -731,8 +774,6 @@ def _copy_formatted_from_hidden_doc_to_control(src_doc, control, ctx) -> bool:
         log.error("_copy_formatted_from_hidden_doc_to_control: model has no createTextCursor")
         return False
     try:
-        if hasattr(control, "setFocus"):
-            control.setFocus()
         _process_idle(ctx)
 
         dest_cursor = model.createTextCursor()
@@ -836,22 +877,25 @@ def insert_transferable_into_rich_control(control, transferable, ctx, style_wind
     """Insert formatted content into the sidebar RichText control (not the document)."""
     if control is None or transferable is None:
         return False
-    try:
+
+    result = False
+
+    def _try_paths() -> None:
+        nonlocal result
         model = control.getModel()
         _log_transferable_flavors(transferable)
         _log_insert_transferable_targets(control, model)
 
         len_before = get_control_text_length(control)
         scroll_rich_control_to_bottom(control, ctx=ctx, aggressive=True)
-        if hasattr(control, "setFocus"):
-            control.setFocus()
         _process_idle(ctx)
 
         for target_name, target in (("control", control), ("model", model)):
             if _try_insert_transferable_on_target(target_name, target, transferable, ctx):
                 scroll_rich_control_to_bottom(control, ctx=ctx, aggressive=True)
                 if get_control_text_length(control) > len_before:
-                    return True
+                    result = True
+                    return
 
         if model is not None and hasattr(model, "createTextCursor"):
             try:
@@ -860,19 +904,19 @@ def insert_transferable_into_rich_control(control, transferable, ctx, style_wind
                 if _try_insert_transferable_on_target("model cursor", cursor, transferable, ctx):
                     scroll_rich_control_to_bottom(control, ctx=ctx, aggressive=True)
                     if get_control_text_length(control) > len_before:
-                        return True
+                        result = True
+                        return
             except Exception as e:
                 log.debug("insert_transferable_into_rich_control cursor path failed: %s", e)
 
         if _set_system_clipboard(ctx, transferable):
             scroll_rich_control_to_bottom(control, ctx=ctx, aggressive=True)
-            if hasattr(control, "setFocus"):
-                control.setFocus()
             _process_idle(ctx)
             if _try_paste_via_key_event(ctx, control):
                 scroll_rich_control_to_bottom(control, ctx=ctx, aggressive=True)
                 if get_control_text_length(control) > len_before:
-                    return True
+                    result = True
+                    return
 
         flavors = _log_transferable_flavors(transferable)
         log.error(
@@ -881,9 +925,12 @@ def insert_transferable_into_rich_control(control, transferable, ctx, style_wind
             get_control_text_length(control),
             flavors,
         )
+
+    try:
+        _preserve_focus_window(ctx, _try_paths)
     except Exception:
         log.exception("insert_transferable_into_rich_control failed")
-    return False
+    return result
 
 
 def append_rich_text_via_clipboard(ctx, control, text, role="assistant", style_window=None, auto_scroll=True):
@@ -920,7 +967,7 @@ def append_rich_text_via_clipboard(ctx, control, text, role="assistant", style_w
         if inserted and role == "user":
             _ensure_trailing_line_break(control)
         if inserted and auto_scroll:
-            scroll_rich_control_to_bottom(control, ctx=ctx, aggressive=True)
+            _preserve_focus_window(ctx, lambda: scroll_rich_control_to_bottom(control, ctx=ctx, aggressive=True))
         if inserted:
             return
     except Exception:
@@ -937,7 +984,8 @@ def append_text_chunk(control, text, auto_scroll=True, style_window=None, ctx=No
     """Append plain text during assistant streaming with theme assistant color."""
     if not control or not text:
         return
-    try:
+
+    def _do_append() -> None:
         from plugin.chatbot.rich_text import get_theme_colors
 
         model = control.getModel()
@@ -952,6 +1000,9 @@ def append_text_chunk(control, text, auto_scroll=True, style_window=None, ctx=No
         _insert_string_at_rich_cursor(model, cursor, text)
         if auto_scroll:
             scroll_rich_control_to_bottom(control, ctx=ctx, aggressive=True)
+
+    try:
+        _preserve_focus_window(ctx, _do_append)
     except Exception:
         log.exception("append_text_chunk (rich control) failed")
 
@@ -1011,32 +1062,90 @@ def truncate_control_from(control, start_len: int | None):
         log.exception("truncate_control_from failed")
 
 
-def scroll_rich_control_to_bottom(control, ctx=None, aggressive=False) -> None:
-    """Scroll the sidebar RichTextControl so the newest content is visible.
+def _scroll_rich_peer_vertical_bar(control) -> bool:
+    """Move VCL vertical scrollbar to max without touching control focus/selection."""
+    peer = control.getPeer() if hasattr(control, "getPeer") else None
+    if peer is None:
+        return False
+    get_windows = getattr(peer, "getWindows", None)
+    if not callable(get_windows):
+        return False
+    try:
+        from com.sun.star.awt import XScrollBar
 
-    UNO logs showed ``setFocus`` + ``setSelection`` at end-of-text is sufficient once
-    ``VScroll=True`` is set on the field model; peer ``XTextComponent``, VCL scrollbar
-    walks, key synthesis, and accessible actions did not contribute (and accessible
-    traversal could recurse until max depth).
+        stack = list(get_windows())
+        visited = 0
+        while stack and visited < 64:
+            window = stack.pop()
+            visited += 1
+            try:
+                sb = window.queryInterface(XScrollBar)
+                if sb is not None:
+                    rng = sb.getScrollRange()
+                    target = int(rng.Maximum) - int(getattr(rng, "VisibleSize", 0) or 0)
+                    if target < int(rng.Minimum):
+                        target = int(rng.Minimum)
+                    sb.setScrollValue(target)
+                    return True
+            except Exception:
+                pass
+            child_get = getattr(window, "getWindows", None)
+            if callable(child_get):
+                try:
+                    stack.extend(child_get())
+                except Exception:
+                    pass
+    except Exception as e:
+        log.debug("_scroll_rich_peer_vertical_bar failed: %s", e)
+    return False
+
+
+def scroll_rich_control_to_bottom(control, ctx=None, aggressive=False) -> None:
+    """Scroll the read-only response control without stealing focus from the query field.
+
+    Do not call ``setFocus`` or ``setSelection`` on the RichText control — both move
+    keyboard focus away from ``query`` during streaming (plain ``response`` only used
+    ``setSelection`` on a simple edit; RichTextControl behaves differently).
     """
     if not control:
         return
-    del aggressive  # kept for call-site compatibility; same path for all callers
+    del aggressive  # kept for call-site compatibility
     try:
-        import uno
-
         model = control.getModel()
-        if model is None:
-            return
-        text_len = len(model.Text or "")
-        if hasattr(control, "setFocus"):
-            control.setFocus()
-        if hasattr(control, "setSelection"):
-            control.setSelection(uno.createUnoStruct("com.sun.star.awt.Selection", text_len, text_len))
+        if model is not None and hasattr(model, "createTextCursor"):
+            try:
+                cursor = model.createTextCursor()
+                cursor.gotoEnd(False)
+            except Exception as e:
+                log.debug("scroll_rich_control_to_bottom cursor.gotoEnd: %s", e)
+        _scroll_rich_peer_vertical_bar(control)
         _process_idle(ctx)
+        text_len = len(model.Text or "") if model is not None else 0
         log.debug("scroll_rich_control_to_bottom: len=%d", text_len)
     except Exception:
         log.exception("scroll_rich_control_to_bottom failed")
+
+
+def _preserve_focus_window(ctx, fn) -> None:
+    """Run *fn* and restore whichever sidebar control had focus (usually ``query``)."""
+    saved = None
+    try:
+        from plugin.framework.uno_context import get_toolkit
+
+        tk = get_toolkit(ctx)
+        if tk is not None and hasattr(tk, "getFocusWindow"):
+            saved = tk.getFocusWindow()
+    except Exception as e:
+        log.debug("_preserve_focus_window capture: %s", e)
+    try:
+        fn()
+    finally:
+        if saved is not None:
+            try:
+                if hasattr(saved, "setFocus"):
+                    saved.setFocus()
+            except Exception as e:
+                log.debug("_preserve_focus_window restore: %s", e)
 
 
 def _ensure_message_separator(control):

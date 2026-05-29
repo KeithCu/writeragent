@@ -340,6 +340,16 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
                     controls["response_rich"] = rich_control
                     if hasattr(self, "_panel_resize_listener") and self._panel_resize_listener:
                         self._panel_resize_listener._c["response_rich"] = rich_control
+                        try:
+                            self._panel_resize_listener.relayout_now(root_window)
+                        except Exception as e:
+                            log.debug("on_rich_control_ready relayout_now: %s", e)
+                    try:
+                        from plugin.chatbot.rich_text_control import sync_rich_control_bounds
+
+                        sync_rich_control_bounds(rich_control, root_window, controls["response"])
+                    except Exception as e:
+                        log.debug("on_rich_control_ready sync bounds: %s", e)
                     if hasattr(self, "send_listener") and self.send_listener:
                         self.send_listener.set_rich_text_control(rich_control, style_window=root_window)
                     try:
