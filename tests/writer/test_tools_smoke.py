@@ -1,6 +1,7 @@
 """Smoke tests for writer tools: registry has expected tools and schemas are valid."""
 
 import unittest
+from unittest.mock import patch
 
 from plugin.tests.testing_utils import setup_uno_mocks
 setup_uno_mocks()
@@ -16,6 +17,14 @@ class _WriterDocStub:
 
 
 class TestWriterToolsSmoke(unittest.TestCase):
+    def setUp(self):
+        # After earlier tests load real pyuno, bootstrap's get_desktop() can segfault off-LO.
+        self._desktop_patch = patch("plugin.framework.uno_context.get_desktop", return_value=None)
+        self._desktop_patch.start()
+
+    def tearDown(self):
+        self._desktop_patch.stop()
+
     def test_registration(self):
         registry = get_tools()
         doc = _WriterDocStub()

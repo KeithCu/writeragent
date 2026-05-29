@@ -409,7 +409,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         Called after streaming completes to replace the last plain-text assistant response
         with full HTML rendering instead of raw chunks.
         """
-        if self.rich_text_control:
+        if getattr(self, "rich_text_control", None):
             auto_scroll = self._should_auto_scroll()
             try:
                 from plugin.chatbot.rich_text import _HTML_TAG_RE

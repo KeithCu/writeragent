@@ -30,7 +30,7 @@ class DummyChatbotPanel(SendHandlersMixin):
         self.base_size_input = MagicMock()
         self.base_size_input.getText.return_value = "1024"
 
-    def _append_response(self, text):
+    def _append_response(self, text, role="assistant"):
         self.responses.append(text)
 
     def _set_status(self, text):
@@ -105,7 +105,7 @@ def test_do_send_direct_image():
                 panel._do_send_direct_image("A cute dog", model)  # type: ignore
 
                 # Verify responses
-                assert "\nYou: A cute dog\n" in panel.responses
+                assert "A cute dog" in panel.responses
                 assert "AI: Creating image...\n" in panel.responses
                 assert any("generate_image: Image generated successfully" in r for r in panel.responses)
 
@@ -365,7 +365,7 @@ def test_run_web_research_invalid_json():
                 panel._run_web_research("What is the speed of light?", model) # type: ignore
 
                 # Verify responses
-                assert "\nYou: What is the speed of light?\n" in panel.responses
+                assert "What is the speed of light?" in panel.responses
 
                 # Verify fallback error message is surfaced
                 assert "\n[Research error: Invalid JSON from web search tool.]\n" in panel.responses

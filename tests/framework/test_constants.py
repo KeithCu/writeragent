@@ -97,8 +97,10 @@ def test_get_chat_system_prompt_for_document_calc():
     def supportsService(service):
         return service == "com.sun.star.sheet.SpreadsheetDocument"
     model.supportsService.side_effect = supportsService
-    prompt = get_chat_system_prompt_for_document(model)
     from plugin.framework.constants import CHAT_RESPONSE_FORMAT
+
+    with patch("plugin.framework.config.get_config_bool_safe", return_value=False):
+        prompt = get_chat_system_prompt_for_document(model)
     assert CHAT_RESPONSE_FORMAT not in prompt
     assert "plain text only" in prompt
     assert "Calc" in prompt
@@ -108,8 +110,10 @@ def test_get_chat_system_prompt_for_document_draw():
     def supportsService(service):
         return service in ("com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument")
     model.supportsService.side_effect = supportsService
-    prompt = get_chat_system_prompt_for_document(model)
     from plugin.framework.constants import CHAT_RESPONSE_FORMAT
+
+    with patch("plugin.framework.config.get_config_bool_safe", return_value=False):
+        prompt = get_chat_system_prompt_for_document(model)
     assert CHAT_RESPONSE_FORMAT not in prompt
     assert "plain text only" in prompt
     assert "Draw" in prompt

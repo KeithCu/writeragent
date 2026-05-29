@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import html
 import logging
-from typing import Any, cast
+from typing import Any, Iterable, cast
 
 from plugin.chatbot.listeners import BaseWindowListener
 from plugin.chatbot.rich_text import _HTML_TAG_RE, append_rich_text, strip_legacy_ai_label
@@ -1073,7 +1073,7 @@ def _scroll_rich_peer_vertical_bar(control) -> bool:
     try:
         from com.sun.star.awt import XScrollBar
 
-        stack = list(get_windows())
+        stack = list(cast(Iterable[Any], get_windows()))
         visited = 0
         while stack and visited < 64:
             window = stack.pop()
@@ -1092,7 +1092,7 @@ def _scroll_rich_peer_vertical_bar(control) -> bool:
             child_get = getattr(window, "getWindows", None)
             if callable(child_get):
                 try:
-                    stack.extend(child_get())
+                    stack.extend(cast(Iterable[Any], child_get()))
                 except Exception:
                     pass
     except Exception as e:
