@@ -13,7 +13,7 @@ import logging
 import json
 import traceback
 import unittest
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List
 
 log = logging.getLogger(__name__)
 

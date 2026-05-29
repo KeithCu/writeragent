@@ -150,11 +150,16 @@ class MockXWindowListener:
     pass
 
 
+class MockXTopWindowListener:
+    pass
+
+
 setattr(awt, "XActionListener", MockXActionListener)
 setattr(awt, "XItemListener", MockXItemListener)
 setattr(awt, "XKeyListener", MockXKeyListener)
 setattr(awt, "XTextListener", MockXTextListener)
 setattr(awt, "XWindowListener", MockXWindowListener)
+setattr(awt, "XTopWindowListener", MockXTopWindowListener)
 setattr(awt, "WindowDescriptor", MockBase)
 
 awt_window_class = _create_mock_module("com.sun.star.awt.WindowClass")

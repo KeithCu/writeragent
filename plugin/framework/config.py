@@ -309,8 +309,7 @@ class WriterAgentConfig:
         "    \"title\": \"Prime Numbers in Range\",\n"
         "    \"primes\": [\n"
         "        {\"position\": i, \"prime\": p}\n"
-        "        for i, p in zip(range(1000, 1011),\n"
-        "                        list(sp.primerange(low, high + 1)))\n"
+        "        for i, p in zip(range(1000, 1011), sp.primerange(low, high + 1))\n"
         "    ]\n"
         "}"
     )

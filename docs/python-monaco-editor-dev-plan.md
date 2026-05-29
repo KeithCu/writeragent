@@ -74,7 +74,7 @@ Same framing as [`worker_harness.py`](../plugin/scripting/worker_harness.py) (`s
 - **Monaco:** vendored under `plugin/contrib/scripting/assets/editor/vs/` (python-only prune + Terser; typically ~4–5 MB on disk). Refresh: `make fetch-monaco` ([`scripts/fetch_monaco_editor.sh`](../scripts/fetch_monaco_editor.sh)). Re-strip comments anytime: `make minify-editor-js` ([`scripts/minify_editor_js.sh`](../scripts/minify_editor_js.sh); requires Node.js).
 - **`jedi`** (session 2+): optional, persistent `Environment` in child — see below.
 
-**Note:** **Run Python Script…** opens Monaco when the configured venv has pywebview (Python syntax highlighting, **Run** button, editor stays open after execution). If pywebview is unavailable, it falls back to the native multiline dialog in [`python_runner.py`](../plugin/scripting/python_runner.py). The Calc **Edit Python in Cell…** menu does **not** fall back—it explains how to fix the configured venv instead.
+**Note:** **Run Python Script…** opens Monaco when the configured venv has pywebview (Python syntax highlighting, **Run** button, editor stays open after execution). If pywebview is unavailable, it falls back to the native multiline dialog in [`python_runner.py`](../plugin/scripting/python_runner.py). That legacy dialog is **modeless by default** (`scripting.native_run_script_modeless`, Settings → Python); uncheck it for the classic modal dialog. The Calc **Edit Python in Cell…** menu does **not** fall back—it explains how to fix the configured venv instead.
 
 ---
 

@@ -36,6 +36,12 @@ from plugin.scripting.venv_worker import resolve_venv_python
 
 log = logging.getLogger(__name__)
 
+
+def _script_code_from_message(msg: dict[str, Any]) -> str:
+    raw = msg.get("code", "")
+    return raw if isinstance(raw, str) else ""
+
+
 # --- Launcher ---
 
 _EDITOR_MAIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "editor_main.py")
@@ -413,14 +419,12 @@ class PersistentEditor:
 
         if kind == "save_script":
             name = str(msg.get("name", "") or "").strip()
-            code = msg.get("code", "")
-            origin = str(msg.get("origin", "") or "").strip()
-            if not isinstance(code, str):
-                code = ""
+            script_code = _script_code_from_message(msg)
 
             def _handle_save_named() -> None:
-                from plugin.scripting.document_scripts import SCRIPT_ORIGIN_DOCUMENT, SCRIPT_ORIGIN_USER
+                from plugin.scripting.document_scripts import SCRIPT_ORIGIN_DOCUMENT
 
+                origin = str(msg.get("origin", "") or "").strip()
                 if not name:
                     self._send_scripts_list(status_error_text=_("Script name cannot be empty."))
                     return
@@ -431,9 +435,9 @@ class PersistentEditor:
                         return
                     from plugin.scripting.document_scripts import save_document_script
 
-                    err = save_document_script(doc, name, code)
+                    err = save_document_script(doc, name, script_code)
                     if err:
-                        self._save_user_script(name, code)
+                        self._save_user_script(name, script_code)
                         self._send_scripts_list(
                             status_ok_text=_("Saved script '{0}' to My Scripts.").format(name),
                             status_error_text=err,
@@ -441,7 +445,7 @@ class PersistentEditor:
                         return
                     self._send_scripts_list(status_ok_text=_("Saved script '{0}' to this document.").format(name))
                     return
-                self._save_user_script(name, code)
+                self._save_user_script(name, script_code)
                 log.info("editor_host: save_script '%s' (user)", name)
                 self._send_scripts_list(status_ok_text=_("Saved script '{0}'.").format(name))
             self.executor.execute(_handle_save_named)
@@ -449,10 +453,8 @@ class PersistentEditor:
 
         if kind == "attach_script":
             name = str(msg.get("name", "") or "").strip()
-            code = msg.get("code", "")
+            script_code = _script_code_from_message(msg)
             overwrite = bool(msg.get("overwrite"))
-            if not isinstance(code, str):
-                code = ""
 
             def _handle_attach() -> None:
                 from plugin.scripting.document_scripts import attach_document_script
@@ -461,7 +463,7 @@ class PersistentEditor:
                 if doc is None:
                     self._send_scripts_list(status_error_text=_("No document is open to attach scripts."))
                     return
-                err = attach_document_script(doc, name, code, overwrite=overwrite)
+                err = attach_document_script(doc, name, script_code, overwrite=overwrite)
                 if err:
                     self._send_scripts_list(status_error_text=err)
                     return
@@ -471,10 +473,8 @@ class PersistentEditor:
 
         if kind == "copy_script_to_user":
             name = str(msg.get("name", "") or "").strip()
-            code = msg.get("code", "")
+            script_code = _script_code_from_message(msg)
             overwrite = bool(msg.get("overwrite"))
-            if not isinstance(code, str):
-                code = ""
 
             def _handle_copy() -> None:
                 from plugin.framework.config import get_config
@@ -490,7 +490,7 @@ class PersistentEditor:
                         status_error_text=_("A script named '{0}' already exists in My Scripts.").format(name)
                     )
                     return
-                self._save_user_script(name, code)
+                self._save_user_script(name, script_code)
                 self._send_scripts_list(status_ok_text=_("Copied script '{0}' to My Scripts.").format(name))
             self.executor.execute(_handle_copy)
             return

@@ -16,7 +16,7 @@ class TestPythonRunnerConfig(unittest.TestCase):
     @patch('plugin.scripting.python_runner.is_calc')
     @patch('plugin.scripting.python_runner.is_draw')
     @patch('plugin.scripting.python_runner.get_config_str')
-    @patch('plugin.scripting.python_runner.execute_and_insert_result', return_value={"ok": True})
+    @patch('plugin.scripting.python_runner.execute_and_insert_result')
     @patch('plugin.scripting.python_runner.set_config')
     @patch('plugin.scripting.python_runner.show_python_input_dialog')
     def test_run_python_dialog_keys(
@@ -36,7 +36,6 @@ class TestPythonRunnerConfig(unittest.TestCase):
         mock_ctx.return_value = mock_ctx_val
         mock_doc = MagicMock()
         mock_desktop.return_value.getCurrentComponent.return_value = mock_doc
-        mock_show.return_value = "print('hello')"
 
         # Test Writer
         mock_is_writer.return_value = True
@@ -45,9 +44,9 @@ class TestPythonRunnerConfig(unittest.TestCase):
         
         run_python_dialog()
         mock_get.assert_called_with(mock_ctx_val, "last_python_script_writer")
-        # Note: the test mocks get_config_str, so we don't strictly test the default value here
-        # but we can verify the key is correct.
-        mock_set.assert_called_with(mock_ctx_val, "last_python_script_writer", "print('hello')")
+        mock_show.assert_called()
+        mock_set.assert_not_called()
+        mock_execute.assert_not_called()
 
         # Test Calc
         mock_is_writer.return_value = False
@@ -56,7 +55,8 @@ class TestPythonRunnerConfig(unittest.TestCase):
         
         run_python_dialog()
         mock_get.assert_called_with(mock_ctx_val, "last_python_script_calc")
-        mock_set.assert_called_with(mock_ctx_val, "last_python_script_calc", "print('hello')")
+        mock_set.assert_not_called()
+        mock_execute.assert_not_called()
 
         # Test Draw
         mock_is_writer.return_value = False
@@ -65,7 +65,8 @@ class TestPythonRunnerConfig(unittest.TestCase):
         
         run_python_dialog()
         mock_get.assert_called_with(mock_ctx_val, "last_python_script_draw")
-        mock_set.assert_called_with(mock_ctx_val, "last_python_script_draw", "print('hello')")
+        mock_set.assert_not_called()
+        mock_execute.assert_not_called()
 
     def test_config_defaults(self):
         from plugin.framework.config import WriterAgentConfig
