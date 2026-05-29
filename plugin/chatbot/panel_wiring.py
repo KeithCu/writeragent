@@ -327,7 +327,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
         except Exception as e:
             log.error("Rich text initialization setup failed: %s", e)
 
-    elif get_config_bool_safe(self.ctx, "rich_text_control_sidebar", default=False):
+    elif get_config_bool_safe(self.ctx, "rich_text_control_sidebar", default=True):
         if get_config_bool_safe(self.ctx, "rich_text_sidebar", default=False):
             log.warning("rich_text_sidebar and rich_text_control_sidebar are both enabled; using embedded Writer")
         else:

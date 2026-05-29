@@ -38,12 +38,13 @@ def test_get_greeting_for_document_draw():
     model.supportsService.side_effect = supportsService
     assert get_greeting_for_document(model) == DEFAULT_DRAW_GREETING
 
-def test_get_chat_system_prompt_for_document_writer():
+def test_get_chat_system_prompt_plain_text_when_rich_disabled():
     model = MagicMock()
     model.supportsService.return_value = False
-    prompt = get_chat_system_prompt_for_document(model)
     from plugin.framework.constants import CHAT_RESPONSE_FORMAT
-    # With ctx=None, rich_text_sidebar defaults to False so HTML format is replaced with plain-text instruction
+
+    with patch("plugin.framework.config.get_config_bool_safe", return_value=False):
+        prompt = get_chat_system_prompt_for_document(model)
     assert CHAT_RESPONSE_FORMAT not in prompt
     assert "plain text only" in prompt
     assert "LibreOffice Writer assistant" in prompt
@@ -59,6 +60,18 @@ def test_get_chat_system_prompt_allows_html_when_rich_text_control_sidebar():
         prompt = get_chat_system_prompt_for_document(model, ctx=MagicMock())
         assert CHAT_RESPONSE_FORMAT in prompt
         assert "plain text only" not in prompt
+
+
+def test_get_chat_system_prompt_allows_html_by_default_fallback():
+    model = MagicMock()
+    model.supportsService.return_value = False
+    from plugin.framework.constants import CHAT_RESPONSE_FORMAT
+
+    with patch("plugin.framework.config.get_config_bool_safe") as mock_bool:
+        mock_bool.side_effect = lambda ctx, key, default=False: default
+        prompt = get_chat_system_prompt_for_document(model)
+    assert CHAT_RESPONSE_FORMAT in prompt
+    assert "plain text only" not in prompt
 
 
 def test_writer_chat_prompt_opens_with_persona_and_color_guidance():
