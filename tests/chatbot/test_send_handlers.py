@@ -374,6 +374,95 @@ def test_run_web_research_invalid_json():
                 assert panel._terminal_status == "Ready"
 
 
+def test_run_web_research_uses_session_history_not_response_control():
+    from plugin.chatbot.panel import ChatSession
+
+    panel = DummyChatbotPanel()
+    model = MockDocument()
+
+    session = ChatSession(system_prompt="Observe web search.")
+    session.messages.append({"role": "user", "content": "price of inception mercury 2?"})
+    session.messages.append({"role": "assistant", "content": "AI (research): about $500\n"})
+    panel.session = session
+    panel.response_control.getModel.return_value = MagicMock()
+
+    stale_greeting = (
+        "AI: I can edit or translate your document instantly with professional formatting and color. Try me!"
+    )
+
+    mock_main = MagicMock()
+    mock_registry = MagicMock()
+    mock_registry.execute.return_value = '{"status": "ok", "result": "follows up"}'
+    mock_registry._services = MagicMock()
+    mock_main.get_tools.return_value = mock_registry
+
+    mock_uno = MagicMock()
+
+    class DummyBase1(object):
+        pass
+
+    class DummyBase2(object):
+        pass
+
+    mock_unohelper = MagicMock()
+    mock_unohelper.Base = DummyBase1
+    mock_awt = MagicMock()
+    mock_awt.XActionListener = DummyBase2
+    mock_awt.XItemListener = DummyBase2
+    mock_awt.XTextListener = DummyBase2
+    mock_awt.XWindowListener = DummyBase2
+    mock_awt.XKeyListener = DummyBase2
+    mock_lang = MagicMock()
+    mock_lang.XEventListener = DummyBase2
+    with patch.dict(
+        "sys.modules",
+        {
+            "plugin.main": mock_main,
+            "uno": mock_uno,
+            "unohelper": mock_unohelper,
+            "com.sun.star.text": MagicMock(),
+            "com.sun.star.awt": mock_awt,
+            "com.sun.star.lang": mock_lang,
+        },
+    ):
+        with patch("plugin.chatbot.dialogs.get_control_text", return_value=stale_greeting) as mock_get_text:
+            with patch("plugin.framework.async_stream.run_in_background") as mock_run_bg:
+
+                def fake_run_bg(func, **kwargs):
+                    func()
+
+                mock_run_bg.side_effect = fake_run_bg
+
+                with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
+
+                    def fake_drain_loop(q, toolkit, job_done, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, ctx, stop_checker, **kwargs):
+                        while not q.empty():
+                            item = q.get()
+                            k = item[0]
+                            if k == StreamQueueKind.CHUNK:
+                                apply_chunk(item[1])
+                            elif k == StreamQueueKind.STREAM_DONE:
+                                on_stream_done(item)
+                            elif k == StreamQueueKind.STATUS:
+                                on_status_fn(item[1])
+                            elif k == StreamQueueKind.ERROR:
+                                on_error(item[1])
+                        job_done[0] = True
+
+                    mock_run_stream.side_effect = fake_drain_loop
+
+                    getattr(panel.ctx, "getServiceManager")().createInstanceWithContext.return_value = MagicMock()
+
+                    panel._run_web_research("you said that earlier", model)  # type: ignore
+
+                    mock_get_text.assert_not_called()
+                    mock_registry.execute.assert_called_once()
+                    kwargs = mock_registry.execute.call_args.kwargs
+                    assert "inception mercury" in kwargs["history_text"]
+                    assert stale_greeting not in kwargs["history_text"]
+                    assert kwargs["query"] == "you said that earlier"
+
+
 def test_run_librarian_keeps_panel_flag_until_switch():
     panel = DummyChatbotPanel()
     model = MockDocument()
