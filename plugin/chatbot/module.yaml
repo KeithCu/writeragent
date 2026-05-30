@@ -106,13 +106,6 @@ config:
   #   label: API Auth Token
   #   helper: "Optional Bearer token for researchers/external apps. Empty = no auth."
 
-  rich_text_sidebar:
-    type: boolean
-    default: false
-    widget: checkbox
-    label: Rich Text Chat Sidebar (embedded Writer)
-    helper: "Experimental: embeds a Writer frame in the sidebar (requires restart). If both rich-text options are enabled, this wins over Rich Text Control."
-
   rich_text_control_sidebar:
     type: boolean
     default: true

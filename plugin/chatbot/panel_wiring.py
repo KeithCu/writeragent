@@ -263,25 +263,31 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
     except Exception as e:
         log.warning("extension update check schedule failed: %s", e)
 
-    # 7. Rich Text Sidebar Initialization (Lazy Peer Solution)
-    # Only enabled when rich_text_sidebar is set in config; requires LO restart to change.
+    # 7. Rich Text Control Sidebar (RichTextControl; embedded Writer path removed)
     from plugin.framework.config import get_config_bool_safe
 
-    if get_config_bool_safe(self.ctx, "rich_text_sidebar", default=False):
+    if get_config_bool_safe(self.ctx, "rich_text_control_sidebar", default=True):
         try:
-            from plugin.chatbot.rich_text import EmbeddedWriterListener
+            from plugin.chatbot.rich_text_control import RichTextControlListener
 
-            def on_rich_text_ready(doc, frame, container):
-                log.info("[RICH-LIFECYCLE] on_rich_text_ready callback — doc=%s frame=%s container=%s",
-                         bool(doc), bool(frame), bool(container))
-                self.embedded_doc = doc
-                self.embedded_frame = frame
-                self.embedded_container = container
+            def on_rich_control_ready(rich_control):
+                log.info("[RICH-CONTROL] on_rich_control_ready control=%s", bool(rich_control))
+                self.rich_text_control = rich_control
+                controls["response_rich"] = rich_control
+                if hasattr(self, "_panel_resize_listener") and self._panel_resize_listener:
+                    self._panel_resize_listener._c["response_rich"] = rich_control
+                    try:
+                        self._panel_resize_listener.relayout_now(root_window)
+                    except Exception as e:
+                        log.debug("on_rich_control_ready relayout_now: %s", e)
+                try:
+                    from plugin.chatbot.rich_text_control import sync_rich_control_bounds
+
+                    sync_rich_control_bounds(rich_control, root_window, controls["response"])
+                except Exception as e:
+                    log.debug("on_rich_control_ready sync bounds: %s", e)
                 if hasattr(self, "send_listener") and self.send_listener:
-                    self.send_listener.set_embedded_doc(doc, frame, container)
-                    log.info("[RICH-SHUTDOWN] Rich text embedded objects handed to SendButtonListener (frame, doc, container)")
-
-                # Hide the plain-text response control and label
+                    self.send_listener.set_rich_text_control(rich_control, style_window=root_window)
                 try:
                     from plugin.chatbot.dialogs import set_control_visible
 
@@ -290,85 +296,15 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
                     if controls.get("response_label"):
                         set_control_visible(controls["response_label"], False)
                 except Exception:
-                    log.debug("Failed to hide response controls")
-
-                # Initial render into the new rich-text document
+                    log.debug("Failed to hide plain response controls for RichTextControl")
                 try:
-                    log.debug("Performing initial rich-text render")
                     nonlocal web_checked, model, active_greeting
                     self._render_session_history(self.session, controls["response"], model, active_greeting)
                 except Exception as e:
-                    log.error("Initial rich-text render failed: %s", e)
+                    log.error("Initial RichTextControl render failed: %s", e)
 
-            log.debug("[RICH-LIFECYCLE] About to create EmbeddedWriterListener and attach to root_window id=%s", id(root_window))
-            # Use the document's frame (not the sidebar xFrame) for the close
-            # listener — notifyClosing fires on the document frame when it closes.
-            doc_frame = None
-            try:
-                ctrl = model.getCurrentController()
-                if ctrl:
-                    doc_frame = ctrl.getFrame()
-            except Exception:
-                pass
-            rich_listener = EmbeddedWriterListener(self.ctx, root_window, controls["response"], on_rich_text_ready, doc_model=model, host_frame=doc_frame)
-            root_window.addWindowListener(rich_listener)
-            log.info("[RICH-LIFECYCLE] EmbeddedWriterListener attached to root_window (will be responsible for frame/doc/container cleanup on shutdown)")
-
-            # Wire the listener ref into SendButtonListener so its disposing() can
-            # explicitly removeWindowListener + trigger the embedded safe-dispose.
-            # This (together with EmbeddedWriterListener.disposing) is the core
-            # of the shutdown bugfix: without it the listener stayed registered on
-            # the root XDialog after the sidebar deck / panel was torn down by LO.
-            if hasattr(self, "send_listener") and self.send_listener:
-                try:
-                    self.send_listener.set_rich_listener(rich_listener)
-                except Exception:
-                    pass
+            rich_control_listener = RichTextControlListener(self.ctx, root_window, controls["response"], on_rich_control_ready)
+            root_window.addWindowListener(rich_control_listener)
+            log.info("[RICH-CONTROL] RichTextControlListener attached to root_window")
         except Exception as e:
-            log.error("Rich text initialization setup failed: %s", e)
-
-    elif get_config_bool_safe(self.ctx, "rich_text_control_sidebar", default=True):
-        if get_config_bool_safe(self.ctx, "rich_text_sidebar", default=False):
-            log.warning("rich_text_sidebar and rich_text_control_sidebar are both enabled; using embedded Writer")
-        else:
-            try:
-                from plugin.chatbot.rich_text_control import RichTextControlListener
-
-                def on_rich_control_ready(rich_control):
-                    log.info("[RICH-CONTROL] on_rich_control_ready control=%s", bool(rich_control))
-                    self.rich_text_control = rich_control
-                    controls["response_rich"] = rich_control
-                    if hasattr(self, "_panel_resize_listener") and self._panel_resize_listener:
-                        self._panel_resize_listener._c["response_rich"] = rich_control
-                        try:
-                            self._panel_resize_listener.relayout_now(root_window)
-                        except Exception as e:
-                            log.debug("on_rich_control_ready relayout_now: %s", e)
-                    try:
-                        from plugin.chatbot.rich_text_control import sync_rich_control_bounds
-
-                        sync_rich_control_bounds(rich_control, root_window, controls["response"])
-                    except Exception as e:
-                        log.debug("on_rich_control_ready sync bounds: %s", e)
-                    if hasattr(self, "send_listener") and self.send_listener:
-                        self.send_listener.set_rich_text_control(rich_control, style_window=root_window)
-                    try:
-                        from plugin.chatbot.dialogs import set_control_visible
-
-                        if controls.get("response"):
-                            set_control_visible(controls["response"], False)
-                        if controls.get("response_label"):
-                            set_control_visible(controls["response_label"], False)
-                    except Exception:
-                        log.debug("Failed to hide plain response controls for RichTextControl")
-                    try:
-                        nonlocal web_checked, model, active_greeting
-                        self._render_session_history(self.session, controls["response"], model, active_greeting)
-                    except Exception as e:
-                        log.error("Initial RichTextControl render failed: %s", e)
-
-                rich_control_listener = RichTextControlListener(self.ctx, root_window, controls["response"], on_rich_control_ready)
-                root_window.addWindowListener(rich_control_listener)
-                log.info("[RICH-CONTROL] RichTextControlListener attached to root_window")
-            except Exception as e:
-                log.error("RichTextControl sidebar initialization failed: %s", e)
+            log.error("RichTextControl sidebar initialization failed: %s", e)

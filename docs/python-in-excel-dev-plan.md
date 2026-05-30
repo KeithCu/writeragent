@@ -102,7 +102,7 @@ These items are tracked in [enabling_numpy_in_libreoffice.md — Calc UX and out
 **Status (2026):** Shipped. Default remains **Isolated** (one namespace per `=PYTHON()` call). Enable **Shared kernel** in Settings → Python so variables persist across cells in the same Calc workbook. **WriterAgent → Reset Python Session** clears the workbook namespace (visible in Writer, Calc, and Draw; only applies when a Calc spreadsheet is active and shared mode is on).
 
 > [!IMPORTANT]
-> **Shared kernel contract:** One persistent global Python namespace per workbook. Any `=PYTHON()` cell can read or overwrite names from any other cell. Calc may invoke cells in dependency order (not strict row-major). The only reliable ordering guarantee is that cell code runs **after** the Initialization Script. Assume each cell **can run any time, any number of times** while the workbook is open — write **idempotent** code (safe to re-run; see below). See [Shared kernel lifecycle & recalc semantics](#shared-kernel-lifecycle--recalc-semantics) below.
+> **Shared kernel contract:** One persistent global Python namespace per workbook. Any `=PYTHON()` cell can read or overwrite names from any other cell. **Wire multi-cell pipelines with `data` refs** — passing an upstream cell/range as the second arg makes Calc run it first (DAG ordering; see below). Assume each cell **can run any time, any number of times** — write **idempotent** code (safe to re-run). See [Shared kernel lifecycle & recalc semantics](#shared-kernel-lifecycle--recalc-semantics) below.
 
 **Original gap:** Each `=PYTHON()` cell used a fresh `LocalPythonExecutor` namespace. The Excel model uses row-major stateful execution where a DataFrame created in A1 is available in B2.
 
@@ -129,19 +129,43 @@ These items are tracked in [enabling_numpy_in_libreoffice.md — Calc UX and out
 
 Microsoft Python in Excel keeps one **global Python namespace** per workbook. Standard recalc (F9, auto on edit, dirty cells) does **not** reset that namespace — globals persist until the user chooses **Reset Runtime** (Ctrl+Alt+Shift+F9). Excel compensates with **co-volatility**: when any `=PY` cell recalculates, **all** PY cells in the workbook re-execute in row-major order, so each cell refreshes its contributions to the shared state. See [Python in Excel: PY Calculation, Globals & Co-Volatility](https://fastexcel.wordpress.com/2023/11/01/python-in-excel-py-calculation-globals-co-volatility/).
 
-WriterAgent **Shared kernel** mode matches the persistence model (no auto-reset on recalc) but **does not** implement Excel co-volatility. Calc uses its native dependency DAG: only dirty cells and their dependents recalculate, and order is **not** guaranteed to be row-major. The model is unusual but workable if users understand the contract:
+WriterAgent **Shared kernel** mode matches the persistence model (no auto-reset on recalc) but **does not** implement Excel co-volatility. Calc uses its native dependency DAG: only dirty cells and their dependents recalculate. That sounds like a weakness for multi-cell scripts — until you use WriterAgent's **`=PYTHON(code, data)` design**, which turns Calc's DAG into a first-class feature (see below).
+
+#### Why explicit `data` args unlock complicated multi-cell scripts
+
+Excel's `=PY` cells share globals but depend on **row-major order** and **co-volatility** (every PY cell re-runs when any one changes). Moving a cell or relying on implicit variables breaks easily; Excel has no native way to declare "run A1 before B1" except position on the sheet.
+
+WriterAgent's **`data` argument is a dependency edge.** When cell `B1` references upstream work in `A1`, write:
+
+```calc
+=PYTHON("result = x + 1"; A1)
+```
+
+Calc's formula engine already tracks that `B1` depends on `A1`. On recalc, **`A1` runs before `B1`** — no string parsing, no co-volatility tax, no fragile sheet layout. You can chain many cells into a **pipeline** (load → clean → aggregate → plot) by passing each stage's cell or range as `data` to the next, even when those cells are not adjacent or not in row-major order.
+
+| Approach | Ordering mechanism | Partial recalc |
+|----------|-------------------|----------------|
+| Excel `=PY` + globals | Row-major + all PY cells re-run | Heavy (co-volatility) |
+| WriterAgent shared kernel + **`data` refs** | Calc DAG (precedents first) | Only dirty subgraph recalcs |
+
+This is one of the main reasons to keep **`=PYTHON(code, data)`** instead of copying Excel's `xl()`-inside-string model ([python-in-excel-ideas.md §1.4](python-in-excel-ideas.md#14-architectural-design-choices-microsofts-py-vs-writeragents-python)): the second argument is not only for passing values into `data` — it is how you **wire execution order** for shared-kernel scripts. Pass the upstream cell even when the script reads a global set by that cell; the range reference is the dependency declaration.
+
+The model is unusual but workable — and **more powerful than Excel's positional rule** when authors use `data` refs deliberately:
 
 | Rule | Meaning |
 |------|---------|
 | **One namespace per workbook** | The `calc:…` worker session (`_SESSION_EXECUTORS` in [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py)) lives until **WriterAgent → Reset Python Session**, worker restart/crash, init-script hash change + re-seed, or (optional, not wired by default) document unload via [`python_workbook_lifecycle.py`](../plugin/calc/python_workbook_lifecycle.py). |
 | **Any cell can clobber any name** | Variables are true shared mutable globals. Cell B1 can overwrite a name defined in A1; there is no per-cell isolation. |
-| **Weak execution order** | Do not assume row-major or DAG order among `=PYTHON()` cells. Implicit cross-cell dependencies (e.g. `result = x + 1` where `x` was set in another cell) are fragile. The **only** hard ordering guarantee: cell code always runs **after** the workbook Initialization Script has completed in the `calc:…:init` session. |
+| **Order via `data`, not layout** | Implicit globals alone (`result = x + 1` with no second arg) have **no** ordering guarantee. **Pass upstream cells/ranges as `data`** and Calc's DAG runs precedents first — the main tool for multi-cell pipelines. Init script always runs before any cell. |
 | **Runs any time** | Each cell may be invoked zero, one, or many times while the workbook is open (partial recalc, matrix spill, manual F9, etc.). Treat every cell as **idempotent / restartable**. |
 | **Escape hatch** | **WriterAgent → Reset Python Session** (Calc shared mode) clears the workbook namespace and init cache — the equivalent of Excel's Reset Runtime. |
 
 **Authoring guidelines:**
 
 1. **Define before use** when cells depend on each other — prefer explicit `data` range args so Calc's DAG tracks inputs, or keep dependent logic in one cell / the init script.
+
+   > **Tip — force recalc order:** Pass upstream cells/ranges as the **`data` argument** to `=PYTHON()` — this is how you declare dependencies and unlock multi-cell pipelines (see [Why explicit `data` args unlock complicated multi-cell scripts](#why-explicit-data-args-unlock-complicated-multi-cell-scripts) above). Example: `=PYTHON("result = x + 1"; A1)` ensures Calc runs `A1` before `B1`.
+
 2. **Avoid unbounded accumulation** (`mylist.append(x)` every recalc without resetting) unless that is intentional.
 3. **One-time expensive setup** belongs in the **Initialization Script**, not repeated in every cell.
 4. **Side effects** (writing to sheets, files, network) inside cells should be idempotent or clearly intentional on re-run.

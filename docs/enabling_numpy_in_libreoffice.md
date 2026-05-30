@@ -258,10 +258,10 @@ WriterAgent removed upstream’s `find_spec` import pre-check at executor init (
 |-------|----------|
 | `PythonWorkerManager` | One subprocess per resolved venv `python`; respawns on crash/timeout; auto-warms before first timed execute |
 | `worker_harness.py` | Read loop; delegates to `venv_sandbox.run_sandboxed_code` |
-| `venv_sandbox.py` | New `LocalPythonExecutor` per request; inject `data`; serialize `result` |
+| `venv_sandbox.py` | **Isolated (default):** new `LocalPythonExecutor` per request. **Shared kernel:** one executor per `calc:…` session id; inject `data`; serialize `result` |
 | **Code hot cache** | [`python_code_hot_cache.py`](../plugin/scripting/sandbox_cache.py): SHA-256 keyed LRU (default 4096) caches **parsed AST** + **static** sandbox policy (imports, dunder attrs, forbidden syntax) per unchanged source + import allowlist. Skips re-parse and re-validation on recalc; **does not** cache execution `result` or variables. Separate from host [Worker Result Session](#matrix-formula-optimization-fast-path). Also used by in-process [`execute_python_script`](../plugin/calc/python_executor.py). |
 
-No `reset` command, no cross-call variable cache. Optional **session persistence** would be an explicit product decision ([§7](#7-deferred-roadmap)).
+**Reset:** `reset_session` / **WriterAgent → Reset Python Session** drops the shared executor (and paired `:init` session). There is **no** automatic reset on F9 or dirty recalc — see [Shared kernel lifecycle](#shared-kernel-lifecycle--recalc-semantics) below.
 
 ### Specialized domain
 
@@ -840,7 +840,6 @@ This item is deliberately scoped as Priority 3 because the personal library + ce
 
 - **OooDev / ScriptForge:** optional venv install for UNO-from-Python; or keep compute-in-venv + document-via-tools (recommended).
 - **Matplotlib (shipped):** `matplotlib` / `plt` figures from `=PYTHON()` or `run_venv_python_script` are captured in the worker, serialized via the `__wa_payload__: "image"` envelope, and inserted as `GraphicObjectShape` on the Calc draw page (chat path returns a temp `image_path` for existing image tools). See [python-in-excel-dev-plan.md](python-in-excel-dev-plan.md) Phase 2.
-- **Optional session persistence:** reuse one executor namespace within a chat session (opt-in).
 - **Worker idle shutdown:** terminate venv process after N minutes idle.
 - **Formula `timeout_sec`:** optional per-formula override (Settings remains the default).
 - **LO serialization profiler:** debug-menu or UNO test harness for legs A–D ([Priority 1](numpy-serialization.md#priority-1--profile-inside-libreoffice-gate-for-everything-else)).
@@ -850,7 +849,25 @@ Phased implementation plan: [python-in-excel-dev-plan.md](python-in-excel-dev-pl
 
 ### Calc UX and output enhancements
 
-**Shared kernel (shipped):** Settings → Python → **Python session mode** → **Shared kernel** keeps one Python namespace per Calc workbook across `=PYTHON()` cells (default **Isolated** preserves the old one-namespace-per-cell behavior). Use **WriterAgent → Reset Python Session** to clear variables for the active spreadsheet. Implementation: [`session_manager.py`](../plugin/scripting/session_manager.py), [`python-in-excel-dev-plan.md`](python-in-excel-dev-plan.md) Phase 1.
+**Shared kernel (shipped):** Settings → Python → **Python session mode** → **Shared kernel** keeps one Python namespace per Calc workbook across `=PYTHON()` cells (default **Isolated** preserves the old one-namespace-per-cell behavior). Use **WriterAgent → Reset Python Session** to clear variables for the active spreadsheet. Implementation: [`session_manager.py`](../plugin/scripting/session_manager.py), [python-in-excel-dev-plan.md](python-in-excel-dev-plan.md) Phase 1.
+
+#### Shared kernel lifecycle & recalc semantics
+
+> [!IMPORTANT]
+> **Mental model:** One persistent global Python namespace per workbook. Any `=PYTHON()` cell can read or overwrite any name. Calc may run cells out of row-major / DAG order. The only reliable ordering guarantee is **after the Initialization Script**. Assume each cell **can run any time, any number of times** — write **idempotent** code (running the cell again should not accidentally pile on extra side effects; see [What “idempotent” means](python-in-excel-dev-plan.md#shared-kernel-lifecycle--recalc-semantics) in the dev plan).
+
+| When state clears | When state persists |
+|-------------------|---------------------|
+| **WriterAgent → Reset Python Session** | F9 / automatic / partial recalc |
+| Worker subprocess restart or crash | Variables from cells that did not recalc this pass |
+| Init script hash change (re-seed) | Until user resets (matches Excel: no reset on F9) |
+| Optional document unload ([`python_workbook_lifecycle.py`](../plugin/calc/python_workbook_lifecycle.py), not wired by default) | |
+
+Excel keeps globals across recalc and uses **co-volatility** (all `=PY` cells re-run together in row-major order). WriterAgent does **not** co-volatile all Python cells; instead, **`=PYTHON(code, data)` wires Calc's DAG** so precedents run first — pass upstream cells as `data` to chain load → transform → output pipelines without Excel's positional fragility. See [Why explicit `data` args unlock complicated multi-cell scripts](python-in-excel-dev-plan.md#why-explicit-data-args-unlock-complicated-multi-cell-scripts) in the dev plan.
+
+**Authoring:** put one-time setup in the init script; avoid unbounded `append` loops; make side effects idempotent. **Pipeline tip:** pass each upstream stage as `data` (e.g. `=PYTHON("result = g(df)"; A1)`) — that declares recalc order and is the main way to build complicated multi-cell scripts. Full detail: [python-in-excel-dev-plan.md § Shared kernel lifecycle](python-in-excel-dev-plan.md#shared-kernel-lifecycle--recalc-semantics).
+
+**Future (not planned as default):** A "reset shared kernel on full workbook recalc" opt-in would require best-effort detection (e.g. a document calculate listener if available). Cell-position heuristics (`last cell < previous`) are **not** reliable — Calc does not expose recalc-pass boundaries to add-ins.
 
 **Initialization scripts (shipped):** **WriterAgent → Edit Initialization Script…** (Calc only) stores a workbook startup script in document properties. It runs **once** per workbook in a dedicated `calc:…:init` session (even when session mode is Isolated); expensive setup is shared across all `=PYTHON()` cells. Cell-to-cell variables remain isolated unless Shared kernel is enabled. [`init_scripts.py`](../plugin/scripting/init_scripts.py), Phase 4 in [`python-in-excel-dev-plan.md`](python-in-excel-dev-plan.md).
 
