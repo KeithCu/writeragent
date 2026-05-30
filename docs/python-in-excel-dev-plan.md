@@ -99,7 +99,10 @@ These items are tracked in [enabling_numpy_in_libreoffice.md — Calc UX and out
 
 ## Phase 1: Session Persistence (Shared Kernel Mode)
 
-**Status (2026):** Shipped. Default remains **Isolated** (one namespace per `=PYTHON()` call). Enable **Shared kernel** in Settings → Python so variables persist across cells in the same Calc workbook (Calc recalc order is already row-major). **WriterAgent → Reset Python Session** clears the workbook namespace (visible in Writer, Calc, and Draw; only applies when a Calc spreadsheet is active and shared mode is on).
+**Status (2026):** Shipped. Default remains **Isolated** (one namespace per `=PYTHON()` call). Enable **Shared kernel** in Settings → Python so variables persist across cells in the same Calc workbook. **WriterAgent → Reset Python Session** clears the workbook namespace (visible in Writer, Calc, and Draw; only applies when a Calc spreadsheet is active and shared mode is on).
+
+> [!IMPORTANT]
+> **Shared kernel contract:** One persistent global Python namespace per workbook. Any `=PYTHON()` cell can read or overwrite names from any other cell. Calc may invoke cells in dependency order (not strict row-major). The only reliable ordering guarantee is that cell code runs **after** the Initialization Script. Assume each cell **can run any time, any number of times** while the workbook is open — write **idempotent** code (safe to re-run; see below). See [Shared kernel lifecycle & recalc semantics](#shared-kernel-lifecycle--recalc-semantics) below.
 
 **Original gap:** Each `=PYTHON()` cell used a fresh `LocalPythonExecutor` namespace. The Excel model uses row-major stateful execution where a DataFrame created in A1 is available in B2.
 
@@ -108,7 +111,6 @@ These items are tracked in [enabling_numpy_in_libreoffice.md — Calc UX and out
 - Add a **`PythonSessionManager`** alongside [PythonWorkerManager](plugin/scripting/venv_worker.py) that maintains a **persistent namespace** per workbook
 - New config key `scripting.python_session_mode` (default `"isolated"`, option `"shared"`) in [plugin/scripting/module.yaml](plugin/scripting/module.yaml)
 - Modify [worker_harness.py](plugin/scripting/worker_harness.py) to accept a `session_id` field; when present, reuse the `LocalPythonExecutor` instance instead of creating a new one
-- Row-major evaluation order: leverage Calc's existing recalc order (already left-to-right, top-to-bottom within a sheet)
 - Session reset command (`Ctrl+Alt+Shift+F9` equivalent): new `reset_session` request type in the worker protocol; wire to a menu item or keyboard shortcut
 - **Safety:** session mode still runs in the venv subprocess (ABI-safe); the sandbox's iteration/operation limits still apply per-cell
 
@@ -122,6 +124,43 @@ These items are tracked in [enabling_numpy_in_libreoffice.md — Calc UX and out
 **Tests:** [`tests/scripting/test_session_persistence.py`](../tests/scripting/test_session_persistence.py) — cross-cell visibility, session reset, isolation between workbooks.
 
 **Key files:** [`session_manager.py`](../plugin/scripting/session_manager.py) (workbook `calc:` session id + menubar reset), plus worker/sandbox/harness changes listed above.
+
+### Shared kernel lifecycle & recalc semantics
+
+Microsoft Python in Excel keeps one **global Python namespace** per workbook. Standard recalc (F9, auto on edit, dirty cells) does **not** reset that namespace — globals persist until the user chooses **Reset Runtime** (Ctrl+Alt+Shift+F9). Excel compensates with **co-volatility**: when any `=PY` cell recalculates, **all** PY cells in the workbook re-execute in row-major order, so each cell refreshes its contributions to the shared state. See [Python in Excel: PY Calculation, Globals & Co-Volatility](https://fastexcel.wordpress.com/2023/11/01/python-in-excel-py-calculation-globals-co-volatility/).
+
+WriterAgent **Shared kernel** mode matches the persistence model (no auto-reset on recalc) but **does not** implement Excel co-volatility. Calc uses its native dependency DAG: only dirty cells and their dependents recalculate, and order is **not** guaranteed to be row-major. The model is unusual but workable if users understand the contract:
+
+| Rule | Meaning |
+|------|---------|
+| **One namespace per workbook** | The `calc:…` worker session (`_SESSION_EXECUTORS` in [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py)) lives until **WriterAgent → Reset Python Session**, worker restart/crash, init-script hash change + re-seed, or (optional, not wired by default) document unload via [`python_workbook_lifecycle.py`](../plugin/calc/python_workbook_lifecycle.py). |
+| **Any cell can clobber any name** | Variables are true shared mutable globals. Cell B1 can overwrite a name defined in A1; there is no per-cell isolation. |
+| **Weak execution order** | Do not assume row-major or DAG order among `=PYTHON()` cells. Implicit cross-cell dependencies (e.g. `result = x + 1` where `x` was set in another cell) are fragile. The **only** hard ordering guarantee: cell code always runs **after** the workbook Initialization Script has completed in the `calc:…:init` session. |
+| **Runs any time** | Each cell may be invoked zero, one, or many times while the workbook is open (partial recalc, matrix spill, manual F9, etc.). Treat every cell as **idempotent / restartable**. |
+| **Escape hatch** | **WriterAgent → Reset Python Session** (Calc shared mode) clears the workbook namespace and init cache — the equivalent of Excel's Reset Runtime. |
+
+**Authoring guidelines:**
+
+1. **Define before use** when cells depend on each other — prefer explicit `data` range args so Calc's DAG tracks inputs, or keep dependent logic in one cell / the init script.
+2. **Avoid unbounded accumulation** (`mylist.append(x)` every recalc without resetting) unless that is intentional.
+3. **One-time expensive setup** belongs in the **Initialization Script**, not repeated in every cell.
+4. **Side effects** (writing to sheets, files, network) inside cells should be idempotent or clearly intentional on re-run.
+
+**What “idempotent” means:** A cell is idempotent when running it **again** (after F9, an edit elsewhere, or a partial recalc) produces the **same intended outcome** as running it once — it does not keep adding unwanted changes each time. Think “safe to re-run.”
+
+| Pattern | Idempotent? | Why |
+|---------|-------------|-----|
+| `result = data * 2` | Yes | Recomputes from sheet `data` every time; same inputs → same `result`. |
+| `result = df.groupby("col").sum()` | Yes | Derives output only from current `data`, not from a counter that grows. |
+| `runs += 1; result = runs` | No | Every recalc increments `runs`; the cell “remembers” past runs in the shared namespace. |
+| `cache.append(x)` with no reset | No | The list grows on every invocation unless you clear it on purpose. |
+| Write a file / insert a shape every run | Usually no | Re-run duplicates side effects unless you guard with “only if changed” logic. |
+
+If you **want** state to accumulate (e.g. a running total across recalcs), that is fine — but treat it as a deliberate choice, not an accident. When in doubt, compute `result` from `data` and init-script helpers only, and use **Reset Python Session** when you need a clean slate.
+
+**Not reset automatically:** F9, Ctrl+Shift+F9 (hard recalc), or editing a single cell does **not** clear the shared kernel. A "reset on every full recalc" mode is **not** planned as default; if ever added, it would be an opt-in setting with best-effort detection only (not cell-position heuristics — Calc does not expose a reliable recalc-pass boundary to add-ins).
+
+**Related:** [`WorkerResultSession`](../plugin/calc/python_function.py) is a separate, thread-local cache for matrix list results within one recalc pass; it does not manage cross-recalc shared variables.
 
 ---
 

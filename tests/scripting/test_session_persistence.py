@@ -34,6 +34,21 @@ def test_shared_session_persists_variables():
     assert r2["result"] == 42
 
 
+def test_shared_kernel_persists_across_simulated_recalc():
+    """Shared kernel keeps globals across separate execute calls (no reset between recalcs)."""
+    sid = "calc:recalc-sim"
+    r1 = _execute_request("counter = 0\ncounter += 1\nresult = counter", None, session_id=sid)
+    assert r1["status"] == "ok"
+    assert r1["result"] == 1
+    # Second invocation simulates another recalc pass without reset_python_session.
+    r2 = _execute_request("counter += 1\nresult = counter", None, session_id=sid)
+    assert r2["status"] == "ok"
+    assert r2["result"] == 2
+    r3 = _execute_request("result = counter", None, session_id=sid)
+    assert r3["status"] == "ok"
+    assert r3["result"] == 2
+
+
 def test_isolated_default_fresh_namespace():
     r1 = _execute_request("x = 41\nresult = x + 1", None)
     assert r1["status"] == "ok"
