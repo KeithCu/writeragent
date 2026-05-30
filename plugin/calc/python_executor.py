@@ -30,21 +30,19 @@ from typing import Any
 from plugin.contrib.smolagents.local_python_executor import LocalPythonExecutor, InterpreterError
 from plugin.framework.tool import ToolBaseDummy
 from plugin.framework.errors import WriterAgentException
+from plugin.scripting.import_policy import format_inprocess_import_policy_for_prompt
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.manipulator import CellManipulator
 from plugin.calc.inspector import CellInspector
 
 logger = logging.getLogger("writeragent.calc.python_executor")
 
-CALC_AUTHORIZED_IMPORTS = ["math", "datetime", "random", "json", "re", "collections", "itertools", "statistics"]
-
-
-class PythonExecutor:
+from plugin.scripting.sandbox_imports import CALC_AUTHORIZED_IMPORTS
     """Runs Python in LO's embedded interpreter with document helpers (stdlib-only imports)."""
 
     def __init__(self, doc_url: str):
         self.doc_url = doc_url
-        self.executor = LocalPythonExecutor(additional_authorized_imports=CALC_AUTHORIZED_IMPORTS)
+        self.executor = LocalPythonExecutor(additional_authorized_imports=list(CALC_AUTHORIZED_IMPORTS))
 
     def inject_helpers(self, bridge: CalcBridge, manipulator: CellManipulator, inspector: CellInspector):
         """Injects document interaction helpers into the environment."""
@@ -98,9 +96,8 @@ class ExecutePythonScript(ToolBaseDummy):
     name = "execute_python_script"
     intent = "analyze"
     description = (
-        "Executes a Python script in LibreOffice's embedded interpreter (stdlib sandbox, not the user venv). "
-        "The value of the last expression is returned. Each call starts with a clean environment. "
-        "Helpers: lp('A1:B10') reads range, set_range('C1', data) writes result."
+        format_inprocess_import_policy_for_prompt()
+        + " The value of the last expression is returned. Each call starts with a clean environment."
     )
     parameters = {
         "type": "object",

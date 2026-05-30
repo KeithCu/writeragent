@@ -713,8 +713,10 @@ def launch_monaco_editor(
     from plugin.chatbot.dialogs import msgbox
 
     _PERSISTENT_EDITOR.ctx = ctx
-    if load_message.get("mode") == "run_script":
-        doc = load_message.get("run_script_doc")
+    # Host-only keys (e.g. pyuno document refs) must not cross the pickle IPC boundary.
+    ipc_message = dict(load_message)
+    if ipc_message.get("mode") == "run_script":
+        doc = ipc_message.pop("run_script_doc", None)
         _PERSISTENT_EDITOR.set_run_script_document(doc)
     closed_handler = on_closed if on_closed is not None else (lambda: None)
 
@@ -754,7 +756,7 @@ def launch_monaco_editor(
         return False
 
     try:
-        session.send(load_message)
+        session.send(ipc_message)
     except Exception as e:
         log.exception("Failed to send load to editor")
         set_active_session(None)

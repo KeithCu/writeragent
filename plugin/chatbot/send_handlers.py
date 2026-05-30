@@ -83,6 +83,8 @@ class SendHandlerHost(Protocol):
     def _append_response(self, text: str, is_thinking: bool = False, role: str = "assistant") -> None: ...
     def _get_doc_type_str(self, model: Any) -> str: ...
     def begin_inline_web_approval(self, query: str, tool: str, event: Any) -> None: ...
+    def rerender_rich_text_session(self) -> None: ...
+    _record_assistant_start: bool
     def _run_unified_worker_drain_loop(
         self, q: "queue.Queue[Any]", worker_fn: Callable[[], None], current_state: "SendHandlerState", interpreter: "EffectInterpreter", show_thinking: bool = True, on_stopped_callback: Callable[[], None] | None = None, on_approval_callback: Callable[[Any], None] | None = None
     ) -> None: ...
@@ -510,17 +512,17 @@ class SendHandlersMixin:
                         answer = data.get("result", "")
                         if not isinstance(answer, str):
                             answer = str(answer)
-                        msg = _("Librarian: {0}").format(answer) + "\n"
-                        q.put((StreamQueueKind.CHUNK, msg))
-                        self.session.add_assistant_message(content=msg)
+                        self._record_assistant_start = True
+                        q.put((StreamQueueKind.CHUNK, answer + "\n"))
+                        self.session.add_assistant_message(content=answer)
                     elif data.get("status") == "switch_mode":
                         # We want to exit librarian flow on the next turn.
                         self._in_librarian_mode = False
 
                         answer = data.get("result", _("Perfect! I'm switching you to the main assistant now."))
-                        msg = _("Librarian: {0}").format(answer) + "\n"
-                        q.put((StreamQueueKind.CHUNK, msg))
-                        self.session.add_assistant_message(content=msg)
+                        self._record_assistant_start = True
+                        q.put((StreamQueueKind.CHUNK, answer + "\n"))
+                        self.session.add_assistant_message(content=answer)
                     else:
                         self._in_librarian_mode = False
 
@@ -542,10 +544,9 @@ class SendHandlersMixin:
                         answer = data.get("result", "")
                         if not isinstance(answer, str):
                             answer = str(answer)
-                        msg = _("AI (research): {0}").format(answer) + "\n"
-                        q.put((StreamQueueKind.CHUNK, msg))
-                        # Persist assistant result to current session
-                        self.session.add_assistant_message(content=msg)
+                        self._record_assistant_start = True
+                        q.put((StreamQueueKind.CHUNK, answer + "\n"))
+                        self.session.add_assistant_message(content=answer)
                     else:
                         msg = data.get("message", _("Unknown research error."))
                         q.put((StreamQueueKind.CHUNK, "\n" + _("[Research error: {0}]").format(msg) + "\n"))
@@ -566,6 +567,10 @@ class SendHandlersMixin:
             log.info("web_research on_approval_required: tool=%s (inline Accept/Change/Reject)", tool_name)
 
         self._run_unified_worker_drain_loop(q, run_search, current_state, interpreter, show_thinking=show_thinking, on_approval_callback=on_approval_required)
+
+        from plugin.chatbot.rich_text import finalize_sidebar_assistant_response
+
+        finalize_sidebar_assistant_response(self)
 
     def _get_mcp_url(self: SendHandlerHost) -> str | None:
         """Construct the local MCP streamable-HTTP endpoint URL from config."""

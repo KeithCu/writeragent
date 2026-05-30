@@ -38,6 +38,26 @@ def test_get_greeting_for_document_draw():
     model.supportsService.side_effect = supportsService
     assert get_greeting_for_document(model) == DEFAULT_DRAW_GREETING
 
+def test_get_chat_response_format_instructions_plain_when_rich_disabled():
+    from plugin.framework.constants import CHAT_RESPONSE_FORMAT, get_chat_response_format_instructions
+
+    with patch("plugin.framework.config.get_config_bool_safe", return_value=False):
+        fmt = get_chat_response_format_instructions(MagicMock())
+    assert CHAT_RESPONSE_FORMAT not in fmt
+    assert "plain text only" in fmt
+
+
+def test_get_chat_response_format_instructions_html_when_rich_enabled():
+    from plugin.framework.constants import CHAT_RESPONSE_FORMAT, RICH_CHAT_SIDEBAR_INSTRUCTIONS, get_chat_response_format_instructions
+
+    with patch("plugin.framework.config.get_config_bool_safe", return_value=True):
+        fmt = get_chat_response_format_instructions(MagicMock())
+    assert fmt == RICH_CHAT_SIDEBAR_INSTRUCTIONS
+    assert CHAT_RESPONSE_FORMAT in fmt
+    assert "&lt;p&gt;Paragraph&lt;/p&gt;" in fmt
+    assert "line breaks within an element" in fmt
+
+
 def test_get_chat_system_prompt_plain_text_when_rich_disabled():
     model = MagicMock()
     model.supportsService.return_value = False
@@ -53,11 +73,12 @@ def test_get_chat_system_prompt_plain_text_when_rich_disabled():
 def test_get_chat_system_prompt_allows_html_when_rich_text_control_sidebar():
     model = MagicMock()
     model.supportsService.return_value = False
-    from plugin.framework.constants import CHAT_RESPONSE_FORMAT
+    from plugin.framework.constants import CHAT_RESPONSE_FORMAT, RICH_CHAT_SIDEBAR_INSTRUCTIONS
 
     with patch("plugin.framework.config.get_config_bool_safe") as mock_bool:
         mock_bool.side_effect = lambda ctx, key, default=False: key == "rich_text_control_sidebar"
         prompt = get_chat_system_prompt_for_document(model, ctx=MagicMock())
+        assert RICH_CHAT_SIDEBAR_INSTRUCTIONS in prompt
         assert CHAT_RESPONSE_FORMAT in prompt
         assert "plain text only" not in prompt
 
@@ -65,12 +86,12 @@ def test_get_chat_system_prompt_allows_html_when_rich_text_control_sidebar():
 def test_get_chat_system_prompt_allows_html_by_default_fallback():
     model = MagicMock()
     model.supportsService.return_value = False
-    from plugin.framework.constants import CHAT_RESPONSE_FORMAT
+    from plugin.framework.constants import RICH_CHAT_SIDEBAR_INSTRUCTIONS
 
     with patch("plugin.framework.config.get_config_bool_safe") as mock_bool:
         mock_bool.side_effect = lambda ctx, key, default=False: default
         prompt = get_chat_system_prompt_for_document(model)
-    assert CHAT_RESPONSE_FORMAT in prompt
+    assert RICH_CHAT_SIDEBAR_INSTRUCTIONS in prompt
     assert "plain text only" not in prompt
 
 
@@ -230,15 +251,18 @@ def test_core_directives_prohibit_asking_user_to_paste():
 
 def test_python_specialized_sub_agent_hint_writer():
     hint = python_specialized_sub_agent_hint("Writer")
-    assert PYTHON_VENV_AUTO_IMPORTS_PROMPT_LINE in hint
-    assert "DO NOT IMPORT" in hint
+    assert "PYTHON VENV SANDBOX" in hint
+    assert "Allowed stdlib in this sandbox" in hint
+    assert "sandbox" in hint.lower()
+    assert "DO NOT import numpy" in hint
     assert "does not inject spreadsheet" in hint
-    assert "data_range" not in hint
+    assert "data_range or data into run_venv_python_script" not in hint
 
 
 def test_python_specialized_sub_agent_hint_calc():
     hint = python_specialized_sub_agent_hint("Calc")
-    assert "DO NOT IMPORT" in hint
+    assert "sandbox" in hint.lower()
+    assert "DO NOT import numpy" in hint
     assert "data_range" in hint
 
 

@@ -121,6 +121,8 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
         smol_model = WriterAgentSmolModel(LlmClient(config, ctx.ctx, cancellation_scope=cancel_scope), max_tokens=max_tokens, status_callback=status_callback, stop_checker=stop_checker)
 
 
+        from plugin.framework.constants import get_chat_response_format_instructions
+
         base_intro = "You are a research assistant. Use the conversation context provided below to resolve any ambiguity in the user's query."
         tool_steps_budget = max_steps - 1
         budget_text = (
@@ -130,7 +132,11 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
             "reserve your last step for the final_answer tool so the run finishes before the hard limit. "
             "If you have enough evidence earlier, call final_answer sooner."
         )
-        instructions = f"{base_intro}\n\n{budget_text}"
+        response_format = get_chat_response_format_instructions(ctx.ctx)
+        instructions = (
+            f"{base_intro}\n\n{budget_text}\n\n{response_format}\n"
+            "Format your final_answer with this style; that text is shown in the chat sidebar."
+        )
 
         from plugin.chatbot.smol_examples import get_examples_block
 

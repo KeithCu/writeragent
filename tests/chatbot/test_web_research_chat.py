@@ -17,11 +17,11 @@ def test_format_sub_agent_history_excludes_current_query():
 def test_format_sub_agent_history_includes_prior_turns_excludes_current():
     session = ChatSession(system_prompt="Observe web search.")
     session.messages.append({"role": "user", "content": "price of inception mercury 2?"})
-    session.messages.append({"role": "assistant", "content": "AI (research): about $500\n"})
+    session.messages.append({"role": "assistant", "content": "about $500"})
     session.messages.append({"role": "user", "content": "you said that earlier"})
     history = format_sub_agent_conversation_history(session, current_query="you said that earlier")
     assert "price of inception mercury 2?" in history
-    assert "AI (research): about $500" in history
+    assert "about $500" in history
     assert "you said that earlier" not in history
 
 

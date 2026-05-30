@@ -17,6 +17,7 @@ class DummyChatbotPanel(SendHandlersMixin):
         self.responses = []
         self.status_history = []
         self._terminal_status = None
+        self._record_assistant_start = False
         setattr(self, "session", MagicMock())
         setattr(self, "response_control", MagicMock())
 
@@ -42,6 +43,66 @@ class DummyChatbotPanel(SendHandlersMixin):
 
     def resolve_stop_checker(self):
         return lambda: self.stop_requested
+
+    def rerender_rich_text_session(self):
+        pass
+
+
+def test_run_web_research_stores_raw_answer_and_rerenders():
+    panel = DummyChatbotPanel()
+    panel.rerender_rich_text_session = MagicMock()
+    model = MockDocument()
+    panel.session = MagicMock()
+
+    mock_main = MagicMock()
+    mock_registry = MagicMock()
+    mock_registry.execute.return_value = '{"status": "ok", "result": "<p>HTML answer</p>"}'
+    mock_registry._services = MagicMock()
+    mock_main.get_tools.return_value = mock_registry
+
+    mock_uno = MagicMock()
+    class DummyBase1(object): pass
+    class DummyBase2(object): pass
+    mock_unohelper = MagicMock()
+    mock_unohelper.Base = DummyBase1
+    mock_awt = MagicMock()
+    mock_awt.XActionListener = DummyBase2
+    mock_awt.XItemListener = DummyBase2
+    mock_awt.XTextListener = DummyBase2
+    mock_awt.XWindowListener = DummyBase2
+    mock_awt.XKeyListener = DummyBase2
+    mock_lang = MagicMock()
+    mock_lang.XEventListener = DummyBase2
+    with patch.dict('sys.modules', {'plugin.main': mock_main, 'uno': mock_uno, 'unohelper': mock_unohelper, 'com.sun.star.text': MagicMock(), 'com.sun.star.awt': mock_awt, 'com.sun.star.lang': mock_lang}):
+        with patch("plugin.framework.async_stream.run_in_background") as mock_run_bg:
+            def fake_run_bg(func, **kwargs):
+                func()
+            mock_run_bg.side_effect = fake_run_bg
+
+            with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
+                def fake_drain_loop(q, toolkit, job_done, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, ctx, stop_checker, **kwargs):
+                    while not q.empty():
+                        item = q.get()
+                        k = item[0]
+                        if k == StreamQueueKind.CHUNK:
+                            apply_chunk(item[1])
+                        elif k == StreamQueueKind.STREAM_DONE:
+                            on_stream_done(item)
+                        elif k == StreamQueueKind.STATUS:
+                            on_status_fn(item[1])
+                        elif k == StreamQueueKind.ERROR:
+                            on_error(item[1])
+                    job_done[0] = True
+                mock_run_stream.side_effect = fake_drain_loop
+
+                getattr(panel.ctx, "getServiceManager")().createInstanceWithContext.return_value = MagicMock()
+
+                panel._run_web_research("What is X?", model)  # type: ignore
+
+    panel.session.add_assistant_message.assert_called_once_with(content="<p>HTML answer</p>")
+    panel.rerender_rich_text_session.assert_called_once()
+    assert "<p>HTML answer</p>\n" in panel.responses
+    assert "AI (research):" not in "".join(panel.responses)
 
 
 def test_do_send_direct_image():
@@ -382,7 +443,7 @@ def test_run_web_research_uses_session_history_not_response_control():
 
     session = ChatSession(system_prompt="Observe web search.")
     session.messages.append({"role": "user", "content": "price of inception mercury 2?"})
-    session.messages.append({"role": "assistant", "content": "AI (research): about $500\n"})
+    session.messages.append({"role": "assistant", "content": "about $500"})
     panel.session = session
     panel.response_control.getModel.return_value = MagicMock()
 

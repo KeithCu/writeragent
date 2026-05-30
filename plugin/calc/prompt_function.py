@@ -33,6 +33,10 @@ def execute_prompt_addin(
             resolved_system = str(system_prompt)
         else:
             resolved_system = get_config_str(ctx, "extend_selection_system_prompt")
+            if not str(resolved_system).strip():
+                from plugin.framework.constants import CALC_PYTHON_FORMULA_LLM_HINT
+
+                resolved_system = CALC_PYTHON_FORMULA_LLM_HINT
         model_name = model if model is not None else (get_config(ctx, "text_model") or get_config(ctx, "model") or "")
         if max_tokens is not None:
             try:

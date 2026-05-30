@@ -827,8 +827,9 @@ class ToolCallingMixin:
                 on_approval_required=self._on_tool_loop_approval_required,
             )
 
-            # Re-render the full session with HTML formatting now that streaming is done
-            self.rerender_rich_text_session()
+            from plugin.chatbot.rich_text import finalize_sidebar_assistant_response
+
+            finalize_sidebar_assistant_response(self)
         finally:
             self.sidebar_state = dataclasses.replace(self.sidebar_state, tool_loop=None)
 

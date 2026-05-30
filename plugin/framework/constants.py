@@ -60,18 +60,48 @@ USE_SUB_AGENT = True
 # (e.g. DuckDuckGo and Wikipedia) that expect a real browser UA.
 BROWSER_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:148.0) Gecko/20100101 Firefox/148.0"
 
-# Single Writer-chat source for apply_document_content parameters + HTML shape (TOOLS points here).
-WRITER_APPLY_DOCUMENT_HTML_RULES = """
+# Shared HTML fragment hygiene (sidebar chat + document apply_document_content fragments).
+# Tag-level rules are the same; the *container* differs — see comments on
+# WRITER_APPLY_DOCUMENT_HTML_RULES vs CHAT_SIDEBAR_HTML_EXAMPLES below.
+HTML_FRAGMENT_RULES = """
+- Use <br> for line breaks within an element; <p> for paragraphs.
+- Raw Unicode (é, ü, ©); straight double quotes ("), not curly/smart quotes or HTML entities. Send <h1> not &lt;h1&gt;. Preserve intentional spacing.
+- Do NOT use Markdown (#, **, ```, etc.)."""
+
+# Document tool only (apply_document_content). Not used for sidebar chat or web-research final_answer.
+#
+# Why a JSON array of strings (not one HTML blob)?
+# - OpenAI tool schema declares content as type "array" (content.py). Each element is one
+#   heading/paragraph fragment; execute() joins with "\\n" before Writer HTML import.
+# - Long answers: block-sized strings are easier for models to emit than one giant tool
+#   argument, and JSON parsers handle quotes per element instead of one nested escape soup.
+# - That was the original intent; whether it still wins vs a single string is unsettled.
+#
+# Two different "escaping" layers (models often mix these up):
+# - JSON/tool-call escaping: inside a tool argument, literal " in HTML must be \\" in the
+#   JSON wire format. Prompt EXAMPLES below show valid JSON (hence \\"quotes\\" in strings).
+# - HTML entity escaping: do NOT send &lt;p&gt; instead of <p> — the import path expects
+#   real tags (HTML_FRAGMENT_RULES). Entity soup is wrong for both array elements and sidebar.
+#
+# Array wrapper and sub-agents: web research / librarian use final_answer / reply_to_user with
+# a single answer string (CHAT_SIDEBAR_HTML_EXAMPLES). Do not tell them to wrap sidebar HTML
+# in ["…"] — that shape is for apply_document_content only and confuses final_answer payloads.
+#
+# Removing the array wrapper? Possible but non-trivial: tool JSON schema, eval harness, and years
+# of prompt habit. execute() already accepts a list or a string that parses as JSON array; we
+# could widen schema to string | array later if single-string documents prove more reliable.
+# Until then, keep array for documents, single string for sidebar — and keep examples separate.
+WRITER_APPLY_DOCUMENT_HTML_RULES = f"""
 APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL):
 - Parameters: `content` and `target` (required). If target='search', also `old_content` (find/replace; HTML in old_content is matched as plain text).
 - Targets: 'beginning', 'end', 'selection', 'full_document' (replaces all), or 'search'.
 - `content` must be a JSON array of HTML strings (one fragment per heading/paragraph). We wrap in <html>/<body>.
-- Use <br> for line breaks within an element; <p> for paragraphs. Raw Unicode (é, ü, ©); straight double quotes ("), not curly/smart quotes or HTML entities. Send <h1> not &lt;h1&gt;. Preserve intentional spacing.
+{HTML_FRAGMENT_RULES}
 - Math: Always structured math for equations (native LibreOffice objects). Inline: `\\(`…`\\)` or `$`…`$`; display: `$$`…`$$` or `\\[`…`\\]`. Prefer `\\(` over `$` (currency). TeX preferred; MathML in `<math …>` if you already have it. Avoid `$`+digit. No images or informal plain-text formulas.
 
 EXAMPLES:
 - Good: ["<h1>Title</h1>", "<p>Paragraph with <strong>bold</strong> text and \\"quotes\\".</p>"]
-- Good math: ["<p>Inline \\(x^2\\) and display $$\\frac{1}{2}$$.</p>"]
+- Good math: ["<p>Inline \\(x^2\\) and display $$\\frac{{1}}{{2}}$$.</p>"]
 - Bad: <h1>Title</h1><p>Paragraph</p> (must be a list of strings)
 - Bad: ["&lt;h1&gt;Title&lt;/h1&gt;"] (escaped entities)
 - Bad: ["# Title", "Paragraph"] (No Markdown)
@@ -171,13 +201,16 @@ CALC_WORKFLOW = """WORKFLOW:
 # Shared venv Python prompt text (run_venv_python_script, =PYTHON(), delegate domain=python).
 PYTHON_VENV_AUTO_IMPORTS_ALIASES = "`numpy` (as `np`), `sympy` (as `sp`), `pandas` (as `pd`), and standard library `math`"
 
-PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE = f"Note: {PYTHON_VENV_AUTO_IMPORTS_ALIASES} are automatically imported. "
+# Populated at module end (after full constants init) to avoid import cycles via smolagents.
+_VENV_IMPORT_POLICY_COMPACT = ""
+_VENV_IMPORT_POLICY_FULL = ""
 
-PYTHON_VENV_AUTO_IMPORTS_PROMPT_LINE = (
-    f"Note: {PYTHON_VENV_AUTO_IMPORTS_ALIASES} are automatically imported. "
-    "DO NOT IMPORT numpy, pandas, sympy, or math. "
-    "Prefer np/sp/pd (and scipy when appropriate) over hand-rolled Python; you have access to a complete high-performance SciPy install."
-)
+PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE = ""
+
+PYTHON_VENV_AUTO_IMPORTS_PROMPT_LINE = ""
+
+# Default for =PROMPT() when extend_selection_system_prompt is empty (LLM may emit =PYTHON formulas).
+CALC_PYTHON_FORMULA_LLM_HINT = ""
 
 
 def python_specialized_sub_agent_hint(agent_label: str) -> str:
@@ -186,15 +219,20 @@ def python_specialized_sub_agent_hint(agent_label: str) -> str:
         data_hint = " You may pass data_range or data into run_venv_python_script so the script receives variable `data`."
     else:
         data_hint = " run_venv_python_script does not inject spreadsheet `data`—use document tools for content."
-    return f" PYTHON (venv): {PYTHON_VENV_AUTO_IMPORTS_PROMPT_LINE}{data_hint}"
+    policy = _VENV_IMPORT_POLICY_FULL or _load_venv_import_policy_full()
+    return f" PYTHON (venv): {policy}{data_hint}"
 
 
-CALC_FORMULA_SYNTAX = f"""FORMULA SYNTAX: LibreOffice uses semicolon (;) as the formula argument separator in formulas.
+def _load_venv_import_policy_full() -> str:
+    from plugin.scripting.import_policy import format_venv_import_policy_for_prompt
+
+    return format_venv_import_policy_for_prompt(compact=False)
+
+
+CALC_FORMULA_SYNTAX = """FORMULA SYNTAX: LibreOffice uses semicolon (;) as the formula argument separator in formulas.
 - Correct: =SUM(A1:A10), =IF(A1>0;B1;C1)
 - Wrong: =SUM(A1,A10), =IF(A1>0,"Yes","No") (no commas in formulas)
 - Write `=PYTHON("result = ..."; A1:A10)` in cells to calculate/run Python (omit the second argument if no data is needed, e.g. `=PYTHON("result = 2**10")`).
-Note: this code executes in an isolated sandbox with no direct access to LibreOffice data, so it must be passed in.
-{PYTHON_VENV_AUTO_IMPORTS_PROMPT_LINE}
 - Example: `=PYTHON("result = np.sum(data)"; A1:A10)`.
 
 """
@@ -247,7 +285,46 @@ DRAW_SPECIALIZED_DELEGATION_TEMPLATE = (
     f"{SPECIALIZED_TASK_RULES}"
 )
 
-CHAT_RESPONSE_FORMAT = """CHAT RESPONSE FORMAT: Format your conversational responses as HTML (use <p>, <strong>, <em>, <code>, <ul>, <ol>, <h2>, <pre>, <br>). Do NOT use Markdown formatting (no #, **, ```, etc.) in chat responses. The sidebar renders HTML natively."""
+CHAT_RESPONSE_FORMAT = """CHAT RESPONSE FORMAT: Format your conversational responses as HTML (use <p>, <strong>, <em>, <code>, <ul>, <ol>, <h2>, <pre>, <br>). The sidebar renders HTML natively."""
+
+# Sidebar / sub-agent examples (single HTML string — not apply_document_content's array).
+#
+# Wire format: web research and librarian finish with a smolagents JSON tool call
+# (final_answer / reply_to_user). The tool arguments object is JSON on the wire; the *answer*
+# field value should be one HTML string like the Good example — not ["<p>…</p>"] and not
+# &lt;entity&gt; markup. send_handlers takes str(final_ans) and rerenders via rich_text.
+#
+# Why examples look like plain quoted HTML while document rules show ["…"] arrays:
+# - Document path: content parameter is schema-typed array; join happens in content.py.
+# - Sidebar path: no array join — StarWriter HTML filter imports the string as one fragment.
+# - JSON escaping still applies at the tool-call layer (\") but that is not HTML &lt; escaping.
+#
+# Do not copy WRITER_APPLY_DOCUMENT_HTML_RULES EXAMPLES here; array-shaped examples train
+# models to wrap final_answer in a list, which the sidebar does not unwrap.
+CHAT_SIDEBAR_HTML_EXAMPLES = """
+CHAT HTML EXAMPLES:
+- Good: "<p>Paragraph with <strong>bold</strong> text.</p>"
+- Bad: "**bold**" (Markdown)
+- Bad: "&lt;p&gt;Paragraph&lt;/p&gt;" (escaped entities)"""
+
+RICH_CHAT_SIDEBAR_INSTRUCTIONS = f"""{CHAT_RESPONSE_FORMAT}
+{HTML_FRAGMENT_RULES}
+{CHAT_SIDEBAR_HTML_EXAMPLES}"""
+
+PLAIN_CHAT_RESPONSE_FORMAT = "CHAT RESPONSE FORMAT: Respond in plain text only. Do NOT use HTML tags or Markdown formatting (no #, **, ```, etc.)."
+
+
+def get_chat_response_format_instructions(ctx=None) -> str:
+    """Sidebar response format for main chat and sub-agents (web research, librarian).
+
+    When ``rich_text_control_sidebar`` is off, models are not told about HTML — same gate as
+    ``get_chat_system_prompt_for_document``.
+    """
+    from plugin.framework.config import get_config_bool_safe
+
+    if not get_config_bool_safe(ctx, "rich_text_control_sidebar", default=True):
+        return PLAIN_CHAT_RESPONSE_FORMAT
+    return RICH_CHAT_SIDEBAR_INSTRUCTIONS
 
 DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE = f"""You are a LibreOffice Writer assistant who produces polished, professional documents with thoughtful use of color and formatting.
 Honor any stated memory preferences for color, etc.
@@ -324,35 +401,8 @@ TOOLS (eval harness):
 
 # Calc spreadsheet prompt (structure inspired by libre_calc_ai prompt_templates.py:
 # workflow, grouped tools, "do not explain—do the operation", specify addresses).
-DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE = f"""You are a LibreOffice Calc spreadsheet assistant who creates polished, professional, and colorful spreadsheets.
-Do not explain, do the operation directly using tools. Perform as many steps as needed in one turn when possible.
-
-{CHAT_RESPONSE_FORMAT}
-
-{CALC_WORKFLOW}
-
-{CALC_FORMULA_SYNTAX}
-
-CSV DATA: Use comma (,) for write_formula_range.
-
-TOOLS (grouped by use):
-
-READ:
-- read_cell_range: Read values from a cell or range (e.g. A1:D10).
-- get_sheet_summary: Summary of the active sheet (size, headers, used range, charts, annotations, merges).
-
-WRITE & FORMAT:
-- write_formula_range: Single string fills entire range; JSON array must match range size exactly (one value per cell). Alternatively, provide multiline CSV data to bulk insert starting at a cell. Use empty string/array to clear contents. Use ranges for efficiency; avoid single-cell operations.
-- set_style: Use for one or more cells/ranges at once (same formatting applied per range). Good after bulk writes for uniform look. It only exposes a small fixed set of properties (see list below)—not mixed rich text inside a cell. For per-character formatting, links, or HTML structure in a single cell, use insert_cell_html instead.
-- set_style properties (each optional except range_name): range_name (array of addresses/ranges); bold; italic; font_size (points); bg_color; font_color (hex #RRGGBB or names: red, yellow, …); h_align (left|center|right|justify); v_align (top|center|bottom); wrap_text; border_color (outline around the range); number_format (e.g. #,##0.00, 0%, dates).
-- insert_cell_html: Paste HTML into one cell on the active sheet as rich text (bold, italic, links, line breaks—same import as Writer). Plain write_formula_range cannot do this. One cell only; no images. Does not replace set_style for whole-table borders/number formats—combine as needed.
-
-- merge_cells: Merge a range (e.g. headers); then write and style with write_formula_range/set_style.
-- delete_structure: Remove rows or columns at specific positions.
-
-{{specialized_delegation}}
-
-{{core_directives}}"""
+# DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE is built in _init_venv_import_policy_strings() (needs import policy).
+DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE = ""
 
 DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE = """You are a LibreOffice Draw/Impress assistant who creates polished, professional, and colorful visual content.
 Do not explain - do the operation directly using tools. Perform as many steps as needed in one turn when possible.
@@ -500,10 +550,7 @@ def get_chat_system_prompt_for_document(model, additional_instructions="", ctx=N
         if not DEFAULT_CHAT_SYSTEM_PROMPT:
             DEFAULT_CHAT_SYSTEM_PROMPT = base
 
-    from plugin.framework.config import get_config_bool_safe
-
-    if not get_config_bool_safe(ctx, "rich_text_control_sidebar", default=True):
-        base = base.replace(CHAT_RESPONSE_FORMAT, "CHAT RESPONSE FORMAT: Respond in plain text only. Do NOT use HTML tags or Markdown formatting (no #, **, ```, etc.).")
+    base = base.replace(CHAT_RESPONSE_FORMAT, get_chat_response_format_instructions(ctx))
 
     if ctx:
         try:
@@ -530,3 +577,63 @@ AUTO_IMPORTS: dict[str, str] = {
     "sympy": "import sympy as sp",
     "math": "import math",
 }
+
+
+def _init_venv_import_policy_strings() -> None:
+    """Late init: import_policy pulls smolagents; constants must be fully loaded first."""
+    global _VENV_IMPORT_POLICY_COMPACT, _VENV_IMPORT_POLICY_FULL
+    global PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE, PYTHON_VENV_AUTO_IMPORTS_PROMPT_LINE
+    global CALC_FORMULA_SYNTAX, DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE, CALC_PYTHON_FORMULA_LLM_HINT
+
+    from plugin.scripting.import_policy import format_venv_import_policy_for_prompt
+
+    compact = format_venv_import_policy_for_prompt(compact=True)
+    _VENV_IMPORT_POLICY_COMPACT = compact
+    _VENV_IMPORT_POLICY_FULL = format_venv_import_policy_for_prompt(compact=False)
+    PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE = compact + " "
+    PYTHON_VENV_AUTO_IMPORTS_PROMPT_LINE = compact
+    CALC_PYTHON_FORMULA_LLM_HINT = (
+        compact
+        + " When outputting =PYTHON() formulas: use semicolon (;) argument separators; "
+        'format =PYTHON("result = …"; A1:A10); code runs in the venv sandbox above.'
+    )
+    CALC_FORMULA_SYNTAX = f"""FORMULA SYNTAX: LibreOffice uses semicolon (;) as the formula argument separator in formulas.
+- Correct: =SUM(A1:A10), =IF(A1>0;B1;C1)
+- Wrong: =SUM(A1,A10), =IF(A1>0,"Yes","No") (no commas in formulas)
+- Write `=PYTHON("result = ..."; A1:A10)` in cells to calculate/run Python (omit the second argument if no data is needed, e.g. `=PYTHON("result = 2**10")`).
+{compact}
+- Example: `=PYTHON("result = np.sum(data)"; A1:A10)`.
+
+"""
+    DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE = f"""You are a LibreOffice Calc spreadsheet assistant who creates polished, professional, and colorful spreadsheets.
+Do not explain, do the operation directly using tools. Perform as many steps as needed in one turn when possible.
+
+{CHAT_RESPONSE_FORMAT}
+
+{CALC_WORKFLOW}
+
+{CALC_FORMULA_SYNTAX}
+
+CSV DATA: Use comma (,) for write_formula_range.
+
+TOOLS (grouped by use):
+
+READ:
+- read_cell_range: Read values from a cell or range (e.g. A1:D10).
+- get_sheet_summary: Summary of the active sheet (size, headers, used range, charts, annotations, merges).
+
+WRITE & FORMAT:
+- write_formula_range: Single string fills entire range; JSON array must match range size exactly (one value per cell). Alternatively, provide multiline CSV data to bulk insert starting at a cell. Use empty string/array to clear contents. Use ranges for efficiency; avoid single-cell operations.
+- set_style: Use for one or more cells/ranges at once (same formatting applied per range). Good after bulk writes for uniform look. It only exposes a small fixed set of properties (see list below)—not mixed rich text inside a cell. For per-character formatting, links, or HTML structure in a single cell, use insert_cell_html instead.
+- set_style properties (each optional except range_name): range_name (array of addresses/ranges); bold; italic; font_size (points); bg_color; font_color (hex #RRGGBB or names: red, yellow, …); h_align (left|center|right|justify); v_align (top|center|bottom); wrap_text; border_color (outline around the range); number_format (e.g. #,##0.00, 0%, dates).
+- insert_cell_html: Paste HTML into one cell on the active sheet as rich text (bold, italic, links, line breaks—same import as Writer). Plain write_formula_range cannot do this. One cell only; no images. Does not replace set_style for whole-table borders/number formats—combine as needed.
+
+- merge_cells: Merge a range (e.g. headers); then write and style with write_formula_range/set_style.
+- delete_structure: Remove rows or columns at specific positions.
+
+{{specialized_delegation}}
+
+{{core_directives}}"""
+
+
+_init_venv_import_policy_strings()

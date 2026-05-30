@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 
 from plugin.contrib.smolagents.toolcalling_agent_prompts import DELEGATE_GENERIC_EXAMPLES_BLOCK, WEB_RESEARCH_EXAMPLES_BLOCK
+from plugin.scripting.import_policy import format_venv_import_policy_for_prompt
 
 log = logging.getLogger("writeragent.smol_examples")
 
@@ -42,11 +43,7 @@ Observation: {"status": "ok"}
 """
 
 # Venv guidance for python few-shots (prepended to the block; not part of the Task: line).
-PYTHON_SPECIALIZED_EXAMPLES_NOTES = """Example notes (venv Python): Prefer NumPy (np), SymPy (sp), and pandas (pd) over reimplementing algorithms in pure Python.
-np, sp, pd, and math are already imported in the sandbox — do not write import lines for them.
-A complete SciPy stack is available.
-
-"""
+PYTHON_SPECIALIZED_EXAMPLES_NOTES = format_venv_import_policy_for_prompt(compact=True) + "\n\n"
 
 # Specialized domain python (Writer/Calc/Draw): teach venv script shape + pre-imported np/sp/pd.
 PYTHON_SPECIALIZED_EXAMPLES = (

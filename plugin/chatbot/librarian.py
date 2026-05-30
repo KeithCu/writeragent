@@ -129,6 +129,13 @@ TOOLS FOR COMPLETION:
 - Use 'switch_to_document_mode' with a friendly 'message' to END the onboarding and hand over to the document assistant.
 
 """
+            from plugin.framework.constants import get_chat_response_format_instructions
+
+            instructions += (
+                "\n\n"
+                + get_chat_response_format_instructions(ctx.ctx)
+                + "\nFormat reply_to_user and switch_to_document_mode message with this style; that text is shown in the chat sidebar."
+            )
             if user_mem and user_mem.strip():
                 instructions += "\n\n[USER PROFILE / MEMORY]\n" + user_mem.strip() + "\n"
 

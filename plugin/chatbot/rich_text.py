@@ -1086,3 +1086,8 @@ def append_text_chunk(doc, text, auto_scroll=True):
 
     except Exception as e:
         log.exception("Error in append_text_chunk: %s", e)
+
+
+def finalize_sidebar_assistant_response(listener) -> None:
+    """Re-import the last assistant message as HTML when rich sidebar is active."""
+    listener.rerender_rich_text_session()

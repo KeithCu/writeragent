@@ -33,51 +33,7 @@ from plugin.scripting.payload_codec import (
 )
 from plugin.scripting.config_limits import python_exec_timeout_default
 from plugin.framework.constants import AUTO_IMPORTS
-
-# Curated by WriterAgent (see docs/enabling_numpy_in_libreoffice.md)—not "whatever is in the venv".
-VENV_AUTHORIZED_IMPORTS: tuple[str, ...] = (
-    "platform",
-    "numpy",
-    "numpy.*",
-    "pandas",
-    "pandas.*",
-    "scipy",
-    "scipy.*",
-    "sklearn",
-    "sklearn.*",
-    "matplotlib",
-    "matplotlib.*",
-    "seaborn",
-    "seaborn.*",
-    "sympy",
-    "sympy.*",
-    "statsmodels",
-    "statsmodels.*",
-    "networkx",
-    "networkx.*",
-    "PIL",
-    "PIL.*",
-    "cv2",
-    "json",
-    "csv",
-    "decimal",
-    "fractions",
-    "functools",
-    "operator",
-    "string",
-    "textwrap",
-    "enum",
-    "dataclasses",
-    "typing",
-    "copy",
-    "pprint",
-    "webview",
-    "jedi",
-    "PyQt6",
-    "PyQt6.QtWebEngineWidgets",
-    "qtpy",
-    "plugin.scripting.payload_codec",
-)
+from plugin.scripting.sandbox_imports import VENV_AUTHORIZED_IMPORTS
 
 # Shared-kernel executors keyed by workbook session_id (calc:…). Cleared on reset_session
 # or worker process exit; not tied to document close in Phase 1.

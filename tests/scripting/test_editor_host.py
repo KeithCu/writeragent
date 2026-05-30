@@ -46,6 +46,7 @@ def test_launch_monaco_editor_reuses_running_process():
 def test_launch_monaco_editor_spawns_when_not_running():
     ctx = MagicMock()
     mock_proc = MagicMock()
+    mock_doc = MagicMock()
 
     with patch.object(launch_mod, "_PERSISTENT_EDITOR") as mock_persistent:
         mock_persistent.is_running = False
@@ -56,16 +57,19 @@ def test_launch_monaco_editor_spawns_when_not_running():
                 session.wait_for_ready.return_value = True
                 mock_session_cls.return_value = session
 
+                load_message = {"type": "load", "mode": "run_script", "run_script_doc": mock_doc}
                 ok = launch_mod.launch_monaco_editor(
                     ctx,
                     exe="/venv/bin/python",
-                    load_message={"type": "load", "mode": "run_script"},
+                    load_message=load_message,
                     on_save=MagicMock(),
                 )
 
     assert ok is True
+    mock_persistent.set_run_script_document.assert_called_once_with(mock_doc)
     session.start_reader.assert_called_once()
     session.send.assert_called_once_with({"type": "load", "mode": "run_script"})
+    assert load_message["run_script_doc"] is mock_doc
 
 
 def test_monaco_editor_available_false_without_venv():
