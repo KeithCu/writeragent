@@ -294,7 +294,7 @@ class TestAppendRichTextViaClipboard:
 
         mock_create.assert_called_once_with(ctx)
         mock_cfg.assert_called_once_with(doc)
-        mock_append.assert_called_once_with(doc, "<p>Hi</p>", role="assistant", auto_scroll=False, style_window=style_window)
+        mock_append.assert_called_once_with(doc, "<p>Hi</p>", role="assistant", style_window=style_window)
         mock_copy.assert_called_once()
         doc.close.assert_called_once_with(True)
 

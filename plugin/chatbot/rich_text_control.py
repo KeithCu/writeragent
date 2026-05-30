@@ -734,7 +734,7 @@ def _list_prefix_for_paragraph(para, order_counters: dict) -> str:
 
 
 def _rich_control_bg_color(model, style_window=None) -> int:
-    """Theme fill color for the control (matches embedded Writer sidebar)."""
+    """Theme fill color for the control (matches sidebar dialog chrome)."""
     bg = getattr(model, "BackgroundColor", None)
     if isinstance(bg, int):
         return bg
@@ -1000,7 +1000,7 @@ def append_rich_messages_via_clipboard(
                 return
             _configure_hidden_writer_for_chat(doc)
             for role, content in batch:
-                append_rich_text(doc, content, role=role, auto_scroll=False, style_window=style_window)
+                append_rich_text(doc, content, role=role, style_window=style_window)
             log.debug(
                 "append_rich_messages_via_clipboard: hidden doc ready messages=%d total_chars=%d",
                 len(batch),
@@ -1149,7 +1149,7 @@ def append_rich_text_via_clipboard(
             log.error("append_rich_text_via_clipboard: hidden Writer unavailable")
             return
         _configure_hidden_writer_for_chat(doc)
-        append_rich_text(doc, text, role=role, auto_scroll=False, style_window=style_window)
+        append_rich_text(doc, text, role=role, style_window=style_window)
         log.debug("append_rich_text_via_clipboard: hidden doc ready len=%d role=%s", len(text), role)
         inserted = False
         if _copy_formatted_from_hidden_doc_to_control(

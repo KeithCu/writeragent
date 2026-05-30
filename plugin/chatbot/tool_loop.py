@@ -116,7 +116,6 @@ class ToolLoopHost(Protocol):
     _active_pending_tools: list[Any]
     _current_tool_call_id: str | None
     _assistant_stream_start_len: int | None
-    embedded_doc: Any
     _record_assistant_start: bool
 
     def _append_response(self, text: str, is_thinking: bool = False, role: str = "assistant") -> None: ...

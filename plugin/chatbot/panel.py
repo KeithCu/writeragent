@@ -348,13 +348,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self._approval_event = None
         self._approval_ui_backup = None
         self._approval_query_for_engine = None
-        self.embedded_doc = None
-        self.embedded_frame = None
-        self.embedded_container = None
         self.rich_text_control = None
         self._rich_control_style_window = None
-        self._cached_scrollbar = None
-        self._rich_listener = None  # Set by wiring after EmbeddedWriterListener creation (for shutdown cleanup)
         if HAS_RECORDING:
             assert _AudioRecorderCls is not None
             self.audio_recorder = _AudioRecorderCls()
@@ -379,30 +374,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         except Exception:
             log.exception("SendButtonListener event subscribe error")
 
-    def set_embedded_doc(self, doc, frame, container):
-        """Enable rich-text rendering via an embedded Writer document."""
-        self.embedded_doc = doc
-        self.embedded_frame = frame
-        self.embedded_container = container
-        self._cached_scrollbar = None
-        log.info("[RICH-LIFECYCLE] SendButtonListener.set_embedded_doc called (frame id=%s)", id(frame) if frame else None)
-
     def set_rich_text_control(self, control, style_window=None):
         """Enable RichTextControl sidebar rendering via hidden-doc formatted copy."""
         self.rich_text_control = control
         self._rich_control_style_window = style_window
         log.info("[RICH-CONTROL] SendButtonListener.set_rich_text_control called")
-
-    def set_rich_listener(self, listener):
-        """Store the EmbeddedWriterListener so disposing() can explicitly remove it and trigger its cleanup.
-
-        This (plus the listener's own disposing override) is part of the fix for
-        close-time errors: without storing + removing the listener registered on
-        root_window, it would leak and potentially receive events after the
-        window peer is gone.
-        """
-        log.info("[RICH-LIFECYCLE] SendButtonListener.set_rich_listener called listener=%s", id(listener) if listener else None)
-        self._rich_listener = listener
 
     def rerender_rich_text_session(self):
         """Re-render the final streamed assistant response with HTML formatting, leaving previous text untouched.
@@ -445,65 +421,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 )
             except Exception:
                 log.exception("rerender_rich_text_session (rich control) failed")
-            return
-
-        if not self.embedded_doc:
-            return
-        try:
-            from plugin.chatbot.rich_text import append_rich_text
-
-            auto_scroll = self._should_auto_scroll()
-            final_msg = None
-            for msg in reversed(self.session.messages):
-                if msg.get("role") == "assistant" and msg.get("content"):
-                    final_msg = msg
-                    break
-
-            if final_msg:
-                content = final_msg.get("content", "")
-
-                from plugin.chatbot.rich_text import _HTML_TAG_RE
-                if not _HTML_TAG_RE.search(content):
-                    return
-
-                # Delete the plain-text streamed version of the final assistant response from document end
-                start_len = getattr(self, "_assistant_stream_start_len", None)
-                if start_len is not None:
-                    try:
-                        cursor = self.embedded_doc.getText().createTextCursor()
-                        cursor.gotoStart(False)
-                        cursor.goRight(start_len, False)
-                        cursor.gotoEnd(True)
-                        cursor.setString("")
-                    except Exception as e:
-                        log.debug("Failed to clear plain text final response: %s", e)
-
-                # Append the beautifully formatted HTML of the final assistant response
-                append_rich_text(self.embedded_doc, content, role="assistant", auto_scroll=auto_scroll)
-
-            # Schedule a deferred scroll to bottom on the main thread after 200ms
-            # to run after the send button transition and layout resizing settle down.
-            if auto_scroll:
-                import threading
-                from plugin.framework.queue_executor import post_to_main_thread
-                from plugin.chatbot.rich_text import scroll_to_bottom
-
-                def do_deferred():
-                    try:
-                        # Guard: during shutdown the embedded may have been cleared by
-                        # disposing paths; skip the post rather than queue work against
-                        # a soon-to-be-disposed (or already gone) document.
-                        if getattr(self, "embedded_doc", None) is None:
-                            return
-                        post_to_main_thread(scroll_to_bottom, self.embedded_doc, True)
-                    except Exception:
-                        pass
-
-                timer = threading.Timer(0.2, do_deferred)
-                timer.daemon = True
-                timer.start()
-        except Exception:
-            log.exception("rerender_rich_text_session failed")
 
     @property
     def state(self):
@@ -751,7 +668,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         return True
 
     def _append_response(self, text, is_thinking=False, role="assistant"):
-        """Append text to the response area (supports rich text if embedded_doc is ready)."""
+        """Append text to the response area (RichTextControl or plain multiline field)."""
         try:
             if self.rich_text_control:
                 auto_scroll = self._should_auto_scroll()
@@ -790,24 +707,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                         style_window=self._rich_control_style_window,
                         ctx=self.ctx,
                     )
-                return
-
-            if self.embedded_doc:
-                auto_scroll = self._should_auto_scroll()
-                log.debug("_append_response: rich-text len=%d role=%s auto_scroll=%s", len(text) if text else 0, role, auto_scroll)
-                if role == "user":
-                    from plugin.chatbot.rich_text import append_rich_text
-                    self.queue_executor.post(append_rich_text, self.embedded_doc, text, role="user", auto_scroll=auto_scroll)
-                else:
-                    if getattr(self, "_record_assistant_start", False):
-                        self._record_assistant_start = False
-                        def record_len():
-                            if self.embedded_doc:
-                                self._assistant_stream_start_len = len(self.embedded_doc.getText().getString())
-                                log.debug("_append_response: recorded stream start len=%d", self._assistant_stream_start_len)
-                        self.queue_executor.post(record_len)
-                    from plugin.chatbot.rich_text import append_text_chunk
-                    self.queue_executor.post(append_text_chunk, self.embedded_doc, text, auto_scroll=auto_scroll)
                 return
 
             if self.response_control and self.response_control.getModel():
@@ -1220,57 +1119,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         except Exception as e:
             log.debug("SendButtonListener.disposing: error unsubscribing from event bus: %s", e)
 
-        # Rich-text sidebar shutdown cleanup (bugfix for errors on LO Writer close).
-        # The EmbeddedWriterListener and its embedded Frame/Doc/Container were
-        # previously leaked; this path + the listener's own disposing() now
-        # cooperatively remove the listener and dispose the objects. The
-        # _disposed flag + broad except in the listener make this idempotent
-        # and safe against double-dispose segfaults (see AGENTS.md).
-        try:
-            if self._rich_listener is not None:
-                log.info("[RICH-SHUTDOWN] SendButtonListener: calling rich_listener.disposing()")
-                try:
-                    # Triggers its removeWindowListener + _dispose_embedded_objects
-                    # (which now also closes the XFrame in the preferred order).
-                    self._rich_listener.disposing(None)
-                except Exception as e:
-                    log.info("[RICH-SHUTDOWN]   rich_listener.disposing raised: %s", e)
-                self._rich_listener = None
-
-            # Best-effort close/dispose of our local embedded refs.
-            # Frame first, then doc, then container — matching the shutdown
-            # order in EmbeddedWriterListener._dispose_embedded_objects().
-            #
-            # Pure-Python defang (part of the ongoing crash-on-close hardening):
-            # Hide + zero the container (if present) before any close. This mirrors
-            # the defang done inside the listener and gives the VCL parent one more
-            # chance to see the child as non-live. Safe, idempotent, exception-swallowed.
-            for attr in ("embedded_container",):
-                c = getattr(self, attr, None)
-                if c:
-                    try:
-                        c.setVisible(False)
-                    except Exception:
-                        pass
-                    try:
-                        c.setPosSize(0, 0, 0, 0, 15)
-                    except Exception:
-                        pass
-            for attr in ("embedded_frame", "embedded_doc", "embedded_container"):
-                obj = getattr(self, attr, None)
-                if obj is not None:
-                    try:
-                        if hasattr(obj, "close"):
-                            obj.close(True)
-                        elif hasattr(obj, "dispose"):
-                            obj.dispose()
-                    except Exception:
-                        pass
-                setattr(self, attr, None)
-            self._cached_scrollbar = None
-        except Exception as e:
-            log.debug("SendButtonListener.disposing: rich-text embedded cleanup error (non-fatal): %s", e)
-
 
 # ---------------------------------------------------------------------------
 # StopButtonListener - allows user to cancel the AI request
@@ -1345,19 +1193,6 @@ class ClearButtonListener(BaseActionListener):
                     )
             except Exception:
                 log.exception("Error clearing RichTextControl sidebar")
-            if self.status_control:
-                self.status_control.setText("")
-            return
-
-        if self.send_listener and self.send_listener.embedded_doc:
-            try:
-                self.send_listener.embedded_doc.getText().setString("")
-                if self.greeting:
-                    from plugin.chatbot.rich_text import append_rich_text
-
-                    append_rich_text(self.send_listener.embedded_doc, self.greeting, role="assistant")
-            except Exception:
-                log.exception("Error clearing rich text sidebar")
             if self.status_control:
                 self.status_control.setText("")
             return

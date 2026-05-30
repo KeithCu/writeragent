@@ -269,9 +269,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         self.toolpanel = None
         self.m_panelRootWindow = None
         self.session = None  # Created in _wireControls
-        self.embedded_doc = None
-        self.embedded_frame = None
-        self.embedded_container = None
         self.rich_text_control = None
         log.debug("[RICH-LIFECYCLE] ChatPanelElement.__init__ resource_url=%s parent_window=%s",
                   resource_url, id(parent_window) if parent_window else None)
@@ -333,20 +330,15 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         return self.m_panelRootWindow
 
     def disposing(self, Source=None):
-        """Best-effort lifecycle hook for rich-text sidebar resources (and future use).
+        """Best-effort lifecycle hook for sidebar resources (and future use).
 
         The LO sidebar framework does not automatically call this on XUIElement
         teardown for tool panels, but having it (and calling the SendButtonListener
         path) documents the intent and provides an explicit cleanup entry point.
-        The real work for rich-text is driven from SendButtonListener.disposing
-        (which now holds the _rich_listener and embedded refs) + the listener's
-        own XEventListener.disposing override. This prevents the previous leak of
-        the EmbeddedWriterListener + its private swriter Frame/Doc/Window.
         """
-        log.info("[RICH-LIFECYCLE] ChatPanelElement.disposing called Source=%s has_send_listener=%s has_embedded=%s",
+        log.info("[RICH-LIFECYCLE] ChatPanelElement.disposing called Source=%s has_send_listener=%s",
                  id(Source) if Source else None,
-                 hasattr(self, "send_listener") and bool(self.send_listener),
-                 bool(self.embedded_frame or self.embedded_doc))
+                 hasattr(self, "send_listener") and bool(self.send_listener))
         try:
             if hasattr(self, "send_listener") and self.send_listener:
                 self.send_listener.disposing(None)
@@ -354,10 +346,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             log.info("[RICH-SHUTDOWN]   send_listener.disposing raised from element: %s", e)
 
         # Clean up the always-present resize listener.
-        # Unlike the rich-text listener (which is opt-in), this one is attached
-        # unconditionally in panel_wiring. Failing to remove it during late
-        # VCL/sidebar teardown can contribute to the same class of Signal 11
-        # crashes we saw with the embedded Writer listener.
+        # This listener is attached unconditionally in panel_wiring. Failing to
+        # remove it during late VCL/sidebar teardown can contribute to crashes.
         try:
             tp = getattr(self, "toolpanel", None)
             rl = getattr(tp, "resize_listener", None) if tp else None
@@ -369,10 +359,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         except Exception:
             pass
 
-        # Clear our own cached refs (the listener + send_listener paths do the real work).
-        self.embedded_doc = None
-        self.embedded_frame = None
-        self.embedded_container = None
         self.rich_text_control = None
 
     def _render_session_history(self, session, response_ctrl, model, greeting=""):
@@ -393,26 +379,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     session_history_items(session, greeting),
                     style_window=style_window,
                 )
-                return
-
-            if self.embedded_doc:
-                from plugin.chatbot.rich_text import append_rich_text
-                from plugin.chatbot.rich_text_control import session_history_items
-
-                # Clear embedded doc first if we are re-rendering
-                try:
-                    self.embedded_doc.getText().setString("")
-                except Exception:
-                    pass
-
-                items = session_history_items(session, greeting)
-                for idx, (role, content) in enumerate(items):
-                    append_rich_text(
-                        self.embedded_doc,
-                        content,
-                        role=role,
-                        auto_scroll=(idx == len(items) - 1),
-                    )
                 return
 
             if response_ctrl and response_ctrl.getModel():
