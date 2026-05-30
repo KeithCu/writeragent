@@ -31,13 +31,15 @@ from plugin.contrib.smolagents.local_python_executor import LocalPythonExecutor,
 from plugin.framework.tool import ToolBaseDummy
 from plugin.framework.errors import WriterAgentException
 from plugin.scripting.import_policy import format_inprocess_import_policy_for_prompt
+from plugin.scripting.sandbox_imports import CALC_AUTHORIZED_IMPORTS
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.manipulator import CellManipulator
 from plugin.calc.inspector import CellInspector
 
 logger = logging.getLogger("writeragent.calc.python_executor")
 
-from plugin.scripting.sandbox_imports import CALC_AUTHORIZED_IMPORTS
+
+class PythonExecutor:
     """Runs Python in LO's embedded interpreter with document helpers (stdlib-only imports)."""
 
     def __init__(self, doc_url: str):

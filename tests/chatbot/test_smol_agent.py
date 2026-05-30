@@ -170,8 +170,8 @@ class TestToolcallingPromptExamples(unittest.TestCase):
         self.assertIn("run_venv_python_script", block)
         self.assertIn("sp.prime(100)", block)
         self.assertIn("SciPy", block)
-        self.assertNotIn("import numpy", block)
-        self.assertNotIn("import math", block)
+        self.assertIn("DO NOT import numpy", block)
+        self.assertNotIn('"code": "import', block)
         self.assertIn("specialized_workflow_finished", block)
 
     def test_specialized_agent_prompt_examples_use_finish_tool_name(self):

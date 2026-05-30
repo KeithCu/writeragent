@@ -882,7 +882,7 @@ def test_writer_delegate_python_includes_cross_cutting_venv_tool(mock_executor_c
     assert result["status"] == "ok"
     assert result["result"] == "done"
     instructions = mock_build.call_args.kwargs["instructions"]
-    assert "DO NOT IMPORT" in instructions
+    assert "DO NOT import numpy" in instructions
     assert "does not inject spreadsheet" in instructions
     tools_passed = mock_build.call_args[0][1]
     names = [t.name for t in tools_passed]

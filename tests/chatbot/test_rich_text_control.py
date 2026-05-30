@@ -16,6 +16,7 @@ setup_uno_mocks()
 from plugin.chatbot.rich_text_control import (
     HISTORY_RENDER_BATCH_CHARS,
     _is_automatic_char_color,
+    _nudge_rich_view_to_end_inner,
     _resolve_portion_char_color,
     _set_model_property,
     append_rich_messages_via_clipboard,
@@ -25,7 +26,7 @@ from plugin.chatbot.rich_text_control import (
     clear_control,
     insert_transferable_into_rich_control,
     iter_history_message_batches,
-    scroll_rich_control_to_bottom,
+    nudge_rich_control_view_to_end,
     session_history_items,
     truncate_control_from,
 )
@@ -215,27 +216,47 @@ class TestRichControlHelpers:
 
         with patch("plugin.chatbot.rich_text.get_theme_colors", return_value=(0, 0, 0x1E293B)), \
              patch("plugin.chatbot.rich_text_control._insert_string_at_rich_cursor") as mock_insert, \
-             patch("plugin.chatbot.rich_text_control.scroll_rich_control_to_bottom"), \
+             patch("plugin.chatbot.rich_text_control._nudge_rich_view_to_end_inner"), \
              patch("plugin.chatbot.rich_text_control._preserve_focus_window", side_effect=lambda _ctx, fn: fn()):
             append_text_chunk(control, " tail", auto_scroll=False, style_window=style_window)
 
         cursor.gotoEnd.assert_called_once()
         mock_insert.assert_called_once_with(model, cursor, " tail", 0x1E293B)
 
-    def test_scroll_rich_control_to_bottom_does_not_focus_control(self):
+    def test_nudge_rich_control_view_to_end_does_not_focus_control(self):
         control = MagicMock()
         model = MagicMock(Text="hello")
         cursor = MagicMock()
-        model.createTextCursor.return_value = cursor
+        tail = MagicMock()
+        model.createTextCursor.side_effect = [cursor, tail]
         control.getModel.return_value = model
 
-        with patch("plugin.chatbot.rich_text_control._scroll_rich_peer_vertical_bar"), \
-             patch("plugin.chatbot.rich_text_control._process_idle"):
-            scroll_rich_control_to_bottom(control, ctx=MagicMock(), aggressive=True)
+        with patch("plugin.chatbot.rich_text_control._insert_string_at_rich_cursor") as mock_insert, \
+             patch("plugin.chatbot.rich_text_control._process_idle") as mock_idle, \
+             patch("plugin.chatbot.rich_text_control._preserve_focus_window", side_effect=lambda _ctx, fn: fn()):
+            nudge_rich_control_view_to_end(control, ctx=MagicMock())
 
         control.setFocus.assert_not_called()
         control.setSelection.assert_not_called()
         cursor.gotoEnd.assert_called_once_with(False)
+        mock_insert.assert_called_once()
+        tail.goLeft.assert_called_once()
+        tail.setString.assert_called_once_with("")
+        assert mock_idle.call_count == 3
+
+    def test_nudge_inner_runs_idle_rounds(self):
+        control = MagicMock()
+        model = MagicMock(Text="x" * 2000)
+        cursor = MagicMock()
+        tail = MagicMock()
+        model.createTextCursor.side_effect = [cursor, tail]
+        control.getModel.return_value = model
+
+        with patch("plugin.chatbot.rich_text_control._insert_string_at_rich_cursor"), \
+             patch("plugin.chatbot.rich_text_control._process_idle") as mock_idle:
+            _nudge_rich_view_to_end_inner(control, ctx=MagicMock())
+
+        assert mock_idle.call_count == 3
 
     def test_clear_control(self):
         control = MagicMock()
@@ -275,6 +296,30 @@ class TestAppendRichTextViaClipboard:
         mock_cfg.assert_called_once_with(doc)
         mock_append.assert_called_once_with(doc, "<p>Hi</p>", role="assistant", auto_scroll=False, style_window=style_window)
         mock_copy.assert_called_once()
+        doc.close.assert_called_once_with(True)
+
+    def test_user_insert_invokes_on_after_insert(self):
+        control = MagicMock()
+        control.getModel.return_value = MagicMock(Text="")
+        ctx = MagicMock()
+        doc = MagicMock()
+        seen = []
+
+        with patch("plugin.chatbot.rich_text_control.create_hidden_html_writer", return_value=doc), \
+             patch("plugin.chatbot.rich_text_control._configure_hidden_writer_for_chat"), \
+             patch("plugin.chatbot.rich_text_control.append_rich_text"), \
+             patch("plugin.chatbot.rich_text_control._copy_formatted_from_hidden_doc_to_control", return_value=True), \
+             patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=42), \
+             patch("plugin.chatbot.rich_text_control._ensure_trailing_line_break"):
+            append_rich_text_via_clipboard(
+                ctx,
+                control,
+                "hello",
+                role="user",
+                on_after_insert=seen.append,
+            )
+
+        assert seen == [42]
         doc.close.assert_called_once_with(True)
 
     def test_skips_when_transferable_missing(self):
@@ -347,18 +392,17 @@ class TestHistoryMessageBatching:
              patch("plugin.chatbot.rich_text_control._configure_hidden_writer_for_chat") as mock_cfg, \
              patch("plugin.chatbot.rich_text_control.append_rich_text") as mock_append, \
              patch("plugin.chatbot.rich_text_control._append_hidden_doc_to_control", return_value=True) as mock_copy, \
-             patch("plugin.chatbot.rich_text_control.scroll_rich_control_to_bottom") as mock_scroll, \
-             patch("plugin.chatbot.rich_text_control._preserve_focus_window", side_effect=lambda _ctx, fn: fn()):
+             patch("plugin.chatbot.rich_text_control.nudge_rich_control_view_to_end") as mock_nudge:
             append_rich_messages_via_clipboard(ctx, control, items)
 
         mock_create.assert_called_once_with(ctx)
         mock_cfg.assert_called_once_with(doc)
         assert mock_append.call_count == 10
         mock_copy.assert_called_once()
-        mock_scroll.assert_called_once()
+        mock_nudge.assert_called_once_with(control, ctx=ctx, style_window=None)
         doc.close.assert_called_once_with(True)
 
-    def test_append_rich_messages_multiple_batches(self):
+    def test_append_rich_messages_nudges_after_each_batch(self):
         control = MagicMock()
         control.getModel.return_value = MagicMock(Text="")
         ctx = MagicMock()
@@ -370,14 +414,13 @@ class TestHistoryMessageBatching:
              patch("plugin.chatbot.rich_text_control._configure_hidden_writer_for_chat"), \
              patch("plugin.chatbot.rich_text_control.append_rich_text") as mock_append, \
              patch("plugin.chatbot.rich_text_control._append_hidden_doc_to_control", return_value=True) as mock_copy, \
-             patch("plugin.chatbot.rich_text_control.scroll_rich_control_to_bottom") as mock_scroll, \
-             patch("plugin.chatbot.rich_text_control._preserve_focus_window", side_effect=lambda _ctx, fn: fn()):
+             patch("plugin.chatbot.rich_text_control.nudge_rich_control_view_to_end") as mock_nudge:
             append_rich_messages_via_clipboard(ctx, control, items, batch_chars=HISTORY_RENDER_BATCH_CHARS)
 
         assert mock_create.call_count == 2
         assert mock_append.call_count == 2
         assert mock_copy.call_count == 2
-        mock_scroll.assert_called_once()
+        assert mock_nudge.call_count == 2
         assert doc.close.call_count == 2
 
 
@@ -481,3 +524,49 @@ class TestInsertTransferableIntoRichControl:
         mock_clip.assert_called_once_with(ctx, transferable)
         mock_key.assert_called_once()
         control.setFocus.assert_not_called()
+
+
+class TestRichControlListenerResize:
+    def test_resize_syncs_bounds_without_scroll(self):
+        from plugin.chatbot.rich_text_control import RichTextControlListener
+
+        listener = RichTextControlListener(MagicMock(), MagicMock(), MagicMock(), MagicMock())
+        listener.rich_control = MagicMock()
+        listener.placeholder_ctrl = MagicMock()
+
+        with patch("plugin.chatbot.rich_text_control.sync_rich_control_bounds") as mock_sync, \
+             patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post:
+            listener.on_window_resized(MagicMock())
+
+        mock_sync.assert_called_once()
+        mock_post.assert_not_called()
+
+
+class TestRerenderRichControlScroll:
+    def test_rerender_nudges_after_truncate_before_html_paste(self):
+        from plugin.chatbot.panel import SendButtonListener
+
+        with patch.object(SendButtonListener, "__init__", lambda self, *a, **k: None):
+            send = SendButtonListener.__new__(SendButtonListener)
+            send.rich_text_control = MagicMock()
+            send.ctx = MagicMock()
+            send._rich_control_style_window = None
+            send._assistant_stream_start_len = 100
+            send.session = MagicMock()
+            send.session.messages = [{"role": "assistant", "content": "<p>Hi</p>"}]
+
+            call_order = []
+
+            with patch(
+                "plugin.chatbot.rich_text_control.truncate_control_from",
+                side_effect=lambda *a, **k: call_order.append("truncate"),
+            ), patch(
+                "plugin.chatbot.rich_text_control.nudge_rich_control_view_to_end",
+                side_effect=lambda *a, **k: call_order.append("nudge"),
+            ), patch(
+                "plugin.chatbot.rich_text_control.append_rich_text_via_clipboard",
+                side_effect=lambda *a, **k: call_order.append("append"),
+            ):
+                send.rerender_rich_text_session()
+
+            assert call_order == ["truncate", "nudge", "append"]

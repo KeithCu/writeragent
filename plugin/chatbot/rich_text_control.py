@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import html
 import logging
-from typing import Any, Iterable, cast
+from typing import Any, cast
 
 from plugin.chatbot.listeners import BaseWindowListener
 from plugin.chatbot.rich_text import _HTML_TAG_RE, append_rich_text, strip_legacy_ai_label
@@ -38,6 +38,11 @@ CHAT_PARA_SIDE_MARGIN = 250
 _SERIF_FONT_MARKERS = ("serif", "times", "roman", "courier", "mono")
 # History reload: batch hidden-Writer + copy cycles to avoid per-message UI repaint.
 HISTORY_RENDER_BATCH_CHARS = 16384
+# LO awt KeyCode values (Linux/GTK) for RichTextControl scroll fallbacks when no VCL scrollbar is exposed.
+_RICH_KEY_END = 769
+_RICH_KEY_PAGE_DOWN = 771
+# Invisible tail insert triggers EditEngine viewport follow (gotoEnd alone does not after bulk copy).
+_NUDGE_SCROLL_SENTINEL = "\u200b"
 
 
 def _is_automatic_char_color(color) -> bool:
@@ -890,66 +895,75 @@ def _copy_formatted_from_hidden_doc_to_control(
     if model is None or not hasattr(model, "createTextCursor"):
         log.error("_copy_formatted_from_hidden_doc_to_control: model has no createTextCursor")
         return False
-    try:
-        from plugin.chatbot.rich_text import get_theme_colors
 
-        if auto_scroll:
-            _process_idle(ctx)
-        _bg, user_color, assistant_color = get_theme_colors(style_window=style_window)
-        default_color = _role_color_for_text("", user_color, assistant_color, role)
+    inserted = False
 
-        dest_cursor = model.createTextCursor()
-        dest_cursor.gotoEnd(False)
-        _apply_sidebar_para_margins(dest_cursor)
-        fill_color = _rich_control_bg_color(model, style_window=style_window)
+    def _do_copy() -> None:
+        nonlocal inserted
+        try:
+            from plugin.chatbot.rich_text import get_theme_colors
 
-        src_text = src_doc.getText()
-        para_enum = src_text.createEnumeration()
-        first_para = True
-        inserted = False
-        order_counters: dict = {}
-        while para_enum.hasMoreElements():
-            para = para_enum.nextElement()
-            line_prefix = _list_prefix_for_paragraph(para, order_counters)
-            if not first_para:
-                _insert_string_at_rich_cursor(model, dest_cursor, "\n")
-                dest_cursor.gotoEnd(False)
-                _apply_sidebar_para_margins(dest_cursor)
-            first_para = False
-            prefix_inserted = not line_prefix
+            if auto_scroll:
+                _process_idle(ctx)
+            _bg, user_color, assistant_color = get_theme_colors(style_window=style_window)
+            default_color = _role_color_for_text("", user_color, assistant_color, role)
 
-            portion_enum = para.createEnumeration()
-            while portion_enum.hasMoreElements():
-                portion = portion_enum.nextElement()
-                txt = portion.getString()
-                if not txt:
-                    continue
+            dest_cursor = model.createTextCursor()
+            dest_cursor.gotoEnd(False)
+            _apply_sidebar_para_margins(dest_cursor)
+            fill_color = _rich_control_bg_color(model, style_window=style_window)
+
+            src_text = src_doc.getText()
+            para_enum = src_text.createEnumeration()
+            first_para = True
+            order_counters: dict = {}
+            while para_enum.hasMoreElements():
+                para = para_enum.nextElement()
+                line_prefix = _list_prefix_for_paragraph(para, order_counters)
+                if not first_para:
+                    _insert_string_at_rich_cursor(model, dest_cursor, "\n")
+                    dest_cursor.gotoEnd(False)
+                    _apply_sidebar_para_margins(dest_cursor)
+                first_para = False
+                prefix_inserted = not line_prefix
+
+                portion_enum = para.createEnumeration()
+                while portion_enum.hasMoreElements():
+                    portion = portion_enum.nextElement()
+                    txt = portion.getString()
+                    if not txt:
+                        continue
+                    if line_prefix and not prefix_inserted:
+                        _insert_string_at_rich_cursor(model, dest_cursor, line_prefix, default_color)
+                        dest_cursor.gotoEnd(False)
+                        prefix_inserted = True
+                    portion_color = _resolve_portion_char_color(portion, txt, user_color, assistant_color, role)
+                    _apply_cursor_char_props(dest_cursor, portion, char_color=portion_color, bg_color=fill_color)
+                    _normalize_portion_font(portion)
+                    _apply_cursor_char_props(dest_cursor, portion, char_color=portion_color, bg_color=fill_color)
+                    _insert_string_at_rich_cursor(model, dest_cursor, txt, portion_color)
+                    dest_cursor.gotoEnd(False)
+                    inserted = True
                 if line_prefix and not prefix_inserted:
                     _insert_string_at_rich_cursor(model, dest_cursor, line_prefix, default_color)
-                    dest_cursor.gotoEnd(False)
-                    prefix_inserted = True
-                portion_color = _resolve_portion_char_color(portion, txt, user_color, assistant_color, role)
-                _apply_cursor_char_props(dest_cursor, portion, char_color=portion_color, bg_color=fill_color)
-                _normalize_portion_font(portion)
-                _apply_cursor_char_props(dest_cursor, portion, char_color=portion_color, bg_color=fill_color)
-                _insert_string_at_rich_cursor(model, dest_cursor, txt, portion_color)
-                dest_cursor.gotoEnd(False)
-                inserted = True
-            if line_prefix and not prefix_inserted:
-                _insert_string_at_rich_cursor(model, dest_cursor, line_prefix, default_color)
-                inserted = True
+                    inserted = True
 
-        if inserted:
-            if auto_scroll:
-                scroll_rich_control_to_bottom(control, ctx=ctx, aggressive=True)
-            log.info(
-                "_copy_formatted_from_hidden_doc_to_control: ok control_len=%d",
-                get_control_text_length(control),
-            )
-        return inserted
-    except Exception:
-        log.exception("_copy_formatted_from_hidden_doc_to_control failed")
-        return False
+            if inserted:
+                if auto_scroll:
+                    nudge_rich_control_view_to_end(control, ctx=ctx, style_window=style_window)
+                log.info(
+                    "_copy_formatted_from_hidden_doc_to_control: ok control_len=%d",
+                    get_control_text_length(control),
+                )
+        except Exception:
+            log.exception("_copy_formatted_from_hidden_doc_to_control failed")
+            inserted = False
+
+    if ctx is not None:
+        _preserve_focus_window(ctx, _do_copy)
+    else:
+        _do_copy()
+    return inserted
 
 
 def _append_hidden_doc_to_control(doc, control, ctx, style_window=None, auto_scroll=True) -> bool:
@@ -994,6 +1008,7 @@ def append_rich_messages_via_clipboard(
             )
             if _append_hidden_doc_to_control(doc, control, ctx, style_window=style_window, auto_scroll=False):
                 any_inserted = True
+                nudge_rich_control_view_to_end(control, ctx=ctx, style_window=style_window)
             else:
                 log.error("append_rich_messages_via_clipboard: batch insert into control failed")
         except Exception:
@@ -1004,10 +1019,8 @@ def append_rich_messages_via_clipboard(
                     doc.close(True)
                 except Exception:
                     pass
-    if any_inserted:
-        if items[-1][0] == "user":
-            _ensure_trailing_line_break(control)
-        _preserve_focus_window(ctx, lambda: scroll_rich_control_to_bottom(control, ctx=ctx, aggressive=True))
+    if any_inserted and items[-1][0] == "user":
+        _ensure_trailing_line_break(control)
 
 
 def _try_paste_via_key_event(ctx, control) -> bool:
@@ -1069,12 +1082,11 @@ def insert_transferable_into_rich_control(control, transferable, ctx, style_wind
         _log_insert_transferable_targets(control, model)
 
         len_before = get_control_text_length(control)
-        scroll_rich_control_to_bottom(control, ctx=ctx, aggressive=True)
-        _process_idle(ctx)
+        nudge_rich_control_view_to_end(control, ctx=ctx, style_window=style_window)
 
         for target_name, target in (("control", control), ("model", model)):
             if _try_insert_transferable_on_target(target_name, target, transferable, ctx):
-                scroll_rich_control_to_bottom(control, ctx=ctx, aggressive=True)
+                nudge_rich_control_view_to_end(control, ctx=ctx, style_window=style_window)
                 if get_control_text_length(control) > len_before:
                     result = True
                     return
@@ -1084,7 +1096,7 @@ def insert_transferable_into_rich_control(control, transferable, ctx, style_wind
                 cursor = model.createTextCursor()
                 cursor.gotoEnd(False)
                 if _try_insert_transferable_on_target("model cursor", cursor, transferable, ctx):
-                    scroll_rich_control_to_bottom(control, ctx=ctx, aggressive=True)
+                    nudge_rich_control_view_to_end(control, ctx=ctx, style_window=style_window)
                     if get_control_text_length(control) > len_before:
                         result = True
                         return
@@ -1092,10 +1104,10 @@ def insert_transferable_into_rich_control(control, transferable, ctx, style_wind
                 log.debug("insert_transferable_into_rich_control cursor path failed: %s", e)
 
         if _set_system_clipboard(ctx, transferable):
-            scroll_rich_control_to_bottom(control, ctx=ctx, aggressive=True)
+            nudge_rich_control_view_to_end(control, ctx=ctx, style_window=style_window)
             _process_idle(ctx)
             if _try_paste_via_key_event(ctx, control):
-                scroll_rich_control_to_bottom(control, ctx=ctx, aggressive=True)
+                nudge_rich_control_view_to_end(control, ctx=ctx, style_window=style_window)
                 if get_control_text_length(control) > len_before:
                     result = True
                     return
@@ -1115,7 +1127,15 @@ def insert_transferable_into_rich_control(control, transferable, ctx, style_wind
     return result
 
 
-def append_rich_text_via_clipboard(ctx, control, text, role="assistant", style_window=None, auto_scroll=True):
+def append_rich_text_via_clipboard(
+    ctx,
+    control,
+    text,
+    role="assistant",
+    style_window=None,
+    auto_scroll=True,
+    on_after_insert=None,
+):
     """Import HTML in a hidden Writer doc and copy formatted content into the RichText control."""
     if not control or not text or not text.strip():
         return
@@ -1132,7 +1152,9 @@ def append_rich_text_via_clipboard(ctx, control, text, role="assistant", style_w
         append_rich_text(doc, text, role=role, auto_scroll=False, style_window=style_window)
         log.debug("append_rich_text_via_clipboard: hidden doc ready len=%d role=%s", len(text), role)
         inserted = False
-        if _copy_formatted_from_hidden_doc_to_control(doc, control, ctx, role=role, style_window=style_window):
+        if _copy_formatted_from_hidden_doc_to_control(
+            doc, control, ctx, role=role, style_window=style_window, auto_scroll=auto_scroll,
+        ):
             inserted = True
             log.info("append_rich_text_via_clipboard: insert ok control_len=%d", get_control_text_length(control))
         else:
@@ -1148,8 +1170,11 @@ def append_rich_text_via_clipboard(ctx, control, text, role="assistant", style_w
             log.info("append_rich_text_via_clipboard: insert ok control_len=%d", get_control_text_length(control))
         if inserted and role == "user":
             _ensure_trailing_line_break(control)
-        if inserted and auto_scroll:
-            _preserve_focus_window(ctx, lambda: scroll_rich_control_to_bottom(control, ctx=ctx, aggressive=True))
+            if callable(on_after_insert):
+                try:
+                    on_after_insert(get_control_text_length(control))
+                except Exception:
+                    log.exception("append_rich_text_via_clipboard: on_after_insert failed")
         if inserted:
             return
     except Exception:
@@ -1180,7 +1205,7 @@ def append_text_chunk(control, text, auto_scroll=True, style_window=None, ctx=No
         cursor.CharBackColor = bg_color
         _insert_string_at_rich_cursor(model, cursor, text, assistant_color)
         if auto_scroll:
-            scroll_rich_control_to_bottom(control, ctx=ctx, aggressive=True)
+            _nudge_rich_view_to_end_inner(control, ctx)
 
     try:
         _preserve_focus_window(ctx, _do_append)
@@ -1243,68 +1268,52 @@ def truncate_control_from(control, start_len: int | None):
         log.exception("truncate_control_from failed")
 
 
-def _scroll_rich_peer_vertical_bar(control) -> bool:
-    """Move VCL vertical scrollbar to max without touching control focus/selection."""
-    peer = control.getPeer() if hasattr(control, "getPeer") else None
-    if peer is None:
-        return False
-    get_windows = getattr(peer, "getWindows", None)
-    if not callable(get_windows):
-        return False
+def _nudge_rich_view_to_end_inner(control, ctx=None) -> None:
+    """Move RichText viewport to end via tail insert (caller may already hold focus preserve).
+
+    Bulk history copy leaves the viewport at the top: ``gotoEnd`` alone does not scroll
+    EditEngine when focus stays on ``query``. A zero-width tail insert (then removed)
+    matches the streaming append path that actually moves the caret/view.
+    """
     try:
-        from com.sun.star.awt import XScrollBar
+        model = control.getModel()
+        if model is None or not hasattr(model, "createTextCursor"):
+            return
+        cursor = model.createTextCursor()
+        cursor.gotoEnd(False)
+        _apply_sidebar_para_margins(cursor)
+        len_before = len(model.Text or "")
+        _insert_string_at_rich_cursor(model, cursor, _NUDGE_SCROLL_SENTINEL, None)
+        tail = model.createTextCursor()
+        tail.gotoEnd(False)
+        if hasattr(tail, "goLeft"):
+            tail.goLeft(len(_NUDGE_SCROLL_SENTINEL), True)
+            if hasattr(tail, "setString"):
+                tail.setString("")
+        text_len = len(model.Text or "")
+        rounds = 3
+        for _ in range(rounds):
+            _process_idle(ctx)
+        log.debug(
+            "nudge_rich_control_view_to_end: len=%d rounds=%d sentinel_removed=%s",
+            text_len,
+            rounds,
+            text_len == len_before,
+        )
+    except Exception:
+        log.exception("nudge_rich_control_view_to_end failed")
 
-        stack = list(cast("Iterable[Any]", get_windows()))
-        visited = 0
-        while stack and visited < 64:
-            window = stack.pop()
-            visited += 1
-            try:
-                sb = window.queryInterface(XScrollBar)
-                if sb is not None:
-                    rng = sb.getScrollRange()
-                    target = int(rng.Maximum) - int(getattr(rng, "VisibleSize", 0) or 0)
-                    if target < int(rng.Minimum):
-                        target = int(rng.Minimum)
-                    sb.setScrollValue(target)
-                    return True
-            except Exception:
-                pass
-            child_get = getattr(window, "getWindows", None)
-            if callable(child_get):
-                try:
-                    stack.extend(cast("Iterable[Any]", child_get()))
-                except Exception:
-                    pass
-    except Exception as e:
-        log.debug("_scroll_rich_peer_vertical_bar failed: %s", e)
-    return False
 
-
-def scroll_rich_control_to_bottom(control, ctx=None, aggressive=False) -> None:
+def nudge_rich_control_view_to_end(control, ctx=None, style_window=None) -> None:
     """Scroll the read-only response control without stealing focus from the query field.
 
-    Do not call ``setFocus`` or ``setSelection`` on the RichText control — both move
-    keyboard focus away from ``query`` during streaming (plain ``response`` only used
-    ``setSelection`` on a simple edit; RichTextControl behaves differently).
+    Uses a zero-width tail ``insertString`` (removed immediately) under ``_preserve_focus_window``
+    — same mechanism as streaming appends. ``gotoEnd`` + idle alone does not move the viewport
+    after bulk history copy; VCL scrollbars are not exposed on this control.
     """
     if not control:
         return
-    del aggressive  # kept for call-site compatibility
-    try:
-        model = control.getModel()
-        if model is not None and hasattr(model, "createTextCursor"):
-            try:
-                cursor = model.createTextCursor()
-                cursor.gotoEnd(False)
-            except Exception as e:
-                log.debug("scroll_rich_control_to_bottom cursor.gotoEnd: %s", e)
-        _scroll_rich_peer_vertical_bar(control)
-        _process_idle(ctx)
-        text_len = len(model.Text or "") if model is not None else 0
-        log.debug("scroll_rich_control_to_bottom: len=%d", text_len)
-    except Exception:
-        log.exception("scroll_rich_control_to_bottom failed")
+    _preserve_focus_window(ctx, lambda: _nudge_rich_view_to_end_inner(control, ctx))
 
 
 def _preserve_focus_window(ctx, fn) -> None:

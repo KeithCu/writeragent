@@ -302,8 +302,29 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
                     self._render_session_history(self.session, controls["response"], model, active_greeting)
                 except Exception as e:
                     log.error("Initial RichTextControl render failed: %s", e)
+                if hasattr(self, "_panel_resize_listener") and self._panel_resize_listener:
+                    try:
+                        self._panel_resize_listener.relayout_now(root_window)
+                    except Exception as e:
+                        log.debug("on_rich_control_ready post-history relayout_now: %s", e)
+                try:
+                    from plugin.chatbot.rich_text_control import nudge_rich_control_view_to_end, sync_rich_control_bounds
+                    from plugin.framework.queue_executor import post_to_main_thread
+
+                    sync_rich_control_bounds(rich_control, root_window, controls["response"])
+                    nudge_rich_control_view_to_end(rich_control, ctx=self.ctx, style_window=root_window)
+                    # Relayout can reset EditEngine scroll position after the first nudge.
+                    post_to_main_thread(
+                        nudge_rich_control_view_to_end,
+                        rich_control,
+                        ctx=self.ctx,
+                        style_window=root_window,
+                    )
+                except Exception as e:
+                    log.debug("on_rich_control_ready post-history scroll: %s", e)
 
             rich_control_listener = RichTextControlListener(self.ctx, root_window, controls["response"], on_rich_control_ready)
+            self._rich_control_listener = rich_control_listener
             root_window.addWindowListener(rich_control_listener)
             log.info("[RICH-CONTROL] RichTextControlListener attached to root_window")
         except Exception as e:
