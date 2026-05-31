@@ -89,7 +89,8 @@ def _disabled_test_rich_text_control_html_clipboard_paste():
     ctx = _test_ctx
     assert ctx is not None
 
-    from plugin.chatbot.rich_text_control import append_rich_text_via_clipboard, get_control_text_length
+    from plugin.chatbot.rich_text_control import get_control_text_length
+    from plugin.chatbot.rich_text_paste import append_rich_text_via_clipboard
 
     dlg, control = _create_test_dialog_with_rich_control(ctx)
     try:

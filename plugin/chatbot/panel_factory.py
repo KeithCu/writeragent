@@ -365,11 +365,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         """Update the response control with the contents of the given session."""
         try:
             if self.rich_text_control:
-                from plugin.chatbot.rich_text_control import (
-                    append_rich_messages_via_clipboard,
-                    clear_control,
-                    session_history_items,
-                )
+                from plugin.chatbot.rich_text_control import clear_control
+                from plugin.chatbot.rich_text_paste import append_rich_messages_via_clipboard, session_history_items
 
                 clear_control(self.rich_text_control)
                 style_window = getattr(self, "m_panelRootWindow", None)

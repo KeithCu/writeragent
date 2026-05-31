@@ -389,11 +389,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         if getattr(self, "rich_text_control", None):
             try:
                 from plugin.chatbot.rich_text import _HTML_TAG_RE
-                from plugin.chatbot.rich_text_control import (
-                    append_rich_text_via_clipboard,
-                    nudge_rich_control_view_to_end,
-                    truncate_control_from,
-                )
+                from plugin.chatbot.rich_text_control import nudge_rich_control_view_to_end, truncate_control_from
+                from plugin.chatbot.rich_text_paste import append_rich_text_via_clipboard
 
                 final_msg = None
                 for msg in reversed(self.session.messages):
@@ -679,7 +676,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 if role != "user" and skip_legacy_assistant_stream_chunk(text):
                     return
                 if role == "user":
-                    from plugin.chatbot.rich_text_control import append_rich_text_via_clipboard
+                    from plugin.chatbot.rich_text_paste import append_rich_text_via_clipboard
 
                     def _on_user_inserted(control_len: int) -> None:
                         self._assistant_stream_start_len = control_len
@@ -1180,7 +1177,8 @@ class ClearButtonListener(BaseActionListener):
 
         if self.send_listener and self.send_listener.rich_text_control:
             try:
-                from plugin.chatbot.rich_text_control import append_rich_text_via_clipboard, clear_control
+                from plugin.chatbot.rich_text_control import clear_control
+                from plugin.chatbot.rich_text_paste import append_rich_text_via_clipboard
 
                 clear_control(self.send_listener.rich_text_control)
                 if self.greeting:
