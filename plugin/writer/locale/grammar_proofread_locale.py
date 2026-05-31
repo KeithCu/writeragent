@@ -28,22 +28,57 @@ _log = logging.getLogger("writeragent.grammar")
 # ---------------------------------------------------------------------------
 
 # Persistence constants
+# Schema version for user-defined properties storage (embedded in document metadata).
+# Current value: 2 (uses hash keys and split clean/dirty format for 66%+ footprint reduction).
 GRAMMAR_CACHE_VERSION = 2
+
+# Name of the user-defined string property under which the document-embedded cache is stored inside the ODT file.
+# Default: "WriterAgentGrammarCache"
 GRAMMAR_DOC_CACHE_UDPROP = "WriterAgentGrammarCache"
 
 # Cache sizing limits
+# Maximum number of entries kept in the in-memory sentence LRU cache per session to prevent memory leaks.
+# Default: 2048 sentences
 MAX_CACHE_SIZE = 2048
+
+# Maximum number of recent incomplete sentences scanned backward from the LRU tail for prefix compaction.
+# Bounding this scan prevents O(N) overhead during active typing bursts.
+# Default: 10 sentences
 MAX_RECENT_INCOMPLETE_SCAN = 10
 
 # Worker LLM limits & timeout thresholds
+# The ceiling for pathological run-on or extremely long sentences before enqueuing.
+# Rationale: Prevents sending massive chunks of text to the LLM which would inflate costs and latency.
+# Default: 8192 characters (approx 1200-1600 words)
 GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS = 8192
+
+# Maximum output tokens requested from the LLM for grammar checking responses.
+# Rationale: Ensures complete JSON response structures without truncation while capping cost per request.
+# Default: 3072 tokens
 GRAMMAR_PROOFREAD_MAX_RESPONSE_TOKENS = 3072
+
+# The hard upper limit for batching sentences from a single paragraph into one LLM request.
+# Rationale: Avoids hitting LLM output token limits and prevents batch failures while optimizing throughput.
+# Default: 8 sentences
 GRAMMAR_BATCH_MAX_SENTENCES = 8
+
+# Maximum tokens requested for a single-sentence language detection LLM call.
+# Default: 256 tokens
 GRAMMAR_LANGUAGE_DETECT_MAX_TOKENS_SINGLE = 256
+
+# Token allocation target per item when batching language detection checks.
+# Default: 150 tokens
 GRAMMAR_LANGUAGE_DETECT_MAX_TOKENS_PER_BATCH_ITEM = 150
+
+# The idle/quiet period wait time in seconds before sequential worker drains and executes the queue.
+# Rationale: Aggregates rapid edits during active typing to avoid spamming the LLM on every single keystroke.
+# Default: 1.0 second
 GRAMMAR_WORKER_PAUSE_TIMEOUT_S = 1.0
 
 # Text scheduling thresholds
+# Minimum number of non-space characters required to enqueue incomplete sentence fragments during typing.
+# Rationale: Drops tiny partial word fragments to prevent checking garbage/incomplete drafts.
+# Default: 15 non-space characters
 GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS = 15
 
 # Worker LLM system prompts
