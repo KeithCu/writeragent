@@ -25,6 +25,7 @@ remain in panel_factory.py.
 from __future__ import annotations
 
 import logging
+import threading
 import uno
 from plugin.chatbot.dialogs import get_checkbox_state
 from plugin.chatbot.send_handlers import SendHandlersMixin
@@ -640,6 +641,12 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         """
         return True
 
+    def _run_rich_ui(self, fn, *args, **kwargs):
+        """Run rich-control UI work inline on the main thread; post from workers."""
+        if threading.current_thread() is threading.main_thread():
+            return fn(*args, **kwargs)
+        self.queue_executor.post(fn, *args, **kwargs)
+
     def _append_response(self, text, is_thinking=False, role="assistant"):
         """Append text to the response area (RichTextControl or plain multiline field)."""
         try:
@@ -653,7 +660,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                         self._assistant_stream_start_len = control_len
                         log.debug("_append_response: rich-control stream start len=%d", control_len)
 
-                    self.queue_executor.post(
+                    self._run_rich_ui(
                         widget.append_user_message,
                         text,
                         on_after_insert=_on_user_inserted,
@@ -661,7 +668,12 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 else:
                     if getattr(self, "_record_assistant_start", False):
                         self._record_assistant_start = False
-                    self.queue_executor.post(
+                        self._assistant_stream_start_len = widget.get_text_length()
+                        log.debug(
+                            "_append_response: rich-control stream start len=%d (final answer)",
+                            self._assistant_stream_start_len,
+                        )
+                    self._run_rich_ui(
                         widget.append_assistant_stream_chunk,
                         text,
                         auto_scroll=auto_scroll,

@@ -340,6 +340,21 @@ class TestRichTextChatWidget:
         mock_nudge.assert_called_once()
         mock_append.assert_called_once_with("<p>Hi</p>", role="assistant")
 
+    def test_rerender_truncates_from_final_answer_offset(self):
+        """stream_start_len must be after search steps (e.g. 500), not after user message (e.g. 100)."""
+        from plugin.chatbot.rich_text_control import RichTextChatWidget
+
+        widget = RichTextChatWidget(MagicMock(), MagicMock())
+        session = MagicMock()
+        session.messages = [{"role": "assistant", "content": "<p>Report</p>"}]
+
+        with patch.object(widget, "truncate") as mock_trunc, \
+             patch.object(widget, "nudge_view_to_end"), \
+             patch.object(widget, "append_rich_message"):
+            widget.rerender_last_assistant_if_html(session, 500)
+
+        mock_trunc.assert_called_once_with(500)
+
     def test_rerender_skips_plain_assistant_message(self):
         from plugin.chatbot.rich_text_control import RichTextChatWidget
 
