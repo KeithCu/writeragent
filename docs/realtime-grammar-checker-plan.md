@@ -392,16 +392,10 @@ Two tables: **product / hardening** (user-visible or systemic improvements) and 
 |----|------|--------|
 | C1 | Tiered error handling in `doProofreading` | Reduce nested try/except that only log-and-continue; extract `_safe_*` helpers so failures are visible in tests. |
 | C2 | Optional `unohelper` consolidation | Top-level import serves `unohelper.Base`; registration block imports again for `ImplementationHelper` — optional single pattern for clarity. |
-| C3 | HTTP 429 / backoff | Same work as **P2** (worker / `run_llm_and_cache_batch`). |
-| C5 | Viewport / LIFO-ish priority | Mitigate scroll enqueue starving active typing (**P15**). |
 | C6 | Regex audit | Most patterns are compiled; audit [`grammar_proofread_text.py`](../plugin/writer/locale/grammar_proofread_text.py) for any remaining compile-per-call hot paths. |
 | C7 | Logging discipline | Structured events, avoid duplicate levels, DEBUG vs INFO boundaries ([Appendix B](#appendix-b-structural-notes)). |
 | C8 | ProofreadingResult helpers / hints | Optional `@dataclass`-style helpers or richer type hints for UNO structs where stubs help. |
 | C10 | Batch diagnostics logging | Add structured **DEBUG** logs for batch stats: `sentences_queued`, `sentences_deduped`, `sentences_stale_skipped`, `sentences_llm_requested`, `llm_request_duration_ms` to help diagnose performance and correctness issues. |
-| C11 | Module docstrings | Add `"""Real-time grammar proofreading via UNO XProofreader + LLM."""` docstrings to `ai_grammar_proofreader.py`, `grammar_work_queue.py`, and `grammar_proofread_cache.py` for better IDE support and maintainability. |
-| C12 | Constants documentation | Document all `GRAMMAR_*` constants in `grammar_proofread_locale.py` with **units**, **default values**, and **rationale** (e.g., why 8192 chars, why 2048 tokens) as inline comments or a module-level docstring section. |
-| C13 | Remove dead code | Delete any remaining references to `doc.grammar_proofreader_wait_timeout_ms` (config reads, UI bindings, validation) that are now defunct. |
-| C15 | Update normalization comment | Correct the stale comment in `_normalize_for_sentence_cache` (grammar_proofread_cache.py) which claims it uses a subset of terminators. |
 
 ---
 
@@ -677,23 +671,6 @@ When the LLM is called for grammar, inject a compact "House style notes for this
 
 **Related:** `plugin/chatbot/memory.py`, the librarian mode, `additional_instructions` config key, and how the main tool loop injects context.
 
-### G4. Confidence tiers and "review vs. mechanical" underlining
-
-**Current behavior:** All LLM-flagged issues get the same `TextMarkupType.PROOFREADING` underline. The user has no visual signal of how certain the model was.
-
-**Proposal:** Extend `SingleProofreadingError` payloads (and the cache format) with a simple `confidence` or `tier` field returned by the grammar LLM:
-
-- `mechanical` / high-confidence (spelling patterns, obvious agreement, punctuation the model is very sure about)
-- `style` / medium (voice, concision, preferred phrasing)
-- `suggestion` / lower (the model thinks this could be improved but is hedging)
-
-Map these to different underline colors or dash styles if UNO allows, or at minimum expose them in the grammar dialog / tooltip so advanced users can filter.
-
-This also lets power users configure "only show mechanical errors from the AI proofreader; send style suggestions to the sidebar chat instead."
-
-**Why now:** The model is already capable of this distinction when asked. The infrastructure (JSON round-tripping, cache, persistence) already carries arbitrary per-error metadata. The missing piece is prompting + a small schema extension.
-
-This turns the grammar checker from a binary "error or not" into something that can participate in the broader "agent does the obvious stuff, human + chat does the judgment calls" workflow.
 
 ---
 
