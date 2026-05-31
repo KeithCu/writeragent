@@ -11,7 +11,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.scripting.init_scripts import (
-    CALC_INIT_SCRIPT_UDPROP,
     build_python_eval_init_kwargs,
     get_calc_init_script,
     init_script_hash,
@@ -33,12 +32,23 @@ def _clear_sessions():
 
 
 def test_get_set_calc_init_script_roundtrip():
+    from plugin.scripting.document_scripts import DOCUMENT_SCRIPTS_UDPROP, set_document_scripts
+    import json
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
     assert get_calc_init_script(doc) == ""
     assert set_calc_init_script(doc, "import numpy as np") is None
-    assert props.getPropertyValue(CALC_INIT_SCRIPT_UDPROP) == "import numpy as np"
+    stored = props.getPropertyValue(DOCUMENT_SCRIPTS_UDPROP)
+    assert json.loads(stored)["scripts"]["INIT"] == "import numpy as np"
     assert get_calc_init_script(doc) == "import numpy as np"
+
+    # Test "Init" fallback case
+    set_document_scripts(doc, {"Init": "import pandas as pd"})
+    assert get_calc_init_script(doc) == "import pandas as pd"
+    assert set_calc_init_script(doc, "import os") is None
+    stored = props.getPropertyValue(DOCUMENT_SCRIPTS_UDPROP)
+    assert json.loads(stored)["scripts"]["Init"] == "import os"
+    assert "INIT" not in json.loads(stored)["scripts"]
 
 
 def test_init_script_runs_once_in_isolated_mode():

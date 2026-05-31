@@ -3,8 +3,6 @@ title: Python
 requires: [config]
 
 actions:
-  edit_calc_init_script:
-    title: "Edit Initialization Script..."
   reset_python_session:
     title: "Reset Python Session"
 

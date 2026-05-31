@@ -223,7 +223,7 @@
       return;
     }
     var defaultName = currentSelectedName || "";
-    var name = prompt("Enter a name to attach this script to the document:", defaultName);
+    var name = prompt("Enter a name to attach this script to the document:\n(call it 'Init' to run it before any other Python code)", defaultName);
     if (!name) return;
     name = name.trim();
     if (!name) return;
