@@ -154,6 +154,8 @@ class OpenAIShim(BaseProviderShim):
         if tools:
             data["tools"] = tools
             data["tool_choice"] = "auto"
+            # FIXME: Force parallel_tool_calls to False for now because enabling it caused
+            # JSON parsing errors/failures with the subagent (smolagents) tool-calling logic.
             data["parallel_tool_calls"] = False
         if response_format:
             data["response_format"] = response_format

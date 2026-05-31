@@ -27,6 +27,9 @@ def execute_prompt_addin(
     client_holder: list[LlmClient | None],
 ) -> str:
     """Call the chat API for =PROMPT(); *client_holder* is a one-element list for reuse across recalcs."""
+    # NOTE: We do not recommend HTML formatting in the system prompt for cell calculations 
+    # (unlike the sidebar chat window which supports rich HTML). Thus, we do not strip HTML 
+    # tags here. If users see raw tags in cells, they can prompt for plain text output.
     log.debug("=== PROMPT(%s) ===", message)
     try:
         if system_prompt is not None:

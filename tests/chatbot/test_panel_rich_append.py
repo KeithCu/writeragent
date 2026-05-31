@@ -38,7 +38,7 @@ class TestRichAppendResponse:
         assert send._assistant_stream_start_len == 500
         send.rich_text_widget.get_text_length.assert_called_once()
         send.rich_text_widget.append_assistant_stream_chunk.assert_called_once_with(
-            "<p>Report</p>",
+            "Report",
             auto_scroll=True,
         )
 

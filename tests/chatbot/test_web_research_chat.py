@@ -32,3 +32,14 @@ def test_format_sub_agent_history_skips_system_and_tool():
     history = format_sub_agent_conversation_history(session, current_query="hello")
     assert "result" not in history
     assert history == ""
+
+
+def test_format_sub_agent_history_strips_html():
+    session = ChatSession(system_prompt="Observe")
+    session.messages.append({"role": "user", "content": "hello <strong>bold</strong>"})
+    session.messages.append({"role": "assistant", "content": "how <em>are</em> you?"})
+    history = format_sub_agent_conversation_history(session)
+    assert "<strong>" not in history
+    assert "bold" in history
+    assert "<em>" not in history
+    assert "are" in history

@@ -7,6 +7,9 @@
 from __future__ import annotations
 
 
+from plugin.framework.html_stripper import strip_html_tags
+
+
 def _message_text(content) -> str:
     """Normalize user/assistant message content to plain text."""
     if content is None:
@@ -16,8 +19,8 @@ def _message_text(content) -> str:
         for part in content:
             if isinstance(part, dict) and part.get("type") == "text":
                 bits.append(str(part.get("text", "")))
-        return "\n".join(bits)
-    return str(content)
+        return strip_html_tags("\n".join(bits))
+    return strip_html_tags(str(content))
 
 
 def format_sub_agent_conversation_history(session, *, current_query=None) -> str:

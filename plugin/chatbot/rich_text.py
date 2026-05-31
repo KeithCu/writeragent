@@ -343,3 +343,9 @@ def append_rich_text(doc, text, role="assistant", style_window=None):
 def finalize_sidebar_assistant_response(listener) -> None:
     """Re-import the last assistant message as HTML when rich sidebar is active."""
     listener.rerender_rich_text_session()
+    stripper = getattr(listener, "_plain_text_stripper", None)
+    if stripper is not None:
+        leftover = stripper.finalize()
+        listener._plain_text_stripper = None
+        if leftover and getattr(listener, "rich_text_widget", None) is None:
+            listener._append_response(leftover, role="assistant")

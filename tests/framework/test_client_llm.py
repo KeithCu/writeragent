@@ -697,3 +697,25 @@ def test_make_chat_request_flattens_system_message(client):
         assert "Part 1" in sys_msg["content"]
         assert "Part 2" in sys_msg["content"]
         assert "Today's date is" in sys_msg["content"]
+
+
+def test_parallel_tool_calls_config(client):
+    """Verify that parallel_tool_calls is currently forced to False due to subagent parsing issues."""
+    messages = [{"role": "user", "content": "Hi"}]
+    tools = [{"type": "function", "function": {"name": "test_tool"}}]
+
+    # Case 1: Default (should be False due to the current subagent FIXME)
+    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
+        mock_auth.return_value = {"provider": "openai"}
+        _, _, body, _ = client.make_chat_request(messages, tools=tools, stream=False)
+        data = json.loads(body.decode("utf-8"))
+        assert data["parallel_tool_calls"] is False
+
+    # Case 2: Explicitly False
+    client.config["parallel_tool_calls"] = False
+    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
+        mock_auth.return_value = {"provider": "openai"}
+        _, _, body, _ = client.make_chat_request(messages, tools=tools, stream=False)
+        data = json.loads(body.decode("utf-8"))
+        assert data["parallel_tool_calls"] is False
+

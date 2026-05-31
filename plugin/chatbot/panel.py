@@ -673,19 +673,33 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                             "_append_response: rich-control stream start len=%d (final answer)",
                             self._assistant_stream_start_len,
                         )
+                    
+                    if getattr(self, "_plain_text_stripper", None) is not None:
+                        clean_text = self._plain_text_stripper.feed(text)
+                    else:
+                        from plugin.framework.html_stripper import strip_html_tags
+                        clean_text = strip_html_tags(text)
+
                     self._run_rich_ui(
                         widget.append_assistant_stream_chunk,
-                        text,
+                        clean_text,
                         auto_scroll=auto_scroll,
                     )
                 return
 
             if self.response_control and self.response_control.getModel():
                 from plugin.chatbot.dialogs import get_control_text, set_control_text
+                from plugin.framework.html_stripper import strip_html_tags
 
                 should_scroll = self._should_auto_scroll()
                 current = get_control_text(self.response_control) or ""
-                set_control_text(self.response_control, current + text)
+                
+                if role == "assistant" and getattr(self, "_plain_text_stripper", None) is not None:
+                    clean_text = self._plain_text_stripper.feed(text)
+                else:
+                    clean_text = strip_html_tags(text)
+
+                set_control_text(self.response_control, current + clean_text)
                 if should_scroll:
                     self._scroll_response_to_bottom()
         except Exception as e:
@@ -905,7 +919,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
     def _do_send(self):
         from plugin.framework.i18n import _
+        from plugin.framework.html_stripper import StreamingHTMLStripper
 
+        self._plain_text_stripper = StreamingHTMLStripper()
         self._set_status(_("Starting..."))
         update_activity_state("do_send")
         log.info("=== _do_send START ===")

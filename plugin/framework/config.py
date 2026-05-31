@@ -69,7 +69,7 @@ _LRU_LIST_CONFIG_KEY_PREFIXES: frozenset[str] = frozenset({"model_lru", "prompt_
 
 # Simple AI settings fields that the Tools → Options "AI" page should map
 # directly to top-level config keys (endpoint, model, etc.).
-AI_SIMPLE_FIELDS = {"endpoint", "text_model", "image_model", "stt_model", "temperature", "chat_max_tokens", "request_timeout", "additional_instructions", "aihorde_api_key", "image_provider", "nsfw", "censor_nsfw", "max_wait"}
+AI_SIMPLE_FIELDS = {"endpoint", "text_model", "image_model", "stt_model", "temperature", "chat_max_tokens", "request_timeout", "additional_instructions", "aihorde_api_key", "image_provider", "nsfw", "censor_nsfw", "max_wait", "parallel_tool_calls"}
 
 
 # --- Small helpers ---
@@ -297,6 +297,8 @@ class WriterAgentConfig:
     edit_selection_max_new_tokens: int = 1000
     # When True, treat endpoint as OpenRouter (e.g. custom proxy) even if the URL lacks openrouter.ai.
     is_openrouter: bool = False
+    # When True, the Chat Completions request includes parallel_tool_calls: True to allow multiple tool calls.
+    parallel_tool_calls: bool = True
     # Merged into POST \u2026/chat/completions JSON when OpenRouter is active; see AGENTS.md.
     openrouter_chat_extra: Dict[str, Any] = dataclasses.field(default_factory=dict)
     # Persists the last code entered in the 'Run Python Script' dialog.
