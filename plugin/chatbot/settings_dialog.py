@@ -114,16 +114,11 @@ def _get_module_field_specs(ctx):
 
                 # For select/combo with value/label options, use label for display so dropdown shows correctly
                 if isinstance(opts, list) and opts and isinstance(opts[0], dict):
-                    # O(1) lookup after O(N) dict construction (better for many lookups, but even here cleaner)
-                    # We use a loop for the dict construction to maintain 'first win' semantics for duplicates
-                    opts_map = {}
-                    for o in reversed(opts):
-                        if isinstance(o, dict):
-                            opts_map[str(o.get("value", "")).strip().lower()] = str(o.get("label", o.get("value", "")))
-
                     v_str = str(val).strip().lower()
-                    if v_str in opts_map:
-                        val = _(opts_map[v_str])
+                    for o in opts:
+                        if isinstance(o, dict) and str(o.get("value", "")) == v_str:
+                            val = _(str(o.get("label", val)))
+                            break
 
                 field: dict = {"name": ctrl_id, "value": str(val)}
 
@@ -188,6 +183,7 @@ def apply_settings_result(ctx, result):
             val_str = str(val)
             for opt in spec["options"]:
                 if isinstance(opt, dict):
+                    # We compare translated labels to the UI result to map back to original value
                     lbl = str(opt.get("label", opt.get("value", "")))
                     if _(lbl) == val_str:
                         val = opt.get("value", lbl)
