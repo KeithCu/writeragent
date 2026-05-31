@@ -576,7 +576,7 @@ class SendHandlersMixin:
         try:
             from plugin.mcp.server import mcp_endpoint_url
 
-            port = get_config_int_safe(self.ctx, "mcp.mcp_port", 8765)
+            port = get_config_int_safe(self.ctx, "mcp.mcp_port")
             host = str(get_config(self.ctx, "mcp.host") or "localhost")
             use_ssl = bool(get_config(self.ctx, "mcp.use_ssl"))
             return mcp_endpoint_url(host, port, use_ssl)

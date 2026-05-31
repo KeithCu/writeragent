@@ -653,7 +653,7 @@ def run_llm_and_cache_batch(
             model = ""
 
         client = llm_client.LlmClient(config.get_api_config(ctx), ctx)
-        batch_size = config.get_config_int_safe(ctx, "doc.grammar_proofreader_batch_sentences", 1)
+        batch_size = config.get_config_int_safe(ctx, "doc.grammar_proofreader_batch_sentences")
         batch_size = max(1, min(grammar_proofread_locale.GRAMMAR_BATCH_MAX_SENTENCES, batch_size))
         detect_lang_enabled = config.get_config_bool_safe(ctx, "doc.grammar_proofreader_detect_language")
 

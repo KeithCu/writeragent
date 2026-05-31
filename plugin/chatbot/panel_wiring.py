@@ -266,7 +266,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
     # 7. Rich Text Control Sidebar (RichTextControl; embedded Writer path removed)
     from plugin.framework.config import get_config_bool_safe
 
-    if get_config_bool_safe(self.ctx, "rich_text_control_sidebar", default=True):
+    if get_config_bool_safe(self.ctx, "rich_text_control_sidebar"):
         try:
             from plugin.chatbot.rich_text_control import RichTextChatWidget, RichTextControlListener
 

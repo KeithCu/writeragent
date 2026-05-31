@@ -544,20 +544,26 @@ def get_config_bool(ctx, key) -> bool:
     return as_bool(v)
 
 
-def get_config_bool_safe(ctx: Any, key: str, default: bool = False) -> bool:
-    """Safely read a boolean config value, returning default on failure."""
+def get_config_bool_safe(ctx: Any, key: str) -> bool:
+    """Safely read a boolean config value, returning schema default on failure."""
     try:
         return get_config_bool(ctx, key)
     except Exception:
-        return default
+        try:
+            return as_bool(_resolve_default(key))
+        except Exception:
+            return False
 
 
-def get_config_int_safe(ctx: Any, key: str, default: int = 0) -> int:
-    """Safely read an integer config value, returning default on failure."""
+def get_config_int_safe(ctx: Any, key: str) -> int:
+    """Safely read an integer config value, returning schema default on failure."""
     try:
         return get_config_int(ctx, key)
     except Exception:
-        return default
+        try:
+            return parse_int_robust(_resolve_default(key))
+        except Exception:
+            return 0
 
 
 def get_config_float(ctx, key) -> float:

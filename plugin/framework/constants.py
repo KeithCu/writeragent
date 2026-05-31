@@ -324,7 +324,7 @@ def get_chat_response_format_instructions(ctx=None) -> str:
     """
     from plugin.framework.config import get_config_bool_safe
 
-    if not get_config_bool_safe(ctx, "rich_text_control_sidebar", default=True):
+    if not get_config_bool_safe(ctx, "rich_text_control_sidebar"):
         return PLAIN_CHAT_RESPONSE_FORMAT
     return RICH_CHAT_SIDEBAR_INSTRUCTIONS
 
