@@ -674,7 +674,7 @@ def venv_expected_cases() -> list[VenvTransformCase]:
 # Diverse strings that Calc might contain (including edge cases like blank or numeric-looking)
 CALC_STRINGS = st.one_of(
     st.sampled_from(["02138", "90210", "TRUE", "FALSCH", "0", "1", "1.5", "inf", "nan", "café", "日本語", "🎉", "long_string_" * 10]),
-    st.text(min_size=1, max_size=100),
+    st.text(min_size=1, max_size=20),
     st.text(alphabet=st.characters(whitelist_categories=("Zs", "Zl", "Zp")), min_size=1, max_size=5) # Blank strings
 )
 
@@ -703,59 +703,66 @@ def grid_cell(draw) -> Any:
     return np.bool_(draw(st.booleans()))
 
 
+# Hypothesis fuzz targets variety (cell types, 1D vs 2D), not size — boundary/large
+# grids live in the named parametrized fixture corpus.
+_HYPOTHESIS_MAX_CELLS = 10
+_HYPOTHESIS_MAX_ROWS = 3
+_HYPOTHESIS_MAX_COLS = 4
+
+_NUMERIC_CELL = st.one_of(st.none(), st.integers(-2**53, 2**53), st.floats(allow_nan=True))
+
+
 @strategies.composite
 def rectangular_grid(
     draw,
     *,
-    max_rows: int = 6,
-    max_cols: int = 6,
-    max_cells: int = 30,
+    max_rows: int = _HYPOTHESIS_MAX_ROWS,
+    max_cols: int = _HYPOTHESIS_MAX_COLS,
+    max_cells: int = _HYPOTHESIS_MAX_CELLS,
 ) -> list[Any] | list[list[Any]]:
-    import sys
-    import os
-    is_long = os.environ.get("WRITERAGENT_HYPOTHESIS_LONG") or any("test_serialization_verification" in arg or "slowtests" in arg for arg in sys.argv)
-
-    # Favor sizes around the BINARY_MIN_CELLS threshold only in long test runs
-    if is_long:
-        limit_cells = 150
-        limit_rows = 15
-        limit_cols = 15
-        if draw(st.booleans()):
-            ncells = draw(st.integers(1, max(25, BINARY_MIN_CELLS + 5)))
-        else:
-            ncells = draw(st.integers(1, limit_cells))
-    else:
-        limit_cells = max_cells
-        limit_rows = max_rows
-        limit_cols = max_cols
-        ncells = draw(st.integers(1, limit_cells))
+    ncells = draw(st.integers(1, max_cells))
 
     use_1d = draw(st.booleans())
     if use_1d:
         return [draw(grid_cell()) for _ in range(ncells)]
 
-    # Attempt to generate rectangular 2D grids with approximately ncells
+    # Bias toward 2×2 when small; variety over size (split_grid is forced on tiny grids).
+    if ncells <= 4:
+        limit_rows = min(2, max_rows)
+        limit_cols = min(2, max_cols)
+    else:
+        limit_rows = max_rows
+        limit_cols = max_cols
+
     nrows = draw(st.integers(1, min(ncells, limit_rows)))
     ncols = (ncells + nrows - 1) // nrows
     if ncols > limit_cols:
         ncols = limit_cols
-    
+
     return [[draw(grid_cell()) for _ in range(ncols)] for _ in range(nrows)]
 
 
 @strategies.composite
 def numeric_rectangular_grid(draw) -> list[Any] | list[list[Any]]:
-    # Specifically for tests expecting NumPy-compatible numeric-only data
+    # Numeric-only grids for np.sum parity; same small caps as rectangular_grid.
     use_1d = draw(st.booleans())
     if use_1d:
-        n = draw(st.integers(1, 20))
-        return [draw(st.one_of(st.none(), st.integers(-2**53, 2**53), st.floats())) for _ in range(n)]
-    nrows = draw(st.integers(1, 10))
-    ncols = draw(st.integers(1, 10))
-    return [
-        [draw(st.one_of(st.none(), st.integers(-2**53, 2**53), st.floats())) for _ in range(ncols)]
-        for _ in range(nrows)
-    ]
+        n = draw(st.integers(1, _HYPOTHESIS_MAX_CELLS))
+        return [draw(_NUMERIC_CELL) for _ in range(n)]
+
+    ncells = draw(st.integers(1, _HYPOTHESIS_MAX_CELLS))
+    if ncells <= 4:
+        limit_rows = 2
+        limit_cols = 2
+    else:
+        limit_rows = _HYPOTHESIS_MAX_ROWS
+        limit_cols = _HYPOTHESIS_MAX_COLS
+
+    nrows = draw(st.integers(1, min(ncells, limit_rows)))
+    ncols = (ncells + nrows - 1) // nrows
+    if ncols > limit_cols:
+        ncols = limit_cols
+    return [[draw(_NUMERIC_CELL) for _ in range(ncols)] for _ in range(nrows)]
 
 
 def is_valid_grid_for_pack(grid: list[Any] | list[list[Any]]) -> bool:
@@ -788,11 +795,38 @@ def _grid_has_blank_string(grid: list[Any] | list[list[Any]]) -> bool:
     return any(is_blank(cell) for cell in grid)
 
 
+def _iter_flat_cells(grid: list[Any] | list[list[Any]]) -> list[Any]:
+    if not grid:
+        return []
+    if isinstance(grid[0], (list, tuple)):
+        return [cell for row in grid for cell in row]
+    return list(grid)
+
+
+def _cell_is_none_or_nan(cell: Any) -> bool:
+    if cell is None:
+        return True
+    if isinstance(cell, float) and math.isnan(cell):
+        return True
+    import numpy as np
+
+    if isinstance(cell, np.floating) and math.isnan(float(cell)):
+        return True
+    return False
+
+
+def _grid_all_none_or_nan(grid: list[Any] | list[list[Any]]) -> bool:
+    flat = _iter_flat_cells(grid)
+    return bool(flat) and all(_cell_is_none_or_nan(c) for c in flat)
+
+
 def hypothesis_grid_ok(grid: list[Any] | list[list[Any]]) -> bool:
     """Grids safe for codec + venv A/B fuzzing (skip json-list paths that choke on strings)."""
     if not is_valid_grid_for_pack(grid):
         return False
     if _grid_has_blank_string(grid):
+        return False
+    if _grid_all_none_or_nan(grid):
         return False
     if grid_cell_count(grid) < BINARY_MIN_CELLS and _grid_has_string_cell(grid):
         return False

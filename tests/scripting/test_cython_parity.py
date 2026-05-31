@@ -67,7 +67,7 @@ def test_cython_transform_parity(case: VenvTransformCase) -> None:
 
 @given(grid=rectangular_grid())
 @settings(max_examples=50, deadline=None, suppress_health_check=[HealthCheck.filter_too_much])
-@example([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0], [7.0, 8.0], [9.0, 10.0]])
+@example([[1.0, 2.0], [3.0, 4.0]])
 @example(MIXED_WITH_ZIP)
 @example([[42.0]])
 @example([["02138"]])

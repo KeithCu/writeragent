@@ -71,6 +71,11 @@ def _cases() -> list[AbGridCase]:
     return all_codec_ab_cases()
 
 
+def _materialization_type_cases() -> list[AbGridCase]:
+    """Multi-cell grids only — single-cell inputs unwrap to scalar in the child sandbox."""
+    return [case for case in _cases() if grid_cell_count(prepare_grid(case)) > 1]
+
+
 # =============================================================================
 # Tier A — Codec decode (always vs never, no venv)
 # =============================================================================
@@ -91,15 +96,11 @@ def test_split_wire_format(case: AbGridCase) -> None:
     assert not is_split_grid(host_pack_data(grid, force="never"))
 
 
-@pytest.mark.parametrize("case", _cases(), ids=_case_id)
+@pytest.mark.parametrize("case", _materialization_type_cases(), ids=_case_id)
 def test_child_materialization_type(case: AbGridCase) -> None:
     """Under force=always: numeric-only → ndarray; any string → nested list."""
     pytest.importorskip("numpy")
     grid = prepare_grid(case)
-    if grid_cell_count(grid) <= 1:
-        pytest.skip("single-cell inputs unwrap to scalar in child")
-    if not grid:
-        pytest.skip("empty grid")
     child = codec_child_materialization(grid, force="always")
     if expect_child_list_not_ndarray(grid if isinstance(grid, list) else [grid]):
         assert isinstance(child, list)
@@ -203,8 +204,8 @@ def test_identity_echo_roundtrip(case: AbGridCase) -> None:
 @example(["1", "2", "3"])
 @example([1, 2, 3.5])
 @example([True, False, 1])
-@example(["long_string_" * 50])
-@example([[float(i) for i in range(10)] for _ in range(10)])
+@example(["long_string_" * 8])
+@example([[1.0, 2.0], [3.0, 4.0]])
 def test_hypothesis_codec_decode_parity(grid: list[Any] | list[list[Any]]) -> None:
     """Fuzz: codec child/host decode always vs never."""
     assume(hypothesis_grid_ok(grid))
@@ -213,14 +214,14 @@ def test_hypothesis_codec_decode_parity(grid: list[Any] | list[list[Any]]) -> No
 
 @given(grid=rectangular_grid())
 @settings(max_examples=100, deadline=None, suppress_health_check=[HealthCheck.filter_too_much])
-@example([[float(i + 1) for i in range(10)]])
+@example([[1.0, 2.0, 3.0, 4.0]])
 @example(MIXED_WITH_ZIP)
 @example([[42.0]])
 @example(["1", "2", "3"])
 @example([1, 2, 3.5])
 @example([True, False, 1])
-@example(["long_string_" * 50])
-@example([[float(i) for i in range(10)] for _ in range(10)])
+@example(["long_string_" * 8])
+@example([[1.0, 2.0], [3.0, 4.0]])
 def test_hypothesis_venv_echo_parity(grid: list[Any] | list[list[Any]]) -> None:
     """Fuzz: venv echo always vs never."""
     assume(hypothesis_grid_ok(grid))
