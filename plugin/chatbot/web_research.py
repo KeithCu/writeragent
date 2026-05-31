@@ -123,7 +123,10 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
 
         from plugin.framework.constants import get_chat_response_format_instructions
 
-        base_intro = "You are a research assistant. Use the conversation context provided below to resolve any ambiguity in the user's query."
+        base_intro = (
+            "You are a research assistant. Use the conversation context provided below to resolve any ambiguity in the user's query. "
+            "Avoid visiting Yelp (yelp.com) links, as Yelp blocks automated requests and returns 403 errors; rely on other sources instead."
+        )
         tool_steps_budget = max_steps - 1
         budget_text = (
             f"Step limit: at most {max_steps} agent steps total (each step is one tool call, "
@@ -132,6 +135,13 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
             "reserve your last step for the final_answer tool so the run finishes before the hard limit. "
             "If you have enough evidence earlier, call final_answer sooner."
         )
+        if max_steps > 20:
+            half_steps = max_steps // 2
+            budget_text += (
+                f" IMPORTANT: If the user's query is a simple question that does not require deep or extensive research "
+                f"(e.g., local recommendations, basic facts, simple translations), try to be highly efficient and finish "
+                f"in at most half of your step budget (i.e., {half_steps} steps or fewer). Do not use all steps if a quick search suffices."
+            )
         response_format = get_chat_response_format_instructions(ctx.ctx)
         instructions = (
             f"{base_intro}\n\n{budget_text}\n\n{response_format}\n"
