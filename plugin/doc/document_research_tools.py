@@ -121,12 +121,12 @@ class GrepNearbyFiles(ToolBase):
         return execute_on_main_thread(_run)
 
 
-class GetOpenDocuments(ToolBase):
+class ListOpenDocuments(ToolBase):
     """List all currently open documents in LibreOffice, returning their URLs, names, and types."""
 
-    name = "get_open_documents"
+    name = "list_open_documents"
     description = (
-        "Get a list of all currently open documents in LibreOffice. "
+        "List all currently open documents in LibreOffice. "
         "Returns the path, name, URL, document type (writer, calc, draw), and if it is the currently active document."
     )
     tier = "mcp"

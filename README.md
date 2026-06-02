@@ -172,7 +172,7 @@ To target a specific open document, you can either:
 - **`document_url` parameter (New in v0.8.15)**: Pass the `document_url` optional parameter directly in the tool call arguments (now dynamically supported on all tools). This is the cleanest and most standard way in MCP.
 - **`X-Document-URL` header**: Send the HTTP header on **each** MCP request (`tools/list`, `tools/call`, …). The value must be the exact LibreOffice URL of an already-open document (usually `file:///…` for saved files).
 
-To discover all currently open document URLs, names, and types, you can call the MCP-only tool **`get_open_documents`** (in `v0.8.15`).
+To discover all currently open document URLs, names, and types, you can call the MCP-only tool **`list_open_documents`** (in `v0.8.15`).
 
 Targeting is per-request: one call can edit a Writer doc and the next can target a Calc sheet.
 

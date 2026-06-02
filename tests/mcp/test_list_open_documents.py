@@ -1,20 +1,20 @@
 import pytest
 from unittest.mock import MagicMock, patch
-from plugin.doc.document_research_tools import GetOpenDocuments
+from plugin.doc.document_research_tools import ListOpenDocuments
 from plugin.framework.tool import ToolContext, ToolRegistry
 
 
-def test_get_open_documents_properties():
-    tool = GetOpenDocuments()
-    assert tool.name == "get_open_documents"
+def test_list_open_documents_properties():
+    tool = ListOpenDocuments()
+    assert tool.name == "list_open_documents"
     assert tool.tier == "mcp"
     assert not tool.detects_mutation()
 
 
-def test_get_open_documents_registry_filtering():
+def test_list_open_documents_registry_filtering():
     services = MagicMock()
     registry = ToolRegistry(services)
-    tool = GetOpenDocuments()
+    tool = ListOpenDocuments()
     registry.register(tool)
 
     # By default, "mcp" tier is excluded (e.g. for standard chat)
@@ -26,13 +26,13 @@ def test_get_open_documents_registry_filtering():
     assert tool in tools
 
 
-def test_get_open_documents_execute():
+def test_list_open_documents_execute():
     services = MagicMock()
     context = MagicMock()
     context.ctx = MagicMock()
     context.doc = MagicMock()
 
-    tool = GetOpenDocuments()
+    tool = ListOpenDocuments()
 
     mock_doc1 = MagicMock()
     mock_doc1.getURL.return_value = "file:///home/user/document.odt"
@@ -46,7 +46,7 @@ def test_get_open_documents_execute():
     # Mock desktop.getComponents().createEnumeration()
     mock_desktop = MagicMock()
     mock_enum = MagicMock()
-    
+
     # Simulate components enumeration
     elements = list(mock_components)
     mock_enum.hasMoreElements.side_effect = lambda: len(elements) > 0
