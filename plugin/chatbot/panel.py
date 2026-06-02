@@ -350,6 +350,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self._approval_ui_backup = None
         self._approval_query_for_engine = None
         self.rich_text_widget = None
+        self._rich_plain_fallback_warned = False
         if HAS_RECORDING:
             assert _AudioRecorderCls is not None
             self.audio_recorder = _AudioRecorderCls()
@@ -686,6 +687,15 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                         auto_scroll=auto_scroll,
                     )
                 return
+
+            if not getattr(self, "_rich_plain_fallback_warned", False):
+                from plugin.framework.config import get_config_bool_safe
+
+                if get_config_bool_safe(self.ctx, "rich_text_control_sidebar"):
+                    log.warning(
+                        "[RICH-CONTROL] _append_response plain fallback while rich_text_control_sidebar enabled",
+                    )
+                    self._rich_plain_fallback_warned = True
 
             if self.response_control and self.response_control.getModel():
                 from plugin.chatbot.dialogs import get_control_text, set_control_text

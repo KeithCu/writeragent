@@ -266,9 +266,11 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
     # 7. Rich Text Control Sidebar (RichTextControl; embedded Writer path removed)
     from plugin.framework.config import get_config_bool_safe
 
-    if get_config_bool_safe(self.ctx, "rich_text_control_sidebar"):
+    rich_sidebar_enabled = get_config_bool_safe(self.ctx, "rich_text_control_sidebar")
+    log.info("[RICH-CONTROL] config rich_text_control_sidebar=%s", rich_sidebar_enabled)
+    if rich_sidebar_enabled:
         try:
-            from plugin.chatbot.rich_text_control import RichTextChatWidget, RichTextControlListener
+            from plugin.chatbot.rich_text_control import RichTextChatWidget, RichTextControlListener, log_rich_control_context
 
             def on_rich_control_ready(rich_control):
                 log.info("[RICH-CONTROL] on_rich_control_ready control=%s", bool(rich_control))
@@ -289,15 +291,28 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
                     log.debug("on_rich_control_ready sync bounds: %s", e)
                 if hasattr(self, "send_listener") and self.send_listener:
                     self.send_listener.set_rich_text_widget(widget)
+                hide_plain_ok = True
+                hide_response = False
+                hide_label = False
                 try:
                     from plugin.chatbot.dialogs import set_control_visible
 
                     if controls.get("response"):
                         set_control_visible(controls["response"], False)
+                        hide_response = True
                     if controls.get("response_label"):
                         set_control_visible(controls["response_label"], False)
-                except Exception:
-                    log.debug("Failed to hide plain response controls for RichTextControl")
+                        hide_label = True
+                except Exception as e:
+                    hide_plain_ok = False
+                    log.warning("[RICH-CONTROL] phase=hide_plain ok=0 error=%s", e)
+                log_rich_control_context(
+                    self.ctx,
+                    "hide_plain",
+                    ok=int(hide_plain_ok),
+                    response=int(hide_response),
+                    response_label=int(hide_label),
+                )
                 try:
                     nonlocal web_checked, model, active_greeting
                     self._render_session_history(self.session, controls["response"], model, active_greeting)
@@ -323,5 +338,9 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
             self._rich_control_listener = rich_control_listener
             root_window.addWindowListener(rich_control_listener)
             log.info("[RICH-CONTROL] RichTextControlListener attached to root_window")
+            log_rich_control_context(self.ctx, "listener_attached", peer=int(bool(rich_control_listener._root_peer())))
+            # GNOME sidebar deck: peer is often ready here but windowShown never fires — init
+            # must not wait on the listener alone (KDE usually gets windowShown instead).
+            rich_control_listener.try_eager_init()
         except Exception as e:
             log.error("RichTextControl sidebar initialization failed: %s", e)

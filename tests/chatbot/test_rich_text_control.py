@@ -386,3 +386,80 @@ class TestRichTextChatWidget:
             widget.render_session_history(session, greeting="Hello")
         mock_clear.assert_called_once()
         mock_batch.assert_called_once_with([("user", "hi")])
+
+
+class TestLogRichControlContext:
+    def setup_method(self):
+        import plugin.chatbot.rich_text_control as rtc
+
+        rtc._ENV_SNAPSHOT_LOGGED = False
+
+    def test_includes_phase_and_env_snapshot_once(self):
+        import plugin.chatbot.rich_text_control as rtc
+
+        with patch.dict("os.environ", {"XDG_SESSION_DESKTOP": "gnome"}, clear=False), \
+             patch.object(rtc.log, "info") as mock_info:
+            rtc.log_rich_control_context(MagicMock(), "window_shown", peer=0)
+            rtc.log_rich_control_context(MagicMock(), "eager_init", peer=1)
+        assert mock_info.call_count == 2
+        first = mock_info.call_args_list[0][0][0]
+        second = mock_info.call_args_list[1][0][0]
+        assert "phase=window_shown" in first
+        assert "peer=0" in first
+        assert "xdg_session_desktop=gnome" in first
+        assert "env=" in first
+        assert "xdg_session_desktop=gnome" not in second
+
+
+class TestRichControlListenerInit:
+    def setup_method(self):
+        import plugin.chatbot.rich_text_control as rtc
+
+        rtc._CONTROL_INIT_STARTED.clear()
+        rtc._ENV_SNAPSHOT_LOGGED = True
+
+    def test_window_shown_no_peer_does_not_init(self):
+        from plugin.chatbot.rich_text_control import RichTextControlListener
+
+        root = MagicMock()
+        root.getPeer.return_value = None
+        listener = RichTextControlListener(MagicMock(), root, MagicMock(), MagicMock())
+        with patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post, \
+             patch.object(listener, "_begin_deferred_init") as mock_begin:
+            listener.on_window_shown(MagicMock())
+        mock_post.assert_not_called()
+        mock_begin.assert_not_called()
+
+    def test_window_shown_with_peer_begins_init(self):
+        from plugin.chatbot.rich_text_control import RichTextControlListener
+
+        root = MagicMock()
+        root.getPeer.return_value = MagicMock()
+        listener = RichTextControlListener(MagicMock(), root, MagicMock(), MagicMock())
+        with patch.object(listener, "_begin_deferred_init") as mock_begin:
+            listener.on_window_shown(MagicMock())
+        mock_begin.assert_called_once()
+
+    def test_duplicate_init_started_skips_window_shown(self):
+        import plugin.chatbot.rich_text_control as rtc
+        from plugin.chatbot.rich_text_control import RichTextControlListener
+
+        root = MagicMock()
+        root.getPeer.return_value = MagicMock()
+        rtc._CONTROL_INIT_STARTED.add(id(root))
+        listener = RichTextControlListener(MagicMock(), root, MagicMock(), MagicMock())
+        with patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post, \
+             patch.object(rtc.log, "warning") as mock_warn:
+            listener.on_window_shown(MagicMock())
+        mock_post.assert_not_called()
+        mock_warn.assert_called_once()
+
+    def test_eager_init_with_peer_begins_deferred_init(self):
+        from plugin.chatbot.rich_text_control import RichTextControlListener
+
+        root = MagicMock()
+        root.getPeer.return_value = MagicMock()
+        listener = RichTextControlListener(MagicMock(), root, MagicMock(), MagicMock())
+        with patch.object(listener, "_begin_deferred_init") as mock_begin:
+            listener.try_eager_init()
+        mock_begin.assert_called_once()

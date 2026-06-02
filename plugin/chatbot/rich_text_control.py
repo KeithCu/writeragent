@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any, cast
 
 from plugin.chatbot.listeners import BaseWindowListener
@@ -35,6 +36,7 @@ from plugin.framework.uno_context import focus_preserved, process_events_to_idle
 log = logging.getLogger(__name__)
 
 _CONTROL_INIT_STARTED: set[int] = set()
+_ENV_SNAPSHOT_LOGGED = False
 RICH_CONTROL_NAME = "response_rich"
 # Dialog units (AppFont) — inset RichTextControl inside the response placeholder so glyphs are not clipped.
 RICH_CONTROL_EDGE_INSET = 8
@@ -45,6 +47,33 @@ _RICH_KEY_END = 769
 _RICH_KEY_PAGE_DOWN = 771
 # Invisible tail insert triggers EditEngine viewport follow (gotoEnd alone does not after bulk copy).
 _NUDGE_SCROLL_SENTINEL = "\u200b"
+
+
+def log_rich_control_context(ctx, phase: str, **extra) -> None:
+    """Structured INFO log for RichTextControl lifecycle (includes one-time DE/env snapshot)."""
+    global _ENV_SNAPSHOT_LOGGED
+    parts = [f"[RICH-CONTROL] phase={phase}"]
+    for key, value in extra.items():
+        parts.append(f"{key}={value}")
+    if not _ENV_SNAPSHOT_LOGGED:
+        _ENV_SNAPSHOT_LOGGED = True
+        env_bits: list[str] = []
+        for env_key in ("XDG_SESSION_DESKTOP", "XDG_CURRENT_DESKTOP", "WAYLAND_DISPLAY", "DISPLAY", "DESKTOP_SESSION"):
+            env_val = os.environ.get(env_key)
+            if env_val:
+                env_bits.append(f"{env_key.lower()}={env_val}")
+        try:
+            from plugin.framework.uno_context import get_toolkit
+
+            toolkit = get_toolkit(ctx)
+            if toolkit is not None and hasattr(toolkit, "getWorkArea"):
+                work_area = toolkit.getWorkArea()
+                env_bits.append("work_area=%sx%s" % (int(work_area.Width), int(work_area.Height)))
+        except Exception as e:
+            log.debug("log_rich_control_context work_area: %s", e)
+        if env_bits:
+            parts.append("env=" + " ".join(env_bits))
+    log.info(" ".join(parts))
 
 
 class RichTextChatWidget:
@@ -460,7 +489,11 @@ def _try_dialog_embedded_rich_control(root_window, placeholder_ctrl):
 
 
 class RichTextControlListener(BaseWindowListener):
-    """Creates a form TextField with RichText=true over the chat response placeholder."""
+    """Creates a form TextField with RichText=true over the chat response placeholder.
+
+    Init is triggered two ways: ``try_eager_init()`` right after wiring (required on GNOME),
+    and ``on_window_shown`` when the sidebar deck fires ``windowShown`` (typical on KDE).
+    """
 
     def __init__(self, ctx, root_window, placeholder_ctrl, on_ready_callback):
         self.ctx = ctx
@@ -473,23 +506,65 @@ class RichTextControlListener(BaseWindowListener):
         self._syncing_bounds = False
 
     def disposing(self, Source):
+        log_rich_control_context(self.ctx, "disposing", initialized=self.initialized, had_control=bool(self.rich_control))
         self._disposed = True
         self.rich_control = None
 
-    def on_window_shown(self, rEvent):
+    def try_eager_init(self) -> None:
+        """Create the RichText control as soon as the panel root window has a VCL peer.
+
+        Historically init ran only from ``on_window_shown``. On GNOME (GTK/Wayland sidebar
+        deck), ``ContainerWindowProvider`` often never delivers ``windowShown`` for our panel
+        even though ``getPeer()`` is already valid when wiring finishes — so the plain
+        ``response`` field stayed visible with no error. KDE usually fires ``windowShown``,
+        so the listener alone was enough there. Wiring calls this immediately after
+        ``addWindowListener`` so both desktops share the same path when the peer exists.
+        """
         if self._disposed or self.initialized:
+            log_rich_control_context(
+                self.ctx,
+                "eager_init",
+                skipped=1,
+                reason="disposed" if self._disposed else "initialized",
+            )
+            return
+        peer = self._root_peer()
+        log_rich_control_context(self.ctx, "eager_init", peer=int(bool(peer)))
+        if peer:
+            self._begin_deferred_init()
+
+    def on_window_shown(self, rEvent):
+        """Fallback init when the sidebar deck fires ``windowShown``.
+
+        KDE commonly reaches init here; GNOME often does not emit this event for the chat
+        panel (see ``try_eager_init``). Harmless when eager init already ran — guarded by
+        ``initialized`` / ``_CONTROL_INIT_STARTED``.
+        """
+        if self._disposed:
+            log_rich_control_context(self.ctx, "window_shown", skipped=1, reason="disposed")
+            return
+        if self.initialized:
+            log_rich_control_context(self.ctx, "window_shown", skipped=1, reason="initialized")
             return
         parent_id = id(self.root_window)
         if parent_id in _CONTROL_INIT_STARTED:
+            log.warning(
+                "[RICH-CONTROL] phase=window_shown duplicate parent_id=%s init_started=1",
+                parent_id,
+            )
             return
-        peer = self.root_window.getPeer()
+        peer = self._root_peer()
+        log_rich_control_context(
+            self.ctx,
+            "window_shown",
+            peer=int(bool(peer)),
+            initialized=int(self.initialized),
+            init_started=int(parent_id in _CONTROL_INIT_STARTED),
+        )
         if not peer:
+            log.warning("[RICH-CONTROL] phase=window_shown peer=0 (eager_init should have run at wiring time)")
             return
-        self.initialized = True
-        _CONTROL_INIT_STARTED.add(parent_id)
-        from plugin.framework.queue_executor import post_to_main_thread
-
-        post_to_main_thread(self._deferred_init)
+        self._begin_deferred_init()
 
     def on_window_resized(self, rEvent):
         """Keep the rich control over the response placeholder; do not scroll or focus here.
@@ -507,12 +582,36 @@ class RichTextControlListener(BaseWindowListener):
         finally:
             self._syncing_bounds = False
 
+    def _root_peer(self):
+        if self.root_window is None or not hasattr(self.root_window, "getPeer"):
+            return None
+        try:
+            return self.root_window.getPeer()
+        except Exception as e:
+            log.debug("RichTextControlListener._root_peer failed: %s", e)
+            return None
+
+    def _begin_deferred_init(self) -> None:
+        if self._disposed or self.initialized:
+            return
+        parent_id = id(self.root_window)
+        if parent_id in _CONTROL_INIT_STARTED:
+            log.warning("[RICH-CONTROL] phase=begin_init duplicate parent_id=%s", parent_id)
+            return
+        self.initialized = True
+        _CONTROL_INIT_STARTED.add(parent_id)
+        log_rich_control_context(self.ctx, "deferred_init", action="begin")
+        from plugin.framework.queue_executor import post_to_main_thread
+
+        post_to_main_thread(self._deferred_init)
+
     def _deferred_init(self):
         if self._disposed:
             return
         try:
             control = create_sidebar_rich_text_control(self.ctx, self.root_window, self.placeholder_ctrl)
             if not control:
+                log_rich_control_context(self.ctx, "deferred_init", result="control_fail")
                 log.error("RichTextControlListener: failed to create sidebar RichText control")
                 try:
                     from plugin.chatbot.dialogs import set_control_text
@@ -527,8 +626,22 @@ class RichTextControlListener(BaseWindowListener):
                 return
             self.rich_control = control
             sync_rich_control_bounds(control, self.root_window, self.placeholder_ctrl)
+            visible = control.isVisible() if hasattr(control, "isVisible") else "?"
+            try:
+                pos = control.getPosSize()
+                bounds = "%sx%s@%s,%s" % (int(pos.Width), int(pos.Height), int(pos.X), int(pos.Y))
+            except Exception:
+                bounds = "?"
+            log_rich_control_context(
+                self.ctx,
+                "deferred_init",
+                result="control_ok",
+                visible=visible,
+                bounds=bounds,
+            )
             self.on_ready_callback(control)
         except Exception:
+            log_rich_control_context(self.ctx, "deferred_init", result="exception")
             log.exception("RichTextControlListener deferred init failed")
 
 

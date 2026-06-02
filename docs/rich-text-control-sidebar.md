@@ -257,6 +257,27 @@ After bulk copy or history reload, `gotoEnd` alone does not move the RichTextCon
 
 ---
 
+## Troubleshooting
+
+### Plain multiline `response` field still visible (RichTextControl never took over)
+
+When init succeeds, wiring hides the plain `response` / `response_label` controls and shows the programmatic `response_rich` RichTextControl. If you still see the plain multiline field, init never reached `on_rich_control_ready`.
+
+Check `writeragent_debug.log` (same directory as `writeragent.json`) for `[RICH-CONTROL]` lines:
+
+| Log pattern | Meaning |
+|-------------|---------|
+| `config rich_text_control_sidebar=false` | Setting off — plain sidebar is expected (restart LO after toggling). |
+| `RichTextControlListener attached` but no `on_rich_control_ready` | Init stalled before control creation. |
+| `phase=eager_init peer=0` | Root window had no VCL peer at wiring time — init cannot run yet. |
+| `phase=eager_init peer=1` then `deferred_init result=control_ok` | Normal GNOME path: init at wiring time (sidebar deck often never fires `windowShown`). |
+| `phase=window_shown peer=1` | KDE-style fallback: init from `windowShown` when eager init did not run. |
+| `_append_response plain fallback while rich_text_control_sidebar enabled` | Messages go to plain field because `rich_text_widget` was never wired. |
+
+Set `log_level` to **DEBUG** in Settings (or `writeragent.json`) if you need peer-creation attempt detail beyond the INFO lifecycle lines.
+
+---
+
 ## Remaining backlog
 
 ### Current state
