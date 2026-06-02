@@ -276,6 +276,29 @@ Check `writeragent_debug.log` (same directory as `writeragent.json`) for `[RICH-
 
 Set `log_level` to **DEBUG** in Settings (or `writeragent.json`) if you need peer-creation attempt detail beyond the INFO lifecycle lines.
 
+### Formatted insert used a fallback path (diagnostics)
+
+When HTML is pasted into the RichTextControl, the preferred path is **direct copy** from a hidden Writer doc (`_copy_formatted_from_hidden_doc_to_control`). If that fails, the code falls back to **transferable insert** and then **SystemClipboard + synthetic Ctrl+V**.
+
+Search `writeragent_debug.log` for **INFO** lines (default `log_level` is DEBUG, so INFO is always written):
+
+| Log pattern | Meaning |
+|-------------|---------|
+| `_copy_formatted_from_hidden_doc_to_control: ok` | Direct copy succeeded (no fallback). |
+| `failed reason=model_no_createTextCursor` | Sidebar control model cannot create a text cursor. |
+| `failed reason=no_content_inserted` | Hidden doc had no insertable portions (empty import or enumeration produced nothing). |
+| `failed reason=exception` | Direct copy raised (stack trace in same window). |
+| `append_rich_text_via_clipboard: falling back to transferable insert direct_copy_reason=…` | Per-message formatted insert is using transferable/clipboard fallback. |
+| `insert_transferable_into_rich_control: insertTransferable paths exhausted (…)` | Lists which `insertTransferable` attempts failed before trying clipboard. |
+| `ok via SystemClipboard+Ctrl+V source=…` | Clipboard + Ctrl+V fallback succeeded (`source` is e.g. `append_rich_text:assistant` or `history_batch`). |
+| `all rich insert paths failed … attempts=…` | Every sidebar insert path failed (includes `direct_copy_reason` upstream). |
+
+**Reporter workflow:** reproduce the issue, then grep:
+
+`grep -E 'direct_copy_reason|falling back to transferable|insertTransferable paths exhausted|SystemClipboard|_copy_formatted' writeragent_debug.log`
+
+If logs show only `via=direct_copy` / `_copy_formatted… ok` during the leak, the sidebar paste pipeline is unlikely to be the cause — check `enable_agent_log` for `apply_document_content` tool calls.
+
 ---
 
 ## Remaining backlog

@@ -7,6 +7,7 @@
 # (at your option) any later version.
 """Unit tests for plugin.chatbot.rich_text_paste."""
 
+import logging
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
@@ -16,6 +17,7 @@ setup_uno_mocks()
 
 from plugin.chatbot.rich_text_control import HISTORY_RENDER_BATCH_CHARS
 from plugin.chatbot.rich_text_paste import (
+    _copy_formatted_from_hidden_doc_to_control,
     _list_prefix_for_paragraph,
     _resolve_portion_char_color,
     append_rich_messages_via_clipboard,
@@ -109,7 +111,7 @@ class TestAppendRichTextViaClipboard:
         with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc) as mock_create, \
              patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat") as mock_cfg, \
              patch("plugin.chatbot.rich_text_paste.append_rich_text") as mock_append, \
-             patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=True) as mock_copy:
+             patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=(True, None)) as mock_copy:
             append_rich_text_via_clipboard(ctx, control, "<p>Hi</p>", role="assistant", style_window=style_window)
 
         mock_create.assert_called_once_with(ctx)
@@ -128,7 +130,7 @@ class TestAppendRichTextViaClipboard:
         with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc), \
              patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
              patch("plugin.chatbot.rich_text_paste.append_rich_text"), \
-             patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=True), \
+             patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=(True, None)), \
              patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=42), \
              patch("plugin.chatbot.rich_text_paste._ensure_trailing_line_break"):
             append_rich_text_via_clipboard(
@@ -150,7 +152,7 @@ class TestAppendRichTextViaClipboard:
         with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc), \
              patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
              patch("plugin.chatbot.rich_text_paste.append_rich_text"), \
-             patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=False), \
+             patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=(False, "no_content_inserted")), \
              patch("plugin.chatbot.rich_text_paste._transferable_from_hidden_doc", return_value=None), \
              patch("plugin.chatbot.rich_text_paste.insert_transferable_into_rich_control") as mock_insert_tf:
             append_rich_text_via_clipboard(MagicMock(), control, "hi", role="user")
@@ -286,7 +288,7 @@ class TestInsertTransferableIntoRichControl:
         control.getModel.return_value = model
         ctx = MagicMock()
 
-        with patch("plugin.chatbot.rich_text_paste._try_insert_transferable_on_target", return_value=False), \
+        with patch("plugin.chatbot.rich_text_paste._try_insert_transferable_on_target", return_value=(False, "control_no_insertTransferable")), \
              patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=6), \
              patch("plugin.chatbot.rich_text_paste._set_system_clipboard", return_value=False), \
              patch("plugin.chatbot.rich_text_paste.focus_preserved", _immediate_focus):
@@ -302,8 +304,8 @@ class TestInsertTransferableIntoRichControl:
         ctx = MagicMock()
         transferable = MagicMock()
 
-        with patch("plugin.chatbot.rich_text_paste._try_insert_transferable_on_target", return_value=False), \
-             patch("plugin.chatbot.rich_text_paste.get_control_text_length", side_effect=[0, 12]), \
+        with patch("plugin.chatbot.rich_text_paste._try_insert_transferable_on_target", return_value=(False, "control_no_insertTransferable")), \
+             patch("plugin.chatbot.rich_text_paste.get_control_text_length", side_effect=[0, 12, 12]), \
              patch("plugin.chatbot.rich_text_paste._set_system_clipboard", return_value=True) as mock_clip, \
              patch("plugin.chatbot.rich_text_paste._try_paste_via_key_event", return_value=True) as mock_key, \
              patch("plugin.chatbot.rich_text_paste.focus_preserved", _immediate_focus):
@@ -313,3 +315,54 @@ class TestInsertTransferableIntoRichControl:
         mock_clip.assert_called_once_with(ctx, transferable)
         mock_key.assert_called_once()
         control.setFocus.assert_not_called()
+
+
+class TestRichInsertFallbackLogging:
+    def test_append_logs_direct_copy_reason_before_transferable(self, caplog):
+        control = MagicMock()
+        control.getModel.return_value = MagicMock(Text="")
+        ctx = MagicMock()
+        doc = MagicMock()
+        transferable = MagicMock()
+
+        with caplog.at_level(logging.INFO, logger="plugin.chatbot.rich_text_paste"), \
+             patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc), \
+             patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
+             patch("plugin.chatbot.rich_text_paste.append_rich_text"), \
+             patch(
+                 "plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control",
+                 return_value=(False, "no_content_inserted"),
+             ), \
+             patch("plugin.chatbot.rich_text_paste._transferable_from_hidden_doc", return_value=transferable), \
+             patch("plugin.chatbot.rich_text_paste.insert_transferable_into_rich_control", return_value=True) as mock_tf, \
+             patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=10):
+            append_rich_text_via_clipboard(ctx, control, "<p>x</p>", role="assistant")
+
+        mock_tf.assert_called_once()
+        assert mock_tf.call_args.kwargs.get("source") == "append_rich_text:assistant"
+        joined = " ".join(r.message for r in caplog.records)
+        assert "direct_copy_reason=no_content_inserted" in joined
+        assert "falling back to transferable insert" in joined
+
+    def test_copy_logs_no_content_inserted_when_nothing_written(self, caplog):
+        control = MagicMock()
+        model = MagicMock()
+        model.createTextCursor.return_value = MagicMock()
+        control.getModel.return_value = model
+        src_doc = MagicMock()
+        para_enum = MagicMock()
+        para_enum.hasMoreElements.return_value = False
+        src_text = MagicMock()
+        src_text.createEnumeration.return_value = para_enum
+        src_doc.getText.return_value = src_text
+
+        with caplog.at_level(logging.INFO, logger="plugin.chatbot.rich_text_paste"), \
+             patch("plugin.chatbot.rich_text_paste.focus_preserved", _immediate_focus), \
+             patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve"), \
+             patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
+             patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=0):
+            ok, reason = _copy_formatted_from_hidden_doc_to_control(src_doc, control, MagicMock(), role="user")
+
+        assert ok is False
+        assert reason == "no_content_inserted"
+        assert any("reason=no_content_inserted" in r.message for r in caplog.records)
