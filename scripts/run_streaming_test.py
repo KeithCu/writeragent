@@ -29,25 +29,6 @@ try:
 except Exception:
     WRITER_TOOLS = []
 
-def _extract_thinking(delta):
-    # Check common reasoning keys
-    reasoning = delta.get("reasoning_content") or delta.get("thought") or delta.get("thinking") or ""
-    if isinstance(reasoning, str) and reasoning:
-        return reasoning
-    details = delta.get("reasoning_details")
-    if not isinstance(details, list):
-        return ""
-    parts = []
-    for item in details:
-        if not isinstance(item, dict):
-            continue
-        if item.get("type") == "reasoning.text":
-            parts.append(item.get("text") or "")
-        elif item.get("type") == "reasoning.summary":
-            parts.append(item.get("summary") or "")
-    return "".join(parts) if parts else ""
-
-
 def _normalize_content(raw):
     if raw is None:
         return None

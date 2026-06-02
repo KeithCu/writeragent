@@ -1,4 +1,5 @@
 import dataclasses
+import json
 from enum import Enum, auto
 from typing import Any, Dict, List, Mapping, Optional, NamedTuple
 
@@ -15,6 +16,45 @@ DELEGATE_GATEWAY_TOOL_NAMES = frozenset(
     }
 )
 DELEGATE_TASK_CHAT_MAX = 120
+_EMPTY_MODEL_DEBUG_CONTENT_PREVIEW_MAX = 120
+
+
+def _describe_empty_response_content(content: Any) -> str:
+    if content is None:
+        return "None"
+    if content == "":
+        return "empty"
+    if not isinstance(content, str):
+        content = str(content)
+    if len(content) <= _EMPTY_MODEL_DEBUG_CONTENT_PREVIEW_MAX:
+        return f"{len(content)} chars: {content!r}"
+    preview = content[: _EMPTY_MODEL_DEBUG_CONTENT_PREVIEW_MAX - 3]
+    return f"{len(content)} chars: {preview!r}..."
+
+
+def _describe_empty_response_tool_calls(tool_calls: Any) -> str:
+    if tool_calls is None:
+        return "none"
+    if isinstance(tool_calls, list):
+        return str(len(tool_calls))
+    return "present"
+
+
+def format_empty_model_response_debug(round_num: int, response: Mapping[str, Any]) -> str:
+    """Compact API summary for sidebar when STREAM_DONE has no content and no tools."""
+    parts = [
+        f"round={round_num}",
+        f"finish_reason={response.get('finish_reason')!r}",
+        f"content={_describe_empty_response_content(response.get('content'))}",
+        f"tool_calls={_describe_empty_response_tool_calls(response.get('tool_calls'))}",
+    ]
+    usage = response.get("usage")
+    if isinstance(usage, dict) and usage:
+        parts.append(f"usage={json.dumps(usage, separators=(',', ':'))}")
+    images = response.get("images")
+    if isinstance(images, list) and images:
+        parts.append(f"images={len(images)}")
+    return ", ".join(parts)
 
 
 def is_delegate_gateway(func_name: str) -> bool:
@@ -221,6 +261,12 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
                     effects.append(ToolLoopUIEffect(kind="append", text="\n[Content filter: response was truncated.]\n"))
                 else:
                     effects.append(ToolLoopUIEffect(kind="append", text="\n[No text from model; any tool changes were still applied.]\n"))
+                    effects.append(
+                        ToolLoopUIEffect(
+                            kind="append",
+                            text=f"\n[Debug: {format_empty_model_response_debug(state.round_num, response)}]\n",
+                        )
+                    )
 
                 effects.append(ToolLoopUIEffect(kind="status", text="Ready"))
                 effects.append(ExitLoopEffect())

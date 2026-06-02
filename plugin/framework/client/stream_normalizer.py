@@ -3,6 +3,15 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import logging
+
+log = logging.getLogger(__name__)
+
+# OpenAI-compat stream: thinking lives on choices[0].delta (see docs/streaming-and-threading.md).
+_THINKING_STRING_FIELDS = ("reasoning_content", "reasoning", "thought", "thinking")
+_THINKING_HINT_KEYS = frozenset(_THINKING_STRING_FIELDS) | {"reasoning_details"}
+
+
 def iterate_sse(stream):
     """
     Iterate over SSE (Server-Sent Events) data payloads from a stream of lines (bytes).
@@ -23,17 +32,29 @@ def iterate_sse(stream):
             yield line_str.decode("utf-8").strip()
 
 
-def _extract_thinking_from_delta(chunk_delta):
-    """Extract reasoning/thinking text from a stream delta for display in UI."""
-    # Try direct fields first. Ollama /v1 often uses "reasoning", not "reasoning_content"
-    # (Qwen-Agent #789, ollama/ollama #12628); LM Studio and others use reasoning_content.
-    for field in ["reasoning_content", "reasoning", "thought", "thinking"]:
-        thinking = chunk_delta.get(field)
+def _normalize_stream_delta(chunk_or_delta):
+    """Return choices[0].delta for a chat completion chunk, else the dict as-is (bare delta)."""
+    if not isinstance(chunk_or_delta, dict):
+        return {}
+    choices = chunk_or_delta.get("choices")
+    if isinstance(choices, list) and choices:
+        first = choices[0]
+        if isinstance(first, dict):
+            delta = first.get("delta")
+            if isinstance(delta, dict):
+                return delta
+    return chunk_or_delta
+
+
+def _thinking_text_from_delta(delta):
+    """Extract thinking from a normalized delta (no choices wrapper)."""
+    # Ollama /v1 often uses "reasoning", not "reasoning_content" (Qwen-Agent #789, ollama#12628).
+    for field in _THINKING_STRING_FIELDS:
+        thinking = delta.get(field)
         if isinstance(thinking, str) and thinking:
             return thinking
 
-    # Try reasoning_details array
-    details = chunk_delta.get("reasoning_details")
+    details = delta.get("reasoning_details")
     if isinstance(details, list):
         parts = []
         for item in details:
@@ -45,15 +66,20 @@ def _extract_thinking_from_delta(chunk_delta):
                     parts.append(item.get("summary") or "")
         if parts:
             return "".join(parts)
-
-    # Try choices[0].delta if not found at top level
-    choices = chunk_delta.get("choices")
-    if choices and isinstance(choices, list) and len(choices) > 0:
-        delta = choices[0].get("delta", {})
-        if delta:
-            return _extract_thinking_from_delta(delta)
-
     return ""
+
+
+def _extract_thinking_from_delta(chunk_or_delta):
+    """Extract reasoning/thinking text from a stream chunk or bare delta for display in UI."""
+    delta = _normalize_stream_delta(chunk_or_delta)
+    result = _thinking_text_from_delta(delta)
+    if not result and isinstance(delta, dict):
+        hints = {k: delta.get(k) for k in _THINKING_HINT_KEYS if k in delta}
+        if hints:
+            # Enable debug logging (writeragent_debug.log) when a provider sends thinking-shaped
+            # fields we do not parse — e.g. metadata-only reasoning_details (OpenRouter first chunk).
+            log.debug("stream thinking: no extractable text; delta hints=%s", hints)
+    return result
 
 
 def _normalize_message_content(raw):

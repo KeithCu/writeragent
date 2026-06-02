@@ -570,6 +570,8 @@ class ToolCallingMixin:
         elif isinstance(effect, ToolLoopUIEffect):
             if effect.kind == "append":
                 self._append_response(effect.text)
+                if effect.text.startswith("\n[Debug: round="):
+                    log.warning("Tool loop: no assistant text from model: %s", effect.text.strip())
             elif effect.kind == "status":
                 self._set_status(effect.text)
                 if effect.text in ("Stopped", "Ready", "Error"):

@@ -434,7 +434,7 @@ Record: cells/sec host→child, cells/sec child→host, bytes on wire, and wheth
 | Host still slow after split_grid in LO profiles | Vendored msgpack/orjson (few MB OXT) |
 | Very large ranges / stdin size limits | **Temp file + mmap** + optional **payload cache** |
 | **Next optimizations** | See [Future work — serialization performance](#future-work--serialization-performance) (profile in LO first, then summaries → host paths → defer vendored/mmap) |
-| **Host flatten loop (stdlib)** | [Host pack hot path — proposed pure-Python optimizations](#host-pack-hot-path--proposed-pure-python-optimizations-deferred) — try/except numeric fast path, inline loops; bench before Cython |
+| **Host flatten loop (stdlib)** | [Host pack hot path — pure-Python optimizations](#host-pack-hot-path--pure-python-optimizations) — identity checks, bound-method capture, rectangular validation, unified 1D/2D cell loop |
 
 **Vendoring policy:** avoid NumPy/pandas in the OXT; **do** consider a few MB of focused binaries only if Tier 2 stdlib is insufficient after measurement. Keep pack/unpack logic in **`plugin/scripting/`** (host + [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py)).
 
@@ -495,15 +495,18 @@ See [core two-phase workflow](enabling_numpy_in_libreoffice.md#two-phase-llm-wor
 
 **Idea:** one pass **UNO → row-major bytes** during range read, or a **Cython pack** over a buffer after the Python UNO read — see [Building host native extensions (Cython)](#building-host-native-extensions-cython). Avoids a million heap floats before base64. Child path unchanged (`frombuffer`).
 
-See [Host pack hot path — proposed pure-Python optimizations](#host-pack-hot-path--proposed-pure-python-optimizations-deferred) for stdlib-only experiments on [`_flatten_grid_to_components`](../plugin/scripting/payload_codec.py) before Cython.
+See [Host pack hot path — pure-Python optimizations](#host-pack-hot-path--pure-python-optimizations) for stdlib flatten details in [`_flatten_grid_to_components`](../plugin/scripting/payload_codec.py) before Cython.
 
 #### Host pack hot path — pure-Python optimizations
 
-**Status: implemented (May 2026)**:
+**Status: implemented (May 2026, unified loop May 2026)**:
 - **Single-Pass Flattening**: Combined shape calculation, row-length validation, and flattening into one loop.
 - **Fast-Path `None` Handling**: Empty cells (`None`) are now handled directly in the fast path using `buf_append(nan)`. They no longer drop the loop into the slow-path helper, keeping sparse numeric grids fast.
 - **Lazy Column States**: Skips expensive state update calls once a column is already promoted to `float`.
 - **Bound Method Capture**: Pre-captured `buf_append = buf.append` to avoid attribute lookups in tight loops.
+- **Identity Type Checks**: Fast path uses `type(val) is float/int/str` and `val is None` / `val is True or val is False` — not `isinstance()` per cell.
+- **Regular Grid Validation**: `_validate_rectangular_grid` runs once before the 2D stdlib loop; the cell loop has no per-row length branch.
+- **Unified Stdlib Cell Loop**: `_iter_split_grid_cells` yields `(col_idx, flat_idx, val)` row-major for 1D and 2D; a single inlined `_stdlib_flatten_pass` block handles both shapes. Slow tail still delegates to `_flatten_append_cell_slow` (strings, NumPy scalars, post-string cells).
 - **Integer Keys**: Sparse `strings` dictionary uses integer keys, bypassing $O(\text{cells})$ string allocations.
 
 #### Priority 4 — Host: opaque `split_grid` pass-through (if egress/unpack hot)
@@ -594,28 +597,30 @@ A secondary series of high-impact, zero-dependency stdlib and NumPy micro-optimi
 
 ---
 
-###### 3. Rectangular/Regular Grid Fast-Path
+###### 3. Rectangular/Regular Grid Validation
 
 * **The Bottleneck**:
-  Typical Calc ranges are rectangular (non-jagged, where all rows have exactly the same length `ncols`). Previously, the packer queried `val = row[c] if c < row_len else None` on every single cell. This introduced redundant bounds checks, list index lookups, and conditional branch executions per cell.
+  Typical Calc ranges are rectangular (non-jagged, where all rows have exactly the same length `ncols`). Checking row length inside the flatten loop added a branch on every row for large grids.
 * **The Solution**:
-  Pre-detect regular/rectangular 2D grids once on the host. If uniform, enter a high-speed, direct `enumerate(row)` loop to completely bypass coordinate boundary check math.
-  
+  Validate once via `_validate_rectangular_grid` before the stdlib cell loop. The hot loop uses `_iter_split_grid_cells` with direct `enumerate(row)` — no per-row length checks during flattening.
+
   ```python
-  # Detect regularity once on the host
-  is_regular = True
-  if is_2d:
-      is_regular = all(len(row) == ncols for row in grid)
-  
-  if is_regular:
-      for row in rows:
-          for c, val in enumerate(row):
-              # High-speed direct cell processing without coordinate bounds checking
+  _validate_rectangular_grid(grid_2d, ncols)
+  _stdlib_flatten_pass(_iter_split_grid_cells(grid_2d, is_2d=True))
   ```
 
 ---
 
-###### 4. Eliminating NumPy Mixed-Type Casting Redundancy
+###### 4. Unified 1D/2D Stdlib Cell Loop
+
+* **The Bottleneck**:
+  The 1D and 2D stdlib flatten paths duplicated the same ~30-line inlined cell block (fast path + slow tail), risking drift when semantics changed.
+* **The Solution**:
+  One row-major iterator and one `_stdlib_flatten_pass` with inlined fast path (no per-cell function call). Cython `fast_flatten_grid_2d` / `fast_flatten_grid_1d` branches are unchanged.
+
+---
+
+###### 5. Eliminating NumPy Mixed-Type Casting Redundancy
 
 * **The Bottleneck**:
   In `_apply_column_kinds_to_ndarray`, if the deserialized array contained mixed column types, the code used to clone the entire array (`out = arr.copy()`) and cast columns one-by-one (`out[:, c] = out[:, c].astype(np.int64)`). Because the overall `dtype` of the multi-column array is a homogeneous `float64`, assigning integer views back to it silently coerces them **back to float64** on assignment! This heavy copy and loop was a complete no-op that yielded no final array change while wasting CPU cycles and allocating duplicate memory blocks.
@@ -631,7 +636,7 @@ A secondary series of high-impact, zero-dependency stdlib and NumPy micro-optimi
 
 ---
 
-###### 5. Vectorized NumPy Object-Masking Strategy (Upgraded May 2026)
+###### 6. Vectorized NumPy Object-Masking Strategy (Upgraded May 2026)
 
 * **The Bottleneck**:
   During mixed-type child unpacking, the loop evaluated `col = 0 if is_1d else i % ncols` and verified `column_kinds[col] == "int"` for **every single cell**. String comparisons in loops (`== "int"`) are slow, and executing index modulo math, cell-by-cell checks, and individual `int()` conversions inside a pure-Python loop dominated the unpickling runtime.
@@ -677,7 +682,7 @@ A secondary series of high-impact, zero-dependency stdlib and NumPy micro-optimi
 |---|---|---|---|
 | **1. Integer Keys** | Allocations / `str()` conversion | **15% - 30%** on mixed-type unpickling | Decreases (cleaner / simpler) |
 | **2. Identity Checks & Capture** | Attribute resolution / type hierarchy traversal | **10% - 15%** on host flattening loop | Neutral |
-| **3. Regular Grid Loop** | Bounds checking / conditional branches | **10%** on host flattening loop | Neutral |
+| **3. Regular Grid Validation & Unified Loop** | Per-row length branches / duplicated 1D/2D cell blocks | **~10%** on host flattening loop (validation); maintainability win for dedup | Decreases |
 | **4. Mixed Redundancy Fix** | Redundant array copies & float/int assignments | **2x - 5x** on child mixed ndarray loading | Decreases (removes dead code) |
 | **5. Vectorized Masking Strategy** | Modulo arithmetic, cell-by-cell loops & type conversions | **1.5x - 3.5x** speedup (saves up to 70% runtime) | Decreases (cleaner / vectorized) |
 

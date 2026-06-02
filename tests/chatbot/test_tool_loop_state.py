@@ -13,6 +13,7 @@ from plugin.chatbot.tool_loop_state import (
     TriggerNextToolEffect,
     SpawnFinalStreamEffect,
     UpdateDocumentContextEffect,
+    format_empty_model_response_debug,
     next_state,
 )
 
@@ -82,6 +83,29 @@ def test_stream_done_finish_reasons():
     tr_filt = next_state(state, event_filt)
     new_state_filt, effects_filt = tr_filt.state, tr_filt.effects
     assert any(isinstance(e, ToolLoopUIEffect) and "Content filter" in e.text for e in effects_filt)
+
+def test_stream_done_no_text_includes_debug_sidebar():
+    state = create_base_state(round_num=2)
+    response = {"finish_reason": "stop", "content": None, "usage": {"completion_tokens": 0}}
+    event = create_event(EventKind.STREAM_DONE, response=response)
+    tr = next_state(state, event)
+    effects = tr.effects
+
+    append_texts = [e.text for e in effects if isinstance(e, ToolLoopUIEffect) and e.kind == "append"]
+    assert any("No text from model" in t for t in append_texts)
+    debug_line = next(t for t in append_texts if t.startswith("\n[Debug: round="))
+    assert "finish_reason='stop'" in debug_line
+    assert "round=2" in debug_line
+    assert "completion_tokens" in debug_line
+    assert format_empty_model_response_debug(2, response) in debug_line
+
+
+def test_format_empty_model_response_debug_content_empty_vs_none():
+    none_note = format_empty_model_response_debug(0, {"content": None})
+    assert "content=None" in none_note
+    empty_note = format_empty_model_response_debug(0, {"content": ""})
+    assert "content=empty" in empty_note
+
 
 def test_stream_done_empty_tool_calls():
     state = create_base_state()
