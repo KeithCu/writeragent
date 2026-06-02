@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Mapping, Optional, NamedTuple
 from plugin.framework.service import BaseState, FsmTransition
 from plugin.chatbot.state_machine import UIEffectKind
 from plugin.chatbot.memory import format_upsert_memory_chat_line
+from plugin.framework.client.stream_normalizer import reasoning_replay_from_assistant_response
 
 # Short sidebar chat labels for delegate_to_specialized_*_toolset gateway tools.
 DELEGATE_GATEWAY_TOOL_NAMES = frozenset(
@@ -190,6 +191,7 @@ class AddMessageEffect:
     content: Optional[str] = None
     tool_calls: Optional[List[Dict[str, Any]]] = None
     call_id: Optional[str] = None
+    reasoning_replay: Optional[Dict[str, Any]] = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -221,7 +223,7 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
         case EventKind.FINAL_DONE:
             content = event.data.get("content")
             if content:
-                effects.append(AddMessageEffect(role="assistant", content=content))
+                effects.append(AddMessageEffect(role="assistant", content=content, reasoning_replay=reasoning_replay_from_assistant_response(event.data)))
                 effects.append(ToolLoopUIEffect(kind="append", text="\n"))
             effects.append(ToolLoopUIEffect(kind="status", text="Ready"))
             effects.append(ExitLoopEffect())
@@ -253,7 +255,13 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
                 effects.append(LogAgentEffect(location="chat_panel.py:exit_no_tools", message="Exiting loop: no tool_calls", data={"round": state.round_num}, hypothesis_id="A"))
                 if content:
                     effects.append(ToolLoopUIEffect(kind="debug", text="Tool loop: Adding assistant message to session"))
-                    effects.append(AddMessageEffect(role="assistant", content=content))
+                    effects.append(
+                        AddMessageEffect(
+                            role="assistant",
+                            content=content,
+                            reasoning_replay=reasoning_replay_from_assistant_response(response),
+                        )
+                    )
                     effects.append(ToolLoopUIEffect(kind="append", text="\n"))
                 elif finish_reason == "length":
                     effects.append(ToolLoopUIEffect(kind="append", text="\n[Response truncated -- the model ran out of tokens...]\n"))
@@ -273,7 +281,14 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
                 return FsmTransition(dataclasses.replace(state, status="Ready"), effects)
 
             else:
-                effects.append(AddMessageEffect(role="assistant", content=content, tool_calls=tool_calls))
+                effects.append(
+                    AddMessageEffect(
+                        role="assistant",
+                        content=content,
+                        tool_calls=tool_calls,
+                        reasoning_replay=reasoning_replay_from_assistant_response(response),
+                    )
+                )
                 if content:
                     effects.append(ToolLoopUIEffect(kind="append", text="\n"))
 

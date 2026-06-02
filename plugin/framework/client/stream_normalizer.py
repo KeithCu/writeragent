@@ -3,13 +3,96 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import copy
 import logging
+from typing import Any, Mapping
 
 log = logging.getLogger(__name__)
+
+# Echo reasoning on assistant messages for multi-turn tool loops (session only, not SQLite).
+# Set PRESERVE_REASONING_IN_SESSION = False to restore legacy drop-on-round-2 behavior.
+PRESERVE_REASONING_IN_SESSION = True
+# Truncate string reasoning fields only; 0 = unlimited. Never truncates reasoning_details.
+PRESERVE_REASONING_MAX_CHARS = 32000
 
 # OpenAI-compat stream: thinking lives on choices[0].delta (see docs/streaming-and-threading.md).
 _THINKING_STRING_FIELDS = ("reasoning_content", "reasoning", "thought", "thinking")
 _THINKING_HINT_KEYS = frozenset(_THINKING_STRING_FIELDS) | {"reasoning_details"}
+_REASONING_REPLAY_STRING_KEYS = ("reasoning", "reasoning_content")
+_ASSISTANT_REASONING_REPLAY_KEYS = ("reasoning_details",) + _REASONING_REPLAY_STRING_KEYS
+
+
+def extend_reasoning_details_acc(acc: list[Any], delta: Mapping[str, Any]) -> None:
+    """Append reasoning_details delta entries in chunk order (OpenRouter encrypted blocks)."""
+    if not isinstance(delta, dict):
+        return
+    details = delta.get("reasoning_details")
+    if not isinstance(details, list):
+        return
+    for item in details:
+        if item is not None:
+            acc.append(item)
+
+
+def _truncate_reasoning_string(value: str) -> str:
+    max_len = PRESERVE_REASONING_MAX_CHARS
+    if max_len <= 0 or len(value) <= max_len:
+        return value
+    return value[:max_len]
+
+
+def extract_reasoning_replay_from_response(
+    message_snapshot: Mapping[str, Any] | None = None,
+    reasoning_details_acc: list[Any] | None = None,
+    sync_message: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build assistant-message reasoning fields to echo back on the next API request.
+
+    Stores only keys that were non-empty on this turn (echo-capture). See docs/streaming-and-threading.md §3.4.
+    """
+    if not PRESERVE_REASONING_IN_SESSION:
+        return {}
+
+    replay: dict[str, Any] = {}
+    details: list[Any] = []
+    if reasoning_details_acc:
+        details.extend(reasoning_details_acc)
+
+    for src in (sync_message, message_snapshot):
+        if not isinstance(src, dict):
+            continue
+        rd = src.get("reasoning_details")
+        if isinstance(rd, list):
+            details.extend(rd)
+
+    if details:
+        replay["reasoning_details"] = copy.deepcopy(details)
+
+    for key in _REASONING_REPLAY_STRING_KEYS:
+        for src in (sync_message, message_snapshot):
+            if not isinstance(src, dict):
+                continue
+            val = src.get(key)
+            if isinstance(val, str) and val:
+                replay[key] = _truncate_reasoning_string(val)
+                break
+
+    return replay
+
+
+def reasoning_replay_from_assistant_response(response: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Pick reasoning replay keys already merged onto an assistant API response dict."""
+    if not PRESERVE_REASONING_IN_SESSION or not response:
+        return {}
+    replay: dict[str, Any] = {}
+    for key in _ASSISTANT_REASONING_REPLAY_KEYS:
+        val = response.get(key)
+        if key == "reasoning_details":
+            if isinstance(val, list) and val:
+                replay[key] = copy.deepcopy(val)
+        elif isinstance(val, str) and val:
+            replay[key] = _truncate_reasoning_string(val)
+    return replay
 
 
 def iterate_sse(stream):

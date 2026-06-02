@@ -134,6 +134,21 @@ def test_stream_done_with_tool_calls():
     assert msg_eff.content == "Let me test."
     assert msg_eff.tool_calls == tool_calls
 
+
+def test_stream_done_with_tool_calls_preserves_reasoning_replay():
+    state = create_base_state()
+    tool_calls = [{"id": "1", "function": {"name": "apply_document_content"}}]
+    response = {
+        "tool_calls": tool_calls,
+        "content": "Updating doc.",
+        "reasoning": "I will replace the section.",
+    }
+    event = create_event(EventKind.STREAM_DONE, response=response)
+    tr = next_state(state, event)
+    msg_eff = next(e for e in tr.effects if isinstance(e, AddMessageEffect))
+    assert msg_eff.reasoning_replay == {"reasoning": "I will replace the section."}
+
+
 def test_next_tool_advances_round_and_handles_max_rounds():
     # Regular advance
     state = create_base_state(round_num=3, max_rounds=5)

@@ -586,7 +586,7 @@ class ToolCallingMixin:
 
         elif isinstance(effect, AddMessageEffect):
             if effect.role == "assistant":
-                self.session.add_assistant_message(content=effect.content, tool_calls=effect.tool_calls)
+                self.session.add_assistant_message(content=effect.content, tool_calls=effect.tool_calls, reasoning_replay=effect.reasoning_replay)
             elif effect.role == "tool":
                 self.session.add_tool_result(effect.call_id, effect.content)
 

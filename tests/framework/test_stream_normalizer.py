@@ -3,6 +3,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+from plugin.framework.client import stream_normalizer as sn
 from plugin.framework.client.stream_normalizer import _extract_thinking_from_delta
 
 
@@ -75,3 +76,39 @@ def test_extract_thinking_from_delta_nested_choices_one_level_only():
     """Pathological nested choices: one normalize step, no recursion hang."""
     chunk = {"choices": [{"delta": {"choices": [{"delta": {"reasoning": "deep"}}]}}]}
     assert _extract_thinking_from_delta(chunk) == ""
+
+
+def test_extract_reasoning_replay_reasoning_content_only():
+    replay = sn.extract_reasoning_replay_from_response(
+        message_snapshot={"reasoning_content": "trace-a"},
+    )
+    assert replay == {"reasoning_content": "trace-a"}
+
+
+def test_extract_reasoning_replay_reasoning_details_and_string():
+    acc = [{"type": "reasoning.text", "text": "step", "index": 0}]
+    replay = sn.extract_reasoning_replay_from_response(
+        message_snapshot={"reasoning": "also"},
+        reasoning_details_acc=acc,
+    )
+    assert replay["reasoning_details"] == acc
+    assert replay["reasoning"] == "also"
+
+
+def test_extract_reasoning_replay_disabled():
+    old = sn.PRESERVE_REASONING_IN_SESSION
+    try:
+        sn.PRESERVE_REASONING_IN_SESSION = False
+        assert sn.extract_reasoning_replay_from_response(message_snapshot={"reasoning": "x"}) == {}
+    finally:
+        sn.PRESERVE_REASONING_IN_SESSION = old
+
+
+def test_reasoning_replay_from_assistant_response():
+    response = {
+        "role": "assistant",
+        "content": "hi",
+        "reasoning": "think",
+        "tool_calls": [{"id": "1"}],
+    }
+    assert sn.reasoning_replay_from_assistant_response(response) == {"reasoning": "think"}

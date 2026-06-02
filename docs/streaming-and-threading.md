@@ -154,6 +154,38 @@ Reasoning chunks often **precede** content chunks; the model “thinks” then �
 
 Some APIs use a single string field in the delta, e.g. `delta.reasoning_content`. Same idea: if present, append it to the thinking buffer and show it in the UI.
 
+WriterAgent also reads `reasoning`, `thought`, `thinking`, and `reasoning_details` on the delta ([`stream_normalizer.py`](../plugin/framework/client/stream_normalizer.py)). Provider-specific quirks (Ollama vs LM Studio, `` tags in `content`) are documented in [llm-hacks.md](llm-hacks.md) §7—this section is about **reasoning + tools together**.
+
+### 3.3 WriterAgent: one stream, three channels
+
+Main-chat tool loops ([`tool_loop.py`](../plugin/chatbot/tool_loop.py) → [`LlmClient.request_with_tools`](../plugin/framework/client/llm_client.py) → [`run_stream_drain_loop`](../plugin/framework/async_stream.py)) treat each SSE chunk as up to three **independent** paths:
+
+| Delta field | During stream | After stream ends |
+|-------------|---------------|-------------------|
+| Reasoning / thinking (`reasoning_content`, `reasoning`, `reasoning_details`, …) | `StreamQueueKind.THINKING` → sidebar `[Thinking] …` / ` /thinking` | **Not** stored on the assistant message for the next API turn |
+| `content` | `StreamQueueKind.CHUNK` → normal reply text | `session.add_assistant_message(..., content=…)` |
+| `tool_calls` (fragments) | No live JSON in sidebar; `accumulate_delta` only | FSM runs tools from merged `tool_calls`; optional **content** parsers if native `tool_calls` missing ([`tool_call_parsers`](../plugin/contrib/tool_call_parsers/)) |
+
+**Execution rule:** Tools run from accumulated `delta.tool_calls` or parsed **content**, never from reasoning text. That matches OpenAI-compat stacks (e.g. vLLM documents that `reasoning_content` is not fed to the tool-calling parser). If a model puts invocations only in reasoning deltas, the sidebar may show them under `[Thinking]` but they will **not** execute.
+
+**UI ordering:** When thinking and content alternate, the drain loop flushes the other buffer first so display order matches chunk order.
+
+### 3.4 Future considerations (notes)
+
+Items below are **not bugs** in the current split; they are design tradeoffs to revisit if reasoning+tool models become a primary path.
+
+1. **Reasoning round-trip on multi-turn tool loops** — **implemented (session only).**  
+   [`stream_normalizer.py`](../plugin/framework/client/stream_normalizer.py) globals `PRESERVE_REASONING_IN_SESSION` (default true) and `PRESERVE_REASONING_MAX_CHARS` echo non-empty `reasoning_details` / `reasoning` / `reasoning_content` from each assistant turn onto `session.messages` (echo-capture: same keys the wire used). SQLite history remains text-only. Toggle or cap via those module globals (not Settings yet).
+
+2. **Think tags inside `content`**  
+   Some local providers stream `` only in `delta.content`, not in `reasoning_*`. Those tokens appear as normal reply text, not `[Thinking]`. A stateful splitter in `stream_normalizer` is listed as an optional follow-up in [llm-hacks.md](llm-hacks.md) §7.
+
+3. **Interleaved thinking between tool calls**  
+   Newer APIs describe “think → tool → think → tool” inside one assistant turn. Our FSM already supports multiple tool rounds; gap (1) matters if the model expects prior reasoning blocks when continuing after `tool` results.
+
+4. **Tests**  
+   [`test_client_llm.py`](../tests/framework/test_client_llm.py) covers streaming `tool_calls` and content fallback parsers; there is no combined fixture yet for `reasoning_details` + `tool_calls` in one stream.
+
 ---
 
 ## 4. Summary table

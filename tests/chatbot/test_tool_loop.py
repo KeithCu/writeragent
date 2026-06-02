@@ -46,12 +46,14 @@ class MockSession:
         else:
             self.messages[0]["content"] = content
 
-    def add_assistant_message(self, content=None, tool_calls=None):
+    def add_assistant_message(self, content=None, tool_calls=None, reasoning_replay=None):
         msg = {"role": "assistant"}
         if content:
             msg["content"] = content
         if tool_calls:
             msg["tool_calls"] = tool_calls
+        if reasoning_replay:
+            msg.update(reasoning_replay)
         self.messages.append(msg)
 
     def add_tool_result(self, call_id, result):

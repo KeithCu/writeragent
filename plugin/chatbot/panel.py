@@ -173,7 +173,7 @@ class ChatSession:
         if self.db:
             self.db.add_message("user", content)
 
-    def add_assistant_message(self, content=None, tool_calls=None):
+    def add_assistant_message(self, content=None, tool_calls=None, reasoning_replay=None):
         msg = {"role": "assistant"}
         if content:
             msg["content"] = content
@@ -181,6 +181,8 @@ class ChatSession:
             msg["content"] = ""
         if tool_calls:
             msg["tool_calls"] = tool_calls
+        if reasoning_replay:
+            msg.update(reasoning_replay)
         self.messages.append(msg)
         if self.db:
             # Only persist the text content to history; tool calls are ephemeral.

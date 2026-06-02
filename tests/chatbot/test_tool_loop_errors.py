@@ -26,7 +26,7 @@ class MockSession:
     def add_user_message(self, text):
         pass
 
-    def add_assistant_message(self, content=None, tool_calls=None):
+    def add_assistant_message(self, content=None, tool_calls=None, reasoning_replay=None):
         pass
 
 class MockDummyToolCallingClass(ToolCallingMixin):

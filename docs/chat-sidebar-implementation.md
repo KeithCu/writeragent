@@ -18,6 +18,12 @@ Prompt text lives in [`plugin/framework/constants.py`](../plugin/framework/const
 
 **Menu chat** (non-sidebar entry) has no tool-calling; it is conversational only.
 
+### Reasoning (`[Thinking]`) and tool calls
+
+During a **tool-loop** send, the sidebar can show provider reasoning under `[Thinking]` while tools still run from native `tool_calls` (or content fallback parsers)—reasoning text is never parsed as a tool invocation. Reasoning is **display-only** for that turn: it is not written into session messages for the next API round (only `content` + `tool_calls` are). That matches common OpenAI-compat streaming behavior; provider docs often ask clients to echo reasoning back on later tool-loop turns for quality on reasoning models—a possible future change, not current behavior.
+
+See [streaming-and-threading.md](streaming-and-threading.md) §§3.3–3.4 for implementation paths and notes to revisit.
+
 ---
 
 ## Working Solution (Resolved)

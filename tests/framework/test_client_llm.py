@@ -134,6 +134,34 @@ def test_stream_request_with_tools_text_and_tool(client):
         assert result["finish_reason"] == "tool_calls"
 
 
+def test_stream_request_with_tools_preserves_reasoning_replay(client):
+    mock_responses = [
+        b'data: {"choices": [{"delta": {"reasoning_content": "Let me check "}}]}\n\n',
+        b'data: {"choices": [{"delta": {"reasoning_content": "the weather."}}]}\n\n',
+        b'data: {"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "call_1", "type": "function", "function": {"name": "get_weather", "arguments": "{}"}}]}}]}\n\n',
+        b'data: {"choices": [{"finish_reason": "tool_calls", "delta": {}}]}\n\n',
+        b"data: [DONE]\n\n",
+    ]
+
+    with patch("http.client.HTTPSConnection") as mock_https:
+        mock_conn = MagicMock()
+        mock_https.return_value = mock_conn
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_response.__iter__.return_value = iter(mock_responses)
+        mock_conn.getresponse.return_value = mock_response
+
+        result = client.stream_request_with_tools(
+            messages=[{"role": "user", "content": "Weather?"}],
+            max_tokens=100,
+            tools=[{"type": "function", "function": {"name": "get_weather"}}],
+            append_callback=lambda t: None,
+        )
+
+        assert result["reasoning_content"] == "Let me check the weather."
+        assert result["tool_calls"][0]["function"]["name"] == "get_weather"
+
+
 def test_stream_request_with_tools_http_error(client):
     with patch("http.client.HTTPSConnection") as mock_https:
         mock_conn = MagicMock()

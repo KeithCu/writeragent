@@ -112,7 +112,14 @@ from .errors import format_error_message, _format_http_error_response
 from .ssl_helpers import get_unverified_ssl_context, get_verified_ssl_context, _is_certificate_verify_error, _is_local_host
 # _is_local_host is re-exported from ssl_helpers for now (see provider_detection.py
 # for the canonical home after the 2026 heuristic consolidation).
-from .stream_normalizer import iterate_sse, _extract_thinking_from_delta, _normalize_message_content, _normalize_delta
+from .stream_normalizer import (
+    iterate_sse,
+    _extract_thinking_from_delta,
+    _normalize_message_content,
+    _normalize_delta,
+    extend_reasoning_details_acc,
+    extract_reasoning_replay_from_response,
+)
 from .requests import sync_request
 
 log = logging.getLogger(__name__)
@@ -806,6 +813,8 @@ class LlmClient:
             body = body_override.encode("utf-8") if isinstance(body_override, str) else body_override
 
         message_snapshot: dict[object, object] = {}
+        reasoning_details_acc: list[Any] = []
+        reasoning_replay: dict[str, Any] = {}
         last_finish_reason = None
         images: list[Any] = []
         usage: dict[str, Any] = {}
@@ -816,9 +825,14 @@ class LlmClient:
             append_callback = append_callback or (lambda t: None)
             append_thinking_callback = append_thinking_callback or (lambda t: None)
 
+            def on_delta(d: dict[object, object]) -> None:
+                _normalize_delta(d)
+                extend_reasoning_details_acc(reasoning_details_acc, cast("dict[str, Any]", d))
+                accumulate_delta(message_snapshot, d)
+
             log.debug("stream_request_with_tools: building request (%d messages)..." % len(messages))
             try:
-                last_finish_reason = self._run_streaming_loop(method, path, body, headers, on_content=append_callback, on_thinking=append_thinking_callback, on_delta=lambda d: accumulate_delta(message_snapshot, d), stop_checker=stop_checker)
+                last_finish_reason = self._run_streaming_loop(method, path, body, headers, on_content=append_callback, on_thinking=append_thinking_callback, on_delta=on_delta, stop_checker=stop_checker)
             except NetworkError:
                 raise
             except Exception as e:
@@ -830,6 +844,7 @@ class LlmClient:
             content = _normalize_message_content(raw_content)
             tool_calls = message_snapshot.get("tool_calls")
             usage = cast("dict[str, Any]", message_snapshot.get("usage", {}))
+            reasoning_replay = extract_reasoning_replay_from_response(cast("dict[str, Any]", message_snapshot), reasoning_details_acc)
         else:
             # Sync path
             result = None
@@ -897,6 +912,7 @@ class LlmClient:
                 images = message.get("images") or []
                 tool_calls = message.get("tool_calls")
                 usage = result.get("usage", {})
+            reasoning_replay = extract_reasoning_replay_from_response(sync_message=message)
 
         # Shared post-processing
         if last_finish_reason == "stop" and tool_calls:
@@ -921,7 +937,9 @@ class LlmClient:
                     if last_finish_reason != "tool_calls":
                         last_finish_reason = "tool_calls"
 
-        return {"role": "assistant", "content": content, "tool_calls": tool_calls, "finish_reason": last_finish_reason, "images": images, "usage": usage}
+        out: dict[str, Any] = {"role": "assistant", "content": content, "tool_calls": tool_calls, "finish_reason": last_finish_reason, "images": images, "usage": usage}
+        out.update(reasoning_replay)
+        return out
 
     def stream_request_with_tools(self, *args, **kwargs):
         """Streaming chat request with tools. Wrapper around request_with_tools."""
