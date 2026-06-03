@@ -94,7 +94,7 @@ def _cluster_metrics(snapshot: dict[str, tuple[int, int, int, int]]) -> tuple[in
 
 
 def _content_right_from_layout(layouts: dict[str, ControlRect], width: int, right_margin: int) -> int:
-    """Match ``sidebar_content_right_edge``: Clear row caps query/model width on the sidebar."""
+    """Clear row caps query/model width; single source for ``_CONTENT_EDGE_CLAMP``."""
     response = layouts.get("response")
     clear = layouts.get("clear")
     right = 0
@@ -129,8 +129,6 @@ def compute_chat_panel_layout(
     cluster_delta = bottom_top_new - bottom_top_initial
     response_h = max(min_response_height, bottom_top_new - response_gap - response_y)
     response_w = max(_MIN_WIDTHS["response"], width - response_x - right_margin)
-    if response_x + response_w > width - right_margin:
-        response_w = max(20, width - response_x - right_margin)
 
     layouts: dict[str, ControlRect] = {}
     for name, (ox, oy, ow, oh) in snapshot.items():
@@ -231,15 +229,7 @@ class _PanelResizeListener(BaseWindowListener):
             if not ctrl:
                 continue
             cr = ctrl.getPosSize()
-            cw = cr.Width
-            min_w = _MIN_WIDTHS.get(name)
-            if min_w is not None and cw < min_w and name in (
-                "model_selector",
-                "image_model_selector",
-                "aspect_ratio_selector",
-            ):
-                cw = min_w
-            snapshot[name] = (int(cr.X), int(cr.Y), int(cw), int(cr.Height))
+            snapshot[name] = (int(cr.X), int(cr.Y), int(cr.Width), int(cr.Height))
 
         if "response" not in snapshot:
             return

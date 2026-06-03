@@ -46,10 +46,10 @@ def _xdl_snapshot():
         "web_research_check": (84, 203, 78, 10),
         "model_label": (4, 217, 142, 10),
         "model_selector": (4, 229, 142, 14),
-        "image_model_selector": (4, 215, 142, 14),
-        "base_size_label": (4, 235, 20, 10),
-        "base_size_input": (25, 233, 40, 14),
-        "aspect_ratio_selector": (70, 233, 102, 14),
+        "image_model_selector": (4, 217, 142, 14),
+        "base_size_label": (4, 231, 20, 10),
+        "base_size_input": (25, 229, 40, 14),
+        "aspect_ratio_selector": (70, 229, 102, 14),
     }
 
 

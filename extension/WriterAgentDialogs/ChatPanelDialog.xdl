@@ -22,9 +22,9 @@
   <dlg:text dlg:id="model_label" dlg:left="4" dlg:top="217" dlg:width="142" dlg:height="10" dlg:value="AI Model:" dlg:align="left"/>
   <dlg:combobox dlg:id="model_selector" dlg:left="4" dlg:top="229" dlg:width="142" dlg:height="14" dlg:tabstop="true" dlg:spin="true" dlg:dropdown="true" dlg:value="" dlg:border="1"/>
 
-  <dlg:combobox dlg:id="image_model_selector" dlg:left="4" dlg:top="215" dlg:width="142" dlg:height="14" dlg:tabstop="true" dlg:spin="true" dlg:dropdown="true" dlg:value="" dlg:border="1"/>
-  <dlg:text dlg:id="base_size_label" dlg:left="4" dlg:top="235" dlg:width="20" dlg:height="10" dlg:value="Base:" dlg:align="left"/>
-  <dlg:combobox dlg:id="base_size_input" dlg:left="25" dlg:top="233" dlg:width="40" dlg:height="14" dlg:tabstop="true" dlg:spin="true" dlg:dropdown="true" dlg:value="" dlg:border="1"/>
-  <dlg:combobox dlg:id="aspect_ratio_selector" dlg:left="70" dlg:top="233" dlg:width="102" dlg:height="14" dlg:tabstop="true" dlg:spin="true" dlg:dropdown="true" dlg:value="" dlg:border="1"/>
+  <dlg:combobox dlg:id="image_model_selector" dlg:left="4" dlg:top="217" dlg:width="142" dlg:height="14" dlg:tabstop="true" dlg:spin="true" dlg:dropdown="true" dlg:value="" dlg:border="1"/>
+  <dlg:text dlg:id="base_size_label" dlg:left="4" dlg:top="231" dlg:width="20" dlg:height="10" dlg:value="Base:" dlg:align="left"/>
+  <dlg:combobox dlg:id="base_size_input" dlg:left="25" dlg:top="229" dlg:width="40" dlg:height="14" dlg:tabstop="true" dlg:spin="true" dlg:dropdown="true" dlg:value="" dlg:border="1"/>
+  <dlg:combobox dlg:id="aspect_ratio_selector" dlg:left="70" dlg:top="229" dlg:width="102" dlg:height="14" dlg:tabstop="true" dlg:spin="true" dlg:dropdown="true" dlg:value="" dlg:border="1"/>
  </dlg:bulletinboard>
 </dlg:window>

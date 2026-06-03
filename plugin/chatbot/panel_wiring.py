@@ -148,7 +148,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
     # 4. Buttons
     self._wire_buttons(controls, model, active_greeting)
 
-    # Wire query listener to update Record/Send button label (fixed width applied after relayout)
+    # Wire query listener to update Record/Send button label (fixed width captured in snapshot before relayout)
     query_text_listener = None
     if controls.get("query") and controls.get("send"):
         try:
@@ -184,6 +184,35 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
             else:
                 log.exception("Error setting status text: %s", e)
 
+    # Stop +22px/windowResized loop when Record <-> Send (see writeragent_debug.log).
+    # Measure before first relayout so snapshot preserves stabilized button widths.
+    if controls["send"]:
+        try:
+            fw = _measure_send_button_max_width(controls["send"], has_recording)
+            if fw:
+                if hasattr(self, "send_listener"):
+                    self.send_listener.set_fixed_send_width(fw)
+                sr = controls["send"].getPosSize()
+                controls["send"].setPosSize(sr.X, sr.Y, fw, sr.Height, 15)
+        except Exception as e:
+            if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
+                log.debug("send button width stabilize skipped (likely disposed): %s", e)
+            else:
+                log.debug("send button width stabilize skipped: %s", e)
+        try:
+            for c, lab_list in ((controls.get("stop"), ["Stop", "Change", "Reject"]), (controls.get("clear"), ["Clear", "Reject"])):
+                if not c:
+                    continue
+                aw = _measure_aux_button_max_width(c, lab_list)
+                if aw:
+                    r = c.getPosSize()
+                    c.setPosSize(r.X, r.Y, aw, r.Height, 15)
+        except Exception as e:
+            if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
+                log.debug("stop/clear button width stabilize skipped (likely disposed): %s", e)
+            else:
+                log.debug("stop/clear button width stabilize skipped: %s", e)
+
     try:
         log.debug("Attaching _PanelResizeListener to root_window; controls=%s" % (sorted(k for k, v in controls.items() if v)))
         _tp = getattr(self, "toolpanel", None)
@@ -216,34 +245,6 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
             log.debug("layout_sanity: root_w=%d max_child_right=%d overflow=%s" % (rw, max_right, "YES" if max_right > rw - 2 else "no"))
         except Exception:
             pass
-
-        # Stop +22px/windowResized loop when Record <-> Send (see writeragent_debug.log).
-        if controls["send"] and query_text_listener is not None:
-            try:
-                fw = _measure_send_button_max_width(controls["send"], has_recording)
-                if fw:
-                    if hasattr(self, "send_listener"):
-                        self.send_listener.set_fixed_send_width(fw)
-                    sr = controls["send"].getPosSize()
-                    controls["send"].setPosSize(sr.X, sr.Y, fw, sr.Height, 15)
-            except Exception as e:
-                if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
-                    log.debug("send button width stabilize skipped (likely disposed): %s", e)
-                else:
-                    log.debug("send button width stabilize skipped: %s", e)
-            try:
-                for c, lab_list in ((controls.get("stop"), ["Stop", "Change", "Reject"]), (controls.get("clear"), ["Clear", "Reject"])):
-                    if not c:
-                        continue
-                    aw = _measure_aux_button_max_width(c, lab_list)
-                    if aw:
-                        r = c.getPosSize()
-                        c.setPosSize(r.X, r.Y, aw, r.Height, 15)
-            except Exception as e:
-                if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
-                    log.debug("stop/clear button width stabilize skipped (likely disposed): %s", e)
-                else:
-                    log.debug("stop/clear button width stabilize skipped: %s", e)
     except Exception as e:
         log.error("Resize listener error: %s" % e)
 
@@ -328,7 +329,11 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
                 root_window,
                 controls["response"],
                 on_rich_control_ready,
-                placeholder_rect_fn=lambda _rl=_resize: _rl.last_response_rect,
+                placeholder_rect_fn=lambda: (
+                    self._panel_resize_listener.last_response_rect
+                    if getattr(self, "_panel_resize_listener", None)
+                    else None
+                ),
             )
             self._rich_control_listener = rich_control_listener
             root_window.addWindowListener(rich_control_listener)

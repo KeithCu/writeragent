@@ -15,13 +15,15 @@ Wiring is in [`plugin/chatbot/panel_wiring.py`](../plugin/chatbot/panel_wiring.p
 
 Pure function: `compute_chat_panel_layout(width, height, snapshot)`.
 
-1. **Snapshot once** after the dialog loads: each control’s XDL `(x, y, width, height)`.
+1. **Snapshot once** after the dialog loads: each control’s `(x, y, width, height)` (Send/Stop/Clear widths are measured in wiring **before** the first relayout so label toggles do not fight the snapshot).
 2. **Measure bottom band height** from the snapshot: `cluster_height = bottom_bottom - status_top` (all controls in `_BOTTOM_CLUSTER`).
 3. **Anchor bottom band**: `bottom_top = height - bottom_margin - cluster_height`; shift every bottom control by the same delta from its XDL `y`.
 4. **Size transcript**: `response.height = bottom_top - gap - response.y` with fixed XDL gap (2px) and minimum height (30px).
-5. **Stretch width** for `response`, `query`, `status`, and model combos; clamp combo width to the content right edge (Clear button right, capped by panel width).
+5. **Stretch width** for `response`, `query`, `status`, and model combos; clamp query/model rows with `_content_right_from_layout` / `_CONTENT_EDGE_CLAMP` (Clear button right, capped by panel width).
 
-Rich text does not participate in layout math. [`sync_rich_control_bounds`](../plugin/chatbot/rich_text_control.py) receives `last_response_rect` from the listener and applies inset bounds only—no live Clear-button or hidden-placeholder inference when that rect is supplied.
+**XDL baseline:** Mutually exclusive rows (text `model_*` vs image `image_model_*` / aspect / base size) share the same Y positions so `_BOTTOM_CLUSTER` height is identical in both visibility modes.
+
+Rich text does not participate in layout math. [`sync_rich_control_bounds`](../plugin/chatbot/rich_text_control.py) receives `last_response_rect` from `_PanelResizeListener` and applies inset bounds only. Query/model width caps are **not** recomputed in rich code.
 
 ---
 
@@ -41,7 +43,7 @@ Called by the deck layouter with a **width hint** (`deck_w`):
 When `rich_text_control_sidebar=True`:
 
 1. Plain `response` is hidden after RichTextControl is ready.
-2. `_PanelResizeListener.relayout_now()` runs once (after hide); it sets the hidden placeholder and syncs `response_rich` from `last_response_rect`.
+2. `_PanelResizeListener.relayout_now()` runs once (after hide); it sizes the hidden placeholder and syncs `response_rich` from `last_response_rect` (single resize owner — `RichTextControlListener` does not handle `windowResized`).
 3. `RichTextControlListener._sync_bounds()` may refresh peer paint after history render.
 
 There is no deferred relayout chain, height clamp history, or gap re-capture from live GTK geometry.
@@ -55,7 +57,7 @@ There is no deferred relayout chain, height clamp history, or gap re-capture fro
 | `extension/WriterAgentDialogs/ChatPanelDialog.xdl` | Baseline control geometry |
 | `plugin/chatbot/panel_resize.py` | `compute_chat_panel_layout`, `_PanelResizeListener` |
 | `plugin/chatbot/panel_factory.py` | `getHeightForWidth`, pre-negotiation width cap |
-| `plugin/chatbot/panel_wiring.py` | Listener wiring, rich init, Send width measurement |
+| `plugin/chatbot/panel_wiring.py` | Listener wiring, rich init, Send/Stop/Clear width measurement before first relayout |
 | `plugin/chatbot/rich_text_control.py` | RichText bounds from `placeholder_rect` |
 | `tests/chatbot/test_panel_resize.py` | Pure layout + listener integration tests |
 

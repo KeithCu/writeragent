@@ -202,41 +202,12 @@ def _is_automatic_char_color(color) -> bool:
     return color < 0 or color == 0xFFFFFFFF
 
 
-def _layout_right_edge_for_rich_control(root_window, placeholder_ctrl) -> int:
-    """Right edge for the transcript: Clear button (same row as Send/Stop), capped by panel width."""
-    ps = placeholder_ctrl.getPosSize()
-    right = int(ps.X) + int(ps.Width)
-    try:
-        if root_window is not None and hasattr(root_window, "getControl"):
-            clear_ctrl = root_window.getControl("clear")
-            if clear_ctrl is not None:
-                cr = clear_ctrl.getPosSize()
-                clear_right = int(cr.X) + int(cr.Width)
-                if clear_right > int(ps.X):
-                    right = clear_right
-    except Exception as e:
-        log.debug("_layout_right_edge_for_rich_control: %s", e)
-    try:
-        if root_window is not None:
-            root_w = int(root_window.getPosSize().Width)
-            if root_w > 0:
-                right = min(right, root_w - 4)
-    except Exception:
-        pass
-    return right
-
-
-def sidebar_content_right_edge(root_window, placeholder_ctrl) -> int:
-    """Right edge (exclusive) for chat content; query field uses the same clamp as RichTextControl."""
-    return _layout_right_edge_for_rich_control(root_window, placeholder_ctrl) - RICH_CONTROL_EDGE_INSET
-
-
 def _content_bounds_for_rich_control(root_window, placeholder_ctrl, placeholder_rect=None):
     """Return (x, y, width, height) for the rich control inside the response area.
 
     When ``placeholder_rect`` is supplied by ``_PanelResizeListener``, use it as the sole
-    geometry source. The hidden plain ``response`` field and live Clear button positions are
-    unreliable on GTK after RichText init.
+    geometry source. Otherwise inset the live placeholder ``getPosSize()``; query/model width
+    caps live in ``compute_chat_panel_layout``, not here.
     """
     if placeholder_rect is not None:
         px, py, pw, ph = placeholder_rect
@@ -251,26 +222,12 @@ def _content_bounds_for_rich_control(root_window, placeholder_ctrl, placeholder_
     ps = placeholder_ctrl.getPosSize()
     px, py, pw, ph = int(ps.X), int(ps.Y), int(ps.Width), int(ps.Height)
     inset = RICH_CONTROL_EDGE_INSET
-    x = px + inset
-    y = py + inset
-    right = px + pw
-    try:
-        if root_window is not None and hasattr(root_window, "getControl"):
-            clear_ctrl = root_window.getControl("clear")
-            if clear_ctrl is not None:
-                cr = clear_ctrl.getPosSize()
-                clear_right = int(cr.X) + int(cr.Width)
-                if clear_right > px:
-                    right = clear_right
-        if root_window is not None:
-            root_w = int(root_window.getPosSize().Width)
-            if root_w > 0:
-                right = min(right, root_w - 4)
-    except Exception:
-        pass
-    w = max(20, right - x - inset)
-    h = max(20, ph - 2 * inset)
-    return x, y, w, h
+    return (
+        px + inset,
+        py + inset,
+        max(20, pw - 2 * inset),
+        max(20, ph - 2 * inset),
+    )
 
 
 def _apply_rich_control_geometry(rich_control, bx, by, bw, bh, *, update_dialog_model=False) -> bool:
@@ -657,6 +614,7 @@ class RichTextControlListener(BaseWindowListener):
 
     Init is triggered two ways: ``try_eager_init()`` right after wiring (required on GNOME),
     and ``on_window_shown`` when the sidebar deck fires ``windowShown`` (typical on KDE).
+    Resize is handled by ``_PanelResizeListener`` (``last_response_rect`` + ``sync_rich_control_bounds``).
     """
 
     def __init__(self, ctx, root_window, placeholder_ctrl, on_ready_callback, placeholder_rect_fn=None):
@@ -668,7 +626,6 @@ class RichTextControlListener(BaseWindowListener):
         self.rich_control = None
         self.initialized = False
         self._disposed = False
-        self._syncing_bounds = False
 
     def _resolved_placeholder_rect(self):
         if self._placeholder_rect_fn is not None:
@@ -755,22 +712,6 @@ class RichTextControlListener(BaseWindowListener):
             log.warning("[RICH-CONTROL] phase=window_shown peer=0 (eager_init should have run at wiring time)")
             return
         self._begin_deferred_init()
-
-    def on_window_resized(self, rEvent):
-        """Keep the rich control over the response placeholder; do not scroll or focus here.
-
-        Panel resize already moves the hidden ``response`` placeholder; we mirror it with inset.
-        Calling ``setFocus`` / scroll during resize re-entered ``windowResized`` and could crash LO.
-        """
-        if self._disposed or self._syncing_bounds or not self.rich_control or not self.placeholder_ctrl:
-            return
-        if self._syncing_bounds:
-            return
-        self._syncing_bounds = True
-        try:
-            self._sync_bounds()
-        finally:
-            self._syncing_bounds = False
 
     def _root_peer(self):
         if self.root_window is None or not hasattr(self.root_window, "getPeer"):

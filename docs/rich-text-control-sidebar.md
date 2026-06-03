@@ -69,7 +69,7 @@ Writer is still used **off-screen**: a **hidden** document imports HTML, then a 
 | Truncate stream tail without flattening earlier formatting | `truncate_control_from` (cursor delete, not `model.Text = ""`) |
 | Scroll-to-end without stealing query focus | `nudge_rich_control_view_to_end`; focus preserved via `focus_preserved` in [`uno_context.py`](../plugin/framework/uno_context.py) |
 | History reload in ~16 KB batches | `HISTORY_RENDER_BATCH_CHARS`, `RichTextChatWidget.render_session_history` |
-| Resize / width sync with Send–Clear row | `sync_rich_control_bounds`, `sidebar_content_right_edge`, [`panel_resize.py`](../plugin/chatbot/panel_resize.py) — query, model, image model, and aspect ratio comboboxes share the same right-edge clamp |
+| Resize / width sync with Send–Clear row | [`panel_resize.py`](../plugin/chatbot/panel_resize.py) `_content_right_from_layout` clamps query/model rows; [`sync_rich_control_bounds`](../plugin/chatbot/rich_text_control.py) follows `last_response_rect` from the panel resize listener |
 | LLM HTML format instructions gated on config | `get_chat_response_format_instructions` → `RICH_CHAT_SIDEBAR_INSTRUCTIONS` |
 | Web research / librarian share same format + finalize | `finalize_sidebar_assistant_response` in `rich_text.py` |
 | Legacy `AI:` label stripped on rich path | `strip_legacy_assistant_stream_chunk`, `strip_legacy_ai_label` |
@@ -182,7 +182,7 @@ flowchart LR
 | Enable control, hide plain field | [`panel_wiring.py`](../plugin/chatbot/panel_wiring.py) § Rich Text Control — constructs `RichTextChatWidget` |
 | Send / stream / rerender | [`panel.py`](../plugin/chatbot/panel.py) `SendButtonListener` via `rich_text_widget` |
 | Session clear / history render | [`panel_factory.py`](../plugin/chatbot/panel_factory.py) via `rich_text_widget.render_session_history` |
-| Resize stretch | [`panel_resize.py`](../plugin/chatbot/panel_resize.py) (`response_rich`, `sidebar_content_right_edge`) |
+| Resize stretch | [`panel_resize.py`](../plugin/chatbot/panel_resize.py) (`compute_chat_panel_layout`, `last_response_rect` → `sync_rich_control_bounds`) |
 | Stream finalize hook | [`tool_loop.py`](../plugin/chatbot/tool_loop.py), [`send_handlers.py`](../plugin/chatbot/send_handlers.py) → `finalize_sidebar_assistant_response` |
 | Config schema | [`module.yaml`](../plugin/chatbot/module.yaml) `rich_text_control_sidebar` |
 
@@ -202,13 +202,13 @@ flowchart LR
 | Function | Role |
 |----------|------|
 | `create_sidebar_rich_text_control` | Create `TextField` model + peer, position over placeholder |
-| `RichTextControlListener` | Deferred create on `windowShown`; resize via panel listener |
+| `RichTextControlListener` | Deferred create on `windowShown` / eager init; bounds via `_PanelResizeListener.last_response_rect` |
 | `RichTextChatWidget` | **Primary panel facade** — user/assistant append, stream chunks, rerender, clear, history |
 | `append_text_chunk` | Streaming plain append (widget delegates here) |
 | `truncate_control_from` | Remove stream tail before HTML rerender |
 | `nudge_rich_control_view_to_end` | Scroll transcript without focus steal |
 | `clear_control` | Clear transcript |
-| `sync_rich_control_bounds` | Resize transcript to match placeholder |
+| `sync_rich_control_bounds` | Apply inset bounds from `placeholder_rect` (panel listener) or live placeholder size |
 
 ### Focus / idle (`uno_context.py`)
 

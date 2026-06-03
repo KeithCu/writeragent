@@ -39,46 +39,11 @@ class TestRichControlHelpers:
 
         ps = MagicMock()
         ps.getPosSize.return_value = SimpleNamespace(X=10, Y=20, Width=100, Height=200)
-        root = MagicMock()
-        root.getPosSize.return_value = SimpleNamespace(Width=180, Height=400)
-        root.getControl.return_value = None
-        bx, by, bw, bh = _content_bounds_for_rich_control(root, ps)
+        bx, by, bw, bh = _content_bounds_for_rich_control(None, ps)
         assert bx == 10 + RICH_CONTROL_EDGE_INSET
         assert by == 20 + RICH_CONTROL_EDGE_INSET
         assert bw == 100 - 2 * RICH_CONTROL_EDGE_INSET
         assert bh == 200 - 2 * RICH_CONTROL_EDGE_INSET
-
-    def test_content_bounds_clamp_to_clear_button(self):
-        from types import SimpleNamespace
-
-        from plugin.chatbot.rich_text_control import RICH_CONTROL_EDGE_INSET, _content_bounds_for_rich_control
-
-        ps = MagicMock()
-        ps.getPosSize.return_value = SimpleNamespace(X=4, Y=16, Width=900, Height=110)
-        root = MagicMock()
-        root.getPosSize.return_value = SimpleNamespace(Width=180, Height=400)
-        clear = MagicMock()
-        clear.getPosSize.return_value = SimpleNamespace(X=108, Y=186, Width=50, Height=15)
-        root.getControl.return_value = clear
-        bx, by, bw, _bh = _content_bounds_for_rich_control(root, ps)
-        clear_right = 108 + 50
-        assert bx + bw <= clear_right
-        assert bw < 900 - 2 * RICH_CONTROL_EDGE_INSET
-
-    def test_sidebar_content_right_edge_matches_rich_bounds(self):
-        from types import SimpleNamespace
-
-        from plugin.chatbot.rich_text_control import _content_bounds_for_rich_control, sidebar_content_right_edge
-
-        ps = MagicMock()
-        ps.getPosSize.return_value = SimpleNamespace(X=4, Y=16, Width=900, Height=110)
-        root = MagicMock()
-        root.getPosSize.return_value = SimpleNamespace(Width=180, Height=400)
-        clear = MagicMock()
-        clear.getPosSize.return_value = SimpleNamespace(X=108, Y=186, Width=50, Height=15)
-        root.getControl.return_value = clear
-        bx, _by, bw, _bh = _content_bounds_for_rich_control(root, ps)
-        assert bx + bw == sidebar_content_right_edge(root, ps)
 
     def test_content_bounds_placeholder_rect_is_authoritative(self):
         """Layout-provided rect is the sole geometry source; Clear width must not widen it."""
@@ -281,22 +246,6 @@ class TestSkipLegacyStreamChunk:
         from plugin.chatbot.rich_text_control import skip_legacy_assistant_stream_chunk
 
         assert not skip_legacy_assistant_stream_chunk("Here is a real answer with tools.")
-
-
-class TestRichControlListenerResize:
-    def test_resize_syncs_bounds_without_scroll(self):
-        from plugin.chatbot.rich_text_control import RichTextControlListener
-
-        listener = RichTextControlListener(MagicMock(), MagicMock(), MagicMock(), MagicMock())
-        listener.rich_control = MagicMock()
-        listener.placeholder_ctrl = MagicMock()
-
-        with patch("plugin.chatbot.rich_text_control.sync_rich_control_bounds") as mock_sync, \
-             patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post:
-            listener.on_window_resized(MagicMock())
-
-        mock_sync.assert_called_once()
-        mock_post.assert_not_called()
 
 
 class TestRerenderRichControlScroll:
