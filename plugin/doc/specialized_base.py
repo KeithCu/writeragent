@@ -86,6 +86,28 @@ class DelegateToSpecializedBase(ToolBase):
         """Run in a background thread so the main-thread queue/drain loop isn't blocked."""
         return True
 
+    # Domains whose work is read-only -> a long-running delegation to them must NOT
+    # take the per-document mutation lock (it would needlessly serialize research on
+    # the same doc). The gateway itself is is_mutation=True for the mutating domains.
+    _READ_ONLY_DOMAINS = frozenset({"document_research", "web_research"})
+
+    def requires_document_lock(self, arguments=None):
+        domain = None
+        if isinstance(arguments, dict):
+            domain = arguments.get("domain")
+        elif isinstance(arguments, str):
+            try:
+                from plugin.framework.errors import safe_json_loads
+
+                data = safe_json_loads(arguments)
+                if isinstance(data, dict):
+                    domain = data.get("domain")
+            except Exception:
+                domain = None
+        if domain in self._READ_ONLY_DOMAINS:
+            return False
+        return super().requires_document_lock(arguments)
+
     def execute(self, ctx, **kwargs):
         domain = kwargs.get("domain")
         python_tool_domain = kwargs.get("python_tool_domain")

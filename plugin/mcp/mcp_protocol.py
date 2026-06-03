@@ -71,6 +71,26 @@ _tool_semaphore = threading.Semaphore(1)
 _WAIT_TIMEOUT = 5.0
 _PROCESS_TIMEOUT = 60.0
 
+# Per-document locks for MUTATING long-running tools. Long-running tools run their
+# body off the main thread and without the backpressure semaphore (so minutes-long
+# work like image generation or sub-agent research does not block every other tool).
+# That left a hole: two mutating long-running tools could touch the SAME document
+# concurrently. These locks serialize mutating long-running tools per document —
+# different documents and read-only long-running tools stay fully concurrent. This
+# complements (does not replace) the main-thread marshalling well-behaved tools do.
+_doc_locks: "dict[str, threading.Lock]" = {}
+_doc_locks_guard = threading.Lock()
+
+
+def _get_document_lock(doc_key):
+    """Return the (shared) lock for *doc_key*, creating it on first use."""
+    with _doc_locks_guard:
+        lock = _doc_locks.get(doc_key)
+        if lock is None:
+            lock = threading.Lock()
+            _doc_locks[doc_key] = lock
+        return lock
+
 
 class BusyError(WriterAgentException):
     """The VCL main thread is already processing another tool call."""
@@ -512,7 +532,12 @@ class MCPProtocolHandler:
     def _execute_long_running(self, tool_name, arguments, document_url=None):
         """Execute a long-running tool on the current background HTTP thread.
         Context resolution (finding the active doc) is strictly done on the main thread
-        to ensure thread safety with LibreOffice UNO."""
+        to ensure thread safety with LibreOffice UNO.
+
+        Mutating long-running tools additionally hold a per-document lock for the
+        duration of the call, so two of them cannot mutate the SAME document at once.
+        Read-only long-running tools and tools targeting different documents are not
+        affected and still run fully concurrently."""
 
         def _get_context():
             doc_svc = self.services.document
@@ -527,9 +552,18 @@ class MCPProtocolHandler:
             import uno
 
             ctx = uno.getComponentContext()
-            return doc, doc_type, ctx
+            # Stable per-document key for the mutation lock (resolved on the main
+            # thread alongside the doc). Falls back to a shared sentinel.
+            doc_key = document_url
+            if not doc_key and doc is not None:
+                try:
+                    doc_key = doc.getURL() or getattr(doc, "RuntimeUID", None)
+                except Exception:
+                    log.debug("Could not resolve document key for the mutation lock", exc_info=True)
+                    doc_key = None
+            return doc, doc_type, ctx, doc_key
 
-        doc, doc_type, ctx = self.queue_executor.execute(_get_context, timeout=10.0)
+        doc, doc_type, ctx, doc_key = self.queue_executor.execute(_get_context, timeout=10.0)
 
         if doc is None and not document_url:
             return {"status": "error", "code": "NO_DOCUMENT_OPEN", "message": "No document open in LibreOffice."}
@@ -548,10 +582,27 @@ class MCPProtocolHandler:
 
         context = ToolContext(doc=doc, ctx=ctx, doc_type=doc_type, services=self.services, caller="mcp", active_page_index=active_page_idx)
 
-
-        t0 = time.perf_counter()
-        result = self.tool_registry.execute(tool_name, context, **arguments)
-        elapsed = time.perf_counter() - t0
+        # Mutating long-running tools serialize per document (see _doc_locks above).
+        # Sub-tools invoked by a delegating tool run in-process (not via this method),
+        # so the lock is not re-entered on the same thread -> no self-deadlock.
+        tool = self.tool_registry.get(tool_name)
+        if tool is not None:
+            try:
+                needs_doc_lock = bool(tool.requires_document_lock(arguments))
+            except Exception:
+                needs_doc_lock = bool(tool.detects_mutation())
+        else:
+            needs_doc_lock = True  # unknown tool -> be safe
+        doc_lock = _get_document_lock(doc_key or "__active_document__") if needs_doc_lock else None
+        if doc_lock is not None:
+            doc_lock.acquire()
+        try:
+            t0 = time.perf_counter()
+            result = self.tool_registry.execute(tool_name, context, **arguments)
+            elapsed = time.perf_counter() - t0
+        finally:
+            if doc_lock is not None:
+                doc_lock.release()
 
         if isinstance(result, dict):
             result["_elapsed_ms"] = round(elapsed * 1000, 1)

@@ -253,6 +253,15 @@ class ToolBase(ABC):
             return not self.name.startswith(_READ_PREFIXES)
         return True
 
+    def requires_document_lock(self, arguments=None):
+        """Whether a long-running run of this tool must hold the per-document
+        mutation lock (see plugin/mcp/mcp_protocol.py _execute_long_running).
+
+        Defaults to :meth:`detects_mutation`. Tools that only *sometimes* mutate —
+        e.g. a delegate gateway that routes to a read-only domain depending on
+        ``arguments`` — can override this so read-only runs are not serialized."""
+        return self.detects_mutation()
+
     def _tool_error(self, message, code="TOOL_EXECUTION_ERROR", **details):
         """Standardized JSON payload for tool errors.
 
