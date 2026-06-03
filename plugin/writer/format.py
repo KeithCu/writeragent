@@ -728,7 +728,12 @@ def replace_preserving_format(model, target_range, new_text, ctx=None):
     character, preserving per-character formatting (bold, italic,
     font, color, etc.).
     """
-    text = model.getText()
+    # Use the range's OWN text object, not the document body. When target_range
+    # lives inside a table cell, model.getText() (the body) is the wrong XText and
+    # createTextCursorByRange() raises "End of content node doesn't have the proper
+    # start node". target_range.getText() resolves to the cell (or body) correctly,
+    # matching the markup path which already uses found.getText().
+    text = target_range.getText()
     old_text = _normalize(target_range.getString())
     new_text = _normalize(new_text)
     old_len = len(old_text)
