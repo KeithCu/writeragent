@@ -1,13 +1,14 @@
 import logging
 
-from typing import cast, Any
+from dataclasses import dataclass
+
 from plugin.chatbot.listeners import BaseWindowListener
 
 log = logging.getLogger(__name__)
 
 # Chat sidebar resize/layout tracing is very noisy. Set True to log these steps
 # to the debug log even when log_level is DEBUG.
-PANEL_RESIZE_VERBOSE_DEBUG = False  # Verbose helper still on for extra detail if logger allows it.
+PANEL_RESIZE_VERBOSE_DEBUG = False
 
 
 def _resize_debug(msg: str, *args: object) -> None:
@@ -16,8 +17,6 @@ def _resize_debug(msg: str, *args: object) -> None:
 
 
 # Minimum sane widths (in dialog Map AppFont / pixel units) for key controls.
-# This protects against GTK/layout glitches where controls end up ~10px wide
-# and would otherwise stay that way across resizes.
 _MIN_WIDTHS = {
     "response": 80,
     "response_rich": 80,
@@ -32,7 +31,6 @@ _MIN_WIDTHS = {
     "direct_image_check": 70,
     "web_research_check": 70,
     "model_label": 60,
-    # Combos need extra width so the dropdown button stays visible on GTK/VCL themes.
     "model_selector": 120,
     "image_model_selector": 120,
     "base_size_label": 20,
@@ -40,44 +38,150 @@ _MIN_WIDTHS = {
     "aspect_ratio_selector": 80,
 }
 
-# Fields that are stretched horizontally on every relayout to fill the current panel width.
-# Everything else keeps its XDL snapshot width (subject only to the final right-edge safety clamp).
-_STRETCH_CONTROLS = (
+_STRETCH_CONTROLS = frozenset({
     "response",
-    # response_rich: positioned only by RichTextControlListener from the response placeholder
     "query",
     "status",
     "model_selector",
     "image_model_selector",
     "aspect_ratio_selector",
-)
+})
 
-# Stretch controls aligned to Clear / RichTextControl / query right edge (not full panel width).
-_CONTENT_EDGE_CLAMP = ("query", "model_selector", "image_model_selector", "aspect_ratio_selector")
+_CONTENT_EDGE_CLAMP = frozenset({"query", "model_selector", "image_model_selector", "aspect_ratio_selector"})
+
+# ChatPanelDialog.xdl: response top=16 height=110, status top=128 -> gap=2.
+_XDL_GAP_BELOW_RESPONSE = 2
+_BOTTOM_MARGIN = 10
+_MIN_RESPONSE_HEIGHT = 30
+_RIGHT_MARGIN = 4
+
+# Controls below the chat transcript — anchored as one block toward the panel bottom.
+_BOTTOM_CLUSTER = frozenset({
+    "status",
+    "query_label",
+    "query",
+    "send",
+    "stop",
+    "clear",
+    "direct_image_check",
+    "web_research_check",
+    "model_label",
+    "model_selector",
+    "image_model_selector",
+    "base_size_label",
+    "base_size_input",
+    "aspect_ratio_selector",
+})
+
+
+@dataclass(frozen=True)
+class ControlRect:
+    x: int
+    y: int
+    width: int
+    height: int
+
+
+def _cluster_metrics(snapshot: dict[str, tuple[int, int, int, int]]) -> tuple[int, int, int]:
+    """Return (bottom_top_y, cluster_height, response_top_y) from the XDL snapshot."""
+    bottoms = [snapshot[n] for n in _BOTTOM_CLUSTER if n in snapshot]
+    if not bottoms or "response" not in snapshot:
+        response_y = snapshot.get("response", (0, 16, 0, 0))[1]
+        return response_y + 112, 0, response_y
+    bottom_top = min(rect[1] for rect in bottoms)
+    bottom_bottom = max(rect[1] + rect[3] for rect in bottoms)
+    return bottom_top, bottom_bottom - bottom_top, snapshot["response"][1]
+
+
+def _content_right_from_layout(layouts: dict[str, ControlRect], width: int, right_margin: int) -> int:
+    """Match ``sidebar_content_right_edge``: Clear row caps query/model width on the sidebar."""
+    response = layouts.get("response")
+    clear = layouts.get("clear")
+    right = 0
+    if response is not None:
+        right = response.x + response.width
+        if clear is not None and clear.x + clear.width > response.x:
+            right = clear.x + clear.width
+    elif clear is not None:
+        right = clear.x + clear.width
+    if width > 0:
+        right = min(right, width - right_margin)
+    return right
+
+
+def compute_chat_panel_layout(
+    width: int,
+    height: int,
+    snapshot: dict[str, tuple[int, int, int, int]],
+    *,
+    bottom_margin: int = _BOTTOM_MARGIN,
+    response_gap: int = _XDL_GAP_BELOW_RESPONSE,
+    min_response_height: int = _MIN_RESPONSE_HEIGHT,
+    right_margin: int = _RIGHT_MARGIN,
+) -> dict[str, ControlRect]:
+    """Pure layout: bottom band anchored near the bottom, transcript fills the rest."""
+    if width <= 0 or height <= 0 or not snapshot or "response" not in snapshot:
+        return {}
+
+    bottom_top_initial, cluster_height, response_y = _cluster_metrics(snapshot)
+    response_x = snapshot["response"][0]
+    bottom_top_new = height - bottom_margin - cluster_height
+    cluster_delta = bottom_top_new - bottom_top_initial
+    response_h = max(min_response_height, bottom_top_new - response_gap - response_y)
+    response_w = max(_MIN_WIDTHS["response"], width - response_x - right_margin)
+    if response_x + response_w > width - right_margin:
+        response_w = max(20, width - response_x - right_margin)
+
+    layouts: dict[str, ControlRect] = {}
+    for name, (ox, oy, ow, oh) in snapshot.items():
+        if name == "response":
+            continue
+        new_x = ox
+        if name in _STRETCH_CONTROLS:
+            new_w = max(_MIN_WIDTHS.get(name, 40), width - ox - right_margin)
+        else:
+            new_w = ow
+        new_y = oy + cluster_delta if name in _BOTTOM_CLUSTER else oy
+        if new_x + new_w > width - right_margin:
+            new_w = max(20, width - new_x - right_margin)
+        layouts[name] = ControlRect(new_x, new_y, new_w, oh)
+
+    layouts["response"] = ControlRect(response_x, response_y, response_w, response_h)
+
+    content_right = _content_right_from_layout(layouts, width, right_margin)
+    for name in _CONTENT_EDGE_CLAMP:
+        rect = layouts.get(name)
+        if rect is None:
+            continue
+        cap = content_right - rect.x
+        if cap <= 0:
+            continue
+        new_w = min(rect.width, max(_MIN_WIDTHS.get(name, 40), cap))
+        layouts[name] = ControlRect(rect.x, rect.y, new_w, rect.height)
+
+    return layouts
 
 
 class _PanelResizeListener(BaseWindowListener):
-    """Adjusts panel layout on resize.
+    """Repositions sidebar controls when the panel root is resized.
 
-    Responsibilities (kept deliberately minimal after the 2026-05 simplification):
-    - Vertical anchoring of the bottom control cluster toward the window bottom.
-    - Stretching the main content fields (response, query, status, model selectors) to fill available width.
-    - A final right-edge clamp on all controls as a safety net against H scrollbars.
-
-    Horizontal sizing policy lives exclusively in ChatToolPanel.getHeightForWidth.
-    The listener no longer receives or uses parent/deck information.
+    Layout policy: XDL snapshot defines control sizes and bottom-band spacing;
+    runtime only anchors the bottom band and stretches the transcript vertically.
     """
 
     def __init__(self, controls):
-        self._c = controls  # dict name -> control or None
-        self._initial = None  # captured from XDL-loaded pixel positions
+        self._c = controls
+        self._snapshot: dict[str, tuple[int, int, int, int]] | None = None
         self._in_relayout = False
-        self._root_window = None  # Set by owner when attaching, for self-removal on dispose
-        self._first_relayout = True  # used to be slightly more conservative on the very first layout after startup
-        self._width_negotiated = False  # first real layout must wait for getHeightForWidth's deck width
+        self._root_window = None
+        self._width_negotiated = False
+        self._last_response_rect = None
+
+    @property
+    def last_response_rect(self):
+        return self._last_response_rect
 
     def disposing(self, Source):
-        """Defensive: try to remove ourselves if we were given the root window."""
         if self._root_window and hasattr(self._root_window, "removeWindowListener"):
             try:
                 self._root_window.removeWindowListener(self)
@@ -86,17 +190,9 @@ class _PanelResizeListener(BaseWindowListener):
         self._root_window = None
 
     def relayout_now(self, win):
-        """Run layout on the root panel window (e.g. after programmatic resize).
-
-        Used from ``getHeightForWidth`` when ``windowResized`` does not fire reliably.
-        """
         if not win:
             return
-        if not self._width_negotiated and self._initial is None:
-            # Bug fix: on restored-wide startup, LO creates the root window at a
-            # stale/wide size before DeckLayouter calls getHeightForWidth with the
-            # real sidebar column width. Capturing that first width can seed an
-            # ancestor H-scroll range, so wait for the negotiated deck width.
+        if not self._width_negotiated and self._snapshot is None:
             _resize_debug("relayout_now: deferred until deck width negotiated")
             return
         if self._in_relayout:
@@ -113,7 +209,7 @@ class _PanelResizeListener(BaseWindowListener):
     def on_window_resized(self, rEvent):
         r = rEvent.Source.getPosSize()
         _resize_debug("windowResized: W=%d H=%d" % (r.Width, r.Height))
-        if not self._width_negotiated and self._initial is None:
+        if not self._width_negotiated and self._snapshot is None:
             _resize_debug("windowResized: deferred until deck width negotiated")
             return
         if self._in_relayout:
@@ -122,189 +218,97 @@ class _PanelResizeListener(BaseWindowListener):
         self.relayout_now(rEvent.Source)
 
     def note_width_negotiated(self):
-        """Allow first layout after ChatToolPanel has applied DeckLayouter width."""
         self._width_negotiated = True
 
-    def _capture_initial(self, win):
-        """Snapshot XDL-loaded positions (primarily Y/height for vertical anchoring).
-
-        Horizontal widths are no longer derived from this snapshot for stretching or
-        "min client width" forcing — those were major contributors to the H scrollbar.
-        We still snapshot for vertical cluster math and as a safe baseline for Y/oh.
-        A light min-width floor is kept only for combos (to keep the dropdown glyph visible
-        on first narrow GTK paints).
-        """
+    def _capture_snapshot(self, win):
         r = win.getPosSize()
         if r.Width <= 0 or r.Height <= 0:
             return
-        _resize_debug("_capture_initial: starting snapshot for win W=%d H=%d" % (r.Width, r.Height))
+        _resize_debug("_capture_snapshot: win W=%d H=%d" % (r.Width, r.Height))
 
-        info = {"win_h": r.Height, "ctrls": {}}
-        resp = self._c.get("response")
-        if resp:
-            rr = resp.getPosSize()
-            info["resp_bottom"] = rr.Y + rr.Height
-
-        bottom_top = None
-        bottom_bottom = None
+        snapshot: dict[str, tuple[int, int, int, int]] = {}
         for name, ctrl in self._c.items():
-            if ctrl:
-                cr = ctrl.getPosSize()
-                # Light floor only for controls whose dropdown arrow must stay visible.
-                min_w = _MIN_WIDTHS.get(name)
-                cw = cr.Width
-                if min_w is not None and cw < min_w and name in ("model_selector", "image_model_selector", "aspect_ratio_selector"):
-                    cw = min_w
-                info["ctrls"][name] = (cr.X, cr.Y, cw, cr.Height)
-                if "resp_bottom" in info and cr.Y >= info["resp_bottom"]:
-                    if bottom_top is None or cr.Y < bottom_top:
-                        bottom_top = cr.Y
-                    bb = cr.Y + cr.Height
-                    if bottom_bottom is None or bb > bottom_bottom:
-                        bottom_bottom = bb
+            if not ctrl:
+                continue
+            cr = ctrl.getPosSize()
+            cw = cr.Width
+            min_w = _MIN_WIDTHS.get(name)
+            if min_w is not None and cw < min_w and name in (
+                "model_selector",
+                "image_model_selector",
+                "aspect_ratio_selector",
+            ):
+                cw = min_w
+            snapshot[name] = (int(cr.X), int(cr.Y), int(cw), int(cr.Height))
 
-        if "resp_bottom" in info:
-            if bottom_top is not None:
-                info["bottom_top"] = bottom_top
-                info["bottom_bottom"] = bottom_bottom
-                info["gap_below_response"] = max(0, bottom_top - info["resp_bottom"])
-            else:
-                info["bottom_top"] = cast("int", info["resp_bottom"])
-                info["bottom_bottom"] = cast("int", info["resp_bottom"])
-                info["gap_below_response"] = 2
+        if "response" not in snapshot:
+            return
+        self._snapshot = snapshot
+        bottom_top, cluster_h, _response_y = _cluster_metrics(snapshot)
+        _resize_debug(
+            "_capture_snapshot: bottom_top=%d cluster_h=%d controls=%d",
+            bottom_top,
+            cluster_h,
+            len(snapshot),
+        )
 
-        _resize_debug("_capture_initial: win_h=%d resp_bottom=%s bottom_top=%s gap=%s" % (
-            info["win_h"], str(info.get("resp_bottom")), str(info.get("bottom_top")), str(info.get("gap_below_response"))))
-        self._initial = info
+    def _apply_rect(self, ctrl, rect: ControlRect) -> None:
+        cur = ctrl.getPosSize()
+        if (
+            cur.X != rect.x
+            or cur.Y != rect.y
+            or cur.Width != rect.width
+            or cur.Height != rect.height
+        ):
+            ctrl.setPosSize(rect.x, rect.y, rect.width, rect.height, 15)
 
     def _relayout(self, win):
         r = win.getPosSize()
-        w, h = r.Width, r.Height
+        w, h = int(r.Width), int(r.Height)
         if w <= 0 or h <= 0:
             return
 
-        if self._initial is None:
-            self._capture_initial(win)
-
-        if self._initial is None:
-            log.warning("_relayout: no initial state, skip")
+        if self._snapshot is None:
+            self._capture_snapshot(win)
+        snapshot = self._snapshot
+        if not snapshot:
+            log.warning("_relayout: no snapshot, skip")
             return
 
-        initial = cast("dict[str, Any]", self._initial)
+        layouts = compute_chat_panel_layout(w, h, snapshot)
+        if not layouts:
+            return
 
-        _resize_debug("_relayout: win W=%d H=%d (have_initial=True)" % (w, h))
+        for name, rect in layouts.items():
+            ctrl = self._c.get(name)
+            if ctrl is not None:
+                self._apply_rect(ctrl, rect)
 
-        ih = cast("int", initial["win_h"])
-        resp_bottom = int(initial.get("resp_bottom", 0))
-        gap_below_response = int(initial.get("gap_below_response", 2))
-        bottom_top_initial = initial.get("bottom_top")
-        bottom_bottom_initial = initial.get("bottom_bottom")
-        if isinstance(bottom_top_initial, (int, float)):
-            bottom_top_initial = int(bottom_top_initial)
-        if isinstance(bottom_bottom_initial, (int, float)):
-            bottom_bottom_initial = int(bottom_bottom_initial)
-
-        # Compute where the bottom control group should start for this window height.
-        bottom_top_new = None
-        if bottom_top_initial is not None and bottom_bottom_initial is not None:
-            cluster_height = bottom_bottom_initial - bottom_top_initial
-            bottom_margin = 10
-            candidate = h - bottom_margin - cluster_height
-            min_from_gap = resp_bottom + gap_below_response
-            bottom_top_new = max(min_from_gap, candidate)
-
-        # NOTE (2026-05): This layout / stretch / clamping logic (and the 4px margins
-        # below) is restored from commit af649476 because it had better real-world
-        # horizontal scrollbar behavior in the plain text sidebar. When the user
-        # widened the sidebar, the scrollbar would often disappear.
-        #
-        # Later experiments (tightening margins to 2px and removing the final margin
-        # in the safety clamp) made the H scrollbar more persistent / always visible.
-        # Future changes here should be made very cautiously.
-        #
-        # Simple stretch policy (horizontal width policy lives in getHeightForWidth).
-        # Only these fields are stretched to fill; everything else stays at XDL snapshot
-        # width and is only right-clamped if it would overflow.
-        stretch = _STRETCH_CONTROLS
-
-        top_of_bottom = h
-
-        right_margin = 6 if self._first_relayout else 4
-
-        for name, ctrl in self._c.items():
-            if not ctrl or name == "response":
-                continue
-            orig = initial["ctrls"].get(name)
-            if not orig:
-                continue
-            ox, oy, ow, oh = orig
-
-            if name in stretch:
-                new_x = ox
-                new_w = max(_MIN_WIDTHS.get(name, 40), w - ox - right_margin)
-                if name in _CONTENT_EDGE_CLAMP:
-                    resp_ctrl = self._c.get("response")
-                    if resp_ctrl:
-                        try:
-                            from plugin.chatbot.rich_text_control import sidebar_content_right_edge
-
-                            cap = sidebar_content_right_edge(win, resp_ctrl) - new_x
-                            if cap > 0:
-                                new_w = min(new_w, max(_MIN_WIDTHS.get(name, 40), cap))
-                        except Exception as e:
-                            log.debug("%s width clamp to content edge: %s", name, e)
-            else:
-                # Buttons, labels, checkboxes, backend_indicator, etc. — keep XDL width, left-anchored.
-                new_x = ox
-                new_w = ow
-
-            # Final safety: no control may extend past the current window right edge.
-            # This is the only remaining "prevent H scrollbar" clamp.
-            if new_x + new_w > w - right_margin:
-                new_w = max(20, w - new_x - right_margin)
-
-            if oy >= resp_bottom:
-                if bottom_top_new is not None and bottom_top_initial is not None:
-                    delta = bottom_top_new - bottom_top_initial
-                    new_y = oy + delta
-                else:
-                    new_y = h - (ih - oy)
-                cur = ctrl.getPosSize()
-                if cur.X != new_x or cur.Y != new_y or cur.Width != new_w or cur.Height != oh:
-                    ctrl.setPosSize(new_x, new_y, new_w, oh, 15)
-                top_of_bottom = min(top_of_bottom, new_y)
-            else:
-                cur = ctrl.getPosSize()
-                if cur.X != new_x or cur.Y != oy or cur.Width != new_w or cur.Height != oh:
-                    ctrl.setPosSize(new_x, oy, new_w, oh, 15)
-
-        # Second pass: stretch response vertically (and a simple width fill for safety).
-        resp_orig = initial["ctrls"].get("response")
-        resp_ctrl = self._c.get("response")
-        if resp_orig and resp_ctrl:
-            rx, ry, rw, rh = resp_orig
-            gap = gap_below_response if gap_below_response >= 0 else 2
-            new_rh = max(30, top_of_bottom - gap - ry)
-
-            right_margin = 8 if self._first_relayout else 4
-            new_rw = max(_MIN_WIDTHS.get("response", 40), w - rx - right_margin)
-            if rx + new_rw > w - right_margin:
-                new_rw = max(20, w - rx - right_margin)
-
-            # High-signal one-time diagnostic for the critical first layout on startup.
-            # Promoted to INFO so it reliably appears in writeragent_debug.log.
-            if self._first_relayout:
+        response = layouts.get("response")
+        if response is not None:
+            self._last_response_rect = (response.x, response.y, response.width, response.height)
+            log.info(
+                "[LAYOUT] response_rect x=%d y=%d w=%d h=%d root=%dx%d",
+                response.x,
+                response.y,
+                response.width,
+                response.height,
+                w,
+                h,
+            )
+            rich = self._c.get("response_rich")
+            if rich is not None:
                 try:
-                    log.info("[FIRST RELAYOUT SIZES] root_w=%d response_w=%d (x=%d) clear_right=%d model_sel_right=%d",
-                              w,
-                              new_rw, rx,
-                              (self._c.get("clear").getPosSize().X + self._c.get("clear").getPosSize().Width) if self._c.get("clear") else -1,
-                              (self._c.get("model_selector").getPosSize().X + self._c.get("model_selector").getPosSize().Width) if self._c.get("model_selector") else -1)
-                except Exception:
-                    pass
+                    from plugin.chatbot.rich_text_control import sync_rich_control_bounds
 
-            self._first_relayout = False
-
-            cur = resp_ctrl.getPosSize()
-            if cur.X != rx or cur.Y != ry or cur.Width != new_rw or cur.Height != new_rh:
-                resp_ctrl.setPosSize(rx, ry, new_rw, new_rh, 15)
+                    rich_out = [rich]
+                    sync_rich_control_bounds(
+                        rich,
+                        win,
+                        self._c.get("response"),
+                        placeholder_rect=self._last_response_rect,
+                        control_out=rich_out,
+                    )
+                    self._c["response_rich"] = rich_out[0]
+                except Exception as e:
+                    log.debug("response_rich sync after relayout: %s", e)

@@ -186,18 +186,23 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
         parent_rect = self.parent_window.getPosSize()
         parent_w = parent_rect.Width
         parent_h = parent_rect.Height
-        h = parent_h if parent_h > 0 else 400
         deck_w = width
 
         # Read current actual size *before* we decide.
         try:
             before = self.PanelWindow.getPosSize()
             current_w = before.Width if before else 0
+            current_h = before.Height if before else 0
         except Exception as e:
             if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
                 log.debug("getHeightForWidth: PanelWindow likely disposed: %s", e)
             before = None
             current_w = 0
+            current_h = 0
+
+        # Width is negotiated here; height stays whatever LO/deck already allocated.
+        if current_h <= 0:
+            current_h = parent_h if parent_h > 0 else 400
 
         # NOTE (2026-05): This getHeightForWidth logic (including the relatively simple
         # handling of large deck_hints) is restored from commit af649476 because it
@@ -234,7 +239,7 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
                 if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
                     log.debug("getHeightForWidth: resize listener likely disposed: %s", e)
         try:
-            self.PanelWindow.setPosSize(0, 0, eff_w, h, 15)
+            self.PanelWindow.setPosSize(0, 0, eff_w, current_h, 15)
             after = self.PanelWindow.getPosSize()
             log.debug("getHeightForWidth root_after=%sx%s" % (after.Width, after.Height))
         except Exception as e:
@@ -320,7 +325,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             current_rect = self.m_panelRootWindow.getPosSize()
             source_w = parent_rect.Width if parent_rect.Width > 0 else current_rect.Width
             target_w = min(source_w if source_w > 0 else self.toolpanel.getMinimalWidth() if self.toolpanel else 180, _PRE_NEGOTIATION_PANEL_WIDTH)
-            target_h = parent_rect.Height if parent_rect.Height > 0 else current_rect.Height
+            target_h = current_rect.Height if current_rect.Height > 0 else (
+                parent_rect.Height if parent_rect.Height > 0 else 400
+            )
             if target_w > 0 and target_h > 0:
                 self.m_panelRootWindow.setPosSize(0, 0, target_w, target_h, 15)
                 log.debug("panel pre-negotiation constrained to W=%s H=%s" % (target_w, target_h))

@@ -231,32 +231,194 @@ def sidebar_content_right_edge(root_window, placeholder_ctrl) -> int:
     return _layout_right_edge_for_rich_control(root_window, placeholder_ctrl) - RICH_CONTROL_EDGE_INSET
 
 
-def _content_bounds_for_rich_control(root_window, placeholder_ctrl):
-    """Return (x, y, width, height) for the rich control inside the response area."""
+def _content_bounds_for_rich_control(root_window, placeholder_ctrl, placeholder_rect=None):
+    """Return (x, y, width, height) for the rich control inside the response area.
+
+    When ``placeholder_rect`` is supplied by ``_PanelResizeListener``, use it as the sole
+    geometry source. The hidden plain ``response`` field and live Clear button positions are
+    unreliable on GTK after RichText init.
+    """
+    if placeholder_rect is not None:
+        px, py, pw, ph = placeholder_rect
+        inset = RICH_CONTROL_EDGE_INSET
+        return (
+            px + inset,
+            py + inset,
+            max(20, pw - 2 * inset),
+            max(20, ph - 2 * inset),
+        )
+
     ps = placeholder_ctrl.getPosSize()
+    px, py, pw, ph = int(ps.X), int(ps.Y), int(ps.Width), int(ps.Height)
     inset = RICH_CONTROL_EDGE_INSET
-    x = int(ps.X) + inset
-    y = int(ps.Y) + inset
-    right = _layout_right_edge_for_rich_control(root_window, placeholder_ctrl)
+    x = px + inset
+    y = py + inset
+    right = px + pw
+    try:
+        if root_window is not None and hasattr(root_window, "getControl"):
+            clear_ctrl = root_window.getControl("clear")
+            if clear_ctrl is not None:
+                cr = clear_ctrl.getPosSize()
+                clear_right = int(cr.X) + int(cr.Width)
+                if clear_right > px:
+                    right = clear_right
+        if root_window is not None:
+            root_w = int(root_window.getPosSize().Width)
+            if root_w > 0:
+                right = min(right, root_w - 4)
+    except Exception:
+        pass
     w = max(20, right - x - inset)
-    h = max(20, int(ps.Height) - 2 * inset)
+    h = max(20, ph - 2 * inset)
     return x, y, w, h
 
 
-def sync_rich_control_bounds(rich_control, root_window, placeholder_ctrl) -> bool:
-    """Position the rich control over the response area without exceeding the button row width."""
+def _apply_rich_control_geometry(rich_control, bx, by, bw, bh, *, update_dialog_model=False) -> bool:
+    """Apply bounds to a sidebar RichTextControl view (and optionally its dialog model).
+
+    Dialog-embedded controls accept PositionX/Y/Width/Height only at insert time; after
+    ``insertByName`` subsequent model writes return -1 (see writeragent_debug.log). Prefer
+    the peer creation path for controls that must resize; use ``update_dialog_model`` only
+    on first insert.
+    """
+    changed = False
+    if update_dialog_model:
+        try:
+            model = rich_control.getModel()
+            if model is not None:
+                for prop, val in (
+                    ("PositionX", bx),
+                    ("PositionY", by),
+                    ("Width", bw),
+                    ("Height", bh),
+                ):
+                    current = getattr(model, prop, None)
+                    if current is None or int(current) != int(val):
+                        if _set_model_property(model, prop, val):
+                            changed = True
+        except Exception as e:
+            log.debug("_apply_rich_control_geometry model: %s", e)
+    try:
+        cur = rich_control.getPosSize()
+        if int(cur.X) != bx or int(cur.Y) != by or int(cur.Width) != bw or int(cur.Height) != bh:
+            rich_control.setPosSize(bx, by, bw, bh, 15)
+            changed = True
+    except Exception as e:
+        log.debug("_apply_rich_control_geometry setPosSize: %s", e)
+    return changed
+
+
+def _rich_control_needs_bounds(rich_control, bx, by, bw, bh, tolerance=2) -> bool:
+    try:
+        cur = rich_control.getPosSize()
+        return (
+            abs(int(cur.X) - bx) > tolerance
+            or abs(int(cur.Y) - by) > tolerance
+            or abs(int(cur.Width) - bw) > tolerance
+            or abs(int(cur.Height) - bh) > tolerance
+        )
+    except Exception:
+        return True
+
+
+def _reinsert_dialog_embedded_rich_control(root_window, placeholder_ctrl, placeholder_rect=None):
+    """Remove and recreate dialog-embedded RichTextControl at new bounds (insert-time sizing only)."""
+    try:
+        dlg_model = root_window.getModel()
+        if dlg_model is None or not hasattr(dlg_model, "hasByName"):
+            return None
+        if dlg_model.hasByName(RICH_CONTROL_NAME):
+            dlg_model.removeByName(RICH_CONTROL_NAME)
+    except Exception as e:
+        log.debug("_reinsert_dialog_embedded_rich_control remove: %s", e)
+        return None
+    return _try_dialog_embedded_rich_control(root_window, placeholder_ctrl, placeholder_rect)
+
+
+def sync_rich_control_bounds(rich_control, root_window, placeholder_ctrl, placeholder_rect=None, control_out=None) -> bool:
+    """Position the rich control over the response area without exceeding the button row width.
+
+    When ``control_out`` is a one-element list, it may be replaced after dialog reinsert.
+    """
     if rich_control is None or placeholder_ctrl is None:
         return False
     try:
-        bx, by, bw, bh = _content_bounds_for_rich_control(root_window, placeholder_ctrl)
-        cur = rich_control.getPosSize()
-        if int(cur.X) == bx and int(cur.Y) == by and int(cur.Width) == bw and int(cur.Height) == bh:
-            return False
-        rich_control.setPosSize(bx, by, bw, bh, 15)
+        bx, by, bw, bh = _content_bounds_for_rich_control(
+            root_window, placeholder_ctrl, placeholder_rect=placeholder_rect,
+        )
+        _apply_rich_control_geometry(rich_control, bx, by, bw, bh, update_dialog_model=False)
+        if _rich_control_needs_bounds(rich_control, bx, by, bw, bh):
+            # Dialog-embedded: model resize after insert fails (-1); reinsert when transcript empty.
+            try:
+                model = rich_control.getModel()
+                text = getattr(model, "Text", "") or "" if model is not None else ""
+            except Exception:
+                text = "?"
+            if not text or text == "\u200b":
+                new_ctrl = _reinsert_dialog_embedded_rich_control(root_window, placeholder_ctrl, placeholder_rect)
+                if new_ctrl is not None:
+                    rich_control = new_ctrl
+                    if control_out is not None:
+                        control_out[0] = new_ctrl
+                    new_ctrl.setVisible(True)
+                    log.info(
+                        "[RICH-CONTROL] reinserted dialog control at %dx%d@%d,%d",
+                        bw,
+                        bh,
+                        bx,
+                        by,
+                    )
+            else:
+                log.warning(
+                    "[RICH-CONTROL] bounds mismatch but transcript non-empty (h=%s want=%s); peer path preferred",
+                    rich_control.getPosSize().Height if hasattr(rich_control, "getPosSize") else "?",
+                    bh,
+                )
+        if placeholder_rect is not None:
+            try:
+                cur = rich_control.getPosSize()
+                log.info(
+                    "[RICH-CONTROL] sync bounds placeholder_rect=%s -> %dx%d@%d,%d",
+                    placeholder_rect,
+                    int(cur.Width),
+                    int(cur.Height),
+                    int(cur.X),
+                    int(cur.Y),
+                )
+            except Exception:
+                log.info(
+                    "[RICH-CONTROL] sync bounds applied placeholder_rect=%s -> %dx%d@%d,%d",
+                    placeholder_rect,
+                    bw,
+                    bh,
+                    bx,
+                    by,
+                )
         return True
     except Exception as e:
         log.debug("sync_rich_control_bounds failed: %s", e)
         return False
+
+
+def refresh_rich_control_peer_layout(ctx, rich_control) -> None:
+    """Ask VCL to apply bounds already set on the peer (GTK may paint ~2 lines until focus)."""
+    if rich_control is None:
+        return
+    try:
+        process_events_to_idle(ctx, rounds=2)
+    except Exception as e:
+        log.debug("refresh_rich_control_peer_layout idle: %s", e)
+    try:
+        cur = rich_control.getPosSize()
+        rich_control.setPosSize(int(cur.X), int(cur.Y), int(cur.Width), int(cur.Height), 15)
+    except Exception as e:
+        log.debug("refresh_rich_control_peer_layout setPosSize: %s", e)
+    try:
+        peer = rich_control.getPeer() if hasattr(rich_control, "getPeer") else None
+        if peer is not None and hasattr(peer, "invalidate"):
+            peer.invalidate(0)
+    except Exception as e:
+        log.debug("refresh_rich_control_peer_layout invalidate: %s", e)
 
 
 def _apply_sidebar_para_margins(cursor) -> None:
@@ -441,7 +603,7 @@ def _create_rich_control_peer(smgr, ctx, toolkit, field_model, parent_window):
     return None
 
 
-def _try_dialog_embedded_rich_control(root_window, placeholder_ctrl):
+def _try_dialog_embedded_rich_control(root_window, placeholder_ctrl, placeholder_rect=None):
     """Insert field model via UnoControlDialogModel.createInstance (has PositionX)."""
     try:
         dlg_model = root_window.getModel()
@@ -452,7 +614,9 @@ def _try_dialog_embedded_rich_control(root_window, placeholder_ctrl):
             log.debug("create_sidebar_rich_text_control: dialog-embedded skipped (no createInstance)")
             return None
 
-        bx, by, bw, bh = _content_bounds_for_rich_control(root_window, placeholder_ctrl)
+        bx, by, bw, bh = _content_bounds_for_rich_control(
+            root_window, placeholder_ctrl, placeholder_rect=placeholder_rect,
+        )
         embedded = dlg_model.createInstance("com.sun.star.form.component.TextField")
         if embedded is None:
             log.debug("create_sidebar_rich_text_control: dialog createInstance(TextField) returned None")
@@ -495,15 +659,41 @@ class RichTextControlListener(BaseWindowListener):
     and ``on_window_shown`` when the sidebar deck fires ``windowShown`` (typical on KDE).
     """
 
-    def __init__(self, ctx, root_window, placeholder_ctrl, on_ready_callback):
+    def __init__(self, ctx, root_window, placeholder_ctrl, on_ready_callback, placeholder_rect_fn=None):
         self.ctx = ctx
         self.root_window = root_window
         self.placeholder_ctrl = placeholder_ctrl
         self.on_ready_callback = on_ready_callback
+        self._placeholder_rect_fn = placeholder_rect_fn
         self.rich_control = None
         self.initialized = False
         self._disposed = False
         self._syncing_bounds = False
+
+    def _resolved_placeholder_rect(self):
+        if self._placeholder_rect_fn is not None:
+            try:
+                return self._placeholder_rect_fn()
+            except Exception as e:
+                log.debug("RichTextControlListener._resolved_placeholder_rect: %s", e)
+        return None
+
+    def _sync_bounds(self) -> None:
+        if self._disposed or not self.rich_control or not self.placeholder_ctrl:
+            return
+        out = [self.rich_control]
+        sync_rich_control_bounds(
+            self.rich_control,
+            self.root_window,
+            self.placeholder_ctrl,
+            placeholder_rect=self._resolved_placeholder_rect(),
+            control_out=out,
+        )
+        self.rich_control = out[0]
+        try:
+            refresh_rich_control_peer_layout(self.ctx, self.rich_control)
+        except Exception as e:
+            log.debug("RichTextControlListener._sync_bounds refresh: %s", e)
 
     def disposing(self, Source):
         log_rich_control_context(self.ctx, "disposing", initialized=self.initialized, had_control=bool(self.rich_control))
@@ -578,7 +768,7 @@ class RichTextControlListener(BaseWindowListener):
             return
         self._syncing_bounds = True
         try:
-            sync_rich_control_bounds(self.rich_control, self.root_window, self.placeholder_ctrl)
+            self._sync_bounds()
         finally:
             self._syncing_bounds = False
 
@@ -609,7 +799,12 @@ class RichTextControlListener(BaseWindowListener):
         if self._disposed:
             return
         try:
-            control = create_sidebar_rich_text_control(self.ctx, self.root_window, self.placeholder_ctrl)
+            control = create_sidebar_rich_text_control(
+                self.ctx,
+                self.root_window,
+                self.placeholder_ctrl,
+                placeholder_rect=self._resolved_placeholder_rect(),
+            )
             if not control:
                 log_rich_control_context(self.ctx, "deferred_init", result="control_fail")
                 log.error("RichTextControlListener: failed to create sidebar RichText control")
@@ -625,7 +820,7 @@ class RichTextControlListener(BaseWindowListener):
                     pass
                 return
             self.rich_control = control
-            sync_rich_control_bounds(control, self.root_window, self.placeholder_ctrl)
+            self._sync_bounds()
             visible = control.isVisible() if hasattr(control, "isVisible") else "?"
             try:
                 pos = control.getPosSize()
@@ -645,7 +840,7 @@ class RichTextControlListener(BaseWindowListener):
             log.exception("RichTextControlListener deferred init failed")
 
 
-def create_sidebar_rich_text_control(ctx, root_window, placeholder_ctrl):
+def create_sidebar_rich_text_control(ctx, root_window, placeholder_ctrl, placeholder_rect=None):
     """Create a form RichText TextField peer positioned over the response placeholder."""
     try:
         smgr = ctx.getServiceManager()
@@ -656,11 +851,12 @@ def create_sidebar_rich_text_control(ctx, root_window, placeholder_ctrl):
 
         ps = placeholder_ctrl.getPosSize()
         log.info(
-            "create_sidebar_rich_text_control: placeholder at x=%s y=%s w=%s h=%s",
+            "create_sidebar_rich_text_control: placeholder at x=%s y=%s w=%s h=%s layout_rect=%s",
             ps.X,
             ps.Y,
             ps.Width,
             ps.Height,
+            placeholder_rect,
         )
 
         field_model = smgr.createInstanceWithContext("com.sun.star.form.component.TextField", ctx)
@@ -685,21 +881,36 @@ def create_sidebar_rich_text_control(ctx, root_window, placeholder_ctrl):
             rich_flag,
         )
 
-        control = _try_dialog_embedded_rich_control(root_window, placeholder_ctrl)
+        bx, by, bw, bh = _content_bounds_for_rich_control(
+            root_window, placeholder_ctrl, placeholder_rect=placeholder_rect,
+        )
+
+        # Peer controls resize via setPosSize on later relayout; dialog-embedded only at insert.
+        control = _create_rich_control_peer(smgr, ctx, toolkit, field_model, root_window)
         if control is None:
-            control = _create_rich_control_peer(smgr, ctx, toolkit, field_model, root_window)
+            control = _try_dialog_embedded_rich_control(root_window, placeholder_ctrl, placeholder_rect)
         if control is None:
             log.error("create_sidebar_rich_text_control: could not create RichText control peer")
             return None
 
-        bx, by, bw, bh = _content_bounds_for_rich_control(root_window, placeholder_ctrl)
-        control.setPosSize(bx, by, bw, bh, 15)
+        _apply_rich_control_geometry(control, bx, by, bw, bh, update_dialog_model=False)
         control.setVisible(True)
         _apply_rich_control_style_defaults(control, style_window=root_window)
-        log.info(
-            "create_sidebar_rich_text_control: ready control visible=%s",
-            control.isVisible() if hasattr(control, "isVisible") else "?",
-        )
+        try:
+            cur = control.getPosSize()
+            log.info(
+                "create_sidebar_rich_text_control: ready visible=%s bounds=%dx%d@%d,%d",
+                control.isVisible() if hasattr(control, "isVisible") else "?",
+                int(cur.Width),
+                int(cur.Height),
+                int(cur.X),
+                int(cur.Y),
+            )
+        except Exception:
+            log.info(
+                "create_sidebar_rich_text_control: ready control visible=%s",
+                control.isVisible() if hasattr(control, "isVisible") else "?",
+            )
         return control
     except Exception:
         log.exception("create_sidebar_rich_text_control failed")

@@ -14,8 +14,10 @@ from plugin.tests.testing_utils import setup_uno_mocks
 
 setup_uno_mocks()
 
-from plugin.chatbot.panel_resize import _PanelResizeListener
-from plugin.chatbot.rich_text_control import sidebar_content_right_edge
+from plugin.chatbot.panel_resize import (
+    _PanelResizeListener,
+    compute_chat_panel_layout,
+)
 
 
 def _mock_control(x, y, width, height):
@@ -30,29 +32,78 @@ def _mock_control(x, y, width, height):
     return ctrl
 
 
-def _xdl_like_controls():
+def _xdl_snapshot():
     """Positions from extension/WriterAgentDialogs/ChatPanelDialog.xdl."""
     return {
-        "response": _mock_control(4, 16, 142, 110),
-        "status": _mock_control(4, 128, 142, 10),
-        "query": _mock_control(4, 152, 142, 30),
-        "send": _mock_control(4, 186, 50, 15),
-        "stop": _mock_control(56, 186, 50, 15),
-        "clear": _mock_control(108, 186, 50, 15),
-        "direct_image_check": _mock_control(4, 203, 78, 10),
-        "web_research_check": _mock_control(84, 203, 78, 10),
-        "model_label": _mock_control(4, 217, 142, 10),
-        "model_selector": _mock_control(4, 229, 142, 14),
-        "image_model_selector": _mock_control(4, 215, 142, 14),
-        "base_size_label": _mock_control(4, 235, 20, 10),
-        "base_size_input": _mock_control(25, 233, 40, 14),
-        "aspect_ratio_selector": _mock_control(70, 233, 102, 14),
+        "response": (4, 16, 142, 110),
+        "status": (4, 128, 142, 10),
+        "query_label": (4, 140, 142, 10),
+        "query": (4, 152, 142, 30),
+        "send": (4, 186, 50, 15),
+        "stop": (56, 186, 50, 15),
+        "clear": (108, 186, 50, 15),
+        "direct_image_check": (4, 203, 78, 10),
+        "web_research_check": (84, 203, 78, 10),
+        "model_label": (4, 217, 142, 10),
+        "model_selector": (4, 229, 142, 14),
+        "image_model_selector": (4, 215, 142, 14),
+        "base_size_label": (4, 235, 20, 10),
+        "base_size_input": (25, 233, 40, 14),
+        "aspect_ratio_selector": (70, 233, 102, 14),
     }
 
 
-class TestPanelResizeContentEdgeClamp:
-    def test_comboboxes_clamp_to_sidebar_content_right_edge(self):
-        controls = _xdl_like_controls()
+class TestComputeChatPanelLayout:
+    def test_transcript_fills_space_above_bottom_band(self):
+        layouts = compute_chat_panel_layout(900, 500, _xdl_snapshot())
+        response = layouts["response"]
+        status = layouts["status"]
+
+        assert response.y == 16
+        assert status.y > response.y + response.height
+        assert status.y > 300
+        assert response.height > 200
+
+    def test_inflated_response_snapshot_height_is_ignored(self):
+        snapshot = _xdl_snapshot()
+        snapshot["response"] = (4, 16, 142, 400)
+        layouts = compute_chat_panel_layout(900, 500, snapshot)
+        response = layouts["response"]
+        status = layouts["status"]
+
+        assert response.height > 200
+        assert status.y > response.y + response.height - 20
+
+    def test_tall_panel_gives_larger_transcript(self):
+        short = compute_chat_panel_layout(900, 373, _xdl_snapshot())["response"].height
+        tall = compute_chat_panel_layout(900, 900, _xdl_snapshot())["response"].height
+        assert tall > short
+
+    def test_short_panel_keeps_minimum_transcript_and_visible_bottom(self):
+        layouts = compute_chat_panel_layout(900, 220, _xdl_snapshot())
+        response = layouts["response"]
+        status = layouts["status"]
+
+        assert response.height >= 30
+        assert status.y + status.height <= 220
+
+    def test_content_edge_matches_clear_button_row(self):
+        layouts = compute_chat_panel_layout(900, 500, _xdl_snapshot())
+        clear_right = layouts["clear"].x + layouts["clear"].width
+        for name in ("query", "model_selector", "image_model_selector", "aspect_ratio_selector"):
+            rect = layouts[name]
+            assert rect.x + rect.width <= clear_right
+            assert rect.width < 200
+
+
+class TestPanelResizeListenerIntegration:
+    def test_listener_applies_layout_and_syncs_rich_control(self):
+        controls = {
+            name: _mock_control(x, y, w, h)
+            for name, (x, y, w, h) in _xdl_snapshot().items()
+        }
+        rich = _mock_control(12, 24, 120, 90)
+        controls["response_rich"] = rich
         root = MagicMock()
         root.getPosSize.return_value = SimpleNamespace(Width=900, Height=500)
         root.getControl.side_effect = lambda name: controls.get(name)
@@ -61,9 +112,20 @@ class TestPanelResizeContentEdgeClamp:
         listener._width_negotiated = True
         listener.relayout_now(root)
 
-        edge = sidebar_content_right_edge(root, controls["response"])
-        clamped = ("query", "model_selector", "image_model_selector", "aspect_ratio_selector")
-        for name in clamped:
+        expected = compute_chat_panel_layout(900, 500, _xdl_snapshot())
+        for name, rect in expected.items():
             ps = controls[name].getPosSize()
-            assert ps.X + ps.Width == edge, f"{name} right edge should match content edge"
-            assert ps.Width < 200, f"{name} should not stretch to full panel width"
+            assert ps.X == rect.x
+            assert ps.Y == rect.y
+            assert ps.Width == rect.width
+            assert ps.Height == rect.height
+
+        assert listener.last_response_rect is not None
+        _rx, _ry, _rw, rh = listener.last_response_rect
+        assert rh == expected["response"].height
+        assert rich.getPosSize().Height == rh - 16
+
+    def test_narrow_panel_stretches_response_to_margin(self):
+        layouts = compute_chat_panel_layout(180, 500, _xdl_snapshot())
+        response = layouts["response"]
+        assert response.x + response.width <= 180 - 4

@@ -279,16 +279,6 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
                 controls["response_rich"] = rich_control
                 if hasattr(self, "_panel_resize_listener") and self._panel_resize_listener:
                     self._panel_resize_listener._c["response_rich"] = rich_control
-                    try:
-                        self._panel_resize_listener.relayout_now(root_window)
-                    except Exception as e:
-                        log.debug("on_rich_control_ready relayout_now: %s", e)
-                try:
-                    from plugin.chatbot.rich_text_control import sync_rich_control_bounds
-
-                    sync_rich_control_bounds(rich_control, root_window, controls["response"])
-                except Exception as e:
-                    log.debug("on_rich_control_ready sync bounds: %s", e)
                 if hasattr(self, "send_listener") and self.send_listener:
                     self.send_listener.set_rich_text_widget(widget)
                 hide_plain_ok = True
@@ -313,28 +303,33 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
                     response=int(hide_response),
                     response_label=int(hide_label),
                 )
+                if hasattr(self, "_panel_resize_listener") and self._panel_resize_listener:
+                    try:
+                        self._panel_resize_listener.relayout_now(root_window)
+                    except Exception as e:
+                        log.debug("on_rich_control_ready relayout_now: %s", e)
                 try:
                     nonlocal web_checked, model, active_greeting
                     self._render_session_history(self.session, controls["response"], model, active_greeting)
                 except Exception as e:
                     log.error("Initial RichTextControl render failed: %s", e)
-                if hasattr(self, "_panel_resize_listener") and self._panel_resize_listener:
+                if hasattr(self, "_rich_control_listener") and self._rich_control_listener:
                     try:
-                        self._panel_resize_listener.relayout_now(root_window)
+                        self._rich_control_listener._sync_bounds()
                     except Exception as e:
-                        log.debug("on_rich_control_ready post-history relayout_now: %s", e)
+                        log.debug("on_rich_control_ready sync bounds: %s", e)
                 try:
-                    from plugin.chatbot.rich_text_control import sync_rich_control_bounds
-                    from plugin.framework.queue_executor import post_to_main_thread
-
-                    sync_rich_control_bounds(rich_control, root_window, controls["response"])
                     widget.nudge_view_to_end()
-                    # Relayout can reset EditEngine scroll position after the first nudge.
-                    post_to_main_thread(widget.nudge_view_to_end)
                 except Exception as e:
-                    log.debug("on_rich_control_ready post-history scroll: %s", e)
+                    log.debug("on_rich_control_ready nudge scroll: %s", e)
 
-            rich_control_listener = RichTextControlListener(self.ctx, root_window, controls["response"], on_rich_control_ready)
+            rich_control_listener = RichTextControlListener(
+                self.ctx,
+                root_window,
+                controls["response"],
+                on_rich_control_ready,
+                placeholder_rect_fn=lambda _rl=_resize: _rl.last_response_rect,
+            )
             self._rich_control_listener = rich_control_listener
             root_window.addWindowListener(rich_control_listener)
             log.info("[RICH-CONTROL] RichTextControlListener attached to root_window")

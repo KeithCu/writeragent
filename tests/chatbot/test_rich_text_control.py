@@ -80,6 +80,48 @@ class TestRichControlHelpers:
         bx, _by, bw, _bh = _content_bounds_for_rich_control(root, ps)
         assert bx + bw == sidebar_content_right_edge(root, ps)
 
+    def test_content_bounds_placeholder_rect_is_authoritative(self):
+        """Layout-provided rect is the sole geometry source; Clear width must not widen it."""
+        from types import SimpleNamespace
+
+        from plugin.chatbot.rich_text_control import RICH_CONTROL_EDGE_INSET, _content_bounds_for_rich_control
+
+        ps = MagicMock()
+        ps.getPosSize.return_value = SimpleNamespace(X=4, Y=16, Width=142, Height=110)
+        root = MagicMock()
+        root.getPosSize.return_value = SimpleNamespace(Width=900, Height=500)
+        clear = MagicMock()
+        clear.getPosSize.return_value = SimpleNamespace(X=108, Y=186, Width=50, Height=15)
+        root.getControl.return_value = clear
+        bx, by, bw, bh = _content_bounds_for_rich_control(
+            root, ps, placeholder_rect=(4, 16, 142, 350),
+        )
+        assert bx == 4 + RICH_CONTROL_EDGE_INSET
+        assert by == 16 + RICH_CONTROL_EDGE_INSET
+        assert bw == 142 - 2 * RICH_CONTROL_EDGE_INSET
+        assert bh == 350 - 2 * RICH_CONTROL_EDGE_INSET
+        assert bw < 900
+
+    def test_apply_rich_control_geometry_updates_dialog_model(self):
+        from types import SimpleNamespace
+
+        from plugin.chatbot.rich_text_control import _apply_rich_control_geometry
+
+        model = MagicMock()
+        model.PositionX = 36
+        model.PositionY = 118
+        model.Width = 1043
+        model.Height = 94
+        rich = MagicMock()
+        rich.getModel.return_value = model
+        rich.getPosSize.return_value = SimpleNamespace(X=36, Y=118, Width=1043, Height=94)
+
+        changed = _apply_rich_control_geometry(rich, 36, 118, 1043, 300, update_dialog_model=True)
+
+        assert changed
+        assert model.Height == 300
+        rich.setPosSize.assert_called_once_with(36, 118, 1043, 300, 15)
+
     def test_rich_control_model_gets_chat_typography(self):
         from plugin.chatbot.rich_text_control import _apply_rich_control_style_defaults_on_model
 
