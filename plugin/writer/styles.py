@@ -45,6 +45,7 @@ else:
                 self.Value = Value
 
 from plugin.framework.tool import ToolBase as FrameworkToolBase
+from .format import apply_paragraph_style_preserving_direct_char
 from .specialized_base import ToolWriterStyleBase
 from .target_resolver import resolve_target_cursor
 
@@ -325,7 +326,10 @@ class ApplyStyle(FrameworkToolBase):
             return self._tool_error("Failed to resolve target location.")
 
         try:
-            cursor.setPropertyValue(uno_prop, uno_value)
+            if family == "ParagraphStyles":
+                apply_paragraph_style_preserving_direct_char(ctx.doc, cursor, uno_value)
+            else:
+                cursor.setPropertyValue(uno_prop, uno_value)
         except Exception as e:
             return self._tool_error("Could not apply style: %s" % e)
         return {"status": "ok", "style_name": style_name, "family": family}

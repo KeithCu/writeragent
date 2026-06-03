@@ -151,32 +151,37 @@ def test_get_style_info(mock_ctx):
     assert res["name"] == "Emphasis"
     assert res["is_in_use"] is True
 
+@patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char")
 @patch("plugin.writer.styles.resolve_target_cursor")
-def test_apply_style_paragraph(mock_resolve, mock_ctx):
+def test_apply_style_paragraph(mock_resolve, mock_preserve, mock_ctx):
     cursor = MagicMock()
     mock_resolve.return_value = cursor
-    
+
     tool = ApplyStyle()
     res = tool.execute(mock_ctx, style_name="Heading 1", target="selection")
-    
+
     assert res["status"] == "ok"
     assert res["family"] == "ParagraphStyles"
-    cursor.setPropertyValue.assert_called_once_with("ParaStyleName", "Heading 1")
+    mock_preserve.assert_called_once_with(mock_ctx.doc, cursor, "Heading 1")
+    cursor.setPropertyValue.assert_not_called()
 
+@patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char")
 @patch("plugin.writer.styles.resolve_target_cursor")
-def test_apply_style_character(mock_resolve, mock_ctx):
+def test_apply_style_character(mock_resolve, mock_preserve, mock_ctx):
     cursor = MagicMock()
     mock_resolve.return_value = cursor
-    
+
     tool = ApplyStyle()
     res = tool.execute(mock_ctx, style_name="Source Text", family="CharacterStyles", target="search", old_content="code")
-    
+
     assert res["status"] == "ok"
     assert res["family"] == "CharacterStyles"
+    mock_preserve.assert_not_called()
     cursor.setPropertyValue.assert_called_once_with("CharStyleName", "Source Text")
 
+@patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char")
 @patch("plugin.writer.styles.resolve_target_cursor")
-def test_apply_default_character_style(mock_resolve, mock_ctx):
+def test_apply_default_character_style(mock_resolve, mock_preserve, mock_ctx):
     """Applying 'No Character Style' should set CharStyleName to '' (UNO reset)."""
     cursor = MagicMock()
     mock_resolve.return_value = cursor
@@ -187,7 +192,9 @@ def test_apply_default_character_style(mock_resolve, mock_ctx):
     assert res["status"] == "ok"
     assert res["style_name"] == "No Character Style"
     assert res["family"] == "CharacterStyles"
+    mock_preserve.assert_not_called()
     cursor.setPropertyValue.assert_called_once_with("CharStyleName", "")
+
 
 def test_update_style_with_parent(mock_ctx):
     families = mock_ctx.doc.getStyleFamilies()

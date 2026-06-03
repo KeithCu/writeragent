@@ -600,6 +600,124 @@ def replace_single_range_with_content(model, text_range, content, ctx, config_sv
 
 
 # ---------------------------------------------------------------------------
+# Paragraph style apply (preserve direct Char* formatting)
+# ---------------------------------------------------------------------------
+
+
+# Other code paths that set ParaStyleName and may need apply_paragraph_style_preserving_direct_char
+# (audit each call site before adopting — semantics differ):
+#   plugin/writer/content.py  — CloneHeadingBlock style re-apply (~475)
+#   plugin/writer/format.py   — replace_single_range_with_content style restore (~595)
+#   plugin/notebook/writer_importer.py — resolved paragraph style on import (~621)
+#   plugin/notebook/notebook_runner.py — output cell paragraph style (~177)
+def apply_paragraph_style_preserving_direct_char(doc, cursor, style_name):
+    """Set *cursor*'s ParaStyleName to *style_name* without wiping direct Char* formatting.
+
+    LibreOffice resets hand-set Char* properties to the new paragraph style's defaults
+    when ParaStyleName is set — across the WHOLE paragraph, even for a sub-range cursor.
+    ``getPropertyState`` is unreliable at the text-portion level, so overrides are
+    detected by VALUE (Char* differs from the paragraph's current style default).
+
+    KNOWN LIMITATION: a direct override whose value equals the old style default is not
+    captured; applying a style with a different default can change that property visibly.
+    """
+
+    def _expand_to_full_paragraphs(cur):
+        try:
+            text = cur.getText()
+            start = text.createTextCursorByRange(cur.getStart())
+            end = text.createTextCursorByRange(cur.getEnd())
+            start.gotoStartOfParagraph(False)
+            end.gotoEndOfParagraph(True)
+            expanded = text.createTextCursorByRange(start.getStart())
+            expanded.gotoRange(end.getEnd(), True)
+            return expanded
+        except Exception:
+            return None
+
+    def _capture_direct_char_overrides(capture_cursor):
+        overrides = []
+        try:
+            para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
+        except Exception:
+            para_styles = None
+        try:
+            READONLY = uno.getConstantByName("com.sun.star.beans.PropertyAttribute.READONLY")
+        except Exception:
+            READONLY = 0
+        try:
+            para_enum = capture_cursor.createEnumeration()
+        except Exception:
+            return overrides
+        _paras = 0
+        while para_enum.hasMoreElements() is True and _paras < 200000:
+            _paras += 1
+            try:
+                para = para_enum.nextElement()
+            except Exception:
+                break
+            if not (hasattr(para, "supportsService") and para.supportsService("com.sun.star.text.Paragraph")):
+                continue
+            old_style = None
+            if para_styles is not None:
+                try:
+                    old_style = para_styles.getByName(para.getPropertyValue("ParaStyleName"))
+                except Exception:
+                    old_style = None
+            if old_style is None:
+                continue
+            try:
+                portion_enum = para.createEnumeration()
+            except Exception:
+                continue
+            _portions = 0
+            while portion_enum.hasMoreElements() is True and _portions < 50000:
+                _portions += 1
+                try:
+                    portion = portion_enum.nextElement()
+                    if portion.getPropertyValue("TextPortionType") != "Text":
+                        continue
+                    portion_props = portion.getPropertySetInfo().getProperties()
+                except Exception:
+                    continue
+                props = {}
+                for p in portion_props:
+                    name = p.Name
+                    if not name.startswith("Char"):
+                        continue
+                    if READONLY and (p.Attributes & READONLY):
+                        continue
+                    try:
+                        val = portion.getPropertyValue(name)
+                    except Exception:
+                        continue
+                    try:
+                        if val == old_style.getPropertyValue(name):
+                            continue
+                    except Exception:
+                        continue
+                    props[name] = val
+                if props:
+                    try:
+                        pc = portion.getText().createTextCursorByRange(portion.getStart())
+                        pc.gotoRange(portion.getEnd(), True)
+                        overrides.append((pc, props))
+                    except Exception:
+                        continue
+        return overrides
+
+    capture_cursor = _expand_to_full_paragraphs(cursor) or cursor
+    overrides = _capture_direct_char_overrides(capture_cursor)
+    cursor.setPropertyValue("ParaStyleName", style_name)
+    for pc, props in overrides:
+        for name, val in props.items():
+            try:
+                pc.setPropertyValue(name, val)
+            except Exception:
+                pass
+
+
+# ---------------------------------------------------------------------------
 # Text search
 # ---------------------------------------------------------------------------
 
