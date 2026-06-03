@@ -29,21 +29,27 @@ from plugin.doc.specialized_shapes_context import format_shapes_canvas_context
 log = logging.getLogger("writeragent.specialized")
 
 
-def _path_or_name_from_tool_arguments(arguments: Any) -> str:
+def _field_from_tool_arguments(arguments: Any, field: str) -> Any:
+    """Read *field* from tool arguments (dict or JSON string), or None."""
     if arguments is None:
-        return ""
+        return None
     if isinstance(arguments, dict):
-        return str(arguments.get("path_or_name", ""))
+        return arguments.get(field)
     if isinstance(arguments, str):
         try:
             from plugin.framework.errors import safe_json_loads
 
             data = safe_json_loads(arguments)
             if isinstance(data, dict):
-                return str(data.get("path_or_name", ""))
+                return data.get(field)
         except Exception:
             pass
-    return ""
+    return None
+
+
+def _path_or_name_from_tool_arguments(arguments: Any) -> str:
+    val = _field_from_tool_arguments(arguments, "path_or_name")
+    return str(val) if val is not None else ""
 
 
 class DelegateToSpecializedBase(ToolBase):
@@ -85,6 +91,17 @@ class DelegateToSpecializedBase(ToolBase):
     def is_async(self):
         """Run in a background thread so the main-thread queue/drain loop isn't blocked."""
         return True
+
+    # Domains whose work is read-only -> a long-running delegation to them must NOT
+    # take the per-document mutation lock (it would needlessly serialize research on
+    # the same doc). The gateway itself is is_mutation=True for the mutating domains.
+    _READ_ONLY_DOMAINS = frozenset({"document_research", "web_research"})
+
+    def requires_document_lock(self, arguments=None):
+        domain = _field_from_tool_arguments(arguments, "domain")
+        if domain in self._READ_ONLY_DOMAINS:
+            return False
+        return super().requires_document_lock(arguments)
 
     def execute(self, ctx, **kwargs):
         domain = kwargs.get("domain")

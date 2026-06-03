@@ -893,3 +893,14 @@ def test_writer_delegate_python_includes_cross_cutting_venv_tool(mock_executor_c
     venv_tool = next(t for t in tools_passed if t.name == "run_venv_python_script")
     assert "does not inject spreadsheet" in venv_tool.description
     assert "Optional data_range" not in venv_tool.description
+
+
+def test_delegate_requires_document_lock_read_only_domains():
+    from plugin.writer.specialized_base import DelegateToSpecializedWriter
+
+    gw = DelegateToSpecializedWriter()
+    assert gw.requires_document_lock({"domain": "document_research"}) is False
+    assert gw.requires_document_lock({"domain": "web_research"}) is False
+    assert gw.requires_document_lock('{"domain": "web_research"}') is False
+    assert gw.requires_document_lock({"domain": "footnotes"}) is True
+    assert gw.requires_document_lock({}) is True

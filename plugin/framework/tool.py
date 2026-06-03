@@ -253,6 +253,15 @@ class ToolBase(ABC):
             return not self.name.startswith(_READ_PREFIXES)
         return True
 
+    def requires_document_lock(self, arguments=None):
+        """Whether a long-running or backpressure MCP run must hold the per-document gate.
+
+        Defaults to :meth:`detects_mutation`. Override when a tool is sometimes read-only
+        depending on ``arguments`` (e.g. delegate gateway domains). See
+        docs/threading_architecture.md § MCP tool execution paths.
+        """
+        return self.detects_mutation()
+
     def _tool_error(self, message, code="TOOL_EXECUTION_ERROR", **details):
         """Standardized JSON payload for tool errors.
 

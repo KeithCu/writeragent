@@ -32,6 +32,8 @@ what to consider doing next.
 
 **Document targeting:** `X-Document-URL` header on MCP requests (see below).
 
+**Concurrency:** Multiple MCP clients may call `tools/call` in parallel. See [Concurrency and parallel `tools/call`](#concurrency-and-parallel-toolscall) and [Threading architecture — MCP](threading_architecture.md#2-http-server-and-mcp-protocol-pluginmcp).
+
 ### Live smoke test (running LibreOffice)
 
 Use [`scripts/mcp_live_smoke.py`](../scripts/mcp_live_smoke.py) when LibreOffice is already open with WriterAgent and MCP enabled. It does **not** start `soffice`; it checks `/health`, `tools/list`, then calls `apply_document_content` with plain text at `target=end` (default) so you can confirm edits **on screen** in the active Writer window. The chat sidebar shows `[MCP Result]` for JSON-RPC `tools/call` (not for `--use-debug`). Default host is **localhost** (port 8765).
@@ -294,6 +296,25 @@ Implications for integrators:
    Expect **long-running** delegate calls (tens of seconds to minutes) and **large** tool results for research compared to most other domains.
 
 3. **Do not assume** `tools/list` is the full WriterAgent surface. If you need direct `list_styles`-style control from the host, that requires a **product change** (expose specialized tiers on MCP), not just a different client config.
+
+### Concurrency and parallel `tools/call`
+
+External MCP hosts often fire several `tools/call` requests at once (e.g. research on one connection while another edits the document). WriterAgent uses **two layers** in [`plugin/mcp/mcp_protocol.py`](../plugin/mcp/mcp_protocol.py):
+
+| Layer | Applies to | Effect |
+|-------|------------|--------|
+| **Global semaphore** | Backpressure (non-`long_running`) tools only | At most one fast tool on the main thread; overload → HTTP 429 `BusyError` |
+| **Per-document gate** | Mutating tools on **both** backpressure and long-running paths | Same normalized `X-Document-URL` / doc key → mutating runs serialize; different docs and read-only runs stay concurrent |
+
+Tools with `long_running = True` (e.g. `delegate_to_specialized_*`, `generate_image`) **skip** the global semaphore so a minutes-long job does not block every other MCP client. They still take the per-document gate when they mutate. Read-only delegations (`domain: "document_research"` or `"web_research"`) opt out via [`ToolBase.requires_document_lock()`](../plugin/framework/tool.py).
+
+**UNO:** All LibreOffice access is marshalled to the main thread. The per-document gate prevents overlapping *mutating MCP tool runs* on the same file, not raw cross-thread UNO (that is already forbidden).
+
+**Targeting:** Send `X-Document-URL` on parallel calls so gates align with the intended document. URLs are normalized (trailing slash stripped) when building gate keys.
+
+**Tests:** [`tests/mcp/test_long_running_concurrency.py`](../tests/mcp/test_long_running_concurrency.py).
+
+**Full design:** [Threading architecture — MCP](threading_architecture.md#2-http-server-and-mcp-protocol-pluginmcp) (paths, diagram, known limits: sidebar chat, gate dict lifetime, save-as key changes).
 
 ### Per-connection vs global configuration (multiple servers)
 

@@ -27,7 +27,9 @@ import socket
 import threading
 import time
 import uuid
+from contextlib import contextmanager
 
+from plugin.doc.document_helpers import _normalize_doc_url
 from plugin.framework.queue_executor import QueueExecutor
 from plugin.framework.errors import WriterAgentException, safe_json_loads
 from plugin.mcp.cors import send_cors_headers
@@ -66,10 +68,70 @@ def _send_mcp_response_headers(handler, *, session_id: str | None = None) -> Non
         handler.send_header("Mcp-Session-Id", session_id)
 
 
-# Backpressure — one tool execution at a time
+# Backpressure — one fast MCP tool at a time on the main thread (_execute_with_backpressure).
+# Long-running tools skip this; see docs/threading_architecture.md § MCP tool execution paths.
 _tool_semaphore = threading.Semaphore(1)
 _WAIT_TIMEOUT = 5.0
 _PROCESS_TIMEOUT = 60.0
+
+_ACTIVE_DOCUMENT_SENTINEL = "__active_document__"
+
+_doc_gates: dict[str, threading.Lock] = {}
+_doc_gates_guard = threading.Lock()
+
+
+def _resolve_mcp_doc_key(document_url, doc):
+    """Stable per-document key for the mutation gate (resolve on main thread with *doc*).
+
+    Future: after Save As, callers may still use the old URL while doc.getURL() returns
+    the new one — two keys could exist briefly for the same logical document. Re-key or
+    prune gates on save events if that becomes a problem.
+
+    When no X-Document-URL and the doc has no URL/RuntimeUID (unsaved active doc), falls
+    back to _ACTIVE_DOCUMENT_SENTINEL. Correct for "target the active document" today;
+    would over-serialize if LO ever allowed ambiguous active-doc targeting.
+    """
+    doc_key = _normalize_doc_url(document_url) if document_url else ""
+    if not doc_key and doc is not None:
+        try:
+            url_part = _normalize_doc_url(doc.getURL())
+            uid_part = getattr(doc, "RuntimeUID", None)
+            doc_key = url_part or (str(uid_part) if uid_part is not None else "")
+        except Exception:
+            log.debug("Could not resolve document key for the mutation gate", exc_info=True)
+            doc_key = ""
+    return doc_key or _ACTIVE_DOCUMENT_SENTINEL
+
+
+def _get_document_mutation_gate(doc_key):
+    # Future: prune _doc_gates[doc_key] on document OnUnload if a long-lived MCP server
+    # opens enough unique URLs that this dict becomes measurable overhead.
+    with _doc_gates_guard:
+        gate = _doc_gates.get(doc_key)
+        if gate is None:
+            gate = threading.Lock()
+            _doc_gates[doc_key] = gate
+        return gate
+
+
+def _tool_needs_document_mutation_gate(tool, arguments=None):
+    if tool is None:
+        return True  # unknown tool -> be safe
+    try:
+        return bool(tool.requires_document_lock(arguments))
+    except Exception:
+        return bool(tool.detects_mutation())
+
+
+@contextmanager
+def _document_mutation_gate(doc_key, *, enabled):
+    # Future: optional acquire timeout + debug log when waiting on a contended gate
+    # (same class of "hung MCP" reports as _tool_semaphore blocking).
+    if not enabled:
+        yield
+        return
+    with _get_document_mutation_gate(doc_key):
+        yield
 
 
 class BusyError(WriterAgentException):
@@ -500,7 +562,11 @@ class MCPProtocolHandler:
     # ── Backpressure execution ───────────────────────────────────────
 
     def _execute_with_backpressure(self, tool_name, arguments, document_url=None):
-        """Execute a tool on the VCL main thread with backpressure."""
+        """Execute a tool on the VCL main thread with backpressure.
+
+        Acquires _tool_semaphore then _execute_tool_on_main (which holds the per-doc
+        mutation gate for mutating tools). UNO runs on the main thread only.
+        """
         acquired = _tool_semaphore.acquire(timeout=_WAIT_TIMEOUT)
         if not acquired:
             raise BusyError("LibreOffice is busy processing another tool call. Please wait a moment and retry.")
@@ -511,8 +577,11 @@ class MCPProtocolHandler:
 
     def _execute_long_running(self, tool_name, arguments, document_url=None):
         """Execute a long-running tool on the current background HTTP thread.
-        Context resolution (finding the active doc) is strictly done on the main thread
-        to ensure thread safety with LibreOffice UNO."""
+
+        Context resolution runs on the main thread. Mutating tools hold the same
+        per-document gate as _execute_tool_on_main; read-only tools skip it.
+        Tool bodies run on the HTTP worker; UNO inside tools uses execute_on_main_thread.
+        """
 
         def _get_context():
             doc_svc = self.services.document
@@ -527,9 +596,10 @@ class MCPProtocolHandler:
             import uno
 
             ctx = uno.getComponentContext()
-            return doc, doc_type, ctx
+            doc_key = _resolve_mcp_doc_key(document_url, doc)
+            return doc, doc_type, ctx, doc_key
 
-        doc, doc_type, ctx = self.queue_executor.execute(_get_context, timeout=10.0)
+        doc, doc_type, ctx, doc_key = self.queue_executor.execute(_get_context, timeout=10.0)
 
         if doc is None and not document_url:
             return {"status": "error", "code": "NO_DOCUMENT_OPEN", "message": "No document open in LibreOffice."}
@@ -548,10 +618,14 @@ class MCPProtocolHandler:
 
         context = ToolContext(doc=doc, ctx=ctx, doc_type=doc_type, services=self.services, caller="mcp", active_page_index=active_page_idx)
 
-
-        t0 = time.perf_counter()
-        result = self.tool_registry.execute(tool_name, context, **arguments)
-        elapsed = time.perf_counter() - t0
+        # Sub-tools invoked by a delegating tool run in-process (not via this method),
+        # so the gate is not re-entered on the same thread -> no self-deadlock.
+        tool = self.tool_registry.get(tool_name)
+        needs_gate = _tool_needs_document_mutation_gate(tool, arguments)
+        with _document_mutation_gate(doc_key, enabled=needs_gate):
+            t0 = time.perf_counter()
+            result = self.tool_registry.execute(tool_name, context, **arguments)
+            elapsed = time.perf_counter() - t0
 
         if isinstance(result, dict):
             result["_elapsed_ms"] = round(elapsed * 1000, 1)
@@ -559,6 +633,7 @@ class MCPProtocolHandler:
         return result
 
     def _execute_tool_on_main(self, tool_name, arguments, document_url=None):
+        """Run a backpressure tool on the main thread; shares _document_mutation_gate with long-running path."""
         doc = None
         doc_type = "writer"
         try:
@@ -600,10 +675,13 @@ class MCPProtocolHandler:
 
         context = ToolContext(doc=doc, ctx=ctx, doc_type=doc_type, services=self.services, caller="mcp", active_page_index=active_page_idx)
 
-
-        t0 = time.perf_counter()
-        result = self.tool_registry.execute(tool_name, context, **arguments)
-        elapsed = time.perf_counter() - t0
+        doc_key = _resolve_mcp_doc_key(document_url, doc)
+        tool = self.tool_registry.get(tool_name)
+        needs_gate = _tool_needs_document_mutation_gate(tool, arguments)
+        with _document_mutation_gate(doc_key, enabled=needs_gate):
+            t0 = time.perf_counter()
+            result = self.tool_registry.execute(tool_name, context, **arguments)
+            elapsed = time.perf_counter() - t0
 
         if isinstance(result, dict):
             result["_elapsed_ms"] = round(elapsed * 1000, 1)

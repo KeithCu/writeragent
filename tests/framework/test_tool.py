@@ -101,6 +101,16 @@ def test_detects_mutation():
         def execute(self, ctx, **kwargs): pass
     assert UnnamedTool().detects_mutation() is True
 
+def test_requires_document_lock_default_matches_detects_mutation():
+    tool1 = ValidTool()
+    assert tool1.requires_document_lock() is tool1.detects_mutation()
+
+    tool2 = ReadTool()
+    assert tool2.requires_document_lock() is tool2.detects_mutation()
+
+    tool3 = ExplictMutateTool()
+    assert tool3.requires_document_lock({"any": "args"}) is tool3.detects_mutation()
+
 def test_validate():
     tool = ValidTool()
 

@@ -23,9 +23,46 @@ This is the core concurrency bridge. Because background threads (like the HTTP s
 The plugin runs an embedded HTTP server to provide a local API and support the Model Context Protocol (MCP).
 
 *   **`server.py`:** The `HTTPServer` runs in a dedicated daemon thread (`name="http-server"`) via `self._thread = threading.Thread(target=self._run, daemon=True)`. This allows the server to perpetually listen for incoming requests without blocking LibreOffice.
-*   **`mcp_protocol.py`:** Incoming HTTP requests land on the server's thread. To execute tool logic (which requires UNO access), the MCP handlers push work to the main thread.
-    *   **Synchronization:** It implements its own simple `_Future` class wrapping a `threading.Event` to wait for main-thread execution, similar to `main_thread.py`.
-    *   **Concurrency limits:** A `threading.Semaphore(1)` (`_tool_semaphore`) is used to enforce backpressure, ensuring only one tool execution runs concurrently.
+*   **`mcp_protocol.py`:** Incoming HTTP requests land on the server's thread. Document resolution and UNO context lookup run on the main thread via `QueueExecutor`; tool bodies that touch the document either run entirely on the main thread (backpressure path) or on the HTTP worker with UNO work marshalled through `execute_on_main_thread` (long-running path).
+
+#### MCP tool execution paths
+
+MCP `tools/call` routes to one of two handlers in [`mcp_protocol.py`](../plugin/mcp/mcp_protocol.py), depending on the tool's `long_running` flag:
+
+| Path | Method | Thread | Global limit | Per-document gate |
+|------|--------|--------|--------------|-------------------|
+| Backpressure | `_execute_with_backpressure` | Main (via queue) | `_tool_semaphore(1)` → `BusyError` if busy | Mutating tools only |
+| Long-running | `_execute_long_running` | HTTP worker | None (by design) | Mutating tools only |
+
+```mermaid
+flowchart TB
+    subgraph backpressure [Backpressure path]
+        Sem["_tool_semaphore acquire"]
+        MainRun["_execute_tool_on_main on main thread"]
+        Sem --> MainRun
+    end
+    subgraph longrun [Long-running path]
+        HttpRun["tool body on HTTP thread"]
+    end
+    MainRun --> Gate["_document_mutation_gate when mutating"]
+    HttpRun --> Gate
+    Gate --> Uno["UNO via main-thread dispatch"]
+```
+
+**Why two layers?** The global semaphore keeps fast MCP tools from piling up on the main thread and surfaces `BusyError` (HTTP 429) under overload. Long-running tools (image generation, delegate sub-agents) skip the semaphore so a minutes-long job does not block every other MCP client. That left a hole: parallel long-running mutators could target the same document. The per-document gate closes that without blocking read-only work or work on other documents.
+
+**Per-document gate:** [`_document_mutation_gate`](../plugin/mcp/mcp_protocol.py) serializes mutating MCP runs that share a normalized document key (`X-Document-URL`, `doc.getURL()`, or `RuntimeUID`). Tools opt out via [`ToolBase.requires_document_lock()`](../plugin/framework/tool.py) (defaults to `detects_mutation()`). Delegate gateways return `False` for read-only domains (`document_research`, `web_research`).
+
+**UNO thread safety:** All UNO access is marshalled to the LibreOffice main thread. The per-document gate is **logical** serialization — it prevents overlapping mutating MCP tool runs on the same file, not raw cross-thread UNO calls.
+
+**Tests:** [`tests/mcp/test_long_running_concurrency.py`](../tests/mcp/test_long_running_concurrency.py) covers same/different document, read-only, delegate opt-out, normalized URLs, cross-path (long-running + backpressure), and unknown-tool conservative locking.
+
+**Not covered by MCP gates (different models):**
+*   **Sidebar chat** ([`tool_loop.py`](../plugin/chatbot/tool_loop.py)) — one tool per LLM round; async tools run on worker threads but the loop waits for `TOOL_RESULT` before spawning the next.
+*   **Gate dict lifetime** — `_doc_gates` entries are not pruned on document close (fine for typical sessions).
+*   **Save-as key migration** — after Save As, old and new URLs may map to different gate keys briefly.
+
+**Related docs:** [MCP protocol — Concurrency](mcp-protocol.md#concurrency-and-parallel-toolscall) (integrator-facing); [ROADMAP](ROADMAP.md) §14 (specialized tool MCP exposure).
 
 ### 3. Agent Backends and CLI Management (`plugin/agent_backend/`)
 
