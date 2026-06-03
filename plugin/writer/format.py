@@ -597,9 +597,40 @@ def replace_single_range_with_content(model, text_range, content, ctx, config_sv
     """Replace the given text range with rendered *content* (HTML path)."""
     prepared = html_mod.unescape(content)
     text_obj = text_range.getText()
+
+    # Preserve the target paragraph style for INLINE replacements. The StarWriter
+    # HTML import resets the paragraph to a default body style, silently demoting
+    # headings (e.g. "Heading 3" -> "Text body"). For inline-only content (no
+    # block-level tags, no math), insert without jumping the cursor to the document
+    # end so we can reapply the original paragraph style across the inserted range.
+    inline_preserve = not _content_has_block_markup(prepared) and not html_fragment_contains_mixed_math(prepared)
+    saved_style = None
+    if inline_preserve:
+        try:
+            saved_style = text_obj.createTextCursorByRange(
+                text_range.getStart()).getPropertyValue("ParaStyleName")
+        except Exception:
+            saved_style = None
+
     cursor = text_obj.createTextCursorByRange(text_range)
     cursor.setString("")
-    _insert_mixed_or_plain_html(model, ctx, cursor, prepared, config_svc=config_svc)
+
+    if saved_style is not None:
+        anchor = text_obj.createTextCursorByRange(cursor.getStart())
+        # Insert the inline fragment RAW (do not route through _ensure_html_linebreaks:
+        # it does not recognise <span> as HTML and would wrap it in <p>, creating an
+        # extra body paragraph). model=None leaves the cursor at the end of the
+        # INSERTED content (not the document end), so [anchor, cursor] bounds it.
+        inline_html = prepared.replace("\\n", "\n").replace("\\t", "\t")
+        insert_html_fragment_at_cursor(cursor, inline_html, wrap=False, config_svc=config_svc, model=None)
+        try:
+            restore = text_obj.createTextCursorByRange(anchor.getStart())
+            restore.gotoRange(cursor.getEnd(), True)
+            restore.setPropertyValue("ParaStyleName", saved_style)
+        except Exception:
+            log.debug("replace_single_range_with_content: could not restore ParaStyleName", exc_info=True)
+    else:
+        _insert_mixed_or_plain_html(model, ctx, cursor, prepared, config_svc=config_svc)
 
 
 def _preserving_search_replace(model, uno_ctx, new_text, search_string, all_matches=False, case_sensitive=True):
@@ -721,6 +752,23 @@ def content_has_markup(content):
         return False
     lower = content.lower()
     return any(p.lower() in lower for p in _MARKUP_PATTERNS)
+
+
+# Block-level HTML tags: their presence means the content defines its own
+# paragraph structure, so we must NOT force the original paragraph style onto it.
+_BLOCK_MARKUP_PATTERNS = [
+    "<p>", "<p ", "<h1", "<h2", "<h3", "<h4", "<h5", "<h6",
+    "<div", "<ul", "<ol", "<li", "<table", "<tr", "<td", "<th",
+    "<blockquote", "<pre", "<hr", "<section", "<article",
+]
+
+
+def _content_has_block_markup(content):
+    """Return ``True`` if *content* contains block-level HTML (paragraph-defining)."""
+    if not content or not isinstance(content, str):
+        return False
+    lower = content.lower()
+    return any(p in lower for p in _BLOCK_MARKUP_PATTERNS)
 
 
 def replace_preserving_format(model, target_range, new_text, ctx=None):
