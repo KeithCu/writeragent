@@ -270,6 +270,135 @@ class GetStyleInfo(ToolWriterStyleBase):
         return {"status": "ok", **info}
 
 
+def _capture_direct_char_overrides(doc, cursor):
+    """Capture DIRECT character formatting in *cursor*'s range so it can survive a
+    paragraph-style change.
+
+    LibreOffice resets direct character formatting to the paragraph style's
+    defaults when ParaStyleName is set.
+    ``getPropertyState`` is unreliable at the text-portion level (it reports
+    DEFAULT_VALUE even for hard-set values), so we detect overrides by VALUE:
+    a Char* property whose value differs from the paragraph's *current* style
+    default is a direct override worth preserving.
+
+    KNOWN LIMITATION: because detection is value-vs-style-default (not a true
+    "was set directly" check), a direct override whose value *equals* the current
+    style's default is NOT captured. So applying a new style whose default differs
+    can make that property visibly change (e.g. text directly set to normal weight,
+    equal to Standard's default, becomes bold when Heading 1 is applied). This is a
+    rare edge; the common case (override visibly differs from the style) is covered.
+
+    Returns a list of ``(text_cursor, {prop_name: value})`` for
+    :func:`_restore_char_overrides`.
+    """
+    overrides = []
+    try:
+        para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
+    except Exception:
+        para_styles = None
+    try:
+        READONLY = uno.getConstantByName("com.sun.star.beans.PropertyAttribute.READONLY")
+    except Exception:
+        READONLY = 0
+    try:
+        para_enum = cursor.createEnumeration()
+    except Exception:
+        return overrides
+    # `is True` (not mere truthiness): real PyUNO returns a Python bool, so this
+    # iterates correctly while exiting immediately for mocked / non-UNO objects
+    # (whose hasMoreElements() returns a truthy stub) instead of looping forever.
+    # The counters also cap pathological documents.
+    _paras = 0
+    while para_enum.hasMoreElements() is True and _paras < 200000:
+        _paras += 1
+        try:
+            para = para_enum.nextElement()
+        except Exception:
+            break
+        if not (hasattr(para, "supportsService") and para.supportsService("com.sun.star.text.Paragraph")):
+            continue
+        old_style = None
+        if para_styles is not None:
+            try:
+                old_style = para_styles.getByName(para.getPropertyValue("ParaStyleName"))
+            except Exception:
+                old_style = None
+        try:
+            portion_enum = para.createEnumeration()
+        except Exception:
+            continue
+        _portions = 0
+        while portion_enum.hasMoreElements() is True and _portions < 50000:
+            _portions += 1
+            try:
+                portion = portion_enum.nextElement()
+                if portion.getPropertyValue("TextPortionType") != "Text":
+                    continue
+                portion_props = portion.getPropertySetInfo().getProperties()
+            except Exception:
+                continue
+            props = {}
+            for p in portion_props:
+                name = p.Name
+                if not name.startswith("Char"):
+                    continue
+                if READONLY and (p.Attributes & READONLY):
+                    continue
+                try:
+                    val = portion.getPropertyValue(name)
+                except Exception:
+                    continue
+                if old_style is not None:
+                    try:
+                        if val == old_style.getPropertyValue(name):
+                            continue  # equals style default -> inherited, not a direct override
+                    except Exception:
+                        continue  # style lacks this property -> cannot classify, skip
+                props[name] = val
+            if props:
+                try:
+                    pc = portion.getText().createTextCursorByRange(portion.getStart())
+                    pc.gotoRange(portion.getEnd(), True)
+                except Exception:
+                    continue
+                overrides.append((pc, props))
+    return overrides
+
+
+def _restore_char_overrides(overrides):
+    """Reapply captured direct character overrides (see :func:`_capture_direct_char_overrides`)."""
+    for pc, props in overrides:
+        for name, val in props.items():
+            try:
+                pc.setPropertyValue(name, val)
+            except Exception:
+                pass
+
+
+def _expand_to_full_paragraphs(cursor):
+    """Return a cursor spanning the FULL paragraph(s) that *cursor* touches.
+
+    A paragraph style resets DIRECT character formatting across the FULL
+    paragraph, but a ``target='search'`` cursor may cover only a sub-range of it
+    (the matched substring). Capturing over the expanded span keeps direct
+    formatting that lives OUTSIDE the match in the same paragraph. Returns None
+    if the text does not support paragraph cursors (caller falls back to the
+    original cursor).
+    """
+    try:
+        text = cursor.getText()
+        start = text.createTextCursorByRange(cursor.getStart())
+        end = text.createTextCursorByRange(cursor.getEnd())
+        # XParagraphCursor: snap to the enclosing paragraph boundaries.
+        start.gotoStartOfParagraph(False)
+        end.gotoEndOfParagraph(True)
+        expanded = text.createTextCursorByRange(start.getStart())
+        expanded.gotoRange(end.getEnd(), True)
+        return expanded
+    except Exception:
+        return None
+
+
 class ApplyStyle(FrameworkToolBase):
     """Apply a paragraph or character style."""
 
@@ -325,7 +454,18 @@ class ApplyStyle(FrameworkToolBase):
             return self._tool_error("Failed to resolve target location.")
 
         try:
-            cursor.setPropertyValue(uno_prop, uno_value)
+            if family == "ParagraphStyles":
+                # Applying a paragraph style wipes DIRECT character formatting; capture
+                # it first and restore it after, so e.g. a hard-set color/bold survives.
+                # The reset affects the WHOLE paragraph, so capture over the full
+                # paragraph span (not just a sub-range search match) — otherwise direct
+                # formatting outside the matched text would be lost.
+                capture_cursor = _expand_to_full_paragraphs(cursor) or cursor
+                overrides = _capture_direct_char_overrides(ctx.doc, capture_cursor)
+                cursor.setPropertyValue(uno_prop, uno_value)
+                _restore_char_overrides(overrides)
+            else:
+                cursor.setPropertyValue(uno_prop, uno_value)
         except Exception as e:
             return self._tool_error("Could not apply style: %s" % e)
         return {"status": "ok", "style_name": style_name, "family": family}
