@@ -26,6 +26,12 @@ import re as re_mod
 
 log = logging.getLogger("writeragent.writer")
 
+# Non-breaking / exotic spaces -> ASCII space. Length-preserving (each maps to a
+# single char) so character offsets into the document text stay valid. NBSP
+# (U+00A0) in particular is a common artifact of prior edits and breaks literal
+# search when old_content uses a normal space.
+_SPACE_NORMALIZE_MAP = {0x00A0: " ", 0x202F: " ", 0x2007: " ", 0x2009: " "}
+
 
 def _find_range_by_offset(doc, search_string):
     """Find search_string in the document by getting full text and doing a Python
@@ -37,7 +43,10 @@ def _find_range_by_offset(doc, search_string):
         cursor = text.createTextCursor()
         cursor.gotoStart(False)
         cursor.gotoEnd(True)
-        full = normalize_linebreaks(cursor.getString())
+        # Normalize NBSP & friends so a normal-space search matches them. The map
+        # is 1:1, so offsets below (goRight) stay aligned with the original text.
+        full = normalize_linebreaks(cursor.getString()).translate(_SPACE_NORMALIZE_MAP)
+        search_string = search_string.translate(_SPACE_NORMALIZE_MAP)
     except Exception:
         return None
     idx = full.find(search_string)
@@ -57,10 +66,79 @@ def _find_range_by_offset(doc, search_string):
 
 
 def _normalize_search_string_for_find(s):
-    """Collapse horizontal whitespace only; preserve newlines for literal find.
-    (LibreOffice regex search does not work across paragraphs.)
+    """Collapse horizontal whitespace (incl. NBSP & friends) to a single ASCII
+    space; preserve newlines for literal find. (LibreOffice regex search does not
+    work across paragraphs.)
     """
-    return re_mod.sub(r"[ \t]+", " ", s).strip()
+    return re_mod.sub(r"[ \t\u00a0\u202f\u2007\u2009]+", " ", s).strip()
+
+
+def _all_start_indices(haystack, needle):
+    """Non-overlapping start indices of *needle* in *haystack*."""
+    out = []
+    if not needle:
+        return out
+    i = haystack.find(needle)
+    while i >= 0:
+        out.append(i)
+        i = haystack.find(needle, i + len(needle))
+    return out
+
+
+def _find_all_ranges_by_offset(doc, search_string):
+    """All occurrences of *search_string* as TextRanges via NBSP-normalized full-text
+    matching \u2014 the all-matches counterpart of _find_range_by_offset, so the
+    all_matches path inherits the same NBSP handling as the single-match path."""
+    try:
+        text = doc.getText()
+        cursor = text.createTextCursor()
+        cursor.gotoStart(False)
+        cursor.gotoEnd(True)
+        full = normalize_linebreaks(cursor.getString()).translate(_SPACE_NORMALIZE_MAP)
+    except Exception:
+        return []
+    needle = (search_string or "").translate(_SPACE_NORMALIZE_MAP)
+    if not needle:
+        return []
+    starts = _all_start_indices(full, needle)
+    if not starts:
+        starts = _all_start_indices(full.lower(), needle.lower())
+    ranges = []
+    for s in starts:
+        rc = text.createTextCursor()
+        rc.gotoStart(False)
+        if not rc.goRight(s, False):
+            continue
+        if not rc.goRight(len(needle), True):
+            continue
+        ranges.append(rc)
+    return ranges
+
+
+def _find_all_ranges(doc, search_string):
+    """All occurrences of *search_string* as TextRanges, in document order. Uses
+    findFirst/findNext; falls back to the NBSP-normalized offset finder. Lets the
+    all_matches replace path reuse the SAME find logic (and fixes) as single-match."""
+    sd = doc.createSearchDescriptor()
+    sd.SearchRegularExpression = False
+    for try_string in (search_string, re_mod.sub(r" +", " ", (search_string or "").replace("\n", " ")).strip()):
+        if not try_string:
+            continue
+        for case_sens in (True, False):
+            sd.SearchString = try_string
+            sd.SearchCaseSensitive = case_sens
+            found = doc.findFirst(sd)
+            if found is None:
+                continue
+            collected = []
+            guard = 0
+            while found is not None and guard < 1000:
+                guard += 1
+                collected.append(found)
+                found = doc.findNext(found.getEnd(), sd)
+            if collected:
+                return collected
+    return _find_all_ranges_by_offset(doc, search_string)
 
 
 # ------------------------------------------------------------------
