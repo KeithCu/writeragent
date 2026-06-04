@@ -158,9 +158,10 @@ def delegation_math_to_python_hint(*, delegate_toolset: str) -> str:
 
 # Main sidebar chat only (Writer DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE). Sub-agents use
 # final_answer / reply_to_user / delegate task — not this block.
-SIDEBAR_VS_DOCUMENT = """SIDEBAR CHAT (main agent): Your conversation with the user happens in the WriterAgent sidebar.
+SIDEBAR_VS_DOCUMENT = """SIDEBAR CHAT (main agent): Your conversation with the user happens in the LibreOffice sidebar.
  The user sees your messages in chat history. Follow CHAT RESPONSE FORMAT above. 
- Assume the user wants you to use apply_document_content to insert, translate, or otherwise edit a document, not just reply in the chat window."""
+ When asked by the user to do or research something, assume the user wants you to use apply_document_content to create, 
+ translate, or edit a document, not just put the answer in the chat window."""
 
 # Writer main chat: delegation routing (paired with SIDEBAR_VS_DOCUMENT in the system prompt).
 WRITER_CORE_DIRECTIVES = f"""When the user wants {DELEGATION_USER_FILE_DATA_HINT}:
