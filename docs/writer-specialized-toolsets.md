@@ -315,60 +315,6 @@ Some Writer tools intentionally use the default main-chat tier (**`tier = "core"
 - **Execution:** `ToolRegistry.execute` unchanged — tier affects listing, not dispatch.
 
 
-### 5.4 Feature: Batch Section Rewriting
-
-WriterAgent includes a "Batch Section Rewriting" mode that allows users to apply a single instruction to an entire document in one pass by intelligently chunking content based on heading structure. **This feature is an adaptation of the structural parsing logic found in the LibreAI project.**
-
-#### The Concept
-Instead of blind, whole-document processing, this feature parses the document into logical sections using `OutlineLevel`. This approach, **pioneered in LibreAI's `DocumentParser.cpp`**, allows for a "review-and-apply" workflow that respects the document's structure rather than treating it as a raw string of text.
-
-#### Implementation (Ported Logic)
-WriterAgent uses a generator pattern in `plugin/writer/outline.py` that mirrors the structural detection logic originally implemented by the LibreAI team.
-
-```python
-def get_batch_sections(ctx, doc_model, scope_level=0):
-    """
-    Yields sections of the document.
-    scope_level: 0 = Paragraphs, 1 = H1 only, 2 = H2 only, etc.
-    """
-    paragraphs = doc_model.Text.createEnumeration()
-    current_section = None
-
-    while paragraphs.hasMoreElements():
-        para = paragraphs.nextElement()
-        level = para.OutlineLevel
-
-        # Detection logic: check OutlineLevel to start a new section
-        if level > 0 and (scope_level == 0 or level <= scope_level):
-            if current_section:
-                yield current_section
-            current_section = {
-                "title": para.String, 
-                "level": level, 
-                "ranges": [para] # Store XTextRanges for later application
-            }
-        elif current_section:
-            current_section["ranges"].append(para)
-
-    if current_section:
-        yield current_section
-```
-
-#### FSM Integration
-We introduce a `BatchRewriteState` in `plugin/chatbot/tool_loop_state.py`.
-1. **Trigger:** The FSM enters this state when the user invokes a batch instruction (e.g., `/batch Rewrite for clarity`).
-2. **Execution:** The state machine iterates through the generator output. Each section is passed to the worker pool (`plugin/framework/async_stream.py`).
-3. **Application:** When the worker returns, the FSM uses `apply_document_content` on the original `XTextRanges` to update the document, preserving existing bold/italic/style attributes.
-4. **Flow:** The state machine automatically sequences to the next section or pauses for user approval if "Review Mode" is enabled.
-
-#### UI Updates
-The existing sidebar chat interface updates its status label to provide feedback: 
-- `[Batch] Rewriting section 1/15: "Introduction"...`
-- `[Batch] Applied. Moving to "Methodology"...`
-This provides clear progress tracking without needing a complex new dialog.
-
-**Velocity Advantage:** Because WriterAgent already has the async worker pool and HTML/Plain-text apply logic, this feature only requires the chunking generator and a new FSM loop.
-
 #### Charts (OLE Lifecycle Findings)
 
 The Writer chart toolset is currently under maintenance. During development, it was discovered that Writer's OLE container (`SwXTextEmbeddedObject`) has a highly sensitive lifecycle compared to Calc:
@@ -484,7 +430,62 @@ This design trades a second LLM hop (delegation) for a **cleaner main conversati
 
 ---
 
-## 8. Prior art: Kyber (Interlink Bridge)
+### 8.1 Possible Feature: Batch Section Rewriting
+
+WriterAgent includes a "Batch Section Rewriting" mode that allows users to apply a single instruction to an entire document in one pass by intelligently chunking content based on heading structure. **This feature is an adaptation of the structural parsing logic found in the LibreAI project.**
+
+#### The Concept
+Instead of blind, whole-document processing, this feature parses the document into logical sections using `OutlineLevel`. This approach, **pioneered in LibreAI's `DocumentParser.cpp`**, allows for a "review-and-apply" workflow that respects the document's structure rather than treating it as a raw string of text.
+
+#### Implementation (Ported Logic)
+WriterAgent uses a generator pattern in `plugin/writer/outline.py` that mirrors the structural detection logic originally implemented by the LibreAI team.
+
+```python
+def get_batch_sections(ctx, doc_model, scope_level=0):
+    """
+    Yields sections of the document.
+    scope_level: 0 = Paragraphs, 1 = H1 only, 2 = H2 only, etc.
+    """
+    paragraphs = doc_model.Text.createEnumeration()
+    current_section = None
+
+    while paragraphs.hasMoreElements():
+        para = paragraphs.nextElement()
+        level = para.OutlineLevel
+
+        # Detection logic: check OutlineLevel to start a new section
+        if level > 0 and (scope_level == 0 or level <= scope_level):
+            if current_section:
+                yield current_section
+            current_section = {
+                "title": para.String, 
+                "level": level, 
+                "ranges": [para] # Store XTextRanges for later application
+            }
+        elif current_section:
+            current_section["ranges"].append(para)
+
+    if current_section:
+        yield current_section
+```
+
+#### FSM Integration
+We introduce a `BatchRewriteState` in `plugin/chatbot/tool_loop_state.py`.
+1. **Trigger:** The FSM enters this state when the user invokes a batch instruction (e.g., `/batch Rewrite for clarity`).
+2. **Execution:** The state machine iterates through the generator output. Each section is passed to the worker pool (`plugin/framework/async_stream.py`).
+3. **Application:** When the worker returns, the FSM uses `apply_document_content` on the original `XTextRanges` to update the document, preserving existing bold/italic/style attributes.
+4. **Flow:** The state machine automatically sequences to the next section or pauses for user approval if "Review Mode" is enabled.
+
+#### UI Updates
+The existing sidebar chat interface updates its status label to provide feedback: 
+- `[Batch] Rewriting section 1/15: "Introduction"...`
+- `[Batch] Applied. Moving to "Methodology"...`
+This provides clear progress tracking without needing a complex new dialog.
+
+**Velocity Advantage:** Because WriterAgent already has the async worker pool and HTML/Plain-text apply logic, this feature only requires the chunking generator and a new FSM loop.
+
+
+## 8.2. Prior art: Kyber (Interlink Bridge)
 
 Review of [`Kyber_Complete_v24/`](../Kyber_Complete_v24/) (v2.4, local Ollama, EU/GDPR positioning). Kyber is **not** a peer architecture: it is an external **tkinter** paste-in/out assistant plus optional LibreOffice Basic macros, while WriterAgent is a native sidebar with UNO tool-calling. Kyber’s large `backend/` stack (kiosk, industrial IoT) is out of scope here.
 
