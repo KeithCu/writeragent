@@ -453,8 +453,8 @@ def _process_grammar_results(
         preview_src = f"{first_text} \u00b7 {second_text}" if second_text else first_text
         iw = "issue" if total_issues == 1 else "issues"
         sw = "sentence" if n_written == 1 else "sentences"
-        emit_grammar_status(
-            "done",
+        _emit_done_status(
+            ec,
             preview_src,
             result=f"{total_issues} {iw}, {n_written} {sw}",
             elapsed_ms=elapsed_ms,
@@ -462,7 +462,36 @@ def _process_grammar_results(
             length_hint=chars_checked,
         )
     else:
-        emit_grammar_status("done", "batch", result="skipped (superseded)", elapsed_ms=elapsed_ms)
+        _emit_done_status(ec, "batch", result="skipped (superseded)", elapsed_ms=elapsed_ms)
+
+
+def _emit_done_status(
+    ec: GrammarWorkerContext,
+    text: str,
+    *,
+    result: str = "",
+    elapsed_ms: int | None = None,
+    preview_source: str | None = None,
+    length_hint: int | None = None,
+) -> None:
+    """Sidebar ``done``: deferred while parallel drain batches run (see ``GrammarWorkQueue``)."""
+    if ec.gq is not None:
+        ec.gq.record_done_status(
+            text,
+            result=result,
+            elapsed_ms=elapsed_ms,
+            preview_source=preview_source,
+            length_hint=length_hint,
+        )
+        return
+    emit_grammar_status(
+        "done",
+        text,
+        result=result,
+        elapsed_ms=elapsed_ms,
+        preview_source=preview_source,
+        length_hint=length_hint,
+    )
 
 
 def _run_language_validation(
@@ -635,6 +664,7 @@ def run_llm_and_cache_batch(
     if not original_bcp47:
         original_bcp47 = items[0].original_bcp47 or grammar_bcp47
 
+    status_cycle_started = False
     try:
         if not _worker_batch_gates(ctx, items):
             return
@@ -643,6 +673,9 @@ def run_llm_and_cache_batch(
         if not valid_items:
             grammar_obs("worker_batch_skip", reason="all_cached_or_superseded", item_count=len(items))
             return
+
+        gq_to_use.begin_status_cycle()
+        status_cycle_started = True
 
         max_tok = grammar_proofread_locale.GRAMMAR_PROOFREAD_MAX_RESPONSE_TOKENS
         max_chars = grammar_proofread_locale.GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS
@@ -681,6 +714,19 @@ def run_llm_and_cache_batch(
             emit_grammar_status("failed", "Batch processing", result=type(e).__name__)
         except Exception:
             pass
+    finally:
+        if status_cycle_started:
+            gq_to_use.end_status_cycle()
+
+
+@dataclass(frozen=True)
+class _PendingGrammarDone:
+    text: str
+    result: str
+    elapsed_ms: int | None
+    preview_source: str | None
+    length_hint: int | None
+
 
 class GrammarWorkQueue:
     """Multi-worker queue for grammar LLM requests (stampede + per-key supersede).
@@ -702,6 +748,45 @@ class GrammarWorkQueue:
         self._latest_seq: dict[str, int] = {}
         self._worker_count = 0
         self._worker_lock = threading.Lock()
+        self._status_lock = threading.Lock()
+        self._status_inflight = 0
+        self._pending_done: _PendingGrammarDone | None = None
+
+    def begin_status_cycle(self) -> None:
+        """Mark one ``run_llm_and_cache_batch`` in flight (sidebar ``done`` is deferred)."""
+        with self._status_lock:
+            self._status_inflight += 1
+
+    def record_done_status(
+        self,
+        text: str,
+        *,
+        result: str = "",
+        elapsed_ms: int | None = None,
+        preview_source: str | None = None,
+        length_hint: int | None = None,
+    ) -> None:
+        """Remember the latest chunk result; emitted when the last in-flight batch finishes."""
+        with self._status_lock:
+            self._pending_done = _PendingGrammarDone(text, result, elapsed_ms, preview_source, length_hint)
+
+    def end_status_cycle(self) -> None:
+        """Drop in-flight count; emit a single sidebar ``done`` when all parallel batches finish."""
+        pending: _PendingGrammarDone | None = None
+        with self._status_lock:
+            self._status_inflight = max(0, self._status_inflight - 1)
+            if self._status_inflight == 0:
+                pending = self._pending_done
+                self._pending_done = None
+        if pending is not None:
+            emit_grammar_status(
+                "done",
+                pending.text,
+                result=pending.result,
+                elapsed_ms=pending.elapsed_ms,
+                preview_source=pending.preview_source,
+                length_hint=pending.length_hint,
+            )
 
     @staticmethod
     def _slice_preview(item: GrammarWorkItem, max_len: int = 48) -> str:

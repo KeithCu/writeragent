@@ -358,6 +358,25 @@ def test_is_stale_and_inflight_superseded() -> None:
     assert is_stale(latest, cur) is False
 
 
+def test_done_status_deferred_until_last_parallel_batch() -> None:
+    q = GrammarWorkQueue()
+    emitted: list[str] = []
+
+    def capture_done(phase: str, text: str, **kwargs: object) -> None:
+        if phase == "done":
+            emitted.append(str(kwargs.get("result") or text))
+
+    with patch("plugin.writer.locale.grammar_work_queue.emit_grammar_status", side_effect=capture_done):
+        q.begin_status_cycle()
+        q.begin_status_cycle()
+        q.record_done_status("a", result="first")
+        q.end_status_cycle()
+        assert emitted == []
+        q.record_done_status("b", result="second")
+        q.end_status_cycle()
+        assert emitted == ["second"]
+
+
 def test_ensure_workers_spawns_up_to_config() -> None:
     q = GrammarWorkQueue()
     ctx = MagicMock()
