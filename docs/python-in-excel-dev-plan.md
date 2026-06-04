@@ -269,7 +269,7 @@ If you **want** state to accumulate (e.g. a running total across recalcs), that 
 
 **Semantics:** Init is **orthogonal** to **Python session mode**. Isolated mode still runs the init script **once** in a persistent `calc:…:init` worker session; each `=PYTHON()` cell gets a fresh namespace **seeded** from that snapshot (imports/helpers shared, cell variables not). Shared kernel runs init once, seeds the workbook session once, then reuses it for cells. **Reset Python Session** clears both. Script changes are detected via SHA-256 hash on each eval; saving in the init editor also calls `reset_python_session`. Optional **OnUnload** reset ([`python_workbook_lifecycle.py`](../plugin/calc/python_workbook_lifecycle.py)) is implemented but callers are commented out—reopen may reuse cached init until the script changes or the worker restarts.
 
-**Key files:** [`init_scripts.py`](../plugin/scripting/init_scripts.py), [`init_script_editor.py`](../plugin/calc/init_script_editor.py), [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) (`init_script` / `init_session_id` on worker requests), [`python_function.py`](../plugin/calc/python_function.py), [`session_manager.py`](../plugin/scripting/session_manager.py).
+**Key files:** [`document_scripts.py`](../plugin/scripting/document_scripts.py) (Calc init script helpers), [`init_script_editor.py`](../plugin/calc/init_script_editor.py), [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) (`init_script` / `init_session_id` on worker requests), [`python_function.py`](../plugin/calc/python_function.py), [`session_manager.py`](../plugin/scripting/session_manager.py).
 
 **Tests:** [`tests/scripting/test_init_scripts.py`](../tests/scripting/test_init_scripts.py).
 

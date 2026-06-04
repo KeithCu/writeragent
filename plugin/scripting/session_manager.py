@@ -153,7 +153,7 @@ def _reset_calc_python_sessions(ctx: Any) -> None:
         )
         return
 
-    from plugin.scripting.init_scripts import get_calc_init_script
+    from plugin.scripting.document_scripts import get_calc_init_script
 
     session_id = calc_workbook_base_session_id(doc)
     res = reset_python_session(ctx, session_id)

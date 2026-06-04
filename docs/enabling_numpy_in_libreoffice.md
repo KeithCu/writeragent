@@ -665,7 +665,7 @@ These appear in:
 
 The consequence: substantial analysis scripts, data-cleaning helpers, or Monte-Carlo drivers written in the dialog do not travel with the `.odt`/`.ods`/`.odg` when the file is emailed, checked into version control, or opened on another machine. Contrast with:
 - `=PYTHON()` code (lives in cell formulas or referenced cells — document-native).
-- Calc initialization scripts (`WriterAgentCalcInitScript` in `UserDefinedProperties`, see [`init_scripts.py`](../plugin/scripting/init_scripts.py)).
+- Calc initialization scripts (`WriterAgentCalcInitScript` in `UserDefinedProperties`, see [`document_scripts.py`](../plugin/scripting/document_scripts.py)).
 - Notebook import registry (`WriterAgentNotebookRegistry` + source path, see [`notebook/cell_registry.py`](../plugin/notebook/cell_registry.py)).
 
 Users who want reproducibility must manually copy code into cells or the init script editor. This is workable but loses the convenient library UI, Monaco editing, one-click "Run + insert result", and the personal scratchpad affordances.
@@ -703,12 +703,12 @@ Users who want reproducibility must manually copy code into cells or the init sc
 ```
 
 - Use a versioned envelope from day one (even if v1 is the only value) so future structural changes do not require property migration gymnastics.
-- Total payload cap: start with the same 900 000 byte limit used by init scripts in [`init_scripts.py:34`](../plugin/scripting/init_scripts.py). Per-script soft warning at ~200 kB is reasonable.
+- Total payload cap: start with the same 900 000 byte limit used by document scripts in [`document_scripts.py`](../plugin/scripting/document_scripts.py). Per-script soft warning at ~200 kB is reasonable.
 - On write, always JSON-encode the whole map; never store individual scripts as separate properties (simpler deletion, atomicity, and size accounting).
 
 **New module (recommended):** `plugin/scripting/document_scripts.py`
 
-Mirror the shape and error-handling style of `init_scripts.py`:
+Mirror the shape and error-handling style of `document_scripts.py`:
 
 - `get_document_scripts(doc: Any) -> dict[str, str]`
 - `set_document_scripts(doc: Any, scripts: dict[str, str]) -> str | None` (returns error message or None)
@@ -883,7 +883,7 @@ Excel keeps globals across recalc and uses **co-volatility** (all `=PY` cells re
 
 **Future (not planned as default):** A "reset shared kernel on full workbook recalc" opt-in would require best-effort detection (e.g. a document calculate listener if available). Cell-position heuristics (`last cell < previous`) are **not** reliable — Calc does not expose recalc-pass boundaries to add-ins.
 
-**Initialization scripts (shipped):** **WriterAgent → Edit Initialization Script…** (Calc only) stores a workbook startup script in document properties. It runs **once** per workbook in a dedicated `calc:…:init` session (even when session mode is Isolated); expensive setup is shared across all `=PYTHON()` cells. Cell-to-cell variables remain isolated unless Shared kernel is enabled. [`init_scripts.py`](../plugin/scripting/init_scripts.py), Phase 4 in [`python-in-excel-dev-plan.md`](python-in-excel-dev-plan.md).
+**Initialization scripts (shipped):** **WriterAgent → Edit Initialization Script…** (Calc only) stores a workbook startup script in document properties. It runs **once** per workbook in a dedicated `calc:…:init` session (even when session mode is Isolated); expensive setup is shared across all `=PYTHON()` cells. Cell-to-cell variables remain isolated unless Shared kernel is enabled. [`document_scripts.py`](../plugin/scripting/document_scripts.py), Phase 4 in [`python-in-excel-dev-plan.md`](python-in-excel-dev-plan.md).
 
 Backlog items inspired by Microsoft Python in Excel ([python-in-excel-ideas.md](python-in-excel-ideas.md) §10). **Status: not implemented** unless noted otherwise.
 
@@ -912,7 +912,7 @@ Backlog items inspired by Microsoft Python in Excel ([python-in-excel-ideas.md](
 | Parse + static validation hot cache | [`python_code_hot_cache.py`](../plugin/scripting/sandbox_cache.py), [`sandbox_static_validate.py`](../plugin/scripting/sandbox_cache.py) — [`tests/scripting/test_sandbox_cache.py`](../tests/scripting/test_sandbox_cache.py) |
 | `run_venv_python_script` / `=PYTHON()` | [`venv_python.py`](../plugin/calc/venv_python.py), [`python_function.py`](../plugin/calc/python_function.py) |
 | Shared kernel (`python_session_mode`) | [`session_manager.py`](../plugin/scripting/session_manager.py), [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) — [`tests/scripting/test_session_persistence.py`](../tests/scripting/test_session_persistence.py) |
-| Calc init scripts | [`init_scripts.py`](../plugin/scripting/init_scripts.py), [`init_script_editor.py`](../plugin/calc/init_script_editor.py) — [`tests/scripting/test_init_scripts.py`](../tests/scripting/test_init_scripts.py) |
+| Calc init scripts | [`document_scripts.py`](../plugin/scripting/document_scripts.py), [`init_script_editor.py`](../plugin/calc/init_script_editor.py) — [`tests/scripting/test_init_scripts.py`](../tests/scripting/test_init_scripts.py) |
 | **Pickle5 + Split-Grid** | **Default serialization**: Direct raw binary double-precision buffer in dictionary envelope via Pickle5, zero-copy C-speed `np.frombuffer` materialization in child. |
 | **JSON Split-Grid** | Backward-compatible Base64 envelope fallback for diagnostic tracing/JSON environments. |
 | Calc ingress | [`pack_calc_data_for_wire`](../plugin/calc/calc_addin_data.py) |

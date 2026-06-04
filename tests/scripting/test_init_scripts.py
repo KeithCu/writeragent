@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.scripting.init_scripts import (
+from plugin.scripting.document_scripts import (
     build_python_eval_init_kwargs,
     get_calc_init_script,
     init_script_hash,

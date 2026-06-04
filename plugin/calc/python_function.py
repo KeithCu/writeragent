@@ -29,7 +29,7 @@ from plugin.scripting.config_limits import configured_python_max_data_cells
 from plugin.scripting.payload_codec import is_image_payload, is_split_grid
 # Optional: reset worker init/cell sessions on workbook close (see python_workbook_lifecycle.py).
 # from plugin.calc.python_workbook_lifecycle import ensure_calc_workbook_unload_resets_python
-from plugin.scripting.init_scripts import build_python_eval_init_kwargs, get_calc_document_from_ctx
+from plugin.scripting.document_scripts import build_python_eval_init_kwargs, get_calc_document_from_ctx
 from plugin.scripting.session_manager import workbook_session_id
 from plugin.scripting.venv_worker import run_code_in_user_venv
 
