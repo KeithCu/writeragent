@@ -366,7 +366,16 @@ The MCP server is **implemented and opt-in** (default off). Summary:
 - **`core/mcp_thread.py`**: `_Future`, `execute_on_main_thread()`, `drain_mcp_queue()`. Work from HTTP handler threads is queued and executed on LibreOffice’s main thread.
 - **`core/mcp_server.py`**: HTTP server on localhost; GET `/health`, `/`, `/tools`, `/documents`; POST `/tools/{name}`. Port utilities: `_probe_health`, `_is_port_bound`, `_kill_zombies_on_port`.
 - **Idle-time draining**: **`AsyncCallback` thread** in `main.py`. A background Python thread loops and queues an `XCallback` invocation via `com.sun.star.awt.AsyncCallback` every 100ms, which safely executes `drain_mcp_queue()` on the main VCL thread. Option of piggybacking on the chat stream drain loop was **not** used — it would only service MCP during active chat, which is inadequate for standalone MCP use.
-- **Document targeting**: **`X-Document-URL`** HTTP header. The server resolves the target document by iterating `desktop.getComponents()` and matching `getURL()` to the header. If the header is absent, it falls back to the active document. `GET /documents` returns all open documents with URLs and types so clients can discover targets. This avoids races when multiple documents or users are involved; “active document only” was not used.
+- **Document targeting** (two supported paths):
+  - **Preferred (modern clients):** `document_url` parameter passed **directly in the tool call `arguments`** (e.g. in `tools/call` JSON-RPC). The server pops it from args and uses it for resolution. This works cleanly for multi-document workflows without header management and is the recommended path for Cursor, Hermes, custom agents, etc.
+  - **Fallback / legacy:** `X-Document-URL` HTTP header on requests (still supported for compatibility and simple "active doc" cases).
+  - Discovery: Call the MCP-only `list_open_documents` tool to get current open docs + their exact `document_url` values.
+  - See implementation in `plugin/mcp/mcp_protocol.py` (`_mcp_tools_call` pops `document_url` from arguments before falling back to header).
+  - Full client guidance + examples live in the companion meta repos:
+    - Cursor users: https://github.com/KeithCu/cursor-libreoffice (includes rules for MCP usage).
+    - General agents / Hermes: https://github.com/KeithCu/libreoffice-skill (SKILL.md with targeting best practices).
+
+  This design avoids races when multiple documents or users are involved; “active document only” was not used.
 - **Config**: `mcp_enabled` (default false), `mcp_port` (default 8765). Documented in `core/config.py`.
 - **Settings**: MCP section on **Page 1** of the Settings dialog (no separate tab): “Enable MCP Server” checkbox, Port field, “Localhost only, no auth.” label. Dialog layout was compacted so short fields share rows and the OK button sits at the bottom with minimal gap.
 - **Menu**: “Toggle MCP Server” and “MCP Server Status” under WriterAgent. Status dialog shows RUNNING/STOPPED, port, URL, and health check.

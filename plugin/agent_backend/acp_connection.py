@@ -61,7 +61,7 @@ class ACPConnection:
         if self._env:
             env.update(self._env)
 
-        from plugin.scripting.subprocess_helpers import wrap_command_for_sandbox
+        from plugin.scripting.venv_worker import wrap_command_for_sandbox
 
         self._proc = subprocess.Popen(wrap_command_for_sandbox(self._cmd_line), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, cwd=self._cwd)
         self._running = True

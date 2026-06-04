@@ -31,8 +31,7 @@ from plugin.scripting.editor_ipc import (
     read_message,
     write_message,
 )
-from plugin.scripting.subprocess_helpers import scrub_subprocess_env, wrap_command_for_sandbox
-from plugin.scripting.venv_worker import resolve_venv_python, warm_venv_worker
+from plugin.scripting.venv_worker import resolve_venv_python, warm_venv_worker, scrub_subprocess_env, wrap_command_for_sandbox
 
 log = logging.getLogger(__name__)
 

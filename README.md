@@ -185,6 +185,10 @@ curl -X POST http://localhost:8765/mcp \
 
 MCP server config JSON typically sets only the endpoint URL; your client or wrapper must attach `document_url` or the `X-Document-URL` header per call. See [docs/mcp-protocol.md](docs/mcp-protocol.md) (*Document Targeting*) and [`scripts/mcp_live_smoke.py`](scripts/mcp_live_smoke.py) (`--document-url`).
 
+**Meta / integration helpers (recommended for Cursor and agent users):**
+- Cursor users: Install the dedicated Cursor plugin for rules + skills when working with LibreOffice/WriterAgent: https://github.com/KeithCu/cursor-libreoffice
+- Agent frameworks (Hermes, custom MCP clients, etc.): Use the ready-made skill definition: https://github.com/KeithCu/libreoffice-skill (includes setup guidance and best practices for `document_url` + multi-doc targeting).
+
 ---
 
 ## Agent Backends
