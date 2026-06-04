@@ -44,6 +44,7 @@ from plugin.chatbot.rich_text_control import (
     _insert_string_at_rich_cursor,
     _is_automatic_char_color,
     get_control_text_length,
+    log_rich_scroll,
     nudge_rich_control_view_to_end,
 )
 from plugin.framework.uno_context import focus_preserved, process_events_to_idle
@@ -349,7 +350,8 @@ def _copy_formatted_from_hidden_doc_to_control(
 
             if inserted:
                 if auto_scroll:
-                    nudge_rich_control_view_to_end(control, ctx=ctx, style_window=style_window)
+                    nudge_rich_control_view_to_end(control, ctx=ctx, style_window=style_window, reason="copy")
+                log_rich_scroll("copy_done", control=control, role=role, auto_scroll=int(auto_scroll))
                 log.info(
                     "_copy_formatted_from_hidden_doc_to_control: ok control_len=%d role=%s",
                     get_control_text_length(control),
@@ -412,7 +414,7 @@ def append_rich_messages_via_clipboard(
             )
             if _append_hidden_doc_to_control(doc, control, ctx, style_window=style_window, auto_scroll=False):
                 any_inserted = True
-                nudge_rich_control_view_to_end(control, ctx=ctx, style_window=style_window)
+                nudge_rich_control_view_to_end(control, ctx=ctx, style_window=style_window, reason="history_batch")
             else:
                 log.warning(
                     "append_rich_messages_via_clipboard: batch insert into control failed messages=%d",
@@ -441,6 +443,7 @@ def _ensure_message_separator(control):
         cursor = model.createTextCursor()
         cursor.gotoEnd(False)
         _insert_string_at_rich_cursor(model, cursor, "\n\n")
+        log_rich_scroll("separator", control=control)
     except Exception:
         pass
 
@@ -464,6 +467,7 @@ def _ensure_trailing_line_break(control) -> None:
         cursor = model.createTextCursor()
         cursor.gotoEnd(False)
         _insert_string_at_rich_cursor(model, cursor, suffix)
+        log_rich_scroll("trailing_break", control=control, suffix_len=len(suffix))
     except Exception:
         pass
 
@@ -510,12 +514,19 @@ def append_rich_text_via_clipboard(
                 role,
             )
         if inserted and role == "user":
-            _ensure_trailing_line_break(control)
+            # Trailing line break runs after copy+nudge; re-nudge so viewport stays at tail.
+            with focus_preserved(ctx):
+                _ensure_trailing_line_break(control)
+            if auto_scroll:
+                nudge_rich_control_view_to_end(
+                    control, ctx=ctx, style_window=style_window, reason="user_trailing_break",
+                )
             if callable(on_after_insert):
                 try:
                     on_after_insert(get_control_text_length(control))
                 except Exception:
                     log.exception("append_rich_text_via_clipboard: on_after_insert failed")
+            log_rich_scroll("user_append_done", control=control, role=role)
         if inserted:
             return
     except Exception:

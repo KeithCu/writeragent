@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from typing import Any, cast
 
 from plugin.chatbot.listeners import BaseWindowListener
@@ -40,13 +41,38 @@ _ENV_SNAPSHOT_LOGGED = False
 RICH_CONTROL_NAME = "response_rich"
 # Dialog units (AppFont) — inset RichTextControl inside the response placeholder so glyphs are not clipped.
 RICH_CONTROL_EDGE_INSET = 8
+# Default XDL geometry: response starts at x=4 and the bottom button row ends at
+# clear/cancel right edge x=158. Runtime positions are scaled, so derive the same
+# edge from the live response-left coordinate until layout exposes it directly.
+_XDL_RESPONSE_LEFT = 4
+_XDL_BOTTOM_BUTTON_RIGHT = 158
 # History reload: batch hidden-Writer + copy cycles to avoid per-message UI repaint.
 HISTORY_RENDER_BATCH_CHARS = 16384
-# LO awt KeyCode values (Linux/GTK) for RichTextControl scroll fallbacks when no VCL scrollbar is exposed.
-_RICH_KEY_END = 769
-_RICH_KEY_PAGE_DOWN = 771
-# Invisible tail insert triggers EditEngine viewport follow (gotoEnd alone does not after bulk copy).
 _NUDGE_SCROLL_SENTINEL = "\u200b"
+# Very noisy live scroll tracing. Keep available for sidebar scroll investigations,
+# but do not emit it by default even when log_level is DEBUG.
+RICH_SCROLL_VERBOSE_DEBUG = False
+_RICH_SCROLL_SEQ = 0
+
+
+def log_rich_scroll(phase: str, *, control=None, reason: str | None = None, **extra) -> None:
+    """Structured log for RichTextControl viewport scroll diagnostics."""
+    if not RICH_SCROLL_VERBOSE_DEBUG:
+        return
+    global _RICH_SCROLL_SEQ
+    _RICH_SCROLL_SEQ += 1
+    parts = [f"[RICH-SCROLL] seq={_RICH_SCROLL_SEQ} phase={phase}"]
+    if reason:
+        parts.append(f"reason={reason}")
+    if control is not None:
+        try:
+            parts.append(f"text_len={get_control_text_length(control)}")
+        except Exception:
+            pass
+    parts.append(f"main={int(threading.current_thread() is threading.main_thread())}")
+    for key, value in extra.items():
+        parts.append(f"{key}={value}")
+    log.debug(" ".join(parts))
 
 
 def log_rich_control_context(ctx, phase: str, **extra) -> None:
@@ -100,9 +126,9 @@ class RichTextChatWidget:
         """Truncate text starting from the specified length index."""
         truncate_control_from(self.control, start_len)
 
-    def nudge_view_to_end(self) -> None:
+    def nudge_view_to_end(self, reason: str = "widget") -> None:
         """Scroll the control view to the very end."""
-        nudge_rich_control_view_to_end(self.control, ctx=self.ctx, style_window=self.style_window)
+        nudge_rich_control_view_to_end(self.control, ctx=self.ctx, style_window=self.style_window, reason=reason)
 
     def append_chunk(self, text: str, auto_scroll: bool = True) -> None:
         """Append a plain text chunk (e.g. streaming tokens) using theme colors."""
@@ -165,7 +191,7 @@ class RichTextChatWidget:
         self.truncate(stream_start_len)
         # Rescroll after truncate: streamed tail removal shrinks content but leaves
         # the viewport at the pre-truncate position (visible jump upward).
-        self.nudge_view_to_end()
+        self.nudge_view_to_end(reason="rerender_truncate")
         self.append_rich_message(content, role="assistant")
 
     def append_user_message(self, text: str, on_after_insert=None) -> None:
@@ -209,13 +235,19 @@ def _content_bounds_for_rich_control(root_window, placeholder_ctrl, placeholder_
     geometry source. Otherwise inset the live placeholder ``getPosSize()``; query/model width
     caps live in ``compute_chat_panel_layout``, not here.
     """
+    def _clamped_width(px: int, pw: int, inset: int) -> int:
+        scale = (float(px) / float(_XDL_RESPONSE_LEFT)) if px > 0 else 1.0
+        default_right = px + int(round((_XDL_BOTTOM_BUTTON_RIGHT - _XDL_RESPONSE_LEFT) * scale))
+        right = min(px + pw - inset, default_right)
+        return max(20, right - (px + inset))
+
     if placeholder_rect is not None:
         px, py, pw, ph = placeholder_rect
         inset = RICH_CONTROL_EDGE_INSET
         return (
             px + inset,
             py + inset,
-            max(20, pw - 2 * inset),
+            _clamped_width(px, pw, inset),
             max(20, ph - 2 * inset),
         )
 
@@ -225,7 +257,7 @@ def _content_bounds_for_rich_control(root_window, placeholder_ctrl, placeholder_
     return (
         px + inset,
         py + inset,
-        max(20, pw - 2 * inset),
+        _clamped_width(px, pw, inset),
         max(20, ph - 2 * inset),
     )
 
@@ -303,7 +335,16 @@ def sync_rich_control_bounds(rich_control, root_window, placeholder_ctrl, placeh
         bx, by, bw, bh = _content_bounds_for_rich_control(
             root_window, placeholder_ctrl, placeholder_rect=placeholder_rect,
         )
-        _apply_rich_control_geometry(rich_control, bx, by, bw, bh, update_dialog_model=False)
+        text_len = get_control_text_length(rich_control)
+        if text_len > 0 and _rich_control_needs_bounds(rich_control, bx, by, bw, bh):
+            # LibreOffice resets the RichTextControl viewport to the top when a
+            # non-empty control is resized. Preserve readable scroll position over
+            # live resize precision; a fresh/empty control still takes new bounds.
+            log_rich_scroll("sync_bounds_skip_nonempty", control=rich_control, rect=f"{bx},{by},{bw},{bh}")
+            return True
+        bounds_changed = _apply_rich_control_geometry(rich_control, bx, by, bw, bh, update_dialog_model=False)
+        if bounds_changed:
+            log_rich_scroll("sync_bounds", control=rich_control, rect=f"{bx},{by},{bw},{bh}")
         if _rich_control_needs_bounds(rich_control, bx, by, bw, bh):
             # Dialog-embedded: model resize after insert fails (-1); reinsert when transcript empty.
             try:
@@ -361,6 +402,7 @@ def refresh_rich_control_peer_layout(ctx, rich_control) -> None:
     """Ask VCL to apply bounds already set on the peer (GTK may paint ~2 lines until focus)."""
     if rich_control is None:
         return
+    log_rich_scroll("peer_refresh", control=rich_control)
     try:
         process_events_to_idle(ctx, rounds=2)
     except Exception as e:
@@ -925,6 +967,7 @@ def append_text_chunk(control, text, auto_scroll=True, style_window=None, ctx=No
     """Append plain text during assistant streaming with theme assistant color."""
     if not control or not text:
         return
+    log_rich_scroll("append_chunk", control=control, chunk_len=len(text), auto_scroll=int(auto_scroll))
 
     def _do_append() -> None:
         theme = ChatTheme.resolve(style_window=style_window)
@@ -937,7 +980,7 @@ def append_text_chunk(control, text, auto_scroll=True, style_window=None, ctx=No
         cursor.CharBackColor = theme.bg_color
         _insert_string_at_rich_cursor(model, cursor, text, theme.assistant_color)
         if auto_scroll:
-            _nudge_rich_view_to_end_inner(control, ctx)
+            _nudge_rich_view_to_end_inner(control, ctx, reason="append_chunk")
 
     try:
         with focus_preserved(ctx):
@@ -1001,22 +1044,21 @@ def truncate_control_from(control, start_len: int | None):
         log.exception("truncate_control_from failed")
 
 
-def _nudge_rich_view_to_end_inner(control, ctx=None) -> None:
-    """Move RichText viewport to end via tail insert (caller may already hold focus preserve).
-
-    Bulk history copy leaves the viewport at the top: ``gotoEnd`` alone does not scroll
-    EditEngine when focus stays on ``query``. A zero-width tail insert (then removed)
-    matches the streaming append path that actually moves the caret/view.
-    """
+def _nudge_rich_view_to_end_inner(control, ctx=None, reason: str = "unspecified") -> None:
+    """Move RichText viewport to the end via the EditEngine tail-follow path."""
+    log_rich_scroll("nudge_begin", control=control, reason=reason)
     try:
         model = control.getModel()
         if model is None or not hasattr(model, "createTextCursor"):
             return
+        if hasattr(control, "setFocus"):
+            control.setFocus()
         cursor = model.createTextCursor()
         cursor.gotoEnd(False)
         _apply_sidebar_para_margins(cursor)
         len_before = len(model.Text or "")
         _insert_string_at_rich_cursor(model, cursor, _NUDGE_SCROLL_SENTINEL, None)
+        process_events_to_idle(ctx)
         tail = model.createTextCursor()
         tail.gotoEnd(False)
         if hasattr(tail, "goLeft"):
@@ -1024,28 +1066,32 @@ def _nudge_rich_view_to_end_inner(control, ctx=None) -> None:
             if hasattr(tail, "setString"):
                 tail.setString("")
         text_len = len(model.Text or "")
-        rounds = 3
+        rounds = 2
         for _ in range(rounds):
             process_events_to_idle(ctx)
-        log.debug(
-            "nudge_rich_control_view_to_end: len=%d rounds=%d sentinel_removed=%s",
-            text_len,
-            rounds,
-            text_len == len_before,
+        sentinel_removed = text_len == len_before
+        log.debug("nudge_rich_control_view_to_end: len=%d rounds=%d sentinel_removed=%s", text_len, rounds, sentinel_removed)
+        log_rich_scroll(
+            "nudge_done",
+            control=control,
+            reason=reason,
+            method="tail_sentinel",
+            rounds=rounds + 1,
+            sentinel_removed=int(sentinel_removed),
         )
     except Exception:
         log.exception("nudge_rich_control_view_to_end failed")
 
 
-def nudge_rich_control_view_to_end(control, ctx=None, style_window=None) -> None:
+def nudge_rich_control_view_to_end(control, ctx=None, style_window=None, reason: str = "unspecified") -> None:
     """Scroll the read-only response control without stealing focus from the query field.
 
-    Uses a zero-width tail ``insertString`` (removed immediately) under ``focus_preserved``
-    — same mechanism as streaming appends. ``gotoEnd`` + idle alone does not move the viewport
-    after bulk history copy; VCL scrollbars are not exposed on this control.
+    The RichTextControl does not expose a public viewport position API. LibreOffice
+    does not reliably scroll this control for `setSelection`; a temporary tail
+    marker uses the same EditEngine path as real text insertion, then removes it.
     """
     if not control:
         return
     with focus_preserved(ctx):
-        _nudge_rich_view_to_end_inner(control, ctx)
+        _nudge_rich_view_to_end_inner(control, ctx, reason=reason)
 

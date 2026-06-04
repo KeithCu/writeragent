@@ -248,7 +248,12 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
 
         if rl is not None:
             try:
+                from plugin.chatbot.rich_text_control import log_rich_scroll
+
+                rich = rl._c.get("response_rich") if hasattr(rl, "_c") else None
+                log_rich_scroll("getHeightForWidth_before", control=rich, eff_w=eff_w)
                 rl.relayout_now(self.PanelWindow)
+                log_rich_scroll("getHeightForWidth_after", control=rich, eff_w=eff_w)
             except Exception as e:
                 if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
                     log.debug("getHeightForWidth relayout_now failed (likely disposed): %s", e)

@@ -271,7 +271,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
     log.info("[RICH-CONTROL] config rich_text_control_sidebar=%s", rich_sidebar_enabled)
     if rich_sidebar_enabled:
         try:
-            from plugin.chatbot.rich_text_control import RichTextChatWidget, RichTextControlListener, log_rich_control_context
+            from plugin.chatbot.rich_text_control import RichTextChatWidget, RichTextControlListener, log_rich_control_context, log_rich_scroll
 
             def on_rich_control_ready(rich_control):
                 log.info("[RICH-CONTROL] on_rich_control_ready control=%s", bool(rich_control))
@@ -306,21 +306,25 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
                 )
                 if hasattr(self, "_panel_resize_listener") and self._panel_resize_listener:
                     try:
+                        log_rich_scroll("on_ready_step", control=rich_control, step="relayout")
                         self._panel_resize_listener.relayout_now(root_window)
                     except Exception as e:
                         log.debug("on_rich_control_ready relayout_now: %s", e)
                 try:
                     nonlocal web_checked, model, active_greeting
+                    log_rich_scroll("on_ready_step", control=rich_control, step="history")
                     self._render_session_history(self.session, controls["response"], model, active_greeting)
                 except Exception as e:
                     log.error("Initial RichTextControl render failed: %s", e)
                 if hasattr(self, "_rich_control_listener") and self._rich_control_listener:
                     try:
+                        log_rich_scroll("on_ready_step", control=rich_control, step="sync_bounds")
                         self._rich_control_listener._sync_bounds()
                     except Exception as e:
                         log.debug("on_rich_control_ready sync bounds: %s", e)
                 try:
-                    widget.nudge_view_to_end()
+                    log_rich_scroll("on_ready_step", control=rich_control, step="nudge")
+                    widget.nudge_view_to_end(reason="on_ready")
                 except Exception as e:
                     log.debug("on_rich_control_ready nudge scroll: %s", e)
 

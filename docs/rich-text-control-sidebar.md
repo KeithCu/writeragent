@@ -69,7 +69,7 @@ Writer is still used **off-screen**: a **hidden** document imports HTML, then a 
 | Truncate stream tail without flattening earlier formatting | `truncate_control_from` (cursor delete, not `model.Text = ""`) |
 | Scroll-to-end without stealing query focus | `nudge_rich_control_view_to_end`; focus preserved via `focus_preserved` in [`uno_context.py`](../plugin/framework/uno_context.py) |
 | History reload in ~16 KB batches | `HISTORY_RENDER_BATCH_CHARS`, `RichTextChatWidget.render_session_history` |
-| Resize / width sync with Send–Clear row | [`panel_resize.py`](../plugin/chatbot/panel_resize.py) `_content_right_from_layout` clamps query/model rows; [`sync_rich_control_bounds`](../plugin/chatbot/rich_text_control.py) follows `last_response_rect` from the panel resize listener |
+| Resize / width sync with Send–Clear row | [`panel_resize.py`](../plugin/chatbot/panel_resize.py) clamps query/model rows; [`sync_rich_control_bounds`](../plugin/chatbot/rich_text_control.py) follows `last_response_rect` height and clamps rich-control width to the default bottom-button row right edge |
 | LLM HTML format instructions gated on config | `get_chat_response_format_instructions` → `RICH_CHAT_SIDEBAR_INSTRUCTIONS` |
 | Web research / librarian share same format + finalize | `finalize_sidebar_assistant_response` in `rich_text.py` |
 | Legacy `AI:` label stripped on rich path | `strip_legacy_assistant_stream_chunk`, `strip_legacy_ai_label` |
@@ -231,7 +231,7 @@ Shared HTML import and theme: [`format.py`](../plugin/writer/format.py) (`insert
 
 ### Scroll behavior (why nudge exists)
 
-After bulk copy or history reload, `gotoEnd` alone does not move the RichTextControl viewport; VCL scrollbars are not exposed on this control. The implementation inserts a zero-width sentinel (`\u200b`) at the tail under `focus_preserved` ([`uno_context.py`](../plugin/framework/uno_context.py)), then removes it, with several `process_events_to_idle` rounds — same family of fix as streaming appends. See `nudge_rich_control_view_to_end` comments in source.
+After bulk copy or history reload, `gotoEnd` on the model cursor alone does not move the RichTextControl viewport; VCL scrollbars are not exposed on this control, and `setSelection` does not reliably scroll it on current Linux/KDE LibreOffice. The implementation briefly focuses the RichTextControl, inserts a zero-width tail marker under `focus_preserved` ([`uno_context.py`](../plugin/framework/uno_context.py)), drains idle events so the view follows the insert, then removes the marker. Once the transcript has content, resize/layout sync preserves the RichTextControl's existing bounds instead of calling `setPosSize`, because LibreOffice resets the viewport to the top when a non-empty RichTextControl is resized. The rich control also clamps its width to the default bottom-button row right edge so normal query/button layout churn does not continually widen the transcript. See `nudge_rich_control_view_to_end` comments in source.
 
 `_assistant_stream_start_len` is set when the **user** message insert completes (main chat). When `_record_assistant_start` marks the **final answer** (web research / librarian), it is re-set to the current control length so rerender replaces only that report tail and preserves internal search-step lines above it. Rich appends from the main-thread drain loop run **inline** (`_run_rich_ui`) so scroll nudges apply before the next queue item.
 
@@ -275,6 +275,20 @@ Check `writeragent_debug.log` (same directory as `writeragent.json`) for `[RICH-
 | `_append_response plain fallback while rich_text_control_sidebar enabled` | Messages go to plain field because `rich_text_widget` was never wired. |
 
 Set `log_level` to **DEBUG** in Settings (or `writeragent.json`) if you need peer-creation attempt detail beyond the INFO lifecycle lines.
+
+### Scroll diagnostics
+
+When the transcript viewport jumps (especially after sending a message), temporarily set `RICH_SCROLL_VERBOSE_DEBUG = True` in [`rich_text_control.py`](../plugin/chatbot/rich_text_control.py), reproduce once, then grep the debug log:
+
+```bash
+grep '\[RICH-SCROLL\]' ~/.config/libreoffice/4/user/config/writeragent_debug.log
+```
+
+DEBUG-level `[RICH-SCROLL]` lines record scroll nudges, formatted inserts, layout sync, and `on_rich_control_ready` steps. They are gated off by default, even when `log_level=DEBUG`, because resize and streaming generate many entries. Each line includes a monotonic `seq`, `phase`, optional `reason`, `text_len`, and `main=` (1 when on the UI thread). `phase=nudge_done method=tail_sentinel sentinel_removed=1` means the EditEngine tail-follow scroll path ran and removed its marker.
+
+**User-send pattern (healthy):** after `phase=copy_done` and `reason=copy` nudge, expect `phase=trailing_break` then `reason=user_trailing_break` nudge before `phase=user_append_done`.
+
+**If scroll jumps after open/resize:** look for `phase=sync_bounds` on a non-empty transcript. A healthy live resize with transcript content logs `phase=sync_bounds_skip_nonempty` instead.
 
 ### Formatted insert used a fallback path (diagnostics)
 

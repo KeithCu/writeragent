@@ -250,8 +250,9 @@ class _PanelResizeListener(BaseWindowListener):
             rich = self._c.get("response_rich")
             if rich is not None:
                 try:
-                    from plugin.chatbot.rich_text_control import sync_rich_control_bounds
+                    from plugin.chatbot.rich_text_control import log_rich_scroll, sync_rich_control_bounds
 
+                    log_rich_scroll("relayout", control=rich, root_w=w, root_h=h)
                     rich_out = [rich]
                     sync_rich_control_bounds(
                         rich,
@@ -260,6 +261,7 @@ class _PanelResizeListener(BaseWindowListener):
                         placeholder_rect=self._last_response_rect,
                         control_out=rich_out,
                     )
-                    self._c["response_rich"] = rich_out[0]
+                    rich = rich_out[0]
+                    self._c["response_rich"] = rich
                 except Exception as e:
                     log.debug("response_rich sync after relayout: %s", e)

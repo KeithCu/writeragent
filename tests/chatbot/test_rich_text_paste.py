@@ -203,7 +203,31 @@ class TestHistoryMessageBatching:
         mock_cfg.assert_called_once_with(doc)
         assert mock_append.call_count == 10
         mock_copy.assert_called_once()
-        mock_nudge.assert_called_once_with(control, ctx=ctx, style_window=None)
+        mock_nudge.assert_called_once_with(control, ctx=ctx, style_window=None, reason="history_batch")
+        doc.close.assert_called_once_with(True)
+
+    def test_append_user_message_nudges_after_trailing_break(self):
+        control = MagicMock()
+        control.getModel.return_value = MagicMock(Text="prior\n\n")
+        ctx = MagicMock()
+        doc = MagicMock()
+
+        with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc), \
+             patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
+             patch("plugin.chatbot.rich_text_paste.append_rich_text"), \
+             patch(
+                 "plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control",
+                 return_value=(True, None),
+             ), \
+             patch("plugin.chatbot.rich_text_paste._ensure_trailing_line_break") as mock_trailing, \
+             patch("plugin.chatbot.rich_text_paste.focus_preserved", _immediate_focus), \
+             patch("plugin.chatbot.rich_text_paste.nudge_rich_control_view_to_end") as mock_nudge, \
+             patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=100):
+            append_rich_text_via_clipboard(ctx, control, "hello", role="user", auto_scroll=True)
+
+        mock_trailing.assert_called_once_with(control)
+        assert mock_nudge.call_count == 1
+        assert mock_nudge.call_args.kwargs.get("reason") == "user_trailing_break"
         doc.close.assert_called_once_with(True)
 
     def test_append_rich_messages_nudges_after_each_batch(self):
@@ -225,6 +249,7 @@ class TestHistoryMessageBatching:
         assert mock_append.call_count == 2
         assert mock_copy.call_count == 2
         assert mock_nudge.call_count == 2
+        assert all(c.kwargs.get("reason") == "history_batch" for c in mock_nudge.call_args_list)
         assert doc.close.call_count == 2
 
 

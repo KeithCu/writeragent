@@ -8,6 +8,7 @@
 """Unit tests for plugin.chatbot.rich_text_control."""
 
 from contextlib import contextmanager
+import logging
 from unittest.mock import MagicMock, patch
 
 from plugin.tests.testing_utils import setup_uno_mocks
@@ -66,6 +67,20 @@ class TestRichControlHelpers:
         assert bw == 142 - 2 * RICH_CONTROL_EDGE_INSET
         assert bh == 350 - 2 * RICH_CONTROL_EDGE_INSET
         assert bw < 900
+
+    def test_content_bounds_clamps_to_default_bottom_button_right(self):
+        from types import SimpleNamespace
+
+        from plugin.chatbot.rich_text_control import _content_bounds_for_rich_control
+
+        ps = MagicMock()
+        ps.getPosSize.return_value = SimpleNamespace(X=28, Y=110, Width=1143, Height=1566)
+
+        bx, _by, bw, _bh = _content_bounds_for_rich_control(
+            None, ps, placeholder_rect=(28, 110, 1143, 1566),
+        )
+
+        assert bx + bw == 1106
 
     def test_apply_rich_control_geometry_updates_dialog_model(self):
         from types import SimpleNamespace
@@ -179,7 +194,7 @@ class TestAppendTextChunk:
              patch("plugin.chatbot.rich_text_control.focus_preserved", _immediate_focus):
             nudge_rich_control_view_to_end(control, ctx=MagicMock())
 
-        control.setFocus.assert_not_called()
+        control.setFocus.assert_called_once()
         control.setSelection.assert_not_called()
         cursor.gotoEnd.assert_called_once_with(False)
         mock_insert.assert_called_once()
@@ -219,6 +234,35 @@ class TestAppendTextChunk:
         cursor.gotoEnd.assert_called_once_with(True)
         cursor.setString.assert_called_once_with("")
         assert model.Text == "hello world"
+
+
+class TestLogRichScroll:
+    def test_log_rich_scroll_increments_seq_when_verbose_enabled(self, caplog):
+        import plugin.chatbot.rich_text_control as rtc
+        from plugin.chatbot.rich_text_control import log_rich_scroll
+
+        start = rtc._RICH_SCROLL_SEQ
+        control = MagicMock()
+        with patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=42), \
+             patch("plugin.chatbot.rich_text_control.RICH_SCROLL_VERBOSE_DEBUG", True), \
+             caplog.at_level(logging.DEBUG, logger="plugin.chatbot.rich_text_control"):
+            log_rich_scroll("test_phase", control=control, reason="unit")
+            log_rich_scroll("test_phase2", control=control)
+
+        assert rtc._RICH_SCROLL_SEQ == start + 2
+        messages = " ".join(r.message for r in caplog.records)
+        assert "[RICH-SCROLL]" in messages
+        assert "phase=test_phase" in messages
+        assert "reason=unit" in messages
+        assert "text_len=42" in messages
+
+    def test_log_rich_scroll_is_off_by_default(self, caplog):
+        from plugin.chatbot.rich_text_control import log_rich_scroll
+
+        with caplog.at_level(logging.DEBUG, logger="plugin.chatbot.rich_text_control"):
+            log_rich_scroll("test_phase")
+
+        assert not any("[RICH-SCROLL]" in r.message for r in caplog.records)
 
 
 class TestStripLegacyAiLabel:
@@ -294,7 +338,7 @@ class TestRichTextChatWidget:
 
         with patch("plugin.chatbot.rich_text_control.nudge_rich_control_view_to_end") as mock_nudge:
             widget.nudge_view_to_end()
-            mock_nudge.assert_called_once_with(control, ctx=ctx, style_window=None)
+            mock_nudge.assert_called_once_with(control, ctx=ctx, style_window=None, reason="widget")
 
         with patch("plugin.chatbot.rich_text_control.append_text_chunk") as mock_chunk:
             widget.append_chunk("hello", auto_scroll=True)
@@ -328,7 +372,7 @@ class TestRichTextChatWidget:
             widget.rerender_last_assistant_if_html(session, 42)
 
         mock_trunc.assert_called_once_with(42)
-        mock_nudge.assert_called_once()
+        mock_nudge.assert_called_once_with(reason="rerender_truncate")
         mock_append.assert_called_once_with("<p>Hi</p>", role="assistant")
 
     def test_rerender_truncates_from_final_answer_offset(self):

@@ -8,7 +8,7 @@
 """Unit tests for plugin.chatbot.panel_resize."""
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from plugin.tests.testing_utils import setup_uno_mocks
 
@@ -110,7 +110,8 @@ class TestPanelResizeListenerIntegration:
 
         listener = _PanelResizeListener(controls)
         listener._width_negotiated = True
-        listener.relayout_now(root)
+        with patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=0):
+            listener.relayout_now(root)
 
         expected = compute_chat_panel_layout(900, 500, _xdl_snapshot())
         for name, rect in expected.items():
@@ -124,6 +125,25 @@ class TestPanelResizeListenerIntegration:
         _rx, _ry, _rw, rh = listener.last_response_rect
         assert rh == expected["response"].height
         assert rich.getPosSize().Height == rh - 16
+
+    def test_listener_preserves_non_empty_rich_control_bounds(self):
+        controls = {
+            name: _mock_control(x, y, w, h)
+            for name, (x, y, w, h) in _xdl_snapshot().items()
+        }
+        rich = _mock_control(12, 24, 120, 90)
+        controls["response_rich"] = rich
+        root = MagicMock()
+        root.getPosSize.return_value = SimpleNamespace(Width=900, Height=500)
+        root.getControl.side_effect = lambda name: controls.get(name)
+
+        listener = _PanelResizeListener(controls)
+        listener._width_negotiated = True
+        with patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=10):
+            listener.relayout_now(root)
+
+        ps = rich.getPosSize()
+        assert (ps.X, ps.Y, ps.Width, ps.Height) == (12, 24, 120, 90)
 
     def test_narrow_panel_stretches_response_to_margin(self):
         layouts = compute_chat_panel_layout(180, 500, _xdl_snapshot())
