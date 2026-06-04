@@ -22,20 +22,35 @@ class TestGrammarPersistence(unittest.TestCase):
         from plugin.writer.locale import grammar_persistence as gp
 
         ctx = MagicMock()
-        with patch.object(gp, "_find_model_by_runtime_uid", return_value=None):
-            gp._doc_persistence_instances.clear()
-            try:
-                pa = gp.get_persistence(ctx, "runtime-a")
-                pb = gp.get_persistence(ctx, "runtime-b")
-                pa2 = gp.get_persistence(ctx, "runtime-a")
-                self.assertIsNotNone(pa)
-                self.assertIs(pa, pa2)
-                self.assertIsNot(pa, pb)
-            finally:
-                gp.clear_all_document_persistence(ctx)
+        gp._doc_persistence_instances.clear()
+        try:
+            pa = gp.get_persistence(ctx, "runtime-a")
+            pb = gp.get_persistence(ctx, "runtime-b")
+            pa2 = gp.get_persistence(ctx, "runtime-a")
+            self.assertIsNotNone(pa)
+            self.assertIs(pa, pa2)
+            self.assertIsNot(pa, pb)
+        finally:
+            gp.clear_all_document_persistence(ctx)
+
+    def test_get_persistence_with_model_reuses_instance(self) -> None:
+        """First get_persistence(..., model=) binds; later calls return the same instance."""
+        from plugin.writer.locale import grammar_persistence as gp
+
+        ctx = MagicMock()
+        model = MagicMock()
+        gp._doc_persistence_instances.clear()
+        try:
+            pa = gp.get_persistence(ctx, "2", model=model)
+            pb = gp.get_persistence(ctx, "2")
+            self.assertIsNotNone(pa)
+            self.assertIs(pa, pb)
+            self.assertIs(pa._model, model)
+        finally:
+            gp.clear_all_document_persistence(ctx)
 
     def test_proofreading_doc_id_resolves_via_registered_active_model(self) -> None:
-        """LO passes linguistic ids like '2', not RuntimeUID — cache must load via registration."""
+        """LO passes linguistic ids like '2', not RuntimeUID — cache must load via model= binding."""
         from plugin.writer.locale import grammar_persistence as gp
         from plugin.writer.locale.grammar_persistence import DocumentPersistence
 
@@ -49,11 +64,9 @@ class TestGrammarPersistence(unittest.TestCase):
             },
         }
         gp._doc_persistence_instances.clear()
-        gp.grammar_registry.proofreading_doc_models.clear()
         try:
             with patch("plugin.doc.document_helpers.get_document_property", return_value=json.dumps(cached)):
-                gp.grammar_registry.proofreading_doc_models["2"] = model
-                dp = DocumentPersistence(ctx, "2")
+                dp = DocumentPersistence(ctx, "2", model=model)
                 hit = dp.get("fp_cached")
             self.assertIsNotNone(hit)
             self.assertEqual(len(hit), 1)
@@ -62,8 +75,8 @@ class TestGrammarPersistence(unittest.TestCase):
             gp.clear_all_document_persistence(ctx)
 
     def test_lazy_bind_loads_udprops_after_init_without_model(self) -> None:
-        """Cache embedded in the ODT must load on first get() when init had no model yet."""
-        from plugin.writer.locale.grammar_persistence import DocumentPersistence
+        """Cache embedded in the ODT must load once get_persistence(..., model=) binds the doc."""
+        from plugin.writer.locale import grammar_persistence as gp
 
         ctx = MagicMock()
         model = MagicMock()
@@ -74,29 +87,29 @@ class TestGrammarPersistence(unittest.TestCase):
                 "fp_cached": [{"s": 0, "l": 3, "g": ["fix"], "c": "c", "f": "f", "r": "wa_g_rule||test"}],
             },
         }
-        with (
-            patch("plugin.writer.locale.grammar_persistence._resolve_document_model", side_effect=[None, model]),
-            patch("plugin.doc.document_helpers.get_document_property", return_value=json.dumps(cached)),
-        ):
-            dp = DocumentPersistence(ctx, "doc-lazy")
-            self.assertIsNone(dp._model)
-            hit = dp.get("fp_cached")
+        gp._doc_persistence_instances.clear()
+        try:
+            with patch("plugin.doc.document_helpers.get_document_property", return_value=json.dumps(cached)):
+                dp = gp.DocumentPersistence(ctx, "2")
+                gp.grammar_registry.doc_persistence_instances["2"] = dp
+                self.assertIsNone(dp._model)
+                gp.get_persistence(ctx, "2", model=model)
+                hit = dp.get("fp_cached")
 
-        self.assertIsNotNone(hit)
-        self.assertEqual(len(hit), 1)
-        self.assertEqual(hit[0]["n_error_start"], 0)
-        self.assertIs(dp._model, model)
+            self.assertIsNotNone(hit)
+            self.assertEqual(len(hit), 1)
+            self.assertEqual(hit[0]["n_error_start"], 0)
+            self.assertIs(dp._model, model)
+        finally:
+            gp.clear_all_document_persistence(ctx)
 
     def test_document_persistence_persist_prunes_to_session(self) -> None:
         from plugin.writer.locale.grammar_persistence import DocumentPersistence
 
         ctx = MagicMock()
         model = MagicMock()
-        with (
-            patch("plugin.writer.locale.grammar_persistence._find_model_by_runtime_uid", return_value=model),
-            patch("plugin.doc.document_helpers.get_document_property", return_value=None),
-        ):
-            dp = DocumentPersistence(ctx, "doc-x")
+        with patch("plugin.doc.document_helpers.get_document_property", return_value=None):
+            dp = DocumentPersistence(ctx, "doc-x", model=model)
         self.assertIsNone(dp.get("fp_missing"))
         dp.put("fp1", "en-US", [{"n_error_start": 0, "n_error_length": 1}])
         dp.put("fp2", "en-US", [])
@@ -118,11 +131,8 @@ class TestGrammarPersistence(unittest.TestCase):
 
         ctx = MagicMock()
         model = MagicMock()
-        with (
-            patch("plugin.writer.locale.grammar_persistence._find_model_by_runtime_uid", return_value=model),
-            patch("plugin.doc.document_helpers.get_document_property", return_value=None),
-        ):
-            dp = gp.DocumentPersistence(ctx, "doc-save")
+        with patch("plugin.doc.document_helpers.get_document_property", return_value=None):
+            dp = gp.DocumentPersistence(ctx, "doc-save", model=model)
 
         dp.put("fp_save", "en-US", [])
         listener = gp._GrammarDocumentEventListener(dp)
@@ -144,11 +154,8 @@ class TestGrammarPersistence(unittest.TestCase):
 
         ctx = MagicMock()
         model = MagicMock()
-        with (
-            patch("plugin.writer.locale.grammar_persistence._find_model_by_runtime_uid", return_value=model),
-            patch("plugin.doc.document_helpers.get_document_property", return_value=None),
-        ):
-            dp = gp.DocumentPersistence(ctx, "doc-unload")
+        with patch("plugin.doc.document_helpers.get_document_property", return_value=None):
+            dp = gp.DocumentPersistence(ctx, "doc-unload", model=model)
 
         dp.put("fp_x", "en-US", [])
         self.assertIsNotNone(dp.get("fp_x"))
@@ -167,11 +174,8 @@ class TestGrammarPersistence(unittest.TestCase):
 
         ctx = MagicMock()
         model = MagicMock()
-        with (
-            patch("plugin.writer.locale.grammar_persistence._find_model_by_runtime_uid", return_value=model),
-            patch("plugin.doc.document_helpers.get_document_property", return_value=None),
-        ):
-            dp = gp.DocumentPersistence(ctx, "doc-disp")
+        with patch("plugin.doc.document_helpers.get_document_property", return_value=None):
+            dp = gp.DocumentPersistence(ctx, "doc-disp", model=model)
 
         listener = gp._GrammarDocumentEventListener(dp)
         listener.disposing(MagicMock())

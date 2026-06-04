@@ -119,7 +119,7 @@ def _get_cached_document_locales(ctx: Any, doc_id: str) -> list[str]:
     def _query_locales() -> list[str]:
         locales = set()
         try:
-            model = grammar_persistence._find_model_by_runtime_uid(ctx, doc_id)
+            model = grammar_persistence.get_document_model_for_id(ctx, doc_id)
             if model:
                 # 1000 characters around the view cursor (500 behind, 500 ahead)
                 ctrl = getattr(model, "getCurrentController", lambda: None)()
@@ -158,7 +158,7 @@ def _get_cached_document_locales(ctx: Any, doc_id: str) -> list[str]:
 
 def _apply_language_change(ctx: Any, doc_id: str, sentence_text: str, detected_bcp47: str) -> None:
     def _do_update() -> None:
-        model = grammar_persistence._find_model_by_runtime_uid(ctx, doc_id)
+        model = grammar_persistence.get_document_model_for_id(ctx, doc_id)
         if not model:
             return
         

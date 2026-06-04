@@ -402,9 +402,10 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
 
     def doProofreading(self, aDocumentIdentifier: str, aText: str, aLocale: Any, nStartOfSentencePosition: int, nSuggestedBehindEndOfSentencePosition: int, aProperties: Any) -> Any:
         self._last_doc_id = aDocumentIdentifier
-        from plugin.writer.locale.grammar_persistence import register_proofreading_document
+        from plugin.framework.uno_context import get_active_document
+        from plugin.writer.locale.grammar_persistence import get_persistence
 
-        register_proofreading_document(self.ctx, aDocumentIdentifier)
+        get_persistence(self.ctx, aDocumentIdentifier, model=get_active_document(self.ctx))
         if uno_mod is None:
             log.warning("[grammar] doProofreading: uno_mod is None (import failed)")
             raise RuntimeError("uno not available")
@@ -468,13 +469,11 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             ignore_rule_add(str(aRuleIdentifier))
 
             from plugin.framework.uno_context import get_active_document
-            from plugin.writer.locale.grammar_persistence import get_persistence, _model_runtime_uid
+            from plugin.writer.locale.grammar_persistence import get_persistence
 
+            doc_id = getattr(self, "_last_doc_id", None)
             model = get_active_document(self.ctx)
-            doc_id = _model_runtime_uid(model) if model else None
-            if not doc_id:
-                doc_id = getattr(self, "_last_doc_id", None)
-            p = get_persistence(self.ctx, doc_id) if doc_id else None
+            p = get_persistence(self.ctx, doc_id, model=model) if doc_id else None
 
             if aRuleIdentifier.startswith("wa_g_rule||"):
                 reason = aRuleIdentifier[11:]
@@ -501,13 +500,11 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             ignore_rules_clear()
 
             from plugin.framework.uno_context import get_active_document
-            from plugin.writer.locale.grammar_persistence import get_persistence, _model_runtime_uid
+            from plugin.writer.locale.grammar_persistence import get_persistence
 
+            doc_id = getattr(self, "_last_doc_id", None)
             model = get_active_document(self.ctx)
-            doc_id = _model_runtime_uid(model) if model else None
-            if not doc_id:
-                doc_id = getattr(self, "_last_doc_id", None)
-            p = get_persistence(self.ctx, doc_id) if doc_id else None
+            p = get_persistence(self.ctx, doc_id, model=model) if doc_id else None
 
             if p:
                 with p._lock:

@@ -37,11 +37,8 @@ class TestGrammarIgnoreRules(unittest.TestCase):
     def test_document_persistence_stores_and_saves_ignored_rules(self) -> None:
         ctx = MagicMock()
         model = MagicMock()
-        with (
-            patch("plugin.writer.locale.grammar_persistence._find_model_by_runtime_uid", return_value=model),
-            patch("plugin.doc.document_helpers.get_document_property", return_value=None),
-        ):
-            dp = DocumentPersistence(ctx, "doc-x")
+        with patch("plugin.doc.document_helpers.get_document_property", return_value=None):
+            dp = DocumentPersistence(ctx, "doc-x", model=model)
             
         dp._ignored_rules.add("avoid passive voice")
         
@@ -131,18 +128,19 @@ class TestGrammarIgnoreRules(unittest.TestCase):
     def test_proofreader_ignore_and_reset_apis(self) -> None:
         ctx = MagicMock()
         pr = WriterAgentAiGrammarProofreader(ctx)
-        
+        pr._last_doc_id = "2"
+
         model = MagicMock()
         dp = MagicMock()
         dp._ignored_rules = set()
-        
+
         with (
             patch("plugin.framework.uno_context.get_active_document", return_value=model),
-            patch("plugin.writer.locale.grammar_persistence._model_runtime_uid", return_value="doc-active"),
-            patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp)
+            patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp) as mock_get,
         ):
             # Ignore a rule
             pr.ignoreRule("wa_g_rule||Avoid passive voice.", None)
+            mock_get.assert_called_with(ctx, "2", model=model)
             self.assertIn("avoid passive voice", dp._ignored_rules)
             self.assertTrue(dp._persist_to_udprops.called)
             
