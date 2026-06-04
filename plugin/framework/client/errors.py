@@ -47,6 +47,9 @@ def _format_http_error_response(status, reason, err_body):
         else:
             detail = str(err) if err else ""
         if detail:
+            # Together and some providers return error.message as a dict, not a string.
+            if not isinstance(detail, str):
+                detail = str(detail)
             return base + ". " + detail
     snippet = err_body.strip().replace("\n", " ")[:400]
     return base + ".\nProvider Response:\n" + snippet

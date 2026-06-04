@@ -189,3 +189,19 @@ def test_format_error_message_edge_cases():
     broken_json = '{ "broken json'
     msg_3 = _format_http_error_response(400, "Bad Request", broken_json)
     assert '{ "broken json' in msg_3
+
+    # Together AI: error.message is a nested object (must not raise TypeError on concat)
+    together_err = json.dumps({
+        "id": "test-id",
+        "error": {
+            "message": {
+                "message": "Invalid JSON data: Failed to deserialize the JSON body into the target type: messages[1]: data did not match any variant of untagged enum MessageContent",
+                "type": "invalid_request_error",
+                "code": "json_data_error",
+            },
+            "type": "invalid_request_error",
+        },
+    })
+    msg_4 = _format_http_error_response(400, "Bad Request", together_err)
+    assert "HTTP Error 400" in msg_4
+    assert "MessageContent" in msg_4 or "deserialize" in msg_4
