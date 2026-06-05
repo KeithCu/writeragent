@@ -17,6 +17,8 @@ log = logging.getLogger("writeragent.web_research_cache")
 _SNOWBALL_LANGS = frozenset(_ISO_TO_SNOWBALL.values())
 _STEMMER_CACHE: dict[str, Any] = {}
 _MIN_TOKEN_LEN = 3
+# (gettext LO locale, snowball_lang) -> assembled fluff + stop words
+_FLUFF_WORDS_CACHE: dict[tuple[str, str], frozenset[str]] = {}
 
 
 def _get_stemmer(snowball_lang: str) -> Any | None:
@@ -104,8 +106,20 @@ def tokenize_query_words(query: str) -> list[str]:
     return _raw_tokens(query)
 
 
+def clear_research_fluff_words_cache() -> None:
+    """Clear cached fluff sets (tests or after locale catalog reload)."""
+    _FLUFF_WORDS_CACHE.clear()
+
+
 def get_research_fluff_words(*, snowball_lang: str) -> frozenset[str]:
     """Instruction fluff from _('…') (active LO locale) plus grammar stop words."""
+    from plugin.framework.i18n import get_active_locale
+
+    cache_key = (get_active_locale(), snowball_lang)
+    cached = _FLUFF_WORDS_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
     from plugin.chatbot.research_cache_fluff import translated_research_cache_fluff
     from plugin.writer.locale.linguistic_index import _raw_tokens
     from plugin.writer.locale.stop_words import stop_words_for_snowball
@@ -114,7 +128,9 @@ def get_research_fluff_words(*, snowball_lang: str) -> frozenset[str]:
     for phrase in translated_research_cache_fluff():
         fluff.update(_raw_tokens(phrase))
     fluff.update(stop_words_for_snowball(snowball_lang))
-    return frozenset(fluff)
+    result = frozenset(fluff)
+    _FLUFF_WORDS_CACHE[cache_key] = result
+    return result
 
 
 def parse_research_cache_key(raw_key: str) -> tuple[str, str]:

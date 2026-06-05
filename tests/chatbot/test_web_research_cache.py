@@ -22,6 +22,15 @@ SPACE_ELEVATOR_KEY_1 = (
     "sections space strength technical urls with"
 )
 @pytest.fixture(autouse=True)
+def _fresh_research_fluff_cache():
+    from plugin.chatbot.web_research_cache import clear_research_fluff_words_cache
+
+    clear_research_fluff_words_cache()
+    yield
+    clear_research_fluff_words_cache()
+
+
+@pytest.fixture(autouse=True)
 def _real_snowball_stemmer():
     """test_linguistic_index.py mocks sys.modules['snowballstemmer']; clear cache and restore."""
     from plugin.chatbot import web_research_cache as wrc
@@ -98,15 +107,37 @@ def test_translated_research_cache_fluff_returns_gettext_strings():
 
 
 def test_get_research_fluff_words_includes_gettext_tokens(monkeypatch):
-    from plugin.chatbot.web_research_cache import get_research_fluff_words
+    from plugin.chatbot.web_research_cache import clear_research_fluff_words_cache, get_research_fluff_words
 
     def mock_(message: str) -> str:
         return {"research": "recherche", "compile": "compiler"}.get(message, message)
 
+    clear_research_fluff_words_cache()
     monkeypatch.setattr("plugin.framework.i18n._", mock_)
     fluff = get_research_fluff_words(snowball_lang="french")
     assert "recherche" in fluff
     assert "compiler" in fluff
+
+
+def test_get_research_fluff_words_cached_per_locale(monkeypatch):
+    from plugin.chatbot import web_research_cache as wrc
+    from plugin.chatbot.web_research_cache import clear_research_fluff_words_cache
+
+    calls: list[int] = []
+
+    def counting_fluff() -> tuple[str, ...]:
+        calls.append(1)
+        return ("research",)
+
+    clear_research_fluff_words_cache()
+    monkeypatch.setattr("plugin.chatbot.research_cache_fluff.translated_research_cache_fluff", counting_fluff)
+    first = wrc.get_research_fluff_words(snowball_lang="english")
+    second = wrc.get_research_fluff_words(snowball_lang="english")
+    assert first is second
+    assert len(calls) == 1
+    other = wrc.get_research_fluff_words(snowball_lang="french")
+    assert other is not first
+    assert len(calls) == 2
 
 
 def test_lookup_research_cache_fuzzy_hit(tmp_path):

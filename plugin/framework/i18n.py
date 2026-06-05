@@ -30,9 +30,16 @@ log = logging.getLogger("writeragent.i18n")
 
 # Set by init_i18n(); always non-None after init_i18n() returns.
 _translation: Optional[gettext.NullTranslations] = None
+# LO UI locale tag used for the loaded catalog (for fluff-word cache keys).
+_active_locale: str = "en_US"
 
 # When UNO cannot supply ooLocale (tests, early init), use English catalogs.
 _DEFAULT_LOCALE = "en_US"
+
+
+def get_active_locale() -> str:
+    """Return the locale tag for the gettext catalog loaded by init_i18n()."""
+    return _active_locale
 
 
 def get_lo_locale(ctx=None):
@@ -68,13 +75,14 @@ def init_i18n(ctx=None) -> None:
     Always sets :data:`_translation` before return (``NullTranslations`` on any
     failure so callers never see ``None`` after a successful call).
     """
-    global _translation
+    global _translation, _active_locale
 
     if _translation is not None:
         return
 
     try:
         locale = get_lo_locale(ctx)
+        _active_locale = locale
         locales_dir = get_locales_dir()
         mofiles = gettext.find("writeragent", localedir=locales_dir, languages=[locale], all=True)
         if not mofiles:
@@ -86,6 +94,7 @@ def init_i18n(ctx=None) -> None:
         log.debug("i18n init: translation_type=%s", type(_translation).__name__)
     except Exception as e:
         log.debug("Failed to initialize i18n: %s. Falling back to default gettext.", e)
+        _active_locale = _DEFAULT_LOCALE
         _translation = gettext.NullTranslations()
         log.debug("i18n init: translation_type=%s", type(_translation).__name__)
 
