@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-01 21:14-0400\n"
+"POT-Creation-Date: 2026-06-04 23:11-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Norwegian Nynorsk <LL@li.org>\n"
@@ -19,17 +19,17 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require sub-agent delegation (USE_SUB_AGENT). Enable "
-"sub-agents in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
-"Dokumentundersøkingar krev delegering til underagent (USE_SUB_AGENT). "
-"Aktiver underagentar i oppsettet."
+"Dokumentforsking krev spesialisert oppgåvedelegering (USE_SUB_AGENT). "
+"Aktiver dette i oppsettet."
 
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Verktøykall bytta til '{0}'. Du er i ein spesialisert verktøymodus. Du må "
@@ -46,8 +46,8 @@ msgstr "Køyring av notatblokk er berre støtta i LibreOffice Writer."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
 "Dette dokumentet har inga importert notatblokk. Bruk Verktøy → Importer "
 "Jupyter-notatblokk… først."
@@ -159,8 +159,8 @@ msgid ""
 "Seems that «{}» has problems, double check it, create a new one or join "
 "Discord to ask for help"
 msgstr ""
-"Det ser ut til at «{}» har problem, dobbeltsjekk det, opprett eit nytt eller "
-"bli med på Discord for å be om hjelp"
+"Det ser ut til at «{}» har problem, dobbeltsjekk det, opprett eit nytt eller"
+" bli med på Discord for å be om hjelp"
 
 #: plugin/contrib/aihordeclient/__init__.py
 msgid "We hit an error, still: "
@@ -222,7 +222,8 @@ msgstr "Denne modellen tek lengre tid enn den noverande konfigurasjonen din."
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr ""
 "Prøv ein annan modell. {0} vil ta lengre tid enn det du har konfigurert."
 
@@ -310,8 +311,10 @@ msgstr ""
 "innstillingane."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
-msgstr "Tilkobling nekta. Køyrer den lokale AI-tenaren din (Ollama/LM Studio)?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgstr ""
+"Tilkobling nekta. Køyrer den lokale AI-tenaren din (Ollama/LM Studio)?"
 
 #: plugin/framework/errors.py
 msgid "DNS Error. Could not resolve the endpoint URL."
@@ -341,7 +344,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "AI: Eg kan hjelpe deg med formlar, dataanalyse og fargerike diagram. Prøv "
 "meg!"
@@ -360,7 +364,8 @@ msgid ""
 "without seeing or changing your document. Let's chat."
 msgstr ""
 "AI: Eg kan gjere nettsøk for å svare på kva som helst spørsmål, eller "
-"oppsummere ei nettside, utan å sjå eller endre dokumentet ditt. La oss prate."
+"oppsummere ei nettside, utan å sjå eller endre dokumentet ditt. La oss "
+"prate."
 
 #: plugin/framework/client/errors.py
 #, python-brace-format
@@ -413,8 +418,8 @@ msgstr "WriterAgent: Utvid utval (Calc)"
 #: plugin/calc/python_editor.py
 msgid ""
 "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\"; "
-"A1:B10)."
+"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\";"
+" A1:B10)."
 msgstr ""
 "Kunne ikkje ta vare på PYTHON-formelargumenta i denne cella (t.d. "
 "dataområde). Rediger formelen i Calc, eller bruk ein sitert kodestreng som "
@@ -463,8 +468,7 @@ msgid ""
 "In that venv run: pip install pywebview\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"Kan ikkje importere webview (pywebview) med Python frå Innstillingar → "
-"Python:\n"
+"Kan ikkje importere webview (pywebview) med Python frå Innstillingar → Python:\n"
 "%(exe)s\n"
 "\n"
 "Køyr denne kommandoen i det virtuelle miljøet (venv): pip install pywebview\n"
@@ -544,6 +548,266 @@ msgstr ""
 #: plugin/writer/math/latex_dialog.py
 msgid "An unexpected error occurred during LaTeX insertion."
 msgstr "Ein uventa feil oppstod under LaTeX-innsetjing."
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "about"
+msgstr "om"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "aim"
+msgstr "mål"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "any"
+msgstr "kva som helst"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "awards"
+msgstr "prisar"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "best"
+msgstr "beste"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "brief"
+msgstr "kort"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "can"
+msgstr "kan"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "choices"
+msgstr "val"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "compile"
+msgstr "kompiler"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "concise"
+msgstr "konsis"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "depth"
+msgstr "djupn"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "description"
+msgstr "skildring"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "detail"
+msgstr "detalj"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "details"
+msgstr "detaljar"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "display"
+msgstr "vis"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "each"
+msgstr "kvar"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "features"
+msgstr "funksjonar"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "find"
+msgstr "finn"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "get"
+msgstr "hent"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "give"
+msgstr "gje"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "how"
+msgstr "korleis"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "identify"
+msgstr "identifiser"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "include"
+msgstr "inkluder"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "info"
+msgstr "info"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "information"
+msgstr "informasjon"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "key"
+msgstr "nøkkel"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "least"
+msgstr "minst"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "limit"
+msgstr "grense"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "list"
+msgstr "liste"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "me"
+msgstr "meg"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "notable"
+msgstr "nemneverdig"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "overall"
+msgstr "overordna"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "plain"
+msgstr "enkel"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "plain text"
+msgstr "rein tekst"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "please"
+msgstr "ver venleg"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "preferences"
+msgstr "innstillingar"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "provide"
+msgstr "gje"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "query"
+msgstr "spørjing"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "question"
+msgstr "spørsmål"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "ratings"
+msgstr "vurderingar"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "recommendation"
+msgstr "tilråding"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "report"
+msgstr "rapport"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "research"
+msgstr "forsking"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "reviews"
+msgstr "omtalar"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "search"
+msgstr "søk"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "short"
+msgstr "kort"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "show"
+msgstr "vis"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "signature"
+msgstr "signatur"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "source"
+msgstr "kjelde"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "sources"
+msgstr "kjelder"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "such"
+msgstr "slik"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "suitable"
+msgstr "høveleg"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "summary"
+msgstr "samandrag"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "tell"
+msgstr "fortel"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "text"
+msgstr "tekst"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "their"
+msgstr "deira"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "top"
+msgstr "topp"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "trends"
+msgstr "trendar"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "types"
+msgstr "typar"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "what"
+msgstr "kva"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "when"
+msgstr "når"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "where"
+msgstr "kvar"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "who"
+msgstr "kven"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "why"
+msgstr "kvifor"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "you"
+msgstr "du"
 
 #: plugin/chatbot/panel_wiring.py plugin/xdl_strings.py
 msgid "Ready"
@@ -642,8 +906,8 @@ msgid ""
 "[Internal Error: Document type changed from {0} to {1}! Please file an "
 "error.]"
 msgstr ""
-"[Intern feil: Dokumenttypen er endra frå {0} til {1}! Ver venleg og meld frå "
-"om feilen.]"
+"[Intern feil: Dokumenttypen er endra frå {0} til {1}! Ver venleg og meld frå"
+" om feilen.]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -675,6 +939,26 @@ msgstr "Temperatur må vere <= 1.0"
 #, python-format
 msgid "This search query '%s' will be sent to the search engine."
 msgstr "Dette søket '%s' vil bli sendt til søkemotoren."
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache hit (fuzzy, %s%% match: %s%s → %s)"
+msgstr "Treff i forskingsmellomlager (fuzzy, %s%% samsvar: %s%s → %s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache hit (key: %s)"
+msgstr "Treff i forskingsmellomlager (nøkkel: %s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache saved (key: %s)"
+msgstr "Forskingsmellomlager lagra (nøkkel: %s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Cached research keys: %s"
+msgstr "Mellomlagra forskingsnøklar: %s"
 
 #: plugin/chatbot/web_research_chat.py
 msgid "[Web research]"
@@ -741,7 +1025,8 @@ msgstr "[Agent-bakende '{0}' vart ikkje funnen.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Agent-bakende '{0}' er ikkje tilgjengeleg. Kontroller innstillingar (bane, "
 "installasjon).]"
@@ -979,8 +1264,8 @@ msgid ""
 msgstr ""
 "Python-øktmodus er isolert (kvar =PYTHON()-celle brukar sine eigne "
 "variablar). Det finst inga delt celleøkt å nullstille. Legg til eit "
-"initialiseringsskript viss du treng å tømme ressurskrevjande eingongsoppsett "
-"for arbeidsboka."
+"initialiseringsskript viss du treng å tømme ressurskrevjande eingongsoppsett"
+" for arbeidsboka."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1058,8 +1343,8 @@ msgstr "Fest til dokument"
 #, python-brace-format
 msgid "A script named '{0}' already exists in this document. Overwrite?"
 msgstr ""
-"Eit skript med namnet «{0}» finst allereie i dette dokumentet. Vil du skrive "
-"over?"
+"Eit skript med namnet «{0}» finst allereie i dette dokumentet. Vil du skrive"
+" over?"
 
 #: plugin/scripting/python_runner.py
 msgid "Attach Script"
@@ -1127,8 +1412,8 @@ msgstr "Ukjend feil"
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "Skriptet vart køyrt utan feil, men gav ikkje noko resultat eller utdata. "
 "(tok {time})"
@@ -1494,11 +1779,11 @@ msgid "Path / URL"
 msgstr "Sti / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Sti til backend-CLI (t.d. aider) eller ACP-tenar-URL (t.d. http://"
-"localhost:8000 for Hermes). Tom = prøv standard."
+"Sti til backend-CLI (t.d. aider) eller ACP-tenar-URL (t.d. "
+"http://localhost:8000 for Hermes). Tom = prøv standard."
 
 msgid "Extra arguments"
 msgstr "Ekstra argument"
@@ -1579,6 +1864,16 @@ msgstr "Gyldigheit for nettbuffer (dagar)"
 msgid "How many days cache entries should be considered valid."
 msgstr "Kor mange dagar bufferinnslag skal reknast som gyldige."
 
+msgid "Web Research Cache"
+msgstr "Nettsøk-mellomlager"
+
+msgid ""
+"Cache completed web research reports by normalized query (reuses web search "
+"cache database)."
+msgstr ""
+"Mellomlagre fullførte nettsøk-rapportar etter normalisert spørjing "
+"(gjenbruker databasen for nettsøk-mellomlager)."
+
 msgid "Rich Text Control Sidebar"
 msgstr "Sidepanel for kontroll av rik tekst"
 
@@ -1597,8 +1892,8 @@ msgstr "Aktiver AI-grammatikkontroll (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "Når denne er på, registrerer WriterAgent sin AI-grammatikkontrollør med "
 "Linguistic; kontrollert tekst brukar API-et ditt (Verktøy → Val → AI). "
@@ -1632,6 +1927,19 @@ msgstr ""
 "Talet på setningar som skal sendast per LLM-førespurnad (1–8). 1 (standard) "
 "er mest påliteleg; høgare verdiar er raskare og billigare, men kan nå "
 "grenser for token eller føre til modellfeil."
+
+msgid "Grammar concurrent requests"
+msgstr "Samtidige grammatikkførespurnader"
+
+msgid ""
+"Max simultaneous background grammar API calls (1-8). 1 matches prior "
+"behavior. Raise for OpenRouter or other providers that allow parallel "
+"requests; use with care alongside sidebar chat."
+msgstr ""
+"Maksimalt tal på samtidige bakgrunns-API-kall for grammatikk (1–8). 1 svarar"
+" til tidlegare åtferd. Auk verdien for OpenRouter eller andre tenesteytarar "
+"som tillèt parallelle førespurnader; bruk med varsemd saman med sidepanel-"
+"chat."
 
 msgid "Detect and correct sentence language"
 msgstr "Oppdag og rett språk i setningar"
@@ -1668,11 +1976,11 @@ msgid "Enable MCP Server"
 msgstr "Aktiver MCP-tenar"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Berre localhost, inga autentisering. Klientar brukar http://localhost:<port>/"
-"mcp (strøymbar HTTP)."
+"Berre localhost, inga autentisering. Klientar brukar "
+"http://localhost:<port>/mcp (strøymbar HTTP)."
 
 msgid "MCP Port"
 msgstr "MCP-port"
@@ -1700,8 +2008,8 @@ msgid ""
 "empty, run_venv_python_script uses this process's sys.executable (basic "
 "stdlib); use a venv for numpy/pandas."
 msgstr ""
-"Viss sett, køyrer verktøy i det venv-et (bin/python eller Scripts/"
-"python.exe). Viss tomt, brukar run_venv_python_script prosessen sin "
+"Viss sett, køyrer verktøy i det venv-et (bin/python eller "
+"Scripts/python.exe). Viss tomt, brukar run_venv_python_script prosessen sin "
 "sys.executable (grunnleggjande stdlib); bruk eit venv for numpy/pandas."
 
 msgid "Test"
@@ -1714,18 +2022,19 @@ msgid ""
 "Wall-clock limit for Run Python Script, =PYTHON(), and "
 "run_venv_python_script."
 msgstr ""
-"Tidsgrense for køyring av Python-skript, =PYTHON() og run_venv_python_script."
+"Tidsgrense for køyring av Python-skript, =PYTHON() og "
+"run_venv_python_script."
 
 msgid "Max Calc data cells"
 msgstr "Maksimalt tal på Calc-dataceller"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
-"Maksimalt tal på celler i =PYTHON()-data eller «Køyr Python-skript»-data/"
-"dataområde. Større verdiar brukar meir minne og tid; lesing av UNO-område er "
-"framleis den største faktoren."
+"Maksimalt tal på celler i =PYTHON()-data eller «Køyr Python-"
+"skript»-data/dataområde. Større verdiar brukar meir minne og tid; lesing av "
+"UNO-område er framleis den største faktoren."
 
 msgid "Python session mode"
 msgstr "Python-øktmodus"
@@ -1734,8 +2043,8 @@ msgid ""
 "Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace "
 "per workbook (variables carry between cells)."
 msgstr ""
-"Isolert: kvar =PYTHON()-celle får eit eige namnerom. Delt: eitt namnerom per "
-"arbeidsbok (variablar vert tekne med mellom celler)."
+"Isolert: kvar =PYTHON()-celle får eit eige namnerom. Delt: eitt namnerom per"
+" arbeidsbok (variablar vert tekne med mellom celler)."
 
 msgid "Isolated (default)"
 msgstr "Isolert (standard)"
@@ -1757,8 +2066,8 @@ msgid "Modeless Run Python Script dialog"
 msgstr "Moduslaus dialog for køyring av Python-skript"
 
 msgid ""
-"When checked, the plain-text Run Python Script dialog floats so you can edit "
-"the document while it is open. Uncheck for the classic modal dialog."
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
 msgstr ""
 "Når denne er merka av, vil dialogboksen «Køyr Python-skript» flyta slik at "
 "du kan redigera dokumentet medan han er open. Fjern merkinga for den "

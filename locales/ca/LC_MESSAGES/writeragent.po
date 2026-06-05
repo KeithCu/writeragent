@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-01 21:14-0400\n"
+"POT-Creation-Date: 2026-06-04 23:11-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Catalan <LL@li.org>\n"
@@ -19,17 +19,17 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require sub-agent delegation (USE_SUB_AGENT). Enable "
-"sub-agents in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
-"Les lectures de recerca de documents requereixen la delegació d'un subagent "
-"(USE_SUB_AGENT). Habiliteu els subagents a la configuració."
+"Les lectures de recerca de documents requereixen una delegació de tasques "
+"especialitzada (USE_SUB_AGENT). Habiliteu-ho a la configuració."
 
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "La crida a l'eina ha canviat a «{0}». Esteu en un mode d'eines "
@@ -46,11 +46,11 @@ msgstr "L'execució de quaderns només s'admet al LibreOffice Writer."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
-"Aquest document no té cap quadern importat. Utilitzeu primer Eines → Importa "
-"el quadern Jupyter…."
+"Aquest document no té cap quadern importat. Utilitzeu primer Eines → Importa"
+" el quadern Jupyter…."
 
 #: plugin/notebook/notebook_runner.py
 msgid "Could not find notebook cell for this control."
@@ -223,7 +223,8 @@ msgstr "Aquest model requereix més temps que la vostra configuració actual."
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr "Proveu un altre model. {0} trigaria més temps del que heu configurat."
 
 #: plugin/contrib/aihordeclient/__init__.py
@@ -312,7 +313,8 @@ msgstr ""
 "d'espera de la sol·licitud» a la configuració."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Connexió refusada. El vostre servidor d'IA local (Ollama/LM Studio) està en "
 "marxa?"
@@ -345,7 +347,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "IA: Puc ajudar-vos amb fórmules, anàlisi de dades i gràfics acolorits. "
 "Proveu-me!"
@@ -417,11 +420,11 @@ msgstr "WriterAgent: Amplia la selecció (Calc)"
 #: plugin/calc/python_editor.py
 msgid ""
 "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\"; "
-"A1:B10)."
+"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\";"
+" A1:B10)."
 msgstr ""
-"No s'han pogut preservar els arguments de la fórmula PYTHON d'aquesta cel·la "
-"(p. ex., intervals de dades). Editeu la fórmula al Calc, o utilitzeu una "
+"No s'han pogut preservar els arguments de la fórmula PYTHON d'aquesta cel·la"
+" (p. ex., intervals de dades). Editeu la fórmula al Calc, o utilitzeu una "
 "cadena de codi entre cometes com ara =PYTHON(\"codi\"; A1:B10)."
 
 #: plugin/calc/python_editor.py
@@ -468,8 +471,7 @@ msgid ""
 "In that venv run: pip install pywebview\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"No es pot importar webview (pywebview) amb el Python de Paràmetres → "
-"Python:\n"
+"No es pot importar webview (pywebview) amb el Python de Paràmetres → Python:\n"
 "%(exe)s\n"
 "\n"
 "En aquest venv executeu: pip install pywebview\n"
@@ -550,6 +552,266 @@ msgstr ""
 #: plugin/writer/math/latex_dialog.py
 msgid "An unexpected error occurred during LaTeX insertion."
 msgstr "S'ha produït un error inesperat durant la inserció de LaTeX."
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "about"
+msgstr "quant a"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "aim"
+msgstr "objectiu"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "any"
+msgstr "qualsevol"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "awards"
+msgstr "premis"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "best"
+msgstr "millor"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "brief"
+msgstr "resum"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "can"
+msgstr "pot"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "choices"
+msgstr "opcions"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "compile"
+msgstr "compila"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "concise"
+msgstr "concís"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "depth"
+msgstr "profunditat"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "description"
+msgstr "descripció"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "detail"
+msgstr "detall"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "details"
+msgstr "detalls"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "display"
+msgstr "visualitza"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "each"
+msgstr "cada"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "features"
+msgstr "funcionalitats"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "find"
+msgstr "cerca"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "get"
+msgstr "obtén"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "give"
+msgstr "donar"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "how"
+msgstr "com"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "identify"
+msgstr "identificar"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "include"
+msgstr "incloure"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "info"
+msgstr "info"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "information"
+msgstr "informació"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "key"
+msgstr "clau"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "least"
+msgstr "mínim"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "limit"
+msgstr "límit"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "list"
+msgstr "llista"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "me"
+msgstr "jo"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "notable"
+msgstr "notable"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "overall"
+msgstr "general"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "plain"
+msgstr "pla"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "plain text"
+msgstr "text pla"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "please"
+msgstr "si us plau"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "preferences"
+msgstr "preferències"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "provide"
+msgstr "proporciona"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "query"
+msgstr "consulta"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "question"
+msgstr "pregunta"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "ratings"
+msgstr "valoracions"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "recommendation"
+msgstr "recomanació"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "report"
+msgstr "informe"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "research"
+msgstr "investigació"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "reviews"
+msgstr "ressenyes"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "search"
+msgstr "cerca"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "short"
+msgstr "curt"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "show"
+msgstr "mostra"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "signature"
+msgstr "signatura"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "source"
+msgstr "font"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "sources"
+msgstr "fonts"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "such"
+msgstr "tal com"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "suitable"
+msgstr "adequat"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "summary"
+msgstr "resum"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "tell"
+msgstr "digues"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "text"
+msgstr "text"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "their"
+msgstr "llur"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "top"
+msgstr "superior"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "trends"
+msgstr "tendències"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "types"
+msgstr "tipus"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "what"
+msgstr "què"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "when"
+msgstr "quan"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "where"
+msgstr "on"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "who"
+msgstr "qui"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "why"
+msgstr "per què"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "you"
+msgstr "vostè"
 
 #: plugin/chatbot/panel_wiring.py plugin/xdl_strings.py
 msgid "Ready"
@@ -639,8 +901,8 @@ msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[No s'ha trobat cap document de LibreOffice compatible (Writer, Calc o Draw) "
-"a la finestra activa.]"
+"[No s'ha trobat cap document de LibreOffice compatible (Writer, Calc o Draw)"
+" a la finestra activa.]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -683,6 +945,28 @@ msgid "This search query '%s' will be sent to the search engine."
 msgstr "Aquesta consulta de cerca '%s' s'enviarà al motor de cerca."
 
 #: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache hit (fuzzy, %s%% match: %s%s → %s)"
+msgstr ""
+"Coincidència a la memòria cau de recerca (difusa, coincidència del %s%%: "
+"%s%s → %s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache hit (key: %s)"
+msgstr "Coincidència a la memòria cau de recerca (clau: %s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache saved (key: %s)"
+msgstr "S'ha desat la memòria cau de recerca (clau: %s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Cached research keys: %s"
+msgstr "Claus de recerca a la memòria cau: %s"
+
+#: plugin/chatbot/web_research_chat.py
 msgid "[Web research]"
 msgstr "[Recerca web]"
 
@@ -718,8 +1002,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"No s'ha trobat cap editor (instal·leu Kate o Gedit, o definiu EDITOR). "
-"Camí:\n"
+"No s'ha trobat cap editor (instal·leu Kate o Gedit, o definiu EDITOR). Camí:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -748,7 +1031,8 @@ msgstr "[No s'ha trobat el rerefons de l'agent '{0}'.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[El rerefons de l'agent '{0}' no està disponible. Comproveu la configuració "
 "(camí, instal·lació).]"
@@ -785,8 +1069,8 @@ msgid ""
 "A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
 "check for updates and install the latest extension."
 msgstr ""
-"Hi ha una versió més nova del WriterAgent (%s) disponible. Utilitzeu Eines → "
-"Gestor d'extensions per cercar actualitzacions i instal·lar l'extensió més "
+"Hi ha una versió més nova del WriterAgent (%s) disponible. Utilitzeu Eines →"
+" Gestor d'extensions per cercar actualitzacions i instal·lar l'extensió més "
 "recent."
 
 #: plugin/chatbot/librarian.py
@@ -945,8 +1229,8 @@ msgid ""
 "This Writer document has no imported notebook registry. Use Tools → Import "
 "Jupyter Notebook… first."
 msgstr ""
-"Aquest document del Writer no té cap registre de quadern importat. Utilitzeu "
-"primer Eines → Importa el quadern Jupyter…."
+"Aquest document del Writer no té cap registre de quadern importat. Utilitzeu"
+" primer Eines → Importa el quadern Jupyter…."
 
 #: plugin/scripting/session_manager.py
 msgid "Could not resolve notebook Python session."
@@ -997,8 +1281,8 @@ msgid ""
 "This Writer document has no imported notebook registry. Use Tools → Import "
 "Jupyter Notebook… to enable notebook Python session reset."
 msgstr ""
-"Aquest document del Writer no té cap registre de quadern importat. Utilitzeu "
-"Eines → Importa el quadern Jupyter… per habilitar el restabliment de la "
+"Aquest document del Writer no té cap registre de quadern importat. Utilitzeu"
+" Eines → Importa el quadern Jupyter… per habilitar el restabliment de la "
 "sessió de Python del quadern."
 
 #: plugin/scripting/python_runner.py
@@ -1137,8 +1421,8 @@ msgstr "Error desconegut"
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "L'script s'ha executat correctament, però no ha retornat cap resultat ni ha "
 "produït cap sortida. (ha trigat {time})"
@@ -1147,7 +1431,8 @@ msgstr ""
 #, python-brace-format
 msgid "Unsupported document type for result insertion. (took {time})"
 msgstr ""
-"Tipus de document no admès per a la inserció del resultat. (ha trigat {time})"
+"Tipus de document no admès per a la inserció del resultat. (ha trigat "
+"{time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -1506,11 +1791,11 @@ msgid "Path / URL"
 msgstr "Camí / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Camí al CLI del backend (p. ex. aider) o URL del servidor ACP (p. ex. http://"
-"localhost:8000 per a Hermes). Buit = provar el predeterminat."
+"Camí al CLI del backend (p. ex. aider) o URL del servidor ACP (p. ex. "
+"http://localhost:8000 per a Hermes). Buit = provar el predeterminat."
 
 msgid "Extra arguments"
 msgstr "Arguments addicionals"
@@ -1595,6 +1880,17 @@ msgid "How many days cache entries should be considered valid."
 msgstr ""
 "Quants dies s'han de considerar vàlides les entrades de la memòria cau."
 
+msgid "Web Research Cache"
+msgstr "Caché de recerca web"
+
+msgid ""
+"Cache completed web research reports by normalized query (reuses web search "
+"cache database)."
+msgstr ""
+"Emmagatzema en memòria cau els informes de recerca web completats per "
+"consulta normalitzada (reutilitza la base de dades de memòria cau de cerques"
+" web)."
+
 msgid "Rich Text Control Sidebar"
 msgstr "Barra lateral de control de text enriquit"
 
@@ -1613,12 +1909,12 @@ msgstr "Activa el corrector gramatical d'IA (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "Quan està activat, WriterAgent registra el seu corrector gramatical d'IA a "
-"Linguistic; el text comprovat utilitza la vostra API (Eines → Opcions → IA). "
-"Els subratllats apareixen poc després de deixar d'escriure. Desactivat per "
+"Linguistic; el text comprovat utilitza la vostra API (Eines → Opcions → IA)."
+" Els subratllats apareixen poc després de deixar d'escriure. Desactivat per "
 "defecte."
 
 msgid "Grammar check model (optional)"
@@ -1648,7 +1944,21 @@ msgid ""
 msgstr ""
 "Nombre de frases a enviar per cada sol·licitud a l'LLM (1-8). 1 "
 "(predeterminat) és el més fiable; valors més alts són més ràpids i "
-"econòmics, però poden arribar als límits de tokens o causar errors del model."
+"econòmics, però poden arribar als límits de tokens o causar errors del "
+"model."
+
+msgid "Grammar concurrent requests"
+msgstr "Sol·licituds simultànies de gramàtica"
+
+msgid ""
+"Max simultaneous background grammar API calls (1-8). 1 matches prior "
+"behavior. Raise for OpenRouter or other providers that allow parallel "
+"requests; use with care alongside sidebar chat."
+msgstr ""
+"Màxim de trucades simultànies a l'API de gramàtica en segon pla (1-8). 1 "
+"coincideix amb el comportament anterior. Augmenteu-ho per a OpenRouter o "
+"altres proveïdors que permetin sol·licituds paral·leles; utilitzeu-ho amb "
+"precaució juntament amb el xat de la barra lateral."
 
 msgid "Detect and correct sentence language"
 msgstr "Detecta i corregeix la llengua de la frase"
@@ -1659,8 +1969,8 @@ msgid ""
 "automatically."
 msgstr ""
 "Quan està activat, demana a la IA que verifiqui la llengua de cada frase "
-"segons la configuració regional del document. Si és incorrecta, la propietat "
-"de llengua s'actualitza automàticament."
+"segons la configuració regional del document. Si és incorrecta, la propietat"
+" de llengua s'actualitza automàticament."
 
 msgid "Enter key sends sidebar chat message"
 msgstr "La tecla Retorn envia el missatge del xat a la barra lateral"
@@ -1686,11 +1996,11 @@ msgid "Enable MCP Server"
 msgstr "Activa el servidor MCP"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Només localhost, sense autenticació. Els clients utilitzen http://localhost:"
-"<port>/mcp (HTTP transmissible)."
+"Només localhost, sense autenticació. Els clients utilitzen "
+"http://localhost:<port>/mcp (HTTP transmissible)."
 
 msgid "MCP Port"
 msgstr "Port MCP"
@@ -1703,8 +2013,8 @@ msgid ""
 "the browser Origin. For other hosts, add mcp.cors_allowed_origins in "
 "writeragent.json."
 msgstr ""
-"Automàtic per a .local, .lan, .home.arpa, .internal, .intern i adreces IP de "
-"la LAN en l'origen del navegador. Per a altres amfitrions, afegiu "
+"Automàtic per a .local, .lan, .home.arpa, .internal, .intern i adreces IP de"
+" la LAN en l'origen del navegador. Per a altres amfitrions, afegiu "
 "mcp.cors_allowed_origins a writeragent.json."
 
 msgid "Python"
@@ -1718,9 +2028,10 @@ msgid ""
 "empty, run_venv_python_script uses this process's sys.executable (basic "
 "stdlib); use a venv for numpy/pandas."
 msgstr ""
-"Si s'estableix, executa les eines en aquest venv (bin/python o Scripts/"
-"python.exe). Si està buit, run_venv_python_script utilitza el sys.executable "
-"d'aquest procés (stdlib bàsic); utilitzeu un venv per a numpy/pandas."
+"Si s'estableix, executa les eines en aquest venv (bin/python o "
+"Scripts/python.exe). Si està buit, run_venv_python_script utilitza el "
+"sys.executable d'aquest procés (stdlib bàsic); utilitzeu un venv per a "
+"numpy/pandas."
 
 msgid "Test"
 msgstr "Prova"
@@ -1739,8 +2050,8 @@ msgid "Max Calc data cells"
 msgstr "Màxim de cel·les de dades del Calc"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
 "Nombre màxim de cel·les en dades de =PYTHON() o dades/interval_de_dades de "
 "l'Execució de script de Python. Els valors més grans utilitzen més memòria "
@@ -1753,8 +2064,8 @@ msgid ""
 "Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace "
 "per workbook (variables carry between cells)."
 msgstr ""
-"Isolat: cada cel·la =PYTHON() obté un espai de noms nou. Compartit: un espai "
-"de noms per llibre de treball (les variables es mantenen entre cel·les)."
+"Isolat: cada cel·la =PYTHON() obté un espai de noms nou. Compartit: un espai"
+" de noms per llibre de treball (les variables es mantenen entre cel·les)."
 
 msgid "Isolated (default)"
 msgstr "Isolat (predeterminat)"
@@ -1776,8 +2087,8 @@ msgid "Modeless Run Python Script dialog"
 msgstr "Diàleg d'execució d'script de Python no modal"
 
 msgid ""
-"When checked, the plain-text Run Python Script dialog floats so you can edit "
-"the document while it is open. Uncheck for the classic modal dialog."
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
 msgstr ""
 "Si està marcada, el diàleg Executa l'script de Python de text pla flota "
 "perquè pugueu editar el document mentre està obert. Desmarqueu-la per al "

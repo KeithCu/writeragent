@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-01 21:14-0400\n"
+"POT-Creation-Date: 2026-06-04 23:11-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: French <LL@li.org>\n"
@@ -18,17 +18,17 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require sub-agent delegation (USE_SUB_AGENT). Enable "
-"sub-agents in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
-"Les recherches documentaires nécessitent une délégation de sous-agent "
-"(USE_SUB_AGENT). Activez les sous-agents dans la configuration."
+"Les lectures de recherche documentaire nécessitent une délégation de tâche "
+"spécialisée (USE_SUB_AGENT). Activez cette option dans la configuration."
 
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Appel d'outil basculé sur « {0} ». Vous êtes en mode d'outils spécialisé. "
@@ -46,8 +46,8 @@ msgstr ""
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
 "Ce document ne contient aucun notebook importé. Utilisez d'abord Outils → "
 "Importer un notebook Jupyter…"
@@ -185,7 +185,8 @@ msgstr "Horde contactée"
 msgid ""
 "When trying to ask for the image, the Horde was too slow, try again later"
 msgstr ""
-"Lors de la demande de l'image, la Horde a été trop lente, réessayez plus tard"
+"Lors de la demande de l'image, la Horde a été trop lente, réessayez plus "
+"tard"
 
 #: plugin/contrib/aihordeclient/__init__.py
 msgid "to learn to earn kudos. Detail:"
@@ -225,7 +226,8 @@ msgstr "Ce modèle prend plus de temps que votre configuration actuelle."
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr ""
 "Veuillez essayer un autre modèle. {0} prendrait plus de temps que ce que "
 "vous avez configuré."
@@ -317,7 +319,8 @@ msgstr ""
 "d'attente de la demande' dans les paramètres."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Connexion refusée. Votre serveur d'IA local (Ollama/LM Studio) est-il en "
 "cours d'exécution ?"
@@ -350,7 +353,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "IA : Je peux vous aider avec des formules, des analyses de données et des "
 "graphiques colorés. Essayez !"
@@ -423,8 +427,8 @@ msgstr "WriterAgent : Étendre la sélection (Calc)"
 #: plugin/calc/python_editor.py
 msgid ""
 "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\"; "
-"A1:B10)."
+"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\";"
+" A1:B10)."
 msgstr ""
 "Impossible de conserver les arguments de la formule PYTHON de cette cellule "
 "(par ex. plages de données). Modifiez la formule dans Calc, ou utilisez une "
@@ -458,10 +462,10 @@ msgid ""
 "in another cell). Edit it in the formula bar, or use =PYTHON(\"code\"; "
 "range) with quoted code."
 msgstr ""
-"Cette formule PYTHON utilise une forme que l'éditeur ne peut pas réécrire en "
-"toute sécurité (par ex. du code dans une autre cellule). Modifiez-la dans la "
-"barre de formule, ou utilisez =PYTHON(\"code\"; plage) avec le code entre "
-"guillemets."
+"Cette formule PYTHON utilise une forme que l'éditeur ne peut pas réécrire en"
+" toute sécurité (par ex. du code dans une autre cellule). Modifiez-la dans "
+"la barre de formule, ou utilisez =PYTHON(\"code\"; plage) avec le code entre"
+" guillemets."
 
 #: plugin/calc/python_editor.py
 msgid "No Python interpreter available for the editor."
@@ -476,8 +480,7 @@ msgid ""
 "In that venv run: pip install pywebview\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"Impossible d'importer webview (pywebview) avec le Python de Paramètres → "
-"Python :\n"
+"Impossible d'importer webview (pywebview) avec le Python de Paramètres → Python :\n"
 "%(exe)s\n"
 "\n"
 "Dans ce venv, exécutez : pip install pywebview\n"
@@ -502,7 +505,8 @@ msgstr "Insérer une formule LaTeX"
 #: plugin/writer/math/latex_dialog.py
 msgid "Enter LaTeX math code to convert and insert as formula:"
 msgstr ""
-"Saisissez le code mathématique LaTeX à convertir et à insérer comme formule :"
+"Saisissez le code mathématique LaTeX à convertir et à insérer comme formule "
+":"
 
 #: plugin/writer/math/latex_dialog.py
 msgid "Insert as display block (centered paragraph)"
@@ -557,6 +561,266 @@ msgstr ""
 #: plugin/writer/math/latex_dialog.py
 msgid "An unexpected error occurred during LaTeX insertion."
 msgstr "Une erreur inattendue s'est produite lors de l'insertion du LaTeX."
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "about"
+msgstr "à propos"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "aim"
+msgstr "objectif"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "any"
+msgstr "tous"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "awards"
+msgstr "récompenses"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "best"
+msgstr "meilleur"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "brief"
+msgstr "bref"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "can"
+msgstr "pouvoir"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "choices"
+msgstr "choix"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "compile"
+msgstr "compiler"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "concise"
+msgstr "concis"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "depth"
+msgstr "profondeur"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "description"
+msgstr "description"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "detail"
+msgstr "détail"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "details"
+msgstr "détails"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "display"
+msgstr "afficher"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "each"
+msgstr "chaque"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "features"
+msgstr "fonctionnalités"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "find"
+msgstr "rechercher"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "get"
+msgstr "obtenir"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "give"
+msgstr "donner"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "how"
+msgstr "comment"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "identify"
+msgstr "identifier"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "include"
+msgstr "inclure"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "info"
+msgstr "info"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "information"
+msgstr "informations"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "key"
+msgstr "clé"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "least"
+msgstr "au moins"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "limit"
+msgstr "limite"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "list"
+msgstr "liste"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "me"
+msgstr "moi"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "notable"
+msgstr "notable"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "overall"
+msgstr "global"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "plain"
+msgstr "simple"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "plain text"
+msgstr "texte brut"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "please"
+msgstr "veuillez"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "preferences"
+msgstr "préférences"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "provide"
+msgstr "fournir"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "query"
+msgstr "requête"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "question"
+msgstr "question"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "ratings"
+msgstr "évaluations"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "recommendation"
+msgstr "recommandation"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "report"
+msgstr "rapport"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "research"
+msgstr "recherche"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "reviews"
+msgstr "critiques"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "search"
+msgstr "rechercher"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "short"
+msgstr "court"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "show"
+msgstr "afficher"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "signature"
+msgstr "signature"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "source"
+msgstr "source"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "sources"
+msgstr "sources"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "such"
+msgstr "tel que"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "suitable"
+msgstr "approprié"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "summary"
+msgstr "résumé"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "tell"
+msgstr "indiquer"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "text"
+msgstr "texte"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "their"
+msgstr "leur"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "top"
+msgstr "haut"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "trends"
+msgstr "tendances"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "types"
+msgstr "types"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "what"
+msgstr "quoi"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "when"
+msgstr "quand"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "where"
+msgstr "où"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "who"
+msgstr "qui"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "why"
+msgstr "pourquoi"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "you"
+msgstr "vous"
 
 #: plugin/chatbot/panel_wiring.py plugin/xdl_strings.py
 msgid "Ready"
@@ -646,8 +910,8 @@ msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[Aucun document LibreOffice compatible (Writer, Calc ou Draw) trouvé dans la "
-"fenêtre active.]"
+"[Aucun document LibreOffice compatible (Writer, Calc ou Draw) trouvé dans la"
+" fenêtre active.]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -690,6 +954,27 @@ msgid "This search query '%s' will be sent to the search engine."
 msgstr "Cette requête de recherche '%s' sera envoyée au moteur de recherche."
 
 #: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache hit (fuzzy, %s%% match: %s%s → %s)"
+msgstr ""
+"Succès du cache de recherche (approximatif, correspondance %s%% : %s%s → %s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache hit (key: %s)"
+msgstr "Succès du cache de recherche (clé : %s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache saved (key: %s)"
+msgstr "Cache de recherche enregistré (clé : %s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Cached research keys: %s"
+msgstr "Clés de recherche en cache : %s"
+
+#: plugin/chatbot/web_research_chat.py
 msgid "[Web research]"
 msgstr "[Recherche web]"
 
@@ -725,8 +1010,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Aucun éditeur trouvé (installez Kate ou Gedit, ou définissez EDITOR). "
-"Chemin :\n"
+"Aucun éditeur trouvé (installez Kate ou Gedit, ou définissez EDITOR). Chemin :\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -755,7 +1039,8 @@ msgstr "[Backend d'agent '{0}' non trouvé.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Backend d'agent '{0}' non disponible. Vérifiez les Paramètres (chemin, "
 "installation).]"
@@ -855,8 +1140,8 @@ msgid ""
 "personal library instead."
 msgstr ""
 "Le document est en lecture seule ou les propriétés ne peuvent pas être "
-"écrites. Le script a été enregistré dans votre bibliothèque personnelle à la "
-"place."
+"écrites. Le script a été enregistré dans votre bibliothèque personnelle à la"
+" place."
 
 #: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
 msgid "Script name cannot be empty."
@@ -1042,8 +1327,7 @@ msgid ""
 "Enter Python code to execute in the user virtual environment.\n"
 "Assign the result to the 'result' variable."
 msgstr ""
-"Saisissez le code Python à exécuter dans l'environnement virtuel "
-"utilisateur.\n"
+"Saisissez le code Python à exécuter dans l'environnement virtuel utilisateur.\n"
 "Assignez le résultat à la variable 'result'."
 
 #: plugin/scripting/python_runner.py
@@ -1144,8 +1428,8 @@ msgstr "Erreur inconnue"
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "Le script a été exécuté avec succès, mais n'a renvoyé aucun résultat et n'a "
 "produit aucune sortie. (durée : {time})"
@@ -1514,8 +1798,8 @@ msgid "Path / URL"
 msgstr "Chemin / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
 "Chemin vers le CLI backend (p. ex. aider) ou URL du serveur ACP (p. ex. "
 "http://localhost:8000 pour Hermes). Vide = essayer la valeur par défaut."
@@ -1588,22 +1872,34 @@ msgid "Prompt for Web Research"
 msgstr "Invite pour la recherche Web"
 
 msgid "Ask for confirmation before sending a web search query"
-msgstr "Demander une confirmation avant d'envoyer une requête de recherche web"
+msgstr ""
+"Demander une confirmation avant d'envoyer une requête de recherche web"
 
 msgid "Web Cache Max Size (MB)"
 msgstr "Taille maximale du cache Web (Mo)"
 
 msgid "Max disk size for web search cache (0 to disable)"
 msgstr ""
-"Taille maximale sur disque pour le cache de recherche web (0 pour désactiver)"
+"Taille maximale sur disque pour le cache de recherche web (0 pour "
+"désactiver)"
 
 msgid "Web Cache Validity (Days)"
 msgstr "Validité du cache Web (jours)"
 
 msgid "How many days cache entries should be considered valid."
 msgstr ""
-"Nombre de jours pendant lesquels les entrées de cache sont considérées comme "
-"valides."
+"Nombre de jours pendant lesquels les entrées de cache sont considérées comme"
+" valides."
+
+msgid "Web Research Cache"
+msgstr "Cache de recherche Web"
+
+msgid ""
+"Cache completed web research reports by normalized query (reuses web search "
+"cache database)."
+msgstr ""
+"Mettre en cache les rapports de recherche Web terminés par requête "
+"normalisée (réutilise la base de données de cache de recherche Web)."
 
 msgid "Rich Text Control Sidebar"
 msgstr "Barre latérale de contrôle de texte enrichi"
@@ -1623,12 +1919,12 @@ msgstr "Activer le correcteur grammatical IA (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "Lorsque activé, WriterAgent enregistre son correcteur grammatical IA avec "
-"Linguistic ; le texte vérifié utilise votre API (Outils → Options → IA). Des "
-"soulignements apparaissent peu après que vous cessiez de taper. Désactivé "
+"Linguistic ; le texte vérifié utilise votre API (Outils → Options → IA). Des"
+" soulignements apparaissent peu après que vous cessiez de taper. Désactivé "
 "par défaut."
 
 msgid "Grammar check model (optional)"
@@ -1657,9 +1953,22 @@ msgid ""
 "cause model errors."
 msgstr ""
 "Nombre de phrases à envoyer par requête LLM (1-8). 1 (par défaut) est le "
-"plus fiable ; des valeurs plus élevées sont plus rapides et moins coûteuses, "
-"mais peuvent atteindre les limites de jetons ou provoquer des erreurs de "
+"plus fiable ; des valeurs plus élevées sont plus rapides et moins coûteuses,"
+" mais peuvent atteindre les limites de jetons ou provoquer des erreurs de "
 "modèle."
+
+msgid "Grammar concurrent requests"
+msgstr "Requêtes simultanées de grammaire"
+
+msgid ""
+"Max simultaneous background grammar API calls (1-8). 1 matches prior "
+"behavior. Raise for OpenRouter or other providers that allow parallel "
+"requests; use with care alongside sidebar chat."
+msgstr ""
+"Nombre maximal d'appels API de grammaire simultanés en arrière-plan (1-8). 1"
+" correspond au comportement précédent. Augmentez cette valeur pour "
+"OpenRouter ou d'autres fournisseurs autorisant les requêtes parallèles ; à "
+"utiliser avec précaution en parallèle du chat latéral."
 
 msgid "Detect and correct sentence language"
 msgstr "Détecter et corriger la langue des phrases"
@@ -1669,9 +1978,9 @@ msgid ""
 "document's used locales. If incorrect, the language property is updated "
 "automatically."
 msgstr ""
-"Si activé, demande à l'IA de vérifier la langue de chaque phrase par rapport "
-"aux paramètres régionaux utilisés dans le document. Si elle est incorrecte, "
-"la propriété de langue est mise à jour automatiquement."
+"Si activé, demande à l'IA de vérifier la langue de chaque phrase par rapport"
+" aux paramètres régionaux utilisés dans le document. Si elle est incorrecte,"
+" la propriété de langue est mise à jour automatiquement."
 
 msgid "Enter key sends sidebar chat message"
 msgstr "La touche Entrée envoie le message de discussion de la barre latérale"
@@ -1697,11 +2006,11 @@ msgid "Enable MCP Server"
 msgstr "Activer le serveur MCP"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Localhost uniquement, sans authentification. Les clients utilisent http://"
-"localhost:<port>/mcp (HTTP diffusable)."
+"Localhost uniquement, sans authentification. Les clients utilisent "
+"http://localhost:<port>/mcp (HTTP diffusable)."
 
 msgid "MCP Port"
 msgstr "Port MCP"
@@ -1715,8 +2024,8 @@ msgid ""
 "writeragent.json."
 msgstr ""
 "Automatique pour .local, .lan, .home.arpa, .internal, .intern et les "
-"adresses IP LAN dans l'origine du navigateur. Pour les autres hôtes, ajoutez "
-"mcp.cors_allowed_origins dans writeragent.json."
+"adresses IP LAN dans l'origine du navigateur. Pour les autres hôtes, ajoutez"
+" mcp.cors_allowed_origins dans writeragent.json."
 
 msgid "Python"
 msgstr "Python"
@@ -1729,10 +2038,10 @@ msgid ""
 "empty, run_venv_python_script uses this process's sys.executable (basic "
 "stdlib); use a venv for numpy/pandas."
 msgstr ""
-"S'il est défini, exécute les outils dans ce venv (bin/python ou Scripts/"
-"python.exe). S'il est vide, run_venv_python_script utilise le sys.executable "
-"de ce processus (bibliothèque standard de base) ; utilisez un venv pour "
-"numpy/pandas."
+"S'il est défini, exécute les outils dans ce venv (bin/python ou "
+"Scripts/python.exe). S'il est vide, run_venv_python_script utilise le "
+"sys.executable de ce processus (bibliothèque standard de base) ; utilisez un"
+" venv pour numpy/pandas."
 
 msgid "Test"
 msgstr "Tester"
@@ -1751,12 +2060,12 @@ msgid "Max Calc data cells"
 msgstr "Nombre maximal de cellules de données Calc"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
-"Nombre maximal de cellules dans les données =PYTHON() ou les données/"
-"plage_de_données de Exécuter le script Python. Des valeurs plus élevées "
-"utilisent plus de RAM et de temps ; la lecture de plage UNO reste "
+"Nombre maximal de cellules dans les données =PYTHON() ou les "
+"données/plage_de_données de Exécuter le script Python. Des valeurs plus "
+"élevées utilisent plus de RAM et de temps ; la lecture de plage UNO reste "
 "prédominante."
 
 msgid "Python session mode"
@@ -1790,13 +2099,13 @@ msgid "Modeless Run Python Script dialog"
 msgstr "Boîte de dialogue non modale d'exécution de script Python"
 
 msgid ""
-"When checked, the plain-text Run Python Script dialog floats so you can edit "
-"the document while it is open. Uncheck for the classic modal dialog."
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
 msgstr ""
 "Si cette option est cochée, la boîte de dialogue Exécuter un script Python "
 "en texte brut devient flottante, vous permettant de modifier le document "
-"pendant qu'elle est ouverte. Décochez-la pour revenir à la boîte de dialogue "
-"modale classique."
+"pendant qu'elle est ouverte. Décochez-la pour revenir à la boîte de dialogue"
+" modale classique."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Outils de documents Writer (y compris la navigation et la recherche)"

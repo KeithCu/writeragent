@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: WriterAgent 1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-01 21:14-0400\n"
+"POT-Creation-Date: 2026-06-04 23:11-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: \n"
 "Language-Team: Swedish\n"
@@ -14,17 +14,17 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require sub-agent delegation (USE_SUB_AGENT). Enable "
-"sub-agents in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
-"Dokumentforskning kräver delegering till underagent (USE_SUB_AGENT). "
-"Aktivera underagenter i konfigurationen."
+"Dokumentforskning kräver specialiserad uppgiftsdelegering (USE_SUB_AGENT). "
+"Aktivera detta i konfigurationen."
 
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Verktygsanrop har växlats till '{0}'. Du befinner dig i ett läge för "
@@ -41,8 +41,8 @@ msgstr "Notebook-körning stöds endast i LibreOffice Writer."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
 "Detta dokument har ingen importerad notebook. Använd Verktyg → Importera "
 "Jupyter Notebook… först."
@@ -144,8 +144,8 @@ msgid ""
 "You have made too many requests, please wait for them to finish, and try "
 "again later"
 msgstr ""
-"Du har gjort för många förfrågningar, vänligen vänta på att de ska slutföras "
-"och försök igen senare"
+"Du har gjort för många förfrågningar, vänligen vänta på att de ska slutföras"
+" och försök igen senare"
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
@@ -217,7 +217,8 @@ msgstr "Denna modell tar längre tid än din nuvarande konfiguration."
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr ""
 "Vänligen prova en annan modell. {0} skulle ta längre tid än du konfigurerat."
 
@@ -306,7 +307,8 @@ msgstr ""
 "Inställningar."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr "Anslutning nekad. Är din lokala AI-server (Ollama/LM Studio) igång?"
 
 #: plugin/framework/errors.py
@@ -337,7 +339,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "AI: Jag kan hjälpa dig med formler, dataanalys och färgglada diagram. Prova "
 "mig!"
@@ -409,8 +412,8 @@ msgstr "WriterAgent: Utöka markering (Calc)"
 #: plugin/calc/python_editor.py
 msgid ""
 "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\"; "
-"A1:B10)."
+"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\";"
+" A1:B10)."
 msgstr ""
 "Kunde inte bevara cellens PYTHON-formelargument (t.ex. dataområden). "
 "Redigera formeln i Calc, eller använd en citerad kodsträng som "
@@ -459,8 +462,7 @@ msgid ""
 "In that venv run: pip install pywebview\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"Kan inte importera webview (pywebview) med Python från Inställningar → "
-"Python:\n"
+"Kan inte importera webview (pywebview) med Python från Inställningar → Python:\n"
 "%(exe)s\n"
 "\n"
 "Kör följande i den venv:\n"
@@ -540,6 +542,266 @@ msgstr ""
 #: plugin/writer/math/latex_dialog.py
 msgid "An unexpected error occurred during LaTeX insertion."
 msgstr "Ett oväntat fel uppstod vid infogning av LaTeX."
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "about"
+msgstr "om"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "aim"
+msgstr "syfte"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "any"
+msgstr "någon"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "awards"
+msgstr "utmärkelser"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "best"
+msgstr "bästa"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "brief"
+msgstr "sammanfattning"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "can"
+msgstr "kan"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "choices"
+msgstr "val"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "compile"
+msgstr "sammanställ"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "concise"
+msgstr "koncis"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "depth"
+msgstr "djup"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "description"
+msgstr "beskrivning"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "detail"
+msgstr "detalj"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "details"
+msgstr "detaljer"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "display"
+msgstr "visa"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "each"
+msgstr "varje"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "features"
+msgstr "funktioner"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "find"
+msgstr "sök"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "get"
+msgstr "hämta"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "give"
+msgstr "ge"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "how"
+msgstr "hur"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "identify"
+msgstr "identifiera"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "include"
+msgstr "inkludera"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "info"
+msgstr "info"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "information"
+msgstr "information"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "key"
+msgstr "nyckel"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "least"
+msgstr "minst"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "limit"
+msgstr "gräns"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "list"
+msgstr "lista"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "me"
+msgstr "mig"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "notable"
+msgstr "anmärkningsvärd"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "overall"
+msgstr "övergripande"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "plain"
+msgstr "enkel"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "plain text"
+msgstr "oformaterad text"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "please"
+msgstr "vänligen"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "preferences"
+msgstr "inställningar"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "provide"
+msgstr "tillhandahåll"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "query"
+msgstr "fråga"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "question"
+msgstr "fråga"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "ratings"
+msgstr "betyg"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "recommendation"
+msgstr "rekommendation"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "report"
+msgstr "rapport"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "research"
+msgstr "forskning"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "reviews"
+msgstr "recensioner"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "search"
+msgstr "sök"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "short"
+msgstr "kort"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "show"
+msgstr "visa"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "signature"
+msgstr "signatur"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "source"
+msgstr "källa"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "sources"
+msgstr "källor"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "such"
+msgstr "sådan"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "suitable"
+msgstr "lämplig"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "summary"
+msgstr "sammanfattning"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "tell"
+msgstr "berätta"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "text"
+msgstr "text"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "their"
+msgstr "deras"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "top"
+msgstr "högst upp"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "trends"
+msgstr "trender"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "types"
+msgstr "typer"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "what"
+msgstr "vad"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "when"
+msgstr "när"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "where"
+msgstr "var"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "who"
+msgstr "vem"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "why"
+msgstr "varför"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "you"
+msgstr "du"
 
 #: plugin/chatbot/panel_wiring.py plugin/xdl_strings.py
 msgid "Ready"
@@ -629,8 +891,8 @@ msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[Inget kompatibelt LibreOffice-dokument (Writer, Calc eller Draw) hittades i "
-"det aktiva fönstret.]"
+"[Inget kompatibelt LibreOffice-dokument (Writer, Calc eller Draw) hittades i"
+" det aktiva fönstret.]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -673,6 +935,26 @@ msgid "This search query '%s' will be sent to the search engine."
 msgstr "Denna sökfråga '%s' kommer att skickas till sökmotorn."
 
 #: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache hit (fuzzy, %s%% match: %s%s → %s)"
+msgstr "Forskningscache-träff (suddig, %s%% matchning: %s%s → %s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache hit (key: %s)"
+msgstr "Forskningscache-träff (nyckel: %s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache saved (key: %s)"
+msgstr "Forskningscache sparad (nyckel: %s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Cached research keys: %s"
+msgstr "Cachade forskningsnycklar: %s"
+
+#: plugin/chatbot/web_research_chat.py
 msgid "[Web research]"
 msgstr "[Webforskning]"
 
@@ -708,8 +990,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Ingen editor hittades (installera Kate eller Gedit, eller sätt EDITOR). "
-"Sökväg:\n"
+"Ingen editor hittades (installera Kate eller Gedit, eller sätt EDITOR). Sökväg:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -738,10 +1019,11 @@ msgstr "[Agent-backend '{0}' hittades inte.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
-"[Agent-backend '{0}' är inte tillgänglig. Kontrollera Inställningar (sökväg, "
-"installation).]"
+"[Agent-backend '{0}' är inte tillgänglig. Kontrollera Inställningar (sökväg,"
+" installation).]"
 
 #: plugin/chatbot/send_handlers.py
 msgid "Perfect! I'm switching you to the main assistant now."
@@ -775,8 +1057,8 @@ msgid ""
 "A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
 "check for updates and install the latest extension."
 msgstr ""
-"En nyare WriterAgent (%s) är tillgänglig. Använd Verktyg → Tilläggshanterare "
-"för att söka efter uppdateringar och installera det senaste tillägget."
+"En nyare WriterAgent (%s) är tillgänglig. Använd Verktyg → Tilläggshanterare"
+" för att söka efter uppdateringar och installera det senaste tillägget."
 
 #: plugin/chatbot/librarian.py
 msgid "Switching to document mode..."
@@ -952,8 +1234,8 @@ msgid ""
 "Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
 "try again."
 msgstr ""
-"Återställ Python-session gäller för Calc-kalkylblad. Öppna en Calc-arbetsbok "
-"och försök igen."
+"Återställ Python-session gäller för Calc-kalkylblad. Öppna en Calc-arbetsbok"
+" och försök igen."
 
 #: plugin/scripting/session_manager.py
 msgid "Python session reset for this workbook."
@@ -983,8 +1265,8 @@ msgid ""
 "This Writer document has no imported notebook registry. Use Tools → Import "
 "Jupyter Notebook… to enable notebook Python session reset."
 msgstr ""
-"Detta Writer-dokument har inget importerat notebook-register. Använd Verktyg "
-"→ Importera Jupyter Notebook… för att aktivera återställning av Python-"
+"Detta Writer-dokument har inget importerat notebook-register. Använd Verktyg"
+" → Importera Jupyter Notebook… för att aktivera återställning av Python-"
 "session för notebook."
 
 #: plugin/scripting/python_runner.py
@@ -1053,7 +1335,8 @@ msgstr "Bifoga till dokument"
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid "A script named '{0}' already exists in this document. Overwrite?"
-msgstr "Ett skript med namnet ”{0}” finns redan i detta dokument. Skriva över?"
+msgstr ""
+"Ett skript med namnet ”{0}” finns redan i detta dokument. Skriva över?"
 
 #: plugin/scripting/python_runner.py
 msgid "Attach Script"
@@ -1119,8 +1402,8 @@ msgstr "Okänt fel"
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "Skriptet kördes utan problem, men returnerade inget resultat och gav ingen "
 "utdata. (tog {time})"
@@ -1487,11 +1770,11 @@ msgid "Path / URL"
 msgstr "Sökväg / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Sökväg till backend CLI (t.ex. aider) eller ACP-serverns URL (t.ex. http://"
-"localhost:8000 för Hermes). Tom = prova standard."
+"Sökväg till backend CLI (t.ex. aider) eller ACP-serverns URL (t.ex. "
+"http://localhost:8000 för Hermes). Tom = prova standard."
 
 msgid "Extra arguments"
 msgstr "Extra argument"
@@ -1573,6 +1856,16 @@ msgstr "Giltighetstid för webbcache (dagar)"
 msgid "How many days cache entries should be considered valid."
 msgstr "Antal dagar som cache-poster ska anses vara giltiga."
 
+msgid "Web Research Cache"
+msgstr "Web-forskningscache"
+
+msgid ""
+"Cache completed web research reports by normalized query (reuses web search "
+"cache database)."
+msgstr ""
+"Cacha slutförda webbforskningsrapporter efter normaliserad sökfråga "
+"(återanvänder databasen för webbsökcache)."
+
 msgid "Rich Text Control Sidebar"
 msgstr "Sidopanel för RTF-kontroll"
 
@@ -1591,12 +1884,12 @@ msgstr "Aktivera AI-grammatikkontroll (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "När funktionen är på registrerar WriterAgent sin AI-grammatikgranskare hos "
-"Linguistic; kontrollerad text använder ditt API (Verktyg → Alternativ → AI). "
-"Understrykningar visas kort efter att du slutar skriva. Avstängd som "
+"Linguistic; kontrollerad text använder ditt API (Verktyg → Alternativ → AI)."
+" Understrykningar visas kort efter att du slutar skriva. Avstängd som "
 "standard."
 
 msgid "Grammar check model (optional)"
@@ -1626,6 +1919,19 @@ msgstr ""
 "Antal meningar att skicka per LLM-anrop (1–8). 1 (standard) är mest "
 "tillförlitligt; högre värden är snabbare och billigare men kan nå gränser "
 "för antal tokens eller orsaka modellfel."
+
+msgid "Grammar concurrent requests"
+msgstr "Samtidiga grammatikförfrågningar"
+
+msgid ""
+"Max simultaneous background grammar API calls (1-8). 1 matches prior "
+"behavior. Raise for OpenRouter or other providers that allow parallel "
+"requests; use with care alongside sidebar chat."
+msgstr ""
+"Maximalt antal samtidiga bakgrundsanrop till grammatik-API (1–8). 1 "
+"motsvarar tidigare beteende. Höj värdet för OpenRouter eller andra "
+"leverantörer som tillåter parallella förfrågningar; använd med försiktighet "
+"tillsammans med sidopanelschatt."
 
 msgid "Detect and correct sentence language"
 msgstr "Identifiera och korrigera meningsspråk"
@@ -1663,11 +1969,11 @@ msgid "Enable MCP Server"
 msgstr "Aktivera MCP-server"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Endast localhost, ingen autentisering. Klienter använder http://localhost:"
-"<port>/mcp (strömbar HTTP)."
+"Endast localhost, ingen autentisering. Klienter använder "
+"http://localhost:<port>/mcp (strömbar HTTP)."
 
 msgid "MCP Port"
 msgstr "MCP-port"
@@ -1695,8 +2001,8 @@ msgid ""
 "empty, run_venv_python_script uses this process's sys.executable (basic "
 "stdlib); use a venv for numpy/pandas."
 msgstr ""
-"Om inställd, körs verktyg i den venv-miljön (bin/python eller Scripts/"
-"python.exe). Om tom använder run_venv_python_script processens "
+"Om inställd, körs verktyg i den venv-miljön (bin/python eller "
+"Scripts/python.exe). Om tom använder run_venv_python_script processens "
 "sys.executable (grundläggande stdlib); använd en venv för numpy/pandas."
 
 msgid "Test"
@@ -1708,18 +2014,19 @@ msgstr "Tidsgräns för Python-skript (sekunder)"
 msgid ""
 "Wall-clock limit for Run Python Script, =PYTHON(), and "
 "run_venv_python_script."
-msgstr "Tidsgräns för Kör Python-skript, =PYTHON() och run_venv_python_script."
+msgstr ""
+"Tidsgräns för Kör Python-skript, =PYTHON() och run_venv_python_script."
 
 msgid "Max Calc data cells"
 msgstr "Max antal Calc-dataceller"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
-"Maximalt antal celler i =PYTHON()-data eller Run Python Script-data/"
-"data_range. Större värden förbrukar mer RAM och tid; UNO-områdesläsning "
-"dominerar fortfarande."
+"Maximalt antal celler i =PYTHON()-data eller Run Python Script-"
+"data/data_range. Större värden förbrukar mer RAM och tid; UNO-områdesläsning"
+" dominerar fortfarande."
 
 msgid "Python session mode"
 msgstr "Python-sessionsläge"
@@ -1751,8 +2058,8 @@ msgid "Modeless Run Python Script dialog"
 msgstr "Modallös dialogruta för att köra Python-skript"
 
 msgid ""
-"When checked, the plain-text Run Python Script dialog floats so you can edit "
-"the document while it is open. Uncheck for the classic modal dialog."
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
 msgstr ""
 "När markerad flyter dialogrutan Kör Python-skript som vanlig text så att du "
 "kan redigera dokumentet medan den är öppen. Avmarkera för den klassiska "

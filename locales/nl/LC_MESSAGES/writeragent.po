@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-01 21:14-0400\n"
+"POT-Creation-Date: 2026-06-04 23:11-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Dutch <LL@li.org>\n"
@@ -19,17 +19,17 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require sub-agent delegation (USE_SUB_AGENT). Enable "
-"sub-agents in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
-"Documentonderzoek vereist delegatie aan een sub-agent (USE_SUB_AGENT). "
-"Schakel sub-agents in via de configuratie."
+"Documentonderzoek vereist gespecialiseerde taakdelegatie (USE_SUB_AGENT). "
+"Schakel dit in via de configuratie."
 
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Tool-aanroep gewijzigd naar '{0}'. U bevindt zich in een gespecialiseerde "
@@ -46,11 +46,11 @@ msgstr "Notebook uitvoeren wordt alleen ondersteund in LibreOffice Writer."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
-"Dit document heeft geen geïmporteerd notebook. Gebruik eerst Extra → Jupyter "
-"Notebook importeren…."
+"Dit document heeft geen geïmporteerd notebook. Gebruik eerst Extra → Jupyter"
+" Notebook importeren…."
 
 #: plugin/notebook/notebook_runner.py
 msgid "Could not find notebook cell for this control."
@@ -224,7 +224,8 @@ msgstr "Dit model heeft meer tijd nodig dan uw huidige configuratie."
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr ""
 "Probeer een ander model. {0} zou meer tijd in beslag nemen dan u heeft "
 "geconfigureerd."
@@ -313,7 +314,8 @@ msgstr ""
 "Time-out bij verzoek. Probeer 'Request Timeout' in Instellingen te verhogen."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr "Verbinding geweigerd. Draait uw lokale AI-server (Ollama/LM Studio)?"
 
 #: plugin/framework/errors.py
@@ -344,7 +346,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "AI: Ik kan u helpen met formules, gegevensanalyse en kleurrijke grafieken. "
 "Probeer het eens!"
@@ -417,8 +420,8 @@ msgstr "WriterAgent: Selectie uitbreiden (Calc)"
 #: plugin/calc/python_editor.py
 msgid ""
 "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\"; "
-"A1:B10)."
+"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\";"
+" A1:B10)."
 msgstr ""
 "Kon de PYTHON-formuleargumenten van deze cel (bijv. gegevensbereiken) niet "
 "behouden. Bewerk de formule in Calc, of gebruik een geciteerde codereeks "
@@ -467,8 +470,7 @@ msgid ""
 "In that venv run: pip install pywebview\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"Kan webview (pywebview) niet importeren met de Python uit Instellingen → "
-"Python:\n"
+"Kan webview (pywebview) niet importeren met de Python uit Instellingen → Python:\n"
 "%(exe)s\n"
 "\n"
 "Voer in die venv uit: pip install pywebview\n"
@@ -548,6 +550,266 @@ msgstr ""
 #: plugin/writer/math/latex_dialog.py
 msgid "An unexpected error occurred during LaTeX insertion."
 msgstr "Er is een onverwachte fout opgetreden tijdens het invoegen van LaTeX."
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "about"
+msgstr "over"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "aim"
+msgstr "doel"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "any"
+msgstr "willekeurig"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "awards"
+msgstr "onderscheidingen"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "best"
+msgstr "beste"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "brief"
+msgstr "briefing"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "can"
+msgstr "kan"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "choices"
+msgstr "keuzes"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "compile"
+msgstr "compileren"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "concise"
+msgstr "beknopt"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "depth"
+msgstr "diepte"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "description"
+msgstr "beschrijving"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "detail"
+msgstr "detail"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "details"
+msgstr "details"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "display"
+msgstr "weergeven"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "each"
+msgstr "elk"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "features"
+msgstr "functies"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "find"
+msgstr "zoeken"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "get"
+msgstr "ophalen"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "give"
+msgstr "geven"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "how"
+msgstr "hoe"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "identify"
+msgstr "identificeren"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "include"
+msgstr "opnemen"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "info"
+msgstr "info"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "information"
+msgstr "informatie"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "key"
+msgstr "sleutel"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "least"
+msgstr "minst"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "limit"
+msgstr "limiet"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "list"
+msgstr "lijst"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "me"
+msgstr "mij"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "notable"
+msgstr "opmerkelijk"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "overall"
+msgstr "algemeen"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "plain"
+msgstr "eenvoudig"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "plain text"
+msgstr "platte tekst"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "please"
+msgstr "alstublieft"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "preferences"
+msgstr "voorkeuren"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "provide"
+msgstr "verstrekken"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "query"
+msgstr "query"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "question"
+msgstr "vraag"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "ratings"
+msgstr "beoordelingen"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "recommendation"
+msgstr "aanbeveling"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "report"
+msgstr "rapport"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "research"
+msgstr "onderzoek"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "reviews"
+msgstr "recensies"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "search"
+msgstr "zoeken"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "short"
+msgstr "kort"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "show"
+msgstr "tonen"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "signature"
+msgstr "handtekening"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "source"
+msgstr "bron"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "sources"
+msgstr "bronnen"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "such"
+msgstr "dergelijke"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "suitable"
+msgstr "geschikt"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "summary"
+msgstr "samenvatting"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "tell"
+msgstr "vertellen"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "text"
+msgstr "tekst"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "their"
+msgstr "hun"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "top"
+msgstr "boven"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "trends"
+msgstr "trends"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "types"
+msgstr "typen"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "what"
+msgstr "wat"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "when"
+msgstr "wanneer"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "where"
+msgstr "waar"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "who"
+msgstr "wie"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "why"
+msgstr "waarom"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "you"
+msgstr "u"
 
 #: plugin/chatbot/panel_wiring.py plugin/xdl_strings.py
 msgid "Ready"
@@ -637,8 +899,8 @@ msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[Geen compatibel LibreOffice-document (Writer, Calc of Draw) gevonden in het "
-"actieve venster.]"
+"[Geen compatibel LibreOffice-document (Writer, Calc of Draw) gevonden in het"
+" actieve venster.]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -679,6 +941,26 @@ msgstr "Temperatuur moet <= 1.0 zijn"
 #, python-format
 msgid "This search query '%s' will be sent to the search engine."
 msgstr "Deze zoekopdracht '%s' wordt naar de zoekmachine verzonden."
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache hit (fuzzy, %s%% match: %s%s → %s)"
+msgstr "Research cache hit (fuzzy, %s%% overeenkomst: %s%s → %s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache hit (key: %s)"
+msgstr "Research cache hit (sleutel: %s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache saved (key: %s)"
+msgstr "Research cache opgeslagen (sleutel: %s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Cached research keys: %s"
+msgstr "Gecachte research-sleutels: %s"
 
 #: plugin/chatbot/web_research_chat.py
 msgid "[Web research]"
@@ -745,7 +1027,8 @@ msgstr "[Agent-backend '{0}' niet gevonden.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Agent-backend '{0}' is niet beschikbaar. Controleer Instellingen (pad, "
 "installatie).]"
@@ -973,8 +1256,8 @@ msgid ""
 "Initialization script and any in-memory init state were reset for this "
 "workbook. Cell variables were already isolated per cell."
 msgstr ""
-"Initialisatiescript en eventuele in-memory init-status zijn gereset voor dit "
-"werkboek. Celvariabelen waren al per cel geïsoleerd."
+"Initialisatiescript en eventuele in-memory init-status zijn gereset voor dit"
+" werkboek. Celvariabelen waren al per cel geïsoleerd."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1131,8 +1414,8 @@ msgstr "Onbekende fout"
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "Script succesvol uitgevoerd, maar gaf geen resultaat en produceerde geen "
 "uitvoer. (duurde {time})"
@@ -1165,8 +1448,8 @@ msgstr "Script succesvol uitgevoerd."
 msgid ""
 "Script executed successfully, but returned no result and produced no output."
 msgstr ""
-"Script is succesvol uitgevoerd, maar gaf geen resultaat terug en produceerde "
-"geen uitvoer."
+"Script is succesvol uitgevoerd, maar gaf geen resultaat terug en produceerde"
+" geen uitvoer."
 
 #: plugin/scripting/python_runner.py
 msgid "Success"
@@ -1499,18 +1782,19 @@ msgid "Path / URL"
 msgstr "Pad / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Pad naar backend CLI (bijv. aider) of ACP-server-URL (bijv. http://"
-"localhost:8000 voor Hermes). Leeg = probeer standaard."
+"Pad naar backend CLI (bijv. aider) of ACP-server-URL (bijv. "
+"http://localhost:8000 voor Hermes). Leeg = probeer standaard."
 
 msgid "Extra arguments"
 msgstr "Extra argumenten"
 
 msgid "Optional arguments for the selected backend (space-separated)."
 msgstr ""
-"Optionele argumenten voor de geselecteerde backend (gescheiden door spaties)."
+"Optionele argumenten voor de geselecteerde backend (gescheiden door "
+"spaties)."
 
 msgid "ACP agent name"
 msgstr "ACP-agentnaam"
@@ -1563,8 +1847,8 @@ msgstr "Selectie bewerken extra tokens"
 
 msgid "Extra tokens beyond original text length. 0 = same length as original."
 msgstr ""
-"Extra tokens voorbij de oorspronkelijke tekstlengte. 0 = dezelfde lengte als "
-"het origineel."
+"Extra tokens voorbij de oorspronkelijke tekstlengte. 0 = dezelfde lengte als"
+" het origineel."
 
 msgid "Show Web Search Thinking"
 msgstr "Zoekopdracht op internet tonen"
@@ -1573,7 +1857,8 @@ msgid "Prompt for Web Research"
 msgstr "Vragen om internetonderzoek"
 
 msgid "Ask for confirmation before sending a web search query"
-msgstr "Vragen om bevestiging voordat een internetzoekopdracht wordt verzonden"
+msgstr ""
+"Vragen om bevestiging voordat een internetzoekopdracht wordt verzonden"
 
 msgid "Web Cache Max Size (MB)"
 msgstr "Max. grootte internetcache (MB)"
@@ -1586,6 +1871,16 @@ msgstr "Geldigheid internetcache (dagen)"
 
 msgid "How many days cache entries should be considered valid."
 msgstr "Hoeveel dagen cache-items als geldig moeten worden beschouwd."
+
+msgid "Web Research Cache"
+msgstr "Webonderzoek-cache"
+
+msgid ""
+"Cache completed web research reports by normalized query (reuses web search "
+"cache database)."
+msgstr ""
+"Cache voltooide webonderzoeksrapporten op genormaliseerde zoekopdracht "
+"(hergebruikt de database van de webzoekcache)."
 
 msgid "Rich Text Control Sidebar"
 msgstr "Rich Text Control-zijbalk"
@@ -1605,8 +1900,8 @@ msgstr "AI-grammaticacontrole inschakelen (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "Indien ingeschakeld, registreert WriterAgent zijn AI-grammaticacontrole bij "
 "Linguistic; gecontroleerde tekst gebruikt uw API (Extra → Opties → AI). "
@@ -1638,9 +1933,22 @@ msgid ""
 "reliable; higher values are faster and cheaper but may hit token limits or "
 "cause model errors."
 msgstr ""
-"Aantal zinnen per LLM-verzoek (1-8). 1 (standaard) is het meest betrouwbaar; "
-"hogere waarden zijn sneller en goedkoper, maar kunnen tokenlimieten "
+"Aantal zinnen per LLM-verzoek (1-8). 1 (standaard) is het meest betrouwbaar;"
+" hogere waarden zijn sneller en goedkoper, maar kunnen tokenlimieten "
 "overschrijden of model-fouten veroorzaken."
+
+msgid "Grammar concurrent requests"
+msgstr "Gelijktijdige grammaticaverzoeken"
+
+msgid ""
+"Max simultaneous background grammar API calls (1-8). 1 matches prior "
+"behavior. Raise for OpenRouter or other providers that allow parallel "
+"requests; use with care alongside sidebar chat."
+msgstr ""
+"Max. gelijktijdige achtergrond-API-aanroepen voor grammatica (1-8). 1 komt "
+"overeen met het eerdere gedrag. Verhoog voor OpenRouter of andere providers "
+"die parallelle verzoeken toestaan; gebruik met zorg in combinatie met de "
+"zijbalkchat."
 
 msgid "Detect and correct sentence language"
 msgstr "Zinstaal detecteren en corrigeren"
@@ -1678,11 +1986,11 @@ msgid "Enable MCP Server"
 msgstr "MCP-server inschakelen"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Alleen localhost, geen authenticatie. Clients gebruiken http://localhost:"
-"<port>/mcp (streamable HTTP)."
+"Alleen localhost, geen authenticatie. Clients gebruiken "
+"http://localhost:<port>/mcp (streamable HTTP)."
 
 msgid "MCP Port"
 msgstr "MCP-poort"
@@ -1710,9 +2018,10 @@ msgid ""
 "empty, run_venv_python_script uses this process's sys.executable (basic "
 "stdlib); use a venv for numpy/pandas."
 msgstr ""
-"Indien ingesteld, worden tools uitgevoerd in die venv (bin/python of Scripts/"
-"python.exe). Indien leeg, gebruikt run_venv_python_script de sys.executable "
-"van dit proces (basis stdlib); gebruik een venv voor numpy/pandas."
+"Indien ingesteld, worden tools uitgevoerd in die venv (bin/python of "
+"Scripts/python.exe). Indien leeg, gebruikt run_venv_python_script de "
+"sys.executable van dit proces (basis stdlib); gebruik een venv voor "
+"numpy/pandas."
 
 msgid "Test"
 msgstr "Test"
@@ -1730,12 +2039,12 @@ msgid "Max Calc data cells"
 msgstr "Max. Calc-datacellen"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
-"Maximum aantal cellen in =PYTHON() data of Run Python Script data/"
-"data_range. Grotere waarden verbruiken meer RAM en tijd; het lezen van het "
-"UNO-bereik blijft de grootste factor."
+"Maximum aantal cellen in =PYTHON() data of Run Python Script "
+"data/data_range. Grotere waarden verbruiken meer RAM en tijd; het lezen van "
+"het UNO-bereik blijft de grootste factor."
 
 msgid "Python session mode"
 msgstr "Python-sessiemodus"
@@ -1767,8 +2076,8 @@ msgid "Modeless Run Python Script dialog"
 msgstr "Modeless dialoogvenster Python-script uitvoeren"
 
 msgid ""
-"When checked, the plain-text Run Python Script dialog floats so you can edit "
-"the document while it is open. Uncheck for the classic modal dialog."
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
 msgstr ""
 "Indien aangevinkt, blijft het dialoogvenster 'Python-script uitvoeren' "
 "zwevend, zodat u het document kunt bewerken terwijl het geopend is. Schakel "

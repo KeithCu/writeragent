@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-01 21:14-0400\n"
+"POT-Creation-Date: 2026-06-04 23:11-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Polish <LL@li.org>\n"
@@ -19,17 +19,17 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require sub-agent delegation (USE_SUB_AGENT). Enable "
-"sub-agents in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
-"Odczyty badań dokumentów wymagają delegowania podagentów (USE_SUB_AGENT). "
-"Włącz podagenty w konfiguracji."
+"Odczyty badań dokumentów wymagają specjalistycznej delegacji zadań "
+"(USE_SUB_AGENT). Włącz to w konfiguracji."
 
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Wywołanie narzędzia przełączone na „{0}”. Jesteś w trybie specjalistycznego "
@@ -46,8 +46,8 @@ msgstr "Uruchamianie notatnika jest obsługiwane tylko w LibreOffice Writer."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
 "Ten dokument nie zawiera zaimportowanego notatnika. Najpierw użyj Narzędzia "
 "→ Importuj notatnik Jupyter…"
@@ -75,7 +75,8 @@ msgstr "Wszystkie pliki"
 #: plugin/notebook/import_dialog.py
 msgid "Import Notebook is only supported in LibreOffice Writer."
 msgstr ""
-"Importowanie notatnika jest obsługiwane tylko w programie LibreOffice Writer."
+"Importowanie notatnika jest obsługiwane tylko w programie LibreOffice "
+"Writer."
 
 #: plugin/notebook/import_dialog.py
 #, python-brace-format
@@ -225,7 +226,8 @@ msgstr "Ten model wymaga więcej czasu niż obecna konfiguracja."
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr ""
 "Proszę spróbować innego modelu. {0} wymagałby więcej czasu niż "
 "skonfigurowano."
@@ -315,9 +317,11 @@ msgstr ""
 "Ustawieniach."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
-"Odmowa połączenia. Czy lokalny serwer AI (Ollama/LM Studio) jest uruchomiony?"
+"Odmowa połączenia. Czy lokalny serwer AI (Ollama/LM Studio) jest "
+"uruchomiony?"
 
 #: plugin/framework/errors.py
 msgid "DNS Error. Could not resolve the endpoint URL."
@@ -347,7 +351,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "AI: Mogę pomóc Ci z formułami, analizą danych i kolorowymi wykresami. "
 "Wypróbuj mnie!"
@@ -420,8 +425,8 @@ msgstr "WriterAgent: Rozszerz zaznaczenie (Calc)"
 #: plugin/calc/python_editor.py
 msgid ""
 "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\"; "
-"A1:B10)."
+"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\";"
+" A1:B10)."
 msgstr ""
 "Nie można było zachować argumentów formuły PYTHON tej komórki (np. zakresów "
 "danych). Edytuj formułę w programie Calc lub użyj ciągu znaków w "
@@ -445,7 +450,8 @@ msgstr "Edytor języka Python uległ nieoczekiwanej awarii."
 
 #: plugin/calc/python_editor.py
 msgid "Select a cell in a Calc spreadsheet to edit Python."
-msgstr "Wybierz komórkę w arkuszu kalkulacyjnym Calc, aby edytować kod Python."
+msgstr ""
+"Wybierz komórkę w arkuszu kalkulacyjnym Calc, aby edytować kod Python."
 
 #: plugin/calc/python_editor.py
 msgid ""
@@ -470,8 +476,7 @@ msgid ""
 "In that venv run: pip install pywebview\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"Nie można zaimportować webview (pywebview) przy użyciu interpretera Python z "
-"Ustawienia → Python:\n"
+"Nie można zaimportować webview (pywebview) przy użyciu interpretera Python z Ustawienia → Python:\n"
 "%(exe)s\n"
 "\n"
 "W tym środowisku wirtualnym (venv) uruchom: pip install pywebview\n"
@@ -551,6 +556,266 @@ msgstr ""
 #: plugin/writer/math/latex_dialog.py
 msgid "An unexpected error occurred during LaTeX insertion."
 msgstr "Wystąpił nieoczekiwany błąd podczas wstawiania LaTeX."
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "about"
+msgstr "o programie"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "aim"
+msgstr "cel"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "any"
+msgstr "dowolny"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "awards"
+msgstr "nagrody"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "best"
+msgstr "najlepsze"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "brief"
+msgstr "podsumowanie"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "can"
+msgstr "może"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "choices"
+msgstr "wybory"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "compile"
+msgstr "kompiluj"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "concise"
+msgstr "zwięzły"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "depth"
+msgstr "głębia"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "description"
+msgstr "opis"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "detail"
+msgstr "szczegół"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "details"
+msgstr "szczegóły"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "display"
+msgstr "wyświetl"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "each"
+msgstr "każdy"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "features"
+msgstr "funkcje"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "find"
+msgstr "znajdź"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "get"
+msgstr "pobierz"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "give"
+msgstr "daj"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "how"
+msgstr "jak"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "identify"
+msgstr "zidentyfikuj"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "include"
+msgstr "dołącz"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "info"
+msgstr "info"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "information"
+msgstr "informacje"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "key"
+msgstr "klucz"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "least"
+msgstr "przynajmniej"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "limit"
+msgstr "limit"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "list"
+msgstr "lista"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "me"
+msgstr "ja"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "notable"
+msgstr "znaczące"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "overall"
+msgstr "ogólne"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "plain"
+msgstr "zwykły"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "plain text"
+msgstr "zwykły tekst"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "please"
+msgstr "proszę"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "preferences"
+msgstr "preferencje"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "provide"
+msgstr "dostarcz"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "query"
+msgstr "zapytanie"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "question"
+msgstr "pytanie"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "ratings"
+msgstr "oceny"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "recommendation"
+msgstr "rekomendacja"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "report"
+msgstr "raport"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "research"
+msgstr "badania"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "reviews"
+msgstr "recenzje"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "search"
+msgstr "szukaj"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "short"
+msgstr "krótkie"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "show"
+msgstr "pokaż"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "signature"
+msgstr "podpis"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "source"
+msgstr "źródło"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "sources"
+msgstr "źródła"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "such"
+msgstr "takie"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "suitable"
+msgstr "odpowiednie"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "summary"
+msgstr "podsumowanie"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "tell"
+msgstr "powiedz"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "text"
+msgstr "tekst"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "their"
+msgstr "ich"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "top"
+msgstr "góra"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "trends"
+msgstr "trendy"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "types"
+msgstr "typy"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "what"
+msgstr "co"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "when"
+msgstr "kiedy"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "where"
+msgstr "gdzie"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "who"
+msgstr "kto"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "why"
+msgstr "dlaczego"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "you"
+msgstr "ty"
 
 #: plugin/chatbot/panel_wiring.py plugin/xdl_strings.py
 msgid "Ready"
@@ -658,8 +923,8 @@ msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
 "this!]"
 msgstr ""
-"[Błąd wewnętrzny: Nie można zidentyfikować typu dokumentu dla {0}. Proszę to "
-"zgłosić!]"
+"[Błąd wewnętrzny: Nie można zidentyfikować typu dokumentu dla {0}. Proszę to"
+" zgłosić!]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -682,6 +947,28 @@ msgstr "Temperatura musi być <= 1.0"
 #, python-format
 msgid "This search query '%s' will be sent to the search engine."
 msgstr "To zapytanie wyszukiwania „%s” zostanie wysłane do wyszukiwarki."
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache hit (fuzzy, %s%% match: %s%s → %s)"
+msgstr ""
+"Trafienie w pamięci podręcznej badań (przybliżone, dopasowanie %s%%: %s%s → "
+"%s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache hit (key: %s)"
+msgstr "Trafienie w pamięci podręcznej badań (klucz: %s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache saved (key: %s)"
+msgstr "Zapisano w pamięci podręcznej badań (klucz: %s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Cached research keys: %s"
+msgstr "Klucze w pamięci podręcznej badań: %s"
 
 #: plugin/chatbot/web_research_chat.py
 msgid "[Web research]"
@@ -748,7 +1035,8 @@ msgstr "[Nie znaleziono backendu agenta „{0}”.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Backend agenta „{0}” jest niedostępny. Sprawdź ustawienia (ścieżka, "
 "instalacja).]"
@@ -936,8 +1224,8 @@ msgid ""
 "Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
 "Writer document with an imported Jupyter notebook and try again."
 msgstr ""
-"Resetowanie sesji Python dla notatników dotyczy programu LibreOffice Writer. "
-"Otwórz dokument programu Writer z zaimportowanym notatnikiem Jupyter i "
+"Resetowanie sesji Python dla notatników dotyczy programu LibreOffice Writer."
+" Otwórz dokument programu Writer z zaimportowanym notatnikiem Jupyter i "
 "spróbuj ponownie."
 
 #: plugin/scripting/session_manager.py
@@ -998,8 +1286,8 @@ msgid ""
 "Jupyter Notebook… to enable notebook Python session reset."
 msgstr ""
 "Ten dokument Writer nie ma zaimportowanego rejestru notatnika. Użyj "
-"Narzędzia → Importuj notatnik Jupyter…, aby włączyć resetowanie sesji Python "
-"notatnika."
+"Narzędzia → Importuj notatnik Jupyter…, aby włączyć resetowanie sesji Python"
+" notatnika."
 
 #: plugin/scripting/python_runner.py
 msgid "Run Python Script"
@@ -1135,11 +1423,11 @@ msgstr "Nieznany błąd"
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
-"Skrypt wykonano pomyślnie, ale nie zwrócił wyniku ani nie wygenerował danych "
-"wyjściowych. (czas trwania: {time})"
+"Skrypt wykonano pomyślnie, ale nie zwrócił wyniku ani nie wygenerował danych"
+" wyjściowych. (czas trwania: {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -1504,11 +1792,11 @@ msgid "Path / URL"
 msgstr "Ścieżka / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Ścieżka do CLI backendu (np. aider) lub URL serwera ACP (np. http://"
-"localhost:8000 dla Hermes). Puste = spróbuj domyślnego."
+"Ścieżka do CLI backendu (np. aider) lub URL serwera ACP (np. "
+"http://localhost:8000 dla Hermes). Puste = spróbuj domyślnego."
 
 msgid "Extra arguments"
 msgstr "Dodatkowe argumenty"
@@ -1584,8 +1872,8 @@ msgstr "Maksymalny rozmiar pamięci podręcznej sieci (MB)"
 
 msgid "Max disk size for web search cache (0 to disable)"
 msgstr ""
-"Maksymalny rozmiar dysku dla pamięci podręcznej wyszukiwania w sieci (0, aby "
-"wyłączyć)"
+"Maksymalny rozmiar dysku dla pamięci podręcznej wyszukiwania w sieci (0, aby"
+" wyłączyć)"
 
 msgid "Web Cache Validity (Days)"
 msgstr "Ważność pamięci podręcznej sieci (dni)"
@@ -1594,6 +1882,17 @@ msgid "How many days cache entries should be considered valid."
 msgstr ""
 "Liczba dni, przez które wpisy w pamięci podręcznej powinny być uznawane za "
 "ważne."
+
+msgid "Web Research Cache"
+msgstr "Pamięć podręczna badań internetowych"
+
+msgid ""
+"Cache completed web research reports by normalized query (reuses web search "
+"cache database)."
+msgstr ""
+"Buforuj ukończone raporty z badań internetowych według znormalizowanego "
+"zapytania (ponownie wykorzystuje bazę danych pamięci podręcznej wyszukiwania"
+" internetowego)."
 
 msgid "Rich Text Control Sidebar"
 msgstr "Pasek boczny kontrolki tekstu sformatowanego"
@@ -1614,12 +1913,12 @@ msgstr "Włącz sprawdzanie gramatyki AI (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "Po włączeniu WriterAgent rejestruje swój moduł sprawdzania gramatyki AI w "
-"narzędziach językowych; sprawdzany tekst korzysta z Twojego API (Narzędzia → "
-"Opcje → AI). Podkreślenia pojawiają się krótko po zatrzymaniu pisania. "
+"narzędziach językowych; sprawdzany tekst korzysta z Twojego API (Narzędzia →"
+" Opcje → AI). Podkreślenia pojawiają się krótko po zatrzymaniu pisania. "
 "Domyślnie wyłączone."
 
 msgid "Grammar check model (optional)"
@@ -1649,6 +1948,19 @@ msgstr ""
 "Liczba zdań wysyłanych w jednym żądaniu do modelu LLM (1-8). 1 (domyślnie) "
 "jest najbardziej niezawodne; wyższe wartości są szybsze i tańsze, ale mogą "
 "przekroczyć limity tokenów lub spowodować błędy modelu."
+
+msgid "Grammar concurrent requests"
+msgstr "Równoległe żądania gramatyczne"
+
+msgid ""
+"Max simultaneous background grammar API calls (1-8). 1 matches prior "
+"behavior. Raise for OpenRouter or other providers that allow parallel "
+"requests; use with care alongside sidebar chat."
+msgstr ""
+"Maksymalna liczba jednoczesnych wywołań API gramatyki w tle (1-8). 1 "
+"odpowiada poprzedniemu zachowaniu. Zwiększ dla OpenRouter lub innych "
+"dostawców zezwalających na żądania równoległe; używaj ostrożnie wraz z "
+"czatem na pasku bocznym."
 
 msgid "Detect and correct sentence language"
 msgstr "Wykryj i popraw język zdania"
@@ -1686,11 +1998,11 @@ msgid "Enable MCP Server"
 msgstr "Włącz serwer MCP"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Tylko localhost, brak autoryzacji. Klienci używają http://localhost:<port>/"
-"mcp (strumieniowe HTTP)."
+"Tylko localhost, brak autoryzacji. Klienci używają "
+"http://localhost:<port>/mcp (strumieniowe HTTP)."
 
 msgid "MCP Port"
 msgstr "Port MCP"
@@ -1718,10 +2030,10 @@ msgid ""
 "empty, run_venv_python_script uses this process's sys.executable (basic "
 "stdlib); use a venv for numpy/pandas."
 msgstr ""
-"Jeśli ustawiono, uruchamia narzędzia w tym venv (bin/python lub Scripts/"
-"python.exe). Jeśli puste, run_venv_python_script użyje sys.executable "
-"bieżącego procesu (podstawowa biblioteka standardowa); użyj venv dla numpy/"
-"pandas."
+"Jeśli ustawiono, uruchamia narzędzia w tym venv (bin/python lub "
+"Scripts/python.exe). Jeśli puste, run_venv_python_script użyje "
+"sys.executable bieżącego procesu (podstawowa biblioteka standardowa); użyj "
+"venv dla numpy/pandas."
 
 msgid "Test"
 msgstr "Test"
@@ -1740,8 +2052,8 @@ msgid "Max Calc data cells"
 msgstr "Maksymalna liczba komórek danych Calc"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
 "Maksymalna liczba komórek w danych =PYTHON() lub danych/zakresie danych Run "
 "Python Script. Większe wartości zużywają więcej pamięci RAM i czasu; odczyt "
@@ -1755,8 +2067,8 @@ msgid ""
 "per workbook (variables carry between cells)."
 msgstr ""
 "Izolowany: każda komórka =PYTHON() otrzymuje nowy obszar nazw. "
-"Współdzielony: jeden obszar nazw na skoroszyt (zmienne są przenoszone między "
-"komórkami)."
+"Współdzielony: jeden obszar nazw na skoroszyt (zmienne są przenoszone między"
+" komórkami)."
 
 msgid "Isolated (default)"
 msgstr "Izolowany (domyślnie)"
@@ -1778,11 +2090,11 @@ msgid "Modeless Run Python Script dialog"
 msgstr "Nieblokujące okno dialogowe uruchamiania skryptu Python"
 
 msgid ""
-"When checked, the plain-text Run Python Script dialog floats so you can edit "
-"the document while it is open. Uncheck for the classic modal dialog."
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
 msgstr ""
-"Jeśli zaznaczono, okno dialogowe Uruchom skrypt Python jest wyświetlane jako "
-"pływające, co umożliwia edycję dokumentu przy otwartym oknie. Odznacz, aby "
+"Jeśli zaznaczono, okno dialogowe Uruchom skrypt Python jest wyświetlane jako"
+" pływające, co umożliwia edycję dokumentu przy otwartym oknie. Odznacz, aby "
 "użyć klasycznego okna modalnego."
 
 msgid "Writer document tools (including navigation and search)"

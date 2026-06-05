@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-01 21:14-0400\n"
+"POT-Creation-Date: 2026-06-04 23:11-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -19,8 +19,8 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require sub-agent delegation (USE_SUB_AGENT). Enable"
-" sub-agents in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
 
 #: plugin/doc/specialized_base.py
@@ -495,6 +495,266 @@ msgstr ""
 msgid "An unexpected error occurred during LaTeX insertion."
 msgstr ""
 
+#: plugin/chatbot/research_cache_fluff.py
+msgid "about"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "aim"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "any"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "awards"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "best"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "brief"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "can"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "choices"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "compile"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "concise"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "depth"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "description"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "detail"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "details"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "display"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "each"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "features"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "find"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "get"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "give"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "how"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "identify"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "include"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "info"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "information"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "key"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "least"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "limit"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "list"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "me"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "notable"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "overall"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "plain"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "plain text"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "please"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "preferences"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "provide"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "query"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "question"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "ratings"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "recommendation"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "report"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "research"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "reviews"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "search"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "short"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "show"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "signature"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "source"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "sources"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "such"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "suitable"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "summary"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "tell"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "text"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "their"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "top"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "trends"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "types"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "what"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "when"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "where"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "who"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "why"
+msgstr ""
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "you"
+msgstr ""
+
 #: plugin/chatbot/panel_wiring.py plugin/xdl_strings.py
 msgid "Ready"
 msgstr ""
@@ -616,6 +876,26 @@ msgstr ""
 #: plugin/chatbot/web_research_chat.py
 #, python-format
 msgid "This search query '%s' will be sent to the search engine."
+msgstr ""
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache hit (fuzzy, %s%% match: %s%s → %s)"
+msgstr ""
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache hit (key: %s)"
+msgstr ""
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache saved (key: %s)"
+msgstr ""
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Cached research keys: %s"
 msgstr ""
 
 #: plugin/chatbot/web_research_chat.py
@@ -1480,6 +1760,14 @@ msgstr ""
 msgid "How many days cache entries should be considered valid."
 msgstr ""
 
+msgid "Web Research Cache"
+msgstr ""
+
+msgid ""
+"Cache completed web research reports by normalized query (reuses web search "
+"cache database)."
+msgstr ""
+
 msgid "Rich Text Control Sidebar"
 msgstr ""
 
@@ -1521,6 +1809,15 @@ msgid ""
 "Number of sentences to send per LLM request (1-8). 1 (default) is most "
 "reliable; higher values are faster and cheaper but may hit token limits or "
 "cause model errors."
+msgstr ""
+
+msgid "Grammar concurrent requests"
+msgstr ""
+
+msgid ""
+"Max simultaneous background grammar API calls (1-8). 1 matches prior "
+"behavior. Raise for OpenRouter or other providers that allow parallel "
+"requests; use with care alongside sidebar chat."
 msgstr ""
 
 msgid "Detect and correct sentence language"

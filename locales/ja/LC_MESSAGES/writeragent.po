@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-01 21:14-0400\n"
+"POT-Creation-Date: 2026-06-04 23:11-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Japanese <LL@li.org>\n"
@@ -18,22 +18,19 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require sub-agent delegation (USE_SUB_AGENT). Enable "
-"sub-agents in configuration."
-msgstr ""
-"ドキュメントのリサーチ読み取りにはサブエージェントの委任（USE_SUB_AGENT）が必"
-"要です。設定でサブエージェントを有効にしてください。"
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
+msgstr "ドキュメントのリサーチ読み取りには専門的なタスク委任（USE_SUB_AGENT）が必要です。設定でこれを有効にしてください。"
 
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
-"ツールコールが '{0}' に切り替えられました。特殊ツールセットモードに入っていま"
-"す。完了したら 'specialized_workflow_finished' を呼び出して、APIのフルセット"
-"を復元してください。"
+"ツールコールが '{0}' に切り替えられました。特殊ツールセットモードに入っています。完了したら "
+"'specialized_workflow_finished' を呼び出して、APIのフルセットを復元してください。"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
@@ -45,11 +42,10 @@ msgstr "ノートブックの実行はLibreOffice Writerでのみサポートさ
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
-"このドキュメントにはインポートされたノートブックがありません。先に「ツール」→"
-"「Jupyterノートブックをインポート…」を使用してください。"
+"このドキュメントにはインポートされたノートブックがありません。先に「ツール」→「Jupyterノートブックをインポート…」を使用してください。"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Could not find notebook cell for this control."
@@ -73,8 +69,7 @@ msgstr "すべてのファイル"
 
 #: plugin/notebook/import_dialog.py
 msgid "Import Notebook is only supported in LibreOffice Writer."
-msgstr ""
-"ノートブックのインポートはLibreOffice Writerでのみサポートされています。"
+msgstr "ノートブックのインポートはLibreOffice Writerでのみサポートされています。"
 
 #: plugin/notebook/import_dialog.py
 #, python-brace-format
@@ -122,17 +117,14 @@ msgstr "保有クドス: {}"
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
 msgid "«{}» is not a valid API KEY, double check it or create a new one"
-msgstr ""
-"«{}» は有効な API キーではありません。再確認するか、新しい API キーを作成して"
-"ください"
+msgstr "«{}» は有効な API キーではありません。再確認するか、新しい API キーを作成してください"
 
 #: plugin/contrib/aihordeclient/__init__.py
 msgid ""
 "At this moment we can not process your request, please try again later.  If "
 "this is happening for a long period of time, please let us know via Discord"
 msgstr ""
-"現時点ではリクエストを処理できません。後でもう一度お試しください。  この問題"
-"が長期間発生する場合は、Discord 経由でお知らせください。"
+"現時点ではリクエストを処理できません。後でもう一度お試しください。  この問題が長期間発生する場合は、Discord 経由でお知らせください。"
 
 #: plugin/contrib/aihordeclient/__init__.py
 msgid "Problem requesting kudos"
@@ -143,24 +135,20 @@ msgid ""
 "The Horde is in maintenance mode, please try again later, if you have tried "
 "and the service does not respond for hours, please contact via Discord"
 msgstr ""
-"Horde はメンテナンス モードです。後でもう一度お試しください。試してもサービス"
-"が何時間も応答しない場合は、Discord 経由でご連絡ください。"
+"Horde はメンテナンス モードです。後でもう一度お試しください。試してもサービスが何時間も応答しない場合は、Discord 経由でご連絡ください。"
 
 #: plugin/contrib/aihordeclient/__init__.py
 msgid ""
 "You have made too many requests, please wait for them to finish, and try "
 "again later"
-msgstr ""
-"リクエストが多すぎます。完了するまで待って、後でもう一度お試しください。"
+msgstr "リクエストが多すぎます。完了するまで待って、後でもう一度お試しください。"
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
 msgid ""
 "Seems that «{}» has problems, double check it, create a new one or join "
 "Discord to ask for help"
-msgstr ""
-"«{}» に問題があるようです。再確認するか、新しいものを作成するか、Discord に参"
-"加して助けを求めてください"
+msgstr "«{}» に問題があるようです。再確認するか、新しいものを作成するか、Discord に参加して助けを求めてください"
 
 #: plugin/contrib/aihordeclient/__init__.py
 msgid "We hit an error, still: "
@@ -168,9 +156,7 @@ msgstr "エラーが発生しましたが、それでも次のとおりです。
 
 #: plugin/contrib/aihordeclient/__init__.py
 msgid "No longer valid, please try again.  Your request took too long"
-msgstr ""
-"有効ではありません。もう一度お試しください。  リクエストに時間がかかりすぎま"
-"した"
+msgstr "有効ではありません。もう一度お試しください。  リクエストに時間がかかりすぎました"
 
 #: plugin/contrib/aihordeclient/__init__.py
 msgid "Contacting the Horde..."
@@ -183,9 +169,7 @@ msgstr "Horde に接続しました"
 #: plugin/contrib/aihordeclient/__init__.py
 msgid ""
 "When trying to ask for the image, the Horde was too slow, try again later"
-msgstr ""
-"画像を要求しようとしたとき、Horde が遅すぎました。後でもう一度試してくださ"
-"い。"
+msgstr "画像を要求しようとしたとき、Horde が遅すぎました。後でもう一度試してください。"
 
 #: plugin/contrib/aihordeclient/__init__.py
 msgid "to learn to earn kudos. Detail:"
@@ -225,9 +209,9 @@ msgstr "このモデルは現在の設定よりも時間がかかります。"
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
-msgstr ""
-"別のモデルをお試しください。{0} は設定された時間よりも多くの時間を要します。"
+msgid ""
+"Please try another model. {0} would take more time than you configured."
+msgstr "別のモデルをお試しください。{0} は設定された時間よりも多くの時間を要します。"
 
 #: plugin/contrib/aihordeclient/__init__.py
 msgid "Please try again later."
@@ -266,9 +250,7 @@ msgstr "画像をダウンロード中"
 msgid ""
 "You may need to reduce your settings or choose another model, or you may "
 "have been censored. Horde message"
-msgstr ""
-"設定を下げるか、別のモデルを選択する必要があるか、検閲を受けている可能性があ"
-"ります。Horde のメッセージ"
+msgstr "設定を下げるか、別のモデルを選択する必要があるか、検閲を受けている可能性があります。Horde のメッセージ"
 
 #: plugin/contrib/aihordeclient/__init__.py
 msgid " generated by "
@@ -289,14 +271,11 @@ msgstr "API キーが無効です。設定を確認してください。"
 
 #: plugin/framework/errors.py
 msgid "API access Forbidden. Your key may lack permissions for this model."
-msgstr ""
-"API アクセスは禁止されています。キーにこのモデルに対する権限が不足している可"
-"能性があります。"
+msgstr "API アクセスは禁止されています。キーにこのモデルに対する権限が不足している可能性があります。"
 
 #: plugin/framework/errors.py
 msgid "Endpoint not found (404). Check your URL and Model name."
-msgstr ""
-"エンドポイントが見つかりません (404)。 URLとモデル名を確認してください。"
+msgstr "エンドポイントが見つかりません (404)。 URLとモデル名を確認してください。"
 
 #: plugin/framework/errors.py
 #, python-brace-format
@@ -310,14 +289,12 @@ msgstr "HTTP エラー {0}: {1}"
 
 #: plugin/framework/errors.py
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
-msgstr ""
-"リクエストがタイムアウトしました。設定で「リクエストタイムアウト」を増やして"
-"みてください。"
+msgstr "リクエストがタイムアウトしました。設定で「リクエストタイムアウト」を増やしてみてください。"
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
-msgstr ""
-"接続拒否。ローカル AI サーバー (Ollama/LM Studio) は実行されていますか?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgstr "接続拒否。ローカル AI サーバー (Ollama/LM Studio) は実行されていますか?"
 
 #: plugin/framework/errors.py
 msgid "DNS Error. Could not resolve the endpoint URL."
@@ -341,32 +318,25 @@ msgstr "{resource_type} が見つかりません: {identifier}"
 msgid ""
 "AI: I can edit or translate your document instantly with professional "
 "formatting and color. Try me!"
-msgstr ""
-"AI: プロフェッショナルな書式設定とカラーで、ドキュメントを即座に編集または翻"
-"訳できます。ぜひお試しください！"
+msgstr "AI: プロフェッショナルな書式設定とカラーで、ドキュメントを即座に編集または翻訳できます。ぜひお試しください！"
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
-msgstr ""
-"AI: 数式、データ分析、カラフルなグラフの作成をお手伝いします。ぜひお試しくだ"
-"さい！"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
+msgstr "AI: 数式、データ分析、カラフルなグラフの作成をお手伝いします。ぜひお試しください！"
 
 #: plugin/framework/constants.py
 msgid ""
 "AI: I can help you create and edit polished, colorful shapes in Draw and "
 "Impress. Try me!"
-msgstr ""
-"AI: Draw と Impress で、洗練されたカラフルな図形の作成と編集をお手伝いしま"
-"す。ぜひお試しください！"
+msgstr "AI: Draw と Impress で、洗練されたカラフルな図形の作成と編集をお手伝いします。ぜひお試しください！"
 
 #: plugin/framework/constants.py
 msgid ""
 "AI: I can do web research to answer any question, or summarize a web page, "
 "without seeing or changing your document. Let's chat."
-msgstr ""
-"AI: ドキュメントを見たり変更したりすることなく、ウェブ検索を行って質問に答え"
-"たり、ウェブページを要約したりできます。お話ししましょう。"
+msgstr "AI: ドキュメントを見たり変更したりすることなく、ウェブ検索を行って質問に答えたり、ウェブページを要約したりできます。お話ししましょう。"
 
 #: plugin/framework/client/errors.py
 #, python-brace-format
@@ -387,9 +357,7 @@ msgstr "ストリームが finish_reason=error で終了しました"
 msgid ""
 "The model is repeating the same chunk (infinite loop). Try again or use a "
 "different model."
-msgstr ""
-"モデルが同じチャンクを繰り返しています（無限ループ）。もう一度お試しいただく"
-"か、別のモデルをご使用ください。"
+msgstr "モデルが同じチャンクを繰り返しています（無限ループ）。もう一度お試しいただくか、別のモデルをご使用ください。"
 
 #: plugin/calc/python_function.py
 msgid "Image inserted"
@@ -419,12 +387,11 @@ msgstr "WriterAgent: 選択範囲の拡張 (Calc)"
 #: plugin/calc/python_editor.py
 msgid ""
 "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\"; "
-"A1:B10)."
+"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\";"
+" A1:B10)."
 msgstr ""
-"このセルのPYTHON数式引数（データ範囲など）を保持できませんでした。Calcで数式"
-"を編集するか、=PYTHON(\"code\"; A1:B10) のように引用符で囲まれたコード文字列"
-"を使用してください。"
+"このセルのPYTHON数式引数（データ範囲など）を保持できませんでした。Calcで数式を編集するか、=PYTHON(\"code\"; A1:B10) "
+"のように引用符で囲まれたコード文字列を使用してください。"
 
 #: plugin/calc/python_editor.py
 msgid "Python cell editor"
@@ -452,9 +419,8 @@ msgid ""
 "in another cell). Edit it in the formula bar, or use =PYTHON(\"code\"; "
 "range) with quoted code."
 msgstr ""
-"このPYTHON数式は、エディタで安全に書き換えられない形式（他のセル内のコードな"
-"ど）を使用しています。数式バーで編集するか、=PYTHON(\"コード\"; 範囲) を使用"
-"してコードを引用符で囲んでください。"
+"このPYTHON数式は、エディタで安全に書き換えられない形式（他のセル内のコードなど）を使用しています。数式バーで編集するか、=PYTHON(\"コード\";"
+" 範囲) を使用してコードを引用符で囲んでください。"
 
 #: plugin/calc/python_editor.py
 msgid "No Python interpreter available for the editor."
@@ -549,6 +515,266 @@ msgstr ""
 msgid "An unexpected error occurred during LaTeX insertion."
 msgstr "LaTeX挿入中に予期しないエラーが発生しました。"
 
+#: plugin/chatbot/research_cache_fluff.py
+msgid "about"
+msgstr "バージョン情報"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "aim"
+msgstr "目的"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "any"
+msgstr "任意"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "awards"
+msgstr "賞"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "best"
+msgstr "ベスト"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "brief"
+msgstr "概要"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "can"
+msgstr "可能"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "choices"
+msgstr "選択肢"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "compile"
+msgstr "コンパイル"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "concise"
+msgstr "簡潔"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "depth"
+msgstr "詳細度"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "description"
+msgstr "説明"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "detail"
+msgstr "詳細"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "details"
+msgstr "詳細"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "display"
+msgstr "表示"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "each"
+msgstr "各"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "features"
+msgstr "機能"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "find"
+msgstr "検索"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "get"
+msgstr "取得"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "give"
+msgstr "与える"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "how"
+msgstr "方法"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "identify"
+msgstr "識別する"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "include"
+msgstr "含める"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "info"
+msgstr "情報"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "information"
+msgstr "情報"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "key"
+msgstr "キー"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "least"
+msgstr "最小"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "limit"
+msgstr "制限"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "list"
+msgstr "リスト"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "me"
+msgstr "私"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "notable"
+msgstr "注目すべき"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "overall"
+msgstr "全体"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "plain"
+msgstr "プレーン"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "plain text"
+msgstr "プレーンテキスト"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "please"
+msgstr "お願いします"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "preferences"
+msgstr "オプション"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "provide"
+msgstr "提供"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "query"
+msgstr "クエリ"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "question"
+msgstr "質問"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "ratings"
+msgstr "評価"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "recommendation"
+msgstr "推奨"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "report"
+msgstr "レポート"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "research"
+msgstr "調査"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "reviews"
+msgstr "レビュー"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "search"
+msgstr "検索"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "short"
+msgstr "短い"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "show"
+msgstr "表示"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "signature"
+msgstr "署名"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "source"
+msgstr "ソース"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "sources"
+msgstr "ソース"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "such"
+msgstr "そのような"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "suitable"
+msgstr "適切な"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "summary"
+msgstr "要約"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "tell"
+msgstr "伝える"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "text"
+msgstr "テキスト"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "their"
+msgstr "それらの"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "top"
+msgstr "トップ"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "trends"
+msgstr "トレンド"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "types"
+msgstr "タイプ"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "what"
+msgstr "何"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "when"
+msgstr "いつ"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "where"
+msgstr "どこ"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "who"
+msgstr "誰"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "why"
+msgstr "なぜ"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "you"
+msgstr "あなた"
+
 #: plugin/chatbot/panel_wiring.py plugin/xdl_strings.py
 msgid "Ready"
 msgstr "準備完了"
@@ -637,35 +863,28 @@ msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[アクティブウィンドウに互換性のある LibreOffice ドキュメント (Writer、Calc、"
-"または Draw) が見つかりません。]"
+"[アクティブウィンドウに互換性のある LibreOffice ドキュメント (Writer、Calc、または Draw) が見つかりません。]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
 msgid ""
 "[Internal Error: Document type changed from {0} to {1}! Please file an "
 "error.]"
-msgstr ""
-"[内部エラー: ドキュメント タイプが {0} から {1} に変更されました。エラーを報"
-"告してください。]"
+msgstr "[内部エラー: ドキュメント タイプが {0} から {1} に変更されました。エラーを報告してください。]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
 msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
 "this!]"
-msgstr ""
-"[内部エラー: {0} のドキュメント タイプを識別できませんでした。ご報告くださ"
-"い。]"
+msgstr "[内部エラー: {0} のドキュメント タイプを識別できませんでした。ご報告ください。]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
 msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
 "Settings.]"
-msgstr ""
-"[モデル {0} はネイティブ オーディオをサポートしていません。設定で STT モデル"
-"を選択してください。]"
+msgstr "[モデル {0} はネイティブ オーディオをサポートしていません。設定で STT モデルを選択してください。]"
 
 #: plugin/chatbot/settings_dialog.py
 msgid "Invalid Setting"
@@ -679,6 +898,26 @@ msgstr "Temperatureは1.0以下である必要があります"
 #, python-format
 msgid "This search query '%s' will be sent to the search engine."
 msgstr "この検索クエリ '%s' が検索エンジンに送信されます。"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache hit (fuzzy, %s%% match: %s%s → %s)"
+msgstr "リサーチキャッシュヒット (あいまい一致 %s%%: %s%s → %s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache hit (key: %s)"
+msgstr "リサーチキャッシュヒット (キー: %s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache saved (key: %s)"
+msgstr "リサーチキャッシュ保存済み (キー: %s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Cached research keys: %s"
+msgstr "キャッシュされたリサーチキー: %s"
 
 #: plugin/chatbot/web_research_chat.py
 msgid "[Web research]"
@@ -716,8 +955,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"エディタが見つかりません (Kate または Gedit をインストールするか、EDITOR を設"
-"定してください)。パス:\n"
+"エディタが見つかりません (Kate または Gedit をインストールするか、EDITOR を設定してください)。パス:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -746,10 +984,9 @@ msgstr "[エージェントバックエンド '{0}' が見つかりません。]
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
-msgstr ""
-"[エージェントバックエンド '{0}' が利用できません。設定（パス、インストール）"
-"を確認してください。]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgstr "[エージェントバックエンド '{0}' が利用できません。設定（パス、インストール）を確認してください。]"
 
 #: plugin/chatbot/send_handlers.py
 msgid "Perfect! I'm switching you to the main assistant now."
@@ -783,8 +1020,8 @@ msgid ""
 "A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
 "check for updates and install the latest extension."
 msgstr ""
-"より新しい WriterAgent (%s) が利用可能です。Tools → Extension Manager を使用"
-"して更新を確認し、最新の拡張機能をインストールしてください。"
+"より新しい WriterAgent (%s) が利用可能です。Tools → Extension Manager "
+"を使用して更新を確認し、最新の拡張機能をインストールしてください。"
 
 #: plugin/chatbot/librarian.py
 msgid "Switching to document mode..."
@@ -830,8 +1067,7 @@ msgstr "幅:"
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
 msgid "Document scripts are too large to store in the document ({0} bytes)."
-msgstr ""
-"ドキュメントスクリプトが大きすぎてドキュメントに保存できません ({0} バイト)。"
+msgstr "ドキュメントスクリプトが大きすぎてドキュメントに保存できません ({0} バイト)。"
 
 #: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
 #: plugin/scripting/python_runner.py
@@ -842,9 +1078,7 @@ msgstr "スクリプトを保存するためのドキュメントが開かれて
 msgid ""
 "Document is read-only or properties cannot be written. Script saved to your "
 "personal library instead."
-msgstr ""
-"ドキュメントが読み取り専用か、プロパティを書き込めません。代わりに個人用ライ"
-"ブラリにスクリプトを保存しました。"
+msgstr "ドキュメントが読み取り専用か、プロパティを書き込めません。代わりに個人用ライブラリにスクリプトを保存しました。"
 
 #: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
 msgid "Script name cannot be empty."
@@ -932,17 +1166,15 @@ msgid ""
 "Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
 "Writer document with an imported Jupyter notebook and try again."
 msgstr ""
-"「ノートブックのPythonセッションをリセット」はLibreOffice Writerに適用されま"
-"す。JupyterノートブックをインポートしたWriterドキュメントを開いて、もう一度試"
-"してください。"
+"「ノートブックのPythonセッションをリセット」はLibreOffice "
+"Writerに適用されます。JupyterノートブックをインポートしたWriterドキュメントを開いて、もう一度試してください。"
 
 #: plugin/scripting/session_manager.py
 msgid ""
 "This Writer document has no imported notebook registry. Use Tools → Import "
 "Jupyter Notebook… first."
 msgstr ""
-"このWriterドキュメントにはインポートされたノートブックレジストリがありませ"
-"ん。「ツール」→「Jupyterノートブックをインポート…」を先に実行してください。"
+"このWriterドキュメントにはインポートされたノートブックレジストリがありません。「ツール」→「Jupyterノートブックをインポート…」を先に実行してください。"
 
 #: plugin/scripting/session_manager.py
 msgid "Could not resolve notebook Python session."
@@ -960,9 +1192,7 @@ msgstr "Pythonセッションをリセットできませんでした。"
 msgid ""
 "Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
 "try again."
-msgstr ""
-"「Pythonセッションをリセット」はCalcスプレッドシートに適用されます。Calcワー"
-"クブックを開いて、もう一度試してください。"
+msgstr "「Pythonセッションをリセット」はCalcスプレッドシートに適用されます。Calcワークブックを開いて、もう一度試してください。"
 
 #: plugin/scripting/session_manager.py
 msgid "Python session reset for this workbook."
@@ -972,9 +1202,7 @@ msgstr "このワークブックのPythonセッションをリセットしまし
 msgid ""
 "Initialization script and any in-memory init state were reset for this "
 "workbook. Cell variables were already isolated per cell."
-msgstr ""
-"このブックの初期化スクリプトおよびメモリ内の初期化状態はリセットされました。"
-"セル変数はすでにセルごとに分離されています。"
+msgstr "このブックの初期化スクリプトおよびメモリ内の初期化状態はリセットされました。セル変数はすでにセルごとに分離されています。"
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -982,18 +1210,14 @@ msgid ""
 "variables). There is no shared cell session to reset. Add an initialization "
 "script if you need to clear expensive one-time workbook setup."
 msgstr ""
-"Pythonセッションモードは「分離」です（各=PYTHON()セルは独自の変数を使用しま"
-"す）。リセットすべき共有セルセッションはありません。高コストな一度限りのブッ"
-"ク設定をクリアする必要がある場合は、初期化スクリプトを追加してください。"
+"Pythonセッションモードは「分離」です（各=PYTHON()セルは独自の変数を使用します）。リセットすべき共有セルセッションはありません。高コストな一度限りのブック設定をクリアする必要がある場合は、初期化スクリプトを追加してください。"
 
 #: plugin/scripting/session_manager.py
 msgid ""
 "This Writer document has no imported notebook registry. Use Tools → Import "
 "Jupyter Notebook… to enable notebook Python session reset."
 msgstr ""
-"このWriterドキュメントにはインポートされたノートブックレジストリがありませ"
-"ん。ノートブックのPythonセッションリセットを有効にするには、「ツール」→"
-"「Jupyterノートブックをインポート…」を使用してください。"
+"このWriterドキュメントにはインポートされたノートブックレジストリがありません。ノートブックのPythonセッションリセットを有効にするには、「ツール」→「Jupyterノートブックをインポート…」を使用してください。"
 
 #: plugin/scripting/python_runner.py
 msgid "Run Python Script"
@@ -1061,9 +1285,7 @@ msgstr "ドキュメントに添付"
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid "A script named '{0}' already exists in this document. Overwrite?"
-msgstr ""
-"'{0}' という名前のスクリプトは既にこのドキュメントに存在します。上書きします"
-"か？"
+msgstr "'{0}' という名前のスクリプトは既にこのドキュメントに存在します。上書きしますか？"
 
 #: plugin/scripting/python_runner.py
 msgid "Attach Script"
@@ -1120,9 +1342,7 @@ msgstr "情報"
 
 #: plugin/scripting/python_runner.py
 msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
-msgstr ""
-"Draw/Impressへの結果挿入はまだサポートされていません。プルリクエストを歓迎し"
-"ます！"
+msgstr "Draw/Impressへの結果挿入はまだサポートされていません。プルリクエストを歓迎します！"
 
 #: plugin/scripting/python_runner.py
 msgid "Unknown error"
@@ -1131,11 +1351,9 @@ msgstr "不明なエラー"
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
-msgstr ""
-"スクリプトは正常に実行されましたが、結果や出力は得られませんでした。(所要時"
-"間: {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
+msgstr "スクリプトは正常に実行されましたが、結果や出力は得られませんでした。(所要時間: {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -1163,8 +1381,7 @@ msgstr "スクリプトは正常に実行されました。"
 #: plugin/scripting/python_runner.py
 msgid ""
 "Script executed successfully, but returned no result and produced no output."
-msgstr ""
-"スクリプトは正常に実行されましたが、結果が返されず、出力もありませんでした。"
+msgstr "スクリプトは正常に実行されましたが、結果が返されず、出力もありませんでした。"
 
 #: plugin/scripting/python_runner.py
 msgid "Success"
@@ -1200,8 +1417,7 @@ msgstr "MCPサーバーの起動に失敗しました"
 
 #: plugin/mcp/__init__.py
 msgid "Check writeragent_debug.log in your LibreOffice user config folder"
-msgstr ""
-"LibreOfficeユーザー設定フォルダー内のwriteragent_debug.logを確認してください"
+msgstr "LibreOfficeユーザー設定フォルダー内のwriteragent_debug.logを確認してください"
 
 #: plugin/mcp/__init__.py
 msgid "MCP server is not running"
@@ -1497,11 +1713,11 @@ msgid "Path / URL"
 msgstr "パス / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"バックエンド CLI のパス (例: aider)、または ACP サーバーの URL (例: Hermes の"
-"場合は http://localhost:8000)。空の場合はデフォルトを試行します。"
+"バックエンド CLI のパス (例: aider)、または ACP サーバーの URL (例: Hermes の場合は "
+"http://localhost:8000)。空の場合はデフォルトを試行します。"
 
 msgid "Extra arguments"
 msgstr "追加引数"
@@ -1515,9 +1731,7 @@ msgstr "ACP エージェント名"
 msgid ""
 "Agent name on the ACP server (e.g. hermes). Empty = auto-discover first "
 "agent."
-msgstr ""
-"ACP サーバー上のエージェント名 (例: hermes)。空の場合は最初のエージェントを自"
-"動検出します。"
+msgstr "ACP サーバー上のエージェント名 (例: hermes)。空の場合は最初のエージェントを自動検出します。"
 
 msgid "Calc spreadsheet tools"
 msgstr "Calc 表計算ツール"
@@ -1582,6 +1796,14 @@ msgstr "Web キャッシュの有効期間 (日数)"
 msgid "How many days cache entries should be considered valid."
 msgstr "キャッシュエントリが有効と見なされる日数。"
 
+msgid "Web Research Cache"
+msgstr "Web Research Cache"
+
+msgid ""
+"Cache completed web research reports by normalized query (reuses web search "
+"cache database)."
+msgstr "正規化されたクエリごとにWebリサーチレポートをキャッシュします（Web検索キャッシュデータベースを再利用します）。"
+
 msgid "Rich Text Control Sidebar"
 msgstr "リッチテキストコントロールサイドバー"
 
@@ -1589,8 +1811,8 @@ msgid ""
 "Formatted chat via RichTextControl (on by default). Requires restart. "
 "Uncheck for plain-text chat only."
 msgstr ""
-"RichTextControlによる書式付きチャット (デフォルトでオン)。再起動が必要です。"
-"プレーンテキストのみのチャットにする場合はチェックを外してください。"
+"RichTextControlによる書式付きチャット "
+"(デフォルトでオン)。再起動が必要です。プレーンテキストのみのチャットにする場合はチェックを外してください。"
 
 msgid "Doc"
 msgstr "文書"
@@ -1600,12 +1822,11 @@ msgstr "AI 文法チェッカー (Writer) を有効にする"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
-"オンにすると、WriterAgent は Linguistic に AI 文法校正機能を登録します。"
-"チェックされるテキストはあなたの API を使用します (Tools → Options → AI)。入"
-"力が一時停止するとすぐに下線が表示されます。デフォルトでオフです。"
+"オンにすると、WriterAgent は Linguistic に AI 文法校正機能を登録します。チェックされるテキストはあなたの API "
+"を使用します (Tools → Options → AI)。入力が一時停止するとすぐに下線が表示されます。デフォルトでオフです。"
 
 msgid "Grammar check model (optional)"
 msgstr "文法チェック モデル (オプション)"
@@ -1620,8 +1841,7 @@ msgid ""
 "When on, AI grammar skips background requests while sidebar chat or agent "
 "runs, to avoid concurrent API calls."
 msgstr ""
-"オンにすると、サイドバーチャットまたはエージェント実行中は同時 API 呼び出しを"
-"避けるため、AI 文法のバックグラウンドリクエストをスキップします。"
+"オンにすると、サイドバーチャットまたはエージェント実行中は同時 API 呼び出しを避けるため、AI 文法のバックグラウンドリクエストをスキップします。"
 
 msgid "Grammar batch sentences"
 msgstr "文単位のバッチ処理"
@@ -1631,9 +1851,19 @@ msgid ""
 "reliable; higher values are faster and cheaper but may hit token limits or "
 "cause model errors."
 msgstr ""
-"LLMリクエストごとに送信する文の数 (1～8)。1 (デフォルト) が最も確実です。値を"
-"大きくすると高速かつ低コストになりますが、トークン制限に達したり、モデルエ"
-"ラーが発生したりする可能性があります。"
+"LLMリクエストごとに送信する文の数 (1～8)。1 (デフォルト) "
+"が最も確実です。値を大きくすると高速かつ低コストになりますが、トークン制限に達したり、モデルエラーが発生したりする可能性があります。"
+
+msgid "Grammar concurrent requests"
+msgstr "Grammar concurrent requests"
+
+msgid ""
+"Max simultaneous background grammar API calls (1-8). 1 matches prior "
+"behavior. Raise for OpenRouter or other providers that allow parallel "
+"requests; use with care alongside sidebar chat."
+msgstr ""
+"バックグラウンドでのGrammar "
+"API同時呼び出し数（1～8）。1は従来の動作と同じです。OpenRouterや並列リクエストを許可する他のプロバイダーを使用する場合は増やしてください。サイドバーチャットと併用する場合は注意してください。"
 
 msgid "Detect and correct sentence language"
 msgstr "文の言語を検出して修正"
@@ -1643,8 +1873,7 @@ msgid ""
 "document's used locales. If incorrect, the language property is updated "
 "automatically."
 msgstr ""
-"オンにすると、AIが各文の言語をドキュメントで使用されているロケールと照合して"
-"検証します。言語が正しくない場合は、言語プロパティが自動的に更新されます。"
+"オンにすると、AIが各文の言語をドキュメントで使用されているロケールと照合して検証します。言語が正しくない場合は、言語プロパティが自動的に更新されます。"
 
 msgid "Enter key sends sidebar chat message"
 msgstr "Enterキーでサイドバーのチャットメッセージを送信"
@@ -1653,9 +1882,7 @@ msgid ""
 "When on, Enter in the sidebar query runs the same action as Send; "
 "Shift+Enter inserts a newline. When off, Enter inserts a newline."
 msgstr ""
-"オンにすると、サイドバーのクエリ入力欄でEnterキーを押すと「送信」と同じ動作に"
-"なり、Shift+Enterで改行が挿入されます。オフにすると、Enterキーで改行が挿入さ"
-"れます。"
+"オンにすると、サイドバーのクエリ入力欄でEnterキーを押すと「送信」と同じ動作になり、Shift+Enterで改行が挿入されます。オフにすると、Enterキーで改行が挿入されます。"
 
 msgid "Draw and Impress tools"
 msgstr "Draw と Impress ツール"
@@ -1670,11 +1897,10 @@ msgid "Enable MCP Server"
 msgstr "MCP サーバーを有効にする"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"ローカルホストのみ、認証なし。クライアントは http://localhost:<port>/mcp (ス"
-"トリーミング可能なHTTP) を使用します。"
+"ローカルホストのみ、認証なし。クライアントは http://localhost:<port>/mcp (ストリーミング可能なHTTP) を使用します。"
 
 msgid "MCP Port"
 msgstr "MCP ポート"
@@ -1687,9 +1913,7 @@ msgid ""
 "the browser Origin. For other hosts, add mcp.cors_allowed_origins in "
 "writeragent.json."
 msgstr ""
-"ブラウザのOriginにおいて、.local、.lan、.home.arpa、.internal、.intern、およ"
-"びLAN内のIPアドレスに対して自動的に適用されます。その他のホストについては、"
-"writeragent.jsonのmcp.cors_allowed_originsに追加してください。"
+"ブラウザのOriginにおいて、.local、.lan、.home.arpa、.internal、.intern、およびLAN内のIPアドレスに対して自動的に適用されます。その他のホストについては、writeragent.jsonのmcp.cors_allowed_originsに追加してください。"
 
 msgid "Python"
 msgstr "Python"
@@ -1702,10 +1926,7 @@ msgid ""
 "empty, run_venv_python_script uses this process's sys.executable (basic "
 "stdlib); use a venv for numpy/pandas."
 msgstr ""
-"設定した場合、その仮想環境(bin/pythonまたはScripts/python.exe)でツールを実行"
-"します。空の場合、run_venv_python_scriptはこのプロセスのsys.executable(標準ラ"
-"イブラリのみ)を使用します。numpyやpandasを使用する場合は仮想環境を指定してく"
-"ださい。"
+"設定した場合、その仮想環境(bin/pythonまたはScripts/python.exe)でツールを実行します。空の場合、run_venv_python_scriptはこのプロセスのsys.executable(標準ライブラリのみ)を使用します。numpyやpandasを使用する場合は仮想環境を指定してください。"
 
 msgid "Test"
 msgstr "テスト"
@@ -1717,19 +1938,17 @@ msgid ""
 "Wall-clock limit for Run Python Script, =PYTHON(), and "
 "run_venv_python_script."
 msgstr ""
-"「Python スクリプトの実行」、=PYTHON()、および run_venv_python_script の実行"
-"時間制限（ウォールクロック時間）"
+"「Python スクリプトの実行」、=PYTHON()、および run_venv_python_script の実行時間制限（ウォールクロック時間）"
 
 msgid "Max Calc data cells"
 msgstr "Calcの最大データセル数"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
-"=PYTHON() データまたは「Pythonスクリプトを実行」の data/data_range における最"
-"大セル数。値を大きくするとメモリと時間を消費します。UNO範囲の読み取りが依然と"
-"して支配的です。"
+"=PYTHON() データまたは「Pythonスクリプトを実行」の data/data_range "
+"における最大セル数。値を大きくするとメモリと時間を消費します。UNO範囲の読み取りが依然として支配的です。"
 
 msgid "Python session mode"
 msgstr "Pythonセッションモード"
@@ -1738,8 +1957,8 @@ msgid ""
 "Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace "
 "per workbook (variables carry between cells)."
 msgstr ""
-"分離モード: 各 =PYTHON() セルは独立した名前空間を持ちます。共有モード: ブック"
-"ごとに1つの名前空間を共有します（変数がセル間で引き継がれます）。"
+"分離モード: 各 =PYTHON() セルは独立した名前空間を持ちます。共有モード: "
+"ブックごとに1つの名前空間を共有します（変数がセル間で引き継がれます）。"
 
 msgid "Isolated (default)"
 msgstr "分離モード (デフォルト)"
@@ -1753,20 +1972,16 @@ msgstr "内部スクリプトエディターを強制"
 msgid ""
 "If checked, bypasses the Monaco script editor and uses the LibreOffice "
 "dialog."
-msgstr ""
-"チェックを入れると、Monacoスクリプトエディターをバイパスし、LibreOfficeのダイ"
-"アログを使用します。"
+msgstr "チェックを入れると、Monacoスクリプトエディターをバイパスし、LibreOfficeのダイアログを使用します。"
 
 msgid "Modeless Run Python Script dialog"
 msgstr "モードレスのPythonスクリプト実行ダイアログ"
 
 msgid ""
-"When checked, the plain-text Run Python Script dialog floats so you can edit "
-"the document while it is open. Uncheck for the classic modal dialog."
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
 msgstr ""
-"チェックを入れると、プレーンテキストの「Pythonスクリプトの実行」ダイアログが"
-"フローティング表示になり、ダイアログを開いたままドキュメントを編集できます。"
-"チェックを外すと、従来のモーダルダイアログに戻ります。"
+"チェックを入れると、プレーンテキストの「Pythonスクリプトの実行」ダイアログがフローティング表示になり、ダイアログを開いたままドキュメントを編集できます。チェックを外すと、従来のモーダルダイアログに戻ります。"
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer ドキュメントツール (ナビゲーションと検索を含む)"

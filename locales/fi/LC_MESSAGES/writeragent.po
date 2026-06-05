@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-01 21:14-0400\n"
+"POT-Creation-Date: 2026-06-04 23:11-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Finnish <LL@li.org>\n"
@@ -19,17 +19,17 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require sub-agent delegation (USE_SUB_AGENT). Enable "
-"sub-agents in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
-"Asiakirjan tutkimusluvut vaativat aliedustajan delegointia (USE_SUB_AGENT). "
-"Ota aliedustajat käyttöön asetuksista."
+"Asiakirjatutkimus vaatii erikoistuneen tehtävän delegoinnin (USE_SUB_AGENT)."
+" Ota tämä käyttöön asetuksista."
 
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Työkalukutsu vaihdettu tilaan '{0}'. Olet erikoistyökalutilassa. Sinun on "
@@ -46,8 +46,8 @@ msgstr "Muistikirjan suoritus on tuettu vain LibreOffice Writerissa."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
 "Tässä asiakirjassa ei ole tuotua muistikirjaa. Käytä ensin Työkalut → Tuo "
 "Jupyter-muistikirja…"
@@ -221,7 +221,8 @@ msgstr "Tämä malli vie enemmän aikaa kuin nykyinen asetuksesi."
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr "Kokeile toista mallia. {0} vie enemmän aikaa kuin olet määrittänyt."
 
 #: plugin/contrib/aihordeclient/__init__.py
@@ -308,7 +309,8 @@ msgstr ""
 "asetuksista."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Yhteys evätty. Onko paikallinen tekoälypalvelimesi (Ollama/LM Studio) "
 "käynnissä?"
@@ -341,7 +343,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "AI: Voin auttaa sinua kaavojen, data-analyysin ja värikkäiden kaavioiden "
 "kanssa. Kokeile minua!"
@@ -413,8 +416,8 @@ msgstr "WriterAgent: Laajenna valintaa (Calc)"
 #: plugin/calc/python_editor.py
 msgid ""
 "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\"; "
-"A1:B10)."
+"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\";"
+" A1:B10)."
 msgstr ""
 "Tämän solun PYTHON-kaavan argumentteja (esim. tietoalueita) ei voitu "
 "säilyttää. Muokkaa kaavaa Calcissa tai käytä lainattua koodimerkkijonoa, "
@@ -448,8 +451,8 @@ msgid ""
 msgstr ""
 "Tämä PYTHON-kaava käyttää muotoa, jota muokkain ei voi turvallisesti "
 "kirjoittaa uudelleen (esim. koodia toisessa solussa). Muokkaa sitä "
-"kaavarivillä tai käytä =PYTHON(\"koodi\"; alue) lainausmerkkeihin suljetulla "
-"koodilla."
+"kaavarivillä tai käytä =PYTHON(\"koodi\"; alue) lainausmerkkeihin suljetulla"
+" koodilla."
 
 #: plugin/calc/python_editor.py
 msgid "No Python interpreter available for the editor."
@@ -464,8 +467,7 @@ msgid ""
 "In that venv run: pip install pywebview\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"Webview-kirjastoa (pywebview) ei voitu tuoda asetuksista valitulla "
-"Pythonilla: \n"
+"Webview-kirjastoa (pywebview) ei voitu tuoda asetuksista valitulla Pythonilla: \n"
 "%(exe)s\n"
 "\n"
 "Suorita kyseisessä virtuaaliympäristössä: pip install pywebview\n"
@@ -544,6 +546,266 @@ msgstr ""
 #: plugin/writer/math/latex_dialog.py
 msgid "An unexpected error occurred during LaTeX insertion."
 msgstr "Odottamaton virhe LaTeX-lisäyksen aikana."
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "about"
+msgstr "tietoja"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "aim"
+msgstr "tavoite"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "any"
+msgstr "mikä tahansa"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "awards"
+msgstr "palkinnot"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "best"
+msgstr "paras"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "brief"
+msgstr "tiivistelmä"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "can"
+msgstr "voi"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "choices"
+msgstr "valinnat"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "compile"
+msgstr "kokoa"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "concise"
+msgstr "tiivis"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "depth"
+msgstr "syvyys"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "description"
+msgstr "kuvaus"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "detail"
+msgstr "yksityiskohta"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "details"
+msgstr "yksityiskohdat"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "display"
+msgstr "näytä"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "each"
+msgstr "jokainen"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "features"
+msgstr "ominaisuudet"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "find"
+msgstr "etsi"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "get"
+msgstr "hae"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "give"
+msgstr "anna"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "how"
+msgstr "miten"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "identify"
+msgstr "tunnista"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "include"
+msgstr "sisällytä"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "info"
+msgstr "tieto"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "information"
+msgstr "tiedot"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "key"
+msgstr "avain"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "least"
+msgstr "vähintään"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "limit"
+msgstr "raja"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "list"
+msgstr "luettelo"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "me"
+msgstr "minä"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "notable"
+msgstr "merkittävä"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "overall"
+msgstr "yleinen"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "plain"
+msgstr "yksinkertainen"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "plain text"
+msgstr "pelkkä teksti"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "please"
+msgstr "ole hyvä"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "preferences"
+msgstr "asetukset"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "provide"
+msgstr "tarjoa"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "query"
+msgstr "kysely"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "question"
+msgstr "kysymys"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "ratings"
+msgstr "arviot"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "recommendation"
+msgstr "suositus"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "report"
+msgstr "raportti"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "research"
+msgstr "tutkimus"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "reviews"
+msgstr "arvostelut"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "search"
+msgstr "haku"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "short"
+msgstr "lyhyt"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "show"
+msgstr "näytä"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "signature"
+msgstr "allekirjoitus"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "source"
+msgstr "lähde"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "sources"
+msgstr "lähteet"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "such"
+msgstr "sellainen"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "suitable"
+msgstr "sopiva"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "summary"
+msgstr "yhteenveto"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "tell"
+msgstr "kerro"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "text"
+msgstr "teksti"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "their"
+msgstr "heidän"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "top"
+msgstr "ylin"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "trends"
+msgstr "trendit"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "types"
+msgstr "tyypit"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "what"
+msgstr "mitä"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "when"
+msgstr "milloin"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "where"
+msgstr "missä"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "who"
+msgstr "kuka"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "why"
+msgstr "miksi"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "you"
+msgstr "sinä"
 
 #: plugin/chatbot/panel_wiring.py plugin/xdl_strings.py
 msgid "Ready"
@@ -675,6 +937,26 @@ msgid "This search query '%s' will be sent to the search engine."
 msgstr "Tämä hakukysely '%s' lähetetään hakukoneelle."
 
 #: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache hit (fuzzy, %s%% match: %s%s → %s)"
+msgstr "Tutkimusvälimuistin osuma (sumea, %s%% vastaavuus: %s%s → %s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache hit (key: %s)"
+msgstr "Tutkimusvälimuistin osuma (avain: %s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache saved (key: %s)"
+msgstr "Tutkimusvälimuisti tallennettu (avain: %s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Cached research keys: %s"
+msgstr "Välimuistiin tallennetut tutkimusavaimet: %s"
+
+#: plugin/chatbot/web_research_chat.py
 msgid "[Web research]"
 msgstr "[Verkkotutkimus]"
 
@@ -710,8 +992,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Editoria ei löytynyt (asenna Kate tai Gedit, tai määritä EDITOR-"
-"ympäristömuuttuja). Polku:\n"
+"Editoria ei löytynyt (asenna Kate tai Gedit, tai määritä EDITOR-ympäristömuuttuja). Polku:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -740,7 +1021,8 @@ msgstr "[Agent-taustajärjestelmää '{0}' ei löytynyt.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Agent-taustajärjestelmä '{0}' ei ole käytettävissä. Tarkista asetukset "
 "(polku, asennus).]"
@@ -986,9 +1268,9 @@ msgid ""
 "This Writer document has no imported notebook registry. Use Tools → Import "
 "Jupyter Notebook… to enable notebook Python session reset."
 msgstr ""
-"Tässä Writer-asiakirjassa ei ole tuotua Jupyter-muistikirjarekisteriä. Käytä "
-"Työkalut → Tuo Jupyter-muistikirja… ottaaksesi muistikirjan Python-istunnon "
-"nollauksen käyttöön."
+"Tässä Writer-asiakirjassa ei ole tuotua Jupyter-muistikirjarekisteriä. Käytä"
+" Työkalut → Tuo Jupyter-muistikirja… ottaaksesi muistikirjan Python-istunnon"
+" nollauksen käyttöön."
 
 #: plugin/scripting/python_runner.py
 msgid "Run Python Script"
@@ -1124,8 +1406,8 @@ msgstr "Tuntematon virhe"
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "Skripti suoritettiin onnistuneesti, mutta se ei palauttanut tulosta eikä "
 "tuottanut tulostetta. (kesti {time})"
@@ -1490,8 +1772,8 @@ msgid "Path / URL"
 msgstr "Polku / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
 "Taustajärjestelmän CLI-polku (esim. aider) tai ACP-palvelimen URL-osoite "
 "(esim. http://localhost:8000 Hermesille). Tyhjä = kokeile oletusta."
@@ -1579,6 +1861,16 @@ msgstr "Verkkovälimuistin voimassaoloaika (päivinä)"
 msgid "How many days cache entries should be considered valid."
 msgstr "Kuinka monta päivää välimuistimerkintöjen katsotaan olevan voimassa."
 
+msgid "Web Research Cache"
+msgstr "Verkkotutkimuksen välimuisti"
+
+msgid ""
+"Cache completed web research reports by normalized query (reuses web search "
+"cache database)."
+msgstr ""
+"Välimuistita verkkotutkimusraportit normalisoidun kyselyn mukaan (käyttää "
+"uudelleen verkkohaun välimuistitietokantaa)."
+
 msgid "Rich Text Control Sidebar"
 msgstr "Rich Text Control -sivupalkki"
 
@@ -1597,12 +1889,12 @@ msgstr "Ota käyttöön tekoälypohjainen kieliopin tarkistus (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "Kun tämä on päällä, WriterAgent rekisteröi tekoälypohjaisen kieliopin "
-"tarkistimensa Linguistic-palveluun; tarkistettu teksti käyttää API-avaintasi "
-"(Työkalut → Asetukset → AI). Alleviivaus ilmestyy pian kirjoitustauon "
+"tarkistimensa Linguistic-palveluun; tarkistettu teksti käyttää API-avaintasi"
+" (Työkalut → Asetukset → AI). Alleviivaus ilmestyy pian kirjoitustauon "
 "jälkeen. Oletuksena pois päältä."
 
 msgid "Grammar check model (optional)"
@@ -1619,8 +1911,8 @@ msgid ""
 "runs, to avoid concurrent API calls."
 msgstr ""
 "Kun tämä on päällä, tekoälypohjainen kieliopin tarkistus ohittaa "
-"taustapyynnöt, kun sivupalkin chat tai agentti on käynnissä, jotta vältetään "
-"samanaikaiset API-kutsut."
+"taustapyynnöt, kun sivupalkin chat tai agentti on käynnissä, jotta vältetään"
+" samanaikaiset API-kutsut."
 
 msgid "Grammar batch sentences"
 msgstr "Kieliopin eräkäsittelylauseet"
@@ -1633,6 +1925,19 @@ msgstr ""
 "Lähetettävien lauseiden määrä per LLM-pyyntö (1–8). 1 (oletus) on "
 "luotettavin; suuremmat arvot ovat nopeampia ja halvempia, mutta voivat "
 "ylittää tunnisterajat tai aiheuttaa mallivirheitä."
+
+msgid "Grammar concurrent requests"
+msgstr "Kieliopin samanaikaiset pyynnöt"
+
+msgid ""
+"Max simultaneous background grammar API calls (1-8). 1 matches prior "
+"behavior. Raise for OpenRouter or other providers that allow parallel "
+"requests; use with care alongside sidebar chat."
+msgstr ""
+"Taustalla tehtävien kielioppi-API-kutsujen enimmäismäärä (1–8). 1 vastaa "
+"aiempaa toimintatapaa. Nosta arvoa OpenRouterin tai muiden rinnakkaisia "
+"pyyntöjä sallivien palveluntarjoajien kohdalla; käytä varoen sivupalkin "
+"keskustelun ohella."
 
 msgid "Detect and correct sentence language"
 msgstr "Tunnista ja korjaa lauseen kieli"
@@ -1670,11 +1975,11 @@ msgid "Enable MCP Server"
 msgstr "Ota MCP-palvelin käyttöön"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Vain localhost, ei todennusta. Asiakasohjelmat käyttävät osoitetta http://"
-"localhost:<port>/mcp (suoratoistettava HTTP)."
+"Vain localhost, ei todennusta. Asiakasohjelmat käyttävät osoitetta "
+"http://localhost:<port>/mcp (suoratoistettava HTTP)."
 
 msgid "MCP Port"
 msgstr "MCP-portti"
@@ -1702,9 +2007,9 @@ msgid ""
 "empty, run_venv_python_script uses this process's sys.executable (basic "
 "stdlib); use a venv for numpy/pandas."
 msgstr ""
-"Jos asetettu, suorittaa työkalut kyseisessä virtuaaliympäristössä (bin/"
-"python tai Scripts/python.exe). Jos tyhjä, run_venv_python_script käyttää "
-"tämän prosessin sys.executable-polkua (perus-stdlib); käytä "
+"Jos asetettu, suorittaa työkalut kyseisessä virtuaaliympäristössä "
+"(bin/python tai Scripts/python.exe). Jos tyhjä, run_venv_python_script "
+"käyttää tämän prosessin sys.executable-polkua (perus-stdlib); käytä "
 "virtuaaliympäristöä, jos tarvitset numpya tai pandasia."
 
 msgid "Test"
@@ -1724,8 +2029,8 @@ msgid "Max Calc data cells"
 msgstr "Calc-datasolujen enimmäismäärä"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
 "=PYTHON()-datan tai Run Python Script -datan/data_range-alueen solujen "
 "enimmäismäärä. Suuremmat arvot kuluttavat enemmän RAM-muistia ja aikaa; UNO-"
@@ -1761,12 +2066,12 @@ msgid "Modeless Run Python Script dialog"
 msgstr "Malliton Python-komentosarjan suoritusikkuna"
 
 msgid ""
-"When checked, the plain-text Run Python Script dialog floats so you can edit "
-"the document while it is open. Uncheck for the classic modal dialog."
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
 msgstr ""
 "Kun valittuna, pelkkää tekstiä sisältävä Suorita Python-skripti "
-"-valintaikkuna on kelluva, jolloin voit muokata asiakirjaa sen ollessa auki. "
-"Poista valinta palataksesi perinteiseen modaaliseen valintaikkunaan."
+"-valintaikkuna on kelluva, jolloin voit muokata asiakirjaa sen ollessa auki."
+" Poista valinta palataksesi perinteiseen modaaliseen valintaikkunaan."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer-asiakirjatyökalut (mukaan lukien siirtyminen ja haku)"

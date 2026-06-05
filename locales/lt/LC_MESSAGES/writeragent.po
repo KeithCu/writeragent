@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-01 21:14-0400\n"
+"POT-Creation-Date: 2026-06-04 23:11-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Lithuanian <LL@li.org>\n"
@@ -19,17 +19,17 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require sub-agent delegation (USE_SUB_AGENT). Enable "
-"sub-agents in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
-"Dokumento tyrimo skaitymams reikalingas sub-agento delegavimas "
-"(USE_SUB_AGENT). Įgalinkite sub-agentus konfigūracijoje."
+"Dokumentų tyrimo užklausoms reikalingas specializuotas užduočių delegavimas "
+"(USE_SUB_AGENT). Įgalinkite tai konfigūracijoje."
 
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Įrankio iškvietimas perjungtas į „{0}“. Veikiate specializuoto įrankių "
@@ -46,8 +46,8 @@ msgstr "Užrašinės vykdymas palaikomas tik „LibreOffice Writer“ programoje
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
 "Šiame dokumente nėra importuotos užrašinės. Pirmiausia naudokite „Įrankiai“ "
 "→ „Importuoti „Jupyter“ užrašinę…“."
@@ -74,7 +74,8 @@ msgstr "Visi failai"
 
 #: plugin/notebook/import_dialog.py
 msgid "Import Notebook is only supported in LibreOffice Writer."
-msgstr "Užrašinės importavimas palaikomas tik „LibreOffice Writer“ programoje."
+msgstr ""
+"Užrašinės importavimas palaikomas tik „LibreOffice Writer“ programoje."
 
 #: plugin/notebook/import_dialog.py
 #, python-brace-format
@@ -158,8 +159,8 @@ msgid ""
 "Seems that «{}» has problems, double check it, create a new one or join "
 "Discord to ask for help"
 msgstr ""
-"Atrodo, kad «{}» turi problemų, patikrinkite dar kartą, sukurkite naują arba "
-"prisijunkite prie „Discord“, kad paprašytumėte pagalbos"
+"Atrodo, kad «{}» turi problemų, patikrinkite dar kartą, sukurkite naują arba"
+" prisijunkite prie „Discord“, kad paprašytumėte pagalbos"
 
 #: plugin/contrib/aihordeclient/__init__.py
 msgid "We hit an error, still: "
@@ -220,7 +221,8 @@ msgstr "Šis modelis užtrunka ilgiau nei jūsų dabartinė konfigūracija."
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr "Pabandykite kitą modelį. {0} užtruktų ilgiau nei sukonfigūravote."
 
 #: plugin/contrib/aihordeclient/__init__.py
@@ -307,9 +309,11 @@ msgstr ""
 "Timeout) nuostatose."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
-"Ryšys atmestas. Ar jūsų vietinis DI serveris („Ollama“ / „LM Studio“) veikia?"
+"Ryšys atmestas. Ar jūsų vietinis DI serveris („Ollama“ / „LM Studio“) "
+"veikia?"
 
 #: plugin/framework/errors.py
 msgid "DNS Error. Could not resolve the endpoint URL."
@@ -339,10 +343,11 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
-"AI: Galiu padėti su formulėmis, duomenų analize ir spalvingomis diagramomis. "
-"Išbandykite!"
+"AI: Galiu padėti su formulėmis, duomenų analize ir spalvingomis diagramomis."
+" Išbandykite!"
 
 #: plugin/framework/constants.py
 msgid ""
@@ -412,12 +417,12 @@ msgstr "WriterAgent: išplėsti pažymėtą sritį (Calc)"
 #: plugin/calc/python_editor.py
 msgid ""
 "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\"; "
-"A1:B10)."
+"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\";"
+" A1:B10)."
 msgstr ""
 "Nepavyko išsaugoti šio langelio PYTHON formulės argumentų (pvz., duomenų "
-"sričių). Redaguokite formulę programoje „Calc“ arba naudokite cituojamą kodo "
-"eilutę, pvz., =PYTHON(\"kodas\"; A1:B10)."
+"sričių). Redaguokite formulę programoje „Calc“ arba naudokite cituojamą kodo"
+" eilutę, pvz., =PYTHON(\"kodas\"; A1:B10)."
 
 #: plugin/calc/python_editor.py
 msgid "Python cell editor"
@@ -446,8 +451,8 @@ msgid ""
 "in another cell). Edit it in the formula bar, or use =PYTHON(\"code\"; "
 "range) with quoted code."
 msgstr ""
-"Ši PYTHON formulė naudoja formą, kurios redaktorius negali saugiai perrašyti "
-"(pvz., kodas kitame langelyje). Redaguokite ją formulės juostoje arba "
+"Ši PYTHON formulė naudoja formą, kurios redaktorius negali saugiai perrašyti"
+" (pvz., kodas kitame langelyje). Redaguokite ją formulės juostoje arba "
 "naudokite =PYTHON(\"kodas\"; sritis) su cituojamu kodu."
 
 #: plugin/calc/python_editor.py
@@ -463,8 +468,7 @@ msgid ""
 "In that venv run: pip install pywebview\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"Nepavyko importuoti „webview“ (pywebview) naudojant Python iš Nuostatos → "
-"Python:\n"
+"Nepavyko importuoti „webview“ (pywebview) naudojant Python iš Nuostatos → Python:\n"
 "%(exe)s\n"
 "\n"
 "Šioje virtualioje aplinkoje (venv) paleiskite: pip install pywebview\n"
@@ -543,6 +547,266 @@ msgstr ""
 #: plugin/writer/math/latex_dialog.py
 msgid "An unexpected error occurred during LaTeX insertion."
 msgstr "Įterpiant LaTeX įvyko nenumatyta klaida."
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "about"
+msgstr "apie"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "aim"
+msgstr "tikslas"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "any"
+msgstr "bet koks"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "awards"
+msgstr "apdovanojimai"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "best"
+msgstr "geriausias"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "brief"
+msgstr "trumpas"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "can"
+msgstr "gali"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "choices"
+msgstr "pasirinkimai"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "compile"
+msgstr "kompiliuoti"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "concise"
+msgstr "glaustas"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "depth"
+msgstr "gylis"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "description"
+msgstr "aprašas"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "detail"
+msgstr "detalė"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "details"
+msgstr "išsami informacija"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "display"
+msgstr "rodyti"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "each"
+msgstr "kiekvienas"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "features"
+msgstr "funkcijos"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "find"
+msgstr "rasti"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "get"
+msgstr "gauti"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "give"
+msgstr "suteikti"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "how"
+msgstr "kaip"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "identify"
+msgstr "identifikuoti"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "include"
+msgstr "įtraukti"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "info"
+msgstr "informacija"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "information"
+msgstr "informacija"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "key"
+msgstr "raktas"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "least"
+msgstr "mažiausiai"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "limit"
+msgstr "riba"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "list"
+msgstr "sąrašas"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "me"
+msgstr "aš"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "notable"
+msgstr "reikšmingas"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "overall"
+msgstr "bendra"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "plain"
+msgstr "paprastas"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "plain text"
+msgstr "paprastas tekstas"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "please"
+msgstr "prašau"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "preferences"
+msgstr "nuostatos"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "provide"
+msgstr "pateikti"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "query"
+msgstr "užklausa"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "question"
+msgstr "klausimas"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "ratings"
+msgstr "įvertinimai"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "recommendation"
+msgstr "rekomendacija"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "report"
+msgstr "ataskaita"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "research"
+msgstr "tyrimas"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "reviews"
+msgstr "apžvalgos"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "search"
+msgstr "paieška"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "short"
+msgstr "trumpas"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "show"
+msgstr "rodyti"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "signature"
+msgstr "parašas"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "source"
+msgstr "šaltinis"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "sources"
+msgstr "šaltiniai"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "such"
+msgstr "tokie"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "suitable"
+msgstr "tinkamas"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "summary"
+msgstr "santrauka"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "tell"
+msgstr "pasakyti"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "text"
+msgstr "tekstas"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "their"
+msgstr "jų"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "top"
+msgstr "viršus"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "trends"
+msgstr "tendencijos"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "types"
+msgstr "tipai"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "what"
+msgstr "kas"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "when"
+msgstr "kada"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "where"
+msgstr "kur"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "who"
+msgstr "kas"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "why"
+msgstr "kodėl"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "you"
+msgstr "jūs"
 
 #: plugin/chatbot/panel_wiring.py plugin/xdl_strings.py
 msgid "Ready"
@@ -675,6 +939,26 @@ msgid "This search query '%s' will be sent to the search engine."
 msgstr "Ši paieškos užklausa „%s“ bus išsiųsta į paieškos sistemą."
 
 #: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache hit (fuzzy, %s%% match: %s%s → %s)"
+msgstr "Tyrimų talpyklos atitiktis (neaiški, %s%% atitiktis: %s%s → %s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache hit (key: %s)"
+msgstr "Tyrimų talpyklos atitiktis (raktas: %s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache saved (key: %s)"
+msgstr "Tyrimų talpykla įrašyta (raktas: %s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Cached research keys: %s"
+msgstr "Talpykloje esantys tyrimų raktai: %s"
+
+#: plugin/chatbot/web_research_chat.py
 msgid "[Web research]"
 msgstr "[Žiniatinklio tyrimas]"
 
@@ -739,7 +1023,8 @@ msgstr "[Agento posistemė „{0}“ nerasta.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Agento posistemė „{0}“ nepasiekiama. Patikrinkite nuostatas (kelią, "
 "diegimą).]"
@@ -835,8 +1120,8 @@ msgid ""
 "Document is read-only or properties cannot be written. Script saved to your "
 "personal library instead."
 msgstr ""
-"Dokumentas yra tik skaitymo režimu arba savybių įrašyti negalima. Scenarijus "
-"įrašytas į jūsų asmeninę biblioteką."
+"Dokumentas yra tik skaitymo režimu arba savybių įrašyti negalima. Scenarijus"
+" įrašytas į jūsų asmeninę biblioteką."
 
 #: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
 msgid "Script name cannot be empty."
@@ -925,8 +1210,8 @@ msgid ""
 "Writer document with an imported Jupyter notebook and try again."
 msgstr ""
 "Python seanso nustatymas iš naujo užrašų knygelėms taikomas „LibreOffice "
-"Writer“. Atverkite „Writer“ dokumentą su importuota „Jupyter“ užrašų knygele "
-"ir bandykite dar kartą."
+"Writer“. Atverkite „Writer“ dokumentą su importuota „Jupyter“ užrašų knygele"
+" ir bandykite dar kartą."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -965,8 +1250,8 @@ msgid ""
 "Initialization script and any in-memory init state were reset for this "
 "workbook. Cell variables were already isolated per cell."
 msgstr ""
-"Inicijavimo scenarijus ir bet kokia atmintyje buvusi inicijavimo būsena šiai "
-"skaičiuoklės knygai buvo nustatyti iš naujo. Ląstelių kintamieji jau buvo "
+"Inicijavimo scenarijus ir bet kokia atmintyje buvusi inicijavimo būsena šiai"
+" skaičiuoklės knygai buvo nustatyti iš naujo. Ląstelių kintamieji jau buvo "
 "izoliuoti kiekvienai ląstelei."
 
 #: plugin/scripting/session_manager.py
@@ -1022,8 +1307,7 @@ msgid ""
 "Enter Python code to execute in the user virtual environment.\n"
 "Assign the result to the 'result' variable."
 msgstr ""
-"Įveskite „Python“ kodą, kurį norite vykdyti naudotojo virtualiojoje "
-"aplinkoje.\n"
+"Įveskite „Python“ kodą, kurį norite vykdyti naudotojo virtualiojoje aplinkoje.\n"
 "Rezultatą priskirkite kintamajam „result“."
 
 #: plugin/scripting/python_runner.py
@@ -1124,11 +1408,11 @@ msgstr "Nežinoma klaida"
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
-"Scenarijus sėkmingai įvykdytas, tačiau negauta jokių rezultatų ar išvesties. "
-"(truko {time})"
+"Scenarijus sėkmingai įvykdytas, tačiau negauta jokių rezultatų ar išvesties."
+" (truko {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -1492,11 +1776,11 @@ msgid "Path / URL"
 msgstr "Kelias / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Kelias iki CLI posistemės (pvz., aider) arba ACP serverio URL (pvz., http://"
-"localhost:8000, jei naudojamas Hermes). Tuščia = bandyti numatytąjį."
+"Kelias iki CLI posistemės (pvz., aider) arba ACP serverio URL (pvz., "
+"http://localhost:8000, jei naudojamas Hermes). Tuščia = bandyti numatytąjį."
 
 msgid "Extra arguments"
 msgstr "Papildomi argumentai"
@@ -1579,6 +1863,17 @@ msgstr "Žiniatinklio podėlio galiojimas (dienomis)"
 msgid "How many days cache entries should be considered valid."
 msgstr "Kiek dienų podėlio įrašai turėtų būti laikomi galiojančiais."
 
+msgid "Web Research Cache"
+msgstr "Žiniatinklio tyrimų podėlis"
+
+msgid ""
+"Cache completed web research reports by normalized query (reuses web search "
+"cache database)."
+msgstr ""
+"Talpinti užbaigtas žiniatinklio tyrimų ataskaitas pagal normalizuotą "
+"užklausą (pakartotinai naudojama žiniatinklio paieškos podėlio duomenų "
+"bazė)."
+
 msgid "Rich Text Control Sidebar"
 msgstr "Raiškiojo teksto valdiklio šoninė juosta"
 
@@ -1598,8 +1893,8 @@ msgstr "Įjungti DI gramatikos tikrintuvą („Writer“)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "Kai įjungta, „WriterAgent“ užregistruoja savo DI gramatikos tikrintuvą "
 "„Linguistic“ sistemoje; tikrinamam tekstui naudojamas jūsų API (Įrankiai → "
@@ -1634,8 +1929,21 @@ msgid ""
 "cause model errors."
 msgstr ""
 "Vienu LLM užklausa siunčiamų sakinių skaičius (1–8). 1 (numatytoji reikšmė) "
-"yra patikimiausia; didesnės reikšmės yra greitesnės ir pigesnės, tačiau gali "
-"viršyti žetonų limitus arba sukelti modelio klaidų."
+"yra patikimiausia; didesnės reikšmės yra greitesnės ir pigesnės, tačiau gali"
+" viršyti žetonų limitus arba sukelti modelio klaidų."
+
+msgid "Grammar concurrent requests"
+msgstr "Lygiagrečios gramatikos užklausos"
+
+msgid ""
+"Max simultaneous background grammar API calls (1-8). 1 matches prior "
+"behavior. Raise for OpenRouter or other providers that allow parallel "
+"requests; use with care alongside sidebar chat."
+msgstr ""
+"Maksimalus vienu metu vykdomų gramatikos API užklausų skaičius fone (1–8). 1"
+" atitinka ankstesnę elgseną. Padidinkite, jei naudojate „OpenRouter“ ar "
+"kitus teikėjus, leidžiančius lygiagrečias užklausas; naudokite atsargiai "
+"kartu su šoninės juostos pokalbių funkcija."
 
 msgid "Detect and correct sentence language"
 msgstr "Aptikti ir taisyti sakinio kalbą"
@@ -1673,11 +1981,11 @@ msgid "Enable MCP Server"
 msgstr "Įgalinti MCP serverį"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Tik vietinis kompiuteris, be autentifikacijos. Klientai naudoja http://"
-"localhost:<port>/mcp (srautinis HTTP)."
+"Tik vietinis kompiuteris, be autentifikacijos. Klientai naudoja "
+"http://localhost:<port>/mcp (srautinis HTTP)."
 
 msgid "MCP Port"
 msgstr "MCP prievadas"
@@ -1705,8 +2013,8 @@ msgid ""
 "empty, run_venv_python_script uses this process's sys.executable (basic "
 "stdlib); use a venv for numpy/pandas."
 msgstr ""
-"Jei nustatyta, įrankiai vykdomi nurodytoje virtualiojoje aplinkoje (bin/"
-"python arba Scripts/python.exe). Jei tuščia, „run_venv_python_script“ "
+"Jei nustatyta, įrankiai vykdomi nurodytoje virtualiojoje aplinkoje "
+"(bin/python arba Scripts/python.exe). Jei tuščia, „run_venv_python_script“ "
 "naudoja šio proceso „sys.executable“ (pagrindinė standartinė biblioteka); "
 "naudokite virtualiąją aplinką, jei reikalingi „numpy“/„pandas“."
 
@@ -1727,12 +2035,12 @@ msgid "Max Calc data cells"
 msgstr "Didžiausias „Calc“ duomenų langelių skaičius"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
-"Didžiausias langelių skaičius „=PYTHON()“ duomenyse arba „Run Python Script“ "
-"duomenų srityje. Didesnės reikšmės naudoja daugiau operatyviosios atminties "
-"ir laiko; UNO srities skaitymas vis tiek išlieka pagrindiniu veiksniu."
+"Didžiausias langelių skaičius „=PYTHON()“ duomenyse arba „Run Python Script“"
+" duomenų srityje. Didesnės reikšmės naudoja daugiau operatyviosios atminties"
+" ir laiko; UNO srities skaitymas vis tiek išlieka pagrindiniu veiksniu."
 
 msgid "Python session mode"
 msgstr "„Python“ seanso veiksena"
@@ -1765,8 +2073,8 @@ msgid "Modeless Run Python Script dialog"
 msgstr "Nerežiminis Python scenarijaus vykdymo dialogas"
 
 msgid ""
-"When checked, the plain-text Run Python Script dialog floats so you can edit "
-"the document while it is open. Uncheck for the classic modal dialog."
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
 msgstr ""
 "Kai pažymėta, paprasto teksto „Python“ scenarijaus vykdymo dialogas išlieka "
 "viršuje, todėl galite redaguoti dokumentą, kol jis atidarytas. Atžymėkite, "

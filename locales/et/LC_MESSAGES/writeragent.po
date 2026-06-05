@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-01 21:14-0400\n"
+"POT-Creation-Date: 2026-06-04 23:11-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Estonian <LL@li.org>\n"
@@ -19,17 +19,17 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require sub-agent delegation (USE_SUB_AGENT). Enable "
-"sub-agents in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
-"Dokumendi uurimiseks on vajalik alamagendi delegeerimine (USE_SUB_AGENT). "
-"Lubage alamagendid seadistustes."
+"Dokumendi uurimine nõuab spetsiaalset ülesannete delegeerimist "
+"(USE_SUB_AGENT). Lubage see seadistustes."
 
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Tööriista väljakutse lülitus režiimile '{0}'. Olete spetsiaalses "
@@ -46,8 +46,8 @@ msgstr "Märkmiku käivitamine on toetatud ainult LibreOffice Writeris."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
 "Selles dokumendis pole imporditud märkmikku. Kasutage esmalt Tööriistad → "
 "Impordi Jupyteri märkmik…"
@@ -129,8 +129,8 @@ msgid ""
 "At this moment we can not process your request, please try again later.  If "
 "this is happening for a long period of time, please let us know via Discord"
 msgstr ""
-"Hetkel ei saa me sinu päringut töödelda, palun proovi hiljem uuesti. Kui see "
-"kestab pikemat aega, anna meile sellest Discordi kaudu teada"
+"Hetkel ei saa me sinu päringut töödelda, palun proovi hiljem uuesti. Kui see"
+" kestab pikemat aega, anna meile sellest Discordi kaudu teada"
 
 #: plugin/contrib/aihordeclient/__init__.py
 msgid "Problem requesting kudos"
@@ -221,7 +221,8 @@ msgstr "See mudel võtab rohkem aega kui teie praegune konfiguratsioon."
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr ""
 "Palun proovige teist mudelit. {0} võtaks rohkem aega kui konfigureerisite."
 
@@ -309,7 +310,8 @@ msgstr ""
 "Päringu aegumine. Proovige sätetes „Request Timeout“ väärtust suurendada."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Ühendusest keelduti. Kas teie kohalik AI-server (Ollama/LM Studio) töötab?"
 
@@ -341,7 +343,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "AI: Saan teid aidata valemite, andmeanalüüsi ja värviliste diagrammidega. "
 "Proovige mind!"
@@ -413,8 +416,8 @@ msgstr "WriterAgent: valiku laiendamine (Calc)"
 #: plugin/calc/python_editor.py
 msgid ""
 "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\"; "
-"A1:B10)."
+"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\";"
+" A1:B10)."
 msgstr ""
 "Selle lahtri PYTHON-valemi argumente (nt andmevahemikke) ei saanud "
 "säilitada. Redigeeri valemit Calcis või kasuta jutumärkides koodistringi, "
@@ -463,8 +466,7 @@ msgid ""
 "In that venv run: pip install pywebview\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"Veebivaate (pywebview) importimine Pythoniga sätetest → Python pole "
-"võimalik:\n"
+"Veebivaate (pywebview) importimine Pythoniga sätetest → Python pole võimalik:\n"
 "%(exe)s\n"
 "\n"
 "Käivitage selles virtuaalkeskkonnas: pip install pywebview\n"
@@ -543,6 +545,266 @@ msgstr ""
 #: plugin/writer/math/latex_dialog.py
 msgid "An unexpected error occurred during LaTeX insertion."
 msgstr "LaTeX-i lisamisel ilmnes ootamatu viga."
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "about"
+msgstr "teave"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "aim"
+msgstr "eesmärk"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "any"
+msgstr "mis tahes"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "awards"
+msgstr "auhinnad"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "best"
+msgstr "parim"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "brief"
+msgstr "lühikokkuvõte"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "can"
+msgstr "saab"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "choices"
+msgstr "valikud"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "compile"
+msgstr "koosta"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "concise"
+msgstr "kokkuvõtlik"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "depth"
+msgstr "sügavus"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "description"
+msgstr "kirjeldus"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "detail"
+msgstr "üksikasjalikkus"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "details"
+msgstr "üksikasjad"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "display"
+msgstr "kuva"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "each"
+msgstr "iga"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "features"
+msgstr "funktsioonid"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "find"
+msgstr "otsi"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "get"
+msgstr "hangi"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "give"
+msgstr "anna"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "how"
+msgstr "kuidas"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "identify"
+msgstr "tuvasta"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "include"
+msgstr "kaasa arvatud"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "info"
+msgstr "info"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "information"
+msgstr "teave"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "key"
+msgstr "võti"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "least"
+msgstr "vähemalt"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "limit"
+msgstr "piirang"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "list"
+msgstr "loend"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "me"
+msgstr "mina"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "notable"
+msgstr "märkimisväärne"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "overall"
+msgstr "üldine"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "plain"
+msgstr "lihtne"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "plain text"
+msgstr "lihttekst"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "please"
+msgstr "palun"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "preferences"
+msgstr "eelistused"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "provide"
+msgstr "paku"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "query"
+msgstr "päring"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "question"
+msgstr "küsimus"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "ratings"
+msgstr "hinnangud"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "recommendation"
+msgstr "soovitus"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "report"
+msgstr "aruanne"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "research"
+msgstr "uurimus"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "reviews"
+msgstr "ülevaated"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "search"
+msgstr "otsing"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "short"
+msgstr "lühike"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "show"
+msgstr "näita"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "signature"
+msgstr "allkiri"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "source"
+msgstr "allikas"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "sources"
+msgstr "allikad"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "such"
+msgstr "selline"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "suitable"
+msgstr "sobiv"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "summary"
+msgstr "kokkuvõte"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "tell"
+msgstr "räägi"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "text"
+msgstr "tekst"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "their"
+msgstr "nende"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "top"
+msgstr "ülemine"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "trends"
+msgstr "suundumused"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "types"
+msgstr "tüübid"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "what"
+msgstr "mida"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "when"
+msgstr "millal"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "where"
+msgstr "kus"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "who"
+msgstr "kes"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "why"
+msgstr "miks"
+
+#: plugin/chatbot/research_cache_fluff.py
+msgid "you"
+msgstr "sina"
 
 #: plugin/chatbot/panel_wiring.py plugin/xdl_strings.py
 msgid "Ready"
@@ -632,8 +894,8 @@ msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[Aktiivses aknas ei leitud ühtegi ühilduvat LibreOffice'i dokumenti (Writer, "
-"Calc või Draw).]"
+"[Aktiivses aknas ei leitud ühtegi ühilduvat LibreOffice'i dokumenti (Writer,"
+" Calc või Draw).]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -650,8 +912,8 @@ msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
 "this!]"
 msgstr ""
-"[Sisemine viga: dokumendi tüüpi {0} ei õnnestunud tuvastada. Palun teavitage "
-"sellest!]"
+"[Sisemine viga: dokumendi tüüpi {0} ei õnnestunud tuvastada. Palun teavitage"
+" sellest!]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -672,6 +934,26 @@ msgstr "Temperatuur peab olema <= 1.0"
 #, python-format
 msgid "This search query '%s' will be sent to the search engine."
 msgstr "See otsingupäring '%s' saadetakse otsingumootorisse."
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache hit (fuzzy, %s%% match: %s%s → %s)"
+msgstr "Uurimuse vahemälu tabamus (hägune, %s%% vaste: %s%s → %s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache hit (key: %s)"
+msgstr "Uurimuse vahemälu tabamus (võti: %s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache saved (key: %s)"
+msgstr "Uurimuse vahemälu salvestatud (võti: %s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Cached research keys: %s"
+msgstr "Vahemällu salvestatud uurimuse võtmed: %s"
 
 #: plugin/chatbot/web_research_chat.py
 msgid "[Web research]"
@@ -738,7 +1020,8 @@ msgstr "[Agendi taustaprogrammi '{0}' ei leitud.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Agendi taustaprogramm '{0}' pole saadaval. Kontrollige sätteid (asukoht, "
 "install).]"
@@ -834,8 +1117,8 @@ msgid ""
 "Document is read-only or properties cannot be written. Script saved to your "
 "personal library instead."
 msgstr ""
-"Dokument on kirjutuskaitsega või omadusi ei saa kirjutada. Skript salvestati "
-"hoopis teie isiklikku teeki."
+"Dokument on kirjutuskaitsega või omadusi ei saa kirjutada. Skript salvestati"
+" hoopis teie isiklikku teeki."
 
 #: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
 msgid "Script name cannot be empty."
@@ -923,8 +1206,8 @@ msgid ""
 "Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
 "Writer document with an imported Jupyter notebook and try again."
 msgstr ""
-"Pythoni seansi lähtestamine märkmike jaoks kehtib LibreOffice Writeri kohta. "
-"Avage Writeri dokument imporditud Jupyteri märkmikuga ja proovige uuesti."
+"Pythoni seansi lähtestamine märkmike jaoks kehtib LibreOffice Writeri kohta."
+" Avage Writeri dokument imporditud Jupyteri märkmikuga ja proovige uuesti."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -963,8 +1246,8 @@ msgid ""
 "Initialization script and any in-memory init state were reset for this "
 "workbook. Cell variables were already isolated per cell."
 msgstr ""
-"Selle töövihiku lähtestusskript ja kogu mälusisene lähtestusolek lähtestati. "
-"Lahtrimuutujad olid juba lahtripõhiselt eraldatud."
+"Selle töövihiku lähtestusskript ja kogu mälusisene lähtestusolek lähtestati."
+" Lahtrimuutujad olid juba lahtripõhiselt eraldatud."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1119,8 +1402,8 @@ msgstr "Tundmatu viga"
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "Skript käivitati edukalt, kuid see ei tagastanud tulemust ega väljundit. "
 "(kulus {time})"
@@ -1190,8 +1473,8 @@ msgstr "MCP-serveri käivitamine ebaõnnestus"
 #: plugin/mcp/__init__.py
 msgid "Check writeragent_debug.log in your LibreOffice user config folder"
 msgstr ""
-"Kontrolli writeragent_debug.log faili oma LibreOffice'i kasutaja seadistuste "
-"kaustas"
+"Kontrolli writeragent_debug.log faili oma LibreOffice'i kasutaja seadistuste"
+" kaustas"
 
 #: plugin/mcp/__init__.py
 msgid "MCP server is not running"
@@ -1487,11 +1770,11 @@ msgid "Path / URL"
 msgstr "Tee / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Tee taustaprogrammi CLI-le (nt aider) või ACP-serveri URL (nt http://"
-"localhost:8000 Hermes'i jaoks). Tühi = proovi vaikimisi."
+"Tee taustaprogrammi CLI-le (nt aider) või ACP-serveri URL (nt "
+"http://localhost:8000 Hermes'i jaoks). Tühi = proovi vaikimisi."
 
 msgid "Extra arguments"
 msgstr "Lisargumendid"
@@ -1573,6 +1856,16 @@ msgstr "Veebipuhvri kehtivus (päevades)"
 msgid "How many days cache entries should be considered valid."
 msgstr "Mitu päeva loetakse puhvri kirjeid kehtivateks."
 
+msgid "Web Research Cache"
+msgstr "Veebiuuringute vahemälu"
+
+msgid ""
+"Cache completed web research reports by normalized query (reuses web search "
+"cache database)."
+msgstr ""
+"Veebiuuringute aruannete vahemällu salvestamine normaliseeritud päringu "
+"alusel (taaskasutab veebiotsingu vahemälu andmebaasi)."
+
 msgid "Rich Text Control Sidebar"
 msgstr "Rikastatud teksti juhtelemendi külgpaneel"
 
@@ -1591,8 +1884,8 @@ msgstr "Luba tehisintellektil põhinev grammatikakontroll (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "Kui see on sisse lülitatud, registreerib WriterAgent oma tehisintellektil "
 "põhineva grammatikakontrolli keeletööriistade hulgas; kontrollitud tekst "
@@ -1628,6 +1921,19 @@ msgstr ""
 "töökindlam; suuremad väärtused on kiiremad ja odavamad, kuid võivad ületada "
 "märgipiiranguid või põhjustada mudeli vigu."
 
+msgid "Grammar concurrent requests"
+msgstr "Grammatika samaaegsed päringud"
+
+msgid ""
+"Max simultaneous background grammar API calls (1-8). 1 matches prior "
+"behavior. Raise for OpenRouter or other providers that allow parallel "
+"requests; use with care alongside sidebar chat."
+msgstr ""
+"Maksimaalne samaaegsete taustal toimuvate grammatika API-päringute arv "
+"(1-8). 1 vastab varasemale käitumisele. Suurendage OpenRouteri või muude "
+"pakkujate puhul, mis lubavad paralleelseid päringuid; kasutage külgriba "
+"vestlusega koos ettevaatlikult."
+
 msgid "Detect and correct sentence language"
 msgstr "Tuvasta ja paranda lause keel"
 
@@ -1636,8 +1942,8 @@ msgid ""
 "document's used locales. If incorrect, the language property is updated "
 "automatically."
 msgstr ""
-"Kui see on sisse lülitatud, palub see tehisintellektil kontrollida iga lause "
-"keelt vastavalt dokumendis kasutatud keeleseadetele. Kui keel on vale, "
+"Kui see on sisse lülitatud, palub see tehisintellektil kontrollida iga lause"
+" keelt vastavalt dokumendis kasutatud keeleseadetele. Kui keel on vale, "
 "uuendatakse keeleomadust automaatselt."
 
 msgid "Enter key sends sidebar chat message"
@@ -1664,11 +1970,11 @@ msgid "Enable MCP Server"
 msgstr "Luba MCP-server"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Ainult localhost, autentimine puudub. Kliendid kasutavad aadressi http://"
-"localhost:<port>/mcp (voogedastatav HTTP)."
+"Ainult localhost, autentimine puudub. Kliendid kasutavad aadressi "
+"http://localhost:<port>/mcp (voogedastatav HTTP)."
 
 msgid "MCP Port"
 msgstr "MCP-port"
@@ -1681,8 +1987,8 @@ msgid ""
 "the browser Origin. For other hosts, add mcp.cors_allowed_origins in "
 "writeragent.json."
 msgstr ""
-"Automaatne domeenidele .local, .lan, .home.arpa, .internal, .intern ja LAN-i "
-"IP-aadressidele brauseri päritolus (Origin). Muude hostide puhul lisage "
+"Automaatne domeenidele .local, .lan, .home.arpa, .internal, .intern ja LAN-i"
+" IP-aadressidele brauseri päritolus (Origin). Muude hostide puhul lisage "
 "mcp.cors_allowed_origins faili writeragent.json."
 
 msgid "Python"
@@ -1696,9 +2002,10 @@ msgid ""
 "empty, run_venv_python_script uses this process's sys.executable (basic "
 "stdlib); use a venv for numpy/pandas."
 msgstr ""
-"Kui määratud, käivitab tööriistad selles venv-is (bin/python või Scripts/"
-"python.exe). Kui tühi, kasutab run_venv_python_script selle protsessi "
-"sys.executable'i (põhiline stdlib); kasuta venv-i numpy/pandas jaoks."
+"Kui määratud, käivitab tööriistad selles venv-is (bin/python või "
+"Scripts/python.exe). Kui tühi, kasutab run_venv_python_script selle "
+"protsessi sys.executable'i (põhiline stdlib); kasuta venv-i numpy/pandas "
+"jaoks."
 
 msgid "Test"
 msgstr "Test"
@@ -1717,8 +2024,8 @@ msgid "Max Calc data cells"
 msgstr "Maksimaalne Calc-i andmeelementide arv"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
 "Maksimaalne elementide arv =PYTHON() andmetes või käsu „Run Python Script“ "
 "andmevahemikus. Suuremad väärtused nõuavad rohkem muutmälu ja aega; UNO "
@@ -1754,8 +2061,8 @@ msgid "Modeless Run Python Script dialog"
 msgstr "Mitteblokeeriv Pythoni skripti käivitamise dialoog"
 
 msgid ""
-"When checked, the plain-text Run Python Script dialog floats so you can edit "
-"the document while it is open. Uncheck for the classic modal dialog."
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
 msgstr ""
 "Kui see on märgitud, on lihttekstina kuvatav Pythoni skripti käivitamise "
 "dialoog ujuv, mis võimaldab dokumendi redigeerimist selle avatuse ajal. "
