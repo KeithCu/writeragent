@@ -31,7 +31,6 @@ log = logging.getLogger("writeragent.i18n")
 # Set by init_i18n(); always non-None after init_i18n() returns.
 _translation: Optional[gettext.NullTranslations] = None
 
-
 # When UNO cannot supply ooLocale (tests, early init), use English catalogs.
 _DEFAULT_LOCALE = "en_US"
 

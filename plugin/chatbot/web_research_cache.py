@@ -52,29 +52,69 @@ def snowball_lang_from_locale_tag(tag: str) -> str:
     return _ISO_TO_SNOWBALL.get(iso) or "english"
 
 
-def resolve_research_stem_language(ctx: Any, doc: Any = None) -> str:
-    """Document CharLocale first, then LibreOffice UI locale, else english."""
+def _uno_char_locale_to_tag(char_locale: Any) -> str | None:
+    lang = str(getattr(char_locale, "Language", "") or "").strip()
+    if not lang:
+        return None
+    country = str(getattr(char_locale, "Country", "") or "").strip()
+    if country:
+        return f"{lang}_{country}"
+    return lang
+
+
+def resolve_research_locale(ctx: Any, doc: Any = None) -> tuple[str, str]:
+    """Return (gettext_lo_locale_tag, snowball_lang) for cache key + stemming.
+
+    Query text is not language-detected; document CharLocale first, then LO UI locale.
+    """
     if doc is not None:
         try:
             text = doc.getText()
             enum = text.createEnumeration()
             if enum.hasMoreElements():
                 first_para = enum.nextElement()
-                locale = first_para.getPropertyValue("CharLocale")
-                iso = locale.Language
-                lang = _ISO_TO_SNOWBALL.get(iso)
-                if lang:
-                    return lang
+                char_locale = first_para.getPropertyValue("CharLocale")
+                lo_tag = _uno_char_locale_to_tag(char_locale)
+                iso = getattr(char_locale, "Language", None)
+                snowball = _ISO_TO_SNOWBALL.get(iso) if iso else None
+                if lo_tag and snowball:
+                    return lo_tag.replace("-", "_"), snowball
         except Exception as e:
             log.debug("research cache: document language detection failed: %s", e)
 
     try:
         from plugin.framework.i18n import get_lo_locale
 
-        return snowball_lang_from_locale_tag(get_lo_locale(ctx))
+        lo_tag = get_lo_locale(ctx)
+        return lo_tag, snowball_lang_from_locale_tag(lo_tag)
     except Exception as e:
         log.debug("research cache: LO locale detection failed: %s", e)
-    return "english"
+    return "en_US", "english"
+
+
+def resolve_research_stem_language(ctx: Any, doc: Any = None) -> str:
+    """Snowball language only; prefer resolve_research_locale when gettext tag is needed."""
+    _lo_tag, snowball_lang = resolve_research_locale(ctx, doc)
+    return snowball_lang
+
+
+def tokenize_query_words(query: str) -> list[str]:
+    from plugin.writer.locale.linguistic_index import _raw_tokens
+
+    return _raw_tokens(query)
+
+
+def get_research_fluff_words(*, snowball_lang: str) -> frozenset[str]:
+    """Instruction fluff from _('…') (active LO locale) plus grammar stop words."""
+    from plugin.chatbot.research_cache_fluff import translated_research_cache_fluff
+    from plugin.writer.locale.linguistic_index import _raw_tokens
+    from plugin.writer.locale.stop_words import stop_words_for_snowball
+
+    fluff: set[str] = set()
+    for phrase in translated_research_cache_fluff():
+        fluff.update(_raw_tokens(phrase))
+    fluff.update(stop_words_for_snowball(snowball_lang))
+    return frozenset(fluff)
 
 
 def parse_research_cache_key(raw_key: str) -> tuple[str, str]:

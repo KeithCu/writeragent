@@ -86,7 +86,26 @@ This is a custom file specific to WriterAgent, acting as the bridge between `smo
 
 ---
 
-## 5. Future Considerations
+## 5. Web research report cache (fuzzy matching)
+
+Completed `web_research` / delegate `web_research` reports can be cached in the shared SQLite `web_cache` table (`kind="research"`). Keys are normalized query word lists (fluff stripped, min token length 3). New entries are stored as `{snowball_lang}|{word key}` (e.g. `english|elevator physics space`); legacy unprefixed keys still work.
+
+**Instruction fluff** ([`research_cache_fluff.py`](../plugin/chatbot/research_cache_fluff.py)): web-research prompt filler words are listed as standard `_('…')` calls in `translated_research_cache_fluff()` — same gettext path as the rest of the extension (`make extract-strings`, `make auto-translate`). At runtime `get_research_fluff_words()` tokenizes those translated strings for the active LO UI locale and unions grammar stop words from [`stop_words.py`](../plugin/writer/locale/stop_words.py) for the document/Snowball language (generated from [stopwords-iso](https://github.com/stopwords-iso/stopwords-iso) via `python scripts/generate_stop_words.py`).
+
+**Lookup order:** exact key (legacy or prefixed) → fuzzy match among same-language keys.
+
+**Fuzzy match** ([`plugin/chatbot/web_research_cache.py`](../plugin/chatbot/web_research_cache.py)):
+
+- Stems use the same Snowball algorithms as writer full-text search ([`linguistic_index.py`](../plugin/writer/locale/linguistic_index.py) `_ISO_TO_SNOWBALL`).
+- Language: document `CharLocale` → LibreOffice UI locale → `english`.
+- Similarity = `max(union Jaccard, overlap / min(|A|, |B|))` so repeat prompts with extra words still match.
+- Gates: similarity ≥ **Research Cache Fuzzy Match (%)** (default 40) and shared stem count ≥ **Min Stem Overlap** (default 8).
+
+Settings UI: `web_research_cache_enabled` only. Fuzzy tuning (`web_research_cache_jaccard_percent`, `web_research_cache_min_overlap`) is **internal** — defaults from module YAML, override in `writeragent.json` if needed. Sidebar shows `hit_fuzzy` with match percent and stored key.
+
+---
+
+## 6. Future Considerations
 
 While the current implementation uses standard, unauthenticated HTTP requests via DuckDuckGo Lite, there is prior research on handling authenticated sites or executing JavaScript natively. The following sections are kept for future reference if we need to escalate beyond basic unauthenticated HTML scraping.
 

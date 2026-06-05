@@ -79,27 +79,14 @@ class WebResearchToolCallingAgent(ToolCallingAgent):
         return messages
 
 
-_FLUFF_WORDS = {
-    "research", "compile", "concise", "report", "on", "the", "best", "include", "each",
-    "brief", "description", "of", "their", "any", "notable", "awards", "or", "ratings",
-    "and", "short", "recommendation", "aim", "for", "top", "choices", "provide", "information",
-    "in", "plain", "text", "list", "identify", "at", "least", "signature", "types",
-    "key", "features", "such", "as", "source", "sources", "reviews", "local", "publications",
-    "summary", "establishment", "overall", "trends", "preferences", "limit", "depth",
-    "suitable", "find", "search", "tell", "me", "about", "show", "get", "what", "is",
-    "are", "a", "an", "to", "at", "please", "can", "you", "query", "question", "info",
-    "detail", "details", "give", "display", "how", "why", "where", "who", "when",
-}
+def _get_unique_words_key(query: str, *, snowball_lang: str = "english") -> str:
+    """Normalize query, filter locale-aware fluff, sort unique words and return space-separated key."""
+    from plugin.chatbot.web_research_cache import get_research_fluff_words, tokenize_query_words
 
-
-def _get_unique_words_key(query: str) -> str:
-    """Normalize query, filter fluff words, sort unique words and return space-separated key."""
-    import re
     if not query:
         return ""
-    normalized = re.sub(r'[^a-z0-9\s]', ' ', str(query).lower())
-    words = normalized.split()
-    unique = sorted(list(set(w for w in words if w not in _FLUFF_WORDS and len(w) >= 3)))
+    fluff = get_research_fluff_words(snowball_lang=snowball_lang)
+    unique = sorted({w for w in tokenize_query_words(query) if w not in fluff and len(w) >= 3})
     return " ".join(unique)
 
 
@@ -155,7 +142,10 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
         history_text = kwargs.get("history_text")
 
         query_str = str(query or "")
-        unique_key = _get_unique_words_key(query_str)
+        from plugin.chatbot.web_research_cache import resolve_research_locale
+
+        _lo_locale, stem_lang = resolve_research_locale(ctx.ctx, getattr(ctx, "doc", None))
+        unique_key = _get_unique_words_key(query_str, snowball_lang=stem_lang)
         unique_words_set = set(unique_key.split())
 
         from plugin.framework.constants import should_prepend_dev_llm_system_prefix
@@ -230,15 +220,6 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
         udir = user_config_dir(ctx.ctx)
         cache_path = os.path.join(udir, "writeragent_web_cache.db") if udir else None
         cache_max_age_days = get_config_int(ctx.ctx, "web_cache_validity_days")
-
-        stem_lang = "english"
-        if cache_enabled and unique_key:
-            try:
-                from plugin.chatbot.web_research_cache import resolve_research_stem_language
-
-                stem_lang = resolve_research_stem_language(ctx.ctx, getattr(ctx, "doc", None))
-            except Exception as e:
-                log.warning("Failed to resolve research stem language: %s", e)
 
         if cache_enabled and cache_path and os.path.exists(cache_path) and unique_key:
             try:

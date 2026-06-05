@@ -1,0 +1,80 @@
+# WriterAgent - AI Writing Assistant for LibreOffice
+# Copyright (c) 2024 John Balis
+# Copyright (c) 2026 KeithCu (modifications and relicensing)
+#
+# Web-research cache fluff: _('…') literals for gettext (make extract-strings / auto-translate).
+
+from __future__ import annotations
+
+
+def translated_research_cache_fluff() -> tuple[str, ...]:
+    """Instruction fluff for the active LO UI locale (standard gettext _() calls)."""
+    from plugin.framework.i18n import _
+
+    return (
+        _("about"),
+        _("aim"),
+        _("any"),
+        _("awards"),
+        _("best"),
+        _("brief"),
+        _("can"),
+        _("choices"),
+        _("compile"),
+        _("concise"),
+        _("depth"),
+        _("description"),
+        _("detail"),
+        _("details"),
+        _("display"),
+        _("each"),
+        _("features"),
+        _("find"),
+        _("get"),
+        _("give"),
+        _("how"),
+        _("identify"),
+        _("include"),
+        _("info"),
+        _("information"),
+        _("key"),
+        _("least"),
+        _("limit"),
+        _("list"),
+        _("me"),
+        _("notable"),
+        _("overall"),
+        _("plain"),
+        _("plain text"),
+        _("please"),
+        _("preferences"),
+        _("provide"),
+        _("query"),
+        _("question"),
+        _("ratings"),
+        _("recommendation"),
+        _("report"),
+        _("research"),
+        _("reviews"),
+        _("search"),
+        _("short"),
+        _("show"),
+        _("signature"),
+        _("source"),
+        _("sources"),
+        _("such"),
+        _("suitable"),
+        _("summary"),
+        _("tell"),
+        _("text"),
+        _("their"),
+        _("top"),
+        _("trends"),
+        _("types"),
+        _("what"),
+        _("when"),
+        _("where"),
+        _("who"),
+        _("why"),
+        _("you"),
+    )

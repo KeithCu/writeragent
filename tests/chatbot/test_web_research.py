@@ -343,7 +343,7 @@ def test_cache_hit_does_not_stream_chat_append_callback():
     import tempfile
     with tempfile.TemporaryDirectory() as td:
         db_file = os.path.join(td, "writeragent_web_cache.db")
-        _web_cache_set(db_file, "research", "caching test unique", "Cached Answer Content", 50 * 1024 * 1024)
+        _web_cache_set(db_file, "research", "caching unique", "Cached Answer Content", 50 * 1024 * 1024)
 
         def _cfg_int(_c, key):
             if key == "web_cache_validity_days":
@@ -359,7 +359,7 @@ def test_cache_hit_does_not_stream_chat_append_callback():
              patch("plugin.framework.config.get_config_int_safe", return_value=50), \
              patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
              patch("plugin.framework.constants.should_prepend_dev_llm_system_prefix", return_value=False), \
-             patch("plugin.chatbot.web_research_cache.resolve_research_stem_language", return_value="english"):
+             patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")):
             tool = WebResearchTool()
             res = tool.execute(ctx, query="Search for caching test unique info")
             assert res.get("research_cache_event") == "hit"
@@ -374,12 +374,12 @@ def test_format_delegate_result_includes_research_cache():
         {
             "status": "ok",
             "research_cache_event": "saved",
-            "research_cache_key": "execute new",
-            "research_cache_keys": ["execute new"],
+            "research_cache_key": "execute",
+            "research_cache_keys": ["execute"],
         },
     )
     assert "Research cache saved" in line
-    assert "execute new" in line
+    assert "execute" in line
     assert "[delegate (web_research): done]" in line
 
 
@@ -394,11 +394,11 @@ def test_web_research_cache_chat_text_hit_and_saved():
     assert "rome history" in hit
     saved = web_research_cache_chat_text({
         "research_cache_event": "saved",
-        "research_cache_key": "execute new",
-        "research_cache_keys": ["execute new"],
+        "research_cache_key": "execute",
+        "research_cache_keys": ["execute"],
     })
     assert "Research cache saved" in saved
-    assert "execute new" in saved
+    assert "execute" in saved
 
 
 def test_web_research_cache_chat_text_fuzzy_hit():
@@ -637,24 +637,24 @@ def test_web_research_caching_logic(tmp_path):
          patch("plugin.framework.config.get_config_int_safe", return_value=50), \
          patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
          patch("plugin.framework.constants.should_prepend_dev_llm_system_prefix", return_value=False), \
-         patch("plugin.chatbot.web_research_cache.resolve_research_stem_language", return_value="english"):
+         patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")):
 
         # Pre-populate the cache using _web_cache_set
         from plugin.contrib.smolagents.default_tools import _web_cache_set
-        _web_cache_set(db_file, "research", "caching test unique", "Cached Answer Content", 50 * 1024 * 1024)
+        _web_cache_set(db_file, "research", "caching unique", "Cached Answer Content", 50 * 1024 * 1024)
 
         tool = WebResearchTool()
-        # Query that normalizes to "caching test unique"
+        # Query that normalizes to "caching unique" ("test" is an English stop word)
         res = tool.execute(ctx, query="Search for caching test unique info")
         assert res["status"] == "ok"
         assert res["result"] == "Cached Answer Content"
         assert res.get("research_cache_event") == "hit"
-        assert res.get("research_cache_key") == "caching test unique"
+        assert res.get("research_cache_key") == "caching unique"
         from plugin.chatbot.web_research_chat import format_research_cache_result_chat
 
         cache_chat = format_research_cache_result_chat(res)
         assert "Research cache hit" in cache_chat
-        assert "caching test unique" in cache_chat
+        assert "caching unique" in cache_chat
 
 
 def test_web_research_caching_write(tmp_path):
@@ -687,7 +687,7 @@ def test_web_research_caching_write(tmp_path):
          patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
          patch("plugin.framework.constants.should_prepend_dev_llm_system_prefix", return_value=False), \
          patch("plugin.framework.config.get_api_config", return_value={}), \
-         patch("plugin.chatbot.web_research_cache.resolve_research_stem_language", return_value="english"), \
+         patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")), \
          patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_exec:
 
         mock_exec.return_value.execute_safe.return_value = "Live Searched Output"
@@ -698,15 +698,15 @@ def test_web_research_caching_write(tmp_path):
         assert res["result"] == "Live Searched Output"
 
         # Check database directly (new writes use lang-prefixed keys)
-        cached = _web_cache_get(db_file, "research", "english|execute new", max_age_days=30)
+        cached = _web_cache_get(db_file, "research", "english|execute", max_age_days=30)
         assert cached == "Live Searched Output"
         assert res.get("research_cache_event") == "saved"
-        assert res.get("research_cache_key") == "execute new"
+        assert res.get("research_cache_key") == "execute"
         from plugin.chatbot.web_research_chat import format_research_cache_result_chat
 
         cache_chat = format_research_cache_result_chat(res)
         assert "Research cache saved" in cache_chat
-        assert "execute new" in cache_chat
+        assert "execute" in cache_chat
         assert "Cached research keys" in cache_chat
 
 
@@ -720,7 +720,7 @@ def test_web_research_caching_disabled_bypasses_cache(tmp_path):
     setattr(ctx.ctx, "getServiceManager", MagicMock())
 
     db_file = str(tmp_path / "writeragent_web_cache.db")
-    _web_cache_set(db_file, "research", "caching test unique", "Cached Answer Content", 50 * 1024 * 1024)
+    _web_cache_set(db_file, "research", "caching unique", "Cached Answer Content", 50 * 1024 * 1024)
 
     def _cfg_int(_c, key):
         if key == "web_cache_validity_days":

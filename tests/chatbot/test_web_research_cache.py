@@ -1,5 +1,10 @@
 # WriterAgent - fuzzy web research cache matching tests
 
+import sys
+from unittest.mock import MagicMock
+
+import pytest
+
 from plugin.chatbot.web_research_cache import (
     find_fuzzy_research_match,
     format_research_cache_key,
@@ -16,6 +21,20 @@ SPACE_ELEVATOR_KEY_1 = (
     "introduction materials physical physicists physics principles produce references requirements "
     "sections space strength technical urls with"
 )
+@pytest.fixture(autouse=True)
+def _real_snowball_stemmer():
+    """test_linguistic_index.py mocks sys.modules['snowballstemmer']; clear cache and restore."""
+    from plugin.chatbot import web_research_cache as wrc
+
+    sm = sys.modules.get("snowballstemmer")
+    if isinstance(sm, MagicMock):
+        del sys.modules["snowballstemmer"]
+        import snowballstemmer  # noqa: F401
+    wrc._STEMMER_CACHE.clear()
+    yield
+    wrc._STEMMER_CACHE.clear()
+
+
 SPACE_ELEVATOR_KEY_2 = (
     "aspects authoritative candidates carbon challenges cite climber concept distribution dynamics "
     "elevator energy engineering equations focusing geostationary graphene inclusion major material "
@@ -68,6 +87,26 @@ def test_research_cache_similarity_beats_union_jaccard_for_longer_repeat_query()
     b = stem_set_from_word_key(SPACE_ELEVATOR_KEY_2, "english")
     assert jaccard(a, b) < 0.40
     assert research_cache_similarity(a, b) >= 0.40
+
+
+def test_translated_research_cache_fluff_returns_gettext_strings():
+    from plugin.chatbot.research_cache_fluff import translated_research_cache_fluff
+
+    fluff = translated_research_cache_fluff()
+    assert len(fluff) >= 60
+    assert all(isinstance(s, str) and s for s in fluff)
+
+
+def test_get_research_fluff_words_includes_gettext_tokens(monkeypatch):
+    from plugin.chatbot.web_research_cache import get_research_fluff_words
+
+    def mock_(message: str) -> str:
+        return {"research": "recherche", "compile": "compiler"}.get(message, message)
+
+    monkeypatch.setattr("plugin.framework.i18n._", mock_)
+    fluff = get_research_fluff_words(snowball_lang="french")
+    assert "recherche" in fluff
+    assert "compiler" in fluff
 
 
 def test_lookup_research_cache_fuzzy_hit(tmp_path):
