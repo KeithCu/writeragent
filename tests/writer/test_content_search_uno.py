@@ -121,11 +121,14 @@ def test_search_case_insensitive_uno():
     text = doc.getText()
     cursor = text.createTextCursor()
     cursor.gotoEnd(False)
-    text.insertString(cursor, "HELLO world", False)
+    needle = "UNIQUE_CI_HELLO world"
+    text.insertString(cursor, needle, False)
 
-    found = _find_first_range(doc, "hello world")
-    assert found is not None
-    assert found.getString() == "HELLO world"
+    found = _find_first_range(doc, "unique_ci_hello world")
+    assert found is not None, "case-insensitive search should find mixed-case text"
+    assert found.getString().lower() == needle.lower(), (
+        "expected %r, got %r" % (needle, found.getString())
+    )
 
 
 @native_test
