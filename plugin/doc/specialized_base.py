@@ -120,7 +120,7 @@ class DelegateToSpecializedBase(ToolBase):
 
         if domain == "document_research" and not USE_SUB_AGENT:
             return self._tool_error(
-                _("Document research reads require sub-agent delegation (USE_SUB_AGENT). Enable sub-agents in configuration."),
+                _("Document research reads require specialized task delegation (USE_SUB_AGENT). Enable this in configuration."),
                 code="DOCUMENT_RESEARCH_REQUIRES_SUB_AGENT",
             )
 
@@ -154,7 +154,7 @@ class DelegateToSpecializedBase(ToolBase):
 
         footnotes_hint = ""
         if domain == "footnotes":
-            footnotes_hint = " For footnotes_insert: if the task quotes or names the document anchor (e.g. a sentence), pass that exact string as insert_after_text so the note is placed after that text; the sub-agent cannot move the view cursor."
+            footnotes_hint = " For footnotes_insert: if the task quotes or names the document anchor (e.g. a sentence), pass that exact string as insert_after_text so the note is placed after that text; the task executor cannot move the view cursor."
         shapes_canvas = ""
         if domain == "shapes":
             canvas = format_shapes_canvas_context(getattr(ctx, "doc", None))
@@ -181,7 +181,7 @@ class DelegateToSpecializedBase(ToolBase):
         document_research_hint = (
             "\n\nDocument research workflow:\n"
             "To do the task (summarize, extract, analyze, answer from document content), use delegate_read_document. "
-            "That opens the file and runs one or more sub-agents with full read tools on that document — this is the main path.\n"
+            "That opens the file and runs one or more specialized read tasks with full read tools on that document — this is the main path.\n"
             "To find the proper filename when the user gives a partial or inexact name, use list_nearby_files first. "
             "use file_kind=images on list_nearby_files for photos/images."
             "Pass filter with a substring from their description (e.g. filter='budget' for \"the budget spreadsheet\"), "
@@ -222,7 +222,7 @@ class DelegateToSpecializedBase(ToolBase):
         )
         python_hint = python_specialized_sub_agent_hint(self._agent_label) if domain == "python" else ""
         instructions = (
-            f"You are a specialized {self._agent_label} agent focused on the '{domain}' domain. "
+            f"You are a specialized {self._agent_label} task executor focused on the '{domain}' domain. "
             f"You have a focused set of tools to accomplish your task. Use them to fulfill the user's request."
             f"{footnotes_hint}{shapes_canvas}{charts_hint}{calc_ctx}{document_research_hint}{open_docs_context}{images_hint}{python_hint}"
         )

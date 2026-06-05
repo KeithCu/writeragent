@@ -11,10 +11,12 @@ The sidebar is a **chat window**: assistant text is stored in session history an
 | User intent | Main agent action |
 |-------------|-------------------|
 | Answer, explain, discuss without changing the doc | Assistant **chat reply** only |
+| Look up public or local file info (no doc edit) | Delegate **`web_research`** / **`document_research`**, then chat summary |
 | Write, draft, replace, or translate into the document | **`apply_document_content`** (and reads as needed) |
+| Research then write (e.g. web report in the doc) | Delegate research (sub-agent returns **plain text** in `result`), main agent formats HTML and **`apply_document_content`** in the same send |
 | Large edit plus acknowledgment | Tool call(s) + **brief** chat confirmation |
 
-Prompt text lives in [`plugin/framework/constants.py`](../plugin/framework/constants.py): **`SIDEBAR_VS_DOCUMENT`** (routing) and **`WRITER_CORE_DIRECTIVES`** (delegation), composed by **`get_chat_system_prompt_for_document`**. **Sub-agents** (web research, librarian, specialized delegate) use different completion tools (`final_answer`, `reply_to_user`, delegate `task`)—not this routing block.
+Prompt text lives in [`plugin/framework/constants.py`](../plugin/framework/constants.py): **`SIDEBAR_VS_DOCUMENT`** (routing) and **`WRITER_CORE_DIRECTIVES`** (delegation, including research plain-text → format → `apply_document_content`), composed by **`get_chat_system_prompt_for_document`**. Generic delegate `task` guidance in the specialized block is one short line; per-domain detail is injected on the sub-agent at runtime ([`specialized_base.py`](../plugin/doc/specialized_base.py)). **Sub-agents** (web research, librarian, specialized delegate) use different completion tools (`final_answer`, `reply_to_user`, delegate `task`)—not this routing block.
 
 **Menu chat** (non-sidebar entry) has no tool-calling; it is conversational only.
 

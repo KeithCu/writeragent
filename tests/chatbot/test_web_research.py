@@ -361,7 +361,7 @@ def test_apply_override_non_dict_non_string():
 
 def test_web_research_agent_instructions_include_response_format():
     from plugin.chatbot.web_research import WebResearchTool
-    from plugin.framework.constants import PLAIN_CHAT_RESPONSE_FORMAT, RICH_CHAT_SIDEBAR_INSTRUCTIONS
+    from plugin.framework.constants import WEB_RESEARCH_PLAIN_TEXT_FORMAT
     from plugin.tests.testing_utils import MockContext
 
     ctx = MagicMock()
@@ -387,26 +387,12 @@ def test_web_research_agent_instructions_include_response_format():
                 with patch("plugin.framework.config.get_config_int", side_effect=_cfg_int):
                     with patch("plugin.framework.config.get_api_config", return_value={}):
                         with patch("plugin.framework.config.user_config_dir", return_value="/tmp"):
-                            with patch("plugin.framework.config.get_config_bool_safe", return_value=True):
-                                WebResearchTool().execute(ctx, query="test query")
+                            WebResearchTool().execute(ctx, query="test query")
 
-    assert RICH_CHAT_SIDEBAR_INSTRUCTIONS in captured["instructions"]
-    assert "line breaks within an element" in captured["instructions"]
+    assert WEB_RESEARCH_PLAIN_TEXT_FORMAT in captured["instructions"]
+    assert "plain text only" in captured["instructions"]
     assert "final_answer" in captured["instructions"]
-
-    captured.clear()
-    with patch("plugin.chatbot.web_research.WebResearchToolCallingAgent", _CaptureAgent):
-        with patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_exec:
-            mock_exec.return_value.execute_safe.return_value = "answer"
-            with patch("plugin.framework.config.get_config", return_value="false"):
-                with patch("plugin.framework.config.get_config_int", side_effect=_cfg_int):
-                    with patch("plugin.framework.config.get_api_config", return_value={}):
-                        with patch("plugin.framework.config.user_config_dir", return_value="/tmp"):
-                            with patch("plugin.framework.config.get_config_bool_safe", return_value=False):
-                                WebResearchTool().execute(ctx, query="test query")
-
-    assert PLAIN_CHAT_RESPONSE_FORMAT in captured["instructions"]
-    assert RICH_CHAT_SIDEBAR_INSTRUCTIONS not in captured["instructions"]
+    assert "No HTML tags" in captured["instructions"]
 
 
 def test_web_research_augment_messages_includes_used_and_remaining():

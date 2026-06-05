@@ -133,7 +133,7 @@ def to_mcp_schema(tool, *, doc_type: str | None = None):
         # (the detailed domain guidance lives in the 'domain' property description instead).
         # The full verbose guidance with examples is still used in chat system prompts.
         desc = (
-            f"{desc} Delegates a task to a focused {agent_label} sub-agent. "
+            f"{desc} Delegates to a specialized {agent_label} task. "
             "See the 'domain' property for available areas and the 'task' parameter rules."
         ).strip()
 

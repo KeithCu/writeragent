@@ -85,9 +85,10 @@ HTML_FRAGMENT_RULES = """
 # - HTML entity escaping: do NOT send &lt;p&gt; instead of <p> — the import path expects
 #   real tags (HTML_FRAGMENT_RULES). Entity soup is wrong for both array elements and sidebar.
 #
-# Array wrapper and sub-agents: web research / librarian use final_answer / reply_to_user with
-# a single answer string (CHAT_SIDEBAR_HTML_EXAMPLES). Do not tell them to wrap sidebar HTML
-# in ["…"] — that shape is for apply_document_content only and confuses final_answer payloads.
+# Array wrapper and sub-agents: web research returns plain text (WEB_RESEARCH_PLAIN_TEXT_FORMAT);
+# the main agent formats HTML for apply_document_content. Librarian uses reply_to_user with
+# CHAT_SIDEBAR_HTML_EXAMPLES. Do not tell sub-agents to wrap answers in apply_document_content
+# JSON arrays — that shape is for the main agent's apply_document_content tool only.
 #
 # Removing the array wrapper? Possible but non-trivial: tool JSON schema, eval harness, and years
 # of prompt habit. execute() already accepts a list or a string that parses as JSON array; we
@@ -167,20 +168,21 @@ SIDEBAR_VS_DOCUMENT = """SIDEBAR CHAT (main agent): Your conversation with the u
 # Writer main chat: delegation routing (paired with SIDEBAR_VS_DOCUMENT in the system prompt).
 WRITER_CORE_DIRECTIVES = f"""When the user wants {DELEGATION_USER_FILE_DATA_HINT}:
 - You MUST NOT ask the user where to find it, or to upload, paste, its contents.
-- You MUST call delegate_to_specialized_writer_toolset(domain="document_research") once with their described file(s) and task in task; the sub-agent lists nearby files to match (paths not required).
+- You MUST call delegate_to_specialized_writer_toolset(domain="document_research") once with their described file(s) and task in task; the specialized task lists nearby files to match (paths not required).
 When the user wants {DELEGATION_PUBLIC_WEB_HINT}, delegate_to_specialized_writer_toolset(domain="web_research").
+For web_research and document_research: describe what to research in `task` (topics, sections, depth); the task returns plain text in `result`. When the user wanted a report or draft in the document, format that text as HTML (your memory and APPLY_DOCUMENT_CONTENT rules) and call apply_document_content in the same turn; if they only wanted to look something up, a chat summary is enough.
 
 {delegation_math_to_python_hint(delegate_toolset="delegate_to_specialized_writer_toolset")}
 When asked to make a script or run Python, use delegate_to_specialized_writer_toolset(domain="python")."""
 
 CALC_CORE_DIRECTIVES = f"""When the user wants {DELEGATION_USER_FILE_DATA_HINT} (including when the user refers to any other file, document, spreadsheet, or sheet by name or path, e.g. "my spreadsheet", "read cell a9 from PythonInCalc", "summary.odt", etc., or asks to pull, read, search, or reference data from them):
 - You MUST NOT ask the user where the file is stored, how to find it, or to upload, paste, or share its contents.
-- You MUST call delegate_to_specialized_calc_toolset(domain="document_research") once with their described file(s) and task in task; the sub-agent lists nearby files to match (paths not required).
+- You MUST call delegate_to_specialized_calc_toolset(domain="document_research") once with their described file(s) and task in task; the specialized task lists nearby files to match (paths not required).
 When the user wants {DELEGATION_PUBLIC_WEB_HINT}, delegate_to_specialized_calc_toolset(domain="web_research")."""
 
 DRAW_CORE_DIRECTIVES = f"""When the user wants {DELEGATION_USER_FILE_DATA_HINT} (including when the user refers to any other file, document, spreadsheet, or sheet by name or path, e.g. "my spreadsheet", "read cell a9 from PythonInCalc", "summary.odt", etc., or asks to pull, read, search, or reference data from them):
 - You MUST NOT ask the user where the file is stored, how to find it, or to upload, paste, or share its contents.
-- You MUST call delegate_to_specialized_draw_toolset(domain="document_research") once with their described file(s) and task in task; the sub-agent lists nearby files to match (paths not required).
+- You MUST call delegate_to_specialized_draw_toolset(domain="document_research") once with their described file(s) and task in task; the specialized task lists nearby files to match (paths not required).
 When the user wants {DELEGATION_PUBLIC_WEB_HINT}, delegate_to_specialized_draw_toolset(domain="web_research").
 
 {delegation_math_to_python_hint(delegate_toolset="delegate_to_specialized_draw_toolset")}
@@ -262,19 +264,12 @@ WHEN TO SAVE (do this proactively, don't wait to be asked):
 - You discover something about the environment.
 Prioritize what reduces future user steering."""
 
-# Brief hint for gateway tool JSON schemas (full rules: SPECIALIZED_TASK_RULES).
-DELEGATE_SPECIALIZED_TASK_PARAM_HINT = "Instructions for the sub-agent: it has the full tool/API surface for this domain (all parameters). Be specific enough to use that power—vague tasks leave choices underspecified."
+# Brief hint for gateway tool JSON schemas (see SPECIALIZED_TASK_RULES in system prompt).
+DELEGATE_SPECIALIZED_TASK_PARAM_HINT = "What the specialized task should accomplish."
 
-# Shared guidance for writing good `task` strings when delegating to specialized sub-agents.
-# This is the main source of duplication we are trying to reduce in the system prompt.
+# Shared guidance for writing `task` strings when delegating to specialized sub-agents.
 SPECIALIZED_TASK_RULES = (
-    "Rules for `task`: Treat it as a complete natural-language specification, not a summary. "
-    "Enumerate what must be true (types, layout, numbers, colors, style names, anchors, text). "
-    "If the user was vague, state explicit defaults in the task rather than leaving them undefined. "
-    "Prefer **concrete, capability-rich** instructions over \"minimal\" or \"basic\" when the user is open to it: "
-    "name specific variants (e.g. exact shape presets, styles, or operations) so the sub-agent can use the full API instead of picking a boring default. "
-    "Example (domain=shapes): `upsert_shape` can use on the order of **400+** distinct preset `shape_type` strings. "
-    "Example (domain=footnotes): Quote the **exact** document sentence or unique substring where the note must attach so the sub-agent can know where to put the footnote anchor."
+    "Pass a clear `task` describing what the specialized task should accomplish."
 )
 
 # Shape catalog size: LibreOffice core maps ~400+ preset names (e.g. svx EnhancedCustomShapeTypeNames.cxx).
@@ -282,8 +277,8 @@ SPECIALIZED_TASK_RULES = (
 WRITER_SPECIALIZED_DELEGATION_TEMPLATE = (
     "SPECIALIZED WRITER (nested tools): The default tool list hides deep Writer features. "
     "When the user needs those, call delegate_to_specialized_writer_toolset with: domain one of: {domains} "
-    "and a `task` string that fully specifies what the sub-agent must do. The sub-agent only sees tools for that domain, "
-    "but they are the real tools: **full parameter lists and full LibreOffice/UNO access** for that area (nothing is dumbed down for the sub-agent). "
+    "and a `task` string that fully specifies what the specialized task must do. The task executor only sees tools for that domain, "
+    "but they are the real tools: **full parameter lists and full LibreOffice/UNO access** for that area (nothing is dumbed down for it). "
     "document_research: use for information in other personal/business documents in the same folder (one delegation per file set). "
     "web_research: use for public web topics. "
     f"{SPECIALIZED_TASK_RULES}"
@@ -292,14 +287,14 @@ WRITER_SPECIALIZED_DELEGATION_TEMPLATE = (
 CALC_SPECIALIZED_DELEGATION_TEMPLATE = (
     "SPECIALIZED CALC (nested tools): The default tool list hides advanced Calc features. "
     "When the user needs those, call delegate_to_specialized_calc_toolset with: domain one of: {domains} "
-    "and a `task` string that fully specifies what the sub-agent must do. The sub-agent has full tool access for that domain. "
+    "and a `task` string that fully specifies what the specialized task must do. The task executor has full tool access for that domain. "
     f"{SPECIALIZED_TASK_RULES}"
 )
 
 DRAW_SPECIALIZED_DELEGATION_TEMPLATE = (
     "SPECIALIZED DRAW (nested tools): The default tool list hides advanced Draw/Impress features. "
     "When the user needs those, call delegate_to_specialized_draw_toolset with: domain one of: {domains} "
-    "and a `task` string that fully specifies what the sub-agent must do. The sub-agent has full tool access for that domain. "
+    "and a `task` string that fully specifies what the specialized task must do. The task executor has full tool access for that domain. "
     f"{SPECIALIZED_TASK_RULES}"
 )
 
@@ -324,6 +319,13 @@ CHAT HTML EXAMPLES:
 - Good: "<p>Paragraph with <strong>bold</strong> text.</p>"
 - Bad: "**bold**" (Markdown)
 - Bad: "&lt;p&gt;Paragraph&lt;/p&gt;" (escaped entities)"""
+
+# Web-research sub-agent only (main chat delegate + web-research checkbox). Facts in plain text;
+# main agent applies HTML, memory colors, and apply_document_content when the user wanted a doc edit.
+WEB_RESEARCH_PLAIN_TEXT_FORMAT = """Research output: plain text only in final_answer.
+- Use clear section headings (plain lines) and bullet lists (- item).
+- Include facts, names, dates, ratings, and sources where relevant.
+- No HTML tags, no Markdown (# or **), no JSON."""
 
 RICH_CHAT_SIDEBAR_INSTRUCTIONS = f"""{CHAT_RESPONSE_FORMAT}
 {HTML_FRAGMENT_RULES}
