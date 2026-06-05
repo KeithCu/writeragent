@@ -104,8 +104,9 @@ HTML_FRAGMENT_RULES = """
 # split inline vs display rules and examples here and in docs/math-tex.md.
 WRITER_APPLY_DOCUMENT_HTML_RULES = f"""
 APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL):
-- Parameters: `content` and `target` (required). If target='search', also `old_content` (find/replace; HTML in old_content is matched as plain text).
-- Targets: 'beginning', 'end', 'selection', 'full_document' (replaces all), or 'search'.
+- Parameters: `content` and `target` (required). If target='search', also `old_content` (a **substring** to find/replace; HTML in old_content is matched as plain text).
+- **Whole-document replace:** use target='full_document' with `content` only. **Never** pass the entire document as old_content — that is not supported and will fail search.
+- Targets: 'beginning', 'end', 'selection', 'full_document' (replaces all — preferred for rewrites/translations), or 'search' (substring find/replace only).
 - `content` must be a JSON array of HTML strings (one fragment per heading/paragraph). We wrap in <html>/<body>.
 {HTML_FRAGMENT_RULES}
 - Math: Always use inline delimiters \\(...\\) for every equation—in running text or in its own <p>. No $...$, $$...$$, \\[...\\], HTML-escaped math, equation images, or plain-text formulas like x².
@@ -199,7 +200,7 @@ def get_core_directives(model) -> str:
         return WRITER_CORE_DIRECTIVES
 
 
-TRANSLATION_RULES = "TRANSLATION: get_document_content(scope=full) -> translate -> apply_document_content(target='search', old_content=original, content=translated). Never refuse."
+TRANSLATION_RULES = "TRANSLATION: get_document_content(scope=full) -> translate -> apply_document_content(target='full_document', content=translated). Do not use old_content or target='search' for whole-document translation. Never refuse."
 
 # Tool-usage workflow patterns (no repeat of apply_document_content targets; see WRITER_APPLY_DOCUMENT_HTML_RULES).
 TOOL_USAGE_PATTERNS = """TOOL USAGE PATTERNS:

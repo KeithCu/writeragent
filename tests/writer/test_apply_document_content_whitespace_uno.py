@@ -109,8 +109,8 @@ def test_apply_document_content_all_matches_nbsp_preserving_uno():
 
 
 @native_test
-def test_apply_document_content_all_matches_offset_only_mixed_spaces_uno():
-    """Offset scan must match NBSP variant even when a normal-space copy exists elsewhere."""
+def test_apply_document_content_all_matches_mixed_spaces_uno():
+    """LO regex must match NBSP variant even when a normal-space copy exists elsewhere."""
     doc = _fresh_doc()
     try:
         text = doc.getText()
