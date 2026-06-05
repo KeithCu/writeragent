@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from typing import Any, Mapping
 
 from plugin.framework.html_stripper import strip_html_tags
 
@@ -74,6 +75,41 @@ def web_research_engine_chat_block(query_for_engine: str, *, approval_required: 
     """Same as web_search_engine_step_chat_text for step 0 (approval_required is legacy, ignored)."""
     del approval_required
     return web_search_engine_step_chat_text(query_for_engine, 0)
+
+
+def format_research_cache_result_chat(result_data: Mapping[str, Any]) -> str:
+    """Sidebar block from web_research result payload (delegate or direct tool)."""
+    cache_key = result_data.get("research_cache_key")
+    if not cache_key:
+        return ""
+    return web_research_cache_chat_text(result_data)
+
+
+def web_research_cache_chat_text(fields: Mapping[str, Any]) -> str:
+    """Sidebar notice when a web research report is served from or written to the research cache."""
+    from plugin.framework.i18n import _
+
+    event = str(fields.get("research_cache_event") or "saved")
+    cache_key = str(fields.get("research_cache_key") or "")
+    all_keys = fields.get("research_cache_keys")
+    if not isinstance(all_keys, list):
+        all_keys = None
+
+    if event == "hit_fuzzy":
+        jaccard = fields.get("research_cache_jaccard")
+        pct = int(round(float(jaccard) * 100)) if jaccard is not None else 0
+        lang = fields.get("research_cache_lang") or ""
+        matched = fields.get("research_cache_matched_key") or ""
+        lang_bit = f"{lang}: " if lang else ""
+        block = "\n" + _("Research cache hit (fuzzy, %s%% match: %s%s → %s)") % (pct, lang_bit, cache_key, matched) + "\n"
+    elif event == "hit":
+        block = "\n" + _("Research cache hit (key: %s)") % (cache_key,) + "\n"
+    else:
+        block = "\n" + _("Research cache saved (key: %s)") % (cache_key,) + "\n"
+    if all_keys:
+        block += _("Cached research keys: %s") % ", ".join(all_keys) + "\n"
+    block += "\n"
+    return block
 
 
 def web_research_outer_chat_block(outer_query: str, history_text: str | None = None) -> str:

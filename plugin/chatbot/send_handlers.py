@@ -540,12 +540,15 @@ class SendHandlersMixin:
                         data = format_error_payload(parsed_err)
 
                     if data.get("status") == "ok":
+                        from plugin.chatbot.web_research_chat import format_research_cache_result_chat
+
                         answer = data.get("result", "")
                         if not isinstance(answer, str):
                             answer = str(answer)
+                        cache_block = format_research_cache_result_chat(data)
                         self._record_assistant_start = True
-                        q.put((StreamQueueKind.CHUNK, answer + "\n"))
-                        self.session.add_assistant_message(content=answer)
+                        q.put((StreamQueueKind.CHUNK, cache_block + answer + "\n"))
+                        self.session.add_assistant_message(content=cache_block + answer)
                     else:
                         msg = data.get("message", _("Unknown research error."))
                         q.put((StreamQueueKind.CHUNK, "\n" + _("[Research error: {0}]").format(msg) + "\n"))

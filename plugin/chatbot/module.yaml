@@ -84,12 +84,39 @@ config:
 
   web_cache_validity_days:
     type: int
-    default: 7
+    default: 30
     min: 1
     max: 30
     widget: number
     label: Web Cache Validity (Days)
     helper: "How many days cache entries should be considered valid."
+
+  web_research_cache_enabled:
+    type: boolean
+    default: true
+    widget: checkbox
+    label: Web Research Cache
+    helper: "Cache completed web research reports by normalized query (reuses web search cache database)."
+
+  web_research_cache_jaccard_percent:
+    type: int
+    default: 40
+    min: 0
+    max: 100
+    widget: number
+    label: Research Cache Fuzzy Match (%)
+    helper: "Minimum similarity (0-100) for a fuzzy cache hit. JSON only (internal); default 40."
+    internal: true
+
+  web_research_cache_min_overlap:
+    type: int
+    default: 8
+    min: 0
+    max: 50
+    widget: number
+    label: Research Cache Min Stem Overlap
+    helper: "Minimum shared stem count for a fuzzy cache hit (0 disables). JSON only (internal); default 8."
+    internal: true
 
 #  api_enabled:
 #    type: boolean

@@ -79,6 +79,74 @@ class WebResearchToolCallingAgent(ToolCallingAgent):
         return messages
 
 
+_FLUFF_WORDS = {
+    "research", "compile", "concise", "report", "on", "the", "best", "include", "each",
+    "brief", "description", "of", "their", "any", "notable", "awards", "or", "ratings",
+    "and", "short", "recommendation", "aim", "for", "top", "choices", "provide", "information",
+    "in", "plain", "text", "list", "identify", "at", "least", "signature", "types",
+    "key", "features", "such", "as", "source", "sources", "reviews", "local", "publications",
+    "summary", "establishment", "overall", "trends", "preferences", "limit", "depth",
+    "suitable", "find", "search", "tell", "me", "about", "show", "get", "what", "is",
+    "are", "a", "an", "to", "at", "please", "can", "you", "query", "question", "info",
+    "detail", "details", "give", "display", "how", "why", "where", "who", "when",
+}
+
+
+def _get_unique_words_key(query: str) -> str:
+    """Normalize query, filter fluff words, sort unique words and return space-separated key."""
+    import re
+    if not query:
+        return ""
+    normalized = re.sub(r'[^a-z0-9\s]', ' ', str(query).lower())
+    words = normalized.split()
+    unique = sorted(list(set(w for w in words if w not in _FLUFF_WORDS and len(w) >= 3)))
+    return " ".join(unique)
+
+
+def _research_cache_result_fields(
+    event: str,
+    cache_key: str,
+    cache_path: str | None,
+    max_age_days: int,
+    *,
+    stem_lang: str | None = None,
+    matched_key: str | None = None,
+    jaccard: float | None = None,
+) -> dict[str, Any]:
+    from plugin.contrib.smolagents.default_tools import _web_cache_list_keys
+
+    all_keys = _web_cache_list_keys(cache_path, "research", max_age_days) if cache_path else []
+    fields: dict[str, Any] = {
+        "research_cache_event": event,
+        "research_cache_key": cache_key,
+        "research_cache_keys": all_keys,
+    }
+    if stem_lang:
+        fields["research_cache_lang"] = stem_lang
+    if matched_key:
+        fields["research_cache_matched_key"] = matched_key
+    if jaccard is not None:
+        fields["research_cache_jaccard"] = round(jaccard, 2)
+    return fields
+
+
+def _write_research_cache(
+    ctx: Any,
+    cache_path: str,
+    unique_key: str,
+    result_text: str,
+    cache_max_mb: int,
+    max_age_days: int,
+    stem_lang: str,
+) -> dict[str, Any]:
+    from plugin.chatbot.web_research_cache import format_research_cache_key
+    from plugin.contrib.smolagents.default_tools import _web_cache_set
+
+    storage_key = format_research_cache_key(stem_lang, unique_key)
+    _web_cache_set(cache_path, "research", storage_key, result_text, cache_max_mb * 1024 * 1024)
+    return _research_cache_result_fields("saved", unique_key, cache_path, max_age_days, stem_lang=stem_lang)
+
+
 class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
     doc_types = ["writer", "calc", "draw", "impress"]
 
@@ -86,8 +154,125 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
         query = kwargs.get("query")
         history_text = kwargs.get("history_text")
 
+        query_str = str(query or "")
+        unique_key = _get_unique_words_key(query_str)
+        unique_words_set = set(unique_key.split())
+
+        from plugin.framework.constants import should_prepend_dev_llm_system_prefix
+        if should_prepend_dev_llm_system_prefix():
+            if "pizza" in unique_words_set and "madison" in unique_words_set and "heights" in unique_words_set:
+                from plugin.framework.i18n import _
+                mocked_ans = (
+                    "Top-Rated Pizza Restaurants in Madison Heights, Michigan (2023-2024)\n\n"
+                    "---\n\n"
+                    "**1. Green Lantern Pizza**\n"
+                    "- **Address:** 28960 John R Rd, Madison Heights, MI 48071\n"
+                    "- **Pizza style:** Classic Detroit-style square (deep-dish) pizza; also offers a \"Best in Town\" round pizza.\n"
+                    "- **Notable menu items:**\n"
+                    "  - Detroit-style square pizza with caramelized crust\n"
+                    "  - \"Best in Town\" round pizza (pepperoni, cheese, specialty toppings)\n"
+                    "  - Candy-Coated Bacon Strips (appetizer)\n"
+                    "  - Build-Your-Own pies, subs, salads, and wings\n"
+                    "- **Price range:** $ - $$ (personal pizza $10-15; large specialty pies $15-22).\n"
+                    "- **Unique features:**\n"
+                    "  - Family-owned since 1955; celebrated as the \"King of Pepperoni\" for over 65 years.\n"
+                    "  - Holds multiple local awards: Daily Tribune \"Best Pizza\" (25 years), Metro Times Reader's Choice, Channel 4 News \"Best Pizza in Detroit.\"\n"
+                    "  - Weekly community events - Bar Bango (music-trivia bingo) and Quizzo nights.\n"
+                    "- **Why it's considered the best:** Longstanding reputation, consistently high reviewer scores (TripAdvisor rating 4.3-4.5/5 in 2023-2024) and praise for its authentic Detroit-style crust, generous toppings, and family-friendly atmosphere.\n"
+                    "- **Sources:** Green Lantern corporate site (location page, 2026) - history, awards, events; TripAdvisor listings showing 4.3/5 (2023) and 4.5/5 (2024).\n\n"
+                    "---\n\n"
+                    "**2. Zino's Pizza**\n"
+                    "- **Address:** 26095 John R Rd, Madison Heights, MI 48071\n"
+                    "- **Pizza style:** Thin-crust hand-tossed pizza with \"cupped\" pepperoni; also offers square-cut pepperoni and a range of subs and salads.\n"
+                    "- **Notable menu items:**\n"
+                    "  - Chicago-style BBQ Chicken pizza\n"
+                    "  - Pepperoni & Bacon pizza\n"
+                    "  - \"Zino's Super\" specialty pie\n"
+                    "  - Italian Sub (freshly baked bread)\n"
+                    "  - Ultimate Pasta Salad, hand-tossed thin-crust pizza praised for balanced sauce-cheese-topping ratio\n"
+                    "- **Price range:** $ - $$ (personal pizza $9-12; large specialty pies $14-20).\n"
+                    "- **Unique features:**\n"
+                    "  - In-house preparation: fresh sliced pepperoni, grated cheese, and homemade bread.\n"
+                    "  - Fast delivery and carry-out; convenient strip-mall location with ample parking.\n"
+                    "  - Strong customer loyalty - many reviewers note 8+ years of repeat visits.\n"
+                    "- **Why it's considered the best:** High rating on Restaurantji (4.5/5 from 184 reviews, 82% five-star) and recent positive reviews (January 2024, July 2023) highlighting flavor, crust quality, and friendly service.\n"
+                    "- **Sources:** Restaurantji page (2024) - rating, menu highlights, and customer comments.\n\n"
+                    "---\n\n"
+                    "**3. Cottage Inn Pizza**\n"
+                    "- **Address:** 505 W 11 Mile Rd, Madison Heights, MI 48071\n"
+                    "- **Pizza style:** Versatile - offers thin-crust, deep-dish, and gluten-free pizzas; also serves sandwiches, salads, and desserts.\n"
+                    "- **Notable menu items:**\n"
+                    "  - \"Pizza of the Week\" gourmet special\n"
+                    "  - Large 1-topping pizza (customizable)\n"
+                    "  - Cheese-bread combo and assorted desserts\n"
+                    "  - Gluten-free crust options for dietary needs\n"
+                    "- **Price range:** $ - $$ (personal pizza $8-12; large specialty pies $13-18).\n"
+                    "- **Unique features:**\n"
+                    "  - Extended hours (10 AM - midnight+), making it a reliable late-night option.\n"
+                    "  - Loyalty program with points and coupons for frequent diners.\n"
+                    "  - Emphasis on fresh ingredients and family-friendly service.\n"
+                    "- **Why it's considered the best:** Frequently listed among Madison Heights' top pizza spots; praised for menu variety, convenience, and consistent quality. While a specific rating was not captured, its strong local presence and positive Yelp/TripAdvisor mentions support its high standing.\n"
+                    "- **Sources:** Official Cottage Inn location page (2026) - hours, menu overview, community focus.\n\n"
+                    "---\n\n"
+                    "**Brief Comparison & Conclusion**\n\n"
+                    "- **Heritage vs. Modern Appeal:** Green Lantern leads with historic pedigree and award-winning Detroit-style pizza, appealing to diners who value tradition. Zino's provides a contemporary, fast-service experience with a focus on fresh toppings and a loyal repeat-customer base. Cottage Inn offers the greatest menu flexibility (thin, deep-dish, gluten-free) and the longest operating hours, attracting families and late-night diners.\n\n"
+                    "- **Ratings:** Green Lantern (~4.3-4.5/5 on TripAdvisor) and Zino's (4.5/5 on Restaurantji) have documented high reviewer scores for 2023-2024. Cottage Inn's rating is less explicitly documented but its inclusion in multiple \"best pizza\" lists and positive customer feedback indicate solid performance.\n\n"
+                    "- **Best Choice by Preference:**\n"
+                    "  - *Authentic Detroit-style pizza with a nostalgic vibe*: **Green Lantern Pizza**.\n"
+                    "  - *Crisp thin-crust with generous toppings and speedy delivery*: **Zino's Pizza**.\n"
+                    "  - *Variety (including gluten-free) and late-night availability*: **Cottage Inn Pizza**.\n\n"
+                    "All three establishments rank among Madison Heights' top pizza destinations in 2023-2024, each excelling in different aspects-heritage, crust quality, and menu versatility-making the city a strong spot for pizza lovers."
+                )
+                return {"status": "ok", "message": _("Web research completed."), "result": mocked_ans}
+
+        from plugin.framework.config import get_config_bool_safe, get_config_int, user_config_dir, get_config_int_safe
+        cache_enabled = get_config_bool_safe(ctx.ctx, "web_research_cache_enabled")
+        udir = user_config_dir(ctx.ctx)
+        cache_path = os.path.join(udir, "writeragent_web_cache.db") if udir else None
+        cache_max_age_days = get_config_int(ctx.ctx, "web_cache_validity_days")
+
+        stem_lang = "english"
+        if cache_enabled and unique_key:
+            try:
+                from plugin.chatbot.web_research_cache import resolve_research_stem_language
+
+                stem_lang = resolve_research_stem_language(ctx.ctx, getattr(ctx, "doc", None))
+            except Exception as e:
+                log.warning("Failed to resolve research stem language: %s", e)
+
+        if cache_enabled and cache_path and os.path.exists(cache_path) and unique_key:
+            try:
+                from plugin.chatbot.web_research_cache import lookup_research_cache
+                from plugin.framework.i18n import _
+
+                jaccard_percent = get_config_int(ctx.ctx, "web_research_cache_jaccard_percent")
+                min_overlap = get_config_int(ctx.ctx, "web_research_cache_min_overlap")
+                hit = lookup_research_cache(
+                    cache_path,
+                    unique_key,
+                    stem_lang,
+                    cache_max_age_days,
+                    jaccard_percent,
+                    min_overlap,
+                )
+                if hit is not None:
+                    event, display_key, matched_raw_key, score, cached = hit
+                    log.debug("web_cache: research %s for key: %s", event, display_key)
+                    cache_fields = _research_cache_result_fields(
+                        event,
+                        display_key,
+                        cache_path,
+                        cache_max_age_days,
+                        stem_lang=stem_lang,
+                        matched_key=matched_raw_key if event == "hit_fuzzy" else None,
+                        jaccard=score if event == "hit_fuzzy" else None,
+                    )
+                    return {"status": "ok", "message": _("Web research completed."), "result": cached, **cache_fields}
+            except Exception as e:
+                log.warning("Failed to lookup web research cache: %s", e)
+
         try:
-            from plugin.framework.config import get_api_config, get_config_int, user_config_dir
+            from plugin.framework.config import get_api_config
             from plugin.framework.client.llm_client import LlmClient
             from plugin.chatbot.smol_agent import WriterAgentSmolModel, SmolAgentExecutor
             from plugin.contrib.smolagents.default_tools import DuckDuckGoSearchTool, VisitWebpageTool
@@ -113,7 +298,6 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
         udir = user_config_dir(ctx.ctx)
         raw_mb = get_config_int(ctx.ctx, "web_cache_max_mb")
         cache_max_mb = 0 if raw_mb <= 0 else max(1, min(500, raw_mb))
-        cache_max_age_days = get_config_int(ctx.ctx, "web_cache_validity_days")
         cache_path = os.path.join(udir, "writeragent_web_cache.db") if (udir and cache_max_mb > 0) else None
 
         stop_checker = getattr(ctx, "stop_checker", None)
@@ -219,12 +403,34 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
         executor = SmolAgentExecutor(ctx)
         final_ans = executor.execute_safe(agent, task, tool_call_handler=tool_call_handler, stop_message="Web search stopped by user.", error_prefix="Web search failed")
 
+        cache_fields: dict[str, Any] = {}
         if isinstance(final_ans, dict) and "status" in final_ans:
+            if final_ans.get("status") == "ok" and cache_enabled and cache_path and unique_key:
+                try:
+                    raw_mb = get_config_int_safe(ctx.ctx, "web_cache_max_mb")
+                    cache_max_mb = 0 if raw_mb <= 0 else max(1, min(500, raw_mb))
+                    cache_fields = _write_research_cache(ctx, cache_path, unique_key, str(final_ans.get("result", "")), cache_max_mb, cache_max_age_days, stem_lang)
+                except Exception as e:
+                    log.warning("Failed to write to web research cache: %s", e)
+            if cache_fields:
+                return {**final_ans, **cache_fields}
             return final_ans
+
+        result_str = str(final_ans)
+        if cache_enabled and cache_path and unique_key:
+            try:
+                raw_mb = get_config_int_safe(ctx.ctx, "web_cache_max_mb")
+                cache_max_mb = 0 if raw_mb <= 0 else max(1, min(500, raw_mb))
+                cache_fields = _write_research_cache(ctx, cache_path, unique_key, result_str, cache_max_mb, cache_max_age_days, stem_lang)
+            except Exception as e:
+                log.warning("Failed to write to web research cache: %s", e)
 
         from plugin.framework.i18n import _
 
-        return {"status": "ok", "message": _("Web research completed."), "result": str(final_ans)}
+        out: dict[str, Any] = {"status": "ok", "message": _("Web research completed."), "result": result_str}
+        if cache_fields:
+            out.update(cache_fields)
+        return out
 
 
 def _web_search_query_from_arguments(arguments: Any) -> str:

@@ -101,7 +101,10 @@ def format_delegate_result_chat_line(func_args: Mapping[str, Any], result_data: 
     if result_data.get("status") == "error":
         error_msg = result_data.get("message", "Unknown error")
         return f"[delegate ({domain}) failed: {error_msg}]\n"
-    return f"[delegate ({domain}): done]\n"
+    from plugin.chatbot.web_research_chat import format_research_cache_result_chat
+
+    cache_block = format_research_cache_result_chat(result_data) if domain == "web_research" else ""
+    return cache_block + f"[delegate ({domain}): done]\n"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -395,6 +398,11 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
                 note = result_data.get("message", result_data.get("status", "done"))
                 if is_delegate_gateway(func_name):
                     effects.append(ToolLoopUIEffect(kind="append", text=format_delegate_result_chat_line(func_args, result_data)))
+                elif func_name == "web_research":
+                    from plugin.chatbot.web_research_chat import format_research_cache_result_chat
+
+                    cache_block = format_research_cache_result_chat(result_data)
+                    effects.append(ToolLoopUIEffect(kind="append", text=cache_block + f"[{func_name}: {note}]\n"))
                 else:
                     effects.append(ToolLoopUIEffect(kind="append", text=f"[{func_name}: {note}]\n"))
 

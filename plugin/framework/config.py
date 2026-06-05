@@ -257,7 +257,6 @@ _cache = ConfigCache()
 class WriterAgentConfig:
     """Dataclass schema for WriterAgent configuration."""
 
-    log_level: str = "DEBUG"
     endpoint: str = "http://127.0.0.1:5000"
     text_model: str = ""
     model: str = ""
@@ -281,20 +280,15 @@ class WriterAgentConfig:
     image_provider: str = "aihorde"
     aihorde_model: str = "stable_diffusion"
     seed: str = ""
-    chatbot_show_search_thinking: bool = False
     enable_agent_log: bool = False
     # Last extension update.xml check time (unix seconds); see modules/chatbot/extension_update_check.py
     extension_update_check_epoch: float = 0.0
-    web_cache_max_mb: int = 50
-    web_cache_validity_days: int = 7
     is_openwebui: bool = False
     extend_selection_system_prompt: str = ""
     edit_selection_system_prompt: str = ""
     audio_support_map: Dict[str, bool] = dataclasses.field(default_factory=dict)
     chat_direct_image: bool = False
     calc_prompt_max_tokens: int = 70
-    extend_selection_max_tokens: int = 1000
-    edit_selection_max_new_tokens: int = 1000
     # When True, treat endpoint as OpenRouter (e.g. custom proxy) even if the URL lacks openrouter.ai.
     is_openrouter: bool = False
     # When True, the Chat Completions request includes parallel_tool_calls: True to allow multiple tool calls.

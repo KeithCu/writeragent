@@ -100,7 +100,7 @@ def _web_cache_with_connection(db_path: str, fn):
                 raise
 
 
-def _web_cache_get(db_path: str, kind: str, key: str, max_age_days: int = 7) -> str | None:
+def _web_cache_get(db_path: str, kind: str, key: str, max_age_days: int) -> str | None:
     """Return cached value for (kind, key), or None. On hit, touch row (update created_at). No-op when SQLite unavailable."""
     if not HAS_SQLITE or not db_path or not key:
         return None
@@ -127,6 +127,25 @@ def _web_cache_get(db_path: str, kind: str, key: str, max_age_days: int = 7) -> 
         return value
 
     return _web_cache_with_connection(db_path, do_get)
+
+
+def _web_cache_list_keys(db_path: str, kind: str, max_age_days: int) -> list[str]:
+    """Return sorted cache keys for kind that are still within max_age_days. No-op when SQLite unavailable."""
+    if not HAS_SQLITE or not db_path or not kind:
+        return []
+
+    def do_list(conn):
+        max_age_seconds = max_age_days * 86400
+        now = time.time()
+        rows = conn.execute("SELECT key, created_at FROM web_cache WHERE kind = ?", (kind,)).fetchall()
+        keys = []
+        for key, created_at in rows:
+            if now - created_at <= max_age_seconds:
+                keys.append(key)
+        return sorted(keys)
+
+    result = _web_cache_with_connection(db_path, do_list)
+    return result if isinstance(result, list) else []
 
 
 def _web_cache_set(db_path: str, kind: str, key: str, value: str, max_size_bytes: int) -> None:
@@ -238,7 +257,7 @@ class DuckDuckGoSearchTool(Tool):
     inputs = {"query": {"type": "string", "description": "The search query to perform."}}
     output_type = "string"
 
-    def __init__(self, max_results: int = 10, cache_path: str | None = None, cache_max_mb: int = 50, cache_max_age_days: int = 7, **kwargs):
+    def __init__(self, cache_max_age_days: int, max_results: int = 10, cache_path: str | None = None, cache_max_mb: int = 50, **kwargs):
         super().__init__()
         self.max_results = max_results
         self._cache_path = cache_path
@@ -338,7 +357,7 @@ class VisitWebpageTool(Tool):
     inputs = {"url": {"type": "string", "description": "The url of the webpage to visit."}}
     output_type = "string"
 
-    def __init__(self, max_output_length: int = 40000, cache_path: str | None = None, cache_max_mb: int = 50, cache_max_age_days: int = 7, **kwargs):
+    def __init__(self, cache_max_age_days: int, max_output_length: int = 40000, cache_path: str | None = None, cache_max_mb: int = 50, **kwargs):
         super().__init__()
         self.max_output_length = max_output_length
         self._cache_path = cache_path

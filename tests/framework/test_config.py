@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
-from plugin.framework.config import get_api_key_for_endpoint, set_api_key_for_endpoint, get_config, get_config_int, set_config
+from plugin.framework.config import get_api_key_for_endpoint, set_api_key_for_endpoint, get_config, get_config_bool, get_config_int, set_config
 from plugin.framework.client.model_fetcher import get_image_model, set_image_model
 from plugin.framework.event_bus import global_event_bus
 from plugin.tests.testing_utils import setup_uno_mocks
@@ -158,6 +158,15 @@ class TestConfigSyncFileIO(unittest.TestCase):
         self.assertEqual(get_config(self.ctx, 'prompt_lru'), [])
         self.assertEqual(get_config(self.ctx, 'model_lru@http://127.0.0.1:5000'), [])
         self.assertEqual(get_config_int(self.ctx, 'extension_update_check_epoch'), 0)
+        # Module-yaml keys (no WriterAgentConfig dataclass field; defaults from MODULES schema)
+        self.assertEqual(get_config_int(self.ctx, 'web_cache_max_mb'), 50)
+        self.assertEqual(get_config_int(self.ctx, 'web_cache_validity_days'), 30)
+        self.assertEqual(get_config_int(self.ctx, 'extend_selection_max_tokens'), 1000)
+        self.assertEqual(get_config_bool(self.ctx, 'chatbot.show_search_thinking'), False)
+        self.assertEqual(get_config_bool(self.ctx, 'web_research_cache_enabled'), True)
+        self.assertEqual(get_config_int(self.ctx, 'web_research_cache_jaccard_percent'), 40)
+        self.assertEqual(get_config_int(self.ctx, 'web_research_cache_min_overlap'), 8)
+        self.assertEqual(get_config(self.ctx, 'log_level'), 'DEBUG')
         with self.assertRaises(ConfigError) as err_ctx:
             get_config(self.ctx, 'unknown_key')
         self.assertEqual(err_ctx.exception.details.get('key'), 'unknown_key')
@@ -290,3 +299,10 @@ class TestRobustNumericParsing(unittest.TestCase):
             config_with_extra.validate()
 
             self.assertEqual(config_with_extra._extra_config.get("mcp.mcp_port"), 8765)
+
+    def test_yaml_backed_key_extra_config_type_casting(self):
+        from plugin.framework.config import WriterAgentConfig
+
+        config = WriterAgentConfig.from_dict({"web_cache_max_mb": "50,0"})
+        config.validate()
+        self.assertEqual(config._extra_config.get("web_cache_max_mb"), 50)

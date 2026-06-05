@@ -15,6 +15,7 @@ from plugin.chatbot.web_research import (
     WebResearchToolCallingAgent,
 )
 from plugin.chatbot.web_research_chat import (
+    web_research_cache_chat_text,
     web_research_engine_chat_block,
     web_search_engine_step_chat_text,
 )
@@ -231,7 +232,11 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     model = OpenRouterSmolModel(api_key=api_key, model_id=args.model, max_tokens=args.max_tokens)
-    tools = [DuckDuckGoSearchTool(), VisitWebpageTool()]
+    from plugin.framework.config import get_config_int
+    from plugin.tests.testing_utils import MockContext
+
+    cache_max_age_days = get_config_int(MockContext(), "web_cache_validity_days")
+    tools = [DuckDuckGoSearchTool(cache_max_age_days=cache_max_age_days), VisitWebpageTool(cache_max_age_days=cache_max_age_days)]
     agent = ToolCallingAgent(tools=tools, model=model, stream_outputs=False)
 
     task = (
@@ -309,6 +314,104 @@ def test_step_index_negative_treated_as_first():
 def test_norm_research_query_collapses_whitespace_and_case():
     assert _norm_research_query("  Best  Pizza \n") == _norm_research_query("best pizza")
     assert _norm_research_query("") == ""
+
+
+def test_format_research_cache_result_chat_from_payload():
+    from plugin.chatbot.web_research_chat import format_research_cache_result_chat
+
+    assert format_research_cache_result_chat({}) == ""
+    block = format_research_cache_result_chat({
+        "research_cache_event": "hit",
+        "research_cache_key": "heights madison pizza",
+        "research_cache_keys": ["heights madison pizza"],
+    })
+    assert "Research cache hit" in block
+    assert "heights madison pizza" in block
+
+
+def test_cache_hit_does_not_stream_chat_append_callback():
+    """Cache notice is shown once via tool result / delegate line, not chat_append during execute."""
+    from plugin.chatbot.web_research import WebResearchTool
+    from plugin.tests.testing_utils import MockContext
+    from plugin.contrib.smolagents.default_tools import _web_cache_set
+
+    ctx = MagicMock()
+    ctx.ctx = MockContext()
+    chat_lines: list[str] = []
+    ctx.chat_append_callback = chat_lines.append
+
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        db_file = os.path.join(td, "writeragent_web_cache.db")
+        _web_cache_set(db_file, "research", "caching test unique", "Cached Answer Content", 50 * 1024 * 1024)
+
+        def _cfg_int(_c, key):
+            if key == "web_cache_validity_days":
+                return 30
+            if key == "web_research_cache_jaccard_percent":
+                return 40
+            if key == "web_research_cache_min_overlap":
+                return 8
+            return 50
+
+        with patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
+             patch("plugin.framework.config.user_config_dir", return_value=td), \
+             patch("plugin.framework.config.get_config_int_safe", return_value=50), \
+             patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
+             patch("plugin.framework.constants.should_prepend_dev_llm_system_prefix", return_value=False), \
+             patch("plugin.chatbot.web_research_cache.resolve_research_stem_language", return_value="english"):
+            tool = WebResearchTool()
+            res = tool.execute(ctx, query="Search for caching test unique info")
+            assert res.get("research_cache_event") == "hit"
+            assert chat_lines == []
+
+
+def test_format_delegate_result_includes_research_cache():
+    from plugin.chatbot.tool_loop_state import format_delegate_result_chat_line
+
+    line = format_delegate_result_chat_line(
+        {"domain": "web_research", "task": "pizza"},
+        {
+            "status": "ok",
+            "research_cache_event": "saved",
+            "research_cache_key": "execute new",
+            "research_cache_keys": ["execute new"],
+        },
+    )
+    assert "Research cache saved" in line
+    assert "execute new" in line
+    assert "[delegate (web_research): done]" in line
+
+
+def test_web_research_cache_chat_text_hit_and_saved():
+    hit = web_research_cache_chat_text({
+        "research_cache_event": "hit",
+        "research_cache_key": "heights madison pizza",
+        "research_cache_keys": ["heights madison pizza", "rome history"],
+    })
+    assert "Research cache hit" in hit
+    assert "heights madison pizza" in hit
+    assert "rome history" in hit
+    saved = web_research_cache_chat_text({
+        "research_cache_event": "saved",
+        "research_cache_key": "execute new",
+        "research_cache_keys": ["execute new"],
+    })
+    assert "Research cache saved" in saved
+    assert "execute new" in saved
+
+
+def test_web_research_cache_chat_text_fuzzy_hit():
+    block = web_research_cache_chat_text({
+        "research_cache_event": "hit_fuzzy",
+        "research_cache_key": "elevator space",
+        "research_cache_matched_key": "english|elevator physics",
+        "research_cache_lang": "english",
+        "research_cache_jaccard": 0.65,
+    })
+    assert "fuzzy" in block.lower()
+    assert "65%" in block
+    assert "elevator space" in block
 
 
 # =============================================================================
@@ -483,4 +586,165 @@ def test_web_research_agent_instructions_include_minimal_tool_use_advice():
 
     assert "IMPORTANT: If the user's query is a simple question that does not require deep or extensive research" not in captured["instructions"]
     assert "Avoid visiting Yelp (yelp.com) links" in captured["instructions"]
+
+
+def test_web_research_pizza_madison_heights_mocked():
+    from plugin.chatbot.web_research import WebResearchTool
+    from plugin.tests.testing_utils import MockContext
+
+    ctx = MagicMock()
+    ctx.ctx = MockContext()
+
+    with patch("plugin.framework.constants.should_prepend_dev_llm_system_prefix", return_value=True):
+        tool = WebResearchTool()
+        result = tool.execute(ctx, query="Find pizza in Madison Heights!")
+        assert result["status"] == "ok"
+        assert "Green Lantern Pizza" in result["result"]
+        assert "Zino's Pizza" in result["result"]
+
+
+def test_web_research_unique_words_key():
+    from plugin.chatbot.web_research import _get_unique_words_key
+    q = "Please find the best pizza restaurants in Madison Heights, Michigan (MI)!"
+    key = _get_unique_words_key(q)
+    # Fluff words like please, find, the, best, in are stripped; content words stay sorted unique.
+    assert key == "heights madison michigan pizza restaurants"
+    q2 = "Research a concise report on the best pizza in Madison Heights"
+    assert _get_unique_words_key(q2) == "heights madison pizza"
+
+
+def test_web_research_caching_logic(tmp_path):
+    from plugin.chatbot.web_research import WebResearchTool
+    from plugin.tests.testing_utils import MockContext
+
+    ctx = MagicMock()
+    ctx.ctx = MockContext()
+
+    db_file = str(tmp_path / "writeragent_web_cache.db")
+
+    # Set up config patches
+    def _cfg_int(_c, key):
+        if key == "web_cache_validity_days":
+            return 30
+        if key == "web_research_cache_jaccard_percent":
+            return 40
+        if key == "web_research_cache_min_overlap":
+            return 8
+        return 50
+
+    with patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
+         patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
+         patch("plugin.framework.config.get_config_int_safe", return_value=50), \
+         patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
+         patch("plugin.framework.constants.should_prepend_dev_llm_system_prefix", return_value=False), \
+         patch("plugin.chatbot.web_research_cache.resolve_research_stem_language", return_value="english"):
+
+        # Pre-populate the cache using _web_cache_set
+        from plugin.contrib.smolagents.default_tools import _web_cache_set
+        _web_cache_set(db_file, "research", "caching test unique", "Cached Answer Content", 50 * 1024 * 1024)
+
+        tool = WebResearchTool()
+        # Query that normalizes to "caching test unique"
+        res = tool.execute(ctx, query="Search for caching test unique info")
+        assert res["status"] == "ok"
+        assert res["result"] == "Cached Answer Content"
+        assert res.get("research_cache_event") == "hit"
+        assert res.get("research_cache_key") == "caching test unique"
+        from plugin.chatbot.web_research_chat import format_research_cache_result_chat
+
+        cache_chat = format_research_cache_result_chat(res)
+        assert "Research cache hit" in cache_chat
+        assert "caching test unique" in cache_chat
+
+
+def test_web_research_caching_write(tmp_path):
+    from plugin.chatbot.web_research import WebResearchTool
+    from plugin.tests.testing_utils import MockContext
+    from plugin.contrib.smolagents.default_tools import _web_cache_get
+
+    ctx = MagicMock()
+    ctx.ctx = MockContext()
+    setattr(ctx.ctx, "getServiceManager", MagicMock())
+
+    db_file = str(tmp_path / "writeragent_web_cache.db")
+
+    # Ensure empty db exists by writing something and checking
+    from plugin.contrib.smolagents.default_tools import _web_cache_set
+    _web_cache_set(db_file, "research", "dummy", "val", 1024 * 1024)
+
+    def _cfg_int(_c, key):
+        if key == "web_cache_validity_days":
+            return 30
+        if key == "web_research_cache_jaccard_percent":
+            return 40
+        if key == "web_research_cache_min_overlap":
+            return 8
+        return 50
+
+    with patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
+         patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
+         patch("plugin.framework.config.get_config_int_safe", return_value=50), \
+         patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
+         patch("plugin.framework.constants.should_prepend_dev_llm_system_prefix", return_value=False), \
+         patch("plugin.framework.config.get_api_config", return_value={}), \
+         patch("plugin.chatbot.web_research_cache.resolve_research_stem_language", return_value="english"), \
+         patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_exec:
+
+        mock_exec.return_value.execute_safe.return_value = "Live Searched Output"
+
+        tool = WebResearchTool()
+        res = tool.execute(ctx, query="Execute a new search query")
+        assert res["status"] == "ok"
+        assert res["result"] == "Live Searched Output"
+
+        # Check database directly (new writes use lang-prefixed keys)
+        cached = _web_cache_get(db_file, "research", "english|execute new", max_age_days=30)
+        assert cached == "Live Searched Output"
+        assert res.get("research_cache_event") == "saved"
+        assert res.get("research_cache_key") == "execute new"
+        from plugin.chatbot.web_research_chat import format_research_cache_result_chat
+
+        cache_chat = format_research_cache_result_chat(res)
+        assert "Research cache saved" in cache_chat
+        assert "execute new" in cache_chat
+        assert "Cached research keys" in cache_chat
+
+
+def test_web_research_caching_disabled_bypasses_cache(tmp_path):
+    from plugin.chatbot.web_research import WebResearchTool
+    from plugin.tests.testing_utils import MockContext
+    from plugin.contrib.smolagents.default_tools import _web_cache_set
+
+    ctx = MagicMock()
+    ctx.ctx = MockContext()
+    setattr(ctx.ctx, "getServiceManager", MagicMock())
+
+    db_file = str(tmp_path / "writeragent_web_cache.db")
+    _web_cache_set(db_file, "research", "caching test unique", "Cached Answer Content", 50 * 1024 * 1024)
+
+    def _cfg_int(_c, key):
+        if key == "web_cache_validity_days":
+            return 30
+        if key == "web_research_cache_jaccard_percent":
+            return 40
+        if key == "web_research_cache_min_overlap":
+            return 8
+        return 50
+
+    with patch("plugin.framework.config.get_config_bool_safe", return_value=False), \
+         patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
+         patch("plugin.framework.config.get_config_int_safe", return_value=50), \
+         patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
+         patch("plugin.framework.constants.should_prepend_dev_llm_system_prefix", return_value=False), \
+         patch("plugin.framework.config.get_api_config", return_value={}), \
+         patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_exec:
+
+        mock_exec.return_value.execute_safe.return_value = "Live Searched Output"
+
+        tool = WebResearchTool()
+        res = tool.execute(ctx, query="Search for caching test unique info")
+        assert res["status"] == "ok"
+        assert res["result"] == "Live Searched Output"
+        mock_exec.return_value.execute_safe.assert_called_once()
+
 

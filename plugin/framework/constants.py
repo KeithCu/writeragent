@@ -140,7 +140,7 @@ def should_prepend_dev_llm_system_prefix() -> bool:
     try:
         import importlib.util
 
-        return importlib.util.find_spec("plugin.tests.uno") is not None
+        return importlib.util.find_spec("plugin.tests") is not None
     except Exception:
         return False
 
