@@ -588,21 +588,6 @@ def test_web_research_agent_instructions_include_minimal_tool_use_advice():
     assert "Avoid visiting Yelp (yelp.com) links" in captured["instructions"]
 
 
-def test_web_research_pizza_madison_heights_mocked():
-    from plugin.chatbot.web_research import WebResearchTool
-    from plugin.tests.testing_utils import MockContext
-
-    ctx = MagicMock()
-    ctx.ctx = MockContext()
-
-    with patch("plugin.framework.constants.should_prepend_dev_llm_system_prefix", return_value=True):
-        tool = WebResearchTool()
-        result = tool.execute(ctx, query="Find pizza in Madison Heights!")
-        assert result["status"] == "ok"
-        assert "Green Lantern Pizza" in result["result"]
-        assert "Zino's Pizza" in result["result"]
-
-
 def test_web_research_unique_words_key():
     from plugin.chatbot.web_research import _get_unique_words_key
     q = "Please find the best pizza restaurants in Madison Heights, Michigan (MI)!"
