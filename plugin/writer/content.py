@@ -42,33 +42,70 @@ _MAX_SEARCH_REPLACEMENTS = 200
 # | U+0020 | SPACE                        | no                      | target; not mapped |
 # | U+00A0 | NO-BREAK SPACE               | yes                     | mapped today |
 # | U+1680 | OGHAM SPACE MARK             | no                      | OGHAM SPACE MARK; rare in Writer |
-# | U+2000 | EN QUAD                      | no                      | 1:1 width; add to map + regex if reports |
-# | U+2001 | EM QUAD                      | no                      | 1:1 width; add to map + regex if reports |
-# | U+2002 | EN SPACE                     | no                      | 1:1 width; add to map + regex if reports |
-# | U+2003 | EM SPACE                     | no                      | 1:1 width; add to map + regex if reports |
-# | U+2004 | THREE-PER-EM SPACE           | no                      | 1:1 width; add to map + regex if reports |
-# | U+2005 | FOUR-PER-EM SPACE            | no                      | 1:1 width; add to map + regex if reports |
-# | U+2006 | SIX-PER-EM SPACE             | no                      | 1:1 width; add to map + regex if reports |
+# | U+2000 | EN QUAD                      | yes                     | mapped today |
+# | U+2001 | EM QUAD                      | yes                     | mapped today |
+# | U+2002 | EN SPACE                     | yes                     | mapped today |
+# | U+2003 | EM SPACE                     | yes                     | mapped today |
+# | U+2004 | THREE-PER-EM SPACE           | yes                     | mapped today |
+# | U+2005 | FOUR-PER-EM SPACE            | yes                     | mapped today |
+# | U+2006 | SIX-PER-EM SPACE             | yes                     | mapped today |
 # | U+2007 | FIGURE SPACE                 | yes                     | mapped today |
-# | U+2008 | PUNCTUATION SPACE            | no                      | 1:1 width; add to map + regex if reports |
+# | U+2008 | PUNCTUATION SPACE            | yes                     | mapped today |
 # | U+2009 | THIN SPACE                   | yes                     | mapped today |
-# | U+200A | HAIR SPACE                   | no                      | 1:1 width; add to map + regex if reports |
+# | U+200A | HAIR SPACE                   | yes                     | mapped today |
 # | U+202F | NARROW NO-BREAK SPACE        | yes                     | mapped today |
-# | U+205F | MEDIUM MATHEMATICAL SPACE    | no                      | 1:1 width; add to map + regex if reports |
-# | U+3000 | IDEOGRAPHIC SPACE            | no                      | CJK ideographic space; add if CJK edits miss |
+# | U+205F | MEDIUM MATHEMATICAL SPACE    | yes                     | mapped today |
+# | U+3000 | IDEOGRAPHIC SPACE            | yes                     | mapped today |
 #
-# FOLLOW-UP (intentionally not done in the NBSP fix — expand when we see real misses):
-# - Add more rows from the table to _SPACE_CODEPOINTS; update _HORIZONTAL_SPACE_RE too.
-# - target_resolver.resolve_target_cursor: call _find_first_range instead of duplicating LO loop.
-# - format.py search-replace helpers: still LO-only for non-apply_document_content callers.
-# - all_matches LO findNext fast path merged with offset scan (dedupe by start) if perf matters.
-# - Offset case-insensitive pass: casefold() or re.IGNORECASE instead of .lower() for rare
-#   Unicode folds that change length (Turkish I, German ß); LO handles case on single-match fast path.
-# - Nested XText search (tables, frames, headers): _find_range_by_offset, _find_all_ranges, and
-#   format.find_text_ranges use body text and/or body-relative offsets — see comments on those
-#   functions. Single-match apply_document_content still prefers doc.findFirst (works in cells).
-# - Markup apply in nested XText: replace_single_range_with_content + HTML import (body end cursor).
-_SPACE_CODEPOINTS = (0x00A0, 0x202F, 0x2007, 0x2009)
+# DEVELOPER DISCUSSION / FUTURE WORK (Intentionally deferred to avoid complexity):
+#
+# - Format.py search-replace helpers:
+#   Functions like format.find_text_ranges are currently LO-native only. If they need to handle
+#   the exotic unicode spaces (like NBSP, Thin Space), we would need to integrate the Python-level
+#   fallback here. Deferred because non-apply_document_content callers are internal or benchmark-only.
+#
+# - all_matches LO findNext fast path hybrid:
+#   Currently, _find_all_ranges (all_matches=True) uses Python-level full-text scanning. We could
+#   theoretically run LO findNext first and merge it with the offset fallback (deduplicated by start index)
+#   for performance. Deferred because Python's string scan is extremely fast (<1ms) for documents
+#   under the 200-replacement limit, and a hybrid path introduces offset misalignment bugs.
+#
+# - Casefolding & Unicode length changes:
+#   Case-insensitive lookup uses .lower() which fails for German ß (folds to ss, changing length)
+#   or Turkish I. Using .casefold() resolves the fold, but changes string length. If length changes,
+#   character offset cursors (like goRight) will highlight the wrong text. Deferred because fixing this
+#   requires complex character mapping tracking, which is overkill for rare edge cases.
+#
+# - Nested XText search (tables, cells, frames, headers/footers):
+#   _find_range_by_offset and _find_all_ranges scan doc.getText(), which only covers the document body.
+#   Search targets inside tables or text frames will be missed by the Python-level fallback.
+#   We keep it this way because single-match searches prefer LO's native findFirst (which searches cells/frames).
+#   To fix this, we would need to recursively scan all nested XText containers, which is highly complex.
+#
+# - Markup apply in nested XText:
+#   When inserting HTML/markup inside a table cell, the HTML import helper (replace_single_range_with_content)
+#   can sometimes jump the cursor to the end of the document body rather than the cell's end. This is a potential
+#   real-world bug if the AI attempts to write rich formatting/math inside cells, but we defer it until we
+#   receive actual user bug reports due to the complexity of relative cursor mapping in nested XText.
+_SPACE_CODEPOINTS = (
+    0x00A0,  # NO-BREAK SPACE
+    0x202F,  # NARROW NO-BREAK SPACE
+    0x2007,  # FIGURE SPACE
+    0x2009,  # THIN SPACE
+    # Typographic spaces
+    0x2000,  # EN QUAD
+    0x2001,  # EM QUAD
+    0x2002,  # EN SPACE
+    0x2003,  # EM SPACE
+    0x2004,  # THREE-PER-EM SPACE
+    0x2005,  # FOUR-PER-EM SPACE
+    0x2006,  # SIX-PER-EM SPACE
+    0x2008,  # PUNCTUATION SPACE
+    0x200A,  # HAIR SPACE
+    0x205F,  # MEDIUM MATHEMATICAL SPACE
+    # CJK space
+    0x3000,  # IDEOGRAPHIC SPACE
+)
 _SPACE_NORMALIZE_MAP = {cp: " " for cp in _SPACE_CODEPOINTS}
 # Regex class for _normalize_search_string_for_find — must stay aligned with _SPACE_CODEPOINTS.
 _HORIZONTAL_SPACE_RE = r"[ \t" + "".join("\\u%04x" % cp for cp in _SPACE_CODEPOINTS) + "]+"

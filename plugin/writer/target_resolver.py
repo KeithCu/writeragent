@@ -1,6 +1,6 @@
 import re as re_mod
 import logging
-from .content import _normalize_search_string_for_find, _find_range_by_offset
+from .content import _normalize_search_string_for_find, _find_first_range
 from .format import content_has_markup, html_to_plain_text
 
 log = logging.getLogger("writeragent.writer")
@@ -60,24 +60,7 @@ def resolve_target_cursor(ctx, target, old_content):
     if not search_string:
         raise ValueError("old_content is empty after normalization.")
 
-    sd = doc.createSearchDescriptor()
-    sd.SearchRegularExpression = False
-    found = None
-
-    for try_string in (search_string, re_mod.sub(r" +", " ", search_string.replace("\n", " ")).strip()):
-        if not try_string:
-            continue
-        sd.SearchString = try_string
-        for case_sens in (True, False):
-            sd.SearchCaseSensitive = case_sens
-            found = doc.findFirst(sd)
-            if found is not None:
-                break
-        if found is not None:
-            break
-
-    if found is None:
-        found = _find_range_by_offset(doc, search_string)
+    found = _find_first_range(doc, search_string)
 
     if found is None:
         raise ValueError("old_content not found in document. Try a shorter, unique substring.")
