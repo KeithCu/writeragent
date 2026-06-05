@@ -1,4 +1,3 @@
-import re as re_mod
 import logging
 from .content import _normalize_search_string_for_find, _find_first_range
 from .format import content_has_markup, html_to_plain_text

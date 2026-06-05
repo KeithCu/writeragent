@@ -17,7 +17,6 @@
 """Draw charting tools leveraging shared chart implementation."""
 
 import logging
-from plugin.framework.tool import ToolBaseDummy
 from plugin.draw.base import ToolDrawChartBase
 from plugin.calc.charts import (
     ListCharts as CalcListCharts,
