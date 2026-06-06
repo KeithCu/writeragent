@@ -1,8 +1,158 @@
-# NumPy Serialization
+# Venv subprocess IPC & NumPy serialization
 
 Back to the [core NumPy and Python guide](enabling_numpy_in_libreoffice.md).
 
-This page collects the serialization details for WriterAgent's out-of-process NumPy bridge: the unified `split_grid` standard, benchmark results, pipeline costs, future profiling work, and native host-extension notes. The core guide stays focused on setup, execution, safety, and Calc usage.
+This page is the technical reference for WriterAgent's **host↔venv compute bridge**: warm worker lifecycle, length-prefixed Pickle5 IPC, Linux pipe performance, wire formats (`split_grid`, `multi_data`), benchmarks, pipeline costs, and future optimization work. The [core guide](enabling_numpy_in_libreoffice.md) covers ABI strategy, Settings, sandbox safety, trusted extension code, and `=PYTHON()` author UX.
+
+## Table of contents
+
+1. [Subprocess architecture](#subprocess-architecture)
+2. [Warm worker lifecycle](#warm-worker-lifecycle)
+3. [Worker protocol](#worker-protocol)
+4. [Subprocess IPC performance (Linux)](#subprocess-ipc-performance-linux)
+5. [Subprocess module map and config](#subprocess-module-map-and-config)
+6. [Serialization](#serialization-optimization-opportunities)
+7. [Matrix formula result session (IPC reduction)](#matrix-formula-result-session-ipc-reduction)
+8. [Multi-range wire format](#multi-range-wire-format)
+
+---
+
+## Subprocess architecture
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                    LibreOffice Process                    │
+│                                                          │
+│  ┌─────────────┐    ┌──────────────────────────────────┐ │
+│  │  LLM / Chat │───▶│  run_venv_python_script / =PYTHON │ │
+│  │  (tool loop) │    │  → run_code_in_user_venv          │ │
+│  └─────────────┘    └──────────┬───────────────────────┘ │
+│                                │                         │
+│                     ┌──────────▼───────────────────────┐ │
+│                     │  PythonWorkerManager             │ │
+│                     │  warm venv process               │ │
+│                     │  worker_harness → venv_sandbox   │ │
+│                     └──────────┬───────────────────────┘ │
+│                                │ length-prefixed Pickle5 │
+│                     ┌──────────▼───────────────────────┐ │
+│                     │  User venv Python (subprocess)   │ │
+│                     │  LocalPythonExecutor + whitelist │ │
+│                     └──────────┬───────────────────────┘ │
+│                                │ result / stdout         │
+│                     ┌──────────▼───────────────────────┐ │
+│                     │  LLM → Calc/Writer tools         │ │
+│                     └──────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────┘
+```
+
+LibreOffice's embedded Python and the user's venv are **different interpreters** ([core §1](enabling_numpy_in_libreoffice.md#1-the-problem-abi-and-embedded-python)). The subprocess boundary is the hard safety line for C extensions; serialization is how `data` and `result` cross it.
+
+---
+
+## Warm worker lifecycle {#warm-worker-lifecycle}
+
+| Layer | Behavior |
+|-------|----------|
+| `PythonWorkerManager` | One subprocess per resolved venv `python`; respawns on crash/timeout; auto-warms before first timed execute |
+| `worker_harness.py` | Read loop; delegates to `venv_sandbox.run_sandboxed_code` |
+| `venv_sandbox.py` | **Isolated (default):** new `LocalPythonExecutor` per request. **Shared kernel:** one executor per `calc:…` session id; inject `data`; serialize `result` |
+| **Code hot cache** | [`sandbox_cache.py`](../plugin/scripting/sandbox_cache.py): SHA-256 keyed LRU (default 4096) caches **parsed AST** + **static** sandbox policy per unchanged source + import allowlist. Skips re-parse and re-validation on recalc; **does not** cache execution `result` or variables. Separate from host [Worker Result Session](#matrix-formula-result-session-ipc-reduction). Also used by in-process [`execute_python_script`](../plugin/calc/python_executor.py). |
+
+**Reset:** `reset_session` / **WriterAgent → Reset Python Session** drops the shared executor (and paired `:init` session). Shared-kernel **Calc semantics** (recalc, idempotent cells): [core §7 — Calc UX](enabling_numpy_in_libreoffice.md#calc-ux-and-output-enhancements).
+
+Implementation: [`venv_worker.py`](../plugin/scripting/venv_worker.py), [`worker_harness.py`](../plugin/scripting/worker_harness.py), [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py).
+
+---
+
+## Worker protocol {#worker-protocol}
+
+Production IPC uses **length-prefixed Pickle5 frames** on stdin/stdout (not JSON lines). Each frame is a pickled request/response dict; large `data` / `result` values use [`split_grid`](#strategy-3-split-grid-serialization-detail) or nested lists inside that dict.
+
+### Length-prefixed framing
+
+To guarantee complete frame assembly over asynchronous UNIX pipe crossings, `PythonWorkerManager` and [`worker_harness.py`](../plugin/scripting/worker_harness.py) use:
+
+- **Write frame:** `pickle.dumps(request, protocol=5)` → 4-byte big-endian length (`struct.pack("!I", N)`) → `N` raw bytes on the pipe.
+- **Read frame:** read exactly 4 bytes → `_read_exact(N)` with `select` + blocking read → `pickle.loads(payload)`.
+
+Env scrub on spawn: strip vars matching `KEY`/`TOKEN`/`SECRET`/`PASSWORD`/`AUTH`; set `PYTHONIOENCODING=utf-8`, `PYTHONUTF8=1`, `PYTHONDONTWRITEBYTECODE=1`; process-group kill on timeout (patterns aligned with robust agent runners such as Hermes).
+
+### Request / response fields
+
+**Host → worker (stdin):**
+
+| Field | Required | Meaning |
+|-------|----------|---------|
+| `id` | Yes | Correlation id |
+| `code` | Yes | Python source (or harness `action` for non-code requests) |
+| `data` | No | Injected as variable `data` in a fresh namespace (nested lists or [`split_grid`](#strategy-3-split-grid-serialization-detail) envelope when dense numeric/mixed 2D) |
+
+**Worker → host (stdout):**
+
+| Field | When | Meaning |
+|-------|------|---------|
+| `id` | Always | Echo request id |
+| `status` | Always | `"ok"` or `"error"` |
+| `result` | `status == "ok"` | Serialized return value (`result` variable or last expression) |
+| `stdout` | Optional | Captured prints / executor logs |
+| `message` / `error` | `status == "error"` | Failure text |
+
+### Venv ↔ LibreOffice tool RPC (deferred)
+
+**Current (production):** pure data-in/data-out — no UNO bridge from the venv during script evaluation. The model uses a [two-phase workflow](enabling_numpy_in_libreoffice.md#two-phase-llm-workflow): compute in venv, then host tools (`write_formula_range`, `create_chart`, …).
+
+**Intended:** worker writes `tool_call` lines; `PythonWorkerManager` dispatches via `ToolRegistry`, returns `tool_result`, resumes until `code_result`. Stubs in [`writeragent_api.py`](../plugin/scripting/writeragent_api.py); full sketch in [core §7 — tool RPC](enabling_numpy_in_libreoffice.md#venv--libreoffice-tool-rpc).
+
+Bidirectional **tool RPC** from the venv back into LibreOffice is **not** wired yet.
+
+---
+
+## Subprocess IPC performance (Linux) {#subprocess-ipc-performance-linux}
+
+When executing Python code or transporting dense matrix data on Linux, the compute bridge operates over standard UNIX pipes with outstanding efficiency and sub-millisecond latency.
+
+### Under-the-hood mechanics
+
+- **UNIX Pipes via `pipe2(2)`**: When `PythonWorkerManager` spawns the venv subprocess, it specifies `stdin=subprocess.PIPE` and `stdout=subprocess.PIPE`. Under the hood, Python calls the Linux kernel's `pipe2(2)` system call to establish private, unidirectional in-memory data channels.
+- **Kernel-Buffered Transit**: These pipes are backed by kernel-space ring buffers (defaulting to **64 KiB** since Linux 2.6.11, and dynamically scaling or configurable up to 1 MiB). On Linux, [`PythonWorkerManager`](../plugin/scripting/venv_worker.py) requests **1 MiB** via `F_SETPIPE_SZ` when spawning the worker ([`optimize_popen_pipes`](../plugin/scripting/subprocess_helpers.py)).
+- **Zero Disk/Network Overhead**: Data is written by the host directly to the kernel pipe buffer and read by the child process from the same buffer. The transaction resides entirely in RAM.
+- **Efficient Context Switching**: Copies via `copy_to_user` / `copy_from_user`; context switches between host and warm worker typically **1–5 microseconds**.
+
+### Speed and throughput
+
+- **RAM-to-RAM Bandwidth**: Modern memory channels sustain **20 GB/s–60+ GB/s** copy speeds.
+- **Sub-Millisecond E2E Latency** with **Pickle5 + Split-Grid** (no JSON text parsing or Base64 expansion):
+  - **100×100 grid** (~78 KiB): egress unpack + materialize ~**0.503 ms**
+  - **1000-cell array**: E2E **&lt; 0.08 ms**
+- **Zero IPC Bottleneck** for typical scientific workloads — pipe + serialization cost is negligible vs NumPy compute.
+
+---
+
+## Subprocess module map and config {#subprocess-module-map-and-config}
+
+```
+plugin/scripting/
+├── venv_worker.py            # Path resolve, warm worker, run_code_in_user_venv
+├── subprocess_helpers.py     # Env scrub, Flatpak spawn, pipe sizing
+├── config_limits.py          # Timeout + max data cells from module.yaml
+├── sandbox_cache.py          # AST policy + parse hot cache
+├── worker_harness.py         # Stdin/stdout loop in venv (child entry)
+├── venv_sandbox.py           # LocalPythonExecutor + VENV_AUTHORIZED_IMPORTS
+└── payload_codec.py          # split_grid / multi_data pack/unpack
+```
+
+Calc ingress/egress entry points: [`calc_addin_data.py`](../plugin/calc/calc_addin_data.py), [`python_function.py`](../plugin/calc/python_function.py), [`venv_python.py`](../plugin/calc/venv_python.py).
+
+| Key | Shipped | Role |
+|-----|---------|------|
+| `scripting.python_max_data_cells` | Yes | Max cells in `=PYTHON()` / Run Python Script `data` / `data_range` (default **250 000**, clamp **1 000–2 000 000**); see [`config_limits.py`](../plugin/scripting/config_limits.py) |
+
+Defined in [`plugin/scripting/module.yaml`](../plugin/scripting/module.yaml) / Settings → Python (`scripting__python_max_data_cells`).
+
+- **Early enforcement:** [`check_python_data_size`](../plugin/calc/calc_addin_data.py) runs **before** pack/serialize to avoid wasted flatten work.
+- **Timeout** (`scripting.python_exec_timeout`) and **venv path** are documented in the [core user guide](enabling_numpy_in_libreoffice.md#settings--python).
+
+---
 
 ## Serialization optimization opportunities
 
@@ -385,7 +535,38 @@ Calc UNO range
 
 **Pickle Protocol 5:** Standardized as the exclusive production serialization protocol on the worker path. Opaque msgpack, mmap, and shared memory remain deferred. [`SafeSerializer`](../plugin/contrib/smolagents/serialization.py) (`__type__: ndarray`) is **not** on the worker path — only [`payload_codec.py`](../plugin/scripting/payload_codec.py).
 
-**Fresh namespace every call** ([core strategy](enabling_numpy_in_libreoffice.md#2-strategy-decision)): there is no worker-side variable cache; the same `A1:Z1000` range is re-serialized on every `=PYTHON()` or `run_venv_python_script` invocation unless the product adds an explicit cache ([core roadmap](enabling_numpy_in_libreoffice.md#7-deferred-roadmap)).
+**Fresh namespace every call** ([core strategy](enabling_numpy_in_libreoffice.md#2-strategy-decision)): there is no worker-side variable cache; the same `A1:Z1000` range is re-serialized on every `=PYTHON()` or `run_venv_python_script` invocation unless the product adds an explicit cache ([Priority 6 — worker payload cache](#priority-6--worker-payload-cache-same-range-many-recalcs)).
+
+### Matrix formula result session (IPC reduction) {#matrix-formula-result-session-ipc-reduction}
+
+Calc add-ins return **one scalar per evaluation**. A 1,000-row matrix formula would otherwise cause 1,000 IPC crossings and serialization pack taxes.
+
+WriterAgent implements a **Worker Result Session** cache ([`_WorkerResultSession`](../plugin/calc/python_function.py)):
+
+1. **First cell** in the range runs the full worker; the serialized list is cached on the **LibreOffice host**.
+2. **Remaining cells** with the same `code` + `data` signature bypass the worker and read by index from the host cache.
+3. **`ROW()-n` pattern:** pass `ROW()-n` as the 2nd argument so each cell pulls the correct list element regardless of Calc evaluation order.
+
+This caches **execution output** on the host — separate from the worker [**code hot cache**](#warm-worker-lifecycle) (AST parse + static policy only).
+
+**Benefits:** ~**99.9% IPC reduction** for large matrix columns; one subprocess + serialize cost per range per recalc pass. Author UX (Ctrl+Shift+Enter, `ROW()`): [core §6 — Matrix formulas](enabling_numpy_in_libreoffice.md#2-normal-single-cell-formulas-vs-matrix-array-formulas).
+
+### Multi-range wire format {#multi-range-wire-format}
+
+**Status:** Shipped (2026-05) — varargs IDL + `multi_data` envelope.
+
+Multiple ranges use a `multi_data` envelope (`__wa_payload__`: `"multi_data"`, `items`: per-range `split_grid` or nested lists) so a list of 1D ranges is not confused with one 2D grid. Single-range wire format is unchanged.
+
+| Layer | Module |
+|-------|--------|
+| Arg split / convert | [`calc_addin_data.py`](../plugin/calc/calc_addin_data.py) — `split_python_addin_data_args`, `calc_addin_args_to_python` |
+| Add-in execution | [`python_function.py`](../plugin/calc/python_function.py) |
+| Wire codec | [`payload_codec.py`](../plugin/scripting/payload_codec.py) — `host_pack_multi_data`, `child_unpack_data` |
+| Tests | [`test_calc_addin_data.py`](../tests/calc/test_calc_addin_data.py), [`test_python_function_multi.py`](../tests/calc/test_python_function_multi.py), [`serialization_ab_support.py`](../tests/scripting/serialization_ab_support.py) |
+
+**Future work:** Hypothesis/CrossHair fuzz for list-of-grids (`serialization_ab_support.py` TODOs); live Calc UNO multi-range suite; chat tool multi `data_range` parity with formula varargs.
+
+User-facing varargs examples: [core §9 — Multi-Range Support](enabling_numpy_in_libreoffice.md#9-multi-range-support-varargs).
 
 ### Design constraints
 
@@ -535,7 +716,7 @@ Fresh namespace per call stays ([core strategy](enabling_numpy_in_libreoffice.md
 |----------|-------------|
 | **Vendored Codecs** (orjson / msgpack on host) | Whole-line `json.dumps` / `json.loads` dominates after Priority 1 |
 | **Mmap** (temp file) | Payloads near `scripting.python_max_data_cells` (default 250 k, Settings → Python); stdin size or base64 RAM spikes |
-| **Tool RPC** ([core RPC roadmap](enabling_numpy_in_libreoffice.md#venv--libreoffice-tool-rpc)) | Sheet output should not round-trip huge `result` through JSON at all |
+| **Tool RPC** ([core RPC roadmap](enabling_numpy_in_libreoffice.md#venv--libreoffice-tool-rpc)) | Sheet output should not round-trip huge `result` through pickle at all |
 
 #### Completed: Split-Grid inside Pickle Optimization & May 2026 Refactor
 
@@ -718,21 +899,3 @@ UNO read → Py list per cell → host_pack (array.tobytes) → pickle.dumps (pr
 | Same range every recalc | Priority 2 (ROW index), Priority 6 (cache) |
 | Giant `result` in chat | Priority 2 (Tier 0), tool RPC |
 | DataFrame `.to_dict` | Priority 5 |
-
----
-
-### Advanced IPC Framing and Infrastructure Notes (May 2026 Refinements)
-
-#### 1. Length-Prefixed IPC Framing Protocol
-To guarantee complete frame assembly over asynchronous UNIX pipe crossings without risk of partial buffer corruption, `PythonWorkerManager` and `worker_harness.py` operate on an explicit length-prefixed protocol:
-- **Write Frame**: Every request/response dictionary is serialized via Pickle5. The binary payload length `N` is packed into a 4-byte big-endian unsigned integer header (`struct.pack("!I", N)`). The header is written to the pipe first, followed immediately by the `N` raw bytes of the Pickle5 stream.
-- **Read Frame**: The receiving peer reads exactly 4 bytes to unpack the payload size `N`. It then executes an exact blocking `_read_exact(N)` loop utilizing `select.select` and `stdout.read` to reconstruct the complete payload body before executing `pickle.loads(payload)`. This prevents asynchronous pipe truncation under high numeric workloads.
-
-#### 2. Venv ↔ LibreOffice Tool RPC Status (Current vs. Intended)
-- **Current Status (Production)**: The tool RPC path is **deferred**. The sandboxed child execution environment operates as a pure data-in/data-out pipeline. There is no active UNO bridge or runtime execution connection from the sandboxed venv back into LibreOffice during script evaluation. Instead, the model acts as a two-phase agent: (1) calls `run_venv_python_script` to do heavy NumPy/Pandas computation in the sandboxed venv and reads `result`; (2) invokes normal LibreOffice chat tools (`write_formula_range`, `create_chart`) in the host to write the computed data into the document.
-- **Intended Future State**: The worker harness will support bidirectional `tool_call` messaging. Stubs in `writeragent_api.py` (e.g. `footnote.insert(...)`) will write JSON-RPC lines on stdout. `PythonWorkerManager` will intercept these mid-execution, execute the matching host UNO tool, write the `tool_result` back to the worker's stdin, and resume the script execution until the final result is completed.
-
-#### 3. Data Limit Interaction
-The maximum number of cells allowed to cross the serialization boundary is strictly governed by the **Settings → Python** key `scripting.python_max_data_cells` (default **250,000**, clamp **1,000–2,000,000**).
-- **Early Enforcement**: To avoid wasteful CPU cycles flattening and serializing ranges that exceed user parameters, data caps are checked and enforced **before** serialization begins.
-- **Execution Path**: Inside `calc_addin_data.py`, `check_python_data_size` measures the cell counts of the resolved range, raising a descriptive error early if the boundary is exceeded, protecting host memory from base64/array expansions.
