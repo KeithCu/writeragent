@@ -34,9 +34,11 @@ _ENVELOPE_VERSION = 1
 SCRIPT_ORIGIN_USER = "user"
 SCRIPT_ORIGIN_DOCUMENT = "document"
 SCRIPT_ORIGIN_ANALYSIS = "analysis"
+SCRIPT_ORIGIN_VISION = "vision"
 
 DOC_SCRIPT_DISPLAY_PREFIX = "[Doc] "
 ANALYSIS_SCRIPT_DISPLAY_PREFIX = "[Analysis] "
+VISION_SCRIPT_DISPLAY_PREFIX = "[Vision] "
 
 
 def _normalize_doc_url(url: Any) -> str:
@@ -245,6 +247,16 @@ def parse_analysis_script_display_name(display: str) -> str | None:
     return None
 
 
+def vision_script_display_name(name: str) -> str:
+    return f"{VISION_SCRIPT_DISPLAY_PREFIX}{name}"
+
+
+def parse_vision_script_display_name(display: str) -> str | None:
+    if display.startswith(VISION_SCRIPT_DISPLAY_PREFIX):
+        return display[len(VISION_SCRIPT_DISPLAY_PREFIX) :]
+    return None
+
+
 def resolve_script_picker_entry(display_name: str, origin_map: dict[str, str]) -> tuple[str, str]:
     """Return (real_name, origin) for a listbox/display label."""
     origin = origin_map.get(display_name, SCRIPT_ORIGIN_USER)
@@ -254,6 +266,9 @@ def resolve_script_picker_entry(display_name: str, origin_map: dict[str, str]) -
     if origin == SCRIPT_ORIGIN_ANALYSIS:
         real = parse_analysis_script_display_name(display_name)
         return (real or display_name, SCRIPT_ORIGIN_ANALYSIS)
+    if origin == SCRIPT_ORIGIN_VISION:
+        real = parse_vision_script_display_name(display_name)
+        return (real or display_name, SCRIPT_ORIGIN_VISION)
     return (display_name, SCRIPT_ORIGIN_USER)
 
 
@@ -270,6 +285,21 @@ def _analysis_script_section(doc: Any | None) -> dict[str, Any] | None:
     templates = get_analysis_script_templates()
     display_scripts = {analysis_script_display_name(name): code for name, code in templates.items()}
     return {"id": SCRIPT_ORIGIN_ANALYSIS, "title": _("Analysis Helpers"), "scripts": display_scripts}
+
+
+def _vision_script_section(doc: Any | None) -> dict[str, Any] | None:
+    if doc is None:
+        return None
+    try:
+        if not is_writer(doc):
+            return None
+    except Exception:
+        return None
+    from plugin.scripting.vision_templates import get_vision_script_templates
+
+    templates = get_vision_script_templates()
+    display_scripts = {vision_script_display_name(name): code for name, code in templates.items()}
+    return {"id": SCRIPT_ORIGIN_VISION, "title": _("Vision Helpers"), "scripts": display_scripts}
 
 
 def build_xdl_script_picker_state(
@@ -300,7 +330,21 @@ def build_xdl_script_picker_state(
             merged[display_name] = code
             analysis_items.append(display_name)
 
-    items = ["Sample"] + sorted(user_scripts.keys()) + analysis_items + [document_script_display_name(n) for n in sorted(doc_scripts.keys())]
+    vision_items: list[str] = []
+    vision_section = _vision_script_section(doc)
+    if vision_section:
+        for display_name, code in vision_section["scripts"].items():
+            origin_map[display_name] = SCRIPT_ORIGIN_VISION
+            merged[display_name] = code
+            vision_items.append(display_name)
+
+    items = (
+        ["Sample"]
+        + sorted(user_scripts.keys())
+        + analysis_items
+        + vision_items
+        + [document_script_display_name(n) for n in sorted(doc_scripts.keys())]
+    )
     return items, merged, origin_map
 
 
@@ -342,6 +386,9 @@ def build_scripts_list_message(
     analysis_section = _analysis_script_section(doc)
     if analysis_section:
         sections.append(analysis_section)
+    vision_section = _vision_script_section(doc)
+    if vision_section:
+        sections.append(vision_section)
     sections.append({"id": SCRIPT_ORIGIN_DOCUMENT, "title": _("This Document"), "scripts": doc_scripts})
 
     msg: dict[str, Any] = {

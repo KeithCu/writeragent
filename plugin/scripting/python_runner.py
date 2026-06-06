@@ -830,8 +830,12 @@ def execute_and_insert_result(
     from plugin.calc.venv_python import _resolve_python_data
     from plugin.framework.errors import ToolExecutionError
     from plugin.scripting.analysis_templates import parse_analysis_script_header
+    from plugin.scripting.vision_egress import format_vision_for_writer, is_vision_result
+    from plugin.scripting.vision_runner import run_trusted_vision
+    from plugin.scripting.vision_templates import parse_vision_script_header
 
     t0 = time.perf_counter()
+    vision_meta = parse_vision_script_header(code)
     meta = parse_analysis_script_header(code)
 
     def _resolve_data_range() -> str | None:
@@ -842,6 +846,59 @@ def execute_and_insert_result(
                 return ranges[0]
             return binding
         return calc_selection_to_a1(doc)
+
+    if vision_meta is not None:
+        if not is_writer(doc):
+            return {
+                "ok": False,
+                "message": _("Vision helpers require a Writer document."),
+            }
+        try:
+            result = run_trusted_vision(ctx, doc, helper=vision_meta.helper, params=vision_meta.params)
+        except ToolExecutionError as exc:
+            elapsed = time.perf_counter() - t0
+            err_msg = str(exc)
+            formatted_time = format_elapsed_time(elapsed)
+            if not ("timed out" in err_msg.lower() or "timeout" in err_msg.lower()):
+                err_msg = f"{err_msg} (took {formatted_time})"
+            return {"ok": False, "message": err_msg}
+        except Exception as e:
+            elapsed = time.perf_counter() - t0
+            log.exception("execute_and_insert_result vision fast path failed")
+            err_msg = str(e)
+            formatted_time = format_elapsed_time(elapsed)
+            return {"ok": False, "message": f"{err_msg} (took {formatted_time})", "traceback": exception_traceback(e)}
+
+        if result.get("status") == "error":
+            elapsed = time.perf_counter() - t0
+            formatted_time = format_elapsed_time(elapsed)
+            message = str(result.get("message") or _("Vision helper failed."))
+            return {"ok": False, "message": f"{message} (took {formatted_time})"}
+
+        try:
+            text = format_vision_for_writer(result)
+            insert_content_at_position(doc, ctx, text, "selection")
+        except Exception as e:
+            elapsed_total = time.perf_counter() - t0
+            formatted_time_total = format_elapsed_time(elapsed_total)
+            return {"ok": False, "message": _("Failed to insert result: {error} (took {time})").format(error=str(e), time=formatted_time_total)}
+
+        metrics_raw = result.get("metrics")
+        metrics: dict[str, Any] = metrics_raw if isinstance(metrics_raw, dict) else {}
+        line_count = metrics.get("line_count")
+        if line_count is None:
+            full_text = str(result.get("full_text") or "")
+            line_count = len(full_text.splitlines()) if full_text else 0
+        formatted_time = format_elapsed_time(time.perf_counter() - t0)
+        return {
+            "ok": True,
+            "status_ok_text": _("Vision '{helper}' completed. Extracted {lines} lines. (took {time})").format(
+                helper=vision_meta.helper,
+                lines=line_count,
+                time=formatted_time,
+            ),
+            "result": result,
+        }
 
     if meta is not None and is_calc(doc):
         dr = _resolve_data_range()
@@ -950,7 +1007,10 @@ def execute_and_insert_result(
                     }
                 insert_result_into_calc(doc, ctx, result_data)
             elif is_writer(doc):
-                formatted = format_result_for_writer(result_data)
+                if isinstance(result_data, dict) and is_vision_result(result_data):
+                    formatted = format_vision_for_writer(result_data)
+                else:
+                    formatted = format_result_for_writer(result_data)
                 if formatted:
                     insert_content_at_position(doc, ctx, formatted, "selection")
             elif is_draw(doc):

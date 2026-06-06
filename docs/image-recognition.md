@@ -1,6 +1,6 @@
 # Image Recognition — Design (Local OCR & Detection)
 
-**Status:** **Foundation shipped** — trusted venv helpers (`vision.py`, `vision_client`, templates, egress) and tests; **Vision Helpers UI and Writer fast path not wired yet**. LLM/chat integration is **explicitly later**.
+**Status:** **Phase 1 manual UX shipped** — Run Python Script **Vision Helpers** (`[Vision] extract_text`), Writer fast path, graphic export, and text-cursor insert. LLM/chat integration (`analyze_image`) is **explicitly later**.
 
 WriterAgent documents (Writer, Calc, Draw/Impress) embed raster images: scans, screenshots, chart photos, slide exports, logos. **LibreOffice handles graphics I/O** (export, insert, replace, dimensions). **Recognition** (OCR, layout, object detection) runs in the user's venv via the same trusted-module pattern as [`analysis.py`](../plugin/scripting/analysis.py) and [`embeddings_index.py`](../plugin/scripting/embeddings_index.py).
 
@@ -59,7 +59,7 @@ Users may `pip install` anything else for ad hoc scripts. WriterAgent **document
 2. **Setup:** Settings → Python venv path + extended **Test** for paddle/ultralytics (Phase 2).
 3. **Later:** one LLM tool (`analyze_image`) calling the same `run_vision` backend — not a separate CV stack.
 
-There is **no user UI for recognition today** (picker, fast path, insert). Wire host integration per [§4](#4-phase-1-development-plan-agent-handoff).
+**Manual OCR:** **WriterAgent → Run Python Script… → Vision Helpers → [Vision] extract_text** (Writer only). Requires Settings → Python venv with PaddleOCR installed.
 
 ---
 
@@ -72,18 +72,18 @@ Recognition must be usable **without the chat sidebar** — offline, predictable
 | UI | Role for vision |
 |----|-----------------|
 | **WriterAgent → Settings → Python** | Venv path, exec timeout, **Test** button — prerequisite only; Test does **not** yet report PaddleOCR/Ultralytics |
-| **WriterAgent → Run Python Script…** | Monaco editor ([`editor_host.py`](../plugin/scripting/editor_host.py)) or legacy XDL dialog; **Analysis Helpers** section (**Calc only**) via [`analysis_templates.py`](../plugin/scripting/analysis_templates.py) |
+| **WriterAgent → Run Python Script…** | Monaco editor ([`editor_host.py`](../plugin/scripting/editor_host.py)) or legacy XDL dialog; **Analysis Helpers** (**Calc only**); **Vision Helpers** (**Writer only**) via [`vision_templates.py`](../plugin/scripting/vision_templates.py) and [`document_scripts.py`](../plugin/scripting/document_scripts.py) `_vision_script_section` |
 | **Chat sidebar** | Text chat + remote **image generation** — **not** in-document OCR/recognition |
 | **Settings → Image** tab | Image **generation** providers — unrelated to local OCR |
 
-No **Vision Helpers** section, no graphic context menu, no **Recognize Image…** menu item.
+No graphic context menu or **Recognize Image…** menu item yet (optional follow-ons in §2.6).
 
-### 2.2 Planned primary UX: Vision Helpers
+### 2.2 Primary UX: Vision Helpers (shipped)
 
-Mirror [**Analysis Helpers**](calc-analysis-tools.md#1b-run-python-script--analysis-helpers-manual-calc-ux) ([`document_scripts.py`](../plugin/scripting/document_scripts.py) `_analysis_script_section`, [`python_runner.py`](../plugin/scripting/python_runner.py) fast path):
+Mirror [**Analysis Helpers**](calc-analysis-tools.md#1b-run-python-script--analysis-helpers-manual-calc-ux) ([`document_scripts.py`](../plugin/scripting/document_scripts.py) `_vision_script_section`, [`python_runner.py`](../plugin/scripting/python_runner.py) vision fast path):
 
-| Piece | Plan |
-|-------|------|
+| Piece | Shipped |
+|-------|---------|
 | **Entry** | **WriterAgent → Run Python Script…** (already on menu for Writer/Calc/Draw/Impress) |
 | **Picker section** | **Vision Helpers →** e.g. `[Vision] extract_text`, … |
 | **Templates** | [`vision_templates.py`](../plugin/scripting/vision_templates.py) with `# writeragent:vision helper=… params=…` header |
@@ -158,25 +158,23 @@ Mirror [analysis-sub-agent.md § Current Code State](analysis-sub-agent.md). **R
 
 | Area | Files |
 |------|--------|
-| Image export (selection) | [`get_selected_image_base64`](../plugin/writer/images/image_tools.py) → base64 PNG via `GraphicProvider` |
-| Analysis trusted stack | [`analysis.py`](../plugin/scripting/analysis.py), [`analysis_client.py`](../plugin/framework/client/analysis_client.py), [`analysis_runner.py`](../plugin/calc/analysis_runner.py) |
-| **Vision trusted stack (foundation)** | [`vision.py`](../plugin/scripting/vision.py) (`extract_text` only), [`vision_client.py`](../plugin/framework/client/vision_client.py), [`vision_templates.py`](../plugin/scripting/vision_templates.py), [`vision_egress.py`](../plugin/scripting/vision_egress.py); tests in [`test_vision.py`](../tests/scripting/test_vision.py), [`test_vision_templates.py`](../tests/scripting/test_vision_templates.py), [`test_vision_egress.py`](../tests/scripting/test_vision_egress.py) |
-| Run Python fast path | [`python_runner.py`](../plugin/scripting/python_runner.py) — `execute_and_insert_result`, `parse_analysis_script_header` branch |
-| Script picker sections | [`document_scripts.py`](../plugin/scripting/document_scripts.py) — `SCRIPT_ORIGIN_ANALYSIS`, `_analysis_script_section`, `build_scripts_list_message` |
-| Templates | [`analysis_templates.py`](../plugin/scripting/analysis_templates.py) |
-| Writer result insert | [`format_result_for_writer`](../plugin/scripting/python_runner.py), [`insert_content_at_position`](../plugin/writer/format.py) |
+| **Vision trusted stack + host wiring** | [`vision.py`](../plugin/scripting/vision.py), [`vision_client.py`](../plugin/framework/client/vision_client.py), [`vision_runner.py`](../plugin/scripting/vision_runner.py), [`vision_templates.py`](../plugin/scripting/vision_templates.py), [`vision_egress.py`](../plugin/scripting/vision_egress.py) |
+| Run Python vision fast path | [`python_runner.py`](../plugin/scripting/python_runner.py) — `parse_vision_script_header` → `run_trusted_vision` → `format_vision_for_writer` → `insert_content_at_position` |
+| Script picker (Writer) | [`document_scripts.py`](../plugin/scripting/document_scripts.py) — `SCRIPT_ORIGIN_VISION`, `_vision_script_section`, `build_scripts_list_message` |
+| Image export (selection) | [`get_selected_image_base64`](../plugin/writer/images/image_tools.py) via [`get_selected_image_bytes`](../plugin/scripting/vision_runner.py) |
+| Monaco built-in guards | [`scripts_manager.js`](../plugin/contrib/scripting/assets/editor/scripts_manager.js) — Attach/Save/Delete disabled for `origin === "vision"` |
+| Analysis trusted stack (reference) | [`analysis.py`](../plugin/scripting/analysis.py), [`analysis_client.py`](../plugin/framework/client/analysis_client.py), [`analysis_runner.py`](../plugin/calc/analysis_runner.py) |
 | Calc analysis egress | [`analysis_egress.py`](../plugin/calc/analysis_egress.py) — `is_analysis_result`, `insert_analysis_result_into_calc` |
-| Monaco sections UI | [`scripts_manager.js`](../plugin/contrib/scripting/assets/editor/scripts_manager.js) — renders `sections` from host JSON; disable Attach for built-in origins |
-| Tests to mirror | [`test_analysis_templates.py`](../tests/scripting/test_analysis_templates.py), [`test_python_runner_analysis.py`](../tests/scripting/test_python_runner_analysis.py), [`test_document_scripts.py`](../tests/scripting/test_document_scripts.py) (`test_build_scripts_list_includes_analysis_section_for_calc`) |
+| Tests | [`test_vision*.py`](../tests/scripting/), [`test_python_runner_vision.py`](../tests/scripting/test_python_runner_vision.py), [`test_document_scripts.py`](../tests/scripting/test_document_scripts.py) (vision section tests) |
 
-### Gaps (Phase 1 host wiring still needed)
+### Gaps (post–Phase 1)
 
 | Gap | Notes |
 |-----|--------|
-| No `vision_runner.py` | Host-side export + `run_trusted_vision` — wrap [`get_selected_image_base64`](../plugin/writer/images/image_tools.py) |
-| No `SCRIPT_ORIGIN_VISION`, `[Vision]` prefix, vision fast path | Parallel to analysis constants in [`document_scripts.py`](../plugin/scripting/document_scripts.py) |
-| No Vision Helpers in picker | Analysis section is **Calc-gated** (`is_calc` in `_analysis_script_section`); vision is **Writer-gated** for Phase 1 |
-| Monaco Attach for vision built-ins | Extend `scripts_manager.js`: `origin === "vision"` disables Attach (like `analysis`) |
+| Settings **Test** paddle/ultralytics probes | **Phase 2** — extend [`run_venv_self_check`](../plugin/scripting/venv_worker.py) |
+| Calc/Draw Vision Helpers + egress | **Phase 1b** |
+| Context menu / **Recognize Image…** shortcut | Optional (§2.6) |
+| `analyze_image` LLM tool | **Phase 6** (§18) |
 
 ---
 
@@ -572,8 +570,8 @@ Phases prioritize **user exposition**; LLM integration is last.
 
 | Phase | Deliverable | User-visible? |
 |-------|-------------|---------------|
-| **0** | Design doc + cross-links | — (**current**) |
-| **1** | Writer-only: §4 modules + Vision Helpers `[Vision] extract_text` + fast path + Writer insert + tests (mocked Paddle) | **Yes — first shippable UX** |
+| **0** | Design doc + cross-links | — |
+| **1** | Writer-only: Vision Helpers `[Vision] extract_text` + fast path + Writer insert + tests | **Yes — shipped** |
 | **1b** | Calc/Draw egress; Vision Helpers on Calc/Draw when graphic export works; plain OCR table/column output | **Yes** |
 | **2** | Settings **Test** reports paddle/ultralytics; timeout/install messaging | **Yes** |
 | **3** | `extract_structure`; export by graphic name | **Yes** |
@@ -589,14 +587,14 @@ Phases prioritize **user exposition**; LLM integration is last.
 
 Checklist for implementers / QA:
 
-- [ ] `make test` passes with mocked Paddle (no real models in CI)
-- [ ] Writer document open → script picker shows **Vision Helpers → [Vision] extract_text**
-- [ ] Calc document open → **no** Vision Helpers section (Phase 1)
-- [ ] Graphic selected + Run → **`full_text` inserted at text cursor**
-- [ ] No graphic / export fails → `NO_IMAGE_SELECTED` message
-- [ ] Missing paddle in venv → `PADDLEOCR_UNAVAILABLE` with Settings hint
-- [ ] Monaco: Attach disabled for vision built-ins (`origin === "vision"`)
-- [ ] No `analyze_image` tool or chat registration
+- [x] `make test` passes with mocked Paddle (no real models in CI)
+- [x] Writer document open → script picker shows **Vision Helpers → [Vision] extract_text**
+- [x] Calc document open → **no** Vision Helpers section (Phase 1)
+- [x] Graphic selected + Run → **`full_text` inserted at text cursor** (manual QA with real Paddle venv)
+- [x] No graphic / export fails → `NO_IMAGE_SELECTED` message
+- [x] Missing paddle in venv → `PADDLEOCR_UNAVAILABLE` with Settings hint (venv helper returns error JSON)
+- [x] Monaco: Attach disabled for vision built-ins (`origin === "vision"`)
+- [x] No `analyze_image` tool or chat registration
 
 ---
 

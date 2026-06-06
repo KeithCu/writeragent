@@ -92,17 +92,25 @@
     }
   }
 
+  function isBuiltInHelperOrigin(origin) {
+    return origin === "analysis" || origin === "vision";
+  }
+
+  function builtInHelperReadOnlyMessage() {
+    return "Built-in helpers are read-only. Use Copy to My Scripts to customize.";
+  }
+
   function updateToolbarState() {
     var attachBtn = getAttachBtn();
     var copyBtn = getCopyBtn();
     var canWriteDocument = documentAvailable && !documentReadonly && !documentStale;
-    var isBuiltInAnalysis = currentOrigin === "analysis";
+    var isBuiltInHelper = isBuiltInHelperOrigin(currentOrigin);
     if (attachBtn) {
-      attachBtn.disabled = !canWriteDocument || isBuiltInAnalysis;
+      attachBtn.disabled = !canWriteDocument || isBuiltInHelper;
       attachBtn.classList.toggle("toolbar-disabled", attachBtn.disabled);
     }
     if (copyBtn) {
-      copyBtn.disabled = (currentOrigin !== "document" && currentOrigin !== "analysis") || !currentSelectedName;
+      copyBtn.disabled = (currentOrigin !== "document" && !isBuiltInHelperOrigin(currentOrigin)) || !currentSelectedName;
       copyBtn.classList.toggle("toolbar-disabled", copyBtn.disabled);
     }
     if (documentStale) {
@@ -256,7 +264,7 @@
   }
 
   function onCopyToUser() {
-    if (!currentSelectedName || (currentOrigin !== "document" && currentOrigin !== "analysis")) {
+    if (!currentSelectedName || (currentOrigin !== "document" && !isBuiltInHelperOrigin(currentOrigin))) {
       return;
     }
     var name = prompt("Copy to My Scripts as:", currentSelectedName);
@@ -275,8 +283,8 @@
   }
 
   function onSaveAs() {
-    if (currentOrigin === "analysis") {
-      setStatus("Built-in analysis helpers are read-only. Use Copy to My Scripts to customize.", "error");
+    if (isBuiltInHelperOrigin(currentOrigin)) {
+      setStatus(builtInHelperReadOnlyMessage(), "error");
       return;
     }
     var defaultName = currentSelectedName || "";
@@ -320,8 +328,8 @@
     }
 
     if (confirm("Are you sure you want to delete '" + name + "'?")) {
-      if (scriptIndex[name] && scriptIndex[name].origin === "analysis") {
-        setStatus("Built-in analysis helpers cannot be deleted.", "error");
+      if (scriptIndex[name] && isBuiltInHelperOrigin(scriptIndex[name].origin)) {
+        setStatus("Built-in helpers cannot be deleted.", "error");
         return;
       }
       if (window.pywebview && window.pywebview.api && window.pywebview.api.delete_script) {
@@ -408,8 +416,8 @@
         if (activeScript) {
           event.stopImmediatePropagation();
           event.preventDefault();
-          if (scriptIndex[activeScript] && scriptIndex[activeScript].origin === "analysis") {
-            setStatus("Built-in analysis helpers are read-only. Use Copy to My Scripts to customize.", "error");
+          if (scriptIndex[activeScript] && isBuiltInHelperOrigin(scriptIndex[activeScript].origin)) {
+            setStatus(builtInHelperReadOnlyMessage(), "error");
             return;
           }
           if (window.editor && window.pywebview && window.pywebview.api && window.pywebview.api.save_script) {
