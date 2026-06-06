@@ -12,7 +12,7 @@ import dataclasses
 from typing import Any
 
 from plugin.framework.config import get_config
-from plugin.framework.constants import DEFAULT_EMBEDDING_MODEL, EMBEDDINGS_WORKER_SESSION_PREFIX
+from plugin.framework.constants import DEFAULT_EMBEDDING_MODEL, EMBEDDINGS_WORKER_SESSION_PREFIX, WORKER_POOL_EMBEDDINGS
 from plugin.framework.errors import ConfigError, ToolExecutionError
 from plugin.scripting.config_limits import configured_python_exec_timeout
 from plugin.scripting.venv_worker import run_code_in_user_venv
@@ -95,6 +95,7 @@ def embed_texts(ctx: Any, texts: list[str], *, model: str | None = None) -> Embe
         data={"model": model_name, "texts": list(texts)},
         timeout_sec=timeout_sec,
         session_id=_embedding_session_id(model_name),
+        worker_pool=WORKER_POOL_EMBEDDINGS,
     )
     if response.get("status") != "ok":
         message = str(response.get("message") or "Embedding worker failed.")

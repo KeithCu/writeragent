@@ -45,6 +45,11 @@ DEFAULT_EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 EMBEDDINGS_WORKER_SESSION_PREFIX = "embeddings"
 # Background folder index tick when DOCUMENT_RESEARCH_SEARCH_MODE=embeddings (docs/embeddings.md).
 EMBEDDINGS_INDEX_INTERVAL_S = 300
+# Warm venv worker pools (docs/embeddings.md — dedicated embeddings subprocess).
+WORKER_POOL_DEFAULT = "default"
+WORKER_POOL_EMBEDDINGS = "embeddings"
+# In-worker read-through corpus matrix cache TTL (seconds since last access).
+EMBEDDINGS_CORPUS_CACHE_TTL_S = 60
 
 # Model capabilities bitmasks (compatible with OnlyOfficeAI values)
 class ModelCapability(IntFlag):

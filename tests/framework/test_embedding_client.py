@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.framework.client.embedding_client import EmbeddingBatch, embed_texts, get_embedding_model
-from plugin.framework.constants import DEFAULT_EMBEDDING_MODEL, EMBEDDINGS_WORKER_SESSION_PREFIX
+from plugin.framework.constants import DEFAULT_EMBEDDING_MODEL, EMBEDDINGS_WORKER_SESSION_PREFIX, WORKER_POOL_EMBEDDINGS
 from plugin.framework.errors import ConfigError, ToolExecutionError
 from plugin.tests.testing_utils import setup_uno_mocks
 
@@ -76,6 +76,7 @@ def test_embed_texts_happy_path(ctx, config_data):
     assert kwargs["data"] == {"model": DEFAULT_EMBEDDING_MODEL, "texts": ["hello", "", "world"]}
     assert kwargs["session_id"] == f"{EMBEDDINGS_WORKER_SESSION_PREFIX}:all-MiniLM-L6-v2"
     assert kwargs["timeout_sec"] == 30
+    assert kwargs["worker_pool"] == WORKER_POOL_EMBEDDINGS
 
 
 def test_embed_texts_custom_model_session_slug(ctx, config_data):

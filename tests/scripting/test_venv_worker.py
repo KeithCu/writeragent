@@ -178,6 +178,18 @@ def test_manager_two_calls_same_process():
     PythonWorkerManager.shutdown_all()
 
 
+def test_manager_separate_pools_same_exe():
+    from plugin.framework.constants import WORKER_POOL_DEFAULT, WORKER_POOL_EMBEDDINGS
+
+    PythonWorkerManager.shutdown_all()
+    env = {"PATH": "/usr/bin:/bin"}
+    default_mgr = PythonWorkerManager.get(sys.executable, env, pool=WORKER_POOL_DEFAULT)
+    embed_mgr = PythonWorkerManager.get(sys.executable, env, pool=WORKER_POOL_EMBEDDINGS)
+    assert default_mgr is not embed_mgr
+    assert default_mgr is PythonWorkerManager.get(sys.executable, env, pool=WORKER_POOL_DEFAULT)
+    PythonWorkerManager.shutdown_all()
+
+
 def test_split_grid_data_round_trip_execute_request():
     """Ingress split_grid: child receives ndarray from frombuffer."""
     np = pytest.importorskip("numpy")

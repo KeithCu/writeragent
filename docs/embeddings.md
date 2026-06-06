@@ -1,6 +1,6 @@
 # Embeddings — Development Plan
 
-> **Status (2026-06):** **Phase B shipped** — per-folder `index.db`, `search_embeddings` tool, background folder indexer ([`embeddings_cache.py`](../plugin/doc/embeddings_cache.py), [`embeddings_indexer.py`](../plugin/doc/embeddings_indexer.py), [`embeddings_periodic.py`](../plugin/doc/embeddings_periodic.py), [`embeddings_service.py`](../plugin/framework/client/embeddings_service.py)). **Incremental maintenance:** filesystem **mtime** vs **`last_indexed_at`** per file, paragraph **`content_hash`** diff, and a **periodic background tick** (`EMBEDDINGS_INDEX_INTERVAL_S`, default 5 min) for the active folder when `DOCUMENT_RESEARCH_SEARCH_MODE=embeddings`. **Phase A:** host `embed_texts()` + trusted venv encode ([`embedding_client.py`](../plugin/framework/client/embedding_client.py), [`embeddings_index.py`](../plugin/scripting/embeddings_index.py)). **Search mode:** compile-time `DOCUMENT_RESEARCH_SEARCH_MODE` in [`constants.py`](../plugin/framework/constants.py) — `"grep"` (default) or `"embeddings"` (mutually exclusive tool registration). Bench harness: [`scripts/bench_embeddings.py`](../scripts/bench_embeddings.py). **Scope (MVP):** one cache per **filesystem folder** (all indexable siblings in that directory) — not per-file caches, not a global index, not in-document RAG storage. **On-disk storage:** single `index.db` per folder (locators + vectors) using standard SQLite; both host and warm venv worker open the same file directly and pass references (db path / folder key) rather than bulk corpus data. **Supported path today:** normalized float32 vectors in **`chunks.embedding` BLOB** + NumPy dot + top-k in the venv ([bench](#benchmark-on-your-machine): sub-ms at ~350 paragraphs). **sqlite-vec vec0 is optional** — code probes and uses it when installed, but **do not rely on it** for MVP or dogfood; revisit only if folder-sized profiling shows NumPy search is too slow. Embed compute uses the warm-worker Pickle5 path (same as `=PYTHON()`). **Phase C live hooks (`XProofreading`, write-tool dirty marks) are not planned** — periodic mtime refresh is sufficient (see [Phase C](#phase-c-incremental)).
+> **Status (2026-06):** **Phase B shipped** — per-folder `index.db`, `search_embeddings` tool, background folder indexer ([`embeddings_cache.py`](../plugin/doc/embeddings_cache.py), [`embeddings_indexer.py`](../plugin/doc/embeddings_indexer.py), [`embeddings_periodic.py`](../plugin/doc/embeddings_periodic.py), [`embeddings_service.py`](../plugin/framework/client/embeddings_service.py)). **Dedicated embeddings subprocess + 60 s in-RAM corpus cache** — embed/index/search use `worker_pool=WORKER_POOL_EMBEDDINGS` ([`venv_worker.py`](../plugin/scripting/venv_worker.py), [`embeddings_index.py`](../plugin/scripting/embeddings_index.py)); Calc/chat stay on the default pool. **Incremental maintenance:** filesystem **mtime** vs **`last_indexed_at`** per file, paragraph **`content_hash`** diff, and a **periodic background tick** (`EMBEDDINGS_INDEX_INTERVAL_S`, default 5 min) for the active folder when `DOCUMENT_RESEARCH_SEARCH_MODE=embeddings`. **Phase A:** host `embed_texts()` + trusted venv encode ([`embedding_client.py`](../plugin/framework/client/embedding_client.py)). **Search mode:** compile-time `DOCUMENT_RESEARCH_SEARCH_MODE` in [`constants.py`](../plugin/framework/constants.py) — `"grep"` (default) or `"embeddings"` (mutually exclusive tool registration). Bench harness: [`scripts/bench_embeddings.py`](../scripts/bench_embeddings.py). **Scope (MVP):** one cache per **filesystem folder** (all indexable siblings in that directory) — not per-file caches, not a global index, not in-document RAG storage. **On-disk storage:** single `index.db` per folder (locators + vectors) using standard SQLite; host and embeddings subprocess open the same file directly and pass references (db path / folder key) rather than bulk corpus data. **Supported path today:** normalized float32 vectors in **`chunks.embedding` BLOB** + NumPy dot + top-k in the embeddings venv ([bench](#benchmark-on-your-machine): sub-ms at ~350 paragraphs). **sqlite-vec vec0 is optional** — code probes and uses it when installed, but **do not rely on it** for MVP or dogfood; revisit only if folder-sized profiling shows NumPy search is too slow. Embed compute uses the embeddings warm-worker Pickle5 path. **Phase C live hooks (`XProofreading`, write-tool dirty marks) are not planned** — periodic mtime refresh is sufficient (see [Phase C](#phase-c-incremental)).
 
 **Related:** [cython-extension.md](cython-extension.md) · [enabling_numpy_in_libreoffice.md](enabling_numpy_in_libreoffice.md) · [multi-document-dev-plan.md](multi-document-dev-plan.md) · [langchain-plan.md](langchain-plan.md) (chat memory / summarization only)
 
@@ -14,9 +14,32 @@ Today the **outer** [document_research](../plugin/doc/document_research.py) sub-
 
 **Embeddings** replace that **outer-layer grep** with semantic lookup over a **per-directory index**: one `index.db` per filesystem folder ([Corpus storage](#corpus-storage)) — float vectors in **`chunks.embedding` BLOBs** (NumPy search in the venv) plus locators back to `doc_url`, paragraph, offset (not a second full-text cache). Optional sqlite-vec `vec0` exists in code when installed but is **not required**. The outer agent searches **that folder’s cache** and gets ranked hits **without opening LO**; it then opens **one or a few** files and hands precise locations to the inner read agent. Opening one file at a known locator is cheap compared to opening dozens and searching each.
 
+### Why embeddings (semantic search) vs pure lexical/grep, and why the difference is bigger for office documents than code
+
+Recent experience with AI coding agents shows a split in retrieval strategy:
+
+- Code is highly literal and structured. Developers (and agents) usually want an exact function name, variable, string literal, or symbol. Language servers, AST indexes, and fast `grep` (or ripgrep) are extremely effective. Paraphrase is uncommon — you rarely ask for "a function somewhat like authentication"; you ask for the auth handler or grep for "auth". Because code changes frequently, pre-built vector indexes also suffer from staleness and re-indexing cost.
+
+- Office documents (Writer prose, Calc tables with natural-language labels and notes, Draw captions and diagrams, policy files, fiction, research notes, meeting minutes) are different. Content is natural language or semi-structured text. Users describe what they want with vague or high-level language ("the Q4 revenue figures", "the remote-work policy", "the section on expense approvals from last year"). Filenames are often unhelpful or historical. The same idea can be expressed with synonyms, paraphrases, or completely different wording across files.
+
+In short: code search is mostly *lexical lookup of known identifiers*; document search is often *semantic discovery of unknown phrasing*.
+
+This project already exploits the practical consequence of ODF files being ZIP archives: a naive "list siblings then open-and-grep many" path pays repeated unzip + XML parse costs for every candidate. The per-directory embeddings index lets the outer agent perform a cheap semantic ranking *before* paying the extraction cost for most files. Hits return locators; only the top 1–few documents are opened, and the inner agent then uses precise tools (`search_in_document`, range reads, outline navigation, etc.) on the live content.
+
+Industry data on coding agents is consistent with a hybrid view rather than "embeddings are dead":
+
+- Tools like Cursor measure clear gains (+12.5% agent accuracy in their tests) from adding semantic search (custom-trained embeddings) alongside grep, especially for conceptual queries in large codebases. They explicitly state that the *combination* of semantic search and grep produces the best results.
+- Other agentic systems (e.g. Claude Code style) favor pure iterative tool use (grep/glob/read + reasoning) for code precisely because of the literal, structured nature of source and the ability of a strong model to explore on the fly.
+
+For the document use cases this index targets — cross-sibling discovery in Writer/Calc/Draw folders — the semantic component has stronger justification than it does for pure code. Fiction writing, policy/legal work, research corpora, creative projects, and any domain where meaning is expressed in varied natural language all amplify the value of embeddings over keyword-only approaches. The design here deliberately scopes embeddings to the outer routing layer only; it never replaces the precise read tools used once the right file(s) are open, and it maintains exactly one index type per directory (no parallel FTS "double cache").
+
+The result is a router that handles the paraphrase/fuzzy-name problem that defeats filename filters and broad greps, while still letting the agent fall back to exact search inside the small number of opened documents.
+
 **Within a single already-open document**, normal search remains enough (`search_in_document`, outline, sheet navigation). **Cross-folder semantic routing for document_research is the main win.**
 
 **One index type per directory:** do **not** maintain FTS5 (or any parallel keyword corpus) alongside embeddings in that folder’s cache — that would be a **double cache** of the same content. Embeddings are the cross-file search layer for **that directory**; after a hit, use existing read tools on the opened file for literals and detail.
+
+This choice also aligns with the domain analysis above: once the right small set of documents has been selected semantically, the agent has cheap, precise, always-fresh lexical tools inside those opened files. There is no need (and no desire) to duplicate a full-text index in the embeddings cache.
 
 **Chat history vs document embeddings:** Sidebar history (`writeragent_history.db`) is unrelated. This is **corpus routing memory**, not turn memory.
 
@@ -47,6 +70,8 @@ flowchart LR
 **After (outer):** `search_embeddings("Q4 revenue figures")` → `[Budget_2026.ods, sheet hint / loc, score], …` → `delegate_read_document` on **top hits only** → inner `read_cell_range` / `get_document_content` at the referenced region.
 
 Main chat may also call the index before delegating, but the **major integration point is the outer document_research tool surface** — smarter, faster file pick, no filename lottery.
+
+The rationale for preferring a semantic router here (rather than relying solely on lexical discovery) is discussed in the Problem section: office documents are natural-language heavy and ODF extraction has per-file cost, unlike the more literal, identifier-driven nature of code search where pure grep + structure often suffices.
 
 ### After the hit: open one file, dig up truth
 
@@ -144,36 +169,34 @@ Typical flow:
 1. **Host** extracts paragraph text (Writer read-only extract / ODT unzip for tests) and does filesystem mtime / content_hash comparisons using its own stdlib `sqlite3` connection to `chunks`.
 2. **Host → venv (RPC stub):** for indexing, send only the changed paragraphs (via worker **`data=`** Pickle5) + the db path / folder reference. For search, send the query text (or pre-embedded vector) + `k` + the db path / folder reference.
 3. **Venv (trusted module):** the fixed stub receives the reference, opens the *same* `index.db` file with stdlib `sqlite3` (standard SQLite concurrency works across the two processes), loads `sqlite_vec` if available, lazily loads the `SentenceTransformer`, does batch `encode` when needed, then performs vec0 DML/search or the BLOB + NumPy fallback entirely against the on-disk data. Only small results travel back (top-k locators+scores, or write confirmations).
-4. **Session:** reuse worker `session_id` so the loaded `SentenceTransformer` survives across calls ([`EMBEDDINGS_WORKER_SESSION_PREFIX`](../plugin/framework/constants.py)). **Today** embed/search/index share the **same** warm worker as Calc `=PYTHON()` and chat scripts — see [Dedicated embeddings subprocess](#dedicated-embeddings-subprocess) for a likely future split + in-RAM query cache.
+4. **Session:** reuse worker `session_id` so the loaded `SentenceTransformer` survives across calls ([`EMBEDDINGS_WORKER_SESSION_PREFIX`](../plugin/framework/constants.py)). Embeddings RPC uses a **separate warm child** (`worker_pool=WORKER_POOL_EMBEDDINGS`) from Calc `=PYTHON()` and chat scripts — see [Dedicated embeddings subprocess](#dedicated-embeddings-subprocess) and [In-worker corpus cache](#embeddings-in-worker-cache).
 
 The **LLM / `=PYTHON()` sandbox** blocks `open()`, `sqlite3`, etc. in **user-submitted** scripts — that rule does **not** apply to shipped `plugin.scripting.*` modules invoked from the host. Trusted embeddings code may `open()` `index.db` (by the path reference passed from the host) and call `sqlite_vec.load()` inside e.g. `plugin.scripting.embeddings_index`. Bulk *source text for embedding* still flows over IPC **`data=`** at index time; the persistent vectors and locators live in the shared DB file. On disk, the corpus is under `writeragent_embeddings/<folder_corpus_key>/`.
 
 **Not pursuing for MVP:** host Cython `top_k_dot`, `/tmp` mmap in worker, LangChain vectorstores — see [Future optimizations](#future-optimizations).
 
-### Planned: dedicated embeddings subprocess {#dedicated-embeddings-subprocess}
+### Dedicated embeddings subprocess {#dedicated-embeddings-subprocess}
 
-**Status: not implemented — design note for a likely next step after dogfood.**
+**Status: shipped.**
 
-Today **one** warm venv child ([`PythonWorkerManager`](../plugin/scripting/venv_worker.py)) serves Calc `=PYTHON()`, chat `run_venv_python_script`, notebooks, **and** all embeddings work (encode, index persist, `knn_search`). That is simple and shipped, but has two downsides as folders grow and embeddings get used more:
+Embeddings encode, index persist, and `knn_search` run in a **second** warm venv child ([`PythonWorkerManager`](../plugin/scripting/venv_worker.py) keyed by `WORKER_POOL_EMBEDDINGS` + python exe). Calc `=PYTHON()`, chat `run_venv_python_script`, and notebooks stay on `WORKER_POOL_DEFAULT`.
 
-| Concern | Shared worker today | Dedicated embeddings subprocess |
-|---------|---------------------|----------------------------------|
-| **Calc / user NumPy** | A long folder cold-build or batch re-embed (~1 s+ after model load) can **queue behind** or **block** an in-flight `=PYTHON()` or sandbox script on the same process | Embeddings traffic uses a **separate child process** — Calc and chat scripts stay on the default worker |
-| **Repeated `search_embeddings`** | Each query opens `index.db`, reads **all** embedding BLOBs, builds a NumPy matrix, runs dot + top-k ([BLOB path](#corpus-storage)) — disk I/O + alloc **every time** even for the same folder seconds apart | Same venv `python`, but the embeddings-only process can hold an **in-RAM corpus cache** (below) across queries |
-| **Model load** | `SentenceTransformer` is lazy-loaded once per worker session; sharing the worker with unrelated scripts means embed model lifetime is tied to general sandbox traffic | Embeddings worker keeps the model **warm and isolated** — predictable latency for document_research bursts |
+| Concern | Default pool (Calc / chat) | Embeddings pool |
+|---------|---------------------------|-----------------|
+| **Calc / user NumPy** | Unaffected by long folder re-embed jobs | Folder cold-build / batch re-embed runs here |
+| **Repeated `search_embeddings`** | N/A | In-RAM corpus cache ([below](#embeddings-in-worker-cache)) avoids re-reading BLOBs within TTL |
+| **Model load** | User script traffic only | `SentenceTransformer` stays warm for document_research bursts |
 
-**Likely shape (when implemented):**
+**Implementation:**
 
-- Second `PythonWorkerManager` instance (or equivalent) — **embeddings-only session prefix**, same `scripting.python_venv_path` interpreter, same Pickle5 stub protocol as today ([`embeddings_service.py`](../plugin/framework/client/embeddings_service.py) → [`embeddings_index.py`](../plugin/scripting/embeddings_index.py)).
-- Host routes **only** `embed_texts`, `index_paragraphs`, `delete_paragraphs`, and `knn_search` to this process; Calc `=PYTHON()`, `run_venv_python_script`, and notebooks stay on the existing worker.
-- Optional Settings later: dedicated venv path vs shared venv (same packages, different process — not required for v1 of the split).
+- Same `scripting.python_venv_path` interpreter, same Pickle5 stub protocol ([`embeddings_service.py`](../plugin/framework/client/embeddings_service.py) / [`embedding_client.py`](../plugin/framework/client/embedding_client.py) → [`embeddings_index.py`](../plugin/scripting/embeddings_index.py)).
+- Host passes `worker_pool=WORKER_POOL_EMBEDDINGS` on the two RPC entry points only.
+- Optional Settings later: dedicated venv path vs shared venv (same packages, different process — not required).
 - **Not** a third HTTP stack or a different embedding library — process isolation + caching only.
-
-Defer implementation until dogfood shows real contention (Calc stalls during index build) or search latency dominates (repeated queries on a warm folder still feel slow).
 
 #### In-worker corpus cache (RAM) {#embeddings-in-worker-cache}
 
-**Status: not implemented — pairs with [dedicated embeddings subprocess](#dedicated-embeddings-subprocess).**
+**Status: shipped** (BLOB + NumPy path only; vec0 `MATCH` unchanged).
 
 Persistent storage remains **`index.db` on disk** (source of truth). The RAM cache is a **read-through / invalidation layer inside the embeddings subprocess** so hot queries avoid re-reading the whole BLOB column on every `search_embeddings` call.
 
@@ -186,12 +209,11 @@ Persistent storage remains **`index.db` on disk** (source of truth). The RAM cac
 | **`index.db` (disk)** | Durable locators + vectors; incremental indexer writes here; search **always valid** against disk if RAM cache is cold or evicted |
 | **In-worker cache (RAM)** | Keyed by `(folder_corpus_key or db_path, embedding_model)` → `{corpus_matrix, chunk_ids, locators, loaded_at, corpus_meta_fingerprint}` |
 
-**Cache policy (starting point for design):**
+**Cache policy:**
 
-- **Load on first search** (or first index operation) for a folder key; reuse for subsequent `knn_search` in the same process.
-- **TTL ~60 s** since last access (configurable constant) — keep recently queried folders hot; evict idle entries to cap memory. Rationale: document_research often fires several `search_embeddings` calls in one delegation burst; one minute covers that without holding large matrices forever.
-- **Invalidate** when the host completes a write to that folder’s `index.db` for the same model (index/delete RPC finished, or `corpus_meta.updated_at` / row count / max `last_indexed_at` changes on next open). Background periodic indexer updates disk → next search refreshes or drops the cache entry.
-- **Memory cap (later):** evict LRU among folder keys if total cached matrix bytes exceed a budget (e.g. keep at most one or two large folders hot).
+- **Load on first search** for a folder key; reuse for subsequent `knn_search` in the same embeddings process.
+- **TTL `EMBEDDINGS_CORPUS_CACHE_TTL_S` (60 s)** since last access — per-folder sliding window; document_research delegation bursts stay hot without holding matrices forever.
+- **Invalidate** on `index_paragraphs` / `delete_paragraphs` RPC for that `db_path`, or when fingerprint (`chunk_count` + `corpus_meta.updated_at`) changes on next access.
 
 **What this is not:**
 
@@ -971,6 +993,8 @@ The index is a **router**, not a library mirror.
 Opening **one** file at a known locator is the designed happy path. Opening **many** files without the index is what we eliminate.
 
 Pairs with [multi-document-dev-plan.md](multi-document-dev-plan.md): embeddings upgrade the **outer** tier; inner read tools unchanged.
+
+(See also the discussion in the Problem section above on why semantic search has a larger relative benefit for office/document content than for code search, where literal identifiers and structure make pure lexical tools unusually strong.)
 
 ### Thematic clustering (future)
 

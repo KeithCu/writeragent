@@ -23,6 +23,7 @@ import uuid
 from typing import Any, Dict, IO, Optional, Tuple
 
 from plugin.framework.config import get_config_str
+from plugin.framework.constants import WORKER_POOL_DEFAULT
 from plugin.scripting.config_limits import (
     WARM_WORKER_TIMEOUT_SEC,
     configured_python_exec_timeout,
@@ -363,8 +364,12 @@ def probe_venv_path(venv_dir: str, timeout: float = 10.0) -> Tuple[bool, str]:
 # --- Warm worker ---
 
 
+def _worker_registry_key(exe: str, pool: str) -> str:
+    return f"{pool}:{exe}"
+
+
 class PythonWorkerManager:
-    """One warm child process per resolved Python executable path."""
+    """One warm child process per (pool, Python executable path) pair."""
 
     def __init__(self, exe: str, env: dict[str, str]) -> None:
         self.exe = exe
@@ -374,13 +379,14 @@ class PythonWorkerManager:
         self._primed = False
 
     @classmethod
-    def get(cls, exe: str, env: dict[str, str]) -> PythonWorkerManager:
-        """Return the singleton worker for *exe* (caller should pass a scrubbed env dict)."""
+    def get(cls, exe: str, env: dict[str, str], *, pool: str = WORKER_POOL_DEFAULT) -> PythonWorkerManager:
+        """Return the singleton worker for *pool* + *exe* (caller should pass a scrubbed env dict)."""
+        key = _worker_registry_key(exe, pool)
         with _registry_lock:
-            mgr = _instances.get(exe)
+            mgr = _instances.get(key)
             if mgr is None:
                 mgr = cls(exe, dict(env))
-                _instances[exe] = mgr
+                _instances[key] = mgr
             return mgr
 
     @classmethod
@@ -706,13 +712,17 @@ def _resolve_worker_python(uno_ctx: Any) -> tuple[str | None, dict[str, Any] | N
     return exe, None
 
 
-def _worker_manager_for_ctx(uno_ctx: Any) -> tuple[PythonWorkerManager | None, dict[str, Any] | None]:
+def _worker_manager_for_ctx(
+    uno_ctx: Any,
+    *,
+    pool: str = WORKER_POOL_DEFAULT,
+) -> tuple[PythonWorkerManager | None, dict[str, Any] | None]:
     exe, err = _resolve_worker_python(uno_ctx)
     if err is not None:
         return None, err
     assert exe is not None
     child_env = scrub_subprocess_env(dict(os.environ))
-    return PythonWorkerManager.get(exe, child_env), None
+    return PythonWorkerManager.get(exe, child_env, pool=pool), None
 
 
 def run_code_in_user_venv(
@@ -727,11 +737,14 @@ def run_code_in_user_venv(
     init_script_hash: str | None = None,
     active_domain: str | None = None,
     python_tool_domain: str | None = None,
+    worker_pool: str = WORKER_POOL_DEFAULT,
 ) -> Dict[str, Any]:
     """Execute *code* via :class:`PythonWorkerManager` (warm process).
 
     Without *session_id*, each call uses an isolated namespace in the child. With
     *session_id*, the child reuses one namespace per workbook (shared kernel).
+
+    *worker_pool* selects which warm child to use (e.g. embeddings vs Calc/chat default).
 
     *active_domain* / *python_tool_domain* are reserved for future venv→LO tool RPC (not wired yet).
     """
@@ -739,7 +752,7 @@ def run_code_in_user_venv(
     if not (code or "").strip():
         return {"status": "error", "message": "No code provided."}
 
-    manager, err = _worker_manager_for_ctx(uno_ctx)
+    manager, err = _worker_manager_for_ctx(uno_ctx, pool=worker_pool)
     if err is not None:
         return err
     assert manager is not None

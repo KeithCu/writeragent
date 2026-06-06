@@ -17,11 +17,27 @@ import logging
 import sqlite3
 import struct
 import time
+from dataclasses import dataclass
 from typing import Any
+
+from plugin.framework.constants import EMBEDDINGS_CORPUS_CACHE_TTL_S
 
 log = logging.getLogger(__name__)
 
 _MODEL_CACHE: dict[str, Any] = {}
+
+
+@dataclass
+class _CorpusRamCacheEntry:
+    corpus: Any
+    ids: list[int]
+    locators: list[tuple[str, int, int, int]]
+    fingerprint: str
+    last_access: float
+
+
+# Per (db_path, model_name) read-through matrix cache — lives in the embeddings subprocess only.
+_CORPUS_RAM_CACHE: dict[tuple[str, str], _CorpusRamCacheEntry] = {}
 
 
 def _probe_sqlite_vec() -> bool:
@@ -136,6 +152,130 @@ def _write_vector(
         )
     blob = _vector_to_blob(vec)
     conn.execute("UPDATE chunks SET embedding=? WHERE chunk_id=?", (blob, chunk_id))
+
+
+def _corpus_fingerprint(conn: sqlite3.Connection) -> str:
+    count_row = conn.execute(
+        "SELECT COUNT(*) AS n FROM chunks WHERE embedding IS NOT NULL"
+    ).fetchone()
+    meta_row = conn.execute(
+        "SELECT value FROM corpus_meta WHERE key='updated_at'"
+    ).fetchone()
+    count = int(count_row["n"]) if count_row else 0
+    updated_at = str(meta_row["value"]) if meta_row else ""
+    return f"{count}:{updated_at}"
+
+
+def _load_blob_corpus(
+    conn: sqlite3.Connection,
+) -> tuple[Any, list[int], list[tuple[str, int, int, int]], str] | None:
+    """Load all BLOB embeddings into a stacked matrix; return None when empty."""
+    import numpy as np
+
+    blob_rows = conn.execute(
+        "SELECT chunk_id, doc_url, para_index, char_start, char_end, embedding "
+        "FROM chunks WHERE embedding IS NOT NULL"
+    ).fetchall()
+    if not blob_rows:
+        return None
+
+    ids: list[int] = []
+    locators: list[tuple[str, int, int, int]] = []
+    matrix_rows: list[Any] = []
+    for row in blob_rows:
+        blob = row["embedding"]
+        if not blob:
+            continue
+        vec = np.frombuffer(blob, dtype=np.float32)
+        ids.append(int(row["chunk_id"]))
+        locators.append(
+            (
+                str(row["doc_url"]),
+                int(row["para_index"]),
+                int(row["char_start"] or 0),
+                int(row["char_end"] or 0),
+            )
+        )
+        matrix_rows.append(vec)
+
+    if not matrix_rows:
+        return None
+
+    return np.stack(matrix_rows), ids, locators, _corpus_fingerprint(conn)
+
+
+def _invalidate_corpus_cache(db_path: str) -> None:
+    db = str(db_path)
+    for key in list(_CORPUS_RAM_CACHE):
+        if key[0] == db:
+            del _CORPUS_RAM_CACHE[key]
+
+
+def _get_cached_blob_corpus(
+    db_path: str,
+    model_name: str,
+    conn: sqlite3.Connection,
+) -> tuple[Any, list[int], list[tuple[str, int, int, int]]] | None:
+    """Return warm corpus matrix + locators, loading from disk on miss or stale entry."""
+    key = (str(db_path), model_name)
+    now = time.monotonic()
+    entry = _CORPUS_RAM_CACHE.get(key)
+    if entry is not None:
+        if now - entry.last_access > EMBEDDINGS_CORPUS_CACHE_TTL_S:
+            del _CORPUS_RAM_CACHE[key]
+            entry = None
+        elif entry.fingerprint != _corpus_fingerprint(conn):
+            del _CORPUS_RAM_CACHE[key]
+            entry = None
+        else:
+            entry.last_access = now
+            return entry.corpus, entry.ids, entry.locators
+
+    loaded = _load_blob_corpus(conn)
+    if loaded is None:
+        return None
+    corpus, ids, locators, fingerprint = loaded
+    _CORPUS_RAM_CACHE[key] = _CorpusRamCacheEntry(
+        corpus=corpus,
+        ids=ids,
+        locators=locators,
+        fingerprint=fingerprint,
+        last_access=now,
+    )
+    return corpus, ids, locators
+
+
+def _knn_hits_from_corpus(
+    corpus: Any,
+    ids: list[int],
+    locators: list[tuple[str, int, int, int]],
+    query_vec: Any,
+    limit: int,
+) -> list[dict[str, Any]]:
+    import numpy as np
+
+    similarities = np.clip(np.dot(corpus, query_vec), -1.0, 1.0)
+    n = similarities.shape[0]
+    if limit >= n:
+        top_idx = np.argsort(similarities)[-limit:][::-1]
+    else:
+        part = np.argpartition(similarities, -limit)[-limit:]
+        top_idx = part[np.argsort(similarities[part])][::-1]
+
+    hits: list[dict[str, Any]] = []
+    for i in top_idx:
+        doc_url, para_index, char_start, char_end = locators[int(i)]
+        hits.append(
+            {
+                "chunk_id": ids[int(i)],
+                "doc_url": doc_url,
+                "para_index": para_index,
+                "char_start": char_start,
+                "char_end": char_end,
+                "score": float(similarities[int(i)]),
+            }
+        )
+    return hits
 
 
 def embed_texts(model_name: str, texts: list[str], *, normalize: bool = True) -> dict[str, Any]:
@@ -273,6 +413,7 @@ def index_paragraphs(db_path: str, model_name: str, rows: list[dict[str, Any]]) 
     finally:
         conn.close()
 
+    _invalidate_corpus_cache(db_path)
     return {"indexed": indexed, "dim": dim, "storage_backend": storage_backend}
 
 
@@ -295,6 +436,7 @@ def delete_paragraphs(db_path: str, keys: list[dict[str, Any]]) -> dict[str, Any
         conn.commit()
     finally:
         conn.close()
+    _invalidate_corpus_cache(db_path)
     return {"deleted": deleted}
 
 
@@ -352,57 +494,10 @@ def knn_search(db_path: str, query_text: str, k: int, *, model_name: str) -> dic
                 )
             return {"hits": hits}
 
-        blob_rows = conn.execute(
-            "SELECT chunk_id, doc_url, para_index, char_start, char_end, embedding "
-            "FROM chunks WHERE embedding IS NOT NULL"
-        ).fetchall()
-        if not blob_rows:
+        cached = _get_cached_blob_corpus(db_path, model, conn)
+        if cached is None:
             return {"hits": []}
-
-        ids: list[int] = []
-        locators: list[tuple[str, int, int, int]] = []
-        matrix_rows: list[Any] = []
-        for row in blob_rows:
-            blob = row["embedding"]
-            if not blob:
-                continue
-            vec = np.frombuffer(blob, dtype=np.float32)
-            ids.append(int(row["chunk_id"]))
-            locators.append(
-                (
-                    str(row["doc_url"]),
-                    int(row["para_index"]),
-                    int(row["char_start"] or 0),
-                    int(row["char_end"] or 0),
-                )
-            )
-            matrix_rows.append(vec)
-
-        if not matrix_rows:
-            return {"hits": []}
-
-        corpus = np.stack(matrix_rows)
-        similarities = np.clip(np.dot(corpus, query_vec), -1.0, 1.0)
-        n = similarities.shape[0]
-        if limit >= n:
-            top_idx = np.argsort(similarities)[-limit:][::-1]
-        else:
-            part = np.argpartition(similarities, -limit)[-limit:]
-            top_idx = part[np.argsort(similarities[part])][::-1]
-
-        hits = []
-        for i in top_idx:
-            doc_url, para_index, char_start, char_end = locators[int(i)]
-            hits.append(
-                {
-                    "chunk_id": ids[int(i)],
-                    "doc_url": doc_url,
-                    "para_index": para_index,
-                    "char_start": char_start,
-                    "char_end": char_end,
-                    "score": float(similarities[int(i)]),
-                }
-            )
-        return {"hits": hits}
+        corpus, ids, locators = cached
+        return {"hits": _knn_hits_from_corpus(corpus, ids, locators, query_vec, limit)}
     finally:
         conn.close()

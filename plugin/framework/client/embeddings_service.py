@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from plugin.framework.client.embedding_client import _embedding_session_id
+from plugin.framework.constants import WORKER_POOL_EMBEDDINGS
 from plugin.framework.errors import ToolExecutionError
 from plugin.scripting.config_limits import configured_python_exec_timeout
 from plugin.scripting.venv_worker import run_code_in_user_venv
@@ -39,6 +40,7 @@ def _run_worker(ctx: Any, stub: str, payload: dict[str, Any], *, model: str) -> 
         data=payload,
         timeout_sec=timeout_sec,
         session_id=_embedding_session_id(model),
+        worker_pool=WORKER_POOL_EMBEDDINGS,
     )
     if response.get("status") != "ok":
         message = str(response.get("message") or "Embeddings worker failed.")
