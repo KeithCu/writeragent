@@ -58,7 +58,7 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 
 - **=PROMPT() Function**: Run AI prompts within spreadsheet cells.
 - **=PYTHON() Function**: Run Numpy within spreadsheet cells. `=PYTHON("sp.prime(data)", A10)`
-- **Deep Analysis**: Analyze **pivot tables** and detect **complex logical errors** across massive datasets. [Analysis Tools](docs/calc-analysis-tools.md).
+- **Analysis sub-agent**: Delegate sheet-range analysis via `analyze_data` — trusted numpy/pandas helpers in your venv: `describe_data`, `kpi_summary`, `detect_outliers`, `quick_stats`, `format_currency`, `format_percent`, `clean_and_prepare`, `pivot_aggregate`, `group_summary`, `compare_periods`, `correlation_matrix`, `run_regression`, `cluster_numeric`, `monte_carlo`. The LLM passes range addresses and helper specs only (not raw cell grids). Also includes Goal Seek and Solver. [Analysis Tools](docs/calc-analysis-tools.md) · [Architecture](docs/analysis-sub-agent.md).
 - **Rich Text Cells**: Paste **HTML** (bold, links, breaks) into a **single cell** using advanced StarWriter import paths.
 - **Batch Range Edits**: Apply formulas and formatting in bulk. [Specialized Toolsets](docs/calc-specialized-toolsets.md).
 - **Advanced Features**: [Conditional Formatting](docs/calc-conditional-formatting.md) and [Sheet Filtering (AutoFilter)](docs/calc-sheet-filter.md).
