@@ -60,6 +60,12 @@ def _para_style_at_start(text):
     return chk.getPropertyValue("ParaStyleName")
 
 
+def _char_prop_over_paragraph(text, name):
+    cur = text.createTextCursorByRange(text.getStart())
+    cur.gotoEnd(True)
+    return int(cur.getPropertyValue(name))
+
+
 @native_test
 def test_apply_document_content_preserves_heading_level_span_uno():
     """Replacing heading text with inline <span> must not demote the paragraph."""
@@ -107,3 +113,45 @@ def test_apply_document_content_block_markup_changes_heading_level_uno():
     para_style = _para_style_at_start(text)
     assert para_style == "Heading 2", \
         "block markup should set Heading 2, got '%s'" % para_style
+
+
+@native_test
+def test_apply_document_content_preserves_inline_color_on_heading_uno():
+    """Inline content with DIRECT character formatting (a red <span>) replacing a heading
+    must keep both the heading level AND the direct color. The StarWriter HTML import
+    applies the color, but restoring the heading paragraph style used to wipe it; the
+    restore must preserve direct Char* formatting."""
+    doc, text = _doc_with_heading3()
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=_test_ctx, env="native")
+    res = ApplyDocumentContent().execute(
+        tool_ctx,
+        content=['<span style="color: #ff0000">%s</span>' % _HEADING_TEXT],
+        old_content=_HEADING_TEXT,
+        target="search",
+    )
+    assert res.get("status") == "ok", f"apply_document_content failed: {res}"
+    assert _para_style_at_start(text) == "Heading 3", \
+        "demoted the heading to '%s'" % _para_style_at_start(text)
+    color = _char_prop_over_paragraph(text, "CharColor")
+    assert color == 0xFF0000, \
+        "restoring the heading style wiped the direct red color (CharColor=0x%06x)" % (color & 0xFFFFFF)
+
+
+@native_test
+def test_apply_document_content_preserves_inline_highlight_on_heading_uno():
+    """A direct character highlight (background) on inline content replacing a heading
+    must survive the paragraph-style restore, just like the colour."""
+    doc, text = _doc_with_heading3()
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=_test_ctx, env="native")
+    res = ApplyDocumentContent().execute(
+        tool_ctx,
+        content=['<span style="background: #ffff00">%s</span>' % _HEADING_TEXT],
+        old_content=_HEADING_TEXT,
+        target="search",
+    )
+    assert res.get("status") == "ok", f"apply_document_content failed: {res}"
+    assert _para_style_at_start(text) == "Heading 3", \
+        "demoted the heading to '%s'" % _para_style_at_start(text)
+    back = _char_prop_over_paragraph(text, "CharBackColor")
+    assert back == 0xFFFF00, \
+        "restoring the heading style wiped the direct highlight (CharBackColor=0x%06x)" % (back & 0xFFFFFF)
