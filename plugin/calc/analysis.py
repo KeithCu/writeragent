@@ -24,7 +24,7 @@ from plugin.framework.errors import ToolExecutionError, UnoObjectError
 from plugin.calc.base import ToolCalcAnalysisBase
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.address_utils import parse_address
-from plugin.scripting.analysis import HELPER_NAMES
+from plugin.scripting.analysis_common import HELPER_NAMES
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext

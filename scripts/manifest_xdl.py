@@ -977,8 +977,8 @@ def update_dialog_xlb(library_dir, dialog_names, tpl_path=None):
     block = "\n".join(generated_lines)
 
     if marker in content:
-        before, after = content.split(marker, 1)
-        new_content = before + marker + "\n" + block + "\n" + after.lstrip("\n")
+        before, _after = content.split(marker, 1)
+        new_content = before + marker + "\n" + block + "\n</library:library>\n"
     else:
         new_content = content.replace(
             "</library:library>",

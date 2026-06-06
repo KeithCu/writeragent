@@ -23,6 +23,7 @@ from sklearn.cluster import KMeans  # type: ignore[import-untyped]
 from sklearn.ensemble import IsolationForest  # type: ignore[import-untyped]
 
 from plugin.scripting.analysis_coerce import CoerceResult, coerce_to_dataframe
+from plugin.scripting.analysis_common import HELPER_NAMES
 
 log = logging.getLogger(__name__)
 
@@ -39,25 +40,6 @@ _NUMERIC_PROFILE_KEYS = (
     ("min", "min"),
     ("max", "max"),
     ("median", "50%"),
-)
-
-HELPER_NAMES = frozenset(
-    {
-        "describe_data",
-        "kpi_summary",
-        "detect_outliers",
-        "quick_stats",
-        "format_currency",
-        "format_percent",
-        "clean_and_prepare",
-        "pivot_aggregate",
-        "group_summary",
-        "compare_periods",
-        "correlation_matrix",
-        "run_regression",
-        "cluster_numeric",
-        "monte_carlo",
-    }
 )
 
 

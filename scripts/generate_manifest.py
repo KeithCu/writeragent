@@ -158,6 +158,10 @@ def generate_manifest_py(modules, output_path):
             "actions": list(m.get("actions", {}).keys()),
             "action_icons": {k: v["icon"] for k, v in m.get("actions", {}).items() if v.get("icon")},
         }
+        if m.get("settings_tab") is False:
+            entry["settings_tab"] = False
+        if m.get("config_dialog"):
+            entry["config_dialog"] = m["config_dialog"]
         # json.dumps then convert true/false/null to Python True/False/None
         json_text = json.dumps(entry, indent=8)
         lines.append("    %s," % _json_to_python(json_text))

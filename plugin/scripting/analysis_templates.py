@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from plugin.scripting.analysis import HELPER_NAMES
+from plugin.scripting.analysis_common import HELPER_NAMES
 
 ANALYSIS_HEADER_PREFIX = "# writeragent:analysis"
 _ANALYSIS_HEADER_RE = re.compile(

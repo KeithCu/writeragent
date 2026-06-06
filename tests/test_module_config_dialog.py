@@ -22,6 +22,14 @@ def test_get_module_config_dialog_id_for_vision():
         assert get_module_config_dialog_id("vision") == "VisionSettingsDialog"
 
 
+def test_manifest_vision_module_has_config_dialog():
+    from plugin._manifest import MODULES
+
+    vision = next(m for m in MODULES if m.get("name") == "vision")
+    assert vision.get("settings_tab") is False
+    assert vision.get("config_dialog", {}).get("id") == "VisionSettingsDialog"
+
+
 def test_get_module_config_field_specs_skips_internal_and_non_persisted():
     ctx = object()
     manifest = {
