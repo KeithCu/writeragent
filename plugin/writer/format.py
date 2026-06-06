@@ -592,7 +592,7 @@ def replace_single_range_with_content(model, text_range, content, ctx, config_sv
         try:
             restore = text_obj.createTextCursorByRange(anchor.getStart())
             restore.gotoRange(cursor.getEnd(), True)
-            restore.setPropertyValue("ParaStyleName", saved_style)
+            apply_paragraph_style_preserving_direct_char(model, restore, saved_style)
         except Exception:
             log.debug("replace_single_range_with_content: could not restore ParaStyleName", exc_info=True)
     else:
