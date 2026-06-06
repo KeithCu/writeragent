@@ -226,7 +226,7 @@ def describe_data(
     try:
         import json
 
-        from data_profiling import ProfileReport  # type: ignore[import-untyped]
+        from data_profiling import ProfileReport  # type: ignore[import-not-found, ty:unresolved-import]  # pyright: ignore[reportMissingImports]
 
         profile = ProfileReport(limited, minimal=True, progress_bar=False)
         report_json = json.loads(profile.to_json())

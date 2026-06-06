@@ -5,56 +5,22 @@ import types
 import unittest
 from unittest.mock import MagicMock, patch
 
+from plugin.tests.testing_utils import setup_uno_mocks
 
-def _install_uno_mocks():
-    """
-    plugin/writer/image_tools.py imports several LibreOffice UNO types at module import time.
-    The unit tests in this repo sometimes run without LibreOffice present, so we
-    stub the minimal module structure needed for imports.
-    """
-    uno_mock = MagicMock()
-    uno_mock.systemPathToFileUrl.side_effect = lambda p: f"file:///{p}"
-    sys.modules["uno"] = uno_mock
+setup_uno_mocks()
 
-    # Build `com.sun.star.*` module structure.
-    sys.modules["com"] = types.ModuleType("com")
-    sys.modules["com.sun"] = types.ModuleType("com.sun")
-    sys.modules["com.sun.star"] = types.ModuleType("com.sun.star")
-
-    sys.modules["com.sun.star.text"] = types.ModuleType("com.sun.star.text")
-    anchor_mod = types.ModuleType("com.sun.star.text.TextContentAnchorType")
+# image_tools imports TextContentAnchorType at load time; conftest usually provides it.
+_anchor_key = "com.sun.star.text.TextContentAnchorType"
+if _anchor_key not in sys.modules:
+    anchor_mod = types.ModuleType(_anchor_key)
     setattr(anchor_mod, "AS_CHARACTER", 1)
     setattr(anchor_mod, "AT_FRAME", 3)
-    sys.modules["com.sun.star.text.TextContentAnchorType"] = anchor_mod
+    sys.modules[_anchor_key] = anchor_mod
 
-    awt_mod = types.ModuleType("com.sun.star.awt")
-
-    class Size:
-        def __init__(self, width=0, height=0):
-            self.Width = width
-            self.Height = height
-
-    class Point:
-        def __init__(self, x, y):
-            self.X = x
-            self.Y = y
-
-    setattr(awt_mod, "Size", Size)
-    setattr(awt_mod, "Point", Point)
-    sys.modules["com.sun.star.awt"] = awt_mod
-
-    beans_mod = types.ModuleType("com.sun.star.beans")
-
-    class PropertyValue:
-        def __init__(self, Name=None, Value=None):
-            self.Name = Name
-            self.Value = Value
-
-    setattr(beans_mod, "PropertyValue", PropertyValue)
-    sys.modules["com.sun.star.beans"] = beans_mod
-
-
-_install_uno_mocks()
+# systemPathToFileUrl is used by image_tools; patch per-test where needed.
+_uno = sys.modules.get("uno")
+if isinstance(_uno, MagicMock):
+    _uno.systemPathToFileUrl.side_effect = lambda p: f"file:///{p}"
 
 from plugin.writer.images import image_tools  # noqa: E402
 
