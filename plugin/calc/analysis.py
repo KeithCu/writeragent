@@ -13,7 +13,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Calc analysis tools: Goal Seek and Solver."""
+"""Calc analysis tools: trusted numpy helpers, Goal Seek, and Solver."""
 
 from __future__ import annotations
 
@@ -21,9 +21,14 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from plugin.framework.errors import ToolExecutionError, UnoObjectError
-from plugin.calc.base import ToolCalcSolverBase
+from plugin.calc.base import ToolCalcAnalysisBase
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.address_utils import parse_address
+from plugin.calc.venv_python import _resolve_python_data
+from plugin.scripting.analysis import HELPER_NAMES
+
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
 
 if TYPE_CHECKING:
     from com.sun.star.table import CellAddress
@@ -116,7 +121,7 @@ def _get_cell_address(doc, address_str: str) -> CellAddress:
     return cell.getCellAddress()
 
 
-class GoalSeekTool(ToolCalcSolverBase):
+class GoalSeekTool(ToolCalcAnalysisBase):
     """Find the value of a variable cell that results in a target formula value."""
 
     name = "calc_goal_seek"
@@ -174,7 +179,7 @@ class GoalSeekTool(ToolCalcSolverBase):
             raise ToolExecutionError(str(e)) from e
 
 
-class SolverTool(ToolCalcSolverBase):
+class SolverTool(ToolCalcAnalysisBase):
     """Solve an optimization problem with multiple variables and constraints."""
 
     name = "calc_solver"
@@ -348,3 +353,77 @@ class SolverTool(ToolCalcSolverBase):
         except Exception as e:
             logger.error("Solver error: %s", str(e))
             raise ToolExecutionError(str(e)) from e
+
+
+_ANALYZE_DATA_HELPERS = ", ".join(sorted(HELPER_NAMES))
+
+
+class AnalyzeDataTool(ToolCalcAnalysisBase):
+    """Run trusted numpy/pandas analysis helpers on sheet data via the venv worker."""
+
+    name = "analyze_data"
+    description = (
+        "Run a trusted numpy/pandas analysis helper on spreadsheet data. "
+        f"Helpers: {_ANALYZE_DATA_HELPERS}. "
+        "Pass data_range or data from read_cell_range. Prefer this over inventing pandas code."
+    )
+    parameters = {
+        "type": "object",
+        "properties": {
+            "helper": {"type": "string", "description": "Analysis helper name (e.g. describe_data, run_regression)."},
+            "params": {"type": "object", "description": "Helper-specific parameters."},
+            "data_range": {"type": "string", "description": "A1 range to analyze (e.g. Sheet1.A1:D10)."},
+            "data": {
+                "type": "array",
+                "items": {"type": "array", "items": {}},
+                "description": "2D grid from read_cell_range when not using data_range.",
+            },
+            "headers": {"type": "boolean", "description": "First row contains column names (default true)."},
+            "task_hint": {"type": "string", "description": "Optional hint echoed in result context."},
+        },
+        "required": ["helper"],
+    }
+    long_running = True
+
+    def is_async(self) -> bool:
+        return True
+
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        helper = str(kwargs.get("helper") or "").strip()
+        if not helper:
+            return self._tool_error("helper is required")
+
+        data_range = kwargs.get("data_range")
+        data = kwargs.get("data")
+        if not (data_range and str(data_range).strip()) and data is None:
+            return self._tool_error("Provide data_range or data")
+
+        py_data, err = _resolve_python_data(ctx, data_range=str(data_range).strip() if data_range else None, data=data)
+        if err:
+            return self._tool_error(err)
+        if py_data is None:
+            return self._tool_error("No data to analyze")
+
+        spec: dict[str, Any] = {"helper": helper}
+        if isinstance(kwargs.get("params"), dict):
+            spec["params"] = kwargs["params"]
+        if "headers" in kwargs:
+            spec["headers"] = bool(kwargs["headers"])
+
+        context: dict[str, Any] = {}
+        if kwargs.get("task_hint"):
+            context["task_hint"] = str(kwargs["task_hint"])
+        if data_range and str(data_range).strip():
+            context["range_a1"] = str(data_range).strip()
+        try:
+            bridge = CalcBridge(ctx.doc)
+            context["sheet_name"] = bridge.get_active_sheet().getName()
+        except Exception:
+            pass
+
+        from plugin.framework.client.analysis_client import run_analysis
+
+        try:
+            return run_analysis(ctx.ctx, spec, py_data, context=context or None)
+        except ToolExecutionError as exc:
+            return self._tool_error(str(exc), code=getattr(exc, "code", "ANALYSIS_ERROR"))

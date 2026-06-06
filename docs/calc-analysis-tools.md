@@ -1,42 +1,73 @@
-# Calc Analysis Tools (Goal Seek, Solver, and Data / Numeric Analysis)
+# Calc Analysis Tools (Trusted Helpers, Goal Seek, and Solver)
 
 This document describes the specialized tools for performing analysis in LibreOffice Calc.
 
-**Current narrow surface (solvers):** Goal Seek and Solver (see below). These live under the `solvers` / `analysis` specialized domain.
+All tools below live under the **`analysis`** specialized domain. The main chat agent delegates with `delegate_to_specialized_calc_toolset(domain="analysis", task=…)`; the analysis sub-agent chooses the right tool:
 
-**Broader data / numeric analysis (in progress – see the dedicated plan):** For heavy lifting on user data (cleaning tables/ranges, stats, regression, clustering, Monte Carlo, etc.) using the full scientific Python stack in the user venv, see [Analysis Sub-Agent](analysis-sub-agent.md). That plan is intentionally Calc-focused for the compute (data lives in Calc), with support for Writer callers to delegate work and receive compact results for "cleanup" / presentation in the Writer document. It reuses the existing delegation, python execution, and trusted code patterns.
+| Task type | Tool |
+|-----------|------|
+| Stats, cleaning, regression, clustering, Monte Carlo on tabular data | `analyze_data` |
+| Single-variable what-if on live formulas | `calc_goal_seek` |
+| Constrained optimization on formula cells | `calc_solver` |
 
-**Dual layer (standard helpers + raw power):** The plan explicitly provides both high-level reliable "standard functions" (curated helpers and classes, modeled on what Excel ships in Python-in-Excel initialization scripts) that the LLM/sub-agent should prefer for common tasks, *plus* full raw `=PYTHON()` / `run_venv_python_script` access for anything else. We copy useful *features* from Microsoft (curated global helpers, OOP analysis classes, rich data handling for tables/named ranges/headers, object previews, agentic cross-workbook analysis) while keeping our local venv + explicit `data`/`result` architecture.
+See [calc-specialized-toolsets.md](calc-specialized-toolsets.md) for delegation mechanics and [Analysis Sub-Agent](analysis-sub-agent.md) for the broader plan.
 
-The long-term goal is to evolve the `analysis` surface so the agent can say "analyze the sales data in this range / sheet / file" (using standard helpers when possible) and get reliable results without having to write correct pandas code on every turn.
+---
 
-## 1. Goal Seek
+## 1. Trusted data analysis (`analyze_data`)
 
-Goal Seek is used to find the value of a single variable that results in a specific target value for a formula.
+Runs curated numpy/pandas/scipy helpers in the user venv via a fixed RPC stub (not LLM-submitted code). Prefer this over inventing pandas code.
 
-### Tool: `calc_goal_seek`
-Finds the value for a variable cell that makes a formula cell reach a target value.
+### Tool: `analyze_data`
 
 **Arguments:**
+
+* `helper` (required): Helper name — `describe_data`, `kpi_summary`, `detect_outliers`, `quick_stats`, `format_currency`, `format_percent`, `clean_and_prepare`, `pivot_aggregate`, `group_summary`, `compare_periods`, `correlation_matrix`, `run_regression`, `cluster_numeric`, `monte_carlo`
+* `params`: Helper-specific parameters (object)
+* `data_range`: A1 range to read from the sheet (e.g. `Sheet1.A1:D20`)
+* `data`: 2D array alternative (e.g. from `read_cell_range`)
+* `headers`: First row is column names (default `true`)
+* `task_hint`: Optional string echoed in result context
+
+**Returns:** Compact JSON with `status`, `helper`, `metrics`, `tables`, `flags`, etc. See [analysis-sub-agent.md](analysis-sub-agent.md) for the full result contract.
+
+**Example:** "Describe the sales table in A1:C50."
+
+```
+helper: describe_data
+data_range: Sheet1.A1:C50
+```
+
+---
+
+## 2. Goal Seek
+
+Goal Seek finds the value of a single variable that results in a specific target value for a formula.
+
+### Tool: `calc_goal_seek`
+
+**Arguments:**
+
 * `formula_cell`: The address of the cell containing the formula (e.g., "Sheet1.B1").
 * `variable_cell`: The address of the cell containing the variable to adjust (e.g., "Sheet1.A1").
 * `target_value`: The desired result of the formula (float).
 * `apply_result`: (Optional, default: `true`) Whether to automatically apply the found result to the variable cell.
 
 **Returns:**
+
 * `result`: The value found for the variable cell.
 * `divergence`: The difference between the target and the actual result achieved.
 
 ---
 
-## 2. Solver
+## 3. Solver
 
 The Solver is used for more complex optimization problems involving multiple variables and constraints.
 
 ### Tool: `calc_solver`
-Solves an optimization problem to maximize, minimize, or reach a value for an objective cell by changing multiple variable cells subject to constraints.
 
 **Arguments:**
+
 * `objective_cell`: The cell address of the objective function.
 * `variables`: A list of cell addresses that the solver can change.
 * `maximize`: (Optional, default: `true`) Whether to maximize (`true`) or minimize (`false`) the objective.
@@ -47,35 +78,53 @@ Solves an optimization problem to maximize, minimize, or reach a value for an ob
 * `engine`: (Optional) The specific solver engine to use (e.g., `"com.sun.star.sheet.SolverLinear"`).
 
 **Returns:**
+
 * `success`: Whether a solution was found.
 * `result_value`: The final value of the objective cell.
 * `solution`: A list of values for the variables in the same order as provided.
 
 ---
 
-## 3. Implementation Details
+## 4. Implementation Details
 
-- **Goal Seek**: Uses the `com.sun.star.sheet.XGoalSeek` interface, which is implemented directly by the Spreadsheet Document model. This allows for efficient root-finding without external service overhead.
+- **`analyze_data`**: Host reads range via `CellInspector` → `analysis_client.run_analysis` → warm venv worker executing `plugin.scripting.analysis.run_analysis`.
+- **Goal Seek**: Uses the `com.sun.star.sheet.XGoalSeek` interface on the Spreadsheet Document model.
 - **Solver**:
-    - **Engine Enumeration**: The tool automatically discovers all registered solver implementations using `XContentEnumerationAccess` for the `com.sun.star.sheet.Solver` service.
-    - **Prioritization**: In headless or restricted environments, the tool prioritizes non-Java engines (like `CoinMP` or `Lpsolve`) over Java-based ones (like `NLPSolver`) to avoid `NullPointerException` errors related to frame/controller access.
-    - **Auto-Discovery**: If no `engine` is specified, it iterates through available implementations until a compatible one is found.
+    - **Engine Enumeration**: Discovers registered solver implementations via `XContentEnumerationAccess`.
+    - **Prioritization**: In headless environments, prioritizes non-Java engines (CoinMP, Lpsolve) over Java NLPSolver engines that require a UI frame.
+    - **Auto-Discovery**: If no `engine` is specified, iterates until a compatible engine is found.
 
-## 4. Environment Notes
+## 5. Environment Notes
 
-- **Headless Mode**: The Evolutionary/NLP solvers in LibreOffice often require an active controller/frame to display status dialogs, which can lead to Java `NullPointerException` errors when run in headless tests or background tasks. WriterAgent's prioritization of native linear solvers mitigates this.
-- **Goal Seek Accuracy**: Goal Seek returns both the found `result` and the `divergence`. A non-zero divergence indicates that the target value was approached but not exactly met within the defined precision.
+- **Headless Mode**: Evolutionary/NLP solvers often require an active controller/frame. WriterAgent prioritizes native linear solvers in headless tests.
+- **Goal Seek Accuracy**: Returns both `result` and `divergence`; non-zero divergence means the target was approached but not met exactly.
+- **Venv**: `analyze_data` requires a configured user Python venv with the scientific stack (see [enabling_numpy_in_libreoffice.md](enabling_numpy_in_libreoffice.md)).
 
-## 5. Example Usage
+## 6. Example Usage
+
+### analyze_data
+"Summarize outliers in the sales data range."
+
+```
+helper: detect_outliers
+data_range: Sheet1.A1:C50
+params: {"method": "iqr"}
+```
 
 ### Goal Seek
 "Find what value in A1 makes B1 (which is A1*A1) equal to 100."
-- `formula_cell`: "Sheet1.B1"
-- `variable_cell`: "Sheet1.A1"
-- `target_value`: 100.0
+
+```
+formula_cell: Sheet1.B1
+variable_cell: Sheet1.A1
+target_value: 100.0
+```
 
 ### Solver
 "Maximize C1 (Profit) by changing A1 and B1, subject to A1+B1 <= 10."
-- `objective_cell`: "Sheet1.C1"
-- `variables`: ["Sheet1.A1", "Sheet1.B1"]
-- `constraints`: [{"left": "Sheet1.D1", "operator": "LESS_EQUAL", "right": 10.0}] (where D1 is `=A1+B1`)
+
+```
+objective_cell: Sheet1.C1
+variables: ["Sheet1.A1", "Sheet1.B1"]
+constraints: [{"left": "Sheet1.D1", "operator": "LESS_EQUAL", "right": 10.0}]
+```

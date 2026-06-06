@@ -268,6 +268,10 @@ def test_calc_core_directives_no_math_python_delegation_line():
     assert "do not answer from memory" not in CALC_CORE_DIRECTIVES
 
 
+def test_calc_core_directives_analysis_delegation():
+    assert 'delegate_to_specialized_calc_toolset(domain="analysis")' in CALC_CORE_DIRECTIVES
+
+
 def test_core_directives_prohibit_asking_user_to_paste():
     # Writer
     assert "MUST NOT ask the user where to find it" in WRITER_CORE_DIRECTIVES

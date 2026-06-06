@@ -214,11 +214,18 @@ class DelegateToSpecializedBase(ToolBase):
             if domain == "images"
             else ""
         )
+        analysis_hint = (
+            " For stats, cleaning, regression, clustering, or simulation on tabular data, use analyze_data with the appropriate helper. "
+            "For live formula what-if (single target cell), use calc_goal_seek. "
+            "For constrained optimization on formula cells, use calc_solver. Prefer these over inventing raw pandas code."
+            if domain == "analysis"
+            else ""
+        )
         python_hint = python_specialized_sub_agent_hint(self._agent_label) if domain == "python" else ""
         instructions = (
             f"You are a specialized {self._agent_label} task executor focused on the '{domain}' domain. "
             f"You have a focused set of tools to accomplish your task. Use them to fulfill the user's request."
-            f"{footnotes_hint}{shapes_canvas}{charts_hint}{calc_ctx}{document_research_hint}{open_docs_context}{images_hint}{python_hint}"
+            f"{footnotes_hint}{shapes_canvas}{charts_hint}{calc_ctx}{document_research_hint}{open_docs_context}{images_hint}{analysis_hint}{python_hint}"
         )
 
 

@@ -36,7 +36,7 @@ class DelegateToSpecializedCalc(DelegateToSpecializedBase):
     description = (
         f"Delegates a specialized Calc task. document_research {DELEGATION_USER_FILE_DATA_HINT}; "
         f"web_research {DELEGATION_PUBLIC_WEB_HINT}. "
-        "Also: images, pivot, sheets, forms, tracking, etc."
+        "Also: analysis, images, pivot, sheets, forms, tracking, etc."
     )
 
     uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]

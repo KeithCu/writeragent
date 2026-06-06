@@ -136,8 +136,11 @@ def test_to_mcp_schema_delegate_calc_domain_list_omits_python():
 
     mcp_schema = to_mcp_schema(DelegateToSpecializedCalc())
     domain_desc = mcp_schema["inputSchema"]["properties"]["domain"]["description"]
+    domain_enum = mcp_schema["inputSchema"]["properties"]["domain"]["enum"]
     assert "specialized Calc task" in mcp_schema["description"]
-    assert "python" not in mcp_schema["inputSchema"]["properties"]["domain"]["enum"]
+    assert "python" not in domain_enum
+    assert "analysis" in domain_enum
+    assert "solvers" not in domain_enum
     assert "python:" not in domain_desc
 
 

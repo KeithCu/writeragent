@@ -28,7 +28,7 @@ This is the focused evolution of the high-level analysis ideas previously sketch
 ## Current Code State (grounded in actual implementation)
 
 **Existing narrow analysis (as of inspection of `plugin/calc/`):**
-- `plugin/calc/analysis.py`: `GoalSeekTool` (`calc_goal_seek`) and `SolverTool` (`calc_solver`). Direct UNO (`doc.seekGoal`, `XSolver` / solver services). Careful handling for headless (prefers CoinMP/Lpsolve over Java NLPSolver engines that require a frame). Lives under `specialized_domain = "solvers"` (see `plugin/calc/base.py` `ToolCalcSolverBase`).
+- `plugin/calc/analysis.py`: `AnalyzeDataTool` (`analyze_data`), `GoalSeekTool` (`calc_goal_seek`), and `SolverTool` (`calc_solver`). Trusted helpers call `analysis_client.run_analysis` → venv worker; solvers use direct UNO (`doc.seekGoal`, `XSolver`). All under `specialized_domain = "analysis"` (`ToolCalcAnalysisBase` in `plugin/calc/base.py`).
 - `plugin/calc/analyzer.py`: `SheetAnalyzer.get_sheet_summary()` — structural (used range, row/col counts, headers, chart_count, annotations, merges, shapes). Not numeric analysis.
 - `plugin/calc/calc_addin_data.py` + `inspector.py`: Solid data extraction and shaping for Python (`read_range` → values, `pack_calc_data_for_wire`, NaN handling, size limits).
 - Python execution (the current "escape hatch" for real numpy work):
@@ -400,7 +400,9 @@ result = run_analysis(spec, data, context)
 
 Table rows capped at 50 (`MAX_TABLE_ROWS`). Errors use `code` + `message` (e.g. `UNKNOWN_HELPER`, `MISSING_PARAM`).
 
-**Still TODO (post Phase 0):** Calc tools (`analyze_data`, …), analysis domain wiring, sub-agent delegation, discovery bridge, Writer cleanup tools, analysis cache.
+**Phase 0 (done for MVP wiring):** Trusted helpers module, `analyze_data` Calc tool, unified `analysis` domain (includes Goal Seek/Solver), delegation prompts, and sub-agent hints.
+
+**Still TODO (post Phase 0):** Discovery bridge (`find_and_analyze_relevant_ranges`), Writer cleanup tools, analysis cache, cross-doc Writer→Calc handoff polish.
 
 Previously planned helpers (not yet separate tools):
 
@@ -429,9 +431,9 @@ Previously planned helpers (not yet separate tools):
    - Result: In a Calc context (or delegated from Writer), the agent prefers reliable standard helpers ("use `describe_data` + `run_regression` on this range") but can still drop to raw Python for anything else.
 
 2. **Phase 1 (sub-agent surface + discovery)**:
-   - Make "analysis" (or keep/expand "solvers" → "analysis") a proper delegable domain with its own focused toolset.
+   - ~~Make "analysis" a proper delegable domain with its own focused toolset.~~ **Done** — `domain="analysis"` includes `analyze_data`, `calc_goal_seek`, and `calc_solver`.
    - Add discovery-oriented tools inside it (compose with existing `get_sheet_summary`, range tools, and document_research when needed). Support the Excel-like feature of rich data awareness (we implement via embeddings + our explicit data handoff rather than `xl()` string parsing).
-   - Full sub-agent support (smol with limited toolset for the analysis task).
+   - ~~Full sub-agent support (smol with limited toolset for the analysis task).~~ **Done** via existing delegation path.
    - Define a standard compact result schema (metrics + data_tables + suggested_writes + writer_cleanup_hints) — this helps both Calc application and Writer "cleanup".
 
 3. **Phase 2 (cross-doc + cleanup + Excel feature parity items)**:
