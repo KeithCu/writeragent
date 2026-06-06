@@ -12,7 +12,7 @@ config:
     default: ""
     widget: text
     label: Python venv path
-    helper: If set, runs tools in that venv (bin/python or Scripts/python.exe). If empty, run_venv_python_script uses this process's sys.executable (basic stdlib); use a venv for numpy/pandas.
+    helper: If set, runs tools in that venv (bin/python or Scripts/python.exe). If empty, run_venv_python_script uses this process's sys.executable (basic stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, paddlepaddle).
     width: 200
     inline: true
 

@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import pickle
@@ -23,6 +24,7 @@ import uuid
 from typing import Any, Dict, IO, Optional, Tuple
 
 from plugin.framework.config import get_config_str
+from plugin.framework.i18n import _
 from plugin.framework.constants import WORKER_POOL_DEFAULT
 from plugin.scripting.config_limits import (
     WARM_WORKER_TIMEOUT_SEC,
@@ -301,6 +303,41 @@ except ImportError:
 result = res
 """
 
+# Vision packages are probed outside the AST sandbox (paddleocr is not whitelisted for user scripts).
+_VISION_PACKAGE_KEYS = ("paddleocr", "paddle", "ultralytics", "skimage")
+_VISION_PROBE_SCRIPT = """
+import json
+out = {}
+for key in ("paddleocr", "paddle", "ultralytics", "skimage"):
+    try:
+        __import__(key)
+        out[key] = "present"
+    except ImportError:
+        out[key] = None
+print(json.dumps(out))
+"""
+
+
+def _probe_vision_packages(python_exe: str, timeout: float = 5.0) -> dict[str, Any]:
+    """Import-check vision stack in the real venv interpreter (not the sandboxed warm worker)."""
+    try:
+        proc = subprocess.run(
+            [python_exe, "-c", _VISION_PROBE_SCRIPT],
+            capture_output=True,
+            text=True,
+            timeout=max(1.0, timeout),
+            env=scrub_subprocess_env(dict(os.environ)),
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return {}
+    if proc.returncode != 0:
+        return {}
+    try:
+        parsed = json.loads((proc.stdout or "").strip() or "{}")
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
 
 def _format_self_check_success(data: dict[str, Any]) -> str:
     version = data.get("v", "unknown")
@@ -309,6 +346,7 @@ def _format_self_check_success(data: dict[str, Any]) -> str:
     sci_list = data.get("sci", [])
     eda_list = data.get("eda", [])
     ui_list = data.get("ui", [])
+    vision_list = data.get("vision", [])
 
     header = f"Python {version} ({arch})" if arch else f"Python {version}"
     msg_lines = [f"{header} responds OK."]
@@ -335,6 +373,17 @@ def _format_self_check_success(data: dict[str, Any]) -> str:
         msg_lines.extend(format_group("Data Analysis / EDA Libraries", eda_list))
     if ui_list:
         msg_lines.extend(format_group("UI / Monaco Libraries", ui_list))
+    if vision_list:
+        msg_lines.extend(format_group(_("Vision Libraries"), vision_list))
+        ocr_missing = packages.get("paddleocr") != "present" or packages.get("paddle") != "present"
+        if ocr_missing:
+            msg_lines.append(
+                _("\nVision Helpers (OCR): pip install paddleocr paddlepaddle numpy")
+            )
+        if packages.get("ultralytics") != "present":
+            msg_lines.append(
+                _("Optional (detection helpers): pip install ultralytics")
+            )
 
     return "\n".join(msg_lines)
 
@@ -357,6 +406,13 @@ def run_venv_self_check(python_exe: str, timeout: float = 10.0) -> Tuple[bool, s
     data = response.get("result")
     if not isinstance(data, dict):
         return False, f"Unexpected output from test run: {data!r}"
+
+    vision_probes = _probe_vision_packages(python_exe, timeout=min(5.0, float(timeout_sec)))
+    if vision_probes:
+        packages = data.setdefault("p", {})
+        if isinstance(packages, dict):
+            packages.update(vision_probes)
+    data["vision"] = list(_VISION_PACKAGE_KEYS)
 
     try:
         return True, _format_self_check_success(data)

@@ -1,6 +1,6 @@
 # Image Recognition — Design (Local OCR & Detection)
 
-**Status:** **Phase 1 + Phase 1b (Calc) shipped** — Run Python Script **Vision Helpers** (`[Vision] extract_text`) on **Writer and Calc**; Writer text-cursor insert; Calc sheet report below graphic anchor. Draw/Impress egress → **Phase 1b.2**. LLM/chat integration (`analyze_image`) is **explicitly later**.
+**Status:** **Phase 1 + Phase 1b (Calc) + Phase 2 shipped** — Run Python Script **Vision Helpers** (`[Vision] extract_text`) on **Writer and Calc**; Writer text-cursor insert; Calc sheet report below graphic anchor; Settings → Python **Test** reports PaddleOCR/Ultralytics and install/timeout hints. Draw/Impress egress → **Phase 1b.2**. LLM/chat integration (`analyze_image`) is **explicitly later**.
 
 WriterAgent documents (Writer, Calc, Draw/Impress) embed raster images: scans, screenshots, chart photos, slide exports, logos. **LibreOffice handles graphics I/O** (export, insert, replace, dimensions). **Recognition** (OCR, layout, object detection) runs in the user's venv via the same trusted-module pattern as [`analysis.py`](../plugin/scripting/analysis.py) and [`embeddings_index.py`](../plugin/scripting/embeddings_index.py).
 
@@ -57,7 +57,7 @@ Users may `pip install` anything else for ad hoc scripts. WriterAgent **document
 **Exposure model (in order):**
 
 1. **Manual:** curated **Vision Helpers** in **Tools → Run Python Script…** (**Writer + Calc** shipped; Draw/Impress in **Phase 1b.2**).
-2. **Setup:** Settings → Python venv path + extended **Test** for paddle/ultralytics (Phase 2).
+2. **Setup:** Settings → Python venv path + **Test** for paddle/ultralytics (**shipped**).
 3. **Later:** one LLM tool (`analyze_image`) calling the same `run_vision` backend — not a separate CV stack.
 
 **Manual OCR:** **WriterAgent → Run Python Script… → Vision Helpers → [Vision] extract_text** (Writer or Calc). Requires Settings → Python venv with PaddleOCR installed.
@@ -72,7 +72,7 @@ Recognition must be usable **without the chat sidebar** — offline, predictable
 
 | UI | Role for vision |
 |----|-----------------|
-| **WriterAgent → Settings → Python** | Venv path, exec timeout, **Test** button — prerequisite only; Test does **not** yet report PaddleOCR/Ultralytics |
+| **WriterAgent → Settings → Python** | Venv path, exec timeout (user scripts only), **Test** button — reports scientific + **Vision Libraries** (`paddleocr`, `paddle`, `ultralytics`, optional `skimage`) and pip install hints when OCR packages are missing |
 | **WriterAgent → Run Python Script…** | Monaco editor ([`editor_host.py`](../plugin/scripting/editor_host.py)) or legacy XDL dialog; **Analysis Helpers** (**Calc only**); **Vision Helpers** (**Writer + Calc**) via [`vision_templates.py`](../plugin/scripting/vision_templates.py), [`supports_vision_manual`](plugin/scripting/vision_runner.py), and [`document_scripts.py`](../plugin/scripting/document_scripts.py) `_vision_script_section` |
 | **Chat sidebar** | Text chat + remote **image generation** — **not** in-document OCR/recognition |
 | **Settings → Image** tab | Image **generation** providers — unrelated to local OCR |
@@ -117,7 +117,7 @@ Mirror [**Analysis Helpers**](calc-analysis-tools.md#1b-run-python-script--analy
 6. OCR output is written as a multi-cell report starting one row below the image's anchor cell
 ```
 
-Increase **Python exec timeout** in Settings if the first run downloads Paddle models (cold start).
+First Paddle model download uses a **dedicated vision worker timeout** (not Settings script timeout); subsequent runs reuse the warm worker.
 
 ### 2.4 Applying results (host egress)
 
@@ -138,8 +138,8 @@ Errors surface in the Monaco status line / msgbox — see [§11](#11-selection-a
 | Control | Vision role |
 |---------|-------------|
 | `scripting.python_venv_path` | Must point at venv with PaddleOCR (+ Ultralytics when using detection helpers) |
-| `scripting.python_exec_timeout` | Vision cold start may need 60s+ on first model download |
-| **Test** | Extend [`run_venv_self_check`](../plugin/scripting/venv_worker.py) to report `paddleocr`, `paddle`, `ultralytics` (**Phase 2**) |
+| `scripting.python_exec_timeout` | User script limit only — **not** applied to Vision Helpers (see `VISION_WORKER_TIMEOUT_SEC` in [`config_limits.py`](../plugin/scripting/config_limits.py)) |
+| **Test** | [`run_venv_self_check`](../plugin/scripting/venv_worker.py) reports `paddleocr`, `paddle`, `ultralytics`, optional `skimage` under **Vision Libraries** (**shipped**) |
 
 Document install commands in Settings help text or Test failure message — not a separate vision settings tab for v1.
 
@@ -181,11 +181,10 @@ Mirror [analysis-sub-agent.md § Current Code State](analysis-sub-agent.md). **R
 | Calc analysis egress | [`analysis_egress.py`](../plugin/calc/analysis_egress.py) — `is_analysis_result`, `insert_analysis_result_into_calc` |
 | Tests | [`test_vision*.py`](../tests/scripting/), [`test_python_runner_vision.py`](../tests/scripting/test_python_runner_vision.py), [`test_vision_egress.py`](../tests/calc/test_vision_egress.py), [`test_document_scripts.py`](../tests/scripting/test_document_scripts.py) (vision section tests) |
 
-### Gaps (post–Phase 1b Calc)
+### Gaps (post–Phase 2)
 
 | Gap | Notes |
 |-----|--------|
-| Settings **Test** paddle/ultralytics probes | **Phase 2** — extend [`run_venv_self_check`](../plugin/scripting/venv_worker.py) |
 | Draw/Impress Vision Helpers + text-box egress | **Phase 1b.2** |
 | Context menu / **Recognize Image…** shortcut | Optional (§2.6) |
 | `analyze_image` LLM tool | **Phase 6** (§18) |
@@ -553,7 +552,7 @@ User-visible strings (gettext-ready). Host may raise [`ToolExecutionError`](../p
 | OCR returns empty | `status: ok`, `full_text: ""`, `warnings: ["No text detected."]` |
 | Success (Writer) | Insert `full_text` at text cursor; status — *Extracted N lines (took …)* |
 | Success (Calc) | Multi-cell report below anchor; status — *Wrote N rows (took …)* |
-| Timeout | Existing worker timeout message; hint to raise Settings timeout for first model download |
+| Timeout | Vision uses dedicated worker budget (`VISION_WORKER_TIMEOUT_SEC`); user `python_exec_timeout` unchanged |
 
 **UX note:** User clicks the **image** (graphic selected for export). **Text cursor** position sets insert location — they may differ.
 
@@ -574,9 +573,9 @@ User-visible strings (gettext-ready). Host may raise [`ToolExecutionError`](../p
 pip install paddleocr paddlepaddle numpy
 ```
 
-**First run:** Paddle downloads models to user cache; may exceed default `scripting.python_exec_timeout` — document in error/status hints.
+**First run:** Paddle downloads models to user cache under the dedicated vision worker timeout (`VISION_WORKER_TIMEOUT_SEC`), not `scripting.python_exec_timeout`.
 
-**Self-check (Phase 2):** extend [`run_venv_self_check`](../plugin/scripting/venv_worker.py):
+**Self-check (shipped):** [`run_venv_self_check`](../plugin/scripting/venv_worker.py) merges a **host subprocess** probe for vision packages (not the sandboxed warm-worker diagnostic — `paddleocr` is intentionally absent from the LLM/venv AST whitelist per §15):
 
 | Probe | Report |
 |-------|--------|
@@ -616,7 +615,7 @@ Phases prioritize **user exposition**; LLM integration is last.
 | **1** | Writer-only: Vision Helpers `[Vision] extract_text` + fast path + Writer insert + tests | **Yes — shipped** |
 | **1b** | **Calc:** Vision Helpers + sheet egress (`vision_egress.py`) | **Yes — shipped** |
 | **1b.2** | Draw/Impress text-box egress | **Yes** (planned) |
-| **2** | Settings **Test** reports paddle/ultralytics; timeout/install messaging | **Yes** |
+| **2** | Settings **Test** reports paddle/ultralytics; install messaging; dedicated vision worker timeout | **Yes — shipped** |
 | **3** | `extract_structure`; export by graphic name | **Yes** |
 | **4** | `detect_objects`, `recognize_pipeline`, Ultralytics helpers + templates | **Yes** |
 | **5** | Per-folder vision cache; `perceptual_hash`; optional context menu | Partial |
@@ -652,6 +651,17 @@ Checklist for implementers / QA:
 - [x] Calc: graphic without cell anchor → `NO_OUTPUT_ANCHOR`
 - [x] Missing paddle in venv → `PADDLEOCR_UNAVAILABLE` (unchanged)
 - [x] No `analyze_image` tool registration
+
+---
+
+## 17c. Phase 2 acceptance criteria
+
+- [x] `make test` passes (mocked self-check formatting; no real paddle in CI)
+- [x] Settings → Python → **Test** shows **Vision Libraries** group with Present/Missing for `paddleocr`, `paddle`, `ultralytics`, `skimage`
+- [x] When `paddleocr` or `paddle` is missing, Test success message includes `pip install paddleocr paddlepaddle numpy`
+- [x] When `ultralytics` is missing, Test message notes optional `pip install ultralytics`
+- [x] Vision RPC uses `VISION_WORKER_TIMEOUT_SEC`, not `scripting.python_exec_timeout`
+- [x] `PADDLEOCR_UNAVAILABLE` includes concrete pip install command
 
 ---
 

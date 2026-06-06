@@ -763,6 +763,63 @@ def test_format_self_check_success_without_arch():
     assert "(" not in msg.split("\n")[0]
 
 
+def test_format_self_check_success_with_vision_group():
+    from plugin.scripting.venv_worker import _format_self_check_success
+
+    data = {
+        "v": "3.12.0",
+        "p": {"paddleocr": "present", "paddle": "present", "ultralytics": None, "skimage": None},
+        "sci": [],
+        "eda": [],
+        "ui": [],
+        "vision": ["paddleocr", "paddle", "ultralytics", "skimage"],
+    }
+    msg = _format_self_check_success(data)
+    assert "Vision Libraries" in msg
+    assert "Present: paddleocr, paddle" in msg
+    assert "Missing: ultralytics, skimage" in msg
+    assert "pip install ultralytics" in msg
+    assert "pip install paddleocr" not in msg
+
+
+def test_format_self_check_success_vision_install_hint():
+    from plugin.scripting.venv_worker import _format_self_check_success
+
+    data = {
+        "v": "3.12.0",
+        "p": {"paddleocr": None, "paddle": None, "ultralytics": None, "skimage": None},
+        "sci": [],
+        "eda": [],
+        "ui": [],
+        "vision": ["paddleocr", "paddle", "ultralytics", "skimage"],
+    }
+    msg = _format_self_check_success(data)
+    assert "Vision Helpers (OCR): pip install paddleocr paddlepaddle numpy" in msg
+
+
+def test_run_venv_self_check_includes_vision():
+    mock_mgr = MagicMock()
+    mock_mgr.execute.return_value = {
+        "status": "ok",
+        "result": {
+            "v": "3.12.0",
+            "arch": "x86_64",
+            "p": {},
+            "sci": [],
+            "eda": [],
+            "ui": [],
+        },
+    }
+    vision_probes = {"paddleocr": "present", "paddle": None, "ultralytics": None, "skimage": None}
+    with patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr), patch(
+        "plugin.scripting.venv_worker._probe_vision_packages", return_value=vision_probes
+    ):
+        ok, msg = run_venv_self_check("/x/python", timeout=1.0)
+    assert ok is True
+    assert "Vision Libraries" in msg
+    assert "pip install paddleocr paddlepaddle numpy" in msg
+
+
 # --- Subprocess spawn helper tests (relocated from test_subprocess_helpers.py) ---
 
 from plugin.scripting.venv_worker import (

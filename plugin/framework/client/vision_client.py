@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Any
 
 from plugin.framework.errors import ToolExecutionError
-from plugin.scripting.config_limits import configured_python_exec_timeout
+from plugin.scripting.config_limits import VISION_WORKER_TIMEOUT_SEC
 from plugin.scripting.venv_worker import run_code_in_user_venv
 
 _VISION_SESSION_PREFIX = "writeragent:vision"
@@ -30,7 +30,7 @@ def run_vision(
     context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Execute a trusted vision helper in the user venv via fixed stub."""
-    timeout_sec = configured_python_exec_timeout(ctx)
+    timeout_sec = VISION_WORKER_TIMEOUT_SEC
     payload: dict[str, Any] = {"spec": spec, "image": image, "context": context or {}}
     response = run_code_in_user_venv(
         ctx,

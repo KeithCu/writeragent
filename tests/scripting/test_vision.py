@@ -82,6 +82,7 @@ def test_extract_text_paddle_unavailable(mock_get_engine):
     assert result["status"] == "error"
     assert result["code"] == "PADDLEOCR_UNAVAILABLE"
     assert result["helper"] == "extract_text"
+    assert "pip install paddleocr paddlepaddle numpy" in result["message"]
 
 
 def test_unknown_helper_name():

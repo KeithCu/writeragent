@@ -69,13 +69,13 @@ Users can ask the AI to run Monte Carlo simulations, statistics, or other librar
 | Setting | Description | Example |
 |---------|-------------|---------|
 | `scripting.python_venv_path` | Absolute path to an existing venv directory | `~/.writeragent_venv` |
-| `scripting.python_exec_timeout` | Wall-clock limit (seconds) for Run Python Script, `=PYTHON()`, and `run_venv_python_script` | `10` (default; range 1–600) |
+| `scripting.python_exec_timeout` | Wall-clock limit (seconds) for Run Python Script, `=PYTHON()`, and `run_venv_python_script` (Vision Helpers use a separate internal budget — see [Image Recognition](image-recognition.md)) | `10` (default; range 1–600) |
 
 Module implementation: `plugin/scripting/` (no top-level `python/` package — avoids clashing with the stdlib name).
 
 - **Empty path:** `run_venv_python_script` and `=PYTHON()` fall back to **`sys.executable`** (LibreOffice’s embedded Python) — stdlib-only unless that interpreter happens to have extra packages; **use a dedicated venv for NumPy**.
 - **No automatic venv creation** — the user brings their own environment.
-- **Test button:** Validates the path is a directory, resolves `bin/python` or `Scripts\python.exe`, and runs a trivial subprocess smoke check.
+- **Test button:** Validates the path is a directory, resolves `bin/python` or `Scripts\python.exe`, and runs a warm-worker diagnostic via [`run_venv_self_check`](../plugin/scripting/venv_worker.py). Reports **Scientific**, **Data Analysis / EDA**, **UI / Monaco**, and **Vision Libraries** groups (Present/Missing). When OCR packages are absent, the message includes `pip install paddleocr paddlepaddle numpy` (see [Image Recognition](image-recognition.md)).
 
 ### Execution paths (shipped)
 
@@ -96,7 +96,7 @@ Both venv paths assign JSON-serializable output to **`result`**. NumPy arrays an
 | Writer / Draw chat, `domain=python` | No | Never — use document tools for content |
 | `=PYTHON(code, range)` | 2nd arg is the range | Yes |
 
-Wall-clock limit comes from **Settings → Python** (`scripting.python_exec_timeout`, default **10s**, max **600s**). It is not exposed on the LLM tool schema. That limit applies to **user code execution** only: the first request after worker spawn (or after a crash) runs an internal warm step (spawn + auto-imports) under a separate ~30s host budget (`WARM_WORKER_TIMEOUT_SEC` in [`config_limits.py`](plugin/scripting/config_limits.py)), not charged against your configured value.
+Wall-clock limit comes from **Settings → Python** (`scripting.python_exec_timeout`, default **10s**, max **600s**). It is not exposed on the LLM tool schema. That limit applies to **user code execution** only: the first request after worker spawn (or after a crash) runs an internal warm step (spawn + auto-imports) under a separate ~30s host budget (`WARM_WORKER_TIMEOUT_SEC` in [`config_limits.py`](plugin/scripting/config_limits.py)), not charged against your configured value. **Vision Helpers** use a separate `VISION_WORKER_TIMEOUT_SEC` budget (PaddleOCR load / model download) — see [Image Recognition](image-recognition.md).
 
 ### Two-phase LLM workflow
 
@@ -241,6 +241,18 @@ The core scientific stack (`numpy`, `pandas`, `scipy`, `sklearn`, `statsmodels`)
 
 Neither is required for WriterAgent to run; helpers degrade gracefully. See [Analysis Sub-Agent](analysis-sub-agent.md).
 
+#### Optional venv packages (trusted vision helpers)
+
+[`plugin/scripting/vision.py`](../plugin/scripting/vision.py) **Vision Helpers** (Run Python Script → `[Vision] extract_text`) require PaddleOCR in the user venv. Settings → Python **Test** reports these under **Vision Libraries**:
+
+| Package | Install | Used by |
+|---------|---------|---------|
+| [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) + [PaddlePaddle](https://github.com/PaddlePaddle/Paddle) (`paddleocr`, `paddle`) | `pip install paddleocr paddlepaddle numpy` | `extract_text` — **required** for OCR |
+| [Ultralytics](https://github.com/ultralytics/ultralytics) | `pip install ultralytics` | `detect_objects` and related helpers — **Phase 4+**; informational in Test until then |
+| [scikit-image](https://scikit-image.org/) (`skimage`) | `pip install scikit-image` | Optional image processing inside trusted helpers — graceful skip if absent |
+
+Full design and egress rules: [Image Recognition](image-recognition.md).
+
 ## Trusted Extension Code Opportunities with the Full Scientific Stack
 
 The embeddings implementation (see [embeddings.md](embeddings.md)) has proven the **trusted extension code** pattern: ship normal Python modules under `plugin/scripting/` (or parallel locations for document helpers), invoke them from the LibreOffice host via tiny fixed stubs over the existing `PythonWorkerManager` / `run_code_in_user_venv` + Pickle5 `data=` path, and let the module run with the *full* power of the user's venv interpreter.
@@ -279,7 +291,7 @@ The LLM (via the normal chat / tool-loop path, possibly using `run_venv_python_s
 
 ### Local Image Recognition and Computer Vision Processing
 
-**Status:** Design only — see **[Image Recognition](image-recognition.md)** for the supported stack (**PaddleOCR + Ultralytics**), trusted-helper plan (`plugin/scripting/vision.py`), and host/venv split. LibreOffice exports graphics via UNO; recognition runs in the user venv through fixed RPC stubs (same pattern as [`analysis.py`](../plugin/scripting/analysis.py)). Implementation not started.
+**Status:** **Shipped** (Phases 1, 1b, 2) — see **[Image Recognition](image-recognition.md)** for the supported stack (**PaddleOCR + Ultralytics**), trusted helpers ([`vision.py`](../plugin/scripting/vision.py)), Run Python Script **Vision Helpers**, and Settings → Python **Test** vision probes. LibreOffice exports graphics via UNO; recognition runs in the user venv through fixed RPC stubs (same pattern as [`analysis.py`](../plugin/scripting/analysis.py)).
 
 ### LLM-Based Image Understanding and Vision Models
 

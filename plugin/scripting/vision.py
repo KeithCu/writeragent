@@ -146,7 +146,7 @@ def _extract_text(image: Any, params: dict[str, Any]) -> dict[str, Any]:
     except ImportError:
         return _error_result(
             "PADDLEOCR_UNAVAILABLE",
-            "Install paddleocr and paddlepaddle in your venv (Settings → Python).",
+            "Install paddleocr and paddlepaddle in your venv (Settings → Python): pip install paddleocr paddlepaddle numpy",
             helper=helper,
         )
 

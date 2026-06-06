@@ -868,7 +868,9 @@ def execute_and_insert_result(
             log.exception("execute_and_insert_result vision fast path failed")
             err_msg = str(e)
             formatted_time = format_elapsed_time(elapsed)
-            return {"ok": False, "message": f"{err_msg} (took {formatted_time})", "traceback": exception_traceback(e)}
+            if not ("timed out" in err_msg.lower() or "timeout" in err_msg.lower()):
+                err_msg = f"{err_msg} (took {formatted_time})"
+            return {"ok": False, "message": err_msg, "traceback": exception_traceback(e)}
 
         if result.get("status") == "error":
             elapsed = time.perf_counter() - t0
