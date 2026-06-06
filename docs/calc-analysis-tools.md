@@ -1,6 +1,14 @@
-# Calc Analysis Tools (Goal Seek & Solver)
+# Calc Analysis Tools (Goal Seek, Solver, and Data / Numeric Analysis)
 
-This document describes the specialized tools for performing analysis in LibreOffice Calc, specifically **Goal Seek** and **Solver**. These tools are part of the `analysis` specialized domain.
+This document describes the specialized tools for performing analysis in LibreOffice Calc.
+
+**Current narrow surface (solvers):** Goal Seek and Solver (see below). These live under the `solvers` / `analysis` specialized domain.
+
+**Broader data / numeric analysis (in progress – see the dedicated plan):** For heavy lifting on user data (cleaning tables/ranges, stats, regression, clustering, Monte Carlo, etc.) using the full scientific Python stack in the user venv, see [Analysis Sub-Agent](analysis-sub-agent.md). That plan is intentionally Calc-focused for the compute (data lives in Calc), with support for Writer callers to delegate work and receive compact results for "cleanup" / presentation in the Writer document. It reuses the existing delegation, python execution, and trusted code patterns.
+
+**Dual layer (standard helpers + raw power):** The plan explicitly provides both high-level reliable "standard functions" (curated helpers and classes, modeled on what Excel ships in Python-in-Excel initialization scripts) that the LLM/sub-agent should prefer for common tasks, *plus* full raw `=PYTHON()` / `run_venv_python_script` access for anything else. We copy useful *features* from Microsoft (curated global helpers, OOP analysis classes, rich data handling for tables/named ranges/headers, object previews, agentic cross-workbook analysis) while keeping our local venv + explicit `data`/`result` architecture.
+
+The long-term goal is to evolve the `analysis` surface so the agent can say "analyze the sales data in this range / sheet / file" (using standard helpers when possible) and get reliable results without having to write correct pandas code on every turn.
 
 ## 1. Goal Seek
 

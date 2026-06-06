@@ -241,22 +241,77 @@ Existing Calc analysis (Goal Seek/Solver in `calc-analysis-tools.md`) can be exp
 
 ## Implementation notes and phasing (Code-Grounded)
 
-**Trusted module + standard helpers (core new piece, modeled on Excel init scripts)**: Create `plugin/scripting/analysis.py` (or `plugin/calc/analysis_helpers.py`). Follow the `embeddings_index.py` pattern exactly (fixed host stub calls the imported trusted module; the module itself is unsandboxed and can use the full scientific stack + optional small caches).
+**Trusted module + standard helpers (Phase 0 — implemented)** — [`plugin/scripting/analysis.py`](../plugin/scripting/analysis.py) + [`plugin/scripting/analysis_coerce.py`](../plugin/scripting/analysis_coerce.py). Host RPC: [`plugin/framework/client/analysis_client.py`](../plugin/framework/client/analysis_client.py) (`run_trusted_analysis` re-export). Follows the [`embeddings_index.py`](../plugin/scripting/embeddings_index.py) pattern: fixed venv stub, unsandboxed numpy/pandas/sklearn/statsmodels stack.
 
-This layer provides the **curated high-level "standard functions"** that the LLM/sub-agent prefers for common tasks (in addition to raw Python access). We copy the *feature* from Microsoft Python-in-Excel (initialization scripts that register global reusable helpers and OOP analytical classes such as `QuickStats` with `.tooltip()`, `.chart()`, etc.):
+**Borrowed from (ideas, not vendored deps):**
+- Microsoft Python-in-Excel init-script helpers (`kpi_summary`, `format_currency`) — [python-in-excel-ideas.md](python-in-excel-ideas.md)
+- `QuickStats` card layout — adapted from [community gist](https://gist.github.com/summerofgeorge/646140d175ada739efd2d57b5cea9a5e)
+- JSON-serializable EDA stats — inspired by [DataPrep compute_* pattern](https://docs.dataprep.ai/user_guide/eda/introduction.html) (no `dataprep` dependency)
 
-- `describe_data(data, include_outliers=True, ...)` 
-- `clean_and_stats(data, ...)` 
-- `run_regression(data, target, features=None, ...)` 
-- `cluster_numeric(data, n_clusters=3, ...)` 
-- `monte_carlo(data, model_spec, n=10000, ...)` 
-- `kpi_summary(df, metrics)` 
-- Formatting helpers (`format_currency`, etc.)
-- Reusable classes for common analyses.
+**Default Calc init-script snippet** (paste manually; not auto-injected):
 
-The module receives already-shaped data (via the worker `data=` path using the mature split-grid codec) or a data reference. Returns only compact, serializable results (dicts, small record lists, metrics, "suggested_writes" hints). Optional: tiny per-folder SQLite side cache for repeated analyses on the same Calc file (reuse the embeddings folder-key convention).
+```python
+from plugin.scripting.analysis import (
+    QuickStats, describe_data, kpi_summary, format_currency, run_analysis,
+)
+```
 
-Users (and AI via init scripts) can also define their own helpers/classes in per-workbook init scripts, exactly as in the Python-in-Excel model.
+**Host entry:** `run_trusted_analysis(ctx, spec, data, context=...)` or venv stub:
+
+```python
+from plugin.scripting.analysis import run_analysis
+result = run_analysis(spec, data, context)
+```
+
+**`spec` schema:**
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `helper` | string | Required — see helper list below |
+| `params` | object | Helper-specific kwargs |
+| `headers` | bool | Default `true` — first row is column names |
+| `header_row` | int | Default `0` |
+| `return_data` | bool | Default `false` — when true, some helpers add `data_records` |
+
+**Implemented helpers:**
+
+| Helper | Purpose |
+|--------|---------|
+| `describe_data` | Extended EDA + column quality + optional IQR outlier counts |
+| `kpi_summary` | Aggregate mean/min/max/sum for selected metrics |
+| `detect_outliers` | IQR (default), z-score, or `isolation_forest` |
+| `quick_stats` | `QuickStats(...).tooltip()` compact metric card |
+| `format_currency` / `format_percent` | Display formatters |
+| `clean_and_prepare` | Dedupe, simple imputation |
+| `pivot_aggregate` | `pd.pivot_table` wrapper |
+| `group_summary` | Group-by aggregates |
+| `compare_periods` | YoY/QoQ/MoM via resample + pct_change |
+| `correlation_matrix` | Top correlated pairs |
+| `run_regression` | statsmodels OLS or sklearn fallback |
+| `cluster_numeric` | sklearn KMeans centroids |
+| `monte_carlo` | Normal perturbation percentiles |
+
+**Result contract** (compact, LLM-friendly):
+
+```python
+{
+  "status": "ok",           # or "error"
+  "helper": "describe_data",
+  "metrics": {...},
+  "columns": [...],         # optional column summaries
+  "tables": [{"name", "columns", "rows", "truncated", "total_rows"}],
+  "flags": [...],
+  "writer_cleanup_hints": {"markdown_table", "bullets"},
+  "metadata": {...},        # coerce metadata (n_rows, numeric_cols, …)
+  "context": {...},         # echoed sheet_name / range_a1 / task_hint when provided
+}
+```
+
+Table rows capped at 50 (`MAX_TABLE_ROWS`). Errors use `code` + `message` (e.g. `UNKNOWN_HELPER`, `MISSING_PARAM`).
+
+**Still TODO (post Phase 0):** Calc tools (`analyze_data`, …), analysis domain wiring, sub-agent delegation, discovery bridge, Writer cleanup tools, analysis cache.
+
+Previously planned helpers (not yet separate tools):
 
 **Tool / domain surface (reuse existing machinery)**:
 - In `plugin/calc/analysis.py` (the existing file): Keep the solvers. Add a few high-level tools (`analyze_data`, `find_and_analyze_relevant_ranges`, `get_analysis_result_for_writer_cleanup`, etc.) that call the trusted helpers or fall back to the python domain. Register them under a `ToolCalcAnalysisBase` (or expand the "solvers" base + rename the domain to "analysis" for discoverability; see `base.py`).
