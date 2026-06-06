@@ -88,6 +88,7 @@ VENV_AUTHORIZED_IMPORTS: tuple[str, ...] = (
     "plugin.scripting.embeddings_index",
     "plugin.scripting.analysis",
     "plugin.scripting.analysis_coerce",
+    "plugin.scripting.vision",
     "sentence_transformers",
     "sentence_transformers.*",
 )

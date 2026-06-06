@@ -279,30 +279,7 @@ The LLM (via the normal chat / tool-loop path, possibly using `run_venv_python_s
 
 ### Local Image Recognition and Computer Vision Processing
 
-Writer, Calc, and Draw documents routinely contain images (photographs, diagrams, charts, screenshots, scanned pages, UI mockups, logos). With `cv2`, `PIL`, and numpy (plus scikit-image or other packages the user may have installed) available to trusted code, we can perform useful local vision work without sending every pixel to a remote model.
-
-**Extraction on the host:**
-- Use UNO APIs to obtain images as byte streams or temporary files (or direct pixel access where efficient).
-- For chart images or embedded graphics, export or snapshot as needed.
-- Convert to numpy arrays (RGB / grayscale) using standard PIL ↔ numpy round-trips; pass the arrays (or file paths + metadata) via the worker `data=` mechanism or as references.
-
-**Trusted local processing examples (in a module such as `plugin/scripting/vision.py`):**
-- Basic enhancement, denoising, thresholding, contour / shape detection for Draw/Impress automation or quality checks.
-- Feature extraction, template matching, or simple object counting.
-- Digitization of chart images (detect axes, sample data points, reconstruct approximate tabular data that can then be fed to pandas analysis).
-- Region detection (e.g. "find all text-bearing rectangles in this screenshot") as a cheap pre-filter before any OCR or LLM vision step.
-- Batch similarity or deduplication of images within a folder (using perceptual hashes + numpy distance, or embeddings from a local vision model if the user has one installed).
-- Preparation / cropping / tiling of large images so that later steps (local or LLM) only see relevant portions.
-- Layout / measurement verification (e.g. "are these UI elements aligned within tolerance?" using cv2 geometry on extracted bitmaps).
-
-**Integration with the rest of WriterAgent:**
-- Results can be compact annotations (bounding boxes + labels, extracted numeric data + confidence, suggested captions or alt text, lists of detected issues) that the host applies as comments, new shapes, table writes, or metadata.
-- The outer document_research agent or a specialized image-aware delegate can decide to invoke vision processing on images discovered via the primary embeddings index or via ordinary document traversal.
-- Persistent per-folder caches (same directory as the embeddings `index.db`, or a sibling `vision_features/` area) can store precomputed descriptors so repeated analysis of the same images is fast.
-
-**Local focus:** Assume the user has installed whatever vision packages they want (`opencv-python-headless`, `scikit-image`, `imageio`, etc.) into the same venv used for embeddings and `=PYTHON()`. No requirement to vendor or ship heavy binaries in the OXT. Graceful fallback to simpler host-side or pure-Python paths when the packages are absent.
-
-This is complementary to (not a replacement for) the primary text embeddings index. Image features can be stored alongside locators in the same style of SQLite-backed cache if useful, but the text embeddings index remains the main cross-document semantic router.
+**Status:** Design only — see **[Image Recognition](image-recognition.md)** for the supported stack (**PaddleOCR + Ultralytics**), trusted-helper plan (`plugin/scripting/vision.py`), and host/venv split. LibreOffice exports graphics via UNO; recognition runs in the user venv through fixed RPC stubs (same pattern as [`analysis.py`](../plugin/scripting/analysis.py)). Implementation not started.
 
 ### LLM-Based Image Understanding and Vision Models
 
@@ -320,8 +297,8 @@ In addition to pure local computer vision, many useful image tasks are fundament
 - The agent can request "vision describe" on a specific image locator; the host extracts the image bytes, the framework client sends them (with appropriate size / format guards), and the result comes back as a normal tool / chat turn.
 
 **Hybrid local + LLM vision strategy (recommended):**
-- Fast, cheap, deterministic, privacy-sensitive work stays in trusted local numpy/cv2 code (pre-filtering, cropping to interesting regions, basic measurement, perceptual hashing, preparing clean inputs).
-- The (local or remote) vision LLM is invoked only on the prepared, smaller, or most semantically rich images / crops.
+- Fast, deterministic, privacy-sensitive **recognition** (OCR, layout, regions) stays in trusted local helpers — see [Image Recognition](image-recognition.md).
+- The (local or remote) vision LLM is invoked for semantics or when local OCR confidence is low — on prepared crops, not full-page pixels when avoidable.
 - Results from both layers are combined before being shown to the user or fed to the main reasoning agent.
 
 **Integration points:**
@@ -329,7 +306,7 @@ In addition to pure local computer vision, many useful image tasks are fundament
 - Storage of image descriptions / features in a cache that lives alongside the primary embeddings `index.db` for the folder (same "one cache per directory" spirit).
 - When an image appears inside a document that is itself retrieved via the embeddings index, the vision description can be surfaced as additional context for the inner read agent or for the final answer.
 
-**Scope note for now:** Discussion here is intentionally high-level. Implementation would first focus on the local extraction + trusted dispatch path (mirroring embeddings), with the actual vision model calls layered on top of the existing LLM client. Pure local CV (previous topic) can deliver value even before any vision LLM is wired.
+**Scope note for now:** Discussion here is intentionally high-level. Implementation would first focus on the local extraction + trusted dispatch path ([image-recognition.md](image-recognition.md)), with vision LLM calls layered on the existing `LlmClient`.
 
 ### Semantic Search and Indexing: One Primary Per-Directory Embeddings Index
 
