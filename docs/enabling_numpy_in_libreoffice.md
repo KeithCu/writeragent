@@ -22,7 +22,7 @@ For a short executive summary, see [WriterAgent architecture — Scientific Pyth
 8. [Implementation status](#8-implementation-status)
 9. [Multi-Range Support (Varargs)](#9-multi-range-support-varargs)
 
-**Related:** [NumPy serialization](numpy-serialization.md) · [Jupyter notebook import](jupyter-notebook-import.md)
+**Related:** [NumPy serialization](numpy-serialization.md) · [Jupyter notebook import](jupyter-notebook-import.md) · [Analysis Sub-Agent](analysis-sub-agent.md) (data discovery + trusted numpy/pandas execution)
 
 ---
 
@@ -331,60 +331,17 @@ The subsections below outline other high-value directions that become practical 
 
 **See also:** the existing "Trusted extension code in the venv" discussion immediately above for the exact invocation pattern, whitelist entry rules, and "do not widen the LLM sandbox" guidance. The embeddings work is the canonical example and the source of the "primary per-directory index only" rule restated below.
 
-### High-Level Analysis and Data Processing in Trusted Code
+For the design of a dedicated **analysis sub-agent** (data discovery across documents via embeddings/search + extraction + handoff to reliable numpy/pandas/scipy execution in the trusted venv, plus LLM synthesis of results), see the separate document:
 
-With full numpy/pandas/scipy/sklearn (and whatever else the user has in the venv) available to shipped modules, WriterAgent can offer reliable, high-performance analysis that the agent can invoke without having to generate and sandbox raw pandas code on every turn.
+- [Analysis Sub-Agent](analysis-sub-agent.md)
 
-**Typical trusted module shape** (modeled directly on `embeddings_index.py`):
-- Host extracts a Writer table (or multiple tables), a Calc range, or numeric properties from shapes/paragraphs as structured arrays or lists.
-- Host calls a fixed stub such as `from plugin.scripting.analysis import analyze_table; result = analyze_table(df_or_array, spec, db_ref_if_needed)`.
-- Bulk numeric data travels via the existing split-grid / `data=` path (or as a temporary file reference + path for very large cases).
-- The trusted function performs pandas wrangling, groupby/aggregate, time-series resampling, statistical tests (`scipy.stats`), outlier detection, clustering (`sklearn.cluster`), regression, dimensionality reduction, Monte-Carlo simulation, optimization, etc.
-- It can optionally persist auxiliary state in a side table inside an `index.db`-style SQLite file (same folder key or a dedicated analysis cache) or in simple JSON/Parquet side files under the profile.
-- Returns compact results: summary dicts, small DataFrames serialized as records, cluster labels + centroids, fitted parameters, suggested edit locators + transformed values, natural-language-ready "key findings" tables, etc.
+It covers the sub-agent architecture (leveraging the two-tier delegation pattern from multi-document work and specialized toolsets), how it finds and prepares relevant tables/ranges/numeric content, the trusted execution path for heavy compute, and integration back to the main agent for application or explanation.
 
-**Example capabilities:**
-- "Clean and describe the sales table on page 2" → trusted code returns cleaned DF summary, descriptive stats, detected anomalies, suggested pivot or chart data.
-- Clustering or topic grouping of many paragraphs (using embeddings vectors + numeric features) for librarian/memory features or thematic navigation.
-- Fitting models to data ranges and writing the formula or predicted values back.
-- Running simulations (Monte Carlo, sensitivity) whose inputs come from document parameters and whose outputs are written as new tables or charts.
-- Geometric / layout analysis in Draw/Impress or Writer shapes (bounding-box math, alignment scoring, collision detection, area/volume calculations) using numpy vectorized ops.
-
-**Role of the LLM:**
-The main chat agent or a specialized "analysis" / "data" delegate decides *which* analysis to request (based on user intent and document context), chooses or parameterizes the trusted call, and then interprets the compact numeric/symbolic results into a final answer or a sequence of document edits. The LLM is excellent at synthesis, handling ambiguity, generating explanations, and mapping results back to the user's mental model or the surrounding prose. It is *not* responsible for the correctness of the `groupby`, the clustering distance metric, or the linear algebra.
-
-This hybrid (trusted exact heavy lifting + LLM for meaning) is far more robust than hoping a model writes perfect pandas on every turn while staying inside the sandbox.
-
-**Implementation notes:**
-- Start with a small `plugin/scripting/analysis.py` (or `data_analysis.py`) that exposes a few well-tested entry points.
-- Reuse document table extraction helpers (or extend them) and the existing range-to-data shaping logic from Calc.
-- For Writer tables, produce pandas DataFrames (or numpy structured arrays) on the trusted side; the host never needs to import pandas.
-- Keep results small enough to be useful in prompts or easy to apply via existing tools.
-- Provide both "full result" and "LLM-friendly summary" return shapes.
-- Make heavy operations long-running aware (the existing `long_running` flag on the python tool surface).
-- Optional: a compile-time or config flag so these capabilities only register tools / become visible when the venv is known to have the required packages (graceful degradation to simpler LLM-only or pure-python paths).
-
-### Hybrid Local Compute + LLM for Answering
+### Hybrid Local Compute + LLM for Answering (general)
 
 Trusted local scientific code excels at scale, precision, repeatability, and operations that are expensive or impossible to do reliably in a single LLM forward pass (large matrix work, exact statistics, simulation, clustering of hundreds/thousands of items, optimization loops).
 
-The LLM (via the normal chat / tool-loop path, possibly using `run_venv_python_script` for light glue or the new trusted analysis tools) excels at:
-- Understanding vague user requests.
-- Deciding which local analyses to invoke and with what parameters.
-- Synthesizing multiple local results (from embeddings retrieval + pandas analysis + geometric checks, etc.) into a coherent narrative answer.
-- Generating the final document edits or follow-up questions.
-- Handling cases where the local result is "no strong signal" or requires world knowledge / judgment.
-
-**Recommended pattern:**
-1. Outer agent (or main chat) uses the primary per-directory embeddings index (as the sole semantic router) to surface relevant documents/paragraphs/locators.
-2. Trusted code is invoked (directly from host orchestration or via a thin tool) to perform heavy analysis on the retrieved data or on extracted tables/images.
-3. Compact artifacts (tables of metrics, cluster assignments + representative excerpts, model coefficients, top-k with scores, image feature vectors, etc.) are returned.
-4. These artifacts (plus the original query and any needed original text snippets) are placed into the LLM context or tool result.
-5. The LLM produces the final user-facing answer and/or drives further tool use / document application.
-
-This keeps token usage and latency reasonable (the LLM never sees the entire raw corpus or a 10k-row DataFrame) while giving exact, reproducible numeric work.
-
-The same pattern applies to single-document deep analysis: extract the interesting numeric or image content once via UNO, let trusted code do the heavy lifting, let the LLM answer.
+The LLM (via the normal chat / tool-loop path, possibly using `run_venv_python_script` for light glue or dedicated analysis tools) excels at understanding vague requests, deciding what analyses to run, synthesizing results into narrative, and driving document edits. See the [Analysis Sub-Agent](analysis-sub-agent.md) doc for the concrete data-finding + execution flow.
 
 ### Local Image Recognition and Computer Vision Processing
 
