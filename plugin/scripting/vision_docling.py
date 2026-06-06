@@ -38,7 +38,25 @@ def _cache_key(params: dict[str, Any], *, for_structure: bool) -> tuple[Any, ...
     if backend == "surya":
         allow_external = True
     lang = str(params.get("lang") or "en").strip() or "en"
-    return (backend, lang, for_structure, allow_external)
+    return (
+        backend,
+        lang,
+        for_structure,
+        allow_external,
+        float(params.get("images_scale") or 1.0),
+        str(params.get("device") or "auto"),
+        int(params.get("num_threads") or 4),
+        str(params.get("table_mode") or "accurate"),
+        bool(params.get("do_cell_matching", True)),
+        bool(params.get("create_orphan_clusters", True)),
+        str(params.get("layout_model") or "heron"),
+        bool(params.get("do_formula_enrichment", False)),
+        bool(params.get("do_code_enrichment", False)),
+        float(params.get("text_score") or 0.5),
+        bool(params.get("force_full_page_ocr", True)),
+        float(params.get("document_timeout") or 0),
+        str(params.get("artifacts_path") or ""),
+    )
 
 
 def _resolve_ocr_options(params: dict[str, Any]) -> Any:
@@ -62,7 +80,16 @@ def _resolve_ocr_options(params: dict[str, Any]) -> Any:
             "rapidocr_openvino": "openvino",
             "rapidocr_torch": "torch",
         }
-        return rapid_cls(backend=backend_map.get(backend, "paddle"))
+        lang = str(params.get("lang") or "en").strip() or "en"
+        ocr_opts = rapid_cls(backend=backend_map.get(backend, "paddle"))
+        if hasattr(ocr_opts, "lang"):
+            ocr_opts.lang = [lang]
+        text_score = params.get("text_score")
+        if text_score is not None and hasattr(ocr_opts, "text_score"):
+            ocr_opts.text_score = float(text_score)
+        if bool(params.get("force_full_page_ocr", False)) and hasattr(ocr_opts, "force_full_page_ocr"):
+            ocr_opts.force_full_page_ocr = True
+        return ocr_opts
 
     if backend == "easyocr":
         easy_cls = pipeline_options_mod.EasyOcrOptions
@@ -80,6 +107,64 @@ def _resolve_ocr_options(params: dict[str, Any]) -> Any:
         return surya_mod.SuryaOcrOptions(lang=[lang])
 
     raise ValueError(f"Unknown ocr_backend {backend!r}")
+
+
+def _resolve_layout_model_spec(params: dict[str, Any]) -> Any:
+    layout_key = str(params.get("layout_model") or "heron").strip().lower() or "heron"
+    layout_specs = importlib.import_module("docling.datamodel.layout_model_specs")
+    mapping = {
+        "heron": layout_specs.DOCLING_LAYOUT_HERON,
+        "egret_large": getattr(layout_specs, "DOCLING_LAYOUT_EGRET_LARGE", layout_specs.DOCLING_LAYOUT_HERON),
+    }
+    return mapping.get(layout_key, layout_specs.DOCLING_LAYOUT_HERON)
+
+
+def _apply_pipeline_params(pipeline_options: Any, params: dict[str, Any], *, for_structure: bool) -> None:
+    """Map WriterAgent flat params onto Docling PdfPipelineOptions."""
+    scale = params.get("images_scale")
+    if scale is not None:
+        pipeline_options.images_scale = float(scale)
+
+    doc_timeout = params.get("document_timeout")
+    if doc_timeout is not None:
+        timeout_val = float(doc_timeout)
+        pipeline_options.document_timeout = None if timeout_val <= 0 else timeout_val
+
+    artifacts = str(params.get("artifacts_path") or "").strip()
+    if artifacts:
+        pipeline_options.artifacts_path = artifacts
+
+    if "do_formula_enrichment" in params:
+        pipeline_options.do_formula_enrichment = bool(params.get("do_formula_enrichment"))
+    if "do_code_enrichment" in params:
+        pipeline_options.do_code_enrichment = bool(params.get("do_code_enrichment"))
+
+    device = str(params.get("device") or "").strip()
+    if device:
+        acc = pipeline_options.accelerator_options
+        acc.device = device
+    num_threads = params.get("num_threads")
+    if num_threads is not None:
+        pipeline_options.accelerator_options.num_threads = int(num_threads)
+
+    table_opts = pipeline_options.table_structure_options
+    table_mode = str(params.get("table_mode") or "accurate").strip().lower()
+    if table_mode == "fast":
+        table_former = importlib.import_module("docling.datamodel.pipeline_options").TableFormerMode
+        table_opts.mode = table_former.FAST
+    if "do_cell_matching" in params:
+        table_opts.do_cell_matching = bool(params.get("do_cell_matching"))
+
+    layout_opts = pipeline_options.layout_options
+    if hasattr(layout_opts, "create_orphan_clusters") and "create_orphan_clusters" in params:
+        layout_opts.create_orphan_clusters = bool(params.get("create_orphan_clusters"))
+    if hasattr(layout_opts, "model_spec"):
+        try:
+            layout_opts.model_spec = _resolve_layout_model_spec(params)
+        except Exception:
+            log.debug("layout_model spec resolution failed", exc_info=True)
+
+    del for_structure  # table structure enabled at construction time
 
 
 def _build_pipeline_options(params: dict[str, Any], *, for_structure: bool) -> Any:
@@ -104,8 +189,11 @@ def _build_pipeline_options(params: dict[str, Any], *, for_structure: bool) -> A
     )
     if ocr_options is not None:
         pipeline_options.ocr_options = ocr_options
+        if bool(params.get("force_full_page_ocr", False)) and hasattr(pipeline_options.ocr_options, "force_full_page_ocr"):
+            pipeline_options.ocr_options.force_full_page_ocr = True
     if backend == "surya":
         pipeline_options.ocr_model = "suryaocr"
+    _apply_pipeline_params(pipeline_options, params, for_structure=for_structure)
     return pipeline_options
 
 

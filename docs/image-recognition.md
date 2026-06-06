@@ -136,15 +136,23 @@ First Docling/Paddle model download uses a **dedicated vision worker timeout** (
 
 Errors surface in the Monaco status line / msgbox — see [§11](#11-selection-and-error-ux).
 
-### 2.5 Settings → Python (setup UX)
+### 2.5 Vision / OCR settings (modeless dialog)
 
-| Control | Vision role |
-|---------|-------------|
+Docling pipeline defaults live in a **separate modeless dialog**, not on the crowded Settings → Python tab.
+
+| Launch | Role |
+|--------|------|
+| **WriterAgent → Vision OCR Settings…** menu | Opens [`VisionSettingsDialog`](../extension/WriterAgentDialogs/) (General \| OCR \| Tables \| Advanced); persisted as `vision.*` keys in `writeragent.json` |
+| Settings → Python **Test** | [`run_venv_self_check`](../plugin/scripting/venv_worker.py) reports `docling`, `rapidocr`, `paddleocr`, `paddle`, `ultralytics`, optional `skimage` under **Vision Libraries** |
+
+| Related Settings key | Role |
+|---------------------|------|
 | `scripting.python_venv_path` | Must point at venv with Docling (+ optional Paddle fallback; + Ultralytics when using detection helpers) |
-| `scripting.python_exec_timeout` | User script limit only — **not** applied to Vision Helpers (see `DOCLING_WORKER_TIMEOUT_SEC` / `VISION_WORKER_TIMEOUT_SEC` in [`config_limits.py`](../plugin/scripting/config_limits.py)) |
-| **Test** | [`run_venv_self_check`](../plugin/scripting/venv_worker.py) reports `docling`, `rapidocr`, `paddleocr`, `paddle`, `ultralytics`, optional `skimage` under **Vision Libraries** (**shipped**) |
+| `scripting.python_exec_timeout` | User script limit only — **not** applied to Vision Helpers (see `vision.worker_timeout_sec`, `DOCLING_WORKER_TIMEOUT_SEC`, `VISION_WORKER_TIMEOUT_SEC`) |
 
-Document install commands in Settings help text or Test failure message — not a separate vision settings tab for v1.
+At OCR run time, [`merge_vision_params`](../plugin/scripting/vision_common.py) merges persisted `vision.*` defaults with template `params` (template wins on conflict). Host RPC timeout honors `vision.worker_timeout_sec` when set ([`vision_client.py`](../plugin/framework/client/vision_client.py)).
+
+Schema source: [`plugin/vision/module.yaml`](../plugin/vision/module.yaml); runtime loader: [`module_config_dialog.py`](../plugin/chatbot/module_config_dialog.py).
 
 ### 2.6 Optional follow-on UX (not Phase 1)
 
@@ -469,6 +477,17 @@ Docling does **not** ship native PaddleOCR; it uses **[RapidOCR](https://github.
 | **RapidOCR** | Lightweight ONNX Paddle fork — constrained machines |
 | **Pillow** | Redundant with LO `GraphicProvider` export |
 | **docTR, CLIP, local transformers vision** | Semantic tasks → prefer **LLM vision API** ([§18](#18-llm-access-deferred)) |
+
+### 7.8 Modeless Vision / OCR settings dialog
+
+| Piece | Location |
+|-------|----------|
+| Config schema + tabs | [`plugin/vision/module.yaml`](../plugin/vision/module.yaml) (`settings_tab: false`, `config_dialog`) |
+| Generated XDL | `VisionSettingsDialog.xdl` via `make manifest` / [`manifest_xdl.py`](../scripts/manifest_xdl.py) |
+| Menu entry | [`extension/Addons.xcu`](../extension/Addons.xcu) → `vision.open_settings` in [`main.py`](../plugin/main.py) |
+| Dialog runtime | [`module_config_dialog.py`](../plugin/chatbot/module_config_dialog.py) — populate/apply `vision.*`, modeless `setVisible(True)` |
+
+Persisted keys include `device`, `images_scale`, `ocr_backend`, `lang`, `table_mode`, `layout_model`, `worker_timeout_sec`, and related Docling pipeline toggles. Template `[Vision]` scripts can still override individual params per run.
 
 ---
 

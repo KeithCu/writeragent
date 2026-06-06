@@ -1,0 +1,40 @@
+# WriterAgent - AI Writing Assistant for LibreOffice
+# Copyright (c) 2026 KeithCu (modifications and relicensing)
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Tests for plugin.chatbot.module_config_dialog."""
+
+from __future__ import annotations
+
+from unittest.mock import patch
+
+from plugin.chatbot.module_config_dialog import get_module_config_dialog_id, get_module_config_field_specs
+
+
+def test_get_module_config_dialog_id_for_vision():
+    with patch(
+        "plugin.chatbot.module_config_dialog._find_module_manifest",
+        return_value={
+            "name": "vision",
+            "config_dialog": {"id": "VisionSettingsDialog", "library": "WriterAgentDialogs"},
+        },
+    ):
+        assert get_module_config_dialog_id("vision") == "VisionSettingsDialog"
+
+
+def test_get_module_config_field_specs_skips_internal_and_non_persisted():
+    ctx = object()
+    manifest = {
+        "name": "vision",
+        "config": {
+            "device": {"type": "string", "default": "auto", "widget": "select", "page": "general"},
+            "open_settings": {"type": "string", "widget": "button", "settings_persist": False},
+            "_internal": {"type": "string", "internal": True},
+        },
+    }
+    with patch("plugin.chatbot.module_config_dialog._find_module_manifest", return_value=manifest):
+        specs = get_module_config_field_specs(ctx, "vision")
+
+    assert len(specs) == 1
+    assert specs[0]["name"] == "device"
+    assert specs[0]["config_key"] == "vision.device"

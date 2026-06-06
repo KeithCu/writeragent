@@ -90,6 +90,8 @@ def _get_module_field_specs(ctx):
             m_name = str(m.get("name", ""))
             if m_name in ("main", "ai"):
                 continue
+            if m.get("settings_tab") is False or m.get("config_dialog"):
+                continue
 
             m_config = m.get("config", {})
             if not isinstance(m_config, dict):

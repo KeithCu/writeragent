@@ -1,0 +1,168 @@
+name: vision
+title: Vision / OCR
+requires: [config]
+
+settings_tab: false
+
+config_dialog:
+  id: VisionSettingsDialog
+  library: WriterAgentDialogs
+  title: Vision / OCR Settings
+  width: 440
+  height: 480
+  moveable: true
+  resizeable: true
+  modeless: true
+  buttons: [apply, ok, close]
+
+actions:
+  open_settings:
+    title: Vision OCR Settings…
+
+config:
+  device:
+    type: string
+    default: auto
+    widget: select
+    page: general
+    label: Device
+    helper: Hardware for Docling models. auto picks GPU when available.
+    options:
+      - {value: auto, label: Auto}
+      - {value: cpu, label: CPU}
+      - {value: cuda, label: CUDA (NVIDIA)}
+      - {value: mps, label: MPS (Apple Silicon)}
+
+  images_scale:
+    type: float
+    default: 1.0
+    min: 0.5
+    max: 3.0
+    widget: number
+    page: general
+    label: Image scale
+    helper: Upscale before OCR/layout. Try 2.0 for small screenshots.
+
+  worker_timeout_sec:
+    type: int
+    default: 300
+    min: 30
+    max: 600
+    widget: number
+    page: general
+    label: Worker timeout (seconds)
+    helper: Host subprocess limit for Vision Helpers (first model download).
+
+  artifacts_path:
+    type: string
+    default: ""
+    widget: text
+    page: general
+    label: Docling artifacts path
+    helper: Optional folder from docling-tools models download (offline use).
+
+  text_score:
+    type: float
+    default: 0.5
+    min: 0.0
+    max: 1.0
+    widget: number
+    page: ocr
+    label: OCR confidence threshold
+    helper: RapidOCR minimum text score. Raise to reduce garbage text.
+
+  force_full_page_ocr:
+    type: boolean
+    default: true
+    widget: checkbox
+    page: ocr
+    label: OCR entire image
+    helper: Recommended for embedded graphics exported from LibreOffice.
+
+  lang:
+    type: string
+    default: en
+    widget: text
+    page: ocr
+    label: OCR language
+    helper: Language code for OCR backends that support it (e.g. en, de).
+
+  num_threads:
+    type: int
+    default: 4
+    min: 1
+    max: 32
+    widget: number
+    page: ocr
+    label: CPU threads
+    helper: Thread count for Docling model inference on CPU.
+
+  table_mode:
+    type: string
+    default: accurate
+    widget: select
+    page: tables
+    label: Table extraction mode
+    options:
+      - {value: accurate, label: Accurate (default)}
+      - {value: fast, label: Fast}
+
+  do_cell_matching:
+    type: boolean
+    default: true
+    widget: checkbox
+    page: tables
+    label: Table cell matching
+    helper: Align detected table cells with content (extract_structure).
+
+  create_orphan_clusters:
+    type: boolean
+    default: true
+    widget: checkbox
+    page: tables
+    label: Keep orphan text clusters
+    helper: Group unassigned text into clusters for messy layouts.
+
+  layout_model:
+    type: string
+    default: heron
+    widget: select
+    page: advanced
+    label: Layout model
+    options:
+      - {value: heron, label: Heron (default)}
+      - {value: egret_large, label: Egret large (slower, complex docs)}
+
+  do_formula_enrichment:
+    type: boolean
+    default: false
+    widget: checkbox
+    page: advanced
+    label: Extract formulas (LaTeX)
+    helper: Opt-in. Downloads extra VLM models on first use; slower.
+
+  do_code_enrichment:
+    type: boolean
+    default: false
+    widget: checkbox
+    page: advanced
+    label: Code block enrichment
+    helper: Specialized OCR for code/terminal screenshots.
+
+  document_timeout:
+    type: float
+    default: 0
+    min: 0
+    max: 600
+    widget: number
+    page: advanced
+    label: Docling document timeout (s)
+    helper: Per-conversion timeout inside Docling. 0 = no limit.
+
+  allow_external_plugins:
+    type: boolean
+    default: false
+    widget: checkbox
+    page: advanced
+    label: Allow external Docling plugins
+    helper: Required for Surya OCR (docling-surya).

@@ -81,3 +81,42 @@ def test_extract_text_unknown_ocr_backend():
 
     assert result["status"] == "error"
     assert result["code"] == "OCR_BACKEND_UNAVAILABLE"
+
+
+def test_apply_pipeline_params_maps_flat_keys():
+    pipeline = MagicMock()
+    table_opts = MagicMock()
+    layout_opts = MagicMock()
+    acc_opts = MagicMock()
+    pipeline.table_structure_options = table_opts
+    pipeline.layout_options = layout_opts
+    pipeline.accelerator_options = acc_opts
+
+    with patch("plugin.scripting.vision_docling._resolve_layout_model_spec", return_value="heron-spec"):
+        fast_mode = MagicMock()
+        mock_pipeline_mod = MagicMock()
+        mock_pipeline_mod.TableFormerMode.FAST = fast_mode
+        with patch("importlib.import_module", return_value=mock_pipeline_mod):
+            docling_mod._apply_pipeline_params(
+            pipeline,
+            {
+                "images_scale": 2.0,
+                "document_timeout": 120,
+                "device": "cpu",
+                "num_threads": 8,
+                "table_mode": "fast",
+                "do_cell_matching": False,
+                "create_orphan_clusters": False,
+                "layout_model": "heron",
+            },
+            for_structure=True,
+        )
+
+    assert pipeline.images_scale == 2.0
+    assert pipeline.document_timeout == 120
+    assert acc_opts.device == "cpu"
+    assert acc_opts.num_threads == 8
+    assert table_opts.mode == fast_mode
+    assert table_opts.do_cell_matching is False
+    assert layout_opts.create_orphan_clusters is False
+    assert layout_opts.model_spec == "heron-spec"

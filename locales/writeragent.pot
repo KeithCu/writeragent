@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-04 23:41-0400\n"
+"POT-Creation-Date: 2026-06-06 11:10-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -374,6 +374,14 @@ msgstr ""
 
 #: plugin/calc/editselection.py
 msgid "WriterAgent: Extend Selection (Calc)"
+msgstr ""
+
+#: plugin/calc/vision_egress.py plugin/scripting/vision_runner.py
+msgid "Select an embedded image, then Run again."
+msgstr ""
+
+#: plugin/calc/vision_egress.py
+msgid "Anchor the image to a cell, select it, then Run again."
 msgstr ""
 
 #: plugin/calc/python_editor.py
@@ -1058,6 +1066,14 @@ msgid "A script named '{0}' already exists in this document."
 msgstr ""
 
 #: plugin/scripting/document_scripts.py
+msgid "Analysis Helpers"
+msgstr ""
+
+#: plugin/scripting/document_scripts.py
+msgid "Vision Helpers"
+msgstr ""
+
+#: plugin/scripting/document_scripts.py
 msgid "My Scripts"
 msgstr ""
 
@@ -1127,6 +1143,45 @@ msgstr ""
 
 #: plugin/scripting/editor_host.py
 msgid "Could not talk to the Python editor."
+msgstr ""
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Analysis Helpers: %(cmd)s"
+msgstr ""
+
+#: plugin/scripting/venv_worker.py
+msgid "Vision Libraries"
+msgstr ""
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Vision Helpers (OCR): %(cmd)s"
+msgstr ""
+
+#: plugin/scripting/venv_worker.py
+msgid "Optional (detection helpers): pip install ultralytics"
+msgstr ""
+
+#: plugin/scripting/venv_worker.py
+msgid ""
+"Optional (image processing in trusted helpers): pip install scikit-image"
+msgstr ""
+
+#: plugin/scripting/vision_runner.py
+#, python-brace-format
+msgid ""
+"Image '{name}' not found. Use list_images or leave image_name empty and "
+"select the graphic."
+msgstr ""
+
+#: plugin/scripting/vision_runner.py
+#, python-brace-format
+msgid "Image '{name}' could not be exported."
 msgstr ""
 
 #: plugin/scripting/session_manager.py
@@ -1306,6 +1361,51 @@ msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
 msgstr ""
 
 #: plugin/scripting/python_runner.py
+msgid "Vision helpers require a Writer or Calc document."
+msgstr ""
+
+#: plugin/scripting/python_runner.py
+msgid "Vision helper failed."
+msgstr ""
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Vision '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Failed to insert result: {error} (took {time})"
+msgstr ""
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Found {blocks} blocks and {tables} tables. "
+"(took {time})"
+msgstr ""
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Vision '{helper}' completed. Extracted {lines} lines. (took {time})"
+msgstr ""
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Analysis helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+
+#: plugin/scripting/python_runner.py
+msgid "Analysis failed."
+msgstr ""
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Analysis '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+
+#: plugin/scripting/python_runner.py
 msgid "Unknown error"
 msgstr ""
 
@@ -1319,11 +1419,6 @@ msgstr ""
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid "Unsupported document type for result insertion. (took {time})"
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Failed to insert result: {error} (took {time})"
 msgstr ""
 
 #: plugin/scripting/python_runner.py
@@ -1354,6 +1449,10 @@ msgstr ""
 
 #: plugin/scripting/python_runner.py
 msgid "Script saved."
+msgstr ""
+
+#: plugin/scripting/python_runner.py
+msgid "Select data range or enter A1 address (injected as data)."
 msgstr ""
 
 #: plugin/mcp/__init__.py
@@ -1652,7 +1751,7 @@ msgstr ""
 msgid "WriterAgent Evaluation Dashboard"
 msgstr ""
 
-msgid "Agent backends"
+msgid "ACP"
 msgstr ""
 
 msgid "Backend"
@@ -1870,7 +1969,8 @@ msgstr ""
 msgid ""
 "If set, runs tools in that venv (bin/python or Scripts/python.exe). If "
 "empty, run_venv_python_script uses this process's sys.executable (basic "
-"stdlib); use a venv for numpy/pandas."
+"stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
+"paddlepaddle)."
 msgstr ""
 
 msgid "Test"

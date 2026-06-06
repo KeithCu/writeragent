@@ -26,6 +26,43 @@ DEFAULT_OCR_BACKEND = "rapidocr_paddle"
 
 MAX_TABLE_ROWS = 50
 
+# Config keys merged from Settings → vision.* before template param overrides.
+VISION_CONFIG_KEYS = (
+    "device",
+    "images_scale",
+    "text_score",
+    "force_full_page_ocr",
+    "lang",
+    "num_threads",
+    "table_mode",
+    "do_cell_matching",
+    "create_orphan_clusters",
+    "layout_model",
+    "do_formula_enrichment",
+    "do_code_enrichment",
+    "document_timeout",
+    "allow_external_plugins",
+    "artifacts_path",
+)
+
+
+def merge_vision_params(ctx: Any, template_params: dict[str, Any] | None) -> dict[str, Any]:
+    """Apply persisted vision.* settings defaults; template params win on conflict."""
+    merged: dict[str, Any] = {}
+    if ctx is not None:
+        try:
+            from plugin.framework.config import get_config
+
+            for key in VISION_CONFIG_KEYS:
+                val = get_config(ctx, f"vision.{key}")
+                if val is not None and val != "":
+                    merged[key] = val
+        except Exception:
+            pass
+    if isinstance(template_params, dict):
+        merged.update(template_params)
+    return merged
+
 
 def _ok_result(helper: str, **payload: Any) -> dict[str, Any]:
     return {"status": "ok", "helper": helper, **payload}

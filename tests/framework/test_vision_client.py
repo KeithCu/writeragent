@@ -81,6 +81,22 @@ def test_run_vision_uses_dedicated_timeout_not_script_timeout(ctx):
     assert mock_run.call_args.kwargs["timeout_sec"] != 10
 
 
+def test_run_vision_uses_config_worker_timeout(ctx):
+    worker_result = {
+        "status": "ok",
+        "result": {"status": "ok", "helper": "extract_text", "full_text": "hi"},
+    }
+    spec = {"helper": "extract_text", "params": {}}
+
+    with (
+        patch("plugin.framework.config.get_config_int", return_value=999),
+        patch("plugin.framework.client.vision_client.run_code_in_user_venv", return_value=worker_result) as mock_run,
+    ):
+        run_vision(ctx, spec, b"png")
+
+    assert mock_run.call_args.kwargs["timeout_sec"] == 999
+
+
 def test_run_vision_worker_error(ctx):
     with patch(
         "plugin.framework.client.vision_client.run_code_in_user_venv",

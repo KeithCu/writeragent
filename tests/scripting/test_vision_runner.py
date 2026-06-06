@@ -35,9 +35,10 @@ def test_get_selected_image_bytes_raises_when_no_selection():
     assert exc.value.code == "NO_IMAGE_SELECTED"
 
 
+@patch("plugin.scripting.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {}))
 @patch("plugin.scripting.vision_runner.run_vision")
 @patch("plugin.scripting.vision_runner.get_selected_image_bytes")
-def test_run_trusted_vision_builds_payload(mock_bytes, mock_run_vision):
+def test_run_trusted_vision_builds_payload(mock_bytes, mock_run_vision, _mock_merge):
     ctx = MagicMock()
     doc = MagicMock()
     mock_bytes.return_value = b"png"
@@ -62,9 +63,10 @@ def test_run_trusted_vision_rejects_unknown_helper():
     assert exc.value.code == "VISION_ERROR"
 
 
+@patch("plugin.scripting.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {}))
 @patch("plugin.scripting.vision_runner.run_vision")
 @patch("plugin.scripting.vision_runner.resolve_vision_image_bytes")
-def test_run_trusted_vision_passes_image_name_context(mock_bytes, mock_run_vision):
+def test_run_trusted_vision_passes_image_name_context(mock_bytes, mock_run_vision, _mock_merge):
     ctx = MagicMock()
     doc = MagicMock()
     mock_bytes.return_value = b"png"

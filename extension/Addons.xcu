@@ -76,6 +76,17 @@
               <value>_self</value>
             </prop>
           </node>
+          <node oor:name="M3d_vision" oor:op="replace">
+            <prop oor:name="Title">
+              <value xml:lang="en-US">Vision OCR Settings...</value>
+            </prop>
+            <prop oor:name="URL">
+              <value>org.extension.writeragent:vision.open_settings</value>
+            </prop>
+            <prop oor:name="Target" oor:type="xs:string">
+              <value>_self</value>
+            </prop>
+          </node>
           <node oor:name="M3d_py_cell" oor:op="replace">
             <prop oor:name="Title">
               <value xml:lang="en-US">Edit Python in Cell...</value>

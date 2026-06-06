@@ -173,7 +173,7 @@ def generate_manifest_py(modules, output_path):
 # Ensure scripts/ is on path for manifest_xdl and manifest_registry
 sys.path.insert(0, os.path.join(PROJECT_ROOT, "scripts"))
 
-from manifest_xdl import generate_xdl_files
+from manifest_xdl import generate_standalone_config_dialogs, generate_xdl_files, update_dialog_xlb
 from manifest_registry import (
     generate_addons_xcu,
     generate_accelerators_xcu,
@@ -240,6 +240,11 @@ def main():
     # 4. XDL dialog pages
     dialogs_dir = os.path.join(build_dir, "dialogs")
     generate_xdl_files(sorted_modules, dialogs_dir)
+    standalone_dialog_ids = generate_standalone_config_dialogs(sorted_modules, build_dir)
+    wa_dialogs_ext = os.path.join(PROJECT_ROOT, "extension", "WriterAgentDialogs")
+    wa_dialogs_gen = os.path.join(build_dir, "WriterAgentDialogs")
+    update_dialog_xlb(wa_dialogs_ext, standalone_dialog_ids, tpl_path=os.path.join(wa_dialogs_ext, "dialog.xlb.tpl"))
+    update_dialog_xlb(wa_dialogs_gen, standalone_dialog_ids, tpl_path=os.path.join(wa_dialogs_ext, "dialog.xlb.tpl"))
 
     # 5. Accelerators.xcu (shortcuts)
     accel_xcu_path = os.path.join(build_dir, "Accelerators.xcu")

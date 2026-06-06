@@ -23,7 +23,7 @@ def _vision_session_id() -> str:
     return _VISION_SESSION_PREFIX
 
 
-def _resolve_vision_timeout_sec(spec: dict[str, Any] | str) -> int:
+def _resolve_vision_timeout_sec(ctx: Any, spec: dict[str, Any] | str) -> int:
     if isinstance(spec, str):
         return DOCLING_WORKER_TIMEOUT_SEC
     if not isinstance(spec, dict):
@@ -31,6 +31,15 @@ def _resolve_vision_timeout_sec(spec: dict[str, Any] | str) -> int:
     params = spec.get("params") if isinstance(spec.get("params"), dict) else {}
     if resolve_engine(params) == "paddle":
         return VISION_WORKER_TIMEOUT_SEC
+    if ctx is not None:
+        try:
+            from plugin.framework.config import get_config_int
+
+            custom = get_config_int(ctx, "vision.worker_timeout_sec")
+            if custom > 0:
+                return int(custom)
+        except Exception:
+            pass
     return DOCLING_WORKER_TIMEOUT_SEC
 
 
@@ -42,7 +51,7 @@ def run_vision(
     context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Execute a trusted vision helper in the user venv via fixed stub."""
-    timeout_sec = _resolve_vision_timeout_sec(spec)
+    timeout_sec = _resolve_vision_timeout_sec(ctx, spec)
     payload: dict[str, Any] = {"spec": spec, "image": image, "context": context or {}}
     response = run_code_in_user_venv(
         ctx,

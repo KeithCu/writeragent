@@ -374,6 +374,9 @@ def generate_settings_dialog_tabs(modules, tpl_path, output_path):
         if name in ("tunnel", "launcher"):
             continue
 
+        if m.get("settings_tab") is False:
+            continue
+
         config = m.get("config", {})
         children = inline_map.get(name)
 

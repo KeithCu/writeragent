@@ -290,6 +290,13 @@ def _register_core_handlers():
 
     register_action_handler("scripting", "import_ipynb", _import_ipynb)
 
+    def _open_vision_settings():
+        from plugin.chatbot.module_config_dialog import show_vision_settings_dialog
+
+        _open_dialog_safely(show_vision_settings_dialog, "Failed to open Vision OCR settings")
+
+    register_action_handler("vision", "open_settings", _open_vision_settings)
+
     def _insert_latex():
         from plugin.writer.math.latex_dialog import insert_latex_math_dialog
         insert_latex_math_dialog(get_ctx())

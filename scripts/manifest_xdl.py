@@ -693,6 +693,302 @@ def generate_list_detail_xdl(module_name, field_name, schema):
     return _xdl_to_string(window)
 
 
+# ── Standalone modeless config dialogs (SettingsDialog alternative) ───
+
+_STANDALONE_MARGIN = 8
+_STANDALONE_LABEL_WIDTH = 140
+_STANDALONE_FIELD_X = 155
+_STANDALONE_FIELD_WIDTH = 270
+_STANDALONE_ROW_HEIGHT = 14
+_STANDALONE_ROW_GAP = 4
+_STANDALONE_HELPER_HEIGHT = 10
+_STANDALONE_HELPER_GAP = 1
+_STANDALONE_TAB_TOP = 5
+_STANDALONE_CONTENT_TOP = 26
+_STANDALONE_FOOTER_MARGIN = 28
+
+_DEFAULT_PAGE_ORDER = ["general", "ocr", "tables", "advanced"]
+_PAGE_LABELS = {
+    "general": "General",
+    "ocr": "OCR",
+    "tables": "Tables",
+    "advanced": "Advanced",
+}
+
+
+def _standalone_common_attrs(field_name, y, width=None, height=None):
+    return {
+        _dlg("id"): field_name,
+        _dlg("tab-index"): "0",
+        _dlg("left"): str(_STANDALONE_FIELD_X),
+        _dlg("top"): str(y),
+        _dlg("width"): str(width or _STANDALONE_FIELD_WIDTH),
+        _dlg("height"): str(height or _STANDALONE_ROW_HEIGHT),
+    }
+
+
+def _add_standalone_label(board, field_name, label_text, y, page):
+    ET.SubElement(board, _dlg("text"), {
+        _dlg("id"): f"label_{field_name}",
+        _dlg("tab-index"): "0",
+        _dlg("page"): str(page),
+        _dlg("left"): str(_STANDALONE_MARGIN),
+        _dlg("top"): str(y + 2),
+        _dlg("width"): str(_STANDALONE_LABEL_WIDTH),
+        _dlg("height"): str(_STANDALONE_ROW_HEIGHT),
+        _dlg("value"): label_text,
+    })
+
+
+def _add_standalone_field(board, field_name, schema, y, page):
+    widget = schema.get("widget", "text")
+    label_text = schema.get("label", field_name.replace("_", " ").title())
+
+    if widget != "checkbox":
+        _add_standalone_label(board, field_name, label_text, y, page)
+
+    if widget == "checkbox":
+        attrs = _standalone_common_attrs(field_name, y)
+        attrs[_dlg("page")] = str(page)
+        attrs[_dlg("left")] = str(_STANDALONE_MARGIN)
+        attrs[_dlg("width")] = str(schema.get("width", 280))
+        attrs[_dlg("height")] = "10"
+        attrs[_dlg("value")] = label_text
+        attrs[_dlg("checked")] = "true" if schema.get("default") else "false"
+        ET.SubElement(board, _dlg("checkbox"), attrs)
+    elif widget == "password":
+        attrs = _standalone_common_attrs(field_name, y)
+        attrs[_dlg("page")] = str(page)
+        attrs[_dlg("echochar")] = "42"
+        ET.SubElement(board, _dlg("textfield"), attrs)
+    elif widget in ("number", "slider"):
+        attrs = _standalone_common_attrs(field_name, y, width=80)
+        attrs[_dlg("page")] = str(page)
+        attrs[_dlg("spin")] = "true"
+        if "min" in schema:
+            attrs[_dlg("value-min")] = str(schema["min"])
+        if "max" in schema:
+            attrs[_dlg("value-max")] = str(schema["max"])
+        attrs[_dlg("decimal-accuracy")] = "1" if schema.get("type") == "float" else "0"
+        ET.SubElement(board, _dlg("numericfield"), attrs)
+    elif widget == "select":
+        attrs = _standalone_common_attrs(field_name, y)
+        attrs[_dlg("page")] = str(page)
+        attrs[_dlg("spin")] = "true"
+        attrs[_dlg("dropdown")] = "true"
+        ET.SubElement(board, _dlg("menulist"), attrs)
+    elif widget == "combo":
+        attrs = _standalone_common_attrs(field_name, y)
+        attrs[_dlg("page")] = str(page)
+        attrs[_dlg("dropdown")] = "true"
+        attrs[_dlg("autocomplete")] = "true"
+        attrs[_dlg("linecount")] = "20"
+        combo_el = ET.SubElement(board, _dlg("combobox"), attrs)
+        ET.SubElement(combo_el, _dlg("menupopup"))
+    else:
+        attrs = _standalone_common_attrs(field_name, y)
+        attrs[_dlg("page")] = str(page)
+        ET.SubElement(board, _dlg("textfield"), attrs)
+
+    y += _STANDALONE_ROW_HEIGHT
+    helper_text = schema.get("helper")
+    if helper_text:
+        y += _STANDALONE_HELPER_GAP
+        helper_width = int(schema.get("width", 420)) - _STANDALONE_MARGIN * 2
+        ET.SubElement(board, _dlg("text"), {
+            _dlg("id"): f"hlp_{field_name}",
+            _dlg("tab-index"): "0",
+            _dlg("page"): str(page),
+            _dlg("left"): str(_STANDALONE_MARGIN),
+            _dlg("top"): str(y),
+            _dlg("width"): str(helper_width if helper_width > 100 else 420),
+            _dlg("height"): str(_STANDALONE_HELPER_HEIGHT),
+            _dlg("value"): helper_text,
+        })
+        y += _STANDALONE_HELPER_HEIGHT
+    return y + _STANDALONE_ROW_GAP
+
+
+def generate_standalone_config_dialog(module):
+    """Generate a tall, tabbed, modeless-ready settings XDL for *module*."""
+    cfg_dialog = module.get("config_dialog") or {}
+    config = module.get("config") or {}
+    module_name = module["name"]
+    dialog_id = cfg_dialog.get("id") or ("WriterAgent_%sSettings" % module_name.replace(".", "_"))
+    width = int(cfg_dialog.get("width") or 440)
+    height = int(cfg_dialog.get("height") or 480)
+    title = cfg_dialog.get("title") or module.get("title") or module_name.title()
+
+    pages_in_use: list[str] = []
+    for _fname, schema in config.items():
+        if not isinstance(schema, dict) or schema.get("internal"):
+            continue
+        if schema.get("settings_persist") is False:
+            continue
+        page = str(schema.get("page") or "general").strip().lower() or "general"
+        if page not in pages_in_use:
+            pages_in_use.append(page)
+    ordered_pages = [p for p in _DEFAULT_PAGE_ORDER if p in pages_in_use]
+    for p in pages_in_use:
+        if p not in ordered_pages:
+            ordered_pages.append(p)
+    if not ordered_pages:
+        ordered_pages = ["general"]
+
+    page_num = {name: idx + 1 for idx, name in enumerate(ordered_pages)}
+
+    window = ET.Element(_dlg("window"), {
+        _dlg("id"): dialog_id,
+        _dlg("left"): "100",
+        _dlg("top"): "50",
+        _dlg("width"): str(width),
+        _dlg("height"): str(height),
+        _dlg("closeable"): "true",
+        _dlg("moveable"): "true" if cfg_dialog.get("moveable", True) else "false",
+        _dlg("resizeable"): "true" if cfg_dialog.get("resizeable", True) else "false",
+        _dlg("title"): title,
+        _dlg("page"): "1",
+    })
+    window.set("xmlns:script", _SCRIPT_NS)
+    _add_styles(window)
+    board = ET.SubElement(window, _dlg("bulletinboard"))
+
+    ET.SubElement(board, _dlg("text"), {
+        _dlg("id"): "__module__",
+        _dlg("tab-index"): "0",
+        _dlg("left"): "0", _dlg("top"): "0",
+        _dlg("width"): "0", _dlg("height"): "0",
+        _dlg("value"): module_name,
+    })
+
+    tab_x = _STANDALONE_MARGIN
+    for page_name in ordered_pages:
+        tab_id = "btn_tab_%s" % page_name
+        tab_label = _PAGE_LABELS.get(page_name, page_name.replace("_", " ").title())
+        tab_w = min(len(tab_label) * 5 + 14, 72)
+        ET.SubElement(board, _dlg("button"), {
+            _dlg("id"): tab_id,
+            _dlg("left"): str(tab_x),
+            _dlg("top"): str(_STANDALONE_TAB_TOP),
+            _dlg("width"): str(tab_w),
+            _dlg("height"): "14",
+            _dlg("value"): tab_label,
+        })
+        tab_x += tab_w + 3
+
+    page_y: dict[int, int] = {page_num[p]: _STANDALONE_CONTENT_TOP for p in ordered_pages}
+    for field_name, schema in config.items():
+        if not isinstance(schema, dict):
+            continue
+        if schema.get("internal") or schema.get("widget") == "list_detail":
+            continue
+        if schema.get("settings_persist") is False:
+            continue
+        page_key = str(schema.get("page") or "general").strip().lower() or "general"
+        pnum = page_num.get(page_key, 1)
+        page_y[pnum] = _add_standalone_field(board, field_name, schema, page_y[pnum], pnum)
+
+    footer_y = height - _STANDALONE_FOOTER_MARGIN
+    buttons = cfg_dialog.get("buttons") or ["apply", "ok", "close"]
+    btn_specs = [
+        ("apply", "btn_apply", "Apply", footer_y, _STANDALONE_MARGIN + 200),
+        ("ok", "btn_ok", "OK", footer_y, _STANDALONE_MARGIN + 280),
+        ("close", "btn_close", "Close", footer_y, _STANDALONE_MARGIN + 360),
+    ]
+    for key, btn_id, label, top, left in btn_specs:
+        if key not in buttons:
+            continue
+        btn_attrs = {
+            _dlg("id"): btn_id,
+            _dlg("left"): str(left),
+            _dlg("top"): str(top),
+            _dlg("width"): "70",
+            _dlg("height"): "18",
+            _dlg("value"): label,
+            _dlg("tabstop"): "true",
+        }
+        if key == "ok":
+            btn_attrs[_dlg("button-type")] = "ok"
+            btn_attrs[_dlg("default")] = "true"
+        elif key == "close":
+            btn_attrs[_dlg("button-type")] = "cancel"
+        ET.SubElement(board, _dlg("button"), btn_attrs)
+
+    return _xdl_to_string(window)
+
+
+def generate_standalone_config_dialogs(modules, output_base):
+    """Write standalone config_dialog XDL files under output_base/WriterAgentDialogs/."""
+    out_dir = os.path.join(output_base, "WriterAgentDialogs")
+    os.makedirs(out_dir, exist_ok=True)
+    dialog_names: list[str] = []
+    count = 0
+    for m in modules:
+        cfg_dialog = m.get("config_dialog")
+        if not cfg_dialog:
+            continue
+        dialog_id = cfg_dialog.get("id") or ("WriterAgent_%sSettings" % m["name"].replace(".", "_"))
+        xdl_path = os.path.join(out_dir, "%s.xdl" % dialog_id)
+        with open(xdl_path, "w", encoding="utf-8") as f:
+            f.write(generate_standalone_config_dialog(m))
+        dialog_names.append(dialog_id)
+        count += 1
+    if count:
+        print("  Generated %d standalone config dialog(s) in %s" % (count, out_dir))
+    return dialog_names
+
+
+def update_dialog_xlb(library_dir, dialog_names, tpl_path=None):
+    """Ensure dialog.xlb lists *dialog_names* (preserves static entries)."""
+    tpl_path = tpl_path or os.path.join(library_dir, "dialog.xlb.tpl")
+    xlb_path = os.path.join(library_dir, "dialog.xlb")
+    marker = "<!-- AUTO_GENERATED_DIALOGS -->"
+    static_entries = [
+        "SettingsDialog",
+        "EditInputDialog",
+        "ChatPanelDialog",
+        "EvalDialog",
+    ]
+    if os.path.isfile(tpl_path):
+        with open(tpl_path, encoding="utf-8") as f:
+            content = f.read()
+    elif os.path.isfile(xlb_path):
+        with open(xlb_path, encoding="utf-8") as f:
+            content = f.read()
+    else:
+        content = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<!DOCTYPE library:library PUBLIC "-//OpenOffice.org//DTD OfficeDocument 1.0//EN" "library.dtd">\n'
+            '<library:library xmlns:library="http://openoffice.org/2000/library" '
+            'library:name="WriterAgentDialogs" library:readonly="false" library:passwordprotected="false">\n'
+            f"{marker}\n"
+            "</library:library>\n"
+        )
+
+    generated_lines = []
+    seen = set(static_entries)
+    for name in static_entries:
+        generated_lines.append(f' <library:element library:name="{name}"/>')
+    for name in dialog_names:
+        if name in seen:
+            continue
+        seen.add(name)
+        generated_lines.append(f' <library:element library:name="{name}"/>')
+    block = "\n".join(generated_lines)
+
+    if marker in content:
+        before, after = content.split(marker, 1)
+        new_content = before + marker + "\n" + block + "\n" + after.lstrip("\n")
+    else:
+        new_content = content.replace(
+            "</library:library>",
+            marker + "\n" + block + "\n</library:library>",
+        )
+    os.makedirs(library_dir, exist_ok=True)
+    with open(xlb_path, "w", encoding="utf-8") as f:
+        f.write(new_content)
+
+
 def generate_xdl_files(modules, output_dir):
     """Generate XDL dialog files for modules with config."""
     os.makedirs(output_dir, exist_ok=True)
@@ -737,6 +1033,10 @@ def generate_xdl_files(modules, output_dir):
 
         # Skip modules that are inlined into their parent
         if name in inline_set:
+            continue
+
+        # Standalone config_dialog modules use WriterAgentDialogs/ instead.
+        if m.get("config_dialog"):
             continue
 
         config = m.get("config", {})

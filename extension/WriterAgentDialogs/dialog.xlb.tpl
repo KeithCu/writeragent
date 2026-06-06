@@ -6,9 +6,4 @@
  <library:element library:name="EditInputDialog"/>
  <library:element library:name="ChatPanelDialog"/>
  <library:element library:name="EvalDialog"/>
- <library:element library:name="VisionSettingsDialog"/>
- <library:element library:name="SettingsDialog"/>
- <library:element library:name="EditInputDialog"/>
- <library:element library:name="ChatPanelDialog"/>
- <library:element library:name="EvalDialog"/>
 </library:library>

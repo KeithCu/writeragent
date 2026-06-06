@@ -9,6 +9,8 @@ from __future__ import annotations
 import base64
 from typing import Any
 
+from plugin.scripting.vision_common import merge_vision_params
+
 from plugin.doc.document_helpers import is_calc, is_writer
 from plugin.framework.client.vision_client import run_vision
 from plugin.framework.errors import ToolExecutionError
@@ -76,7 +78,7 @@ def run_trusted_vision(
     if name not in HELPER_NAMES:
         raise ToolExecutionError(f"Unknown helper {name!r}", code="VISION_ERROR")
 
-    params_dict = dict(params) if isinstance(params, dict) else {}
+    params_dict = merge_vision_params(ctx, dict(params) if isinstance(params, dict) else None)
     image_name = params_dict.get("image_name")
     png_bytes = resolve_vision_image_bytes(ctx, doc, image_name=str(image_name) if image_name is not None else None)
     spec: dict[str, Any] = {"helper": name, "params": params_dict}
