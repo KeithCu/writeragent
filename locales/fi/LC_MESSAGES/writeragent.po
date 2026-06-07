@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-04 23:41-0400\n"
+"POT-Creation-Date: 2026-06-07 16:27-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Finnish <LL@li.org>\n"
@@ -19,17 +19,17 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
-"Asiakirjatutkimus vaatii erikoistuneen tehtävän delegoinnin (USE_SUB_AGENT). "
-"Ota tämä käyttöön asetuksista."
+"Asiakirjatutkimus vaatii erikoistuneen tehtävän delegoinnin (USE_SUB_AGENT)."
+" Ota tämä käyttöön asetuksista."
 
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Työkalukutsu vaihdettu tilaan '{0}'. Olet erikoistyökalutilassa. Sinun on "
@@ -46,8 +46,8 @@ msgstr "Muistikirjan suoritus on tuettu vain LibreOffice Writerissa."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
 "Tässä asiakirjassa ei ole tuotua muistikirjaa. Käytä ensin Työkalut → Tuo "
 "Jupyter-muistikirja…"
@@ -221,7 +221,8 @@ msgstr "Tämä malli vie enemmän aikaa kuin nykyinen asetuksesi."
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr "Kokeile toista mallia. {0} vie enemmän aikaa kuin olet määrittänyt."
 
 #: plugin/contrib/aihordeclient/__init__.py
@@ -308,7 +309,8 @@ msgstr ""
 "asetuksista."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Yhteys evätty. Onko paikallinen tekoälypalvelimesi (Ollama/LM Studio) "
 "käynnissä?"
@@ -341,7 +343,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "AI: Voin auttaa sinua kaavojen, data-analyysin ja värikkäiden kaavioiden "
 "kanssa. Kokeile minua!"
@@ -410,15 +413,23 @@ msgstr "WriterAgent: Muokkaa valintaa (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Laajenna valintaa (Calc)"
 
+#: plugin/calc/vision_egress.py plugin/scripting/vision_runner.py
+msgid "Select an embedded image, then Run again."
+msgstr "Valitse upotettu kuva ja suorita uudelleen."
+
+#: plugin/calc/vision_egress.py
+msgid "Anchor the image to a cell, select it, then Run again."
+msgstr "Ankkuroi kuva soluun, valitse se ja suorita uudelleen."
+
 #: plugin/calc/python_editor.py
 msgid ""
 "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\"; "
-"A1:B10)."
+"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10) or =PYTHON(...)."
 msgstr ""
 "Tämän solun PYTHON-kaavan argumentteja (esim. tietoalueita) ei voitu "
 "säilyttää. Muokkaa kaavaa Calcissa tai käytä lainattua koodimerkkijonoa, "
-"kuten =PYTHON(\"koodi\"; A1:B10)."
+"kuten =PY(\"koodi\"; A1:B10) tai =PYTHON(...)."
 
 #: plugin/calc/python_editor.py
 msgid "Python cell editor"
@@ -443,12 +454,12 @@ msgstr "Valitse solu Calc-laskentataulukosta muokataksesi Pythonia."
 #: plugin/calc/python_editor.py
 msgid ""
 "This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
-"in another cell). Edit it in the formula bar, or use =PYTHON(\"code\"; "
-"range) with quoted code."
+"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
+"(or =PYTHON(...)) with quoted code."
 msgstr ""
 "Tämä PYTHON-kaava käyttää muotoa, jota muokkain ei voi turvallisesti "
 "kirjoittaa uudelleen (esim. koodia toisessa solussa). Muokkaa sitä "
-"kaavarivillä tai käytä =PYTHON(\"koodi\"; alue) lainausmerkkeihin suljetulla "
+"kaavarivillä tai käytä =PY(\"koodi\"; alue) (tai =PYTHON(...)) lainatulla "
 "koodilla."
 
 #: plugin/calc/python_editor.py
@@ -464,8 +475,7 @@ msgid ""
 "In that venv run: pip install pywebview\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"Webview-kirjastoa (pywebview) ei voitu tuoda asetuksista valitulla "
-"Pythonilla: \n"
+"Webview-kirjastoa (pywebview) ei voitu tuoda asetuksista valitulla Pythonilla: \n"
 "%(exe)s\n"
 "\n"
 "Suorita kyseisessä virtuaaliympäristössä: pip install pywebview\n"
@@ -985,8 +995,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Editoria ei löytynyt (asenna Kate tai Gedit, tai määritä EDITOR-"
-"ympäristömuuttuja). Polku:\n"
+"Editoria ei löytynyt (asenna Kate tai Gedit, tai määritä EDITOR-ympäristömuuttuja). Polku:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -1015,7 +1024,8 @@ msgstr "[Agent-taustajärjestelmää '{0}' ei löytynyt.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Agent-taustajärjestelmä '{0}' ei ole käytettävissä. Tarkista asetukset "
 "(polku, asennus).]"
@@ -1126,6 +1136,14 @@ msgid "A script named '{0}' already exists in this document."
 msgstr "Skripti nimeltä '{0}' on jo olemassa tässä asiakirjassa."
 
 #: plugin/scripting/document_scripts.py
+msgid "Analysis Helpers"
+msgstr "Analyysiapulaiset"
+
+#: plugin/scripting/document_scripts.py
+msgid "Vision Helpers"
+msgstr "Näköapulaiset"
+
+#: plugin/scripting/document_scripts.py
 msgid "My Scripts"
 msgstr "Omat skriptit"
 
@@ -1197,6 +1215,80 @@ msgstr "Python-editori sulkeutui ennen kuin se ehti ladata koodisi."
 msgid "Could not talk to the Python editor."
 msgstr "Yhteyden muodostaminen Python-editoriin epäonnistui."
 
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Analysis Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Analyysiapulaiset: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Vision Libraries"
+msgstr "Näkökirjastot"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Docling OCR load failed: %(err)s"
+msgstr ""
+"\n"
+"Docling OCR:n lataus epäonnistui: %(err)s"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Vision Helpers (OCR, Docling): %(cmd)s"
+msgstr ""
+"\n"
+"Näköapulaiset (OCR, Docling): %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Vision Helpers (OCR, Paddle fallback): %(cmd)s"
+msgstr ""
+"\n"
+"Näköapulaiset (OCR, Paddle-varajärjestelmä): %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Vision Helpers (Docling primary): %(cmd)s"
+msgstr ""
+"\n"
+"Näköapulaiset (Docling-ensisijainen): %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Optional (detection helpers): pip install ultralytics"
+msgstr "Valinnainen (tunnistusapulaiset): pip install ultralytics"
+
+#: plugin/scripting/venv_worker.py
+msgid ""
+"Optional (image processing in trusted helpers): pip install scikit-image"
+msgstr ""
+"Valinnainen (kuvankäsittely luotetuissa apulaisissa): pip install scikit-"
+"image"
+
+#: plugin/scripting/vision_runner.py
+#, python-brace-format
+msgid ""
+"Image '{name}' not found. Use list_images or leave image_name empty and "
+"select the graphic."
+msgstr ""
+"Kuvaa '{name}' ei löytynyt. Käytä list_images-komentoa tai jätä image_name "
+"tyhjäksi ja valitse kuva."
+
+#: plugin/scripting/vision_runner.py
+#, python-brace-format
+msgid "Image '{name}' could not be exported."
+msgstr "Kuvaa '{name}' ei voitu viedä."
+
 #: plugin/scripting/session_manager.py
 msgid ""
 "Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
@@ -1261,9 +1353,9 @@ msgid ""
 "This Writer document has no imported notebook registry. Use Tools → Import "
 "Jupyter Notebook… to enable notebook Python session reset."
 msgstr ""
-"Tässä Writer-asiakirjassa ei ole tuotua Jupyter-muistikirjarekisteriä. Käytä "
-"Työkalut → Tuo Jupyter-muistikirja… ottaaksesi muistikirjan Python-istunnon "
-"nollauksen käyttöön."
+"Tässä Writer-asiakirjassa ei ole tuotua Jupyter-muistikirjarekisteriä. Käytä"
+" Työkalut → Tuo Jupyter-muistikirja… ottaaksesi muistikirjan Python-istunnon"
+" nollauksen käyttöön."
 
 #: plugin/scripting/python_runner.py
 msgid "Run Python Script"
@@ -1393,14 +1485,66 @@ msgstr ""
 "pyynnöt ovat tervetulleita!"
 
 #: plugin/scripting/python_runner.py
+msgid "Vision helpers require a Writer or Calc document."
+msgstr "Näköapulaiset vaativat Writer- tai Calc-asiakirjan."
+
+#: plugin/scripting/python_runner.py
+msgid "Vision helper failed."
+msgstr "Näköapulainen epäonnistui."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Vision '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"Näköapulainen '{helper}' suoritettu. Kirjoitettiin {rows} riviä. (kesti "
+"{time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Failed to insert result: {error} (took {time})"
+msgstr "Tuloksen lisääminen epäonnistui: {error} (kesti {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Found {blocks} blocks and {tables} tables. "
+"(took {time})"
+msgstr ""
+"Näköapulainen '{helper}' suoritettu. Löydettiin {blocks} lohkoa ja {tables} "
+"taulukkoa. (kesti {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Vision '{helper}' completed. Extracted {lines} lines. (took {time})"
+msgstr "Vision '{helper}' suoritettu. Poimittu {lines} riviä. (kesti {time})"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Analysis helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"Analyysiapulainen vaatii tietoalueen. Valitse solut tai syötä alue Tieto-"
+"kenttään."
+
+#: plugin/scripting/python_runner.py
+msgid "Analysis failed."
+msgstr "Analyysi epäonnistui."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Analysis '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"Analyysi '{helper}' suoritettu. Kirjoitettu {rows} riviä. (kesti {time})"
+
+#: plugin/scripting/python_runner.py
 msgid "Unknown error"
 msgstr "Tuntematon virhe"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "Skripti suoritettiin onnistuneesti, mutta se ei palauttanut tulosta eikä "
 "tuottanut tulostetta. (kesti {time})"
@@ -1409,11 +1553,6 @@ msgstr ""
 #, python-brace-format
 msgid "Unsupported document type for result insertion. (took {time})"
 msgstr "Tiedostotyyppiä ei tueta tuloksen lisäämiseen. (kesti {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Failed to insert result: {error} (took {time})"
-msgstr "Tuloksen lisääminen epäonnistui: {error} (kesti {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -1446,6 +1585,10 @@ msgstr "Tuloste"
 #: plugin/scripting/python_runner.py
 msgid "Script saved."
 msgstr "Skripti tallennettu."
+
+#: plugin/scripting/python_runner.py
+msgid "Select data range or enter A1 address (injected as data)."
+msgstr "Valitse tietoalue tai syötä A1-osoite (lisätään tietona)."
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -1743,8 +1886,8 @@ msgstr "Writer"
 msgid "WriterAgent Evaluation Dashboard"
 msgstr "WriterAgent-arviointikojelauta"
 
-msgid "Agent backends"
-msgstr "Agenttien taustajärjestelmät"
+msgid "ACP"
+msgstr "ACP"
 
 msgid "Backend"
 msgstr "Taustajärjestelmä"
@@ -1761,12 +1904,15 @@ msgstr "Claude Code (ACP)"
 msgid "Mistral Vibe (ACP)"
 msgstr "Mistral Vibe (ACP)"
 
+msgid "Grok Build (ACP)"
+msgstr "Grok Build (ACP)"
+
 msgid "Path / URL"
 msgstr "Polku / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
 "Taustajärjestelmän CLI-polku (esim. aider) tai ACP-palvelimen URL-osoite "
 "(esim. http://localhost:8000 Hermesille). Tyhjä = kokeile oletusta."
@@ -1882,12 +2028,12 @@ msgstr "Ota käyttöön tekoälypohjainen kieliopin tarkistus (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "Kun tämä on päällä, WriterAgent rekisteröi tekoälypohjaisen kieliopin "
-"tarkistimensa Linguistic-palveluun; tarkistettu teksti käyttää API-avaintasi "
-"(Työkalut → Asetukset → AI). Alleviivaus ilmestyy pian kirjoitustauon "
+"tarkistimensa Linguistic-palveluun; tarkistettu teksti käyttää API-avaintasi"
+" (Työkalut → Asetukset → AI). Alleviivaus ilmestyy pian kirjoitustauon "
 "jälkeen. Oletuksena pois päältä."
 
 msgid "Grammar check model (optional)"
@@ -1904,8 +2050,8 @@ msgid ""
 "runs, to avoid concurrent API calls."
 msgstr ""
 "Kun tämä on päällä, tekoälypohjainen kieliopin tarkistus ohittaa "
-"taustapyynnöt, kun sivupalkin chat tai agentti on käynnissä, jotta vältetään "
-"samanaikaiset API-kutsut."
+"taustapyynnöt, kun sivupalkin chat tai agentti on käynnissä, jotta vältetään"
+" samanaikaiset API-kutsut."
 
 msgid "Grammar batch sentences"
 msgstr "Kieliopin eräkäsittelylauseet"
@@ -1968,11 +2114,11 @@ msgid "Enable MCP Server"
 msgstr "Ota MCP-palvelin käyttöön"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Vain localhost, ei todennusta. Asiakasohjelmat käyttävät osoitetta http://"
-"localhost:<port>/mcp (suoratoistettava HTTP)."
+"Vain localhost, ei todennusta. Asiakasohjelmat käyttävät osoitetta "
+"http://localhost:<port>/mcp (suoratoistettava HTTP)."
 
 msgid "MCP Port"
 msgstr "MCP-portti"
@@ -1998,12 +2144,13 @@ msgstr "Python-virtuaaliympäristön polku"
 msgid ""
 "If set, runs tools in that venv (bin/python or Scripts/python.exe). If "
 "empty, run_venv_python_script uses this process's sys.executable (basic "
-"stdlib); use a venv for numpy/pandas."
+"stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
+"paddlepaddle)."
 msgstr ""
-"Jos asetettu, suorittaa työkalut kyseisessä virtuaaliympäristössä (bin/"
-"python tai Scripts/python.exe). Jos tyhjä, run_venv_python_script käyttää "
-"tämän prosessin sys.executable-polkua (perus-stdlib); käytä "
-"virtuaaliympäristöä, jos tarvitset numpya tai pandasia."
+"Jos asetettu, suorittaa työkalut kyseisessä venv-ympäristössä (bin/python "
+"tai Scripts/python.exe). Jos tyhjä, run_venv_python_script käyttää tämän "
+"prosessin sys.executable-tiedostoa (perus-stdlib); käytä venv-ympäristöä "
+"kirjastoille numpy/pandas ja Vision Helpers (paddleocr, paddlepaddle)."
 
 msgid "Test"
 msgstr "Testi"
@@ -2022,8 +2169,8 @@ msgid "Max Calc data cells"
 msgstr "Calc-datasolujen enimmäismäärä"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
 "=PYTHON()-datan tai Run Python Script -datan/data_range-alueen solujen "
 "enimmäismäärä. Suuremmat arvot kuluttavat enemmän RAM-muistia ja aikaa; UNO-"
@@ -2059,12 +2206,139 @@ msgid "Modeless Run Python Script dialog"
 msgstr "Malliton Python-komentosarjan suoritusikkuna"
 
 msgid ""
-"When checked, the plain-text Run Python Script dialog floats so you can edit "
-"the document while it is open. Uncheck for the classic modal dialog."
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
 msgstr ""
 "Kun valittuna, pelkkää tekstiä sisältävä Suorita Python-skripti "
-"-valintaikkuna on kelluva, jolloin voit muokata asiakirjaa sen ollessa auki. "
-"Poista valinta palataksesi perinteiseen modaaliseen valintaikkunaan."
+"-valintaikkuna on kelluva, jolloin voit muokata asiakirjaa sen ollessa auki."
+" Poista valinta palataksesi perinteiseen modaaliseen valintaikkunaan."
+
+msgid "Vision / OCR"
+msgstr "Vision / OCR"
+
+msgid "Device"
+msgstr "Laite"
+
+msgid "Hardware for Docling models. auto picks GPU when available."
+msgstr ""
+"Docling-mallien laitteisto. Valitsee automaattisesti GPU:n, jos se on "
+"käytettävissä."
+
+msgid "Auto"
+msgstr "Automaattinen"
+
+msgid "CPU"
+msgstr "CPU"
+
+msgid "CUDA (NVIDIA)"
+msgstr "CUDA (NVIDIA)"
+
+msgid "MPS (Apple Silicon)"
+msgstr "MPS (Apple Silicon)"
+
+msgid "Image scale"
+msgstr "Kuvan skaalaus"
+
+msgid "Upscale before OCR/layout. Try 2.0 for small screenshots."
+msgstr ""
+"Skaalaa ennen OCR-tunnistusta/asettelua. Kokeile arvoa 2.0 pienille "
+"kuvakaappauksille."
+
+msgid "Worker timeout (seconds)"
+msgstr "Työprosessin aikakatkaisu (sekuntia)"
+
+msgid "Host subprocess limit for Vision Helpers (first model download)."
+msgstr "Vision Helper -aliprosessien isäntäraja (ensimmäinen mallin lataus)."
+
+msgid "Docling artifacts path"
+msgstr "Docling-artefaktien polku"
+
+msgid "Optional folder from docling-tools models download (offline use)."
+msgstr ""
+"Valinnainen kansio docling-tools-mallien lataamiseen (offline-käyttö)."
+
+msgid "OCR confidence threshold"
+msgstr "OCR-luottamusraja"
+
+msgid "RapidOCR minimum text score. Raise to reduce garbage text."
+msgstr ""
+"RapidOCR:n tekstin vähimmäispistemäärä. Nosta vähentääksesi turhaa tekstiä."
+
+msgid "OCR entire image"
+msgstr "OCR koko kuvalle"
+
+msgid "Recommended for embedded graphics exported from LibreOffice."
+msgstr "Suositellaan LibreOfficesta viedyille upotetuille grafiikoille."
+
+msgid "OCR language"
+msgstr "OCR-kieli"
+
+msgid "Language code for OCR backends that support it (e.g. en, de)."
+msgstr ""
+"Kielikoodi OCR-taustajärjestelmille, jotka tukevat sitä (esim. en, de)."
+
+msgid "CPU threads"
+msgstr "CPU-säikeet"
+
+msgid "Thread count for Docling model inference on CPU."
+msgstr "Säikeiden määrä Docling-mallin päättelyyn suorittimella."
+
+msgid "Table extraction mode"
+msgstr "Taulukon erotustila"
+
+msgid "Accurate (default)"
+msgstr "Tarkka (oletus)"
+
+msgid "Fast"
+msgstr "Nopea"
+
+msgid "Table cell matching"
+msgstr "Taulukon solujen täsmäytys"
+
+msgid "Align detected table cells with content (extract_structure)."
+msgstr ""
+"Kohdista tunnistetut taulukon solut sisällön mukaan (extract_structure)."
+
+msgid "Keep orphan text clusters"
+msgstr "Säilytä orvot tekstiryhmät"
+
+msgid "Group unassigned text into clusters for messy layouts."
+msgstr "Ryhmittele määrittämätön teksti ryhmiksi epäsiisteissä asetteluissa."
+
+msgid "Layout model"
+msgstr "Asettelumalli"
+
+msgid "Heron (default)"
+msgstr "Heron (oletus)"
+
+msgid "Egret large (slower"
+msgstr "Egret large (hitaampi"
+
+msgid "Extract formulas (LaTeX)"
+msgstr "Pura kaavat (LaTeX)"
+
+msgid "Opt-in. Downloads extra VLM models on first use; slower."
+msgstr ""
+"Salli käyttö. Lataa ylimääräisiä VLM-malleja ensimmäisellä käyttökerralla; "
+"hitaampi."
+
+msgid "Code block enrichment"
+msgstr "Koodilohkojen rikastus"
+
+msgid "Specialized OCR for code/terminal screenshots."
+msgstr "Erikoistunut tekstintunnistus (OCR) koodi- ja päätekuvakaappauksille."
+
+msgid "Docling document timeout (s)"
+msgstr "Docling-asiakirjan aikakatkaisu (s)"
+
+msgid "Per-conversion timeout inside Docling. 0 = no limit."
+msgstr "Muunnoskohtainen aikakatkaisu Doclingissa. 0 = ei rajoitusta."
+
+msgid "Allow external Docling plugins"
+msgstr "Salli ulkoiset Docling-liitännäiset"
+
+msgid "Required for Surya OCR (docling-surya)."
+msgstr "Vaaditaan Surya OCR:ää varten (docling-surya)."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer-asiakirjatyökalut (mukaan lukien siirtyminen ja haku)"

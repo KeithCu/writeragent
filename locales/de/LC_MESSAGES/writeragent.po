@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: WriterAgent 1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-04 23:41-0400\n"
+"POT-Creation-Date: 2026-06-07 16:27-0400\n"
 "PO-Revision-Date: 2024-03-21 12:00+0000\n"
 "Last-Translator: \n"
 "Language-Team: German\n"
@@ -14,8 +14,8 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
 "Dokumentenrecherchen erfordern eine spezialisierte Aufgabendelegierung "
 "(USE_SUB_AGENT). Aktivieren Sie dies in der Konfiguration."
@@ -23,8 +23,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Tool-Aufruf auf '{0}' umgeschaltet. Sie befinden sich im spezialisierten "
@@ -42,8 +42,8 @@ msgstr ""
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
 "Dieses Dokument enthält kein importiertes Notebook. Verwenden Sie zuerst "
 "Extras → Jupyter Notebook importieren…"
@@ -140,8 +140,8 @@ msgid ""
 "The Horde is in maintenance mode, please try again later, if you have tried "
 "and the service does not respond for hours, please contact via Discord"
 msgstr ""
-"The Horde befindet sich im Wartungsmodus, bitte versuchen Sie es später noch "
-"einmal. Wenn Sie es versucht haben und der Dienst stundenlang nicht "
+"The Horde befindet sich im Wartungsmodus, bitte versuchen Sie es später noch"
+" einmal. Wenn Sie es versucht haben und der Dienst stundenlang nicht "
 "antwortet, kontaktieren Sie uns bitte über Discord"
 
 #: plugin/contrib/aihordeclient/__init__.py
@@ -224,7 +224,8 @@ msgstr "Dieses Modell benötigt mehr Zeit als Ihre aktuelle Konfiguration."
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr ""
 "Bitte versuchen Sie ein anderes Modell. {0} würde mehr Zeit in Anspruch "
 "nehmen, als Sie konfiguriert haben."
@@ -316,7 +317,8 @@ msgstr ""
 "den Einstellungen zu erhöhen."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr "Verbindung abgelehnt. Läuft Ihr lokaler KI-Server (Ollama/LM Studio)?"
 
 #: plugin/framework/errors.py
@@ -347,7 +349,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "KI: Ich kann Ihnen bei Formeln, Datenanalysen und farbigen Diagrammen "
 "helfen. Probieren Sie es aus!"
@@ -417,16 +420,27 @@ msgstr "WriterAgent: Auswahl bearbeiten (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Auswahl erweitern (Calc)"
 
+#: plugin/calc/vision_egress.py plugin/scripting/vision_runner.py
+msgid "Select an embedded image, then Run again."
+msgstr ""
+"Wählen Sie ein eingebettetes Bild aus und führen Sie den Befehl erneut aus."
+
+#: plugin/calc/vision_egress.py
+msgid "Anchor the image to a cell, select it, then Run again."
+msgstr ""
+"Verankern Sie das Bild an einer Zelle, wählen Sie es aus und führen Sie den "
+"Befehl erneut aus."
+
 #: plugin/calc/python_editor.py
 msgid ""
 "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\"; "
-"A1:B10)."
+"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10) or =PYTHON(...)."
 msgstr ""
 "Die PYTHON-Formelargumente dieser Zelle (z. B. Datenbereiche) konnten nicht "
 "beibehalten werden. Bearbeiten Sie die Formel in Calc oder verwenden Sie "
-"einen in Anführungszeichen gesetzten Code-String wie =PYTHON(\"Code\"; "
-"A1:B10)."
+"einen Code-String in Anführungszeichen wie =PY(\"code\"; A1:B10) oder "
+"=PYTHON(...)."
 
 #: plugin/calc/python_editor.py
 msgid "Python cell editor"
@@ -452,13 +466,13 @@ msgstr ""
 #: plugin/calc/python_editor.py
 msgid ""
 "This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
-"in another cell). Edit it in the formula bar, or use =PYTHON(\"code\"; "
-"range) with quoted code."
+"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
+"(or =PYTHON(...)) with quoted code."
 msgstr ""
 "Diese PYTHON-Formel verwendet eine Form, die der Editor nicht sicher "
 "umschreiben kann (z. B. Code in einer anderen Zelle). Bearbeiten Sie sie in "
-"der Bearbeitungsleiste oder verwenden Sie =PYTHON(\"Code\"; Bereich) mit "
-"Code in Anführungszeichen."
+"der Bearbeitungszeile oder verwenden Sie =PY(\"code\"; Bereich) (oder "
+"=PYTHON(...)) mit Code in Anführungszeichen."
 
 #: plugin/calc/python_editor.py
 msgid "No Python interpreter available for the editor."
@@ -473,8 +487,7 @@ msgid ""
 "In that venv run: pip install pywebview\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"Kann webview (pywebview) nicht mit dem Python aus Einstellungen → Python "
-"importieren:\n"
+"Kann webview (pywebview) nicht mit dem Python aus Einstellungen → Python importieren:\n"
 "%(exe)s\n"
 "\n"
 "Führen Sie in diesem venv aus: pip install pywebview\n"
@@ -914,8 +927,8 @@ msgid ""
 "[Internal Error: Document type changed from {0} to {1}! Please file an "
 "error.]"
 msgstr ""
-"[Interner Fehler: Dokumenttyp hat sich von {0} in {1} geändert! Bitte melden "
-"Sie einen Fehler.]"
+"[Interner Fehler: Dokumenttyp hat sich von {0} in {1} geändert! Bitte melden"
+" Sie einen Fehler.]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -999,8 +1012,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Kein Editor gefunden (installieren Sie Kate oder Gedit oder setzen Sie "
-"EDITOR). Pfad:\n"
+"Kein Editor gefunden (installieren Sie Kate oder Gedit oder setzen Sie EDITOR). Pfad:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -1029,7 +1041,8 @@ msgstr "[Agent-Backend '{0}' nicht gefunden.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Agent-Backend '{0}' ist nicht verfügbar. Einstellungen prüfen (Pfad, "
 "Installation).]"
@@ -1142,6 +1155,14 @@ msgid "A script named '{0}' already exists in this document."
 msgstr "Ein Skript mit dem Namen '{0}' existiert bereits in diesem Dokument."
 
 #: plugin/scripting/document_scripts.py
+msgid "Analysis Helpers"
+msgstr "Analyse-Hilfen"
+
+#: plugin/scripting/document_scripts.py
+msgid "Vision Helpers"
+msgstr "Vision-Hilfen"
+
+#: plugin/scripting/document_scripts.py
 msgid "My Scripts"
 msgstr "Meine Skripte"
 
@@ -1166,7 +1187,8 @@ msgstr "Skript '{0}' gespeichert."
 
 #: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
 msgid "No document is open to attach scripts."
-msgstr "Es ist kein Dokument geöffnet, an das Skripte angehängt werden können."
+msgstr ""
+"Es ist kein Dokument geöffnet, an das Skripte angehängt werden können."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1208,11 +1230,86 @@ msgstr "Das Fenster des Python-Editors wurde nicht gestartet."
 
 #: plugin/scripting/editor_host.py
 msgid "The Python editor exited before it could load your code."
-msgstr "Der Python-Editor wurde beendet, bevor der Code geladen werden konnte."
+msgstr ""
+"Der Python-Editor wurde beendet, bevor der Code geladen werden konnte."
 
 #: plugin/scripting/editor_host.py
 msgid "Could not talk to the Python editor."
 msgstr "Die Kommunikation mit dem Python-Editor ist fehlgeschlagen."
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Analysis Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Analyse-Hilfen: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Vision Libraries"
+msgstr "Vision-Bibliotheken"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Docling OCR load failed: %(err)s"
+msgstr ""
+"\n"
+"Laden von Docling OCR fehlgeschlagen: %(err)s"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Vision Helpers (OCR, Docling): %(cmd)s"
+msgstr ""
+"\n"
+"Vision-Hilfen (OCR, Docling): %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Vision Helpers (OCR, Paddle fallback): %(cmd)s"
+msgstr ""
+"\n"
+"Vision-Helfer (OCR, Paddle-Fallback): %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Vision Helpers (Docling primary): %(cmd)s"
+msgstr ""
+"\n"
+"Vision-Helfer (Docling primär): %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Optional (detection helpers): pip install ultralytics"
+msgstr "Optional (Erkennungs-Helfer): pip install ultralytics"
+
+#: plugin/scripting/venv_worker.py
+msgid ""
+"Optional (image processing in trusted helpers): pip install scikit-image"
+msgstr ""
+"Optional (Bildverarbeitung in vertrauenswürdigen Helfern): pip install "
+"scikit-image"
+
+#: plugin/scripting/vision_runner.py
+#, python-brace-format
+msgid ""
+"Image '{name}' not found. Use list_images or leave image_name empty and "
+"select the graphic."
+msgstr ""
+"Bild '{name}' nicht gefunden. Verwenden Sie list_images oder lassen Sie "
+"image_name leer und wählen Sie die Grafik aus."
+
+#: plugin/scripting/vision_runner.py
+#, python-brace-format
+msgid "Image '{name}' could not be exported."
+msgstr "Bild '{name}' konnte nicht exportiert werden."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1262,8 +1359,8 @@ msgid ""
 "workbook. Cell variables were already isolated per cell."
 msgstr ""
 "Das Initialisierungsskript und jeglicher In-Memory-Initialisierungsstatus "
-"wurden für diese Arbeitsmappe zurückgesetzt. Zellvariablen waren bereits pro "
-"Zelle isoliert."
+"wurden für diese Arbeitsmappe zurückgesetzt. Zellvariablen waren bereits pro"
+" Zelle isoliert."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1318,8 +1415,7 @@ msgid ""
 "Enter Python code to execute in the user virtual environment.\n"
 "Assign the result to the 'result' variable."
 msgstr ""
-"Geben Sie den auszuführenden Python-Code für die Benutzer-Virtual-"
-"Environment ein.\n"
+"Geben Sie den auszuführenden Python-Code für die Benutzer-Virtual-Environment ein.\n"
 "Weisen Sie das Ergebnis der Variable 'result' zu."
 
 #: plugin/scripting/python_runner.py
@@ -1415,17 +1511,69 @@ msgstr ""
 "Pull Requests sind willkommen!"
 
 #: plugin/scripting/python_runner.py
+msgid "Vision helpers require a Writer or Calc document."
+msgstr "Vision-Helfer erfordern ein Writer- oder Calc-Dokument."
+
+#: plugin/scripting/python_runner.py
+msgid "Vision helper failed."
+msgstr "Vision-Helfer fehlgeschlagen."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Vision '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"Vision '{helper}' abgeschlossen. {rows} Zeilen geschrieben. (Dauer: {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Failed to insert result: {error} (took {time})"
+msgstr "Fehler beim Einfügen des Ergebnisses: {error} (Dauer: {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Found {blocks} blocks and {tables} tables. "
+"(took {time})"
+msgstr ""
+"Vision '{helper}' abgeschlossen. {blocks} Blöcke und {tables} Tabellen "
+"gefunden. (Dauer: {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Vision '{helper}' completed. Extracted {lines} lines. (took {time})"
+msgstr ""
+"Vision '{helper}' abgeschlossen. {lines} Zeilen extrahiert. (Dauer: {time})"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Analysis helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"Der Analyse-Helfer benötigt einen Datenbereich. Wählen Sie Zellen aus oder "
+"geben Sie einen Bereich im Datenfeld ein."
+
+#: plugin/scripting/python_runner.py
+msgid "Analysis failed."
+msgstr "Analyse fehlgeschlagen."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Analysis '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"Analyse '{helper}' abgeschlossen. {rows} Zeilen geschrieben. (Dauer: {time})"
+
+#: plugin/scripting/python_runner.py
 msgid "Unknown error"
 msgstr "Unbekannter Fehler"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
-"Skript wurde erfolgreich ausgeführt, lieferte jedoch kein Ergebnis und keine "
-"Ausgabe. (Dauer: {time})"
+"Skript wurde erfolgreich ausgeführt, lieferte jedoch kein Ergebnis und keine"
+" Ausgabe. (Dauer: {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -1433,11 +1581,6 @@ msgid "Unsupported document type for result insertion. (took {time})"
 msgstr ""
 "Nicht unterstützter Dokumenttyp für das Einfügen von Ergebnissen. (Dauer: "
 "{time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Failed to insert result: {error} (took {time})"
-msgstr "Fehler beim Einfügen des Ergebnisses: {error} (Dauer: {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -1456,8 +1599,8 @@ msgstr "Skript erfolgreich ausgeführt."
 msgid ""
 "Script executed successfully, but returned no result and produced no output."
 msgstr ""
-"Skript wurde erfolgreich ausgeführt, lieferte jedoch kein Ergebnis und keine "
-"Ausgabe."
+"Skript wurde erfolgreich ausgeführt, lieferte jedoch kein Ergebnis und keine"
+" Ausgabe."
 
 #: plugin/scripting/python_runner.py
 msgid "Success"
@@ -1470,6 +1613,11 @@ msgstr "Ausgabe"
 #: plugin/scripting/python_runner.py
 msgid "Script saved."
 msgstr "Skript gespeichert."
+
+#: plugin/scripting/python_runner.py
+msgid "Select data range or enter A1 address (injected as data)."
+msgstr ""
+"Datenbereich auswählen oder A1-Adresse eingeben (als Daten eingefügt)."
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -1769,8 +1917,8 @@ msgstr "Writer"
 msgid "WriterAgent Evaluation Dashboard"
 msgstr "WriterAgent-Evaluations-Dashboard"
 
-msgid "Agent backends"
-msgstr "Agenten"
+msgid "ACP"
+msgstr "ACP"
 
 msgid "Backend"
 msgstr "Backend"
@@ -1787,15 +1935,18 @@ msgstr "Claude Code (ACP)"
 msgid "Mistral Vibe (ACP)"
 msgstr "Mistral Vibe (ACP)"
 
+msgid "Grok Build (ACP)"
+msgstr "Grok Build (ACP)"
+
 msgid "Path / URL"
 msgstr "Pfad / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Pfad zum Backend-CLI (z. B. aider) oder ACP-Server-URL (z. B. http://"
-"localhost:8000 für Hermes). Leer = Standard versuchen."
+"Pfad zum Backend-CLI (z. B. aider) oder ACP-Server-URL (z. B. "
+"http://localhost:8000 für Hermes). Leer = Standard versuchen."
 
 msgid "Extra arguments"
 msgstr "Zusätzliche Argumente"
@@ -1907,8 +2058,8 @@ msgstr "KI-Grammatikprüfer aktivieren (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "Wenn aktiviert, registriert WriterAgent seinen KI-Grammatikprüfer bei "
 "Linguistic; geprüfter Text verwendet Ihre API (Extras → Optionen → KI). "
@@ -1940,8 +2091,8 @@ msgid ""
 "reliable; higher values are faster and cheaper but may hit token limits or "
 "cause model errors."
 msgstr ""
-"Anzahl der Sätze pro LLM-Anfrage (1-8). 1 (Standard) ist am zuverlässigsten; "
-"höhere Werte sind schneller und kostengünstiger, können aber Token-Limits "
+"Anzahl der Sätze pro LLM-Anfrage (1-8). 1 (Standard) ist am zuverlässigsten;"
+" höhere Werte sind schneller und kostengünstiger, können aber Token-Limits "
 "überschreiten oder Modellfehler verursachen."
 
 msgid "Grammar concurrent requests"
@@ -1993,11 +2144,11 @@ msgid "Enable MCP Server"
 msgstr "MCP-Server aktivieren"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Nur Localhost, keine Authentifizierung. Clients verwenden http://localhost:"
-"<port>/mcp (streambares HTTP)."
+"Nur Localhost, keine Authentifizierung. Clients verwenden "
+"http://localhost:<port>/mcp (streambares HTTP)."
 
 msgid "MCP Port"
 msgstr "MCP-Port"
@@ -2023,12 +2174,13 @@ msgstr "Python-Venv-Pfad"
 msgid ""
 "If set, runs tools in that venv (bin/python or Scripts/python.exe). If "
 "empty, run_venv_python_script uses this process's sys.executable (basic "
-"stdlib); use a venv for numpy/pandas."
+"stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
+"paddlepaddle)."
 msgstr ""
-"Falls gesetzt, werden Werkzeuge in dieser Venv ausgeführt (bin/python oder "
-"Scripts/python.exe). Falls leer, verwendet run_venv_python_script das "
-"sys.executable dieses Prozesses (grundlegende Standardbibliothek); verwenden "
-"Sie eine Venv für numpy/pandas."
+"Falls festgelegt, werden Werkzeuge in diesem venv ausgeführt (bin/python "
+"oder Scripts/python.exe). Falls leer, verwendet run_venv_python_script das "
+"sys.executable dieses Prozesses (einfache stdlib); verwenden Sie ein venv "
+"für numpy/pandas und Vision-Helfer (paddleocr, paddlepaddle)."
 
 msgid "Test"
 msgstr "Test"
@@ -2047,12 +2199,13 @@ msgid "Max Calc data cells"
 msgstr "Maximale Calc-Datenzellen"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
-"Maximale Zellen in =PYTHON()-Daten oder „Python-Skript ausführen“-Daten/"
-"Datenbereich. Größere Werte verbrauchen mehr Arbeitsspeicher und Zeit; das "
-"Lesen des UNO-Bereichs ist weiterhin der dominierende Faktor."
+"Maximale Zellen in =PYTHON()-Daten oder „Python-Skript "
+"ausführen“-Daten/Datenbereich. Größere Werte verbrauchen mehr "
+"Arbeitsspeicher und Zeit; das Lesen des UNO-Bereichs ist weiterhin der "
+"dominierende Faktor."
 
 msgid "Python session mode"
 msgstr "Python-Sitzungsmodus"
@@ -2061,8 +2214,8 @@ msgid ""
 "Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace "
 "per workbook (variables carry between cells)."
 msgstr ""
-"Isoliert: Jede =PYTHON()-Zelle erhält einen neuen Namensraum. Gemeinsam: Ein "
-"Namensraum pro Arbeitsmappe (Variablen werden zwischen Zellen übertragen)."
+"Isoliert: Jede =PYTHON()-Zelle erhält einen neuen Namensraum. Gemeinsam: Ein"
+" Namensraum pro Arbeitsmappe (Variablen werden zwischen Zellen übertragen)."
 
 msgid "Isolated (default)"
 msgstr "Isoliert (Standard)"
@@ -2084,13 +2237,141 @@ msgid "Modeless Run Python Script dialog"
 msgstr "Modalloser Dialog 'Python-Skript ausführen'"
 
 msgid ""
-"When checked, the plain-text Run Python Script dialog floats so you can edit "
-"the document while it is open. Uncheck for the classic modal dialog."
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
 msgstr ""
 "Wenn diese Option aktiviert ist, schwebt der Dialog „Python-Skript "
 "ausführen“ als Nur-Text-Fenster, sodass Sie das Dokument bearbeiten können, "
 "während er geöffnet ist. Deaktivieren Sie diese Option für den klassischen "
 "modalen Dialog."
+
+msgid "Vision / OCR"
+msgstr "Vision / OCR"
+
+msgid "Device"
+msgstr "Gerät"
+
+msgid "Hardware for Docling models. auto picks GPU when available."
+msgstr ""
+"Hardware für Docling-Modelle. Wählt automatisch die GPU, falls verfügbar."
+
+msgid "Auto"
+msgstr "Automatisch"
+
+msgid "CPU"
+msgstr "CPU"
+
+msgid "CUDA (NVIDIA)"
+msgstr "CUDA (NVIDIA)"
+
+msgid "MPS (Apple Silicon)"
+msgstr "MPS (Apple Silicon)"
+
+msgid "Image scale"
+msgstr "Bildskalierung"
+
+msgid "Upscale before OCR/layout. Try 2.0 for small screenshots."
+msgstr ""
+"Vor OCR/Layout hochskalieren. Versuchen Sie 2.0 für kleine Screenshots."
+
+msgid "Worker timeout (seconds)"
+msgstr "Worker-Zeitüberschreitung (Sekunden)"
+
+msgid "Host subprocess limit for Vision Helpers (first model download)."
+msgstr ""
+"Limit für Host-Subprozesse für Vision-Helfer (erster Modell-Download)."
+
+msgid "Docling artifacts path"
+msgstr "Pfad für Docling-Artefakte"
+
+msgid "Optional folder from docling-tools models download (offline use)."
+msgstr ""
+"Optionaler Ordner für den Download von docling-tools-Modellen (Offline-"
+"Nutzung)."
+
+msgid "OCR confidence threshold"
+msgstr "OCR-Konfidenzschwellenwert"
+
+msgid "RapidOCR minimum text score. Raise to reduce garbage text."
+msgstr ""
+"Minimaler Text-Score für RapidOCR. Erhöhen, um fehlerhaften Text zu "
+"reduzieren."
+
+msgid "OCR entire image"
+msgstr "Gesamtes Bild per OCR verarbeiten"
+
+msgid "Recommended for embedded graphics exported from LibreOffice."
+msgstr ""
+"Empfohlen für eingebettete Grafiken, die aus LibreOffice exportiert wurden."
+
+msgid "OCR language"
+msgstr "OCR-Sprache"
+
+msgid "Language code for OCR backends that support it (e.g. en, de)."
+msgstr "Sprachcode für OCR-Backends, die dies unterstützen (z. B. en, de)."
+
+msgid "CPU threads"
+msgstr "CPU-Threads"
+
+msgid "Thread count for Docling model inference on CPU."
+msgstr "Anzahl der Threads für die Docling-Modellinferenz auf der CPU."
+
+msgid "Table extraction mode"
+msgstr "Tabellenextraktionsmodus"
+
+msgid "Accurate (default)"
+msgstr "Genau (Standard)"
+
+msgid "Fast"
+msgstr "Schnell"
+
+msgid "Table cell matching"
+msgstr "Tabellenzellenabgleich"
+
+msgid "Align detected table cells with content (extract_structure)."
+msgstr "Erkannte Tabellenzellen am Inhalt ausrichten (extract_structure)."
+
+msgid "Keep orphan text clusters"
+msgstr "Verwaiste Textcluster beibehalten"
+
+msgid "Group unassigned text into clusters for messy layouts."
+msgstr ""
+"Nicht zugewiesenen Text bei unsauberen Layouts in Clustern gruppieren."
+
+msgid "Layout model"
+msgstr "Layout-Modell"
+
+msgid "Heron (default)"
+msgstr "Heron (Standard)"
+
+msgid "Egret large (slower"
+msgstr "Egret large (langsamer"
+
+msgid "Extract formulas (LaTeX)"
+msgstr "Formeln extrahieren (LaTeX)"
+
+msgid "Opt-in. Downloads extra VLM models on first use; slower."
+msgstr ""
+"Opt-in. Lädt bei der ersten Verwendung zusätzliche VLM-Modelle herunter; "
+"langsamer."
+
+msgid "Code block enrichment"
+msgstr "Codeblock-Anreicherung"
+
+msgid "Specialized OCR for code/terminal screenshots."
+msgstr "Spezialisierte OCR für Code-/Terminal-Screenshots."
+
+msgid "Docling document timeout (s)"
+msgstr "Docling-Dokument-Zeitlimit (s)"
+
+msgid "Per-conversion timeout inside Docling. 0 = no limit."
+msgstr "Zeitlimit pro Konvertierung innerhalb von Docling. 0 = kein Limit."
+
+msgid "Allow external Docling plugins"
+msgstr "Externe Docling-Plugins zulassen"
+
+msgid "Required for Surya OCR (docling-surya)."
+msgstr "Erforderlich für Surya OCR (docling-surya)."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer-Dokumentenwerkzeuge (einschließlich Navigation und Suche)"

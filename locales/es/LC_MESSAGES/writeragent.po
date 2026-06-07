@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-04 23:41-0400\n"
+"POT-Creation-Date: 2026-06-07 16:27-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Spanish <LL@li.org>\n"
@@ -18,8 +18,8 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
 "Las lecturas de investigación de documentos requieren una delegación de "
 "tareas especializada (USE_SUB_AGENT). Habilítelo en la configuración."
@@ -27,8 +27,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Llamada de herramienta cambiada a '{0}'. Estás en un modo de conjunto de "
@@ -45,8 +45,8 @@ msgstr "La ejecución de cuadernos solo es compatible con LibreOffice Writer."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
 "Este documento no tiene ningún cuaderno importado. Utilice Herramientas → "
 "Importar cuaderno de Jupyter… primero."
@@ -141,8 +141,8 @@ msgid ""
 "The Horde is in maintenance mode, please try again later, if you have tried "
 "and the service does not respond for hours, please contact via Discord"
 msgstr ""
-"La Horda está en modo de mantenimiento, por favor inténtalo más tarde, si lo "
-"has intentado y el servicio no responde durante horas, por favor contacta "
+"La Horda está en modo de mantenimiento, por favor inténtalo más tarde, si lo"
+" has intentado y el servicio no responde durante horas, por favor contacta "
 "vía Discord"
 
 #: plugin/contrib/aihordeclient/__init__.py
@@ -224,7 +224,8 @@ msgstr "Este modelo tarda más tiempo que su configuración actual."
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr ""
 "Por favor, prueba otro modelo. {0} tomaría más tiempo del que configuraste."
 
@@ -312,7 +313,8 @@ msgstr ""
 "solicitud' en la Configuración."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Conexión Rechazada. ¿Está tu servidor local de IA (Ollama/LM Studio) en "
 "ejecución?"
@@ -340,12 +342,13 @@ msgid ""
 "AI: I can edit or translate your document instantly with professional "
 "formatting and color. Try me!"
 msgstr ""
-"IA: Puedo editar o traducir tu documento al instante con formato profesional "
-"y color. ¡Pruébame!"
+"IA: Puedo editar o traducir tu documento al instante con formato profesional"
+" y color. ¡Pruébame!"
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "IA: Puedo ayudarte con fórmulas, análisis de datos y gráficos coloridos. "
 "¡Pruébame!"
@@ -414,15 +417,23 @@ msgstr "WriterAgent: Editar Selección (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Ampliar Selección (Calc)"
 
+#: plugin/calc/vision_egress.py plugin/scripting/vision_runner.py
+msgid "Select an embedded image, then Run again."
+msgstr "Seleccione una imagen incrustada y vuelva a ejecutar."
+
+#: plugin/calc/vision_egress.py
+msgid "Anchor the image to a cell, select it, then Run again."
+msgstr "Ancle la imagen a una celda, selecciónela y vuelva a ejecutar."
+
 #: plugin/calc/python_editor.py
 msgid ""
 "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\"; "
-"A1:B10)."
+"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10) or =PYTHON(...)."
 msgstr ""
 "No se pudieron conservar los argumentos de la fórmula PYTHON de esta celda "
 "(p. ej., rangos de datos). Edite la fórmula en Calc o utilice una cadena de "
-"código entre comillas como =PYTHON(\"código\"; A1:B10)."
+"código entre comillas como =PY(\"código\"; A1:B10) o =PYTHON(...)."
 
 #: plugin/calc/python_editor.py
 msgid "Python cell editor"
@@ -448,12 +459,13 @@ msgstr ""
 #: plugin/calc/python_editor.py
 msgid ""
 "This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
-"in another cell). Edit it in the formula bar, or use =PYTHON(\"code\"; "
-"range) with quoted code."
+"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
+"(or =PYTHON(...)) with quoted code."
 msgstr ""
 "Esta fórmula PYTHON utiliza una forma que el editor no puede reescribir de "
-"forma segura (p. ej., código en otra celda). Edítela en la barra de fórmulas "
-"o utilice =PYTHON(\"código\"; rango) con el código entre comillas."
+"forma segura (p. ej., código en otra celda). Edítela en la barra de fórmulas"
+" o utilice =PY(\"código\"; rango) (o =PYTHON(...)) con código entre "
+"comillas."
 
 #: plugin/calc/python_editor.py
 msgid "No Python interpreter available for the editor."
@@ -896,8 +908,8 @@ msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[No se encontró un documento compatible de LibreOffice (Writer, Calc o Draw) "
-"en la ventana activa.]"
+"[No se encontró un documento compatible de LibreOffice (Writer, Calc o Draw)"
+" en la ventana activa.]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -1020,7 +1032,8 @@ msgstr "[Backend de agente '{0}' no encontrado.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Backend de agente '{0}' no está disponible. Verifica Configuración (ruta, "
 "instalación).]"
@@ -1132,6 +1145,14 @@ msgid "A script named '{0}' already exists in this document."
 msgstr "Ya existe un script llamado «{0}» en este documento."
 
 #: plugin/scripting/document_scripts.py
+msgid "Analysis Helpers"
+msgstr "Ayudantes de análisis"
+
+#: plugin/scripting/document_scripts.py
+msgid "Vision Helpers"
+msgstr "Ayudantes de visión"
+
+#: plugin/scripting/document_scripts.py
 msgid "My Scripts"
 msgstr "Mis scripts"
 
@@ -1203,6 +1224,80 @@ msgstr "El editor de Python se cerró antes de que pudiera cargar su código."
 msgid "Could not talk to the Python editor."
 msgstr "No se pudo comunicar con el editor de Python."
 
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Analysis Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Ayudantes de análisis: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Vision Libraries"
+msgstr "Bibliotecas de visión"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Docling OCR load failed: %(err)s"
+msgstr ""
+"\n"
+"Error al cargar Docling OCR: %(err)s"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Vision Helpers (OCR, Docling): %(cmd)s"
+msgstr ""
+"\n"
+"Ayudantes de visión (OCR, Docling): %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Vision Helpers (OCR, Paddle fallback): %(cmd)s"
+msgstr ""
+"\n"
+"Asistentes de visión (OCR, alternativa Paddle): %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Vision Helpers (Docling primary): %(cmd)s"
+msgstr ""
+"\n"
+"Asistentes de visión (Docling principal): %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Optional (detection helpers): pip install ultralytics"
+msgstr "Opcional (asistentes de detección): pip install ultralytics"
+
+#: plugin/scripting/venv_worker.py
+msgid ""
+"Optional (image processing in trusted helpers): pip install scikit-image"
+msgstr ""
+"Opcional (procesamiento de imágenes en asistentes de confianza): pip install"
+" scikit-image"
+
+#: plugin/scripting/vision_runner.py
+#, python-brace-format
+msgid ""
+"Image '{name}' not found. Use list_images or leave image_name empty and "
+"select the graphic."
+msgstr ""
+"Imagen '{name}' no encontrada. Use list_images o deje image_name vacío y "
+"seleccione el gráfico."
+
+#: plugin/scripting/vision_runner.py
+#, python-brace-format
+msgid "Image '{name}' could not be exported."
+msgstr "No se pudo exportar la imagen '{name}'."
+
 #: plugin/scripting/session_manager.py
 msgid ""
 "Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
@@ -1269,8 +1364,8 @@ msgid ""
 "This Writer document has no imported notebook registry. Use Tools → Import "
 "Jupyter Notebook… to enable notebook Python session reset."
 msgstr ""
-"Este documento de Writer no tiene un registro de cuaderno importado. Utilice "
-"Herramientas → Importar cuaderno de Jupyter… para habilitar el "
+"Este documento de Writer no tiene un registro de cuaderno importado. Utilice"
+" Herramientas → Importar cuaderno de Jupyter… para habilitar el "
 "restablecimiento de la sesión de Python del cuaderno."
 
 #: plugin/scripting/python_runner.py
@@ -1306,8 +1401,7 @@ msgid ""
 "Enter Python code to execute in the user virtual environment.\n"
 "Assign the result to the 'result' variable."
 msgstr ""
-"Introduzca el código de Python para ejecutar en el entorno virtual del "
-"usuario.\n"
+"Introduzca el código de Python para ejecutar en el entorno virtual del usuario.\n"
 "Asigne el resultado a la variable «result»."
 
 #: plugin/scripting/python_runner.py
@@ -1403,14 +1497,69 @@ msgstr ""
 "contribuciones son bienvenidas!"
 
 #: plugin/scripting/python_runner.py
+msgid "Vision helpers require a Writer or Calc document."
+msgstr "Los asistentes de visión requieren un documento de Writer o Calc."
+
+#: plugin/scripting/python_runner.py
+msgid "Vision helper failed."
+msgstr "El asistente de visión falló."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Vision '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"Visión '{helper}' completada. Se escribieron {rows} filas. (duración: "
+"{time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Failed to insert result: {error} (took {time})"
+msgstr "Error al insertar el resultado: {error} (tardó {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Found {blocks} blocks and {tables} tables. "
+"(took {time})"
+msgstr ""
+"Visión '{helper}' completada. Se encontraron {blocks} bloques y {tables} "
+"tablas. (duración: {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Vision '{helper}' completed. Extracted {lines} lines. (took {time})"
+msgstr ""
+"Visión '{helper}' completada. Se extrajeron {lines} líneas. (duración: "
+"{time})"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Analysis helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"El asistente de análisis requiere un rango de datos. Seleccione celdas o "
+"introduzca un rango en el campo Datos."
+
+#: plugin/scripting/python_runner.py
+msgid "Analysis failed."
+msgstr "El análisis falló."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Analysis '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"Análisis '{helper}' completado. Se escribieron {rows} filas. (duración: "
+"{time})"
+
+#: plugin/scripting/python_runner.py
 msgid "Unknown error"
 msgstr "Error desconocido"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "El script se ejecutó correctamente, pero no devolvió ningún resultado ni "
 "produjo ninguna salida. (tardó {time})"
@@ -1419,12 +1568,8 @@ msgstr ""
 #, python-brace-format
 msgid "Unsupported document type for result insertion. (took {time})"
 msgstr ""
-"Tipo de documento no admitido para la inserción de resultados. (tardó {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Failed to insert result: {error} (took {time})"
-msgstr "Error al insertar el resultado: {error} (tardó {time})"
+"Tipo de documento no admitido para la inserción de resultados. (tardó "
+"{time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -1457,6 +1602,12 @@ msgstr "Salida"
 #: plugin/scripting/python_runner.py
 msgid "Script saved."
 msgstr "Script guardado."
+
+#: plugin/scripting/python_runner.py
+msgid "Select data range or enter A1 address (injected as data)."
+msgstr ""
+"Seleccione el rango de datos o introduzca una dirección A1 (inyectada como "
+"datos)."
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -1756,8 +1907,8 @@ msgstr "Writer"
 msgid "WriterAgent Evaluation Dashboard"
 msgstr "Panel de Evaluación WriterAgent"
 
-msgid "Agent backends"
-msgstr "Backends de agente"
+msgid "ACP"
+msgstr "ACP"
 
 msgid "Backend"
 msgstr "Backend"
@@ -1774,15 +1925,18 @@ msgstr "Claude Code (ACP)"
 msgid "Mistral Vibe (ACP)"
 msgstr "Mistral Vibe (ACP)"
 
+msgid "Grok Build (ACP)"
+msgstr "Grok Build (ACP)"
+
 msgid "Path / URL"
 msgstr "Ruta / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Ruta al CLI del backend (ej. aider) o URL del servidor ACP (ej. http://"
-"localhost:8000 para Hermes). Vacío = intentar por defecto."
+"Ruta al CLI del backend (ej. aider) o URL del servidor ACP (ej. "
+"http://localhost:8000 para Hermes). Vacío = intentar por defecto."
 
 msgid "Extra arguments"
 msgstr "Argumentos adicionales"
@@ -1798,8 +1952,8 @@ msgid ""
 "Agent name on the ACP server (e.g. hermes). Empty = auto-discover first "
 "agent."
 msgstr ""
-"Nombre del agente en el servidor ACP (ej. hermes). Vacío = auto-descubrir el "
-"primer agente."
+"Nombre del agente en el servidor ACP (ej. hermes). Vacío = auto-descubrir el"
+" primer agente."
 
 msgid "Calc spreadsheet tools"
 msgstr "Herramientas de hoja de cálculo de Calc"
@@ -1873,8 +2027,8 @@ msgid ""
 "Cache completed web research reports by normalized query (reuses web search "
 "cache database)."
 msgstr ""
-"Almacena en caché los informes de investigación web por consulta normalizada "
-"(reutiliza la base de datos de caché de búsqueda web)."
+"Almacena en caché los informes de investigación web por consulta normalizada"
+" (reutiliza la base de datos de caché de búsqueda web)."
 
 msgid "Rich Text Control Sidebar"
 msgstr "Barra lateral de control de texto enriquecido"
@@ -1895,13 +2049,13 @@ msgstr "Habilitar corrector gramatical de IA (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
-"Cuando está activado, WriterAgent registra su corrector gramatical de IA con "
-"Linguistic; el texto comprobado usa tu API (Herramientas → Opciones → IA). "
-"Los subrayados aparecen poco después de pausar la escritura. Desactivado por "
-"defecto."
+"Cuando está activado, WriterAgent registra su corrector gramatical de IA con"
+" Linguistic; el texto comprobado usa tu API (Herramientas → Opciones → IA). "
+"Los subrayados aparecen poco después de pausar la escritura. Desactivado por"
+" defecto."
 
 msgid "Grammar check model (optional)"
 msgstr "Modelo de comprobación gramatical (opcional)"
@@ -1916,8 +2070,8 @@ msgid ""
 "When on, AI grammar skips background requests while sidebar chat or agent "
 "runs, to avoid concurrent API calls."
 msgstr ""
-"Cuando está activado, el corrector gramatical de IA omite las solicitudes en "
-"segundo plano mientras el chat de la barra lateral o el agente están en "
+"Cuando está activado, el corrector gramatical de IA omite las solicitudes en"
+" segundo plano mientras el chat de la barra lateral o el agente están en "
 "ejecución, para evitar llamadas a la API simultáneas."
 
 msgid "Grammar batch sentences"
@@ -1940,10 +2094,10 @@ msgid ""
 "behavior. Raise for OpenRouter or other providers that allow parallel "
 "requests; use with care alongside sidebar chat."
 msgstr ""
-"Máximo de llamadas simultáneas a la API de gramática en segundo plano (1-8). "
-"1 coincide con el comportamiento anterior. Auméntelo para OpenRouter u otros "
-"proveedores que permitan solicitudes paralelas; úselo con precaución junto "
-"con el chat de la barra lateral."
+"Máximo de llamadas simultáneas a la API de gramática en segundo plano (1-8)."
+" 1 coincide con el comportamiento anterior. Auméntelo para OpenRouter u "
+"otros proveedores que permitan solicitudes paralelas; úselo con precaución "
+"junto con el chat de la barra lateral."
 
 msgid "Detect and correct sentence language"
 msgstr "Detectar y corregir el idioma de la oración"
@@ -1981,11 +2135,11 @@ msgid "Enable MCP Server"
 msgstr "Habilitar servidor MCP"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Solo localhost, sin autenticación. Los clientes usan http://localhost:<port>/"
-"mcp (HTTP transmitible)."
+"Solo localhost, sin autenticación. Los clientes usan "
+"http://localhost:<port>/mcp (HTTP transmitible)."
 
 msgid "MCP Port"
 msgstr "Puerto MCP"
@@ -2011,11 +2165,13 @@ msgstr "Ruta del venv de Python"
 msgid ""
 "If set, runs tools in that venv (bin/python or Scripts/python.exe). If "
 "empty, run_venv_python_script uses this process's sys.executable (basic "
-"stdlib); use a venv for numpy/pandas."
+"stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
+"paddlepaddle)."
 msgstr ""
-"Si se establece, ejecuta las herramientas en ese venv (bin/python o Scripts/"
-"python.exe). Si está vacío, run_venv_python_script utiliza el sys.executable "
-"de este proceso (stdlib básica); utilice un venv para numpy/pandas."
+"Si se establece, ejecuta las herramientas en ese venv (bin/python o "
+"Scripts/python.exe). Si está vacío, run_venv_python_script utiliza el "
+"sys.executable de este proceso (stdlib básica); utilice un venv para "
+"numpy/pandas y asistentes de visión (paddleocr, paddlepaddle)."
 
 msgid "Test"
 msgstr "Prueba"
@@ -2034,8 +2190,8 @@ msgid "Max Calc data cells"
 msgstr "Máximo de celdas de datos de Calc"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
 "Máximo de celdas en datos de =PYTHON() o datos/rango_de_datos de Ejecutar "
 "script de Python. Los valores más grandes consumen más RAM y tiempo; la "
@@ -2072,12 +2228,141 @@ msgid "Modeless Run Python Script dialog"
 msgstr "Cuadro de diálogo no modal para ejecutar scripts de Python"
 
 msgid ""
-"When checked, the plain-text Run Python Script dialog floats so you can edit "
-"the document while it is open. Uncheck for the classic modal dialog."
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
 msgstr ""
 "Si se marca, el diálogo de ejecución de scripts de Python de texto sin "
 "formato flotará para que pueda editar el documento mientras está abierto. "
 "Desmárquelo para volver al diálogo modal clásico."
+
+msgid "Vision / OCR"
+msgstr "Visión / OCR"
+
+msgid "Device"
+msgstr "Dispositivo"
+
+msgid "Hardware for Docling models. auto picks GPU when available."
+msgstr ""
+"Hardware para modelos Docling. Selecciona automáticamente la GPU cuando está"
+" disponible."
+
+msgid "Auto"
+msgstr "Automático"
+
+msgid "CPU"
+msgstr "CPU"
+
+msgid "CUDA (NVIDIA)"
+msgstr "CUDA (NVIDIA)"
+
+msgid "MPS (Apple Silicon)"
+msgstr "MPS (Apple Silicon)"
+
+msgid "Image scale"
+msgstr "Escala de imagen"
+
+msgid "Upscale before OCR/layout. Try 2.0 for small screenshots."
+msgstr ""
+"Aumentar escala antes de OCR/diseño. Pruebe 2.0 para capturas de pantalla "
+"pequeñas."
+
+msgid "Worker timeout (seconds)"
+msgstr "Tiempo de espera del proceso (segundos)"
+
+msgid "Host subprocess limit for Vision Helpers (first model download)."
+msgstr ""
+"Límite de subprocesos anfitriones para asistentes de visión (primera "
+"descarga del modelo)."
+
+msgid "Docling artifacts path"
+msgstr "Ruta de artefactos de Docling"
+
+msgid "Optional folder from docling-tools models download (offline use)."
+msgstr ""
+"Carpeta opcional para la descarga de modelos de docling-tools (uso sin "
+"conexión)."
+
+msgid "OCR confidence threshold"
+msgstr "Umbral de confianza de OCR"
+
+msgid "RapidOCR minimum text score. Raise to reduce garbage text."
+msgstr ""
+"Puntuación mínima de texto para RapidOCR. Auméntelo para reducir el texto "
+"basura."
+
+msgid "OCR entire image"
+msgstr "OCR de toda la imagen"
+
+msgid "Recommended for embedded graphics exported from LibreOffice."
+msgstr "Recomendado para gráficos incrustados exportados desde LibreOffice."
+
+msgid "OCR language"
+msgstr "Idioma de OCR"
+
+msgid "Language code for OCR backends that support it (e.g. en, de)."
+msgstr ""
+"Código de idioma para los motores de OCR que lo admitan (p. ej., en, de)."
+
+msgid "CPU threads"
+msgstr "Hilos de CPU"
+
+msgid "Thread count for Docling model inference on CPU."
+msgstr "Número de hilos para la inferencia del modelo Docling en la CPU."
+
+msgid "Table extraction mode"
+msgstr "Modo de extracción de tablas"
+
+msgid "Accurate (default)"
+msgstr "Preciso (predeterminado)"
+
+msgid "Fast"
+msgstr "Rápido"
+
+msgid "Table cell matching"
+msgstr "Coincidencia de celdas de tabla"
+
+msgid "Align detected table cells with content (extract_structure)."
+msgstr ""
+"Alinear celdas de tabla detectadas con el contenido (extract_structure)."
+
+msgid "Keep orphan text clusters"
+msgstr "Mantener grupos de texto huérfanos"
+
+msgid "Group unassigned text into clusters for messy layouts."
+msgstr "Agrupar texto no asignado en grupos para diseños desordenados."
+
+msgid "Layout model"
+msgstr "Modelo de diseño"
+
+msgid "Heron (default)"
+msgstr "Heron (predeterminado)"
+
+msgid "Egret large (slower"
+msgstr "Egret large (más lento"
+
+msgid "Extract formulas (LaTeX)"
+msgstr "Extraer fórmulas (LaTeX)"
+
+msgid "Opt-in. Downloads extra VLM models on first use; slower."
+msgstr "Opt-in. Descarga modelos VLM adicionales en el primer uso; más lento."
+
+msgid "Code block enrichment"
+msgstr "Enriquecimiento de bloques de código"
+
+msgid "Specialized OCR for code/terminal screenshots."
+msgstr "OCR especializado para capturas de pantalla de código/terminal."
+
+msgid "Docling document timeout (s)"
+msgstr "Tiempo de espera del documento Docling (s)"
+
+msgid "Per-conversion timeout inside Docling. 0 = no limit."
+msgstr "Tiempo de espera por conversión dentro de Docling. 0 = sin límite."
+
+msgid "Allow external Docling plugins"
+msgstr "Permitir complementos externos de Docling"
+
+msgid "Required for Surya OCR (docling-surya)."
+msgstr "Requerido para Surya OCR (docling-surya)."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Herramientas de documento de Writer (incluye navegación y búsqueda)"

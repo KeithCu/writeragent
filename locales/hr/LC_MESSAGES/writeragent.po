@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-04 23:41-0400\n"
+"POT-Creation-Date: 2026-06-07 16:27-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Croatian <LL@li.org>\n"
@@ -19,8 +19,8 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
 "Čitanje istraživanja dokumenata zahtijeva delegiranje specijaliziranih "
 "zadataka (USE_SUB_AGENT). Omogućite ovo u konfiguraciji."
@@ -28,8 +28,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Poziv alata prebačen na '{0}'. Nalazite se u načinu rada specijaliziranog "
@@ -46,8 +46,8 @@ msgstr "Pokretanje bilježnice podržano je samo u LibreOffice Writeru."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
 "Ovaj dokument nema uvezenu bilježnicu. Prvo upotrijebite Alati → Uvezi "
 "Jupyter bilježnicu…"
@@ -129,8 +129,8 @@ msgid ""
 "At this moment we can not process your request, please try again later.  If "
 "this is happening for a long period of time, please let us know via Discord"
 msgstr ""
-"Trenutačno ne možemo obraditi vaš zahtjev, pokušajte ponovno kasnije. Ako se "
-"ovo događa dulje vrijeme, javite nam se putem Discorda"
+"Trenutačno ne možemo obraditi vaš zahtjev, pokušajte ponovno kasnije. Ako se"
+" ovo događa dulje vrijeme, javite nam se putem Discorda"
 
 #: plugin/contrib/aihordeclient/__init__.py
 msgid "Problem requesting kudos"
@@ -158,8 +158,8 @@ msgid ""
 "Seems that «{}» has problems, double check it, create a new one or join "
 "Discord to ask for help"
 msgstr ""
-"Čini se da «{}» ima problema, provjerite ga, stvorite novi ili se pridružite "
-"Discordu kako biste zatražili pomoć"
+"Čini se da «{}» ima problema, provjerite ga, stvorite novi ili se pridružite"
+" Discordu kako biste zatražili pomoć"
 
 #: plugin/contrib/aihordeclient/__init__.py
 msgid "We hit an error, still: "
@@ -222,7 +222,8 @@ msgstr "Ovaj model zahtijeva više vremena od vaše trenutne konfiguracije."
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr ""
 "Pokušajte s drugim modelom. {0} bi zahtijevao više vremena nego što ste "
 "konfigurirali."
@@ -313,7 +314,8 @@ msgstr ""
 "postavkama."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr "Veza odbijena. Radi li vaš lokalni AI poslužitelj (Ollama/LM Studio)?"
 
 #: plugin/framework/errors.py
@@ -344,7 +346,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "AI: Mogu vam pomoći s formulama, analizom podataka i šarenim grafikonima. "
 "Isprobajte me!"
@@ -413,15 +416,23 @@ msgstr "WriterAgent: Uredi odabir (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Proširi odabir (Calc)"
 
+#: plugin/calc/vision_egress.py plugin/scripting/vision_runner.py
+msgid "Select an embedded image, then Run again."
+msgstr "Odaberite ugrađenu sliku, a zatim ponovno pokrenite."
+
+#: plugin/calc/vision_egress.py
+msgid "Anchor the image to a cell, select it, then Run again."
+msgstr "Sidrite sliku na ćeliju, odaberite je, a zatim ponovno pokrenite."
+
 #: plugin/calc/python_editor.py
 msgid ""
 "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\"; "
-"A1:B10)."
+"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10) or =PYTHON(...)."
 msgstr ""
 "Nije bilo moguće sačuvati argumente PYTHON formule ove ćelije (npr. rasponi "
-"podataka). Uredite formulu u programu Calc ili koristite citirani niz koda "
-"kao što je =PYTHON(\"kod\"; A1:B10)."
+"podataka). Uredite formulu u Calc-u ili koristite citirani niz koda kao što "
+"je =PY(\"code\"; A1:B10) ili =PYTHON(...)."
 
 #: plugin/calc/python_editor.py
 msgid "Python cell editor"
@@ -446,12 +457,12 @@ msgstr "Odaberite ćeliju u Calc proračunskoj tablici za uređivanje Pythona."
 #: plugin/calc/python_editor.py
 msgid ""
 "This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
-"in another cell). Edit it in the formula bar, or use =PYTHON(\"code\"; "
-"range) with quoted code."
+"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
+"(or =PYTHON(...)) with quoted code."
 msgstr ""
 "Ova PYTHON formula koristi oblik koji uređivač ne može sigurno prepisati "
 "(npr. kod u drugoj ćeliji). Uredite je u traci formule ili koristite "
-"=PYTHON(\"kod\"; raspon) s citiranim kodom."
+"=PY(\"code\"; range) (ili =PYTHON(...)) s citiranim kodom."
 
 #: plugin/calc/python_editor.py
 msgid "No Python interpreter available for the editor."
@@ -912,8 +923,8 @@ msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
 "this!]"
 msgstr ""
-"[Interna pogreška: Nije moguće identificirati vrstu dokumenta za {0}. Molimo "
-"prijavite ovo!]"
+"[Interna pogreška: Nije moguće identificirati vrstu dokumenta za {0}. Molimo"
+" prijavite ovo!]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -989,8 +1000,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Nije pronađen uređivač (instalirajte Kate ili Gedit ili postavite EDITOR). "
-"Putanja:\n"
+"Nije pronađen uređivač (instalirajte Kate ili Gedit ili postavite EDITOR). Putanja:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -1019,7 +1029,8 @@ msgstr "[Pozadinski agent '{0}' nije pronađen.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Pozadinski agent '{0}' nije dostupan. Provjerite postavke (putanja, "
 "instalacija).]"
@@ -1128,6 +1139,14 @@ msgid "A script named '{0}' already exists in this document."
 msgstr "Skripta pod nazivom '{0}' već postoji u ovom dokumentu."
 
 #: plugin/scripting/document_scripts.py
+msgid "Analysis Helpers"
+msgstr "Pomoćnici za analizu"
+
+#: plugin/scripting/document_scripts.py
+msgid "Vision Helpers"
+msgstr "Pomoćnici za vid"
+
+#: plugin/scripting/document_scripts.py
 msgid "My Scripts"
 msgstr "Moje skripte"
 
@@ -1199,6 +1218,79 @@ msgstr "Python uređivač se zatvorio prije nego što je mogao učitati vaš kod
 msgid "Could not talk to the Python editor."
 msgstr "Nije bilo moguće komunicirati s Python uređivačem."
 
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Analysis Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Pomoćnici za analizu: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Vision Libraries"
+msgstr "Biblioteke za vid"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Docling OCR load failed: %(err)s"
+msgstr ""
+"\n"
+"Učitavanje Docling OCR-a nije uspjelo: %(err)s"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Vision Helpers (OCR, Docling): %(cmd)s"
+msgstr ""
+"\n"
+"Pomoćnici za vid (OCR, Docling): %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Vision Helpers (OCR, Paddle fallback): %(cmd)s"
+msgstr ""
+"\n"
+"Pomoćnici za vid (OCR, pričuvni sustav Paddle): %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Vision Helpers (Docling primary): %(cmd)s"
+msgstr ""
+"\n"
+"Pomoćnici za vid (primarni Docling): %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Optional (detection helpers): pip install ultralytics"
+msgstr "Neobavezno (pomoćnici za otkrivanje): pip install ultralytics"
+
+#: plugin/scripting/venv_worker.py
+msgid ""
+"Optional (image processing in trusted helpers): pip install scikit-image"
+msgstr ""
+"Neobavezno (obrada slika u pouzdanim pomoćnicima): pip install scikit-image"
+
+#: plugin/scripting/vision_runner.py
+#, python-brace-format
+msgid ""
+"Image '{name}' not found. Use list_images or leave image_name empty and "
+"select the graphic."
+msgstr ""
+"Slika '{name}' nije pronađena. Koristite list_images ili ostavite image_name"
+" praznim i odaberite grafiku."
+
+#: plugin/scripting/vision_runner.py
+#, python-brace-format
+msgid "Image '{name}' could not be exported."
+msgstr "Slika '{name}' nije se mogla izvesti."
+
 #: plugin/scripting/session_manager.py
 msgid ""
 "Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
@@ -1246,8 +1338,8 @@ msgid ""
 "workbook. Cell variables were already isolated per cell."
 msgstr ""
 "Inicijalizacijska skripta i bilo koje stanje inicijalizacije u memoriji "
-"resetirani su za ovu radnu knjigu. Varijable ćelija već su bile izolirane po "
-"ćeliji."
+"resetirani su za ovu radnu knjigu. Varijable ćelija već su bile izolirane po"
+" ćeliji."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1397,14 +1489,65 @@ msgstr ""
 "Umetanje rezultata u Draw/Impress još nije podržano. PR-ovi su dobrodošli!"
 
 #: plugin/scripting/python_runner.py
+msgid "Vision helpers require a Writer or Calc document."
+msgstr "Pomoćnici za vid zahtijevaju dokument u Writeru ili Calcu."
+
+#: plugin/scripting/python_runner.py
+msgid "Vision helper failed."
+msgstr "Pomoćnik za vid nije uspio."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Vision '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"Pomoćnik za vid '{helper}' dovršen. Zapisano {rows} redaka. (trajalo {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Failed to insert result: {error} (took {time})"
+msgstr "Neuspjelo umetanje rezultata: {error} (trajalo {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Found {blocks} blocks and {tables} tables. "
+"(took {time})"
+msgstr ""
+"Pomoćnik za vid '{helper}' dovršen. Pronađeno {blocks} blokova i {tables} "
+"tablica. (trajalo {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Vision '{helper}' completed. Extracted {lines} lines. (took {time})"
+msgstr ""
+"Vizija '{helper}' dovršena. Izdvojeno {lines} redaka. (trajalo {time})"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Analysis helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"Pomoćnik za analizu zahtijeva raspon podataka. Odaberite ćelije ili unesite "
+"raspon u polje Podaci."
+
+#: plugin/scripting/python_runner.py
+msgid "Analysis failed."
+msgstr "Analiza nije uspjela."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Analysis '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr "Analiza '{helper}' dovršena. Zapisano {rows} redaka. (trajalo {time})"
+
+#: plugin/scripting/python_runner.py
 msgid "Unknown error"
 msgstr "Nepoznata pogreška"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "Skripta je uspješno izvršena, ali nije vratila rezultat niti proizvela "
 "izlaz. (trajalo {time})"
@@ -1413,11 +1556,6 @@ msgstr ""
 #, python-brace-format
 msgid "Unsupported document type for result insertion. (took {time})"
 msgstr "Nepodržana vrsta dokumenta za umetanje rezultata. (trajalo {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Failed to insert result: {error} (took {time})"
-msgstr "Neuspjelo umetanje rezultata: {error} (trajalo {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -1436,7 +1574,8 @@ msgstr "Skripta uspješno izvršena."
 msgid ""
 "Script executed successfully, but returned no result and produced no output."
 msgstr ""
-"Skripta je uspješno izvršena, ali nije vratila rezultat niti proizvela izlaz."
+"Skripta je uspješno izvršena, ali nije vratila rezultat niti proizvela "
+"izlaz."
 
 #: plugin/scripting/python_runner.py
 msgid "Success"
@@ -1449,6 +1588,11 @@ msgstr "Izlaz"
 #: plugin/scripting/python_runner.py
 msgid "Script saved."
 msgstr "Skripta spremljena."
+
+#: plugin/scripting/python_runner.py
+msgid "Select data range or enter A1 address (injected as data)."
+msgstr ""
+"Odaberite raspon podataka ili unesite A1 adresu (umetnuto kao podaci)."
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -1748,8 +1892,8 @@ msgstr "Writer"
 msgid "WriterAgent Evaluation Dashboard"
 msgstr "Nadzorna ploča za procjenu WriterAgenta"
 
-msgid "Agent backends"
-msgstr "Pozadinski sustavi agenta"
+msgid "ACP"
+msgstr "ACP"
 
 msgid "Backend"
 msgstr "Pozadinski sustav"
@@ -1766,15 +1910,18 @@ msgstr "Claude Code (ACP)"
 msgid "Mistral Vibe (ACP)"
 msgstr "Mistral Vibe (ACP)"
 
+msgid "Grok Build (ACP)"
+msgstr "Grok izgradnja (ACP)"
+
 msgid "Path / URL"
 msgstr "Putanja / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Putanja do backend CLI-ja (npr. aider) ili URL ACP poslužitelja (npr. http://"
-"localhost:8000 za Hermes). Prazno = pokušaj zadano."
+"Putanja do backend CLI-ja (npr. aider) ili URL ACP poslužitelja (npr. "
+"http://localhost:8000 za Hermes). Prazno = pokušaj zadano."
 
 msgid "Extra arguments"
 msgstr "Dodatni argumenti"
@@ -1887,8 +2034,8 @@ msgstr "Omogući AI provjeru gramatike (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "Kada je uključeno, WriterAgent registrira svoj AI provjerivač gramatike u "
 "Linguistic; provjereni tekst koristi vaš API (Alati → Opcije → AI). "
@@ -1908,8 +2055,8 @@ msgid ""
 "When on, AI grammar skips background requests while sidebar chat or agent "
 "runs, to avoid concurrent API calls."
 msgstr ""
-"Kada je uključeno, AI gramatika preskače pozadinske zahtjeve dok bočna traka "
-"chata ili agent radi, kako bi se izbjegli istovremeni API pozivi."
+"Kada je uključeno, AI gramatika preskače pozadinske zahtjeve dok bočna traka"
+" chata ili agent radi, kako bi se izbjegli istovremeni API pozivi."
 
 msgid "Grammar batch sentences"
 msgstr "Skupna obrada rečenica"
@@ -1920,8 +2067,8 @@ msgid ""
 "cause model errors."
 msgstr ""
 "Broj rečenica za slanje po LLM zahtjevu (1-8). 1 (zadano) je najpouzdanije; "
-"veće vrijednosti su brže i jeftinije, ali mogu doseći ograničenja tokena ili "
-"uzrokovati pogreške modela."
+"veće vrijednosti su brže i jeftinije, ali mogu doseći ograničenja tokena ili"
+" uzrokovati pogreške modela."
 
 msgid "Grammar concurrent requests"
 msgstr "Istodobni zahtjevi za gramatiku"
@@ -1972,11 +2119,11 @@ msgid "Enable MCP Server"
 msgstr "Omogući MCP poslužitelj"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Samo localhost, bez provjere autentičnosti. Klijenti koriste http://"
-"localhost:<port>/mcp (streamable HTTP)."
+"Samo localhost, bez provjere autentičnosti. Klijenti koriste "
+"http://localhost:<port>/mcp (streamable HTTP)."
 
 msgid "MCP Port"
 msgstr "MCP priključak"
@@ -1989,8 +2136,8 @@ msgid ""
 "the browser Origin. For other hosts, add mcp.cors_allowed_origins in "
 "writeragent.json."
 msgstr ""
-"Automatski za .local, .lan, .home.arpa, .internal, .intern i LAN IP adrese u "
-"izvorištu (Origin) preglednika. Za ostale glavne sustave dodajte "
+"Automatski za .local, .lan, .home.arpa, .internal, .intern i LAN IP adrese u"
+" izvorištu (Origin) preglednika. Za ostale glavne sustave dodajte "
 "mcp.cors_allowed_origins u writeragent.json."
 
 msgid "Python"
@@ -2002,11 +2149,13 @@ msgstr "Putanja do Python venv-a"
 msgid ""
 "If set, runs tools in that venv (bin/python or Scripts/python.exe). If "
 "empty, run_venv_python_script uses this process's sys.executable (basic "
-"stdlib); use a venv for numpy/pandas."
+"stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
+"paddlepaddle)."
 msgstr ""
-"Ako je postavljeno, pokreće alate u tom venv-u (bin/python ili Scripts/"
-"python.exe). Ako je prazno, run_venv_python_script koristi sys.executable "
-"ovog procesa (osnovni stdlib); koristite venv za numpy/pandas."
+"Ako je postavljeno, pokreće alate u tom venv-u (bin/python ili "
+"Scripts/python.exe). Ako je prazno, run_venv_python_script koristi "
+"sys.executable ovog procesa (osnovni stdlib); koristite venv za numpy/pandas"
+" i pomoćnike za viziju (paddleocr, paddlepaddle)."
 
 msgid "Test"
 msgstr "Test"
@@ -2025,8 +2174,8 @@ msgid "Max Calc data cells"
 msgstr "Maks. broj ćelija podataka u Calc-u"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
 "Maksimalan broj ćelija u =PYTHON() podacima ili podacima/data_range-u "
 "funkcije Run Python Script. Veće vrijednosti troše više RAM-a i vremena; "
@@ -2062,12 +2211,136 @@ msgid "Modeless Run Python Script dialog"
 msgstr "Nemodalni dijaloški okvir za pokretanje Python skripte"
 
 msgid ""
-"When checked, the plain-text Run Python Script dialog floats so you can edit "
-"the document while it is open. Uncheck for the classic modal dialog."
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
 msgstr ""
 "Kada je označeno, dijaloški okvir za pokretanje Python skripte (Run Python "
-"Script) lebdi tako da možete uređivati dokument dok je otvoren. Odznačite za "
-"klasični modalni dijaloški okvir."
+"Script) lebdi tako da možete uređivati dokument dok je otvoren. Odznačite za"
+" klasični modalni dijaloški okvir."
+
+msgid "Vision / OCR"
+msgstr "Vizija / OCR"
+
+msgid "Device"
+msgstr "Uređaj"
+
+msgid "Hardware for Docling models. auto picks GPU when available."
+msgstr "Hardver za Docling modele. Automatski odabire GPU ako je dostupan."
+
+msgid "Auto"
+msgstr "Automatski"
+
+msgid "CPU"
+msgstr "CPU"
+
+msgid "CUDA (NVIDIA)"
+msgstr "CUDA (NVIDIA)"
+
+msgid "MPS (Apple Silicon)"
+msgstr "MPS (Apple Silicon)"
+
+msgid "Image scale"
+msgstr "Skaliranje slike"
+
+msgid "Upscale before OCR/layout. Try 2.0 for small screenshots."
+msgstr "Povećaj prije OCR-a/prijeloma. Isprobajte 2.0 za male snimke zaslona."
+
+msgid "Worker timeout (seconds)"
+msgstr "Vremensko ograničenje radnika (sekunde)"
+
+msgid "Host subprocess limit for Vision Helpers (first model download)."
+msgstr ""
+"Ograničenje podprocesa domaćina za Vision pomoćnike (prvo preuzimanje "
+"modela)."
+
+msgid "Docling artifacts path"
+msgstr "Putanja do Docling artefakata"
+
+msgid "Optional folder from docling-tools models download (offline use)."
+msgstr ""
+"Neobavezna mapa za preuzimanje docling-tools modela (izvanmrežna uporaba)."
+
+msgid "OCR confidence threshold"
+msgstr "Prag pouzdanosti OCR-a"
+
+msgid "RapidOCR minimum text score. Raise to reduce garbage text."
+msgstr ""
+"Minimalni rezultat teksta za RapidOCR. Povećajte za smanjenje neželjenog "
+"teksta."
+
+msgid "OCR entire image"
+msgstr "OCR cijele slike"
+
+msgid "Recommended for embedded graphics exported from LibreOffice."
+msgstr "Preporučeno za ugrađenu grafiku izvezenu iz LibreOfficea."
+
+msgid "OCR language"
+msgstr "OCR jezik"
+
+msgid "Language code for OCR backends that support it (e.g. en, de)."
+msgstr ""
+"Jezični kod za OCR pozadinske programe koji ga podržavaju (npr. en, de)."
+
+msgid "CPU threads"
+msgstr "CPU dretve"
+
+msgid "Thread count for Docling model inference on CPU."
+msgstr "Broj dretvi za Docling model zaključivanja na CPU-u."
+
+msgid "Table extraction mode"
+msgstr "Način izdvajanja tablica"
+
+msgid "Accurate (default)"
+msgstr "Točno (zadano)"
+
+msgid "Fast"
+msgstr "Brzo"
+
+msgid "Table cell matching"
+msgstr "Podudaranje ćelija tablice"
+
+msgid "Align detected table cells with content (extract_structure)."
+msgstr "Poravnaj otkrivene ćelije tablice sa sadržajem (extract_structure)."
+
+msgid "Keep orphan text clusters"
+msgstr "Zadrži siročad tekstualnih klastera"
+
+msgid "Group unassigned text into clusters for messy layouts."
+msgstr "Grupiraj nedodijeljeni tekst u klastere za neuredne rasporede."
+
+msgid "Layout model"
+msgstr "Model rasporeda"
+
+msgid "Heron (default)"
+msgstr "Heron (zadano)"
+
+msgid "Egret large (slower"
+msgstr "Egret large (sporije"
+
+msgid "Extract formulas (LaTeX)"
+msgstr "Izvuci formule (LaTeX)"
+
+msgid "Opt-in. Downloads extra VLM models on first use; slower."
+msgstr "Uključivanje. Preuzima dodatne VLM modele pri prvoj uporabi; sporije."
+
+msgid "Code block enrichment"
+msgstr "Obogaćivanje bloka koda"
+
+msgid "Specialized OCR for code/terminal screenshots."
+msgstr "Specijalizirani OCR za snimke zaslona koda/terminala."
+
+msgid "Docling document timeout (s)"
+msgstr "Vremensko ograničenje Docling dokumenta (s)"
+
+msgid "Per-conversion timeout inside Docling. 0 = no limit."
+msgstr ""
+"Vremensko ograničenje po pretvorbi unutar Doclinga. 0 = bez ograničenja."
+
+msgid "Allow external Docling plugins"
+msgstr "Dopusti vanjske Docling dodatke"
+
+msgid "Required for Surya OCR (docling-surya)."
+msgstr "Potrebno za Surya OCR (docling-surya)."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Alati za Writer dokumente (uključujući navigaciju i pretraživanje)"

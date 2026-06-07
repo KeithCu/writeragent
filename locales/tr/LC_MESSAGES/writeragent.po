@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-04 23:41-0400\n"
+"POT-Creation-Date: 2026-06-07 16:27-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Turkish <LL@li.org>\n"
@@ -19,8 +19,8 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
 "Belge araştırması okumaları özel görev delegasyonu (USE_SUB_AGENT) "
 "gerektirir. Bunu yapılandırmadan etkinleştirin."
@@ -28,12 +28,12 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
-"Araç çağrısı '{0}' olarak değiştirildi. Özel bir araç seti modundasınız. Tam "
-"API setini geri yüklemek için işiniz bittiğinde "
+"Araç çağrısı '{0}' olarak değiştirildi. Özel bir araç seti modundasınız. Tam"
+" API setini geri yüklemek için işiniz bittiğinde "
 "'specialized_workflow_finished' komutunu çağırmalısınız."
 
 #: plugin/notebook/notebook_runner.py
@@ -46,8 +46,8 @@ msgstr "Not defteri çalıştırma yalnızca LibreOffice Writer'da desteklenir."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
 "Bu belgede içe aktarılmış bir not defteri yok. Önce Araçlar → Jupyter Not "
 "Defterini İçe Aktar… seçeneğini kullanın."
@@ -132,8 +132,9 @@ msgid ""
 "At this moment we can not process your request, please try again later.  If "
 "this is happening for a long period of time, please let us know via Discord"
 msgstr ""
-"Şu anda isteğinizi işleme alamıyoruz, lütfen daha sonra tekrar deneyin. Eğer "
-"bu durum uzun süredir devam ediyorsa, lütfen Discord üzerinden bize bildirin"
+"Şu anda isteğinizi işleme alamıyoruz, lütfen daha sonra tekrar deneyin. Eğer"
+" bu durum uzun süredir devam ediyorsa, lütfen Discord üzerinden bize "
+"bildirin"
 
 #: plugin/contrib/aihordeclient/__init__.py
 msgid "Problem requesting kudos"
@@ -152,8 +153,8 @@ msgid ""
 "You have made too many requests, please wait for them to finish, and try "
 "again later"
 msgstr ""
-"Çok fazla istekte bulundunuz, lütfen tamamlanmalarını bekleyin ve daha sonra "
-"tekrar deneyin"
+"Çok fazla istekte bulundunuz, lütfen tamamlanmalarını bekleyin ve daha sonra"
+" tekrar deneyin"
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
@@ -224,7 +225,8 @@ msgstr "Bu model, mevcut yapılandırmanızdan daha fazla zaman alıyor."
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr ""
 "Lütfen başka bir model deneyin. {0} yapılandırdığınızdan daha fazla zaman "
 "alacaktır."
@@ -314,10 +316,11 @@ msgstr ""
 "artırmayı deneyin."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
-"Bağlantı Reddedildi. Yerel yapay zeka sunucunuz (Ollama/LM Studio) çalışıyor "
-"mu?"
+"Bağlantı Reddedildi. Yerel yapay zeka sunucunuz (Ollama/LM Studio) çalışıyor"
+" mu?"
 
 #: plugin/framework/errors.py
 msgid "DNS Error. Could not resolve the endpoint URL."
@@ -347,7 +350,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "YZ: Formüller, veri analizi ve renkli grafikler konusunda size yardımcı "
 "olabilirim. Beni deneyin!"
@@ -417,15 +421,23 @@ msgstr "WriterAgent: Seçimi Düzenle (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Seçimi Genişlet (Calc)"
 
+#: plugin/calc/vision_egress.py plugin/scripting/vision_runner.py
+msgid "Select an embedded image, then Run again."
+msgstr "Gömülü bir resim seçin ve ardından tekrar Çalıştırın."
+
+#: plugin/calc/vision_egress.py
+msgid "Anchor the image to a cell, select it, then Run again."
+msgstr "Resmi bir hücreye sabitleyin, seçin ve ardından tekrar Çalıştırın."
+
 #: plugin/calc/python_editor.py
 msgid ""
 "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\"; "
-"A1:B10)."
+"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10) or =PYTHON(...)."
 msgstr ""
 "Bu hücrenin PYTHON formül bağımsız değişkenleri (ör. veri aralıkları) "
-"korunamadı. Formülü Calc içinde düzenleyin veya =PYTHON(\"kod\"; A1:B10) "
-"gibi tırnak içinde bir kod dizisi kullanın."
+"korunamadı. Formülü Calc içinde düzenleyin veya =PY(\"kod\"; A1:B10) ya da "
+"=PYTHON(...) gibi tırnak içinde bir kod dizisi kullanın."
 
 #: plugin/calc/python_editor.py
 msgid "Python cell editor"
@@ -450,12 +462,13 @@ msgstr "Python'u düzenlemek için bir Calc hesap tablosunda bir hücre seçin."
 #: plugin/calc/python_editor.py
 msgid ""
 "This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
-"in another cell). Edit it in the formula bar, or use =PYTHON(\"code\"; "
-"range) with quoted code."
+"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
+"(or =PYTHON(...)) with quoted code."
 msgstr ""
 "Bu PYTHON formülü, düzenleyicinin güvenli bir şekilde yeniden yazamayacağı "
-"bir biçim kullanıyor (örneğin başka bir hücredeki kod). Formül çubuğunda "
-"düzenleyin veya tırnak içinde kod ile =PYTHON(\"kod\"; aralık) kullanın."
+"bir biçim kullanıyor (ör. başka bir hücredeki kod). Formülü formül çubuğunda"
+" düzenleyin veya tırnak içinde kod ile =PY(\"kod\"; aralık) (ya da "
+"=PYTHON(...)) kullanın."
 
 #: plugin/calc/python_editor.py
 msgid "No Python interpreter available for the editor."
@@ -470,8 +483,7 @@ msgid ""
 "In that venv run: pip install pywebview\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"Ayarlar → Python kısmındaki Python ile webview (pywebview) içe "
-"aktarılamıyor:\n"
+"Ayarlar → Python kısmındaki Python ile webview (pywebview) içe aktarılamıyor:\n"
 "%(exe)s\n"
 "\n"
 "Bu sanal ortamda (venv) şunu çalıştırın: pip install pywebview\n"
@@ -993,8 +1005,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Düzenleyici bulunamadı (Kate veya Gedit kurun ya da EDITOR değişkenini "
-"ayarlayın). Yol:\n"
+"Düzenleyici bulunamadı (Kate veya Gedit kurun ya da EDITOR değişkenini ayarlayın). Yol:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -1023,7 +1034,8 @@ msgstr "['{0}' aracı arka ucu bulunamadı.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "['{0}' aracı arka ucu kullanılamıyor. Ayarları kontrol edin (yol, kurulum).]"
 
@@ -1131,6 +1143,14 @@ msgid "A script named '{0}' already exists in this document."
 msgstr "'{0}' adlı bir betik bu belgede zaten var."
 
 #: plugin/scripting/document_scripts.py
+msgid "Analysis Helpers"
+msgstr "Analiz Yardımcıları"
+
+#: plugin/scripting/document_scripts.py
+msgid "Vision Helpers"
+msgstr "Görüntü Yardımcıları"
+
+#: plugin/scripting/document_scripts.py
 msgid "My Scripts"
 msgstr "Betiklerim"
 
@@ -1202,14 +1222,88 @@ msgstr "Python düzenleyicisi kodunuzu yükleyemeden kapandı."
 msgid "Could not talk to the Python editor."
 msgstr "Python düzenleyicisi ile iletişim kurulamadı."
 
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Analysis Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Analiz Yardımcıları: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Vision Libraries"
+msgstr "Görüntü Kütüphaneleri"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Docling OCR load failed: %(err)s"
+msgstr ""
+"\n"
+"Docling OCR yüklemesi başarısız oldu: %(err)s"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Vision Helpers (OCR, Docling): %(cmd)s"
+msgstr ""
+"\n"
+"Görüntü Yardımcıları (OCR, Docling): %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Vision Helpers (OCR, Paddle fallback): %(cmd)s"
+msgstr ""
+"\n"
+"Görüntü Yardımcıları (OCR, Paddle yedeği): %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Vision Helpers (Docling primary): %(cmd)s"
+msgstr ""
+"\n"
+"Görüntü Yardımcıları (Docling birincil): %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Optional (detection helpers): pip install ultralytics"
+msgstr "İsteğe bağlı (algılama yardımcıları): pip install ultralytics"
+
+#: plugin/scripting/venv_worker.py
+msgid ""
+"Optional (image processing in trusted helpers): pip install scikit-image"
+msgstr ""
+"İsteğe bağlı (güvenilir yardımcılarda görüntü işleme): pip install scikit-"
+"image"
+
+#: plugin/scripting/vision_runner.py
+#, python-brace-format
+msgid ""
+"Image '{name}' not found. Use list_images or leave image_name empty and "
+"select the graphic."
+msgstr ""
+"'{name}' görüntüsü bulunamadı. list_images komutunu kullanın veya image_name"
+" kısmını boş bırakıp grafiği seçin."
+
+#: plugin/scripting/vision_runner.py
+#, python-brace-format
+msgid "Image '{name}' could not be exported."
+msgstr "'{name}' görüntüsü dışa aktarılamadı."
+
 #: plugin/scripting/session_manager.py
 msgid ""
 "Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
 "Writer document with an imported Jupyter notebook and try again."
 msgstr ""
 "Not defterleri için Python Oturumunu Sıfırla işlemi LibreOffice Writer için "
-"geçerlidir. İçe aktarılmış bir Jupyter not defteri içeren bir Writer belgesi "
-"açın ve tekrar deneyin."
+"geçerlidir. İçe aktarılmış bir Jupyter not defteri içeren bir Writer belgesi"
+" açın ve tekrar deneyin."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1399,14 +1493,64 @@ msgstr ""
 "bekliyoruz!"
 
 #: plugin/scripting/python_runner.py
+msgid "Vision helpers require a Writer or Calc document."
+msgstr "Görüntü yardımcıları bir Writer veya Calc belgesi gerektirir."
+
+#: plugin/scripting/python_runner.py
+msgid "Vision helper failed."
+msgstr "Görüntü yardımcısı başarısız oldu."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Vision '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr "Görüntü '{helper}' tamamlandı. {rows} satır yazıldı. ({time} sürdü)"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Failed to insert result: {error} (took {time})"
+msgstr "Sonuç eklenemedi: {error} ({time} sürdü)"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Found {blocks} blocks and {tables} tables. "
+"(took {time})"
+msgstr ""
+"Görüntü '{helper}' tamamlandı. {blocks} blok ve {tables} tablo bulundu. "
+"({time} sürdü)"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Vision '{helper}' completed. Extracted {lines} lines. (took {time})"
+msgstr ""
+"'{helper}' vizyonu tamamlandı. {lines} satır ayıklandı. ({time} sürdü)"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Analysis helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"Analiz yardımcısı bir veri aralığı gerektirir. Hücreleri seçin veya Veri "
+"alanına bir aralık girin."
+
+#: plugin/scripting/python_runner.py
+msgid "Analysis failed."
+msgstr "Analiz başarısız oldu."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Analysis '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr "'{helper}' analizi tamamlandı. {rows} satır yazıldı. ({time} sürdü)"
+
+#: plugin/scripting/python_runner.py
 msgid "Unknown error"
 msgstr "Bilinmeyen hata"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "Betik başarıyla çalıştırıldı, ancak sonuç döndürmedi ve çıktı üretmedi. "
 "({time} sürdü)"
@@ -1415,11 +1559,6 @@ msgstr ""
 #, python-brace-format
 msgid "Unsupported document type for result insertion. (took {time})"
 msgstr "Sonuç ekleme için desteklenmeyen belge türü. ({time} sürdü)"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Failed to insert result: {error} (took {time})"
-msgstr "Sonuç eklenemedi: {error} ({time} sürdü)"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -1451,6 +1590,10 @@ msgstr "Çıktı"
 #: plugin/scripting/python_runner.py
 msgid "Script saved."
 msgstr "Betik kaydedildi."
+
+#: plugin/scripting/python_runner.py
+msgid "Select data range or enter A1 address (injected as data)."
+msgstr "Veri aralığını seçin veya A1 adresini girin (veri olarak eklenir)."
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -1750,8 +1893,8 @@ msgstr "Writer"
 msgid "WriterAgent Evaluation Dashboard"
 msgstr "WriterAgent Değerlendirme Paneli"
 
-msgid "Agent backends"
-msgstr "Aracı arka uçları"
+msgid "ACP"
+msgstr "ACP"
 
 msgid "Backend"
 msgstr "Arka uç"
@@ -1768,15 +1911,18 @@ msgstr "Claude Code (ACP)"
 msgid "Mistral Vibe (ACP)"
 msgstr "Mistral Vibe (ACP)"
 
+msgid "Grok Build (ACP)"
+msgstr "Grok Derlemesi (ACP)"
+
 msgid "Path / URL"
 msgstr "Yol / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Arka uç CLI yolu (ör. aider) veya ACP sunucu URL'si (ör. Hermes için http://"
-"localhost:8000). Boş = varsayılanı dene."
+"Arka uç CLI yolu (ör. aider) veya ACP sunucu URL'si (ör. Hermes için "
+"http://localhost:8000). Boş = varsayılanı dene."
 
 msgid "Extra arguments"
 msgstr "Ek argümanlar"
@@ -1866,8 +2012,8 @@ msgid ""
 "Cache completed web research reports by normalized query (reuses web search "
 "cache database)."
 msgstr ""
-"Web araştırma raporlarını normalleştirilmiş sorguya göre önbelleğe alır (web "
-"arama önbelleği veritabanını yeniden kullanır)."
+"Web araştırma raporlarını normalleştirilmiş sorguya göre önbelleğe alır (web"
+" arama önbelleği veritabanını yeniden kullanır)."
 
 msgid "Rich Text Control Sidebar"
 msgstr "Zengin Metin Denetimi Kenar Çubuğu"
@@ -1888,8 +2034,8 @@ msgstr "Yapay zeka dil bilgisi denetleyicisini etkinleştir (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "Açık olduğunda, WriterAgent yapay zeka dil bilgisi denetleyicisini "
 "Linguistic ile kaydeder; denetlenen metin API'nizi kullanır (Araçlar → "
@@ -1947,8 +2093,8 @@ msgid ""
 "automatically."
 msgstr ""
 "Etkinleştirildiğinde, yapay zekadan her cümlenin dilini belgede kullanılan "
-"yerel ayarlara göre doğrulamasını ister. Dil yanlışsa, dil özelliği otomatik "
-"olarak güncellenir."
+"yerel ayarlara göre doğrulamasını ister. Dil yanlışsa, dil özelliği otomatik"
+" olarak güncellenir."
 
 msgid "Enter key sends sidebar chat message"
 msgstr "Enter tuşu kenar çubuğu sohbet iletisini gönderir"
@@ -1974,11 +2120,11 @@ msgid "Enable MCP Server"
 msgstr "MCP Sunucusunu Etkinleştir"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Yalnızca localhost, kimlik doğrulaması yok. İstemciler http://localhost:"
-"<port>/mcp (akış destekli HTTP) adresini kullanır."
+"Yalnızca localhost, kimlik doğrulaması yok. İstemciler "
+"http://localhost:<port>/mcp (akış destekli HTTP) adresini kullanır."
 
 msgid "MCP Port"
 msgstr "MCP Bağlantı Noktası"
@@ -2004,11 +2150,13 @@ msgstr "Python venv yolu"
 msgid ""
 "If set, runs tools in that venv (bin/python or Scripts/python.exe). If "
 "empty, run_venv_python_script uses this process's sys.executable (basic "
-"stdlib); use a venv for numpy/pandas."
+"stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
+"paddlepaddle)."
 msgstr ""
-"Ayarlanırsa, araçları bu venv içinde çalıştırır (bin/python veya Scripts/"
-"python.exe). Boşsa, run_venv_python_script bu sürecin sys.executable "
-"değerini (temel stdlib) kullanır; numpy/pandas için bir venv kullanın."
+"Ayarlanmışsa, araçları o sanal ortamda (venv) çalıştırır (bin/python veya "
+"Scripts/python.exe). Boşsa, run_venv_python_script bu işlemin "
+"sys.executable'ını (temel stdlib) kullanır; numpy/pandas ve Vizyon "
+"Yardımcıları (paddleocr, paddlepaddle) için bir sanal ortam kullanın."
 
 msgid "Test"
 msgstr "Sına"
@@ -2027,8 +2175,8 @@ msgid "Max Calc data cells"
 msgstr "Maksimum Calc veri hücresi"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
 "=PYTHON() verisindeki veya Python Betiği Çalıştır verisi/veri_aralığındaki "
 "maksimum hücre sayısı. Daha büyük değerler daha fazla bellek ve zaman "
@@ -2064,12 +2212,135 @@ msgid "Modeless Run Python Script dialog"
 msgstr "Kalıcı olmayan Python Betiğini Çalıştır iletişim kutusu"
 
 msgid ""
-"When checked, the plain-text Run Python Script dialog floats so you can edit "
-"the document while it is open. Uncheck for the classic modal dialog."
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
 msgstr ""
 "İşaretlendiğinde, düz metin Python Betiğini Çalıştır iletişim kutusu yüzer "
 "hale gelir, böylece belge açıkken düzenleme yapabilirsiniz. Klasik kalıcı "
 "iletişim kutusu için işareti kaldırın."
+
+msgid "Vision / OCR"
+msgstr "Vizyon / OCR"
+
+msgid "Device"
+msgstr "Aygıt"
+
+msgid "Hardware for Docling models. auto picks GPU when available."
+msgstr ""
+"Docling modelleri için donanım. Kullanılabilir olduğunda otomatik olarak "
+"GPU'yu seçer."
+
+msgid "Auto"
+msgstr "Otomatik"
+
+msgid "CPU"
+msgstr "CPU"
+
+msgid "CUDA (NVIDIA)"
+msgstr "CUDA (NVIDIA)"
+
+msgid "MPS (Apple Silicon)"
+msgstr "MPS (Apple Silicon)"
+
+msgid "Image scale"
+msgstr "Görüntü ölçeği"
+
+msgid "Upscale before OCR/layout. Try 2.0 for small screenshots."
+msgstr ""
+"OCR/düzen öncesinde ölçeği artırın. Küçük ekran görüntüleri için 2.0 "
+"değerini deneyin."
+
+msgid "Worker timeout (seconds)"
+msgstr "İşçi zaman aşımı (saniye)"
+
+msgid "Host subprocess limit for Vision Helpers (first model download)."
+msgstr "Vision Helpers için ana alt işlem sınırı (ilk model indirme)."
+
+msgid "Docling artifacts path"
+msgstr "Docling yapıları yolu"
+
+msgid "Optional folder from docling-tools models download (offline use)."
+msgstr ""
+"İsteğe bağlı docling-tools modelleri indirme klasörü (çevrimdışı kullanım)."
+
+msgid "OCR confidence threshold"
+msgstr "OCR güven eşiği"
+
+msgid "RapidOCR minimum text score. Raise to reduce garbage text."
+msgstr ""
+"RapidOCR minimum metin puanı. Gereksiz metinleri azaltmak için yükseltin."
+
+msgid "OCR entire image"
+msgstr "Tüm görüntüyü OCR ile işle"
+
+msgid "Recommended for embedded graphics exported from LibreOffice."
+msgstr "LibreOffice'ten dışa aktarılan gömülü grafikler için önerilir."
+
+msgid "OCR language"
+msgstr "OCR dili"
+
+msgid "Language code for OCR backends that support it (e.g. en, de)."
+msgstr "Destekleyen OCR arka uçları için dil kodu (ör. en, de)."
+
+msgid "CPU threads"
+msgstr "CPU iş parçacıkları"
+
+msgid "Thread count for Docling model inference on CPU."
+msgstr "CPU üzerinde Docling model çıkarımı için iş parçacığı sayısı."
+
+msgid "Table extraction mode"
+msgstr "Tablo çıkarma modu"
+
+msgid "Accurate (default)"
+msgstr "Doğru (varsayılan)"
+
+msgid "Fast"
+msgstr "Hızlı"
+
+msgid "Table cell matching"
+msgstr "Tablo hücresi eşleştirme"
+
+msgid "Align detected table cells with content (extract_structure)."
+msgstr "Algılanan tablo hücrelerini içerikle hizala (extract_structure)."
+
+msgid "Keep orphan text clusters"
+msgstr "Yetim metin kümelerini koru"
+
+msgid "Group unassigned text into clusters for messy layouts."
+msgstr "Atanmamış metinleri karmaşık düzenler için kümeler halinde grupla."
+
+msgid "Layout model"
+msgstr "Düzen modeli"
+
+msgid "Heron (default)"
+msgstr "Heron (varsayılan)"
+
+msgid "Egret large (slower"
+msgstr "Egret large (daha yavaş"
+
+msgid "Extract formulas (LaTeX)"
+msgstr "Formülleri ayıkla (LaTeX)"
+
+msgid "Opt-in. Downloads extra VLM models on first use; slower."
+msgstr "Katılım. İlk kullanımda ek VLM modellerini indirir; daha yavaştır."
+
+msgid "Code block enrichment"
+msgstr "Kod bloğu zenginleştirme"
+
+msgid "Specialized OCR for code/terminal screenshots."
+msgstr "Kod/uçbirim ekran görüntüleri için özelleşmiş OCR."
+
+msgid "Docling document timeout (s)"
+msgstr "Docling belge zaman aşımı (sn)"
+
+msgid "Per-conversion timeout inside Docling. 0 = no limit."
+msgstr "Docling içinde dönüştürme başına zaman aşımı. 0 = sınır yok."
+
+msgid "Allow external Docling plugins"
+msgstr "Harici Docling eklentilerine izin ver"
+
+msgid "Required for Surya OCR (docling-surya)."
+msgstr "Surya OCR (docling-surya) için gereklidir."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer belge araçları (gezinme ve arama dahil)"

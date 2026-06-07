@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-04 23:41-0400\n"
+"POT-Creation-Date: 2026-06-07 16:27-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Danish <LL@li.org>\n"
@@ -19,8 +19,8 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
 "Dokumentresearch kræver specialiseret opgaveuddelegering (USE_SUB_AGENT). "
 "Aktivér dette i konfigurationen."
@@ -28,8 +28,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Værktøjskald skiftet til '{0}'. Du er i en specialiseret værktøjstilstand. "
@@ -46,8 +46,8 @@ msgstr "Notebook-kørsel understøttes kun i LibreOffice Writer."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
 "Dette dokument har ingen importeret notebook. Brug Funktioner → Importér "
 "Jupyter Notebook… først."
@@ -141,8 +141,8 @@ msgid ""
 "The Horde is in maintenance mode, please try again later, if you have tried "
 "and the service does not respond for hours, please contact via Discord"
 msgstr ""
-"Horden er i vedligeholdelsestilstand, prøv venligst igen senere. Hvis du har "
-"prøvet, og tjenesten ikke svarer i flere timer, så kontakt os venligst via "
+"Horden er i vedligeholdelsestilstand, prøv venligst igen senere. Hvis du har"
+" prøvet, og tjenesten ikke svarer i flere timer, så kontakt os venligst via "
 "Discord"
 
 #: plugin/contrib/aihordeclient/__init__.py
@@ -224,7 +224,8 @@ msgstr "Denne model tager længere tid end din nuværende konfiguration."
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr ""
 "Prøv venligst en anden model. {0} ville tage længere tid, end du har "
 "konfigureret."
@@ -312,7 +313,8 @@ msgstr ""
 "Anmodningen fik timeout. Prøv at øge 'Anmodnings-timeout' i Indstillinger."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr "Forbindelse afvist. Kører din lokale AI-server (Ollama/LM Studio)?"
 
 #: plugin/framework/errors.py
@@ -343,7 +345,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "AI: Jeg kan hjælpe dig med formler, dataanalyse og farverige diagrammer. "
 "Prøv mig!"
@@ -412,15 +415,23 @@ msgstr "WriterAgent: Rediger markering (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Udvid markering (Calc)"
 
+#: plugin/calc/vision_egress.py plugin/scripting/vision_runner.py
+msgid "Select an embedded image, then Run again."
+msgstr "Vælg et indlejret billede, og kør derefter igen."
+
+#: plugin/calc/vision_egress.py
+msgid "Anchor the image to a cell, select it, then Run again."
+msgstr "Forankr billedet til en celle, vælg det, og kør derefter igen."
+
 #: plugin/calc/python_editor.py
 msgid ""
 "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\"; "
-"A1:B10)."
+"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10) or =PYTHON(...)."
 msgstr ""
-"Kunne ikke bevare denne celles PYTHON-formulargumenter (f.eks. dataområder). "
-"Rediger formlen i Calc, eller brug en citeret kodestreng som "
-"=PYTHON(\"kode\"; A1:B10)."
+"Kunne ikke bevare denne celles PYTHON-formulargumenter (f.eks. dataområder)."
+" Rediger formlen i Calc, eller brug en citeret kodestreng som =PY(\"kode\"; "
+"A1:B10) eller =PYTHON(...)."
 
 #: plugin/calc/python_editor.py
 msgid "Python cell editor"
@@ -445,12 +456,12 @@ msgstr "Vælg en celle i et Calc-regneark for at redigere Python."
 #: plugin/calc/python_editor.py
 msgid ""
 "This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
-"in another cell). Edit it in the formula bar, or use =PYTHON(\"code\"; "
-"range) with quoted code."
+"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
+"(or =PYTHON(...)) with quoted code."
 msgstr ""
 "Denne PYTHON-formel bruger en form, som editoren ikke sikkert kan omskrive "
 "(f.eks. kode i en anden celle). Rediger den i formellinjen, eller brug "
-"=PYTHON(\"kode\"; område) med citeret kode."
+"=PY(\"kode\"; område) (eller =PYTHON(...)) med citeret kode."
 
 #: plugin/calc/python_editor.py
 msgid "No Python interpreter available for the editor."
@@ -465,8 +476,7 @@ msgid ""
 "In that venv run: pip install pywebview\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"Kan ikke importere webview (pywebview) med Python fra Indstillinger → "
-"Python:\n"
+"Kan ikke importere webview (pywebview) med Python fra Indstillinger → Python:\n"
 "%(exe)s\n"
 "\n"
 "Kør følgende i det venv:\n"
@@ -913,8 +923,8 @@ msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
 "this!]"
 msgstr ""
-"[Intern fejl: Kunne ikke identificere dokumenttype for {0}. Indsend venligst "
-"en fejlrapport!]"
+"[Intern fejl: Kunne ikke identificere dokumenttype for {0}. Indsend venligst"
+" en fejlrapport!]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -1018,7 +1028,8 @@ msgstr "[Agent-backend '{0}' blev ikke fundet.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Agent-backend '{0}' er ikke tilgængelig. Kontrollér Indstillinger (sti, "
 "installation).]"
@@ -1128,6 +1139,14 @@ msgid "A script named '{0}' already exists in this document."
 msgstr "Et script med navnet '{0}' findes allerede i dette dokument."
 
 #: plugin/scripting/document_scripts.py
+msgid "Analysis Helpers"
+msgstr "Analysehjælpere"
+
+#: plugin/scripting/document_scripts.py
+msgid "Vision Helpers"
+msgstr "Synshjælpere"
+
+#: plugin/scripting/document_scripts.py
 msgid "My Scripts"
 msgstr "Mine scripts"
 
@@ -1198,6 +1217,79 @@ msgstr "Python-editoren afsluttede, før den kunne indlæse din kode."
 #: plugin/scripting/editor_host.py
 msgid "Could not talk to the Python editor."
 msgstr "Kunne ikke kommunikere med Python-editoren."
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Analysis Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Analysehjælpere: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Vision Libraries"
+msgstr "Vision-biblioteker"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Docling OCR load failed: %(err)s"
+msgstr ""
+"\n"
+"Docling OCR-indlæsning mislykkedes: %(err)s"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Vision Helpers (OCR, Docling): %(cmd)s"
+msgstr ""
+"\n"
+"Synshjælpere (OCR, Docling): %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Vision Helpers (OCR, Paddle fallback): %(cmd)s"
+msgstr ""
+"\n"
+"Vision-hjælpere (OCR, Paddle-fallback): %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Vision Helpers (Docling primary): %(cmd)s"
+msgstr ""
+"\n"
+"Vision-hjælpere (Docling primær): %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Optional (detection helpers): pip install ultralytics"
+msgstr "Valgfri (detektionshjælpere): pip install ultralytics"
+
+#: plugin/scripting/venv_worker.py
+msgid ""
+"Optional (image processing in trusted helpers): pip install scikit-image"
+msgstr ""
+"Valgfri (billedbehandling i betroede hjælpere): pip install scikit-image"
+
+#: plugin/scripting/vision_runner.py
+#, python-brace-format
+msgid ""
+"Image '{name}' not found. Use list_images or leave image_name empty and "
+"select the graphic."
+msgstr ""
+"Billedet '{name}' blev ikke fundet. Brug list_images eller lad image_name "
+"være tom og vælg grafikken."
+
+#: plugin/scripting/vision_runner.py
+#, python-brace-format
+msgid "Image '{name}' could not be exported."
+msgstr "Billedet '{name}' kunne ikke eksporteres."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1396,14 +1488,63 @@ msgstr ""
 "velkomne!"
 
 #: plugin/scripting/python_runner.py
+msgid "Vision helpers require a Writer or Calc document."
+msgstr "Vision-hjælpere kræver et Writer- eller Calc-dokument."
+
+#: plugin/scripting/python_runner.py
+msgid "Vision helper failed."
+msgstr "Vision-hjælper mislykkedes."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Vision '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr "Vision '{helper}' fuldført. Skrev {rows} rækker. (tog {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Failed to insert result: {error} (took {time})"
+msgstr "Kunne ikke indsætte resultat: {error} (tog {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Found {blocks} blocks and {tables} tables. "
+"(took {time})"
+msgstr ""
+"Vision '{helper}' fuldført. Fandt {blocks} blokke og {tables} tabeller. (tog"
+" {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Vision '{helper}' completed. Extracted {lines} lines. (took {time})"
+msgstr "Vision '{helper}' fuldført. Udtræk {lines} linjer. (tog {time})"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Analysis helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"Analysehjælper kræver et dataområde. Vælg celler eller indtast et område i "
+"datafeltet."
+
+#: plugin/scripting/python_runner.py
+msgid "Analysis failed."
+msgstr "Analyse mislykkedes."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Analysis '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr "Analyse '{helper}' fuldført. Skrev {rows} rækker. (tog {time})"
+
+#: plugin/scripting/python_runner.py
 msgid "Unknown error"
 msgstr "Ukendt fejl"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "Script udført korrekt, men returnerede intet resultat og producerede intet "
 "output. (tog {time})"
@@ -1413,11 +1554,6 @@ msgstr ""
 msgid "Unsupported document type for result insertion. (took {time})"
 msgstr ""
 "Ikke-understøttet dokumenttype til indsættelse af resultat. (tog {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Failed to insert result: {error} (took {time})"
-msgstr "Kunne ikke indsætte resultat: {error} (tog {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -1451,6 +1587,10 @@ msgstr "Output"
 msgid "Script saved."
 msgstr "Script gemt."
 
+#: plugin/scripting/python_runner.py
+msgid "Select data range or enter A1 address (injected as data)."
+msgstr "Vælg dataområde eller indtast A1-adresse (indsættes som data)."
+
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
 msgstr "Stop MCP-server"
@@ -1473,7 +1613,8 @@ msgstr "MCP-server kunne ikke starte"
 
 #: plugin/mcp/__init__.py
 msgid "Check writeragent_debug.log in your LibreOffice user config folder"
-msgstr "Tjek writeragent_debug.log i din LibreOffice-brugerkonfigurationsmappe"
+msgstr ""
+"Tjek writeragent_debug.log i din LibreOffice-brugerkonfigurationsmappe"
 
 #: plugin/mcp/__init__.py
 msgid "MCP server is not running"
@@ -1747,8 +1888,8 @@ msgstr "Writer"
 msgid "WriterAgent Evaluation Dashboard"
 msgstr "WriterAgent-evalueringspanel"
 
-msgid "Agent backends"
-msgstr "Agent-backends"
+msgid "ACP"
+msgstr "ACP"
 
 msgid "Backend"
 msgstr "Backend"
@@ -1765,15 +1906,18 @@ msgstr "Claude Code (ACP)"
 msgid "Mistral Vibe (ACP)"
 msgstr "Mistral Vibe (ACP)"
 
+msgid "Grok Build (ACP)"
+msgstr "Grok Build (ACP)"
+
 msgid "Path / URL"
 msgstr "Sti / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Sti til backend-CLI (f.eks. aider) eller ACP-server-URL (f.eks. http://"
-"localhost:8000 for Hermes). Tom = prøv standard."
+"Sti til backend-CLI (f.eks. aider) eller ACP-server-URL (f.eks. "
+"http://localhost:8000 for Hermes). Tom = prøv standard."
 
 msgid "Extra arguments"
 msgstr "Ekstra argumenter"
@@ -1884,8 +2028,8 @@ msgstr "Aktivér AI-grammatikkontrol (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "Når aktiveret, registrerer WriterAgent sin AI-grammatikkontrol hos "
 "Linguistic; kontrolleret tekst bruger dit API (Funktioner → Indstillinger → "
@@ -1942,8 +2086,8 @@ msgid ""
 "automatically."
 msgstr ""
 "Når denne er slået til, beder den AI'en om at verificere sproget i hver "
-"sætning i forhold til dokumentets anvendte lokaliteter. Hvis det er forkert, "
-"opdateres sprogegenskaben automatisk."
+"sætning i forhold til dokumentets anvendte lokaliteter. Hvis det er forkert,"
+" opdateres sprogegenskaben automatisk."
 
 msgid "Enter key sends sidebar chat message"
 msgstr "Enter-tasten sender besked i sidepanel-chat"
@@ -1969,11 +2113,11 @@ msgid "Enable MCP Server"
 msgstr "Aktivér MCP-server"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Kun localhost, ingen godkendelse. Klienter bruger http://localhost:<port>/"
-"mcp (streambar HTTP)."
+"Kun localhost, ingen godkendelse. Klienter bruger "
+"http://localhost:<port>/mcp (streambar HTTP)."
 
 msgid "MCP Port"
 msgstr "MCP-port"
@@ -1987,8 +2131,8 @@ msgid ""
 "writeragent.json."
 msgstr ""
 "Automatisk for .local, .lan, .home.arpa, .internal, .intern og LAN-IP-"
-"adresser i browserens Origin. For andre værter skal mcp.cors_allowed_origins "
-"tilføjes i writeragent.json."
+"adresser i browserens Origin. For andre værter skal mcp.cors_allowed_origins"
+" tilføjes i writeragent.json."
 
 msgid "Python"
 msgstr "Python"
@@ -1999,11 +2143,13 @@ msgstr "Sti til Python venv"
 msgid ""
 "If set, runs tools in that venv (bin/python or Scripts/python.exe). If "
 "empty, run_venv_python_script uses this process's sys.executable (basic "
-"stdlib); use a venv for numpy/pandas."
+"stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
+"paddlepaddle)."
 msgstr ""
 "Hvis angivet, køres værktøjer i det pågældende venv (bin/python eller "
 "Scripts/python.exe). Hvis tomt, bruger run_venv_python_script denne proces' "
-"sys.executable (grundlæggende stdlib); brug et venv til numpy/pandas."
+"sys.executable (grundlæggende stdlib); brug et venv til numpy/pandas og "
+"Vision Helpers (paddleocr, paddlepaddle)."
 
 msgid "Test"
 msgstr "Test"
@@ -2014,18 +2160,19 @@ msgstr "Timeout for Python-script (sekunder)"
 msgid ""
 "Wall-clock limit for Run Python Script, =PYTHON(), and "
 "run_venv_python_script."
-msgstr "Tidsgrænse for Kør Python-script, =PYTHON() og run_venv_python_script."
+msgstr ""
+"Tidsgrænse for Kør Python-script, =PYTHON() og run_venv_python_script."
 
 msgid "Max Calc data cells"
 msgstr "Maks. Calc-dataceller"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
-"Maksimalt antal celler i =PYTHON()-data eller Kør Python-script data/"
-"data_område. Større værdier bruger mere RAM og tid; UNO-områdelæsning er "
-"stadig den dominerende faktor."
+"Maksimalt antal celler i =PYTHON()-data eller Kør Python-script "
+"data/data_område. Større værdier bruger mere RAM og tid; UNO-områdelæsning "
+"er stadig den dominerende faktor."
 
 msgid "Python session mode"
 msgstr "Python-sessionstilstand"
@@ -2050,19 +2197,139 @@ msgid ""
 "If checked, bypasses the Monaco script editor and uses the LibreOffice "
 "dialog."
 msgstr ""
-"Hvis markeret, omgås Monaco script-editoren og LibreOffice-dialogen bruges i "
-"stedet."
+"Hvis markeret, omgås Monaco script-editoren og LibreOffice-dialogen bruges i"
+" stedet."
 
 msgid "Modeless Run Python Script dialog"
 msgstr "Modalløs dialogboks til kørsel af Python-script"
 
 msgid ""
-"When checked, the plain-text Run Python Script dialog floats so you can edit "
-"the document while it is open. Uncheck for the classic modal dialog."
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
 msgstr ""
-"Når dette felt er markeret, flyder dialogboksen Kør Python-script, så du kan "
-"redigere dokumentet, mens den er åben. Fjern markeringen for at bruge den "
+"Når dette felt er markeret, flyder dialogboksen Kør Python-script, så du kan"
+" redigere dokumentet, mens den er åben. Fjern markeringen for at bruge den "
 "klassiske modale dialogboks."
+
+msgid "Vision / OCR"
+msgstr "Vision / OCR"
+
+msgid "Device"
+msgstr "Enhed"
+
+msgid "Hardware for Docling models. auto picks GPU when available."
+msgstr ""
+"Hardware til Docling-modeller. Vælger automatisk GPU, når den er "
+"tilgængelig."
+
+msgid "Auto"
+msgstr "Auto"
+
+msgid "CPU"
+msgstr "CPU"
+
+msgid "CUDA (NVIDIA)"
+msgstr "CUDA (NVIDIA)"
+
+msgid "MPS (Apple Silicon)"
+msgstr "MPS (Apple Silicon)"
+
+msgid "Image scale"
+msgstr "Billedskalering"
+
+msgid "Upscale before OCR/layout. Try 2.0 for small screenshots."
+msgstr "Opskalér før OCR/layout. Prøv 2.0 for små skærmbilleder."
+
+msgid "Worker timeout (seconds)"
+msgstr "Timeout for worker (sekunder)"
+
+msgid "Host subprocess limit for Vision Helpers (first model download)."
+msgstr ""
+"Grænse for host-underproces til Vision Helpers (første model-download)."
+
+msgid "Docling artifacts path"
+msgstr "Sti til Docling-artefakter"
+
+msgid "Optional folder from docling-tools models download (offline use)."
+msgstr "Valgfri mappe fra download af docling-tools-modeller (offline-brug)."
+
+msgid "OCR confidence threshold"
+msgstr "Tærskelværdi for OCR-konfidens"
+
+msgid "RapidOCR minimum text score. Raise to reduce garbage text."
+msgstr "Minimum tekstscore for RapidOCR. Hæv for at reducere støjende tekst."
+
+msgid "OCR entire image"
+msgstr "OCR hele billedet"
+
+msgid "Recommended for embedded graphics exported from LibreOffice."
+msgstr "Anbefales til indlejret grafik eksporteret fra LibreOffice."
+
+msgid "OCR language"
+msgstr "OCR-sprog"
+
+msgid "Language code for OCR backends that support it (e.g. en, de)."
+msgstr "Sprogkode til OCR-backends, der understøtter det (f.eks. en, de)."
+
+msgid "CPU threads"
+msgstr "CPU-tråde"
+
+msgid "Thread count for Docling model inference on CPU."
+msgstr "Antal tråde til Docling-modelinferens på CPU."
+
+msgid "Table extraction mode"
+msgstr "Tilstand for tabeludtrækning"
+
+msgid "Accurate (default)"
+msgstr "Nøjagtig (standard)"
+
+msgid "Fast"
+msgstr "Hurtig"
+
+msgid "Table cell matching"
+msgstr "Tabelcelle-matchning"
+
+msgid "Align detected table cells with content (extract_structure)."
+msgstr "Juster detekterede tabelceller med indhold (extract_structure)."
+
+msgid "Keep orphan text clusters"
+msgstr "Behold forældreløse tekstklynger"
+
+msgid "Group unassigned text into clusters for messy layouts."
+msgstr "Gruppér ikke-tildelt tekst i klynger til rodede layouts."
+
+msgid "Layout model"
+msgstr "Layoutmodel"
+
+msgid "Heron (default)"
+msgstr "Heron (standard)"
+
+msgid "Egret large (slower"
+msgstr "Egret large (langsommere"
+
+msgid "Extract formulas (LaTeX)"
+msgstr "Udtræk formler (LaTeX)"
+
+msgid "Opt-in. Downloads extra VLM models on first use; slower."
+msgstr "Tilmelding. Henter ekstra VLM-modeller ved første brug; langsommere."
+
+msgid "Code block enrichment"
+msgstr "Berigelse af kodeblok"
+
+msgid "Specialized OCR for code/terminal screenshots."
+msgstr "Specialiseret OCR til skærmbilleder af kode/terminal."
+
+msgid "Docling document timeout (s)"
+msgstr "Docling-dokument-timeout (s)"
+
+msgid "Per-conversion timeout inside Docling. 0 = no limit."
+msgstr "Timeout pr. konvertering i Docling. 0 = ingen grænse."
+
+msgid "Allow external Docling plugins"
+msgstr "Tillad eksterne Docling-plugins"
+
+msgid "Required for Surya OCR (docling-surya)."
+msgstr "Påkrævet til Surya OCR (docling-surya)."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer-dokumentværktøjer (inklusive navigation og søgning)"

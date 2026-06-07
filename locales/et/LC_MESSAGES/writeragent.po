@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-04 23:41-0400\n"
+"POT-Creation-Date: 2026-06-07 16:27-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Estonian <LL@li.org>\n"
@@ -19,8 +19,8 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
 "Dokumendi uurimine nõuab spetsiaalset ülesannete delegeerimist "
 "(USE_SUB_AGENT). Lubage see seadistustes."
@@ -28,8 +28,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Tööriista väljakutse lülitus režiimile '{0}'. Olete spetsiaalses "
@@ -46,8 +46,8 @@ msgstr "Märkmiku käivitamine on toetatud ainult LibreOffice Writeris."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
 "Selles dokumendis pole imporditud märkmikku. Kasutage esmalt Tööriistad → "
 "Impordi Jupyteri märkmik…"
@@ -129,8 +129,8 @@ msgid ""
 "At this moment we can not process your request, please try again later.  If "
 "this is happening for a long period of time, please let us know via Discord"
 msgstr ""
-"Hetkel ei saa me sinu päringut töödelda, palun proovi hiljem uuesti. Kui see "
-"kestab pikemat aega, anna meile sellest Discordi kaudu teada"
+"Hetkel ei saa me sinu päringut töödelda, palun proovi hiljem uuesti. Kui see"
+" kestab pikemat aega, anna meile sellest Discordi kaudu teada"
 
 #: plugin/contrib/aihordeclient/__init__.py
 msgid "Problem requesting kudos"
@@ -221,7 +221,8 @@ msgstr "See mudel võtab rohkem aega kui teie praegune konfiguratsioon."
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr ""
 "Palun proovige teist mudelit. {0} võtaks rohkem aega kui konfigureerisite."
 
@@ -309,7 +310,8 @@ msgstr ""
 "Päringu aegumine. Proovige sätetes „Request Timeout“ väärtust suurendada."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Ühendusest keelduti. Kas teie kohalik AI-server (Ollama/LM Studio) töötab?"
 
@@ -341,7 +343,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "AI: Saan teid aidata valemite, andmeanalüüsi ja värviliste diagrammidega. "
 "Proovige mind!"
@@ -410,15 +413,23 @@ msgstr "WriterAgent: valiku redigeerimine (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: valiku laiendamine (Calc)"
 
+#: plugin/calc/vision_egress.py plugin/scripting/vision_runner.py
+msgid "Select an embedded image, then Run again."
+msgstr "Valige manustatud pilt ja käivitage uuesti."
+
+#: plugin/calc/vision_egress.py
+msgid "Anchor the image to a cell, select it, then Run again."
+msgstr "Ankurdage pilt lahtrisse, valige see ja käivitage uuesti."
+
 #: plugin/calc/python_editor.py
 msgid ""
 "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\"; "
-"A1:B10)."
+"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10) or =PYTHON(...)."
 msgstr ""
 "Selle lahtri PYTHON-valemi argumente (nt andmevahemikke) ei saanud "
-"säilitada. Redigeeri valemit Calcis või kasuta jutumärkides koodistringi, "
-"näiteks =PYTHON(\"kood\"; A1:B10)."
+"säilitada. Muutke valemit Calcis või kasutage jutumärkides koodistringi, "
+"näiteks =PY(\"kood\"; A1:B10) või =PYTHON(...)."
 
 #: plugin/calc/python_editor.py
 msgid "Python cell editor"
@@ -443,12 +454,12 @@ msgstr "Pythoni redigeerimiseks vali Calci arvutustabelist lahter."
 #: plugin/calc/python_editor.py
 msgid ""
 "This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
-"in another cell). Edit it in the formula bar, or use =PYTHON(\"code\"; "
-"range) with quoted code."
+"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
+"(or =PYTHON(...)) with quoted code."
 msgstr ""
-"See PYTHON-valem kasutab vormi, mida redaktor ei saa turvaliselt ümber "
-"kirjutada (nt kood teises lahtris). Muutke seda valemiribal või kasutage "
-"=PYTHON(\"kood\"; vahemik) koos jutumärkides koodiga."
+"See PYTHON-valem kasutab vormi, mida redaktor ei saa ohutult ümber kirjutada"
+" (nt kood teises lahtris). Muutke seda valemiribal või kasutage jutumärkides"
+" koodiga =PY(\"kood\"; vahemik) (või =PYTHON(...))."
 
 #: plugin/calc/python_editor.py
 msgid "No Python interpreter available for the editor."
@@ -463,8 +474,7 @@ msgid ""
 "In that venv run: pip install pywebview\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"Veebivaate (pywebview) importimine Pythoniga sätetest → Python pole "
-"võimalik:\n"
+"Veebivaate (pywebview) importimine Pythoniga sätetest → Python pole võimalik:\n"
 "%(exe)s\n"
 "\n"
 "Käivitage selles virtuaalkeskkonnas: pip install pywebview\n"
@@ -892,8 +902,8 @@ msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[Aktiivses aknas ei leitud ühtegi ühilduvat LibreOffice'i dokumenti (Writer, "
-"Calc või Draw).]"
+"[Aktiivses aknas ei leitud ühtegi ühilduvat LibreOffice'i dokumenti (Writer,"
+" Calc või Draw).]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -910,8 +920,8 @@ msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
 "this!]"
 msgstr ""
-"[Sisemine viga: dokumendi tüüpi {0} ei õnnestunud tuvastada. Palun teavitage "
-"sellest!]"
+"[Sisemine viga: dokumendi tüüpi {0} ei õnnestunud tuvastada. Palun teavitage"
+" sellest!]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -1013,7 +1023,8 @@ msgstr "[Agendi taustaprogrammi '{0}' ei leitud.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Agendi taustaprogramm '{0}' pole saadaval. Kontrollige sätteid (asukoht, "
 "install).]"
@@ -1109,8 +1120,8 @@ msgid ""
 "Document is read-only or properties cannot be written. Script saved to your "
 "personal library instead."
 msgstr ""
-"Dokument on kirjutuskaitsega või omadusi ei saa kirjutada. Skript salvestati "
-"hoopis teie isiklikku teeki."
+"Dokument on kirjutuskaitsega või omadusi ei saa kirjutada. Skript salvestati"
+" hoopis teie isiklikku teeki."
 
 #: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
 msgid "Script name cannot be empty."
@@ -1120,6 +1131,14 @@ msgstr "Skripti nimi ei tohi olla tühi."
 #, python-brace-format
 msgid "A script named '{0}' already exists in this document."
 msgstr "Skript nimega '{0}' on selles dokumendis juba olemas."
+
+#: plugin/scripting/document_scripts.py
+msgid "Analysis Helpers"
+msgstr "Analüüsi abivahendid"
+
+#: plugin/scripting/document_scripts.py
+msgid "Vision Helpers"
+msgstr "Visuaalsed abivahendid"
 
 #: plugin/scripting/document_scripts.py
 msgid "My Scripts"
@@ -1193,13 +1212,87 @@ msgstr "Pythoni redaktor sulgus enne, kui see jõudis koodi laadida."
 msgid "Could not talk to the Python editor."
 msgstr "Pythoni redaktoriga ei saanud ühendust."
 
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Analysis Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Analüüsi abivahendid: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Vision Libraries"
+msgstr "Visuaalsed teegid"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Docling OCR load failed: %(err)s"
+msgstr ""
+"\n"
+"Docling OCR-i laadimine ebaõnnestus: %(err)s"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Vision Helpers (OCR, Docling): %(cmd)s"
+msgstr ""
+"\n"
+"Visuaalsed abivahendid (OCR, Docling): %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Vision Helpers (OCR, Paddle fallback): %(cmd)s"
+msgstr ""
+"\n"
+"Visuaalsed abivahendid (OCR, Paddle varuvalik): %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Vision Helpers (Docling primary): %(cmd)s"
+msgstr ""
+"\n"
+"Visuaalsed abivahendid (Docling esmane): %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Optional (detection helpers): pip install ultralytics"
+msgstr "Valikuline (tuvastamise abivahendid): pip install ultralytics"
+
+#: plugin/scripting/venv_worker.py
+msgid ""
+"Optional (image processing in trusted helpers): pip install scikit-image"
+msgstr ""
+"Valikuline (pilditöötlus usaldusväärsetes abivahendites): pip install "
+"scikit-image"
+
+#: plugin/scripting/vision_runner.py
+#, python-brace-format
+msgid ""
+"Image '{name}' not found. Use list_images or leave image_name empty and "
+"select the graphic."
+msgstr ""
+"Pilti '{name}' ei leitud. Kasutage käsku list_images või jätke image_name "
+"tühjaks ja valige graafikaobjekt."
+
+#: plugin/scripting/vision_runner.py
+#, python-brace-format
+msgid "Image '{name}' could not be exported."
+msgstr "Pilti '{name}' ei saanud eksportida."
+
 #: plugin/scripting/session_manager.py
 msgid ""
 "Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
 "Writer document with an imported Jupyter notebook and try again."
 msgstr ""
-"Pythoni seansi lähtestamine märkmike jaoks kehtib LibreOffice Writeri kohta. "
-"Avage Writeri dokument imporditud Jupyteri märkmikuga ja proovige uuesti."
+"Pythoni seansi lähtestamine märkmike jaoks kehtib LibreOffice Writeri kohta."
+" Avage Writeri dokument imporditud Jupyteri märkmikuga ja proovige uuesti."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1238,8 +1331,8 @@ msgid ""
 "Initialization script and any in-memory init state were reset for this "
 "workbook. Cell variables were already isolated per cell."
 msgstr ""
-"Selle töövihiku lähtestusskript ja kogu mälusisene lähtestusolek lähtestati. "
-"Lahtrimuutujad olid juba lahtripõhiselt eraldatud."
+"Selle töövihiku lähtestusskript ja kogu mälusisene lähtestusolek lähtestati."
+" Lahtrimuutujad olid juba lahtripõhiselt eraldatud."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1388,14 +1481,67 @@ msgstr ""
 "Tulemuse sisestamine Draw/Impressi pole veel toetatud. PR-id on teretulnud!"
 
 #: plugin/scripting/python_runner.py
+msgid "Vision helpers require a Writer or Calc document."
+msgstr "Visuaalsed abivahendid nõuavad Writeri või Calci dokumenti."
+
+#: plugin/scripting/python_runner.py
+msgid "Vision helper failed."
+msgstr "Visuaalne abivahend nurjus."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Vision '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"Visuaalne abivahend '{helper}' lõpetas töö. Kirjutati {rows} rida. (kulus "
+"{time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Failed to insert result: {error} (took {time})"
+msgstr "Tulemuse sisestamine ebaõnnestus: {error} (kulus {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Found {blocks} blocks and {tables} tables. "
+"(took {time})"
+msgstr ""
+"Visuaalne abivahend '{helper}' lõpetas töö. Leiti {blocks} plokki ja "
+"{tables} tabelit. (kulus {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Vision '{helper}' completed. Extracted {lines} lines. (took {time})"
+msgstr ""
+"Visioon '{helper}' on lõpetatud. Eraldati {lines} rida. (kulus {time})"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Analysis helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"Analüüsi abiline nõuab andmevahemikku. Valige lahtrid või sisestage vahemik "
+"väljale Andmed."
+
+#: plugin/scripting/python_runner.py
+msgid "Analysis failed."
+msgstr "Analüüs ebaõnnestus."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Analysis '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"Analüüs '{helper}' on lõpetatud. Kirjutati {rows} rida. (kulus {time})"
+
+#: plugin/scripting/python_runner.py
 msgid "Unknown error"
 msgstr "Tundmatu viga"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "Skript käivitati edukalt, kuid see ei tagastanud tulemust ega väljundit. "
 "(kulus {time})"
@@ -1404,11 +1550,6 @@ msgstr ""
 #, python-brace-format
 msgid "Unsupported document type for result insertion. (took {time})"
 msgstr "Toetamata dokumenditüüp tulemuse sisestamiseks. (kulus {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Failed to insert result: {error} (took {time})"
-msgstr "Tulemuse sisestamine ebaõnnestus: {error} (kulus {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -1442,6 +1583,10 @@ msgstr "Väljund"
 msgid "Script saved."
 msgstr "Skript salvestatud."
 
+#: plugin/scripting/python_runner.py
+msgid "Select data range or enter A1 address (injected as data)."
+msgstr "Valige andmevahemik või sisestage A1-aadress (lisatakse andmetena)."
+
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
 msgstr "Peata MCP-server"
@@ -1465,8 +1610,8 @@ msgstr "MCP-serveri käivitamine ebaõnnestus"
 #: plugin/mcp/__init__.py
 msgid "Check writeragent_debug.log in your LibreOffice user config folder"
 msgstr ""
-"Kontrolli writeragent_debug.log faili oma LibreOffice'i kasutaja seadistuste "
-"kaustas"
+"Kontrolli writeragent_debug.log faili oma LibreOffice'i kasutaja seadistuste"
+" kaustas"
 
 #: plugin/mcp/__init__.py
 msgid "MCP server is not running"
@@ -1740,8 +1885,8 @@ msgstr "Writer"
 msgid "WriterAgent Evaluation Dashboard"
 msgstr "WriterAgenti hindamise töölaud"
 
-msgid "Agent backends"
-msgstr "Agendi taustsüsteemid"
+msgid "ACP"
+msgstr "ACP"
 
 msgid "Backend"
 msgstr "Taustsüsteem"
@@ -1758,15 +1903,18 @@ msgstr "Claude Code (ACP)"
 msgid "Mistral Vibe (ACP)"
 msgstr "Mistral Vibe (ACP)"
 
+msgid "Grok Build (ACP)"
+msgstr "Grok Build (ACP)"
+
 msgid "Path / URL"
 msgstr "Tee / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Tee taustaprogrammi CLI-le (nt aider) või ACP-serveri URL (nt http://"
-"localhost:8000 Hermes'i jaoks). Tühi = proovi vaikimisi."
+"Tee taustaprogrammi CLI-le (nt aider) või ACP-serveri URL (nt "
+"http://localhost:8000 Hermes'i jaoks). Tühi = proovi vaikimisi."
 
 msgid "Extra arguments"
 msgstr "Lisargumendid"
@@ -1876,8 +2024,8 @@ msgstr "Luba tehisintellektil põhinev grammatikakontroll (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "Kui see on sisse lülitatud, registreerib WriterAgent oma tehisintellektil "
 "põhineva grammatikakontrolli keeletööriistade hulgas; kontrollitud tekst "
@@ -1934,8 +2082,8 @@ msgid ""
 "document's used locales. If incorrect, the language property is updated "
 "automatically."
 msgstr ""
-"Kui see on sisse lülitatud, palub see tehisintellektil kontrollida iga lause "
-"keelt vastavalt dokumendis kasutatud keeleseadetele. Kui keel on vale, "
+"Kui see on sisse lülitatud, palub see tehisintellektil kontrollida iga lause"
+" keelt vastavalt dokumendis kasutatud keeleseadetele. Kui keel on vale, "
 "uuendatakse keeleomadust automaatselt."
 
 msgid "Enter key sends sidebar chat message"
@@ -1962,11 +2110,11 @@ msgid "Enable MCP Server"
 msgstr "Luba MCP-server"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Ainult localhost, autentimine puudub. Kliendid kasutavad aadressi http://"
-"localhost:<port>/mcp (voogedastatav HTTP)."
+"Ainult localhost, autentimine puudub. Kliendid kasutavad aadressi "
+"http://localhost:<port>/mcp (voogedastatav HTTP)."
 
 msgid "MCP Port"
 msgstr "MCP-port"
@@ -1979,8 +2127,8 @@ msgid ""
 "the browser Origin. For other hosts, add mcp.cors_allowed_origins in "
 "writeragent.json."
 msgstr ""
-"Automaatne domeenidele .local, .lan, .home.arpa, .internal, .intern ja LAN-i "
-"IP-aadressidele brauseri päritolus (Origin). Muude hostide puhul lisage "
+"Automaatne domeenidele .local, .lan, .home.arpa, .internal, .intern ja LAN-i"
+" IP-aadressidele brauseri päritolus (Origin). Muude hostide puhul lisage "
 "mcp.cors_allowed_origins faili writeragent.json."
 
 msgid "Python"
@@ -1992,11 +2140,13 @@ msgstr "Pythoni venv-rada"
 msgid ""
 "If set, runs tools in that venv (bin/python or Scripts/python.exe). If "
 "empty, run_venv_python_script uses this process's sys.executable (basic "
-"stdlib); use a venv for numpy/pandas."
+"stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
+"paddlepaddle)."
 msgstr ""
-"Kui määratud, käivitab tööriistad selles venv-is (bin/python või Scripts/"
-"python.exe). Kui tühi, kasutab run_venv_python_script selle protsessi "
-"sys.executable'i (põhiline stdlib); kasuta venv-i numpy/pandas jaoks."
+"Kui on määratud, käivitab tööriistad selles venv-is (bin/python või "
+"Scripts/python.exe). Kui on tühi, kasutab run_venv_python_script selle "
+"protsessi sys.executable'i (põhiline stdlib); kasutage numpy/pandase ja "
+"Vision Helperite (paddleocr, paddlepaddle) jaoks venv-i."
 
 msgid "Test"
 msgstr "Test"
@@ -2015,8 +2165,8 @@ msgid "Max Calc data cells"
 msgstr "Maksimaalne Calc-i andmeelementide arv"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
 "Maksimaalne elementide arv =PYTHON() andmetes või käsu „Run Python Script“ "
 "andmevahemikus. Suuremad väärtused nõuavad rohkem muutmälu ja aega; UNO "
@@ -2052,12 +2202,137 @@ msgid "Modeless Run Python Script dialog"
 msgstr "Mitteblokeeriv Pythoni skripti käivitamise dialoog"
 
 msgid ""
-"When checked, the plain-text Run Python Script dialog floats so you can edit "
-"the document while it is open. Uncheck for the classic modal dialog."
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
 msgstr ""
 "Kui see on märgitud, on lihttekstina kuvatav Pythoni skripti käivitamise "
 "dialoog ujuv, mis võimaldab dokumendi redigeerimist selle avatuse ajal. "
 "Klassikalise modaaldialoogi kasutamiseks eemaldage märge."
+
+msgid "Vision / OCR"
+msgstr "Visioon / OCR"
+
+msgid "Device"
+msgstr "Seade"
+
+msgid "Hardware for Docling models. auto picks GPU when available."
+msgstr ""
+"Riistvara Docling-mudelite jaoks. Valib automaatselt GPU, kui see on "
+"saadaval."
+
+msgid "Auto"
+msgstr "Automaatne"
+
+msgid "CPU"
+msgstr "CPU"
+
+msgid "CUDA (NVIDIA)"
+msgstr "CUDA (NVIDIA)"
+
+msgid "MPS (Apple Silicon)"
+msgstr "MPS (Apple Silicon)"
+
+msgid "Image scale"
+msgstr "Pildi skaleerimine"
+
+msgid "Upscale before OCR/layout. Try 2.0 for small screenshots."
+msgstr ""
+"Skaleeri enne OCR-i/küljendamist. Väikeste ekraanitõmmiste puhul proovi 2.0."
+
+msgid "Worker timeout (seconds)"
+msgstr "Tööprotsessi ajalõpp (sekundites)"
+
+msgid "Host subprocess limit for Vision Helpers (first model download)."
+msgstr "Vision Helperi alamprotsesside piirang (esmane mudeli allalaadimine)."
+
+msgid "Docling artifacts path"
+msgstr "Doclingi artefaktide asukoht"
+
+msgid "Optional folder from docling-tools models download (offline use)."
+msgstr ""
+"Valikuline kaust docling-toolsi mudelite allalaadimiseks (võrguühenduseta "
+"kasutamiseks)."
+
+msgid "OCR confidence threshold"
+msgstr "OCR-i usaldusväärsuse lävi"
+
+msgid "RapidOCR minimum text score. Raise to reduce garbage text."
+msgstr ""
+"RapidOCR-i minimaalne tekstiskoor. Suurendage, et vähendada prügiteksti."
+
+msgid "OCR entire image"
+msgstr "OCR-i rakendamine kogu pildile"
+
+msgid "Recommended for embedded graphics exported from LibreOffice."
+msgstr "Soovitatav LibreOffice'ist eksporditud manustatud graafika jaoks."
+
+msgid "OCR language"
+msgstr "OCR-i keel"
+
+msgid "Language code for OCR backends that support it (e.g. en, de)."
+msgstr "Keelekood OCR-i taustaprogrammidele, mis seda toetavad (nt en, de)."
+
+msgid "CPU threads"
+msgstr "CPU lõimed"
+
+msgid "Thread count for Docling model inference on CPU."
+msgstr "Lõimede arv Doclingi mudeli järelduste tegemiseks protsessoril."
+
+msgid "Table extraction mode"
+msgstr "Tabelite eraldamise režiim"
+
+msgid "Accurate (default)"
+msgstr "Täpne (vaikimisi)"
+
+msgid "Fast"
+msgstr "Kiire"
+
+msgid "Table cell matching"
+msgstr "Tabelilahtrite sobitamine"
+
+msgid "Align detected table cells with content (extract_structure)."
+msgstr "Joonda tuvastatud tabelilahtrid sisuga (extract_structure)."
+
+msgid "Keep orphan text clusters"
+msgstr "Säilita üksikud tekstiklastrid"
+
+msgid "Group unassigned text into clusters for messy layouts."
+msgstr "Rühmita määramata tekst klastritesse korratute paigutuste korral."
+
+msgid "Layout model"
+msgstr "Paigutusmudel"
+
+msgid "Heron (default)"
+msgstr "Heron (vaikimisi)"
+
+msgid "Egret large (slower"
+msgstr "Egret large (aeglasem"
+
+msgid "Extract formulas (LaTeX)"
+msgstr "Ekstrakti valemid (LaTeX)"
+
+msgid "Opt-in. Downloads extra VLM models on first use; slower."
+msgstr ""
+"Nõustumine. Laadib esmakordsel kasutamisel alla täiendavad VLM-mudelid; "
+"aeglasem."
+
+msgid "Code block enrichment"
+msgstr "Koodiploki rikastamine"
+
+msgid "Specialized OCR for code/terminal screenshots."
+msgstr "Spetsialiseeritud OCR koodi/terminali ekraanitõmmiste jaoks."
+
+msgid "Docling document timeout (s)"
+msgstr "Doclingi dokumendi ajalõpp (s)"
+
+msgid "Per-conversion timeout inside Docling. 0 = no limit."
+msgstr "Doclingi-sisene teisenduse ajalõpp. 0 = piiranguta."
+
+msgid "Allow external Docling plugins"
+msgstr "Luba välised Doclingi pistikprogrammid"
+
+msgid "Required for Surya OCR (docling-surya)."
+msgstr "Nõutav Surya OCR-i jaoks (docling-surya)."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writeri dokumenditööriistad (sh navigeerimine ja otsing)"

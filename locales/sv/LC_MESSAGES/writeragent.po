@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: WriterAgent 1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-04 23:41-0400\n"
+"POT-Creation-Date: 2026-06-07 16:27-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: \n"
 "Language-Team: Swedish\n"
@@ -14,8 +14,8 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
 "Dokumentforskning kräver specialiserad uppgiftsdelegering (USE_SUB_AGENT). "
 "Aktivera detta i konfigurationen."
@@ -23,8 +23,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Verktygsanrop har växlats till '{0}'. Du befinner dig i ett läge för "
@@ -41,8 +41,8 @@ msgstr "Notebook-körning stöds endast i LibreOffice Writer."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
 "Detta dokument har ingen importerad notebook. Använd Verktyg → Importera "
 "Jupyter Notebook… först."
@@ -144,8 +144,8 @@ msgid ""
 "You have made too many requests, please wait for them to finish, and try "
 "again later"
 msgstr ""
-"Du har gjort för många förfrågningar, vänligen vänta på att de ska slutföras "
-"och försök igen senare"
+"Du har gjort för många förfrågningar, vänligen vänta på att de ska slutföras"
+" och försök igen senare"
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
@@ -217,7 +217,8 @@ msgstr "Denna modell tar längre tid än din nuvarande konfiguration."
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr ""
 "Vänligen prova en annan modell. {0} skulle ta längre tid än du konfigurerat."
 
@@ -306,7 +307,8 @@ msgstr ""
 "Inställningar."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr "Anslutning nekad. Är din lokala AI-server (Ollama/LM Studio) igång?"
 
 #: plugin/framework/errors.py
@@ -337,7 +339,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "AI: Jag kan hjälpa dig med formler, dataanalys och färgglada diagram. Prova "
 "mig!"
@@ -406,15 +409,23 @@ msgstr "WriterAgent: Redigera markering (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Utöka markering (Calc)"
 
+#: plugin/calc/vision_egress.py plugin/scripting/vision_runner.py
+msgid "Select an embedded image, then Run again."
+msgstr "Markera en inbäddad bild och kör sedan igen."
+
+#: plugin/calc/vision_egress.py
+msgid "Anchor the image to a cell, select it, then Run again."
+msgstr "Förankra bilden i en cell, markera den och kör sedan igen."
+
 #: plugin/calc/python_editor.py
 msgid ""
 "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\"; "
-"A1:B10)."
+"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10) or =PYTHON(...)."
 msgstr ""
 "Kunde inte bevara cellens PYTHON-formelargument (t.ex. dataområden). "
-"Redigera formeln i Calc, eller använd en citerad kodsträng som "
-"=PYTHON(\"kod\"; A1:B10)."
+"Redigera formeln i Calc, eller använd en citerad kodsträng som =PY(\"code\";"
+" A1:B10) eller =PYTHON(...)."
 
 #: plugin/calc/python_editor.py
 msgid "Python cell editor"
@@ -439,12 +450,12 @@ msgstr "Markera en cell i ett Calc-kalkylblad för att redigera Python."
 #: plugin/calc/python_editor.py
 msgid ""
 "This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
-"in another cell). Edit it in the formula bar, or use =PYTHON(\"code\"; "
-"range) with quoted code."
+"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
+"(or =PYTHON(...)) with quoted code."
 msgstr ""
 "Denna PYTHON-formel använder en form som redigeraren inte säkert kan skriva "
 "om (t.ex. kod i en annan cell). Redigera den i formelfältet, eller använd "
-"=PYTHON(\"kod\"; område) med citerad kod."
+"=PY(\"code\"; range) (eller =PYTHON(...)) med citerad kod."
 
 #: plugin/calc/python_editor.py
 msgid "No Python interpreter available for the editor."
@@ -459,8 +470,7 @@ msgid ""
 "In that venv run: pip install pywebview\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"Kan inte importera webview (pywebview) med Python från Inställningar → "
-"Python:\n"
+"Kan inte importera webview (pywebview) med Python från Inställningar → Python:\n"
 "%(exe)s\n"
 "\n"
 "Kör följande i den venv:\n"
@@ -889,8 +899,8 @@ msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[Inget kompatibelt LibreOffice-dokument (Writer, Calc eller Draw) hittades i "
-"det aktiva fönstret.]"
+"[Inget kompatibelt LibreOffice-dokument (Writer, Calc eller Draw) hittades i"
+" det aktiva fönstret.]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -983,8 +993,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Ingen editor hittades (installera Kate eller Gedit, eller sätt EDITOR). "
-"Sökväg:\n"
+"Ingen editor hittades (installera Kate eller Gedit, eller sätt EDITOR). Sökväg:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -1013,10 +1022,11 @@ msgstr "[Agent-backend '{0}' hittades inte.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
-"[Agent-backend '{0}' är inte tillgänglig. Kontrollera Inställningar (sökväg, "
-"installation).]"
+"[Agent-backend '{0}' är inte tillgänglig. Kontrollera Inställningar (sökväg,"
+" installation).]"
 
 #: plugin/chatbot/send_handlers.py
 msgid "Perfect! I'm switching you to the main assistant now."
@@ -1050,8 +1060,8 @@ msgid ""
 "A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
 "check for updates and install the latest extension."
 msgstr ""
-"En nyare WriterAgent (%s) är tillgänglig. Använd Verktyg → Tilläggshanterare "
-"för att söka efter uppdateringar och installera det senaste tillägget."
+"En nyare WriterAgent (%s) är tillgänglig. Använd Verktyg → Tilläggshanterare"
+" för att söka efter uppdateringar och installera det senaste tillägget."
 
 #: plugin/chatbot/librarian.py
 msgid "Switching to document mode..."
@@ -1120,6 +1130,14 @@ msgstr "Skriptnamnet får inte vara tomt."
 #, python-brace-format
 msgid "A script named '{0}' already exists in this document."
 msgstr "Ett skript med namnet '{0}' finns redan i detta dokument."
+
+#: plugin/scripting/document_scripts.py
+msgid "Analysis Helpers"
+msgstr "Analyshjälpmedel"
+
+#: plugin/scripting/document_scripts.py
+msgid "Vision Helpers"
+msgstr "Vision-hjälpmedel"
 
 #: plugin/scripting/document_scripts.py
 msgid "My Scripts"
@@ -1193,6 +1211,79 @@ msgstr "Python-redigeraren avslutades innan koden kunde läsas in."
 msgid "Could not talk to the Python editor."
 msgstr "Kunde inte kommunicera med Python-redigeraren."
 
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Analysis Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Analyshjälpmedel: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Vision Libraries"
+msgstr "Vision-bibliotek"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Docling OCR load failed: %(err)s"
+msgstr ""
+"\n"
+"Docling OCR-inläsning misslyckades: %(err)s"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Vision Helpers (OCR, Docling): %(cmd)s"
+msgstr ""
+"\n"
+"Vision-hjälpmedel (OCR, Docling): %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Vision Helpers (OCR, Paddle fallback): %(cmd)s"
+msgstr ""
+"\n"
+"Vision-hjälpmedel (OCR, Paddle-fallback): %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Vision Helpers (Docling primary): %(cmd)s"
+msgstr ""
+"\n"
+"Vision-hjälpmedel (Docling primär): %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Optional (detection helpers): pip install ultralytics"
+msgstr "Valfritt (detekteringshjälpmedel): pip install ultralytics"
+
+#: plugin/scripting/venv_worker.py
+msgid ""
+"Optional (image processing in trusted helpers): pip install scikit-image"
+msgstr ""
+"Valfritt (bildbehandling i betrodda hjälpmedel): pip install scikit-image"
+
+#: plugin/scripting/vision_runner.py
+#, python-brace-format
+msgid ""
+"Image '{name}' not found. Use list_images or leave image_name empty and "
+"select the graphic."
+msgstr ""
+"Bilden '{name}' hittades inte. Använd list_images eller lämna image_name "
+"tomt och markera grafiken."
+
+#: plugin/scripting/vision_runner.py
+#, python-brace-format
+msgid "Image '{name}' could not be exported."
+msgstr "Bilden '{name}' kunde inte exporteras."
+
 #: plugin/scripting/session_manager.py
 msgid ""
 "Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
@@ -1227,8 +1318,8 @@ msgid ""
 "Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
 "try again."
 msgstr ""
-"Återställ Python-session gäller för Calc-kalkylblad. Öppna en Calc-arbetsbok "
-"och försök igen."
+"Återställ Python-session gäller för Calc-kalkylblad. Öppna en Calc-arbetsbok"
+" och försök igen."
 
 #: plugin/scripting/session_manager.py
 msgid "Python session reset for this workbook."
@@ -1258,8 +1349,8 @@ msgid ""
 "This Writer document has no imported notebook registry. Use Tools → Import "
 "Jupyter Notebook… to enable notebook Python session reset."
 msgstr ""
-"Detta Writer-dokument har inget importerat notebook-register. Använd Verktyg "
-"→ Importera Jupyter Notebook… för att aktivera återställning av Python-"
+"Detta Writer-dokument har inget importerat notebook-register. Använd Verktyg"
+" → Importera Jupyter Notebook… för att aktivera återställning av Python-"
 "session för notebook."
 
 #: plugin/scripting/python_runner.py
@@ -1328,7 +1419,8 @@ msgstr "Bifoga till dokument"
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid "A script named '{0}' already exists in this document. Overwrite?"
-msgstr "Ett skript med namnet ”{0}” finns redan i detta dokument. Skriva över?"
+msgstr ""
+"Ett skript med namnet ”{0}” finns redan i detta dokument. Skriva över?"
 
 #: plugin/scripting/python_runner.py
 msgid "Attach Script"
@@ -1388,14 +1480,63 @@ msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
 msgstr "Resultatinfogning i Draw/Impress stöds ännu inte. PR:s välkomnas!"
 
 #: plugin/scripting/python_runner.py
+msgid "Vision helpers require a Writer or Calc document."
+msgstr "Vision-hjälpmedel kräver ett Writer- eller Calc-dokument."
+
+#: plugin/scripting/python_runner.py
+msgid "Vision helper failed."
+msgstr "Vision-hjälpmedel misslyckades."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Vision '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr "Vision '{helper}' slutförd. Skrev {rows} rader. (tog {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Failed to insert result: {error} (took {time})"
+msgstr "Det gick inte att infoga resultatet: {error} (tog {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Found {blocks} blocks and {tables} tables. "
+"(took {time})"
+msgstr ""
+"Vision '{helper}' slutförd. Hittade {blocks} block och {tables} tabeller. "
+"(tog {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Vision '{helper}' completed. Extracted {lines} lines. (took {time})"
+msgstr "Vision '{helper}' slutförd. Extraherade {lines} rader. (tog {time})"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Analysis helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"Analyshjälpmedlet kräver ett dataområde. Markera celler eller ange ett "
+"område i datafältet."
+
+#: plugin/scripting/python_runner.py
+msgid "Analysis failed."
+msgstr "Analys misslyckades."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Analysis '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr "Analys '{helper}' slutförd. Skrev {rows} rader. (tog {time})"
+
+#: plugin/scripting/python_runner.py
 msgid "Unknown error"
 msgstr "Okänt fel"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "Skriptet kördes utan problem, men returnerade inget resultat och gav ingen "
 "utdata. (tog {time})"
@@ -1404,11 +1545,6 @@ msgstr ""
 #, python-brace-format
 msgid "Unsupported document type for result insertion. (took {time})"
 msgstr "Dokumenttypen stöds inte för infogning av resultat. (tog {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Failed to insert result: {error} (took {time})"
-msgstr "Det gick inte att infoga resultatet: {error} (tog {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -1441,6 +1577,10 @@ msgstr "Utdata"
 #: plugin/scripting/python_runner.py
 msgid "Script saved."
 msgstr "Skript sparat."
+
+#: plugin/scripting/python_runner.py
+msgid "Select data range or enter A1 address (injected as data)."
+msgstr "Markera dataområde eller ange A1-adress (inmatas som data)."
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -1740,8 +1880,8 @@ msgstr "Writer"
 msgid "WriterAgent Evaluation Dashboard"
 msgstr "WriterAgent utvärderingspanel"
 
-msgid "Agent backends"
-msgstr "Agentbackends"
+msgid "ACP"
+msgstr "ACP"
 
 msgid "Backend"
 msgstr "Backend"
@@ -1758,15 +1898,18 @@ msgstr "Claude Code (ACP)"
 msgid "Mistral Vibe (ACP)"
 msgstr "Mistral Vibe (ACP)"
 
+msgid "Grok Build (ACP)"
+msgstr "Grok Build (ACP)"
+
 msgid "Path / URL"
 msgstr "Sökväg / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Sökväg till backend CLI (t.ex. aider) eller ACP-serverns URL (t.ex. http://"
-"localhost:8000 för Hermes). Tom = prova standard."
+"Sökväg till backend CLI (t.ex. aider) eller ACP-serverns URL (t.ex. "
+"http://localhost:8000 för Hermes). Tom = prova standard."
 
 msgid "Extra arguments"
 msgstr "Extra argument"
@@ -1876,12 +2019,12 @@ msgstr "Aktivera AI-grammatikkontroll (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "När funktionen är på registrerar WriterAgent sin AI-grammatikgranskare hos "
-"Linguistic; kontrollerad text använder ditt API (Verktyg → Alternativ → AI). "
-"Understrykningar visas kort efter att du slutar skriva. Avstängd som "
+"Linguistic; kontrollerad text använder ditt API (Verktyg → Alternativ → AI)."
+" Understrykningar visas kort efter att du slutar skriva. Avstängd som "
 "standard."
 
 msgid "Grammar check model (optional)"
@@ -1961,11 +2104,11 @@ msgid "Enable MCP Server"
 msgstr "Aktivera MCP-server"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Endast localhost, ingen autentisering. Klienter använder http://localhost:"
-"<port>/mcp (strömbar HTTP)."
+"Endast localhost, ingen autentisering. Klienter använder "
+"http://localhost:<port>/mcp (strömbar HTTP)."
 
 msgid "MCP Port"
 msgstr "MCP-port"
@@ -1991,11 +2134,13 @@ msgstr "Sökväg till Python venv"
 msgid ""
 "If set, runs tools in that venv (bin/python or Scripts/python.exe). If "
 "empty, run_venv_python_script uses this process's sys.executable (basic "
-"stdlib); use a venv for numpy/pandas."
+"stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
+"paddlepaddle)."
 msgstr ""
-"Om inställd, körs verktyg i den venv-miljön (bin/python eller Scripts/"
-"python.exe). Om tom använder run_venv_python_script processens "
-"sys.executable (grundläggande stdlib); använd en venv för numpy/pandas."
+"Om inställd, körs verktyg i den venv-miljön (bin/python eller "
+"Scripts/python.exe). Om tom använder run_venv_python_script processens "
+"sys.executable (grundläggande stdlib); använd en venv för numpy/pandas och "
+"Vision Helpers (paddleocr, paddlepaddle)."
 
 msgid "Test"
 msgstr "Testa"
@@ -2006,18 +2151,19 @@ msgstr "Tidsgräns för Python-skript (sekunder)"
 msgid ""
 "Wall-clock limit for Run Python Script, =PYTHON(), and "
 "run_venv_python_script."
-msgstr "Tidsgräns för Kör Python-skript, =PYTHON() och run_venv_python_script."
+msgstr ""
+"Tidsgräns för Kör Python-skript, =PYTHON() och run_venv_python_script."
 
 msgid "Max Calc data cells"
 msgstr "Max antal Calc-dataceller"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
-"Maximalt antal celler i =PYTHON()-data eller Run Python Script-data/"
-"data_range. Större värden förbrukar mer RAM och tid; UNO-områdesläsning "
-"dominerar fortfarande."
+"Maximalt antal celler i =PYTHON()-data eller Run Python Script-"
+"data/data_range. Större värden förbrukar mer RAM och tid; UNO-områdesläsning"
+" dominerar fortfarande."
 
 msgid "Python session mode"
 msgstr "Python-sessionsläge"
@@ -2049,12 +2195,134 @@ msgid "Modeless Run Python Script dialog"
 msgstr "Modallös dialogruta för att köra Python-skript"
 
 msgid ""
-"When checked, the plain-text Run Python Script dialog floats so you can edit "
-"the document while it is open. Uncheck for the classic modal dialog."
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
 msgstr ""
 "När markerad flyter dialogrutan Kör Python-skript som vanlig text så att du "
 "kan redigera dokumentet medan den är öppen. Avmarkera för den klassiska "
 "modala dialogrutan."
+
+msgid "Vision / OCR"
+msgstr "Vision / OCR"
+
+msgid "Device"
+msgstr "Enhet"
+
+msgid "Hardware for Docling models. auto picks GPU when available."
+msgstr ""
+"Hårdvara för Docling-modeller. Väljer automatiskt GPU när tillgängligt."
+
+msgid "Auto"
+msgstr "Auto"
+
+msgid "CPU"
+msgstr "CPU"
+
+msgid "CUDA (NVIDIA)"
+msgstr "CUDA (NVIDIA)"
+
+msgid "MPS (Apple Silicon)"
+msgstr "MPS (Apple Silicon)"
+
+msgid "Image scale"
+msgstr "Bildskala"
+
+msgid "Upscale before OCR/layout. Try 2.0 for small screenshots."
+msgstr "Skala upp före OCR/layout. Prova 2.0 för små skärmklipp."
+
+msgid "Worker timeout (seconds)"
+msgstr "Tidsgräns för arbetsprocess (sekunder)"
+
+msgid "Host subprocess limit for Vision Helpers (first model download)."
+msgstr ""
+"Gräns för värdunderprocesser för Vision Helpers (första "
+"modellnedladdningen)."
+
+msgid "Docling artifacts path"
+msgstr "Sökväg för Docling-artefakter"
+
+msgid "Optional folder from docling-tools models download (offline use)."
+msgstr ""
+"Valfri mapp för nedladdade docling-tools-modeller (för användning offline)."
+
+msgid "OCR confidence threshold"
+msgstr "Tröskelvärde för OCR-konfidens"
+
+msgid "RapidOCR minimum text score. Raise to reduce garbage text."
+msgstr "Minsta textpoäng för RapidOCR. Höj för att minska skräptext."
+
+msgid "OCR entire image"
+msgstr "OCR-läs hela bilden"
+
+msgid "Recommended for embedded graphics exported from LibreOffice."
+msgstr "Rekommenderas för inbäddad grafik som exporterats från LibreOffice."
+
+msgid "OCR language"
+msgstr "OCR-språk"
+
+msgid "Language code for OCR backends that support it (e.g. en, de)."
+msgstr "Språkkod för OCR-motorer som stöder det (t.ex. en, de)."
+
+msgid "CPU threads"
+msgstr "CPU-trådar"
+
+msgid "Thread count for Docling model inference on CPU."
+msgstr "Antal trådar för Docling-modellinferens på CPU."
+
+msgid "Table extraction mode"
+msgstr "Läge för tabellutvinning"
+
+msgid "Accurate (default)"
+msgstr "Noggrann (standard)"
+
+msgid "Fast"
+msgstr "Snabb"
+
+msgid "Table cell matching"
+msgstr "Matchning av tabellceller"
+
+msgid "Align detected table cells with content (extract_structure)."
+msgstr ""
+"Justera identifierade tabellceller efter innehåll (extract_structure)."
+
+msgid "Keep orphan text clusters"
+msgstr "Behåll fristående textkluster"
+
+msgid "Group unassigned text into clusters for messy layouts."
+msgstr "Gruppera otilldelad text i kluster för röriga layouter."
+
+msgid "Layout model"
+msgstr "Layoutmodell"
+
+msgid "Heron (default)"
+msgstr "Heron (standard)"
+
+msgid "Egret large (slower"
+msgstr "Egret large (långsammare"
+
+msgid "Extract formulas (LaTeX)"
+msgstr "Extrahera formler (LaTeX)"
+
+msgid "Opt-in. Downloads extra VLM models on first use; slower."
+msgstr "Opt-in. Hämtar extra VLM-modeller vid första användning; långsammare."
+
+msgid "Code block enrichment"
+msgstr "Kodblocksberikning"
+
+msgid "Specialized OCR for code/terminal screenshots."
+msgstr "Specialiserad OCR för skärmklipp av kod/terminal."
+
+msgid "Docling document timeout (s)"
+msgstr "Tidsgräns för Docling-dokument (s)"
+
+msgid "Per-conversion timeout inside Docling. 0 = no limit."
+msgstr "Tidsgräns per konvertering i Docling. 0 = ingen gräns."
+
+msgid "Allow external Docling plugins"
+msgstr "Tillåt externa Docling-insticksprogram"
+
+msgid "Required for Surya OCR (docling-surya)."
+msgstr "Krävs för Surya OCR (docling-surya)."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer-dokumentverktyg (inklusive navigering och sökning)"

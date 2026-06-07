@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-04 23:41-0400\n"
+"POT-Creation-Date: 2026-06-07 16:27-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Catalan <LL@li.org>\n"
@@ -19,8 +19,8 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
 "Les lectures de recerca de documents requereixen una delegació de tasques "
 "especialitzada (USE_SUB_AGENT). Habiliteu-ho a la configuració."
@@ -28,8 +28,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "La crida a l'eina ha canviat a «{0}». Esteu en un mode d'eines "
@@ -46,11 +46,11 @@ msgstr "L'execució de quaderns només s'admet al LibreOffice Writer."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
-"Aquest document no té cap quadern importat. Utilitzeu primer Eines → Importa "
-"el quadern Jupyter…."
+"Aquest document no té cap quadern importat. Utilitzeu primer Eines → Importa"
+" el quadern Jupyter…."
 
 #: plugin/notebook/notebook_runner.py
 msgid "Could not find notebook cell for this control."
@@ -223,7 +223,8 @@ msgstr "Aquest model requereix més temps que la vostra configuració actual."
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr "Proveu un altre model. {0} trigaria més temps del que heu configurat."
 
 #: plugin/contrib/aihordeclient/__init__.py
@@ -312,7 +313,8 @@ msgstr ""
 "d'espera de la sol·licitud» a la configuració."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Connexió refusada. El vostre servidor d'IA local (Ollama/LM Studio) està en "
 "marxa?"
@@ -345,7 +347,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "IA: Puc ajudar-vos amb fórmules, anàlisi de dades i gràfics acolorits. "
 "Proveu-me!"
@@ -414,15 +417,23 @@ msgstr "WriterAgent: Edita la selecció (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Amplia la selecció (Calc)"
 
+#: plugin/calc/vision_egress.py plugin/scripting/vision_runner.py
+msgid "Select an embedded image, then Run again."
+msgstr "Seleccioneu una imatge incrustada i torneu a executar."
+
+#: plugin/calc/vision_egress.py
+msgid "Anchor the image to a cell, select it, then Run again."
+msgstr "Ancoreu la imatge a una cel·la, seleccioneu-la i torneu a executar."
+
 #: plugin/calc/python_editor.py
 msgid ""
 "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\"; "
-"A1:B10)."
+"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10) or =PYTHON(...)."
 msgstr ""
-"No s'han pogut preservar els arguments de la fórmula PYTHON d'aquesta cel·la "
-"(p. ex., intervals de dades). Editeu la fórmula al Calc, o utilitzeu una "
-"cadena de codi entre cometes com ara =PYTHON(\"codi\"; A1:B10)."
+"No s'han pogut preservar els arguments de la fórmula PYTHON d'aquesta cel·la"
+" (p. ex., intervals de dades). Editeu la fórmula al Calc o utilitzeu una "
+"cadena de codi entre cometes com ara =PY(\"codi\"; A1:B10) o =PYTHON(...)."
 
 #: plugin/calc/python_editor.py
 msgid "Python cell editor"
@@ -448,12 +459,13 @@ msgstr ""
 #: plugin/calc/python_editor.py
 msgid ""
 "This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
-"in another cell). Edit it in the formula bar, or use =PYTHON(\"code\"; "
-"range) with quoted code."
+"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
+"(or =PYTHON(...)) with quoted code."
 msgstr ""
-"Aquesta fórmula PYTHON utilitza un formulari que l'editor no pot reescriure "
-"amb seguretat (p. ex., codi en una altra cel·la). Editeu-la a la barra de "
-"fórmules, o utilitzeu =PYTHON(\"codi\"; interval) amb el codi entre cometes."
+"Aquesta fórmula PYTHON utilitza un format que l'editor no pot reescriure amb"
+" seguretat (p. ex., codi en una altra cel·la). Editeu-la a la barra de "
+"fórmules o utilitzeu =PY(\"codi\"; interval) (o =PYTHON(...)) amb el codi "
+"entre cometes."
 
 #: plugin/calc/python_editor.py
 msgid "No Python interpreter available for the editor."
@@ -468,8 +480,7 @@ msgid ""
 "In that venv run: pip install pywebview\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"No es pot importar webview (pywebview) amb el Python de Paràmetres → "
-"Python:\n"
+"No es pot importar webview (pywebview) amb el Python de Paràmetres → Python:\n"
 "%(exe)s\n"
 "\n"
 "En aquest venv executeu: pip install pywebview\n"
@@ -899,8 +910,8 @@ msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[No s'ha trobat cap document de LibreOffice compatible (Writer, Calc o Draw) "
-"a la finestra activa.]"
+"[No s'ha trobat cap document de LibreOffice compatible (Writer, Calc o Draw)"
+" a la finestra activa.]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -995,8 +1006,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"No s'ha trobat cap editor (instal·leu Kate o Gedit, o definiu EDITOR). "
-"Camí:\n"
+"No s'ha trobat cap editor (instal·leu Kate o Gedit, o definiu EDITOR). Camí:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -1025,7 +1035,8 @@ msgstr "[No s'ha trobat el rerefons de l'agent '{0}'.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[El rerefons de l'agent '{0}' no està disponible. Comproveu la configuració "
 "(camí, instal·lació).]"
@@ -1062,8 +1073,8 @@ msgid ""
 "A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
 "check for updates and install the latest extension."
 msgstr ""
-"Hi ha una versió més nova del WriterAgent (%s) disponible. Utilitzeu Eines → "
-"Gestor d'extensions per cercar actualitzacions i instal·lar l'extensió més "
+"Hi ha una versió més nova del WriterAgent (%s) disponible. Utilitzeu Eines →"
+" Gestor d'extensions per cercar actualitzacions i instal·lar l'extensió més "
 "recent."
 
 #: plugin/chatbot/librarian.py
@@ -1137,6 +1148,14 @@ msgid "A script named '{0}' already exists in this document."
 msgstr "Ja existeix un script anomenat «{0}» en aquest document."
 
 #: plugin/scripting/document_scripts.py
+msgid "Analysis Helpers"
+msgstr "Assistents d'anàlisi"
+
+#: plugin/scripting/document_scripts.py
+msgid "Vision Helpers"
+msgstr "Assistents de visió"
+
+#: plugin/scripting/document_scripts.py
 msgid "My Scripts"
 msgstr "Els meus scripts"
 
@@ -1208,6 +1227,80 @@ msgstr "L'editor de Python ha sortit abans de poder carregar el vostre codi."
 msgid "Could not talk to the Python editor."
 msgstr "No s'ha pogut comunicar amb l'editor de Python."
 
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Analysis Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Assistents d'anàlisi: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Vision Libraries"
+msgstr "Biblioteques de visió"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Docling OCR load failed: %(err)s"
+msgstr ""
+"\n"
+"Ha fallat la càrrega de l'OCR de Docling: %(err)s"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Vision Helpers (OCR, Docling): %(cmd)s"
+msgstr ""
+"\n"
+"Assistents de visió (OCR, Docling): %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Vision Helpers (OCR, Paddle fallback): %(cmd)s"
+msgstr ""
+"\n"
+"Assistents de visió (OCR, recurs de reserva Paddle): %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Vision Helpers (Docling primary): %(cmd)s"
+msgstr ""
+"\n"
+"Assistents de visió (Docling principal): %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Optional (detection helpers): pip install ultralytics"
+msgstr "Opcional (assistents de detecció): pip install ultralytics"
+
+#: plugin/scripting/venv_worker.py
+msgid ""
+"Optional (image processing in trusted helpers): pip install scikit-image"
+msgstr ""
+"Opcional (processament d'imatges en assistents de confiança): pip install "
+"scikit-image"
+
+#: plugin/scripting/vision_runner.py
+#, python-brace-format
+msgid ""
+"Image '{name}' not found. Use list_images or leave image_name empty and "
+"select the graphic."
+msgstr ""
+"No s'ha trobat la imatge '{name}'. Utilitzeu list_images o deixeu image_name"
+" buit i seleccioneu el gràfic."
+
+#: plugin/scripting/vision_runner.py
+#, python-brace-format
+msgid "Image '{name}' could not be exported."
+msgstr "No s'ha pogut exportar la imatge '{name}'."
+
 #: plugin/scripting/session_manager.py
 msgid ""
 "Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
@@ -1222,8 +1315,8 @@ msgid ""
 "This Writer document has no imported notebook registry. Use Tools → Import "
 "Jupyter Notebook… first."
 msgstr ""
-"Aquest document del Writer no té cap registre de quadern importat. Utilitzeu "
-"primer Eines → Importa el quadern Jupyter…."
+"Aquest document del Writer no té cap registre de quadern importat. Utilitzeu"
+" primer Eines → Importa el quadern Jupyter…."
 
 #: plugin/scripting/session_manager.py
 msgid "Could not resolve notebook Python session."
@@ -1274,8 +1367,8 @@ msgid ""
 "This Writer document has no imported notebook registry. Use Tools → Import "
 "Jupyter Notebook… to enable notebook Python session reset."
 msgstr ""
-"Aquest document del Writer no té cap registre de quadern importat. Utilitzeu "
-"Eines → Importa el quadern Jupyter… per habilitar el restabliment de la "
+"Aquest document del Writer no té cap registre de quadern importat. Utilitzeu"
+" Eines → Importa el quadern Jupyter… per habilitar el restabliment de la "
 "sessió de Python del quadern."
 
 #: plugin/scripting/python_runner.py
@@ -1408,14 +1501,66 @@ msgstr ""
 "contribucions són benvingudes!"
 
 #: plugin/scripting/python_runner.py
+msgid "Vision helpers require a Writer or Calc document."
+msgstr "Els assistents de visió requereixen un document de Writer o Calc."
+
+#: plugin/scripting/python_runner.py
+msgid "Vision helper failed."
+msgstr "L'assistent de visió ha fallat."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Vision '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"Visió '{helper}' completada. S'han escrit {rows} files. (ha trigat {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Failed to insert result: {error} (took {time})"
+msgstr "No s'ha pogut inserir el resultat: {error} (ha trigat {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Found {blocks} blocks and {tables} tables. "
+"(took {time})"
+msgstr ""
+"Visió '{helper}' completada. S'han trobat {blocks} blocs i {tables} taules. "
+"(ha trigat {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Vision '{helper}' completed. Extracted {lines} lines. (took {time})"
+msgstr ""
+"Visió '{helper}' completada. S'han extret {lines} línies. (ha trigat {time})"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Analysis helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"L'ajudant d'anàlisi requereix un interval de dades. Seleccioneu cel·les o "
+"introduïu un interval al camp Dades."
+
+#: plugin/scripting/python_runner.py
+msgid "Analysis failed."
+msgstr "L'anàlisi ha fallat."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Analysis '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"Anàlisi '{helper}' completada. S'han escrit {rows} files. (ha trigat {time})"
+
+#: plugin/scripting/python_runner.py
 msgid "Unknown error"
 msgstr "Error desconegut"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "L'script s'ha executat correctament, però no ha retornat cap resultat ni ha "
 "produït cap sortida. (ha trigat {time})"
@@ -1424,12 +1569,8 @@ msgstr ""
 #, python-brace-format
 msgid "Unsupported document type for result insertion. (took {time})"
 msgstr ""
-"Tipus de document no admès per a la inserció del resultat. (ha trigat {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Failed to insert result: {error} (took {time})"
-msgstr "No s'ha pogut inserir el resultat: {error} (ha trigat {time})"
+"Tipus de document no admès per a la inserció del resultat. (ha trigat "
+"{time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -1462,6 +1603,12 @@ msgstr "Sortida"
 #: plugin/scripting/python_runner.py
 msgid "Script saved."
 msgstr "L'script s'ha desat."
+
+#: plugin/scripting/python_runner.py
+msgid "Select data range or enter A1 address (injected as data)."
+msgstr ""
+"Seleccioneu l'interval de dades o introduïu una adreça A1 (injectada com a "
+"dades)."
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -1761,8 +1908,8 @@ msgstr "Writer"
 msgid "WriterAgent Evaluation Dashboard"
 msgstr "Tauler d'avaluació de WriterAgent"
 
-msgid "Agent backends"
-msgstr "Motors d'agent"
+msgid "ACP"
+msgstr "ACP"
 
 msgid "Backend"
 msgstr "Motor"
@@ -1779,15 +1926,18 @@ msgstr "Claude Code (ACP)"
 msgid "Mistral Vibe (ACP)"
 msgstr "Mistral Vibe (ACP)"
 
+msgid "Grok Build (ACP)"
+msgstr "Grok Build (ACP)"
+
 msgid "Path / URL"
 msgstr "Camí / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Camí al CLI del backend (p. ex. aider) o URL del servidor ACP (p. ex. http://"
-"localhost:8000 per a Hermes). Buit = provar el predeterminat."
+"Camí al CLI del backend (p. ex. aider) o URL del servidor ACP (p. ex. "
+"http://localhost:8000 per a Hermes). Buit = provar el predeterminat."
 
 msgid "Extra arguments"
 msgstr "Arguments addicionals"
@@ -1880,8 +2030,8 @@ msgid ""
 "cache database)."
 msgstr ""
 "Emmagatzema en memòria cau els informes de recerca web completats per "
-"consulta normalitzada (reutilitza la base de dades de memòria cau de cerques "
-"web)."
+"consulta normalitzada (reutilitza la base de dades de memòria cau de cerques"
+" web)."
 
 msgid "Rich Text Control Sidebar"
 msgstr "Barra lateral de control de text enriquit"
@@ -1901,12 +2051,12 @@ msgstr "Activa el corrector gramatical d'IA (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "Quan està activat, WriterAgent registra el seu corrector gramatical d'IA a "
-"Linguistic; el text comprovat utilitza la vostra API (Eines → Opcions → IA). "
-"Els subratllats apareixen poc després de deixar d'escriure. Desactivat per "
+"Linguistic; el text comprovat utilitza la vostra API (Eines → Opcions → IA)."
+" Els subratllats apareixen poc després de deixar d'escriure. Desactivat per "
 "defecte."
 
 msgid "Grammar check model (optional)"
@@ -1936,7 +2086,8 @@ msgid ""
 msgstr ""
 "Nombre de frases a enviar per cada sol·licitud a l'LLM (1-8). 1 "
 "(predeterminat) és el més fiable; valors més alts són més ràpids i "
-"econòmics, però poden arribar als límits de tokens o causar errors del model."
+"econòmics, però poden arribar als límits de tokens o causar errors del "
+"model."
 
 msgid "Grammar concurrent requests"
 msgstr "Sol·licituds simultànies de gramàtica"
@@ -1960,8 +2111,8 @@ msgid ""
 "automatically."
 msgstr ""
 "Quan està activat, demana a la IA que verifiqui la llengua de cada frase "
-"segons la configuració regional del document. Si és incorrecta, la propietat "
-"de llengua s'actualitza automàticament."
+"segons la configuració regional del document. Si és incorrecta, la propietat"
+" de llengua s'actualitza automàticament."
 
 msgid "Enter key sends sidebar chat message"
 msgstr "La tecla Retorn envia el missatge del xat a la barra lateral"
@@ -1987,11 +2138,11 @@ msgid "Enable MCP Server"
 msgstr "Activa el servidor MCP"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Només localhost, sense autenticació. Els clients utilitzen http://localhost:"
-"<port>/mcp (HTTP transmissible)."
+"Només localhost, sense autenticació. Els clients utilitzen "
+"http://localhost:<port>/mcp (HTTP transmissible)."
 
 msgid "MCP Port"
 msgstr "Port MCP"
@@ -2004,8 +2155,8 @@ msgid ""
 "the browser Origin. For other hosts, add mcp.cors_allowed_origins in "
 "writeragent.json."
 msgstr ""
-"Automàtic per a .local, .lan, .home.arpa, .internal, .intern i adreces IP de "
-"la LAN en l'origen del navegador. Per a altres amfitrions, afegiu "
+"Automàtic per a .local, .lan, .home.arpa, .internal, .intern i adreces IP de"
+" la LAN en l'origen del navegador. Per a altres amfitrions, afegiu "
 "mcp.cors_allowed_origins a writeragent.json."
 
 msgid "Python"
@@ -2017,11 +2168,13 @@ msgstr "Camí del venv de Python"
 msgid ""
 "If set, runs tools in that venv (bin/python or Scripts/python.exe). If "
 "empty, run_venv_python_script uses this process's sys.executable (basic "
-"stdlib); use a venv for numpy/pandas."
+"stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
+"paddlepaddle)."
 msgstr ""
-"Si s'estableix, executa les eines en aquest venv (bin/python o Scripts/"
-"python.exe). Si està buit, run_venv_python_script utilitza el sys.executable "
-"d'aquest procés (stdlib bàsic); utilitzeu un venv per a numpy/pandas."
+"Si s'estableix, executa les eines en aquest venv (bin/python o "
+"Scripts/python.exe). Si està buit, run_venv_python_script utilitza el "
+"sys.executable d'aquest procés (stdlib bàsic); utilitzeu un venv per a "
+"numpy/pandas i els ajudants de visió (paddleocr, paddlepaddle)."
 
 msgid "Test"
 msgstr "Prova"
@@ -2040,8 +2193,8 @@ msgid "Max Calc data cells"
 msgstr "Màxim de cel·les de dades del Calc"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
 "Nombre màxim de cel·les en dades de =PYTHON() o dades/interval_de_dades de "
 "l'Execució de script de Python. Els valors més grans utilitzen més memòria "
@@ -2054,8 +2207,8 @@ msgid ""
 "Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace "
 "per workbook (variables carry between cells)."
 msgstr ""
-"Isolat: cada cel·la =PYTHON() obté un espai de noms nou. Compartit: un espai "
-"de noms per llibre de treball (les variables es mantenen entre cel·les)."
+"Isolat: cada cel·la =PYTHON() obté un espai de noms nou. Compartit: un espai"
+" de noms per llibre de treball (les variables es mantenen entre cel·les)."
 
 msgid "Isolated (default)"
 msgstr "Isolat (predeterminat)"
@@ -2077,12 +2230,141 @@ msgid "Modeless Run Python Script dialog"
 msgstr "Diàleg d'execució d'script de Python no modal"
 
 msgid ""
-"When checked, the plain-text Run Python Script dialog floats so you can edit "
-"the document while it is open. Uncheck for the classic modal dialog."
+"When checked, the plain-text Run Python Script dialog floats so you can edit"
+" the document while it is open. Uncheck for the classic modal dialog."
 msgstr ""
 "Si està marcada, el diàleg Executa l'script de Python de text pla flota "
 "perquè pugueu editar el document mentre està obert. Desmarqueu-la per al "
 "diàleg modal clàssic."
+
+msgid "Vision / OCR"
+msgstr "Visió / OCR"
+
+msgid "Device"
+msgstr "Dispositiu"
+
+msgid "Hardware for Docling models. auto picks GPU when available."
+msgstr ""
+"Maquinari per als models de Docling. Selecciona automàticament la GPU si "
+"està disponible."
+
+msgid "Auto"
+msgstr "Automàtic"
+
+msgid "CPU"
+msgstr "CPU"
+
+msgid "CUDA (NVIDIA)"
+msgstr "CUDA (NVIDIA)"
+
+msgid "MPS (Apple Silicon)"
+msgstr "MPS (Apple Silicon)"
+
+msgid "Image scale"
+msgstr "Escala de la imatge"
+
+msgid "Upscale before OCR/layout. Try 2.0 for small screenshots."
+msgstr ""
+"Escala abans de l'OCR/disseny. Proveu 2.0 per a captures de pantalla "
+"petites."
+
+msgid "Worker timeout (seconds)"
+msgstr "Temps d'espera del procés (segons)"
+
+msgid "Host subprocess limit for Vision Helpers (first model download)."
+msgstr ""
+"Límit de subprocessos amfitrió per als ajudants de visió (primera descàrrega"
+" del model)."
+
+msgid "Docling artifacts path"
+msgstr "Camí dels artefactes de Docling"
+
+msgid "Optional folder from docling-tools models download (offline use)."
+msgstr ""
+"Carpeta opcional per a la descàrrega de models de docling-tools (ús fora de "
+"línia)."
+
+msgid "OCR confidence threshold"
+msgstr "Llindar de confiança de l'OCR"
+
+msgid "RapidOCR minimum text score. Raise to reduce garbage text."
+msgstr ""
+"Puntuació mínima de text per a RapidOCR. Augmenteu-la per reduir el text "
+"brossa."
+
+msgid "OCR entire image"
+msgstr "OCR de tota la imatge"
+
+msgid "Recommended for embedded graphics exported from LibreOffice."
+msgstr "Recomanat per a gràfics incrustats exportats des de LibreOffice."
+
+msgid "OCR language"
+msgstr "Llengua de l'OCR"
+
+msgid "Language code for OCR backends that support it (e.g. en, de)."
+msgstr ""
+"Codi de llengua per als motors d'OCR que hi donen suport (p. ex., en, de)."
+
+msgid "CPU threads"
+msgstr "Fils de CPU"
+
+msgid "Thread count for Docling model inference on CPU."
+msgstr "Nombre de fils per a la inferència del model Docling a la CPU."
+
+msgid "Table extraction mode"
+msgstr "Mode d'extracció de taules"
+
+msgid "Accurate (default)"
+msgstr "Precís (predeterminat)"
+
+msgid "Fast"
+msgstr "Ràpid"
+
+msgid "Table cell matching"
+msgstr "Coincidència de cel·les de taula"
+
+msgid "Align detected table cells with content (extract_structure)."
+msgstr ""
+"Alinea les cel·les de taula detectades amb el contingut (extract_structure)."
+
+msgid "Keep orphan text clusters"
+msgstr "Mantén els clústers de text orfes"
+
+msgid "Group unassigned text into clusters for messy layouts."
+msgstr "Agrupa el text no assignat en clústers per a dissenys desordenats."
+
+msgid "Layout model"
+msgstr "Model de disseny"
+
+msgid "Heron (default)"
+msgstr "Heron (predeterminat)"
+
+msgid "Egret large (slower"
+msgstr "Egret large (més lent"
+
+msgid "Extract formulas (LaTeX)"
+msgstr "Extreu fórmules (LaTeX)"
+
+msgid "Opt-in. Downloads extra VLM models on first use; slower."
+msgstr "Opt-in. Descarrega models VLM addicionals al primer ús; més lent."
+
+msgid "Code block enrichment"
+msgstr "Enriquiment de blocs de codi"
+
+msgid "Specialized OCR for code/terminal screenshots."
+msgstr "OCR especialitzat per a captures de pantalla de codi/terminal."
+
+msgid "Docling document timeout (s)"
+msgstr "Temps d'espera del document Docling (s)"
+
+msgid "Per-conversion timeout inside Docling. 0 = no limit."
+msgstr "Temps d'espera per conversió dins de Docling. 0 = sense límit."
+
+msgid "Allow external Docling plugins"
+msgstr "Permet connectors externs de Docling"
+
+msgid "Required for Surya OCR (docling-surya)."
+msgstr "Necessari per a l'OCR Surya (docling-surya)."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Eines de document del Writer (incloent-hi la navegació i la cerca)"
