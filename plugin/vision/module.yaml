@@ -123,6 +123,17 @@ config:
     label: Keep orphan text clusters
     helper: Group unassigned text into clusters for messy layouts.
 
+  insert_mode:
+    type: string
+    default: html
+    widget: select
+    page: tables
+    label: Document insert mode
+    helper: html = Docling HTML import (default). structured = bbox column layout in Writer; native Calc cells for extract_structure tables.
+    options:
+      - {value: html, label: Standard HTML}
+      - {value: structured, label: Structured (layout / cell grid)}
+
   layout_model:
     type: string
     default: heron

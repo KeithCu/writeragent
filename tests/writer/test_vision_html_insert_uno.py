@@ -64,39 +64,32 @@ def _is_bold_char_weight(wv) -> bool:
         return False
 
 
-def _first_char_props_for_paragraph_text(text_obj, needle: str) -> tuple[float | None, float | None]:
-    enum = text_obj.createEnumeration()
-    while enum.hasMoreElements():
-        block = enum.nextElement()
-        try:
-            pc = block.createTextCursor()
-        except Exception:
-            continue
-        try:
-            pc.gotoStartOfParagraph(False)
-            pc.gotoEndOfParagraph(True)
-            para_text = pc.getString()
-        except Exception:
-            continue
-        if needle not in para_text:
-            continue
-        try:
-            pc.gotoStartOfParagraph(False)
-            pc.goRight(1, True)
-            weight = pc.getPropertyValue("CharWeight")
-            height = pc.getPropertyValue("CharHeight")
-            return float(weight), float(height)
-        except Exception:
-            return None, None
-    return None, None
+def _first_char_props_at_search(doc, needle: str) -> tuple[float | None, float | None]:
+    sd = doc.createSearchDescriptor()
+    sd.SearchString = needle
+    found = doc.findFirst(sd)
+    if found is None:
+        return None, None
+    text_obj = found.getText()
+    cursor = text_obj.createTextCursorByRange(found.getStart())
+    try:
+        cursor.goRight(1, True)
+        weight = cursor.getPropertyValue("CharWeight")
+        height = cursor.getPropertyValue("CharHeight")
+        return float(weight), float(height)
+    except Exception:
+        return None, None
 
 
 @native_test
 def test_vision_html_insert_heading_bolder_and_larger_than_body():
     insert_content_at_position(_test_doc, _test_ctx, _VISION_HTML_FIXTURE, "end")
-    text_obj = _test_doc.getText()
-    heading_weight, heading_height = _first_char_props_for_paragraph_text(text_obj, "SECTION HEADING")
-    body_weight, body_height = _first_char_props_for_paragraph_text(text_obj, "Body paragraph")
+    full_text = _test_doc.getText().getString()
+    assert "SECTION HEADING" in full_text, f"heading text missing: {full_text!r}"
+    assert "Body paragraph" in full_text, f"body text missing: {full_text!r}"
+
+    heading_weight, heading_height = _first_char_props_at_search(_test_doc, "SECTION HEADING")
+    body_weight, body_height = _first_char_props_at_search(_test_doc, "Body paragraph")
 
     assert heading_weight is not None, "heading paragraph not found after HTML import"
     assert body_weight is not None, "body paragraph not found after HTML import"

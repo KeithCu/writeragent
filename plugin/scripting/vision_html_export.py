@@ -80,7 +80,15 @@ def augment_lo_body_paragraph_styles(html: str) -> str:
 
 def prepare_html_for_lo_import(html: str) -> str:
     """Inline CSS so LibreOffice HTML (StarWriter) import keeps typography."""
-    import css_inline
+    try:
+        import css_inline
+    except ImportError as exc:
+        import sys
+
+        raise ImportError(
+            f"No module named 'css_inline' in {sys.executable}. "
+            f"Install in your Settings → Python venv: {sys.executable} -m pip install css-inline"
+        ) from exc
 
     stripped = (html or "").strip()
     if not stripped:
@@ -195,3 +203,62 @@ def html_from_paddle_structure(
     if not parts:
         return ""
     return prepare_html_for_lo_import(_wrap_paddle_fragment("\n".join(parts)))
+
+
+def _blocks_from_vision_result(result: dict[str, Any]) -> list[dict[str, Any]]:
+    blocks = result.get("blocks")
+    if isinstance(blocks, list) and blocks:
+        return [block for block in blocks if isinstance(block, dict)]
+    regions = result.get("regions")
+    if not isinstance(regions, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for region in regions:
+        if not isinstance(region, dict):
+            continue
+        text = str(region.get("text") or "").strip()
+        if not text:
+            continue
+        out.append({"type": "text", "text": text, "box": region.get("box") or [0, 0, 0, 0]})
+    return out
+
+
+def structured_html_from_vision_result(result: dict[str, Any]) -> str:
+    """Build bbox layout HTML from blocks/regions; must run in the user venv (needs css-inline)."""
+    from plugin.scripting.vision_layout_html import html_from_layout_blocks
+
+    body = html_from_layout_blocks(_blocks_from_vision_result(result), {})
+    tables = result.get("tables")
+    if isinstance(tables, list):
+        for table in tables:
+            if not isinstance(table, dict):
+                continue
+            table_html = _html_table_from_columns_rows(
+                list(table.get("columns") or []),
+                [list(row) for row in (table.get("rows") or []) if isinstance(row, list)],
+            )
+            if table_html:
+                body = f"{body}\n{table_html}" if body else table_html
+    if not body.strip():
+        return ""
+    return prepare_html_for_lo_import(_wrap_paddle_fragment(body))
+
+
+def apply_structured_insert_html(result: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
+    """When insert_mode=structured, replace html in the worker before LO insert (css-inline lives in venv)."""
+    from plugin.scripting.vision_common import DEFAULT_VISION_INSERT_MODE
+
+    if result.get("status") != "ok":
+        return result
+    helper = str(result.get("helper") or "")
+    if helper not in ("extract_text", "extract_structure"):
+        return result
+    mode = str(params.get("insert_mode") or DEFAULT_VISION_INSERT_MODE).strip().lower()
+    if mode != "structured":
+        return result
+    html = structured_html_from_vision_result(result)
+    if not html.strip():
+        return result
+    updated = dict(result)
+    updated["html"] = html
+    return updated

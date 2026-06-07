@@ -10,6 +10,7 @@ import logging
 from typing import Any
 
 from plugin.framework.errors import ToolExecutionError
+from plugin.scripting.vision_common import resolve_vision_insert_mode
 
 log = logging.getLogger(__name__)
 
@@ -69,15 +70,37 @@ def insert_vision_result_into_writer(ctx: Any, doc: Any, result: dict[str, Any])
     insert_content_at_position(doc, ctx, html, "selection")
 
 
-def insert_vision_result(ctx: Any, doc: Any, result: dict[str, Any]) -> None:
-    """Insert vision HTML into Writer or Calc."""
+def insert_vision_result(
+    ctx: Any,
+    doc: Any,
+    result: dict[str, Any],
+    *,
+    params: dict[str, Any] | None = None,
+) -> None:
+    """Insert vision output into Writer or Calc."""
+    from plugin.calc.vision_egress import insert_vision_html_into_calc, insert_vision_structure_into_calc
     from plugin.doc.document_helpers import is_calc, is_writer
-    from plugin.calc.vision_egress import insert_vision_html_into_calc
+
+    insert_mode = resolve_vision_insert_mode(ctx, params)
+    helper = str(result.get("helper") or "")
 
     if is_writer(doc):
         insert_vision_result_into_writer(ctx, doc, result)
         return
     if is_calc(doc):
+        if insert_mode == "structured" and helper == "extract_structure":
+            try:
+                row_count = insert_vision_structure_into_calc(doc, ctx, result)
+                log.debug(
+                    "insert_vision_result: helper=%s insert_mode=structured calc_rows=%d",
+                    helper,
+                    row_count,
+                )
+                return
+            except ToolExecutionError as exc:
+                if exc.code != "VISION_ERROR":
+                    raise
+                log.debug("structured Calc insert empty; falling back to HTML")
         html = vision_html_from_result(result)
         if not html.strip():
             raise ToolExecutionError(
@@ -85,6 +108,7 @@ def insert_vision_result(ctx: Any, doc: Any, result: dict[str, Any]) -> None:
                 code="VISION_ERROR",
                 details={"vision_result": result},
             )
+        log.debug("insert_vision_result: helper=%s insert_mode=%s calc=html", helper, insert_mode)
         insert_vision_html_into_calc(doc, ctx, html)
         return
     raise ToolExecutionError(

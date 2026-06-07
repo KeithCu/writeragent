@@ -6,7 +6,26 @@
 
 from __future__ import annotations
 
-from plugin.scripting.vision_common import css_inline_unavailable_result, is_css_inline_import_error
+from plugin.scripting.vision_common import (
+    css_inline_unavailable_result,
+    is_css_inline_import_error,
+    resolve_vision_insert_mode,
+)
+
+
+def test_resolve_vision_insert_mode_template_overrides_config():
+    from unittest.mock import patch
+
+    ctx = object()
+    assert resolve_vision_insert_mode(ctx, {"insert_mode": "structured"}) == "structured"
+
+
+def test_resolve_vision_insert_mode_reads_config():
+    from unittest.mock import patch
+
+    ctx = object()
+    with patch("plugin.framework.config.get_config", return_value="structured"):
+        assert resolve_vision_insert_mode(ctx, None) == "structured"
 
 
 def test_is_css_inline_import_error():

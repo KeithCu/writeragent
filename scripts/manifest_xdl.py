@@ -774,9 +774,11 @@ def _add_standalone_field(board, field_name, schema, y, page):
     elif widget == "select":
         attrs = _standalone_common_attrs(field_name, y)
         attrs[_dlg("page")] = str(page)
-        attrs[_dlg("spin")] = "true"
         attrs[_dlg("dropdown")] = "true"
-        ET.SubElement(board, _dlg("menulist"), attrs)
+        attrs[_dlg("autocomplete")] = "true"
+        attrs[_dlg("linecount")] = "20"
+        combo_el = ET.SubElement(board, _dlg("combobox"), attrs)
+        ET.SubElement(combo_el, _dlg("menupopup"))
     elif widget == "combo":
         attrs = _standalone_common_attrs(field_name, y)
         attrs[_dlg("page")] = str(page)

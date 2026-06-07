@@ -439,7 +439,7 @@ def execute_and_insert_result(
             return {"ok": False, "message": f"{message} (took {formatted_time})"}
 
         try:
-            insert_vision_result(ctx, doc, result)
+            insert_vision_result(ctx, doc, result, params=vision_meta.params)
         except Exception as e:
             elapsed_total = time.perf_counter() - t0
             formatted_time_total = format_elapsed_time(elapsed_total)

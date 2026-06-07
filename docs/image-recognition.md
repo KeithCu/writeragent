@@ -37,6 +37,7 @@ WriterAgent documents (Writer, Calc, Draw/Impress) embed raster images: scans, s
 18. [LLM access (deferred)](#18-llm-access-deferred)
 19. [Out of scope](#19-out-of-scope)
 20. [Suggested agent prompt](#20-suggested-agent-prompt)
+21. [Visual/layout HTML fidelity (deferred dev plan)](#21-visuallayout-html-fidelity-deferred-dev-plan)
 
 ---
 
@@ -127,9 +128,9 @@ First Docling/Paddle model download uses a **dedicated vision worker timeout** (
 
 | Document | Phase | Behavior |
 |----------|-------|----------|
-| **Writer** | **1** | Insert **`html`** at **text cursor** via [`insert_vision_result`](../plugin/scripting/vision_egress.py) → [`insert_content_at_position`](../plugin/writer/format.py)(..., `"selection"`) |
+| **Writer** | **1** | Insert pre-built **`html`** at text cursor. With **`vision.insert_mode=structured`**, layout HTML is built in the **venv worker** (needs css-inline there), not in LibreOffice's bundled Python |
 | **Writer** | later | Optional **`set_image_properties`** description from OCR summary |
-| **Calc** | **1b** | Insert **`html`** into cell below graphic anchor via [`insert_vision_html_into_calc`](../plugin/calc/vision_egress.py) → [`insert_cell_html_rich`](../plugin/calc/rich_html.py) |
+| **Calc** | **1b** | Default: insert **`html`** into cell below graphic anchor. **`vision.insert_mode=structured`** + **`extract_structure`**: write `tables[]` (and prose `blocks[]`) as a multi-cell grid via [`insert_vision_structure_into_calc`](../plugin/calc/vision_egress.py) |
 | **Draw / Impress** | **1b.2** | Text box near selected graphic; shape annotations later |
 
 **Selection vs output anchor:** On **Writer**, user clicks the **image** (export) and places the **text cursor** for insert (they may differ). On **Calc**, the selected graphic's **anchor cell** defines the sheet insert row (one row below); the image must be cell-anchored.
@@ -611,7 +612,7 @@ def is_vision_result(value: Any) -> bool:
 3. **`augment_lo_body_paragraph_styles`** — Arial + line-height on bare `<p>` tags.
 4. Host [`insert_vision_result`](../plugin/scripting/vision_egress.py) → [`insert_content_at_position`](../plugin/writer/format.py) (StarWriter filter; full documents are stripped to body markup before wrap).
 
-**What you should see:** section headings **bold and larger** than body paragraphs; table borders when Docling exports tables. **Not expected:** flyer colors, multi-column layout, or panel backgrounds (Docling does not export that visual design).
+**What you should see:** section headings **bold and larger** than body paragraphs; table borders when Docling exports tables. **Not expected:** flyer colors, multi-column layout, or panel backgrounds (Docling does not export that visual design). For a **future dev plan** to improve visual fidelity, see [§21 Visual/layout HTML fidelity (deferred dev plan)](#21-visuallayout-html-fidelity-deferred-dev-plan).
 
 **Troubleshooting (Writer):** grep `writeragent_debug.log` for `insert_vision_result:` — a successful run logs `helper`, `html_len`, `h_tags`, and `style_attrs`. Missing line → old extension or insert path not reached; `h_tags=0` → upstream HTML has no headings.
 
@@ -765,6 +766,7 @@ Phases prioritize **user exposition**; LLM integration is last.
 | **2** | Settings **Test** reports paddle/ultralytics; install messaging; dedicated vision worker timeout | **Yes — shipped** |
 | **3** | `extract_structure`; export by graphic name (`image_name` param) | **Yes — shipped** |
 | **4** | `detect_objects`, `recognize_pipeline`, Ultralytics helpers + templates | **Yes** |
+| **4v** | **Visual/layout HTML** — colored panels, columns, bbox-driven layout HTML (see [§21](#21-visuallayout-html-fidelity-deferred-dev-plan)) | **Yes** (planned) |
 | **5** | Per-folder vision cache; `perceptual_hash`; optional context menu | Partial |
 | **6** | **`analyze_image` LLM tool**; chat delegation; optional multimodal hybrid | Agent-only |
 
@@ -862,3 +864,230 @@ For semantics (“explain this diagram”), not raw OCR — hybrid with local OC
 Copy when handing work to an coding agent:
 
 > Implement **Phase 1 only** per [docs/image-recognition.md §4 Phase 1 development plan](image-recognition.md#4-phase-1-development-plan-agent-handoff) and [§17 acceptance criteria](image-recognition.md#17-phase-1-acceptance-criteria). Mirror the analysis helpers stack (`analysis_templates`, `document_scripts`, `analysis_client`, `analysis_runner`, `python_runner` fast path, `analysis_egress`). **Writer only.** Export selected graphic to PNG bytes, run `extract_text` via trusted `vision.py`, insert **`html` at the text cursor**. Mock PaddleOCR in tests. **Do not** register chat tools, `analyze_image`, or Calc/Draw egress.
+
+---
+
+## 21. Visual/layout HTML fidelity (deferred dev plan)
+
+**Status:** **Not started** — documented for a future implementation day. **Phase 1 structured text** (css-inline, heading/body augment, single-wrap StarWriter insert) is shipped; this section describes what it would take to make results look **closer to marketing flyers, posters, and multi-column infographics** (e.g. the Akihabara weekend guide in [`Showcase/HermesAkihabara.png`](../Showcase/HermesAkihabara.png)).
+
+**Goal:** Preserve **reading order and semantics** while recovering **approximate** layout: colored header bands, side-by-side columns, tinted panels, and per-block text/background colors sampled from the source image. **Not** pixel-perfect reproduction and **not** re-inserting the source PNG (user already has the graphic selected).
+
+**Non-goals:** PDF-level fidelity, arbitrary CSS (flexbox/grid as authored in browsers), embedded web fonts from the image, or replacing Docling with a remote vision LLM for layout.
+
+### 21.1 Why structured text is not enough today
+
+| Layer | Limit |
+|-------|--------|
+| **Docling `export_to_html`** | Semantic tree → HTML with a generic Docling stylesheet. Section labels become `<h2>`; body lines become plain `<p>`. **No** panel backgrounds, **no** column grid, **no** per-line colors from the raster. |
+| **css-inline + augment** ([`vision_html_export.py`](../plugin/scripting/vision_html_export.py)) | Fixes LO’s dropped `<style>` blocks and adds bold/size on headings + Arial on bare `<p>`. Still **monochrome flow** in one column. |
+| **HTML (StarWriter) import** ([`format.py`](../plugin/writer/format.py)) | Inline `style=` on tags survives for **font-weight**, **font-size**, **color**, and **background-color** on simple blocks — but **not** reliable CSS grid/flex, and nested `<div>` layout often collapses to stacked paragraphs. |
+| **Akihabara fixture** | Docling yields **9× `<h2>`, 7× `<p>`, 0 tables** — layout information exists in **block bboxes** in the Docling model, not in exported HTML. |
+
+So “look better” requires **generating HTML Docling does not export**, or **post-processing the Docling document model + source PNG** before insert.
+
+### 21.2 Target fidelity tiers (pick per release)
+
+Implement in order; each tier is independently shippable behind a template param.
+
+| Tier | User-visible result | Complexity | Depends on |
+|------|---------------------|------------|------------|
+| **A — Stronger semantic HTML** | Heading levels, `<strong>` inside titles, table borders when Docling finds tables, optional bullet lists from list items | Low | Docling labels only |
+| **B — Block colors** | Header lines with **background-color** + **color** sampled from bbox; body in default panel | Medium | PNG + Docling bboxes |
+| **C — Multi-column flow** | Left/right columns approximated with **HTML table grid** or aligned `<td>` cells (LO-safe) | Medium–high | Column clustering on bboxes |
+| **D — Spatial layout HTML** | Absolute-ish positioning via **nested tables** or **Writer frames** (host UNO) for non-linear flyers | High | Host egress + layout engine |
+
+**Recommendation:** Ship **B** first (biggest visual win on flyers for modest code), then **C**, defer **D** unless table-grid is insufficient.
+
+### 21.3 Architecture (proposed)
+
+```mermaid
+flowchart TD
+  subgraph venv [Vision venv]
+    Docling[Docling convert for_structure=True]
+    Export[export_to_html OR layout builder]
+    Sample[PIL/numpy color sample per bbox]
+    Layout[vision_layout_html.py]
+    Inline[css-inline + augment]
+  end
+  subgraph host [LibreOffice host]
+    Egress[insert_vision_result]
+    SW[HTML StarWriter OR XHTML spike]
+  end
+  PNG[Selected graphic PNG] --> Docling
+  PNG --> Sample
+  Docling --> Layout
+  Sample --> Layout
+  Layout --> Inline
+  Export --> Inline
+  Inline --> Egress --> SW
+```
+
+**New module (proposed):** [`plugin/scripting/vision_layout_html.py`](../plugin/scripting/vision_layout_html.py)
+
+- Input: `DoclingDocument`, source `png_bytes`, `params` (`html_mode`, `color_samples`, `column_gap_px`, …).
+- Output: single HTML string (same contract as today’s `result["html"]`).
+- Pure Python in venv — no UNO.
+
+**Mode switch (proposed API):**
+
+| `params.html_mode` | Behavior |
+|--------------------|----------|
+| `structured` (default) | Current path: `export_to_html` → `prepare_html_for_lo_import` |
+| `layout` | Walk Docling blocks + sample colors → layout HTML → `prepare_html_for_lo_import` |
+| `structured+layout` (optional) | Docling HTML body embedded inside layout shell for hybrid |
+
+Wire through [`vision_templates.py`](../plugin/scripting/vision_templates.py) defaults and `[Vision] extract_text` script header params (same pattern as `engine`, `ocr_backend`).
+
+### 21.4 Phase 0 — Validation spikes (1 day, low risk)
+
+Do these **before** building layout HTML to avoid dead ends.
+
+| Spike | Question | How | Pass criteria |
+|-------|----------|-----|---------------|
+| **0a — StarWriter colors** | Does LO keep `background-color` / `color` on `<h2>` and `<td>`? | UNO test: insert fixture with `style="background-color:#c00;color:#fff"` | CharColor + paragraph/cell background visible in Writer |
+| **0b — XHTML import** | Is **XHTML Writer File** better than StarWriter for vision HTML? | Temporarily call `insertDocumentFromURL` with `XHTML_FILTER` on same fixture; compare | Documented go/no-go in this section; only switch if clearly better |
+| **0c — Table grid** | Can a 2-column flyer be approximated with `<table><tr><td>…</td><td>…</td></tr></table>`? | Hand-authored HTML → UNO insert on Akihabara-like content | Two columns readable; acceptable wrap on narrow page |
+| **0d — Docling block walk** | What labels/bboxes exist on Akihabara? | One-off script: dump `document.iterate_items()` / structure map | JSON fixture checked into `tests/fixtures/vision/akihabara_blocks.json` |
+
+**Files:** extend [`tests/writer/test_vision_html_insert_uno.py`](../tests/writer/test_vision_html_insert_uno.py); optional `tests/fixtures/vision/`.
+
+### 21.5 Phase 1 — Block color sampling (Tier B)
+
+**Objective:** Red banner, gray subheads, and white-on-color titles **approximately** match the image.
+
+1. **Collect blocks** from Docling after `_convert_image_bytes(..., for_structure=True)`:
+   - Reuse [`_map_docling_structure`](../plugin/scripting/vision_docling.py) / provenance [`_prov_bbox_to_xywh`](../plugin/scripting/vision_common.py).
+   - Map `label` → HTML tag (`section_header` → `h2`, `text` → `p`, `list_item` → `li`, …).
+
+2. **Sample colors** per block bbox from PNG (Pillow already in vision stack):
+   - Crop bbox (clamp to image bounds).
+   - **Background:** median or dominant color of outer 20% ring (avoids text pixels).
+   - **Foreground:** median of high-contrast pixels or OCR mask if available; fallback `#ffffff` / `#000000` by luminance.
+   - Cap saturation extremes for readability (optional WCAG-ish contrast check).
+
+3. **Emit HTML** with inline styles only:
+   ```html
+   <h2 style="background-color:#b91c1c;color:#ffffff;font-size:14pt;font-weight:bold;padding:6px 8px;">AKIHABARA: …</h2>
+   <p style="font-family:Arial,sans-serif;color:#333;background-color:#f5f5f5;padding:4px;">Body…</p>
+   ```
+
+4. **Pipeline:** `layout_html_from_docling(document, png_bytes, params)` → `prepare_html_for_lo_import()` (css-inline still runs; augment merges with sampled styles).
+
+5. **Tests:**
+   - Unit: mock PNG array + fixed bboxes → assert `background-color` in output (no Docling in pytest).
+   - Golden: hash-stable HTML subset for Akihabara fixture (optional `--run-slow` with real Docling).
+   - UNO: insert colored header fixture → assert `CharColor` / cell or paragraph fill where LO exposes it.
+
+**Estimated effort:** 2–3 days including tests and manual QA on Akihabara + one table-heavy scan.
+
+### 21.6 Phase 2 — Column detection (Tier C)
+
+**Objective:** Flyer body in **two columns** instead of one vertical stack.
+
+1. **Column clustering** on block bboxes (same reading order pass):
+   - Sort blocks by `(y, x)`.
+   - Split when median `x` of a horizontal band falls into two clusters (k=2 k-means on block centers, or gap threshold at 40% page width).
+   - Assign each block to `col0` / `col1`.
+
+2. **LO-safe layout:** prefer **one row, two `<td valign="top">`** per band, not CSS `column-count`:
+   ```html
+   <table style="width:100%;border:none;"><tr>
+     <td style="width:50%;vertical-align:top;">…left stack…</td>
+     <td style="width:50%;vertical-align:top;">…right stack…</td>
+   </tr></table>
+   ```
+   StarWriter handles tables better than div grids ([§21.1](#211-why-structured-text-is-not-enough-today)).
+
+3. **Reading order:** within each cell, preserve Docling order; full-document order may differ from single-column export — document in UI status string.
+
+4. **Params:** `column_mode: auto | single | two`, `column_gap_px` (table cellpadding).
+
+5. **Tests:** synthetic bboxes in two columns → HTML contains two `<td>` with expected text; UNO smoke insert.
+
+**Estimated effort:** 2–4 days; fragile on irregular flyers — ship behind `html_mode=layout` only.
+
+### 21.7 Phase 3 — Tier A semantic enrichment (can parallel Phase 1)
+
+Low-cost improvements without layout engine:
+
+| Enhancement | Source | HTML |
+|-------------|--------|------|
+| List detection | Docling `list_item` labels | `<ul><li>…</li></ul>` |
+| Table markup | Docling tables (already in `extract_structure`) | reuse `_html_table_from_columns_rows` in [`vision_html_export.py`](../plugin/scripting/vision_html_export.py) |
+| Title vs section | Docling `title` vs `section_header` | `h1` vs `h2` mapping in augment table |
+| Bold spans | RapidOCR word boxes with high confidence caps | optional `<strong>` on ALL-CAPS lines |
+
+Wire **`extract_text`** to optionally call the same table export path when `for_structure=True` finds tables (today Akihabara has none).
+
+**Estimated effort:** 1 day.
+
+### 21.8 Phase 4 — Host / insert path (if Tiers B–C insufficient)
+
+Only if inline HTML + tables still collapse in Writer:
+
+| Option | Pros | Cons |
+|--------|------|------|
+| **`data-lo-style` + post-apply** ([`format.py`](../plugin/writer/format.py) `_apply_block_lo_styles`) | Native Heading 1/2 styles | Today `insert_content_at_position` uses `apply_styles=False` beside selection to avoid corrupting neighbor paragraphs — needs **vision-only** insert helper |
+| **XHTML import path** | Preserves class/style model on read path | Write path untested for vision; spike 0b |
+| **Writer text frames** ([`plugin/writer/shapes.py`](../plugin/writer/shapes.py) patterns) | True positioned columns | Heavy UNO; Calc egress differs; Draw/Impress separate |
+| **Insert as ODT fragment** | Full layout control | Largest scope; new filter/temp-doc dance |
+
+**Recommendation:** Try **inline table-grid + colors** first; only add host complexity if UNO tests fail.
+
+### 21.9 Template, settings, and UX
+
+| Surface | Change |
+|---------|--------|
+| [`vision_templates.py`](../plugin/scripting/vision_templates.py) | Document `html_mode`, `column_mode`; default stays `structured` |
+| Built-in `[Vision] extract_text` script | Optional second template `[Vision] extract_text (layout)` with `html_mode=layout` |
+| Settings → Python | No new required packages for Tier B/C (Pillow/numpy already assumed) |
+| Status string ([`python_runner.py`](../plugin/scripting/python_runner.py)) | *Inserted layout HTML (N columns, M colored blocks)* |
+| Docs | Update [§10 HTML pipeline](#html-insert-pipeline-and-expectations) when shipped |
+
+### 21.10 Testing strategy (full phase)
+
+| Layer | Tests |
+|-------|--------|
+| Color sampling | `tests/scripting/test_vision_layout_html.py` — pure functions, synthetic 10×10 PNG arrays |
+| Layout clustering | Fixed bbox fixtures → column assignment |
+| Integration | Mock Docling document + PNG bytes → `run_vision` → `html` field shape |
+| UNO | [`test_vision_html_insert_uno.py`](../tests/writer/test_vision_html_insert_uno.py) — colored header, two-column table |
+| Regression | Existing [`test_vision_html_export.py`](../tests/scripting/test_vision_html_export.py) — `html_mode=structured` unchanged |
+| Manual QA | Akihabara, one receipt scan (tables), one simple single-column screenshot |
+
+**CI:** no real Docling in default pytest; commit **frozen HTML snippets** from Phase 0d for UNO tests.
+
+### 21.11 Acceptance criteria (when Phase 4v ships)
+
+- [ ] `[Vision] extract_text` with `html_mode=layout` on Akihabara: **top banner** visibly colored (not plain body text); section headers distinguishable from body **without** relying only on font size.
+- [ ] Two-column regions on Akihabara appear **side-by-side** in Writer at default page width (table-grid or equivalent).
+- [ ] `html_mode=structured` (default) behavior unchanged — existing tests green.
+- [ ] `insert_vision_result` log line includes `html_mode` when set.
+- [ ] `make test` passes; new UNO tests pass with `soffice` available.
+- [ ] User doc updated; no new required pip packages beyond current vision stack (+ `css-inline`).
+
+### 21.12 Risks and mitigations
+
+| Risk | Mitigation |
+|------|------------|
+| StarWriter strips `background-color` on `<p>` | Phase 0a UNO gate; fallback to `<td bgcolor="…">` or `<span style="…">` wrappers |
+| Column heuristic wrong on irregular flyers | Default `column_mode=auto` with `single` escape hatch; show warning in `warnings[]` |
+| Color sampling picks text color as background | Ring sampling + median; minimum bbox area threshold |
+| Performance on large scans | Sample downscaled PNG; cap block count |
+| Calc cell insert | [`insert_cell_html_rich`](../plugin/calc/rich_html.py) may clip wide tables — document Calc limitations or disable `layout` mode on Calc until tested |
+| Maintenance burden | Keep `vision_layout_html.py` separate from `vision_html_export.py`; single entry `build_vision_html(document, png, params)` |
+
+### 21.13 Rough schedule (one focused week)
+
+| Day | Work |
+|-----|------|
+| **1** | Phase 0 spikes (0a–0d); fixtures; go/no-go on table-grid |
+| **2** | `vision_layout_html.py` color sampling + unit tests |
+| **3** | Docling block walk → layout HTML; wire `html_mode=layout` |
+| **4** | Column clustering + table grid; UNO tests |
+| **5** | Template UX, docs, Akihabara manual QA, edge cases, `make test` |
+
+### 21.14 Suggested agent prompt (when starting Phase 4v)
+
+> Implement **visual/layout HTML** per [docs/image-recognition.md §21](image-recognition.md#21-visuallayout-html-fidelity-deferred-dev-plan). **Do not** change default `html_mode=structured`. Add `vision_layout_html.py` with bbox color sampling and optional two-column table grid; gate behind `params.html_mode=layout`. Reuse `prepare_html_for_lo_import`, `insert_vision_result`, and existing Docling `_convert_image_bytes(..., for_structure=True)`. Complete Phase 0 UNO spikes first. Tests: unit fixtures + `test_vision_html_insert_uno.py` extensions; no real Docling in CI. **Do not** re-insert the source image or register chat tools.

@@ -43,7 +43,11 @@ VISION_CONFIG_KEYS = (
     "document_timeout",
     "allow_external_plugins",
     "artifacts_path",
+    "insert_mode",
 )
+
+VISION_INSERT_MODES = frozenset({"html", "structured"})
+DEFAULT_VISION_INSERT_MODE = "html"
 
 
 def merge_vision_params(ctx: Any, template_params: dict[str, Any] | None) -> dict[str, Any]:
@@ -62,6 +66,15 @@ def merge_vision_params(ctx: Any, template_params: dict[str, Any] | None) -> dic
     if isinstance(template_params, dict):
         merged.update(template_params)
     return merged
+
+
+def resolve_vision_insert_mode(ctx: Any, template_params: dict[str, Any] | None = None) -> str:
+    """Return html (Docling export) or structured (bbox layout / Calc cell grid)."""
+    merged = merge_vision_params(ctx, template_params)
+    mode = str(merged.get("insert_mode") or DEFAULT_VISION_INSERT_MODE).strip().lower()
+    if mode in VISION_INSERT_MODES:
+        return mode
+    return DEFAULT_VISION_INSERT_MODE
 
 
 def _ok_result(helper: str, **payload: Any) -> dict[str, Any]:

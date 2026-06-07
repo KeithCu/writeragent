@@ -152,6 +152,42 @@ def apply_module_config_result(ctx: Any, module_name: str, result: dict[str, Any
     global_event_bus.emit("config:changed", ctx=ctx)
 
 
+def _option_labels(field: dict[str, Any]) -> tuple[str, ...]:
+    opts = field.get("options")
+    if not isinstance(opts, list):
+        return ()
+    labels: list[str] = []
+    for opt in opts:
+        if isinstance(opt, dict):
+            labels.append(_(str(opt.get("label") or opt.get("value") or "")))
+        elif opt is not None:
+            labels.append(_(str(opt)))
+    return tuple(labels)
+
+
+def _set_field_options(ctrl: Any, field: dict[str, Any]) -> None:
+    labels = _option_labels(field)
+    if not labels:
+        log.warning("Module config field %s has no select options", field.get("name"))
+        return
+    model = ctrl.getModel() if hasattr(ctrl, "getModel") else None
+    if model is not None and hasattr(model, "StringItemList"):
+        model.StringItemList = labels
+        log.debug("Module config set %d options on %s", len(labels), field.get("name"))
+        return
+    if hasattr(ctrl, "addItem"):
+        try:
+            while ctrl.getItemCount() > 0:
+                ctrl.removeItems(0, 1)
+        except Exception:
+            pass
+        for label in labels:
+            ctrl.addItem(label, 0)
+        log.debug("Module config addItem populated %d options on %s", len(labels), field.get("name"))
+        return
+    log.warning("Module config control %s does not support option lists", field.get("name"))
+
+
 class ModuleConfigDialog:
     """Modeless settings dialog for one MODULES entry with config_dialog metadata."""
 
@@ -292,21 +328,27 @@ class ModuleConfigDialog:
         for field in field_specs:
             ctrl = self._dlg.getControl(field["name"])
             if ctrl is None:
+                log.warning(
+                    "Module config dialog %s missing control %r",
+                    self._module_name,
+                    field["name"],
+                )
                 continue
             if is_checkbox_control(ctrl):
                 set_checkbox_state(ctrl, 1 if as_bool(field["value"]) else 0)
             elif hasattr(ctrl, "setText"):
                 if "options" in field:
                     try:
-                        opts = field["options"]
-                        labels = tuple(o.get("label", o.get("value", "")) for o in opts if isinstance(o, dict))
-                        model = ctrl.getModel()
-                        if hasattr(model, "StringItemList"):
-                            model.StringItemList = labels
+                        _set_field_options(ctrl, field)
                     except Exception:
-                        log.debug("Failed to set options for %s", field["name"], exc_info=True)
+                        log.exception("Failed to set options for %s", field["name"])
                 ctrl.setText(str(field.get("value", "")))
             else:
+                if "options" in field:
+                    try:
+                        _set_field_options(ctrl, field)
+                    except Exception:
+                        log.exception("Failed to set options for %s", field["name"])
                 set_control_text(ctrl, field["value"])
 
     def _extract_result(self) -> dict[str, Any]:

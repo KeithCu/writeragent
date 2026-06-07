@@ -107,7 +107,10 @@ def run_vision(
     params: dict[str, Any] = spec_dict["params"] if isinstance(spec_dict.get("params"), dict) else {}
 
     try:
-        return _dispatch_helper(helper, image, params)
+        result = _dispatch_helper(helper, image, params)
+        from plugin.scripting.vision_html_export import apply_structured_insert_html
+
+        return apply_structured_insert_html(result, params)
     except Exception as exc:
         log.exception("Vision helper %s failed", helper)
         return _error_result("VISION_ERROR", str(exc), helper=helper)

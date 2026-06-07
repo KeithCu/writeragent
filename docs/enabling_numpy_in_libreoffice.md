@@ -263,7 +263,7 @@ Helpers that need a missing package return `MISSING_PACKAGE` with the install li
 | [Ultralytics](https://github.com/ultralytics/ultralytics) | `pip install ultralytics` | `detect_objects` and related helpers — **Phase 4+**; informational in Test until then |
 | [scikit-image](https://scikit-image.org/) (`skimage`) | `pip install scikit-image` | Optional image processing inside trusted helpers — graceful skip if absent |
 
-Full design and egress rules: [Image Recognition](image-recognition.md).
+Full design and egress rules: [Image Recognition](image-recognition.md). **Future:** visual/layout HTML (colored panels, multi-column flyers) — deferred dev plan in [Image Recognition §21](image-recognition.md#21-visuallayout-html-fidelity-deferred-dev-plan).
 
 #### Planned domain package groups
 

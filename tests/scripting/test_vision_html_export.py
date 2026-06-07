@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 from plugin.scripting.vision_html_export import (
     CSS_INLINE_INSTALL_CMD,
+    apply_structured_insert_html,
     augment_lo_body_paragraph_styles,
     augment_lo_heading_styles,
     export_docling_to_html,
@@ -111,3 +112,28 @@ def test_export_docling_to_html_default():
 
 def test_css_inline_install_cmd():
     assert "css-inline" in CSS_INLINE_INSTALL_CMD
+
+
+def test_apply_structured_insert_html_replaces_html_in_worker():
+    result = {
+        "status": "ok",
+        "helper": "extract_structure",
+        "html": "<p>docling export</p>",
+        "blocks": [
+            {"type": "text", "text": "Left", "box": [10, 100, 180, 20]},
+            {"type": "text", "text": "Right", "box": [420, 102, 180, 20]},
+        ],
+    }
+    with patch(
+        "plugin.scripting.vision_html_export.structured_html_from_vision_result",
+        return_value="<table><tr><td>Left</td><td>Right</td></tr></table>",
+    ):
+        out = apply_structured_insert_html(result, {"insert_mode": "structured"})
+    assert out["html"].startswith("<table>")
+    assert out["html"] != result["html"]
+
+
+def test_apply_structured_insert_html_skips_html_mode():
+    result = {"status": "ok", "helper": "extract_text", "html": "<p>x</p>", "regions": []}
+    out = apply_structured_insert_html(result, {"insert_mode": "html"})
+    assert out is result
