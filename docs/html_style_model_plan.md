@@ -18,7 +18,7 @@ While the original proposal to add a `get_paragraph_metadata` tool provides accu
 Instead of a separate diagnostic tool, we will **embed the LibreOffice style model directly into the HTML representation**.
 
 We will achieve **Read/Write Symmetry**:
-- **Read:** Paragraphs will include their named style as a custom data attribute (e.g., `<p data-lo-style="Caption">`). Values are **compact tokens with no spaces** (`Heading1`, `TextBody`, `Standard`) so models do not have to juggle LibreOffice spacing quirks. Inline `style="..."` attributes will be reserved *exclusively* for direct formatting overrides.
+- **Read:** Paragraphs will include their named style as a custom data attribute (e.g., `<p data-lo-style="Caption">`). Values are **compact tokens with no spaces** (`Heading1`, `Textbody`, `Standard`) so models do not have to juggle LibreOffice spacing quirks. Inline `style="..."` attributes will be reserved *exclusively* for direct formatting overrides.
 - **Write:** When the agent generates HTML, it uses the same compact tokens in `data-lo-style`. The extension resolves them back to real UNO `ParaStyleName` values (e.g. `Heading1` → `Heading 1`) before `setPropertyValue`, then applies any inline CSS as direct overrides on top.
 
 **Benefits:**
@@ -51,7 +51,7 @@ A contributor explored reading `ParaStyleName` from the UNO model in lockstep wi
 - It duplicates work that `_range_to_content_via_temp_doc` already does when building temp docs for selection/range export.
 - It conflicts with the core bet: one fast `XHTML Writer File` export + string post-process.
 
-**String massaging is the read path:** decode ODF-encoded class suffixes for named styles, strip spaces for agent-facing `data-lo-style`, resolve autostyle `P*` classes from the same export's `<style>` block when needed; omit `data-lo-style` when unresolvable. Write path maps compact tokens back to UNO via the document style list.
+**String massaging is the read path:** decode ODF-encoded class suffixes for named styles, strip spaces for agent-facing `data-lo-style`, resolve autostyle `P*` classes via the paired flat-ODF parent map (`style:parent-style-name`, see the autostyle-name-recovery note above) with the XHTML `<style>` block CSS fingerprint as fallback; omit `data-lo-style` only when still unresolvable. Write path maps compact tokens back to UNO via the document style list.
 
 We trust LibreOffice's XHTML export and UNO style APIs — no parallel model-walk, no alternate read path.
 
@@ -82,12 +82,14 @@ Probe harness: [`tests/writer/test_xhtml_export_uno.py`](../tests/writer/test_xh
 |------|--------------------------|-----------------|----------------------|
 | Default body (`Standard`) | `paragraph-Standard` **or** `paragraph-P1` (LO/version dependent) | Named and/or autostyle rules | Decode → compact → `data-lo-style="Standard"`, or fingerprint/omit for `P1` |
 | `Heading 1` | `paragraph-Heading_20_1` | Named rule present | Decode → compact → `data-lo-style="Heading1"` |
-| `Text Body`, `Caption` | `paragraph-Text_20_Body`, `paragraph-Caption`, etc. | Named rule present | Decode suffix → compact → `data-lo-style` (e.g. `TextBody`, `Caption`) |
+| `Text body`, `Caption` | `paragraph-Text_20_body`, `paragraph-Caption`, etc. | Named rule present | Decode suffix → compact → `data-lo-style` (e.g. `Textbody`, `Caption`) |
 | Char override (e.g. bold word) | `text-T1` on `<span>` | `.text-T1 { font-weight: bold; }` | Inline `style="font-weight: bold"` on span |
 | Mixed doc | Mix of above per paragraph | Both `paragraph-*` and `text-*` rules | Per-paragraph rules below |
 | Trailing empty paragraph | Extra `<p class="paragraph-Standard">&nbsp;</p>` | — | Filter empty/`&nbsp;`-only `<p>` from agent-facing output (optional but recommended) |
 
 **Important:** Contributor probe saw `paragraph-P1` for `Standard`; WriterAgent dev LO export saw `paragraph-Standard` directly. **Implementation must handle both** — do not assume one LO behavior.
+
+**Autostyle name recovery via flat ODF (implemented).** After an edit, the StarWriter HTML import bakes extra direct char props into the paragraph, so on re-export it is an autostyle (`paragraph-Pn`) whose CSS matches no named rule — the XHTML fingerprint then can't recover the name (the write→read round-trip would drop the token). Fix (two filters): export the document ALSO as flat ODF (`OpenDocument Text Flat XML`), which keeps `<style:style style:name="Pn" style:parent-style-name="...">`; the automatic style name `Pn` is identical to the XHTML `paragraph-Pn` class suffix, so a string-only `Pn → parent` map recovers the real style name (no model walk, no order alignment). The CSS fingerprint stays as a fallback when no FODT map is available.
 
 ### Autostyle decision table (locked from probe)
 
@@ -131,11 +133,11 @@ Probe harness: [`tests/writer/test_xhtml_export_uno.py`](../tests/writer/test_xh
    |--------------------|---------------------|-----------------|
    | `Standard` | `Standard` | `Standard` |
    | `Heading_20_1` | `Heading 1` | `Heading1` |
-   | `Text_20_Body` | `Text Body` | `TextBody` |
+   | `Text_20_body` | `Text body` | `Textbody` |
    | `Caption` | `Caption` | `Caption` |
    | `P1` | — | See [Autostyle decision table](#autostyle-decision-table-locked-from-probe) |
 
-5. **Transform paragraph tags:** For each block `<p>`, `<div>`, `<h1>`–`<h6>`, etc. with `class="paragraph-…"`: emit `data-lo-style="…"`, strip `paragraph-*` from `class`, drop empty `class`.
+5. **Transform paragraph tags:** For each paragraph block (`<p>`, `<h1>`–`<h6>`, `<li>`, `<blockquote>`, `<pre>`) with `class="paragraph-…"`: emit `data-lo-style="…"`, strip `paragraph-*` from `class`, drop empty `class`. NOTE: `<div>` is treated as a **transparent container** (not a styleable block) on both read and write — LibreOffice does not put a paragraph style on a `<div>`, and on write a `<div>` is not its own paragraph, so counting it as a style slot desyncs the positional apply.
 
 6. **Strip boilerplate:** Existing `_strip_html_boilerplate()` returns `<body>` inner HTML only.
 
@@ -161,7 +163,7 @@ StarWriter HTML import does not understand `data-lo-style`. Write path:
 
 6. **Fallback:** Unknown style name → `Standard` (or skip apply and log).
 
-**Hook points:** `replace_full_document`, `insert_content_at_position`, `replace_single_range_with_content` (when block markup present). Count paragraphs before insert to compute the correct offset for partial edits.
+**Hook points:** Named-style application runs on `replace_full_document` only. Targeted inserts/replaces (`insert_content_at_position`, `replace_single_range_with_content`) still insert the content but **skip** style application: the first imported block merges into the cursor's existing paragraph, so applying its `data-lo-style` would restyle the adjacent (pre-existing) text. For styling existing text use `apply_style`. (Applying styles only to genuinely-new paragraphs on partial edits is a follow-up — see the checklist.)
 
 ---
 
@@ -169,7 +171,7 @@ StarWriter HTML import does not understand `data-lo-style`. Write path:
 
 1. **Unit tests (pytest):** `decode_lo_css_class_suffix`, CSS map extraction, char inline transform, paragraph transform, autostyle fingerprint — no LibreOffice.
 2. **UNO tests:** [`tests/writer/test_xhtml_export_uno.py`](../tests/writer/test_xhtml_export_uno.py) documents export shapes; add round-trip test: read emits `data-lo-style="Heading1"`, agent writes it back, verify UNO `ParaStyleName == "Heading 1"` and bold override.
-3. **Prompts:** `WRITER_APPLY_DOCUMENT_HTML_RULES` in [`plugin/framework/constants.py`](../plugin/framework/constants.py) — agent reads/writes compact `data-lo-style` tokens (no spaces: `Heading1`, `TextBody`); inline `style` for overrides only.
+3. **Prompts:** `WRITER_APPLY_DOCUMENT_HTML_RULES` in [`plugin/framework/constants.py`](../plugin/framework/constants.py) — agent reads/writes compact `data-lo-style` tokens (no spaces: `Heading1`, `Textbody`); inline `style` for overrides only.
 4. **Docs:** [`docs/llm-styles.md`](llm-styles.md) — `data-lo-style` is the agent-facing convention; legacy `class="Style Name"` via StarWriter remains for non-agent HTML.
 5. **`get_paragraph_metadata`:** Keep as optional `specialized` tier only if needed for debugging; not required for core read/write.
 
@@ -199,11 +201,11 @@ One `storeToURL` export + in-memory string/CSS parsing on the read path; UNO `se
 
 ## Design Approval Checklist
 
-Before implementation PR:
+Status (implemented in this PR):
 
-- [ ] Read path: XHTML export + string pipeline only
-- [ ] Autostyle: decode named classes + CSS fingerprint + omit (no `P1` passed to LLM as a style name)
-- [ ] Write path: strip `data-lo-style`, import HTML, apply styles via `apply_paragraph_style_preserving_direct_char`
-- [ ] Agent prompt documents compact `data-lo-style` tokens (no spaces) vs inline `style`
-- [ ] Write path resolves compact tokens → UNO `ParaStyleName` via style list lookup
-- [ ] Unit + UNO round-trip tests included
+- [x] Read path: XHTML export (+ paired flat-ODF parent map) + string pipeline only
+- [x] Autostyle: flat-ODF `parent-style-name` recovery (primary) + CSS fingerprint (fallback) + omit/collision-safe (no `P1` passed to the LLM as a style name)
+- [x] Write path: strip `data-lo-style`, import HTML, apply styles via `apply_paragraph_style_preserving_direct_char` (applied on `full_document`; targeted inserts/replaces skip apply to avoid restyling adjacent text — follow-up)
+- [x] Agent prompt documents compact `data-lo-style` tokens (no spaces) vs inline `style`
+- [x] Write path resolves compact tokens → UNO `ParaStyleName` via style list lookup (collision → fail-safe `Standard`)
+- [x] Unit + UNO round-trip tests included (incl. the write→read FODT recovery)

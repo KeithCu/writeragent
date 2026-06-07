@@ -10,7 +10,7 @@ You can have the LLM map directly to your existing styles using the standard HTM
 
 ### Paragraph Styles
 
-Instruct the LLM to output a `<p>` or `<div>` tag with the class name matching the exact name of the LibreOffice paragraph style.
+Instruct the LLM to output a `<p>` tag with the class name matching the exact name of the LibreOffice paragraph style.
 
 ```html
 <p class="My Custom Theme">This paragraph will take on the 'My Custom Theme' style.</p>
@@ -31,6 +31,23 @@ Standard HTML tags are also automatically mapped to their LibreOffice equivalent
 * `<h1>`, `<h2>`, `<h3>` → **Heading 1**, **Heading 2**, **Heading 3**
 * `<blockquote>` → **Quotations**
 * `<ul>/<li>` → Standard List formatting
+
+## The `data-lo-style` Convention (Agent Read/Write)
+
+The `class="Style Name"` mapping above is the **legacy** path: it relies on LibreOffice's `HTML (StarWriter)` import and is still honored for hand-written or non-agent HTML.
+
+For the agent, WriterAgent uses a tighter, symmetric convention so reads and writes speak the same language:
+
+- **Read:** `get_document_content` exports via the `XHTML Writer File` filter and post-processes it. Each block carries its named paragraph style as a **compact `data-lo-style` token = the LibreOffice style name with spaces removed** (`Heading 1` → `Heading1`, `Text body` → `Textbody`, `Caption` → `Caption`, `Standard` → `Standard`). Use the tokens exactly as returned. Inline `style="..."` is reserved *exclusively* for direct character overrides. Synthetic autostyle paragraphs (e.g. after an edit, where the StarWriter import bakes extra direct char props into the paragraph) have their real base style name recovered from a paired flat-ODF (`.fodt`) export (the autostyle's `style:parent-style-name`, which the XHTML export flattens away); only a genuinely unresolvable autostyle is emitted without a token.
+- **Write:** `apply_document_content` reads `data-lo-style` back, resolves the compact token to the real LibreOffice `ParaStyleName` (`Heading1` → `Heading 1`), applies the named style first, then layers any inline `style="..."` on top as direct overrides. An unknown token falls back to `Standard`. **Named-style application happens when you rewrite the whole document (`target="full_document"`).** For targeted inserts/replaces (`end`/`beginning`/`selection`/`search`) the content is inserted but the named style is **not** applied — the first imported block merges into the cursor's existing paragraph, so applying its style would restyle the adjacent pre-existing text. To style text that already exists, use `apply_style`. Inline `style="..."` character overrides are honored on all targets.
+
+```html
+<!-- What get_document_content returns, and what the agent should write back: -->
+<p data-lo-style="Heading1">Section title</p>
+<p data-lo-style="Standard">A normal paragraph with a <span style="font-weight: bold">bold</span> word.</p>
+```
+
+Use the tokens exactly as returned by `get_document_content` (no spaces). This keeps documents using named styles instead of accreting raw inline formatting.
 
 ## Strategies for Prompting
 
