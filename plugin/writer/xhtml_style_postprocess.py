@@ -1,278 +1,304 @@
 # WriterAgent - AI Writing Assistant for LibreOffice
-# Copyright (c) 2024 John Balis
-# Copyright (c) 2026 KeithCu (modifications and relicensing)
+# Copyright (c) 2026 KeithCu
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""Pure-string post-processing for XHTML Writer File export (semantic style model)."""
-
-from __future__ import annotations
-
-import html as html_mod
-import logging
+#
+# Pure string/CSS post-processing of LibreOffice "XHTML Writer File" output into the
+# agent-facing semantic HTML described in docs/html_style_model_plan.md (read path):
+#   - named paragraph styles  -> data-lo-style="<compact token>" (no spaces: "Heading1")
+#   - direct character overrides (text-* synthetic classes) -> inline style="..."
+#   - synthetic paragraph-* autostyle classes (P1, P2, ...) -> name from FODT Pn->parent map
+#     (when supplied), else CSS fingerprint, else omitted
+#
+# v1 limitations (see docs/html_style_model_plan.md#v1-limitations-shipped):
+#   - Whole-paragraph Para* overrides (center, para colour, margins) are dropped on read;
+#     FODT recovers the base style NAME only. Char-level overrides via text-* spans survive.
+#   - Inside <table>: paragraph-* classes stripped; no data-lo-style (cell styles out of scope).
+#   - Colliding compact tokens (two UNO names -> same token): token omitted on read.
+#
+# Post-v1: cached UNO ParaStyleName index to drop dual export and improve resolution.
+# No UNO / no model access in this module — string pipeline only.
+import html as _html
 import re
-from typing import Any
+from html.parser import HTMLParser
 
-log = logging.getLogger("writeragent.writer")
+# Block tags that carry a paragraph style (read) and that produce exactly one paragraph on
+# import (write, where each consumes one positional data-lo-style slot). NOTE: <div> is
+# deliberately EXCLUDED — LibreOffice never emits a paragraph style on a <div>, and on write a
+# <div> is a transparent container (not its own paragraph). Treating it as a styleable block
+# desynced styles (read/write asymmetry); keeping it out makes both paths agree.
+BLOCK_TAGS = {"p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "blockquote", "pre"}
 
-_AUTOSTYLE_PARA_RE = re.compile(r"^P\d+$", re.IGNORECASE)
-_CSS_RULE_RE = re.compile(
-    r"\.(paragraph-[A-Za-z0-9_]+|text-[A-Za-z0-9_]+)\s*\{([^}]*)\}",
-    re.IGNORECASE,
+_AUTOSTYLE_RE = re.compile(r"^P\d+$")
+_STYLE_BLOCK_RE = re.compile(r"<style[^>]*>(.*?)</style>", re.DOTALL | re.IGNORECASE)
+_RULE_RE = re.compile(r"\.([A-Za-z0-9_\-]+)\s*\{([^}]*)\}")
+_BODY_RE = re.compile(r"<body[^>]*>(.*)</body>", re.DOTALL | re.IGNORECASE)
+_PARA_CLASS_RE = re.compile(r"\bparagraph-[A-Za-z0-9_\-]+")
+_TRAILING_EMPTY_P_RE = re.compile(
+    r"\s*<p\b[^>]*>(?:\s|&nbsp;|&#160;|&#xa0;| )*</p>\s*$", re.IGNORECASE
 )
-_CLASS_ATTR_RE = re.compile(r'\bclass=(["\'])(.*?)\1', re.IGNORECASE)
-_DATA_LO_STYLE_RE = re.compile(
-    r'\bdata-lo-style=(["\'])(.*?)\1',
-    re.IGNORECASE,
-)
-_BLOCK_WITH_DATA_LO_STYLE_RE = re.compile(
-    r"<(p|div|h[1-6]|blockquote|li)\b([^>]*)\bdata-lo-style=(['\"])(.*?)\3",
-    re.IGNORECASE,
-)
-_STYLE_BLOCK_RE = re.compile(r"<style\b[^>]*>(.*?)</style>", re.IGNORECASE | re.DOTALL)
 
 
-def decode_lo_css_class_suffix(suffix: str) -> str:
-    """Reverse ODF URL encoding in CSS class suffixes (_20_ → space, etc.)."""
-    if not suffix:
-        return suffix
-    return re.sub(
-        r"_([0-9a-fA-F]{2})_",
-        lambda m: chr(int(m.group(1), 16)),
-        suffix,
-    )
+def decode_lo_css_class_suffix(suffix):
+    """Reverse ODF URL-style encoding in a CSS class suffix (``Heading_20_1`` -> ``Heading 1``)."""
+    return re.sub(r"_([0-9a-fA-F]{2})_", lambda m: chr(int(m.group(1), 16)), suffix)
 
 
-def _normalize_css_decl(decl: str) -> str:
-    return re.sub(r"\s+", " ", (decl or "").strip())
+def compact_lo_style_name(uno_name):
+    """Agent-facing token: drop spaces (``Heading 1`` -> ``Heading1``)."""
+    return uno_name.replace(" ", "")
 
 
-def extract_css_rule_map(xhtml: str) -> dict[str, str]:
-    """Map CSS class name (without dot) to normalized declaration text."""
-    rules: dict[str, str] = {}
-    for m in _CSS_RULE_RE.finditer(xhtml or ""):
-        rules[m.group(1)] = _normalize_css_decl(m.group(2))
-    return rules
+_FODT_STYLE_RE = re.compile(r"<style:style\b([^>]*?)/?>", re.IGNORECASE)
 
 
-def _paragraph_class_token(class_token: str) -> str | None:
-    if class_token.startswith("paragraph-"):
-        return class_token
-    return None
-
-
-def _is_autostyle_paragraph_class(class_token: str) -> bool:
-    suffix = class_token[len("paragraph-") :]
-    return bool(_AUTOSTYLE_PARA_RE.match(suffix))
-
-
-def resolve_paragraph_style_from_class(
-    class_token: str,
-    css_rules: dict[str, str],
-) -> str | None:
-    """Map a paragraph-* export class to a UNO ParaStyleName, or None to omit."""
-    if not class_token or not class_token.startswith("paragraph-"):
-        return None
-    suffix = class_token[len("paragraph-") :]
-    if not _AUTOSTYLE_PARA_RE.match(suffix):
-        return decode_lo_css_class_suffix(suffix)
-
-    auto_decl = css_rules.get(class_token)
-    if not auto_decl:
-        return None
-
-    named_matches: list[str] = []
-    for cls, decl in css_rules.items():
-        if not cls.startswith("paragraph-") or _is_autostyle_paragraph_class(cls):
+def extract_autostyle_parents_from_fodt(fodt):
+    """Map automatic paragraph style name (``P1``, ``P2``, ...) -> its parent named style, from a
+    flat ODF (.fodt) export. The XHTML export flattens this parent away, so an autostyle's CSS
+    often matches no named rule (the common case after a StarWriter HTML import); the flat ODF
+    keeps ``style:parent-style-name``, and the automatic style name (``Pn``) is identical to the
+    XHTML ``paragraph-Pn`` class suffix — a reliable, order-independent join. Parent values may
+    still be ODF-encoded (``Text_20_body``); decode at use via ``decode_lo_css_class_suffix``.
+    """
+    out = {}
+    for m in _FODT_STYLE_RE.finditer(fodt or ""):
+        attrs = m.group(1)
+        fam = re.search(r'style:family="([^"]*)"', attrs)
+        if not fam or fam.group(1) != "paragraph":
             continue
-        if decl == auto_decl:
-            named_matches.append(decode_lo_css_class_suffix(cls[len("paragraph-") :]))
-
-    if len(named_matches) == 1:
-        return named_matches[0]
-    if len(named_matches) > 1:
-        log.debug(
-            "resolve_paragraph_style_from_class: ambiguous fingerprint for %s matches %s",
-            class_token,
-            named_matches,
-        )
-    return None
+        name = re.search(r'style:name="([^"]*)"', attrs)
+        parent = re.search(r'style:parent-style-name="([^"]*)"', attrs)
+        if name and parent and _AUTOSTYLE_RE.match(name.group(1)):
+            # XML attribute values are entity-escaped (a style named "A & B" -> "A &amp; B").
+            out[name.group(1)] = _html.unescape(parent.group(1))
+    return out
 
 
-def _merge_inline_style(existing: str | None, added: str) -> str:
-    existing = (existing or "").strip()
-    added = added.strip().rstrip(";")
-    if not existing:
-        return added + ";" if added else ""
-    if not added:
-        return existing if existing.endswith(";") else existing + ";"
-    base = existing.rstrip(";")
-    return base + "; " + added + ";"
+def _clean_decl_ordered(decl):
+    """Cleaned declaration, original order preserved, no trailing ``;`` (for inlining)."""
+    parts = [p.strip() for p in decl.split(";") if p.strip()]
+    return "; ".join(parts)
 
 
-def _inline_text_autostyle_classes(html_fragment: str, css_rules: dict[str, str]) -> str:
-    """Replace text-* classes with inline style from the export stylesheet."""
+def _normalize_decl(decl):
+    """Order-independent fingerprint of a declaration set (for autostyle matching)."""
+    parts = [p.strip() for p in decl.split(";") if p.strip()]
+    return ";".join(sorted(parts))
 
-    def _replace_tag(match: re.Match[str]) -> str:
-        tag = match.group(1)
-        before = match.group(2)
-        quote = match.group(3)
-        class_val = match.group(4)
-        after = match.group(5)
-        tokens = class_val.split()
-        kept: list[str] = []
-        inline = ""
-        for token in tokens:
-            if token.startswith("text-") and token in css_rules:
-                inline = _merge_inline_style(inline, css_rules[token])
-            else:
-                kept.append(token)
-        attrs = before + after
-        if kept:
-            attrs = _CLASS_ATTR_RE.sub("", attrs, count=1)
-            attrs = attrs.strip()
-            class_attr = ' class="%s"' % " ".join(kept)
+
+def parse_style_block(xhtml):
+    """Return ``(raw_map, norm_map)`` for every class rule in the ``<style>`` block(s).
+
+    ``raw_map[class] = "decl; decl"`` (order preserved) is used to inline char overrides;
+    ``norm_map[class] = "decl;decl"`` (sorted) is used to fingerprint autostyles.
+    """
+    raw_map = {}
+    norm_map = {}
+    for block in _STYLE_BLOCK_RE.findall(xhtml or ""):
+        for name, decl in _RULE_RE.findall(block):
+            raw_map[name] = _clean_decl_ordered(decl)
+            norm_map[name] = _normalize_decl(decl)
+    return raw_map, norm_map
+
+
+def _strip_body(xhtml):
+    """Return the inner HTML of ``<body>`` (or the input unchanged if there is no body)."""
+    m = _BODY_RE.search(xhtml or "")
+    return m.group(1).strip() if m else (xhtml or "")
+
+
+def _drop_trailing_empty_paragraphs(html):
+    """Drop whitespace/``&nbsp;``-only ``<p>`` blocks at the very end (LO export ghost paras)."""
+    while True:
+        new = _TRAILING_EMPTY_P_RE.sub("", html)
+        if new == html:
+            return html
+        html = new
+
+
+def _inject_attr(start_tag, attr):
+    """Insert *attr* (e.g. ``' data-lo-style="X"'``) just before the closing ``>`` of a tag."""
+    if start_tag.endswith("/>"):
+        return start_tag[:-2].rstrip() + attr + "/>"
+    if start_tag.endswith(">"):
+        return start_tag[:-1].rstrip() + attr + ">"
+    return start_tag + attr
+
+
+def _attr_value(attrs, key):
+    for k, v in attrs:
+        if k == key:
+            return v or ""
+    return ""
+
+
+class _SemanticTransformer(HTMLParser):
+    """Rewrite LO XHTML body into the agent-facing semantic HTML.
+
+    Top-level paragraph blocks get ``data-lo-style="<compact token>"`` (named styles only;
+    autostyles resolved by CSS fingerprint or omitted). Char overrides (``text-*`` classes)
+    are inlined as ``style="..."``. Inside ``<table>`` the synthetic ``paragraph-*`` class is
+    stripped (no leak) but no ``data-lo-style`` is emitted — cell styles are out of scope for
+    v1 round-trip. Tags are re-emitted verbatim via ``get_starttag_text()``; only the
+    attributes we change are rewritten with string ops.
+    """
+
+    def __init__(self, raw_map, norm_map, autostyle_parents=None):
+        super().__init__(convert_charrefs=False)
+        self._raw = raw_map
+        self._autostyle_parents = autostyle_parents or {}
+        # Map a named paragraph rule's fingerprint -> list of its compact tokens.
+        self._named_fingerprint = {}
+        # Map a compact token -> set of distinct UNO names that compact to it. When more than
+        # one named style produces the same token (e.g. "Heading 1" and a literal "Heading1"),
+        # the token is AMBIGUOUS and must not be emitted — see _colliding_tokens below.
+        token_names = {}
+        for cls, norm in norm_map.items():
+            if not cls.startswith("paragraph-"):
+                continue
+            suffix = cls[len("paragraph-"):]
+            if _AUTOSTYLE_RE.match(suffix):
+                continue
+            name = decode_lo_css_class_suffix(suffix)
+            token = compact_lo_style_name(name)
+            self._named_fingerprint.setdefault(norm, []).append(token)
+            token_names.setdefault(token, set()).add(name)
+        # Tokens produced by >1 distinct named style collide: the write path could not tell
+        # them apart, so we omit (write treats a missing token as the default body style)
+        # rather than emit a token that would silently resolve to the wrong style.
+        self._colliding_tokens = {t for t, names in token_names.items() if len(names) > 1}
+        self._norm = norm_map
+        self._table_depth = 0
+        self._out = []
+
+    def _paragraph_token(self, suffix):
+        """Compact ``data-lo-style`` token for a ``paragraph-<suffix>`` class, or ``None``.
+
+        For autostyles (``paragraph-Pn``) the flat-ODF parent map (when supplied) is
+        authoritative: the XHTML export flattens the parent away, so the autostyle CSS often
+        matches no named rule (the common case after a StarWriter HTML import), but the .fodt
+        export keeps the parent and ``Pn`` is the same name in both exports — so the real style
+        name is recovered. CSS fingerprint is the fallback when there is no FODT map.
+
+        KNOWN LIMITATION (v1): the whole-paragraph DIRECT *overrides* themselves (alignment,
+        margins, whole-paragraph colour baked into the autostyle CSS) are still dropped — only
+        the style NAME is recovered, and character-level overrides survive via inline ``text-*``
+        spans. Whole-paragraph Para* overrides do not round-trip (the write path cannot restore
+        Para* when applying a named style).
+        """
+        if _AUTOSTYLE_RE.match(suffix):
+            # Authoritative: the flat-ODF parent of this autostyle (Pn -> named base).
+            parent = self._autostyle_parents.get(suffix)
+            if parent:
+                token = compact_lo_style_name(decode_lo_css_class_suffix(parent))
+                if token not in self._colliding_tokens:
+                    return token
+            # Fallback: resolve by CSS fingerprint against named rules.
+            norm = self._norm.get("paragraph-" + suffix)
+            matches = self._named_fingerprint.get(norm) if norm else None
+            if matches and len(matches) == 1 and matches[0] not in self._colliding_tokens:
+                return matches[0]
+            return None  # not uniquely resolvable -> omit (write treats absence as body)
+        token = compact_lo_style_name(decode_lo_css_class_suffix(suffix))
+        if token in self._colliding_tokens:
+            return None  # ambiguous compact token -> omit (Issue 2)
+        return token
+
+    def _rewrite_block(self, raw, attrs):
+        classes = _attr_value(attrs, "class")
+        para_classes = _PARA_CLASS_RE.findall(classes)
+        token = None
+        if para_classes and self._table_depth == 0:
+            suffix = para_classes[0][len("paragraph-"):]
+            token = self._paragraph_token(suffix)
+        # Strip every paragraph-* class (top-level or cell) so it never leaks to the agent.
+        raw = _strip_class_names(raw, _PARA_CLASS_RE)
+        if token:
+            raw = _inject_attr(raw, ' data-lo-style="%s"' % token)
+        return raw
+
+    def _rewrite_span(self, raw, attrs):
+        classes = _attr_value(attrs, "class")
+        names = classes.split()
+        text_names = [c for c in names if c.startswith("text-")]
+        if not text_names:
+            return raw
+        css_parts = [self._raw[c] for c in text_names if c in self._raw]
+        remaining = [c for c in names if not c.startswith("text-")]
+        raw = re.sub(r'\s+class="[^"]*"', "", raw)
+        raw = re.sub(r"\s+class='[^']*'", "", raw)
+        ins = ""
+        if css_parts:
+            ins += ' style="%s"' % "; ".join(css_parts)
+        if remaining:
+            ins += ' class="%s"' % " ".join(remaining)
+        return _inject_attr(raw, ins) if ins else raw
+
+    def handle_starttag(self, tag, attrs):
+        raw = self.get_starttag_text() or ("<%s>" % tag)
+        t = tag.lower()
+        if t == "table":
+            self._table_depth += 1
+            self._out.append(raw)
+        elif t in BLOCK_TAGS:
+            self._out.append(self._rewrite_block(raw, attrs))
+        elif t == "span":
+            self._out.append(self._rewrite_span(raw, attrs))
         else:
-            attrs = _CLASS_ATTR_RE.sub("", attrs, count=1).strip()
-            class_attr = ""
-        style_match = _DATA_LO_STYLE_RE  # noqa: F841 — placeholder to avoid shadow; use inline style re
-        style_re = re.compile(r'\bstyle=(["\'])(.*?)\1', re.IGNORECASE)
-        sm = style_re.search(attrs)
-        if inline:
-            if sm:
-                merged = _merge_inline_style(sm.group(2), inline.rstrip(";"))
-                attrs = style_re.sub('style=%s%s%s' % (sm.group(1), merged, sm.group(1)), attrs, count=1)
-            else:
-                attrs = (attrs + ' style="%s"' % html_mod.escape(inline, quote=True)).strip()
-        attrs = re.sub(r"\s+", " ", attrs).strip()
-        if attrs:
-            return "<%s %s%s>%s" % (tag, attrs, class_attr, match.group(6))
-        if class_attr:
-            return "<%s%s>%s" % (tag, class_attr, match.group(6))
-        return "<%s>%s" % (tag, match.group(6))
+            self._out.append(raw)
 
-    tag_re = re.compile(
-        r"<(span|font)\b([^>]*)\bclass=(['\"])(.*?)\3([^>]*)>(.*?)</\1>",
-        re.IGNORECASE | re.DOTALL,
-    )
-    return tag_re.sub(_replace_tag, html_fragment)
+    def handle_startendtag(self, tag, attrs):
+        self._out.append(self.get_starttag_text() or ("<%s/>" % tag))
 
+    def handle_endtag(self, tag):
+        if tag.lower() == "table" and self._table_depth > 0:
+            self._table_depth -= 1
+        self._out.append("</%s>" % tag)
 
-def _transform_paragraph_tag(match: re.Match[str], css_rules: dict[str, str]) -> str:
-    tag = match.group(1)
-    attrs = match.group(2)
-    cm = _CLASS_ATTR_RE.search(attrs)
-    if not cm:
-        return match.group(0)
-    tokens = cm.group(2).split()
-    para_tokens = [t for t in tokens if t.startswith("paragraph-")]
-    other_tokens = [t for t in tokens if not t.startswith("paragraph-")]
-    style_name = None
-    for pt in para_tokens:
-        resolved = resolve_paragraph_style_from_class(pt, css_rules)
-        if resolved:
-            style_name = resolved
-            break
-    new_attrs = _CLASS_ATTR_RE.sub("", attrs, count=1).strip()
-    if style_name:
-        if _DATA_LO_STYLE_RE.search(new_attrs):
-            new_attrs = _DATA_LO_STYLE_RE.sub("", new_attrs).strip()
-        new_attrs = (new_attrs + ' data-lo-style="%s"' % html_mod.escape(style_name, quote=True)).strip()
-    if other_tokens:
-        new_attrs = (new_attrs + ' class="%s"' % " ".join(other_tokens)).strip()
-    new_attrs = re.sub(r"\s+", " ", new_attrs).strip()
-    if new_attrs:
-        return "<%s %s>%s" % (tag, new_attrs, match.group(3))
-    return "<%s>%s" % (tag, match.group(3))
+    def handle_data(self, data):
+        self._out.append(data)
+
+    def handle_entityref(self, name):
+        self._out.append("&%s;" % name)
+
+    def handle_charref(self, name):
+        self._out.append("&#%s;" % name)
+
+    def handle_comment(self, data):
+        self._out.append("<!--%s-->" % data)
+
+    def result(self):
+        return "".join(self._out)
 
 
-def transform_paragraph_tags(html_fragment: str, css_rules: dict[str, str]) -> str:
-    para_re = re.compile(r"<(p|div|h[1-6]|blockquote|li)\b([^>]*)>(.*?)</\1>", re.IGNORECASE | re.DOTALL)
+def _strip_class_names(start_tag, name_re):
+    """Remove class names matching *name_re* from a start tag; drop the attr if it empties."""
+    def _sub(m):
+        kept = [c for c in m.group(2).split() if not name_re.fullmatch(c)]
+        return (" class=%s%s%s" % (m.group(1), " ".join(kept), m.group(1))) if kept else ""
 
-    def _sub(m: re.Match[str]) -> str:
-        return _transform_paragraph_tag(m, css_rules)
-
-    return para_re.sub(_sub, html_fragment)
-
-
-def postprocess_xhtml_export(xhtml: str) -> str:
-    """Convert XHTML Writer File export to agent-facing HTML with data-lo-style."""
-    if not xhtml or not isinstance(xhtml, str):
-        return xhtml
-    css_rules = extract_css_rule_map(xhtml)
-    body_match = re.search(r"<body[^>]*>(.*?)</body>", xhtml, re.DOTALL | re.IGNORECASE)
-    if not body_match:
-        return xhtml
-    body = body_match.group(1)
-    body = _inline_text_autostyle_classes(body, css_rules)
-    body = transform_paragraph_tags(body, css_rules)
-    return body.strip()
+    return re.sub(r'\s+class=(["\'])(.*?)\1', _sub, start_tag)
 
 
-def collect_data_lo_styles(html: str) -> tuple[str, list[str | None]]:
-    """Strip data-lo-style from block tags; return cleaned HTML and styles in document order."""
-    styles: list[str | None] = []
+def xhtml_to_semantic_html(full_xhtml, autostyle_parents=None):
+    """Convert raw LO ``XHTML Writer File`` output to the agent-facing semantic HTML.
 
-    def _repl(m: re.Match[str]) -> str:
-        styles.append(m.group(4))
-        attrs = m.group(2)
-        attrs = _DATA_LO_STYLE_RE.sub("", attrs)
-        attrs = re.sub(r"\s+", " ", attrs).strip()
-        if attrs:
-            return "<%s %s>" % (m.group(1), attrs)
-        return "<%s>" % m.group(1)
+    Single entry point: parse the ``<style>`` block, extract the body, inline char overrides,
+    emit ``data-lo-style`` compact tokens for named paragraph styles, drop trailing ghost
+    paragraphs. Pure string work — fully unit-testable without LibreOffice.
 
-    cleaned = _BLOCK_WITH_DATA_LO_STYLE_RE.sub(_repl, html or "")
-    return cleaned, styles
-
-
-def count_body_paragraphs(doc) -> int:
-    """Count paragraph elements in the document body text."""
-    count = 0
-    enum = doc.getText().createEnumeration()
-    while enum.hasMoreElements():
-        el = enum.nextElement()
-        if hasattr(el, "getString"):
-            count += 1
-    return count
-
-
-def apply_paragraph_styles_in_order(doc, style_names: list[str | None], skip: int = 0) -> None:
-    """Apply collected data-lo-style names to body paragraphs in order."""
-    from .format import apply_paragraph_style_preserving_direct_char
-
-    if not style_names:
-        return
-    text = doc.getText()
-    enum = text.createEnumeration()
-    style_idx = 0
-    skipped = 0
-    while enum.hasMoreElements() and style_idx < len(style_names):
-        el = enum.nextElement()
-        if not hasattr(el, "getString"):
-            continue
-        if skipped < skip:
-            skipped += 1
-            continue
-        name = style_names[style_idx]
-        style_idx += 1
-        if not name:
-            continue
-        try:
-            cursor = text.createTextCursorByRange(el.getStart())
-            apply_paragraph_style_preserving_direct_char(doc, cursor, name)
-        except Exception:
-            log.debug("apply_paragraph_styles_in_order: could not apply %r", name, exc_info=True)
-
-
-def preprocess_html_for_import(html: str) -> tuple[str, list[str | None]]:
-    """Prepare agent HTML for StarWriter import; return HTML and paragraph styles to apply after."""
-    cleaned, styles = collect_data_lo_styles(html)
-    return cleaned, styles
-
-
-def apply_data_lo_styles_after_import(doc, styles: list[str | None], paragraph_offset: int = 0) -> None:
-    """Apply paragraph styles collected from data-lo-style attributes."""
-    apply_paragraph_styles_in_order(doc, styles, skip=paragraph_offset)
+    *autostyle_parents* — ``{Pn: parent_style_name}`` from ``extract_autostyle_parents_from_fodt``
+    on a paired flat-ODF export. Joined by autostyle name (``paragraph-Pn`` suffix), not block
+    index. Recovers the base style **name** after StarWriter write→read when CSS fingerprint
+    fails; does not recover whole-paragraph Para* overrides (v1 limitation — see plan doc).
+    """
+    raw_map, norm_map = parse_style_block(full_xhtml)
+    body = _strip_body(full_xhtml)
+    tr = _SemanticTransformer(raw_map, norm_map, autostyle_parents)
+    tr.feed(body)
+    tr.close()
+    out = _drop_trailing_empty_paragraphs(tr.result())
+    return out.strip()

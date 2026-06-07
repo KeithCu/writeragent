@@ -24,6 +24,7 @@ import re
 import tempfile
 import urllib.parse
 import urllib.request
+from html.parser import HTMLParser
 from typing import Any, cast
 
 import uno
@@ -34,6 +35,7 @@ from plugin.doc.document_helpers import normalize_linebreaks as _normalize
 from .math.html_math_segment import html_fragment_contains_mixed_math, segment_html_with_mixed_math
 from .math.math_mml_convert import convert_latex_to_starmath, convert_mathml_to_starmath, insert_writer_math_formula
 from .ops import get_selection_range
+from . import xhtml_style_postprocess as xhtml_post
 
 log = logging.getLogger("writeragent.writer")
 
@@ -44,6 +46,18 @@ log = logging.getLogger("writeragent.writer")
 
 HTML_FILTER = "HTML (StarWriter)"
 HTML_EXTENSION = ".html"
+
+# Read-path export filter. The XHTML filter preserves the paragraph style model as CSS
+# classes + a <style> block (vs HTML (StarWriter), which flattens everything to inline
+# CSS). We post-process it into semantic data-lo-style attributes. The WRITE/import path
+# keeps HTML (StarWriter).
+XHTML_FILTER = "XHTML Writer File"
+XHTML_EXTENSION = ".xhtml"
+# Flat ODF: keeps each autostyle's parent named style (style:parent-style-name), which the
+# XHTML export flattens away — so autostyle paragraphs (common after a StarWriter import) can
+# recover their real style name. Paired with the XHTML export on the read path.
+FLAT_ODF_FILTER = "OpenDocument Text Flat XML"
+FODT_EXTENSION = ".fodt"
 
 # System temp directory (cross-platform).
 TEMP_DIR = tempfile.gettempdir()
@@ -161,14 +175,16 @@ def _create_property_value(name, value):
 
 
 @contextlib.contextmanager
-def _with_temp_buffer(content=None, config_svc=None):
+def _with_temp_buffer(content=None, config_svc=None, ext=None):
     """Context manager that yields ``(path, file_url)`` for a temp file
     with the correct format extension.
 
     If *content* is not ``None`` it is written to the file.
+    *ext* overrides the file extension (e.g. ``".xhtml"`` for the read filter).
     The file is deleted on exit.
     """
-    _, ext = _get_format_props(config_svc)
+    if ext is None:
+        _, ext = _get_format_props(config_svc)
     fd, path = tempfile.mkstemp(suffix=ext, dir=TEMP_DIR)
     try:
         if content is not None:
@@ -199,6 +215,231 @@ def _strip_html_boilerplate(html_string):
     if match:
         return match.group(1).strip()
     return html_string
+
+
+# ---------------------------------------------------------------------------
+# Semantic style model (read path): XHTML filter -> semantic data-lo-style HTML.
+# Pure string/CSS pipeline: xhtml_style_postprocess (no UNO). This module owns UNO export
+# (XHTML + optional flat ODF for Pn->parent autostyle recovery). v1 cost: two storeToURL per
+# full read; v1 gaps (partial-edit style apply, table cells, whole-para overrides): see
+# docs/html_style_model_plan.md#v1-limitations-shipped.
+# ---------------------------------------------------------------------------
+
+
+def _export_xhtml(doc, config_svc):
+    """Export *doc* via the XHTML Writer File filter; return the raw XHTML string."""
+    with _with_temp_buffer(None, config_svc, ext=XHTML_EXTENSION) as (path, file_url):
+        props = (_create_property_value("FilterName", XHTML_FILTER),)
+        doc.storeToURL(file_url, props)
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            return f.read()
+
+
+def _autostyle_parents(doc, config_svc):
+    """Export *doc* as flat ODF and return the autostyle -> parent-style map (Pn -> base name).
+
+    Lets the read path recover an autostyle paragraph's real style name when the XHTML CSS
+    fingerprint matches nothing. Returns ``{}`` on any failure (the read still works, just
+    without the autostyle-name recovery)."""
+    try:
+        with _with_temp_buffer(None, config_svc, ext=FODT_EXTENSION) as (path, file_url):
+            props = (_create_property_value("FilterName", FLAT_ODF_FILTER),)
+            doc.storeToURL(file_url, props)
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                fodt = f.read()
+        return xhtml_post.extract_autostyle_parents_from_fodt(fodt)
+    except Exception:
+        log.debug("_autostyle_parents: flat-ODF export failed", exc_info=True)
+        return {}
+
+
+# ---------------------------------------------------------------------------
+# Semantic style model (write path): honor data-lo-style on incoming HTML.
+# Named styles applied only on replace_full_document (apply_styles=True). Partial inserts
+# strip the attribute but do not apply — see docs/html_style_model_plan.md#v1-limitations-shipped.
+# ---------------------------------------------------------------------------
+
+
+def _strip_data_lo_style(start_tag):
+    """Remove any data-lo-style attribute from a single start-tag string."""
+    start_tag = re.sub(r'\s+data-lo-style="[^"]*"', "", start_tag)
+    return re.sub(r"\s+data-lo-style='[^']*'", "", start_tag)
+
+
+class _BlockLoStyleExtractor(HTMLParser):
+    """Collect data-lo-style per TOP-LEVEL block (document order) and strip the attribute
+    from the HTML, so the StarWriter import sees clean markup and we apply the named styles
+    ourselves afterwards. Content inside <table> is left to the import (avoids order desync)."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=False)
+        self._table_depth = 0
+        self.styles = []
+        self._out = []
+
+    def _emit(self, raw, attrs, is_block):
+        if is_block and self._table_depth == 0:
+            val = None
+            for k, v in attrs:
+                if k == "data-lo-style":
+                    val = v
+            self.styles.append(val)
+            self._out.append(_strip_data_lo_style(raw))
+        else:
+            # Non-top-level / non-block: leave verbatim. In particular, a table-cell block's
+            # data-lo-style is left for the import to ignore (v1 doesn't apply cell styles),
+            # rather than silently stripped without being applied.
+            self._out.append(raw)
+
+    def handle_starttag(self, tag, attrs):
+        raw = self.get_starttag_text() or ("<%s>" % tag)
+        if tag.lower() == "table":
+            self._table_depth += 1
+            self._out.append(raw)
+            return
+        # BLOCK_TAGS excludes <div> (transparent container), so a wrapper does not consume a
+        # positional style slot — keeps read and write symmetric on <div>.
+        self._emit(raw, attrs, tag.lower() in xhtml_post.BLOCK_TAGS)
+
+    def handle_startendtag(self, tag, attrs):
+        raw = self.get_starttag_text() or ("<%s/>" % tag)
+        self._emit(raw, attrs, tag.lower() in xhtml_post.BLOCK_TAGS)
+
+    def handle_endtag(self, tag):
+        if tag.lower() == "table" and self._table_depth > 0:
+            self._table_depth -= 1
+        self._out.append("</%s>" % tag)
+
+    def handle_data(self, data):
+        self._out.append(data)
+
+    def handle_entityref(self, name):
+        self._out.append("&%s;" % name)
+
+    def handle_charref(self, name):
+        self._out.append("&#%s;" % name)
+
+    def handle_comment(self, data):
+        self._out.append("<!--%s-->" % data)
+
+    def result(self):
+        return "".join(self._out), self.styles
+
+
+def _extract_block_lo_styles(html):
+    """Return ``(clean_html, [data_lo_style_or_None per top-level block])``.
+
+    Short-circuits (returns the html unchanged, no styles) when there is no data-lo-style,
+    so existing callers are completely unaffected."""
+    if not html or "data-lo-style" not in html:
+        return html, []
+    ex = _BlockLoStyleExtractor()
+    ex.feed(html)
+    ex.close()
+    return ex.result()
+
+
+def _count_preceding_paras(text_obj, target):
+    """Number of paragraphs in *text_obj* whose start is before *target* (insertion point).
+
+    Computed BEFORE the import so we know where the inserted block paragraphs begin (a saved
+    cursor would drift to the end of the inserted content)."""
+    idx = 0
+    try:
+        e = text_obj.createEnumeration()
+    except Exception:
+        return 0
+    guard = 0
+    while e.hasMoreElements() and guard < 200000:
+        guard += 1
+        try:
+            el = e.nextElement()
+        except Exception:
+            break
+        if not (hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.Paragraph")):
+            continue
+        try:
+            if text_obj.compareRegionStarts(el.getStart(), target) == 1:
+                idx += 1
+            else:
+                break
+        except Exception:
+            break
+    return idx
+
+
+def _resolve_paragraph_style_token(model, fam, token):
+    """Resolve an agent-facing compact ``data-lo-style`` token to a real UNO ParaStyleName.
+
+    A candidate is any paragraph style whose name equals the token (covers space-free names
+    and an agent that passed the exact spaced form) OR whose space-free form equals the token
+    (``Heading1`` -> ``Heading 1``). Exactly one candidate -> use it. **More than one ->
+    ambiguous** (e.g. a literal ``Heading1`` coexisting with built-in ``Heading 1``); fail safe
+    to ``Standard`` instead of silently picking one. No candidate -> case-insensitive resolve,
+    then ``Standard``. The ambiguity gate runs BEFORE any exact-name shortcut so a colliding
+    token can never silently land on the wrong style (per docs/html_style_model_plan.md)."""
+    from plugin.writer.content import _resolve_style_name
+
+    if fam is not None:
+        candidates = []
+        try:
+            for name in fam.getElementNames():
+                if name == token or xhtml_post.compact_lo_style_name(name) == token:
+                    if name not in candidates:
+                        candidates.append(name)
+        except Exception:
+            candidates = []
+        if len(candidates) == 1:
+            return candidates[0]
+        if len(candidates) > 1:
+            log.debug("data-lo-style: token %r is ambiguous across %r; falling back to Standard",
+                      token, candidates)
+            return "Standard"
+    resolved = _resolve_style_name(model, token)
+    if fam is None or fam.hasByName(resolved):
+        return resolved
+    return "Standard"
+
+
+def _apply_block_lo_styles(model, text_obj, start_idx, styles):
+    """Apply each block's data-lo-style to the inserted paragraphs (positionally), starting at
+    paragraph index *start_idx*. Reuses apply_paragraph_style_preserving_direct_char so the
+    named style is applied first and the import's inline char overrides survive on top.
+    Compact tokens (``Heading1``) are resolved to UNO names; unknown styles fall back to
+    'Standard' (per the style-model plan)."""
+    try:
+        fam = model.getStyleFamilies().getByName("ParagraphStyles")
+    except Exception:
+        fam = None
+    # Collect the target paragraphs (from start_idx, at most len(styles)) before mutating.
+    paras = []
+    try:
+        e = text_obj.createEnumeration()
+    except Exception:
+        return
+    i = 0
+    guard = 0
+    while e.hasMoreElements() and guard < 200000 and len(paras) < len(styles):
+        guard += 1
+        try:
+            el = e.nextElement()
+        except Exception:
+            break
+        if not (hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.Paragraph")):
+            continue
+        if i >= start_idx:
+            paras.append(el)
+        i += 1
+    for para_el, style in zip(paras, styles):
+        if not style:
+            continue
+        resolved = _resolve_paragraph_style_token(model, fam, style)
+        try:
+            cur = text_obj.createTextCursorByRange(para_el.getStart())
+            cur.gotoEndOfParagraph(True)
+            apply_paragraph_style_preserving_direct_char(model, cur, resolved)
+        except Exception:
+            log.debug("data-lo-style: failed to apply %r", style, exc_info=True)
 
 
 def _wrap_html_fragment(html_content, extra_css=None):
@@ -341,13 +582,19 @@ def _range_to_content_via_temp_doc(model, ctx, start, end, max_chars, config_svc
         if not added_any:
             return ""
 
-        filter_name, _ = _get_format_props(config_svc)
-        with _with_temp_buffer(None, config_svc) as (path, file_url):
-            props = (_create_property_value("FilterName", filter_name),)
-            temp_doc.storeToURL(file_url, props)
-            with open(path, "r", encoding="utf-8", errors="replace") as f:
-                content = f.read()
-        content = _strip_html_boilerplate(content)
+        try:
+            xhtml = _export_xhtml(temp_doc, config_svc)
+            parents = _autostyle_parents(temp_doc, config_svc)
+            content = xhtml_post.xhtml_to_semantic_html(xhtml, parents)
+        except Exception:
+            log.exception("_range_to_content_via_temp_doc (XHTML) failed; falling back to StarWriter")
+            filter_name, _ = _get_format_props(config_svc)
+            with _with_temp_buffer(None, config_svc) as (path, file_url):
+                props = (_create_property_value("FilterName", filter_name),)
+                temp_doc.storeToURL(file_url, props)
+                with open(path, "r", encoding="utf-8", errors="replace") as f:
+                    content = f.read()
+            content = _strip_html_boilerplate(content)
         if max_chars and len(content) > max_chars:
             content = content[:max_chars] + "\n\n[... truncated ...]"
         return content
@@ -391,7 +638,18 @@ def document_to_content(model, ctx, services, max_chars=None, scope="full", rang
         end = min(end, doc_len)
         return _range_to_content_via_temp_doc(model, ctx, start, end, max_chars, config_svc)
 
-    # scope == "full"
+    # scope == "full" — preferred: XHTML (+ flat-ODF parent map) -> semantic data-lo-style.
+    try:
+        xhtml = _export_xhtml(model, config_svc)
+        parents = _autostyle_parents(model, config_svc)
+        content = xhtml_post.xhtml_to_semantic_html(xhtml, parents)
+        if max_chars and len(content) > max_chars:
+            content = content[:max_chars] + "\n\n[... truncated ...]"
+        return content
+    except Exception:
+        log.exception("document_to_content (full, XHTML) failed; falling back to StarWriter")
+
+    # Fallback: legacy StarWriter export (so reads never hard-fail).
     try:
         filter_name, _ = _get_format_props(config_svc)
         with _with_temp_buffer(None, config_svc) as (path, file_url):
@@ -496,16 +754,55 @@ def _insert_mixed_html_and_math_at_cursor(model, ctx, cursor, unescaped: str, co
             log.debug("math import failed: %s snippet=%r", res.error_message, snippet)
 
 
-def _insert_mixed_or_plain_html(model, ctx, cursor, unescaped_content, config_svc=None):
-    """HTML import, with an optional MathML + TeX preprocessing layer."""
-    if html_fragment_contains_mixed_math(unescaped_content):
-        _insert_mixed_html_and_math_at_cursor(model, ctx, cursor, unescaped_content, config_svc=config_svc)
+def _insert_mixed_or_plain_html(model, ctx, cursor, unescaped_content, config_svc=None, apply_styles=True):
+    """HTML import (optional MathML + TeX layer).
+
+    data-lo-style paragraph styling is applied via UNO after the import only when *apply_styles*
+    is True (target=full_document). For insert/replace targets it is False: the StarWriter import
+    merges the first inserted block into the cursor's EXISTING paragraph, so applying the named
+    style there would restyle the pre-existing text (corruption). On those paths we still strip
+    data-lo-style (clean import) but do not apply it — styled writes go through full_document, or
+    use apply_style to (re)style existing text. (Targeted styled inserts are a future follow-up.)
+    """
+    # Strip data-lo-style so the StarWriter import sees clean markup (it drops unknown attributes
+    # anyway); we re-apply the named styles via UNO afterwards only when apply_styles is True.
+    clean, block_styles = _extract_block_lo_styles(unescaped_content)
+    styled = apply_styles and any(block_styles)
+    text_obj = cursor.getText()
+    # Index of the paragraph where the inserted block content begins (computed pre-import).
+    # The first imported block MERGES into the paragraph that contains the cursor when the
+    # cursor is not at a paragraph boundary (target=end/search/selection). So count paragraphs
+    # strictly before the cursor's *paragraph* (not the cursor position) — otherwise the applied
+    # styles shift by one. (For full_document the cursor is already at the paragraph start.)
+    start_idx = 0
+    if styled:
+        ref = cursor.getStart()
+        try:
+            para_cur = text_obj.createTextCursorByRange(cursor.getStart())
+            para_cur.gotoStartOfParagraph(False)
+            ref = para_cur.getStart()
+        except Exception:
+            pass
+        start_idx = _count_preceding_paras(text_obj, ref)
+
+    if html_fragment_contains_mixed_math(clean):
+        _insert_mixed_html_and_math_at_cursor(model, ctx, cursor, clean, config_svc=config_svc)
     else:
         # Expand literal \n and \t for plain HTML without math
-        unescaped_content = unescaped_content.replace("\\n", "\n").replace("\\t", "\t")
+        expanded = clean.replace("\\n", "\n").replace("\\t", "\t")
+        single = _ensure_html_linebreaks(expanded)
+        if not styled:
+            _insert_starwriter_html_at_cursor(model, cursor, single, config_svc=config_svc)
+            return
+        # model=None: keep the cursor at the end of the inserted content.
+        insert_html_fragment_at_cursor(cursor, single, wrap=False, config_svc=config_svc, model=None)
 
-        single = _ensure_html_linebreaks(unescaped_content)
-        _insert_starwriter_html_at_cursor(model, cursor, single, config_svc=config_svc)
+    if styled:
+        try:
+            _apply_block_lo_styles(model, text_obj, start_idx, block_styles)
+        except Exception:
+            log.debug("data-lo-style application failed", exc_info=True)
+        _cursor_goto_document_end(model, cursor)
 
 
 def insert_content_at_position(model, ctx, content, position, config_svc=None):
@@ -537,7 +834,9 @@ def insert_content_at_position(model, ctx, content, position, config_svc=None):
     else:
         raise ToolExecutionError("Unknown position: %s" % position)
 
-    _insert_mixed_or_plain_html(model, ctx, cursor, content, config_svc=config_svc)
+    # apply_styles=False: inserting next to existing text merges the first block into it, so the
+    # named style would restyle that text. Styled paragraph writes go through full_document.
+    _insert_mixed_or_plain_html(model, ctx, cursor, content, config_svc=config_svc, apply_styles=False)
 
 
 def replace_full_document(model, ctx, content, config_svc=None):
@@ -596,7 +895,9 @@ def replace_single_range_with_content(model, text_range, content, ctx, config_sv
         except Exception:
             log.debug("replace_single_range_with_content: could not restore ParaStyleName", exc_info=True)
     else:
-        _insert_mixed_or_plain_html(model, ctx, cursor, prepared, config_svc=config_svc)
+        # apply_styles=False: a search/replace splits the matched paragraph, so applying a
+        # data-lo-style here would restyle the surrounding text. Styled writes use full_document.
+        _insert_mixed_or_plain_html(model, ctx, cursor, prepared, config_svc=config_svc, apply_styles=False)
 
 
 # ---------------------------------------------------------------------------

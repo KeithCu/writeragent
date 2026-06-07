@@ -132,10 +132,12 @@ APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL):
 - `content` must be a JSON array of HTML strings (one fragment per heading/paragraph). We wrap in <html>/<body>.
 {HTML_FRAGMENT_RULES}
 - Math: Always use inline delimiters \\(...\\) for every equation—in running text or in its own <p>. No $...$, $$...$$, \\[...\\], HTML-escaped math, equation images, or plain-text formulas like x².
+- Named paragraph styles: get_document_content marks each block's LibreOffice paragraph style as a `data-lo-style` token = the style name with spaces removed (e.g. `Heading 1`->`Heading1`, `Text body`->`Textbody`, `Caption`->`Caption`); use the tokens EXACTLY as returned. It reserves inline style="..." for direct character overrides. PRESERVE and USE it — emit `<p data-lo-style="Heading1">...</p>` to apply a named style, using the tokens exactly as returned (the named style is applied first, then any inline style="" is layered on top as a direct override). Prefer named styles over hardcoded inline formatting; an unknown token falls back to 'Standard'. data-lo-style is applied when you rewrite with target='full_document'; for targeted inserts/replaces (end/beginning/selection/search) the named style is NOT applied (it would restyle adjacent text) — rewrite via full_document for styling, or use apply_style to (re)style existing text. v1 limits: whole-paragraph alignment/colour/margins and table-cell styles do not round-trip; use named styles and span-level inline style for char exceptions (see docs/html_style_model_plan.md).
 
 EXAMPLES:
 - Good: ["<h1>Title</h1>", "<p>Paragraph with <strong>bold</strong> text and \\"quotes\\".</p>"]
 - Good math: ["<p>The identity \\(a^2+b^2=c^2\\) holds.</p>"]
+- Good styles: ["<p data-lo-style=\\"Heading1\\">Section title</p>", "<p data-lo-style=\\"Quotations\\">A quoted clause.</p>"]
 - Bad: <h1>Title</h1><p>Paragraph</p> (must be a list of strings)
 - Bad: ["&lt;h1&gt;Title&lt;/h1&gt;"] (escaped entities)
 - Bad: ["&lt;math&gt;x^2&lt;/math&gt;"] (HTML-escaped math; use LaTeX delimiters)

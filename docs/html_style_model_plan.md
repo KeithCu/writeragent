@@ -1,6 +1,6 @@
 # PM & Development Plan: Semantic Style Models in HTML
 
-**Status:** In progress — contributor implementing v1 (short-term path below). Long-term performance path documented for post-v1.
+**Status:** v1 **implemented** (read/write `data-lo-style` in [`format.py`](../plugin/writer/format.py) + [`xhtml_style_postprocess.py`](../plugin/writer/xhtml_style_postprocess.py)). Post-v1 performance path documented below.
 
 ## Problem Statement
 
@@ -18,7 +18,7 @@ While the original proposal to add a `get_paragraph_metadata` tool provides accu
 Instead of a separate diagnostic tool, we will **embed the LibreOffice style model directly into the HTML representation**.
 
 We will achieve **Read/Write Symmetry**:
-- **Read:** Paragraphs will include their named style as a custom data attribute (e.g., `<p data-lo-style="Caption">`). Values are **compact tokens with no spaces** (`Heading1`, `TextBody`, `Standard`) so models do not have to juggle LibreOffice spacing quirks. Inline `style="..."` attributes will be reserved *exclusively* for direct formatting overrides.
+- **Read:** Paragraphs will include their named style as a custom data attribute (e.g., `<p data-lo-style="Caption">`). Values are **compact tokens with no spaces** (`Heading1`, `Textbody`, `Standard`) so models do not have to juggle LibreOffice spacing quirks. Inline `style="..."` attributes will be reserved *exclusively* for direct formatting overrides.
 - **Write:** When the agent generates HTML, it uses the same compact tokens in `data-lo-style`. The extension resolves them back to real UNO `ParaStyleName` values (e.g. `Heading1` → `Heading 1`) before `setPropertyValue`, then applies any inline CSS as direct overrides on top.
 
 **Benefits:**
@@ -52,13 +52,13 @@ Two phases solve different problems. **v1** fixes read→write→read idempotenc
 
 | Layer | Choice |
 |-------|--------|
-| **Read body + char overrides** | `XHTML Writer File` export + [`xhtml_style_postprocess.py`](../plugin/writer/xhtml_style_postprocess.py) |
-| **Read paragraph styles when XHTML omits them** | Second export: **Flat XML ODF Text Document** (`.fodt` sidecar); parse `text:style-name` + `style:parent-style-name` chain; merge by block index into post-process output |
-| **Write** | Keep `HTML (StarWriter)` import + strip `data-lo-style` + UNO `apply_paragraph_style_preserving_direct_char` |
+| **Read body + char overrides** | `XHTML Writer File` export → [`xhtml_to_semantic_html()`](../plugin/writer/xhtml_style_postprocess.py) in [`xhtml_style_postprocess.py`](../plugin/writer/xhtml_style_postprocess.py) |
+| **Read autostyle names when XHTML omits them** | Second export: **OpenDocument Text Flat XML** (`.fodt`); [`extract_autostyle_parents_from_fodt()`](../plugin/writer/xhtml_style_postprocess.py) builds a **`Pn → parent-style-name`** map; joined to XHTML by matching the `paragraph-Pn` class suffix (order-independent — no block-index alignment) |
+| **Write** | Keep `HTML (StarWriter)` import + strip `data-lo-style` + UNO `apply_paragraph_style_preserving_direct_char` (full document only) |
 
-**Why a sidecar:** Probe B showed UNO still has `ParaStyleName = Caption` after write, but XHTML re-export emits autostyle `paragraph-P1` with no `.paragraph-Caption` rule — string-only XHTML post-process cannot recover the token. Flat ODF preserves the parent chain (`P1` → `Caption`). Probe C ruled out symmetric **XHTML Writer File** import on write (0 body paragraphs inserted on test LO build).
+**Why flat ODF:** Probe B showed UNO still has `ParaStyleName = Caption` after write, but XHTML re-export emits autostyle `paragraph-P1` with no `.paragraph-Caption` rule — string-only XHTML post-process cannot recover the token. Flat ODF keeps `style:parent-style-name` on automatic styles; the autostyle name `Pn` is identical in both exports. Probe C ruled out symmetric **XHTML Writer File** import on write (0 body paragraphs inserted on test LO build).
 
-**New module (v1):** `plugin/writer/fodt_style_sidecar.py` — `export_paragraph_style_chain(fodt_xml) -> list[str | None]`, merge into `postprocess_xhtml_export` / `document_to_content`.
+**Entry points (v1):** [`document_to_content()`](../plugin/writer/format.py) calls `_export_xhtml` + `_autostyle_parents`, then `xhtml_to_semantic_html(xhtml, parents)`. Write path: `_extract_block_lo_styles` → StarWriter import → `_apply_block_lo_styles`.
 
 **v1 cost:** Two full `storeToURL` exports on every `get_document_content(scope=full)` (XHTML + FODT). Acceptable for correctness; **not** the long-doc architecture.
 
@@ -87,7 +87,7 @@ LibreOffice has **no filter** for “styles only.” Any `storeToURL` path (XHTM
 
 **Optional later:** dedicated `get_paragraph_styles` tool; add `ParaStyleName` to heading nodes in the tree’s single enumeration pass.
 
-**Migration:** Once UNO index + merge is proven on range reads, drop the second full FODT export on `scope=full` (or make sidecar fallback-only when index and XHTML disagree).
+**Migration:** Once a cached UNO paragraph-style index is proven on range reads, drop the second full FODT export on `scope=full` (or gate FODT to fallback-only when the index and XHTML disagree).
 
 ---
 
@@ -101,7 +101,7 @@ A contributor explored reading `ParaStyleName` from the UNO model in lockstep wi
 
 **Long-term exception:** a **cached** UNO style index (one enumeration per doc revision, not per tool call) is the planned replacement for the FODT sidecar on large documents — see [Architecture: short-term vs long-term](#architecture-short-term-vs-long-term). That is not “walk the model for every paragraph on every read”; it is amortized metadata.
 
-**v1 read path:** XHTML export + string post-process + Flat ODF sidecar merge when XHTML omits tokens. Write path maps compact tokens back to UNO via the document style list.
+**v1 read path:** XHTML export + `xhtml_to_semantic_html` + optional FODT `Pn → parent` map for autostyle name recovery. Write path maps compact tokens back to UNO via the document style list.
 
 ---
 
@@ -122,7 +122,7 @@ For round-trip, `data-lo-style` carries the **compact token** (`Heading1`), not 
 
 ## Phase 0: XHTML export shapes (background)
 
-Probe harness: [`tests/writer/test_xhtml_filter_probe_uno.py`](../tests/writer/test_xhtml_filter_probe_uno.py) and [`tests/writer/test_xhtml_style_postprocess.py`](../tests/writer/test_xhtml_style_postprocess.py).
+Probe fixtures: [`tests/writer/test_xhtml_style_postprocess.py`](../tests/writer/test_xhtml_style_postprocess.py) (`REFERENCE_XHTML`). UNO coverage: [`tests/writer/test_content_style_model_uno.py`](../tests/writer/test_content_style_model_uno.py).
 
 See **Phase 0: Filter probe** at the bottom of this doc for the active probe workflow and decision gate.
 
@@ -132,12 +132,14 @@ See **Phase 0: Filter probe** at the bottom of this doc for the active probe wor
 |------|--------------------------|-----------------|----------------------|
 | Default body (`Standard`) | `paragraph-Standard` **or** `paragraph-P1` (LO/version dependent) | Named and/or autostyle rules | Decode → compact → `data-lo-style="Standard"`, or fingerprint/omit for `P1` |
 | `Heading 1` | `paragraph-Heading_20_1` | Named rule present | Decode → compact → `data-lo-style="Heading1"` |
-| `Text Body`, `Caption` | `paragraph-Text_20_Body`, `paragraph-Caption`, etc. | Named rule present | Decode suffix → compact → `data-lo-style` (e.g. `TextBody`, `Caption`) |
+| `Text body`, `Caption` | `paragraph-Text_20_body`, `paragraph-Caption`, etc. | Named rule present | Decode suffix → compact → `data-lo-style` (e.g. `Textbody`, `Caption`) |
 | Char override (e.g. bold word) | `text-T1` on `<span>` | `.text-T1 { font-weight: bold; }` | Inline `style="font-weight: bold"` on span |
 | Mixed doc | Mix of above per paragraph | Both `paragraph-*` and `text-*` rules | Per-paragraph rules below |
 | Trailing empty paragraph | Extra `<p class="paragraph-Standard">&nbsp;</p>` | — | Filter empty/`&nbsp;`-only `<p>` from agent-facing output (optional but recommended) |
 
 **Important:** Contributor probe saw `paragraph-P1` for `Standard`; WriterAgent dev LO export saw `paragraph-Standard` directly. **Implementation must handle both** — do not assume one LO behavior.
+
+**Autostyle name recovery via flat ODF (implemented).** After an edit, the StarWriter HTML import bakes extra direct char props into the paragraph, so on re-export it is an autostyle (`paragraph-Pn`) whose CSS matches no named rule — the XHTML fingerprint then can't recover the name (the write→read round-trip would drop the token). Fix (two filters): export the document ALSO as flat ODF (`OpenDocument Text Flat XML`), which keeps `<style:style style:name="Pn" style:parent-style-name="...">`; the automatic style name `Pn` is identical to the XHTML `paragraph-Pn` class suffix, so a string-only `Pn → parent` map recovers the real style name (no model walk, no order alignment). The CSS fingerprint stays as a fallback when no FODT map is available.
 
 ### Autostyle decision table (locked from probe)
 
@@ -181,26 +183,26 @@ See **Phase 0: Filter probe** at the bottom of this doc for the active probe wor
    |--------------------|---------------------|-----------------|
    | `Standard` | `Standard` | `Standard` |
    | `Heading_20_1` | `Heading 1` | `Heading1` |
-   | `Text_20_Body` | `Text Body` | `TextBody` |
+   | `Text_20_body` | `Text body` | `Textbody` |
    | `Caption` | `Caption` | `Caption` |
    | `P1` | — | See [Autostyle decision table](#autostyle-decision-table-locked-from-probe) |
 
-5. **Transform paragraph tags:** For each block `<p>`, `<div>`, `<h1>`–`<h6>`, etc. with `class="paragraph-…"`: emit `data-lo-style="…"`, strip `paragraph-*` from `class`, drop empty `class`.
+5. **Transform paragraph tags:** For each paragraph block (`<p>`, `<h1>`–`<h6>`, `<li>`, `<blockquote>`, `<pre>`) with `class="paragraph-…"`: emit `data-lo-style="…"`, strip `paragraph-*` from `class`, drop empty `class`. NOTE: `<div>` is treated as a **transparent container** (not a styleable block) on both read and write — LibreOffice does not put a paragraph style on a `<div>`, and on write a `<div>` is not its own paragraph, so counting it as a style slot desyncs the positional apply.
 
 6. **Strip boilerplate:** Existing `_strip_html_boilerplate()` returns `<body>` inner HTML only.
 
 7. **Optional:** Drop empty trailing paragraphs (`&nbsp;` / whitespace-only) so the agent does not see ghost blocks.
 
-### Phase 1b: Flat ODF style sidecar (v1 idempotency fix)
+### Phase 1b: Flat ODF autostyle parent map (v1 idempotency fix — implemented)
 
-After Phase 0 probe C failed, add this step **before** closing v1:
+After probe C failed, v1 adds a second export on every read (full document and range-via-temp-doc):
 
-1. **Second export:** Same document (or same temp-doc slice for `scope=range` / selection) via filter `"Flat XML ODF Text Document"`.
-2. **Parse sidecar:** From `office:styles` + `office:automatic-styles`, build paragraph `style:name → style:parent-style-name`. Walk `office:text` body for block-level `text:p` / `text:h` in document order.
-3. **Resolve chain:** Walk `text:style-name` through parents until a named style (e.g. `P1` → `Caption`); emit compact token via `compact_lo_style_name()`.
-4. **Merge:** For each XHTML block where post-process would `omit` (`omitted_autostyle`, etc.), fill `data-lo-style` from the sidecar at the same block index. On index mismatch, omit + debug log (do not guess).
+1. **Second export:** Same document via filter `OpenDocument Text Flat XML` ([`_autostyle_parents()`](../plugin/writer/format.py)).
+2. **Parse map:** [`extract_autostyle_parents_from_fodt()`](../plugin/writer/xhtml_style_postprocess.py) scans `style:style` elements with `style:family="paragraph"`; for automatic names matching `P\d+`, record `Pn → style:parent-style-name` (ODF-encoded parent names decoded at use).
+3. **Join to XHTML:** In `_paragraph_token()`, when the block class is `paragraph-Pn`, look up `Pn` in the map and emit `compact_lo_style_name(decode(parent))`. **No block-index walk** — the join is by autostyle name only, so tables and nested structure cannot desync it.
+4. **Fallback:** If FODT export fails, map is `{}` and CSS fingerprint matching applies (same as pre-1b). If still ambiguous, omit `data-lo-style`.
 
-Sidecar fixes probe B; it does **not** replace XHTML for body or char overrides.
+FODT fixes probe B (write→read style **name** recovery). It does **not** replace XHTML for body markup or char overrides, and does **not** recover whole-paragraph direct overrides (see [v1 limitations](#v1-limitations-shipped)).
 
 ---
 
@@ -222,15 +224,32 @@ StarWriter HTML import does not understand `data-lo-style`. Write path:
 
 6. **Fallback:** Unknown style name → `Standard` (or skip apply and log).
 
-**Hook points:** `replace_full_document`, `insert_content_at_position`, `replace_single_range_with_content` (when block markup present). Count paragraphs before insert to compute the correct offset for partial edits.
+**Hook points:** Named-style application runs on `replace_full_document` only. Targeted inserts/replaces (`insert_content_at_position`, `replace_single_range_with_content`) still insert the content but **skip** style application: the first imported block merges into the cursor's existing paragraph, so applying its `data-lo-style` would restyle the adjacent (pre-existing) text. For styling existing text use `apply_style`. (Applying styles only to genuinely-new paragraphs on partial edits is a **post-v1** follow-up.)
+
+---
+
+## v1 limitations (shipped)
+
+These are intentional trade-offs in v1. Tests document the behavior ([`test_xhtml_style_postprocess.py`](../tests/writer/test_xhtml_style_postprocess.py), [`test_content_style_model_uno.py`](../tests/writer/test_content_style_model_uno.py)).
+
+| Limitation | v1 behavior | Workaround for agents/users | Post-v1 direction |
+|------------|-------------|----------------------------|-------------------|
+| **Whole-paragraph direct overrides** (center, para colour, margins baked into autostyle CSS) | Read omits token and drops override CSS; FODT recovers the **base style name** only | Prefer named styles; use inline `style` on **spans** for char exceptions | UNO index + optional Para* snapshot; or dedicated `get_paragraph_metadata` for debugging |
+| **Table cell paragraph styles** | `paragraph-*` stripped inside `<table>`; no `data-lo-style` on cell blocks | `apply_style` on cell text; don't rely on agent HTML for table styling | Table-aware style index or cell-level tokens |
+| **Partial edits** (`end` / `search` / `selection` / `beginning`) | Content inserted; `data-lo-style` **not** applied (would restyle merged adjacent text) | `target='full_document'` for styled rewrites; `apply_style` to restyle existing text | Apply only to genuinely new paragraphs after import |
+| **Dual export cost** | Every full read (and range read via temp doc) runs XHTML + FODT `storeToURL` | `scope=range`, `get_document_tree`, `search_in_document` before full reads | Cached UNO paragraph-style index; drop FODT on `scope=full` |
+| **Token collision** (two UNO names compact to same token, e.g. `Heading 1` + literal `Heading1`) | Read omits token; write falls back to `Standard` | Use tokens exactly as returned; avoid duplicate style names | Per-document disambiguation or spaced-token policy |
+| **Unresolvable autostyle** (no FODT map, ambiguous fingerprint) | No `data-lo-style`; write treats as default body | Accept as Standard on rewrite | UNO `ParaStyleName` index as authoritative fallback |
+| **XHTML export failure** | Falls back to legacy StarWriter HTML (inline CSS, no tokens) | — | Log/monitor; same as pre-v1 read |
+| **Symmetric XHTML write** | Not supported (probe C: 0 body paragraphs on test LO) | Always StarWriter import + UNO style apply | Unlikely to revisit |
 
 ---
 
 ## Phase 3: Testing & Documentation
 
-1. **Unit tests (pytest):** `decode_lo_css_class_suffix`, CSS map extraction, char inline transform, paragraph transform, autostyle fingerprint — no LibreOffice.
-2. **UNO tests:** [`tests/writer/test_xhtml_export_uno.py`](../tests/writer/test_xhtml_export_uno.py) documents export shapes; add round-trip test: read emits `data-lo-style="Heading1"`, agent writes it back, verify UNO `ParaStyleName == "Heading 1"` and bold override.
-3. **Prompts:** `WRITER_APPLY_DOCUMENT_HTML_RULES` in [`plugin/framework/constants.py`](../plugin/framework/constants.py) — agent reads/writes compact `data-lo-style` tokens (no spaces: `Heading1`, `TextBody`); inline `style` for overrides only.
+1. **Unit tests (pytest):** [`tests/writer/test_xhtml_style_postprocess.py`](../tests/writer/test_xhtml_style_postprocess.py) — decode/compact, CSS map, char inline, autostyle fingerprint, FODT parent recovery, collision, whole-para override limitation.
+2. **UNO tests:** [`tests/writer/test_content_style_model_uno.py`](../tests/writer/test_content_style_model_uno.py) — read tokens, write resolution, round-trip, FODT write→read, partial-edit non-corruption, math+style.
+3. **Prompts:** `WRITER_APPLY_DOCUMENT_HTML_RULES` in [`plugin/framework/constants.py`](../plugin/framework/constants.py) — agent reads/writes compact `data-lo-style` tokens (no spaces: `Heading1`, `Textbody`); inline `style` for overrides only.
 4. **Docs:** [`docs/llm-styles.md`](llm-styles.md) — `data-lo-style` is the agent-facing convention; legacy `class="Style Name"` via StarWriter remains for non-agent HTML.
 5. **`get_paragraph_metadata`:** Keep as optional `specialized` tier only if needed for debugging; not required for core read/write.
 
@@ -241,8 +260,8 @@ StarWriter HTML import does not understand `data-lo-style`. Write path:
 *Target files:* new helper (e.g. `plugin/writer/paragraph_style_index.py`), [`plugin/writer/format.py`](../plugin/writer/format.py), optional [`plugin/writer/tree.py`](../plugin/writer/tree.py).
 
 1. **Build index:** Single enumeration of top-level text content; record `ParaStyleName` per block index; compact tokens; cache per doc key until invalidation.
-2. **Merge on read:** `postprocess_xhtml_export` (or caller) fills `data-lo-style` from index when XHTML omits; use index alone for range reads instead of second full FODT export.
-3. **Drop dual full export:** Remove or gate FODT sidecar to fallback-only once index + round-trip UNO tests pass on probe B.
+2. **Merge on read:** `xhtml_to_semantic_html` (or caller) fills `data-lo-style` from index when XHTML omits; use index alone for range reads instead of second full FODT export.
+3. **Drop dual full export:** Remove or gate FODT parent map to fallback-only once index + round-trip UNO tests pass on probe B.
 4. **Agent workflow:** Document preferring `scope=range` + tree/search on large docs; optional `get_paragraph_styles` if split metadata tool is needed.
 
 ---
@@ -253,7 +272,7 @@ StarWriter HTML import does not understand `data-lo-style`. Write path:
 
 - **Read:** `data-lo-style="Heading1"` — always space-free.
 - **Write:** resolve compact token against `ParagraphStyles` in the target document; apply the matched UNO name.
-- **Collision rule:** if two styles compact to the same token (rare), prefer exact UNO name match when the agent passes the spaced form anyway; otherwise log and fall back to `Standard`. Document in prompt: use tokens exactly as returned by `get_document_content`.
+- **Collision rule:** if two paragraph styles compact to the same token (rare), **read** omits `data-lo-style` for both; **write** resolves only when exactly one UNO name matches (exact name or unique compact match), else falls back to `Standard`. Prompt: use tokens exactly as returned by `get_document_content`.
 
 ### Localization
 
@@ -272,41 +291,37 @@ If `apply_document_content` cannot resolve a compact `data-lo-style` token to a 
 | Source | Paragraph styles | Char overrides | Body HTML | Scales with doc size |
 |--------|------------------|----------------|-------------|----------------------|
 | UNO `ParaStyleName` index | Yes (authoritative) | No | No | O(paragraphs) once per revision |
-| Flat ODF sidecar (v1) | Yes (parent chain) | Possible but not v1 | No | Full serialization |
+| Flat ODF parent map (v1) | Yes (`Pn → parent` for autostyles) | No | No | Full serialization |
 | XHTML Writer File | Sometimes (autostyle gap) | Yes | Yes | Full serialization |
 
 ---
 
 ## Design Approval Checklist
 
-Before v1 PR:
+v1 checklist (done):
 
-- [ ] Read path: XHTML export + string pipeline + Flat ODF sidecar merge (Phase 1b)
-- [ ] Autostyle: decode named classes + CSS fingerprint + sidecar fill + omit when still unresolvable
-- [ ] Write path: strip `data-lo-style`, StarWriter import, apply styles via `apply_paragraph_style_preserving_direct_char`
-- [ ] Agent prompt documents compact `data-lo-style` tokens (no spaces) vs inline `style`
-- [ ] Write path resolves compact tokens → UNO `ParaStyleName` via style list lookup
-- [ ] Unit + UNO round-trip tests included (probe B must recover `Caption` after write→read)
-- [ ] Do **not** switch write path to XHTML Writer File import (probe C failed)
+- [x] Read path: XHTML export + `xhtml_to_semantic_html` + FODT `Pn → parent` map (Phase 1b)
+- [x] Autostyle: decode named classes + CSS fingerprint + FODT fill + omit when still unresolvable
+- [x] Write path: strip `data-lo-style`, StarWriter import, apply styles via `apply_paragraph_style_preserving_direct_char` (`full_document` only)
+- [x] Agent prompt documents compact `data-lo-style` tokens (no spaces) vs inline `style`
+- [x] Write path resolves compact tokens → UNO `ParaStyleName` via style list lookup (ambiguous → `Standard`)
+- [x] Unit + UNO round-trip tests (probe B: `Caption` recovers after write→read via FODT)
+- [x] Write path stays on StarWriter import (probe C failed for XHTML import)
 
 ---
 
 ## Phase 0: Filter probe (before idempotency fix)
 
-Run **before** choosing symmetric XHTML write vs Flat ODF read sidecar. Instrumentation lives in [`plugin/writer/xhtml_style_postprocess.py`](../plugin/writer/xhtml_style_postprocess.py):
-
-- `analyze_xhtml_export(xhtml)` — per-paragraph resolution trace (`named_class`, `css_fingerprint`, `omitted_*`, …)
-- `format_xhtml_analysis_report(analysis)` — human-readable summary for test failures
-- `compact_lo_style_name()` — agent tokens without spaces
+Historical decision gate (pre-v1). Shipped pipeline: [`xhtml_to_semantic_html()`](../plugin/writer/xhtml_style_postprocess.py), [`extract_autostyle_parents_from_fodt()`](../plugin/writer/xhtml_style_postprocess.py), [`compact_lo_style_name()`](../plugin/writer/xhtml_style_postprocess.py).
 
 **Tests:**
 
 | File | Role |
 |------|------|
 | [`tests/writer/test_xhtml_style_postprocess.py`](../tests/writer/test_xhtml_style_postprocess.py) | pytest fixtures (no LibreOffice) |
-| [`tests/writer/test_xhtml_filter_probe_uno.py`](../tests/writer/test_xhtml_filter_probe_uno.py) | UNO probes A–D (StarWriter vs XHTML import on write) |
+| [`tests/writer/test_content_style_model_uno.py`](../tests/writer/test_content_style_model_uno.py) | UNO round-trip, FODT recovery, partial-edit safety |
 
-**Run:** `pytest tests/writer/test_xhtml_style_postprocess.py` and `make test` (UNO probes need `soffice`).
+**Run:** `pytest tests/writer/test_xhtml_style_postprocess.py` and `make test` (UNO tests need `soffice`).
 
 ### Probe scenarios
 
@@ -319,7 +334,7 @@ Run **before** choosing symmetric XHTML write vs Flat ODF read sidecar. Instrume
 
 ### Decision gate (resolved)
 
-Probe C **failed** (XHTML import did not insert body paragraphs on maintainer LO build). **Chosen v1 fix:** Flat ODF style sidecar on read (Phase 1b). **Write path unchanged:** StarWriter + UNO style apply.
+Probe C **failed** (XHTML import did not insert body paragraphs on maintainer LO build). **Chosen v1 fix:** Flat ODF `Pn → parent` map on read (Phase 1b). **Write path unchanged:** StarWriter + UNO style apply.
 
 Do not implement symmetric XHTML write and sidecar as parallel full solutions in v1.
 
@@ -328,8 +343,8 @@ Do not implement symmetric XHTML write and sidecar as parallel full solutions in
 | Probe | Outcome | Notes |
 |-------|---------|-------|
 | A — native `Caption` → XHTML read | Pass | `named_class`, token `Caption`, class `paragraph-Caption` |
-| B — StarWriter write → XHTML re-read | Fail (documents wall) | UNO still `Caption`; export `paragraph-P1`; `omitted_autostyle`, token `None` — sidecar required |
+| B — StarWriter write → XHTML re-read | Fixed in v1 | UNO still `Caption`; export `paragraph-P1`; FODT parent map recovers `Caption` token on re-read |
 | C — XHTML import write → re-read | Fail | 0 body paragraphs inserted; symmetric XHTML write rejected |
 | D — `Heading 1` + bold | Pass | `Heading1` token; char `text-T*` inlined to span `style` |
 
-Run locally: `pytest tests/writer/test_xhtml_style_postprocess.py` and UNO probes in [`tests/writer/test_xhtml_filter_probe_uno.py`](../tests/writer/test_xhtml_filter_probe_uno.py) via `make test`.
+Run locally: `pytest tests/writer/test_xhtml_style_postprocess.py` and UNO tests in [`tests/writer/test_content_style_model_uno.py`](../tests/writer/test_content_style_model_uno.py) via `make test`.
