@@ -241,11 +241,13 @@ eda = ['data_profiling', 'statsmodels', 'pandas_montecarlo']
 cas = ['sympy']
 viz = ['matplotlib', 'seaborn']
 ui = ['webview', 'jedi', 'PyQt6', 'PyQt6.QtWebEngineWidgets', 'qtpy']
+quant = ['yfinance', 'pandas_ta', 'quantstats', 'pypfopt']
 res['sci'] = sci
 res['eda'] = eda
 res['cas'] = cas
 res['viz'] = viz
 res['ui'] = ui
+res['quant'] = quant
 
 # Check for Cython accelerator
 try:
@@ -345,8 +347,34 @@ try:
 except ImportError:
     res['p']['seaborn'] = None
 
+try:
+    import yfinance
+    res['p']['yfinance'] = 'present'
+except ImportError:
+    res['p']['yfinance'] = None
+
+try:
+    import pandas_ta
+    res['p']['pandas_ta'] = 'present'
+except ImportError:
+    res['p']['pandas_ta'] = None
+
+try:
+    import quantstats
+    res['p']['quantstats'] = 'present'
+except ImportError:
+    res['p']['quantstats'] = None
+
+try:
+    import pypfopt
+    res['p']['pypfopt'] = 'present'
+except ImportError:
+    res['p']['pypfopt'] = None
+
 result = res
 """
+
+_QUANT_INSTALL_CMD = "pip install yfinance pandas-ta quantstats pyportfolioopt"
 
 # Vision stack (docs/image-recognition.md §7–§13): probed outside the AST sandbox because
 # docling/paddleocr/paddle are not whitelisted for LLM-submitted venv scripts.
@@ -434,6 +462,7 @@ def _format_self_check_success(data: dict[str, Any]) -> str:
     vision_list = data.get("vision", [])
     viz_list = data.get("viz", [])
     cas_list = data.get("cas", [])
+    quant_list = data.get("quant", [])
 
     header = f"Python {version} ({arch})" if arch else f"Python {version}"
     msg_lines = [f"{header} responds OK."]
@@ -473,6 +502,10 @@ def _format_self_check_success(data: dict[str, Any]) -> str:
         msg_lines.extend(format_group(_("Computer Algebra"), cas_list))
         if any(packages.get(k) != "present" for k in cas_list):
             msg_lines.append(_("\nSymbolic Math Helpers: %(cmd)s") % {"cmd": _SYMBOLIC_INSTALL_CMD})
+    if quant_list:
+        msg_lines.extend(format_group(_("Quantitative Finance Libraries"), quant_list))
+        if any(packages.get(k) != "present" for k in quant_list):
+            msg_lines.append(_("\nQuant Helpers: %(cmd)s") % {"cmd": _QUANT_INSTALL_CMD})
     if vision_list:
         msg_lines.extend(format_group(_("Vision Libraries"), vision_list))
         docling_import_error = packages.get("docling_import_error")

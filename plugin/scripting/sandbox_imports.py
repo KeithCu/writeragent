@@ -98,6 +98,16 @@ VENV_AUTHORIZED_IMPORTS: tuple[str, ...] = (
     "plugin.scripting.symbolic_common",
     "sentence_transformers",
     "sentence_transformers.*",
+    "yfinance",
+    "yfinance.*",
+    "pandas_ta",
+    "pandas_ta.*",
+    "quantstats",
+    "quantstats.*",
+    "pypfopt",
+    "pypfopt.*",
+    "plugin.scripting.quant",
+    "plugin.scripting.quant_common",
 )
 
 # In-process LO embedded sandbox (execute_python_script) — stdlib-only extras beyond BASE_BUILTIN_MODULES.

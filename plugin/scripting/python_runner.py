@@ -399,12 +399,16 @@ def execute_and_insert_result(
     from plugin.scripting.symbolic_egress import insert_symbolic_result_into_doc, is_symbolic_result
     from plugin.scripting.symbolic_runner import run_trusted_symbolic, supports_symbolic_manual
     from plugin.scripting.symbolic_templates import parse_math_script_header
+    from plugin.calc.quant_egress import insert_quant_result_into_calc, is_quant_result
+    from plugin.scripting.quant_runner import run_trusted_quant, supports_quant_manual
+    from plugin.scripting.quant_templates import parse_quant_script_header
 
     t0 = time.perf_counter()
     vision_meta = parse_vision_script_header(code)
     viz_meta = parse_viz_script_header(code)
     math_meta = parse_math_script_header(code)
     meta = parse_analysis_script_header(code)
+    quant_meta = parse_quant_script_header(code)
 
     def _resolve_data_range() -> str | None:
         binding = str(data_range).strip() if data_range else ""
@@ -602,6 +606,53 @@ def execute_and_insert_result(
             result=result,
         )
 
+    if quant_meta is not None and is_calc(doc):
+        dr = _resolve_data_range()
+        if not dr and quant_meta.helper != "fetch_historical_data":
+            return {
+                "ok": False,
+                "message": _("Quant helper requires a data range. Select cells or enter a range in the Data field."),
+            }
+        try:
+            result = run_trusted_quant(ctx, doc, helper=quant_meta.helper, params=quant_meta.params, data_range=dr)
+        except ToolExecutionError as exc:
+            elapsed = time.perf_counter() - t0
+            err_msg = str(exc)
+            formatted_time = format_elapsed_time(elapsed)
+            if not ("timed out" in err_msg.lower() or "timeout" in err_msg.lower()):
+                err_msg = f"{err_msg} (took {formatted_time})"
+            return {"ok": False, "message": err_msg}
+        except Exception as e:
+            elapsed = time.perf_counter() - t0
+            log.exception("execute_and_insert_result quant fast path failed")
+            err_msg = str(e)
+            formatted_time = format_elapsed_time(elapsed)
+            return {"ok": False, "message": f"{err_msg} (took {formatted_time})", "traceback": exception_traceback(e)}
+
+        if result.get("status") == "error":
+            elapsed = time.perf_counter() - t0
+            formatted_time = format_elapsed_time(elapsed)
+            message = str(result.get("message") or _("Quant failed."))
+            return {"ok": False, "message": f"{message} (took {formatted_time})"}
+
+        try:
+            row_count = insert_quant_result_into_calc(doc, ctx, result)
+        except Exception as e:
+            elapsed_total = time.perf_counter() - t0
+            formatted_time_total = format_elapsed_time(elapsed_total)
+            return {"ok": False, "message": _("Failed to insert result: {error} (took {time})").format(error=str(e), time=formatted_time_total)}
+
+        formatted_time = format_elapsed_time(time.perf_counter() - t0)
+        return {
+            "ok": True,
+            "status_ok_text": _("Quant '{helper}' completed. Wrote {rows} rows. (took {time})").format(
+                helper=quant_meta.helper,
+                rows=row_count,
+                time=formatted_time,
+            ),
+            "result": result,
+        }
+
     if meta is not None and is_calc(doc):
         dr = _resolve_data_range()
         if not dr:
@@ -732,6 +783,20 @@ def execute_and_insert_result(
                     return {
                         "ok": True,
                         "status_ok_text": _("Analysis '{helper}' completed. Wrote {rows} rows. (took {time})").format(
+                            helper=helper,
+                            rows=row_count,
+                            time=formatted_time,
+                        ),
+                        "stdout": stdout,
+                        "result": result_data,
+                    }
+                if isinstance(result_data, dict) and is_quant_result(result_data):
+                    row_count = insert_quant_result_into_calc(doc, ctx, result_data)
+                    formatted_time = format_elapsed_time(time.perf_counter() - t0)
+                    helper = str(result_data.get("helper") or "quant")
+                    return {
+                        "ok": True,
+                        "status_ok_text": _("Quant '{helper}' completed. Wrote {rows} rows. (took {time})").format(
                             helper=helper,
                             rows=row_count,
                             time=formatted_time,

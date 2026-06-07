@@ -23,7 +23,7 @@ For a short executive summary, see [WriterAgent architecture — Scientific Pyth
 8. [Implementation status](#8-implementation-status)
 9. [Multi-Range Support (Varargs)](#9-multi-range-support-varargs)
 
-**Related:** [Venv subprocess IPC & NumPy serialization](numpy-serialization.md) (warm worker, protocol, wire formats, benchmarks) · [Jupyter notebook import](jupyter-notebook-import.md) · [Analysis Sub-Agent](analysis-sub-agent.md) (data discovery + trusted numpy/pandas execution) · [Scientific domain roadmap](#scientific-domain-roadmap-trusted-helpers) (Viz, Forecast, Symbolic, Text, Optimization, Geo, Audio) · [SageMath integration (product plan)](sagemath-integration-dev-plan.md) (optional Sage venv; symbolic helpers)
+**Related:** [Venv subprocess IPC & NumPy serialization](numpy-serialization.md) (warm worker, protocol, wire formats, benchmarks) · [Jupyter notebook import](jupyter-notebook-import.md) · [Analysis Sub-Agent](analysis-sub-agent.md) (data discovery + trusted numpy/pandas execution) · [Scientific domain roadmap](#scientific-domain-roadmap-trusted-helpers) (Analysis, Vision, Viz, Symbolic shipped; Forecast, Text, Optimization, Geo, Audio planned) · [SageMath integration (deferred)](sagemath-integration-dev-plan.md)
 
 ---
 
@@ -267,7 +267,14 @@ Full design and egress rules: [Image Recognition](image-recognition.md).
 
 #### Planned domain package groups
 
-Future trusted-helper domains (Forecasting, Symbolic Math, Text Analytics, Optimization, Geospatial, Audio) will each declare required venv packages and a Settings → Python **Test** group when implemented. **Visualization** (matplotlib + seaborn) ships with trusted Viz helpers — see [Scientific domain roadmap — Visualization](#visualization).
+Future trusted-helper domains (Forecasting, Text Analytics, Optimization, Geospatial, Audio) will each declare required venv packages and a Settings → Python **Test** group when implemented. **Shipped today:**
+
+| Domain | Settings → Python **Test** group | Entry doc |
+|--------|----------------------------------|-----------|
+| **Visualization** | **Visualization Libraries** (`matplotlib`, `seaborn`) | [Visualization § Phase A–C](#visualization) |
+| **Symbolic Math (SymPy)** | **Computer Algebra** (`sympy`) | [Symbolic Math §3](#symbolic-math) |
+
+SageMath remains a future optional extension — [sagemath-integration-dev-plan.md](sagemath-integration-dev-plan.md).
 
 ## Trusted Extension Code Opportunities with the Full Scientific Stack
 
@@ -358,22 +365,22 @@ This keeps the architecture simple, the cache footprint predictable, invalidatio
 
 ## Scientific domain roadmap (trusted helpers) {#scientific-domain-roadmap-trusted-helpers}
 
-The sections below are **development plans** for high-value scientific capabilities beyond the shipped **Analysis** ([analysis-sub-agent.md](analysis-sub-agent.md)) and **Vision** ([image-recognition.md](image-recognition.md)) domains. Each follows the same pattern: trusted modules under `plugin/scripting/`, fixed venv stubs, host extract → IPC → compact results → document egress, plus optional Run Python Script templates and specialized sub-agent exposure.
+The sections below are **roadmaps and reference** for scientific capabilities. **Shipped domains:** **Analysis** ([analysis-sub-agent.md](analysis-sub-agent.md)), **Vision** ([image-recognition.md](image-recognition.md)), **Visualization** ([§1](#visualization)), and **Symbolic Math (SymPy)** ([§3](#symbolic-math)). Remaining domains (Forecasting, Text Analytics, Optimization, Geospatial, Audio) follow the same pattern: trusted modules under `plugin/scripting/`, fixed venv stubs, host extract → IPC → compact results → document egress, plus optional Run Python Script templates and specialized sub-agent exposure.
 
 ### Domain helper pattern (Analysis + Vision canonical)
 
 Shipped domains prove the stack. New domains should mirror them—not invent parallel plumbing.
 
-| Layer | Analysis (shipped) | Vision (shipped) | New domains |
-|-------|-------------------|------------------|-------------|
-| Trusted module | [`analysis.py`](../plugin/scripting/analysis.py) | [`vision.py`](../plugin/scripting/vision.py) | e.g. `viz.py`, `forecast.py`, `symbolic.py`, `text_analytics.py` |
-| Templates | [`analysis_templates.py`](../plugin/scripting/analysis_templates.py) `# writeragent:analysis` | [`vision_templates.py`](../plugin/scripting/vision_templates.py) `# writeragent:vision` | `# writeragent:viz`, `# writeragent:forecast`, … |
-| Host client | [`analysis_client.py`](../plugin/framework/client/analysis_client.py) | [`vision_client.py`](../plugin/framework/client/vision_client.py) | Same RPC shape |
-| Runner / egress | [`analysis_runner.py`](../plugin/calc/analysis_runner.py), [`analysis_egress.py`](../plugin/calc/analysis_egress.py) | [`vision_runner.py`](../plugin/scripting/vision_runner.py), [`vision_egress.py`](../plugin/scripting/vision_egress.py) | UNO extract on host; compact JSON or image envelope back |
-| Run Python Script | [`document_scripts.py`](../plugin/scripting/document_scripts.py) `_analysis_script_section` | `_vision_script_section` | `_viz_script_section`, etc. |
-| Fast path | [`python_runner.py`](../plugin/scripting/python_runner.py) `parse_*_script_header` → trusted RPC → egress | same | Header parse → `run_trusted_*` → insert |
-| Settings Test | **Data Analysis / EDA Libraries** | **Vision Libraries** | Per-domain groups when shipped |
-| LLM surface | Calc `domain="analysis"` via [`analyze_data`](../plugin/calc/analysis.py) | Chat `analyze_image` deferred | Extend `analysis` or add Writer/Calc specialized domains |
+| Layer | Analysis | Vision | Viz | Symbolic (SymPy) | Planned |
+|-------|----------|--------|-----|------------------|---------|
+| Trusted module | [`analysis.py`](../plugin/scripting/analysis.py) | [`vision.py`](../plugin/scripting/vision.py) | [`viz.py`](../plugin/scripting/viz.py) | [`symbolic.py`](../plugin/scripting/symbolic.py) | `forecast.py`, `text_analytics.py`, … |
+| Templates | `# writeragent:analysis` | `# writeragent:vision` | `# writeragent:viz` | `# writeragent:math` | `# writeragent:forecast`, … |
+| Host client | [`analysis_client.py`](../plugin/framework/client/analysis_client.py) | [`vision_client.py`](../plugin/framework/client/vision_client.py) | [`viz_client.py`](../plugin/framework/client/viz_client.py) | [`symbolic_client.py`](../plugin/framework/client/symbolic_client.py) | Same RPC shape |
+| Runner / egress | [`analysis_runner.py`](../plugin/calc/analysis_runner.py), [`analysis_egress.py`](../plugin/calc/analysis_egress.py) | [`vision_runner.py`](../plugin/scripting/vision_runner.py), [`vision_egress.py`](../plugin/scripting/vision_egress.py) | [`viz_runner.py`](../plugin/scripting/viz_runner.py), [`viz_egress.py`](../plugin/scripting/viz_egress.py) | [`symbolic_runner.py`](../plugin/scripting/symbolic_runner.py), [`symbolic_egress.py`](../plugin/scripting/symbolic_egress.py) | Per domain |
+| Run Python Script | `_analysis_script_section` | `_vision_script_section` | `_viz_script_section` | `_math_script_section` | [`document_scripts.py`](../plugin/scripting/document_scripts.py) |
+| Fast path order | — | 1st | 2nd | 3rd | [`python_runner.py`](../plugin/scripting/python_runner.py): vision → viz → **math** → analysis → generic venv |
+| Settings Test | **Data Analysis / EDA** | **Vision Libraries** | **Visualization Libraries** | **Computer Algebra** | Per domain when shipped |
+| LLM surface | Calc `domain="analysis"` — [`analyze_data`](../plugin/calc/analysis.py), [`plot_data`](../plugin/calc/viz.py) | `analyze_image` deferred | `plot_data` (analysis); raw matplotlib via `run_venv_python_script` | `domain="python"` — [`symbolic_math`](../plugin/calc/symbolic_math.py) | Extend analysis or add domains |
 
 ```mermaid
 flowchart TD
@@ -389,16 +396,16 @@ flowchart TD
 
 **Data handoff:** Reuse [`calc_addin_data.py`](../plugin/calc/calc_addin_data.py) and [`payload_codec`](../plugin/scripting/payload_codec.py) split-grid. For LLM/sub-agent paths, pass **`data_range`** (late binding) rather than full grids in chat context — see [Analysis Sub-Agent — Data Handoff](analysis-sub-agent.md#data-handoff--context-limits-out-of-band-data).
 
-**Visualization note:** Phase A (below) already uses the venv worker and `__wa_payload__: "image"` envelope **without** a trusted module—users or the LLM write matplotlib directly. Phase C adds the Analysis/Vision-style trusted layer on top of the same envelope.
+**Visualization note:** Phase A uses the venv worker and `__wa_payload__: "image"` envelope for raw matplotlib (no trusted module required). **Phases B–C shipped:** Run Python Script image egress and trusted Viz helpers (`viz.py`, `[Viz]` templates, `plot_data`, analysis auto-plot).
 
 ### Prioritization
 
 | Priority | Domain | Status today | First target |
 |----------|--------|--------------|--------------|
-| 0 | **Analysis** (numeric EDA, regression, clustering, …) | **Shipped** — [analysis-sub-agent.md](analysis-sub-agent.md) | Extend with Viz/Forecast hooks |
-| 1 | **Visualization & Plotting** | Phase A–C shipped | `plot_data`, `[Viz] quick_plot` |
+| 0 | **Analysis** (numeric EDA, regression, clustering, …) | **Shipped** — [analysis-sub-agent.md](analysis-sub-agent.md); Viz auto-plot via [`viz_auto_plot.py`](../plugin/calc/viz_auto_plot.py) | Extend with Forecast hooks |
+| 1 | **Visualization & Plotting** | **Shipped** (Phase A–C) | `plot_data`, `[Viz] quick_plot` |
 | 2 | **Time Series & Forecasting** | Partial building blocks in analysis | `forecast_time_series` |
-| 3 | **Symbolic Mathematics** | SymPy shipped | `symbolic_math`, `[Math] solve_equation` |
+| 3 | **Symbolic Mathematics** | **Shipped** (SymPy only; Sage deferred) | `symbolic_math`, `[Math] solve_equation` |
 | 4 | **Text / Document Analytics** | Outline/tree tools only | `readability_scores`, `[Text Analysis] …` |
 | 5 | **Optimization & OR** | Partial (scipy, `monte_carlo`) | `optimize_portfolio` |
 | 6 | **Geospatial** | Not started | `[Geo] map_data` |
@@ -408,7 +415,7 @@ flowchart TD
 
 ### 1. Visualization & Plotting {#visualization}
 
-**Status:** **Phase A shipped** (raw matplotlib image pipeline). **Phases B–C not shipped** (Run Python Script image egress glue; trusted Viz helpers).
+**Status:** **Phase A–C shipped** (raw matplotlib pipeline, Run Python Script image egress, trusted Viz helpers).
 
 **Goal:** Turn analysis results into publication-quality charts inside LibreOffice—Calc sheet graphics or Writer inline images—without requiring the LLM to write matplotlib every time. Highest immediate ROI for demos and shareable workflows.
 
@@ -427,8 +434,8 @@ No `viz.py` yet. Matplotlib figures from user/LLM code are captured in the venv 
 | Writer notebook | [`notebook_runner.py`](../plugin/notebook/notebook_runner.py) | Inline image insert (SVG + PNG) on notebook cell run |
 | LLM prompts | [`import_policy.py`](../plugin/scripting/import_policy.py) | App-specific `format_matplotlib_plot_hint()` (Calc / Writer / Draw); not in global import policy |
 | LLM sandbox | [`sandbox_imports.py`](../plugin/scripting/sandbox_imports.py) | `matplotlib`, `seaborn` whitelisted |
-| Settings Test | [`venv_worker.py`](../plugin/scripting/venv_worker.py) | `matplotlib` under **Scientific Libraries** |
-| Tests | [`test_matplotlib_output.py`](../tests/scripting/test_matplotlib_output.py), [`test_python_function.py`](../tests/calc/test_python_function.py), [`test_venv_python_image.py`](../tests/calc/test_venv_python_image.py) | Codec, sandbox e2e, multi-figure merge, Calc chat insert, cell-anchored geometry |
+| Settings Test | [`venv_worker.py`](../plugin/scripting/venv_worker.py) | `matplotlib` under **Scientific Libraries**; **Visualization Libraries** group (`matplotlib`, `seaborn`) when Viz helpers are used |
+| Tests | [`test_matplotlib_output.py`](../tests/scripting/test_matplotlib_output.py), [`test_python_function.py`](../tests/calc/test_python_function.py), [`test_venv_python_image.py`](../tests/calc/test_venv_python_image.py), [`test_python_runner_viz.py`](../tests/scripting/test_python_runner_viz.py), [`test_viz.py`](../tests/scripting/test_viz.py), [`test_plot_data.py`](../tests/calc/test_plot_data.py) | Codec, sandbox e2e, multi-figure merge, Calc chat insert, RPS fast path, trusted helpers |
 
 **Works today:**
 
@@ -545,6 +552,12 @@ run_venv_python_script(code="… plt.plot(…) …")
 | Chat tool | [`symbolic_math`](../plugin/calc/symbolic_math.py) (`domain="python"`) |
 
 **Packages:** `sympy` (required). Settings → Python **Computer Algebra** group lists sympy.
+
+**Run Python Script templates:** **Math Helpers →** `[Math] solve_equation`, `[Math] symbolic_simplify`, `[Math] integrate`.
+
+**Tests:** [`test_symbolic.py`](../tests/scripting/test_symbolic.py), [`test_symbolic_templates.py`](../tests/scripting/test_symbolic_templates.py), [`test_python_runner_symbolic.py`](../tests/scripting/test_python_runner_symbolic.py), [`test_symbolic_tool.py`](../tests/scripting/test_symbolic_tool.py).
+
+**Out of scope (deferred):** SageMath backend, `sage` sandbox whitelist — [sagemath-integration-dev-plan.md](sagemath-integration-dev-plan.md).
 
 ---
 
@@ -1209,7 +1222,8 @@ This item is deliberately scoped as Priority 3 because the personal library + ce
 
 - **OooDev / ScriptForge:** optional venv install for UNO-from-Python; or keep compute-in-venv + document-via-tools (recommended).
 - **Matplotlib Phase A (shipped):** `matplotlib` / `plt` figures from `=PYTHON()` or `run_venv_python_script` are captured in the worker, serialized via the `__wa_payload__: "image"` envelope, and inserted as `GraphicObjectShape` on the Calc draw page (chat path returns a temp `image_path` for existing image tools). See [python-in-excel-dev-plan.md](python-in-excel-dev-plan.md) Phase 2 and [Scientific domain roadmap — Visualization Phase A](#visualization).
-- **Trusted Viz helpers (Phase C, shipped):** `plot_data`, Run Python Script **[Viz]** templates, analysis auto-plot — [Scientific domain roadmap](#scientific-domain-roadmap-trusted-helpers).
+- **Trusted Viz helpers (Phase B–C, shipped):** `plot_data`, Run Python Script **[Viz]** templates, analysis auto-plot — [Visualization §1](#visualization).
+- **Trusted Symbolic Math (SymPy, shipped):** `symbolic_math`, Run Python Script **[Math]** templates, Writer Math OLE insert — [Symbolic Math §3](#symbolic-math). Sage deferred.
 - **Worker idle shutdown:** terminate venv process after N minutes idle.
 - **Formula `timeout_sec`:** optional per-formula override (Settings remains the default).
 - **LO serialization profiler:** debug-menu or UNO test harness for legs A–D ([Priority 1](numpy-serialization.md#priority-1--profile-inside-libreoffice-gate-for-everything-else)).
@@ -1271,13 +1285,16 @@ Backlog items inspired by Microsoft Python in Excel ([python-in-excel-ideas.md](
 | Shared kernel (`python_session_mode`) | [`session_manager.py`](../plugin/scripting/session_manager.py), [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) — [`tests/scripting/test_session_persistence.py`](../tests/scripting/test_session_persistence.py) |
 | Calc init scripts | [`document_scripts.py`](../plugin/scripting/document_scripts.py), [`init_script_editor.py`](../plugin/calc/init_script_editor.py) — [`tests/scripting/test_init_scripts.py`](../tests/scripting/test_init_scripts.py) |
 | Embeddings encode (Phase A) | [`embedding_client.py`](../plugin/framework/client/embedding_client.py), [`embeddings_index.py`](../plugin/scripting/embeddings_index.py) — see [embeddings.md § Phase B](embeddings.md#phase-b) |
-| Matplotlib image pipeline (Viz Phase A) | [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py), [`payload_codec.py`](../plugin/scripting/payload_codec.py), [`python_function.py`](../plugin/calc/python_function.py), [`venv_python.py`](../plugin/calc/venv_python.py) — [Visualization § Phase A](#visualization) |
+| Matplotlib + Viz helpers (Phase A–C) | [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py), [`viz.py`](../plugin/scripting/viz.py), [`viz_egress.py`](../plugin/scripting/viz_egress.py), [`python_runner.py`](../plugin/scripting/python_runner.py) — [Visualization §1](#visualization) |
+| Symbolic Math (SymPy) | [`symbolic.py`](../plugin/scripting/symbolic.py), [`symbolic_egress.py`](../plugin/scripting/symbolic_egress.py), [`symbolic_math`](../plugin/calc/symbolic_math.py) — [Symbolic Math §3](#symbolic-math) |
+| Run Python Script UI split | [`python_runner_ui.py`](../plugin/scripting/python_runner_ui.py) (native dialog); execution in [`python_runner.py`](../plugin/scripting/python_runner.py) |
 
 Jupyter `.ipynb` import (separate feature): [jupyter-notebook-import.md](jupyter-notebook-import.md).
 
 ### Not shipped / deferred
 
-- **Scientific domain roadmaps** — trusted helpers for [Visualization (Phase A–C)](#visualization), [Forecasting](#forecasting), [Symbolic Math](#symbolic-math), [Text Analytics](#text-analytics), [Optimization](#optimization), [Geospatial](#geospatial), [Audio/Signal](#audio-signal). **Matplotlib image pipeline (Viz Phase A–C)** is shipped — see [§7 Other enhancements](#other-enhancements).
+- **Scientific domain roadmaps (remaining)** — [Forecasting](#forecasting), [Text Analytics](#text-analytics), [Optimization](#optimization), [Geospatial](#geospatial), [Audio/Signal](#audio-signal). **Shipped:** [Analysis](#scientific-domain-roadmap-trusted-helpers), [Vision](image-recognition.md), [Visualization (Phase A–C)](#visualization), [Symbolic Math (SymPy)](#symbolic-math).
+- **SageMath integration** — optional future CAS backend; SymPy ships today — [sagemath-integration-dev-plan.md](sagemath-integration-dev-plan.md).
 - **Serialization next steps** — [Future work](numpy-serialization.md#future-work--serialization-performance): LO profile first, Tier 0, opaque blob, float32, pandas egress, worker cache; Tier 2b codecs; optional [Cython `vec_pack`](numpy-serialization.md#building-host-native-extensions-cython) (not started).
 - Venv ↔ LO **tool RPC** ([§7](#7-deferred-roadmap)) — [`writeragent_api.py`](../plugin/scripting/writeragent_api.py) stubs only.
 - Managed venv (Strategy 2), session persistence, worker idle shutdown, per-formula `timeout_sec`, Python edit dialog tiers 1–3.
