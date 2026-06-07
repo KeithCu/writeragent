@@ -580,9 +580,8 @@ class SendHandlersMixin:
             from plugin.mcp.server import mcp_endpoint_url
 
             port = get_config_int_safe(self.ctx, "mcp.mcp_port")
-            host = str(get_config(self.ctx, "mcp.host") or "localhost")
-            use_ssl = bool(get_config(self.ctx, "mcp.use_ssl"))
-            return mcp_endpoint_url(host, port, use_ssl)
+            # MCP binds localhost only (mcp/module.yaml); host/ssl are not user settings.
+            return mcp_endpoint_url("localhost", port, False)
         except (ValueError, TypeError) as e:
             log.debug("Failed to read MCP config: %s", e)
             return None

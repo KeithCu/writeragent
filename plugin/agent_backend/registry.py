@@ -14,12 +14,13 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Registry of agent backends. Backend ids: builtin, aider, hermes."""
+"""Registry of agent backends. Backend ids: builtin, aider, hermes, grok."""
 
 from plugin.agent_backend.builtin import BuiltinBackend
 from plugin.agent_backend.hermes_simple import HermesBackend
 from plugin.agent_backend.claude_simple import ClaudeBackend
 from plugin.agent_backend.vibe_simple import VibeBackend
+from plugin.agent_backend.grok_simple import GrokBackend
 
 AGENT_BACKEND_REGISTRY = {
     "builtin": ("Built-in", BuiltinBackend),
@@ -27,6 +28,7 @@ AGENT_BACKEND_REGISTRY = {
     "hermes": ("Hermes", HermesBackend),
     "claude": ("Claude Code (ACP)", ClaudeBackend),
     "vibe": ("Mistral Vibe (ACP)", VibeBackend),
+    "grok": ("Grok Build (ACP)", GrokBackend),
     # "openhands": ("OpenHands", OpenHandsBackend),
     # "opencode": ("OpenCode", OpenCodeBackend),
 }

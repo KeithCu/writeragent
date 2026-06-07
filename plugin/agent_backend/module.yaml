@@ -19,6 +19,8 @@ config:
         label: Claude Code (ACP)
       - value: vibe
         label: Mistral Vibe (ACP)
+      - value: grok
+        label: Grok Build (ACP)
       # - value: openhands
       #   label: OpenHands
       # - value: opencode

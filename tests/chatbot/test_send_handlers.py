@@ -48,6 +48,15 @@ class DummyChatbotPanel(SendHandlersMixin):
         pass
 
 
+def test_get_mcp_url_uses_schema_keys_only():
+    """Agent backends must not read mcp.host (not in module.yaml)."""
+    panel = DummyChatbotPanel()
+    with patch("plugin.chatbot.send_handlers.get_config_int_safe", return_value=8765) as mock_port:
+        url = panel._get_mcp_url()  # type: ignore
+    mock_port.assert_called_once_with(panel.ctx, "mcp.mcp_port")
+    assert url == "http://localhost:8765/mcp"
+
+
 def test_run_web_research_stores_raw_answer_and_rerenders():
     panel = DummyChatbotPanel()
     panel.rerender_rich_text_session = MagicMock()

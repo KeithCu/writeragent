@@ -63,9 +63,8 @@ class MCPACPProxy(AgentBackend):
                 self._mcp_url = path
             else:
                 mcp_port = get_config_int_safe(self._ctx, "mcp.mcp_port")
-                mcp_host = str(get_config(self._ctx, "mcp.host") or "localhost")
-                use_ssl = bool(get_config(self._ctx, "mcp.use_ssl"))
-                self._mcp_url = mcp_endpoint_url(mcp_host, mcp_port, use_ssl)
+                # MCP binds localhost only; mcp.host / mcp.use_ssl are not in module.yaml.
+                self._mcp_url = mcp_endpoint_url("localhost", mcp_port, False)
         except Exception as e:
             log.warning(f"Failed to load config: {e}")
             self._mcp_url = _DEFAULT_MCP_URL
