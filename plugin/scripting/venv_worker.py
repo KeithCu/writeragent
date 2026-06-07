@@ -238,10 +238,12 @@ import platform
 res = {'v': platform.python_version(), 'arch': platform.machine(), 'p': {}}
 sci = ['numpy', 'pandas', 'scipy', 'sklearn', 'matplotlib', 'sympy']
 eda = ['data_profiling', 'statsmodels', 'pandas_montecarlo']
+cas = ['sympy']
 viz = ['matplotlib', 'seaborn']
 ui = ['webview', 'jedi', 'PyQt6', 'PyQt6.QtWebEngineWidgets', 'qtpy']
 res['sci'] = sci
 res['eda'] = eda
+res['cas'] = cas
 res['viz'] = viz
 res['ui'] = ui
 
@@ -358,6 +360,7 @@ _DOCLING_INSTALL_CMD = "pip install docling rapidocr-paddle numpy pillow"
 _VISION_OCR_INSTALL_CMD = _DOCLING_INSTALL_CMD
 _VISION_PADDLE_FALLBACK_CMD = "pip install paddleocr paddlepaddle numpy"
 _VIZ_INSTALL_CMD = "pip install matplotlib seaborn"
+_SYMBOLIC_INSTALL_CMD = "pip install sympy"
 _VISION_PROBE_SCRIPT = """
 import json
 out = {}
@@ -430,6 +433,7 @@ def _format_self_check_success(data: dict[str, Any]) -> str:
     ui_list = data.get("ui", [])
     vision_list = data.get("vision", [])
     viz_list = data.get("viz", [])
+    cas_list = data.get("cas", [])
 
     header = f"Python {version} ({arch})" if arch else f"Python {version}"
     msg_lines = [f"{header} responds OK."]
@@ -465,6 +469,10 @@ def _format_self_check_success(data: dict[str, Any]) -> str:
         msg_lines.extend(format_group(_("Visualization Libraries"), viz_list))
         if any(packages.get(k) != "present" for k in viz_list):
             msg_lines.append(_("\nViz Helpers: %(cmd)s") % {"cmd": _VIZ_INSTALL_CMD})
+    if cas_list:
+        msg_lines.extend(format_group(_("Computer Algebra"), cas_list))
+        if any(packages.get(k) != "present" for k in cas_list):
+            msg_lines.append(_("\nSymbolic Math Helpers: %(cmd)s") % {"cmd": _SYMBOLIC_INSTALL_CMD})
     if vision_list:
         msg_lines.extend(format_group(_("Vision Libraries"), vision_list))
         docling_import_error = packages.get("docling_import_error")

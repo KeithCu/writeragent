@@ -29,7 +29,6 @@ from plugin.scripting.document_scripts import (
     save_document_script,
 )
 from plugin.scripting.venv_worker import warm_venv_worker
-from plugin.scripting.python_runner import execute_and_insert_result
 
 log = logging.getLogger("writeragent.scripting")
 
@@ -287,6 +286,8 @@ class NativePythonScriptDialog:
                     t = (ec.getModel().Text or "").strip()
                     lbl = dlg.getControl("InstructionLbl")
                     set_config(ctx, config_key, t)
+                    from plugin.scripting.python_runner import execute_and_insert_result
+
                     outcome = execute_and_insert_result(ctx, doc, t)
                     _report_run_outcome(ctx, lbl, outcome)
                 except Exception as e:

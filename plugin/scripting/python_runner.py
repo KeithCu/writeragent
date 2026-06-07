@@ -32,7 +32,7 @@ from plugin.scripting.document_scripts import (
 )
 from plugin.scripting.editor_host import launch_monaco_editor, monaco_editor_available
 from plugin.scripting.venv_worker import run_code_in_user_venv, warm_venv_worker
-from plugin.scripting.python_runner_ui import show_python_input_dialog
+from plugin.scripting.python_runner_ui import native_run_script_modeless_enabled, show_python_input_dialog
 from plugin.writer.format import insert_content_at_position
 from plugin.doc.document_helpers import is_calc, is_writer, is_draw
 from plugin.calc.bridge import CalcBridge
@@ -352,6 +352,29 @@ def _plot_insert_ok_outcome(
     }
 
 
+def _symbolic_insert_ok_outcome(
+    *,
+    helper: str,
+    latex: str,
+    t0: float,
+    stdout: str | None,
+    result: Any,
+) -> dict[str, Any]:
+    formatted_time = format_elapsed_time(time.perf_counter() - t0)
+    preview = latex[:80] + ("…" if len(latex) > 80 else "")
+    status_ok = _("Math '{helper}' completed. Inserted: {preview} (took {time})").format(
+        helper=helper,
+        preview=preview,
+        time=formatted_time,
+    )
+    return {
+        "ok": True,
+        "status_ok_text": status_ok,
+        "stdout": stdout,
+        "result": result,
+    }
+
+
 def execute_and_insert_result(
     ctx: Any,
     doc: Any,
@@ -373,10 +396,14 @@ def execute_and_insert_result(
     from plugin.scripting.viz_egress import insert_viz_result_into_doc, is_viz_result, try_insert_plot_result
     from plugin.scripting.viz_runner import run_trusted_viz, supports_viz_manual
     from plugin.scripting.viz_templates import parse_viz_script_header
+    from plugin.scripting.symbolic_egress import insert_symbolic_result_into_doc, is_symbolic_result
+    from plugin.scripting.symbolic_runner import run_trusted_symbolic, supports_symbolic_manual
+    from plugin.scripting.symbolic_templates import parse_math_script_header
 
     t0 = time.perf_counter()
     vision_meta = parse_vision_script_header(code)
     viz_meta = parse_viz_script_header(code)
+    math_meta = parse_math_script_header(code)
     meta = parse_analysis_script_header(code)
 
     def _resolve_data_range() -> str | None:
@@ -526,6 +553,55 @@ def execute_and_insert_result(
             result=result,
         )
 
+    if math_meta is not None:
+        if not supports_symbolic_manual(doc):
+            return {
+                "ok": False,
+                "message": _("Math helpers require a Writer or Calc document."),
+            }
+        try:
+            result = run_trusted_symbolic(
+                ctx,
+                doc,
+                helper=math_meta.helper,
+                params=math_meta.params,
+            )
+        except ToolExecutionError as exc:
+            elapsed = time.perf_counter() - t0
+            err_msg = str(exc)
+            formatted_time = format_elapsed_time(elapsed)
+            if not ("timed out" in err_msg.lower() or "timeout" in err_msg.lower()):
+                err_msg = f"{err_msg} (took {formatted_time})"
+            return {"ok": False, "message": err_msg}
+        except Exception as e:
+            elapsed = time.perf_counter() - t0
+            log.exception("execute_and_insert_result math fast path failed")
+            err_msg = str(e)
+            formatted_time = format_elapsed_time(elapsed)
+            return {"ok": False, "message": f"{err_msg} (took {formatted_time})", "traceback": exception_traceback(e)}
+
+        if result.get("status") == "error":
+            elapsed = time.perf_counter() - t0
+            formatted_time = format_elapsed_time(elapsed)
+            message = str(result.get("message") or _("Math helper failed."))
+            return {"ok": False, "message": f"{message} (took {formatted_time})"}
+
+        try:
+            insert_symbolic_result_into_doc(ctx, doc, result)
+        except Exception as e:
+            elapsed_total = time.perf_counter() - t0
+            formatted_time_total = format_elapsed_time(elapsed_total)
+            return {"ok": False, "message": _("Failed to insert result: {error} (took {time})").format(error=str(e), time=formatted_time_total)}
+
+        latex = str(result.get("latex") or result.get("text") or math_meta.helper)
+        return _symbolic_insert_ok_outcome(
+            helper=math_meta.helper,
+            latex=latex,
+            t0=t0,
+            stdout=None,
+            result=result,
+        )
+
     if meta is not None and is_calc(doc):
         dr = _resolve_data_range()
         if not dr:
@@ -616,6 +692,18 @@ def execute_and_insert_result(
 
     if doc:
         try:
+            if is_symbolic_result(result_data):
+                sym_result = cast("dict[str, Any]", result_data)
+                insert_symbolic_result_into_doc(ctx, doc, sym_result)
+                latex = str(sym_result.get("latex") or sym_result.get("text") or sym_result.get("helper") or "")
+                helper = str(sym_result.get("helper") or "")
+                return _symbolic_insert_ok_outcome(
+                    helper=helper,
+                    latex=latex,
+                    t0=t0,
+                    stdout=stdout,
+                    result=result_data,
+                )
             if is_viz_result(result_data):
                 viz_result = cast("dict[str, Any]", result_data)
                 insert_viz_result_into_doc(ctx, doc, viz_result)

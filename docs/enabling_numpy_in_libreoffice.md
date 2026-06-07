@@ -398,7 +398,7 @@ flowchart TD
 | 0 | **Analysis** (numeric EDA, regression, clustering, …) | **Shipped** — [analysis-sub-agent.md](analysis-sub-agent.md) | Extend with Viz/Forecast hooks |
 | 1 | **Visualization & Plotting** | Phase A–C shipped | `plot_data`, `[Viz] quick_plot` |
 | 2 | **Time Series & Forecasting** | Partial building blocks in analysis | `forecast_time_series` |
-| 3 | **Symbolic Mathematics** | Partial (sympy venv, Writer math-tex) | `solve_equation`, `[Math] …` |
+| 3 | **Symbolic Mathematics** | SymPy shipped | `symbolic_math`, `[Math] solve_equation` |
 | 4 | **Text / Document Analytics** | Outline/tree tools only | `readability_scores`, `[Text Analysis] …` |
 | 5 | **Optimization & OR** | Partial (scipy, `monte_carlo`) | `optimize_portfolio` |
 | 6 | **Geospatial** | Not started | `[Geo] map_data` |
@@ -521,35 +521,30 @@ run_venv_python_script(code="… plt.plot(…) …")
 
 ### 3. Symbolic Mathematics & Equation Solving {#symbolic-math}
 
-**Status:** **Partial.** Sympy auto-imported in venv (`sp`); Writer Math insertion via [math-tex.md](math-tex.md). **Trusted helpers not shipped.** Product/engineering plan for optional **SageMath** backend (same venv worker, dual Sage/SymPy helpers): [sagemath-integration-dev-plan.md](sagemath-integration-dev-plan.md).
+**Status:** **Shipped (SymPy).** Trusted helpers via [`symbolic.py`](../plugin/scripting/symbolic.py), Run Python Script **Math Helpers**, and `symbolic_math` chat tool (`domain="python"`). SageMath remains a future optional extension — see [sagemath-integration-dev-plan.md](sagemath-integration-dev-plan.md).
 
 **Goal:** Solve, simplify, integrate, and differentiate equations; round-trip LaTeX ↔ LibreOffice Math objects; bridge Writer, Calc `=PYTHON()`, and Vision OCR of handwritten equations.
 
 **Why:** Appeals to students, engineers, researchers; synergizes with Docling/Vision → sympy → Writer Math OLE.
 
-**Already in codebase:**
-
-| Piece | Location |
-|-------|----------|
-| Venv `sympy` as `sp` | [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) auto-imports |
-| LaTeX → StarMath → OLE | [`math_mml_convert.py`](../plugin/writer/math/math_mml_convert.py), [`math_formula_insert.py`](../plugin/writer/math/math_formula_insert.py) |
-| In-process stdlib sandbox | [`python_executor.py`](../plugin/calc/python_executor.py) — no sympy; light cases only |
-
-**Proposed helpers:**
+**Shipped helpers:**
 
 | Helper | Purpose |
 |--------|---------|
-| `solve_equation` | Symbolic solve for variables; optional numeric substitution from `data_range` |
-| `symbolic_simplify` / `integrate` / `differentiate` | Core sympy wrappers |
-| `latex_to_math_object` | Enhance existing TeX path — return StarMath/LaTeX for host insert |
+| `solve_equation` | Symbolic solve for variables |
+| `symbolic_simplify` / `integrate` / `differentiate` | Core SymPy wrappers |
+| `latex_to_math_object` | Validate/normalize LaTeX for Writer Math insert |
 
-**Execution split:** Light sympy in venv trusted module; very small expressions could stay in-process stdlib-only paths only if we add a safe subset (default: venv for all shipped helpers).
+**Integration:**
 
-**Run Python Script:** **Math Helpers →** `[Math] solve_equation`, `[Math] simplify`.
+| Piece | Location |
+|-------|----------|
+| Trusted module | [`symbolic.py`](../plugin/scripting/symbolic.py), [`symbolic_client.py`](../plugin/framework/client/symbolic_client.py) |
+| Run Python Script | `# writeragent:math` templates in [`symbolic_templates.py`](../plugin/scripting/symbolic_templates.py), **Math Helpers** in [`document_scripts.py`](../plugin/scripting/document_scripts.py) |
+| Writer Math insert | [`symbolic_egress.py`](../plugin/scripting/symbolic_egress.py) → [`math_mml_convert.py`](../plugin/writer/math/math_mml_convert.py) |
+| Chat tool | [`symbolic_math`](../plugin/calc/symbolic_math.py) (`domain="python"`) |
 
-**Sub-agent / LLM:** Writer main chat or `domain="python"` with helper preference; compose with Vision `extract_text` on equation photos.
-
-**Packages:** `sympy` (required — already probed under Scientific Libraries).
+**Packages:** `sympy` (required). Settings → Python **Computer Algebra** group lists sympy.
 
 ---
 

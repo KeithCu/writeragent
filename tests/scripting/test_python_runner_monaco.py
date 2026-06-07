@@ -9,22 +9,23 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from plugin.scripting import python_runner as pr
+from plugin.scripting import python_runner_ui as ui
 
 
 def _patch_modal_native():
-    return patch.object(pr, "native_run_script_modeless_enabled", return_value=False)
+    return patch.object(ui, "native_run_script_modeless_enabled", return_value=False)
 
 
 def _patch_modeless_native():
-    return patch.object(pr, "native_run_script_modeless_enabled", return_value=True)
+    return patch.object(ui, "native_run_script_modeless_enabled", return_value=True)
 
 
 def test_native_run_script_modeless_enabled_reads_config():
     ctx = MagicMock()
-    with patch.object(pr, "get_config", return_value=True):
-        assert pr.native_run_script_modeless_enabled(ctx) is True
-    with patch.object(pr, "get_config", return_value=False):
-        assert pr.native_run_script_modeless_enabled(ctx) is False
+    with patch.object(ui, "get_config", return_value=True):
+        assert ui.native_run_script_modeless_enabled(ctx) is True
+    with patch.object(ui, "get_config", return_value=False):
+        assert ui.native_run_script_modeless_enabled(ctx) is False
 
 
 def test_run_python_dialog_uses_monaco_when_available():
@@ -174,10 +175,10 @@ def test_show_python_input_dialog_run_button_keeps_dialog_open():
 
     dlg.getControl.side_effect = fake_get_control
 
-    with patch.object(pr, "get_desktop", return_value=desktop):
+    with patch.object(ui, "get_desktop", return_value=desktop):
         with _patch_modal_native():
-            with patch.object(pr, "set_config") as mock_set:
-                with patch.object(pr, "execute_and_insert_result", return_value={"ok": True, "status_ok_text": "done"}) as mock_execute:
+            with patch.object(ui, "set_config") as mock_set:
+                with patch("plugin.scripting.python_runner.execute_and_insert_result", return_value={"ok": True, "status_ok_text": "done"}) as mock_execute:
                     def fake_execute_dialog():
                         for listener in listeners:
                             if "RunListener" in type(listener).__name__:
@@ -185,7 +186,7 @@ def test_show_python_input_dialog_run_button_keeps_dialog_open():
 
                     dlg.execute.side_effect = fake_execute_dialog
 
-                    pr.show_python_input_dialog(ctx, "result = 1", "last_python_script_writer")
+                    ui.show_python_input_dialog(ctx, "result = 1", "last_python_script_writer")
 
                     dlg.endDialog.assert_not_called()
                     dlg.setVisible.assert_not_called()
@@ -242,16 +243,16 @@ def test_show_python_input_dialog_save_button():
         return code_edit
     dlg.getControl.side_effect = fake_get_control
 
-    with patch.object(pr, "get_desktop", return_value=desktop):
+    with patch.object(ui, "get_desktop", return_value=desktop):
         with _patch_modal_native():
-            with patch.object(pr, "set_config") as mock_set:
+            with patch.object(ui, "set_config") as mock_set:
                 def fake_execute():
                     for listener in listeners:
                         if "SaveListener" in type(listener).__name__:
                             listener.actionPerformed(MagicMock())
                 dlg.execute.side_effect = fake_execute
 
-                pr.show_python_input_dialog(ctx, "print('hello')", "last_python_script_writer")
+                ui.show_python_input_dialog(ctx, "print('hello')", "last_python_script_writer")
 
                 mock_set.assert_called_once_with(ctx, "last_python_script_writer", "print('hello world')")
 
@@ -339,18 +340,18 @@ def test_show_python_input_dialog_save_as_button():
         return code_edit
     dlg.getControl.side_effect = fake_get_control
 
-    with patch.object(pr, "get_desktop", return_value=desktop):
+    with patch.object(ui, "get_desktop", return_value=desktop):
         with _patch_modal_native():
-            with patch.object(pr, "get_config", return_value={}):
-                with patch.object(pr, "set_config") as mock_set:
-                    with patch.object(pr, "show_text_input_dialog", return_value="scriptk") as mock_input:
+            with patch.object(ui, "get_config", return_value={}):
+                with patch.object(ui, "set_config") as mock_set:
+                    with patch.object(ui, "show_text_input_dialog", return_value="scriptk") as mock_input:
                         def fake_execute():
                             for listener in listeners:
                                 if "SaveAsListener" in type(listener).__name__:
                                     listener.actionPerformed(MagicMock())
                         dlg.execute.side_effect = fake_execute
 
-                        pr.show_python_input_dialog(ctx, "print('hello')", "last_python_script_writer")
+                        ui.show_python_input_dialog(ctx, "print('hello')", "last_python_script_writer")
 
                         mock_input.assert_called_once()
                         mock_set.assert_called_once_with(ctx, "saved_python_scripts", {"scriptk": "print('hello world')"})
@@ -384,9 +385,9 @@ def test_show_python_input_dialog_modeless_uses_set_visible():
     script_select = MagicMock()
     dlg.getControl.side_effect = lambda name: code_edit if name == "CodeEdit" else script_select
 
-    with patch.object(pr, "get_desktop", return_value=desktop):
+    with patch.object(ui, "get_desktop", return_value=desktop):
         with _patch_modeless_native():
-            pr.show_python_input_dialog(ctx, "x = 1", "last_python_script_writer")
+            ui.show_python_input_dialog(ctx, "x = 1", "last_python_script_writer")
 
     dlg.execute.assert_not_called()
     dlg.setVisible.assert_called_once_with(True)

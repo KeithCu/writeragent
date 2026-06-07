@@ -269,7 +269,10 @@ def python_specialized_sub_agent_hint(agent_label: str) -> str:
 
     plot_hint = format_matplotlib_plot_hint(agent_label=agent_label)
     plot_suffix = f" {plot_hint}" if plot_hint else ""
-    return f" PYTHON (venv): {policy}{data_hint}{plot_suffix}"
+    return (
+        f" PYTHON (venv): {policy}{data_hint}{plot_suffix}"
+        " Prefer symbolic_math for solve/simplify/integrate/differentiate over raw sp/run_venv_python_script."
+    )
 
 
 def _load_venv_import_policy_full() -> str:
