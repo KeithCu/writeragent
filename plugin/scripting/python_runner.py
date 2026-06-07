@@ -816,6 +816,29 @@ def format_elapsed_time(seconds: float) -> str:
             return f"{int(ms)} ms"
 
 
+def _plot_insert_ok_outcome(
+    *,
+    helper: str,
+    title: str,
+    t0: float,
+    stdout: str | None,
+    result: Any,
+) -> dict[str, Any]:
+    formatted_time = format_elapsed_time(time.perf_counter() - t0)
+    status_ok = _("Plot inserted ({title}). (took {time})").format(title=title, time=formatted_time)
+    if helper:
+        status_ok = _("Viz '{helper}' completed. {msg}").format(
+            helper=helper,
+            msg=_("Plot inserted ({title}). (took {time})").format(title=title, time=formatted_time),
+        )
+    return {
+        "ok": True,
+        "status_ok_text": status_ok,
+        "stdout": stdout,
+        "result": result,
+    }
+
+
 def execute_and_insert_result(
     ctx: Any,
     doc: Any,
@@ -834,9 +857,13 @@ def execute_and_insert_result(
     from plugin.scripting.vision_egress import format_vision_for_writer, is_vision_result
     from plugin.scripting.vision_runner import run_trusted_vision, supports_vision_manual
     from plugin.scripting.vision_templates import parse_vision_script_header
+    from plugin.scripting.viz_egress import insert_viz_result_into_doc, is_viz_result, try_insert_plot_result
+    from plugin.scripting.viz_runner import run_trusted_viz, supports_viz_manual
+    from plugin.scripting.viz_templates import parse_viz_script_header
 
     t0 = time.perf_counter()
     vision_meta = parse_vision_script_header(code)
+    viz_meta = parse_viz_script_header(code)
     meta = parse_analysis_script_header(code)
 
     def _resolve_data_range() -> str | None:
@@ -930,6 +957,62 @@ def execute_and_insert_result(
             "result": result,
         }
 
+    if viz_meta is not None:
+        if not supports_viz_manual(doc):
+            return {
+                "ok": False,
+                "message": _("Viz helpers require a Writer or Calc document."),
+            }
+        dr = _resolve_data_range() if is_calc(doc) else None
+        if is_calc(doc) and not dr:
+            return {
+                "ok": False,
+                "message": _("Viz helper requires a data range. Select cells or enter a range in the Data field."),
+            }
+        try:
+            result = run_trusted_viz(
+                ctx,
+                doc,
+                helper=viz_meta.helper,
+                params=viz_meta.params,
+                data_range=dr,
+            )
+        except ToolExecutionError as exc:
+            elapsed = time.perf_counter() - t0
+            err_msg = str(exc)
+            formatted_time = format_elapsed_time(elapsed)
+            if not ("timed out" in err_msg.lower() or "timeout" in err_msg.lower()):
+                err_msg = f"{err_msg} (took {formatted_time})"
+            return {"ok": False, "message": err_msg}
+        except Exception as e:
+            elapsed = time.perf_counter() - t0
+            log.exception("execute_and_insert_result viz fast path failed")
+            err_msg = str(e)
+            formatted_time = format_elapsed_time(elapsed)
+            return {"ok": False, "message": f"{err_msg} (took {formatted_time})", "traceback": exception_traceback(e)}
+
+        if result.get("status") == "error":
+            elapsed = time.perf_counter() - t0
+            formatted_time = format_elapsed_time(elapsed)
+            message = str(result.get("message") or _("Viz helper failed."))
+            return {"ok": False, "message": f"{message} (took {formatted_time})"}
+
+        try:
+            insert_viz_result_into_doc(ctx, doc, result)
+        except Exception as e:
+            elapsed_total = time.perf_counter() - t0
+            formatted_time_total = format_elapsed_time(elapsed_total)
+            return {"ok": False, "message": _("Failed to insert result: {error} (took {time})").format(error=str(e), time=formatted_time_total)}
+
+        title = str(result.get("title") or viz_meta.helper)
+        return _plot_insert_ok_outcome(
+            helper=viz_meta.helper,
+            title=title,
+            t0=t0,
+            stdout=None,
+            result=result,
+        )
+
     if meta is not None and is_calc(doc):
         dr = _resolve_data_range()
         if not dr:
@@ -1020,6 +1103,26 @@ def execute_and_insert_result(
 
     if doc:
         try:
+            if is_viz_result(result_data):
+                viz_result = cast("dict[str, Any]", result_data)
+                insert_viz_result_into_doc(ctx, doc, viz_result)
+                title = str(viz_result.get("title") or viz_result.get("helper") or "Plot")
+                helper = str(viz_result.get("helper") or "")
+                return _plot_insert_ok_outcome(
+                    helper=helper,
+                    title=title,
+                    t0=t0,
+                    stdout=stdout,
+                    result=result_data,
+                )
+            if try_insert_plot_result(ctx, doc, result_data):
+                return _plot_insert_ok_outcome(
+                    helper="",
+                    title="Plot",
+                    t0=t0,
+                    stdout=stdout,
+                    result=result_data,
+                )
             if is_calc(doc):
                 if isinstance(result_data, dict) and is_analysis_result(result_data):
                     row_count = insert_analysis_result_into_calc(doc, ctx, result_data)
@@ -1097,11 +1200,14 @@ def _run_python_monaco(ctx: Any, doc: Any, *, config_key: str, initial_code: str
     """Open Monaco for Run Python Script. Return True when the editor session started."""
     from plugin.calc.analysis_runner import calc_selection_to_a1
     from plugin.scripting.analysis_templates import parse_analysis_script_header
+    from plugin.scripting.viz_templates import parse_viz_script_header
 
     run_ok_text = _("Script executed successfully.")
     save_ok_text = _("Script saved.")
     initial_binding = calc_selection_to_a1(doc) if is_calc(doc) else ""
-    show_binding = bool(parse_analysis_script_header(initial_code)) if is_calc(doc) else False
+    show_binding = False
+    if is_calc(doc):
+        show_binding = bool(parse_analysis_script_header(initial_code) or parse_viz_script_header(initial_code))
 
     def on_save(
         code: str,

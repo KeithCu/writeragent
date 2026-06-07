@@ -238,9 +238,11 @@ import platform
 res = {'v': platform.python_version(), 'arch': platform.machine(), 'p': {}}
 sci = ['numpy', 'pandas', 'scipy', 'sklearn', 'matplotlib', 'sympy']
 eda = ['data_profiling', 'statsmodels', 'pandas_montecarlo']
+viz = ['matplotlib', 'seaborn']
 ui = ['webview', 'jedi', 'PyQt6', 'PyQt6.QtWebEngineWidgets', 'qtpy']
 res['sci'] = sci
 res['eda'] = eda
+res['viz'] = viz
 res['ui'] = ui
 
 # Check for Cython accelerator
@@ -335,6 +337,12 @@ try:
 except ImportError:
     res['p']['pandas_montecarlo'] = None
 
+try:
+    import seaborn
+    res['p']['seaborn'] = 'present'
+except ImportError:
+    res['p']['seaborn'] = None
+
 result = res
 """
 
@@ -349,6 +357,7 @@ _VISION_PACKAGE_KEYS = ("docling", "rapidocr", "paddleocr", "paddle", "ultralyti
 _DOCLING_INSTALL_CMD = "pip install docling rapidocr-paddle numpy pillow"
 _VISION_OCR_INSTALL_CMD = _DOCLING_INSTALL_CMD
 _VISION_PADDLE_FALLBACK_CMD = "pip install paddleocr paddlepaddle numpy"
+_VIZ_INSTALL_CMD = "pip install matplotlib seaborn"
 _VISION_PROBE_SCRIPT = """
 import json
 out = {}
@@ -420,6 +429,7 @@ def _format_self_check_success(data: dict[str, Any]) -> str:
     eda_list = data.get("eda", [])
     ui_list = data.get("ui", [])
     vision_list = data.get("vision", [])
+    viz_list = data.get("viz", [])
 
     header = f"Python {version} ({arch})" if arch else f"Python {version}"
     msg_lines = [f"{header} responds OK."]
@@ -451,6 +461,10 @@ def _format_self_check_success(data: dict[str, Any]) -> str:
             )
     if ui_list:
         msg_lines.extend(format_group("UI / Monaco Libraries", ui_list))
+    if viz_list:
+        msg_lines.extend(format_group(_("Visualization Libraries"), viz_list))
+        if any(packages.get(k) != "present" for k in viz_list):
+            msg_lines.append(_("\nViz Helpers: %(cmd)s") % {"cmd": _VIZ_INSTALL_CMD})
     if vision_list:
         msg_lines.extend(format_group(_("Vision Libraries"), vision_list))
         docling_import_error = packages.get("docling_import_error")

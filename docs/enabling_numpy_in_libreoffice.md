@@ -267,7 +267,7 @@ Full design and egress rules: [Image Recognition](image-recognition.md).
 
 #### Planned domain package groups
 
-Future trusted-helper domains (Visualization, Forecasting, Symbolic Math, Text Analytics, Optimization, Geospatial, Audio) will each declare required venv packages and a Settings → Python **Test** group when implemented. Until then, see [Scientific domain roadmap (trusted helpers)](#scientific-domain-roadmap-trusted-helpers). **Matplotlib** is already probed under **Scientific Libraries**; a dedicated **Visualization Libraries** group (e.g. seaborn) is planned with trusted Viz helpers.
+Future trusted-helper domains (Forecasting, Symbolic Math, Text Analytics, Optimization, Geospatial, Audio) will each declare required venv packages and a Settings → Python **Test** group when implemented. **Visualization** (matplotlib + seaborn) ships with trusted Viz helpers — see [Scientific domain roadmap — Visualization](#visualization).
 
 ## Trusted Extension Code Opportunities with the Full Scientific Stack
 
@@ -396,7 +396,7 @@ flowchart TD
 | Priority | Domain | Status today | First target |
 |----------|--------|--------------|--------------|
 | 0 | **Analysis** (numeric EDA, regression, clustering, …) | **Shipped** — [analysis-sub-agent.md](analysis-sub-agent.md) | Extend with Viz/Forecast hooks |
-| 1 | **Visualization & Plotting** | Phase A shipped; B–C not | `plot_data`, `[Viz] quick_plot` |
+| 1 | **Visualization & Plotting** | Phase A–C shipped | `plot_data`, `[Viz] quick_plot` |
 | 2 | **Time Series & Forecasting** | Partial building blocks in analysis | `forecast_time_series` |
 | 3 | **Symbolic Mathematics** | Partial (sympy venv, Writer math-tex) | `solve_equation`, `[Math] …` |
 | 4 | **Text / Document Analytics** | Outline/tree tools only | `readability_scores`, `[Text Analysis] …` |
@@ -449,17 +449,15 @@ run_venv_python_script(code="… plt.plot(…) …")
 
 **Native LO charts** ([`charts.py`](../plugin/calc/charts.py) — `UpsertChart`, `ListCharts`, …) are a **separate** UNO chart path, not matplotlib. The LLM can already create native Calc/Writer charts from structured data; Viz helpers complement that with statistical plotting (seaborn, heatmaps, distribution plots).
 
-**Known limitations:** **Run Python Script does not insert image payloads** (see Phase B); no UNO e2e test for full `=PYTHON()` plot insertion (geometry unit-tested with mocks). Multiple open figures are merged into one vertical stack (PNG). Detail: [python-in-excel-dev-plan.md Phase 2](python-in-excel-dev-plan.md).
+**Known limitations:** No UNO e2e test for full `=PYTHON()` plot insertion (geometry unit-tested with mocks). Multiple open figures are merged into one vertical stack (PNG). Detail: [python-in-excel-dev-plan.md Phase 2](python-in-excel-dev-plan.md).
 
-#### Phase B — Run Python Script + Writer image egress (glue; not shipped)
+#### Phase B — Run Python Script + Writer image egress (shipped)
 
-[`python_runner.py`](../plugin/scripting/python_runner.py) `execute_and_insert_result()` handles analysis and vision result contracts but **does not** check `is_image_payload()`. Matplotlib output from **Tools → Run Python Script…** would be written as broken cell/text instead of a graphic.
+[`python_runner.py`](../plugin/scripting/python_runner.py) `execute_and_insert_result()` checks `is_viz_result()` / `is_image_payload()` after venv execution and inserts plots via [`viz_egress.py`](../plugin/scripting/viz_egress.py) (Calc → [`insert_image_result_on_sheet`](../plugin/calc/python_image_egress.py); Writer → [`insert_image_at_locator`](../plugin/writer/images/image_tools.py)). Viz header fast path mirrors Analysis/Vision. Tests: [`test_python_runner_viz.py`](../tests/scripting/test_python_runner_viz.py).
 
-**Planned fix (small):** After venv execution, if `is_image_payload(result_data)`: Calc → reuse [`insert_image_result_on_sheet`](../plugin/calc/python_image_egress.py) logic; Writer → [`insert_image_at_locator`](../plugin/writer/images/image_tools.py). Tests: extend [`test_python_runner_*.py`](../tests/scripting/).
+#### Phase C — Trusted Viz helpers (shipped)
 
-#### Phase C — Trusted Viz helpers (not shipped)
-
-Mirror Analysis/Vision: [`viz.py`](../plugin/scripting/), `viz_templates.py`, `viz_client.py`, `viz_runner.py`, `viz_egress.py`, `_viz_script_section` in [`document_scripts.py`](../plugin/scripting/document_scripts.py), fast path in `python_runner.py`.
+[`viz.py`](../plugin/scripting/viz.py), [`viz_templates.py`](../plugin/scripting/viz_templates.py), [`viz_client.py`](../plugin/framework/client/viz_client.py), [`viz_runner.py`](../plugin/scripting/viz_runner.py), [`viz_egress.py`](../plugin/scripting/viz_egress.py), `_viz_script_section` in [`document_scripts.py`](../plugin/scripting/document_scripts.py), fast path in `python_runner.py`, [`plot_data`](../plugin/calc/viz.py) analysis-domain tool, and `analyze_data` auto-plot via [`viz_auto_plot.py`](../plugin/calc/viz_auto_plot.py).
 
 | Helper | Purpose | Notes |
 |--------|---------|-------|
@@ -472,9 +470,9 @@ Mirror Analysis/Vision: [`viz.py`](../plugin/scripting/), `viz_templates.py`, `v
 
 **Result contract (draft):** `{status, helper, image: {format, data}, title, legend, chart_type, writer_cleanup_hints}` — image bytes use the same `__wa_payload__: "image"` envelope as Phase A.
 
-**Analysis sub-agent:** After `run_regression`, `cluster_numeric`, or `monte_carlo`, auto-call `plot_data` when the task implies visualization (replaces planned `suggest_visualization` in [analysis-sub-agent.md](analysis-sub-agent.md)).
+**Analysis sub-agent:** After `run_regression`, `cluster_numeric`, `monte_carlo`, or `correlation_matrix`, `analyze_data` can auto-call a matching viz helper when `auto_plot=true` or the task hint mentions charts (see [`viz_auto_plot.py`](../plugin/calc/viz_auto_plot.py)).
 
-**Packages:** `matplotlib` (required); `seaborn` (recommended). Settings → Python **Visualization Libraries** group when shipped.
+**Packages:** `matplotlib` (required); `seaborn` (recommended). Settings → Python **Visualization Libraries** group lists both.
 
 **Fallback:** ASCII mini-charts or compact text tables when matplotlib is missing (`MISSING_PACKAGE`).
 
@@ -1216,7 +1214,7 @@ This item is deliberately scoped as Priority 3 because the personal library + ce
 
 - **OooDev / ScriptForge:** optional venv install for UNO-from-Python; or keep compute-in-venv + document-via-tools (recommended).
 - **Matplotlib Phase A (shipped):** `matplotlib` / `plt` figures from `=PYTHON()` or `run_venv_python_script` are captured in the worker, serialized via the `__wa_payload__: "image"` envelope, and inserted as `GraphicObjectShape` on the Calc draw page (chat path returns a temp `image_path` for existing image tools). See [python-in-excel-dev-plan.md](python-in-excel-dev-plan.md) Phase 2 and [Scientific domain roadmap — Visualization Phase A](#visualization).
-- **Trusted Viz helpers (Phase C, not shipped):** `plot_data`, Run Python Script **[Viz]** templates, analysis auto-plot — [Scientific domain roadmap](#scientific-domain-roadmap-trusted-helpers).
+- **Trusted Viz helpers (Phase C, shipped):** `plot_data`, Run Python Script **[Viz]** templates, analysis auto-plot — [Scientific domain roadmap](#scientific-domain-roadmap-trusted-helpers).
 - **Worker idle shutdown:** terminate venv process after N minutes idle.
 - **Formula `timeout_sec`:** optional per-formula override (Settings remains the default).
 - **LO serialization profiler:** debug-menu or UNO test harness for legs A–D ([Priority 1](numpy-serialization.md#priority-1--profile-inside-libreoffice-gate-for-everything-else)).
@@ -1284,7 +1282,7 @@ Jupyter `.ipynb` import (separate feature): [jupyter-notebook-import.md](jupyter
 
 ### Not shipped / deferred
 
-- **Scientific domain roadmaps** — trusted helpers for [Visualization (Phase B–C)](#visualization), [Forecasting](#forecasting), [Symbolic Math](#symbolic-math), [Text Analytics](#text-analytics), [Optimization](#optimization), [Geospatial](#geospatial), [Audio/Signal](#audio-signal). **Matplotlib image pipeline (Viz Phase A)** is shipped — see [§7 Other enhancements](#other-enhancements).
+- **Scientific domain roadmaps** — trusted helpers for [Visualization (Phase A–C)](#visualization), [Forecasting](#forecasting), [Symbolic Math](#symbolic-math), [Text Analytics](#text-analytics), [Optimization](#optimization), [Geospatial](#geospatial), [Audio/Signal](#audio-signal). **Matplotlib image pipeline (Viz Phase A–C)** is shipped — see [§7 Other enhancements](#other-enhancements).
 - **Serialization next steps** — [Future work](numpy-serialization.md#future-work--serialization-performance): LO profile first, Tier 0, opaque blob, float32, pandas egress, worker cache; Tier 2b codecs; optional [Cython `vec_pack`](numpy-serialization.md#building-host-native-extensions-cython) (not started).
 - Venv ↔ LO **tool RPC** ([§7](#7-deferred-roadmap)) — [`writeragent_api.py`](../plugin/scripting/writeragent_api.py) stubs only.
 - Managed venv (Strategy 2), session persistence, worker idle shutdown, per-formula `timeout_sec`, Python edit dialog tiers 1–3.

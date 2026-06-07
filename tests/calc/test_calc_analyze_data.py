@@ -110,6 +110,7 @@ def test_analysis_domain_includes_all_tools():
     doc.supportsService.return_value = True
     names = {t.name for t in registry.get_tools(doc=doc, active_domain="analysis", exclude_tiers=())}
     assert "analyze_data" in names
+    assert "plot_data" in names
     assert "calc_goal_seek" in names
     assert "calc_solver" in names
     # Data handoff discipline: analysis sub-agents must not receive read_cell_range.

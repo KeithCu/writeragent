@@ -425,7 +425,7 @@ Previously planned helpers (not yet separate tools):
 - Discovery helpers (or reuse via document_research).
 - `extract_data(source, format="pandas"|"numpy"|"records")`
 - `run_analysis(spec, data_ref, ...)` → results (the gateway to trusted).
-- `suggest_visualization(results)` or direct chart data prep — see [Scientific domain roadmap — Visualization Phase C](enabling_numpy_in_libreoffice.md#visualization) (`plot_data` trusted helper + analysis auto-plot).
+- `plot_data` for charts; `analyze_data` with `auto_plot=true` (or chart keywords in `task_hint`) chains regression/cluster/Monte Carlo/correlation helpers to viz — see [Visualization Phase C](enabling_numpy_in_libreoffice.md#visualization).
 - `apply_analysis_results` (suggestions only; actual writes via main's tools after review).
 
 **Phasing (MVP-first, heavily reusing existing code)**

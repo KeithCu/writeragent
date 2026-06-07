@@ -35,10 +35,12 @@ SCRIPT_ORIGIN_USER = "user"
 SCRIPT_ORIGIN_DOCUMENT = "document"
 SCRIPT_ORIGIN_ANALYSIS = "analysis"
 SCRIPT_ORIGIN_VISION = "vision"
+SCRIPT_ORIGIN_VIZ = "viz"
 
 DOC_SCRIPT_DISPLAY_PREFIX = "[Doc] "
 ANALYSIS_SCRIPT_DISPLAY_PREFIX = "[Analysis] "
 VISION_SCRIPT_DISPLAY_PREFIX = "[Vision] "
+VIZ_SCRIPT_DISPLAY_PREFIX = "[Viz] "
 
 
 def _normalize_doc_url(url: Any) -> str:
@@ -257,6 +259,16 @@ def parse_vision_script_display_name(display: str) -> str | None:
     return None
 
 
+def viz_script_display_name(name: str) -> str:
+    return f"{VIZ_SCRIPT_DISPLAY_PREFIX}{name}"
+
+
+def parse_viz_script_display_name(display: str) -> str | None:
+    if display.startswith(VIZ_SCRIPT_DISPLAY_PREFIX):
+        return display[len(VIZ_SCRIPT_DISPLAY_PREFIX) :]
+    return None
+
+
 def resolve_script_picker_entry(display_name: str, origin_map: dict[str, str]) -> tuple[str, str]:
     """Return (real_name, origin) for a listbox/display label."""
     origin = origin_map.get(display_name, SCRIPT_ORIGIN_USER)
@@ -269,6 +281,9 @@ def resolve_script_picker_entry(display_name: str, origin_map: dict[str, str]) -
     if origin == SCRIPT_ORIGIN_VISION:
         real = parse_vision_script_display_name(display_name)
         return (real or display_name, SCRIPT_ORIGIN_VISION)
+    if origin == SCRIPT_ORIGIN_VIZ:
+        real = parse_viz_script_display_name(display_name)
+        return (real or display_name, SCRIPT_ORIGIN_VIZ)
     return (display_name, SCRIPT_ORIGIN_USER)
 
 
@@ -302,6 +317,23 @@ def _vision_script_section(doc: Any | None) -> dict[str, Any] | None:
     templates = get_vision_script_templates()
     display_scripts = {vision_script_display_name(name): code for name, code in templates.items()}
     return {"id": SCRIPT_ORIGIN_VISION, "title": _("Vision Helpers"), "scripts": display_scripts}
+
+
+def _viz_script_section(doc: Any | None) -> dict[str, Any] | None:
+    if doc is None:
+        return None
+    from plugin.scripting.viz_runner import supports_viz_manual
+
+    try:
+        if not supports_viz_manual(doc):
+            return None
+    except Exception:
+        return None
+    from plugin.scripting.viz_templates import get_viz_script_templates
+
+    templates = get_viz_script_templates()
+    display_scripts = {viz_script_display_name(name): code for name, code in templates.items()}
+    return {"id": SCRIPT_ORIGIN_VIZ, "title": _("Viz Helpers"), "scripts": display_scripts}
 
 
 def build_xdl_script_picker_state(
@@ -340,11 +372,20 @@ def build_xdl_script_picker_state(
             merged[display_name] = code
             vision_items.append(display_name)
 
+    viz_items: list[str] = []
+    viz_section = _viz_script_section(doc)
+    if viz_section:
+        for display_name, code in viz_section["scripts"].items():
+            origin_map[display_name] = SCRIPT_ORIGIN_VIZ
+            merged[display_name] = code
+            viz_items.append(display_name)
+
     items = (
         ["Sample"]
         + sorted(user_scripts.keys())
         + analysis_items
         + vision_items
+        + viz_items
         + [document_script_display_name(n) for n in sorted(doc_scripts.keys())]
     )
     return items, merged, origin_map
@@ -391,6 +432,9 @@ def build_scripts_list_message(
     vision_section = _vision_script_section(doc)
     if vision_section:
         sections.append(vision_section)
+    viz_section = _viz_script_section(doc)
+    if viz_section:
+        sections.append(viz_section)
     sections.append({"id": SCRIPT_ORIGIN_DOCUMENT, "title": _("This Document"), "scripts": doc_scripts})
 
     msg: dict[str, Any] = {

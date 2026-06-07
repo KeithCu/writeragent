@@ -109,7 +109,7 @@ class ToolCalcSearchBase(ToolCalcSpecialBase):
 class ToolCalcAnalysisBase(ToolCalcSpecialBase):
     specialized_domain = "analysis"
     specialized_domain_description: ClassVar[str | None] = (
-        "Data analysis and spreadsheet optimization: trusted numpy/pandas helpers (analyze_data), "
+        "Data analysis and spreadsheet optimization: trusted numpy/pandas helpers (analyze_data, plot_data), "
         "Goal Seek (calc_goal_seek), and Solver (calc_solver)."
     )
     intent = "analyze"

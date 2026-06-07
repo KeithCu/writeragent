@@ -92,6 +92,8 @@ VENV_AUTHORIZED_IMPORTS: tuple[str, ...] = (
     "plugin.scripting.vision_common",
     "plugin.scripting.vision_docling",
     "plugin.scripting.vision_paddle",
+    "plugin.scripting.viz",
+    "plugin.scripting.viz_common",
     "sentence_transformers",
     "sentence_transformers.*",
 )

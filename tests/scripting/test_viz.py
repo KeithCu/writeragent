@@ -1,0 +1,66 @@
+# WriterAgent - AI Writing Assistant for LibreOffice
+# Copyright (c) 2026 KeithCu (modifications and relicensing)
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Tests for trusted viz helpers."""
+
+from __future__ import annotations
+
+from unittest.mock import MagicMock, patch
+
+import pandas as pd
+
+from plugin.scripting.viz import run_viz
+
+
+def _mock_figure_payload():
+    return {"__wa_payload__": "image", "format": "png", "data": b"abc123"}
+
+
+def _mock_plt_module():
+    plt_mod = MagicMock()
+    fig = MagicMock()
+    ax = MagicMock()
+    ax.get_title.return_value = "Test plot"
+    plt_mod.subplots.return_value = (fig, ax)
+    return plt_mod
+
+
+@patch("plugin.scripting.viz._figure_payload", return_value=_mock_figure_payload())
+@patch("plugin.scripting.viz._require_matplotlib")
+def test_run_viz_quick_plot(mock_plt, _mock_payload):
+    mock_plt.return_value = _mock_plt_module()
+    df = pd.DataFrame({"Sales": [10, 20, 30], "Region": ["A", "B", "C"]})
+
+    result = run_viz({"helper": "quick_plot", "params": {}}, df, {})
+
+    assert result["status"] == "ok"
+    assert result["helper"] == "quick_plot"
+    assert result["image"]["__wa_payload__"] == "image"
+
+
+@patch("plugin.scripting.viz._figure_payload", return_value=_mock_figure_payload())
+@patch("plugin.scripting.viz._require_matplotlib")
+def test_run_viz_plot_data_scatter(mock_plt, _mock_payload):
+    mock_plt.return_value = _mock_plt_module()
+    df = pd.DataFrame({"x": [1, 2, 3], "y": [4, 5, 6]})
+
+    result = run_viz(
+        {
+            "helper": "plot_data",
+            "params": {"spec": {"chart_type": "scatter", "x": "x", "y": "y", "title": "Test"}},
+        },
+        df,
+        {},
+    )
+
+    assert result["status"] == "ok"
+    assert result["chart_type"] == "scatter"
+    assert result["title"] == "Test"
+
+
+def test_run_viz_missing_matplotlib():
+    with patch("plugin.scripting.viz._require_matplotlib", return_value=None):
+        result = run_viz({"helper": "quick_plot"}, pd.DataFrame({"a": [1]}), {})
+    assert result["status"] == "error"
+    assert result["code"] == "MISSING_PACKAGE"
