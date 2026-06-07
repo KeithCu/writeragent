@@ -45,6 +45,8 @@ def _find_module_manifest(module_name: str) -> dict[str, Any] | None:
     except ImportError:
         return None
     for m in MODULES:
+        if not isinstance(m, dict):
+            continue
         if str(m.get("name", "")) == module_name:
             return m
     return None
@@ -140,7 +142,7 @@ def apply_module_config_result(ctx: Any, module_name: str, result: dict[str, Any
         if "options" in spec and val:
             for opt in spec["options"]:
                 if isinstance(opt, dict):
-                    lbl = opt.get("label", opt.get("value", ""))
+                    lbl = str(opt.get("label") or opt.get("value") or "")
                     if _(lbl) == str(val):
                         val = opt.get("value", lbl)
                         break
