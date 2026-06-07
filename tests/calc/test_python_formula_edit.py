@@ -97,7 +97,7 @@ def test_normalize_array_and_no_equals():
 
 
 def test_build_new_formula_empty():
-    assert build_new_python_formula("") == '=PYTHON("")'
+    assert build_new_python_formula("") == '=PY("")'
 
 
 def test_build_new_formula_escapes():
@@ -144,10 +144,26 @@ def test_build_data_suffix():
 
 def test_rebuild_python_formula_with_data():
     formula = rebuild_python_formula_with_data("np.sum(data)", ["A1:A10"])
-    assert formula == '=PYTHON("np.sum(data)";A1:A10)'
+    assert formula == '=PY("np.sum(data)";A1:A10)'
     reparsed = parse_python_formula(formula)
     assert reparsed is not None
     assert reparsed.code == "np.sum(data)"
+
+
+def test_parse_py_alias():
+    parts = parse_python_formula('=PY("result = 1"; A1:B10)')
+    assert parts is not None
+    assert parts.code == "result = 1"
+    assert parts.prefix.upper().startswith("=PY(")
+    assert "A1:B10" in parts.data_suffix
+
+
+def test_rebuild_preserves_python_prefix():
+    parts = parse_python_formula('=PYTHON("x"; A1:B2)')
+    assert parts is not None
+    rebuilt = rebuild_python_formula(parts, "y = 1")
+    assert rebuilt.startswith('=PYTHON("y = 1"')
+    assert "A1:B2" in rebuilt
 
 
 def test_format_data_binding_text_round_trip():

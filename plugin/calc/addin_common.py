@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Shared Calc add-in metadata for single-function UNO components."""
+"""Shared Calc add-in metadata for single- or multi-function UNO components."""
 
 from __future__ import annotations
 
@@ -54,59 +54,70 @@ class CalcFunctionSpec:
 
 
 class SingleFunctionAddInBase(unohelper.Base):
-    """XAddIn-style metadata for an add-in that exposes exactly one function."""
+    """XAddIn-style metadata for one or more Calc add-in functions on one component."""
 
-    def __init__(self, ctx: Any, spec: CalcFunctionSpec) -> None:
+    def __init__(self, ctx: Any, spec: CalcFunctionSpec | tuple[CalcFunctionSpec, ...]) -> None:
         self.ctx = ctx
-        self._spec = spec
+        self._specs = (spec,) if isinstance(spec, CalcFunctionSpec) else spec
+
+    def _spec_by_display_name(self, display_name: str) -> CalcFunctionSpec | None:
+        for spec in self._specs:
+            if display_name == spec.display_name:
+                return spec
+        return None
+
+    def _spec_by_programmatic_name(self, programmatic_name: str) -> CalcFunctionSpec | None:
+        for spec in self._specs:
+            if programmatic_name == spec.programmatic_name:
+                return spec
+        return None
 
     def getProgrammaticFunctionName(self, aDisplayName: str) -> str:
-        if aDisplayName == self._spec.display_name:
-            return self._spec.programmatic_name
-        return ""
+        spec = self._spec_by_display_name(aDisplayName)
+        return spec.programmatic_name if spec is not None else ""
 
     def getDisplayFunctionName(self, aProgrammaticName: str) -> str:
-        if aProgrammaticName == self._spec.programmatic_name:
-            return self._spec.display_name
-        return ""
+        spec = self._spec_by_programmatic_name(aProgrammaticName)
+        return spec.display_name if spec is not None else ""
 
     def getFunctionDescription(self, aProgrammaticName: str) -> str:
-        if aProgrammaticName == self._spec.programmatic_name:
-            return self._spec.description
-        return ""
+        spec = self._spec_by_programmatic_name(aProgrammaticName)
+        return spec.description if spec is not None else ""
 
     def getArgumentDescription(self, aProgrammaticName: str, nArgument: int) -> str:
-        if aProgrammaticName != self._spec.programmatic_name:
+        spec = self._spec_by_programmatic_name(aProgrammaticName)
+        if spec is None:
             return ""
-        if 0 <= nArgument < len(self._spec.arg_descriptions):
-            return self._spec.arg_descriptions[nArgument]
+        if 0 <= nArgument < len(spec.arg_descriptions):
+            return spec.arg_descriptions[nArgument]
         return ""
 
     def getArgumentName(self, aProgrammaticName: str, nArgument: int) -> str:
-        if aProgrammaticName != self._spec.programmatic_name:
+        spec = self._spec_by_programmatic_name(aProgrammaticName)
+        if spec is None:
             return ""
-        if 0 <= nArgument < len(self._spec.arg_names):
-            return self._spec.arg_names[nArgument]
+        if 0 <= nArgument < len(spec.arg_names):
+            return spec.arg_names[nArgument]
         return ""
 
     def hasFunctionWizard(self, aProgrammaticName: str) -> bool:
-        return aProgrammaticName == self._spec.programmatic_name
+        return self._spec_by_programmatic_name(aProgrammaticName) is not None
 
     def getArgumentCount(self, aProgrammaticName: str) -> int:
-        if aProgrammaticName == self._spec.programmatic_name:
-            return len(self._spec.arg_names)
-        return 0
+        spec = self._spec_by_programmatic_name(aProgrammaticName)
+        return len(spec.arg_names) if spec is not None else 0
 
     def getArgumentIsOptional(self, aProgrammaticName: str, nArgument: int) -> bool:
-        if aProgrammaticName != self._spec.programmatic_name:
+        spec = self._spec_by_programmatic_name(aProgrammaticName)
+        if spec is None:
             return False
-        return nArgument >= self._spec.optional_from
+        return nArgument >= spec.optional_from
 
     def getProgrammaticCategoryName(self, aProgrammaticName: str) -> str:
-        return "Add-In"
+        return "Add-In" if self._spec_by_programmatic_name(aProgrammaticName) is not None else ""
 
     def getDisplayCategoryName(self, aProgrammaticName: str) -> str:
-        return "Add-In"
+        return "Add-In" if self._spec_by_programmatic_name(aProgrammaticName) is not None else ""
 
     # Future: case-insensitive programmatic name matching (e.g. XLSX import lowercases PYTHON → python).
     # Uncomment and replace the methods above when ready to try.

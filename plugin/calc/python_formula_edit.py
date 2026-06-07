@@ -2,12 +2,10 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Parse and rebuild ``=PYTHON()`` formula strings for the Monaco cell editor.
+"""Parse and rebuild ``=PY()`` / ``=PYTHON()`` formula strings for the Monaco cell editor.
 
-The add-in function name is always the English token ``PYTHON`` (programmatic name
-``python``). Calc must not store a localized alias in ``getFormula()`` / ``FormulaLocal``;
-if it does, treat that as a bug in the add-in registration, not something this module
-should accept or translate.
+Calc registers both English tokens (programmatic names ``py`` / ``python``). New formulas
+use the shorter ``PY``; existing ``PYTHON`` cells keep their prefix when edited in place.
 """
 
 from __future__ import annotations
@@ -15,17 +13,21 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-_PYTHON_HEAD_RE = re.compile(r"^=\s*PYTHON\s*\(", re.IGNORECASE)
-_PYTHON_NO_EQUALS_RE = re.compile(r"^PYTHON\s*\(", re.IGNORECASE)
+# Preferred display name for newly built formulas; PYTHON remains a backward-compatible alias.
+CALC_PYTHON_FN = "PY"
+CALC_PYTHON_FN_ALIASES = ("PY", "PYTHON")
+_CALC_PYTHON_FN_PATTERN = "|".join(CALC_PYTHON_FN_ALIASES)
+_PYTHON_HEAD_RE = re.compile(rf"^=\s*(?:{_CALC_PYTHON_FN_PATTERN})\s*\(", re.IGNORECASE)
+_PYTHON_NO_EQUALS_RE = re.compile(rf"^(?:{_CALC_PYTHON_FN_PATTERN})\s*\(", re.IGNORECASE)
 # Curly/smart quotes Calc sometimes stores in localized formulas.
 _QUOTE_NORMALIZE = str.maketrans({"\u201c": '"', "\u201d": '"', "\u2018": "'", "\u2019": "'"})
 
 
 @dataclass(frozen=True)
 class PythonFormulaParts:
-    """Decomposed ``=PYTHON(code; data…)`` formula."""
+    """Decomposed ``=PY(code; data…)`` or ``=PYTHON(code; data…)`` formula."""
 
-    prefix: str  # e.g. "=PYTHON("
+    prefix: str  # e.g. "=PY(" or "=PYTHON("
     code: str
     data_suffix: str  # remainder after code arg, e.g. ";A1:B10)" or ")"
 
@@ -50,7 +52,7 @@ def _parse_quoted_string(s: str, start: int) -> tuple[str, int] | None:
 
 
 def _parse_unquoted_code_arg(inner_body: str) -> str | None:
-    """Parse ``=PYTHON(sp.prime(100))`` when Calc omits string quotes around code."""
+    """Parse ``=PY(sp.prime(100))`` when Calc omits string quotes around code."""
     s = inner_body.strip()
     if not s or s.startswith('"'):
         return None
@@ -68,12 +70,12 @@ def _parse_unquoted_code_arg(inner_body: str) -> str | None:
 
 
 def _is_data_arg_separator(rest: str) -> bool:
-    """True when *rest* begins a PYTHON data-argument suffix (``;`` or ``,``)."""
+    """True when *rest* begins a PY/PYTHON data-argument suffix (``;`` or ``,``)."""
     return bool(rest) and rest[0] in (";", ",")
 
 
 def extract_python_code_loose(formula: str) -> str | None:
-    """Best-effort code extraction from a PYTHON-like formula string."""
+    """Best-effort code extraction from a PY/PYTHON-like formula string."""
     parts = parse_python_formula(formula)
     if parts is not None:
         return parts.code
@@ -102,13 +104,13 @@ def normalize_formula_string(formula: str) -> str:
 
 
 def build_new_python_formula(code: str) -> str:
-    """Build a fresh ``=PYTHON("…")`` formula (single code argument, no data range)."""
+    """Build a fresh ``=PY("…")`` formula (single code argument, no data range)."""
     escaped = escape_code_for_formula(code)
-    return f'=PYTHON("{escaped}")'
+    return f'={CALC_PYTHON_FN}("{escaped}")'
 
 
 def parse_python_formula(formula: str) -> PythonFormulaParts | None:
-    """Return code and data suffix if *formula* is a ``=PYTHON()`` call."""
+    """Return code and data suffix if *formula* is a ``=PY()`` or ``=PYTHON()`` call."""
     if not formula:
         return None
     raw = normalize_formula_string(formula)
@@ -207,14 +209,14 @@ def rebuild_python_formula_with_data(
     *,
     parts: PythonFormulaParts | None = None,
 ) -> str:
-    """Build ``=PYTHON("…"; ranges…)`` from code and data arguments."""
+    """Build ``=PY("…"; ranges…)`` from code and data arguments."""
     escaped = escape_code_for_formula(code)
-    prefix = parts.prefix if parts is not None else "=PYTHON("
+    prefix = parts.prefix if parts is not None else f"={CALC_PYTHON_FN}("
     return f'{prefix}"{escaped}"{build_data_suffix(data_args)}'
 
 
 def cell_looks_python_like(formula: str) -> bool:
-    """True if *formula* appears to be a PYTHON call (even if strict parse failed)."""
+    """True if *formula* appears to be a PY/PYTHON call (even if strict parse failed)."""
     if not formula:
         return False
     if parse_python_formula(formula) is not None:

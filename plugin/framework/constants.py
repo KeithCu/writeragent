@@ -277,8 +277,8 @@ def _load_venv_import_policy_full() -> str:
 CALC_FORMULA_SYNTAX = """FORMULA SYNTAX: LibreOffice uses semicolon (;) as the formula argument separator in formulas.
 - Correct: =SUM(A1:A10), =IF(A1>0;B1;C1)
 - Wrong: =SUM(A1,A10), =IF(A1>0,"Yes","No") (no commas in formulas)
-- Write `=PYTHON("result = ..."; A1:A10)` in cells to calculate/run Python (omit the second argument if no data is needed, e.g. `=PYTHON("result = 2**10")`).
-- Example: `=PYTHON("result = np.sum(data)"; A1:A10)`.
+- Write `=PY("result = ..."; A1:A10)` in cells to calculate/run Python (=PYTHON is the same; omit the second argument if no data is needed, e.g. `=PY("result = 2**10")`).
+- Example: `=PY("result = np.sum(data)"; A1:A10)`.
 
 """
 
@@ -638,15 +638,16 @@ def _init_venv_import_policy_strings() -> None:
     PYTHON_VENV_AUTO_IMPORTS_PROMPT_LINE = compact
     CALC_PYTHON_FORMULA_LLM_HINT = (
         compact
-        + " When outputting =PYTHON() formulas: use semicolon (;) argument separators; "
-        'format =PYTHON("result = …"; A1:A10); code runs in the venv sandbox above.'
+        + " When outputting Calc Python formulas: prefer =PY(...); =PYTHON(...) is equivalent. "
+        "Use semicolon (;) argument separators; "
+        'format =PY("result = …"; A1:A10); code runs in the venv sandbox above.'
     )
     CALC_FORMULA_SYNTAX = f"""FORMULA SYNTAX: LibreOffice uses semicolon (;) as the formula argument separator in formulas.
 - Correct: =SUM(A1:A10), =IF(A1>0;B1;C1)
 - Wrong: =SUM(A1,A10), =IF(A1>0,"Yes","No") (no commas in formulas)
-- Write `=PYTHON("result = ..."; A1:A10)` in cells to calculate/run Python (omit the second argument if no data is needed, e.g. `=PYTHON("result = 2**10")`).
+- Write `=PY("result = ..."; A1:A10)` in cells to calculate/run Python (=PYTHON is the same; omit the second argument if no data is needed, e.g. `=PY("result = 2**10")`).
 {compact}
-- Example: `=PYTHON("result = np.sum(data)"; A1:A10)`.
+- Example: `=PY("result = np.sum(data)"; A1:A10)`.
 
 """
     DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE = f"""You are a LibreOffice Calc spreadsheet assistant who creates polished, professional, and colorful spreadsheets.

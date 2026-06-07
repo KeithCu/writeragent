@@ -98,7 +98,7 @@ def build_editor_formula_save(
             "type": "error",
             "message": _(
                 "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-                "Edit the formula in Calc, or use a quoted code string like =PYTHON(\"code\"; A1:B10)."
+                "Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; A1:B10) or =PYTHON(...)."
             ),
         }
     return build_new_python_formula(new_code)
@@ -296,7 +296,7 @@ def _open_python_cell_editor_impl(ctx: Any) -> None:
             "WriterAgent",
             _(
                 "This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code in another cell). "
-                "Edit it in the formula bar, or use =PYTHON(\"code\"; range) with quoted code."
+                "Edit it in the formula bar, or use =PY(\"code\"; range) (or =PYTHON(...)) with quoted code."
             ),
         )
         return

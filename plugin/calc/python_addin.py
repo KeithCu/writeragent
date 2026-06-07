@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""UNO Calc add-in for =PYTHON() only (no LLM imports at module load)."""
+"""UNO Calc add-in for =PY() / =PYTHON() (no LLM imports at module load)."""
 
 from __future__ import annotations
 
@@ -32,19 +32,29 @@ from plugin.calc.python_function import execute_python_addin  # noqa: E402
 
 log = logging.getLogger(__name__)
 
+_PYTHON_ARGS = (
+    "The Python code to execute. Assign output to 'result'.",
+    "Optional one or more ranges injected as data (single range: flat/2D; "
+    "multiple ranges: data[0], data[1], …), or a single-cell index for "
+    "matrix formulas (e.g. ROW(A1)-ROW($A$1)).",
+)
 _PYTHON_SPEC = CalcFunctionSpec(
     display_name="PYTHON",
     programmatic_name="python",
     description="Executes Python code in the configured venv and returns the result.",
     arg_names=("code", "data"),
-    arg_descriptions=(
-        "The Python code to execute. Assign output to 'result'.",
-        "Optional one or more ranges injected as data (single range: flat/2D; "
-        "multiple ranges: data[0], data[1], …), or a single-cell index for "
-        "matrix formulas (e.g. ROW(A1)-ROW($A$1)).",
-    ),
+    arg_descriptions=_PYTHON_ARGS,
     optional_from=1,
 )
+_PY_SPEC = CalcFunctionSpec(
+    display_name="PY",
+    programmatic_name="py",
+    description="Executes Python code in the configured venv and returns the result.",
+    arg_names=("code", "data"),
+    arg_descriptions=_PYTHON_ARGS,
+    optional_from=1,
+)
+_PYTHON_FUNCTION_SPECS = (_PY_SPEC, _PYTHON_SPEC)
 
 try:
     from org.extension.writeragent.PythonFunction import (  # type: ignore
@@ -59,11 +69,11 @@ except ImportError:
 
 
 class PythonFunction(SingleFunctionAddInBase, _XPythonFunctionBase):  # pyright: ignore[reportGeneralTypeIssues]  # pyrefly: ignore[invalid-inheritance]
-    """Calc add-in: org.extension.writeragent.PythonFunction (=PYTHON)."""
+    """Calc add-in: org.extension.writeragent.PythonFunction (=PY / =PYTHON)."""
 
     def __init__(self, ctx: Any) -> None:
         log.debug("=== PythonFunction.__init__ ===")
-        super().__init__(ctx, _PYTHON_SPEC)
+        super().__init__(ctx, _PYTHON_FUNCTION_SPECS)
         self._true_strings, self._false_strings = self._get_localized_booleans()
 
     def _get_localized_booleans(self) -> tuple[set[str], set[str]]:
@@ -101,6 +111,9 @@ class PythonFunction(SingleFunctionAddInBase, _XPythonFunctionBase):  # pyright:
 
     def python(self, code: str, data: Any = None) -> Any:
         return execute_python_addin(self.ctx, code, data, self._true_strings, self._false_strings)
+
+    def py(self, code: str, data: Any = None) -> Any:
+        return self.python(code, data)
 
     def getImplementationName(self) -> str:
         return "org.extension.writeragent.PythonFunction"

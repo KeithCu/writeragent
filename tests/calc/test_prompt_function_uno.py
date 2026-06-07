@@ -31,12 +31,13 @@ def test_prompt_addin_metadata():
 # @native_test
 # def test_python_addin_metadata():
 #     from plugin.calc.python_addin import PythonFunction
-# 
+#
 #     func = PythonFunction(_ctx)
+#     assert func.getProgrammaticFunctionName("PY") == "py"
 #     assert func.getProgrammaticFunctionName("PYTHON") == "python"
-#     assert func.getProgrammaticFunctionName("python") == "python"
+#     assert func.getDisplayFunctionName("py") == "PY"
 #     assert func.getDisplayFunctionName("python") == "PYTHON"
-#     assert func.getDisplayFunctionName("PYTHON") == "PYTHON"
+#     assert func.getArgumentCount("py") == 2
 #     assert func.getArgumentCount("python") == 2
 #     assert func.getArgumentName("python", 0) == "code"
 #     assert "Python code" in func.getArgumentDescription("python", 0)
@@ -58,6 +59,13 @@ def test_python_addin_execution():
 
     try:
         with unittest.mock.patch("plugin.calc.python_function.run_code_in_user_venv") as mock_run:
+            mock_run.reset_mock()
+            mock_run.return_value = {"status": "ok", "result": 42}
+            res = func.py("result = 21 * 2")
+            assert res == 42.0
+            mock_run.assert_called_with(func.ctx, "result = 21 * 2", data=None, session_id=None)
+
+            mock_run.reset_mock()
             mock_run.return_value = {"status": "ok", "result": 42}
             res = func.python("result = 21 * 2")
             assert res == 42.0

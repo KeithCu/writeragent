@@ -38,7 +38,7 @@ def test_build_editor_formula_save_new_cell_with_data_binding():
         cell_has_unparsed_python=False,
         data_binding_text="A1:A10",
     )
-    assert result == '=PYTHON("np.mean(data)";A1:A10)'
+    assert result == '=PY("np.mean(data)";A1:A10)'
 
 
 def test_build_editor_formula_save_multi_range_from_textbox():
@@ -91,7 +91,7 @@ def test_build_editor_formula_save_new_cell():
         new_code="np.mean(data)",
         cell_has_unparsed_python=False,
     )
-    assert result == '=PYTHON("np.mean(data)")'
+    assert result == '=PY("np.mean(data)")'
 
 
 def test_build_editor_formula_save_preserves_data_suffix():

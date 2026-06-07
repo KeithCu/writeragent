@@ -1,5 +1,7 @@
 # Enabling NumPy & Python in LibreOffice
 
+> **Note:** Calc registers **`=PY()`** and **`=PYTHON()`** as the same venv-backed add-in; prefer **`=PY(...)`** for new formulas. The rest of this guide still uses `=PYTHON()` in examples for historical continuity.
+
 WriterAgent runs user Python (including **NumPy**, **pandas**, **scipy**, and similar C-extension stacks) **outside** LibreOffice’s embedded interpreter. The extension shells out to a **user-provided virtual environment**, evaluates code with a vendored **AST sandbox** in that child process, and returns JSON-serializable results to the chat agent or Calc formulas.
 
 For a short executive summary, see [WriterAgent architecture — Scientific Python integration](writeragent-architecture.md#4-scientific-python-integration-the-compute-bridge).
@@ -21,7 +23,7 @@ For a short executive summary, see [WriterAgent architecture — Scientific Pyth
 8. [Implementation status](#8-implementation-status)
 9. [Multi-Range Support (Varargs)](#9-multi-range-support-varargs)
 
-**Related:** [Venv subprocess IPC & NumPy serialization](numpy-serialization.md) (warm worker, protocol, wire formats, benchmarks) · [Jupyter notebook import](jupyter-notebook-import.md) · [Analysis Sub-Agent](analysis-sub-agent.md) (data discovery + trusted numpy/pandas execution) · [Scientific domain roadmap](#scientific-domain-roadmap-trusted-helpers) (Viz, Forecast, Symbolic, Text, Optimization, Geo, Audio)
+**Related:** [Venv subprocess IPC & NumPy serialization](numpy-serialization.md) (warm worker, protocol, wire formats, benchmarks) · [Jupyter notebook import](jupyter-notebook-import.md) · [Analysis Sub-Agent](analysis-sub-agent.md) (data discovery + trusted numpy/pandas execution) · [Scientific domain roadmap](#scientific-domain-roadmap-trusted-helpers) (Viz, Forecast, Symbolic, Text, Optimization, Geo, Audio) · [SageMath integration (product plan)](sagemath-integration-dev-plan.md) (optional Sage venv; symbolic helpers)
 
 ---
 
@@ -517,7 +519,7 @@ Mirror Analysis/Vision: [`viz.py`](../plugin/scripting/), `viz_templates.py`, `v
 
 ### 3. Symbolic Mathematics & Equation Solving {#symbolic-math}
 
-**Status:** **Partial.** Sympy auto-imported in venv (`sp`); Writer Math insertion via [math-tex.md](math-tex.md). **Trusted helpers not shipped.**
+**Status:** **Partial.** Sympy auto-imported in venv (`sp`); Writer Math insertion via [math-tex.md](math-tex.md). **Trusted helpers not shipped.** Product/engineering plan for optional **SageMath** backend (same venv worker, dual Sage/SymPy helpers): [sagemath-integration-dev-plan.md](sagemath-integration-dev-plan.md).
 
 **Goal:** Solve, simplify, integrate, and differentiate equations; round-trip LaTeX ↔ LibreOffice Math objects; bridge Writer, Calc `=PYTHON()`, and Vision OCR of handwritten equations.
 
