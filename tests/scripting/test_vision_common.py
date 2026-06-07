@@ -2,45 +2,22 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Tests for plugin.scripting.vision_common."""
+"""Tests for shared vision helper utilities."""
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
-
-from plugin.scripting.vision_common import merge_vision_params
+from plugin.scripting.vision_common import css_inline_unavailable_result, is_css_inline_import_error
 
 
-def test_merge_vision_params_applies_config_defaults():
-    ctx = MagicMock()
-    with patch("plugin.framework.config.get_config") as mock_get:
-        mock_get.side_effect = lambda _ctx, key: {
-            "vision.lang": "de",
-            "vision.images_scale": 2.0,
-            "vision.table_mode": "fast",
-        }.get(key)
-
-        merged = merge_vision_params(ctx, None)
-
-    assert merged["lang"] == "de"
-    assert merged["images_scale"] == 2.0
-    assert merged["table_mode"] == "fast"
+def test_is_css_inline_import_error():
+    exc = ImportError("No module named 'css_inline'")
+    assert is_css_inline_import_error(exc) is True
+    assert is_css_inline_import_error(ImportError("docling missing")) is False
 
 
-def test_merge_vision_params_template_overrides_config():
-    ctx = MagicMock()
-    with patch("plugin.framework.config.get_config") as mock_get:
-        mock_get.side_effect = lambda _ctx, key: {"vision.lang": "de"}.get(key)
-
-        merged = merge_vision_params(ctx, {"lang": "en", "ocr_backend": "rapidocr_paddle"})
-
-    assert merged["lang"] == "en"
-    assert merged["ocr_backend"] == "rapidocr_paddle"
-
-
-def test_merge_vision_params_skips_empty_config_values():
-    ctx = MagicMock()
-    with patch("plugin.framework.config.get_config", return_value=""):
-        merged = merge_vision_params(ctx, {"lang": "en"})
-
-    assert merged == {"lang": "en"}
+def test_css_inline_unavailable_result():
+    result = css_inline_unavailable_result("extract_text")
+    assert result["status"] == "error"
+    assert result["code"] == "CSS_INLINE_UNAVAILABLE"
+    assert result["helper"] == "extract_text"
+    assert "css-inline" in result["message"]

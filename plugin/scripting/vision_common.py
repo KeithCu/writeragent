@@ -77,6 +77,24 @@ def _error_result(code: str, message: str, *, helper: str | None = None, details
     return out
 
 
+def is_css_inline_import_error(exc: BaseException) -> bool:
+    root = exc
+    while root.__cause__ is not None:
+        root = root.__cause__
+    msg = str(root).lower()
+    return "css_inline" in msg or "css-inline" in msg
+
+
+def css_inline_unavailable_result(helper: str) -> dict[str, Any]:
+    from plugin.scripting.vision_html_export import CSS_INLINE_INSTALL_CMD
+
+    return _error_result(
+        "CSS_INLINE_UNAVAILABLE",
+        f"Install css-inline in your venv (Settings → Python): {CSS_INLINE_INSTALL_CMD}",
+        helper=helper,
+    )
+
+
 def _box_to_xywh(box_points: Any) -> list[int]:
     """Convert quadrilateral corners to [x, y, w, h] in PNG pixel space."""
     xs: list[float] = []

@@ -102,7 +102,8 @@ def test_extract_text_docling_unavailable_falls_back_to_paddle(mock_convert):
 
     assert result["status"] == "ok"
     assert result["full_text"] == "Hello\nWorld"
-    assert "<p>Hello</p>" in result["html"]
+    assert "Hello</p>" in result["html"]
+    assert "World</p>" in result["html"]
     assert "Docling unavailable; fell back to PaddleOCR." in result["warnings"]
     assert result["metrics"]["fallback_from"] == "docling"
 
@@ -133,7 +134,8 @@ def test_extract_text_paddle_engine_maps_regions(mock_get_engine, mock_decode):
 
     assert result["status"] == "ok"
     assert result["full_text"] == "Hello\nWorld"
-    assert "<p>Hello</p>" in result["html"]
+    assert "Hello</p>" in result["html"]
+    assert "World</p>" in result["html"]
     assert result["metrics"]["engine"] == "paddle"
     assert len(result["regions"]) == 2
 

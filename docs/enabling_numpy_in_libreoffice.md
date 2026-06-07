@@ -78,7 +78,7 @@ Module implementation: `plugin/scripting/` (no top-level `python/` package — a
 
 - **Empty path:** `run_venv_python_script` and `=PYTHON()` fall back to **`sys.executable`** (LibreOffice’s embedded Python) — stdlib-only unless that interpreter happens to have extra packages; **use a dedicated venv for NumPy**.
 - **No automatic venv creation** — the user brings their own environment.
-- **Test button:** Validates the path is a directory, resolves `bin/python` or `Scripts\python.exe`, and runs a warm-worker diagnostic via [`run_venv_self_check`](../plugin/scripting/venv_worker.py). Reports **Scientific**, **Data Analysis / EDA**, **UI / Monaco**, and **Vision Libraries** groups (Present/Missing). When OCR packages are absent, the message includes `pip install docling rapidocr-paddle numpy pillow` (see [Image Recognition](image-recognition.md)).
+- **Test button:** Validates the path is a directory, resolves `bin/python` or `Scripts\python.exe`, and runs a warm-worker diagnostic via [`run_venv_self_check`](../plugin/scripting/venv_worker.py). Reports **Scientific**, **Data Analysis / EDA**, **UI / Monaco**, and **Vision Libraries** groups (Present/Missing). When OCR packages are absent, the message includes `pip install docling rapidocr-paddle numpy pillow css-inline` (see [Image Recognition](image-recognition.md)).
 
 ### Execution paths (shipped)
 
@@ -258,7 +258,7 @@ Helpers that need a missing package return `MISSING_PACKAGE` with the install li
 
 | Package | Install | Used by |
 |---------|---------|---------|
-| [Docling](https://github.com/docling-project/docling) + RapidOCR paddle backend (`docling`, `rapidocr`) | `pip install docling rapidocr-paddle numpy pillow` | `extract_text` / `extract_structure` — **default** (`engine=docling`) |
+| [Docling](https://github.com/docling-project/docling) + RapidOCR paddle backend (`docling`, `rapidocr`) + **css-inline** | `pip install docling rapidocr-paddle numpy pillow css-inline` | `extract_text` / `extract_structure` — **default** (`engine=docling`); **css-inline** inlines Docling CSS for LibreOffice HTML import |
 | [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) + [PaddlePaddle](https://github.com/PaddlePaddle/Paddle) (`paddleocr`, `paddle`) | `pip install paddleocr paddlepaddle numpy` | Fallback — `engine=paddle` |
 | [Ultralytics](https://github.com/ultralytics/ultralytics) | `pip install ultralytics` | `detect_objects` and related helpers — **Phase 4+**; informational in Test until then |
 | [scikit-image](https://scikit-image.org/) (`skimage`) | `pip install scikit-image` | Optional image processing inside trusted helpers — graceful skip if absent |

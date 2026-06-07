@@ -383,8 +383,8 @@ _QUANT_INSTALL_CMD = "pip install yfinance pandas-ta quantstats pyportfolioopt"
 _ANALYSIS_INSTALL_CMD = (
     "pip install numpy pandas scipy scikit-learn statsmodels ydata-profiling pandas-montecarlo"
 )
-_VISION_PACKAGE_KEYS = ("docling", "rapidocr", "paddleocr", "paddle", "ultralytics", "skimage")
-_DOCLING_INSTALL_CMD = "pip install docling rapidocr-paddle numpy pillow"
+_VISION_PACKAGE_KEYS = ("docling", "rapidocr", "css_inline", "paddleocr", "paddle", "ultralytics", "skimage")
+_DOCLING_INSTALL_CMD = "pip install docling rapidocr-paddle numpy pillow css-inline"
 _VISION_OCR_INSTALL_CMD = _DOCLING_INSTALL_CMD
 _VISION_PADDLE_FALLBACK_CMD = "pip install paddleocr paddlepaddle numpy"
 _VIZ_INSTALL_CMD = "pip install matplotlib seaborn"
@@ -427,6 +427,11 @@ try:
     out["skimage"] = "present"
 except ImportError:
     out["skimage"] = None
+try:
+    import css_inline  # noqa: F401
+    out["css_inline"] = "present"
+except ImportError:
+    out["css_inline"] = None
 print(json.dumps(out))
 """
 
@@ -516,6 +521,7 @@ def _format_self_check_success(data: dict[str, Any]) -> str:
         docling_stack_incomplete = (
             packages.get("docling") != "present"
             or packages.get("numpy") != "present"
+            or packages.get("css_inline") != "present"
         )
         paddle_fallback_present = (
             packages.get("paddleocr") == "present"

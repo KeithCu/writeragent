@@ -186,12 +186,12 @@ Mirror [analysis-sub-agent.md § Current Code State](analysis-sub-agent.md). **R
 | Image export (selection + name) | [`export_graphic_object_to_bytes`](../plugin/writer/images/image_tools.py), [`resolve_vision_image_bytes`](../plugin/scripting/vision_runner.py), [`_get_graphic_object`](../plugin/writer/images/images.py) |
 | Run Python vision fast path | [`python_runner.py`](../plugin/scripting/python_runner.py) — `insert_vision_result` (Writer + Calc) |
 | Calc vision egress | [`plugin/calc/vision_egress.py`](../plugin/calc/vision_egress.py) — `calc_output_anchor_from_graphic`, `insert_vision_html_into_calc` |
-| HTML export (Docling / Paddle) | [`vision_html_export.py`](../plugin/scripting/vision_html_export.py) — `export_docling_to_html`, `html_from_paddle_*` |
+| HTML export (Docling / Paddle) | [`vision_html_export.py`](../plugin/scripting/vision_html_export.py) — `export_docling_to_html`, `prepare_html_for_lo_import` (**css-inline** required; heading/body augment) |
 | Script picker (Writer + Calc) | [`document_scripts.py`](../plugin/scripting/document_scripts.py) — `SCRIPT_ORIGIN_VISION`, `_vision_script_section` |
 | Monaco built-in guards | [`scripts_manager.js`](../plugin/contrib/scripting/assets/editor/scripts_manager.js) — Attach/Save/Delete disabled for `origin === "vision"` |
 | Analysis trusted stack (reference) | [`analysis.py`](../plugin/scripting/analysis.py), [`analysis_client.py`](../plugin/framework/client/analysis_client.py), [`analysis_runner.py`](../plugin/calc/analysis_runner.py) |
 | Calc analysis egress | [`analysis_egress.py`](../plugin/calc/analysis_egress.py) — `is_analysis_result`, `insert_analysis_result_into_calc` |
-| Tests | [`test_vision*.py`](../tests/scripting/), [`test_python_runner_vision.py`](../tests/scripting/test_python_runner_vision.py), [`test_vision_egress.py`](../tests/calc/test_vision_egress.py), [`test_document_scripts.py`](../tests/scripting/test_document_scripts.py) (vision section tests) |
+| Tests | [`test_vision*.py`](../tests/scripting/), [`test_python_runner_vision.py`](../tests/scripting/test_python_runner_vision.py), [`test_vision_egress.py`](../tests/calc/test_vision_egress.py), [`test_vision_html_insert_uno.py`](../tests/writer/test_vision_html_insert_uno.py), [`test_document_scripts.py`](../tests/scripting/test_document_scripts.py) (vision section tests) |
 
 ### Gaps (post–Phase 3)
 
@@ -596,13 +596,24 @@ def is_vision_result(value: Any) -> bool:
 
 | Field | Required | Notes |
 |-------|----------|-------|
-| `html` | **Yes** on success | **Document insert uses this** (Docling `export_to_html` or Paddle HTML builder) |
+| `html` | **Yes** on success | **Document insert uses this** — Docling/Paddle HTML through **`prepare_html_for_lo_import`**: `css-inline` → heading/body inline augment → single-wrap StarWriter insert ([`vision_html_export.py`](../plugin/scripting/vision_html_export.py)) |
 | `full_text` | Yes (may be `""`) | Plain reading-order text for metrics / debugging; not inserted into documents |
 | `regions` | Yes (may be `[]`) | `box`: `[x, y, w, h]` pixels, PNG space, origin top-left |
 | `regions[].confidence` | Per line | Float 0–1 |
 | `metrics.line_count` | Recommended | Lines in `full_text` |
 | `metrics.mean_confidence` | Recommended | Mean of region confidences |
 | `warnings` | Yes (may be `[]`) | e.g. empty OCR |
+
+### HTML insert pipeline and expectations
+
+1. Docling `export_to_html` (or Paddle HTML builders) → **`css_inline.inline()`** (required).
+2. **`augment_lo_heading_styles`** — merge `font-size` / `font-weight` onto `<h1>`–`<h6>` (Docling’s h2 CSS is color/margins only).
+3. **`augment_lo_body_paragraph_styles`** — Arial + line-height on bare `<p>` tags.
+4. Host [`insert_vision_result`](../plugin/scripting/vision_egress.py) → [`insert_content_at_position`](../plugin/writer/format.py) (StarWriter filter; full documents are stripped to body markup before wrap).
+
+**What you should see:** section headings **bold and larger** than body paragraphs; table borders when Docling exports tables. **Not expected:** flyer colors, multi-column layout, or panel backgrounds (Docling does not export that visual design).
+
+**Troubleshooting (Writer):** grep `writeragent_debug.log` for `insert_vision_result:` — a successful run logs `helper`, `html_len`, `h_tags`, and `style_attrs`. Missing line → old extension or insert path not reached; `h_tags=0` → upstream HTML has no headings.
 
 ### Error
 
@@ -622,6 +633,7 @@ def is_vision_result(value: Any) -> bool:
 | `NO_OUTPUT_ANCHOR` | Calc: selected graphic has no resolvable cell **Anchor** |
 | `PADDLEOCR_UNAVAILABLE` | Import/install failure in venv (paddle engine or fallback) |
 | `DOCLING_UNAVAILABLE` | Docling not installed (`engine=docling`, no fallback) |
+| `CSS_INLINE_UNAVAILABLE` | `css-inline` not installed — required for pretty HTML insert: `pip install css-inline` |
 | `OCR_BACKEND_UNAVAILABLE` | Docling installed but chosen `ocr_backend` / plugin missing |
 | `VISION_ERROR` | OCR runtime failure |
 | `UNKNOWN_HELPER` | Bad helper name in spec |
@@ -684,6 +696,7 @@ User-visible strings (gettext-ready). Host may raise [`ToolExecutionError`](../p
 | Venv missing Docling / Paddle | `DOCLING_UNAVAILABLE` or `PADDLEOCR_UNAVAILABLE` — pip install + Settings → Python path |
 | OCR returns empty | `status: ok`, `full_text: ""`, `html: ""`, `warnings: ["No text detected."]` — insert fails with empty HTML error |
 | Success (Writer/Calc) | Insert **`html`** at text cursor or cell below anchor; status — *Inserted formatted HTML* |
+| HTML looks like plain body text | Check log for `insert_vision_result:`; redeploy extension; confirm `css-inline` in venv. Headings need post-inline augment (see [§10 HTML pipeline](#html-insert-pipeline-and-expectations)) |
 | Success (Calc) | Multi-cell report below anchor; status — *Wrote N rows* |
 | Timeout | Docling uses `DOCLING_WORKER_TIMEOUT_SEC` (300s); Paddle uses `VISION_WORKER_TIMEOUT_SEC` (120s); user `python_exec_timeout` unchanged |
 

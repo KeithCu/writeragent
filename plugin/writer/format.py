@@ -464,7 +464,10 @@ def _ensure_html_linebreaks(content):
         return content
     content = _normalize(content)
     unescaped = html_mod.unescape(content)
-    html_tags = ["<p>", "<br>", "</h1>", "<h2>", "<h3>", "</ul>", "</li>", "</div>", "<html>"]
+    # Vision/Docling export full documents; nesting another wrapper breaks StarWriter import.
+    if re.search(r"<!DOCTYPE\s+html|<html[\s>]", unescaped, re.IGNORECASE):
+        unescaped = _strip_html_boilerplate(unescaped)
+    html_tags = ["<p>", "<br>", "<h1", "<h2", "<h3", "</ul>", "</li>", "</div>"]
     has_html = any(tag in unescaped.lower() for tag in html_tags)
     if has_html:
         return _wrap_html_fragment(unescaped)

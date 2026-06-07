@@ -12,6 +12,8 @@ from typing import Any
 
 from plugin.scripting.vision_common import (
     MAX_TABLE_ROWS,
+    css_inline_unavailable_result,
+    is_css_inline_import_error,
     _bbox_to_xywh,
     _box_to_xywh,
     _decode_image_bytes,
@@ -107,8 +109,13 @@ def extract_text(image: Any, params: dict[str, Any]) -> dict[str, Any]:
 
     from plugin.scripting.vision_html_export import html_from_paddle_regions
 
+    try:
+        html = html_from_paddle_regions(regions)
+    except ImportError as exc:
+        if is_css_inline_import_error(exc):
+            return css_inline_unavailable_result(helper)
+        raise
     full_text = "\n".join(texts)
-    html = html_from_paddle_regions(regions)
     warnings: list[str] = []
     if not full_text:
         warnings.append("No text detected.")
@@ -349,7 +356,12 @@ def extract_structure(image: Any, params: dict[str, Any]) -> dict[str, Any]:
     from plugin.scripting.vision_html_export import html_from_paddle_structure
 
     full_text = "\n".join(text_parts)
-    html = html_from_paddle_structure(blocks, tables)
+    try:
+        html = html_from_paddle_structure(blocks, tables)
+    except ImportError as exc:
+        if is_css_inline_import_error(exc):
+            return css_inline_unavailable_result(helper)
+        raise
     warnings: list[str] = []
     if not full_text and not tables and not blocks:
         warnings.append("No structure detected.")

@@ -6,9 +6,12 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from plugin.framework.errors import ToolExecutionError
+
+log = logging.getLogger(__name__)
 
 
 def is_vision_result(value: Any) -> bool:
@@ -55,6 +58,14 @@ def insert_vision_result_into_writer(ctx: Any, doc: Any, result: dict[str, Any])
             code="VISION_ERROR",
             details={"vision_result": result},
         )
+    log.debug(
+        "insert_vision_result: helper=%s html_len=%d h_tags=%d style_attrs=%d snippet=%r",
+        result.get("helper"),
+        len(html),
+        html.lower().count("<h"),
+        html.count("style="),
+        html[:120],
+    )
     insert_content_at_position(doc, ctx, html, "selection")
 
 

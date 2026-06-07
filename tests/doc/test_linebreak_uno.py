@@ -44,6 +44,19 @@ def test_stripping():
     result = _strip_html_boilerplate(inp)
     assert result == expected, f"Test 6 failed: expected {repr(expected)}, got {repr(result)}"
 
+
+def test_full_document_not_double_wrapped():
+    # Docling + css-inline: single wrapper, body markup preserved (not nested <!DOCTYPE>).
+    inp = (
+        '<!DOCTYPE html><html style="font-family: Arial"><head></head>'
+        '<body><h2 style="font-weight: bold">Title</h2><p>Body</p></body></html>'
+    )
+    result = _ensure_html_linebreaks(inp)
+    assert result.lower().count("<html>") == 1, result
+    assert result.lower().count("<body>") == 1, result
+    assert '<h2 style="font-weight: bold">Title</h2>' in result, result
+    assert "<p>Body</p>" in result, result
+
 if __name__ == "__main__":
     try:
         test_conversion()

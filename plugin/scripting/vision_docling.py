@@ -12,6 +12,8 @@ from typing import Any, Literal
 
 from plugin.scripting.vision_common import (
     MAX_TABLE_ROWS,
+    css_inline_unavailable_result,
+    is_css_inline_import_error,
     _error_result,
     _ok_result,
     _prov_bbox_to_xywh,
@@ -20,7 +22,7 @@ from plugin.scripting.vision_common import (
 
 log = logging.getLogger(__name__)
 
-_DOCLING_INSTALL_CMD = "pip install docling rapidocr-paddle numpy pillow"
+_DOCLING_INSTALL_CMD = "pip install docling rapidocr-paddle numpy pillow css-inline"
 
 _converter_cache: dict[tuple[Any, ...], Any] = {}
 
@@ -406,15 +408,21 @@ def _handle_docling_import_error(exc: Exception, *, helper: str) -> dict[str, An
     )
 
 
+def _handle_css_inline_import_error(helper: str) -> dict[str, Any]:
+    return css_inline_unavailable_result(helper)
+
+
 def extract_text(image: Any, params: dict[str, Any]) -> dict[str, Any]:
     helper = "extract_text"
     try:
-        document = _convert_image_bytes(image, params, for_structure=False)
+        document = _convert_image_bytes(image, params, for_structure=True)
         from plugin.scripting.vision_html_export import export_docling_to_html
 
         html = export_docling_to_html(document, params)
         full_text, regions = _map_docling_text(document)
     except ImportError as exc:
+        if is_css_inline_import_error(exc):
+            return _handle_css_inline_import_error(helper)
         return _handle_docling_import_error(exc, helper=helper)
     except ValueError as exc:
         return _error_result("OCR_BACKEND_UNAVAILABLE", str(exc), helper=helper)
@@ -452,6 +460,8 @@ def extract_structure(image: Any, params: dict[str, Any]) -> dict[str, Any]:
         html = export_docling_to_html(document, params)
         blocks, tables, text_parts = _map_docling_structure(document)
     except ImportError as exc:
+        if is_css_inline_import_error(exc):
+            return _handle_css_inline_import_error(helper)
         return _handle_docling_import_error(exc, helper=helper)
     except ValueError as exc:
         return _error_result("OCR_BACKEND_UNAVAILABLE", str(exc), helper=helper)
