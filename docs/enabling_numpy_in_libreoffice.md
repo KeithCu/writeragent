@@ -13,6 +13,7 @@ For a short executive summary, see [WriterAgent architecture — Scientific Pyth
 5. [Developer reference](#5-developer-reference)
    - [Trusted extension code in the venv](#trusted-extension-code-in-the-venv)
    - [Trusted Extension Code Opportunities with the Full Scientific Stack](#trusted-extension-code-opportunities-with-the-full-scientific-stack)
+   - [Scientific domain roadmap (trusted helpers)](#scientific-domain-roadmap-trusted-helpers)
 6. [The `=PYTHON()` Calc function](#6-the-python-calc-function) <!-- anchor: the-python-calc-function -->
    - [Empty cells vs NaN](#empty-cells-vs-nan)
    - [Calc formula lexer quirks (inline code)](#calc-formula-lexer-quirks-inline-code)
@@ -20,7 +21,7 @@ For a short executive summary, see [WriterAgent architecture — Scientific Pyth
 8. [Implementation status](#8-implementation-status)
 9. [Multi-Range Support (Varargs)](#9-multi-range-support-varargs)
 
-**Related:** [Venv subprocess IPC & NumPy serialization](numpy-serialization.md) (warm worker, protocol, wire formats, benchmarks) · [Jupyter notebook import](jupyter-notebook-import.md) · [Analysis Sub-Agent](analysis-sub-agent.md) (data discovery + trusted numpy/pandas execution)
+**Related:** [Venv subprocess IPC & NumPy serialization](numpy-serialization.md) (warm worker, protocol, wire formats, benchmarks) · [Jupyter notebook import](jupyter-notebook-import.md) · [Analysis Sub-Agent](analysis-sub-agent.md) (data discovery + trusted numpy/pandas execution) · [Scientific domain roadmap](#scientific-domain-roadmap-trusted-helpers) (Viz, Forecast, Symbolic, Text, Optimization, Geo, Audio)
 
 ---
 
@@ -262,6 +263,10 @@ Helpers that need a missing package return `MISSING_PACKAGE` with the install li
 
 Full design and egress rules: [Image Recognition](image-recognition.md).
 
+#### Planned domain package groups
+
+Future trusted-helper domains (Visualization, Forecasting, Symbolic Math, Text Analytics, Optimization, Geospatial, Audio) will each declare required venv packages and a Settings → Python **Test** group when implemented. Until then, see [Scientific domain roadmap (trusted helpers)](#scientific-domain-roadmap-trusted-helpers). **Matplotlib** is already probed under **Scientific Libraries**; a dedicated **Visualization Libraries** group (e.g. seaborn) is planned with trusted Viz helpers.
+
 ## Trusted Extension Code Opportunities with the Full Scientific Stack
 
 The embeddings implementation (see [embeddings.md](embeddings.md)) has proven the **trusted extension code** pattern: ship normal Python modules under `plugin/scripting/` (or parallel locations for document helpers), invoke them from the LibreOffice host via tiny fixed stubs over the existing `PythonWorkerManager` / `run_code_in_user_venv` + Pickle5 `data=` path, and let the module run with the *full* power of the user's venv interpreter.
@@ -286,11 +291,11 @@ The subsections below outline other high-value directions that become practical 
 
 **See also:** the existing "Trusted extension code in the venv" discussion immediately above for the exact invocation pattern, whitelist entry rules, and "do not widen the LLM sandbox" guidance. The embeddings work is the canonical example and the source of the "primary per-directory index only" rule restated below.
 
-For the design of a dedicated **analysis sub-agent** (data discovery across documents via embeddings/search + extraction + handoff to reliable numpy/pandas/scipy execution in the trusted venv, plus LLM synthesis of results), see the separate document:
+For the design of a dedicated **analysis sub-agent** (domain **#0** in the roadmap below — data discovery across documents via embeddings/search + extraction + handoff to reliable numpy/pandas/scipy execution in the trusted venv, plus LLM synthesis of results), see the separate document:
 
 - [Analysis Sub-Agent](analysis-sub-agent.md)
 
-It covers the sub-agent architecture (leveraging the two-tier delegation pattern from multi-document work and specialized toolsets), how it finds and prepares relevant tables/ranges/numeric content, the trusted execution path for heavy compute, and integration back to the main agent for application or explanation.
+It covers the sub-agent architecture (leveraging the two-tier delegation pattern from multi-document work and specialized toolsets), how it finds and prepares relevant tables/ranges/numeric content, the trusted execution path for heavy compute, and integration back to the main agent for application or explanation. Domains **#1–#7** below extend or parallel that pattern; they do not replace it.
 
 ### Hybrid Local Compute + LLM for Answering (general)
 
@@ -348,6 +353,306 @@ As repeatedly emphasized in [embeddings.md](embeddings.md) and the implementatio
 Any future "analysis cache," "vision features," or "memory clusters" should be additive metadata stores (possibly sharing the same per-folder directory and SQLite conventions for simplicity) rather than competing semantic search indexes. The embeddings index is the single source of truth for "which documents and passages in this folder are semantically relevant to the query?"
 
 This keeps the architecture simple, the cache footprint predictable, invalidation straightforward (mtime + paragraph content hash), and the mental model clear for both developers and users ("the semantic memory for everything in this folder lives under `writeragent_embeddings/<key>/`").
+
+## Scientific domain roadmap (trusted helpers) {#scientific-domain-roadmap-trusted-helpers}
+
+The sections below are **development plans** for high-value scientific capabilities beyond the shipped **Analysis** ([analysis-sub-agent.md](analysis-sub-agent.md)) and **Vision** ([image-recognition.md](image-recognition.md)) domains. Each follows the same pattern: trusted modules under `plugin/scripting/`, fixed venv stubs, host extract → IPC → compact results → document egress, plus optional Run Python Script templates and specialized sub-agent exposure.
+
+### Domain helper pattern (Analysis + Vision canonical)
+
+Shipped domains prove the stack. New domains should mirror them—not invent parallel plumbing.
+
+| Layer | Analysis (shipped) | Vision (shipped) | New domains |
+|-------|-------------------|------------------|-------------|
+| Trusted module | [`analysis.py`](../plugin/scripting/analysis.py) | [`vision.py`](../plugin/scripting/vision.py) | e.g. `viz.py`, `forecast.py`, `symbolic.py`, `text_analytics.py` |
+| Templates | [`analysis_templates.py`](../plugin/scripting/analysis_templates.py) `# writeragent:analysis` | [`vision_templates.py`](../plugin/scripting/vision_templates.py) `# writeragent:vision` | `# writeragent:viz`, `# writeragent:forecast`, … |
+| Host client | [`analysis_client.py`](../plugin/framework/client/analysis_client.py) | [`vision_client.py`](../plugin/framework/client/vision_client.py) | Same RPC shape |
+| Runner / egress | [`analysis_runner.py`](../plugin/calc/analysis_runner.py), [`analysis_egress.py`](../plugin/calc/analysis_egress.py) | [`vision_runner.py`](../plugin/scripting/vision_runner.py), [`vision_egress.py`](../plugin/scripting/vision_egress.py) | UNO extract on host; compact JSON or image envelope back |
+| Run Python Script | [`document_scripts.py`](../plugin/scripting/document_scripts.py) `_analysis_script_section` | `_vision_script_section` | `_viz_script_section`, etc. |
+| Fast path | [`python_runner.py`](../plugin/scripting/python_runner.py) `parse_*_script_header` → trusted RPC → egress | same | Header parse → `run_trusted_*` → insert |
+| Settings Test | **Data Analysis / EDA Libraries** | **Vision Libraries** | Per-domain groups when shipped |
+| LLM surface | Calc `domain="analysis"` via [`analyze_data`](../plugin/calc/analysis.py) | Chat `analyze_image` deferred | Extend `analysis` or add Writer/Calc specialized domains |
+
+```mermaid
+flowchart TD
+  user[User_or_LLM] --> picker[RunPythonScript_or_delegate]
+  picker --> host[Host_UNO_extract]
+  host --> stub[Fixed_venv_stub]
+  stub --> trusted[Trusted_module_full_stack]
+  trusted --> result[Compact_JSON_or_image]
+  result --> egress[Calc_Writer_egress]
+```
+
+**Dual access model:** Prefer high-level `run_*({helper, params}, data, context)` (or domain-specific inputs like vision's `image`). Keep `run_venv_python_script` / `=PYTHON()` as the escape hatch for novel work. Return `MISSING_PACKAGE` when required venv packages are absent; optional pure-Python or ASCII fallbacks per domain.
+
+**Data handoff:** Reuse [`calc_addin_data.py`](../plugin/calc/calc_addin_data.py) and [`payload_codec`](../plugin/scripting/payload_codec.py) split-grid. For LLM/sub-agent paths, pass **`data_range`** (late binding) rather than full grids in chat context — see [Analysis Sub-Agent — Data Handoff](analysis-sub-agent.md#data-handoff--context-limits-out-of-band-data).
+
+**Visualization note:** Phase A (below) already uses the venv worker and `__wa_payload__: "image"` envelope **without** a trusted module—users or the LLM write matplotlib directly. Phase C adds the Analysis/Vision-style trusted layer on top of the same envelope.
+
+### Prioritization
+
+| Priority | Domain | Status today | First target |
+|----------|--------|--------------|--------------|
+| 0 | **Analysis** (numeric EDA, regression, clustering, …) | **Shipped** — [analysis-sub-agent.md](analysis-sub-agent.md) | Extend with Viz/Forecast hooks |
+| 1 | **Visualization & Plotting** | Phase A shipped; B–C not | `plot_data`, `[Viz] quick_plot` |
+| 2 | **Time Series & Forecasting** | Partial building blocks in analysis | `forecast_time_series` |
+| 3 | **Symbolic Mathematics** | Partial (sympy venv, Writer math-tex) | `solve_equation`, `[Math] …` |
+| 4 | **Text / Document Analytics** | Outline/tree tools only | `readability_scores`, `[Text Analysis] …` |
+| 5 | **Optimization & OR** | Partial (scipy, `monte_carlo`) | `optimize_portfolio` |
+| 6 | **Geospatial** | Not started | `[Geo] map_data` |
+| 7 | **Audio / Signal Processing** | Recording shipped; no librosa analysis | Spectrogram via Viz egress |
+
+---
+
+### 1. Visualization & Plotting {#visualization}
+
+**Status:** **Phase A shipped** (raw matplotlib image pipeline). **Phases B–C not shipped** (Run Python Script image egress glue; trusted Viz helpers).
+
+**Goal:** Turn analysis results into publication-quality charts inside LibreOffice—Calc sheet graphics or Writer inline images—without requiring the LLM to write matplotlib every time. Highest immediate ROI for demos and shareable workflows.
+
+**Why:** Users respond to visuals. "I generated a professional chart from my spreadsheet in two clicks" is a strong adoption story. Pairs naturally with the analysis sub-agent (auto-plot regression, clusters, Monte Carlo distributions).
+
+#### Phase A — Raw matplotlib pipeline (shipped)
+
+No `viz.py` yet. Matplotlib figures from user/LLM code are captured in the venv and inserted via the existing image envelope.
+
+| Component | Module | Behavior |
+|-----------|--------|----------|
+| Figure → bytes | [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) | `_figure_to_image_payload()` (SVG default, PNG @ 150 DPI); `serialize_result()` for returned `Figure`; post-run capture of open pyplot figures; `Agg` backend; figure cleanup |
+| Wire format | [`payload_codec.py`](../plugin/scripting/payload_codec.py) | `PAYLOAD_IMAGE`, `is_image_payload()` |
+| Calc `=PYTHON()` | [`python_function.py`](../plugin/calc/python_function.py) | `_insert_image_result_on_sheet()` → `GraphicObjectShape` anchored to active cell |
+| Chat / LLM | [`venv_python.py`](../plugin/calc/venv_python.py) | Temp `image_path` → agent uses `insert_image` (two-phase workflow) |
+| Writer notebook | [`notebook_runner.py`](../plugin/notebook/notebook_runner.py) | Inline image insert on notebook cell run |
+| LLM sandbox | [`sandbox_imports.py`](../plugin/scripting/sandbox_imports.py) | `matplotlib`, `seaborn` whitelisted |
+| Settings Test | [`venv_worker.py`](../plugin/scripting/venv_worker.py) | `matplotlib` under **Scientific Libraries** |
+| Tests | [`test_matplotlib_output.py`](../tests/scripting/test_matplotlib_output.py), [`test_python_function.py`](../tests/calc/test_python_function.py) | Codec, sandbox e2e, cell-anchored geometry |
+
+**Works today:**
+
+```python
+# =PYTHON() — implicit plt.show() or explicit Figure return
+import matplotlib.pyplot as plt
+plt.plot([1, 2, 3])
+```
+
+```text
+# Chat — two-phase
+1. run_venv_python_script(code="… plt.plot(…) …")
+2. insert_image(image_path=<returned path>)
+```
+
+**Native LO charts** ([`charts.py`](../plugin/calc/charts.py) — `UpsertChart`, `ListCharts`, …) are a **separate** UNO chart path, not matplotlib. The LLM can already create native Calc/Writer charts from structured data; Viz helpers complement that with statistical plotting (seaborn, heatmaps, distribution plots).
+
+**Known limitations:** Only the last/open figure is captured; chat requires two steps; **Run Python Script does not insert image payloads** (see Phase B); no seaborn-specific helpers; no UNO e2e test for full `=PYTHON()` plot insertion (geometry unit-tested with mocks). Detail: [python-in-excel-dev-plan.md Phase 2](python-in-excel-dev-plan.md).
+
+#### Phase B — Run Python Script + Writer image egress (glue; not shipped)
+
+[`python_runner.py`](../plugin/scripting/python_runner.py) `execute_and_insert_result()` handles analysis and vision result contracts but **does not** check `is_image_payload()`. Matplotlib output from **Tools → Run Python Script…** would be written as broken cell/text instead of a graphic.
+
+**Planned fix (small):** After venv execution, if `is_image_payload(result_data)`: Calc → reuse `_insert_image_result_on_sheet` logic; Writer → [`insert_image_at_locator`](../plugin/writer/images/image_tools.py). Tests: extend [`test_python_runner_*.py`](../tests/scripting/).
+
+#### Phase C — Trusted Viz helpers (not shipped)
+
+Mirror Analysis/Vision: [`viz.py`](../plugin/scripting/), `viz_templates.py`, `viz_client.py`, `viz_runner.py`, `viz_egress.py`, `_viz_script_section` in [`document_scripts.py`](../plugin/scripting/document_scripts.py), fast path in `python_runner.py`.
+
+| Helper | Purpose | Notes |
+|--------|---------|-------|
+| `plot_data` | Auto chart from numeric grid + `spec` | Chart-type recommendation, title/legend metadata |
+| `correlation_heatmap` | Heatmap | Builds on `correlation_matrix` analysis output |
+| `time_series_plot` | Date-indexed line plot | Shared with Forecast domain |
+| `quick_plot` | Default Run Python Script template | Phase B egress for insert |
+
+**Run Python Script templates:** **Viz Helpers →** `[Viz] quick_plot`, `[Viz] correlation_heatmap`, `[Viz] time_series`.
+
+**Result contract (draft):** `{status, helper, image: {format, data}, title, legend, chart_type, writer_cleanup_hints}` — image bytes use the same `__wa_payload__: "image"` envelope as Phase A.
+
+**Analysis sub-agent:** After `run_regression`, `cluster_numeric`, or `monte_carlo`, auto-call `plot_data` when the task implies visualization (replaces planned `suggest_visualization` in [analysis-sub-agent.md](analysis-sub-agent.md)).
+
+**Packages:** `matplotlib` (required); `seaborn` (recommended). Settings → Python **Visualization Libraries** group when shipped.
+
+**Fallback:** ASCII mini-charts or compact text tables when matplotlib is missing (`MISSING_PACKAGE`).
+
+**Phase 2+ (deferred):** `create_interactive_chart` — static multi-view export or embedded HTML/JS if LibreOffice egress supports it.
+
+---
+
+### 2. Time Series & Forecasting {#forecasting}
+
+**Status:** **Not shipped** as dedicated helpers. **Partial:** analysis building blocks exist.
+
+**Goal:** Forecast, decompose, and flag anomalies on date-indexed Calc data—natural fit for spreadsheets (finance, ops, sales).
+
+**Why:** Strong Calc synergy; pairs with Visualization for confidence-band plots.
+
+**Already in codebase:**
+
+| Piece | Location |
+|-------|----------|
+| Period-over-period change | [`compare_periods`](../plugin/scripting/analysis.py) in analysis helpers |
+| Outlier detection | [`detect_outliers`](../plugin/scripting/analysis.py) — base for time-series anomalies |
+| OLS / statsmodels | [`run_regression`](../plugin/scripting/analysis.py); `statsmodels` in analysis venv install line |
+| Range → pandas | [`calc_addin_data.py`](../plugin/calc/calc_addin_data.py), [`analysis_coerce.py`](../plugin/scripting/analysis_coerce.py) |
+
+**Proposed helpers:**
+
+| Helper | Purpose | Key params |
+|--------|---------|------------|
+| `forecast_time_series` | Forward predictions + intervals | `periods=12`, `model="auto"` (ARIMA/Holt-Winters) |
+| `decompose_time_series` | Trend / seasonal / residual | `date_col`, `value_col` |
+| `anomaly_detection_time_series` | Series-aware outliers | Extends `detect_outliers` with temporal context |
+
+**Module layout:** `plugin/scripting/forecast.py` (or extend `analysis.py` with forecast helpers in the same `run_analysis` dispatcher—prefer separate module if package deps differ).
+
+**Packages:** `statsmodels` (required, already in analysis stack); optional `prophet` (heavy — optional Test group, `MISSING_PACKAGE` if absent).
+
+**Run Python Script:** **Forecast Helpers →** `[Forecast] forecast_series`, `[Forecast] decompose`.
+
+**Output:** Predictions table (analysis egress pattern) + optional Viz Phase C plot for bands.
+
+**Sub-agent:** Extend `domain="analysis"` — same delegation as EDA/regression.
+
+**Fallback:** Simple moving-average projection in pandas when statsmodels forecasting APIs unavailable.
+
+---
+
+### 3. Symbolic Mathematics & Equation Solving {#symbolic-math}
+
+**Status:** **Partial.** Sympy auto-imported in venv (`sp`); Writer Math insertion via [math-tex.md](math-tex.md). **Trusted helpers not shipped.**
+
+**Goal:** Solve, simplify, integrate, and differentiate equations; round-trip LaTeX ↔ LibreOffice Math objects; bridge Writer, Calc `=PYTHON()`, and Vision OCR of handwritten equations.
+
+**Why:** Appeals to students, engineers, researchers; synergizes with Docling/Vision → sympy → Writer Math OLE.
+
+**Already in codebase:**
+
+| Piece | Location |
+|-------|----------|
+| Venv `sympy` as `sp` | [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) auto-imports |
+| LaTeX → StarMath → OLE | [`math_mml_convert.py`](../plugin/writer/math/math_mml_convert.py), [`math_formula_insert.py`](../plugin/writer/math/math_formula_insert.py) |
+| In-process stdlib sandbox | [`python_executor.py`](../plugin/calc/python_executor.py) — no sympy; light cases only |
+
+**Proposed helpers:**
+
+| Helper | Purpose |
+|--------|---------|
+| `solve_equation` | Symbolic solve for variables; optional numeric substitution from `data_range` |
+| `symbolic_simplify` / `integrate` / `differentiate` | Core sympy wrappers |
+| `latex_to_math_object` | Enhance existing TeX path — return StarMath/LaTeX for host insert |
+
+**Execution split:** Light sympy in venv trusted module; very small expressions could stay in-process stdlib-only paths only if we add a safe subset (default: venv for all shipped helpers).
+
+**Run Python Script:** **Math Helpers →** `[Math] solve_equation`, `[Math] simplify`.
+
+**Sub-agent / LLM:** Writer main chat or `domain="python"` with helper preference; compose with Vision `extract_text` on equation photos.
+
+**Packages:** `sympy` (required — already probed under Scientific Libraries).
+
+---
+
+### 4. Text / Document Analytics {#text-analytics}
+
+**Status:** **Not shipped.** Writer outline, grammar, and LO-DOM tooling exist; no trusted text-analytics module.
+
+**Goal:** Readability, topic structure, key phrases, sentiment by section, and cross-document comparison for reports and long-form Writer content.
+
+**Why:** Strengthens core Writer use case; overlaps with professional writers, legal, academic users.
+
+**Input sources (host):** [`get_document_tree`](../plugin/writer/outline.py), selected ranges, [LO-DOM semantic tree](lo-dom-semantic-tree.md), optional grammar pipeline locators.
+
+**Proposed helpers:**
+
+| Helper | Purpose | Packages |
+|--------|---------|----------|
+| `document_statistics` | Counts, structure summary | stdlib / pure Python |
+| `readability_scores` | Flesch, Gunning Fog, … | stdlib formulas feasible |
+| `topic_modeling` | Simple LDA topics | `sklearn` |
+| `extract_key_phrases` | Section-level phrases | venv NLP (sklearn or lightweight) |
+| `sentiment_by_section` | Polarity per heading block | optional venv |
+| `compare_documents` | Revision / multi-file diff stats | host extracts two bodies |
+
+**Module:** `plugin/scripting/text_analytics.py`.
+
+**Run Python Script:** **Text Analysis Helpers →** `[Text Analysis] readability`, `[Text Analysis] compare_selection`.
+
+**Sub-agent:** Writer main agent or future `domain="text"` specialized delegate when user asks to "analyze this report."
+
+**Fallback:** Readability-only path with stdlib when sklearn absent.
+
+---
+
+### 5. Optimization & Operations Research {#optimization}
+
+**Status:** **Not shipped.** `scipy` in venv; [`monte_carlo`](../plugin/scripting/analysis.py) shipped.
+
+**Goal:** Linear programming, scheduling, portfolio optimization inside Calc—appeals to analysts, supply chain, finance.
+
+**Proposed helpers:**
+
+| Helper | Purpose | Packages |
+|--------|---------|----------|
+| `optimize_portfolio` | Mean-variance or constraint-based | `scipy.optimize`, numpy |
+| `linear_programming` | LP from spec dict | `scipy.optimize.linprog` or optional `pulp` |
+| `solve_scheduling_problem` | Assignment / small IP | optional `ortools` / `pulp` |
+
+**Run Python Script:** **Optimize Helpers →** `[Optimize] portfolio`, `[Optimize] linear_program`.
+
+**Tie-in:** Stochastic optimization with existing `monte_carlo` helper.
+
+**Sub-agent:** Extend `domain="analysis"`.
+
+**Packages:** `scipy` (required); `pulp` / `ortools` optional Test group.
+
+---
+
+### 6. Geospatial {#geospatial}
+
+**Status:** **Not started** (niche; lower priority unless demand appears).
+
+**Goal:** Static map image + attribute table from location columns in Calc.
+
+**Proposed helper:** `map_data(data_range, …)` → image envelope (same as Viz Phase A/C) + summary table.
+
+**Packages (all optional):** `geopandas`, `folium`, `shapely` — ship only if users request; `MISSING_PACKAGE` otherwise.
+
+**Run Python Script:** **Geo Helpers →** `[Geo] map_data`.
+
+**Egress:** Viz image path + analysis-style table insert.
+
+---
+
+### 7. Audio / Signal Processing {#audio-signal}
+
+**Status:** **Partial.** Voice recording shipped ([audio-architecture.md](audio-architecture.md)); no venv analysis helpers.
+
+**Goal:** Analyze imported audio (including recordings saved from the chat panel): spectrograms, basic features, optional transcription post-processing.
+
+**Synergy:** Recording produces WAV in user workflow; analysis runs in **venv** (librosa), not in embedded LO Python (recording uses vendored `sounddevice` without numpy).
+
+**Proposed helpers:**
+
+| Helper | Purpose |
+|--------|---------|
+| `analyze_audio` | Duration, RMS, tempo, key features |
+| `spectrogram_plot` | Image via Viz envelope |
+
+**Run Python Script:** **Audio Helpers →** `[Audio] analyze`, `[Audio] spectrogram`.
+
+**Packages:** `librosa` (optional Test group); matplotlib for plots.
+
+**Sub-agent:** Writer main or specialized; optional link to STT pipeline in [audio-architecture.md](audio-architecture.md).
+
+---
+
+### Implementation phasing (cross-domain)
+
+| Phase | Scope | Domains |
+|-------|--------|---------|
+| **0** | Trusted module + 1–2 helpers + Run Python Script section + unit tests | Viz C, Forecast, or Text (one at a time) |
+| **0b** | Glue without full trusted module | **Viz Phase B** — `is_image_payload` in Run Python Script |
+| **1** | Sub-agent / `analyze_data`-style tools + delegation prompts | Analysis extensions (Viz auto-plot, forecast) |
+| **2** | Egress polish, optional caches, Writer cleanup hints | All |
+
+Keep each domain lean: reuse `payload_codec`, split-grid, document-attached scripts + Monaco, and Settings Test reporting—the same surfaces that make Analysis and Vision usable without an LLM.
 
 ---
 
@@ -901,10 +1206,11 @@ This item is deliberately scoped as Priority 3 because the personal library + ce
 
 ---
 
-### Other enhancements
+### Other enhancements {#other-enhancements}
 
 - **OooDev / ScriptForge:** optional venv install for UNO-from-Python; or keep compute-in-venv + document-via-tools (recommended).
-- **Matplotlib (shipped):** `matplotlib` / `plt` figures from `=PYTHON()` or `run_venv_python_script` are captured in the worker, serialized via the `__wa_payload__: "image"` envelope, and inserted as `GraphicObjectShape` on the Calc draw page (chat path returns a temp `image_path` for existing image tools). See [python-in-excel-dev-plan.md](python-in-excel-dev-plan.md) Phase 2.
+- **Matplotlib Phase A (shipped):** `matplotlib` / `plt` figures from `=PYTHON()` or `run_venv_python_script` are captured in the worker, serialized via the `__wa_payload__: "image"` envelope, and inserted as `GraphicObjectShape` on the Calc draw page (chat path returns a temp `image_path` for existing image tools). See [python-in-excel-dev-plan.md](python-in-excel-dev-plan.md) Phase 2 and [Scientific domain roadmap — Visualization Phase A](#visualization).
+- **Trusted Viz helpers (Phase C, not shipped):** `plot_data`, Run Python Script **[Viz]** templates, analysis auto-plot — [Scientific domain roadmap](#scientific-domain-roadmap-trusted-helpers).
 - **Worker idle shutdown:** terminate venv process after N minutes idle.
 - **Formula `timeout_sec`:** optional per-formula override (Settings remains the default).
 - **LO serialization profiler:** debug-menu or UNO test harness for legs A–D ([Priority 1](numpy-serialization.md#priority-1--profile-inside-libreoffice-gate-for-everything-else)).
@@ -966,11 +1272,13 @@ Backlog items inspired by Microsoft Python in Excel ([python-in-excel-ideas.md](
 | Shared kernel (`python_session_mode`) | [`session_manager.py`](../plugin/scripting/session_manager.py), [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) — [`tests/scripting/test_session_persistence.py`](../tests/scripting/test_session_persistence.py) |
 | Calc init scripts | [`document_scripts.py`](../plugin/scripting/document_scripts.py), [`init_script_editor.py`](../plugin/calc/init_script_editor.py) — [`tests/scripting/test_init_scripts.py`](../tests/scripting/test_init_scripts.py) |
 | Embeddings encode (Phase A) | [`embedding_client.py`](../plugin/framework/client/embedding_client.py), [`embeddings_index.py`](../plugin/scripting/embeddings_index.py) — see [embeddings.md § Phase B](embeddings.md#phase-b) |
+| Matplotlib image pipeline (Viz Phase A) | [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py), [`payload_codec.py`](../plugin/scripting/payload_codec.py), [`python_function.py`](../plugin/calc/python_function.py), [`venv_python.py`](../plugin/calc/venv_python.py) — [Visualization § Phase A](#visualization) |
 
 Jupyter `.ipynb` import (separate feature): [jupyter-notebook-import.md](jupyter-notebook-import.md).
 
 ### Not shipped / deferred
 
+- **Scientific domain roadmaps** — trusted helpers for [Visualization (Phase B–C)](#visualization), [Forecasting](#forecasting), [Symbolic Math](#symbolic-math), [Text Analytics](#text-analytics), [Optimization](#optimization), [Geospatial](#geospatial), [Audio/Signal](#audio-signal). **Matplotlib image pipeline (Viz Phase A)** is shipped — see [§7 Other enhancements](#other-enhancements).
 - **Serialization next steps** — [Future work](numpy-serialization.md#future-work--serialization-performance): LO profile first, Tier 0, opaque blob, float32, pandas egress, worker cache; Tier 2b codecs; optional [Cython `vec_pack`](numpy-serialization.md#building-host-native-extensions-cython) (not started).
 - Venv ↔ LO **tool RPC** ([§7](#7-deferred-roadmap)) — [`writeragent_api.py`](../plugin/scripting/writeragent_api.py) stubs only.
 - Managed venv (Strategy 2), session persistence, worker idle shutdown, per-formula `timeout_sec`, Python edit dialog tiers 1–3.
