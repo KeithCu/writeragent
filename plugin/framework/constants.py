@@ -228,6 +228,7 @@ TRANSLATION_RULES = "TRANSLATION: get_document_content(scope=full) -> translate 
 
 # Tool-usage workflow patterns (no repeat of apply_document_content targets; see WRITER_APPLY_DOCUMENT_HTML_RULES).
 TOOL_USAGE_PATTERNS = """TOOL USAGE PATTERNS:
+- After an edit tool, confirm it landed via that tool's own structured field — not the message wording: apply_document_content -> replaced_count > 0; apply_style -> applied is true; add_comment -> comment_added is true. A no-op (e.g. text not found) returns status="error"; do not assume success.
 - search_in_document (with return_offsets if needed) is for inspection/navigation; use apply_document_content with old_content for replacements.
 - If a tool call fails, verify content and target are provided (use target='beginning' / 'end' / 'selection' for insert-only).
 - When asked to review or give feedback or suggestions on a document, use the add_comment method to add your input to specific places in the document. Use for both positive and negative feedback.

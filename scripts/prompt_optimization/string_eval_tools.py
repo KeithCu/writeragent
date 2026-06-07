@@ -88,6 +88,8 @@ class StringDocState:
         content = _normalize_apply_content(content)
         all_matches = bool(kwargs.get("all_matches", False))
 
+        # Mirror production's structured returns (content.py): on the search path use
+        # replaced_count as the success signal (0 -> status "error", N>0 -> "ok").
         if target == "full_document":
             self._html = content
             return {"status": "ok", "message": "Replaced entire document."}
@@ -101,14 +103,22 @@ class StringDocState:
             self._html = self._html + content
             return {"status": "ok", "message": "Inserted content (simulated selection)."}
         if target == "search":
-            old = str(old_content)
+            # Mirror production: old_content empty after stripping is a parameter error (no
+            # replaced_count — the search never ran), not a match-everything no-op.
+            old = str(old_content).strip()
+            if not old:
+                return {"status": "error", "message": "old_content is empty after normalization."}
             if old not in self._html:
-                return {"status": "error", "message": "old_content not found in document."}
+                return {"status": "error", "message": "old_content not found in document.",
+                        "replaced_count": 0}
             if all_matches:
+                count = self._html.count(old)
                 self._html = self._html.replace(old, content)
-                return {"status": "ok", "message": "Replaced all matches."}
+                return {"status": "ok", "message": "Replaced %d occurrence(s)." % count,
+                        "replaced_count": count}
             self._html = self._html.replace(old, content, 1)
-            return {"status": "ok", "message": "Replaced first match."}
+            return {"status": "ok", "message": "Replaced 1 occurrence (by old_content).",
+                    "replaced_count": 1}
         return {"status": "error", "message": f"Unknown target: {target!r}"}
 
     def find_text(

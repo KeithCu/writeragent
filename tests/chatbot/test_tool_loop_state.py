@@ -288,6 +288,43 @@ def test_tool_result_delegate_gateway_error():
     assert "No specialized tools found" in append_eff.text
 
 
+def test_apply_document_content_debug_uses_structured_replaced_count():
+    # replaced_count == 0 but the message does NOT start with "Replaced 0 occurrence";
+    # only the structured field should trigger the debug-params line (proves the consumer
+    # reads replaced_count, not the message string).
+    state = create_base_state()
+    event = create_event(
+        EventKind.TOOL_RESULT,
+        call_id="c1",
+        func_name="apply_document_content",
+        func_args_str='{"target": "search", "old_content": "zzz"}',
+        result='{"status": "error", "message": "old_content not found in document.", "replaced_count": 0}',
+        mutates_document=True,
+    )
+    tr = next_state(state, event)
+    assert any(
+        isinstance(e, ToolLoopUIEffect) and e.kind == "append" and e.text.startswith("[Debug: params")
+        for e in tr.effects
+    )
+
+
+def test_apply_document_content_no_debug_when_replaced():
+    state = create_base_state()
+    event = create_event(
+        EventKind.TOOL_RESULT,
+        call_id="c2",
+        func_name="apply_document_content",
+        func_args_str='{"target": "search", "old_content": "foo"}',
+        result='{"status": "ok", "message": "Replaced 2 occurrence(s).", "replaced_count": 2}',
+        mutates_document=True,
+    )
+    tr = next_state(state, event)
+    assert not any(
+        isinstance(e, ToolLoopUIEffect) and e.kind == "append" and e.text.startswith("[Debug: params")
+        for e in tr.effects
+    )
+
+
 def test_next_tool_when_stopped():
     # If is_stopped=True but empty pending_tools, it shouldn't update status
     state = create_base_state(is_stopped=True)

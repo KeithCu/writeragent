@@ -93,7 +93,9 @@ class AddComment(ToolBase):
         sd.SearchRegularExpression = False
         found = doc.findFirst(sd)
         if found is None:
-            return {"status": "not_found", "message": "Text '%s' not found." % search_text}
+            # status="error" (not "not_found"): an anchor miss is a failure, so the chat FSM and
+            # MCP host don't treat a no-op as success. anchor_text is returned on success only.
+            return {"status": "error", "message": "Text '%s' not found." % search_text, "matched": False, "comment_added": False}
         anchor_range = found.getStart()
 
         annotation = doc.createInstance("com.sun.star.text.textfield.Annotation")
@@ -103,7 +105,7 @@ class AddComment(ToolBase):
         cursor = doc_text.createTextCursorByRange(anchor_range)
         doc_text.insertTextContent(cursor, annotation, False)
 
-        return {"status": "ok", "message": "Comment added.", "author": author}
+        return {"status": "ok", "message": "Comment added.", "author": author, "matched": True, "comment_added": True, "anchor_text": search_text}
 
 
 class DeleteComment(ToolWriterCommentBase):

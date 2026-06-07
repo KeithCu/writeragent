@@ -406,7 +406,12 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
                 else:
                     effects.append(ToolLoopUIEffect(kind="append", text=f"[{func_name}: {note}]\n"))
 
-            if func_name == "apply_document_content" and isinstance(note, str) and note.strip().startswith("Replaced 0 occurrence"):
+            # Prefer the structured replaced_count (cleaner than parsing the message);
+            # fall back to the legacy string check for results that predate the field.
+            replaced_zero = result_data.get("replaced_count") == 0
+            if not replaced_zero and isinstance(note, str):
+                replaced_zero = note.strip().startswith("Replaced 0 occurrence")
+            if func_name == "apply_document_content" and replaced_zero:
                 params_display = func_args_str if len(func_args_str) <= 800 else func_args_str[:800] + "..."
                 effects.append(ToolLoopUIEffect(kind="append", text=f"[Debug: params {params_display}]\n"))
 

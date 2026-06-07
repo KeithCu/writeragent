@@ -507,8 +507,13 @@ class ApplyDocumentContent(ToolBase):
         # Collapse exotic horizontal whitespace; preserve newlines for paragraph-aware search.
         search_string = _normalize_search_string_for_find(search_string)
         if not search_string:
+            # Parameter error (like old_content=None), not a search no-op: the search never ran,
+            # so there's no replaced_count to report — use the standard tool error shape.
             return self._tool_error("old_content is empty after normalization.")
         doc = ctx.doc
+        # replaced_count is the machine-readable success signal: 0 -> status "error" (a silent
+        # no-op surfaced as a failure), N>0 -> "ok". No matched_count/warning/partial-replace:
+        # if a replace raises mid-all_matches the existing abort behavior stands.
         all_matches = kwargs.get("all_matches", False)
         if all_matches:
             ranges = _find_all_ranges(doc, search_string)
@@ -520,20 +525,26 @@ class ApplyDocumentContent(ToolBase):
                 else:
                     format_support.replace_single_range_with_content(doc, found, content, ctx.ctx, config_svc)
                 count += 1
-            msg = "Replaced %d occurrence(s)." % count
-            if use_preserve and count > 0:
-                msg += " (formatting preserved)"
             if count == 0:
-                msg += " No matches found. Try a shorter substring."
-            return {"status": "ok", "message": msg}
+                return {"status": "error",
+                        "message": "Replaced 0 occurrence(s). No matches found. Try a shorter substring.",
+                        "replaced_count": 0}
+            msg = "Replaced %d occurrence(s)." % count
+            if use_preserve:
+                msg += " (formatting preserved)"
+            return {"status": "ok", "message": msg, "replaced_count": count}
         found = _find_first_range(doc, search_string)
         if found is None:
-            return {"status": "error", "message": "old_content not found in document. Try a shorter, unique substring."}
+            return {"status": "error", "message": "old_content not found in document. Try a shorter, unique substring.",
+                    "replaced_count": 0}
         if use_preserve:
             format_support.replace_preserving_format(doc, found, raw_content, ctx.ctx)
-            return {"status": "ok", "message": "Replaced 1 occurrence (by old_content). (formatting preserved)"}
-        format_support.replace_single_range_with_content(doc, found, content, ctx.ctx, config_svc)
-        return {"status": "ok", "message": "Replaced 1 occurrence (by old_content)."}
+        else:
+            format_support.replace_single_range_with_content(doc, found, content, ctx.ctx, config_svc)
+        msg = "Replaced 1 occurrence (by old_content)."
+        if use_preserve:
+            msg += " (formatting preserved)"
+        return {"status": "ok", "message": msg, "replaced_count": 1}
 
 
 # ------------------------------------------------------------------

@@ -234,3 +234,44 @@ def test_apply_paragraph_style_multi_paragraph_selection_uno():
     p2.goRight(len("First paragraph here.") + 1 + 6, True)
     assert int(p2.getPropertyValue("CharColor")) == 0xFF0000, \
         "direct COLOR lost in second paragraph"
+
+
+@native_test
+def test_apply_style_returns_structured_fields_uno():
+    """apply_style returns target/applied; matched=True only when target='search'."""
+    doc = _test_doc
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    text.insertString(cur, "Mark this clause.", False)
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=_test_ctx, env="native")
+
+    res = ApplyStyle().execute(tool_ctx, style_name="Standard", family="ParagraphStyles", target="full_document")
+    assert res.get("status") == "ok", res
+    assert res.get("applied") is True, res
+    assert res.get("target") == "full_document", res
+    assert "matched" not in res, res  # full_document is not a search
+
+    res2 = ApplyStyle().execute(tool_ctx, style_name="Standard", family="ParagraphStyles", target="search", old_content="Mark this clause.")
+    assert res2.get("status") == "ok", res2
+    assert res2.get("target") == "search", res2
+    assert res2.get("matched") is True, res2
+
+
+@native_test
+def test_apply_style_search_miss_reports_not_matched_uno():
+    """A target='search' miss returns an error carrying matched=False / applied!=True
+    (no silent ok), consistent with apply_document_content's no-match."""
+    doc = _test_doc
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    text.insertString(cur, "Some clause text.", False)
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=_test_ctx, env="native")
+    res = ApplyStyle().execute(
+        tool_ctx, style_name="Standard", family="ParagraphStyles",
+        target="search", old_content="NOT-PRESENT-XYZ",
+    )
+    assert res.get("status") == "error", res
+    assert res.get("matched") is False, res
+    assert res.get("applied") is not True, res
