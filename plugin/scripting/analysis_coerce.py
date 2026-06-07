@@ -153,7 +153,7 @@ def _coerce_column_types(df: Any) -> Any:
             if non_null > 0 and numeric_non_null >= max(1, int(non_null * 0.8)):
                 out[col] = numeric
             else:
-                dt = pd.to_datetime(coerced, errors="coerce", utc=False)
+                dt = pd.to_datetime(coerced, errors="coerce", utc=False, format="mixed")
                 dt_non_null = dt.notna().sum()
                 if non_null > 0 and dt_non_null >= max(1, int(non_null * 0.8)):
                     out[col] = dt
