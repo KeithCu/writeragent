@@ -30,7 +30,7 @@ def test_parse_header_round_trip():
     assert meta.helper == "extract_text"
     assert meta.params == {
         "engine": "docling",
-        "ocr_backend": "rapidocr_paddle",
+        "ocr_backend": "rapidocr",
         "lang": "en",
         "image_name": "",
     }

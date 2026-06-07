@@ -651,10 +651,30 @@ def test_resolve_venv_python_none_when_missing(tmp_path):
     assert resolve_venv_python(str(tmp_path / "nope")) is None
 
 
+def test_resolve_venv_python_accepts_bin_python_path(tmp_path):
+    venv = tmp_path / "venv"
+    bindir = venv / "bin"
+    bindir.mkdir(parents=True)
+    py = bindir / "python3.12"
+    py.write_text("#!/bin/sh\necho ok\n")
+    py.chmod(py.stat().st_mode | stat.S_IEXEC)
+    assert resolve_venv_python(str(py)) == str(py)
+
+
+def test_resolve_venv_python_accepts_bin_directory(tmp_path):
+    venv = tmp_path / "venv"
+    bindir = venv / "bin"
+    bindir.mkdir(parents=True)
+    py = bindir / "python"
+    py.write_text("#!/bin/sh\necho ok\n")
+    py.chmod(py.stat().st_mode | stat.S_IEXEC)
+    assert resolve_venv_python(str(bindir)) == str(py)
+
+
 def test_probe_venv_path_not_directory():
     ok, msg = probe_venv_path(__file__)
     assert ok is False
-    assert "Not a directory" in msg or "directory" in msg.lower()
+    assert "Not a Python executable" in msg
 
 
 def test_probe_venv_path_blank_uses_process_python():

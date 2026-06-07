@@ -169,22 +169,22 @@ def resolve_libreoffice_python() -> Optional[str]:
     return exe
 
 
-def resolve_venv_python(venv_dir: str) -> Optional[str]:
-    """Return the python executable inside *venv_dir*, or None if missing or not a file."""
-    if not venv_dir or not venv_dir.strip():
-        return None
-    expanded = os.path.expanduser(os.path.expandvars(venv_dir.strip()))
+def _python_candidates_in_bin_dir(bin_dir: str) -> list[str]:
+    """Return candidate interpreter paths under a venv ``bin/`` or ``Scripts/`` directory."""
     candidates: list[str] = []
     if os.name == "nt":
-        candidates.append(os.path.join(expanded, "Scripts", "python.exe"))
+        candidates.append(os.path.join(bin_dir, "python.exe"))
     else:
-        bin_dir = os.path.join(expanded, "bin")
+        for name in ("python", "python3"):
+            candidates.append(os.path.join(bin_dir, name))
         if os.path.isdir(bin_dir):
-            for name in ("python", "python3"):
-                candidates.append(os.path.join(bin_dir, name))
             for entry in sorted(os.listdir(bin_dir)):
                 if entry.startswith("python3."):
                     candidates.append(os.path.join(bin_dir, entry))
+    return candidates
+
+
+def _first_executable_python(candidates: list[str]) -> str | None:
     seen: set[str] = set()
     for candidate in candidates:
         if candidate in seen:
@@ -193,6 +193,41 @@ def resolve_venv_python(venv_dir: str) -> Optional[str]:
         if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
             return candidate
     return None
+
+
+def resolve_venv_python(venv_dir: str) -> Optional[str]:
+    """Return the python executable for *venv_dir*.
+
+    Accepts a venv root (``…/myvenv``), ``bin/`` / ``Scripts/`` directory, or a direct
+    path to ``python`` / ``python3`` / ``python.exe``.
+    """
+    if not venv_dir or not venv_dir.strip():
+        return None
+    expanded = os.path.expanduser(os.path.expandvars(venv_dir.strip()))
+
+    if os.path.isfile(expanded):
+        base = os.path.basename(expanded)
+        if base.startswith("python") or base == "python.exe":
+            if os.access(expanded, os.X_OK):
+                return expanded
+        return None
+
+    if not os.path.isdir(expanded):
+        return None
+
+    dir_name = os.path.basename(os.path.normpath(expanded))
+    if dir_name in ("bin", "Scripts"):
+        return _first_executable_python(_python_candidates_in_bin_dir(expanded))
+
+    if os.name == "nt":
+        bin_candidates = [os.path.join(expanded, "Scripts")]
+    else:
+        bin_candidates = [os.path.join(expanded, "bin")]
+    candidates: list[str] = []
+    for bin_dir in bin_candidates:
+        if os.path.isdir(bin_dir):
+            candidates.extend(_python_candidates_in_bin_dir(bin_dir))
+    return _first_executable_python(candidates)
 
 
 # NOTE for AI agents: The diagnostic script below runs in a sandboxed LocalPythonExecutor.
@@ -318,10 +353,11 @@ _VISION_PROBE_SCRIPT = """
 import json
 out = {}
 try:
-    import docling
+    import docling.document_converter  # noqa: F401
     out["docling"] = "present"
-except ImportError:
+except ImportError as exc:
     out["docling"] = None
+    out["docling_import_error"] = str(exc)
 try:
     import rapidocr
     out["rapidocr"] = "present"
@@ -417,6 +453,11 @@ def _format_self_check_success(data: dict[str, Any]) -> str:
         msg_lines.extend(format_group("UI / Monaco Libraries", ui_list))
     if vision_list:
         msg_lines.extend(format_group(_("Vision Libraries"), vision_list))
+        docling_import_error = packages.get("docling_import_error")
+        if docling_import_error and packages.get("docling") != "present":
+            msg_lines.append(
+                _("\nDocling OCR load failed: %(err)s") % {"err": docling_import_error}
+            )
         docling_stack_incomplete = (
             packages.get("docling") != "present"
             or packages.get("numpy") != "present"
@@ -492,12 +533,16 @@ def probe_venv_path(venv_dir: str, timeout: float = 10.0) -> Tuple[bool, str]:
             return True, f"LibreOffice process Python ({exe}) responds OK."
         return ok, msg
     expanded = os.path.expanduser(os.path.expandvars(str(venv_dir).strip()))
-    if not os.path.isdir(expanded):
-        return False, f"Not a directory: {expanded}"
-
-    exe = resolve_venv_python(expanded)
+    exe = resolve_venv_python(str(venv_dir).strip())
     if not exe:
-        return False, "No python found (expected bin/python or Scripts\\python.exe under that path)."
+        if os.path.isfile(expanded):
+            return False, f"Not a Python executable: {expanded}"
+        if os.path.isdir(expanded):
+            return False, (
+                "No python found. Use the venv root (folder containing bin/), "
+                "the bin/ folder, or the full path to bin/python."
+            )
+        return False, f"Path not found: {expanded}"
     return run_venv_self_check(exe, timeout=timeout)
 
 

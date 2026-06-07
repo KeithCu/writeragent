@@ -24,13 +24,13 @@ _SHIPPED_TEMPLATES = frozenset({"extract_text", "extract_structure"})
 _DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
     "extract_text": {
         "engine": "docling",
-        "ocr_backend": "rapidocr_paddle",
+        "ocr_backend": "rapidocr",
         "lang": "en",
         "image_name": "",
     },
     "extract_structure": {
         "engine": "docling",
-        "ocr_backend": "rapidocr_paddle",
+        "ocr_backend": "rapidocr",
         "lang": "en",
         "image_name": "",
     },

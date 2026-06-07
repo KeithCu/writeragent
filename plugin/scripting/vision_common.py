@@ -22,7 +22,7 @@ HELPER_NAMES = frozenset(
 IMPLEMENTED_HELPERS = frozenset({"extract_text", "extract_structure"})
 
 DEFAULT_ENGINE = "docling"
-DEFAULT_OCR_BACKEND = "rapidocr_paddle"
+DEFAULT_OCR_BACKEND = "rapidocr"
 
 MAX_TABLE_ROWS = 50
 

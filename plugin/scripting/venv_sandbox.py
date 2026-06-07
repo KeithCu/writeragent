@@ -297,6 +297,46 @@ def _inject_data(executor: LocalPythonExecutor, data: Any | None) -> None:
     executor.send_variables(variables)
 
 
+_TRUSTED_VISION_STUB_MARKER = "from plugin.scripting.vision import run_vision"
+
+
+def _is_trusted_vision_stub(code: str) -> bool:
+    return _TRUSTED_VISION_STUB_MARKER in (code or "")
+
+
+def _run_trusted_vision_payload(data: Any | None) -> dict[str, Any]:
+    """Run vision helpers outside LocalPythonExecutor (docling/paddle are not sandbox imports)."""
+    from plugin.scripting.vision import run_vision
+
+    payload: dict[str, Any] = {}
+    if data is not None:
+        unpacked = child_unpack_data(data)
+        if is_multi_data(unpacked):
+            payload = unpacked[0] if isinstance(unpacked, list) and unpacked and isinstance(unpacked[0], dict) else {}
+        elif isinstance(unpacked, dict):
+            payload = unpacked
+    try:
+        spec = payload.get("spec")
+        if spec is None:
+            spec = {}
+        result = run_vision(
+            spec,
+            payload.get("image"),
+            context=payload.get("context") or {},
+        )
+        return {"status": "ok", "result": serialize_result(result), "stdout": ""}
+    except Exception as e:
+        import traceback
+
+        log.exception("trusted vision unsandboxed run failed")
+        return {
+            "status": "error",
+            "message": str(e),
+            "traceback": traceback.format_exc(),
+            "stdout": "",
+        }
+
+
 def _run_on_executor(executor: LocalPythonExecutor, code: str) -> dict[str, Any]:
     try:
         code_output = executor(code)
@@ -360,6 +400,10 @@ def run_sandboxed_code(
     """
     if timeout_sec is None:
         timeout_sec = python_exec_timeout_default()
+
+    # Trusted vision RPC uses real imports (same as Settings → Test vision probe).
+    if _is_trusted_vision_stub(code):
+        return _run_trusted_vision_payload(data)
 
     # Force non-interactive backend so plt.show() doesn't block in the subprocess.
     mpl = optional_module("matplotlib")

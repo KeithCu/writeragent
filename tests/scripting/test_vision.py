@@ -68,7 +68,7 @@ def test_extract_text_docling_default_maps_regions(mock_convert):
     assert len(result["regions"]) == 2
     assert result["regions"][0]["box"] == [10, 10, 40, 20]
     assert result["metrics"]["engine"] == "docling"
-    assert result["metrics"]["ocr_backend"] == "rapidocr_paddle"
+    assert result["metrics"]["ocr_backend"] == "rapidocr"
 
 
 @patch("plugin.scripting.vision_docling._convert_image_bytes")

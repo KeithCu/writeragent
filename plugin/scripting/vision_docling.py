@@ -26,10 +26,7 @@ _converter_cache: dict[tuple[Any, ...], Any] = {}
 
 
 def _import_docling() -> Any:
-    try:
-        return importlib.import_module("docling.document_converter")
-    except ImportError as exc:
-        raise ImportError("docling is not installed") from exc
+    return importlib.import_module("docling.document_converter")
 
 
 def _cache_key(params: dict[str, Any], *, for_structure: bool) -> tuple[Any, ...]:
@@ -370,8 +367,17 @@ def _metrics_base(params: dict[str, Any]) -> dict[str, Any]:
     return {"engine": "docling", "ocr_backend": resolve_ocr_backend(params)}
 
 
+def _root_import_error(exc: BaseException) -> str:
+    """Prefer the deepest ImportError message (avoid generic wrappers)."""
+    root = exc
+    while root.__cause__ is not None:
+        root = root.__cause__
+    return str(root)
+
+
 def _handle_docling_import_error(exc: Exception, *, helper: str) -> dict[str, Any]:
-    msg = str(exc).lower()
+    root_msg = _root_import_error(exc)
+    msg = root_msg.lower()
     if "surya" in msg or "docling-surya" in msg:
         return _error_result(
             "OCR_BACKEND_UNAVAILABLE",
@@ -379,16 +385,23 @@ def _handle_docling_import_error(exc: Exception, *, helper: str) -> dict[str, An
             helper=helper,
             details={"ocr_backend": "surya"},
         )
-    if "rapidocr" in msg or "ocr_backend" in msg or "unknown ocr_backend" in msg:
+    if "rapidocr" in msg or "ocr_backend" in msg or "unknown ocr_backend" in msg or "paddle" in msg:
         return _error_result(
             "OCR_BACKEND_UNAVAILABLE",
-            f"OCR backend is not available: {exc}. Install the matching extra (e.g. rapidocr-paddle for rapidocr_paddle).",
+            f"OCR backend is not available: {root_msg}. "
+            "For rapidocr without paddle, set ocr_backend to rapidocr or rapidocr_onnx in the template params. "
+            "For rapidocr_paddle: pip install rapidocr-paddle paddlepaddle.",
             helper=helper,
         )
     return _error_result(
         "DOCLING_UNAVAILABLE",
-        f"Install docling in your venv (Settings → Python): {_DOCLING_INSTALL_CMD}",
+        (
+            f"Docling failed to load in the vision worker: {root_msg}. "
+            "Settings → Python → Test checks `import docling.document_converter` (not just docling). "
+            f"Install/repair in your venv: {_DOCLING_INSTALL_CMD}"
+        ),
         helper=helper,
+        details={"import_error": root_msg},
     )
 
 
