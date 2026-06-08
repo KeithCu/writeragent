@@ -12,6 +12,7 @@ from plugin.calc.address_utils import index_to_column
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.manipulator import CellManipulator
 from plugin.calc.python_function import to_calc_compatible
+from plugin.scripting.optimize_common import HELPER_NAMES
 
 
 def is_optimize_result(value: Any) -> bool:
@@ -20,7 +21,13 @@ def is_optimize_result(value: Any) -> bool:
         return False
     if "status" not in value:
         return False
-    return bool(value.get("helper")) or value.get("status") == "error"
+    helper = value.get("helper")
+    if isinstance(helper, str) and helper in HELPER_NAMES:
+        return True
+    if value.get("status") == "error":
+        code = str(value.get("code") or "")
+        return code == "OPTIMIZE_ERROR" or "OPTIMIZ" in code
+    return False
 
 
 def _cell(value: Any) -> Any:

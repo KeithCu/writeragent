@@ -10,7 +10,7 @@ import logging
 from typing import Any
 
 from plugin.framework.errors import ToolExecutionError
-from plugin.scripting.vision_common import resolve_vision_insert_mode
+from plugin.scripting.vision_common import HELPER_NAMES, resolve_vision_insert_mode
 
 log = logging.getLogger(__name__)
 
@@ -21,7 +21,13 @@ def is_vision_result(value: Any) -> bool:
         return False
     if "status" not in value:
         return False
-    return bool(value.get("helper")) or value.get("status") == "error"
+    helper = value.get("helper")
+    if isinstance(helper, str) and helper in HELPER_NAMES:
+        return True
+    if value.get("status") == "error":
+        code = str(value.get("code") or "")
+        return code == "VISION_ERROR" or "VISION" in code
+    return False
 
 
 def vision_html_from_result(result: dict[str, Any]) -> str:

@@ -9,10 +9,16 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from plugin.scripting.python_runner import execute_and_insert_result
-from plugin.scripting.vision_templates import get_vision_script_templates
+from plugin.scripting.vision_templates import get_vision_script_templates, parse_vision_script_header
 from plugin.tests.testing_utils import setup_uno_mocks
 
 setup_uno_mocks()
+
+
+def _vision_params_for(helper: str) -> dict:
+    meta = parse_vision_script_header(get_vision_script_templates()[helper])
+    assert meta is not None
+    return meta.params
 
 
 @patch("plugin.scripting.vision_egress.insert_vision_result")
@@ -37,7 +43,7 @@ def test_execute_and_insert_vision_fast_path(mock_run, mock_insert):
     assert "extract_text" in outcome["status_ok_text"]
     assert "HTML" in outcome["status_ok_text"]
     mock_run.assert_called_once()
-    mock_insert.assert_called_once_with(ctx, doc, mock_run.return_value)
+    mock_insert.assert_called_once_with(ctx, doc, mock_run.return_value, params=_vision_params_for("extract_text"))
 
 
 @patch("plugin.scripting.vision_egress.insert_vision_result")
@@ -61,7 +67,7 @@ def test_execute_and_insert_vision_fast_path_calc(mock_run, mock_insert):
     assert outcome["ok"] is True
     assert "extract_text" in outcome["status_ok_text"]
     mock_run.assert_called_once()
-    mock_insert.assert_called_once_with(ctx, doc, mock_run.return_value)
+    mock_insert.assert_called_once_with(ctx, doc, mock_run.return_value, params=_vision_params_for("extract_text"))
 
 
 @patch("plugin.scripting.vision_egress.insert_vision_result")
@@ -88,7 +94,7 @@ def test_execute_and_insert_vision_structure_writer(mock_run, mock_insert):
     assert outcome["ok"] is True
     assert "extract_structure" in outcome["status_ok_text"]
     assert "HTML" in outcome["status_ok_text"]
-    mock_insert.assert_called_once_with(ctx, doc, mock_run.return_value)
+    mock_insert.assert_called_once_with(ctx, doc, mock_run.return_value, params=_vision_params_for("extract_structure"))
 
 
 @patch("plugin.scripting.vision_egress.insert_vision_result")

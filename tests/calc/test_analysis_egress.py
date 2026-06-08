@@ -11,6 +11,9 @@ from plugin.calc.analysis_egress import format_analysis_for_calc, is_analysis_re
 
 def test_is_analysis_result():
     assert is_analysis_result({"status": "ok", "helper": "describe_data", "metrics": {}})
+    assert is_analysis_result({"status": "ok", "helper": "quick_stats", "metrics": {"rows": 3}})
+    assert is_analysis_result({"status": "error", "code": "ANALYSIS_ERROR", "message": "fail"})
+    assert not is_analysis_result({"status": "ok", "helper": "extract_text", "html": "<p>x</p>"})
     assert not is_analysis_result({"title": "x"})
     assert not is_analysis_result(None)
 

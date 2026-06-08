@@ -23,7 +23,11 @@ def test_is_vision_result_ok():
 
 
 def test_is_vision_result_error():
-    assert is_vision_result({"status": "error", "code": "X", "message": "fail"})
+    assert is_vision_result({"status": "error", "code": "VISION_ERROR", "message": "fail", "helper": "extract_text"})
+
+
+def test_is_vision_result_rejects_analysis_helper():
+    assert not is_vision_result({"status": "ok", "helper": "quick_stats", "metrics": {"rows": 3}})
 
 
 def test_is_vision_result_rejects_missing_status():

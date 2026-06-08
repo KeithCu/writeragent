@@ -791,6 +791,7 @@ def test_format_self_check_success_with_vision_group():
         "p": {
             "docling": "present",
             "rapidocr": "present",
+            "css_inline": "present",
             "paddleocr": "present",
             "paddle": "present",
             "numpy": "present",
@@ -800,11 +801,11 @@ def test_format_self_check_success_with_vision_group():
         "sci": ["numpy"],
         "eda": [],
         "ui": [],
-        "vision": ["docling", "rapidocr", "paddleocr", "paddle", "ultralytics", "skimage"],
+        "vision": ["docling", "rapidocr", "css_inline", "paddleocr", "paddle", "ultralytics", "skimage"],
     }
     msg = _format_self_check_success(data)
     assert "Vision Libraries" in msg
-    assert "Present: docling, rapidocr, paddleocr, paddle" in msg
+    assert "Present: docling, rapidocr, css_inline, paddleocr, paddle" in msg
     assert "Missing: ultralytics, skimage" in msg
     assert "pip install ultralytics" in msg
     assert "pip install scikit-image" in msg

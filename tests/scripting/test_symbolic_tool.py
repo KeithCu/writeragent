@@ -54,7 +54,8 @@ def test_symbolic_math_requires_helper(writer_ctx):
 def test_symbolic_math_in_python_domain():
     from plugin.main import get_tools
 
-    registry = get_tools()
+    with patch("plugin.framework.uno_context.get_desktop", return_value=None):
+        registry = get_tools()
     doc = MagicMock()
     doc.supportsService.return_value = True
     names = {t.name for t in registry.get_tools(doc=doc, active_domain="python", exclude_tiers=())}
