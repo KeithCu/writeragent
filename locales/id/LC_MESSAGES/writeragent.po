@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-07 16:27-0400\n"
+"POT-Creation-Date: 2026-06-08 18:08-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Indonesian <LL@li.org>\n"
@@ -428,6 +428,10 @@ msgstr "Pilih gambar yang disematkan, lalu Jalankan lagi."
 msgid "Anchor the image to a cell, select it, then Run again."
 msgstr "Jangkar gambar ke sel, pilih gambar tersebut, lalu Jalankan lagi."
 
+#: plugin/calc/vision_egress.py
+msgid "No structured tables or text blocks to insert."
+msgstr "Tidak ada tabel atau blok teks terstruktur untuk disisipkan."
+
 #: plugin/calc/python_editor.py
 msgid ""
 "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
@@ -446,7 +450,8 @@ msgstr "Penyunting sel Python"
 msgid "Save as plain text"
 msgstr "Simpan sebagai teks biasa"
 
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
+#: plugin/calc/python_editor.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
 msgid "Save"
 msgstr "Simpan"
 
@@ -524,8 +529,8 @@ msgstr "Batal"
 
 #: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
 #: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner.py
-#: plugin/main.py
+#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py plugin/main.py
 msgid "Error"
 msgstr "Galat"
 
@@ -1120,8 +1125,8 @@ msgstr "Lebar:"
 msgid "Document scripts are too large to store in the document ({0} bytes)."
 msgstr "Skrip dokumen terlalu besar untuk disimpan dalam dokumen ({0} bita)."
 
-#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
-#: plugin/scripting/python_runner.py
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/editor_host.py
 msgid "No document is open to save scripts."
 msgstr "Tidak ada dokumen yang terbuka untuk menyimpan skrip."
 
@@ -1151,12 +1156,188 @@ msgid "Vision Helpers"
 msgstr "Pembantu Visi"
 
 #: plugin/scripting/document_scripts.py
+msgid "Viz Helpers"
+msgstr "Pembantu Viz"
+
+#: plugin/scripting/document_scripts.py
+msgid "Math Helpers"
+msgstr "Pembantu Matematika"
+
+#: plugin/scripting/document_scripts.py
+msgid "Quant Helpers"
+msgstr "Pembantu Kuantitatif"
+
+#: plugin/scripting/document_scripts.py
+msgid "Optimize Helpers"
+msgstr "Pembantu Optimasi"
+
+#: plugin/scripting/document_scripts.py
 msgid "My Scripts"
 msgstr "Skrip Saya"
 
 #: plugin/scripting/document_scripts.py
 msgid "This Document"
 msgstr "Dokumen Ini"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Run Python Script"
+msgstr "Jalankan Skrip Python"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "Jalankan"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "Tutup"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Script:"
+msgstr "Skrip:"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach"
+msgstr "Lampirkan"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Save As..."
+msgstr "Simpan Sebagai..."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Delete"
+msgstr "Hapus"
+
+#: plugin/scripting/python_runner_ui.py
+msgid ""
+"Enter Python code to execute in the user virtual environment.\n"
+"Assign the result to the 'result' variable."
+msgstr ""
+"Masukkan kode Python untuk dijalankan di lingkungan virtual pengguna.\n"
+"Tetapkan hasilnya ke variabel 'result'."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s Disimpan ke Skrip Saya sebagai gantinya."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "Skrip '%s' disimpan ke dokumen ini."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "Skrip '%s' berhasil disimpan."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Sample scratchpad saved successfully."
+msgstr "Buku catatan sampel berhasil disimpan."
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
+msgid "No document is open to attach scripts."
+msgstr "Tidak ada dokumen yang terbuka untuk melampirkan skrip."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Enter script name:"
+msgstr "Masukkan nama skrip:"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach to Document"
+msgstr "Lampirkan ke Dokumen"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr "Skrip bernama '{0}' sudah ada di dokumen ini. Timpa?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach Script"
+msgstr "Lampirkan Skrip"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' attached to this document."
+msgstr "Skrip '%s' dilampirkan ke dokumen ini."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Save Script"
+msgstr "Simpan Skrip"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "Simpan skrip '{0}' ke dokumen ini?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr "Apakah Anda yakin ingin mengosongkan papan coretan Sampel?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Clear Script"
+msgstr "Hapus Skrip"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Sample scratchpad cleared."
+msgstr "Papan coretan Sampel telah dikosongkan."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Are you sure you want to delete script '%s'?"
+msgstr "Apakah Anda yakin ingin menghapus skrip '%s'?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Delete Script"
+msgstr "Hapus Skrip"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
+msgid "No document is open."
+msgstr "Tidak ada dokumen yang terbuka."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "Skrip '%s' telah dihapus."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Execution Error"
+msgstr "Kesalahan Eksekusi"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "Kesalahan tidak dikenal"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Script executed successfully."
+msgstr "Skrip berhasil dijalankan."
+
+#: plugin/scripting/python_runner_ui.py
+msgid ""
+"Script executed successfully, but returned no result and produced no output."
+msgstr ""
+"Skrip berhasil dijalankan, tetapi tidak mengembalikan hasil dan tidak "
+"menghasilkan output."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Success"
+msgstr "Berhasil"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Output"
+msgstr "Output"
+
+#: plugin/scripting/viz_egress.py
+msgid "Unsupported document type for plot insertion."
+msgstr "Tipe dokumen tidak didukung untuk penyisipan plot."
+
+#: plugin/scripting/viz_egress.py plugin/scripting/python_runner.py
+msgid "Viz helper failed."
+msgstr "Pembantu Viz gagal."
+
+#: plugin/scripting/viz_egress.py
+msgid "Viz helper returned no image payload."
+msgstr "Pembantu Viz tidak mengembalikan payload gambar."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1173,10 +1354,6 @@ msgstr "Skrip '{0}' disimpan ke dokumen ini."
 msgid "Saved script '{0}'."
 msgstr "Skrip '{0}' disimpan."
 
-#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
-msgid "No document is open to attach scripts."
-msgstr "Tidak ada dokumen yang terbuka untuk melampirkan skrip."
-
 #: plugin/scripting/editor_host.py
 #, python-brace-format
 msgid "Attached script '{0}' to this document."
@@ -1191,10 +1368,6 @@ msgstr "Skrip bernama '{0}' sudah ada di Skrip Saya."
 #, python-brace-format
 msgid "Copied script '{0}' to My Scripts."
 msgstr "Skrip '{0}' telah disalin ke Skrip Saya."
-
-#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
-msgid "No document is open."
-msgstr "Tidak ada dokumen yang terbuka."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1230,6 +1403,45 @@ msgid ""
 msgstr ""
 "\n"
 "Pembantu Analisis: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Visualization Libraries"
+msgstr "Pustaka Visualisasi"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Viz Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Pembantu Viz: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Computer Algebra"
+msgstr "Aljabar Komputer"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Symbolic Math Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Pembantu Matematika Simbolik: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Quantitative Finance Libraries"
+msgstr "Pustaka Keuangan Kuantitatif"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Quant Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Pembantu Kuantitatif: %(cmd)s"
 
 #: plugin/scripting/venv_worker.py
 msgid "Vision Libraries"
@@ -1294,6 +1506,27 @@ msgstr ""
 #, python-brace-format
 msgid "Image '{name}' could not be exported."
 msgstr "Gambar '{name}' tidak dapat diekspor."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Symbolic helper failed."
+msgstr "Pembantu simbolik gagal."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Symbolic helper returned no LaTeX."
+msgstr "Pembantu simbolik tidak mengembalikan LaTeX."
+
+#: plugin/scripting/symbolic_egress.py
+#, python-brace-format
+msgid "Failed to convert LaTeX to Writer Math: {error}"
+msgstr "Gagal mengonversi LaTeX ke Writer Math: {error}"
+
+#: plugin/scripting/symbolic_egress.py
+msgid "No active document view."
+msgstr "Tidak ada tampilan dokumen aktif."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Unsupported document type for symbolic insertion."
+msgstr "Tipe dokumen tidak didukung untuk penyisipan simbolik."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1364,118 +1597,6 @@ msgstr ""
 "Python notebook."
 
 #: plugin/scripting/python_runner.py
-msgid "Run Python Script"
-msgstr "Jalankan Skrip Python"
-
-#: plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "Jalankan"
-
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "Tutup"
-
-#: plugin/scripting/python_runner.py
-msgid "Script:"
-msgstr "Skrip:"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach"
-msgstr "Lampirkan"
-
-#: plugin/scripting/python_runner.py
-msgid "Save As..."
-msgstr "Simpan Sebagai..."
-
-#: plugin/scripting/python_runner.py
-msgid "Delete"
-msgstr "Hapus"
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Enter Python code to execute in the user virtual environment.\n"
-"Assign the result to the 'result' variable."
-msgstr ""
-"Masukkan kode Python untuk dijalankan di lingkungan virtual pengguna.\n"
-"Tetapkan hasilnya ke variabel 'result'."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "%s Saved to My Scripts instead."
-msgstr "%s Disimpan ke Skrip Saya sebagai gantinya."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' saved to this document."
-msgstr "Skrip '%s' disimpan ke dokumen ini."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' saved successfully."
-msgstr "Skrip '%s' berhasil disimpan."
-
-#: plugin/scripting/python_runner.py
-msgid "Sample scratchpad saved successfully."
-msgstr "Buku catatan sampel berhasil disimpan."
-
-#: plugin/scripting/python_runner.py
-msgid "Enter script name:"
-msgstr "Masukkan nama skrip:"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach to Document"
-msgstr "Lampirkan ke Dokumen"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in this document. Overwrite?"
-msgstr "Skrip bernama '{0}' sudah ada di dokumen ini. Timpa?"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach Script"
-msgstr "Lampirkan Skrip"
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' attached to this document."
-msgstr "Skrip '%s' dilampirkan ke dokumen ini."
-
-#: plugin/scripting/python_runner.py
-msgid "Save Script"
-msgstr "Simpan Skrip"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Save script '{0}' to this document?"
-msgstr "Simpan skrip '{0}' ke dokumen ini?"
-
-#: plugin/scripting/python_runner.py
-msgid "Are you sure you want to clear the Sample scratchpad?"
-msgstr "Apakah Anda yakin ingin mengosongkan papan coretan Sampel?"
-
-#: plugin/scripting/python_runner.py
-msgid "Clear Script"
-msgstr "Hapus Skrip"
-
-#: plugin/scripting/python_runner.py
-msgid "Sample scratchpad cleared."
-msgstr "Papan coretan Sampel telah dikosongkan."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Are you sure you want to delete script '%s'?"
-msgstr "Apakah Anda yakin ingin menghapus skrip '%s'?"
-
-#: plugin/scripting/python_runner.py
-msgid "Delete Script"
-msgstr "Hapus Skrip"
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' deleted."
-msgstr "Skrip '%s' telah dihapus."
-
-#: plugin/scripting/python_runner.py
 #, python-format
 msgid "Failed to insert result into Calc: %s"
 msgstr "Gagal menyisipkan hasil ke Calc: %s"
@@ -1489,6 +1610,21 @@ msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
 msgstr "Penyisipan hasil ke Draw/Impress belum didukung. PR diterima!"
 
 #: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Plot inserted ({title}). (took {time})"
+msgstr "Plot disisipkan ({title}). (memakan waktu {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Viz '{helper}' completed. {msg}"
+msgstr "Viz '{helper}' selesai. {msg}"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr "Math '{helper}' selesai. Disisipkan: {preview} (memakan waktu {time})"
+
+#: plugin/scripting/python_runner.py
 msgid "Vision helpers require a Writer or Calc document."
 msgstr "Pembantu visi memerlukan dokumen Writer atau Calc."
 
@@ -1498,28 +1634,79 @@ msgstr "Pembantu visi gagal."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
-msgid "Vision '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr "Visi '{helper}' selesai. Menulis {rows} baris. (memakan waktu {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
 msgid "Failed to insert result: {error} (took {time})"
 msgstr "Gagal menyisipkan hasil: {error} (memakan waktu {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Vision '{helper}' completed. Found {blocks} blocks and {tables} tables. "
-"(took {time})"
+"Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
+"tables). (took {time})"
 msgstr ""
-"Visi '{helper}' selesai. Menemukan {blocks} blok dan {tables} tabel. "
+"Vision '{helper}' selesai. HTML disisipkan ({blocks} blok, {tables} tabel). "
 "(memakan waktu {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
-msgid "Vision '{helper}' completed. Extracted {lines} lines. (took {time})"
+msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
 msgstr ""
-"Vision '{helper}' selesai. Mengekstrak {lines} baris. (memakan waktu {time})"
+"Vision '{helper}' selesai. HTML terformat disisipkan. (memakan waktu {time})"
+
+#: plugin/scripting/python_runner.py
+msgid "Viz helpers require a Writer or Calc document."
+msgstr "Pembantu Viz memerlukan dokumen Writer atau Calc."
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Viz helper requires a data range. Select cells or enter a range in the Data "
+"field."
+msgstr ""
+"Pembantu Viz memerlukan rentang data. Pilih sel atau masukkan rentang di "
+"kolom Data."
+
+#: plugin/scripting/python_runner.py
+msgid "Math helpers require a Writer or Calc document."
+msgstr "Pembantu Math memerlukan dokumen Writer atau Calc."
+
+#: plugin/scripting/python_runner.py
+msgid "Math helper failed."
+msgstr "Pembantu Math gagal."
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Quant helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"Pembantu Quant memerlukan rentang data. Pilih sel atau masukkan rentang di "
+"kolom Data."
+
+#: plugin/scripting/python_runner.py
+msgid "Quant failed."
+msgstr "Quant gagal."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Quant '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"Quant '{helper}' selesai. Menulis {rows} baris. (memakan waktu {time})"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Optimization helper requires a data range. Select cells or enter a range in "
+"the Data field."
+msgstr ""
+"Pembantu optimasi memerlukan rentang data. Pilih sel atau masukkan rentang "
+"di kolom Data."
+
+#: plugin/scripting/python_runner.py
+msgid "Optimization failed."
+msgstr "Optimasi gagal."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Optimize '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"Optimasi '{helper}' selesai. Menulis {rows} baris. (memakan waktu {time})"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -1540,10 +1727,6 @@ msgstr ""
 "Analisis '{helper}' selesai. Menulis {rows} baris. (memakan waktu {time})"
 
 #: plugin/scripting/python_runner.py
-msgid "Unknown error"
-msgstr "Kesalahan tidak dikenal"
-
-#: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
 "Script executed successfully, but returned no result and produced no output."
@@ -1562,29 +1745,6 @@ msgstr ""
 #, python-brace-format
 msgid "Script executed successfully. (took {time})"
 msgstr "Skrip berhasil dijalankan. (memakan waktu {time})"
-
-#: plugin/scripting/python_runner.py
-msgid "Execution Error"
-msgstr "Kesalahan Eksekusi"
-
-#: plugin/scripting/python_runner.py
-msgid "Script executed successfully."
-msgstr "Skrip berhasil dijalankan."
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Script executed successfully, but returned no result and produced no output."
-msgstr ""
-"Skrip berhasil dijalankan, tetapi tidak mengembalikan hasil dan tidak "
-"menghasilkan output."
-
-#: plugin/scripting/python_runner.py
-msgid "Success"
-msgstr "Berhasil"
-
-#: plugin/scripting/python_runner.py
-msgid "Output"
-msgstr "Output"
 
 #: plugin/scripting/python_runner.py
 msgid "Script saved."
@@ -2309,6 +2469,22 @@ msgid "Group unassigned text into clusters for messy layouts."
 msgstr ""
 "Kelompokkan teks yang tidak ditetapkan ke dalam klaster untuk tata letak "
 "yang berantakan."
+
+msgid "Document insert mode"
+msgstr "Mode sisip dokumen"
+
+msgid ""
+"html = Docling HTML import (default). structured = bbox column layout in "
+"Writer; native Calc cells for extract_structure tables."
+msgstr ""
+"html = Impor HTML Docling (bawaan). structured = tata letak kolom bbox di "
+"Writer; sel Calc asli untuk tabel extract_structure."
+
+msgid "Standard HTML"
+msgstr "HTML Standar"
+
+msgid "Structured (layout / cell grid)"
+msgstr "Terstruktur (tata letak / kisi sel)"
 
 msgid "Layout model"
 msgstr "Model tata letak"

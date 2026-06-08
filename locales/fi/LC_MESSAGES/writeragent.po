@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-07 16:27-0400\n"
+"POT-Creation-Date: 2026-06-08 18:08-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Finnish <LL@li.org>\n"
@@ -421,6 +421,10 @@ msgstr "Valitse upotettu kuva ja suorita uudelleen."
 msgid "Anchor the image to a cell, select it, then Run again."
 msgstr "Ankkuroi kuva soluun, valitse se ja suorita uudelleen."
 
+#: plugin/calc/vision_egress.py
+msgid "No structured tables or text blocks to insert."
+msgstr "Ei jäsenneltyjä taulukoita tai tekstilohkoja lisättäväksi."
+
 #: plugin/calc/python_editor.py
 msgid ""
 "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
@@ -439,7 +443,8 @@ msgstr "Python-solueditori"
 msgid "Save as plain text"
 msgstr "Tallenna pelkkänä tekstinä"
 
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
+#: plugin/calc/python_editor.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
 msgid "Save"
 msgstr "Tallenna"
 
@@ -515,8 +520,8 @@ msgstr "Peruuta"
 
 #: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
 #: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner.py
-#: plugin/main.py
+#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py plugin/main.py
 msgid "Error"
 msgstr "Virhe"
 
@@ -1113,8 +1118,8 @@ msgstr ""
 "Asiakirjan skriptit ovat liian suuria tallennettavaksi asiakirjaan ({0} "
 "tavua)."
 
-#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
-#: plugin/scripting/python_runner.py
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/editor_host.py
 msgid "No document is open to save scripts."
 msgstr "Yhtään asiakirjaa ei ole avattu skriptien tallentamista varten."
 
@@ -1144,12 +1149,188 @@ msgid "Vision Helpers"
 msgstr "Näköapulaiset"
 
 #: plugin/scripting/document_scripts.py
+msgid "Viz Helpers"
+msgstr "Visualisointiapulaiset"
+
+#: plugin/scripting/document_scripts.py
+msgid "Math Helpers"
+msgstr "Matematiikka-apulaiset"
+
+#: plugin/scripting/document_scripts.py
+msgid "Quant Helpers"
+msgstr "Kvanttiapulaiset"
+
+#: plugin/scripting/document_scripts.py
+msgid "Optimize Helpers"
+msgstr "Optimointiapulaiset"
+
+#: plugin/scripting/document_scripts.py
 msgid "My Scripts"
 msgstr "Omat skriptit"
 
 #: plugin/scripting/document_scripts.py
 msgid "This Document"
 msgstr "Tämä asiakirja"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Run Python Script"
+msgstr "Suorita Python-skripti"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "Suorita"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "Sulje"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Script:"
+msgstr "Komentosarja:"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach"
+msgstr "Liitä"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Save As..."
+msgstr "Tallenna nimellä..."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Delete"
+msgstr "Poista"
+
+#: plugin/scripting/python_runner_ui.py
+msgid ""
+"Enter Python code to execute in the user virtual environment.\n"
+"Assign the result to the 'result' variable."
+msgstr ""
+"Kirjoita Python-koodi, joka suoritetaan käyttäjän virtuaaliympäristössä.\n"
+"Sijoita tulos 'result'-muuttujaan."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s Tallennettu sen sijaan Omiin skripteihin."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "Skripti '%s' tallennettu tähän asiakirjaan."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "Komentosarja \"%s\" tallennettiin onnistuneesti."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Sample scratchpad saved successfully."
+msgstr "Luonnoslehtiö tallennettiin onnistuneesti."
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
+msgid "No document is open to attach scripts."
+msgstr "Ei avointa asiakirjaa skriptien liittämistä varten."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Enter script name:"
+msgstr "Kirjoita komentosarjan nimi:"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach to Document"
+msgstr "Liitä asiakirjaan"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr "Asiakirjassa on jo komentosarja nimeltä '{0}'. Korvataanko se?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach Script"
+msgstr "Liitä komentosarja"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' attached to this document."
+msgstr "Komentosarja '%s' liitetty tähän asiakirjaan."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Save Script"
+msgstr "Tallenna skripti"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "Tallennetaanko komentosarja '{0}' tähän asiakirjaan?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr "Haluatko varmasti tyhjentää esimerkkilehtiön?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Clear Script"
+msgstr "Tyhjennä skripti"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Sample scratchpad cleared."
+msgstr "Esimerkkilehtiö tyhjennetty."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Are you sure you want to delete script '%s'?"
+msgstr "Haluatko varmasti poistaa skriptin \"%s\"?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Delete Script"
+msgstr "Poista skripti"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
+msgid "No document is open."
+msgstr "Ei avointa asiakirjaa."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "Skripti \"%s\" poistettu."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Execution Error"
+msgstr "Suoritusvirhe"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "Tuntematon virhe"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Script executed successfully."
+msgstr "Skripti suoritettu onnistuneesti."
+
+#: plugin/scripting/python_runner_ui.py
+msgid ""
+"Script executed successfully, but returned no result and produced no output."
+msgstr ""
+"Skripti suoritettiin onnistuneesti, mutta se ei palauttanut tulosta eikä "
+"tuottanut tulostetta."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Success"
+msgstr "Onnistui"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Output"
+msgstr "Tuloste"
+
+#: plugin/scripting/viz_egress.py
+msgid "Unsupported document type for plot insertion."
+msgstr "Tiedostotyyppi ei tue kaavion lisäämistä."
+
+#: plugin/scripting/viz_egress.py plugin/scripting/python_runner.py
+msgid "Viz helper failed."
+msgstr "Visualisointiapulainen epäonnistui."
+
+#: plugin/scripting/viz_egress.py
+msgid "Viz helper returned no image payload."
+msgstr "Visualisointiapulainen ei palauttanut kuvadataa."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1166,10 +1347,6 @@ msgstr "Skripti '{0}' tallennettiin tähän asiakirjaan."
 msgid "Saved script '{0}'."
 msgstr "Skripti '{0}' tallennettiin."
 
-#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
-msgid "No document is open to attach scripts."
-msgstr "Ei avointa asiakirjaa skriptien liittämistä varten."
-
 #: plugin/scripting/editor_host.py
 #, python-brace-format
 msgid "Attached script '{0}' to this document."
@@ -1184,10 +1361,6 @@ msgstr "Skripti nimeltä '{0}' on jo olemassa Omissa skripteissä."
 #, python-brace-format
 msgid "Copied script '{0}' to My Scripts."
 msgstr "Skripti '{0}' kopioitu Omiin skripteihin."
-
-#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
-msgid "No document is open."
-msgstr "Ei avointa asiakirjaa."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1223,6 +1396,45 @@ msgid ""
 msgstr ""
 "\n"
 "Analyysiapulaiset: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Visualization Libraries"
+msgstr "Visualisointikirjastot"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Viz Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Visualisointiapulaiset: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Computer Algebra"
+msgstr "Tietokonealgebra"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Symbolic Math Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Symbolisen matematiikan apuvälineet: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Quantitative Finance Libraries"
+msgstr "Kvantitatiivisen rahoituksen kirjastot"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Quant Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Kvant-apuvälineet: %(cmd)s"
 
 #: plugin/scripting/venv_worker.py
 msgid "Vision Libraries"
@@ -1288,6 +1500,27 @@ msgstr ""
 #, python-brace-format
 msgid "Image '{name}' could not be exported."
 msgstr "Kuvaa '{name}' ei voitu viedä."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Symbolic helper failed."
+msgstr "Symbolinen apuväline epäonnistui."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Symbolic helper returned no LaTeX."
+msgstr "Symbolinen apuväline ei palauttanut LaTeX-koodia."
+
+#: plugin/scripting/symbolic_egress.py
+#, python-brace-format
+msgid "Failed to convert LaTeX to Writer Math: {error}"
+msgstr "LaTeX-koodin muuntaminen Writer Math -muotoon epäonnistui: {error}"
+
+#: plugin/scripting/symbolic_egress.py
+msgid "No active document view."
+msgstr "Ei aktiivista asiakirjanäkymää."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Unsupported document type for symbolic insertion."
+msgstr "Tuetun asiakirjatyypin puute symbolista lisäystä varten."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1358,118 +1591,6 @@ msgstr ""
 " nollauksen käyttöön."
 
 #: plugin/scripting/python_runner.py
-msgid "Run Python Script"
-msgstr "Suorita Python-skripti"
-
-#: plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "Suorita"
-
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "Sulje"
-
-#: plugin/scripting/python_runner.py
-msgid "Script:"
-msgstr "Komentosarja:"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach"
-msgstr "Liitä"
-
-#: plugin/scripting/python_runner.py
-msgid "Save As..."
-msgstr "Tallenna nimellä..."
-
-#: plugin/scripting/python_runner.py
-msgid "Delete"
-msgstr "Poista"
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Enter Python code to execute in the user virtual environment.\n"
-"Assign the result to the 'result' variable."
-msgstr ""
-"Kirjoita Python-koodi, joka suoritetaan käyttäjän virtuaaliympäristössä.\n"
-"Sijoita tulos 'result'-muuttujaan."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "%s Saved to My Scripts instead."
-msgstr "%s Tallennettu sen sijaan Omiin skripteihin."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' saved to this document."
-msgstr "Skripti '%s' tallennettu tähän asiakirjaan."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' saved successfully."
-msgstr "Komentosarja \"%s\" tallennettiin onnistuneesti."
-
-#: plugin/scripting/python_runner.py
-msgid "Sample scratchpad saved successfully."
-msgstr "Luonnoslehtiö tallennettiin onnistuneesti."
-
-#: plugin/scripting/python_runner.py
-msgid "Enter script name:"
-msgstr "Kirjoita komentosarjan nimi:"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach to Document"
-msgstr "Liitä asiakirjaan"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in this document. Overwrite?"
-msgstr "Asiakirjassa on jo komentosarja nimeltä '{0}'. Korvataanko se?"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach Script"
-msgstr "Liitä komentosarja"
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' attached to this document."
-msgstr "Komentosarja '%s' liitetty tähän asiakirjaan."
-
-#: plugin/scripting/python_runner.py
-msgid "Save Script"
-msgstr "Tallenna skripti"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Save script '{0}' to this document?"
-msgstr "Tallennetaanko komentosarja '{0}' tähän asiakirjaan?"
-
-#: plugin/scripting/python_runner.py
-msgid "Are you sure you want to clear the Sample scratchpad?"
-msgstr "Haluatko varmasti tyhjentää esimerkkilehtiön?"
-
-#: plugin/scripting/python_runner.py
-msgid "Clear Script"
-msgstr "Tyhjennä skripti"
-
-#: plugin/scripting/python_runner.py
-msgid "Sample scratchpad cleared."
-msgstr "Esimerkkilehtiö tyhjennetty."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Are you sure you want to delete script '%s'?"
-msgstr "Haluatko varmasti poistaa skriptin \"%s\"?"
-
-#: plugin/scripting/python_runner.py
-msgid "Delete Script"
-msgstr "Poista skripti"
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' deleted."
-msgstr "Skripti \"%s\" poistettu."
-
-#: plugin/scripting/python_runner.py
 #, python-format
 msgid "Failed to insert result into Calc: %s"
 msgstr "Tuloksen lisääminen Calc-tiedostoon epäonnistui: %s"
@@ -1485,6 +1606,21 @@ msgstr ""
 "pyynnöt ovat tervetulleita!"
 
 #: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Plot inserted ({title}). (took {time})"
+msgstr "Kuvaaja lisätty ({title}). (kesti {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Viz '{helper}' completed. {msg}"
+msgstr "Viz '{helper}' suoritettu. {msg}"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr "Math '{helper}' suoritettu. Lisätty: {preview} (kesti {time})"
+
+#: plugin/scripting/python_runner.py
 msgid "Vision helpers require a Writer or Calc document."
 msgstr "Näköapulaiset vaativat Writer- tai Calc-asiakirjan."
 
@@ -1494,29 +1630,77 @@ msgstr "Näköapulainen epäonnistui."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
-msgid "Vision '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr ""
-"Näköapulainen '{helper}' suoritettu. Kirjoitettiin {rows} riviä. (kesti "
-"{time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
 msgid "Failed to insert result: {error} (took {time})"
 msgstr "Tuloksen lisääminen epäonnistui: {error} (kesti {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Vision '{helper}' completed. Found {blocks} blocks and {tables} tables. "
-"(took {time})"
+"Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
+"tables). (took {time})"
 msgstr ""
-"Näköapulainen '{helper}' suoritettu. Löydettiin {blocks} lohkoa ja {tables} "
-"taulukkoa. (kesti {time})"
+"Vision '{helper}' suoritettu. Lisätty HTML ({blocks} lohkoa, {tables} "
+"taulukkoa). (kesti {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
-msgid "Vision '{helper}' completed. Extracted {lines} lines. (took {time})"
-msgstr "Vision '{helper}' suoritettu. Poimittu {lines} riviä. (kesti {time})"
+msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
+msgstr "Vision '{helper}' suoritettu. Lisätty muotoiltu HTML. (kesti {time})"
+
+#: plugin/scripting/python_runner.py
+msgid "Viz helpers require a Writer or Calc document."
+msgstr "Viz-apulaiset vaativat Writer- tai Calc-asiakirjan."
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Viz helper requires a data range. Select cells or enter a range in the Data "
+"field."
+msgstr ""
+"Viz-apulainen vaatii tietoalueen. Valitse solut tai syötä alue Tieto-"
+"kenttään."
+
+#: plugin/scripting/python_runner.py
+msgid "Math helpers require a Writer or Calc document."
+msgstr "Math-apulaiset vaativat Writer- tai Calc-asiakirjan."
+
+#: plugin/scripting/python_runner.py
+msgid "Math helper failed."
+msgstr "Math-apulainen epäonnistui."
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Quant helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"Quant-apulainen vaatii tietoalueen. Valitse solut tai syötä alue Tieto-"
+"kenttään."
+
+#: plugin/scripting/python_runner.py
+msgid "Quant failed."
+msgstr "Quant epäonnistui."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Quant '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr "Quant '{helper}' valmis. Kirjoitettiin {rows} riviä. (kesti {time})"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Optimization helper requires a data range. Select cells or enter a range in "
+"the Data field."
+msgstr ""
+"Optimointiapulainen vaatii tietoalueen. Valitse solut tai syötä alue Tieto-"
+"kenttään."
+
+#: plugin/scripting/python_runner.py
+msgid "Optimization failed."
+msgstr "Optimointi epäonnistui."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Optimize '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"Optimointi '{helper}' valmis. Kirjoitettiin {rows} riviä. (kesti {time})"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -1537,10 +1721,6 @@ msgstr ""
 "Analyysi '{helper}' suoritettu. Kirjoitettu {rows} riviä. (kesti {time})"
 
 #: plugin/scripting/python_runner.py
-msgid "Unknown error"
-msgstr "Tuntematon virhe"
-
-#: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
 "Script executed successfully, but returned no result and produced no output."
@@ -1558,29 +1738,6 @@ msgstr "Tiedostotyyppiä ei tueta tuloksen lisäämiseen. (kesti {time})"
 #, python-brace-format
 msgid "Script executed successfully. (took {time})"
 msgstr "Skripti suoritettiin onnistuneesti. (kesti {time})"
-
-#: plugin/scripting/python_runner.py
-msgid "Execution Error"
-msgstr "Suoritusvirhe"
-
-#: plugin/scripting/python_runner.py
-msgid "Script executed successfully."
-msgstr "Skripti suoritettu onnistuneesti."
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Script executed successfully, but returned no result and produced no output."
-msgstr ""
-"Skripti suoritettiin onnistuneesti, mutta se ei palauttanut tulosta eikä "
-"tuottanut tulostetta."
-
-#: plugin/scripting/python_runner.py
-msgid "Success"
-msgstr "Onnistui"
-
-#: plugin/scripting/python_runner.py
-msgid "Output"
-msgstr "Tuloste"
 
 #: plugin/scripting/python_runner.py
 msgid "Script saved."
@@ -2304,6 +2461,22 @@ msgstr "Säilytä orvot tekstiryhmät"
 
 msgid "Group unassigned text into clusters for messy layouts."
 msgstr "Ryhmittele määrittämätön teksti ryhmiksi epäsiisteissä asetteluissa."
+
+msgid "Document insert mode"
+msgstr "Asiakirjan lisäystila"
+
+msgid ""
+"html = Docling HTML import (default). structured = bbox column layout in "
+"Writer; native Calc cells for extract_structure tables."
+msgstr ""
+"html = Docling HTML -tuonti (oletus). structured = bbox-sarakeasettelu "
+"Writerissa; natiivit Calc-solut extract_structure-taulukoille."
+
+msgid "Standard HTML"
+msgstr "Standardi HTML"
+
+msgid "Structured (layout / cell grid)"
+msgstr "Strukturoitu (asettelu / soluruudukko)"
 
 msgid "Layout model"
 msgstr "Asettelumalli"

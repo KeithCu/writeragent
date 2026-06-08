@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-07 16:27-0400\n"
+"POT-Creation-Date: 2026-06-08 18:08-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Slovak <LL@li.org>\n"
@@ -424,6 +424,10 @@ msgstr "Vyberte vložený obrázok a potom znova spustite."
 msgid "Anchor the image to a cell, select it, then Run again."
 msgstr "Ukotvite obrázok do bunky, vyberte ho a potom znova spustite."
 
+#: plugin/calc/vision_egress.py
+msgid "No structured tables or text blocks to insert."
+msgstr "Žiadne štruktúrované tabuľky alebo textové bloky na vloženie."
+
 #: plugin/calc/python_editor.py
 msgid ""
 "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
@@ -442,7 +446,8 @@ msgstr "Editor buniek Python"
 msgid "Save as plain text"
 msgstr "Uložiť ako čistý text"
 
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
+#: plugin/calc/python_editor.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
 msgid "Save"
 msgstr "Uložiť"
 
@@ -517,8 +522,8 @@ msgstr "Zrušiť"
 
 #: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
 #: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner.py
-#: plugin/main.py
+#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py plugin/main.py
 msgid "Error"
 msgstr "Chyba"
 
@@ -1117,8 +1122,8 @@ msgid "Document scripts are too large to store in the document ({0} bytes)."
 msgstr ""
 "Skripty dokumentu sú príliš veľké na uloženie do dokumentu ({0} bajtov)."
 
-#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
-#: plugin/scripting/python_runner.py
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/editor_host.py
 msgid "No document is open to save scripts."
 msgstr "Nie je otvorený žiadny dokument na uloženie skriptov."
 
@@ -1148,12 +1153,188 @@ msgid "Vision Helpers"
 msgstr "Pomocníci videnia"
 
 #: plugin/scripting/document_scripts.py
+msgid "Viz Helpers"
+msgstr "Vizualizační pomocníci"
+
+#: plugin/scripting/document_scripts.py
+msgid "Math Helpers"
+msgstr "Matematickí pomocníci"
+
+#: plugin/scripting/document_scripts.py
+msgid "Quant Helpers"
+msgstr "Kvantitatívni pomocníci"
+
+#: plugin/scripting/document_scripts.py
+msgid "Optimize Helpers"
+msgstr "Optimalizační pomocníci"
+
+#: plugin/scripting/document_scripts.py
 msgid "My Scripts"
 msgstr "Moje skripty"
 
 #: plugin/scripting/document_scripts.py
 msgid "This Document"
 msgstr "Tento dokument"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Run Python Script"
+msgstr "Spustiť skript Python"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "Spustiť"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "Zavrieť"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Script:"
+msgstr "Skript:"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach"
+msgstr "Pripojiť"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Save As..."
+msgstr "Uložiť ako..."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Delete"
+msgstr "Odstrániť"
+
+#: plugin/scripting/python_runner_ui.py
+msgid ""
+"Enter Python code to execute in the user virtual environment.\n"
+"Assign the result to the 'result' variable."
+msgstr ""
+"Zadajte kód v jazyku Python, ktorý sa má vykonať v používateľskom virtuálnom prostredí.\n"
+"Výsledok priraďte k premennej 'result'."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s Namiesto toho uložené v časti Moje skripty."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "Skript „%s“ bol uložený do tohto dokumentu."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "Skript „%s“ bol úspešne uložený."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Sample scratchpad saved successfully."
+msgstr "Vzorový poznámkový blok bol úspešne uložený."
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
+msgid "No document is open to attach scripts."
+msgstr "Žiadny dokument nie je otvorený na pripojenie skriptov."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Enter script name:"
+msgstr "Zadajte názov skriptu:"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach to Document"
+msgstr "Pripojiť k dokumentu"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr "Skript s názvom „{0}“ už v tomto dokumente existuje. Prepísať?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach Script"
+msgstr "Pripojiť skript"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' attached to this document."
+msgstr "Skript „%s“ bol pripojený k tomuto dokumentu."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Save Script"
+msgstr "Uložiť skript"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "Uložiť skript „{0}“ do tohto dokumentu?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr "Naozaj chcete vymazať vzorový poznámkový blok?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Clear Script"
+msgstr "Vymazať skript"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Sample scratchpad cleared."
+msgstr "Vzorový poznámkový blok bol vymazaný."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Are you sure you want to delete script '%s'?"
+msgstr "Naozaj chcete odstrániť skript „%s“?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Delete Script"
+msgstr "Odstrániť skript"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
+msgid "No document is open."
+msgstr "Žiadny dokument nie je otvorený."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "Skript „%s“ bol odstránený."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Execution Error"
+msgstr "Chyba pri vykonávaní"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "Neznáma chyba"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Script executed successfully."
+msgstr "Skript bol úspešne vykonaný."
+
+#: plugin/scripting/python_runner_ui.py
+msgid ""
+"Script executed successfully, but returned no result and produced no output."
+msgstr ""
+"Skript bol úspešne vykonaný, ale nevrátil žiadny výsledok a nevyprodukoval "
+"žiadny výstup."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Success"
+msgstr "Úspech"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Output"
+msgstr "Výstup"
+
+#: plugin/scripting/viz_egress.py
+msgid "Unsupported document type for plot insertion."
+msgstr "Nepodporovaný typ dokumentu na vloženie grafu."
+
+#: plugin/scripting/viz_egress.py plugin/scripting/python_runner.py
+msgid "Viz helper failed."
+msgstr "Vizualizačný pomocník zlyhal."
+
+#: plugin/scripting/viz_egress.py
+msgid "Viz helper returned no image payload."
+msgstr "Vizualizačný pomocník nevrátil žiadne obrazové dáta."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1170,10 +1351,6 @@ msgstr "Skript „{0}“ bol uložený do tohto dokumentu."
 msgid "Saved script '{0}'."
 msgstr "Skript „{0}“ bol uložený."
 
-#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
-msgid "No document is open to attach scripts."
-msgstr "Žiadny dokument nie je otvorený na pripojenie skriptov."
-
 #: plugin/scripting/editor_host.py
 #, python-brace-format
 msgid "Attached script '{0}' to this document."
@@ -1188,10 +1365,6 @@ msgstr "Skript s názvom „{0}“ už v časti Moje skripty existuje."
 #, python-brace-format
 msgid "Copied script '{0}' to My Scripts."
 msgstr "Skript „{0}“ bol skopírovaný do časti Moje skripty."
-
-#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
-msgid "No document is open."
-msgstr "Žiadny dokument nie je otvorený."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1227,6 +1400,45 @@ msgid ""
 msgstr ""
 "\n"
 "Pomocníci analýzy: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Visualization Libraries"
+msgstr "Vizualizačné knižnice"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Viz Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Vizualizační pomocníci: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Computer Algebra"
+msgstr "Počítačová algebra"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Symbolic Math Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Pomocníci pre symbolickú matematiku: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Quantitative Finance Libraries"
+msgstr "Knižnice pre kvantitatívne financie"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Quant Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Kvantitatívni pomocníci: %(cmd)s"
 
 #: plugin/scripting/venv_worker.py
 msgid "Vision Libraries"
@@ -1292,6 +1504,27 @@ msgstr ""
 #, python-brace-format
 msgid "Image '{name}' could not be exported."
 msgstr "Obrázok '{name}' sa nepodarilo exportovať."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Symbolic helper failed."
+msgstr "Symbolický pomocník zlyhal."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Symbolic helper returned no LaTeX."
+msgstr "Symbolický pomocník nevrátil žiadny LaTeX."
+
+#: plugin/scripting/symbolic_egress.py
+#, python-brace-format
+msgid "Failed to convert LaTeX to Writer Math: {error}"
+msgstr "Konverzia LaTeXu do Writer Math zlyhala: {error}"
+
+#: plugin/scripting/symbolic_egress.py
+msgid "No active document view."
+msgstr "Žiadne aktívne zobrazenie dokumentu."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Unsupported document type for symbolic insertion."
+msgstr "Nepodporovaný typ dokumentu pre symbolické vloženie."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1363,118 +1596,6 @@ msgstr ""
 "Pythonu pre poznámkový blok."
 
 #: plugin/scripting/python_runner.py
-msgid "Run Python Script"
-msgstr "Spustiť skript Python"
-
-#: plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "Spustiť"
-
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "Zavrieť"
-
-#: plugin/scripting/python_runner.py
-msgid "Script:"
-msgstr "Skript:"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach"
-msgstr "Pripojiť"
-
-#: plugin/scripting/python_runner.py
-msgid "Save As..."
-msgstr "Uložiť ako..."
-
-#: plugin/scripting/python_runner.py
-msgid "Delete"
-msgstr "Odstrániť"
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Enter Python code to execute in the user virtual environment.\n"
-"Assign the result to the 'result' variable."
-msgstr ""
-"Zadajte kód v jazyku Python, ktorý sa má vykonať v používateľskom virtuálnom prostredí.\n"
-"Výsledok priraďte k premennej 'result'."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "%s Saved to My Scripts instead."
-msgstr "%s Namiesto toho uložené v časti Moje skripty."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' saved to this document."
-msgstr "Skript „%s“ bol uložený do tohto dokumentu."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' saved successfully."
-msgstr "Skript „%s“ bol úspešne uložený."
-
-#: plugin/scripting/python_runner.py
-msgid "Sample scratchpad saved successfully."
-msgstr "Vzorový poznámkový blok bol úspešne uložený."
-
-#: plugin/scripting/python_runner.py
-msgid "Enter script name:"
-msgstr "Zadajte názov skriptu:"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach to Document"
-msgstr "Pripojiť k dokumentu"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in this document. Overwrite?"
-msgstr "Skript s názvom „{0}“ už v tomto dokumente existuje. Prepísať?"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach Script"
-msgstr "Pripojiť skript"
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' attached to this document."
-msgstr "Skript „%s“ bol pripojený k tomuto dokumentu."
-
-#: plugin/scripting/python_runner.py
-msgid "Save Script"
-msgstr "Uložiť skript"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Save script '{0}' to this document?"
-msgstr "Uložiť skript „{0}“ do tohto dokumentu?"
-
-#: plugin/scripting/python_runner.py
-msgid "Are you sure you want to clear the Sample scratchpad?"
-msgstr "Naozaj chcete vymazať vzorový poznámkový blok?"
-
-#: plugin/scripting/python_runner.py
-msgid "Clear Script"
-msgstr "Vymazať skript"
-
-#: plugin/scripting/python_runner.py
-msgid "Sample scratchpad cleared."
-msgstr "Vzorový poznámkový blok bol vymazaný."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Are you sure you want to delete script '%s'?"
-msgstr "Naozaj chcete odstrániť skript „%s“?"
-
-#: plugin/scripting/python_runner.py
-msgid "Delete Script"
-msgstr "Odstrániť skript"
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' deleted."
-msgstr "Skript „%s“ bol odstránený."
-
-#: plugin/scripting/python_runner.py
 #, python-format
 msgid "Failed to insert result into Calc: %s"
 msgstr "Vloženie výsledku do Calc zlyhalo: %s"
@@ -1489,6 +1610,21 @@ msgstr ""
 "Vloženie výsledku do Draw/Impress zatiaľ nie je podporované. PR sú vítané!"
 
 #: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Plot inserted ({title}). (took {time})"
+msgstr "Graf vložený ({title}). (trvalo {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Viz '{helper}' completed. {msg}"
+msgstr "Viz '{helper}' dokončený. {msg}"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr "Math '{helper}' dokončený. Vložené: {preview} (trvalo {time})"
+
+#: plugin/scripting/python_runner.py
 msgid "Vision helpers require a Writer or Calc document."
 msgstr "Pomocníci pre videnie vyžadujú dokument Writer alebo Calc."
 
@@ -1498,29 +1634,80 @@ msgstr "Pomocník pre videnie zlyhal."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
-msgid "Vision '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr ""
-"Videnie '{helper}' dokončené. Zapísaných {rows} riadkov. (trvalo {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
 msgid "Failed to insert result: {error} (took {time})"
 msgstr "Nepodarilo sa vložiť výsledok: {error} (trvalo {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Vision '{helper}' completed. Found {blocks} blocks and {tables} tables. "
-"(took {time})"
+"Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
+"tables). (took {time})"
 msgstr ""
-"Videnie '{helper}' dokončené. Nájdených {blocks} blokov a {tables} tabuliek."
-" (trvalo {time})"
+"Vision '{helper}' dokončený. Vložené HTML ({blocks} blokov, {tables} "
+"tabuliek). (trvalo {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
-msgid "Vision '{helper}' completed. Extracted {lines} lines. (took {time})"
+msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
 msgstr ""
-"Vízia '{helper}' dokončená. Extrahovaných {lines} riadkov. (trvalo {time})"
+"Vision '{helper}' dokončený. Vložené formátované HTML. (trvalo {time})"
+
+#: plugin/scripting/python_runner.py
+msgid "Viz helpers require a Writer or Calc document."
+msgstr "Pomocníci Viz vyžadujú dokument Writer alebo Calc."
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Viz helper requires a data range. Select cells or enter a range in the Data "
+"field."
+msgstr ""
+"Pomocník Viz vyžaduje rozsah údajov. Vyberte bunky alebo zadajte rozsah do "
+"poľa Údaje."
+
+#: plugin/scripting/python_runner.py
+msgid "Math helpers require a Writer or Calc document."
+msgstr "Pomocníci Math vyžadujú dokument Writer alebo Calc."
+
+#: plugin/scripting/python_runner.py
+msgid "Math helper failed."
+msgstr "Pomocník Math zlyhal."
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Quant helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"Pomocník Quant vyžaduje rozsah údajov. Vyberte bunky alebo zadajte rozsah do"
+" poľa Údaje."
+
+#: plugin/scripting/python_runner.py
+msgid "Quant failed."
+msgstr "Quant zlyhal."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Quant '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"Quant '{helper}' dokončený. Zapísaných {rows} riadkov. (trvalo {time})"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Optimization helper requires a data range. Select cells or enter a range in "
+"the Data field."
+msgstr ""
+"Pomocník pre optimalizáciu vyžaduje rozsah údajov. Vyberte bunky alebo "
+"zadajte rozsah do poľa Údaje."
+
+#: plugin/scripting/python_runner.py
+msgid "Optimization failed."
+msgstr "Optimalizácia zlyhala."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Optimize '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"Optimalizácia '{helper}' dokončená. Zapísaných {rows} riadkov. (trvalo "
+"{time})"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -1541,10 +1728,6 @@ msgstr ""
 "Analýza '{helper}' dokončená. Zapísaných {rows} riadkov. (trvalo {time})"
 
 #: plugin/scripting/python_runner.py
-msgid "Unknown error"
-msgstr "Neznáma chyba"
-
-#: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
 "Script executed successfully, but returned no result and produced no output."
@@ -1562,29 +1745,6 @@ msgstr "Nepodporovaný typ dokumentu pre vloženie výsledku. (trvalo {time})"
 #, python-brace-format
 msgid "Script executed successfully. (took {time})"
 msgstr "Skript bol úspešne vykonaný. (trvalo {time})"
-
-#: plugin/scripting/python_runner.py
-msgid "Execution Error"
-msgstr "Chyba pri vykonávaní"
-
-#: plugin/scripting/python_runner.py
-msgid "Script executed successfully."
-msgstr "Skript bol úspešne vykonaný."
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Script executed successfully, but returned no result and produced no output."
-msgstr ""
-"Skript bol úspešne vykonaný, ale nevrátil žiadny výsledok a nevyprodukoval "
-"žiadny výstup."
-
-#: plugin/scripting/python_runner.py
-msgid "Success"
-msgstr "Úspech"
-
-#: plugin/scripting/python_runner.py
-msgid "Output"
-msgstr "Výstup"
 
 #: plugin/scripting/python_runner.py
 msgid "Script saved."
@@ -2310,6 +2470,23 @@ msgstr "Ponechať osamotené zhluky textu"
 
 msgid "Group unassigned text into clusters for messy layouts."
 msgstr "Zoskupiť nepriradený text do zhlukov pre neprehľadné rozloženia."
+
+msgid "Document insert mode"
+msgstr "Režim vkladania do dokumentu"
+
+msgid ""
+"html = Docling HTML import (default). structured = bbox column layout in "
+"Writer; native Calc cells for extract_structure tables."
+msgstr ""
+"html = import HTML cez Docling (predvolené). structured = rozloženie stĺpcov"
+" s ohraničením (bbox) vo Writeri; natívne bunky Calc pre tabuľky "
+"extract_structure."
+
+msgid "Standard HTML"
+msgstr "Štandardné HTML"
+
+msgid "Structured (layout / cell grid)"
+msgstr "Štruktúrované (rozloženie / mriežka buniek)"
 
 msgid "Layout model"
 msgstr "Model rozloženia"

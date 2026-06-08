@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-07 16:27-0400\n"
+"POT-Creation-Date: 2026-06-08 18:08-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Hungarian <LL@li.org>\n"
@@ -426,6 +426,10 @@ msgstr "Jelöljön ki egy beágyazott képet, majd futtassa újra."
 msgid "Anchor the image to a cell, select it, then Run again."
 msgstr "Horgonyozza a képet egy cellához, jelölje ki, majd futtassa újra."
 
+#: plugin/calc/vision_egress.py
+msgid "No structured tables or text blocks to insert."
+msgstr "Nincsenek beszúrható strukturált táblázatok vagy szövegblokkok."
+
 #: plugin/calc/python_editor.py
 msgid ""
 "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
@@ -444,7 +448,8 @@ msgstr "Python cella-szerkesztő"
 msgid "Save as plain text"
 msgstr "Mentés egyszerű szövegként"
 
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
+#: plugin/calc/python_editor.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
 msgid "Save"
 msgstr "Mentés"
 
@@ -521,8 +526,8 @@ msgstr "Mégse"
 
 #: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
 #: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner.py
-#: plugin/main.py
+#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py plugin/main.py
 msgid "Error"
 msgstr "Hiba"
 
@@ -1122,8 +1127,8 @@ msgstr ""
 "A dokumentum-szkriptek túl nagyok a dokumentumban való tároláshoz ({0} "
 "bájt)."
 
-#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
-#: plugin/scripting/python_runner.py
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/editor_host.py
 msgid "No document is open to save scripts."
 msgstr "Nincs megnyitott dokumentum a szkriptek mentéséhez."
 
@@ -1153,12 +1158,189 @@ msgid "Vision Helpers"
 msgstr "Látássegédek"
 
 #: plugin/scripting/document_scripts.py
+msgid "Viz Helpers"
+msgstr "Vizualizációs segédek"
+
+#: plugin/scripting/document_scripts.py
+msgid "Math Helpers"
+msgstr "Matematikai segédek"
+
+#: plugin/scripting/document_scripts.py
+msgid "Quant Helpers"
+msgstr "Mennyiségi segédek"
+
+#: plugin/scripting/document_scripts.py
+msgid "Optimize Helpers"
+msgstr "Optimalizálási segédek"
+
+#: plugin/scripting/document_scripts.py
 msgid "My Scripts"
 msgstr "Saját szkriptek"
 
 #: plugin/scripting/document_scripts.py
 msgid "This Document"
 msgstr "Ez a dokumentum"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Run Python Script"
+msgstr "Python-szkript futtatása"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "Futtatás"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "Bezárás"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Script:"
+msgstr "Parancsfájl:"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach"
+msgstr "Csatolás"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Save As..."
+msgstr "Mentés másként…"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Delete"
+msgstr "Törlés"
+
+#: plugin/scripting/python_runner_ui.py
+msgid ""
+"Enter Python code to execute in the user virtual environment.\n"
+"Assign the result to the 'result' variable."
+msgstr ""
+"Adja meg a végrehajtandó Python-kódot a felhasználói virtuális környezetben.\n"
+"A végeredményt rendelje a „result” változóhoz."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s Helyette mentve a Saját parancsfájlok közé."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "A(z) „%s” parancsfájl mentve ehhez a dokumentumhoz."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "A(z) „%s” parancsfájl sikeresen mentve."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Sample scratchpad saved successfully."
+msgstr "A mintajegyzetfüzet sikeresen mentve."
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
+msgid "No document is open to attach scripts."
+msgstr "Nincs megnyitott dokumentum a parancsfájlok csatolásához."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Enter script name:"
+msgstr "Adja meg a parancsfájl nevét:"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach to Document"
+msgstr "Dokumentumhoz csatolás"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr ""
+"A(z) „{0}” nevű parancsfájl már létezik ebben a dokumentumban. Felülírja?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach Script"
+msgstr "Parancsfájl csatolása"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' attached to this document."
+msgstr "A(z) „%s” parancsfájl a dokumentumhoz csatolva."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Save Script"
+msgstr "Parancsfájl mentése"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "Mentse a(z) „{0}” parancsfájlt ebbe a dokumentumba?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr "Biztosan törölni szeretné a mintajegyzetfüzetet?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Clear Script"
+msgstr "Parancsfájl törlése"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Sample scratchpad cleared."
+msgstr "A mintajegyzetfüzet törölve."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Are you sure you want to delete script '%s'?"
+msgstr "Biztosan törölni szeretné a(z) „%s” parancsfájlt?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Delete Script"
+msgstr "Parancsfájl törlése"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
+msgid "No document is open."
+msgstr "Nincs megnyitott dokumentum."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "A(z) „%s” parancsfájl törölve."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Execution Error"
+msgstr "Végrehajtási hiba"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "Ismeretlen hiba"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Script executed successfully."
+msgstr "A parancsfájl sikeresen lefutott."
+
+#: plugin/scripting/python_runner_ui.py
+msgid ""
+"Script executed successfully, but returned no result and produced no output."
+msgstr ""
+"A szkript sikeresen lefutott, de nem adott vissza eredményt és nem generált "
+"kimenetet."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Success"
+msgstr "Siker"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Output"
+msgstr "Kimenet"
+
+#: plugin/scripting/viz_egress.py
+msgid "Unsupported document type for plot insertion."
+msgstr "Nem támogatott dokumentumtípus diagram beszúrásához."
+
+#: plugin/scripting/viz_egress.py plugin/scripting/python_runner.py
+msgid "Viz helper failed."
+msgstr "A vizualizációs segéd sikertelen."
+
+#: plugin/scripting/viz_egress.py
+msgid "Viz helper returned no image payload."
+msgstr "A vizualizációs segéd nem adott vissza képi adatot."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1175,10 +1357,6 @@ msgstr "A(z) „{0}” szkript mentve ebbe a dokumentumba."
 msgid "Saved script '{0}'."
 msgstr "A(z) „{0}” szkript mentve."
 
-#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
-msgid "No document is open to attach scripts."
-msgstr "Nincs megnyitott dokumentum a parancsfájlok csatolásához."
-
 #: plugin/scripting/editor_host.py
 #, python-brace-format
 msgid "Attached script '{0}' to this document."
@@ -1193,10 +1371,6 @@ msgstr "A(z) „{0}” nevű parancsfájl már létezik a Saját parancsfájlok 
 #, python-brace-format
 msgid "Copied script '{0}' to My Scripts."
 msgstr "A(z) „{0}” parancsfájl átmásolva a Saját parancsfájlok közé."
-
-#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
-msgid "No document is open."
-msgstr "Nincs megnyitott dokumentum."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1232,6 +1406,45 @@ msgid ""
 msgstr ""
 "\n"
 "Elemzési segédek: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Visualization Libraries"
+msgstr "Vizualizációs könyvtárak"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Viz Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Vizualizációs segédek: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Computer Algebra"
+msgstr "Számítógépes algebra"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Symbolic Math Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Szimbolikus matematikai segédeszközök: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Quantitative Finance Libraries"
+msgstr "Kvantitatív pénzügyi könyvtárak"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Quant Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Kvantitatív segédeszközök: %(cmd)s"
 
 #: plugin/scripting/venv_worker.py
 msgid "Vision Libraries"
@@ -1296,6 +1509,27 @@ msgstr ""
 #, python-brace-format
 msgid "Image '{name}' could not be exported."
 msgstr "A(z) '{name}' kép nem exportálható."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Symbolic helper failed."
+msgstr "A szimbolikus segédeszköz sikertelen."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Symbolic helper returned no LaTeX."
+msgstr "A szimbolikus segédeszköz nem adott vissza LaTeX-kódot."
+
+#: plugin/scripting/symbolic_egress.py
+#, python-brace-format
+msgid "Failed to convert LaTeX to Writer Math: {error}"
+msgstr "A LaTeX konvertálása Writer Math formátumba sikertelen: {error}"
+
+#: plugin/scripting/symbolic_egress.py
+msgid "No active document view."
+msgstr "Nincs aktív dokumentumnézet."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Unsupported document type for symbolic insertion."
+msgstr "Nem támogatott dokumentumtípus a szimbolikus beszúráshoz."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1370,119 +1604,6 @@ msgstr ""
 "Python-munkamenetének alaphelyzetbe állításához."
 
 #: plugin/scripting/python_runner.py
-msgid "Run Python Script"
-msgstr "Python-szkript futtatása"
-
-#: plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "Futtatás"
-
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "Bezárás"
-
-#: plugin/scripting/python_runner.py
-msgid "Script:"
-msgstr "Parancsfájl:"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach"
-msgstr "Csatolás"
-
-#: plugin/scripting/python_runner.py
-msgid "Save As..."
-msgstr "Mentés másként…"
-
-#: plugin/scripting/python_runner.py
-msgid "Delete"
-msgstr "Törlés"
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Enter Python code to execute in the user virtual environment.\n"
-"Assign the result to the 'result' variable."
-msgstr ""
-"Adja meg a végrehajtandó Python-kódot a felhasználói virtuális környezetben.\n"
-"A végeredményt rendelje a „result” változóhoz."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "%s Saved to My Scripts instead."
-msgstr "%s Helyette mentve a Saját parancsfájlok közé."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' saved to this document."
-msgstr "A(z) „%s” parancsfájl mentve ehhez a dokumentumhoz."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' saved successfully."
-msgstr "A(z) „%s” parancsfájl sikeresen mentve."
-
-#: plugin/scripting/python_runner.py
-msgid "Sample scratchpad saved successfully."
-msgstr "A mintajegyzetfüzet sikeresen mentve."
-
-#: plugin/scripting/python_runner.py
-msgid "Enter script name:"
-msgstr "Adja meg a parancsfájl nevét:"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach to Document"
-msgstr "Dokumentumhoz csatolás"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in this document. Overwrite?"
-msgstr ""
-"A(z) „{0}” nevű parancsfájl már létezik ebben a dokumentumban. Felülírja?"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach Script"
-msgstr "Parancsfájl csatolása"
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' attached to this document."
-msgstr "A(z) „%s” parancsfájl a dokumentumhoz csatolva."
-
-#: plugin/scripting/python_runner.py
-msgid "Save Script"
-msgstr "Parancsfájl mentése"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Save script '{0}' to this document?"
-msgstr "Mentse a(z) „{0}” parancsfájlt ebbe a dokumentumba?"
-
-#: plugin/scripting/python_runner.py
-msgid "Are you sure you want to clear the Sample scratchpad?"
-msgstr "Biztosan törölni szeretné a mintajegyzetfüzetet?"
-
-#: plugin/scripting/python_runner.py
-msgid "Clear Script"
-msgstr "Parancsfájl törlése"
-
-#: plugin/scripting/python_runner.py
-msgid "Sample scratchpad cleared."
-msgstr "A mintajegyzetfüzet törölve."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Are you sure you want to delete script '%s'?"
-msgstr "Biztosan törölni szeretné a(z) „%s” parancsfájlt?"
-
-#: plugin/scripting/python_runner.py
-msgid "Delete Script"
-msgstr "Parancsfájl törlése"
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' deleted."
-msgstr "A(z) „%s” parancsfájl törölve."
-
-#: plugin/scripting/python_runner.py
 #, python-format
 msgid "Failed to insert result into Calc: %s"
 msgstr "A végeredmény beszúrása a Calcba sikertelen: %s"
@@ -1498,6 +1619,23 @@ msgstr ""
 "PR-eket szívesen fogadjuk!"
 
 #: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Plot inserted ({title}). (took {time})"
+msgstr "Diagram beszúrva ({title}). (időtartam: {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Viz '{helper}' completed. {msg}"
+msgstr "A(z) „{helper}” vizualizáció befejeződött. {msg}"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr ""
+"A(z) „{helper}” matematikai művelet befejeződött. Beszúrva: {preview} "
+"({time} idő alatt)"
+
+#: plugin/scripting/python_runner.py
 msgid "Vision helpers require a Writer or Calc document."
 msgstr "A látássegítők használatához Writer vagy Calc dokumentum szükséges."
 
@@ -1507,30 +1645,85 @@ msgstr "A látássegítő sikertelen."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
-msgid "Vision '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr ""
-"A(z) '{helper}' látássegítő befejeződött. {rows} sor írva. (időtartam: "
-"{time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
 msgid "Failed to insert result: {error} (took {time})"
 msgstr "Az eredmény beszúrása sikertelen: {error} ({time} alatt)"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Vision '{helper}' completed. Found {blocks} blocks and {tables} tables. "
-"(took {time})"
+"Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
+"tables). (took {time})"
 msgstr ""
-"A(z) '{helper}' látássegítő befejeződött. {blocks} blokk és {tables} "
-"táblázat található. (időtartam: {time})"
+"A(z) „{helper}” látványelemzés befejeződött. HTML beszúrva ({blocks} blokk, "
+"{tables} táblázat). ({time} idő alatt)"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
-msgid "Vision '{helper}' completed. Extracted {lines} lines. (took {time})"
+msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
 msgstr ""
-"A(z) „{helper}” látásmód befejeződött. {lines} sor kibontva. ({time} idő "
+"A(z) „{helper}” látványelemzés befejeződött. Formázott HTML beszúrva. "
+"({time} idő alatt)"
+
+#: plugin/scripting/python_runner.py
+msgid "Viz helpers require a Writer or Calc document."
+msgstr ""
+"A vizualizációs segédeszközök használatához Writer- vagy Calc-dokumentum "
+"szükséges."
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Viz helper requires a data range. Select cells or enter a range in the Data "
+"field."
+msgstr ""
+"A vizualizációs segédeszközhöz adattartomány szükséges. Jelöljön ki "
+"cellákat, vagy adjon meg egy tartományt az Adat mezőben."
+
+#: plugin/scripting/python_runner.py
+msgid "Math helpers require a Writer or Calc document."
+msgstr ""
+"A matematikai segédeszközök használatához Writer- vagy Calc-dokumentum "
+"szükséges."
+
+#: plugin/scripting/python_runner.py
+msgid "Math helper failed."
+msgstr "A matematikai segédeszköz hibát jelzett."
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Quant helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"A mennyiségi segédeszközhöz adattartomány szükséges. Jelöljön ki cellákat, "
+"vagy adjon meg egy tartományt az Adat mezőben."
+
+#: plugin/scripting/python_runner.py
+msgid "Quant failed."
+msgstr "A mennyiségi segédeszköz hibát jelzett."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Quant '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"A(z) „{helper}” mennyiségi művelet befejeződött. {rows} sor írva. ({time} "
+"idő alatt)"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Optimization helper requires a data range. Select cells or enter a range in "
+"the Data field."
+msgstr ""
+"Az optimalizációs segédprogramhoz adat tartomány szükséges. Jelöljön ki "
+"cellákat, vagy adjon meg egy tartományt az Adat mezőben."
+
+#: plugin/scripting/python_runner.py
+msgid "Optimization failed."
+msgstr "Az optimalizálás sikertelen."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Optimize '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"A(z) „{helper}” optimalizálása befejeződött. {rows} sor írva. ({time} idő "
 "alatt)"
 
 #: plugin/scripting/python_runner.py
@@ -1552,10 +1745,6 @@ msgstr ""
 "A(z) „{helper}” elemzés befejeződött. {rows} sor kiírva. ({time} idő alatt)"
 
 #: plugin/scripting/python_runner.py
-msgid "Unknown error"
-msgstr "Ismeretlen hiba"
-
-#: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
 "Script executed successfully, but returned no result and produced no output."
@@ -1574,29 +1763,6 @@ msgstr ""
 #, python-brace-format
 msgid "Script executed successfully. (took {time})"
 msgstr "A szkript sikeresen lefutott. ({time} alatt)"
-
-#: plugin/scripting/python_runner.py
-msgid "Execution Error"
-msgstr "Végrehajtási hiba"
-
-#: plugin/scripting/python_runner.py
-msgid "Script executed successfully."
-msgstr "A parancsfájl sikeresen lefutott."
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Script executed successfully, but returned no result and produced no output."
-msgstr ""
-"A szkript sikeresen lefutott, de nem adott vissza eredményt és nem generált "
-"kimenetet."
-
-#: plugin/scripting/python_runner.py
-msgid "Success"
-msgstr "Siker"
-
-#: plugin/scripting/python_runner.py
-msgid "Output"
-msgstr "Kimenet"
 
 #: plugin/scripting/python_runner.py
 msgid "Script saved."
@@ -2328,6 +2494,23 @@ msgstr "Árva szövegcsoportok megtartása"
 msgid "Group unassigned text into clusters for messy layouts."
 msgstr ""
 "Nem hozzárendelt szöveg csoportosítása fürtökbe rendezetlen elrendezéseknél."
+
+msgid "Document insert mode"
+msgstr "Dokumentum beszúrási mód"
+
+msgid ""
+"html = Docling HTML import (default). structured = bbox column layout in "
+"Writer; native Calc cells for extract_structure tables."
+msgstr ""
+"html = Docling HTML-importálás (alapértelmezett). structured = bbox "
+"oszlopelrendezés a Writerben; natív Calc-cellák az extract_structure "
+"táblázatokhoz."
+
+msgid "Standard HTML"
+msgstr "Szabványos HTML"
+
+msgid "Structured (layout / cell grid)"
+msgstr "Strukturált (elrendezés / cellarács)"
 
 msgid "Layout model"
 msgstr "Elrendezési modell"

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-07 16:27-0400\n"
+"POT-Creation-Date: 2026-06-08 18:08-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Turkish <LL@li.org>\n"
@@ -429,6 +429,10 @@ msgstr "Gömülü bir resim seçin ve ardından tekrar Çalıştırın."
 msgid "Anchor the image to a cell, select it, then Run again."
 msgstr "Resmi bir hücreye sabitleyin, seçin ve ardından tekrar Çalıştırın."
 
+#: plugin/calc/vision_egress.py
+msgid "No structured tables or text blocks to insert."
+msgstr "Eklenecek yapılandırılmış tablo veya metin bloğu yok."
+
 #: plugin/calc/python_editor.py
 msgid ""
 "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
@@ -447,7 +451,8 @@ msgstr "Python hücre düzenleyici"
 msgid "Save as plain text"
 msgstr "Düz metin olarak kaydet"
 
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
+#: plugin/calc/python_editor.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
 msgid "Save"
 msgstr "Kaydet"
 
@@ -524,8 +529,8 @@ msgstr "İptal"
 
 #: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
 #: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner.py
-#: plugin/main.py
+#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py plugin/main.py
 msgid "Error"
 msgstr "Hata"
 
@@ -1120,8 +1125,8 @@ msgstr "Genişlik:"
 msgid "Document scripts are too large to store in the document ({0} bytes)."
 msgstr "Belge betikleri belgeye kaydedilemeyecek kadar büyük ({0} bayt)."
 
-#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
-#: plugin/scripting/python_runner.py
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/editor_host.py
 msgid "No document is open to save scripts."
 msgstr "Betikleri kaydetmek için açık bir belge yok."
 
@@ -1151,12 +1156,187 @@ msgid "Vision Helpers"
 msgstr "Görüntü Yardımcıları"
 
 #: plugin/scripting/document_scripts.py
+msgid "Viz Helpers"
+msgstr "Görsel Yardımcıları"
+
+#: plugin/scripting/document_scripts.py
+msgid "Math Helpers"
+msgstr "Matematik Yardımcıları"
+
+#: plugin/scripting/document_scripts.py
+msgid "Quant Helpers"
+msgstr "Nicel Yardımcılar"
+
+#: plugin/scripting/document_scripts.py
+msgid "Optimize Helpers"
+msgstr "İyileştirme Yardımcıları"
+
+#: plugin/scripting/document_scripts.py
 msgid "My Scripts"
 msgstr "Betiklerim"
 
 #: plugin/scripting/document_scripts.py
 msgid "This Document"
 msgstr "Bu Belge"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Run Python Script"
+msgstr "Python Betiğini Çalıştır"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "Çalıştır"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "Kapat"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Script:"
+msgstr "Betik:"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach"
+msgstr "Ekle"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Save As..."
+msgstr "Farklı Kaydet..."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Delete"
+msgstr "Sil"
+
+#: plugin/scripting/python_runner_ui.py
+msgid ""
+"Enter Python code to execute in the user virtual environment.\n"
+"Assign the result to the 'result' variable."
+msgstr ""
+"Kullanıcı sanal ortamında yürütülecek Python kodunu girin.\n"
+"Sonucu 'result' değişkenine atayın."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s yerine 'Betiklerim'e kaydedildi."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "'%s' betiği bu belgeye kaydedildi."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "'%s' betiği başarıyla kaydedildi."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Sample scratchpad saved successfully."
+msgstr "Örnek karalama defteri başarıyla kaydedildi."
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
+msgid "No document is open to attach scripts."
+msgstr "Betik eklemek için açık bir belge yok."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Enter script name:"
+msgstr "Betik adını girin:"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach to Document"
+msgstr "Belgeye Ekle"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr "'{0}' adlı bir betik bu belgede zaten var. Üzerine yazılsın mı?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach Script"
+msgstr "Betik Ekle"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' attached to this document."
+msgstr "'%s' betiği bu belgeye eklendi."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Save Script"
+msgstr "Betik Kaydet"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "'{0}' betiği bu belgeye kaydedilsin mi?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr "Örnek karalama defterini temizlemek istediğinizden emin misiniz?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Clear Script"
+msgstr "Betik Temizle"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Sample scratchpad cleared."
+msgstr "Örnek karalama defteri temizlendi."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Are you sure you want to delete script '%s'?"
+msgstr "'%s' betiğini silmek istediğinizden emin misiniz?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Delete Script"
+msgstr "Betik Sil"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
+msgid "No document is open."
+msgstr "Açık bir belge yok."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "'%s' betiği silindi."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Execution Error"
+msgstr "Yürütme Hatası"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "Bilinmeyen hata"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Script executed successfully."
+msgstr "Betik başarıyla çalıştırıldı."
+
+#: plugin/scripting/python_runner_ui.py
+msgid ""
+"Script executed successfully, but returned no result and produced no output."
+msgstr ""
+"Betik başarıyla çalıştırıldı ancak bir sonuç döndürmedi ve çıktı üretmedi."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Success"
+msgstr "Başarılı"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Output"
+msgstr "Çıktı"
+
+#: plugin/scripting/viz_egress.py
+msgid "Unsupported document type for plot insertion."
+msgstr "Grafik ekleme için desteklenmeyen belge türü."
+
+#: plugin/scripting/viz_egress.py plugin/scripting/python_runner.py
+msgid "Viz helper failed."
+msgstr "Görsel yardımcısı başarısız oldu."
+
+#: plugin/scripting/viz_egress.py
+msgid "Viz helper returned no image payload."
+msgstr "Görsel yardımcısı görüntü verisi döndürmedi."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1173,10 +1353,6 @@ msgstr "'{0}' betiği bu belgeye kaydedildi."
 msgid "Saved script '{0}'."
 msgstr "'{0}' betiği kaydedildi."
 
-#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
-msgid "No document is open to attach scripts."
-msgstr "Betik eklemek için açık bir belge yok."
-
 #: plugin/scripting/editor_host.py
 #, python-brace-format
 msgid "Attached script '{0}' to this document."
@@ -1191,10 +1367,6 @@ msgstr "'{0}' adında bir betik zaten 'Betiklerim' içinde mevcut."
 #, python-brace-format
 msgid "Copied script '{0}' to My Scripts."
 msgstr "'{0}' betiği 'Betiklerim'e kopyalandı."
-
-#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
-msgid "No document is open."
-msgstr "Açık bir belge yok."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1230,6 +1402,45 @@ msgid ""
 msgstr ""
 "\n"
 "Analiz Yardımcıları: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Visualization Libraries"
+msgstr "Görselleştirme Kütüphaneleri"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Viz Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Görsel Yardımcıları: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Computer Algebra"
+msgstr "Bilgisayarlı Cebir"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Symbolic Math Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Sembolik Matematik Yardımcıları: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Quantitative Finance Libraries"
+msgstr "Nicel Finans Kütüphaneleri"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Quant Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Nicel Yardımcılar: %(cmd)s"
 
 #: plugin/scripting/venv_worker.py
 msgid "Vision Libraries"
@@ -1295,6 +1506,27 @@ msgstr ""
 #, python-brace-format
 msgid "Image '{name}' could not be exported."
 msgstr "'{name}' görüntüsü dışa aktarılamadı."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Symbolic helper failed."
+msgstr "Sembolik yardımcı başarısız oldu."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Symbolic helper returned no LaTeX."
+msgstr "Sembolik yardımcı LaTeX döndürmedi."
+
+#: plugin/scripting/symbolic_egress.py
+#, python-brace-format
+msgid "Failed to convert LaTeX to Writer Math: {error}"
+msgstr "LaTeX, Writer Math'e dönüştürülemedi: {error}"
+
+#: plugin/scripting/symbolic_egress.py
+msgid "No active document view."
+msgstr "Etkin belge görünümü yok."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Unsupported document type for symbolic insertion."
+msgstr "Sembolik ekleme için desteklenmeyen belge türü."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1366,118 +1598,6 @@ msgstr ""
 "Defterini İçe Aktar… seçeneğini kullanın."
 
 #: plugin/scripting/python_runner.py
-msgid "Run Python Script"
-msgstr "Python Betiğini Çalıştır"
-
-#: plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "Çalıştır"
-
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "Kapat"
-
-#: plugin/scripting/python_runner.py
-msgid "Script:"
-msgstr "Betik:"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach"
-msgstr "Ekle"
-
-#: plugin/scripting/python_runner.py
-msgid "Save As..."
-msgstr "Farklı Kaydet..."
-
-#: plugin/scripting/python_runner.py
-msgid "Delete"
-msgstr "Sil"
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Enter Python code to execute in the user virtual environment.\n"
-"Assign the result to the 'result' variable."
-msgstr ""
-"Kullanıcı sanal ortamında yürütülecek Python kodunu girin.\n"
-"Sonucu 'result' değişkenine atayın."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "%s Saved to My Scripts instead."
-msgstr "%s yerine 'Betiklerim'e kaydedildi."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' saved to this document."
-msgstr "'%s' betiği bu belgeye kaydedildi."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' saved successfully."
-msgstr "'%s' betiği başarıyla kaydedildi."
-
-#: plugin/scripting/python_runner.py
-msgid "Sample scratchpad saved successfully."
-msgstr "Örnek karalama defteri başarıyla kaydedildi."
-
-#: plugin/scripting/python_runner.py
-msgid "Enter script name:"
-msgstr "Betik adını girin:"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach to Document"
-msgstr "Belgeye Ekle"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in this document. Overwrite?"
-msgstr "'{0}' adlı bir betik bu belgede zaten var. Üzerine yazılsın mı?"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach Script"
-msgstr "Betik Ekle"
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' attached to this document."
-msgstr "'%s' betiği bu belgeye eklendi."
-
-#: plugin/scripting/python_runner.py
-msgid "Save Script"
-msgstr "Betik Kaydet"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Save script '{0}' to this document?"
-msgstr "'{0}' betiği bu belgeye kaydedilsin mi?"
-
-#: plugin/scripting/python_runner.py
-msgid "Are you sure you want to clear the Sample scratchpad?"
-msgstr "Örnek karalama defterini temizlemek istediğinizden emin misiniz?"
-
-#: plugin/scripting/python_runner.py
-msgid "Clear Script"
-msgstr "Betik Temizle"
-
-#: plugin/scripting/python_runner.py
-msgid "Sample scratchpad cleared."
-msgstr "Örnek karalama defteri temizlendi."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Are you sure you want to delete script '%s'?"
-msgstr "'%s' betiğini silmek istediğinizden emin misiniz?"
-
-#: plugin/scripting/python_runner.py
-msgid "Delete Script"
-msgstr "Betik Sil"
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' deleted."
-msgstr "'%s' betiği silindi."
-
-#: plugin/scripting/python_runner.py
 #, python-format
 msgid "Failed to insert result into Calc: %s"
 msgstr "Sonuç Calc'a eklenemedi: %s"
@@ -1493,6 +1613,21 @@ msgstr ""
 "bekliyoruz!"
 
 #: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Plot inserted ({title}). (took {time})"
+msgstr "Grafik eklendi ({title}). ({time} sürdü)"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Viz '{helper}' completed. {msg}"
+msgstr "Viz '{helper}' tamamlandı. {msg}"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr "Math '{helper}' tamamlandı. Eklendi: {preview} ({time} sürdü)"
+
+#: plugin/scripting/python_runner.py
 msgid "Vision helpers require a Writer or Calc document."
 msgstr "Görüntü yardımcıları bir Writer veya Calc belgesi gerektirir."
 
@@ -1502,28 +1637,78 @@ msgstr "Görüntü yardımcısı başarısız oldu."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
-msgid "Vision '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr "Görüntü '{helper}' tamamlandı. {rows} satır yazıldı. ({time} sürdü)"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
 msgid "Failed to insert result: {error} (took {time})"
 msgstr "Sonuç eklenemedi: {error} ({time} sürdü)"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Vision '{helper}' completed. Found {blocks} blocks and {tables} tables. "
-"(took {time})"
+"Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
+"tables). (took {time})"
 msgstr ""
-"Görüntü '{helper}' tamamlandı. {blocks} blok ve {tables} tablo bulundu. "
+"Vision '{helper}' tamamlandı. HTML eklendi ({blocks} blok, {tables} tablo). "
 "({time} sürdü)"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
-msgid "Vision '{helper}' completed. Extracted {lines} lines. (took {time})"
+msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
 msgstr ""
-"'{helper}' vizyonu tamamlandı. {lines} satır ayıklandı. ({time} sürdü)"
+"Vision '{helper}' tamamlandı. Biçimlendirilmiş HTML eklendi. ({time} sürdü)"
+
+#: plugin/scripting/python_runner.py
+msgid "Viz helpers require a Writer or Calc document."
+msgstr "Viz yardımcıları bir Writer veya Calc belgesi gerektirir."
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Viz helper requires a data range. Select cells or enter a range in the Data "
+"field."
+msgstr ""
+"Viz yardımcısı bir veri aralığı gerektirir. Hücreleri seçin veya Veri "
+"alanına bir aralık girin."
+
+#: plugin/scripting/python_runner.py
+msgid "Math helpers require a Writer or Calc document."
+msgstr "Math yardımcıları bir Writer veya Calc belgesi gerektirir."
+
+#: plugin/scripting/python_runner.py
+msgid "Math helper failed."
+msgstr "Math yardımcısı başarısız oldu."
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Quant helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"Quant yardımcısı bir veri aralığı gerektirir. Hücreleri seçin veya Veri "
+"alanına bir aralık girin."
+
+#: plugin/scripting/python_runner.py
+msgid "Quant failed."
+msgstr "Quant başarısız oldu."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Quant '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr "'{helper}' miktarı tamamlandı. {rows} satır yazıldı. ({time} sürdü)"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Optimization helper requires a data range. Select cells or enter a range in "
+"the Data field."
+msgstr ""
+"Optimizasyon yardımcısı bir veri aralığı gerektirir. Hücreleri seçin veya "
+"Veri alanına bir aralık girin."
+
+#: plugin/scripting/python_runner.py
+msgid "Optimization failed."
+msgstr "Optimizasyon başarısız oldu."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Optimize '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"'{helper}' optimizasyonu tamamlandı. {rows} satır yazıldı. ({time} sürdü)"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -1543,10 +1728,6 @@ msgid "Analysis '{helper}' completed. Wrote {rows} rows. (took {time})"
 msgstr "'{helper}' analizi tamamlandı. {rows} satır yazıldı. ({time} sürdü)"
 
 #: plugin/scripting/python_runner.py
-msgid "Unknown error"
-msgstr "Bilinmeyen hata"
-
-#: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
 "Script executed successfully, but returned no result and produced no output."
@@ -1564,28 +1745,6 @@ msgstr "Sonuç ekleme için desteklenmeyen belge türü. ({time} sürdü)"
 #, python-brace-format
 msgid "Script executed successfully. (took {time})"
 msgstr "Betik başarıyla çalıştırıldı. ({time} sürdü)"
-
-#: plugin/scripting/python_runner.py
-msgid "Execution Error"
-msgstr "Yürütme Hatası"
-
-#: plugin/scripting/python_runner.py
-msgid "Script executed successfully."
-msgstr "Betik başarıyla çalıştırıldı."
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Script executed successfully, but returned no result and produced no output."
-msgstr ""
-"Betik başarıyla çalıştırıldı ancak bir sonuç döndürmedi ve çıktı üretmedi."
-
-#: plugin/scripting/python_runner.py
-msgid "Success"
-msgstr "Başarılı"
-
-#: plugin/scripting/python_runner.py
-msgid "Output"
-msgstr "Çıktı"
 
 #: plugin/scripting/python_runner.py
 msgid "Script saved."
@@ -2308,6 +2467,22 @@ msgstr "Yetim metin kümelerini koru"
 
 msgid "Group unassigned text into clusters for messy layouts."
 msgstr "Atanmamış metinleri karmaşık düzenler için kümeler halinde grupla."
+
+msgid "Document insert mode"
+msgstr "Belge ekleme modu"
+
+msgid ""
+"html = Docling HTML import (default). structured = bbox column layout in "
+"Writer; native Calc cells for extract_structure tables."
+msgstr ""
+"html = Docling HTML içe aktarma (varsayılan). structured = Writer'da bbox "
+"sütun düzeni; extract_structure tabloları için yerel Calc hücreleri."
+
+msgid "Standard HTML"
+msgstr "Standart HTML"
+
+msgid "Structured (layout / cell grid)"
+msgstr "Yapılandırılmış (düzen / hücre ızgarası)"
 
 msgid "Layout model"
 msgstr "Düzen modeli"

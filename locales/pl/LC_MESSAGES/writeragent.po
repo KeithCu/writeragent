@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-07 16:27-0400\n"
+"POT-Creation-Date: 2026-06-08 18:08-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Polish <LL@li.org>\n"
@@ -430,6 +430,10 @@ msgstr "Wybierz osadzony obraz, a następnie uruchom ponownie."
 msgid "Anchor the image to a cell, select it, then Run again."
 msgstr "Zakotwicz obraz w komórce, zaznacz go, a następnie uruchom ponownie."
 
+#: plugin/calc/vision_egress.py
+msgid "No structured tables or text blocks to insert."
+msgstr "Brak ustrukturyzowanych tabel lub bloków tekstu do wstawienia."
+
 #: plugin/calc/python_editor.py
 msgid ""
 "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
@@ -448,7 +452,8 @@ msgstr "Edytor komórek Python"
 msgid "Save as plain text"
 msgstr "Zapisz jako zwykły tekst"
 
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
+#: plugin/calc/python_editor.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
 msgid "Save"
 msgstr "Zapisz"
 
@@ -525,8 +530,8 @@ msgstr "Anuluj"
 
 #: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
 #: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner.py
-#: plugin/main.py
+#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py plugin/main.py
 msgid "Error"
 msgstr "Błąd"
 
@@ -1128,8 +1133,8 @@ msgstr ""
 "Skrypty dokumentu są zbyt duże, aby można je było zapisać w dokumencie ({0} "
 "bajtów)."
 
-#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
-#: plugin/scripting/python_runner.py
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/editor_host.py
 msgid "No document is open to save scripts."
 msgstr "Nie otwarto żadnego dokumentu, aby zapisać skrypty."
 
@@ -1159,12 +1164,188 @@ msgid "Vision Helpers"
 msgstr "Pomocnicy wizji"
 
 #: plugin/scripting/document_scripts.py
+msgid "Viz Helpers"
+msgstr "Pomocnicy wizualizacji"
+
+#: plugin/scripting/document_scripts.py
+msgid "Math Helpers"
+msgstr "Pomocnicy matematyczni"
+
+#: plugin/scripting/document_scripts.py
+msgid "Quant Helpers"
+msgstr "Pomocnicy ilościowi"
+
+#: plugin/scripting/document_scripts.py
+msgid "Optimize Helpers"
+msgstr "Pomocnicy optymalizacji"
+
+#: plugin/scripting/document_scripts.py
 msgid "My Scripts"
 msgstr "Moje skrypty"
 
 #: plugin/scripting/document_scripts.py
 msgid "This Document"
 msgstr "Ten dokument"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Run Python Script"
+msgstr "Uruchom skrypt Python"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "Uruchom"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "Zamknij"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Script:"
+msgstr "Skrypt:"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach"
+msgstr "Dołącz"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Save As..."
+msgstr "Zapisz jako..."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Delete"
+msgstr "Usuń"
+
+#: plugin/scripting/python_runner_ui.py
+msgid ""
+"Enter Python code to execute in the user virtual environment.\n"
+"Assign the result to the 'result' variable."
+msgstr ""
+"Wprowadź kod Python do wykonania w środowisku wirtualnym użytkownika.\n"
+"Przypisz wynik do zmiennej „result”."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s Zapisano zamiast tego w Moich skryptach."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "Skrypt „%s” zapisano w tym dokumencie."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "Skrypt „%s” został pomyślnie zapisany."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Sample scratchpad saved successfully."
+msgstr "Przykładowy notatnik został pomyślnie zapisany."
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
+msgid "No document is open to attach scripts."
+msgstr "Brak otwartego dokumentu, do którego można dołączyć skrypty."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Enter script name:"
+msgstr "Wprowadź nazwę skryptu:"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach to Document"
+msgstr "Dołącz do dokumentu"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr "Skrypt o nazwie „{0}” już istnieje w tym dokumencie. Zastąpić go?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach Script"
+msgstr "Dołącz skrypt"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' attached to this document."
+msgstr "Skrypt „%s” został dołączony do tego dokumentu."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Save Script"
+msgstr "Zapisz skrypt"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "Zapisać skrypt „{0}” w tym dokumencie?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr "Czy na pewno chcesz wyczyścić notatnik przykładów?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Clear Script"
+msgstr "Wyczyść skrypt"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Sample scratchpad cleared."
+msgstr "Notatnik przykładów wyczyszczony."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Are you sure you want to delete script '%s'?"
+msgstr "Czy na pewno chcesz usunąć skrypt „%s”?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Delete Script"
+msgstr "Usuń skrypt"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
+msgid "No document is open."
+msgstr "Brak otwartego dokumentu."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "Skrypt „%s” został usunięty."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Execution Error"
+msgstr "Błąd wykonania"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "Nieznany błąd"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Script executed successfully."
+msgstr "Skrypt wykonano pomyślnie."
+
+#: plugin/scripting/python_runner_ui.py
+msgid ""
+"Script executed successfully, but returned no result and produced no output."
+msgstr ""
+"Skrypt wykonano pomyślnie, ale nie zwrócił on żadnego wyniku ani danych "
+"wyjściowych."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Success"
+msgstr "Sukces"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Output"
+msgstr "Wyjście"
+
+#: plugin/scripting/viz_egress.py
+msgid "Unsupported document type for plot insertion."
+msgstr "Nieobsługiwany typ dokumentu dla wstawiania wykresu."
+
+#: plugin/scripting/viz_egress.py plugin/scripting/python_runner.py
+msgid "Viz helper failed."
+msgstr "Pomocnik wizualizacji nie powiódł się."
+
+#: plugin/scripting/viz_egress.py
+msgid "Viz helper returned no image payload."
+msgstr "Pomocnik wizualizacji nie zwrócił danych obrazu."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1181,10 +1362,6 @@ msgstr "Zapisano skrypt „{0}” w tym dokumencie."
 msgid "Saved script '{0}'."
 msgstr "Zapisano skrypt „{0}”."
 
-#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
-msgid "No document is open to attach scripts."
-msgstr "Brak otwartego dokumentu, do którego można dołączyć skrypty."
-
 #: plugin/scripting/editor_host.py
 #, python-brace-format
 msgid "Attached script '{0}' to this document."
@@ -1199,10 +1376,6 @@ msgstr "Skrypt o nazwie „{0}” już istnieje w Moich skryptach."
 #, python-brace-format
 msgid "Copied script '{0}' to My Scripts."
 msgstr "Skopiowano skrypt „{0}” do Moich skryptów."
-
-#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
-msgid "No document is open."
-msgstr "Brak otwartego dokumentu."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1238,6 +1411,45 @@ msgid ""
 msgstr ""
 "\n"
 "Pomocnicy analizy: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Visualization Libraries"
+msgstr "Biblioteki wizualizacji"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Viz Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Pomocnicy wizualizacji: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Computer Algebra"
+msgstr "Algebra komputerowa"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Symbolic Math Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Pomocnicy matematyki symbolicznej: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Quantitative Finance Libraries"
+msgstr "Biblioteki finansów ilościowych"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Quant Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Pomocnicy ilościowi: %(cmd)s"
 
 #: plugin/scripting/venv_worker.py
 msgid "Vision Libraries"
@@ -1303,6 +1515,27 @@ msgstr ""
 #, python-brace-format
 msgid "Image '{name}' could not be exported."
 msgstr "Nie można wyeksportować obrazu „{name}”."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Symbolic helper failed."
+msgstr "Pomocnik symboliczny nie powiódł się."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Symbolic helper returned no LaTeX."
+msgstr "Pomocnik symboliczny nie zwrócił kodu LaTeX."
+
+#: plugin/scripting/symbolic_egress.py
+#, python-brace-format
+msgid "Failed to convert LaTeX to Writer Math: {error}"
+msgstr "Konwersja LaTeX na Writer Math nie powiodła się: {error}"
+
+#: plugin/scripting/symbolic_egress.py
+msgid "No active document view."
+msgstr "Brak aktywnego widoku dokumentu."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Unsupported document type for symbolic insertion."
+msgstr "Nieobsługiwany typ dokumentu dla wstawiania symbolicznego."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1375,118 +1608,6 @@ msgstr ""
 " notatnika."
 
 #: plugin/scripting/python_runner.py
-msgid "Run Python Script"
-msgstr "Uruchom skrypt Python"
-
-#: plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "Uruchom"
-
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "Zamknij"
-
-#: plugin/scripting/python_runner.py
-msgid "Script:"
-msgstr "Skrypt:"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach"
-msgstr "Dołącz"
-
-#: plugin/scripting/python_runner.py
-msgid "Save As..."
-msgstr "Zapisz jako..."
-
-#: plugin/scripting/python_runner.py
-msgid "Delete"
-msgstr "Usuń"
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Enter Python code to execute in the user virtual environment.\n"
-"Assign the result to the 'result' variable."
-msgstr ""
-"Wprowadź kod Python do wykonania w środowisku wirtualnym użytkownika.\n"
-"Przypisz wynik do zmiennej „result”."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "%s Saved to My Scripts instead."
-msgstr "%s Zapisano zamiast tego w Moich skryptach."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' saved to this document."
-msgstr "Skrypt „%s” zapisano w tym dokumencie."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' saved successfully."
-msgstr "Skrypt „%s” został pomyślnie zapisany."
-
-#: plugin/scripting/python_runner.py
-msgid "Sample scratchpad saved successfully."
-msgstr "Przykładowy notatnik został pomyślnie zapisany."
-
-#: plugin/scripting/python_runner.py
-msgid "Enter script name:"
-msgstr "Wprowadź nazwę skryptu:"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach to Document"
-msgstr "Dołącz do dokumentu"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in this document. Overwrite?"
-msgstr "Skrypt o nazwie „{0}” już istnieje w tym dokumencie. Zastąpić go?"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach Script"
-msgstr "Dołącz skrypt"
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' attached to this document."
-msgstr "Skrypt „%s” został dołączony do tego dokumentu."
-
-#: plugin/scripting/python_runner.py
-msgid "Save Script"
-msgstr "Zapisz skrypt"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Save script '{0}' to this document?"
-msgstr "Zapisać skrypt „{0}” w tym dokumencie?"
-
-#: plugin/scripting/python_runner.py
-msgid "Are you sure you want to clear the Sample scratchpad?"
-msgstr "Czy na pewno chcesz wyczyścić notatnik przykładów?"
-
-#: plugin/scripting/python_runner.py
-msgid "Clear Script"
-msgstr "Wyczyść skrypt"
-
-#: plugin/scripting/python_runner.py
-msgid "Sample scratchpad cleared."
-msgstr "Notatnik przykładów wyczyszczony."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Are you sure you want to delete script '%s'?"
-msgstr "Czy na pewno chcesz usunąć skrypt „%s”?"
-
-#: plugin/scripting/python_runner.py
-msgid "Delete Script"
-msgstr "Usuń skrypt"
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' deleted."
-msgstr "Skrypt „%s” został usunięty."
-
-#: plugin/scripting/python_runner.py
 #, python-format
 msgid "Failed to insert result into Calc: %s"
 msgstr "Nie udało się wstawić wyniku do programu Calc: %s"
@@ -1502,6 +1623,21 @@ msgstr ""
 "Zapraszamy do przesyłania zgłoszeń PR!"
 
 #: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Plot inserted ({title}). (took {time})"
+msgstr "Wykres wstawiony ({title}). (zajęło {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Viz '{helper}' completed. {msg}"
+msgstr "Viz „{helper}” ukończone. {msg}"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr "Math „{helper}” ukończone. Wstawiono: {preview} (zajęło {time})"
+
+#: plugin/scripting/python_runner.py
 msgid "Vision helpers require a Writer or Calc document."
 msgstr "Pomocnicy wizyjni wymagają dokumentu Writer lub Calc."
 
@@ -1511,28 +1647,79 @@ msgstr "Pomocnik wizyjny nie powiódł się."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
-msgid "Vision '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr "Wizja „{helper}” zakończona. Zapisano {rows} wierszy. (czas: {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
 msgid "Failed to insert result: {error} (took {time})"
 msgstr "Nie udało się wstawić wyniku: {error} (czas trwania: {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Vision '{helper}' completed. Found {blocks} blocks and {tables} tables. "
-"(took {time})"
+"Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
+"tables). (took {time})"
 msgstr ""
-"Wizja „{helper}” zakończona. Znaleziono {blocks} bloków i {tables} tabel. "
-"(czas: {time})"
+"Vision „{helper}” ukończone. Wstawiono HTML ({blocks} bloków, {tables} "
+"tabel). (zajęło {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
-msgid "Vision '{helper}' completed. Extracted {lines} lines. (took {time})"
+msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
 msgstr ""
-"Wizja „{helper}” zakończona. Wyodrębniono {lines} wierszy. (zajęło {time})"
+"Vision „{helper}” ukończone. Wstawiono sformatowany HTML. (zajęło {time})"
+
+#: plugin/scripting/python_runner.py
+msgid "Viz helpers require a Writer or Calc document."
+msgstr "Pomocnicy Viz wymagają dokumentu Writer lub Calc."
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Viz helper requires a data range. Select cells or enter a range in the Data "
+"field."
+msgstr ""
+"Pomocnik Viz wymaga zakresu danych. Zaznacz komórki lub wprowadź zakres w "
+"polu Dane."
+
+#: plugin/scripting/python_runner.py
+msgid "Math helpers require a Writer or Calc document."
+msgstr "Pomocnicy Math wymagają dokumentu Writer lub Calc."
+
+#: plugin/scripting/python_runner.py
+msgid "Math helper failed."
+msgstr "Pomocnik Math nie powiódł się."
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Quant helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"Pomocnik Quant wymaga zakresu danych. Zaznacz komórki lub wprowadź zakres w "
+"polu Dane."
+
+#: plugin/scripting/python_runner.py
+msgid "Quant failed."
+msgstr "Quant nie powiódł się."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Quant '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr "Ilość '{helper}' zakończona. Zapisano {rows} wierszy. (zajęło {time})"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Optimization helper requires a data range. Select cells or enter a range in "
+"the Data field."
+msgstr ""
+"Pomocnik optymalizacji wymaga zakresu danych. Zaznacz komórki lub wprowadź "
+"zakres w polu Dane."
+
+#: plugin/scripting/python_runner.py
+msgid "Optimization failed."
+msgstr "Optymalizacja nie powiodła się."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Optimize '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"Optymalizacja '{helper}' zakończona. Zapisano {rows} wierszy. (zajęło "
+"{time})"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -1553,10 +1740,6 @@ msgstr ""
 "Analiza „{helper}” zakończona. Zapisano {rows} wierszy. (zajęło {time})"
 
 #: plugin/scripting/python_runner.py
-msgid "Unknown error"
-msgstr "Nieznany błąd"
-
-#: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
 "Script executed successfully, but returned no result and produced no output."
@@ -1575,29 +1758,6 @@ msgstr ""
 #, python-brace-format
 msgid "Script executed successfully. (took {time})"
 msgstr "Skrypt wykonano pomyślnie. (czas trwania: {time})"
-
-#: plugin/scripting/python_runner.py
-msgid "Execution Error"
-msgstr "Błąd wykonania"
-
-#: plugin/scripting/python_runner.py
-msgid "Script executed successfully."
-msgstr "Skrypt wykonano pomyślnie."
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Script executed successfully, but returned no result and produced no output."
-msgstr ""
-"Skrypt wykonano pomyślnie, ale nie zwrócił on żadnego wyniku ani danych "
-"wyjściowych."
-
-#: plugin/scripting/python_runner.py
-msgid "Success"
-msgstr "Sukces"
-
-#: plugin/scripting/python_runner.py
-msgid "Output"
-msgstr "Wyjście"
 
 #: plugin/scripting/python_runner.py
 msgid "Script saved."
@@ -2326,6 +2486,22 @@ msgstr "Zachowaj osierocone klastry tekstu"
 msgid "Group unassigned text into clusters for messy layouts."
 msgstr ""
 "Grupuj nieprzypisany tekst w klastry w przypadku nieuporządkowanych układów."
+
+msgid "Document insert mode"
+msgstr "Tryb wstawiania dokumentu"
+
+msgid ""
+"html = Docling HTML import (default). structured = bbox column layout in "
+"Writer; native Calc cells for extract_structure tables."
+msgstr ""
+"html = import HTML Docling (domyślny). structured = układ kolumn bbox w "
+"Writer; natywne komórki Calc dla tabel extract_structure."
+
+msgid "Standard HTML"
+msgstr "Standardowy HTML"
+
+msgid "Structured (layout / cell grid)"
+msgstr "Strukturalny (układ / siatka komórek)"
 
 msgid "Layout model"
 msgstr "Model układu"

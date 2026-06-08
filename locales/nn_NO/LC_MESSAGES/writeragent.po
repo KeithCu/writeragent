@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-07 16:27-0400\n"
+"POT-Creation-Date: 2026-06-08 18:08-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Norwegian Nynorsk <LL@li.org>\n"
@@ -423,6 +423,10 @@ msgstr "Vel eit innebygd bilete, og køyr på nytt."
 msgid "Anchor the image to a cell, select it, then Run again."
 msgstr "Forankre biletet til ei celle, vel det, og køyr på nytt."
 
+#: plugin/calc/vision_egress.py
+msgid "No structured tables or text blocks to insert."
+msgstr "Ingen strukturerte tabellar eller tekstblokker å setje inn."
+
 #: plugin/calc/python_editor.py
 msgid ""
 "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
@@ -441,7 +445,8 @@ msgstr "Python-celle-redigering"
 msgid "Save as plain text"
 msgstr "Lagre som rein tekst"
 
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
+#: plugin/calc/python_editor.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
 msgid "Save"
 msgstr "Lagre"
 
@@ -517,8 +522,8 @@ msgstr "Avbryt"
 
 #: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
 #: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner.py
-#: plugin/main.py
+#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py plugin/main.py
 msgid "Error"
 msgstr "Feil"
 
@@ -1116,8 +1121,8 @@ msgstr "Breidd:"
 msgid "Document scripts are too large to store in the document ({0} bytes)."
 msgstr "Dokumentskript er for store til å lagrast i dokumentet ({0} byte)."
 
-#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
-#: plugin/scripting/python_runner.py
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/editor_host.py
 msgid "No document is open to save scripts."
 msgstr "Ingen dokument er opne for å lagre skript."
 
@@ -1147,12 +1152,190 @@ msgid "Vision Helpers"
 msgstr "Synshjelparar"
 
 #: plugin/scripting/document_scripts.py
+msgid "Viz Helpers"
+msgstr "Visualiseringshjelparar"
+
+#: plugin/scripting/document_scripts.py
+msgid "Math Helpers"
+msgstr "Matematikkhjelparar"
+
+#: plugin/scripting/document_scripts.py
+msgid "Quant Helpers"
+msgstr "Kvantumshjelparar"
+
+#: plugin/scripting/document_scripts.py
+msgid "Optimize Helpers"
+msgstr "Optimeringshjelparar"
+
+#: plugin/scripting/document_scripts.py
 msgid "My Scripts"
 msgstr "Mine skript"
 
 #: plugin/scripting/document_scripts.py
 msgid "This Document"
 msgstr "Dette dokumentet"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Run Python Script"
+msgstr "Køyr Python-skript"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "Køyr"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "Lukk"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Script:"
+msgstr "Skript:"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach"
+msgstr "Legg til"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Save As..."
+msgstr "Lagre som…"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Delete"
+msgstr "Slett"
+
+#: plugin/scripting/python_runner_ui.py
+msgid ""
+"Enter Python code to execute in the user virtual environment.\n"
+"Assign the result to the 'result' variable."
+msgstr ""
+"Skriv inn Python-kode som skal køyrast i brukaren sitt virtuelle miljø.\n"
+"Tilordna resultatet til variabelen 'result'."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s Lagra i Mine skript i staden."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "Skriptet «%s» er lagra i dette dokumentet."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "Skriptet «%s» vart lagra."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Sample scratchpad saved successfully."
+msgstr "Eksempel-notatblokk vart lagra."
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
+msgid "No document is open to attach scripts."
+msgstr "Ingen dokument er opne for å leggje til skript."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Enter script name:"
+msgstr "Skriv inn skriptnamn:"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach to Document"
+msgstr "Fest til dokument"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr ""
+"Eit skript med namnet «{0}» finst allereie i dette dokumentet. Vil du skrive"
+" over?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach Script"
+msgstr "Fest skript"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' attached to this document."
+msgstr "Skriptet «%s» er festa til dette dokumentet."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Save Script"
+msgstr "Lagre skript"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "Vil du lagre skriptet «{0}» i dette dokumentet?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr "Er du sikker på at du vil tømme eksempel-notatfeltet?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Clear Script"
+msgstr "Tøm skript"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Sample scratchpad cleared."
+msgstr "Eksempel-notatfelt tømt."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Are you sure you want to delete script '%s'?"
+msgstr "Er du sikker på at du vil slette skriptet «%s»?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Delete Script"
+msgstr "Slett skript"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
+msgid "No document is open."
+msgstr "Ingen dokument er opne."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "Skriptet «%s» er sletta."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Execution Error"
+msgstr "Køyringsfeil"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "Ukjend feil"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Script executed successfully."
+msgstr "Skript køyrt utan feil."
+
+#: plugin/scripting/python_runner_ui.py
+msgid ""
+"Script executed successfully, but returned no result and produced no output."
+msgstr ""
+"Skriptet vart køyrt, men returnerte ikkje noko resultat og produserte inga "
+"utdata."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Success"
+msgstr "Vellukka"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Output"
+msgstr "Utdata"
+
+#: plugin/scripting/viz_egress.py
+msgid "Unsupported document type for plot insertion."
+msgstr "Dokumenttypen støttar ikkje innsetjing av plott."
+
+#: plugin/scripting/viz_egress.py plugin/scripting/python_runner.py
+msgid "Viz helper failed."
+msgstr "Visualiseringshjelparen feila."
+
+#: plugin/scripting/viz_egress.py
+msgid "Viz helper returned no image payload."
+msgstr "Visualiseringshjelparen returnerte ikkje noko bildeinnhald."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1169,10 +1352,6 @@ msgstr "Lagra skriptet «{0}» i dette dokumentet."
 msgid "Saved script '{0}'."
 msgstr "Lagra skriptet «{0}»."
 
-#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
-msgid "No document is open to attach scripts."
-msgstr "Ingen dokument er opne for å leggje til skript."
-
 #: plugin/scripting/editor_host.py
 #, python-brace-format
 msgid "Attached script '{0}' to this document."
@@ -1187,10 +1366,6 @@ msgstr "Eit skript med namnet «{0}» finst allereie i Mine skript."
 #, python-brace-format
 msgid "Copied script '{0}' to My Scripts."
 msgstr "Kopierte skriptet «{0}» til Mine skript."
-
-#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
-msgid "No document is open."
-msgstr "Ingen dokument er opne."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1227,6 +1402,45 @@ msgid ""
 msgstr ""
 "\n"
 "Analysehjelparar: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Visualization Libraries"
+msgstr "Visualiseringsbibliotek"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Viz Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Visualiseringshjelparar: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Computer Algebra"
+msgstr "Datamaskin-algebra"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Symbolic Math Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Symbolske matematikkhjelparar: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Quantitative Finance Libraries"
+msgstr "Bibliotek for kvantitativ finans"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Quant Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Kvant-hjelparar: %(cmd)s"
 
 #: plugin/scripting/venv_worker.py
 msgid "Vision Libraries"
@@ -1291,6 +1505,27 @@ msgstr ""
 #, python-brace-format
 msgid "Image '{name}' could not be exported."
 msgstr "Biletet '{name}' kunne ikkje eksporterast."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Symbolic helper failed."
+msgstr "Symbolsk hjelpar feila."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Symbolic helper returned no LaTeX."
+msgstr "Symbolsk hjelpar returnerte ingen LaTeX."
+
+#: plugin/scripting/symbolic_egress.py
+#, python-brace-format
+msgid "Failed to convert LaTeX to Writer Math: {error}"
+msgstr "Klarte ikkje konvertere LaTeX til Writer Math: {error}"
+
+#: plugin/scripting/symbolic_egress.py
+msgid "No active document view."
+msgstr "Inga aktiv dokumentvisning."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Unsupported document type for symbolic insertion."
+msgstr "Dokumenttypen støttar ikkje symbolsk innsetjing."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1361,120 +1596,6 @@ msgstr ""
 "Python-økt for notatboka."
 
 #: plugin/scripting/python_runner.py
-msgid "Run Python Script"
-msgstr "Køyr Python-skript"
-
-#: plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "Køyr"
-
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "Lukk"
-
-#: plugin/scripting/python_runner.py
-msgid "Script:"
-msgstr "Skript:"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach"
-msgstr "Legg til"
-
-#: plugin/scripting/python_runner.py
-msgid "Save As..."
-msgstr "Lagre som…"
-
-#: plugin/scripting/python_runner.py
-msgid "Delete"
-msgstr "Slett"
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Enter Python code to execute in the user virtual environment.\n"
-"Assign the result to the 'result' variable."
-msgstr ""
-"Skriv inn Python-kode som skal køyrast i brukaren sitt virtuelle miljø.\n"
-"Tilordna resultatet til variabelen 'result'."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "%s Saved to My Scripts instead."
-msgstr "%s Lagra i Mine skript i staden."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' saved to this document."
-msgstr "Skriptet «%s» er lagra i dette dokumentet."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' saved successfully."
-msgstr "Skriptet «%s» vart lagra."
-
-#: plugin/scripting/python_runner.py
-msgid "Sample scratchpad saved successfully."
-msgstr "Eksempel-notatblokk vart lagra."
-
-#: plugin/scripting/python_runner.py
-msgid "Enter script name:"
-msgstr "Skriv inn skriptnamn:"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach to Document"
-msgstr "Fest til dokument"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in this document. Overwrite?"
-msgstr ""
-"Eit skript med namnet «{0}» finst allereie i dette dokumentet. Vil du skrive"
-" over?"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach Script"
-msgstr "Fest skript"
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' attached to this document."
-msgstr "Skriptet «%s» er festa til dette dokumentet."
-
-#: plugin/scripting/python_runner.py
-msgid "Save Script"
-msgstr "Lagre skript"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Save script '{0}' to this document?"
-msgstr "Vil du lagre skriptet «{0}» i dette dokumentet?"
-
-#: plugin/scripting/python_runner.py
-msgid "Are you sure you want to clear the Sample scratchpad?"
-msgstr "Er du sikker på at du vil tømme eksempel-notatfeltet?"
-
-#: plugin/scripting/python_runner.py
-msgid "Clear Script"
-msgstr "Tøm skript"
-
-#: plugin/scripting/python_runner.py
-msgid "Sample scratchpad cleared."
-msgstr "Eksempel-notatfelt tømt."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Are you sure you want to delete script '%s'?"
-msgstr "Er du sikker på at du vil slette skriptet «%s»?"
-
-#: plugin/scripting/python_runner.py
-msgid "Delete Script"
-msgstr "Slett skript"
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' deleted."
-msgstr "Skriptet «%s» er sletta."
-
-#: plugin/scripting/python_runner.py
 #, python-format
 msgid "Failed to insert result into Calc: %s"
 msgstr "Klarte ikkje å setja inn resultat i Calc: %s"
@@ -1490,6 +1611,21 @@ msgstr ""
 "velkomne!"
 
 #: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Plot inserted ({title}). (took {time})"
+msgstr "Plott sett inn ({title}). (tok {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Viz '{helper}' completed. {msg}"
+msgstr "Viz '{helper}' fullført. {msg}"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr "Math '{helper}' fullført. Sett inn: {preview} (tok {time})"
+
+#: plugin/scripting/python_runner.py
 msgid "Vision helpers require a Writer or Calc document."
 msgstr "Synshjelparar krev eit Writer- eller Calc-dokument."
 
@@ -1499,27 +1635,76 @@ msgstr "Synshjelpar feila."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
-msgid "Vision '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr "Syn '{helper}' fullført. Skreiv {rows} rader. (tok {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
 msgid "Failed to insert result: {error} (took {time})"
 msgstr "Klarte ikkje setja inn resultatet: {error} (tok {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Vision '{helper}' completed. Found {blocks} blocks and {tables} tables. "
-"(took {time})"
+"Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
+"tables). (took {time})"
 msgstr ""
-"Syn '{helper}' fullført. Fann {blocks} blokker og {tables} tabellar. (tok "
-"{time})"
+"Vision '{helper}' fullført. Sett inn HTML ({blocks} blokker, {tables} "
+"tabellar). (tok {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
-msgid "Vision '{helper}' completed. Extracted {lines} lines. (took {time})"
-msgstr "Visjon '{helper}' fullført. Henta ut {lines} linjer. (tok {time})"
+msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
+msgstr "Vision '{helper}' fullført. Sett inn formatert HTML. (tok {time})"
+
+#: plugin/scripting/python_runner.py
+msgid "Viz helpers require a Writer or Calc document."
+msgstr "Viz-hjelparar krev eit Writer- eller Calc-dokument."
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Viz helper requires a data range. Select cells or enter a range in the Data "
+"field."
+msgstr ""
+"Viz-hjelpar krev eit dataområde. Marker celler eller skriv inn eit område i "
+"datafeltet."
+
+#: plugin/scripting/python_runner.py
+msgid "Math helpers require a Writer or Calc document."
+msgstr "Math-hjelparar krev eit Writer- eller Calc-dokument."
+
+#: plugin/scripting/python_runner.py
+msgid "Math helper failed."
+msgstr "Math-hjelpar feila."
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Quant helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"Quant-hjelpar krev eit dataområde. Marker celler eller skriv inn eit område "
+"i datafeltet."
+
+#: plugin/scripting/python_runner.py
+msgid "Quant failed."
+msgstr "Quant feila."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Quant '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr "Kvantum '{helper}' fullført. Skreiv {rows} rader. (tok {time})"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Optimization helper requires a data range. Select cells or enter a range in "
+"the Data field."
+msgstr ""
+"Optimeringshjelparen krev eit dataområde. Marker celler eller skriv inn eit "
+"område i datafeltet."
+
+#: plugin/scripting/python_runner.py
+msgid "Optimization failed."
+msgstr "Optimering mislukkast."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Optimize '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr "Optimering av '{helper}' fullført. Skreiv {rows} rader. (tok {time})"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -1537,10 +1722,6 @@ msgstr "Analysen mislukkast."
 #, python-brace-format
 msgid "Analysis '{helper}' completed. Wrote {rows} rows. (took {time})"
 msgstr "Analyse '{helper}' fullført. Skreiv {rows} rader. (tok {time})"
-
-#: plugin/scripting/python_runner.py
-msgid "Unknown error"
-msgstr "Ukjend feil"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -1561,29 +1742,6 @@ msgstr ""
 #, python-brace-format
 msgid "Script executed successfully. (took {time})"
 msgstr "Skriptet vart køyrt utan feil. (tok {time})"
-
-#: plugin/scripting/python_runner.py
-msgid "Execution Error"
-msgstr "Køyringsfeil"
-
-#: plugin/scripting/python_runner.py
-msgid "Script executed successfully."
-msgstr "Skript køyrt utan feil."
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Script executed successfully, but returned no result and produced no output."
-msgstr ""
-"Skriptet vart køyrt, men returnerte ikkje noko resultat og produserte inga "
-"utdata."
-
-#: plugin/scripting/python_runner.py
-msgid "Success"
-msgstr "Vellukka"
-
-#: plugin/scripting/python_runner.py
-msgid "Output"
-msgstr "Utdata"
 
 #: plugin/scripting/python_runner.py
 msgid "Script saved."
@@ -2295,6 +2453,22 @@ msgstr "Behald foreldrelause tekstklynger"
 
 msgid "Group unassigned text into clusters for messy layouts."
 msgstr "Grupper ufordelt tekst i klynger for rotete oppsett."
+
+msgid "Document insert mode"
+msgstr "Modus for dokumentinnsetjing"
+
+msgid ""
+"html = Docling HTML import (default). structured = bbox column layout in "
+"Writer; native Calc cells for extract_structure tables."
+msgstr ""
+"html = Docling HTML-import (standard). structured = bbox-kolonneoppsett i "
+"Writer; native Calc-celler for extract_structure-tabellar."
+
+msgid "Standard HTML"
+msgstr "Standard HTML"
+
+msgid "Structured (layout / cell grid)"
+msgstr "Strukturert (oppsett / cellerutenett)"
 
 msgid "Layout model"
 msgstr "Oppsettsmodell"

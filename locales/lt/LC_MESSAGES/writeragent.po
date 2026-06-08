@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-07 16:27-0400\n"
+"POT-Creation-Date: 2026-06-08 18:08-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Lithuanian <LL@li.org>\n"
@@ -424,6 +424,11 @@ msgstr ""
 "Pritvirtinkite paveikslėlį prie langelio, pasirinkite jį ir paleiskite dar "
 "kartą."
 
+#: plugin/calc/vision_egress.py
+msgid "No structured tables or text blocks to insert."
+msgstr ""
+"Nėra struktūrizuotų lentelių ar teksto blokų, kuriuos būtų galima įterpti."
+
 #: plugin/calc/python_editor.py
 msgid ""
 "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
@@ -442,7 +447,8 @@ msgstr "Python langelių redaktorius"
 msgid "Save as plain text"
 msgstr "Įrašyti kaip paprastąjį tekstą"
 
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
+#: plugin/calc/python_editor.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
 msgid "Save"
 msgstr "Įrašyti"
 
@@ -518,8 +524,8 @@ msgstr "Atsisakyti"
 
 #: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
 #: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner.py
-#: plugin/main.py
+#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py plugin/main.py
 msgid "Error"
 msgstr "Klaida"
 
@@ -1115,8 +1121,8 @@ msgstr "Plotis:"
 msgid "Document scripts are too large to store in the document ({0} bytes)."
 msgstr "Dokumento scenarijai yra per dideli saugoti dokumente ({0} baitų)."
 
-#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
-#: plugin/scripting/python_runner.py
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/editor_host.py
 msgid "No document is open to save scripts."
 msgstr "Nėra atidaryto dokumento scenarijams įrašyti."
 
@@ -1146,12 +1152,188 @@ msgid "Vision Helpers"
 msgstr "Regėjimo pagalbinės priemonės"
 
 #: plugin/scripting/document_scripts.py
+msgid "Viz Helpers"
+msgstr "Vizualizacijos pagalbininkai"
+
+#: plugin/scripting/document_scripts.py
+msgid "Math Helpers"
+msgstr "Matematikos pagalbininkai"
+
+#: plugin/scripting/document_scripts.py
+msgid "Quant Helpers"
+msgstr "Kiekybiniai pagalbininkai"
+
+#: plugin/scripting/document_scripts.py
+msgid "Optimize Helpers"
+msgstr "Optimizavimo pagalbininkai"
+
+#: plugin/scripting/document_scripts.py
 msgid "My Scripts"
 msgstr "Mano scenarijai"
 
 #: plugin/scripting/document_scripts.py
 msgid "This Document"
 msgstr "Šis dokumentas"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Run Python Script"
+msgstr "Vykdyti „Python“ scenarijų"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "Vykdyti"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "Užverti"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Script:"
+msgstr "Scenarijus:"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach"
+msgstr "Pridėti"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Save As..."
+msgstr "Įrašyti kaip..."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Delete"
+msgstr "Ištrinti"
+
+#: plugin/scripting/python_runner_ui.py
+msgid ""
+"Enter Python code to execute in the user virtual environment.\n"
+"Assign the result to the 'result' variable."
+msgstr ""
+"Įveskite „Python“ kodą, kurį norite vykdyti naudotojo virtualiojoje aplinkoje.\n"
+"Rezultatą priskirkite kintamajam „result“."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s Įrašyta į „Mano scenarijus“."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "Scenarijus „%s“ įrašytas į šį dokumentą."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "Scenarijus „%s“ sėkmingai įrašytas."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Sample scratchpad saved successfully."
+msgstr "Pavyzdinė užrašų sritis sėkmingai įrašyta."
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
+msgid "No document is open to attach scripts."
+msgstr "Nėra atidaryto dokumento scenarijams pridėti."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Enter script name:"
+msgstr "Įveskite scenarijaus pavadinimą:"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach to Document"
+msgstr "Pridėti prie dokumento"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr "Scenarijus pavadinimu „{0}“ šiame dokumente jau yra. Perrašyti?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach Script"
+msgstr "Pridėti scenarijų"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' attached to this document."
+msgstr "Scenarijus „%s“ pridėtas prie šio dokumento."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Save Script"
+msgstr "Įrašyti scenarijų"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "Įrašyti scenarijų „{0}“ į šį dokumentą?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr "Ar tikrai norite išvalyti pavyzdžių užrašinę?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Clear Script"
+msgstr "Išvalyti scenarijų"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Sample scratchpad cleared."
+msgstr "Pavyzdžių užrašinė išvalyta."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Are you sure you want to delete script '%s'?"
+msgstr "Ar tikrai norite pašalinti scenarijų „%s“?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Delete Script"
+msgstr "Pašalinti scenarijų"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
+msgid "No document is open."
+msgstr "Nėra atidaryto dokumento."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "Scenarijus „%s“ pašalintas."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Execution Error"
+msgstr "Vykdymo klaida"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "Nežinoma klaida"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Script executed successfully."
+msgstr "Scriptas sėkmingai įvykdytas."
+
+#: plugin/scripting/python_runner_ui.py
+msgid ""
+"Script executed successfully, but returned no result and produced no output."
+msgstr ""
+"Scenarijus sėkmingai įvykdytas, tačiau negautas joks rezultatas ir nebuvo "
+"išvesties."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Success"
+msgstr "Sėkmė"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Output"
+msgstr "Išvestis"
+
+#: plugin/scripting/viz_egress.py
+msgid "Unsupported document type for plot insertion."
+msgstr "Nepalaikomas dokumento tipas diagramai įterpti."
+
+#: plugin/scripting/viz_egress.py plugin/scripting/python_runner.py
+msgid "Viz helper failed."
+msgstr "Vizualizacijos pagalbininko klaida."
+
+#: plugin/scripting/viz_egress.py
+msgid "Viz helper returned no image payload."
+msgstr "Vizualizacijos pagalbininkas nepateikė vaizdo duomenų."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1168,10 +1350,6 @@ msgstr "Scenarijus „{0}“ įrašytas į šį dokumentą."
 msgid "Saved script '{0}'."
 msgstr "Scenarijus „{0}“ įrašytas."
 
-#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
-msgid "No document is open to attach scripts."
-msgstr "Nėra atidaryto dokumento scenarijams pridėti."
-
 #: plugin/scripting/editor_host.py
 #, python-brace-format
 msgid "Attached script '{0}' to this document."
@@ -1186,10 +1364,6 @@ msgstr "Scenarijus pavadinimu „{0}“ jau yra „Mano scenarijuose“."
 #, python-brace-format
 msgid "Copied script '{0}' to My Scripts."
 msgstr "Scenarijus „{0}“ nukopijuotas į „Mano scenarijus“."
-
-#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
-msgid "No document is open."
-msgstr "Nėra atidaryto dokumento."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1225,6 +1399,45 @@ msgid ""
 msgstr ""
 "\n"
 "Analizės pagalbinės priemonės: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Visualization Libraries"
+msgstr "Vizualizacijos bibliotekos"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Viz Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Vizualizacijos pagalbininkai: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Computer Algebra"
+msgstr "Kompiuterinė algebra"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Symbolic Math Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Simbolinės matematikos pagalbinės priemonės: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Quantitative Finance Libraries"
+msgstr "Kiekybinės finansų bibliotekos"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Quant Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Kiekybinės analizės pagalbinės priemonės: %(cmd)s"
 
 #: plugin/scripting/venv_worker.py
 msgid "Vision Libraries"
@@ -1290,6 +1503,27 @@ msgstr ""
 #, python-brace-format
 msgid "Image '{name}' could not be exported."
 msgstr "Vaizdo „{name}“ nepavyko eksportuoti."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Symbolic helper failed."
+msgstr "Simbolinės pagalbinės priemonės klaida."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Symbolic helper returned no LaTeX."
+msgstr "Simbolinė pagalbinė priemonė negrąžino LaTeX kodo."
+
+#: plugin/scripting/symbolic_egress.py
+#, python-brace-format
+msgid "Failed to convert LaTeX to Writer Math: {error}"
+msgstr "Nepavyko konvertuoti LaTeX į „Writer Math“: {error}"
+
+#: plugin/scripting/symbolic_egress.py
+msgid "No active document view."
+msgstr "Nėra aktyvaus dokumento rodinio."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Unsupported document type for symbolic insertion."
+msgstr "Nepalaikomas dokumento tipas simboliniam įterpimui."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1362,118 +1596,6 @@ msgstr ""
 "knygelės Python seanso nustatymą iš naujo."
 
 #: plugin/scripting/python_runner.py
-msgid "Run Python Script"
-msgstr "Vykdyti „Python“ scenarijų"
-
-#: plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "Vykdyti"
-
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "Užverti"
-
-#: plugin/scripting/python_runner.py
-msgid "Script:"
-msgstr "Scenarijus:"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach"
-msgstr "Pridėti"
-
-#: plugin/scripting/python_runner.py
-msgid "Save As..."
-msgstr "Įrašyti kaip..."
-
-#: plugin/scripting/python_runner.py
-msgid "Delete"
-msgstr "Ištrinti"
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Enter Python code to execute in the user virtual environment.\n"
-"Assign the result to the 'result' variable."
-msgstr ""
-"Įveskite „Python“ kodą, kurį norite vykdyti naudotojo virtualiojoje aplinkoje.\n"
-"Rezultatą priskirkite kintamajam „result“."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "%s Saved to My Scripts instead."
-msgstr "%s Įrašyta į „Mano scenarijus“."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' saved to this document."
-msgstr "Scenarijus „%s“ įrašytas į šį dokumentą."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' saved successfully."
-msgstr "Scenarijus „%s“ sėkmingai įrašytas."
-
-#: plugin/scripting/python_runner.py
-msgid "Sample scratchpad saved successfully."
-msgstr "Pavyzdinė užrašų sritis sėkmingai įrašyta."
-
-#: plugin/scripting/python_runner.py
-msgid "Enter script name:"
-msgstr "Įveskite scenarijaus pavadinimą:"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach to Document"
-msgstr "Pridėti prie dokumento"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in this document. Overwrite?"
-msgstr "Scenarijus pavadinimu „{0}“ šiame dokumente jau yra. Perrašyti?"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach Script"
-msgstr "Pridėti scenarijų"
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' attached to this document."
-msgstr "Scenarijus „%s“ pridėtas prie šio dokumento."
-
-#: plugin/scripting/python_runner.py
-msgid "Save Script"
-msgstr "Įrašyti scenarijų"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Save script '{0}' to this document?"
-msgstr "Įrašyti scenarijų „{0}“ į šį dokumentą?"
-
-#: plugin/scripting/python_runner.py
-msgid "Are you sure you want to clear the Sample scratchpad?"
-msgstr "Ar tikrai norite išvalyti pavyzdžių užrašinę?"
-
-#: plugin/scripting/python_runner.py
-msgid "Clear Script"
-msgstr "Išvalyti scenarijų"
-
-#: plugin/scripting/python_runner.py
-msgid "Sample scratchpad cleared."
-msgstr "Pavyzdžių užrašinė išvalyta."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Are you sure you want to delete script '%s'?"
-msgstr "Ar tikrai norite pašalinti scenarijų „%s“?"
-
-#: plugin/scripting/python_runner.py
-msgid "Delete Script"
-msgstr "Pašalinti scenarijų"
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' deleted."
-msgstr "Scenarijus „%s“ pašalintas."
-
-#: plugin/scripting/python_runner.py
 #, python-format
 msgid "Failed to insert result into Calc: %s"
 msgstr "Nepavyko įterpti rezultato į „Calc“: %s"
@@ -1489,6 +1611,21 @@ msgstr ""
 "„PR“!"
 
 #: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Plot inserted ({title}). (took {time})"
+msgstr "Brėžinys įterptas ({title}). (užtruko {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Viz '{helper}' completed. {msg}"
+msgstr "Viz „{helper}“ baigta. {msg}"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr "Math „{helper}“ baigta. Įterpta: {preview} (truko {time})"
+
+#: plugin/scripting/python_runner.py
 msgid "Vision helpers require a Writer or Calc document."
 msgstr "Regėjimo pagalbininkams reikalingas „Writer“ arba „Calc“ dokumentas."
 
@@ -1498,29 +1635,77 @@ msgstr "Regėjimo pagalbininko klaida."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
-msgid "Vision '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr ""
-"Regėjimo pagalbininkas „{helper}“ baigė darbą. Įrašyta eilučių: {rows}. "
-"(truko {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
 msgid "Failed to insert result: {error} (took {time})"
 msgstr "Nepavyko įterpti rezultato: {error} (truko {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Vision '{helper}' completed. Found {blocks} blocks and {tables} tables. "
-"(took {time})"
+"Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
+"tables). (took {time})"
 msgstr ""
-"Regėjimo pagalbininkas „{helper}“ baigė darbą. Rasta blokų: {blocks}, "
-"lentelių: {tables}. (truko {time})"
+"Vision „{helper}“ baigta. Įterptas HTML ({blocks} blokų, {tables} lentelių)."
+" (truko {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
-msgid "Vision '{helper}' completed. Extracted {lines} lines. (took {time})"
-msgstr "Vizija „{helper}“ baigta. Ištraukta {lines} eilučių. (truko {time})"
+msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
+msgstr "Vision „{helper}“ baigta. Įterptas formatuotas HTML. (truko {time})"
+
+#: plugin/scripting/python_runner.py
+msgid "Viz helpers require a Writer or Calc document."
+msgstr "Viz pagalbinėms priemonėms reikia Writer arba Calc dokumento."
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Viz helper requires a data range. Select cells or enter a range in the Data "
+"field."
+msgstr ""
+"Viz pagalbinei priemonei reikia duomenų srities. Pažymėkite langelius arba "
+"įveskite sritį duomenų lauke."
+
+#: plugin/scripting/python_runner.py
+msgid "Math helpers require a Writer or Calc document."
+msgstr "Math pagalbinėms priemonėms reikia Writer arba Calc dokumento."
+
+#: plugin/scripting/python_runner.py
+msgid "Math helper failed."
+msgstr "Math pagalbinė priemonė nepavyko."
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Quant helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"Quant pagalbinei priemonei reikia duomenų srities. Pažymėkite langelius arba"
+" įveskite sritį duomenų lauke."
+
+#: plugin/scripting/python_runner.py
+msgid "Quant failed."
+msgstr "Quant nepavyko."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Quant '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr "Kvantas „{helper}“ baigtas. Įrašyta {rows} eilučių. (užtruko {time})"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Optimization helper requires a data range. Select cells or enter a range in "
+"the Data field."
+msgstr ""
+"Optimizavimo pagalbininkui reikia duomenų srities. Pasirinkite langelius "
+"arba įveskite sritį duomenų lauke."
+
+#: plugin/scripting/python_runner.py
+msgid "Optimization failed."
+msgstr "Optimizavimas nepavyko."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Optimize '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"Optimizavimas „{helper}“ baigtas. Įrašyta {rows} eilučių. (užtruko {time})"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -1540,10 +1725,6 @@ msgid "Analysis '{helper}' completed. Wrote {rows} rows. (took {time})"
 msgstr "Analizė „{helper}“ baigta. Įrašyta {rows} eilučių. (truko {time})"
 
 #: plugin/scripting/python_runner.py
-msgid "Unknown error"
-msgstr "Nežinoma klaida"
-
-#: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
 "Script executed successfully, but returned no result and produced no output."
@@ -1561,29 +1742,6 @@ msgstr "Nepalaikomas dokumento tipas rezultatui įterpti. (truko {time})"
 #, python-brace-format
 msgid "Script executed successfully. (took {time})"
 msgstr "Scenarijus sėkmingai įvykdytas. (truko {time})"
-
-#: plugin/scripting/python_runner.py
-msgid "Execution Error"
-msgstr "Vykdymo klaida"
-
-#: plugin/scripting/python_runner.py
-msgid "Script executed successfully."
-msgstr "Scriptas sėkmingai įvykdytas."
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Script executed successfully, but returned no result and produced no output."
-msgstr ""
-"Scenarijus sėkmingai įvykdytas, tačiau negautas joks rezultatas ir nebuvo "
-"išvesties."
-
-#: plugin/scripting/python_runner.py
-msgid "Success"
-msgstr "Sėkmė"
-
-#: plugin/scripting/python_runner.py
-msgid "Output"
-msgstr "Išvestis"
 
 #: plugin/scripting/python_runner.py
 msgid "Script saved."
@@ -2315,6 +2473,23 @@ msgstr "Palikti našlaičių teksto grupes"
 
 msgid "Group unassigned text into clusters for messy layouts."
 msgstr "Grupuoti nepriskirtą tekstą į klasterius netvarkingiems maketams."
+
+msgid "Document insert mode"
+msgstr "Dokumento įterpimo režimas"
+
+msgid ""
+"html = Docling HTML import (default). structured = bbox column layout in "
+"Writer; native Calc cells for extract_structure tables."
+msgstr ""
+"html = „Docling“ HTML importavimas (numatytasis). structured = „bbox“ "
+"stulpelių išdėstymas „Writer“ programoje; vietiniai „Calc“ langeliai "
+"„extract_structure“ lentelėms."
+
+msgid "Standard HTML"
+msgstr "Standartinis HTML"
+
+msgid "Structured (layout / cell grid)"
+msgstr "Struktūrinis (išdėstymas / langelių tinklelis)"
 
 msgid "Layout model"
 msgstr "Maketo modelis"

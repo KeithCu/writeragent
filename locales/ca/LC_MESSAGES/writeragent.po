@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-07 16:27-0400\n"
+"POT-Creation-Date: 2026-06-08 18:08-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Catalan <LL@li.org>\n"
@@ -425,6 +425,10 @@ msgstr "Seleccioneu una imatge incrustada i torneu a executar."
 msgid "Anchor the image to a cell, select it, then Run again."
 msgstr "Ancoreu la imatge a una cel·la, seleccioneu-la i torneu a executar."
 
+#: plugin/calc/vision_egress.py
+msgid "No structured tables or text blocks to insert."
+msgstr "No hi ha taules estructurades ni blocs de text per inserir."
+
 #: plugin/calc/python_editor.py
 msgid ""
 "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
@@ -443,7 +447,8 @@ msgstr "Editor de cel·les Python"
 msgid "Save as plain text"
 msgstr "Desa com a text sense format"
 
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
+#: plugin/calc/python_editor.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
 msgid "Save"
 msgstr "Desa"
 
@@ -522,8 +527,8 @@ msgstr "Cancel·la"
 
 #: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
 #: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner.py
-#: plugin/main.py
+#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py plugin/main.py
 msgid "Error"
 msgstr "Error"
 
@@ -1125,8 +1130,8 @@ msgstr ""
 "Els scripts del document són massa grans per emmagatzemar-los al document "
 "({0} bytes)."
 
-#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
-#: plugin/scripting/python_runner.py
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/editor_host.py
 msgid "No document is open to save scripts."
 msgstr "No hi ha cap document obert per desar els scripts."
 
@@ -1156,12 +1161,191 @@ msgid "Vision Helpers"
 msgstr "Assistents de visió"
 
 #: plugin/scripting/document_scripts.py
+msgid "Viz Helpers"
+msgstr "Assistents de visualització"
+
+#: plugin/scripting/document_scripts.py
+msgid "Math Helpers"
+msgstr "Assistents matemàtics"
+
+#: plugin/scripting/document_scripts.py
+msgid "Quant Helpers"
+msgstr "Assistents quantitatius"
+
+#: plugin/scripting/document_scripts.py
+msgid "Optimize Helpers"
+msgstr "Assistents d'optimització"
+
+#: plugin/scripting/document_scripts.py
 msgid "My Scripts"
 msgstr "Els meus scripts"
 
 #: plugin/scripting/document_scripts.py
 msgid "This Document"
 msgstr "Aquest document"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Run Python Script"
+msgstr "Executa l'script de Python"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "Executa"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "Tanca"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Script:"
+msgstr "Script:"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach"
+msgstr "Adjunta"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Save As..."
+msgstr "Anomena i desa..."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Delete"
+msgstr "Suprimeix"
+
+#: plugin/scripting/python_runner_ui.py
+msgid ""
+"Enter Python code to execute in the user virtual environment.\n"
+"Assign the result to the 'result' variable."
+msgstr ""
+"Introduïu el codi Python a executar a l'entorn virtual de l'usuari.\n"
+"Assigneu el resultat a la variable 'result'."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s S'ha desat a Els meus scripts en el seu lloc."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "L'script «%s» s'ha desat en aquest document."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "El script «%s» s'ha desat correctament."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Sample scratchpad saved successfully."
+msgstr "El bloc de notes de prova s'ha desat correctament."
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
+msgid "No document is open to attach scripts."
+msgstr "No hi ha cap document obert per adjuntar scripts."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Enter script name:"
+msgstr "Introduïu el nom del script:"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach to Document"
+msgstr "Adjunta al document"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr ""
+"Ja existeix un script anomenat «{0}» en aquest document. Voleu "
+"sobreescriure'l?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach Script"
+msgstr "Adjunta l'script"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' attached to this document."
+msgstr "S'ha adjuntat l'script «%s» a aquest document."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Save Script"
+msgstr "Desa l'script"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "Voleu desar l'script «{0}» en aquest document?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr "Esteu segur que voleu esborrar el bloc de notes de mostres?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Clear Script"
+msgstr "Esborra l'script"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Sample scratchpad cleared."
+msgstr "S'ha esborrat el bloc de notes de mostres."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Are you sure you want to delete script '%s'?"
+msgstr "Esteu segur que voleu suprimir l'script «%s»?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Delete Script"
+msgstr "Suprimeix l'script"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
+msgid "No document is open."
+msgstr "No hi ha cap document obert."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "S'ha suprimit l'script «%s»."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Execution Error"
+msgstr "Error d'execució"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "Error desconegut"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Script executed successfully."
+msgstr "L'script s'ha executat correctament."
+
+#: plugin/scripting/python_runner_ui.py
+msgid ""
+"Script executed successfully, but returned no result and produced no output."
+msgstr ""
+"L'script s'ha executat correctament, però no ha retornat cap resultat ni ha "
+"produït cap sortida."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Success"
+msgstr "Èxit"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Output"
+msgstr "Sortida"
+
+#: plugin/scripting/viz_egress.py
+msgid "Unsupported document type for plot insertion."
+msgstr "Tipus de document no admès per a la inserció de gràfics."
+
+#: plugin/scripting/viz_egress.py plugin/scripting/python_runner.py
+msgid "Viz helper failed."
+msgstr "L'assistent de visualització ha fallat."
+
+#: plugin/scripting/viz_egress.py
+msgid "Viz helper returned no image payload."
+msgstr ""
+"L'assistent de visualització no ha retornat cap càrrega útil d'imatge."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1178,10 +1362,6 @@ msgstr "S'ha desat l'script «{0}» en aquest document."
 msgid "Saved script '{0}'."
 msgstr "S'ha desat l'script «{0}»."
 
-#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
-msgid "No document is open to attach scripts."
-msgstr "No hi ha cap document obert per adjuntar scripts."
-
 #: plugin/scripting/editor_host.py
 #, python-brace-format
 msgid "Attached script '{0}' to this document."
@@ -1196,10 +1376,6 @@ msgstr "Ja existeix un script anomenat «{0}» a Els meus scripts."
 #, python-brace-format
 msgid "Copied script '{0}' to My Scripts."
 msgstr "S'ha copiat l'script «{0}» a Els meus scripts."
-
-#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
-msgid "No document is open."
-msgstr "No hi ha cap document obert."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1235,6 +1411,45 @@ msgid ""
 msgstr ""
 "\n"
 "Assistents d'anàlisi: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Visualization Libraries"
+msgstr "Biblioteques de visualització"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Viz Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Assistents de visualització: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Computer Algebra"
+msgstr "Àlgebra computacional"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Symbolic Math Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Assistents de matemàtiques simbòliques: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Quantitative Finance Libraries"
+msgstr "Biblioteques de finances quantitatives"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Quant Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Assistents quantitatius: %(cmd)s"
 
 #: plugin/scripting/venv_worker.py
 msgid "Vision Libraries"
@@ -1300,6 +1515,27 @@ msgstr ""
 #, python-brace-format
 msgid "Image '{name}' could not be exported."
 msgstr "No s'ha pogut exportar la imatge '{name}'."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Symbolic helper failed."
+msgstr "L'assistent simbòlic ha fallat."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Symbolic helper returned no LaTeX."
+msgstr "L'assistent simbòlic no ha retornat cap LaTeX."
+
+#: plugin/scripting/symbolic_egress.py
+#, python-brace-format
+msgid "Failed to convert LaTeX to Writer Math: {error}"
+msgstr "Ha fallat la conversió de LaTeX a Writer Math: {error}"
+
+#: plugin/scripting/symbolic_egress.py
+msgid "No active document view."
+msgstr "No hi ha cap vista de document activa."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Unsupported document type for symbolic insertion."
+msgstr "Tipus de document no admès per a la inserció simbòlica."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1372,120 +1608,6 @@ msgstr ""
 "sessió de Python del quadern."
 
 #: plugin/scripting/python_runner.py
-msgid "Run Python Script"
-msgstr "Executa l'script de Python"
-
-#: plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "Executa"
-
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "Tanca"
-
-#: plugin/scripting/python_runner.py
-msgid "Script:"
-msgstr "Script:"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach"
-msgstr "Adjunta"
-
-#: plugin/scripting/python_runner.py
-msgid "Save As..."
-msgstr "Anomena i desa..."
-
-#: plugin/scripting/python_runner.py
-msgid "Delete"
-msgstr "Suprimeix"
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Enter Python code to execute in the user virtual environment.\n"
-"Assign the result to the 'result' variable."
-msgstr ""
-"Introduïu el codi Python a executar a l'entorn virtual de l'usuari.\n"
-"Assigneu el resultat a la variable 'result'."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "%s Saved to My Scripts instead."
-msgstr "%s S'ha desat a Els meus scripts en el seu lloc."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' saved to this document."
-msgstr "L'script «%s» s'ha desat en aquest document."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' saved successfully."
-msgstr "El script «%s» s'ha desat correctament."
-
-#: plugin/scripting/python_runner.py
-msgid "Sample scratchpad saved successfully."
-msgstr "El bloc de notes de prova s'ha desat correctament."
-
-#: plugin/scripting/python_runner.py
-msgid "Enter script name:"
-msgstr "Introduïu el nom del script:"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach to Document"
-msgstr "Adjunta al document"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in this document. Overwrite?"
-msgstr ""
-"Ja existeix un script anomenat «{0}» en aquest document. Voleu "
-"sobreescriure'l?"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach Script"
-msgstr "Adjunta l'script"
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' attached to this document."
-msgstr "S'ha adjuntat l'script «%s» a aquest document."
-
-#: plugin/scripting/python_runner.py
-msgid "Save Script"
-msgstr "Desa l'script"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Save script '{0}' to this document?"
-msgstr "Voleu desar l'script «{0}» en aquest document?"
-
-#: plugin/scripting/python_runner.py
-msgid "Are you sure you want to clear the Sample scratchpad?"
-msgstr "Esteu segur que voleu esborrar el bloc de notes de mostres?"
-
-#: plugin/scripting/python_runner.py
-msgid "Clear Script"
-msgstr "Esborra l'script"
-
-#: plugin/scripting/python_runner.py
-msgid "Sample scratchpad cleared."
-msgstr "S'ha esborrat el bloc de notes de mostres."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Are you sure you want to delete script '%s'?"
-msgstr "Esteu segur que voleu suprimir l'script «%s»?"
-
-#: plugin/scripting/python_runner.py
-msgid "Delete Script"
-msgstr "Suprimeix l'script"
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' deleted."
-msgstr "S'ha suprimit l'script «%s»."
-
-#: plugin/scripting/python_runner.py
 #, python-format
 msgid "Failed to insert result into Calc: %s"
 msgstr "Ha fallat la inserció del resultat al Calc: %s"
@@ -1501,6 +1623,21 @@ msgstr ""
 "contribucions són benvingudes!"
 
 #: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Plot inserted ({title}). (took {time})"
+msgstr "S'ha inserit el gràfic ({title}). (ha trigat {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Viz '{helper}' completed. {msg}"
+msgstr "Viz '{helper}' completat. {msg}"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr "Math '{helper}' completat. Inserit: {preview} (ha trigat {time})"
+
+#: plugin/scripting/python_runner.py
 msgid "Vision helpers require a Writer or Calc document."
 msgstr "Els assistents de visió requereixen un document de Writer o Calc."
 
@@ -1510,29 +1647,80 @@ msgstr "L'assistent de visió ha fallat."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
-msgid "Vision '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr ""
-"Visió '{helper}' completada. S'han escrit {rows} files. (ha trigat {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
 msgid "Failed to insert result: {error} (took {time})"
 msgstr "No s'ha pogut inserir el resultat: {error} (ha trigat {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Vision '{helper}' completed. Found {blocks} blocks and {tables} tables. "
-"(took {time})"
+"Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
+"tables). (took {time})"
 msgstr ""
-"Visió '{helper}' completada. S'han trobat {blocks} blocs i {tables} taules. "
-"(ha trigat {time})"
+"Vision '{helper}' completat. HTML inserit ({blocks} blocs, {tables} taules)."
+" (ha trigat {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
-msgid "Vision '{helper}' completed. Extracted {lines} lines. (took {time})"
+msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
 msgstr ""
-"Visió '{helper}' completada. S'han extret {lines} línies. (ha trigat {time})"
+"Vision '{helper}' completat. HTML formatat inserit. (ha trigat {time})"
+
+#: plugin/scripting/python_runner.py
+msgid "Viz helpers require a Writer or Calc document."
+msgstr "Els ajudants de Viz requereixen un document de Writer o Calc."
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Viz helper requires a data range. Select cells or enter a range in the Data "
+"field."
+msgstr ""
+"L'ajudant de Viz requereix un interval de dades. Seleccioneu cel·les o "
+"introduïu un interval al camp Dades."
+
+#: plugin/scripting/python_runner.py
+msgid "Math helpers require a Writer or Calc document."
+msgstr "Els ajudants de Math requereixen un document de Writer o Calc."
+
+#: plugin/scripting/python_runner.py
+msgid "Math helper failed."
+msgstr "L'ajudant de Math ha fallat."
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Quant helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"L'ajudant de Quant requereix un interval de dades. Seleccioneu cel·les o "
+"introduïu un interval al camp Dades."
+
+#: plugin/scripting/python_runner.py
+msgid "Quant failed."
+msgstr "Quant ha fallat."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Quant '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"Quant '{helper}' completat. S'han escrit {rows} files. (ha trigat {time})"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Optimization helper requires a data range. Select cells or enter a range in "
+"the Data field."
+msgstr ""
+"L'assistent d'optimització requereix un interval de dades. Seleccioneu "
+"cel·les o introduïu un interval al camp Dades."
+
+#: plugin/scripting/python_runner.py
+msgid "Optimization failed."
+msgstr "L'optimització ha fallat."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Optimize '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"Optimització de '{helper}' completada. S'han escrit {rows} files. (ha trigat"
+" {time})"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -1551,10 +1739,6 @@ msgstr "L'anàlisi ha fallat."
 msgid "Analysis '{helper}' completed. Wrote {rows} rows. (took {time})"
 msgstr ""
 "Anàlisi '{helper}' completada. S'han escrit {rows} files. (ha trigat {time})"
-
-#: plugin/scripting/python_runner.py
-msgid "Unknown error"
-msgstr "Error desconegut"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -1576,29 +1760,6 @@ msgstr ""
 #, python-brace-format
 msgid "Script executed successfully. (took {time})"
 msgstr "L'script s'ha executat correctament. (ha trigat {time})"
-
-#: plugin/scripting/python_runner.py
-msgid "Execution Error"
-msgstr "Error d'execució"
-
-#: plugin/scripting/python_runner.py
-msgid "Script executed successfully."
-msgstr "L'script s'ha executat correctament."
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Script executed successfully, but returned no result and produced no output."
-msgstr ""
-"L'script s'ha executat correctament, però no ha retornat cap resultat ni ha "
-"produït cap sortida."
-
-#: plugin/scripting/python_runner.py
-msgid "Success"
-msgstr "Èxit"
-
-#: plugin/scripting/python_runner.py
-msgid "Output"
-msgstr "Sortida"
 
 #: plugin/scripting/python_runner.py
 msgid "Script saved."
@@ -2332,6 +2493,23 @@ msgstr "Mantén els clústers de text orfes"
 
 msgid "Group unassigned text into clusters for messy layouts."
 msgstr "Agrupa el text no assignat en clústers per a dissenys desordenats."
+
+msgid "Document insert mode"
+msgstr "Mode d'inserció al document"
+
+msgid ""
+"html = Docling HTML import (default). structured = bbox column layout in "
+"Writer; native Calc cells for extract_structure tables."
+msgstr ""
+"html = importació HTML de Docling (predeterminat). structured = disseny de "
+"columnes amb quadre delimitador al Writer; cel·les natives del Calc per a "
+"taules d'extracció d'estructura."
+
+msgid "Standard HTML"
+msgstr "HTML estàndard"
+
+msgid "Structured (layout / cell grid)"
+msgstr "Estructurat (disseny / graella de cel·les)"
 
 msgid "Layout model"
 msgstr "Model de disseny"

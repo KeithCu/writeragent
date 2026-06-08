@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-07 16:27-0400\n"
+"POT-Creation-Date: 2026-06-08 18:08-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Latvian <LL@li.org>\n"
@@ -427,6 +427,10 @@ msgstr "Atlasiet iegultu attēlu un palaidiet vēlreiz."
 msgid "Anchor the image to a cell, select it, then Run again."
 msgstr "Noenkurojiet attēlu šūnā, atlasiet to un palaidiet vēlreiz."
 
+#: plugin/calc/vision_egress.py
+msgid "No structured tables or text blocks to insert."
+msgstr "Nav strukturētu tabulu vai teksta bloku, ko ievietot."
+
 #: plugin/calc/python_editor.py
 msgid ""
 "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
@@ -445,7 +449,8 @@ msgstr "Python šūnu redaktors"
 msgid "Save as plain text"
 msgstr "Saglabāt kā vienkāršu tekstu"
 
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
+#: plugin/calc/python_editor.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
 msgid "Save"
 msgstr "Saglabāt"
 
@@ -521,8 +526,8 @@ msgstr "Atcelt"
 
 #: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
 #: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner.py
-#: plugin/main.py
+#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py plugin/main.py
 msgid "Error"
 msgstr "Kļūda"
 
@@ -1122,8 +1127,8 @@ msgid "Document scripts are too large to store in the document ({0} bytes)."
 msgstr ""
 "Dokumenta skripti ir pārāk lieli, lai tos saglabātu dokumentā ({0} baiti)."
 
-#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
-#: plugin/scripting/python_runner.py
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/editor_host.py
 msgid "No document is open to save scripts."
 msgstr "Nav atvērts neviens dokuments, kurā saglabāt skriptus."
 
@@ -1153,12 +1158,188 @@ msgid "Vision Helpers"
 msgstr "Vīzijas palīgrīki"
 
 #: plugin/scripting/document_scripts.py
+msgid "Viz Helpers"
+msgstr "Vizualizācijas palīgi"
+
+#: plugin/scripting/document_scripts.py
+msgid "Math Helpers"
+msgstr "Matemātikas palīgi"
+
+#: plugin/scripting/document_scripts.py
+msgid "Quant Helpers"
+msgstr "Kvantitatīvie palīgi"
+
+#: plugin/scripting/document_scripts.py
+msgid "Optimize Helpers"
+msgstr "Optimizācijas palīgi"
+
+#: plugin/scripting/document_scripts.py
 msgid "My Scripts"
 msgstr "Mani skripti"
 
 #: plugin/scripting/document_scripts.py
 msgid "This Document"
 msgstr "Šis dokuments"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Run Python Script"
+msgstr "Izpildīt Python skriptu"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "Izpildīt"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "Aizvērt"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Script:"
+msgstr "Skripts:"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach"
+msgstr "Pievienot"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Save As..."
+msgstr "Saglabāt kā..."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Delete"
+msgstr "Dzēst"
+
+#: plugin/scripting/python_runner_ui.py
+msgid ""
+"Enter Python code to execute in the user virtual environment.\n"
+"Assign the result to the 'result' variable."
+msgstr ""
+"Ievadiet Python kodu, ko izpildīt lietotāja virtuālajā vidē.\n"
+"Piešķiriet rezultātu mainīgajam 'result'."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s Tā vietā saglabāts sadaļā \"Mani skripti\"."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "Skripts '%s' saglabāts šajā dokumentā."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "Skripts '%s' veiksmīgi saglabāts."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Sample scratchpad saved successfully."
+msgstr "Piezīmju bloka paraugs veiksmīgi saglabāts."
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
+msgid "No document is open to attach scripts."
+msgstr "Nav atvērts neviens dokuments, kuram pievienot skriptus."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Enter script name:"
+msgstr "Ievadiet skripta nosaukumu:"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach to Document"
+msgstr "Pievienot dokumentam"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr "Skripts ar nosaukumu '{0}' šajā dokumentā jau pastāv. Pārrakstīt?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach Script"
+msgstr "Pievienot skriptu"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' attached to this document."
+msgstr "Skripts '%s' ir pievienots šim dokumentam."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Save Script"
+msgstr "Saglabāt skriptu"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "Saglabāt skriptu '{0}' šajā dokumentā?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr "Vai esat pārliecināts, ka vēlaties notīrīt paraugu piezīmju bloku?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Clear Script"
+msgstr "Notīrīt skriptu"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Sample scratchpad cleared."
+msgstr "Paraugu piezīmju bloks notīrīts."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Are you sure you want to delete script '%s'?"
+msgstr "Vai esat pārliecināts, ka vēlaties dzēst skriptu '%s'?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Delete Script"
+msgstr "Dzēst skriptu"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
+msgid "No document is open."
+msgstr "Nav atvērts neviens dokuments."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "Skripts '%s' dzēsts."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Execution Error"
+msgstr "Izpildes kļūda"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "Nezināma kļūda"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Script executed successfully."
+msgstr "Skripts veiksmīgi izpildīts."
+
+#: plugin/scripting/python_runner_ui.py
+msgid ""
+"Script executed successfully, but returned no result and produced no output."
+msgstr ""
+"Skripts tika veiksmīgi izpildīts, taču neatgrieza rezultātu un neizvadīja "
+"datus."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Success"
+msgstr "Veiksmīgi"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Output"
+msgstr "Izvade"
+
+#: plugin/scripting/viz_egress.py
+msgid "Unsupported document type for plot insertion."
+msgstr "Neatbalstīts dokumenta tips diagrammas ievietošanai."
+
+#: plugin/scripting/viz_egress.py plugin/scripting/python_runner.py
+msgid "Viz helper failed."
+msgstr "Vizualizācijas palīgs neizdevās."
+
+#: plugin/scripting/viz_egress.py
+msgid "Viz helper returned no image payload."
+msgstr "Vizualizācijas palīgs neatgrieza attēla datus."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1175,10 +1356,6 @@ msgstr "Skripts '{0}' saglabāts šajā dokumentā."
 msgid "Saved script '{0}'."
 msgstr "Skripts '{0}' saglabāts."
 
-#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
-msgid "No document is open to attach scripts."
-msgstr "Nav atvērts neviens dokuments, kuram pievienot skriptus."
-
 #: plugin/scripting/editor_host.py
 #, python-brace-format
 msgid "Attached script '{0}' to this document."
@@ -1193,10 +1370,6 @@ msgstr "Skripts ar nosaukumu '{0}' jau pastāv sadaļā \"Mani skripti\"."
 #, python-brace-format
 msgid "Copied script '{0}' to My Scripts."
 msgstr "Skripts '{0}' nokopēts uz \"Mani skripti\"."
-
-#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
-msgid "No document is open."
-msgstr "Nav atvērts neviens dokuments."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1232,6 +1405,45 @@ msgid ""
 msgstr ""
 "\n"
 "Analīzes palīgrīki: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Visualization Libraries"
+msgstr "Vizualizācijas bibliotēkas"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Viz Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Vizualizācijas palīgi: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Computer Algebra"
+msgstr "Datoralgebra"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Symbolic Math Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Simboliskās matemātikas palīgi: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Quantitative Finance Libraries"
+msgstr "Kvantitatīvās finanses bibliotēkas"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Quant Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Kvantitatīvie palīgi: %(cmd)s"
 
 #: plugin/scripting/venv_worker.py
 msgid "Vision Libraries"
@@ -1296,6 +1508,27 @@ msgstr ""
 #, python-brace-format
 msgid "Image '{name}' could not be exported."
 msgstr "Attēlu '{name}' neizdevās eksportēt."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Symbolic helper failed."
+msgstr "Simboliskā palīga kļūme."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Symbolic helper returned no LaTeX."
+msgstr "Simboliskais palīgs neatgrieza LaTeX."
+
+#: plugin/scripting/symbolic_egress.py
+#, python-brace-format
+msgid "Failed to convert LaTeX to Writer Math: {error}"
+msgstr "Neizdevās konvertēt LaTeX uz Writer Math: {error}"
+
+#: plugin/scripting/symbolic_egress.py
+msgid "No active document view."
+msgstr "Nav aktīva dokumenta skata."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Unsupported document type for symbolic insertion."
+msgstr "Neatbalstīts dokumenta tips simboliskai ievietošanai."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1368,118 +1601,6 @@ msgstr ""
 "piezīmju grāmatiņas Python sesijas atiestatīšanu."
 
 #: plugin/scripting/python_runner.py
-msgid "Run Python Script"
-msgstr "Izpildīt Python skriptu"
-
-#: plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "Izpildīt"
-
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "Aizvērt"
-
-#: plugin/scripting/python_runner.py
-msgid "Script:"
-msgstr "Skripts:"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach"
-msgstr "Pievienot"
-
-#: plugin/scripting/python_runner.py
-msgid "Save As..."
-msgstr "Saglabāt kā..."
-
-#: plugin/scripting/python_runner.py
-msgid "Delete"
-msgstr "Dzēst"
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Enter Python code to execute in the user virtual environment.\n"
-"Assign the result to the 'result' variable."
-msgstr ""
-"Ievadiet Python kodu, ko izpildīt lietotāja virtuālajā vidē.\n"
-"Piešķiriet rezultātu mainīgajam 'result'."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "%s Saved to My Scripts instead."
-msgstr "%s Tā vietā saglabāts sadaļā \"Mani skripti\"."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' saved to this document."
-msgstr "Skripts '%s' saglabāts šajā dokumentā."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' saved successfully."
-msgstr "Skripts '%s' veiksmīgi saglabāts."
-
-#: plugin/scripting/python_runner.py
-msgid "Sample scratchpad saved successfully."
-msgstr "Piezīmju bloka paraugs veiksmīgi saglabāts."
-
-#: plugin/scripting/python_runner.py
-msgid "Enter script name:"
-msgstr "Ievadiet skripta nosaukumu:"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach to Document"
-msgstr "Pievienot dokumentam"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in this document. Overwrite?"
-msgstr "Skripts ar nosaukumu '{0}' šajā dokumentā jau pastāv. Pārrakstīt?"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach Script"
-msgstr "Pievienot skriptu"
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' attached to this document."
-msgstr "Skripts '%s' ir pievienots šim dokumentam."
-
-#: plugin/scripting/python_runner.py
-msgid "Save Script"
-msgstr "Saglabāt skriptu"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Save script '{0}' to this document?"
-msgstr "Saglabāt skriptu '{0}' šajā dokumentā?"
-
-#: plugin/scripting/python_runner.py
-msgid "Are you sure you want to clear the Sample scratchpad?"
-msgstr "Vai esat pārliecināts, ka vēlaties notīrīt paraugu piezīmju bloku?"
-
-#: plugin/scripting/python_runner.py
-msgid "Clear Script"
-msgstr "Notīrīt skriptu"
-
-#: plugin/scripting/python_runner.py
-msgid "Sample scratchpad cleared."
-msgstr "Paraugu piezīmju bloks notīrīts."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Are you sure you want to delete script '%s'?"
-msgstr "Vai esat pārliecināts, ka vēlaties dzēst skriptu '%s'?"
-
-#: plugin/scripting/python_runner.py
-msgid "Delete Script"
-msgstr "Dzēst skriptu"
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' deleted."
-msgstr "Skripts '%s' dzēsts."
-
-#: plugin/scripting/python_runner.py
 #, python-format
 msgid "Failed to insert result into Calc: %s"
 msgstr "Neizdevās ievietot rezultātu Calc: %s"
@@ -1495,6 +1616,21 @@ msgstr ""
 "gaidīti!"
 
 #: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Plot inserted ({title}). (took {time})"
+msgstr "Grafiks ievietots ({title}). (aizņēma {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Viz '{helper}' completed. {msg}"
+msgstr "Viz '{helper}' pabeigts. {msg}"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr "Math '{helper}' pabeigts. Ievietots: {preview} (aizņēma {time})"
+
+#: plugin/scripting/python_runner.py
 msgid "Vision helpers require a Writer or Calc document."
 msgstr "Redzes palīgiem nepieciešams Writer vai Calc dokuments."
 
@@ -1504,30 +1640,80 @@ msgstr "Redzes palīga kļūda."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
-msgid "Vision '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr ""
-"Redzes palīgs '{helper}' pabeigts. Ierakstītas {rows} rindas. (aizņēma "
-"{time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
 msgid "Failed to insert result: {error} (took {time})"
 msgstr "Neizdevās ievietot rezultātu: {error} (aizņēma {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Vision '{helper}' completed. Found {blocks} blocks and {tables} tables. "
-"(took {time})"
+"Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
+"tables). (took {time})"
 msgstr ""
-"Redzes palīgs '{helper}' pabeigts. Atrasti {blocks} bloki un {tables} "
-"tabulas. (aizņēma {time})"
+"Vision '{helper}' pabeigts. Ievietots HTML ({blocks} bloki, {tables} "
+"tabulas). (aizņēma {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
-msgid "Vision '{helper}' completed. Extracted {lines} lines. (took {time})"
+msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
 msgstr ""
-"Vīzija '{helper}' pabeigta. Ekstrahētas {lines} rindas. (aizņēma {time})"
+"Vision '{helper}' pabeigts. Ievietots formatēts HTML. (aizņēma {time})"
+
+#: plugin/scripting/python_runner.py
+msgid "Viz helpers require a Writer or Calc document."
+msgstr "Viz palīgiem ir nepieciešams Writer vai Calc dokuments."
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Viz helper requires a data range. Select cells or enter a range in the Data "
+"field."
+msgstr ""
+"Viz palīgam ir nepieciešams datu apgabals. Atlasiet šūnas vai ievadiet "
+"apgabalu laukā Dati."
+
+#: plugin/scripting/python_runner.py
+msgid "Math helpers require a Writer or Calc document."
+msgstr "Math palīgiem ir nepieciešams Writer vai Calc dokuments."
+
+#: plugin/scripting/python_runner.py
+msgid "Math helper failed."
+msgstr "Math palīgs neizdevās."
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Quant helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"Quant palīgam ir nepieciešams datu apgabals. Atlasiet šūnas vai ievadiet "
+"apgabalu laukā Dati."
+
+#: plugin/scripting/python_runner.py
+msgid "Quant failed."
+msgstr "Quant neizdevās."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Quant '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"Quant '{helper}' pabeigts. Ierakstītas {rows} rindas. (aizņēma {time})"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Optimization helper requires a data range. Select cells or enter a range in "
+"the Data field."
+msgstr ""
+"Optimizācijas palīgam nepieciešams datu apgabals. Atlasiet šūnas vai "
+"ievadiet apgabalu laukā Dati."
+
+#: plugin/scripting/python_runner.py
+msgid "Optimization failed."
+msgstr "Optimizācija neizdevās."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Optimize '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"Optimizācija '{helper}' pabeigta. Ierakstītas {rows} rindas. (aizņēma "
+"{time})"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -1548,10 +1734,6 @@ msgstr ""
 "Analīze '{helper}' pabeigta. Ierakstītas {rows} rindas. (aizņēma {time})"
 
 #: plugin/scripting/python_runner.py
-msgid "Unknown error"
-msgstr "Nezināma kļūda"
-
-#: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
 "Script executed successfully, but returned no result and produced no output."
@@ -1569,29 +1751,6 @@ msgstr "Neatbalstīts dokumenta tips rezultāta ievietošanai. (aizņēma {time}
 #, python-brace-format
 msgid "Script executed successfully. (took {time})"
 msgstr "Skripts izpildīts veiksmīgi. (aizņēma {time})"
-
-#: plugin/scripting/python_runner.py
-msgid "Execution Error"
-msgstr "Izpildes kļūda"
-
-#: plugin/scripting/python_runner.py
-msgid "Script executed successfully."
-msgstr "Skripts veiksmīgi izpildīts."
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Script executed successfully, but returned no result and produced no output."
-msgstr ""
-"Skripts tika veiksmīgi izpildīts, taču neatgrieza rezultātu un neizvadīja "
-"datus."
-
-#: plugin/scripting/python_runner.py
-msgid "Success"
-msgstr "Veiksmīgi"
-
-#: plugin/scripting/python_runner.py
-msgid "Output"
-msgstr "Izvade"
 
 #: plugin/scripting/python_runner.py
 msgid "Script saved."
@@ -2317,6 +2476,22 @@ msgstr "Paturēt atsevišķas teksta kopas"
 
 msgid "Group unassigned text into clusters for messy layouts."
 msgstr "Grupēt nepiešķirtu tekstu kopās nekārtīgiem izkārtojumiem."
+
+msgid "Document insert mode"
+msgstr "Dokumenta ievietošanas režīms"
+
+msgid ""
+"html = Docling HTML import (default). structured = bbox column layout in "
+"Writer; native Calc cells for extract_structure tables."
+msgstr ""
+"html = Docling HTML imports (noklusējums). structured = bbox kolonnu "
+"izkārtojums programmā Writer; vietējās Calc šūnas extract_structure tabulām."
+
+msgid "Standard HTML"
+msgstr "Standarta HTML"
+
+msgid "Structured (layout / cell grid)"
+msgstr "Strukturēts (izkārtojums / šūnu režģis)"
 
 msgid "Layout model"
 msgstr "Izkārtojuma modelis"

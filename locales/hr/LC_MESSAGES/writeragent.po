@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-07 16:27-0400\n"
+"POT-Creation-Date: 2026-06-08 18:08-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Croatian <LL@li.org>\n"
@@ -424,6 +424,10 @@ msgstr "Odaberite ugrađenu sliku, a zatim ponovno pokrenite."
 msgid "Anchor the image to a cell, select it, then Run again."
 msgstr "Sidrite sliku na ćeliju, odaberite je, a zatim ponovno pokrenite."
 
+#: plugin/calc/vision_egress.py
+msgid "No structured tables or text blocks to insert."
+msgstr "Nema strukturiranih tablica ili blokova teksta za umetanje."
+
 #: plugin/calc/python_editor.py
 msgid ""
 "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
@@ -442,7 +446,8 @@ msgstr "Python uređivač ćelija"
 msgid "Save as plain text"
 msgstr "Spremi kao običan tekst"
 
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
+#: plugin/calc/python_editor.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
 msgid "Save"
 msgstr "Spremi"
 
@@ -517,8 +522,8 @@ msgstr "Odustani"
 
 #: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
 #: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner.py
-#: plugin/main.py
+#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py plugin/main.py
 msgid "Error"
 msgstr "Pogreška"
 
@@ -1116,8 +1121,8 @@ msgstr "Širina:"
 msgid "Document scripts are too large to store in the document ({0} bytes)."
 msgstr "Skripte dokumenta su prevelike za pohranu u dokument ({0} bajtova)."
 
-#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
-#: plugin/scripting/python_runner.py
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/editor_host.py
 msgid "No document is open to save scripts."
 msgstr "Nijedan dokument nije otvoren za spremanje skripti."
 
@@ -1147,12 +1152,189 @@ msgid "Vision Helpers"
 msgstr "Pomoćnici za vid"
 
 #: plugin/scripting/document_scripts.py
+msgid "Viz Helpers"
+msgstr "Pomoćnici za vizualizaciju"
+
+#: plugin/scripting/document_scripts.py
+msgid "Math Helpers"
+msgstr "Pomoćnici za matematiku"
+
+#: plugin/scripting/document_scripts.py
+msgid "Quant Helpers"
+msgstr "Pomoćnici za kvantitativnu analizu"
+
+#: plugin/scripting/document_scripts.py
+msgid "Optimize Helpers"
+msgstr "Pomoćnici za optimizaciju"
+
+#: plugin/scripting/document_scripts.py
 msgid "My Scripts"
 msgstr "Moje skripte"
 
 #: plugin/scripting/document_scripts.py
 msgid "This Document"
 msgstr "Ovaj dokument"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Run Python Script"
+msgstr "Pokreni Python skriptu"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "Pokreni"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "Zatvori"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Script:"
+msgstr "Skripta:"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach"
+msgstr "Pridruži"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Save As..."
+msgstr "Spremi kao..."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Delete"
+msgstr "Izbriši"
+
+#: plugin/scripting/python_runner_ui.py
+msgid ""
+"Enter Python code to execute in the user virtual environment.\n"
+"Assign the result to the 'result' variable."
+msgstr ""
+"Unesite Python kod za izvršavanje u korisničkom virtualnom okruženju.\n"
+"Dodijelite rezultat varijabli 'result'."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s Spremljeno u Moje skripte."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "Skripta '%s' je spremljena u ovaj dokument."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "Skripta '%s' uspješno spremljena."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Sample scratchpad saved successfully."
+msgstr "Uzorak bilježnice uspješno spremljen."
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
+msgid "No document is open to attach scripts."
+msgstr "Nijedan dokument nije otvoren za pridruživanje skripti."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Enter script name:"
+msgstr "Unesite naziv skripte:"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach to Document"
+msgstr "Priloži dokumentu"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr ""
+"Skripta naziva '{0}' već postoji u ovom dokumentu. Želite li je prebrisati?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach Script"
+msgstr "Priloži skriptu"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' attached to this document."
+msgstr "Skripta '%s' priložena ovom dokumentu."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Save Script"
+msgstr "Spremi skriptu"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "Spremiti skriptu '{0}' u ovaj dokument?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr "Jeste li sigurni da želite očistiti oglednu bilježnicu?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Clear Script"
+msgstr "Očisti skriptu"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Sample scratchpad cleared."
+msgstr "Ogledna bilježnica je očišćena."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Are you sure you want to delete script '%s'?"
+msgstr "Jeste li sigurni da želite izbrisati skriptu '%s'?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Delete Script"
+msgstr "Izbriši skriptu"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
+msgid "No document is open."
+msgstr "Nijedan dokument nije otvoren."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "Skripta '%s' je izbrisana."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Execution Error"
+msgstr "Pogreška pri izvršavanju"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "Nepoznata pogreška"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Script executed successfully."
+msgstr "Skripta uspješno izvršena."
+
+#: plugin/scripting/python_runner_ui.py
+msgid ""
+"Script executed successfully, but returned no result and produced no output."
+msgstr ""
+"Skripta je uspješno izvršena, ali nije vratila rezultat niti proizvela "
+"izlaz."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Success"
+msgstr "Uspjeh"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Output"
+msgstr "Izlaz"
+
+#: plugin/scripting/viz_egress.py
+msgid "Unsupported document type for plot insertion."
+msgstr "Nepodržana vrsta dokumenta za umetanje grafikona."
+
+#: plugin/scripting/viz_egress.py plugin/scripting/python_runner.py
+msgid "Viz helper failed."
+msgstr "Pomoćnik za vizualizaciju nije uspio."
+
+#: plugin/scripting/viz_egress.py
+msgid "Viz helper returned no image payload."
+msgstr "Pomoćnik za vizualizaciju nije vratio slikovni sadržaj."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1169,10 +1351,6 @@ msgstr "Skripta '{0}' spremljena u ovaj dokument."
 msgid "Saved script '{0}'."
 msgstr "Skripta '{0}' je spremljena."
 
-#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
-msgid "No document is open to attach scripts."
-msgstr "Nijedan dokument nije otvoren za pridruživanje skripti."
-
 #: plugin/scripting/editor_host.py
 #, python-brace-format
 msgid "Attached script '{0}' to this document."
@@ -1187,10 +1365,6 @@ msgstr "Skripta pod nazivom '{0}' već postoji u Mojim skriptama."
 #, python-brace-format
 msgid "Copied script '{0}' to My Scripts."
 msgstr "Skripta '{0}' je kopirana u Moje skripte."
-
-#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
-msgid "No document is open."
-msgstr "Nijedan dokument nije otvoren."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1226,6 +1400,45 @@ msgid ""
 msgstr ""
 "\n"
 "Pomoćnici za analizu: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Visualization Libraries"
+msgstr "Biblioteke za vizualizaciju"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Viz Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Pomoćnici za vizualizaciju: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Computer Algebra"
+msgstr "Računalna algebra"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Symbolic Math Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Pomoćnici za simboličku matematiku: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Quantitative Finance Libraries"
+msgstr "Knjižnice za kvantitativne financije"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Quant Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Kvantni pomoćnici: %(cmd)s"
 
 #: plugin/scripting/venv_worker.py
 msgid "Vision Libraries"
@@ -1290,6 +1503,27 @@ msgstr ""
 #, python-brace-format
 msgid "Image '{name}' could not be exported."
 msgstr "Slika '{name}' nije se mogla izvesti."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Symbolic helper failed."
+msgstr "Simbolički pomoćnik nije uspio."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Symbolic helper returned no LaTeX."
+msgstr "Simbolički pomoćnik nije vratio LaTeX."
+
+#: plugin/scripting/symbolic_egress.py
+#, python-brace-format
+msgid "Failed to convert LaTeX to Writer Math: {error}"
+msgstr "Neuspjelo pretvaranje LaTeX-a u Writer Math: {error}"
+
+#: plugin/scripting/symbolic_egress.py
+msgid "No active document view."
+msgstr "Nema aktivnog prikaza dokumenta."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Unsupported document type for symbolic insertion."
+msgstr "Nepodržana vrsta dokumenta za simboličko umetanje."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1362,119 +1596,6 @@ msgstr ""
 "bilježnice."
 
 #: plugin/scripting/python_runner.py
-msgid "Run Python Script"
-msgstr "Pokreni Python skriptu"
-
-#: plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "Pokreni"
-
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "Zatvori"
-
-#: plugin/scripting/python_runner.py
-msgid "Script:"
-msgstr "Skripta:"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach"
-msgstr "Pridruži"
-
-#: plugin/scripting/python_runner.py
-msgid "Save As..."
-msgstr "Spremi kao..."
-
-#: plugin/scripting/python_runner.py
-msgid "Delete"
-msgstr "Izbriši"
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Enter Python code to execute in the user virtual environment.\n"
-"Assign the result to the 'result' variable."
-msgstr ""
-"Unesite Python kod za izvršavanje u korisničkom virtualnom okruženju.\n"
-"Dodijelite rezultat varijabli 'result'."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "%s Saved to My Scripts instead."
-msgstr "%s Spremljeno u Moje skripte."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' saved to this document."
-msgstr "Skripta '%s' je spremljena u ovaj dokument."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' saved successfully."
-msgstr "Skripta '%s' uspješno spremljena."
-
-#: plugin/scripting/python_runner.py
-msgid "Sample scratchpad saved successfully."
-msgstr "Uzorak bilježnice uspješno spremljen."
-
-#: plugin/scripting/python_runner.py
-msgid "Enter script name:"
-msgstr "Unesite naziv skripte:"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach to Document"
-msgstr "Priloži dokumentu"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in this document. Overwrite?"
-msgstr ""
-"Skripta naziva '{0}' već postoji u ovom dokumentu. Želite li je prebrisati?"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach Script"
-msgstr "Priloži skriptu"
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' attached to this document."
-msgstr "Skripta '%s' priložena ovom dokumentu."
-
-#: plugin/scripting/python_runner.py
-msgid "Save Script"
-msgstr "Spremi skriptu"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Save script '{0}' to this document?"
-msgstr "Spremiti skriptu '{0}' u ovaj dokument?"
-
-#: plugin/scripting/python_runner.py
-msgid "Are you sure you want to clear the Sample scratchpad?"
-msgstr "Jeste li sigurni da želite očistiti oglednu bilježnicu?"
-
-#: plugin/scripting/python_runner.py
-msgid "Clear Script"
-msgstr "Očisti skriptu"
-
-#: plugin/scripting/python_runner.py
-msgid "Sample scratchpad cleared."
-msgstr "Ogledna bilježnica je očišćena."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Are you sure you want to delete script '%s'?"
-msgstr "Jeste li sigurni da želite izbrisati skriptu '%s'?"
-
-#: plugin/scripting/python_runner.py
-msgid "Delete Script"
-msgstr "Izbriši skriptu"
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' deleted."
-msgstr "Skripta '%s' je izbrisana."
-
-#: plugin/scripting/python_runner.py
 #, python-format
 msgid "Failed to insert result into Calc: %s"
 msgstr "Umetanje rezultata u Calc nije uspjelo: %s"
@@ -1489,6 +1610,21 @@ msgstr ""
 "Umetanje rezultata u Draw/Impress još nije podržano. PR-ovi su dobrodošli!"
 
 #: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Plot inserted ({title}). (took {time})"
+msgstr "Grafikon umetnut ({title}). (trajalo {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Viz '{helper}' completed. {msg}"
+msgstr "Viz '{helper}' dovršen. {msg}"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr "Math '{helper}' dovršen. Umetnuto: {preview} (trajalo {time})"
+
+#: plugin/scripting/python_runner.py
 msgid "Vision helpers require a Writer or Calc document."
 msgstr "Pomoćnici za vid zahtijevaju dokument u Writeru ili Calcu."
 
@@ -1498,29 +1634,78 @@ msgstr "Pomoćnik za vid nije uspio."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
-msgid "Vision '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr ""
-"Pomoćnik za vid '{helper}' dovršen. Zapisano {rows} redaka. (trajalo {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
 msgid "Failed to insert result: {error} (took {time})"
 msgstr "Neuspjelo umetanje rezultata: {error} (trajalo {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Vision '{helper}' completed. Found {blocks} blocks and {tables} tables. "
-"(took {time})"
+"Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
+"tables). (took {time})"
 msgstr ""
-"Pomoćnik za vid '{helper}' dovršen. Pronađeno {blocks} blokova i {tables} "
-"tablica. (trajalo {time})"
+"Vision '{helper}' dovršen. Umetnut HTML ({blocks} blokova, {tables} "
+"tablica). (trajalo {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
-msgid "Vision '{helper}' completed. Extracted {lines} lines. (took {time})"
+msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
+msgstr "Vision '{helper}' dovršen. Umetnut oblikovani HTML. (trajalo {time})"
+
+#: plugin/scripting/python_runner.py
+msgid "Viz helpers require a Writer or Calc document."
+msgstr "Viz pomoćnici zahtijevaju Writer ili Calc dokument."
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Viz helper requires a data range. Select cells or enter a range in the Data "
+"field."
 msgstr ""
-"Vizija '{helper}' dovršena. Izdvojeno {lines} redaka. (trajalo {time})"
+"Viz pomoćnik zahtijeva raspon podataka. Odaberite ćelije ili unesite raspon "
+"u polje Podaci."
+
+#: plugin/scripting/python_runner.py
+msgid "Math helpers require a Writer or Calc document."
+msgstr "Math pomoćnici zahtijevaju Writer ili Calc dokument."
+
+#: plugin/scripting/python_runner.py
+msgid "Math helper failed."
+msgstr "Math pomoćnik nije uspio."
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Quant helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"Quant pomoćnik zahtijeva raspon podataka. Odaberite ćelije ili unesite "
+"raspon u polje Podaci."
+
+#: plugin/scripting/python_runner.py
+msgid "Quant failed."
+msgstr "Quant nije uspio."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Quant '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"Količina '{helper}' dovršena. Zapisano {rows} redaka. (trajalo {time})"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Optimization helper requires a data range. Select cells or enter a range in "
+"the Data field."
+msgstr ""
+"Pomoćnik za optimizaciju zahtijeva raspon podataka. Odaberite ćelije ili "
+"unesite raspon u polje Podaci."
+
+#: plugin/scripting/python_runner.py
+msgid "Optimization failed."
+msgstr "Optimizacija nije uspjela."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Optimize '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"Optimizacija '{helper}' dovršena. Zapisano {rows} redaka. (trajalo {time})"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -1540,10 +1725,6 @@ msgid "Analysis '{helper}' completed. Wrote {rows} rows. (took {time})"
 msgstr "Analiza '{helper}' dovršena. Zapisano {rows} redaka. (trajalo {time})"
 
 #: plugin/scripting/python_runner.py
-msgid "Unknown error"
-msgstr "Nepoznata pogreška"
-
-#: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
 "Script executed successfully, but returned no result and produced no output."
@@ -1561,29 +1742,6 @@ msgstr "Nepodržana vrsta dokumenta za umetanje rezultata. (trajalo {time})"
 #, python-brace-format
 msgid "Script executed successfully. (took {time})"
 msgstr "Skripta je uspješno izvršena. (trajalo {time})"
-
-#: plugin/scripting/python_runner.py
-msgid "Execution Error"
-msgstr "Pogreška pri izvršavanju"
-
-#: plugin/scripting/python_runner.py
-msgid "Script executed successfully."
-msgstr "Skripta uspješno izvršena."
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Script executed successfully, but returned no result and produced no output."
-msgstr ""
-"Skripta je uspješno izvršena, ali nije vratila rezultat niti proizvela "
-"izlaz."
-
-#: plugin/scripting/python_runner.py
-msgid "Success"
-msgstr "Uspjeh"
-
-#: plugin/scripting/python_runner.py
-msgid "Output"
-msgstr "Izlaz"
 
 #: plugin/scripting/python_runner.py
 msgid "Script saved."
@@ -2307,6 +2465,22 @@ msgstr "Zadrži siročad tekstualnih klastera"
 
 msgid "Group unassigned text into clusters for messy layouts."
 msgstr "Grupiraj nedodijeljeni tekst u klastere za neuredne rasporede."
+
+msgid "Document insert mode"
+msgstr "Način umetanja dokumenta"
+
+msgid ""
+"html = Docling HTML import (default). structured = bbox column layout in "
+"Writer; native Calc cells for extract_structure tables."
+msgstr ""
+"html = Docling HTML uvoz (zadano). structured = bbox raspored stupaca u "
+"Writeru; izvorne Calc ćelije za tablice extract_structure."
+
+msgid "Standard HTML"
+msgstr "Standardni HTML"
+
+msgid "Structured (layout / cell grid)"
+msgstr "Strukturirano (raspored / mreža ćelija)"
 
 msgid "Layout model"
 msgstr "Model rasporeda"

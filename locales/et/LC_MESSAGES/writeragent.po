@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-07 16:27-0400\n"
+"POT-Creation-Date: 2026-06-08 18:08-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Estonian <LL@li.org>\n"
@@ -421,6 +421,10 @@ msgstr "Valige manustatud pilt ja käivitage uuesti."
 msgid "Anchor the image to a cell, select it, then Run again."
 msgstr "Ankurdage pilt lahtrisse, valige see ja käivitage uuesti."
 
+#: plugin/calc/vision_egress.py
+msgid "No structured tables or text blocks to insert."
+msgstr "Ühtegi struktureeritud tabelit või tekstiplokki pole võimalik lisada."
+
 #: plugin/calc/python_editor.py
 msgid ""
 "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
@@ -439,7 +443,8 @@ msgstr "Python-lahtriredaktor"
 msgid "Save as plain text"
 msgstr "Salvesta lihttekstina"
 
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
+#: plugin/calc/python_editor.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
 msgid "Save"
 msgstr "Salvesta"
 
@@ -514,8 +519,8 @@ msgstr "Loobu"
 
 #: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
 #: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner.py
-#: plugin/main.py
+#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py plugin/main.py
 msgid "Error"
 msgstr "Viga"
 
@@ -1110,8 +1115,8 @@ msgstr "Laius:"
 msgid "Document scripts are too large to store in the document ({0} bytes)."
 msgstr "Dokumendi skriptid on salvestamiseks liiga suured ({0} baiti)."
 
-#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
-#: plugin/scripting/python_runner.py
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/editor_host.py
 msgid "No document is open to save scripts."
 msgstr "Skriptide salvestamiseks pole ühtegi dokumenti avatud."
 
@@ -1141,12 +1146,189 @@ msgid "Vision Helpers"
 msgstr "Visuaalsed abivahendid"
 
 #: plugin/scripting/document_scripts.py
+msgid "Viz Helpers"
+msgstr "Visualiseerimise abivahendid"
+
+#: plugin/scripting/document_scripts.py
+msgid "Math Helpers"
+msgstr "Matemaatika abivahendid"
+
+#: plugin/scripting/document_scripts.py
+msgid "Quant Helpers"
+msgstr "Kvantitatiivsed abivahendid"
+
+#: plugin/scripting/document_scripts.py
+msgid "Optimize Helpers"
+msgstr "Optimeerimise abivahendid"
+
+#: plugin/scripting/document_scripts.py
 msgid "My Scripts"
 msgstr "Minu skriptid"
 
 #: plugin/scripting/document_scripts.py
 msgid "This Document"
 msgstr "See dokument"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Run Python Script"
+msgstr "Käivita Pythoni skript"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "Käivita"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "Sulge"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Script:"
+msgstr "Skript:"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach"
+msgstr "Lisa"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Save As..."
+msgstr "Salvesta nimega..."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Delete"
+msgstr "Kustuta"
+
+#: plugin/scripting/python_runner_ui.py
+msgid ""
+"Enter Python code to execute in the user virtual environment.\n"
+"Assign the result to the 'result' variable."
+msgstr ""
+"Sisesta Pythoni kood, mida kasutaja virtuaalkeskkonnas käivitada.\n"
+"Omista tulemus muutujale 'result'."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s Salvestatud selle asemel jaotisesse Minu skriptid."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "Skript '%s' on sellesse dokumenti salvestatud."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "Skript „%s“ on edukalt salvestatud."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Sample scratchpad saved successfully."
+msgstr "Näidisplokk on edukalt salvestatud."
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
+msgid "No document is open to attach scripts."
+msgstr "Ükski dokument pole skriptide lisamiseks avatud."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Enter script name:"
+msgstr "Sisestage skripti nimi:"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach to Document"
+msgstr "Lisa dokumendile"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr ""
+"Skript nimega '{0}' on selles dokumendis juba olemas. Kas kirjutada üle?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach Script"
+msgstr "Lisa skript"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' attached to this document."
+msgstr "Skript '%s' on sellele dokumendile lisatud."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Save Script"
+msgstr "Salvesta skript"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "Kas salvestada skript '{0}' sellesse dokumenti?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr "Kas oled kindel, et soovid näidiste mustandivälja tühjendada?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Clear Script"
+msgstr "Tühjenda skript"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Sample scratchpad cleared."
+msgstr "Näidiste mustandiväli on tühjendatud."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Are you sure you want to delete script '%s'?"
+msgstr "Kas oled kindel, et soovid skripti '%s' kustutada?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Delete Script"
+msgstr "Kustuta skript"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
+msgid "No document is open."
+msgstr "Ükski dokument pole avatud."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "Skript '%s' on kustutatud."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Execution Error"
+msgstr "Täitmisviga"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "Tundmatu viga"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Script executed successfully."
+msgstr "Skript käivitati edukalt."
+
+#: plugin/scripting/python_runner_ui.py
+msgid ""
+"Script executed successfully, but returned no result and produced no output."
+msgstr ""
+"Skript käivitati edukalt, kuid see ei tagastanud tulemust ega väljastanud "
+"midagi."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Success"
+msgstr "Edu"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Output"
+msgstr "Väljund"
+
+#: plugin/scripting/viz_egress.py
+msgid "Unsupported document type for plot insertion."
+msgstr "Toetamata dokumenditüüp graafiku lisamiseks."
+
+#: plugin/scripting/viz_egress.py plugin/scripting/python_runner.py
+msgid "Viz helper failed."
+msgstr "Visualiseerimise abivahend nurjus."
+
+#: plugin/scripting/viz_egress.py
+msgid "Viz helper returned no image payload."
+msgstr "Visualiseerimise abivahend ei tagastanud pildiandmeid."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1163,10 +1345,6 @@ msgstr "Skript '{0}' salvestati sellesse dokumenti."
 msgid "Saved script '{0}'."
 msgstr "Skript '{0}' on salvestatud."
 
-#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
-msgid "No document is open to attach scripts."
-msgstr "Ükski dokument pole skriptide lisamiseks avatud."
-
 #: plugin/scripting/editor_host.py
 #, python-brace-format
 msgid "Attached script '{0}' to this document."
@@ -1181,10 +1359,6 @@ msgstr "Skript nimega '{0}' on jaotises Minu skriptid juba olemas."
 #, python-brace-format
 msgid "Copied script '{0}' to My Scripts."
 msgstr "Skript '{0}' on kopeeritud jaotisesse Minu skriptid."
-
-#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
-msgid "No document is open."
-msgstr "Ükski dokument pole avatud."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1220,6 +1394,45 @@ msgid ""
 msgstr ""
 "\n"
 "Analüüsi abivahendid: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Visualization Libraries"
+msgstr "Visualiseerimisteegid"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Viz Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Visualiseerimise abivahendid: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Computer Algebra"
+msgstr "Arvutialgebra"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Symbolic Math Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Sümbolarvutuse abivahendid: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Quantitative Finance Libraries"
+msgstr "Kvantitatiivse rahanduse teegid"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Quant Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Kvant-abivahendid: %(cmd)s"
 
 #: plugin/scripting/venv_worker.py
 msgid "Vision Libraries"
@@ -1285,6 +1498,27 @@ msgstr ""
 #, python-brace-format
 msgid "Image '{name}' could not be exported."
 msgstr "Pilti '{name}' ei saanud eksportida."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Symbolic helper failed."
+msgstr "Sümbolarvutuse abivahend nurjus."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Symbolic helper returned no LaTeX."
+msgstr "Sümbolarvutuse abivahend ei tagastanud LaTeX-koodi."
+
+#: plugin/scripting/symbolic_egress.py
+#, python-brace-format
+msgid "Failed to convert LaTeX to Writer Math: {error}"
+msgstr "LaTeX-i teisendamine Writer Mathi vormingusse nurjus: {error}"
+
+#: plugin/scripting/symbolic_egress.py
+msgid "No active document view."
+msgstr "Aktiivset dokumendivaadet pole."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Unsupported document type for symbolic insertion."
+msgstr "Toetamata dokumenditüüp sümbolite sisestamiseks."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1354,119 +1588,6 @@ msgstr ""
 "Jupyteri märkmik…"
 
 #: plugin/scripting/python_runner.py
-msgid "Run Python Script"
-msgstr "Käivita Pythoni skript"
-
-#: plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "Käivita"
-
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "Sulge"
-
-#: plugin/scripting/python_runner.py
-msgid "Script:"
-msgstr "Skript:"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach"
-msgstr "Lisa"
-
-#: plugin/scripting/python_runner.py
-msgid "Save As..."
-msgstr "Salvesta nimega..."
-
-#: plugin/scripting/python_runner.py
-msgid "Delete"
-msgstr "Kustuta"
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Enter Python code to execute in the user virtual environment.\n"
-"Assign the result to the 'result' variable."
-msgstr ""
-"Sisesta Pythoni kood, mida kasutaja virtuaalkeskkonnas käivitada.\n"
-"Omista tulemus muutujale 'result'."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "%s Saved to My Scripts instead."
-msgstr "%s Salvestatud selle asemel jaotisesse Minu skriptid."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' saved to this document."
-msgstr "Skript '%s' on sellesse dokumenti salvestatud."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' saved successfully."
-msgstr "Skript „%s“ on edukalt salvestatud."
-
-#: plugin/scripting/python_runner.py
-msgid "Sample scratchpad saved successfully."
-msgstr "Näidisplokk on edukalt salvestatud."
-
-#: plugin/scripting/python_runner.py
-msgid "Enter script name:"
-msgstr "Sisestage skripti nimi:"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach to Document"
-msgstr "Lisa dokumendile"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in this document. Overwrite?"
-msgstr ""
-"Skript nimega '{0}' on selles dokumendis juba olemas. Kas kirjutada üle?"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach Script"
-msgstr "Lisa skript"
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' attached to this document."
-msgstr "Skript '%s' on sellele dokumendile lisatud."
-
-#: plugin/scripting/python_runner.py
-msgid "Save Script"
-msgstr "Salvesta skript"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Save script '{0}' to this document?"
-msgstr "Kas salvestada skript '{0}' sellesse dokumenti?"
-
-#: plugin/scripting/python_runner.py
-msgid "Are you sure you want to clear the Sample scratchpad?"
-msgstr "Kas oled kindel, et soovid näidiste mustandivälja tühjendada?"
-
-#: plugin/scripting/python_runner.py
-msgid "Clear Script"
-msgstr "Tühjenda skript"
-
-#: plugin/scripting/python_runner.py
-msgid "Sample scratchpad cleared."
-msgstr "Näidiste mustandiväli on tühjendatud."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Are you sure you want to delete script '%s'?"
-msgstr "Kas oled kindel, et soovid skripti '%s' kustutada?"
-
-#: plugin/scripting/python_runner.py
-msgid "Delete Script"
-msgstr "Kustuta skript"
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' deleted."
-msgstr "Skript '%s' on kustutatud."
-
-#: plugin/scripting/python_runner.py
 #, python-format
 msgid "Failed to insert result into Calc: %s"
 msgstr "Tulemuse sisestamine Calc-i ebaõnnestus: %s"
@@ -1481,6 +1602,21 @@ msgstr ""
 "Tulemuse sisestamine Draw/Impressi pole veel toetatud. PR-id on teretulnud!"
 
 #: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Plot inserted ({title}). (took {time})"
+msgstr "Graafik sisestatud ({title}). (kulus {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Viz '{helper}' completed. {msg}"
+msgstr "Viz '{helper}' on lõpetatud. {msg}"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr "Math '{helper}' on lõpetatud. Sisestatud: {preview} (kulus {time})"
+
+#: plugin/scripting/python_runner.py
 msgid "Vision helpers require a Writer or Calc document."
 msgstr "Visuaalsed abivahendid nõuavad Writeri või Calci dokumenti."
 
@@ -1490,30 +1626,78 @@ msgstr "Visuaalne abivahend nurjus."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
-msgid "Vision '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr ""
-"Visuaalne abivahend '{helper}' lõpetas töö. Kirjutati {rows} rida. (kulus "
-"{time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
 msgid "Failed to insert result: {error} (took {time})"
 msgstr "Tulemuse sisestamine ebaõnnestus: {error} (kulus {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Vision '{helper}' completed. Found {blocks} blocks and {tables} tables. "
-"(took {time})"
+"Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
+"tables). (took {time})"
 msgstr ""
-"Visuaalne abivahend '{helper}' lõpetas töö. Leiti {blocks} plokki ja "
-"{tables} tabelit. (kulus {time})"
+"Vision '{helper}' on lõpetatud. Sisestatud HTML ({blocks} plokki, {tables} "
+"tabelit). (kulus {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
-msgid "Vision '{helper}' completed. Extracted {lines} lines. (took {time})"
+msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
 msgstr ""
-"Visioon '{helper}' on lõpetatud. Eraldati {lines} rida. (kulus {time})"
+"Vision '{helper}' on lõpetatud. Sisestatud vormindatud HTML. (kulus {time})"
+
+#: plugin/scripting/python_runner.py
+msgid "Viz helpers require a Writer or Calc document."
+msgstr "Viz-abilised nõuavad Writeri või Calci dokumenti."
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Viz helper requires a data range. Select cells or enter a range in the Data "
+"field."
+msgstr ""
+"Viz-abiline nõuab andmevahemikku. Vali lahtrid või sisesta vahemik väljale "
+"Andmed."
+
+#: plugin/scripting/python_runner.py
+msgid "Math helpers require a Writer or Calc document."
+msgstr "Math-abilised nõuavad Writeri või Calci dokumenti."
+
+#: plugin/scripting/python_runner.py
+msgid "Math helper failed."
+msgstr "Math-abiline nurjus."
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Quant helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"Quant-abiline nõuab andmevahemikku. Vali lahtrid või sisesta vahemik väljale"
+" Andmed."
+
+#: plugin/scripting/python_runner.py
+msgid "Quant failed."
+msgstr "Quant nurjus."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Quant '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr "Kvant '{helper}' on lõpetatud. Kirjutati {rows} rida. (kulus {time})"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Optimization helper requires a data range. Select cells or enter a range in "
+"the Data field."
+msgstr ""
+"Optimeerimise abiline nõuab andmevahemikku. Valige lahtrid või sisestage "
+"vahemik väljale Andmed."
+
+#: plugin/scripting/python_runner.py
+msgid "Optimization failed."
+msgstr "Optimeerimine ebaõnnestus."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Optimize '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"Optimeerimine '{helper}' on lõpetatud. Kirjutati {rows} rida. (kulus {time})"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -1534,10 +1718,6 @@ msgstr ""
 "Analüüs '{helper}' on lõpetatud. Kirjutati {rows} rida. (kulus {time})"
 
 #: plugin/scripting/python_runner.py
-msgid "Unknown error"
-msgstr "Tundmatu viga"
-
-#: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
 "Script executed successfully, but returned no result and produced no output."
@@ -1555,29 +1735,6 @@ msgstr "Toetamata dokumenditüüp tulemuse sisestamiseks. (kulus {time})"
 #, python-brace-format
 msgid "Script executed successfully. (took {time})"
 msgstr "Skript käivitati edukalt. (kulus {time})"
-
-#: plugin/scripting/python_runner.py
-msgid "Execution Error"
-msgstr "Täitmisviga"
-
-#: plugin/scripting/python_runner.py
-msgid "Script executed successfully."
-msgstr "Skript käivitati edukalt."
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Script executed successfully, but returned no result and produced no output."
-msgstr ""
-"Skript käivitati edukalt, kuid see ei tagastanud tulemust ega väljastanud "
-"midagi."
-
-#: plugin/scripting/python_runner.py
-msgid "Success"
-msgstr "Edu"
-
-#: plugin/scripting/python_runner.py
-msgid "Output"
-msgstr "Väljund"
 
 #: plugin/scripting/python_runner.py
 msgid "Script saved."
@@ -2298,6 +2455,22 @@ msgstr "Säilita üksikud tekstiklastrid"
 
 msgid "Group unassigned text into clusters for messy layouts."
 msgstr "Rühmita määramata tekst klastritesse korratute paigutuste korral."
+
+msgid "Document insert mode"
+msgstr "Dokumendi sisestusrežiim"
+
+msgid ""
+"html = Docling HTML import (default). structured = bbox column layout in "
+"Writer; native Calc cells for extract_structure tables."
+msgstr ""
+"html = Docling HTML-i import (vaikimisi). structured = bbox-veerupaigutus "
+"Writeris; natiivsed Calci lahtrid tabelite struktuuri eraldamiseks."
+
+msgid "Standard HTML"
+msgstr "Standardne HTML"
+
+msgid "Structured (layout / cell grid)"
+msgstr "Struktureeritud (paigutus / lahtrivõrk)"
 
 msgid "Layout model"
 msgstr "Paigutusmudel"

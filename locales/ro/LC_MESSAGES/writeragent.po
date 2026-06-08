@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-07 16:27-0400\n"
+"POT-Creation-Date: 2026-06-08 18:08-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Romanian <LL@li.org>\n"
@@ -427,6 +427,10 @@ msgstr "Selectați o imagine încorporată, apoi rulați din nou."
 msgid "Anchor the image to a cell, select it, then Run again."
 msgstr "Ancorați imaginea la o celulă, selectați-o, apoi rulați din nou."
 
+#: plugin/calc/vision_egress.py
+msgid "No structured tables or text blocks to insert."
+msgstr "Nu există tabele structurate sau blocuri de text de inserat."
+
 #: plugin/calc/python_editor.py
 msgid ""
 "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
@@ -445,7 +449,8 @@ msgstr "Editor de celule Python"
 msgid "Save as plain text"
 msgstr "Salvează ca text simplu"
 
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
+#: plugin/calc/python_editor.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
 msgid "Save"
 msgstr "Salvare"
 
@@ -524,8 +529,8 @@ msgstr "Anulare"
 
 #: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
 #: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner.py
-#: plugin/main.py
+#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py plugin/main.py
 msgid "Error"
 msgstr "Eroare"
 
@@ -1126,8 +1131,8 @@ msgstr ""
 "Scripturile documentului sunt prea mari pentru a fi stocate în document ({0}"
 " octeți)."
 
-#: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
-#: plugin/scripting/python_runner.py
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/editor_host.py
 msgid "No document is open to save scripts."
 msgstr "Niciun document nu este deschis pentru a salva scripturile."
 
@@ -1157,12 +1162,188 @@ msgid "Vision Helpers"
 msgstr "Asistenți pentru viziune"
 
 #: plugin/scripting/document_scripts.py
+msgid "Viz Helpers"
+msgstr "Asistenți vizualizare"
+
+#: plugin/scripting/document_scripts.py
+msgid "Math Helpers"
+msgstr "Asistenți matematici"
+
+#: plugin/scripting/document_scripts.py
+msgid "Quant Helpers"
+msgstr "Asistenți cantitativi"
+
+#: plugin/scripting/document_scripts.py
+msgid "Optimize Helpers"
+msgstr "Asistenți optimizare"
+
+#: plugin/scripting/document_scripts.py
 msgid "My Scripts"
 msgstr "Scripturile mele"
 
 #: plugin/scripting/document_scripts.py
 msgid "This Document"
 msgstr "Acest document"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Run Python Script"
+msgstr "Execută script Python"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "Execută"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "Închide"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Script:"
+msgstr "Script:"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach"
+msgstr "Atașare"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Save As..."
+msgstr "Salvare ca..."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Delete"
+msgstr "Șterge"
+
+#: plugin/scripting/python_runner_ui.py
+msgid ""
+"Enter Python code to execute in the user virtual environment.\n"
+"Assign the result to the 'result' variable."
+msgstr ""
+"Introduceți codul Python de executat în mediul virtual al utilizatorului.\n"
+"Atribuiți rezultatul variabilei „result”."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s Salvat în Scripturile mele în schimb."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "Scriptul „%s” a fost salvat în acest document."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "Scriptul „%s” a fost salvat cu succes."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Sample scratchpad saved successfully."
+msgstr "Ciorna de probă a fost salvată cu succes."
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
+msgid "No document is open to attach scripts."
+msgstr "Niciun document nu este deschis pentru a atașa scripturi."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Enter script name:"
+msgstr "Introduceți numele scriptului:"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach to Document"
+msgstr "Atașare la document"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr "Un script numit „{0}” există deja în acest document. Suprascrieți?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Attach Script"
+msgstr "Atașare script"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' attached to this document."
+msgstr "Scriptul „%s” a fost atașat la acest document."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Save Script"
+msgstr "Salvează scriptul"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "Salvați scriptul „{0}” în acest document?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr "Sigur doriți să goliți zona de lucru pentru exemple?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Clear Script"
+msgstr "Șterge scriptul"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Sample scratchpad cleared."
+msgstr "Zona de lucru pentru exemple a fost golită."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Are you sure you want to delete script '%s'?"
+msgstr "Sigur doriți să ștergeți scriptul „%s”?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Delete Script"
+msgstr "Șterge scriptul"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
+msgid "No document is open."
+msgstr "Niciun document nu este deschis."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "Scriptul „%s” a fost șters."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Execution Error"
+msgstr "Eroare de execuție"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "Eroare necunoscută"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Script executed successfully."
+msgstr "Script executat cu succes."
+
+#: plugin/scripting/python_runner_ui.py
+msgid ""
+"Script executed successfully, but returned no result and produced no output."
+msgstr ""
+"Scriptul a fost executat cu succes, dar nu a returnat niciun rezultat și nu "
+"a produs nicio ieșire."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Success"
+msgstr "Succes"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Output"
+msgstr "Ieșire"
+
+#: plugin/scripting/viz_egress.py
+msgid "Unsupported document type for plot insertion."
+msgstr "Tip de document neacceptat pentru inserarea graficelor."
+
+#: plugin/scripting/viz_egress.py plugin/scripting/python_runner.py
+msgid "Viz helper failed."
+msgstr "Asistentul de vizualizare a eșuat."
+
+#: plugin/scripting/viz_egress.py
+msgid "Viz helper returned no image payload."
+msgstr "Asistentul de vizualizare nu a returnat nicio imagine."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1179,10 +1360,6 @@ msgstr "Scriptul „{0}” a fost salvat în acest document."
 msgid "Saved script '{0}'."
 msgstr "Scriptul „{0}” a fost salvat."
 
-#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
-msgid "No document is open to attach scripts."
-msgstr "Niciun document nu este deschis pentru a atașa scripturi."
-
 #: plugin/scripting/editor_host.py
 #, python-brace-format
 msgid "Attached script '{0}' to this document."
@@ -1197,10 +1374,6 @@ msgstr "Un script numit „{0}” există deja în Scripturile mele."
 #, python-brace-format
 msgid "Copied script '{0}' to My Scripts."
 msgstr "Scriptul „{0}” a fost copiat în Scripturile mele."
-
-#: plugin/scripting/editor_host.py plugin/scripting/python_runner.py
-msgid "No document is open."
-msgstr "Niciun document nu este deschis."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1236,6 +1409,45 @@ msgid ""
 msgstr ""
 "\n"
 "Asistenți pentru analiză: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Visualization Libraries"
+msgstr "Biblioteci de vizualizare"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Viz Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Asistenți vizualizare: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Computer Algebra"
+msgstr "Algebră computațională"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Symbolic Math Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Asistenți pentru matematică simbolică: %(cmd)s"
+
+#: plugin/scripting/venv_worker.py
+msgid "Quantitative Finance Libraries"
+msgstr "Biblioteci de finanțe cantitative"
+
+#: plugin/scripting/venv_worker.py
+#, python-format
+msgid ""
+"\n"
+"Quant Helpers: %(cmd)s"
+msgstr ""
+"\n"
+"Asistenți cantitativi: %(cmd)s"
 
 #: plugin/scripting/venv_worker.py
 msgid "Vision Libraries"
@@ -1301,6 +1513,27 @@ msgstr ""
 #, python-brace-format
 msgid "Image '{name}' could not be exported."
 msgstr "Imaginea „{name}” nu a putut fi exportată."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Symbolic helper failed."
+msgstr "Asistentul simbolic a eșuat."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Symbolic helper returned no LaTeX."
+msgstr "Asistentul simbolic nu a returnat niciun cod LaTeX."
+
+#: plugin/scripting/symbolic_egress.py
+#, python-brace-format
+msgid "Failed to convert LaTeX to Writer Math: {error}"
+msgstr "Conversia LaTeX în Writer Math a eșuat: {error}"
+
+#: plugin/scripting/symbolic_egress.py
+msgid "No active document view."
+msgstr "Nicio vizualizare de document activă."
+
+#: plugin/scripting/symbolic_egress.py
+msgid "Unsupported document type for symbolic insertion."
+msgstr "Tip de document neacceptat pentru inserarea simbolică."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1374,118 +1607,6 @@ msgstr ""
 "Python a notebook-ului."
 
 #: plugin/scripting/python_runner.py
-msgid "Run Python Script"
-msgstr "Execută script Python"
-
-#: plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "Execută"
-
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "Închide"
-
-#: plugin/scripting/python_runner.py
-msgid "Script:"
-msgstr "Script:"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach"
-msgstr "Atașare"
-
-#: plugin/scripting/python_runner.py
-msgid "Save As..."
-msgstr "Salvare ca..."
-
-#: plugin/scripting/python_runner.py
-msgid "Delete"
-msgstr "Șterge"
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Enter Python code to execute in the user virtual environment.\n"
-"Assign the result to the 'result' variable."
-msgstr ""
-"Introduceți codul Python de executat în mediul virtual al utilizatorului.\n"
-"Atribuiți rezultatul variabilei „result”."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "%s Saved to My Scripts instead."
-msgstr "%s Salvat în Scripturile mele în schimb."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' saved to this document."
-msgstr "Scriptul „%s” a fost salvat în acest document."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' saved successfully."
-msgstr "Scriptul „%s” a fost salvat cu succes."
-
-#: plugin/scripting/python_runner.py
-msgid "Sample scratchpad saved successfully."
-msgstr "Ciorna de probă a fost salvată cu succes."
-
-#: plugin/scripting/python_runner.py
-msgid "Enter script name:"
-msgstr "Introduceți numele scriptului:"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach to Document"
-msgstr "Atașare la document"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in this document. Overwrite?"
-msgstr "Un script numit „{0}” există deja în acest document. Suprascrieți?"
-
-#: plugin/scripting/python_runner.py
-msgid "Attach Script"
-msgstr "Atașare script"
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' attached to this document."
-msgstr "Scriptul „%s” a fost atașat la acest document."
-
-#: plugin/scripting/python_runner.py
-msgid "Save Script"
-msgstr "Salvează scriptul"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Save script '{0}' to this document?"
-msgstr "Salvați scriptul „{0}” în acest document?"
-
-#: plugin/scripting/python_runner.py
-msgid "Are you sure you want to clear the Sample scratchpad?"
-msgstr "Sigur doriți să goliți zona de lucru pentru exemple?"
-
-#: plugin/scripting/python_runner.py
-msgid "Clear Script"
-msgstr "Șterge scriptul"
-
-#: plugin/scripting/python_runner.py
-msgid "Sample scratchpad cleared."
-msgstr "Zona de lucru pentru exemple a fost golită."
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Are you sure you want to delete script '%s'?"
-msgstr "Sigur doriți să ștergeți scriptul „%s”?"
-
-#: plugin/scripting/python_runner.py
-msgid "Delete Script"
-msgstr "Șterge scriptul"
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Script '%s' deleted."
-msgstr "Scriptul „%s” a fost șters."
-
-#: plugin/scripting/python_runner.py
 #, python-format
 msgid "Failed to insert result into Calc: %s"
 msgstr "Inserarea rezultatului în Calc a eșuat: %s"
@@ -1501,6 +1622,21 @@ msgstr ""
 " sunt binevenite!"
 
 #: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Plot inserted ({title}). (took {time})"
+msgstr "Grafic inserat ({title}). (a durat {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Viz '{helper}' completed. {msg}"
+msgstr "Viz '{helper}' finalizat. {msg}"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr "Math '{helper}' finalizat. Inserat: {preview} (a durat {time})"
+
+#: plugin/scripting/python_runner.py
 msgid "Vision helpers require a Writer or Calc document."
 msgstr "Asistenții vizuali necesită un document Writer sau Calc."
 
@@ -1510,29 +1646,79 @@ msgstr "Asistentul vizual a eșuat."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
-msgid "Vision '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr ""
-"Viziune „{helper}” finalizată. S-au scris {rows} rânduri. (a durat {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
 msgid "Failed to insert result: {error} (took {time})"
 msgstr "Inserarea rezultatului a eșuat: {error} (a durat {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Vision '{helper}' completed. Found {blocks} blocks and {tables} tables. "
-"(took {time})"
+"Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
+"tables). (took {time})"
 msgstr ""
-"Viziune „{helper}” finalizată. S-au găsit {blocks} blocuri și {tables} "
-"tabele. (a durat {time})"
+"Vision '{helper}' finalizat. HTML inserat ({blocks} blocuri, {tables} "
+"tabele). (a durat {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
-msgid "Vision '{helper}' completed. Extracted {lines} lines. (took {time})"
+msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
+msgstr "Vision '{helper}' finalizat. HTML formatat inserat. (a durat {time})"
+
+#: plugin/scripting/python_runner.py
+msgid "Viz helpers require a Writer or Calc document."
+msgstr "Asistenții Viz necesită un document Writer sau Calc."
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Viz helper requires a data range. Select cells or enter a range in the Data "
+"field."
 msgstr ""
-"Viziune „{helper}” finalizată. {lines} linii extrase. (durată: {time})"
+"Asistentul Viz necesită un interval de date. Selectați celule sau "
+"introduceți un interval în câmpul Date."
+
+#: plugin/scripting/python_runner.py
+msgid "Math helpers require a Writer or Calc document."
+msgstr "Asistenții Math necesită un document Writer sau Calc."
+
+#: plugin/scripting/python_runner.py
+msgid "Math helper failed."
+msgstr "Asistentul Math a eșuat."
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Quant helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"Asistentul Quant necesită un interval de date. Selectați celule sau "
+"introduceți un interval în câmpul Date."
+
+#: plugin/scripting/python_runner.py
+msgid "Quant failed."
+msgstr "Quant a eșuat."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Quant '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"Quant '{helper}' finalizat. S-au scris {rows} rânduri. (durată: {time})"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Optimization helper requires a data range. Select cells or enter a range in "
+"the Data field."
+msgstr ""
+"Asistentul de optimizare necesită un interval de date. Selectați celule sau "
+"introduceți un interval în câmpul Date."
+
+#: plugin/scripting/python_runner.py
+msgid "Optimization failed."
+msgstr "Optimizarea a eșuat."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Optimize '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"Optimizare '{helper}' finalizată. S-au scris {rows} rânduri. (durată: "
+"{time})"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -1553,10 +1739,6 @@ msgstr ""
 "Analiză „{helper}” finalizată. {rows} rânduri scrise. (durată: {time})"
 
 #: plugin/scripting/python_runner.py
-msgid "Unknown error"
-msgstr "Eroare necunoscută"
-
-#: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
 "Script executed successfully, but returned no result and produced no output."
@@ -1575,29 +1757,6 @@ msgstr ""
 #, python-brace-format
 msgid "Script executed successfully. (took {time})"
 msgstr "Scriptul a fost executat cu succes. (a durat {time})"
-
-#: plugin/scripting/python_runner.py
-msgid "Execution Error"
-msgstr "Eroare de execuție"
-
-#: plugin/scripting/python_runner.py
-msgid "Script executed successfully."
-msgstr "Script executat cu succes."
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Script executed successfully, but returned no result and produced no output."
-msgstr ""
-"Scriptul a fost executat cu succes, dar nu a returnat niciun rezultat și nu "
-"a produs nicio ieșire."
-
-#: plugin/scripting/python_runner.py
-msgid "Success"
-msgstr "Succes"
-
-#: plugin/scripting/python_runner.py
-msgid "Output"
-msgstr "Ieșire"
 
 #: plugin/scripting/python_runner.py
 msgid "Script saved."
@@ -2327,6 +2486,22 @@ msgstr "Păstrează grupurile de text orfane"
 
 msgid "Group unassigned text into clusters for messy layouts."
 msgstr "Grupează textul neatribuit în grupuri pentru machete dezordonate."
+
+msgid "Document insert mode"
+msgstr "Mod inserare document"
+
+msgid ""
+"html = Docling HTML import (default). structured = bbox column layout in "
+"Writer; native Calc cells for extract_structure tables."
+msgstr ""
+"html = import HTML Docling (implicit). structured = aspect coloană bbox în "
+"Writer; celule Calc native pentru tabele extract_structure."
+
+msgid "Standard HTML"
+msgstr "HTML standard"
+
+msgid "Structured (layout / cell grid)"
+msgstr "Structurat (aspect / grilă de celule)"
 
 msgid "Layout model"
 msgstr "Model de machetă"
