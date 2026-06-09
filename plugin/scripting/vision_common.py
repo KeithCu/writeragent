@@ -28,12 +28,9 @@ MAX_TABLE_ROWS = 50
 
 # Config keys merged from Settings → vision.* before template param overrides.
 VISION_CONFIG_KEYS = (
-    "device",
     "images_scale",
     "text_score",
     "force_full_page_ocr",
-    "lang",
-    "num_threads",
     "table_mode",
     "do_cell_matching",
     "create_orphan_clusters",
@@ -41,7 +38,6 @@ VISION_CONFIG_KEYS = (
     "do_formula_enrichment",
     "do_code_enrichment",
     "document_timeout",
-    "allow_external_plugins",
     "artifacts_path",
     "insert_mode",
 )

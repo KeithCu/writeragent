@@ -114,3 +114,24 @@ def test_resolve_vision_image_bytes_raises_when_name_missing(mock_get_obj):
     with pytest.raises(ToolExecutionError) as exc:
         resolve_vision_image_bytes(ctx, doc, image_name="Missing")
     assert exc.value.code == "IMAGE_NOT_FOUND"
+
+
+@patch("plugin.scripting.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {}))
+@patch("plugin.framework.i18n.get_lo_locale", return_value="fr_FR")
+@patch("plugin.scripting.vision_runner.run_vision")
+@patch("plugin.scripting.vision_runner.get_selected_image_bytes")
+def test_run_trusted_vision_resolves_lang_from_locale(mock_bytes, mock_run_vision, mock_get_lo_locale, _mock_merge):
+    ctx = MagicMock()
+    doc = MagicMock()
+    mock_bytes.return_value = b"png"
+    mock_run_vision.return_value = {"status": "ok", "helper": "extract_text", "full_text": "hi"}
+
+    result = run_trusted_vision(ctx, doc, helper="extract_text", params={})
+
+    assert result["full_text"] == "hi"
+    mock_run_vision.assert_called_once_with(
+        ctx,
+        {"helper": "extract_text", "params": {"lang": "fr"}},
+        b"png",
+        context={"source": "selection"},
+    )

@@ -25,13 +25,11 @@ _DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
     "extract_text": {
         "engine": "docling",
         "ocr_backend": "rapidocr",
-        "lang": "en",
         "image_name": "",
     },
     "extract_structure": {
         "engine": "docling",
         "ocr_backend": "rapidocr",
-        "lang": "en",
         "image_name": "",
     },
 }

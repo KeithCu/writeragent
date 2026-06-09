@@ -32,16 +32,13 @@ def _import_docling() -> Any:
 
 
 def _cache_key(params: dict[str, Any], *, for_structure: bool) -> tuple[Any, ...]:
-    allow_external = bool(params.get("allow_external_plugins", False))
     backend = resolve_ocr_backend(params)
-    if backend == "surya":
-        allow_external = True
     lang = str(params.get("lang") or "en").strip() or "en"
     return (
         backend,
         lang,
         for_structure,
-        allow_external,
+        True,
         float(params.get("images_scale") or 1.0),
         str(params.get("device") or "auto"),
         int(params.get("num_threads") or 4),
@@ -170,9 +167,6 @@ def _build_pipeline_options(params: dict[str, Any], *, for_structure: bool) -> A
     pipeline_options_mod = importlib.import_module("docling.datamodel.pipeline_options")
     pdf_opts_cls = pipeline_options_mod.PdfPipelineOptions
     backend = resolve_ocr_backend(params)
-    allow_external = bool(params.get("allow_external_plugins", False))
-    if backend == "surya":
-        allow_external = True
 
     try:
         ocr_options = _resolve_ocr_options(params)
@@ -184,7 +178,7 @@ def _build_pipeline_options(params: dict[str, Any], *, for_structure: bool) -> A
     pipeline_options = pdf_opts_cls(
         do_ocr=True,
         do_table_structure=for_structure,
-        allow_external_plugins=allow_external,
+        allow_external_plugins=True,
     )
     if ocr_options is not None:
         pipeline_options.ocr_options = ocr_options

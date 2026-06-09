@@ -64,6 +64,42 @@ def resolve_vision_image_bytes(ctx: Any, doc: Any, *, image_name: str | None = N
     return png_bytes
 
 
+def _resolve_locale_language(ctx: Any, doc: Any, graphic_obj: Any) -> str:
+    # 1. Try to get CharLocale from the graphic object itself
+    if graphic_obj is not None:
+        try:
+            locale = graphic_obj.getPropertyValue("CharLocale")
+            if locale and getattr(locale, "Language", None):
+                return str(locale.Language).lower()
+        except Exception:
+            pass
+
+    # 2. Try to get CharLocale from the current selection/cursor
+    try:
+        selection = doc.CurrentController.Selection
+        if selection:
+            if hasattr(selection, "getCount") and selection.getCount() > 0:
+                sel_obj = selection.getByIndex(0)
+            else:
+                sel_obj = selection
+            locale = sel_obj.getPropertyValue("CharLocale")
+            if locale and getattr(locale, "Language", None):
+                return str(locale.Language).lower()
+    except Exception:
+        pass
+
+    # 3. Fall back to LibreOffice UI locale
+    try:
+        from plugin.framework.i18n import get_lo_locale
+        lo_locale = get_lo_locale(ctx)
+        if lo_locale:
+            return lo_locale.split("_")[0].split("-")[0].lower()
+    except Exception:
+        pass
+
+    return "en"
+
+
 def run_trusted_vision(
     ctx: Any,
     doc: Any,
@@ -80,6 +116,24 @@ def run_trusted_vision(
 
     params_dict = merge_vision_params(ctx, dict(params) if isinstance(params, dict) else None)
     image_name = params_dict.get("image_name")
+
+    graphic_obj = None
+    if image_name:
+        graphic_obj = _get_graphic_object(ctx, doc, str(image_name))
+    else:
+        try:
+            selection = doc.CurrentController.Selection
+            if selection:
+                if hasattr(selection, "getCount") and selection.getCount() > 0:
+                    graphic_obj = selection.getByIndex(0)
+                else:
+                    graphic_obj = selection
+        except Exception:
+            pass
+
+    if not params_dict.get("lang"):
+        params_dict["lang"] = _resolve_locale_language(ctx, doc, graphic_obj)
+
     png_bytes = resolve_vision_image_bytes(ctx, doc, image_name=str(image_name) if image_name is not None else None)
     spec: dict[str, Any] = {"helper": name, "params": params_dict}
     source = "graphic_name" if str(image_name or "").strip() else "selection"

@@ -20,19 +20,6 @@ actions:
     title: Vision OCR Settings…
 
 config:
-  device:
-    type: string
-    default: auto
-    widget: select
-    page: general
-    label: Device
-    helper: Hardware for Docling models. auto picks GPU when available.
-    options:
-      - {value: auto, label: Auto}
-      - {value: cpu, label: CPU}
-      - {value: cuda, label: CUDA (NVIDIA)}
-      - {value: mps, label: MPS (Apple Silicon)}
-
   images_scale:
     type: float
     default: 1.0
@@ -78,24 +65,6 @@ config:
     page: ocr
     label: OCR entire image
     helper: Recommended for embedded graphics exported from LibreOffice.
-
-  lang:
-    type: string
-    default: en
-    widget: text
-    page: ocr
-    label: OCR language
-    helper: Language code for OCR backends that support it (e.g. en, de).
-
-  num_threads:
-    type: int
-    default: 4
-    min: 1
-    max: 32
-    widget: number
-    page: ocr
-    label: CPU threads
-    helper: Thread count for Docling model inference on CPU.
 
   table_mode:
     type: string
@@ -170,10 +139,3 @@ config:
     label: Docling document timeout (s)
     helper: Per-conversion timeout inside Docling. 0 = no limit.
 
-  allow_external_plugins:
-    type: boolean
-    default: false
-    widget: checkbox
-    page: advanced
-    label: Allow external Docling plugins
-    helper: Required for Surya OCR (docling-surya).

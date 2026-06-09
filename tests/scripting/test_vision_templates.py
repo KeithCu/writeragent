@@ -31,7 +31,6 @@ def test_parse_header_round_trip():
     assert meta.params == {
         "engine": "docling",
         "ocr_backend": "rapidocr",
-        "lang": "en",
         "image_name": "",
     }
 
