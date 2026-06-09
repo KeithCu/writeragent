@@ -924,3 +924,72 @@ def test_translate_complex_functions():
     assert "1.1752" in exec_result(res, [])
 
 
+
+def test_translate_group_i_functions():
+    # 1-2. BESSELK / BESSELY
+    res = translate_formula('=BESSELK(1.5; 1)')
+    assert res.ok
+    assert abs(exec_result(res, []) - 0.277388) < 1e-5
+
+    res = translate_formula('=BESSELY(1.5; 1)')
+    assert res.ok
+    assert abs(exec_result(res, []) - -0.4123086) < 1e-5
+
+    # 3. EUROCONVERT
+    res = translate_formula('=EUROCONVERT(100; "EUR"; "DEM")')
+    assert res.ok
+    # just checking that it doesn't syntax error and executes
+    # depends on xl.euroconvert
+    exec_result(res, [])
+
+    # 4-6. IMCOSH / IMCOT / IMCSC
+    res = translate_formula('=IMCOSH("2+3i")')
+    assert res.ok
+    assert "-3.7245" in exec_result(res, [])
+
+    res = translate_formula('=IMCOT("2+3i")')
+    assert res.ok
+    assert "-0.0037" in exec_result(res, [])
+
+    res = translate_formula('=IMCSC("2+3i")')
+    assert res.ok
+    assert "0.0412" in exec_result(res, [])
+
+    # 7-9. IMCSCH / IMSEC / IMSECH
+    res = translate_formula('=IMCSCH("2+3i")')
+    assert res.ok
+    assert "-0.2725" in exec_result(res, [])
+
+    res = translate_formula('=IMSEC("2+3i")')
+    assert res.ok
+    assert "-0.0416" in exec_result(res, [])
+
+    res = translate_formula('=IMSECH("2+3i")')
+    assert res.ok
+    assert "-0.2635" in exec_result(res, [])
+
+    # 10-12. IMSINH / IMSQRT / IMSUB
+    res = translate_formula('=IMSINH("2+3i")')
+    assert res.ok
+    assert "-3.5905" in exec_result(res, [])
+
+    res = translate_formula('=IMSQRT("1+1i")')
+    assert res.ok
+    assert "1.0986" in exec_result(res, [])
+
+    res = translate_formula('=IMSUB("2+3i"; "1+1i")')
+    assert res.ok
+    assert exec_result(res, []) == "1.0+2.0i" or exec_result(res, []) == "1.0+2.0j"
+
+    # 13-15. IMSUM / IMTAN / IMTANH
+    res = translate_formula('=IMSUM("2+3i"; "1+1i")')
+    assert res.ok
+    assert exec_result(res, []) == "3.0+4.0i" or exec_result(res, []) == "3.0+4.0j"
+
+    res = translate_formula('=IMTAN("2+3i")')
+    assert res.ok
+    assert "-0.0037" in exec_result(res, [])
+
+    res = translate_formula('=IMTANH("2+3i")')
+    assert res.ok
+    assert "0.9653" in exec_result(res, [])

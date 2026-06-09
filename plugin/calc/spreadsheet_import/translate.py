@@ -18,7 +18,7 @@ from plugin.contrib.calc_formula_parser import (
     OperandNode,
     OperatorNode,
     RangeNode,
-    parse_formula,
+    parse_formula
 )
 from plugin.calc.spreadsheet_import.models import TranslationResult
 from plugin.calc.spreadsheet_import.preprocess import normalize_lo_formula_for_parse
@@ -351,6 +351,21 @@ _NO_FLOAT_WRAP_PREFIXES = (
     "xl.improduct(",
     "xl.imreal(",
     "xl.imsin(",
+    "xl.besselk(",
+    "xl.bessely(",
+    "xl.euroconvert(",
+    "xl.imcosh(",
+    "xl.imcot(",
+    "xl.imcsc(",
+    "xl.imcsch(",
+    "xl.imsec(",
+    "xl.imsech(",
+    "xl.imsinh(",
+    "xl.imsqrt(",
+    "xl.imsub(",
+    "xl.imsum(",
+    "xl.imtan(",
+    "xl.imtanh("
 )
 
 
@@ -642,6 +657,21 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "IMPRODUCT": lambda a: f"xl.improduct({', '.join(a)})",
     "IMREAL": lambda a: f"xl.imreal({a[0]})",
     "IMSIN": lambda a: f"xl.imsin({a[0]})",
+    "BESSELK": lambda a: f"xl.besselk({a[0]}, {a[1]})",
+    "BESSELY": lambda a: f"xl.bessely({a[0]}, {a[1]})",
+    "EUROCONVERT": lambda a: f"xl.euroconvert({a[0]}, {a[1]}, {a[2]})",
+    "IMCOSH": lambda a: f"xl.imcosh({a[0]})",
+    "IMCOT": lambda a: f"xl.imcot({a[0]})",
+    "IMCSC": lambda a: f"xl.imcsc({a[0]})",
+    "IMCSCH": lambda a: f"xl.imcsch({a[0]})",
+    "IMSEC": lambda a: f"xl.imsec({a[0]})",
+    "IMSECH": lambda a: f"xl.imsech({a[0]})",
+    "IMSINH": lambda a: f"xl.imsinh({a[0]})",
+    "IMSQRT": lambda a: f"xl.imsqrt({a[0]})",
+    "IMSUB": lambda a: f"xl.imsub({a[0]}, {a[1]})",
+    "IMSUM": lambda a: f"xl.imsum({', '.join(a)})",
+    "IMTAN": lambda a: f"xl.imtan({a[0]})",
+    "IMTANH": lambda a: f"xl.imtanh({a[0]})",
 }
 
 
