@@ -305,6 +305,21 @@ _NO_FLOAT_WRAP_PREFIXES = (
     "xl.harmean(",
     "xl.npv(",
     "xl.irr(",
+    "xl.devsq(",
+    "xl.kurt(",
+    "xl.skew(",
+    "xl.slope(",
+    "xl.intercept(",
+    "xl.rsq(",
+    "xl.steyx(",
+    "xl.acot(",
+    "xl.acoth(",
+    "xl.cot(",
+    "xl.coth(",
+    "xl.csc(",
+    "xl.csch(",
+    "xl.sec(",
+    "xl.sech(",
 )
 
 
@@ -550,6 +565,21 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "HARMEAN": lambda a: f"xl.harmean({a[0]})",
     "NPV": lambda a: f"xl.npv({a[0]}, {', '.join(a[1:])})",
     "IRR": lambda a: f"xl.irr({a[0]})" if len(a) == 1 else f"xl.irr({a[0]}, {a[1]})",
+    "DEVSQ": lambda a: f"xl.devsq({', '.join(a)})",
+    "KURT": lambda a: f"xl.kurt({', '.join(a)})",
+    "SKEW": lambda a: f"xl.skew({', '.join(a)})",
+    "SLOPE": lambda a: f"xl.slope({a[0]}, {a[1]})",
+    "INTERCEPT": lambda a: f"xl.intercept({a[0]}, {a[1]})",
+    "RSQ": lambda a: f"xl.rsq({a[0]}, {a[1]})",
+    "STEYX": lambda a: f"xl.steyx({a[0]}, {a[1]})",
+    "ACOT": lambda a: f"xl.acot({a[0]})",
+    "ACOTH": lambda a: f"xl.acoth({a[0]})",
+    "COT": lambda a: f"xl.cot({a[0]})",
+    "COTH": lambda a: f"xl.coth({a[0]})",
+    "CSC": lambda a: f"xl.csc({a[0]})",
+    "CSCH": lambda a: f"xl.csch({a[0]})",
+    "SEC": lambda a: f"xl.sec({a[0]})",
+    "SECH": lambda a: f"xl.sech({a[0]})",
 }
 
 

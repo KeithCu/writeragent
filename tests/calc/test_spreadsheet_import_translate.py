@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import datetime
+import math
 import numpy as np
 
 import pytest
@@ -689,5 +690,87 @@ def test_translate_extra_15_functions():
     res = translate_formula("=IRR(A1:A3)")
     assert res.ok
     assert abs(exec_result(res, [-100, 110, 0]) - 0.1) < 1e-7
+
+
+def test_translate_15_more_more_functions():
+    # 1. DEVSQ
+    res = translate_formula("=DEVSQ(A1:A3)")
+    assert res.ok
+    assert exec_result(res, [1.0, 3.0, 5.0]) == 8.0  # mean=3, dev=[-2,0,2], sq=[4,0,4], sum=8
+
+    # 2. KURT
+    res = translate_formula("=KURT(A1:A4)")
+    assert res.ok
+    # Excel/Calc kurtosis of [1,2,3,4] is -1.2
+    assert abs(exec_result(res, [1.0, 2.0, 3.0, 4.0]) - (-1.2)) < 1e-9
+
+    # 3. SKEW
+    res = translate_formula("=SKEW(A1:A3)")
+    assert res.ok
+    # SKEW of symmetric [1,2,3] is 0
+    assert abs(exec_result(res, [1.0, 2.0, 3.0]) - 0.0) < 1e-9
+
+    # 4. SLOPE
+    res = translate_formula("=SLOPE(A1:A3; B1:B3)")
+    assert res.ok
+    # y = [2,4,6], x = [1,2,3] -> slope = 2
+    assert exec_result(res, [[2.0, 4.0, 6.0], [1.0, 2.0, 3.0]]) == 2.0
+
+    # 5. INTERCEPT
+    res = translate_formula("=INTERCEPT(A1:A3; B1:B3)")
+    assert res.ok
+    # y = [3,5,7], x = [1,2,3] -> y = 2x + 1 -> intercept = 1
+    assert exec_result(res, [[3.0, 5.0, 7.0], [1.0, 2.0, 3.0]]) == 1.0
+
+    # 6. RSQ
+    res = translate_formula("=RSQ(A1:A3; B1:B3)")
+    assert res.ok
+    assert exec_result(res, [[2.0, 4.0, 6.0], [1.0, 2.0, 3.0]]) == 1.0
+
+    # 7. STEYX
+    res = translate_formula("=STEYX(A1:A3; B1:B3)")
+    assert res.ok
+    # Perfectly linear -> 0
+    assert exec_result(res, [[2.0, 4.0, 6.0], [1.0, 2.0, 3.0]]) == 0.0
+
+    # 8. ACOT
+    res = translate_formula("=ACOT(1)")
+    assert res.ok
+    assert abs(exec_result(res, []) - math.pi / 4) < 1e-9
+
+    # 9. ACOTH
+    res = translate_formula("=ACOTH(2)")
+    assert res.ok
+    assert abs(exec_result(res, []) - 0.5 * math.log(3.0)) < 1e-9
+
+    # 10. COT
+    res = translate_formula("=COT(PI()/4)")
+    assert res.ok
+    assert abs(exec_result(res, []) - 1.0) < 1e-9
+
+    # 11. COTH
+    res = translate_formula("=COTH(1)")
+    assert res.ok
+    assert abs(exec_result(res, []) - 1.0 / math.tanh(1.0)) < 1e-9
+
+    # 12. CSC
+    res = translate_formula("=CSC(PI()/2)")
+    assert res.ok
+    assert abs(exec_result(res, []) - 1.0) < 1e-9
+
+    # 13. CSCH
+    res = translate_formula("=CSCH(1)")
+    assert res.ok
+    assert abs(exec_result(res, []) - 1.0 / math.sinh(1.0)) < 1e-9
+
+    # 14. SEC
+    res = translate_formula("=SEC(0)")
+    assert res.ok
+    assert abs(exec_result(res, []) - 1.0) < 1e-9
+
+    # 15. SECH
+    res = translate_formula("=SECH(0)")
+    assert res.ok
+    assert abs(exec_result(res, []) - 1.0) < 1e-9
 
 

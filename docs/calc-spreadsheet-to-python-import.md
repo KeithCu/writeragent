@@ -560,7 +560,7 @@ Convention: `data` is the primary injected range; `data[n]` is multi-range varar
 
 Curated from [LibreOffice Functions by Category](https://help.libreoffice.org/latest/en-US/text/scalc/01/04060100.html), [Calc Guide 25.2 Ch.9](https://books.libreoffice.org/en/CG252/CG25209-FormulasAndFunctions.html), and [Microsoft–LibreOffice function comparison](https://wiki.documentfoundation.org/Documentation/Calc_Functions) (~508 LO built-ins total). **Status** reflects [`translate.py`](../plugin/calc/spreadsheet_import/translate.py) as of the Tier A/B/C/D port (157 shipped).
 
-**Inventory summary:** **189 / 374** functions in this master list are **Shipped** in [`translate.py`](../plugin/calc/spreadsheet_import/translate.py) (186 emitters including `ROW`/`COLUMN`/`IFS`/`SWITCH` handlers).
+**Inventory summary:** **204 / 374** functions in this master list are **Shipped** in [`translate.py`](../plugin/calc/spreadsheet_import/translate.py) (201 emitters including `ROW`/`COLUMN`/`IFS`/`SWITCH` handlers).
  LibreOffice Calc exposes **~508** built-ins ([Calc Guide 25.2 Ch.9](https://books.libreoffice.org/en/CG252/CG25209-FormulasAndFunctions.html), [Functions by Category](https://help.libreoffice.org/latest/en-US/text/scalc/01/04060100.html)); this curated list (~374) is the **conversion goal set** for business/statistical workbooks—not every locale alias (`*_ADD`, `*_EXCEL2003`) or extension-only symbol.
 
 | Status | Meaning |
@@ -721,15 +721,15 @@ Use `list_calc_functions` (chat tool) against a live Calc session for the author
 | `TRUE` | Shipped |
 | `XOR` | Shipped |
 
-### Mathematical (38/64 shipped)
+### Mathematical (46/64 shipped)
 
 | Function | Status |
 |----------|--------|
 | `ABS` | Shipped |
 | `ACOS` | Shipped |
 | `ACOSH` | Shipped |
-| `ACOT` | Not started |
-| `ACOTH` | Not started |
+| `ACOT` | Shipped |
+| `ACOTH` | Shipped |
 | `AGGREGATE` | Planned (P3) |
 | `ASIN` | Shipped |
 | `ASINH` | Shipped |
@@ -742,10 +742,10 @@ Use `list_calc_functions` (chat tool) against a live Calc session for the author
 | `COMBINA` | Shipped |
 | `COS` | Shipped |
 | `COSH` | Shipped |
-| `COT` | Not started |
-| `COTH` | Not started |
-| `CSC` | Not started |
-| `CSCH` | Not started |
+| `COT` | Shipped |
+| `COTH` | Shipped |
+| `CSC` | Shipped |
+| `CSCH` | Shipped |
 | `DECIMAL` | Not started |
 | `DEGREES` | Shipped |
 | `EVEN` | Shipped |
@@ -773,8 +773,8 @@ Use `list_calc_functions` (chat tool) against a live Calc session for the author
 | `ROUND` | Shipped |
 | `ROUNDDOWN` | Shipped |
 | `ROUNDUP` | Shipped |
-| `SEC` | Not started |
-| `SECH` | Not started |
+| `SEC` | Shipped |
+| `SECH` | Shipped |
 | `SERIESSUM` | Not started |
 | `SIGN` | Shipped |
 | `SIN` | Shipped |
@@ -811,7 +811,7 @@ Use `list_calc_functions` (chat tool) against a live Calc session for the author
 | `TREND` | Planned (P3) |
 | `UNIQUE` | Shipped |
 
-### Statistical (24/83 shipped)
+### Statistical (31/83 shipped)
 
 | Function | Status |
 |----------|--------|
@@ -834,7 +834,7 @@ Use `list_calc_functions` (chat tool) against a live Calc session for the author
 | `COUNTIFS` | Shipped |
 | `COVAR` | Shipped |
 | `CRITBINOM` | Not started |
-| `DEVSQ` | Not started |
+| `DEVSQ` | Shipped |
 | `EXPONDIST` | Not started |
 | `FDIST` | Not started |
 | `FINV` | Not started |
@@ -851,8 +851,8 @@ Use `list_calc_functions` (chat tool) against a live Calc session for the author
 | `GROWTH` | Planned (P3) |
 | `HARMEAN` | Shipped |
 | `HYPGEOMDIST` | Not started |
-| `INTERCEPT` | Not started |
-| `KURT` | Not started |
+| `INTERCEPT` | Shipped |
+| `KURT` | Shipped |
 | `LARGE` | Shipped |
 | `LINEST` | Planned (P3) |
 | `LOGEST` | Planned (P3) |
@@ -877,16 +877,16 @@ Use `list_calc_functions` (chat tool) against a live Calc session for the author
 | `PROB` | Not started |
 | `QUARTILE` | Shipped |
 | `RANK` | Shipped |
-| `RSQ` | Not started |
-| `SKEW` | Not started |
-| `SLOPE` | Not started |
+| `RSQ` | Shipped |
+| `SKEW` | Shipped |
+| `SLOPE` | Shipped |
 | `SMALL` | Shipped |
 | `STANDARDIZE` | Not started |
 | `STDEV` | Shipped |
 | `STDEVA` | Not started |
 | `STDEVP` | Shipped |
 | `STDEVPA` | Not started |
-| `STEYX` | Not started |
+| `STEYX` | Shipped |
 | `TDIST` | Not started |
 | `TINV` | Not started |
 | `TREND` | Planned (P3) |

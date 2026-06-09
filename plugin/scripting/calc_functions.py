@@ -1386,3 +1386,173 @@ def irr(values: Any, guess: Any = 0.1) -> float:
             break
         x = x - f / df
     return float("nan")
+
+
+def devsq(*args: Any) -> float:
+    vals = []
+    for arg in args:
+        for v in np.asarray(arg).ravel():
+            try:
+                vals.append(float(v))
+            except (ValueError, TypeError):
+                pass
+    if not vals:
+        return float("nan")
+    arr = np.asarray(vals)
+    return float(np.sum((arr - np.mean(arr)) ** 2))
+
+
+def kurt(*args: Any) -> float:
+    vals = []
+    for arg in args:
+        for v in np.asarray(arg).ravel():
+            try:
+                vals.append(float(v))
+            except (ValueError, TypeError):
+                pass
+    n = len(vals)
+    if n < 4:
+        return float("nan")
+    arr = np.asarray(vals)
+    m = np.mean(arr)
+    s = np.std(arr, ddof=1)
+    if s == 0:
+        return float("nan")
+    # Excel/Calc kurtosis formula
+    z = (arr - m) / s
+    term1 = (n * (n + 1)) / ((n - 1) * (n - 2) * (n - 3))
+    term2 = np.sum(z**4)
+    term3 = (3 * (n - 1) ** 2) / ((n - 2) * (n - 3))
+    return float(term1 * term2 - term3)
+
+
+def skew(*args: Any) -> float:
+    vals = []
+    for arg in args:
+        for v in np.asarray(arg).ravel():
+            try:
+                vals.append(float(v))
+            except (ValueError, TypeError):
+                pass
+    n = len(vals)
+    if n < 3:
+        return float("nan")
+    arr = np.asarray(vals)
+    m = np.mean(arr)
+    s = np.std(arr, ddof=1)
+    if s == 0:
+        return float("nan")
+    # Excel/Calc skewness formula
+    z = (arr - m) / s
+    term1 = n / ((n - 1) * (n - 2))
+    term2 = np.sum(z**3)
+    return float(term1 * term2)
+
+
+def slope(data_y: Any, data_x: Any) -> float:
+    y = np.asarray(data_y, dtype=float).ravel()
+    x = np.asarray(data_x, dtype=float).ravel()
+    mask = ~np.isnan(y) & ~np.isnan(x)
+    y, x = y[mask], x[mask]
+    if len(y) < 2:
+        return float("nan")
+    mx, my = np.mean(x), np.mean(y)
+    ss_xy = np.sum((x - mx) * (y - my))
+    ss_xx = np.sum((x - mx) ** 2)
+    return float(ss_xy / ss_xx) if ss_xx != 0 else float("nan")
+
+
+def intercept(data_y: Any, data_x: Any) -> float:
+    s = slope(data_y, data_x)
+    if np.isnan(s):
+        return float("nan")
+    y = np.asarray(data_y, dtype=float).ravel()
+    x = np.asarray(data_x, dtype=float).ravel()
+    mask = ~np.isnan(y) & ~np.isnan(x)
+    return float(np.mean(y[mask]) - s * np.mean(x[mask]))
+
+
+def rsq(data_y: Any, data_x: Any) -> float:
+    y = np.asarray(data_y, dtype=float).ravel()
+    x = np.asarray(data_x, dtype=float).ravel()
+    mask = ~np.isnan(y) & ~np.isnan(x)
+    y, x = y[mask], x[mask]
+    if len(y) < 2:
+        return float("nan")
+    corr = np.corrcoef(x, y)[0, 1]
+    return float(corr**2)
+
+
+def steyx(data_y: Any, data_x: Any) -> float:
+    y = np.asarray(data_y, dtype=float).ravel()
+    x = np.asarray(data_x, dtype=float).ravel()
+    mask = ~np.isnan(y) & ~np.isnan(x)
+    y, x = y[mask], x[mask]
+    n = len(y)
+    if n < 3:
+        return float("nan")
+    s = slope(y, x)
+    i = intercept(y, x)
+    y_hat = s * x + i
+    ss_resid = np.sum((y - y_hat) ** 2)
+    return float(math.sqrt(ss_resid / (n - 2)))
+
+
+def acot(x: Any) -> float:
+    try:
+        xv = float(x)
+        return float(math.pi / 2 - math.atan(xv))
+    except (ValueError, TypeError):
+        return float("nan")
+
+
+def acoth(x: Any) -> float:
+    try:
+        xv = float(x)
+        if abs(xv) <= 1:
+            return float("nan")
+        return float(0.5 * math.log((xv + 1) / (xv - 1)))
+    except (ValueError, TypeError, ZeroDivisionError):
+        return float("nan")
+
+
+def cot(x: Any) -> float:
+    try:
+        return float(1.0 / math.tan(float(x)))
+    except (ValueError, TypeError, ZeroDivisionError):
+        return float("nan")
+
+
+def coth(x: Any) -> float:
+    try:
+        return float(1.0 / math.tanh(float(x)))
+    except (ValueError, TypeError, ZeroDivisionError):
+        return float("nan")
+
+
+def csc(x: Any) -> float:
+    try:
+        return float(1.0 / math.sin(float(x)))
+    except (ValueError, TypeError, ZeroDivisionError):
+        return float("nan")
+
+
+def csch(x: Any) -> float:
+    try:
+        return float(1.0 / math.sinh(float(x)))
+    except (ValueError, TypeError, ZeroDivisionError):
+        return float("nan")
+
+
+def sec(x: Any) -> float:
+    try:
+        return float(1.0 / math.cos(float(x)))
+    except (ValueError, TypeError, ZeroDivisionError):
+        return float("nan")
+
+
+def sech(x: Any) -> float:
+    try:
+        return float(1.0 / math.cosh(float(x)))
+    except (ValueError, TypeError, ZeroDivisionError):
+        return float("nan")
