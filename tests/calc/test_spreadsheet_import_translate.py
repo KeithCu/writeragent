@@ -923,4 +923,81 @@ def test_translate_complex_functions():
     # sin(i) = i sinh(1) approx 1.1752i
     assert "1.1752" in exec_result(res, [])
 
+def test_translate_financial_group_c():
+    """Verify Group C translation logic (Financial functions)."""
+
+    # 1. ODDLYIELD
+    res = translate_formula('=ODDLYIELD("2008-04-20"; "2008-06-15"; "2008-03-12"; 0.05; 99.875; 100; 2; 0)')
+    assert res.ok
+    assert "xl.oddlyield" in res.code
+
+    # 2. PDURATION
+    res = translate_formula('=PDURATION(0.025; 10000; 12000)')
+    assert res.ok
+    assert "xl.pduration" in res.code
+
+    # 3. PPMT
+    res = translate_formula('=PPMT(0.01; 1; 24; 2000)')
+    assert res.ok
+    assert "xl.ppmt" in res.code
+
+    # 4. PRICE
+    res = translate_formula('=PRICE("2008-02-15"; "2017-11-15"; 0.0575; 0.065; 100; 2; 0)')
+    assert res.ok
+    assert "xl.price" in res.code
+
+    # 5. PRICEDISC
+    res = translate_formula('=PRICEDISC("2008-02-15"; "2008-03-01"; 0.0525; 100; 2)')
+    assert res.ok
+    assert "xl.pricedisc" in res.code
+
+    # 6. PRICEMAT
+    res = translate_formula('=PRICEMAT("2008-02-15"; "2008-04-13"; "2007-11-11"; 0.061; 0.061; 2)')
+    assert res.ok
+    assert "xl.pricemat" in res.code
+
+    # 7. RATE
+    res = translate_formula('=RATE(48; -200; 8000)')
+    assert res.ok
+    assert "xl.rate" in res.code
+
+    # 8. RECEIVED
+    res = translate_formula('=RECEIVED("2008-02-15"; "2008-05-15"; 1000000; 0.0575; 2)')
+    assert res.ok
+    assert "xl.received" in res.code
+
+    # 9. RRI
+    res = translate_formula('=RRI(48; 10000; 12000)')
+    assert res.ok
+    assert "xl.rri" in res.code
+
+    # 10. SLN
+    res = translate_formula('=SLN(30000; 7500; 10)')
+    assert res.ok
+    assert "xl.sln" in res.code
+
+    # 11. SYD
+    res = translate_formula('=SYD(30000; 7500; 10; 1)')
+    assert res.ok
+    assert "xl.syd" in res.code
+
+    # 12. TBILLEQ
+    res = translate_formula('=TBILLEQ("2008-03-31"; "2008-06-01"; 0.0914)')
+    assert res.ok
+    assert "xl.tbilleq" in res.code
+
+    # 13. TBILLPRICE
+    res = translate_formula('=TBILLPRICE("2008-03-31"; "2008-06-01"; 0.09)')
+    assert res.ok
+    assert "xl.tbillprice" in res.code
+
+    # 14. TBILLYIELD
+    res = translate_formula('=TBILLYIELD("2008-03-31"; "2008-06-01"; 98.45)')
+    assert res.ok
+    assert "xl.tbillyield" in res.code
+
+    # 15. VDB
+    res = translate_formula('=VDB(2400; 300; 10; 0; 0.875; 1.5)')
+    assert res.ok
+    assert "xl.vdb" in res.code
 

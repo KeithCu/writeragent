@@ -642,6 +642,21 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "IMPRODUCT": lambda a: f"xl.improduct({', '.join(a)})",
     "IMREAL": lambda a: f"xl.imreal({a[0]})",
     "IMSIN": lambda a: f"xl.imsin({a[0]})",
+    "ODDLYIELD": lambda a: f"xl.oddlyield({', '.join(a)})",
+    "PDURATION": lambda a: f"xl.pduration({a[0]}, {a[1]}, {a[2]})",
+    "PPMT": lambda a: f"xl.ppmt({', '.join(a)})",
+    "PRICE": lambda a: f"xl.price({', '.join(a)})",
+    "PRICEDISC": lambda a: f"xl.pricedisc({', '.join(a)})",
+    "PRICEMAT": lambda a: f"xl.pricemat({', '.join(a)})",
+    "RATE": lambda a: f"xl.rate({', '.join(a)})",
+    "RECEIVED": lambda a: f"xl.received({', '.join(a)})",
+    "RRI": lambda a: f"xl.rri({a[0]}, {a[1]}, {a[2]})",
+    "SLN": lambda a: f"xl.sln({a[0]}, {a[1]}, {a[2]})",
+    "SYD": lambda a: f"xl.syd({a[0]}, {a[1]}, {a[2]}, {a[3]})",
+    "TBILLEQ": lambda a: f"xl.tbilleq({a[0]}, {a[1]}, {a[2]})",
+    "TBILLPRICE": lambda a: f"xl.tbillprice({a[0]}, {a[1]}, {a[2]})",
+    "TBILLYIELD": lambda a: f"xl.tbillyield({a[0]}, {a[1]}, {a[2]})",
+    "VDB": lambda a: f"xl.vdb({', '.join(a)})",
 }
 
 
