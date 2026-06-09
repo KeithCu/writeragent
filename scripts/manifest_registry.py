@@ -4,6 +4,15 @@ import os
 import xml.etree.ElementTree as ET
 
 from manifest_xdl import _dlg, _oor, _pretty_name, _DLG_NS, _XS_NS
+from scripts.manifest_common import (
+    add_label as _common_add_label,
+    add_checkbox as _common_add_checkbox,
+    add_textfield as _common_add_textfield,
+    add_numericfield as _common_add_numericfield,
+    add_combobox as _common_add_combobox,
+    add_button as _common_add_button,
+    add_helper as _common_add_helper,
+)
 
 
 
@@ -410,69 +419,37 @@ def generate_settings_dialog_tabs(modules, tpl_path, output_path):
                 # We render our own UI to avoid the standard XDL layout gap padding, 
                 # because SettingsDialog uses slightly tighter spacing
                 if not schema.get("inline_no_label"):
-                    ET.SubElement(board, _dlg("text"), {
-                        _dlg("id"): f"label_{ctrl_id}",
-                        _dlg("tab-index"): "0",
-                        _dlg("left"): "8",
-                        _dlg("top"): str(curr_y + 2),
-                        _dlg("width"): "100",
-                        _dlg("height"): "10",
-                        _dlg("value"): label_text,
-                        _dlg("align"): "left",
-                    })
-                
-                field_attrs = {
-                    _dlg("id"): ctrl_id,
-                    _dlg("tab-index"): "0",
-                    _dlg("left"): field_x,
-                    _dlg("top"): str(curr_y),
-                    _dlg("width"): field_w,
-                    _dlg("height"): "14",
-                }
+                    _common_add_label(board, f"label_{ctrl_id}", label_text, 8, curr_y + 2, 100, 10, align="left")
                 
                 if widget == "checkbox":
-                    field_attrs.update({
-                        _dlg("width"): field_w if "width" in schema else "120",
-                        _dlg("height"): "10",
-                        _dlg("value"): label_text,
-                        _dlg("checked"): "false",
-                    })
                     # Remove the duplicate label for checkbox
                     if not schema.get("inline_no_label") and board[-1].get(_dlg("id")) == f"label_{ctrl_id}":
                         board.remove(board[-1])
-                    field_attrs[_dlg("top")] = str(curr_y + 2)
-                    field_attrs[_dlg("left")] = field_x if "x" in schema else "8"
-                    ET.SubElement(board, _dlg("checkbox"), field_attrs)
+                    cb_left = field_x if "x" in schema else "8"
+                    cb_width = field_w if "width" in schema else "120"
+                    _common_add_checkbox(board, ctrl_id, label_text, cb_left, curr_y + 2, cb_width, 10)
                 elif widget == "password":
-                    field_attrs[_dlg("echochar")] = "42"
-                    ET.SubElement(board, _dlg("textfield"), field_attrs)
+                    _common_add_textfield(board, ctrl_id, field_x, curr_y, field_w, 14, echo_char=42)
                 elif widget in ("number", "slider"):
-                    field_attrs.update({_dlg("spin"): "true", _dlg("width"): field_w if "width" in schema else "60"})
-                    ET.SubElement(board, _dlg("numericfield"), field_attrs)
-                elif widget == "select" or widget == "combo":
-                    field_attrs.update({_dlg("dropdown"): "true", _dlg("spin"): "true", _dlg("border"): "1"})
-                    el = ET.SubElement(board, _dlg("combobox"), field_attrs)
-                    menu = ET.SubElement(el, _dlg("menupopup"))
-                    for opt in schema.get("options", []):
-                        # Support dict options: use label for display, value for stored
-                        if isinstance(opt, dict):
-                            menu_val = opt.get("label", opt.get("value", str(opt)))
-                        else:
-                            menu_val = str(opt)
-                        ET.SubElement(menu, _dlg("menuitem"), {_dlg("value"): menu_val})
+                    num_w = field_w if "width" in schema else "60"
+                    _common_add_numericfield(board, ctrl_id, field_x, curr_y, num_w, 14, spin="true")
+                elif widget in ("select", "combo"):
+                    _common_add_combobox(
+                        board, ctrl_id, field_x, curr_y, field_w, 14,
+                        options=schema.get("options", []),
+                        dropdown="true",
+                        spin="true",
+                        border="1"
+                    )
                 elif widget == "button":
-                    field_attrs.update({
-                        _dlg("width"): field_w if "width" in schema else "100",
-                        _dlg("height"): "14",
-                        _dlg("value"): schema.get("label", "Click"),
-                    })
                     # Use a standard button instead of label + textbox
                     if not schema.get("inline_no_label") and board[-1].get(_dlg("id")) == f"label_{ctrl_id}":
                         board.remove(board[-1])
-                    field_attrs[_dlg("left")] = field_x if "x" in schema else "8"
-                    ET.SubElement(board, _dlg("button"), field_attrs)
+                    btn_left = field_x if "x" in schema else "8"
+                    btn_width = field_w if "width" in schema else "100"
+                    _common_add_button(board, ctrl_id, schema.get("label", "Click"), btn_left, curr_y, btn_width, 14)
                 else:
-                    ET.SubElement(board, _dlg("textfield"), field_attrs)
+                    _common_add_textfield(board, ctrl_id, field_x, curr_y, field_w, 14)
                 
                 if not schema.get("inline"):
                     curr_y += 16

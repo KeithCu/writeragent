@@ -3,6 +3,16 @@
 import os
 import xml.etree.ElementTree as ET
 
+from scripts.manifest_common import (
+    add_label as _common_add_label,
+    add_checkbox as _common_add_checkbox,
+    add_textfield as _common_add_textfield,
+    add_numericfield as _common_add_numericfield,
+    add_combobox as _common_add_combobox,
+    add_button as _common_add_button,
+    add_helper as _common_add_helper,
+)
+
 # ── XDL Generation (using xml.etree.ElementTree) ─────────────────────
 
 import xml.etree.ElementTree as ET
@@ -51,120 +61,54 @@ def _pretty_name(name):
     """Convert dotted or underscored name to title case with spaces."""
     return name.replace(".", " ").replace("_", " ").title()
 
-def _common_attrs(field_name, y, width=None, height=None):
-    """Common XDL element attributes."""
-    return {
-        _dlg("id"): field_name,
-        _dlg("tab-index"): "0",
-        _dlg("left"): str(_FIELD_X),
-        _dlg("top"): str(y),
-        _dlg("width"): str(width or _FIELD_WIDTH),
-        _dlg("height"): str(height or _ROW_HEIGHT),
-    }
-
-
 def _add_checkbox(board, field_name, schema, y):
-    attrs = _common_attrs(field_name, y)
-    attrs[_dlg("checked")] = "false"
-    ET.SubElement(board, _dlg("checkbox"), attrs)
+    _common_add_checkbox(board, field_name, schema.get("label", ""), _FIELD_X, y, _FIELD_WIDTH, _ROW_HEIGHT)
 
 
 def _add_textfield(board, field_name, schema, y, echo_char=None, multiline=False):
     h = _ROW_HEIGHT * 3 if multiline else _ROW_HEIGHT
-    attrs = _common_attrs(field_name, y, height=h)
-    if echo_char:
-        attrs[_dlg("echochar")] = str(echo_char)
-    if multiline:
-        attrs[_dlg("multiline")] = "true"
-        attrs[_dlg("vscroll")] = "true"
-    ET.SubElement(board, _dlg("textfield"), attrs)
+    _common_add_textfield(board, field_name, _FIELD_X, y, _FIELD_WIDTH, h, echo_char=echo_char, multiline=multiline)
 
 
 def _add_numericfield(board, field_name, schema, y):
-    attrs = _common_attrs(field_name, y)
-    attrs[_dlg("spin")] = "true"
-    if "min" in schema:
-        attrs[_dlg("value-min")] = str(schema["min"])
-    if "max" in schema:
-        attrs[_dlg("value-max")] = str(schema["max"])
-    if "step" in schema:
-        attrs[_dlg("value-step")] = str(schema["step"])
-    attrs[_dlg("decimal-accuracy")] = "1" if schema.get("type") == "float" else "0"
-    ET.SubElement(board, _dlg("numericfield"), attrs)
-
-
-def _add_menulist(board, field_name, schema, y):
-    attrs = _common_attrs(field_name, y)
-    attrs[_dlg("spin")] = "true"
-    attrs[_dlg("dropdown")] = "true"
-    ET.SubElement(board, _dlg("menulist"), attrs)
+    _common_add_numericfield(
+        board, field_name, _FIELD_X, y, _FIELD_WIDTH, _ROW_HEIGHT,
+        spin="true",
+        min_val=schema.get("min"),
+        max_val=schema.get("max"),
+        step_val=schema.get("step"),
+        decimal_accuracy="1" if schema.get("type") == "float" else "0"
+    )
 
 
 def _add_combobox(board, field_name, schema, y):
-    attrs = _common_attrs(field_name, y)
-    attrs[_dlg("dropdown")] = "true"
-    attrs[_dlg("spin")] = "true"
-    attrs[_dlg("border")] = "1"
-    attrs[_dlg("autocomplete")] = "true"
-    attrs[_dlg("linecount")] = "20"
-    combo_el = ET.SubElement(board, _dlg("combobox"), attrs)
-    
-    # menupopup child is required for the dropdown to initialize
-    menu_el = ET.SubElement(combo_el, _dlg("menupopup"))
-    for opt in schema.get("options", []):
-        if isinstance(opt, dict):
-            menu_val = opt.get("label", opt.get("value", str(opt)))
-        else:
-            menu_val = str(opt)
-        ET.SubElement(menu_el, _dlg("menuitem"), {_dlg("value"): menu_val})
-
+    _common_add_combobox(
+        board, field_name, _FIELD_X, y, _FIELD_WIDTH, _ROW_HEIGHT,
+        options=schema.get("options", []),
+        dropdown="true",
+        spin="true",
+        border="1",
+        autocomplete="true",
+        linecount="20"
+    )
 
 
 def _add_label(board, field_name, label_text, y):
-    attrs = {
-        _dlg("id"): "lbl_%s" % field_name,
-        _dlg("tab-index"): "0",
-        _dlg("left"): str(_MARGIN),
-        _dlg("top"): str(y + 2),
-        _dlg("width"): str(_LABEL_WIDTH),
-        _dlg("height"): str(_ROW_HEIGHT),
-        _dlg("value"): label_text,
-    }
-    ET.SubElement(board, _dlg("text"), attrs)
+    _common_add_label(board, "lbl_%s" % field_name, label_text, _MARGIN, y + 2, _LABEL_WIDTH, _ROW_HEIGHT)
 
 
 def _add_filefield(board, field_name, schema, y):
     """Add a textfield + browse button for file/folder widgets."""
     field_w = _FIELD_WIDTH - _BROWSE_BTN_WIDTH - _BROWSE_BTN_GAP
-    attrs = _common_attrs(field_name, y, width=field_w)
-    ET.SubElement(board, _dlg("textfield"), attrs)
-    # Browse button "..."
+    _common_add_textfield(board, field_name, _FIELD_X, y, field_w, _ROW_HEIGHT)
     btn_x = _FIELD_X + field_w + _BROWSE_BTN_GAP
-    btn_attrs = {
-        _dlg("id"): "btn_%s" % field_name,
-        _dlg("tab-index"): "0",
-        _dlg("left"): str(btn_x),
-        _dlg("top"): str(y),
-        _dlg("width"): str(_BROWSE_BTN_WIDTH),
-        _dlg("height"): str(_ROW_HEIGHT),
-        _dlg("value"): "...",
-    }
-    ET.SubElement(board, _dlg("button"), btn_attrs)
+    _common_add_button(board, "btn_%s" % field_name, "...", btn_x, y, _BROWSE_BTN_WIDTH, _ROW_HEIGHT)
 
 
 def _add_helper(board, field_name, helper_text, y):
     """Add a small helper text below a field, spanning full page width."""
     helper_width = _PAGE_WIDTH - _MARGIN * 2
-    attrs = {
-        _dlg("id"): "hlp_%s" % field_name,
-        _dlg("tab-index"): "0",
-        _dlg("left"): str(_MARGIN),
-        _dlg("top"): str(y),
-        _dlg("width"): str(helper_width),
-        _dlg("height"): str(_HELPER_HEIGHT),
-        _dlg("value"): helper_text,
-    }
-    ET.SubElement(board, _dlg("text"), attrs)
+    _common_add_helper(board, "hlp_%s" % field_name, helper_text, _MARGIN, y, helper_width, _HELPER_HEIGHT)
 
 
 # Style IDs for dlg:styles block
