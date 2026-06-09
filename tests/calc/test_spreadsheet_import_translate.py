@@ -1409,3 +1409,22 @@ def test_translate_group_b_functions():
     res = translate_formula("=ODDLPRICE(45292; 47118; 45000; 0.08; 0.09; 100; 2; 1)")
     assert res.ok
     assert abs(exec_result(res, []) - 87.874726) < 1e-4
+
+
+def test_translate_group_i():
+    assert translate_formula("=BESSELK(A1; B1)").code == 'xl.besselk(data[0], data[1])'
+    assert translate_formula("=BESSELY(A1; B1)").code == 'xl.bessely(data[0], data[1])'
+    assert translate_formula("=EUROCONVERT(A1; \"ATS\"; \"EUR\")").code == "xl.euroconvert(data, 'ATS', 'EUR')"
+    assert translate_formula("=IMCOSH(A1)").code == 'xl.imcosh(data)'
+    assert translate_formula("=IMCOT(A1)").code == 'xl.imcot(data)'
+    assert translate_formula("=IMCSC(A1)").code == 'xl.imcsc(data)'
+    assert translate_formula("=IMCSCH(A1)").code == 'xl.imcsch(data)'
+    assert translate_formula("=IMSEC(A1)").code == 'xl.imsec(data)'
+    assert translate_formula("=IMSECH(A1)").code == 'xl.imsech(data)'
+    assert translate_formula("=IMSINH(A1)").code == 'xl.imsinh(data)'
+    assert translate_formula("=IMSQRT(A1)").code == 'xl.imsqrt(data)'
+    assert translate_formula("=IMSUB(A1; B1)").code == 'xl.imsub(data[0], data[1])'
+    assert translate_formula("=IMSUM(A1; B1)").code == 'xl.imsum(data[0], data[1])'
+    assert translate_formula("=IMTAN(A1)").code == 'xl.imtan(data)'
+    assert translate_formula("=IMTANH(A1)").code == 'xl.imtanh(data)'
+

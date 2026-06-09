@@ -2177,7 +2177,7 @@ def bitrshift(number: Any, shift: Any) -> float:
         return float("nan")
 
 
-def _to_complex(val: Any) -> complex:  # type: ignore
+def _to_complex(val: Any) -> builtins.complex:
     """Convert Calc complex string (e.g. '1+2i') to Python complex."""
     if isinstance(val, (int, float, builtins.complex)):
         return builtins.complex(val)
@@ -2188,7 +2188,7 @@ def _to_complex(val: Any) -> complex:  # type: ignore
         raise TypeError("Invalid complex string")
 
 
-def _from_complex(c: complex, suffix: str = "i") -> str:  # type: ignore
+def _from_complex(c: builtins.complex, suffix: str = "i") -> str:
     """Convert Python complex to Calc string."""
     if not isinstance(c, builtins.complex):
         return str(c)
@@ -3589,3 +3589,224 @@ def oddlprice(settlement: Any, maturity: Any, last_interest: Any, rate: Any, yld
     accrued_interest = c * accrued_frac
 
     return price - accrued_interest
+
+
+def besselk(x: Any, n: Any) -> float:
+    try:
+        from scipy.special import kn
+        xv = float(x)
+        nv = int(float(n))
+        if xv <= 0:
+            return float("nan")
+        return float(kn(nv, xv))
+    except Exception:
+        return float("nan")
+
+
+def bessely(x: Any, n: Any) -> float:
+    try:
+        from scipy.special import yn
+        xv = float(x)
+        nv = int(float(n))
+        if xv <= 0:
+            return float("nan")
+        return float(yn(nv, xv))
+    except Exception:
+        return float("nan")
+
+
+def euroconvert(value: Any, from_currency: Any, to_currency: Any, full_precision: Any = False, triangulation_precision: Any = None) -> float:
+    try:
+        val = float(value)
+        from_curr = str(from_currency).upper().strip()
+        to_curr = str(to_currency).upper().strip()
+    except (ValueError, TypeError):
+        return float("nan")
+
+    rates = {
+        "EUR": 1.0,
+        "ATS": 13.7603,
+        "BEF": 40.3399,
+        "DEM": 1.95583,
+        "ESP": 166.386,
+        "FIM": 5.94573,
+        "FRF": 6.55957,
+        "IEP": 0.787564,
+        "ITL": 1936.27,
+        "LUF": 40.3399,
+        "NLG": 2.20371,
+        "PTE": 200.482,
+        "GRD": 340.750,
+        "SIT": 239.640,
+        "CYP": 0.585274,
+        "MTL": 0.429300,
+        "SKK": 30.1260,
+        "EEK": 15.6466,
+        "LVL": 0.702804,
+        "LTL": 3.45280,
+    }
+
+    if from_curr not in rates or to_curr not in rates:
+        return float("nan")
+
+    decimals = {
+        "EUR": 2, "ATS": 2, "BEF": 0, "DEM": 2, "ESP": 0, "FIM": 2, "FRF": 2, "IEP": 2,
+        "ITL": 0, "LUF": 0, "NLG": 2, "PTE": 0, "GRD": 0, "SIT": 2, "CYP": 2, "MTL": 2,
+        "SKK": 2, "EEK": 2, "LVL": 2, "LTL": 2
+    }
+
+    if from_curr == to_curr:
+        return val
+
+    def round_sig(x, sig):
+        if x == 0:
+            return 0.0
+        import math
+        exponent = math.floor(math.log10(abs(x)))
+        factor = 10 ** (sig - 1 - exponent)
+        return round(x * factor) / factor
+
+    if from_curr == "EUR":
+        eur_val = val
+    else:
+        eur_val = val / rates[from_curr]
+        if triangulation_precision is not None:
+            try:
+                sig = int(float(triangulation_precision))
+                if sig < 3:
+                    return float("nan")
+                eur_val = round_sig(eur_val, sig)
+            except (ValueError, TypeError):
+                return float("nan")
+
+    if to_curr == "EUR":
+        res = eur_val
+    else:
+        res = eur_val * rates[to_curr]
+
+    is_full = False
+    if isinstance(full_precision, bool):
+        is_full = full_precision
+    else:
+        try:
+            is_full = bool(float(full_precision))
+        except (ValueError, TypeError):
+            is_full = False
+
+    if not is_full:
+        res = round(res, decimals[to_curr])
+        if decimals[to_curr] == 0:
+            res = float(int(res))
+    return float(res)
+
+
+def imcosh(inumber: Any) -> str:
+    try:
+        import cmath
+        c = _to_complex(inumber)
+        return _from_complex(cmath.cosh(c))
+    except (ValueError, TypeError):
+        return "#VALUE!"
+
+
+def imcot(inumber: Any) -> str:
+    try:
+        import cmath
+        c = _to_complex(inumber)
+        return _from_complex(1.0 / cmath.tan(c))
+    except (ValueError, TypeError, ZeroDivisionError):
+        return "#VALUE!"
+
+
+def imcsc(inumber: Any) -> str:
+    try:
+        import cmath
+        c = _to_complex(inumber)
+        return _from_complex(1.0 / cmath.sin(c))
+    except (ValueError, TypeError, ZeroDivisionError):
+        return "#VALUE!"
+
+
+def imcsch(inumber: Any) -> str:
+    try:
+        import cmath
+        c = _to_complex(inumber)
+        return _from_complex(1.0 / cmath.sinh(c))
+    except (ValueError, TypeError, ZeroDivisionError):
+        return "#VALUE!"
+
+
+def imsec(inumber: Any) -> str:
+    try:
+        import cmath
+        c = _to_complex(inumber)
+        return _from_complex(1.0 / cmath.cos(c))
+    except (ValueError, TypeError, ZeroDivisionError):
+        return "#VALUE!"
+
+
+def imsech(inumber: Any) -> str:
+    try:
+        import cmath
+        c = _to_complex(inumber)
+        return _from_complex(1.0 / cmath.cosh(c))
+    except (ValueError, TypeError, ZeroDivisionError):
+        return "#VALUE!"
+
+
+def imsinh(inumber: Any) -> str:
+    try:
+        import cmath
+        c = _to_complex(inumber)
+        return _from_complex(cmath.sinh(c))
+    except (ValueError, TypeError):
+        return "#VALUE!"
+
+
+def imsqrt(inumber: Any) -> str:
+    try:
+        import cmath
+        c = _to_complex(inumber)
+        return _from_complex(cmath.sqrt(c))
+    except (ValueError, TypeError):
+        return "#VALUE!"
+
+
+def imsub(inumber1: Any, inumber2: Any) -> str:
+    try:
+        c1 = _to_complex(inumber1)
+        c2 = _to_complex(inumber2)
+        return _from_complex(c1 - c2)
+    except (ValueError, TypeError):
+        return "#VALUE!"
+
+
+def imsum(*args: Any) -> str:
+    try:
+        import builtins
+        res = builtins.complex(0, 0)
+        for arg in args:
+            for v in np.asarray(arg).ravel():
+                res += _to_complex(v)
+        return _from_complex(res)
+    except (ValueError, TypeError):
+        return "#VALUE!"
+
+
+def imtan(inumber: Any) -> str:
+    try:
+        import cmath
+        c = _to_complex(inumber)
+        return _from_complex(cmath.tan(c))
+    except (ValueError, TypeError):
+        return "#VALUE!"
+
+
+def imtanh(inumber: Any) -> str:
+    try:
+        import cmath
+        c = _to_complex(inumber)
+        return _from_complex(cmath.tanh(c))
+    except (ValueError, TypeError):
+        return "#VALUE!"
+

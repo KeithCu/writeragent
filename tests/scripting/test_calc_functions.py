@@ -351,3 +351,35 @@ def test_besselj():
     import scipy.special
     assert math.isclose(xl.besselj(1.5, 1), scipy.special.jv(1, 1.5))
     assert math.isnan(xl.besselj(1.5, -1))
+
+
+def test_group_i_functions():
+    # Bessel K and Y
+    assert not math.isnan(xl.besselk(1.5, 1))
+    assert not math.isnan(xl.bessely(1.5, 1))
+    assert math.isnan(xl.besselk(-1.0, 1))
+    assert math.isnan(xl.bessely(-1.0, 1))
+
+    # Euroconvert
+    assert xl.euroconvert(100.0, "ATS", "ATS") == 100.0
+    assert xl.euroconvert(100.0, "ATS", "EUR") == 7.27
+    assert xl.euroconvert(100.0, "EUR", "DEM") == 195.58
+    assert xl.euroconvert(100.0, "DEM", "ATS") == 703.55
+    assert xl.euroconvert(100.0, "DEM", "ATS", False, 3) == 703.15
+    assert abs(xl.euroconvert(100.0, "DEM", "ATS", True) - 703.55296) < 1e-3
+    assert math.isnan(xl.euroconvert(100.0, "INVALID", "ATS"))
+
+    # Complex functions
+    assert xl.imcosh("1+2i") != "#VALUE!"
+    assert xl.imsinh("1+2i") != "#VALUE!"
+    assert xl.imtanh("1+2i") != "#VALUE!"
+    assert xl.imtan("1+2i") != "#VALUE!"
+    assert xl.imcot("1+2i") != "#VALUE!"
+    assert xl.imcsc("1+2i") != "#VALUE!"
+    assert xl.imcsch("1+2i") != "#VALUE!"
+    assert xl.imsec("1+2i") != "#VALUE!"
+    assert xl.imsech("1+2i") != "#VALUE!"
+    assert xl.imsqrt("1+2i") != "#VALUE!"
+    assert xl.imsub("1+2i", "3+4i") == "-2.0-2.0i"
+    assert xl.imsum("1+2i", "3+4i") == "4.0+6.0i"
+
