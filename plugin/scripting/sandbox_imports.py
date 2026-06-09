@@ -112,6 +112,8 @@ VENV_AUTHORIZED_IMPORTS: tuple[str, ...] = (
     "plugin.scripting.quant_common",
     "plugin.scripting.optimize",
     "plugin.scripting.optimize_common",
+    "plugin.scripting.calc_functions",
+    "plugin.scripting.calc_functions.*",
 )
 
 # In-process LO embedded sandbox (execute_python_script) — stdlib-only extras beyond BASE_BUILTIN_MODULES.

@@ -110,8 +110,9 @@ def _join_modules(modules: tuple[str, ...]) -> str:
 def format_venv_import_policy_for_prompt(*, compact: bool = False) -> str:
     """Sandbox context prefix first, then import rules for LLM prompts."""
     auto_imports = (
-        "Pre-imported (do not write import lines): np, pd, sp, math. "
-        "DO NOT import numpy, pandas, sympy, or math. "
+        "Pre-imported (do not write import lines): np, pd, sp, math, xl. "
+        "DO NOT import numpy, pandas, sympy, math, or plugin.scripting.calc_functions. "
+        "Use xl.* for Calc-parity helpers (SUMIF, XLOOKUP, FILTER, etc.). "
         "Prefer np/sp/pd and scipy over hand-rolled Python."
     )
     blocked_security = _join_modules(tuple(sorted(DANGEROUS_MODULES)))

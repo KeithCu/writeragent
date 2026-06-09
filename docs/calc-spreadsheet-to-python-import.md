@@ -311,6 +311,21 @@ Tier-1 **code cell** (long scripts):
 
 Uses existing Monaco dual-save pattern ([python-monaco-editor-dev-plan.md](python-monaco-editor-dev-plan.md)).
 
+### `xl` Calc-parity helpers (spreadsheet import)
+
+Complex Calc functions that need shared semantics (SUMIF, XLOOKUP, FILTER, SUBTOTAL, date helpers, etc.) emit **`xl.*` calls** — not pasted `def` blocks. The venv sandbox auto-imports [`plugin.scripting.calc_functions`](../plugin/scripting/calc_functions.py) as **`xl`** (same mechanism as `np` / `pd`).
+
+```calc
+=PY("xl.sumif(data[0], \">10\", data[1])"; A1:A5; B1:B5)
+=PY("xl.xlookup(\"apple\", data[0], data[1], \"Not Found\")"; A1:A3; B1:B3)
+```
+
+- **Translator:** [`translate.py`](../plugin/calc/spreadsheet_import/translate.py) maps Calc builtins to `xl.foo(...)` or inline `np`/`math` expressions.
+- **Runtime:** [`AUTO_IMPORTS`](../plugin/framework/constants.py) + [`inject_auto_imports`](../plugin/scripting/venv_sandbox.py) bind `xl` when the formula references it.
+- **Tests:** behavioral parity in [`test_calc_functions.py`](../tests/scripting/test_calc_functions.py); emitter shape in [`test_spreadsheet_import_translate.py`](../tests/calc/test_spreadsheet_import_translate.py).
+
+Workbooks converted before this change may still contain inline pasted helpers; re-import to shrink formulas.
+
 ---
 
 ## 7. API tables

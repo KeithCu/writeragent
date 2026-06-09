@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import pytest
 
+import plugin.scripting.calc_functions as xl
+
 from plugin.calc.spreadsheet_import.preprocess import normalize_lo_formula_for_parse
 from plugin.calc.spreadsheet_import.translate import translate_formula
 
@@ -96,12 +98,12 @@ def test_translate_p2_logical_trig_date_functions():
     # IFERROR / IFNA
     res = translate_formula("=IFERROR(A1; 0)")
     assert res.ok
-    assert "def _iferror(f, alt):" in res.code
-    assert "result = _iferror" in res.code
+    assert "xl.iferror" in res.code
+    assert "def " not in res.code
 
     res = translate_formula("=IFNA(A1; 1)")
     assert res.ok
-    assert "def _ifna(f, alt):" in res.code
+    assert "xl.ifna" in res.code
 
     # SWITCH
     res = translate_formula("=SWITCH(A1; 1; \"one\"; 2; \"two\"; \"other\")")
@@ -160,21 +162,25 @@ def test_translate_cross_sheet_references():
 
 
 def test_translate_and_exec_new_functions():
-    import numpy as np
     import datetime
+    import math
+
+    import numpy as np
+
+    base_locs = {"np": np, "xl": xl, "math": math, "datetime": datetime}
 
     # 1. SUMIF
     res = translate_formula("=SUMIF(A1:A5; \">10\"; B1:B5)")
     assert res.ok
-    locs = {"data": [[5.0, 12.0, 3.0, 15.0, 8.0], [1.0, 2.0, 3.0, 4.0, 5.0]]}
-    exec(res.code, locs)
+    locs = {**base_locs, "data": [[5.0, 12.0, 3.0, 15.0, 8.0], [1.0, 2.0, 3.0, 4.0, 5.0]]}
+    exec(f"result = {res.code}", locs)
     assert locs["result"] == 6.0
 
     # 2. SUMIFS
     res = translate_formula("=SUMIFS(B1:B5; A1:A5; \">5\"; A1:A5; \"<=12\")")
     assert res.ok
-    locs = {"data": [[1.0, 2.0, 3.0, 4.0, 5.0], [5.0, 12.0, 3.0, 15.0, 8.0]]}
-    exec(res.code, locs)
+    locs = {**base_locs, "data": [[1.0, 2.0, 3.0, 4.0, 5.0], [5.0, 12.0, 3.0, 15.0, 8.0]]}
+    exec(f"result = {res.code}", locs)
     # sum range is B1:B5 (data[0]): 1, 2, 3, 4, 5.
     # criteria range is A1:A5 (data[1]): 5, 12, 3, 15, 8.
     # A1:A5 > 5 and <= 12 are 12 (index 1) and 8 (index 4).
@@ -184,16 +190,16 @@ def test_translate_and_exec_new_functions():
     # 3. COUNTIF
     res = translate_formula("=COUNTIF(A1:A5; \"<=5\")")
     assert res.ok
-    locs = {"data": [5.0, 12.0, 3.0, 15.0, 8.0]}
-    exec(res.code, locs)
+    locs = {**base_locs, "data": [5.0, 12.0, 3.0, 15.0, 8.0]}
+    exec(f"result = {res.code}", locs)
     # Elements <= 5 are 5 and 3. count = 2.
     assert locs["result"] == 2.0
 
     # 4. COUNTIFS
     res = translate_formula("=COUNTIFS(A1:A5; \">5\"; B1:B5; \"<10\")")
     assert res.ok
-    locs = {"data": [[5.0, 12.0, 3.0, 15.0, 8.0], [1.0, 2.0, 3.0, 4.0, 5.0]]}
-    exec(res.code, locs)
+    locs = {**base_locs, "data": [[5.0, 12.0, 3.0, 15.0, 8.0], [1.0, 2.0, 3.0, 4.0, 5.0]]}
+    exec(f"result = {res.code}", locs)
     # A1:A5 > 5 are 12, 15, 8.
     # Corresponding B1:B5 are 2, 4, 5. All are < 10. Count = 3.
     assert locs["result"] == 3.0
@@ -201,8 +207,8 @@ def test_translate_and_exec_new_functions():
     # 5. AVERAGEIF
     res = translate_formula("=AVERAGEIF(A1:A5; \">5\"; B1:B5)")
     assert res.ok
-    locs = {"data": [[5.0, 12.0, 3.0, 15.0, 8.0], [1.0, 2.0, 3.0, 4.0, 5.0]]}
-    exec(res.code, locs)
+    locs = {**base_locs, "data": [[5.0, 12.0, 3.0, 15.0, 8.0], [1.0, 2.0, 3.0, 4.0, 5.0]]}
+    exec(f"result = {res.code}", locs)
     # A1:A5 > 5 are 12, 15, 8.
     # Corresponding B1:B5 are 2, 4, 5. Mean = (2+4+5)/3 = 3.6666...
     assert abs(locs["result"] - 11.0 / 3.0) < 1e-9
@@ -210,35 +216,35 @@ def test_translate_and_exec_new_functions():
     # 6. AVERAGEIFS
     res = translate_formula("=AVERAGEIFS(B1:B5; A1:A5; \">5\")")
     assert res.ok
-    locs = {"data": [[1.0, 2.0, 3.0, 4.0, 5.0], [5.0, 12.0, 3.0, 15.0, 8.0]]}
-    exec(res.code, locs)
+    locs = {**base_locs, "data": [[1.0, 2.0, 3.0, 4.0, 5.0], [5.0, 12.0, 3.0, 15.0, 8.0]]}
+    exec(f"result = {res.code}", locs)
     assert abs(locs["result"] - 11.0 / 3.0) < 1e-9
 
     # 7. XLOOKUP
     res = translate_formula("=XLOOKUP(\"apple\"; A1:A3; B1:B3; \"Not Found\")")
     assert res.ok
-    locs = {"data": [["pear", "apple", "banana"], [10.0, 20.0, 30.0]]}
-    exec(res.code, locs)
+    locs = {**base_locs, "data": [["pear", "apple", "banana"], [10.0, 20.0, 30.0]]}
+    exec(f"result = {res.code}", locs)
     assert locs["result"] == 20.0
 
     res = translate_formula("=XLOOKUP(\"orange\"; A1:A3; B1:B3; \"Not Found\")")
     assert res.ok
-    locs = {"data": [["pear", "apple", "banana"], [10.0, 20.0, 30.0]]}
-    exec(res.code, locs)
+    locs = {**base_locs, "data": [["pear", "apple", "banana"], [10.0, 20.0, 30.0]]}
+    exec(f"result = {res.code}", locs)
     assert locs["result"] == "Not Found"
 
     # 8. TEXTJOIN
     res = translate_formula("=TEXTJOIN(\", \"; TRUE; A1:A3)")
     assert res.ok
-    locs = {"data": ["apple", "", "banana"]}
-    exec(res.code, locs)
+    locs = {**base_locs, "data": ["apple", "", "banana"]}
+    exec(f"result = {res.code}", locs)
     assert locs["result"] == "apple, banana"
 
     # 9. REGEX
     res = translate_formula("=REGEX(\"123-456\"; \"[0-9]+\"; \"XXX\"; \"g\")")
     assert res.ok
-    locs = {}
-    exec(res.code, locs)
+    locs = dict(base_locs)
+    exec(f"result = {res.code}", locs)
     assert locs["result"] == "XXX-XXX"
 
     # 10. EOMONTH
@@ -246,8 +252,8 @@ def test_translate_and_exec_new_functions():
     # EOMONTH(46182; 1) -> End of July 2026 -> 2026-07-31 -> ordinal 739828 -> 739828 - 693594 = 46234
     res = translate_formula("=EOMONTH(46182; 1)")
     assert res.ok
-    locs = {}
-    exec(res.code, locs)
+    locs = dict(base_locs)
+    exec(f"result = {res.code}", locs)
     assert locs["result"] == 46234.0
 
     # 11. NETWORKDAYS
@@ -256,8 +262,8 @@ def test_translate_and_exec_new_functions():
     # 2026-06-12 is ordinal 739779 -> 46185
     res = translate_formula("=NETWORKDAYS(46181; 46185)")
     assert res.ok
-    locs = {}
-    exec(res.code, locs)
+    locs = dict(base_locs)
+    exec(f"result = {res.code}", locs)
     assert locs["result"] == 5.0
 
 
@@ -267,7 +273,7 @@ def test_translate_tier_abc_functions():
     # Tier A
     res = translate_formula("=SUBTOTAL(9; A1:A5)")
     assert res.ok
-    assert "_subtotal(" in res.code
+    assert "xl.subtotal(" in res.code
     assert exec_result(res, [1.0, 2.0, 3.0, 4.0, 5.0]) == 15.0
 
     res = translate_formula("=ISBLANK(A1)")
@@ -354,12 +360,13 @@ def test_translate_tier_abc_functions():
 
 
 def exec_result(res, data):
+    import datetime
+    import math
+
     import numpy as np
 
-    locs = {"data": data, "np": np}
-    code = res.code
-    if "result =" not in code:
-        code = f"result = {code}"
+    locs = {"data": data, "np": np, "xl": xl, "math": math, "datetime": datetime}
+    code = f"result = {res.code}"
     exec(code, locs)
     return locs["result"]
 

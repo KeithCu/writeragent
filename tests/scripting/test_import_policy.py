@@ -57,6 +57,7 @@ def test_venv_policy_compact_mentions_blocked_categories():
     assert "no networking" in policy
     assert "host escape" in policy
     assert "DO NOT import numpy" in policy
+    assert "xl" in policy
 
 
 def test_inprocess_policy_is_stdlib_focused():
