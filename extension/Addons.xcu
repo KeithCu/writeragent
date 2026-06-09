@@ -113,6 +113,20 @@
               <value>_self</value>
             </prop>
           </node>
+          <node oor:name="M3d_convert_sheet" oor:op="replace">
+            <prop oor:name="Title">
+              <value xml:lang="en-US">Convert Sheet to Python...</value>
+            </prop>
+            <prop oor:name="URL">
+              <value>org.extension.writeragent:calc.convert_spreadsheet_to_python</value>
+            </prop>
+            <prop oor:name="Context" oor:type="xs:string">
+              <value>com.sun.star.sheet.SpreadsheetDocument</value>
+            </prop>
+            <prop oor:name="Target" oor:type="xs:string">
+              <value>_self</value>
+            </prop>
+          </node>
           <node oor:name="M3d_nb" oor:op="replace">
             <prop oor:name="Title">
               <value xml:lang="en-US">Import Jupyter Notebook...</value>

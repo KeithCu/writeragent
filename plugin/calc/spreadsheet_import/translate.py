@@ -19,6 +19,7 @@ from plugin.contrib.calc_formula_parser import (
 )
 from plugin.calc.spreadsheet_import.models import TranslationResult
 from plugin.calc.spreadsheet_import.preprocess import normalize_lo_formula_for_parse
+from plugin.calc.address_utils import parse_address, parse_range_string
 
 _CROSS_SHEET_RE = re.compile(r"[!']")
 
@@ -79,23 +80,21 @@ def _emit_operand(node: OperandNode) -> str:
         return repr(text)
 
 
-def _emit_expr(node, state: _CodegenState) -> str:
+def _emit_expr(node, state: _CodegenState, cell_addr: str | None = None) -> str:
     if isinstance(node, RangeNode):
-        if _CROSS_SHEET_RE.search(node.address):
-            raise ValueError("cross-sheet ref")
         return state.ref_expr(node.address)
     if isinstance(node, OperandNode):
         return _emit_operand(node)
     if isinstance(node, OperatorNode):
-        return _emit_operator(node, state)
+        return _emit_operator(node, state, cell_addr)
     if isinstance(node, FunctionNode):
-        return _emit_function(node, state)
+        return _emit_function(node, state, cell_addr)
     raise ValueError(f"unknown node {type(node)}")
 
 
-def _emit_operator(node: OperatorNode, state: _CodegenState) -> str:
+def _emit_operator(node: OperatorNode, state: _CodegenState, cell_addr: str | None = None) -> str:
     if node.ttype == "operator-prefix":
-        rhs = _emit_expr(node.right, state)
+        rhs = _emit_expr(node.right, state, cell_addr)
         if node.tvalue == "-":
             return f"(-{rhs})"
         if node.tvalue == "+":
@@ -103,8 +102,8 @@ def _emit_operator(node: OperatorNode, state: _CodegenState) -> str:
         raise ValueError("unsupported prefix op")
     if node.ttype != "operator-infix":
         raise ValueError("unsupported operator type")
-    left = _emit_expr(node.left, state)
-    right = _emit_expr(node.right, state)
+    left = _emit_expr(node.left, state, cell_addr)
+    right = _emit_expr(node.right, state, cell_addr)
     op = node.tvalue
     if op == "^":
         return f"({left} ** {right})"
@@ -117,9 +116,110 @@ def _emit_operator(node: OperatorNode, state: _CodegenState) -> str:
     return f"({left} {op} {right})"
 
 
-def _emit_function(node: FunctionNode, state: _CodegenState) -> str:
+def _emit_row_func(node: FunctionNode, state: _CodegenState, cell_addr: str | None = None) -> str:
+    if not node.args:
+        if cell_addr:
+            try:
+                _, r = parse_address(cell_addr)
+                return f"float({r + 1})"
+            except ValueError:
+                pass
+        return "float(1)"
+    arg = node.args[0]
+    if isinstance(arg, RangeNode):
+        try:
+            (sc, sr), (ec, er) = parse_range_string(arg.address)
+            if sr == er:
+                return f"float({sr + 1})"
+            rows = [float(r) for r in range(sr + 1, er + 2)]
+            return f"np.array({rows}, dtype=float)"
+        except ValueError:
+            pass
+    return "float(1)"
+
+
+def _emit_col_func(node: FunctionNode, state: _CodegenState, cell_addr: str | None = None) -> str:
+    if not node.args:
+        if cell_addr:
+            try:
+                c, _ = parse_address(cell_addr)
+                return f"float({c + 1})"
+            except ValueError:
+                pass
+        return "float(1)"
+    arg = node.args[0]
+    if isinstance(arg, RangeNode):
+        try:
+            (sc, sr), (ec, er) = parse_range_string(arg.address)
+            if sc == ec:
+                return f"float({sc + 1})"
+            cols = [float(c) for c in range(sc + 1, ec + 2)]
+            return f"np.array({cols}, dtype=float)"
+        except ValueError:
+            pass
+    return "float(1)"
+
+
+def _emit_rows_func(node: FunctionNode, state: _CodegenState) -> str:
+    if not node.args:
+        raise ValueError("ROWS arity")
+    arg = node.args[0]
+    if isinstance(arg, RangeNode):
+        try:
+            (sc, sr), (ec, er) = parse_range_string(arg.address)
+            return f"float({abs(er - sr) + 1})"
+        except ValueError:
+            pass
+    expr = _emit_expr(arg, state)
+    return f"float(np.asarray({expr}).shape[0])"
+
+
+def _emit_columns_func(node: FunctionNode, state: _CodegenState) -> str:
+    if not node.args:
+        raise ValueError("COLUMNS arity")
+    arg = node.args[0]
+    if isinstance(arg, RangeNode):
+        try:
+            (sc, sr), (ec, er) = parse_range_string(arg.address)
+            return f"float({abs(ec - sc) + 1})"
+        except ValueError:
+            pass
+    expr = _emit_expr(arg, state)
+    return f"float(np.asarray({expr}).shape[1])" if "np.asarray" in expr or "data" in expr else "float(1.0)"
+
+
+def _emit_switch(args: list[str]) -> str:
+    if len(args) < 2:
+        raise ValueError("SWITCH arity")
+    expr = args[0]
+    pairs = args[1:]
+    if len(pairs) % 2 == 1:
+        default = pairs[-1]
+        cases = pairs[:-1]
+    else:
+        default = "None"
+        cases = pairs
+    res = default
+    for i in range(len(cases) - 2, -1, -2):
+        val = cases[i]
+        ret = cases[i+1]
+        res = f"({ret} if {expr} == {val} else {res})"
+    return res
+
+
+def _emit_function(node: FunctionNode, state: _CodegenState, cell_addr: str | None = None) -> str:
     name = str(node.tvalue).upper().replace("_XLFN.", "")
-    args = [_emit_expr(arg, state) for arg in (node.args or [])]
+    if name == "ROW":
+        return _emit_row_func(node, state, cell_addr)
+    if name == "COLUMN":
+        return _emit_col_func(node, state, cell_addr)
+    if name == "ROWS":
+        return _emit_rows_func(node, state)
+    if name == "COLUMNS":
+        return _emit_columns_func(node, state)
+    args = [_emit_expr(arg, state, cell_addr) for arg in (node.args or [])]
+    if name == "SWITCH":
+        return _emit_switch(args)
     emitted = _P1_FUNCTION_EMITTERS.get(name)
     if emitted is None:
         raise ValueError(f"unsupported function {name}")
@@ -201,10 +301,27 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "HLOOKUP": lambda a: f'next((np.asarray({a[1]})[int({a[2]})-1, i] for i, val in enumerate(np.asarray({a[1]})[0]) if val == {a[0]}), None)',
     "INDEX": lambda a: f'np.asarray({a[0]})[int({a[1]})-1, int({a[2]})-1]' if len(a) > 2 else f'np.asarray({a[0]})[int({a[1]})-1]',
     "MATCH": lambda a: f'float(next((i+1 for i, val in enumerate(np.asarray({a[1]}).ravel()) if val == {a[0]}), -1))',
+    # Logical (P2)
+    "IFERROR": lambda a: f"_iferror(lambda: {a[0]}, {a[1]})",
+    "IFNA": lambda a: f"_ifna(lambda: {a[0]}, {a[1]})",
+    # Math & Trig (P2)
+    "ASIN": lambda a: _float_wrap(f"np.arcsin({a[0]})"),
+    "ACOS": lambda a: _float_wrap(f"np.arccos({a[0]})"),
+    "ATAN": lambda a: _float_wrap(f"np.arctan({a[0]})"),
+    "ATAN2": lambda a: _float_wrap(f"np.arctan2({a[1]}, {a[0]})"),
+    "DEGREES": lambda a: _float_wrap(f"np.degrees({a[0]})"),
+    "RADIANS": lambda a: _float_wrap(f"np.radians({a[0]})"),
+    "GCD": lambda a: _float_wrap(f"math.gcd({', '.join(a)})") if len(a) > 1 else _float_wrap(f"math.gcd({a[0]}, 0)"),
+    "LCM": lambda a: _float_wrap(f"math.lcm({', '.join(a)})") if len(a) > 1 else _float_wrap(f"int({a[0]})"),
+    # Date & Time (P2)
+    "DATE": lambda a: f"float(datetime.date(int({a[0]}), int({a[1]}), int({a[2]})).toordinal() - 693594)",
+    "HOUR": lambda a: f"float((datetime.datetime.fromordinal(693594) + datetime.timedelta(days=float({a[0]}))).hour)",
+    "MINUTE": lambda a: f"float((datetime.datetime.fromordinal(693594) + datetime.timedelta(days=float({a[0]}))).minute)",
+    "SECOND": lambda a: f"float((datetime.datetime.fromordinal(693594) + datetime.timedelta(days=float({a[0]}))).second)",
 }
 
 
-def translate_formula(formula: str) -> TranslationResult:
+def translate_formula(formula: str, cell_addr: str | None = None) -> TranslationResult:
     """Parse and codegen one Calc formula to ``result = …`` Python."""
     if not formula or not str(formula).strip().startswith("="):
         return TranslationResult(ok=False, reason="PARSE_ERROR")
@@ -218,7 +335,7 @@ def translate_formula(formula: str) -> TranslationResult:
     state = _CodegenState()
     try:
         _walk_ranges(ast, state)
-        body = _emit_expr(ast, state)
+        body = _emit_expr(ast, state, cell_addr)
     except ValueError as exc:
         msg = str(exc)
         if "cross-sheet" in msg:
@@ -235,7 +352,35 @@ def translate_formula(formula: str) -> TranslationResult:
         if isinstance(ast, OperatorNode) or (
             isinstance(ast, FunctionNode) and str(ast.tvalue).upper() not in ("TRUE", "FALSE", "IF", "AND", "OR", "NOT")
         ):
-            if not body.startswith("float(") and body not in ("True", "False"):
+            if not body.startswith("float(") and body not in ("True", "False") and "_iferror(" not in body and "_ifna(" not in body:
                 body = _float_wrap(body)
+
+    helpers = []
+    if "_iferror(" in body:
+        helpers.append(
+            "def _iferror(f, alt):\n"
+            "    try:\n"
+            "        val = f()\n"
+            "        import numpy as np\n"
+            "        if isinstance(val, float) and np.isnan(val):\n"
+            "            return alt\n"
+            "        return val\n"
+            "    except Exception:\n"
+            "        return alt"
+        )
+    if "_ifna(" in body:
+        helpers.append(
+            "def _ifna(f, alt):\n"
+            "    try:\n"
+            "        val = f()\n"
+            "        import numpy as np\n"
+            "        if val is None or (isinstance(val, float) and np.isnan(val)):\n"
+            "            return alt\n"
+            "        return val\n"
+            "    except Exception:\n"
+            "        return alt"
+        )
+    if helpers:
+        body = "\n".join(helpers) + "\nresult = " + body
 
     return TranslationResult(ok=True, code=body, data_ranges=list(state.ranges))

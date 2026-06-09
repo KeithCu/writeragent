@@ -91,3 +91,71 @@ def test_translate_p2_functions():
     assert "next" in res.code
     assert "r[int(2)-1]" in res.code or "r[1]" in res.code
 
+
+def test_translate_p2_logical_trig_date_functions():
+    # IFERROR / IFNA
+    res = translate_formula("=IFERROR(A1; 0)")
+    assert res.ok
+    assert "def _iferror(f, alt):" in res.code
+    assert "result = _iferror" in res.code
+
+    res = translate_formula("=IFNA(A1; 1)")
+    assert res.ok
+    assert "def _ifna(f, alt):" in res.code
+
+    # SWITCH
+    res = translate_formula("=SWITCH(A1; 1; \"one\"; 2; \"two\"; \"other\")")
+    assert res.ok
+    assert "('one' if data[0] == 1 else ('two' if data[0] == 2 else 'other'))" in res.code
+
+    # Math/Trig
+    res = translate_formula("=ASIN(A1)")
+    assert res.ok
+    assert "np.arcsin(data)" in res.code
+
+    res = translate_formula("=ATAN2(A1; B1)")
+    assert res.ok
+    assert "np.arctan2(data[1], data[0])" in res.code
+
+    res = translate_formula("=GCD(A1; B1)")
+    assert res.ok
+    assert "math.gcd" in res.code
+
+    # Date
+    res = translate_formula("=DATE(2023; 10; 5)")
+    assert res.ok
+    assert "datetime.date(int(2023), int(10), int(5)).toordinal() - 693594" in res.code
+
+    # Time
+    res = translate_formula("=HOUR(A1)")
+    assert res.ok
+    assert "datetime.datetime.fromordinal(693594)" in res.code
+
+    # Row/Col/Rows/Cols
+    res = translate_formula("=ROW()", "B5")
+    assert res.ok
+    assert "float(5)" in res.code
+
+    res = translate_formula("=COLUMN()", "B5")
+    assert res.ok
+    assert "float(2)" in res.code
+
+    res = translate_formula("=ROW(C10:C20)", "A1")
+    assert res.ok
+    assert "np.array" in res.code
+
+    res = translate_formula("=ROWS(A1:B10)")
+    assert res.ok
+    assert res.code == "float(10)"
+
+    res = translate_formula("=COLUMNS(A1:B10)")
+    assert res.ok
+    assert res.code == "float(2)"
+
+
+def test_translate_cross_sheet_references():
+    res = translate_formula("=Sheet2.A1")
+    assert res.ok
+    assert res.data_ranges == ["SHEET2.A1"]
+
+

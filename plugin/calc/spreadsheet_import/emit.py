@@ -53,7 +53,7 @@ def build_converted_output_model(
         first_record = model.cells[first_addr]
         if not first_record.formula:
             continue
-        translation = translate_formula(first_record.formula)
+        translation = translate_formula(first_record.formula, cell_addr=first_addr)
         if translation.ok and translation.code and translation.data_ranges is not None:
             last_addr = group[-1]
             vectorized_data_ranges = []
@@ -106,7 +106,7 @@ def build_converted_output_model(
             cells[addr] = _output_cell_from_record(record, py_by_addr)
             continue
 
-        translation = translate_formula(record.formula)
+        translation = translate_formula(record.formula, cell_addr=addr)
         if translation.ok and translation.code and translation.data_ranges is not None:
             cells[addr] = OutputCell(
                 address=addr,

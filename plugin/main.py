@@ -273,6 +273,12 @@ def _register_core_handlers():
 
     register_action_handler("scripting", "reset_python_session", _reset_python_session)
 
+    def _convert_spreadsheet():
+        from plugin.calc.spreadsheet_import.import_dialog import show_import_dialog
+        _open_dialog_safely(show_import_dialog, "Failed to open Convert Sheet to Python dialog")
+
+    register_action_handler("calc", "convert_spreadsheet_to_python", _convert_spreadsheet)
+
 
 
     try:
@@ -497,6 +503,7 @@ def get_menu_text(command):
         "scripting.reset_python_session": _("Reset Python Session"),
         "scripting.import_ipynb": _("Import Jupyter Notebook..."),
         "writer.insert_latex_dialog": _("Insert LaTeX Math..."),
+        "calc.convert_spreadsheet_to_python": _("Convert Sheet to Python..."),
     }
 
     if command in static_titles:
