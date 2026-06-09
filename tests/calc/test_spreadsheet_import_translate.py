@@ -849,6 +849,83 @@ def test_translate_yet_more_functions():
     assert exec_result(res, []) == 1.0
 
 
+def test_translate_group_d_functions():
+    def exec_result(res, *data_args):
+        ns: dict = {"np": np, "math": math, "datetime": datetime, "xl": xl}
+        code = str(res.code)
+        # replace data[i] with data_args[i]
+        for i in range(len(data_args)):
+            code = code.replace(f"data[{i}]", f"data_args[{i}]")
+        ns["data_args"] = data_args
+        ns["data"] = data_args
+        exec(f"result = {code}", ns)
+        return ns["result"]
+
+    res = translate_formula("=XIRR(A1:A3, B1:B3)")
+    assert res.ok
+    assert "xl.xirr" in res.code
+    assert abs(exec_result(res, [-10000, 2750, 4250], [733042, 733102, 733345])) > 0
+
+    res = translate_formula("=XNPV(0.1, A1:A3, B1:B3)")
+    assert res.ok
+    assert "xl.xnpv" in res.code
+    assert abs(exec_result(res, [-10000, 2750, 4250], [733042, 733102, 733345])) > 0
+
+    res = translate_formula("=YIELD(A1, B1, C1, D1, E1, F1)")
+    assert res.ok
+    assert "xl.yield_calc" in res.code
+
+    res = translate_formula("=ISFORMULA(A1)")
+    assert res.ok
+    assert "xl.isformula" in res.code
+    assert exec_result(res, 42) is False
+
+    res = translate_formula("=ISREF(A1)")
+    assert res.ok
+    assert "xl.isref" in res.code
+    assert exec_result(res, 42) is False
+
+    res = translate_formula("=NA()")
+    assert res.ok
+    assert "xl.na" in res.code
+    assert math.isnan(exec_result(res))
+
+    res = translate_formula("=AGGREGATE(9, 4, A1:A3)")
+    assert res.ok
+    assert "xl.aggregate" in res.code
+    assert exec_result(res, [1, 2, 3]) == 6
+
+    res = translate_formula("=BASE(10, 2)")
+    assert res.ok
+    assert "xl.base" in res.code
+    assert exec_result(res) == "1010"
+
+    res = translate_formula("=DECIMAL(\"1010\", 2)")
+    assert res.ok
+    assert "xl.decimal" in res.code
+    assert exec_result(res) == 10
+
+    res = translate_formula("=MULTINOMIAL(2, 3)")
+    assert res.ok
+    assert "xl.multinomial" in res.code
+    assert exec_result(res) == 10
+
+    res = translate_formula("=SERIESSUM(1, 0, 1, A1:A3)")
+    assert res.ok
+    assert "xl.seriessum" in res.code
+    assert exec_result(res, [1, 2, 3]) == 6
+
+    res = translate_formula("=FREQUENCY(A1:A5, B1:B2)")
+    assert res.ok
+    assert "xl.frequency" in res.code
+    assert exec_result(res, [1, 2, 3, 4, 5], [2, 4]) == [2, 2, 1]
+
+    res = translate_formula("=GROWTH(A1:A3, B1:B3, C1:C2)")
+    assert res.ok
+    assert "xl.growth" in res.code
+    assert len(exec_result(res, [10, 20, 40], [1, 2, 3], [4, 5])) == 2
+
+
 def test_translate_complex_functions():
     # 1. COMPLEX
     res = translate_formula('=COMPLEX(3; 4; "j")')
