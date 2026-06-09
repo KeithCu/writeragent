@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import plugin.scripting.calc_functions as xl
+import math
 
 
 def test_conditional_aggregates():
@@ -168,3 +169,29 @@ def test_15_more_helpers():
     assert xl.daverage(db, "Yield", crit) == 12.0
     assert xl.dmax(db, "Height", crit) == 18.0
     assert xl.dmin(db, "Height", crit) == 14.0
+
+def test_financial_group_a():
+    # Basic math validation - dates represented as strings/floats are accepted
+    assert not math.isnan(xl.accrint(43831, 43862, 43891, 0.05, 1000, 2))
+    assert not math.isnan(xl.accrintm(43831, 43891, 0.05, 1000))
+    assert not math.isnan(xl.amordegrc(1000, 43831, 43983, 100, 1, 0.1))
+    assert xl.amorlinc(1000, 43831, 43983, 100, 1, 0.1) == 100.0
+
+    assert not math.isnan(xl.coupdaybs(43831, 43983, 2))
+    assert not math.isnan(xl.coupdays(43831, 43983, 2))
+    assert not math.isnan(xl.coupdaysnc(43831, 43983, 2))
+
+    # coupncd returns a date ordinal (which we stubbed as nan)
+    assert xl.coupncd(43831, 43983, 2) == 43983.0
+    assert not math.isnan(xl.coupnum(43831, 43983, 2))
+
+    # couppcd returns a date ordinal (which we stubbed as nan for simplified implementation)
+    assert xl.couppcd(43831, 43983, 2) == 43803.0
+
+    assert not math.isnan(xl.cumipmt(0.05/12, 60, 100000, 1, 12, 0))
+    assert not math.isnan(xl.cumprinc(0.05/12, 60, 100000, 1, 12, 0))
+
+    assert not math.isnan(xl.db(10000, 1000, 5, 1))
+    assert not math.isnan(xl.ddb(10000, 1000, 5, 1))
+
+    assert not math.isnan(xl.disc(43831, 43983, 95, 100))

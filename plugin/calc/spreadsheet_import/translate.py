@@ -387,6 +387,21 @@ def _emit_if(args: list[str]) -> str:
 
 # P1 function emitters: args are already Python sub-expressions using data[i].
 _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
+    "ACCRINT": lambda a: f"xl.accrint({', '.join(a)})",
+    "ACCRINTM": lambda a: f"xl.accrintm({', '.join(a)})",
+    "AMORDEGRC": lambda a: f"xl.amordegrc({', '.join(a)})",
+    "AMORLINC": lambda a: f"xl.amorlinc({', '.join(a)})",
+    "COUPDAYBS": lambda a: f"xl.coupdaybs({', '.join(a)})",
+    "COUPDAYS": lambda a: f"xl.coupdays({', '.join(a)})",
+    "COUPDAYSNC": lambda a: f"xl.coupdaysnc({', '.join(a)})",
+    "COUPNCD": lambda a: f"xl.coupncd({', '.join(a)})",
+    "COUPNUM": lambda a: f"xl.coupnum({', '.join(a)})",
+    "COUPPCD": lambda a: f"xl.couppcd({', '.join(a)})",
+    "CUMIPMT": lambda a: f"xl.cumipmt({', '.join(a)})",
+    "CUMPRINC": lambda a: f"xl.cumprinc({', '.join(a)})",
+    "DB": lambda a: f"xl.db({', '.join(a)})",
+    "DDB": lambda a: f"xl.ddb({', '.join(a)})",
+    "DISC": lambda a: f"xl.disc({', '.join(a)})",
     "SUM": lambda a: _float_wrap(f"np.sum({a[0]})"),
     "AVERAGE": lambda a: _float_wrap(f"np.mean({a[0]})"),
     "PRODUCT": lambda a: _float_wrap(f"np.prod({a[0]})"),
