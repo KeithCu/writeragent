@@ -931,22 +931,24 @@ Use `list_calc_functions` (chat tool) against a live Calc session for the author
 | `ARABIC` | Shipped |
 | `ASC` | Shipped |
 | `BAHTTEXT` | Not started |
+| `ASC` | Not started |
+| `BAHTTEXT` | Shipped |
 | `CHAR` | Shipped |
-| `CLEAN` | Not started |
+| `CLEAN` | Shipped |
 | `CODE` | Shipped |
 | `CONCAT` | Shipped |
 | `CONCATENATE` | Shipped |
-| `DOLLAR` | Not started |
-| `ENCODEURL` | Not started |
+| `DOLLAR` | Shipped |
+| `ENCODEURL` | Shipped |
 | `EXACT` | Shipped |
 | `FIND` | Shipped |
-| `FIXED` | Not started |
-| `JIS` | Not started |
+| `FIXED` | Shipped |
+| `JIS` | Shipped |
 | `LEFT` | Shipped |
 | `LEN` | Shipped |
 | `LOWER` | Shipped |
 | `MID` | Shipped |
-| `NUMBERVALUE` | Not started |
+| `NUMBERVALUE` | Shipped |
 | `PROPER` | Shipped |
 | `REGEX` | Shipped |
 | `REPLACE` | Shipped |
@@ -954,15 +956,15 @@ Use `list_calc_functions` (chat tool) against a live Calc session for the author
 | `RIGHT` | Shipped |
 | `SEARCH` | Shipped |
 | `SUBSTITUTE` | Shipped |
-| `T` | Not started |
+| `T` | Shipped |
 | `TEXT` | Shipped |
-| `TEXTAFTER` | Not started |
-| `TEXTBEFORE` | Not started |
+| `TEXTAFTER` | Shipped |
+| `TEXTBEFORE` | Shipped |
 | `TEXTJOIN` | Shipped |
-| `TEXTSPLIT` | Not started |
+| `TEXTSPLIT` | Shipped |
 | `TRIM` | Shipped |
-| `UNICHAR` | Not started |
-| `UNICODE` | Not started |
+| `UNICHAR` | Shipped |
+| `UNICODE` | Shipped |
 | `UPPER` | Shipped |
 | `VALUE` | Shipped |
 
@@ -980,8 +982,8 @@ Use `list_calc_functions` (chat tool) against a live Calc session for the author
 
 | Function | Status |
 |----------|--------|
-| `BESSELI` | Not started |
-| `BESSELJ` | Not started |
+| `BESSELI` | Shipped |
+| `BESSELJ` | Shipped |
 | `BESSELK` | Not started |
 | `BESSELY` | Not started |
 | `COMPLEX` | Shipped |

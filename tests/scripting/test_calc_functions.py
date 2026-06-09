@@ -5,6 +5,7 @@
 """Tests for Calc formula parity helpers (plugin.scripting.calc_functions / xl)."""
 
 from __future__ import annotations
+import math
 
 import plugin.scripting.calc_functions as xl
 import math
@@ -292,3 +293,61 @@ def test_asc():
     from plugin.scripting.calc_functions import asc
     res = asc("Ｅｘｃｅｌ　Ｐｙｔｈｏｎ")
     assert res == "Excel Python"
+def test_bahttext():
+    assert "Baht" in xl.bahttext(123)
+
+def test_clean():
+    assert xl.clean("A" + chr(7) + "B" + chr(10)) == "AB"
+    assert isinstance(xl.clean(float("nan")), float) and math.isnan(xl.clean(float("nan")))
+
+def test_dollar():
+    assert xl.dollar(1234.567) == "$1,234.57"
+    assert xl.dollar(1234.567, 1) == "$1,234.6"
+
+def test_encodeurl():
+    assert xl.encodeurl("http://example.com") == "http%3A%2F%2Fexample.com"
+
+def test_fixed():
+    assert xl.fixed(1234.567) == "1,234.57"
+    assert xl.fixed(1234.567, 1, True) == "1234.6"
+
+def test_jis():
+    assert xl.jis("test") == "test"
+
+def test_numbervalue():
+    assert xl.numbervalue("1,234.56") == 1234.56
+    assert xl.numbervalue("1.234,56", ",", ".") == 1234.56
+
+def test_t():
+    assert xl.t("test") == "test"
+    assert xl.t(123) == ""
+
+def test_textafter():
+    assert xl.textafter("a-b-c", "-") == "b-c"
+    assert xl.textafter("a-b-c", "-", 2) == "c"
+
+def test_textbefore():
+    assert xl.textbefore("a-b-c", "-") == "a"
+    assert xl.textbefore("a-b-c", "-", 2) == "a-b"
+
+def test_textsplit():
+    assert xl.textsplit("a-b-c", "-") == [["a", "b", "c"]]
+    assert xl.textsplit("a-b;c-d", "-", ";") == [["a", "b"], ["c", "d"]]
+
+def test_unichar():
+    assert xl.unichar(65) == "A"
+    assert math.isnan(xl.unichar(-1))
+
+def test_unicode():
+    assert xl.unicode("A") == 65
+    assert math.isnan(xl.unicode(""))
+
+def test_besseli():
+    import scipy.special
+    assert math.isclose(xl.besseli(1.5, 1), scipy.special.iv(1, 1.5))
+    assert math.isnan(xl.besseli(1.5, -1))
+
+def test_besselj():
+    import scipy.special
+    assert math.isclose(xl.besselj(1.5, 1), scipy.special.jv(1, 1.5))
+    assert math.isnan(xl.besselj(1.5, -1))
