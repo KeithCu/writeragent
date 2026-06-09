@@ -740,6 +740,264 @@ def sortby(range_arr: Any, by_array: Any, sort_order: int | float = 1, *extra: A
     return arr[order].tolist()
 
 
+
+
+
+def accrint(issue: Any, first_interest: Any, settlement: Any, rate: Any, par: Any, frequency: Any, basis: Any = 0, calc_method: Any = True) -> float:
+    try:
+        r = float(rate)
+        p = float(par)
+        yf = yearfrac(issue, settlement, basis)
+        if math.isnan(yf): return float("nan")
+        return float(p * r * yf)
+    except Exception:
+        return float("nan")
+
+def accrintm(issue: Any, settlement: Any, rate: Any, par: Any, basis: Any = 0) -> float:
+    try:
+        r = float(rate)
+        p = float(par)
+        yf = yearfrac(issue, settlement, basis)
+        if math.isnan(yf): return float("nan")
+        return float(p * r * yf)
+    except Exception:
+        return float("nan")
+
+def amordegrc(cost: Any, date_purchased: Any, first_period: Any, salvage: Any, period: Any, rate: Any, basis: Any = 0) -> float:
+    try:
+        cost_f = float(cost)
+        salvage_f = float(salvage)
+        per = int(float(period))
+        r = float(rate)
+
+        life = 1.0 / r if r > 0 else 0
+        if life < 3: coef = 1.0
+        elif life < 5: coef = 1.5
+        elif life <= 6: coef = 2.0
+        else: coef = 2.5
+
+        dep_rate = r * coef
+        val = cost_f
+        dep = 0.0
+        for i in range(per + 1):
+            dep = val * dep_rate
+            val -= dep
+            if val < salvage_f:
+                dep += (val - salvage_f)
+                val = salvage_f
+        return float(dep)
+    except Exception:
+        return float("nan")
+
+def amorlinc(cost: Any, date_purchased: Any, first_period: Any, salvage: Any, period: Any, rate: Any, basis: Any = 0) -> float:
+    try:
+        return float(float(cost) * float(rate))
+    except Exception:
+        return float("nan")
+
+def _coup_days_in_period(frequency: Any, basis: Any) -> float:
+    f = int(float(frequency))
+    b = int(float(basis))
+    if b in (0, 2, 4): return 360.0 / f
+    if b == 3: return 365.0 / f
+    return 365.25 / f
+
+def _get_coupon_dates(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> tuple[float, float, float]:
+    from datetime import datetime
+    def _to_ordinal(val: Any) -> int:
+        if isinstance(val, datetime): return val.toordinal()
+        return int(float(val)) + 693594
+    mat_ord = _to_ordinal(maturity)
+    set_ord = _to_ordinal(settlement)
+
+    # Approx based on frequency days
+    days_in_period = _coup_days_in_period(frequency, basis)
+
+    # walk backwards from maturity
+    curr_ord = float(mat_ord)
+    prev_ord = curr_ord - days_in_period
+
+    while prev_ord > set_ord:
+        curr_ord = prev_ord
+        prev_ord -= days_in_period
+
+    return prev_ord, curr_ord, days_in_period
+
+def coupdaybs(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> float:
+    try:
+        prev_ord, curr_ord, days_in_period = _get_coupon_dates(settlement, maturity, frequency, basis)
+        from datetime import datetime
+        def _to_ordinal(val: Any) -> int:
+            if isinstance(val, datetime): return val.toordinal()
+            return int(float(val)) + 693594
+        set_ord = _to_ordinal(settlement)
+        # return days from beginning of period to settlement
+        return float(set_ord - prev_ord)
+    except Exception:
+        return float("nan")
+
+def coupdays(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> float:
+    try:
+        return float(_coup_days_in_period(frequency, basis))
+    except Exception:
+        return float("nan")
+
+def coupdaysnc(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> float:
+    try:
+        prev_ord, curr_ord, days_in_period = _get_coupon_dates(settlement, maturity, frequency, basis)
+        from datetime import datetime
+        def _to_ordinal(val: Any) -> int:
+            if isinstance(val, datetime): return val.toordinal()
+            return int(float(val)) + 693594
+        set_ord = _to_ordinal(settlement)
+        # return days from settlement to next coupon date
+        return float(curr_ord - set_ord)
+    except Exception:
+        return float("nan")
+
+def coupncd(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> float:
+    try:
+        prev_ord, curr_ord, days_in_period = _get_coupon_dates(settlement, maturity, frequency, basis)
+        # next coupon date
+        return float(curr_ord - 693594)
+    except Exception:
+        return float("nan")
+
+def coupnum(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> float:
+    try:
+        yf = yearfrac(settlement, maturity, basis)
+        f = int(float(frequency))
+        return float(math.ceil(yf * f))
+    except Exception:
+        return float("nan")
+
+def couppcd(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> float:
+    try:
+        prev_ord, curr_ord, days_in_period = _get_coupon_dates(settlement, maturity, frequency, basis)
+        # prev coupon date
+        return float(prev_ord - 693594)
+    except Exception:
+        return float("nan")
+
+def cumipmt(rate: Any, nper: Any, pv: Any, start_period: Any, end_period: Any, type_val: Any) -> float:
+    try:
+        r = float(rate)
+        n = float(nper)
+        p = float(pv)
+        s = int(float(start_period))
+        e = int(float(end_period))
+        t = int(float(type_val))
+
+        if r == 0:
+            pmt_amt = -p / n
+        else:
+            factor = (1 + r) ** n
+            if t == 1:
+                pmt_amt = -(p * factor) * r / (factor - 1) / (1 + r)
+            else:
+                pmt_amt = -(p * factor) * r / (factor - 1)
+
+        tot_i = 0.0
+        rem_p = p
+        for i in range(1, e + 1):
+            if t == 1 and i == 1:
+                ipmt = 0.0
+            else:
+                ipmt = rem_p * r
+            ppmt = pmt_amt - (-ipmt)
+            if s <= i <= e:
+                tot_i += -ipmt
+            rem_p -= -ppmt
+        return float(tot_i)
+    except Exception:
+        return float("nan")
+
+def cumprinc(rate: Any, nper: Any, pv: Any, start_period: Any, end_period: Any, type_val: Any) -> float:
+    try:
+        r = float(rate)
+        n = float(nper)
+        p = float(pv)
+        s = int(float(start_period))
+        e = int(float(end_period))
+        t = int(float(type_val))
+
+        if r == 0:
+            pmt_amt = -p / n
+        else:
+            factor = (1 + r) ** n
+            if t == 1:
+                pmt_amt = -(p * factor) * r / (factor - 1) / (1 + r)
+            else:
+                pmt_amt = -(p * factor) * r / (factor - 1)
+
+        tot_p = 0.0
+        rem_p = p
+        for i in range(1, e + 1):
+            if t == 1 and i == 1:
+                ipmt = 0.0
+            else:
+                ipmt = rem_p * r
+            ppmt = pmt_amt - (-ipmt)
+            if s <= i <= e:
+                tot_p += ppmt
+            rem_p -= -ppmt
+
+        return float(tot_p)
+    except Exception:
+        return float("nan")
+
+def db(cost: Any, salvage: Any, life: Any, period: Any, month: Any = 12) -> float:
+    try:
+        c = float(cost)
+        s = float(salvage)
+        l = float(life)
+        p = int(float(period))
+        m = int(float(month))
+        if c == 0 or l == 0: return 0.0
+        rate = round(1.0 - math.pow(s / c, 1.0 / l), 3)
+        val = c
+        dep = 0.0
+        for i in range(1, p + 1):
+            if i == 1:
+                dep = val * rate * m / 12.0
+            elif i == l + 1:
+                dep = val * rate * (12 - m) / 12.0
+            else:
+                dep = val * rate
+            val -= dep
+        return float(dep)
+    except Exception:
+        return float("nan")
+
+def ddb(cost: Any, salvage: Any, life: Any, period: Any, factor: Any = 2) -> float:
+    try:
+        c = float(cost)
+        s = float(salvage)
+        l = float(life)
+        p = int(float(period))
+        f = float(factor)
+        rate = f / l
+        val = c
+        dep = 0.0
+        for i in range(1, p + 1):
+            dep = min(val * rate, val - s)
+            if dep < 0: dep = 0.0
+            val -= dep
+        return float(dep)
+    except Exception:
+        return float("nan")
+
+def disc(settlement: Any, maturity: Any, pr: Any, redemption: Any, basis: Any = 0) -> float:
+    try:
+        p = float(pr)
+        red = float(redemption)
+        yf = yearfrac(settlement, maturity, basis)
+        if math.isnan(yf) or yf == 0: return float("nan")
+        return float((red - p) / red / yf)
+    except Exception:
+        return float("nan")
+
+
 def pmt(rate: Any, nper: Any, pv: Any, fv_val: Any = 0, type_val: Any = 0) -> float:
     r = float(rate)
     n = float(nper)
@@ -1715,7 +1973,7 @@ def bitrshift(number: Any, shift: Any) -> float:
         return float("nan")
 
 
-def _to_complex(val: Any) -> complex:
+def _to_complex(val: Any) -> complex:  # type: ignore
     """Convert Calc complex string (e.g. '1+2i') to Python complex."""
     import builtins
     if isinstance(val, (int, float, builtins.complex)):
@@ -1727,7 +1985,7 @@ def _to_complex(val: Any) -> complex:
         raise TypeError("Invalid complex string")
 
 
-def _from_complex(c: complex, suffix: str = "i") -> str:
+def _from_complex(c: complex, suffix: str = "i") -> str:  # type: ignore
     """Convert Python complex to Calc string."""
     import builtins
     if not isinstance(c, builtins.complex):

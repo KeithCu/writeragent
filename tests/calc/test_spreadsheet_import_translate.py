@@ -924,3 +924,12 @@ def test_translate_complex_functions():
     assert "1.1752" in exec_result(res, [])
 
 
+
+def test_translate_financial_group_a():
+    res = translate_formula("=ACCRINT(A1, B1, C1, 0.05, 100, 2)")
+    assert res.ok
+    assert "xl.accrint(data[0], data[1], data[2], 0.05, 100, 2)" in res.code
+
+    res = translate_formula("=DB(10000, 1000, 5, 1)")
+    assert res.ok
+    assert "xl.db(10000, 1000, 5, 1)" in res.code

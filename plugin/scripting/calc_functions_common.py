@@ -7,6 +7,21 @@ from __future__ import annotations
 
 HELPER_NAMES = frozenset(
     {
+        "accrint",
+        "accrintm",
+        "amordegrc",
+        "amorlinc",
+        "coupdaybs",
+        "coupdays",
+        "coupdaysnc",
+        "coupncd",
+        "coupnum",
+        "couppcd",
+        "cumipmt",
+        "cumprinc",
+        "db",
+        "ddb",
+        "disc",
         "iferror",
         "ifna",
         "match_criteria",
