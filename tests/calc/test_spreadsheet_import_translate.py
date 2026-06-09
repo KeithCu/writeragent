@@ -924,3 +924,79 @@ def test_translate_complex_functions():
     assert "1.1752" in exec_result(res, [])
 
 
+
+
+def test_translate_norminv():
+    res = translate_formula("=NORMINV(0.5; 0; 1)")
+    assert res.ok
+    assert res.code == "xl.norminv(0.5, 0, 1)"
+
+def test_translate_normsdist():
+    res = translate_formula("=NORMSDIST(1)")
+    assert res.ok
+    assert res.code == "xl.normsdist(1)"
+
+def test_translate_normsinv():
+    res = translate_formula("=NORMSINV(0.5)")
+    assert res.ok
+    assert res.code == "xl.normsinv(0.5)"
+
+def test_translate_pearson():
+    res = translate_formula("=PEARSON(A1:A10; B1:B10)")
+    assert res.ok
+    assert "xl.pearson(data[0], data[1])" in res.code
+
+def test_translate_percentrank():
+    res = translate_formula("=PERCENTRANK(A1:A10; 5)")
+    assert res.ok
+    assert "xl.percentrank(data, 5)" in res.code
+
+def test_translate_permut():
+    res = translate_formula("=PERMUT(5; 2)")
+    assert res.ok
+    assert res.code == "xl.permut(5, 2)"
+
+def test_translate_poisson():
+    res = translate_formula("=POISSON(2; 2; 0)")
+    assert res.ok
+    assert res.code == "xl.poisson(2, 2, 0)"
+
+def test_translate_prob():
+    res = translate_formula("=PROB(A1:A10; B1:B10; 2; 5)")
+    assert res.ok
+    assert "xl.prob(data[0], data[1], 2, 5)" in res.code
+
+def test_translate_standardize():
+    res = translate_formula("=STANDARDIZE(42; 40; 1.5)")
+    assert res.ok
+    assert res.code == "xl.standardize(42, 40, 1.5)"
+
+def test_translate_tdist():
+    res = translate_formula("=TDIST(1.96; 60; 2)")
+    assert res.ok
+    assert res.code == "xl.tdist(1.96, 60, 2)"
+
+def test_translate_tinv():
+    res = translate_formula("=TINV(0.05; 60)")
+    assert res.ok
+    assert res.code == "xl.tinv(0.05, 60)"
+
+def test_translate_ttest():
+    res = translate_formula("=TTEST(A1:A10; B1:B10; 2; 1)")
+    assert res.ok
+    assert "xl.ttest(data[0], data[1], 2, 1)" in res.code
+
+def test_translate_weibull():
+    res = translate_formula("=WEIBULL(105; 20; 100; 1)")
+    assert res.ok
+    assert res.code == "xl.weibull(105, 20, 100, 1)"
+
+def test_translate_ztest():
+    res = translate_formula("=ZTEST(A1:A10; 4)")
+    assert res.ok
+    assert "xl.ztest(data, 4)" in res.code
+
+def test_translate_asc():
+    res = translate_formula("=ASC(A1)")
+    assert res.ok
+    assert "xl.asc(data)" in res.code

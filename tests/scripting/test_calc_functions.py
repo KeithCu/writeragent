@@ -168,3 +168,101 @@ def test_15_more_helpers():
     assert xl.daverage(db, "Yield", crit) == 12.0
     assert xl.dmax(db, "Height", crit) == 18.0
     assert xl.dmin(db, "Height", crit) == 14.0
+
+
+def test_norminv():
+    from plugin.scripting.calc_functions import norminv
+    import math
+    res = norminv(0.5, 0, 1)
+    assert math.isclose(res, 0.0, abs_tol=1e-5)
+    assert math.isnan(norminv(-0.1, 0, 1))
+
+def test_normsdist():
+    from plugin.scripting.calc_functions import normsdist
+    import math
+    res = normsdist(0)
+    assert math.isclose(res, 0.5, abs_tol=1e-5)
+
+def test_normsinv():
+    from plugin.scripting.calc_functions import normsinv
+    import math
+    res = normsinv(0.5)
+    assert math.isclose(res, 0.0, abs_tol=1e-5)
+
+def test_pearson():
+    from plugin.scripting.calc_functions import pearson
+    import math
+    res = pearson([1, 2, 3], [1, 2, 3])
+    assert math.isclose(res, 1.0, abs_tol=1e-5)
+    assert math.isnan(pearson([1], [1]))
+
+def test_percentrank():
+    from plugin.scripting.calc_functions import percentrank
+    import math
+    res = percentrank([1, 2, 3, 4], 3)
+    assert math.isclose(res, 0.666, abs_tol=1e-2)
+    assert math.isnan(percentrank([1, 2, 3, 4], 5))
+
+def test_permut():
+    from plugin.scripting.calc_functions import permut
+    import math
+    res = permut(5, 2)
+    assert res == 20.0
+    assert math.isnan(permut(2, 5))
+
+def test_poisson():
+    from plugin.scripting.calc_functions import poisson
+    import math
+    res_pmf = poisson(2, 2, False)
+    assert math.isclose(res_pmf, 0.27067, abs_tol=1e-4)
+    res_cdf = poisson(2, 2, True)
+    assert math.isclose(res_cdf, 0.67667, abs_tol=1e-4)
+
+def test_prob():
+    from plugin.scripting.calc_functions import prob
+    import math
+    res = prob([1, 2, 3], [0.2, 0.3, 0.5], 2)
+    assert math.isclose(res, 0.3, abs_tol=1e-5)
+    res2 = prob([1, 2, 3], [0.2, 0.3, 0.5], 1, 2)
+    assert math.isclose(res2, 0.5, abs_tol=1e-5)
+
+def test_standardize():
+    from plugin.scripting.calc_functions import standardize
+    import math
+    res = standardize(42, 40, 1.5)
+    assert math.isclose(res, 1.33333, abs_tol=1e-4)
+
+def test_tdist():
+    from plugin.scripting.calc_functions import tdist
+    import math
+    res = tdist(1.96, 60, 2)
+    assert math.isclose(res, 0.0546, abs_tol=1e-4)
+
+def test_tinv():
+    from plugin.scripting.calc_functions import tinv
+    import math
+    res = tinv(0.0546, 60)
+    assert math.isclose(res, 1.96, abs_tol=1e-2)
+
+def test_ttest():
+    from plugin.scripting.calc_functions import ttest
+    import math
+    res = ttest([1, 2, 3], [1.1, 2.1, 3.1], 2, 1)
+    assert not math.isnan(res)
+
+def test_weibull():
+    from plugin.scripting.calc_functions import weibull
+    import math
+    res = weibull(105, 20, 100, True)
+    assert math.isclose(res, 0.9295, abs_tol=1e-4)
+
+def test_ztest():
+    from plugin.scripting.calc_functions import ztest
+    import math
+    res = ztest([3, 6, 7, 8, 6, 5, 4, 2, 1, 9], 4)
+    assert math.isclose(res, 0.0905, abs_tol=1e-4)
+
+def test_asc():
+    from plugin.scripting.calc_functions import asc
+    res = asc("Ｅｘｃｅｌ　Ｐｙｔｈｏｎ")
+    assert res == "Excel Python"
