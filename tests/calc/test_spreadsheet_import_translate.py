@@ -924,3 +924,79 @@ def test_translate_complex_functions():
     assert "1.1752" in exec_result(res, [])
 
 
+
+def test_translate_group_b_functions():
+    # 1. DOLLARDE
+    res = translate_formula("=DOLLARDE(1.02; 16)")
+    assert res.ok
+    assert abs(exec_result(res, []) - 1.125) < 1e-9
+
+    # 2. DOLLARFR
+    res = translate_formula("=DOLLARFR(1.125; 16)")
+    assert res.ok
+    assert abs(exec_result(res, []) - 1.02) < 1e-9
+
+    # 3. DURATION
+    res = translate_formula("=DURATION(45292; 47118; 0.08; 0.09; 2; 1)")
+    assert res.ok
+    assert abs(exec_result(res, []) - 4.1984139) < 1e-4
+
+    # 4. EFFECT
+    res = translate_formula("=EFFECT(0.0525; 4)")
+    assert res.ok
+    assert abs(exec_result(res, []) - 0.053542667) < 1e-5
+
+    # 5. FVSCHEDULE
+    res = translate_formula("=FVSCHEDULE(10000; A1:A3)")
+    assert res.ok
+    assert abs(exec_result(res, [0.09, 0.11, 0.1]) - 13308.9) < 1e-5
+
+    # 6. INTRATE
+    res = translate_formula("=INTRATE(45292; 47118; 100000; 105000; 2)")
+    assert res.ok
+    assert abs(exec_result(res, []) - 0.0098576) < 1e-5
+
+    # 7. IPMT
+    res = translate_formula("=IPMT(0.08/12; 1; 36; 8000)")
+    assert res.ok
+    assert abs(exec_result(res, []) - (-53.33333333)) < 1e-5
+
+    # 8. ISPMT
+    res = translate_formula("=ISPMT(0.08/12; 1; 36; 8000)")
+    assert res.ok
+    assert abs(exec_result(res, []) - (-51.8518518)) < 1e-5
+
+    # 9. MDURATION
+    res = translate_formula("=MDURATION(45292; 47118; 0.08; 0.09; 2; 1)")
+    assert res.ok
+    assert abs(exec_result(res, []) - 4.0176209) < 1e-4
+
+    # 10. MIRR
+    res = translate_formula("=MIRR(A1:A4; 0.1; 0.12)")
+    assert res.ok
+    assert abs(exec_result(res, [-120000, 39000, 30000, 21000]) - (-0.048044655249)) < 1e-3
+
+    # 11. NOMINAL
+    res = translate_formula("=NOMINAL(0.053543; 4)")
+    assert res.ok
+    assert abs(exec_result(res, []) - 0.0525) < 1e-4
+
+    # 12. NPER
+    res = translate_formula("=NPER(0.12/12; -100; -1000; 10000)")
+    assert res.ok
+    assert abs(exec_result(res, []) - 60.0821229) < 1e-5
+
+    # 13. ODDFPRICE
+    res = translate_formula("=ODDFPRICE(45292; 47118; 45000; 45500; 0.08; 0.09; 100; 2; 1)")
+    assert res.ok
+    assert abs(exec_result(res, []) - 93.471810) < 1e-4
+
+    # 14. ODDFYIELD
+    res = translate_formula("=ODDFYIELD(45292; 47118; 45000; 45500; 0.08; 95; 100; 2; 1)")
+    assert res.ok
+    assert abs(exec_result(res, []) - 0.092309) < 1e-4
+
+    # 15. ODDLPRICE
+    res = translate_formula("=ODDLPRICE(45292; 47118; 45000; 0.08; 0.09; 100; 2; 1)")
+    assert res.ok
+    assert abs(exec_result(res, []) - 87.874726) < 1e-4

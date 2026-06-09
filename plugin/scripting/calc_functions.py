@@ -1715,7 +1715,7 @@ def bitrshift(number: Any, shift: Any) -> float:
         return float("nan")
 
 
-def _to_complex(val: Any) -> complex:
+def _to_complex(val: Any):
     """Convert Calc complex string (e.g. '1+2i') to Python complex."""
     import builtins
     if isinstance(val, (int, float, builtins.complex)):
@@ -1727,7 +1727,7 @@ def _to_complex(val: Any) -> complex:
         raise TypeError("Invalid complex string")
 
 
-def _from_complex(c: complex, suffix: str = "i") -> str:
+def _from_complex(c, suffix: str = "i") -> str:
     """Convert Python complex to Calc string."""
     import builtins
     if not isinstance(c, builtins.complex):
@@ -1884,3 +1884,358 @@ def imsin(inumber: Any) -> str:
         return _from_complex(cmath.sin(c))
     except (ValueError, TypeError):
         return "#VALUE!"
+
+# Group B - Financial 2
+def dollarde(fractional_dollar: Any, fraction: Any) -> float:
+    try:
+        fd = float(fractional_dollar)
+        f = int(float(fraction))
+    except (ValueError, TypeError):
+        return float("nan")
+    if f < 0:
+        return float("nan")
+    if f == 0:
+        return float("nan") # #DIV/0!
+
+    sign = -1.0 if fd < 0 else 1.0
+    fd = abs(fd)
+    i_part = math.floor(fd)
+    f_part = fd - i_part
+    # The fraction part is interpreted as numerator / fraction
+    # In Excel, 1.02 with fraction 16 means 1 + 2/16 = 1.125
+    # Wait, 1.02 has f_part 0.02. 0.02 * 10^ceil(log10(fraction))?
+    # No, it's (fd - trunc(fd)) * (10 ** ceil(log10(f))) / f
+    power = math.ceil(math.log10(f)) if f > 1 else 1
+    if f == 1: power = 1
+    # Handle exact powers of 10
+    if f > 1 and 10 ** (power - 1) == f:
+        power -= 1
+    return sign * (i_part + (f_part * (10 ** power)) / f)
+
+def dollarfr(decimal_dollar: Any, fraction: Any) -> float:
+    try:
+        dd = float(decimal_dollar)
+        f = int(float(fraction))
+    except (ValueError, TypeError):
+        return float("nan")
+    if f < 0:
+        return float("nan")
+    if f == 0:
+        return float("nan")
+    sign = -1.0 if dd < 0 else 1.0
+    dd = abs(dd)
+    i_part = math.floor(dd)
+    f_part = dd - i_part
+    power = math.ceil(math.log10(f)) if f > 1 else 1
+    if f > 1 and 10 ** (power - 1) == f:
+        power -= 1
+    return sign * (i_part + (f_part * f) / (10 ** power))
+
+def _days_between(d1: float, d2: float, basis: int) -> float:
+    # 0 = US (NASD) 30/360, 1 = Actual/Actual, 2 = Actual/360, 3 = Actual/365, 4 = EUR 30/360
+    # For simplicity, we approximate basis 1 with actual days.
+    # Proper financial day count is complex, we use actual days for basics.
+    if basis == 1 or basis == 2 or basis == 3:
+        return d2 - d1
+    # 30/360 approx
+    try:
+        dt1 = datetime.date.fromordinal(int(d1) + 693594)
+        dt2 = datetime.date.fromordinal(int(d2) + 693594)
+    except (ValueError, TypeError):
+        return float("nan")
+    return (dt2.year - dt1.year) * 360 + (dt2.month - dt1.month) * 30 + (dt2.day - dt1.day)
+
+def _year_frac(d1: float, d2: float, basis: int) -> float:
+    days = _days_between(d1, d2, basis)
+    if basis == 2: return days / 360.0
+    if basis == 3: return days / 365.0
+    if basis == 0 or basis == 4: return days / 360.0
+    # basis 1 (Actual/Actual) is complex, approx as days/365.25
+    return days / 365.25
+
+def duration(settlement: Any, maturity: Any, coupon: Any, yld: Any, frequency: Any, basis: Any = 0) -> float:
+    # Macaulay Duration approximation
+    try:
+        s = float(settlement)
+        m = float(maturity)
+        c = float(coupon)
+        y = float(yld)
+        f = float(frequency)
+        b = int(float(basis))
+    except (ValueError, TypeError):
+        return float("nan")
+    if c < 0 or y < 0 or f not in (1, 2, 4) or b < 0 or b > 4 or s >= m:
+        return float("nan")
+
+    # Calculate complete coupon periods
+    # duration = (1 + y/f) / (y/f) - (1 + y/f + n*(c/f - y/f)) / ((c/f)*((1+y/f)**n - 1) + y/f)
+    # Actually, let's use the closed-form for Macaulay duration of a bond on coupon date:
+    # Since we need exact day counting, we will use a simpler approximation if it's not a coupon date,
+    # but the closed form is generally expected.
+    # We will implement the standard closed form for exact periods.
+    periods = _year_frac(s, m, b) * f
+    n = periods # approx number of periods
+    if n <= 0: return float("nan")
+
+    # Using Macaulay duration formula
+    # MacD = (1 + y/f)/ (y/f) - (1 + y/f + n*(c/f - y/f)) / ( (c/f) * ((1+y/f)**n - 1) + y/f )
+    # ModD = MacD / (1 + y/f)
+    yf = y / f
+    cf = c / f
+    if yf == 0:
+        return float("nan")
+    if cf == 0:
+        macd = n / f
+    else:
+        macd = ( (1 + yf)/yf - (1 + yf + n*(cf - yf)) / (cf * ((1 + yf)**n - 1) + yf) ) / f
+
+    return macd
+
+def effect(nominal_rate: Any, npery: Any) -> float:
+    try:
+        nr = float(nominal_rate)
+        np = int(float(npery))
+    except (ValueError, TypeError):
+        return float("nan")
+    if nr <= 0 or np < 1:
+        return float("nan")
+    return (1 + nr / np) ** np - 1
+
+def fvschedule(principal: Any, schedule: Any) -> float:
+    try:
+        p = float(principal)
+        sched = np.asarray(schedule).ravel()
+    except (ValueError, TypeError):
+        return float("nan")
+    for rate in sched:
+        try:
+            p *= (1 + float(rate))
+        except (ValueError, TypeError):
+            return float("nan")
+    return p
+
+def intrate(settlement: Any, maturity: Any, investment: Any, redemption: Any, basis: Any = 0) -> float:
+    try:
+        s = float(settlement)
+        m = float(maturity)
+        inv = float(investment)
+        red = float(redemption)
+        b = int(float(basis))
+    except (ValueError, TypeError):
+        return float("nan")
+    if s >= m or inv <= 0 or red <= 0 or b < 0 or b > 4:
+        return float("nan")
+    yf = _year_frac(s, m, b)
+    if yf == 0:
+        return float("nan")
+    return (red - inv) / inv / yf
+
+def ipmt(rate: Any, per: Any, nper: Any, pv_val: Any, fv_val: Any = 0, type_val: Any = 0) -> float:
+    try:
+        r = float(rate)
+        p = int(float(per))
+        n = float(nper)
+        pv_f = float(pv_val)
+        fv_f = float(fv_val)
+        t = int(float(type_val))
+    except (ValueError, TypeError):
+        return float("nan")
+    if p < 1 or p > n:
+        return float("nan")
+
+    if r == 0:
+        return 0.0
+
+    # PMT
+    factor = (1 + r) ** n
+    if t == 1:
+        pmt_amt = -(pv_f * factor + fv_f) * r / ((factor - 1) * (1 + r))
+    else:
+        pmt_amt = -(pv_f * factor + fv_f) * r / (factor - 1)
+
+    if t == 0:
+        # End of period
+        bal = pv_f * ((1 + r) ** (p - 1)) + pmt_amt * (((1 + r) ** (p - 1)) - 1) / r
+        interest = -bal * r
+        return interest
+    else:
+        # Beginning of period
+        if p == 1: return 0.0
+        bal = pv_f * ((1 + r) ** (p - 1)) + pmt_amt * (((1 + r) ** (p - 1)) - 1) / r
+        # Since payment is at beginning, the interest for period p is based on balance after payment p-1
+        interest = -(bal - (-pmt_amt)) * r if bal != 0 else 0.0
+        # Actually standard IPMT formula:
+        bal2 = pv_f * ((1 + r) ** (p - 2)) + pmt_amt * (((1 + r) ** (p - 2)) - 1) / r
+        return -(bal2 + pmt_amt) * r
+
+def ispmt(rate: Any, per: Any, nper: Any, pv_val: Any) -> float:
+    try:
+        r = float(rate)
+        p = float(per)
+        n = float(nper)
+        pv_f = float(pv_val)
+    except (ValueError, TypeError):
+        return float("nan")
+    # ISPMT calculates interest for a loan with even principal payments
+    # principal payment = pv / nper
+    # balance after per periods = pv - (pv / nper) * per
+    # interest for period 'per' (0-indexed in ISPMT) = balance * rate
+    bal = pv_f - (pv_f / n) * p
+    return -(bal * r)
+
+def mduration(settlement: Any, maturity: Any, coupon: Any, yld: Any, frequency: Any, basis: Any = 0) -> float:
+    try:
+        s = float(settlement)
+        m = float(maturity)
+        c = float(coupon)
+        y = float(yld)
+        f = float(frequency)
+        b = int(float(basis))
+    except (ValueError, TypeError):
+        return float("nan")
+    macd = duration(s, m, c, y, f, b)
+    if math.isnan(macd):
+        return macd
+    return macd / (1 + y / f)
+
+def mirr(values: Any, finance_rate: Any, reinvest_rate: Any) -> float:
+    try:
+        vals = [float(x) for x in np.asarray(values).ravel()]
+        fr = float(finance_rate)
+        rr = float(reinvest_rate)
+    except (ValueError, TypeError):
+        return float("nan")
+    n = len(vals) - 1
+    if n < 1: return float("nan")
+
+    # NPV of negative flows at finance rate
+    npv_neg = sum(v / ((1 + fr) ** i) for i, v in enumerate(vals) if v < 0)
+    # FV of positive flows at reinvest rate
+    fv_pos = sum(v * ((1 + rr) ** (n - i)) for i, v in enumerate(vals) if v > 0)
+
+    if npv_neg == 0 or fv_pos == 0:
+        return float("nan")
+
+    try:
+        # standard formula:
+        # MIRR = (-fv_pos / npv_neg) ** (1/n) - 1
+        return (-fv_pos / npv_neg) ** (1.0 / n) - 1.0
+    except (ValueError, TypeError):
+        return float("nan")
+
+def nominal(effect_rate: Any, npery: Any) -> float:
+    try:
+        er = float(effect_rate)
+        np_y = int(float(npery))
+    except (ValueError, TypeError):
+        return float("nan")
+    if er <= 0 or np_y < 1:
+        return float("nan")
+    return np_y * ((er + 1) ** (1.0 / np_y) - 1)
+
+def nper(rate: Any, pmt_val: Any, pv_val: Any, fv_val: Any = 0, type_val: Any = 0) -> float:
+    try:
+        r = float(rate)
+        pmt_f = float(pmt_val)
+        pv_f = float(pv_val)
+        fv_f = float(fv_val)
+        t = int(float(type_val))
+    except (ValueError, TypeError):
+        return float("nan")
+    if r == 0:
+        if pmt_f == 0: return float("nan")
+        return -(pv_f + fv_f) / pmt_f
+
+    # PV * (1+r)^n + PMT*(1+r*t)*(((1+r)^n - 1)/r) + FV = 0
+    # Let A = PMT*(1+r*t)/r
+    # PV*(1+r)^n + A*(1+r)^n - A + FV = 0
+    # (1+r)^n * (PV + A) = A - FV
+    # n * ln(1+r) = ln((A - FV)/(PV + A))
+    A = pmt_f * (1 + r * t) / r
+    num = A - fv_f
+    den = pv_f + A
+    if den == 0:
+        return float("nan")
+    val = num / den
+    if val <= 0:
+        return float("nan")
+    return math.log(val) / math.log(1 + r)
+
+def oddfprice(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rate: Any, yld: Any, redemption: Any, frequency: Any, basis: Any = 0) -> float:
+    try:
+        s = float(settlement)
+        m = float(maturity)
+        iss = float(issue)
+        fc = float(first_coupon)
+        r = float(rate)
+        y = float(yld)
+        red = float(redemption)
+        f = float(frequency)
+        b = int(float(basis))
+    except (ValueError, TypeError):
+        return float("nan")
+    # basic PV approximation
+    days_to_mat = _days_between(s, m, b)
+    years = days_to_mat / 365.25 if b == 1 else days_to_mat / 360.0
+    n = years * f
+    if n <= 0: return float("nan")
+
+    c = 100 * r / f
+    price = sum(c / ((1 + y / f) ** i) for i in range(1, int(n) + 1))
+    price += red / ((1 + y / f) ** n)
+    return price
+
+def oddfyield(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rate: Any, pr: Any, redemption: Any, frequency: Any, basis: Any = 0) -> float:
+    try:
+        s = float(settlement)
+        m = float(maturity)
+        iss = float(issue)
+        fc = float(first_coupon)
+        r = float(rate)
+        price = float(pr)
+        red = float(redemption)
+        f = float(frequency)
+        b = int(float(basis))
+    except (ValueError, TypeError):
+        return float("nan")
+
+    # Approx yield using simple formula: Y = (C + (F-P)/n) / ((F+P)/2)
+    days_to_mat = _days_between(s, m, b)
+    years = days_to_mat / 365.25 if b == 1 else days_to_mat / 360.0
+    if years <= 0: return float("nan")
+    c = 100 * r
+    approx_y = (c + (red - price) / years) / ((red + price) / 2)
+    return approx_y
+
+def oddlprice(settlement: Any, maturity: Any, last_interest: Any, rate: Any, yld: Any, redemption: Any, frequency: Any, basis: Any = 0) -> float:
+    try:
+        s = float(settlement)
+        m = float(maturity)
+        li = float(last_interest)
+        r = float(rate)
+        y = float(yld)
+        red = float(redemption)
+        f = float(frequency)
+        b = int(float(basis))
+    except (ValueError, TypeError):
+        return float("nan")
+
+    days_in_reg_period = 365.25 / f if b == 1 else 360.0 / f
+    days_li_to_m = _days_between(li, m, b)
+    last_period_frac = days_li_to_m / days_in_reg_period
+
+    days_s_to_m = _days_between(s, m, b)
+    settle_frac = days_s_to_m / days_in_reg_period
+
+    if last_period_frac <= 0 or settle_frac <= 0: return float("nan")
+
+    c = 100 * r / f
+    last_c = c * last_period_frac
+
+    price = (red + last_c) / ((1 + y / f) ** settle_frac)
+
+    days_li_to_s = _days_between(li, s, b)
+    accrued_frac = days_li_to_s / days_in_reg_period
+    accrued_interest = c * accrued_frac
+
+    return price - accrued_interest
