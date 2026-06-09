@@ -1715,7 +1715,7 @@ def bitrshift(number: Any, shift: Any) -> float:
         return float("nan")
 
 
-def _to_complex(val: Any) -> complex:
+def _to_complex(val: Any) -> "complex":
     """Convert Calc complex string (e.g. '1+2i') to Python complex."""
     import builtins
     if isinstance(val, (int, float, builtins.complex)):
@@ -1727,7 +1727,7 @@ def _to_complex(val: Any) -> complex:
         raise TypeError("Invalid complex string")
 
 
-def _from_complex(c: complex, suffix: str = "i") -> str:
+def _from_complex(c: "complex", suffix: str = "i") -> str:
     """Convert Python complex to Calc string."""
     import builtins
     if not isinstance(c, builtins.complex):
@@ -1884,3 +1884,195 @@ def imsin(inumber: Any) -> str:
         return _from_complex(cmath.sin(c))
     except (ValueError, TypeError):
         return "#VALUE!"
+
+def expondist(x: Any, lambda_: Any, c: Any = 1) -> float:
+    try:
+        import scipy.stats as st
+        x_val = float(x)
+        lam = float(lambda_)
+        cum = bool(float(c))
+        if x_val < 0 or lam <= 0:
+            return float("nan")
+        if cum:
+            return float(st.expon.cdf(x_val, scale=1.0/lam))
+        return float(st.expon.pdf(x_val, scale=1.0/lam))
+    except (ValueError, TypeError, ImportError):
+        return float("nan")
+
+
+def fdist(x: Any, r1: Any, r2: Any) -> float:
+    try:
+        import scipy.stats as st
+        x_val = float(x)
+        df1 = float(r1)
+        df2 = float(r2)
+        if x_val < 0 or df1 < 1 or df2 < 1:
+            return float("nan")
+        return float(st.f.sf(x_val, df1, df2)) # Calc returns right-tailed by default for FDIST
+    except (ValueError, TypeError, ImportError):
+        return float("nan")
+
+
+def finv(p: Any, r1: Any, r2: Any) -> float:
+    try:
+        import scipy.stats as st
+        prob = float(p)
+        df1 = float(r1)
+        df2 = float(r2)
+        if prob < 0 or prob > 1 or df1 < 1 or df2 < 1:
+            return float("nan")
+        return float(st.f.isf(prob, df1, df2))
+    except (ValueError, TypeError, ImportError):
+        return float("nan")
+
+
+def fisher(x: Any) -> float:
+    try:
+        import math
+        x_val = float(x)
+        if x_val <= -1 or x_val >= 1:
+            return float("nan")
+        return float(math.atanh(x_val))
+    except (ValueError, TypeError):
+        return float("nan")
+
+
+def fisherinv(y: Any) -> float:
+    try:
+        import math
+        return float(math.tanh(float(y)))
+    except (ValueError, TypeError):
+        return float("nan")
+
+
+def gamma(x: Any) -> float:
+    try:
+        import math
+        x_val = float(x)
+        if x_val == 0 or (x_val < 0 and x_val.is_integer()):
+            return float("nan")
+        return float(math.gamma(x_val))
+    except (ValueError, TypeError):
+        return float("nan")
+
+
+def gammadist(x: Any, alpha: Any, beta: Any, c: Any = 1) -> float:
+    try:
+        import scipy.stats as st
+        x_val = float(x)
+        a = float(alpha)
+        b = float(beta)
+        cum = bool(float(c))
+        if x_val < 0 or a <= 0 or b <= 0:
+            return float("nan")
+        if cum:
+            return float(st.gamma.cdf(x_val, a, scale=b))
+        return float(st.gamma.pdf(x_val, a, scale=b))
+    except (ValueError, TypeError, ImportError):
+        return float("nan")
+
+
+def gammainv(p: Any, alpha: Any, beta: Any) -> float:
+    try:
+        import scipy.stats as st
+        prob = float(p)
+        a = float(alpha)
+        b = float(beta)
+        if prob < 0 or prob > 1 or a <= 0 or b <= 0:
+            return float("nan")
+        return float(st.gamma.ppf(prob, a, scale=b))
+    except (ValueError, TypeError, ImportError):
+        return float("nan")
+
+
+def gammaln(x: Any) -> float:
+    try:
+        import math
+        x_val = float(x)
+        if x_val <= 0:
+            return float("nan")
+        return float(math.lgamma(x_val))
+    except (ValueError, TypeError):
+        return float("nan")
+
+
+def gauss(x: Any) -> float:
+    try:
+        import scipy.stats as st
+        return float(st.norm.cdf(float(x)) - 0.5)
+    except (ValueError, TypeError, ImportError):
+        return float("nan")
+
+
+def hypgeomdist(x: Any, n_sample: Any, successes: Any, n_pop: Any) -> float:
+    try:
+        import scipy.stats as st
+        k = int(float(x))
+        n = int(float(n_sample))
+        K = int(float(successes))
+        N = int(float(n_pop))
+        if k < 0 or k > n or k > K or k < n - N + K or n < 0 or n > N or K < 0 or K > N or N < 0:
+            return float("nan")
+        return float(st.hypergeom.pmf(k, N, K, n))
+    except (ValueError, TypeError, ImportError):
+        return float("nan")
+
+
+def loginv(p: Any, mean: Any, stdev: Any) -> float:
+    try:
+        import scipy.stats as st
+        import math
+        prob = float(p)
+        m = float(mean)
+        s = float(stdev)
+        if prob < 0 or prob > 1 or s <= 0:
+            return float("nan")
+        return float(st.lognorm.ppf(prob, s, scale=math.exp(m)))
+    except (ValueError, TypeError, ImportError):
+        return float("nan")
+
+
+def lognormdist(x: Any, mean: Any, stdev: Any, c: Any = 1) -> float:
+    try:
+        import scipy.stats as st
+        import math
+        x_val = float(x)
+        m = float(mean)
+        s = float(stdev)
+        cum = bool(float(c))
+        if x_val <= 0 or s <= 0:
+            return float("nan")
+        if cum:
+            return float(st.lognorm.cdf(x_val, s, scale=math.exp(m)))
+        return float(st.lognorm.pdf(x_val, s, scale=math.exp(m)))
+    except (ValueError, TypeError, ImportError):
+        return float("nan")
+
+
+def negbinomdist(x: Any, r: Any, p: Any) -> float:
+    try:
+        import scipy.stats as st
+        k = int(float(x))
+        r_val = int(float(r))
+        prob = float(p)
+        if k < 0 or r_val < 1 or prob <= 0 or prob > 1:
+            return float("nan")
+        return float(st.nbinom.pmf(k, r_val, prob))
+    except (ValueError, TypeError, ImportError):
+        return float("nan")
+
+
+def normdist(x: Any, mean: Any, stdev: Any, c: Any = 1) -> float:
+    try:
+        import scipy.stats as st
+        x_val = float(x)
+        m = float(mean)
+        s = float(stdev)
+        cum = bool(float(c))
+        if s <= 0:
+            return float("nan")
+        if cum:
+            return float(st.norm.cdf(x_val, loc=m, scale=s))
+        return float(st.norm.pdf(x_val, loc=m, scale=s))
+    except (ValueError, TypeError, ImportError):
+        return float("nan")

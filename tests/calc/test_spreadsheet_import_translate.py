@@ -924,3 +924,83 @@ def test_translate_complex_functions():
     assert "1.1752" in exec_result(res, [])
 
 
+
+def test_translate_group_f_functions():
+    # 1. EXPONDIST
+    res = translate_formula("=EXPONDIST(1.5; 2; 1)")
+    assert res.ok
+    assert abs(exec_result(res, []) - 0.9502129316) < 1e-6
+
+    res = translate_formula("=EXPONDIST(1.5; 2; 0)")
+    assert res.ok
+    assert abs(exec_result(res, []) - 0.0995741367) < 1e-6
+
+    # 2. FDIST
+    res = translate_formula("=FDIST(1.5; 2; 3)")
+    assert res.ok
+    assert abs(exec_result(res, []) - 0.3535533906) < 1e-6
+
+    # 3. FINV
+    res = translate_formula("=FINV(0.3535533906; 2; 3)")
+    assert res.ok
+    assert abs(exec_result(res, []) - 1.5) < 1e-6
+
+    # 4. FISHER
+    res = translate_formula("=FISHER(0.5)")
+    assert res.ok
+    assert abs(exec_result(res, []) - 0.5493061443) < 1e-6
+
+    # 5. FISHERINV
+    res = translate_formula("=FISHERINV(0.5493061443)")
+    assert res.ok
+    assert abs(exec_result(res, []) - 0.5) < 1e-6
+
+    # 6. GAMMA
+    res = translate_formula("=GAMMA(1.5)")
+    assert res.ok
+    assert abs(exec_result(res, []) - 0.8862269255) < 1e-6
+
+    # 7. GAMMADIST
+    res = translate_formula("=GAMMADIST(1.5; 2; 3; 1)")
+    assert res.ok
+    assert abs(exec_result(res, []) - 0.0902040104) < 1e-6
+
+    # 8. GAMMAINV
+    res = translate_formula("=GAMMAINV(0.0902040104; 2; 3)")
+    assert res.ok
+    assert abs(exec_result(res, []) - 1.5) < 1e-6
+
+    # 9. GAMMALN
+    res = translate_formula("=GAMMALN(1.5)")
+    assert res.ok
+    assert abs(exec_result(res, []) - (-0.1207822376)) < 1e-6
+
+    # 10. GAUSS
+    res = translate_formula("=GAUSS(1.5)")
+    assert res.ok
+    assert abs(exec_result(res, []) - 0.4331927987) < 1e-6
+
+    # 11. HYPGEOMDIST
+    res = translate_formula("=HYPGEOMDIST(1; 3; 4; 10)")
+    assert res.ok
+    assert abs(exec_result(res, []) - 0.5) < 1e-6
+
+    # 12. LOGINV
+    res = translate_formula("=LOGINV(0.2975321419; 2; 3)")
+    assert res.ok
+    assert abs(exec_result(res, []) - 1.5) < 1e-6
+
+    # 13. LOGNORMDIST
+    res = translate_formula("=LOGNORMDIST(1.5; 2; 3; 1)")
+    assert res.ok
+    assert abs(exec_result(res, []) - 0.2975321419) < 1e-6
+
+    # 14. NEGBINOMDIST
+    res = translate_formula("=NEGBINOMDIST(5; 10; 0.5)")
+    assert res.ok
+    assert abs(exec_result(res, []) - 0.0610961914) < 1e-6
+
+    # 15. NORMDIST
+    res = translate_formula("=NORMDIST(1.5; 2; 3; 1)")
+    assert res.ok
+    assert abs(exec_result(res, []) - 0.4338161674) < 1e-6
