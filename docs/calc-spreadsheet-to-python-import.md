@@ -560,7 +560,7 @@ Convention: `data` is the primary injected range; `data[n]` is multi-range varar
 
 Curated from [LibreOffice Functions by Category](https://help.libreoffice.org/latest/en-US/text/scalc/01/04060100.html), [Calc Guide 25.2 Ch.9](https://books.libreoffice.org/en/CG252/CG25209-FormulasAndFunctions.html), and [Microsoft–LibreOffice function comparison](https://wiki.documentfoundation.org/Documentation/Calc_Functions) (~508 LO built-ins total). **Status** reflects [`translate.py`](../plugin/calc/spreadsheet_import/translate.py) as of the Tier A/B/C/D port (157 shipped).
 
-**Inventory summary:** **172 / 374** functions in this master list are **Shipped** in [`translate.py`](../plugin/calc/spreadsheet_import/translate.py) (172 emitters including `ROW`/`COLUMN`/`IFS`/`SWITCH` handlers).
+**Inventory summary:** **189 / 374** functions in this master list are **Shipped** in [`translate.py`](../plugin/calc/spreadsheet_import/translate.py) (186 emitters including `ROW`/`COLUMN`/`IFS`/`SWITCH` handlers).
  LibreOffice Calc exposes **~508** built-ins ([Calc Guide 25.2 Ch.9](https://books.libreoffice.org/en/CG252/CG25209-FormulasAndFunctions.html), [Functions by Category](https://help.libreoffice.org/latest/en-US/text/scalc/01/04060100.html)); this curated list (~374) is the **conversion goal set** for business/statistical workbooks—not every locale alias (`*_ADD`, `*_EXCEL2003`) or extension-only symbol.
 
 | Status | Meaning |
@@ -578,16 +578,16 @@ Use `list_calc_functions` (chat tool) against a live Calc session for the author
 |----------|--------|
 | `DAVERAGE` | Shipped |
 | `DCOUNT` | Shipped |
-| `DCOUNTA` | Planned (P3) |
-| `DGET` | Planned (P3) |
+| `DCOUNTA` | Shipped |
+| `DGET` | Shipped |
 | `DMAX` | Shipped |
 | `DMIN` | Shipped |
-| `DPRODUCT` | Planned (P3) |
-| `DSTDEV` | Planned (P3) |
-| `DSTDEVP` | Planned (P3) |
+| `DPRODUCT` | Shipped |
+| `DSTDEV` | Shipped |
+| `DSTDEVP` | Shipped |
 | `DSUM` | Shipped |
-| `DVAR` | Planned (P3) |
-| `DVARP` | Planned (P3) |
+| `DVAR` | Shipped |
+| `DVARP` | Shipped |
 
 ### Date & Time (20/25 shipped)
 
@@ -602,7 +602,7 @@ Use `list_calc_functions` (chat tool) against a live Calc session for the author
 | `EDATE` | Shipped |
 | `EOMONTH` | Shipped |
 | `HOUR` | Shipped |
-| `ISOWEEKNUM` | Not started |
+| `ISOWEEKNUM` | Shipped |
 | `MINUTE` | Shipped |
 | `MONTH` | Shipped |
 | `NETWORKDAYS` | Shipped |
@@ -646,13 +646,13 @@ Use `list_calc_functions` (chat tool) against a live Calc session for the author
 | `FVSCHEDULE` | Not started |
 | `INTRATE` | Not started |
 | `IPMT` | Planned (P3) |
-| `IRR` | Planned (P3) |
+| `IRR` | Shipped |
 | `ISPMT` | Not started |
 | `MDURATION` | Not started |
 | `MIRR` | Not started |
 | `NOMINAL` | Not started |
 | `NPER` | Planned (P3) |
-| `NPV` | Planned (P3) |
+| `NPV` | Shipped |
 | `ODDFPRICE` | Not started |
 | `ODDFYIELD` | Not started |
 | `ODDLPRICE` | Not started |
@@ -739,7 +739,7 @@ Use `list_calc_functions` (chat tool) against a live Calc session for the author
 | `BASE` | Not started |
 | `CEILING` | Shipped |
 | `COMBIN` | Shipped |
-| `COMBINA` | Not started |
+| `COMBINA` | Shipped |
 | `COS` | Shipped |
 | `COSH` | Shipped |
 | `COT` | Not started |
@@ -751,7 +751,7 @@ Use `list_calc_functions` (chat tool) against a live Calc session for the author
 | `EVEN` | Shipped |
 | `EXP` | Shipped |
 | `FACT` | Shipped |
-| `FACTDOUBLE` | Not started |
+| `FACTDOUBLE` | Shipped |
 | `FLOOR` | Shipped |
 | `GCD` | Shipped |
 | `INT` | Shipped |
@@ -815,7 +815,7 @@ Use `list_calc_functions` (chat tool) against a live Calc session for the author
 
 | Function | Status |
 |----------|--------|
-| `AVEDEV` | Not started |
+| `AVEDEV` | Shipped |
 | `AVERAGE` | Shipped |
 | `AVERAGEA` | Shipped |
 | `AVERAGEIF` | Shipped |
@@ -847,9 +847,9 @@ Use `list_calc_functions` (chat tool) against a live Calc session for the author
 | `GAMMAINV` | Not started |
 | `GAMMALN` | Not started |
 | `GAUSS` | Not started |
-| `GEOMEAN` | Not started |
+| `GEOMEAN` | Shipped |
 | `GROWTH` | Planned (P3) |
-| `HARMEAN` | Not started |
+| `HARMEAN` | Shipped |
 | `HYPGEOMDIST` | Not started |
 | `INTERCEPT` | Not started |
 | `KURT` | Not started |

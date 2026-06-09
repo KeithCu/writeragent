@@ -1179,20 +1179,21 @@ def code(s: Any) -> float:
         return float("nan")
 
 
-def _eval_d_criteria(db: Any, field: Any, criteria: Any) -> list[float]:
+def _eval_d_criteria(db: Any, field: Any, criteria: Any, as_float: bool = True) -> list[Any]:
     """Shared helper for D* functions."""
-    db_arr = np.asarray(db)
+    db_arr = np.asarray(db, dtype=object)
     if db_arr.ndim != 2:
         return []
     headers = [str(h).upper() for h in db_arr[0]]
 
     f_idx = -1
-    try:
-        f_idx = int(float(field)) - 1
-    except (ValueError, TypeError):
-        f_name = str(field).upper()
-        if f_name in headers:
-            f_idx = headers.index(f_name)
+    if field is not None and field != "":
+        try:
+            f_idx = int(float(field)) - 1
+        except (ValueError, TypeError):
+            f_name = str(field).upper()
+            if f_name in headers:
+                f_idx = headers.index(f_name)
 
     if f_idx < 0 or f_idx >= db_arr.shape[1]:
         return []
@@ -1224,10 +1225,14 @@ def _eval_d_criteria(db: Any, field: Any, criteria: Any) -> list[float]:
                 break
 
         if match_any_row:
-            try:
-                matching_vals.append(float(row[f_idx]))
-            except (ValueError, TypeError):
-                pass
+            val = row[f_idx]
+            if as_float:
+                try:
+                    matching_vals.append(float(val))
+                except (ValueError, TypeError):
+                    pass
+            else:
+                matching_vals.append(val)
     return matching_vals
 
 
@@ -1241,6 +1246,18 @@ def dcount(db: Any, field: Any, criteria: Any) -> float:
     return float(len(vals))
 
 
+def dcounta(db: Any, field: Any, criteria: Any) -> float:
+    vals = _eval_d_criteria(db, field, criteria, as_float=False)
+    return float(sum(1 for v in vals if v is not None and v != ""))
+
+
+def dget(db: Any, field: Any, criteria: Any) -> Any:
+    vals = _eval_d_criteria(db, field, criteria, as_float=False)
+    if len(vals) == 1:
+        return vals[0]
+    return "#NUM!" if len(vals) > 1 else "#VALUE!"
+
+
 def dmax(db: Any, field: Any, criteria: Any) -> float:
     vals = _eval_d_criteria(db, field, criteria)
     return float(np.max(vals)) if vals else float("nan")
@@ -1251,6 +1268,121 @@ def dmin(db: Any, field: Any, criteria: Any) -> float:
     return float(np.min(vals)) if vals else float("nan")
 
 
+def dproduct(db: Any, field: Any, criteria: Any) -> float:
+    vals = _eval_d_criteria(db, field, criteria)
+    return float(np.prod(vals)) if vals else 0.0
+
+
+def dstdev(db: Any, field: Any, criteria: Any) -> float:
+    vals = _eval_d_criteria(db, field, criteria)
+    return float(np.std(vals, ddof=1)) if len(vals) > 1 else float("nan")
+
+
+def dstdevp(db: Any, field: Any, criteria: Any) -> float:
+    vals = _eval_d_criteria(db, field, criteria)
+    return float(np.std(vals, ddof=0)) if vals else float("nan")
+
+
 def dsum(db: Any, field: Any, criteria: Any) -> float:
     vals = _eval_d_criteria(db, field, criteria)
     return float(np.sum(vals))
+
+
+def dvar(db: Any, field: Any, criteria: Any) -> float:
+    vals = _eval_d_criteria(db, field, criteria)
+    return float(np.var(vals, ddof=1)) if len(vals) > 1 else float("nan")
+
+
+def dvarp(db: Any, field: Any, criteria: Any) -> float:
+    vals = _eval_d_criteria(db, field, criteria)
+    return float(np.var(vals, ddof=0)) if vals else float("nan")
+
+
+def isoweeknum(serial: Any) -> float:
+    try:
+        d = datetime.date.fromordinal(int(float(serial)) + 693594)
+        return float(d.isocalendar()[1])
+    except Exception:
+        return float("nan")
+
+
+def factdouble(n: Any) -> float:
+    try:
+        v = int(float(n))
+        if v < 0:
+            return float("nan")
+        res = 1
+        for i in range(v, 0, -2):
+            res *= i
+        return float(res)
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
+
+
+def combina(n: Any, k: Any) -> float:
+    try:
+        ni = int(float(n))
+        ki = int(float(k))
+        if ni == 0 and ki == 0:
+            return 1.0
+        return float(math.comb(ni + ki - 1, ki))
+    except (ValueError, TypeError):
+        return float("nan")
+
+
+def avedev(r: Any) -> float:
+    arr = np.asarray(r, dtype=float).ravel()
+    arr = arr[~np.isnan(arr)]
+    if not arr.size:
+        return float("nan")
+    return float(np.mean(np.abs(arr - np.mean(arr))))
+
+
+def geomean(r: Any) -> float:
+    arr = np.asarray(r, dtype=float).ravel()
+    arr = arr[~np.isnan(arr)]
+    if not arr.size or np.any(arr <= 0):
+        return float("nan")
+    return float(np.exp(np.mean(np.log(arr))))
+
+
+def harmean(r: Any) -> float:
+    arr = np.asarray(r, dtype=float).ravel()
+    arr = arr[~np.isnan(arr)]
+    if not arr.size or np.any(arr <= 0):
+        return float("nan")
+    return float(len(arr) / np.sum(1.0 / arr))
+
+
+def npv(rate: Any, *args: Any) -> float:
+    r = float(rate)
+    vals = []
+    for arg in args:
+        for v in np.asarray(arg).ravel():
+            try:
+                vals.append(float(v))
+            except (ValueError, TypeError):
+                vals.append(0.0)
+    res = 0.0
+    for i, v in enumerate(vals):
+        res += v / ((1 + r) ** (i + 1))
+    return float(res)
+
+
+def irr(values: Any, guess: Any = 0.1) -> float:
+    vals = np.asarray(values, dtype=float).ravel()
+    # Simple Newton's method for IRR
+    x = float(guess)
+    for _ in range(100):
+        f = 0.0
+        df = 0.0
+        for i, v in enumerate(vals):
+            f += v / ((1 + x) ** i)
+            if i > 0:
+                df -= i * v / ((1 + x) ** (i + 1))
+        if abs(f) < 1e-7:
+            return float(x)
+        if df == 0:
+            break
+        x = x - f / df
+    return float("nan")

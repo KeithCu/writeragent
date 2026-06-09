@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import datetime
+import numpy as np
 
 import pytest
 
@@ -597,5 +598,96 @@ def test_translate_15_more_functions():
     res = translate_formula("=DMIN(A1:E7; \"Height\"; G1:H2)")
     assert res.ok
     assert exec_result(res, [db, crit]) == 14.0
+
+
+def test_translate_extra_15_functions():
+    # 1. DCOUNTA
+    db = [
+        ["Tree", "Height", "Age", "Yield", "Profit"],
+        ["Apple", 18.0, 20.0, 14.0, 105.0],
+        ["Pear", 12.0, 12.0, 10.0, 96.0],
+        ["Cherry", 13.0, 7.0, 8.0, 105.0],
+        ["Apple", 14.0, 15.0, 10.0, 75.0],
+        ["Pear", 9.0, 8.0, 8.0, 77.0],
+        ["Apple", 8.0, 9.0, 6.0, 45.0],
+    ]
+    crit = [["Tree", "Height"], ["Apple", ">10"]]
+
+    res = translate_formula("=DCOUNTA(A1:E7; \"Tree\"; G1:H2)")
+    assert res.ok
+    assert exec_result(res, [db, crit]) == 2.0
+
+    # 2. DGET
+    res = translate_formula("=DGET(A1:E7; \"Yield\"; G1:H2)")
+    assert res.ok
+    assert exec_result(res, [db, crit]) == "#NUM!"
+    crit_single = [["Tree", "Height"], ["Apple", ">15"]]
+    assert exec_result(res, [db, crit_single]) == 14.0
+
+    # 3. DPRODUCT
+    res = translate_formula("=DPRODUCT(A1:E7; \"Yield\"; G1:H2)")
+    assert res.ok
+    assert exec_result(res, [db, crit]) == 140.0
+
+    # 4. DSTDEV
+    res = translate_formula("=DSTDEV(A1:E7; \"Yield\"; G1:H2)")
+    assert res.ok
+    assert abs(exec_result(res, [db, crit]) - np.std([14.0, 10.0], ddof=1)) < 1e-9
+
+    # 5. DSTDEVP
+    res = translate_formula("=DSTDEVP(A1:E7; \"Yield\"; G1:H2)")
+    assert res.ok
+    assert abs(exec_result(res, [db, crit]) - np.std([14.0, 10.0], ddof=0)) < 1e-9
+
+    # 6. DVAR
+    res = translate_formula("=DVAR(A1:E7; \"Yield\"; G1:H2)")
+    assert res.ok
+    assert abs(exec_result(res, [db, crit]) - np.var([14.0, 10.0], ddof=1)) < 1e-9
+
+    # 7. DVARP
+    res = translate_formula("=DVARP(A1:E7; \"Yield\"; G1:H2)")
+    assert res.ok
+    assert abs(exec_result(res, [db, crit]) - np.var([14.0, 10.0], ddof=0)) < 1e-9
+
+    # 8. ISOWEEKNUM
+    res = translate_formula("=ISOWEEKNUM(45292)")
+    assert res.ok
+    assert exec_result(res, []) == 1.0
+
+    # 9. FACTDOUBLE
+    res = translate_formula("=FACTDOUBLE(6)")
+    assert res.ok
+    assert exec_result(res, []) == 48.0
+
+    # 10. COMBINA
+    res = translate_formula("=COMBINA(4; 3)")
+    assert res.ok
+    assert exec_result(res, []) == 20.0
+
+    # 11. AVEDEV
+    res = translate_formula("=AVEDEV(A1:A3)")
+    assert res.ok
+    assert abs(exec_result(res, [2, 4, 9]) - 8.0/3.0) < 1e-9
+
+    # 12. GEOMEAN
+    res = translate_formula("=GEOMEAN(A1:A3)")
+    assert res.ok
+    assert abs(exec_result(res, [2, 8, 4]) - 4.0) < 1e-9
+
+    # 13. HARMEAN
+    res = translate_formula("=HARMEAN(A1:A3)")
+    assert res.ok
+    assert abs(exec_result(res, [2, 4, 1]) - (3 / (1/2.0 + 1/4.0 + 1/1.0))) < 1e-9
+
+    # 14. NPV
+    res = translate_formula("=NPV(0.1; A1:A3)")
+    assert res.ok
+    expected = 100/1.1 + 200/1.21 + 300/1.331
+    assert abs(exec_result(res, [100, 200, 300]) - expected) < 1e-9
+
+    # 15. IRR
+    res = translate_formula("=IRR(A1:A3)")
+    assert res.ok
+    assert abs(exec_result(res, [-100, 110, 0]) - 0.1) < 1e-7
 
 
