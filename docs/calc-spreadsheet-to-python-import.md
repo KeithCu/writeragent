@@ -866,38 +866,38 @@ Use `list_calc_functions` (chat tool) against a live Calc session for the author
 | `MODE` | Shipped |
 | `NEGBINOMDIST` | Not started |
 | `NORMDIST` | Not started |
-| `NORMINV` | Not started |
-| `NORMSDIST` | Not started |
-| `NORMSINV` | Not started |
-| `PEARSON` | Not started |
+| `NORMINV` | Shipped |
+| `NORMSDIST` | Shipped |
+| `NORMSINV` | Shipped |
+| `PEARSON` | Shipped |
 | `PERCENTILE` | Shipped |
-| `PERCENTRANK` | Not started |
-| `PERMUT` | Not started |
-| `POISSON` | Not started |
-| `PROB` | Not started |
+| `PERCENTRANK` | Shipped |
+| `PERMUT` | Shipped |
+| `POISSON` | Shipped |
+| `PROB` | Shipped |
 | `QUARTILE` | Shipped |
 | `RANK` | Shipped |
 | `RSQ` | Shipped |
 | `SKEW` | Shipped |
 | `SLOPE` | Shipped |
 | `SMALL` | Shipped |
-| `STANDARDIZE` | Not started |
+| `STANDARDIZE` | Shipped |
 | `STDEV` | Shipped |
 | `STDEVA` | Shipped |
 | `STDEVP` | Shipped |
 | `STDEVPA` | Shipped |
 | `STEYX` | Shipped |
-| `TDIST` | Not started |
-| `TINV` | Not started |
+| `TDIST` | Shipped |
+| `TINV` | Shipped |
 | `TREND` | Planned (P3) |
 | `TRIMMEAN` | Shipped |
-| `TTEST` | Not started |
+| `TTEST` | Shipped |
 | `VAR` | Shipped |
 | `VARA` | Shipped |
 | `VARP` | Shipped |
 | `VARPA` | Shipped |
-| `WEIBULL` | Not started |
-| `ZTEST` | Not started |
+| `WEIBULL` | Shipped |
+| `ZTEST` | Shipped |
 
 ### Spreadsheet / Lookup (14/20 shipped)
 
@@ -929,7 +929,7 @@ Use `list_calc_functions` (chat tool) against a live Calc session for the author
 | Function | Status |
 |----------|--------|
 | `ARABIC` | Shipped |
-| `ASC` | Not started |
+| `ASC` | Shipped |
 | `BAHTTEXT` | Not started |
 | `CHAR` | Shipped |
 | `CLEAN` | Not started |

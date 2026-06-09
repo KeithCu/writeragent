@@ -2266,7 +2266,6 @@ def imcos(inumber: Any) -> str:
 
 def imdiv(inumber1: Any, inumber2: Any) -> str:
     try:
-        import builtins
         c1 = _to_complex(inumber1)
         c2 = _to_complex(inumber2)
         return _from_complex(c1 / c2)
@@ -2312,7 +2311,6 @@ def imlog2(inumber: Any) -> str:
 
 def impower(inumber: Any, number: Any) -> str:
     try:
-        import builtins
         c = _to_complex(inumber)
         p = float(number)
         return _from_complex(c ** p)
@@ -2588,6 +2586,16 @@ def fisher(x: Any) -> float:
         if x_val <= -1 or x_val >= 1:
             return float("nan")
         return float(math.atanh(x_val))
+
+def norminv(prob: Any, mean: Any, stdev: Any) -> float:
+    try:
+        p = float(prob)
+        m = float(mean)
+        s = float(stdev)
+        if p <= 0 or p >= 1 or s <= 0:
+            return float("nan")
+        import scipy.stats
+        return float(scipy.stats.norm.ppf(p, loc=m, scale=s))
     except (ValueError, TypeError):
         return float("nan")
 
@@ -2596,6 +2604,10 @@ def fisherinv(y: Any) -> float:
     try:
         import math
         return float(math.tanh(float(y)))
+def normsdist(z: Any) -> float:
+    try:
+        import scipy.stats
+        return float(scipy.stats.norm.cdf(float(z)))
     except (ValueError, TypeError):
         return float("nan")
 
@@ -2607,6 +2619,13 @@ def gamma(x: Any) -> float:
         if x_val == 0 or (x_val < 0 and x_val.is_integer()):
             return float("nan")
         return float(math.gamma(x_val))
+def normsinv(prob: Any) -> float:
+    try:
+        p = float(prob)
+        if p <= 0 or p >= 1:
+            return float("nan")
+        import scipy.stats
+        return float(scipy.stats.norm.ppf(p))
     except (ValueError, TypeError):
         return float("nan")
 
@@ -2647,6 +2666,22 @@ def gammaln(x: Any) -> float:
         if x_val <= 0:
             return float("nan")
         return float(math.lgamma(x_val))
+def pearson(data1: Any, data2: Any) -> float:
+    try:
+        d1 = np.asarray(data1).ravel()
+        d2 = np.asarray(data2).ravel()
+        if len(d1) != len(d2):
+            return float("nan")
+        mask1 = np.array([isinstance(x.item() if hasattr(x, 'item') else x, (int, float)) and not math.isnan(x.item() if hasattr(x, 'item') else x) for x in d1])
+        mask2 = np.array([isinstance(x.item() if hasattr(x, 'item') else x, (int, float)) and not math.isnan(x.item() if hasattr(x, 'item') else x) for x in d2])
+        mask = mask1 & mask2
+        d1_clean = np.asarray(d1[mask], dtype=float)
+        d2_clean = np.asarray(d2[mask], dtype=float)
+        if len(d1_clean) <= 1:
+            return float("nan")
+        import scipy.stats
+        res = scipy.stats.pearsonr(d1_clean, d2_clean)[0]
+        return float(res)
     except (ValueError, TypeError):
         return float("nan")
 
@@ -2731,3 +2766,228 @@ def normdist(x: Any, mean: Any, stdev: Any, c: Any = 1) -> float:
         return float(st.norm.pdf(x_val, loc=m, scale=s))
     except (ValueError, TypeError, ImportError):
         return float("nan")
+def percentrank(data: Any, x: Any, significance: Any = 3) -> float:
+    try:
+        d = np.asarray(data, dtype=float).ravel()
+        d = d[np.isfinite(d)]
+        if len(d) == 0:
+            return float("nan")
+        val = float(x)
+        sig = int(significance)
+        d_sorted = np.sort(d)
+        if val < d_sorted[0] or val > d_sorted[-1]:
+            return float("nan")
+        # Calc PERCENTRANK acts differently if x is in data vs interpolation
+        # Using percentileofscore with weak for rank approximation, then dividing
+        # But wait, scipy.stats.percentileofscore returns a percentage (0-100).
+        # We need a value between 0 and 1.
+
+        # A more exact match to Excel/Calc PERCENTRANK.INC
+        # It's better to implement manually to match Calc.
+        # find index
+        n = len(d)
+        if n == 1:
+            return 1.0
+        # Check if x is in array
+        idx = np.searchsorted(d_sorted, val)
+        if d_sorted[idx] == val:
+            # count occurrences less than val
+            count_less = np.sum(d < val)
+            res = count_less / (n - 1)
+        else:
+            idx = np.searchsorted(d_sorted, val) - 1
+            x0, x1 = d_sorted[idx], d_sorted[idx+1]
+            r0, r1 = np.sum(d < x0) / (n - 1), np.sum(d < x1) / (n - 1)
+            res = r0 + (r1 - r0) * (val - x0) / (x1 - x0)
+
+        return float(np.round(res, sig))
+    except (ValueError, TypeError, IndexError):
+        return float("nan")
+
+
+def permut(n: Any, k: Any) -> float:
+    try:
+        n_val = int(float(n))
+        k_val = int(float(k))
+        if n_val < 0 or k_val < 0 or n_val < k_val:
+            return float("nan")
+        return float(math.perm(n_val, k_val))
+    except (ValueError, TypeError):
+        return float("nan")
+
+
+def poisson(x: Any, mean: Any, cumulative: Any = False) -> float:
+    try:
+        k = int(float(x))
+        m = float(mean)
+        if k < 0 or m < 0:
+            return float("nan")
+        import scipy.stats
+        if cumulative:
+            return float(scipy.stats.poisson.cdf(k, m))
+        else:
+            return float(scipy.stats.poisson.pmf(k, m))
+    except (ValueError, TypeError):
+        return float("nan")
+
+
+def prob(data: Any, probs: Any, x_start: Any, x_end: Any | None = None) -> float:
+    try:
+        d = np.asarray(data, dtype=float).ravel()
+        p = np.asarray(probs, dtype=float).ravel()
+        if len(d) != len(p) or len(d) == 0:
+            return float("nan")
+        if not np.isclose(np.sum(p), 1.0) or np.any(p < 0) or np.any(p > 1):
+            return float("nan")
+        start = float(x_start)
+        end = float(x_end) if x_end is not None else start
+        mask = (d >= start) & (d <= end)
+        return float(np.sum(p[mask]))
+    except (ValueError, TypeError):
+        return float("nan")
+
+
+def standardize(x: Any, mean: Any, stdev: Any) -> float:
+    try:
+        val = float(x)
+        m = float(mean)
+        s = float(stdev)
+        if s <= 0:
+            return float("nan")
+        return float((val - m) / s)
+    except (ValueError, TypeError):
+        return float("nan")
+
+
+def tdist(x: Any, df: Any, tails: Any) -> float:
+    try:
+        val = float(x)
+        d = float(df)
+        t = int(float(tails))
+        if d < 1 or t not in (1, 2) or val < 0:
+            return float("nan")
+        import scipy.stats
+        # tdist in Calc/Excel returns 1 - cdf(val) for 1 tail
+        # and 2 * (1 - cdf(val)) for 2 tails
+        p = scipy.stats.t.sf(val, d)
+        return float(p if t == 1 else 2 * p)
+    except (ValueError, TypeError):
+        return float("nan")
+
+
+def tinv(prob: Any, df: Any) -> float:
+    try:
+        p = float(prob)
+        d = float(df)
+        if p <= 0 or p > 1 or d < 1:
+            return float("nan")
+        import scipy.stats
+        # TINV is the 2-tailed inverse
+        return float(scipy.stats.t.ppf(1 - p / 2, d))
+    except (ValueError, TypeError):
+        return float("nan")
+
+
+def ttest(data1: Any, data2: Any, tails: Any, type_: Any) -> float:
+    try:
+        d1 = np.asarray(data1).ravel()
+        d2 = np.asarray(data2).ravel()
+        type_num = int(float(type_))
+
+        if type_num == 1:
+            if len(d1) != len(d2):
+                return float("nan")
+            mask1 = np.array([isinstance(x.item() if hasattr(x, 'item') else x, (int, float)) and not math.isnan(x.item() if hasattr(x, 'item') else x) for x in d1])
+            mask2 = np.array([isinstance(x.item() if hasattr(x, 'item') else x, (int, float)) and not math.isnan(x.item() if hasattr(x, 'item') else x) for x in d2])
+            mask = mask1 & mask2
+            d1_clean = np.asarray(d1[mask], dtype=float)
+            d2_clean = np.asarray(d2[mask], dtype=float)
+        else:
+            d1_clean = np.asarray([x for x in d1 if isinstance(x.item() if hasattr(x, 'item') else x, (int, float)) and not math.isnan(x.item() if hasattr(x, 'item') else x)], dtype=float)
+            d2_clean = np.asarray([x for x in d2 if isinstance(x.item() if hasattr(x, 'item') else x, (int, float)) and not math.isnan(x.item() if hasattr(x, 'item') else x)], dtype=float)
+        t = int(float(tails))
+        type_num = int(float(type_))
+        if t not in (1, 2) or type_num not in (1, 2, 3) or len(d1_clean) < 2 or len(d2_clean) < 2:
+            return float("nan")
+        import scipy.stats
+
+        if type_num == 1:
+            # Paired
+            res = scipy.stats.ttest_rel(d1_clean, d2_clean)
+        elif type_num == 2:
+            # Two-sample equal variance
+            res = scipy.stats.ttest_ind(d1_clean, d2_clean, equal_var=True)
+        else:
+            # Two-sample unequal variance
+            res = scipy.stats.ttest_ind(d1_clean, d2_clean, equal_var=False)
+
+        p = res.pvalue
+        if t == 1:
+            p /= 2.0
+
+        return float(p)
+    except (ValueError, TypeError):
+        return float("nan")
+
+
+def weibull(x: Any, alpha: Any, beta: Any, cumulative: Any = True) -> float:
+    try:
+        val = float(x)
+        a = float(alpha)
+        b = float(beta)
+        if val < 0 or a <= 0 or b <= 0:
+            return float("nan")
+        import scipy.stats
+        # In scipy, c=alpha (shape), scale=beta. Note: Calc calls alpha shape and beta scale.
+        if cumulative:
+            return float(scipy.stats.weibull_min.cdf(val, a, scale=b))
+        else:
+            return float(scipy.stats.weibull_min.pdf(val, a, scale=b))
+    except (ValueError, TypeError):
+        return float("nan")
+
+
+def ztest(data: Any, x: Any, sigma: Any | None = None) -> float:
+    try:
+        d = np.asarray(data, dtype=float).ravel()
+        d = d[np.isfinite(d)]
+        if len(d) == 0:
+            return float("nan")
+        val = float(x)
+        n = len(d)
+        m = np.mean(d)
+        if sigma is None:
+            s = np.std(d, ddof=1)
+        else:
+            s = float(sigma)
+
+        if s == 0:
+            return float("nan")
+
+        z = (m - val) / (s / math.sqrt(n))
+        import scipy.stats
+        return float(scipy.stats.norm.sf(z))
+    except (ValueError, TypeError):
+        return float("nan")
+
+
+def asc(text: Any) -> str:
+    # Basic full-width to half-width conversion for ASCII/Katakana characters
+    try:
+        if text is None:
+            return ""
+        s = str(text)
+        # Shift ASCII (Fullwidth is U+FF01 to U+FF5E) -> (U+0021 to U+007E)
+        # Fullwidth Space U+3000 -> U+0020
+        res = []
+        for ch in s:
+            code = ord(ch)
+            if 0xFF01 <= code <= 0xFF5E:
+                res.append(chr(code - 0xFEE0))
+            elif code == 0x3000:
+                res.append(' ')
+            else:
+                res.append(ch)
+        return "".join(res)
+    except Exception:
+        return "#VALUE!"

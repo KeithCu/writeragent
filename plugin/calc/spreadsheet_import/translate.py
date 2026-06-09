@@ -373,6 +373,21 @@ _NO_FLOAT_WRAP_PREFIXES = (
     "xl.seriessum(",
     "xl.frequency(",
     "xl.growth(",
+    "xl.norminv(",
+    "xl.normsdist(",
+    "xl.normsinv(",
+    "xl.pearson(",
+    "xl.percentrank(",
+    "xl.permut(",
+    "xl.poisson(",
+    "xl.prob(",
+    "xl.standardize(",
+    "xl.tdist(",
+    "xl.tinv(",
+    "xl.ttest(",
+    "xl.weibull(",
+    "xl.ztest(",
+    "xl.asc(",
 )
 
 
@@ -740,6 +755,21 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "CHIINV": lambda a: f"xl.chiinv({a[0]}, {a[1]})",
     "CONFIDENCE": lambda a: f"xl.confidence({a[0]}, {a[1]}, {a[2]})",
     "CRITBINOM": lambda a: f"xl.critbinom({a[0]}, {a[1]}, {a[2]})",
+    "NORMINV": lambda a: f"xl.norminv({a[0]}, {a[1]}, {a[2]})",
+    "NORMSDIST": lambda a: f"xl.normsdist({a[0]})",
+    "NORMSINV": lambda a: f"xl.normsinv({a[0]})",
+    "PEARSON": lambda a: f"xl.pearson({a[0]}, {a[1]})",
+    "PERCENTRANK": lambda a: f"xl.percentrank({a[0]}, {a[1]}{', ' + a[2] if len(a) > 2 else ''})",
+    "PERMUT": lambda a: f"xl.permut({a[0]}, {a[1]})",
+    "POISSON": lambda a: f"xl.poisson({a[0]}, {a[1]}, {a[2] if len(a) > 2 else 'False'})",
+    "PROB": lambda a: f"xl.prob({a[0]}, {a[1]}, {a[2]}{', ' + a[3] if len(a) > 3 else ''})",
+    "STANDARDIZE": lambda a: f"xl.standardize({a[0]}, {a[1]}, {a[2]})",
+    "TDIST": lambda a: f"xl.tdist({a[0]}, {a[1]}, {a[2]})",
+    "TINV": lambda a: f"xl.tinv({a[0]}, {a[1]})",
+    "TTEST": lambda a: f"xl.ttest({a[0]}, {a[1]}, {a[2]}, {a[3]})",
+    "WEIBULL": lambda a: f"xl.weibull({a[0]}, {a[1]}, {a[2]}{', ' + a[3] if len(a) > 3 else ''})",
+    "ZTEST": lambda a: f"xl.ztest({a[0]}, {a[1]}{', ' + a[2] if len(a) > 2 else ''})",
+    "ASC": lambda a: f"xl.asc({a[0]})",
 }
 
 
