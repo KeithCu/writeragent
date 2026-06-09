@@ -15,6 +15,7 @@ import pytest
 from plugin.calc.spreadsheet_import.graph import (
     build_dependency_graph,
     extract_cell_refs,
+    extract_range_refs,
     filter_refs_to_scope,
     topological_formula_order,
 )
@@ -86,6 +87,11 @@ def test_classify_error_display():
 def test_extract_cell_refs():
     refs = extract_cell_refs("=SUM($A$1:B2)+C3")
     assert refs == ["A1", "B2", "C3"]
+
+
+def test_extract_range_refs():
+    refs = extract_range_refs("=SUM($A$1:B2)+C3")
+    assert refs == ["A1:B2", "C3"]
 
 
 def test_filter_refs_to_scope():

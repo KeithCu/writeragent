@@ -330,7 +330,7 @@ def attach_calc_cell_link_listener(ctx, control, get_calc_doc: Callable[[], Any 
                 addr = lookup_cell_ref_at_index(control, idx)
                 if not addr:
                     return
-                doc = get_calc_doc() if get_calc_doc else None
+                doc = get_calc_doc()
                 if doc is None:
                     log.debug("cell link click: no Calc document for %r", addr)
                     return

@@ -111,9 +111,9 @@ def apply_output_to_sheet(target_sheet, output: OutputSheetModel) -> None:
         cell_range.setFormulaArray(tuple(formula_rows))
     else:
         data_rows: list[tuple[Any, ...]] = []
-        for row in formula_rows:
+        for formula_row in formula_rows:
             data_row: list[Any] = []
-            for text in row:
+            for text in formula_row:
                 if text == "":
                     data_row.append("")
                 else:

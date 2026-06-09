@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict, deque
 from typing import TYPE_CHECKING
 
@@ -37,6 +38,30 @@ def is_calc_error_display(value: object) -> str | None:
         if text in _CALC_ERROR_STRINGS:
             return text
     return None
+
+
+_RANGE_REF_PATTERN = re.compile(
+    r"\$?([A-Z]+)\$?(\d+)(?::\$?([A-Z]+)\$?(\d+))?",
+    re.IGNORECASE,
+)
+
+
+def extract_range_refs(formula: str) -> list[str]:
+    """Extract same-sheet range/cell tokens (``A1`` or ``A1:B2``) left-to-right."""
+    if not formula:
+        return []
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for match in _RANGE_REF_PATTERN.finditer(formula.upper()):
+        c1, r1, c2, r2 = match.group(1), match.group(2), match.group(3), match.group(4)
+        if c2 is not None and r2 is not None:
+            ref = f"{c1}{r1}:{c2}{r2}"
+        else:
+            ref = f"{c1}{r1}"
+        if ref not in seen:
+            seen.add(ref)
+            ordered.append(ref)
+    return ordered
 
 
 def extract_cell_refs(formula: str) -> list[str]:
