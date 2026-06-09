@@ -1472,6 +1472,209 @@ def intercept(data_y: Any, data_x: Any) -> float:
     return float(np.mean(y[mask]) - s * np.mean(x[mask]))
 
 
+def xnpv(rate: Any, values: Any, dates: Any) -> float:
+    try:
+        r = float(rate)
+        vals = np.asarray(values).ravel()
+        dts = np.asarray(dates).ravel()
+        if len(vals) != len(dts) or len(vals) == 0:
+            return float("nan")
+        res = 0.0
+        d0 = float(dts[0])
+        for v, d in zip(vals, dts):
+            res += float(v) / ((1.0 + r) ** ((float(d) - d0) / 365.0))
+        return res
+    except Exception:
+        return float("nan")
+
+
+def xirr(values: Any, dates: Any, guess: Any = 0.1) -> float:
+    try:
+        vals = np.asarray(values, dtype=float).ravel()
+        dts = np.asarray(dates, dtype=float).ravel()
+        if len(vals) != len(dts) or len(vals) == 0:
+            return float("nan")
+        x = float(guess)
+        d0 = float(dts[0])
+        for _ in range(100):
+            f = 0.0
+            df = 0.0
+            for v, d in zip(vals, dts):
+                t = (float(d) - d0) / 365.0
+                f += v / ((1.0 + x) ** t)
+                df -= t * v / ((1.0 + x) ** (t + 1.0))
+            if abs(f) < 1e-7:
+                return float(x)
+            if df == 0:
+                break
+            x = x - f / df
+        return float("nan")
+    except Exception:
+        return float("nan")
+
+
+def yield_calc(settlement: Any, maturity: Any, rate: Any, pr: Any, redemption: Any, frequency: Any, basis: Any = 0) -> float:
+    # Approximate stub
+    return float("nan")
+
+
+def yielddisc(settlement: Any, maturity: Any, pr: Any, redemption: Any, basis: Any = 0) -> float:
+    # Approximate stub
+    return float("nan")
+
+
+def yieldmat(settlement: Any, maturity: Any, issue: Any, rate: Any, pr: Any, basis: Any = 0) -> float:
+    # Approximate stub
+    return float("nan")
+
+
+def isformula(val: Any) -> bool:
+    # We do not have access to formula strings in PY() by default.
+    return False
+
+
+def isref(val: Any) -> bool:
+    # We do not have object references in PY(), only values.
+    return False
+
+
+def na() -> float:
+    # Usually #N/A in Calc maps to NaN in Python data array
+    return float("nan")
+
+
+def aggregate(function_num: Any, options: Any, *args: Any) -> float:
+    try:
+        fn = int(float(function_num))
+        opt = int(float(options))
+        vals = []
+        for arg in args:
+            vals.extend(np.asarray(arg).ravel())
+
+        arr = np.array(vals, dtype=float)
+        # Handle ignore options
+        if opt in (4, 5, 6, 7):
+            # Ignore hidden rows (cannot do here), assume same as 0,1,2,3 for now
+            pass
+
+        # Strip NaNs if options ignore errors (1, 3, 5, 7)
+        if opt in (1, 3, 5, 7):
+            arr = arr[~np.isnan(arr)]
+
+        # Simplified implementations for most common
+        if fn == 1: return float(np.mean(arr))
+        if fn == 2: return float(np.sum(~np.isnan(arr)))
+        if fn == 3: return float(len(arr))
+        if fn == 4: return float(np.nanmax(arr))
+        if fn == 5: return float(np.nanmin(arr))
+        if fn == 6: return float(np.prod(arr))
+        if fn == 7: return float(np.std(arr, ddof=1))
+        if fn == 8: return float(np.std(arr, ddof=0))
+        if fn == 9: return float(np.sum(arr))
+        if fn == 10: return float(np.var(arr, ddof=1))
+        if fn == 11: return float(np.var(arr, ddof=0))
+        if fn == 12: return float(np.median(arr))
+        return float("nan")
+    except Exception:
+        return float("nan")
+
+
+def base(number: Any, radix: Any, min_length: Any = 0) -> str:
+    try:
+        n = int(float(number))
+        r = int(float(radix))
+        m = int(float(min_length))
+        if n < 0 or r < 2 or r > 36 or m < 0:
+            return "NaN"
+        if n == 0:
+            return "0".zfill(m)
+        digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        res = ""
+        while n > 0:
+            res = digits[n % r] + res
+            n //= r
+        return res.zfill(m)
+    except Exception:
+        return "NaN"
+
+
+def decimal(text: Any, radix: Any) -> float:
+    try:
+        r = int(float(radix))
+        if r < 2 or r > 36:
+            return float("nan")
+        return float(int(str(text), r))
+    except Exception:
+        return float("nan")
+
+
+def multinomial(*args: Any) -> float:
+    try:
+        vals = []
+        for arg in args:
+            for v in np.asarray(arg).ravel():
+                vals.append(int(float(v)))
+        return float(math.factorial(sum(vals)) / math.prod(math.factorial(x) for x in vals))
+    except Exception:
+        return float("nan")
+
+
+def seriessum(x: Any, n: Any, m: Any, coefficients: Any) -> float:
+    try:
+        x_val = float(x)
+        n_val = float(n)
+        m_val = float(m)
+        coeffs = np.asarray(coefficients).ravel()
+        res = 0.0
+        for i, c in enumerate(coeffs):
+            res += float(c) * (x_val ** (n_val + i * m_val))
+        return res
+    except Exception:
+        return float("nan")
+
+
+def frequency(data: Any, bins: Any) -> Any:
+    try:
+        data_arr = np.asarray(data).ravel()
+        bins_arr = np.asarray(bins).ravel()
+        # Return a list for vertical spill
+        counts = np.zeros(len(bins_arr) + 1, dtype=int)
+        for d in data_arr:
+            for i, b in enumerate(bins_arr):
+                if d <= b:
+                    counts[i] += 1
+                    break
+            else:
+                counts[-1] += 1
+        return counts.tolist()
+    except Exception:
+        return []
+
+
+def growth(known_y: Any, known_x: Any = None, new_x: Any = None, const: Any = True) -> Any:
+    try:
+        y = np.asarray(known_y, dtype=float).ravel()
+        if known_x is None:
+            x = np.arange(1, len(y) + 1, dtype=float)
+        else:
+            x = np.asarray(known_x, dtype=float).ravel()
+        if new_x is None:
+            new_x_arr = x
+        else:
+            new_x_arr = np.asarray(new_x, dtype=float).ravel()
+
+        y_log = np.log(y)
+        if const:
+            coeffs = np.polyfit(x, y_log, 1)
+            res = np.exp(np.polyval(coeffs, new_x_arr))
+        else:
+            slope = np.sum(x * y_log) / np.sum(x * x)
+            res = np.exp(slope * new_x_arr)
+        return res.tolist()
+    except Exception:
+        return []
+
+
 def rsq(data_y: Any, data_x: Any) -> float:
     y = np.asarray(data_y, dtype=float).ravel()
     x = np.asarray(data_x, dtype=float).ravel()
@@ -1715,7 +1918,7 @@ def bitrshift(number: Any, shift: Any) -> float:
         return float("nan")
 
 
-def _to_complex(val: Any) -> complex:
+def _to_complex(val: Any) -> Any:
     """Convert Calc complex string (e.g. '1+2i') to Python complex."""
     import builtins
     if isinstance(val, (int, float, builtins.complex)):
@@ -1727,7 +1930,7 @@ def _to_complex(val: Any) -> complex:
         raise TypeError("Invalid complex string")
 
 
-def _from_complex(c: complex, suffix: str = "i") -> str:
+def _from_complex(c: Any, suffix: str = "i") -> str:
     """Convert Python complex to Calc string."""
     import builtins
     if not isinstance(c, builtins.complex):
