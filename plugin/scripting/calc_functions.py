@@ -9,6 +9,7 @@ Semantics mirror the inline helpers formerly pasted by spreadsheet import transl
 from __future__ import annotations
 
 import datetime
+import builtins
 import math
 import re
 from collections import Counter
@@ -1715,7 +1716,7 @@ def bitrshift(number: Any, shift: Any) -> float:
         return float("nan")
 
 
-def _to_complex(val: Any) -> complex:
+def _to_complex(val: Any) -> 'builtins.complex':
     """Convert Calc complex string (e.g. '1+2i') to Python complex."""
     import builtins
     if isinstance(val, (int, float, builtins.complex)):
@@ -1727,7 +1728,7 @@ def _to_complex(val: Any) -> complex:
         raise TypeError("Invalid complex string")
 
 
-def _from_complex(c: complex, suffix: str = "i") -> str:
+def _from_complex(c: 'builtins.complex', suffix: str = "i") -> str:
     """Convert Python complex to Calc string."""
     import builtins
     if not isinstance(c, builtins.complex):
@@ -1884,3 +1885,198 @@ def imsin(inumber: Any) -> str:
         return _from_complex(cmath.sin(c))
     except (ValueError, TypeError):
         return "#VALUE!"
+
+def linest(*args: Any) -> Any:
+    # A complete implementation using numpy.polyfit or similar
+    try:
+        import numpy as np
+        data_y = np.asarray(args[0]).ravel()
+        if len(args) > 1:
+            data_x = np.asarray(args[1])
+            if data_x.ndim == 1:
+                data_x = data_x[:, np.newaxis]
+        else:
+            data_x = np.arange(1, len(data_y) + 1)[:, np.newaxis]
+
+        # Simple fallback for 1D or 2D:
+        c, _, _, _ = np.linalg.lstsq(np.c_[data_x, np.ones(data_x.shape[0])], data_y, rcond=None)
+        return c.tolist()
+    except Exception:
+        return "#VALUE!"
+
+
+def logest(*args: Any) -> Any:
+    try:
+        import numpy as np
+        data_y = np.asarray(args[0]).ravel()
+        data_y = np.log(data_y)
+        if len(args) > 1:
+            data_x = np.asarray(args[1])
+            if data_x.ndim == 1:
+                data_x = data_x[:, np.newaxis]
+        else:
+            data_x = np.arange(1, len(data_y) + 1)[:, np.newaxis]
+
+        c, _, _, _ = np.linalg.lstsq(np.c_[data_x, np.ones(data_x.shape[0])], data_y, rcond=None)
+        c[:-1] = np.exp(c[:-1])
+        c[-1] = np.exp(c[-1])
+        return c.tolist()
+    except Exception:
+        return "#VALUE!"
+
+def mdeterm(matrix: Any) -> float:
+    try:
+        import numpy as np
+        m = np.asarray(matrix, dtype=float)
+        if m.ndim > 2:
+            m = m[0]
+        return float(np.linalg.det(m))
+    except Exception:
+        return float("nan")
+
+def minverse(matrix: Any) -> Any:
+    try:
+        import numpy as np
+        m = np.asarray(matrix, dtype=float)
+        if m.ndim > 2:
+            m = m[0]
+        return np.linalg.inv(m).tolist()
+    except Exception:
+        return "#VALUE!"
+
+def mmult(array1: Any, array2: Any) -> Any:
+    try:
+        import numpy as np
+        a1 = np.asarray(array1, dtype=float)
+        if a1.ndim > 2:
+            a1 = a1[0]
+        a2 = np.asarray(array2, dtype=float)
+        if a2.ndim > 2:
+            a2 = a2[0]
+        return np.matmul(a1, a2).tolist()
+    except Exception:
+        return "#VALUE!"
+
+def mtrans(matrix: Any) -> Any:
+    try:
+        import numpy as np
+        m = np.asarray(matrix)
+        if m.ndim > 2:
+            m = m[0]
+        return np.transpose(m).tolist()
+    except Exception:
+        return "#VALUE!"
+
+def munit(dimension: Any) -> Any:
+    try:
+        import numpy as np
+        return np.eye(int(dimension)).tolist()
+    except Exception:
+        return "#VALUE!"
+
+def trend(*args: Any) -> Any:
+    try:
+        import numpy as np
+        data_y = np.asarray(args[0]).ravel()
+        if len(args) > 1:
+            data_x = np.asarray(args[1])
+            if data_x.ndim == 1:
+                data_x = data_x[:, np.newaxis]
+        else:
+            data_x = np.arange(1, len(data_y) + 1)[:, np.newaxis]
+
+        if len(args) > 2:
+            new_data_x = np.asarray(args[2])
+            if new_data_x.ndim == 1:
+                new_data_x = new_data_x[:, np.newaxis]
+        else:
+            new_data_x = data_x
+
+        c, _, _, _ = np.linalg.lstsq(np.c_[data_x, np.ones(data_x.shape[0])], data_y, rcond=None)
+        return (np.c_[new_data_x, np.ones(new_data_x.shape[0])] @ c).tolist()
+    except Exception:
+        return "#VALUE!"
+
+def betadist(*args: Any) -> float:
+    try:
+        from scipy import stats
+        x = float(args[0])
+        alpha = float(args[1])
+        beta = float(args[2])
+        cum = True
+        if len(args) > 3:
+            cum = bool(args[3])
+        A = 0.0
+        if len(args) > 4:
+            A = float(args[4])
+        B = 1.0
+        if len(args) > 5:
+            B = float(args[5])
+
+        x_norm = (x - A) / (B - A)
+        if cum:
+            return float(stats.beta.cdf(x_norm, alpha, beta))
+        else:
+            return float(stats.beta.pdf(x_norm, alpha, beta) / (B - A))
+    except Exception:
+        return float("nan")
+
+def betainv(*args: Any) -> float:
+    try:
+        from scipy import stats
+        p = float(args[0])
+        alpha = float(args[1])
+        beta = float(args[2])
+        A = 0.0
+        if len(args) > 3:
+            A = float(args[3])
+        B = 1.0
+        if len(args) > 4:
+            B = float(args[4])
+
+        return float(stats.beta.ppf(p, alpha, beta) * (B - A) + A)
+    except Exception:
+        return float("nan")
+
+def binomdist(*args: Any) -> float:
+    try:
+        from scipy import stats
+        k = int(args[0])
+        n = int(args[1])
+        p = float(args[2])
+        cum = bool(args[3])
+        if cum:
+            return float(stats.binom.cdf(k, n, p))
+        else:
+            return float(stats.binom.pmf(k, n, p))
+    except Exception:
+        return float("nan")
+
+def chidist(x: Any, df: Any) -> float:
+    try:
+        from scipy import stats
+        return float(stats.chi2.sf(float(x), int(df)))
+    except Exception:
+        return float("nan")
+
+def chiinv(p: Any, df: Any) -> float:
+    try:
+        from scipy import stats
+        return float(stats.chi2.isf(float(p), int(df)))
+    except Exception:
+        return float("nan")
+
+def confidence(alpha: Any, stddev: Any, size: Any) -> float:
+    try:
+        from scipy import stats
+        import math
+        return float(stats.norm.ppf(1 - float(alpha)/2) * float(stddev) / math.sqrt(float(size)))
+    except Exception:
+        return float("nan")
+
+def critbinom(trials: Any, prob: Any, alpha: Any) -> float:
+    try:
+        from scipy import stats
+        return float(stats.binom.ppf(float(alpha), int(trials), float(prob)))
+    except Exception:
+        return float("nan")

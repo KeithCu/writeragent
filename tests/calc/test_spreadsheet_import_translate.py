@@ -924,3 +924,76 @@ def test_translate_complex_functions():
     assert "1.1752" in exec_result(res, [])
 
 
+def test_translate_group_e_functions():
+    # 1. MDETERM
+    res = translate_formula("=MDETERM(A1:B2)")
+    assert res.ok
+    assert abs(exec_result(res, [[[1, 2], [3, 4]]]) - (-2.0)) < 1e-9
+
+    # 2. MINVERSE
+    res = translate_formula("=MINVERSE(A1:B2)")
+    assert res.ok
+    inv = exec_result(res, [[[1, 2], [3, 4]]])
+    assert abs(inv[0][0] - (-2.0)) < 1e-9
+
+    # 3. MMULT
+    res = translate_formula("=MMULT(A1:B2; C1:D2)")
+    assert res.ok
+    mm = exec_result(res, [[[1, 2], [3, 4]], [[2, 0], [1, 2]]])
+    assert mm[0][0] == 4.0
+
+    # 4. MTRANS
+    res = translate_formula("=MTRANS(A1:B2)")
+    assert res.ok
+    t = exec_result(res, [[[1, 2], [3, 4]]])
+    assert t[0][1] == 3.0
+
+    # 5. MUNIT
+    res = translate_formula("=MUNIT(2)")
+    assert res.ok
+    m = exec_result(res, [])
+    assert m[0][0] == 1.0
+    assert m[0][1] == 0.0
+
+    # 6. BETADIST
+    res = translate_formula("=BETADIST(0.5; 2; 3)")
+    assert res.ok
+    # SciPy needed for execution, but we can verify AST emit
+    assert "xl.betadist(0.5, 2, 3)" in res.code or "xl.betadist(float(0.5), float(2), float(3))" in res.code
+
+    # 7. BINOMDIST
+    res = translate_formula("=BINOMDIST(2; 10; 0.5; 0)")
+    assert res.ok
+
+    # 8. CONFIDENCE
+    res = translate_formula("=CONFIDENCE(0.05; 2.5; 50)")
+    assert res.ok
+
+    # 9. LINEST
+    res = translate_formula("=LINEST(A1:A3)")
+    assert res.ok
+
+    # 10. LOGEST
+    res = translate_formula("=LOGEST(A1:A3)")
+    assert res.ok
+
+    # 11. TREND
+    res = translate_formula("=TREND(A1:A3)")
+    assert res.ok
+
+    # 12. BETAINV
+    res = translate_formula("=BETAINV(0.5; 2; 3)")
+    assert res.ok
+    assert "xl.betainv(0.5, 2, 3)" in res.code or "xl.betainv(float(0.5), float(2), float(3))" in res.code
+
+    # 13. CHIDIST
+    res = translate_formula("=CHIDIST(3; 2)")
+    assert res.ok
+
+    # 14. CHIINV
+    res = translate_formula("=CHIINV(0.5; 2)")
+    assert res.ok
+
+    # 15. CRITBINOM
+    res = translate_formula("=CRITBINOM(10; 0.5; 0.5)")
+    assert res.ok

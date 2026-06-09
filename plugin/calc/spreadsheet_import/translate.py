@@ -240,6 +240,13 @@ _NO_SCALAR_WRAP_FUNCTIONS = frozenset(
         "ISLOGICAL",
         "ISERR",
         "ISNONTEXT",
+        "LINEST",
+        "LOGEST",
+        "MINVERSE",
+        "MMULT",
+        "MTRANS",
+        "MUNIT",
+        "TREND",
     }
 )
 
@@ -642,6 +649,22 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "IMPRODUCT": lambda a: f"xl.improduct({', '.join(a)})",
     "IMREAL": lambda a: f"xl.imreal({a[0]})",
     "IMSIN": lambda a: f"xl.imsin({a[0]})",
+    # Group E
+    "LINEST": lambda a: f"xl.linest({', '.join(a)})",
+    "LOGEST": lambda a: f"xl.logest({', '.join(a)})",
+    "MDETERM": lambda a: f"xl.mdeterm({a[0]})",
+    "MINVERSE": lambda a: f"xl.minverse({a[0]})",
+    "MMULT": lambda a: f"xl.mmult({a[0]}, {a[1]})",
+    "MTRANS": lambda a: f"xl.mtrans({a[0]})",
+    "MUNIT": lambda a: f"xl.munit({a[0]})",
+    "TREND": lambda a: f"xl.trend({', '.join(a)})",
+    "BETADIST": lambda a: f"xl.betadist({', '.join(a)})",
+    "BETAINV": lambda a: f"xl.betainv({', '.join(a)})",
+    "BINOMDIST": lambda a: f"xl.binomdist({', '.join(a)})",
+    "CHIDIST": lambda a: f"xl.chidist({a[0]}, {a[1]})",
+    "CHIINV": lambda a: f"xl.chiinv({a[0]}, {a[1]})",
+    "CONFIDENCE": lambda a: f"xl.confidence({a[0]}, {a[1]}, {a[2]})",
+    "CRITBINOM": lambda a: f"xl.critbinom({a[0]}, {a[1]}, {a[2]})",
 }
 
 
