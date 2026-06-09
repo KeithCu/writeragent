@@ -23,7 +23,7 @@ def test_preprocess_preserves_quoted_semicolon():
 def test_translate_sum_range():
     result = translate_formula("=SUM(A1:A10)")
     assert result.ok
-    assert result.code == "result = float(np.sum(data))"
+    assert result.code == "float(np.sum(data))"
     assert result.data_ranges == ["A1:A10"]
 
 
@@ -58,3 +58,36 @@ def test_translate_parse_error():
     result = translate_formula("not a formula")
     assert not result.ok
     assert result.reason == "PARSE_ERROR"
+
+
+def test_translate_p2_functions():
+    # Text
+    res = translate_formula("=CONCAT(A1;B1)")
+    assert res.ok
+    assert "concat" in res.code or "CONCAT" in res.code or "join" in res.code
+
+    res = translate_formula("=LEFT(A1;2)")
+    assert res.ok
+    assert "[:int(2)]" in res.code or "[:2]" in res.code
+
+    res = translate_formula("=LEN(A1)")
+    assert res.ok
+    assert "len(str(data))" in res.code
+
+    # Date
+    res = translate_formula("=TODAY()")
+    assert res.ok
+    assert res.code == "float(datetime.date.today().toordinal() - 693594)"
+
+    # Statistical
+    res = translate_formula("=STDEV(A1:A10)")
+    assert res.ok
+    assert "np.std" in res.code
+    assert "ddof=1" in res.code
+
+    # Lookup & Reference
+    res = translate_formula("=VLOOKUP(A1;B1:C10;2;0)")
+    assert res.ok
+    assert "next" in res.code
+    assert "r[int(2)-1]" in res.code or "r[1]" in res.code
+

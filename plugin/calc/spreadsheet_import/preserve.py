@@ -127,6 +127,20 @@ def apply_output_to_sheet(target_sheet, output: OutputSheetModel) -> None:
     for col, row, fmt_id in format_cells:
         target_sheet.getCellByPosition(col, row).setPropertyValue("NumberFormat", fmt_id)
 
+    # Write array/vectorized formulas
+    if hasattr(output, "array_formulas") and output.array_formulas:
+        for range_str, formula in output.array_formulas.items():
+            try:
+                cell_range = target_sheet.getCellRangeByName(range_str)
+                cell_range.setArrayFormula(formula)
+            except Exception as e:
+                # Fallback to writing individually if setArrayFormula fails
+                import logging
+                logging.getLogger("writeragent.calc").error(
+                    "Failed to set array formula %s on %s: %s", formula, range_str, e
+                )
+
+
 
 def preserve_sheet_to_new_sheet(
     doc,

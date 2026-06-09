@@ -168,6 +168,39 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "IF": _emit_if,
     "AND": lambda a: f"all([{', '.join(a)}])",
     "OR": lambda a: f"any([{', '.join(a)}])",
+    # Text (P2)
+    "CONCATENATE": lambda a: f'"".join(str(x) for x in [{", ".join(a)}])',
+    "CONCAT": lambda a: f'"".join(str(x) for x in np.asarray([{", ".join(a)}]).ravel())',
+    "LEFT": lambda a: f'str({a[0]})[:int({a[1]})]' if len(a) > 1 else f'str({a[0]})[:1]',
+    "RIGHT": lambda a: f'str({a[0]})[-int({a[1]}):]' if len(a) > 1 else f'str({a[0]})[-1:]',
+    "MID": lambda a: f'str({a[0]})[max(0, int({a[1]})-1) : max(0, int({a[1]})-1) + int({a[2]})]',
+    "LEN": lambda a: f'float(len(str({a[0]})))',
+    "LOWER": lambda a: f'str({a[0]}).lower()',
+    "UPPER": lambda a: f'str({a[0]}).upper()',
+    "PROPER": lambda a: f'str({a[0]}).title()',
+    "TRIM": lambda a: f'str({a[0]}).strip()',
+    "SUBSTITUTE": lambda a: f'str({a[0]}).replace(str({a[1]}), str({a[2]}))' if len(a) > 2 else f'str({a[0]}).replace(str({a[1]}), "")',
+    "REPLACE": lambda a: f'str({a[0]})[:max(0, int({a[1]})-1)] + str({a[3]}) + str({a[0]})[max(0, int({a[1]})-1) + int({a[2]}):]',
+    "FIND": lambda a: f'float(str({a[1]}).find(str({a[0]})) + 1)',
+    "SEARCH": lambda a: f'float(str({a[1]}).lower().find(str({a[0]}).lower()) + 1)',
+    "VALUE": lambda a: f'float({a[0]})',
+    # Date & Time (P2)
+    "TODAY": lambda _a: 'float(datetime.date.today().toordinal() - 693594)',
+    "NOW": lambda _a: 'float(datetime.datetime.now().toordinal() - 693594)',
+    "YEAR": lambda a: f'float(datetime.date.fromordinal(int({a[0]}) + 693594).year)',
+    "MONTH": lambda a: f'float(datetime.date.fromordinal(int({a[0]}) + 693594).month)',
+    "DAY": lambda a: f'float(datetime.date.fromordinal(int({a[0]}) + 693594).day)',
+    # Statistical (P2)
+    "STDEV": lambda a: _float_wrap(f"np.std({a[0]}, ddof=1)"),
+    "STDEVP": lambda a: _float_wrap(f"np.std({a[0]}, ddof=0)"),
+    "VAR": lambda a: _float_wrap(f"np.var({a[0]}, ddof=1)"),
+    "VARP": lambda a: _float_wrap(f"np.var({a[0]}, ddof=0)"),
+    "TRANSPOSE": lambda a: f"np.asarray({a[0]}).T.tolist()",
+    # Lookup & Reference (P2)
+    "VLOOKUP": lambda a: f'next((r[int({a[2]})-1] for r in np.asarray({a[1]}) if r[0] == {a[0]}), None)',
+    "HLOOKUP": lambda a: f'next((np.asarray({a[1]})[int({a[2]})-1, i] for i, val in enumerate(np.asarray({a[1]})[0]) if val == {a[0]}), None)',
+    "INDEX": lambda a: f'np.asarray({a[0]})[int({a[1]})-1, int({a[2]})-1]' if len(a) > 2 else f'np.asarray({a[0]})[int({a[1]})-1]',
+    "MATCH": lambda a: f'float(next((i+1 for i, val in enumerate(np.asarray({a[1]}).ravel()) if val == {a[0]}), -1))',
 }
 
 
@@ -196,7 +229,7 @@ def translate_formula(formula: str) -> TranslationResult:
 
     if not state.ranges:
         # Literal-only (e.g. =PI() still has no ranges; =1+2 has none)
-        code = f"result = {body}"
+        pass
     else:
         # Scalar-wrap bare arithmetic for Calc double semantics.
         if isinstance(ast, OperatorNode) or (
@@ -204,6 +237,5 @@ def translate_formula(formula: str) -> TranslationResult:
         ):
             if not body.startswith("float(") and body not in ("True", "False"):
                 body = _float_wrap(body)
-        code = f"result = {body}"
 
-    return TranslationResult(ok=True, code=code, data_ranges=list(state.ranges))
+    return TranslationResult(ok=True, code=body, data_ranges=list(state.ranges))

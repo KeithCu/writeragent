@@ -32,15 +32,50 @@ def _circular_addresses(model: SheetModel) -> set[str]:
     return addrs
 
 
-def build_converted_output_model(model: SheetModel) -> tuple[OutputSheetModel, ConversionReport]:
+def build_converted_output_model(
+    model: SheetModel,
+    *,
+    vectorize: bool = False,
+) -> tuple[OutputSheetModel, ConversionReport]:
     """Translate formula cells to ``=PY()``; preserve constants and normalized PY."""
+    from plugin.calc.spreadsheet_import.vectorize import detect_vectorized_columns, to_r1c1, vectorize_range
+
     report = ConversionReport()
     circular = _circular_addresses(model)
     py_extracts = extract_py_cells(model)
     py_by_addr = {item.address: item for item in py_extracts}
 
+    vector_groups = detect_vectorized_columns(model) if vectorize else {}
+    vector_handled_cells = set()
+    array_formulas: dict[str, str] = {}
+
+    for first_addr, group in vector_groups.items():
+        first_record = model.cells[first_addr]
+        if not first_record.formula:
+            continue
+        translation = translate_formula(first_record.formula)
+        if translation.ok and translation.code and translation.data_ranges is not None:
+            last_addr = group[-1]
+            vectorized_data_ranges = []
+            for a1_range in translation.data_ranges:
+                r1c1_range = to_r1c1(a1_range, first_addr)
+                vec_range = vectorize_range(r1c1_range, first_addr, last_addr)
+                vectorized_data_ranges.append(vec_range)
+
+            array_formula = emit_py_formula(translation.code, vectorized_data_ranges)
+            array_formulas[f"{first_addr}:{last_addr}"] = array_formula
+
+            # Mark all cells in this group as handled
+            for addr in group:
+                vector_handled_cells.add(addr)
+                report.converted.append(addr)
+
     cells: dict[str, OutputCell] = {}
     for addr in sorted(model.cells):
+        if addr in vector_handled_cells:
+            cells[addr] = OutputCell(address=addr, value=None, formula=None, number_format=None)
+            continue
+
         record = model.cells[addr]
         if record.type == "empty":
             cells[addr] = OutputCell(address=addr, value=None, formula=None, number_format=None)
@@ -91,5 +126,7 @@ def build_converted_output_model(model: SheetModel) -> tuple[OutputSheetModel, C
         used_range=model.used_range,
         cells=cells,
         py_extracts=py_extracts,
+        array_formulas=array_formulas,
     )
     return output, report
+

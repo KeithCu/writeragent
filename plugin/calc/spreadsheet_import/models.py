@@ -177,6 +177,7 @@ class OutputSheetModel:
     used_range: str
     cells: dict[str, OutputCell]
     py_extracts: list[PyCellExtract] = field(default_factory=list)
+    array_formulas: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -184,4 +185,6 @@ class OutputSheetModel:
             "used_range": self.used_range,
             "cells": {addr: cell.to_dict() for addr, cell in self.cells.items()},
             "py_extracts": [item.to_dict() for item in self.py_extracts],
+            "array_formulas": dict(self.array_formulas),
         }
+
