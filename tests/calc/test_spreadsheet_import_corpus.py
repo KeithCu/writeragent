@@ -36,12 +36,26 @@ def test_budget_corpus_conversion_rate():
         for addr, cell in model.cells.items()
         if cell.type in FORMULA_LIKE_TYPES and cell.type not in ("py_formula", "array_formula")
     ]
-    # Exclude prompt/array; budget has only calc formulas.
     formula_cells = [a for a in formula_cells if model.cells[a].type == "formula"]
 
-    rate = len(report.converted) / len(formula_cells)
+    from plugin.contrib.calc_formula_parser import parse_formula
+    from plugin.calc.spreadsheet_import.preprocess import normalize_lo_formula_for_parse
+    from plugin.calc.spreadsheet_import.emit import _has_function_node
+
+    function_formula_cells = []
+    for a in formula_cells:
+        cell = model.cells[a]
+        if cell.formula:
+            try:
+                ast = parse_formula(normalize_lo_formula_for_parse(cell.formula))
+                if _has_function_node(ast):
+                    function_formula_cells.append(a)
+            except Exception:
+                pass
+
+    rate = len(report.converted) / len(function_formula_cells) if function_formula_cells else 0.0
     assert rate >= 0.70
-    assert len(report.converted) == len(formula_cells), report.skipped
+    assert len(report.converted) == len(function_formula_cells), report.skipped
 
 
 def test_budget_expected_conversions():

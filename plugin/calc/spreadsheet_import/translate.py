@@ -469,29 +469,27 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "DB": lambda a: f"xl.db({', '.join(a)})",
     "DDB": lambda a: f"xl.ddb({', '.join(a)})",
     "DISC": lambda a: f"xl.disc({', '.join(a)})",
-    "SUM": lambda a: _float_wrap(f"np.sum({a[0]})"),
-    "AVERAGE": lambda a: _float_wrap(f"np.mean({a[0]})"),
-    "PRODUCT": lambda a: _float_wrap(f"np.prod({a[0]})"),
-    "MAX": lambda a: _float_wrap(f"np.nanmax({a[0]})"),
-    "MIN": lambda a: _float_wrap(f"np.nanmin({a[0]})"),
-    "COUNT": lambda a: _float_wrap(f"np.sum(np.isfinite(np.asarray({a[0]}, dtype=float).ravel()))"),
-    "COUNTA": lambda a: _float_wrap(
-        f"sum(1 for x in np.asarray({a[0]}).ravel() if x is not None and str(x) != '')"
-    ),
-    "ABS": lambda a: _float_wrap(f"np.abs({a[0]})"),
-    "SQRT": lambda a: _float_wrap(f"np.sqrt({a[0]})"),
-    "SIGN": lambda a: _float_wrap(f"np.sign({a[0]})"),
-    "INT": lambda a: _float_wrap(f"np.floor({a[0]})"),
-    "TRUNC": lambda a: _float_wrap(f"np.trunc({a[0]})"),
-    "EXP": lambda a: _float_wrap(f"np.exp({a[0]})"),
-    "LN": lambda a: _float_wrap(f"np.log({a[0]})"),
-    "LOG10": lambda a: _float_wrap(f"np.log10({a[0]})"),
-    "MOD": lambda a: _float_wrap(f"{a[0]} % {a[1]}"),
-    "POWER": lambda a: _float_wrap(f"{a[0]} ** {a[1]}"),
-    "ROUND": lambda a: _float_wrap(f"np.round({a[0]}, {a[1]})") if len(a) > 1 else _float_wrap(f"np.round({a[0]})"),
-    "SIN": lambda a: _float_wrap(f"np.sin({a[0]})"),
-    "COS": lambda a: _float_wrap(f"np.cos({a[0]})"),
-    "TAN": lambda a: _float_wrap(f"np.tan({a[0]})"),
+    "SUM": lambda a: f"np.sum({a[0]})",
+    "AVERAGE": lambda a: f"np.mean({a[0]})",
+    "PRODUCT": lambda a: f"np.prod({a[0]})",
+    "MAX": lambda a: f"np.nanmax({a[0]})",
+    "MIN": lambda a: f"np.nanmin({a[0]})",
+    "COUNT": lambda a: f"np.sum(np.isfinite(np.asarray({a[0]}, dtype=float).ravel()))",
+    "COUNTA": lambda a: f"sum(1 for x in np.asarray({a[0]}).ravel() if x is not None and str(x) != '')",
+    "ABS": lambda a: f"np.abs({a[0]})",
+    "SQRT": lambda a: f"np.sqrt({a[0]})",
+    "SIGN": lambda a: f"np.sign({a[0]})",
+    "INT": lambda a: f"np.floor({a[0]})",
+    "TRUNC": lambda a: f"np.trunc({a[0]})",
+    "EXP": lambda a: f"np.exp({a[0]})",
+    "LN": lambda a: f"np.log({a[0]})",
+    "LOG10": lambda a: f"np.log10({a[0]})",
+    "MOD": lambda a: f"{a[0]} % {a[1]}",
+    "POWER": lambda a: f"{a[0]} ** {a[1]}",
+    "ROUND": lambda a: f"np.round({a[0]}, {a[1]})" if len(a) > 1 else f"np.round({a[0]})",
+    "SIN": lambda a: f"np.sin({a[0]})",
+    "COS": lambda a: f"np.cos({a[0]})",
+    "TAN": lambda a: f"np.tan({a[0]})",
     "NOT": lambda a: f"(not {a[0]})",
     "TRUE": lambda _a: "True",
     "FALSE": lambda _a: "False",
@@ -522,10 +520,10 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "MONTH": lambda a: f'float(datetime.date.fromordinal(int({a[0]}) + 693594).month)',
     "DAY": lambda a: f'float(datetime.date.fromordinal(int({a[0]}) + 693594).day)',
     # Statistical (P2)
-    "STDEV": lambda a: _float_wrap(f"np.std({a[0]}, ddof=1)"),
-    "STDEVP": lambda a: _float_wrap(f"np.std({a[0]}, ddof=0)"),
-    "VAR": lambda a: _float_wrap(f"np.var({a[0]}, ddof=1)"),
-    "VARP": lambda a: _float_wrap(f"np.var({a[0]}, ddof=0)"),
+    "STDEV": lambda a: f"np.std({a[0]}, ddof=1)",
+    "STDEVP": lambda a: f"np.std({a[0]}, ddof=0)",
+    "VAR": lambda a: f"np.var({a[0]}, ddof=1)",
+    "VARP": lambda a: f"np.var({a[0]}, ddof=0)",
     "TRANSPOSE": lambda a: f"np.asarray({a[0]}).T.tolist()",
     # Lookup & Reference (P2)
     "VLOOKUP": lambda a: f'next((r[int({a[2]})-1] for r in np.asarray({a[1]}) if r[0] == {a[0]}), None)',
@@ -536,20 +534,20 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "IFERROR": lambda a: f"xl.iferror(lambda: {a[0]}, {a[1]})",
     "IFNA": lambda a: f"xl.ifna(lambda: {a[0]}, {a[1]})",
     # Math & Trig (P2)
-    "ASIN": lambda a: _float_wrap(f"np.arcsin({a[0]})"),
-    "ACOS": lambda a: _float_wrap(f"np.arccos({a[0]})"),
-    "ATAN": lambda a: _float_wrap(f"np.arctan({a[0]})"),
-    "ATAN2": lambda a: _float_wrap(f"np.arctan2({a[1]}, {a[0]})"),
-    "ACOSH": lambda a: _float_wrap(f"np.arccosh({a[0]})"),
-    "ASINH": lambda a: _float_wrap(f"np.arcsinh({a[0]})"),
-    "ATANH": lambda a: _float_wrap(f"np.arctanh({a[0]})"),
-    "COSH": lambda a: _float_wrap(f"np.cosh({a[0]})"),
-    "SINH": lambda a: _float_wrap(f"np.sinh({a[0]})"),
-    "TANH": lambda a: _float_wrap(f"np.tanh({a[0]})"),
-    "DEGREES": lambda a: _float_wrap(f"np.degrees({a[0]})"),
-    "RADIANS": lambda a: _float_wrap(f"np.radians({a[0]})"),
-    "GCD": lambda a: _float_wrap(f"math.gcd({', '.join(a)})") if len(a) > 1 else _float_wrap(f"math.gcd({a[0]}, 0)"),
-    "LCM": lambda a: _float_wrap(f"math.lcm({', '.join(a)})") if len(a) > 1 else _float_wrap(f"int({a[0]})"),
+    "ASIN": lambda a: f"np.arcsin({a[0]})",
+    "ACOS": lambda a: f"np.arccos({a[0]})",
+    "ATAN": lambda a: f"np.arctan({a[0]})",
+    "ATAN2": lambda a: f"np.arctan2({a[1]}, {a[0]})",
+    "ACOSH": lambda a: f"np.arccosh({a[0]})",
+    "ASINH": lambda a: f"np.arcsinh({a[0]})",
+    "ATANH": lambda a: f"np.arctanh({a[0]})",
+    "COSH": lambda a: f"np.cosh({a[0]})",
+    "SINH": lambda a: f"np.sinh({a[0]})",
+    "TANH": lambda a: f"np.tanh({a[0]})",
+    "DEGREES": lambda a: f"np.degrees({a[0]})",
+    "RADIANS": lambda a: f"np.radians({a[0]})",
+    "GCD": lambda a: f"math.gcd({', '.join(a)})" if len(a) > 1 else f"math.gcd({a[0]}, 0)",
+    "LCM": lambda a: f"math.lcm({', '.join(a)})" if len(a) > 1 else f"int({a[0]})",
     "FACT": lambda a: f"xl.fact({a[0]})",
     "COMBIN": lambda a: f"xl.combin({a[0]}, {a[1]})",
     "REPT": lambda a: f"xl.rept({a[0]}, {a[1]})",
@@ -602,26 +600,24 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "ISNA": lambda a: f"xl.isna({a[0]})",
     "ISERROR": lambda a: f"xl.iserror({a[0]})",
     "LOOKUP": lambda a: f"xl.lookup({', '.join(a)})",
-    "MEDIAN": lambda a: _float_wrap(f"np.median({a[0]})"),
-    "COUNTBLANK": lambda a: _float_wrap(
-        f"sum(1 for x in np.asarray({a[0]}).ravel() if x is None or x == '')"
-    ),
-    "ROUNDUP": lambda a: _float_wrap(f"np.ceil({a[0]} * 10**int({a[1]})) / 10**int({a[1]})")
+    "MEDIAN": lambda a: f"np.median({a[0]})",
+    "COUNTBLANK": lambda a: f"sum(1 for x in np.asarray({a[0]}).ravel() if x is None or x == '')",
+    "ROUNDUP": lambda a: f"np.ceil({a[0]} * 10**int({a[1]})) / 10**int({a[1]})"
     if len(a) > 1
-    else _float_wrap(f"np.ceil({a[0]})"),
-    "ROUNDDOWN": lambda a: _float_wrap(f"np.floor({a[0]} * 10**int({a[1]})) / 10**int({a[1]})")
+    else f"np.ceil({a[0]})",
+    "ROUNDDOWN": lambda a: f"np.floor({a[0]} * 10**int({a[1]})) / 10**int({a[1]})"
     if len(a) > 1
-    else _float_wrap(f"np.floor({a[0]})"),
-    "CEILING": lambda a: _float_wrap(f"np.ceil({a[0]})")
+    else f"np.floor({a[0]})",
+    "CEILING": lambda a: f"np.ceil({a[0]})"
     if len(a) == 1
-    else _float_wrap(f"np.ceil({a[0]} / {a[1]}) * {a[1]}"),
-    "FLOOR": lambda a: _float_wrap(f"np.floor({a[0]})")
+    else f"np.ceil({a[0]} / {a[1]}) * {a[1]}",
+    "FLOOR": lambda a: f"np.floor({a[0]})"
     if len(a) == 1
-    else _float_wrap(f"np.floor({a[0]} / {a[1]}) * {a[1]}"),
-    "LOG": lambda a: _float_wrap(f"np.log({a[0]}) / np.log({a[1]})")
+    else f"np.floor({a[0]} / {a[1]}) * {a[1]}",
+    "LOG": lambda a: f"np.log({a[0]}) / np.log({a[1]})"
     if len(a) > 1
-    else _float_wrap(f"np.log10({a[0]})"),
-    "QUOTIENT": lambda a: _float_wrap(f"{a[0]} // {a[1]}"),
+    else f"np.log10({a[0]})",
+    "QUOTIENT": lambda a: f"{a[0]} // {a[1]}",
     "EDATE": lambda a: f"xl.edate({a[0]}, {a[1]})",
     "DATEDIF": lambda a: f"xl.datedif({', '.join(a)})",
     "SUMPRODUCT": lambda a: f"xl.sumproduct({', '.join(a)})",
@@ -630,18 +626,18 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "ISLOGICAL": lambda a: f"xl.islogical({a[0]})",
     "ISERR": lambda a: f"xl.iserr({a[0]})",
     "ISNONTEXT": lambda a: f"xl.isnontext({a[0]})",
-    "PERCENTILE": lambda a: _float_wrap(f"np.percentile(np.asarray({a[0]}, dtype=float).ravel(), float({a[1]}) * 100)"),
+    "PERCENTILE": lambda a: f"np.percentile(np.asarray({a[0]}, dtype=float).ravel(), float({a[1]}) * 100)",
     "QUARTILE": lambda a: f"xl.quartile({a[0]}, {a[1]})",
     "RANK": lambda a: f"xl.rank({', '.join(a)})",
     "LARGE": lambda a: f"xl.large({a[0]}, {a[1]})",
     "SMALL": lambda a: f"xl.small({a[0]}, {a[1]})",
-    "CORREL": lambda a: _float_wrap(f"np.corrcoef(np.asarray({a[0]}).ravel(), np.asarray({a[1]}).ravel())[0, 1]"),
-    "COVAR": lambda a: _float_wrap(f"np.cov(np.asarray({a[0]}).ravel(), np.asarray({a[1]}).ravel())[0, 1]"),
+    "CORREL": lambda a: f"np.corrcoef(np.asarray({a[0]}).ravel(), np.asarray({a[1]}).ravel())[0, 1]",
+    "COVAR": lambda a: f"np.cov(np.asarray({a[0]}).ravel(), np.asarray({a[1]}).ravel())[0, 1]",
     "MODE": lambda a: f"xl.mode({a[0]})",
     "AVERAGEA": lambda a: f"xl.averagea({a[0]})",
     "TEXT": lambda a: f"xl.text({a[0]}, {a[1]})" if len(a) > 1 else f"str({a[0]})",
-    "EVEN": lambda a: _float_wrap(f"xl.even({a[0]})"),
-    "ODD": lambda a: _float_wrap(f"xl.odd({a[0]})"),
+    "EVEN": lambda a: f"xl.even({a[0]})",
+    "ODD": lambda a: f"xl.odd({a[0]})",
     "RAND": lambda _a: "float(np.random.random())",
     "RANDBETWEEN": lambda a: f"float(np.random.randint(int({a[0]}), int({a[1]}) + 1))",
     "XMATCH": lambda a: f"xl.xmatch({', '.join(a)})",
@@ -878,14 +874,10 @@ def translate_formula(formula: str, cell_addr: str | None = None) -> Translation
         pass
     else:
         # Scalar-wrap bare arithmetic for Calc double semantics.
-        if isinstance(ast, OperatorNode) or (
-            isinstance(ast, FunctionNode)
-            and str(ast.tvalue).upper().replace("_XLFN.", "") not in _NO_SCALAR_WRAP_FUNCTIONS
-        ):
+        if isinstance(ast, OperatorNode):
             if (
                 not body.startswith("float(")
                 and body not in ("True", "False")
-                and not any(prefix in body for prefix in _NO_FLOAT_WRAP_PREFIXES)
             ):
                 body = _float_wrap(body)
 

@@ -45,7 +45,8 @@ def test_get_module_config_field_specs_skips_internal_and_non_persisted():
             "_internal": {"type": "string", "internal": True},
         },
     }
-    with patch("plugin.chatbot.module_config_dialog._find_module_manifest", return_value=manifest):
+    with patch("plugin.chatbot.module_config_dialog._find_module_manifest", return_value=manifest), \
+         patch("plugin.chatbot.module_config_dialog.get_config", return_value="auto"):
         specs = get_module_config_field_specs(ctx, "vision")
 
     assert len(specs) == 1

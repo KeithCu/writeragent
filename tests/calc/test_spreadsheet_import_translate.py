@@ -29,7 +29,7 @@ def test_preprocess_preserves_quoted_semicolon():
 def test_translate_sum_range():
     result = translate_formula("=SUM(A1:A10)")
     assert result.ok
-    assert result.code == "float(np.sum(data))"
+    assert result.code == "np.sum(data)"
     assert result.data_ranges == ["A1:A10"]
 
 

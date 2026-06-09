@@ -19,6 +19,14 @@ from plugin.calc.spreadsheet_import.preserve import _output_cell_from_record
 from plugin.calc.spreadsheet_import.translate import translate_formula
 
 
+from plugin.contrib.calc_formula_parser import FunctionNode, parse_formula
+from plugin.calc.spreadsheet_import.preprocess import normalize_lo_formula_for_parse
+
+
+def _has_function_node(node) -> bool:
+    return any(isinstance(n, FunctionNode) for n in node)
+
+
 def emit_py_formula(code: str, data_ranges: list[str]) -> str:
     """Build canonical ``=PY("…"; ranges…)``."""
     return rebuild_python_formula_with_data(code, data_ranges)
@@ -54,6 +62,12 @@ def build_converted_output_model(
         first_record = model.cells[first_addr]
         if not first_record.formula:
             continue
+        try:
+            ast = parse_formula(normalize_lo_formula_for_parse(first_record.formula))
+            if not _has_function_node(ast):
+                continue
+        except Exception:
+            pass
         translation = translate_formula(first_record.formula, cell_addr=first_addr)
         if translation.ok and translation.code and translation.data_ranges is not None:
             last_addr = group[-1]
@@ -121,7 +135,23 @@ def build_converted_output_model(
             cells[addr] = _output_cell_from_record(record, py_by_addr)
             continue
 
+        try:
+            ast = parse_formula(normalize_lo_formula_for_parse(record.formula))
+            has_func = _has_function_node(ast)
+            import logging
+            logging.getLogger(__name__).debug("build_converted_output_model cell %s formula=%r type=%s has_func=%s", addr, record.formula, type(ast).__name__, has_func)
+            if not has_func:
+                report.pass_through.append(addr)
+                cells[addr] = _output_cell_from_record(record, py_by_addr)
+                continue
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("build_converted_output_model exception parsing %s formula=%r", addr, record.formula)
+            pass
+
         translation = translate_formula(record.formula, cell_addr=addr)
+        import logging
+        logging.getLogger(__name__).debug("build_converted_output_model translate cell %s formula=%r translation.ok=%s reason=%s code=%r", addr, record.formula, translation.ok, translation.reason, translation.code)
         if translation.ok and translation.code and translation.data_ranges is not None:
             cells[addr] = OutputCell(
                 address=addr,

@@ -42,9 +42,9 @@ def test_emit_vectorized_column():
         "A1": CellRecord(address="A1", type="constant", value=10, formula=None, number_format=None),
         "A2": CellRecord(address="A2", type="constant", value=20, formula=None, number_format=None),
         "A3": CellRecord(address="A3", type="constant", value=30, formula=None, number_format=None),
-        "B1": CellRecord(address="B1", type="formula", value=20, formula="=A1*2", number_format=None),
-        "B2": CellRecord(address="B2", type="formula", value=40, formula="=A2*2", number_format=None),
-        "B3": CellRecord(address="B3", type="formula", value=60, formula="=A3*2", number_format=None),
+        "B1": CellRecord(address="B1", type="formula", value=20, formula="=ABS(A1)*2", number_format=None),
+        "B2": CellRecord(address="B2", type="formula", value=40, formula="=ABS(A2)*2", number_format=None),
+        "B3": CellRecord(address="B3", type="formula", value=60, formula="=ABS(A3)*2", number_format=None),
     }
     model = SheetModel(sheet_name="Sheet1", used_range="A1:B3", cells=cells)
     output, report = build_converted_output_model(model, vectorize=True)
