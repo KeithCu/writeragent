@@ -924,3 +924,20 @@ def test_translate_complex_functions():
     assert "1.1752" in exec_result(res, [])
 
 
+
+def test_translate_group_h():
+    assert translate_formula("=BAHTTEXT(A1)").code == 'xl.bahttext(data)'
+    assert translate_formula("=CLEAN(A1)").code == 'xl.clean(data)'
+    assert translate_formula("=DOLLAR(A1; 2)").code == 'xl.dollar(data, 2)'
+    assert translate_formula("=ENCODEURL(A1)").code == 'xl.encodeurl(data)'
+    assert translate_formula("=FIXED(A1; 2; TRUE)").code == 'xl.fixed(data, 2, True)'
+    assert translate_formula("=JIS(A1)").code == 'xl.jis(data)'
+    assert translate_formula("=NUMBERVALUE(A1; \".\"; \",\")").code == "xl.numbervalue(data, '.', ',')"
+    assert translate_formula("=T(A1)").code == 'xl.t(data)'
+    assert translate_formula("=TEXTAFTER(A1; \"-\")").code == "xl.textafter(data, '-')"
+    assert translate_formula("=TEXTBEFORE(A1; \"-\")").code == "xl.textbefore(data, '-')"
+    assert translate_formula("=TEXTSPLIT(A1; \"-\")").code == "xl.textsplit(data, '-')"
+    assert translate_formula("=UNICHAR(A1)").code == 'xl.unichar(data)'
+    assert translate_formula("=UNICODE(A1)").code == 'xl.unicode(data)'
+    assert translate_formula("=BESSELI(A1; B1)").code == 'xl.besseli(data[0], data[1])'
+    assert translate_formula("=BESSELJ(A1; B1)").code == 'xl.besselj(data[0], data[1])'
