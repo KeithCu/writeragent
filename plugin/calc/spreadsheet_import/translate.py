@@ -275,6 +275,21 @@ _NO_FLOAT_WRAP_PREFIXES = (
     "xl.large(",
     "xl.small(",
     "xl.mode(",
+    "xl.choose(",
+    "xl.address(",
+    "xl.char(",
+    "xl.xor(",
+    "xl.areas(",
+    "xl.code(",
+    "xl.yearfrac(",
+    "xl.days360(",
+    "xl.networkdays_intl(",
+    "xl.workday_intl(",
+    "xl.daverage(",
+    "xl.dcount(",
+    "xl.dmax(",
+    "xl.dmin(",
+    "xl.dsum(",
 )
 
 
@@ -490,6 +505,21 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "TIME": lambda a: f"xl.time({a[0]}, {a[1]}, {a[2]})",
     "TRIMMEAN": lambda a: f"xl.trimmean({a[0]}, {a[1]})",
     "FORECAST": lambda a: f"xl.forecast({a[0]}, {a[1]}, {a[2]})",
+    "CHOOSE": lambda a: f"xl.choose({a[0]}, {', '.join(a[1:])})",
+    "ADDRESS": lambda a: f"xl.address({', '.join(a)})",
+    "YEARFRAC": lambda a: f"xl.yearfrac({', '.join(a)})",
+    "DAYS360": lambda a: f"xl.days360({', '.join(a)})",
+    "NETWORKDAYS.INTL": lambda a: f"xl.networkdays_intl({', '.join(a)})",
+    "WORKDAY.INTL": lambda a: f"xl.workday_intl({', '.join(a)})",
+    "XOR": lambda a: f"xl.xor({', '.join(a)})",
+    "AREAS": lambda a: f"xl.areas({a[0]})",
+    "CHAR": lambda a: f"xl.char({a[0]})",
+    "CODE": lambda a: f"xl.code({a[0]})",
+    "DAVERAGE": lambda a: f"xl.daverage({a[0]}, {a[1]}, {a[2]})",
+    "DCOUNT": lambda a: f"xl.dcount({a[0]}, {a[1]}, {a[2]})",
+    "DMAX": lambda a: f"xl.dmax({a[0]}, {a[1]}, {a[2]})",
+    "DMIN": lambda a: f"xl.dmin({a[0]}, {a[1]}, {a[2]})",
+    "DSUM": lambda a: f"xl.dsum({a[0]}, {a[1]}, {a[2]})",
 }
 
 

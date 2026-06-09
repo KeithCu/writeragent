@@ -558,9 +558,9 @@ Convention: `data` is the primary injected range; `data[n]` is multi-range varar
 
 ### 8.12 Master function inventory (goal)
 
-Curated from [LibreOffice Functions by Category](https://help.libreoffice.org/latest/en-US/text/scalc/01/04060100.html), [Calc Guide 25.2 Ch.9](https://books.libreoffice.org/en/CG252/CG25209-FormulasAndFunctions.html), and [Microsoft–LibreOffice function comparison](https://wiki.documentfoundation.org/Documentation/Calc_Functions) (~508 LO built-ins total). **Status** reflects [`translate.py`](../plugin/calc/spreadsheet_import/translate.py) as of the Tier A/B/C/D port (142 shipped).
+Curated from [LibreOffice Functions by Category](https://help.libreoffice.org/latest/en-US/text/scalc/01/04060100.html), [Calc Guide 25.2 Ch.9](https://books.libreoffice.org/en/CG252/CG25209-FormulasAndFunctions.html), and [Microsoft–LibreOffice function comparison](https://wiki.documentfoundation.org/Documentation/Calc_Functions) (~508 LO built-ins total). **Status** reflects [`translate.py`](../plugin/calc/spreadsheet_import/translate.py) as of the Tier A/B/C/D port (157 shipped).
 
-**Inventory summary:** **157 / 374** functions in this master list are **Shipped** in [`translate.py`](../plugin/calc/spreadsheet_import/translate.py) (157 emitters including `ROW`/`COLUMN`/`IFS`/`SWITCH` handlers).
+**Inventory summary:** **172 / 374** functions in this master list are **Shipped** in [`translate.py`](../plugin/calc/spreadsheet_import/translate.py) (172 emitters including `ROW`/`COLUMN`/`IFS`/`SWITCH` handlers).
  LibreOffice Calc exposes **~508** built-ins ([Calc Guide 25.2 Ch.9](https://books.libreoffice.org/en/CG252/CG25209-FormulasAndFunctions.html), [Functions by Category](https://help.libreoffice.org/latest/en-US/text/scalc/01/04060100.html)); this curated list (~374) is the **conversion goal set** for business/statistical workbooks—not every locale alias (`*_ADD`, `*_EXCEL2003`) or extension-only symbol.
 
 | Status | Meaning |
@@ -572,33 +572,33 @@ Curated from [LibreOffice Functions by Category](https://help.libreoffice.org/la
 
 Use `list_calc_functions` (chat tool) against a live Calc session for the authoritative runtime catalog and descriptions.
 
-### Database (0/12 shipped)
+### Database (5/12 shipped)
 
 | Function | Status |
 |----------|--------|
-| `DAVERAGE` | Planned (P3) |
-| `DCOUNT` | Planned (P3) |
+| `DAVERAGE` | Shipped |
+| `DCOUNT` | Shipped |
 | `DCOUNTA` | Planned (P3) |
 | `DGET` | Planned (P3) |
-| `DMAX` | Planned (P3) |
-| `DMIN` | Planned (P3) |
+| `DMAX` | Shipped |
+| `DMIN` | Shipped |
 | `DPRODUCT` | Planned (P3) |
 | `DSTDEV` | Planned (P3) |
 | `DSTDEVP` | Planned (P3) |
-| `DSUM` | Planned (P3) |
+| `DSUM` | Shipped |
 | `DVAR` | Planned (P3) |
 | `DVARP` | Planned (P3) |
 
-### Date & Time (16/25 shipped)
+### Date & Time (20/25 shipped)
 
 | Function | Status |
 |----------|--------|
 | `DATE` | Shipped |
 | `DATEDIF` | Shipped |
-| `DATEVALUE` | Not started |
+| `DATEVALUE` | Shipped |
 | `DAY` | Shipped |
 | `DAYS` | Shipped |
-| `DAYS360` | Not started |
+| `DAYS360` | Shipped |
 | `EDATE` | Shipped |
 | `EOMONTH` | Shipped |
 | `HOUR` | Shipped |
@@ -606,18 +606,18 @@ Use `list_calc_functions` (chat tool) against a live Calc session for the author
 | `MINUTE` | Shipped |
 | `MONTH` | Shipped |
 | `NETWORKDAYS` | Shipped |
-| `NETWORKDAYS.INTL` | Not started |
+| `NETWORKDAYS.INTL` | Shipped |
 | `NOW` | Shipped |
 | `SECOND` | Shipped |
 | `TIME` | Shipped |
-| `TIMEVALUE` | Not started |
+| `TIMEVALUE` | Shipped |
 | `TODAY` | Shipped |
 | `WEEKDAY` | Shipped |
 | `WEEKNUM` | Shipped |
 | `WORKDAY` | Shipped |
-| `WORKDAY.INTL` | Not started |
+| `WORKDAY.INTL` | Shipped |
 | `YEAR` | Shipped |
-| `YEARFRAC` | Not started |
+| `YEARFRAC` | Shipped |
 
 ### Financial (0/55 shipped)
 
@@ -705,7 +705,7 @@ Use `list_calc_functions` (chat tool) against a live Calc session for the author
 | `NA` | Not started |
 | `TYPE` | Shipped |
 
-### Logical (10/11 shipped)
+### Logical (11/11 shipped)
 
 | Function | Status |
 |----------|--------|
@@ -719,7 +719,7 @@ Use `list_calc_functions` (chat tool) against a live Calc session for the author
 | `OR` | Shipped |
 | `SWITCH` | Shipped |
 | `TRUE` | Shipped |
-| `XOR` | Not started |
+| `XOR` | Shipped |
 
 ### Mathematical (38/64 shipped)
 
@@ -899,13 +899,13 @@ Use `list_calc_functions` (chat tool) against a live Calc session for the author
 | `WEIBULL` | Not started |
 | `ZTEST` | Not started |
 
-### Spreadsheet / Lookup (11/20 shipped)
+### Spreadsheet / Lookup (14/20 shipped)
 
 | Function | Status |
 |----------|--------|
-| `ADDRESS` | Planned (P3) |
-| `AREAS` | Not started |
-| `CHOOSE` | Planned (P3) |
+| `ADDRESS` | Shipped |
+| `AREAS` | Shipped |
+| `CHOOSE` | Shipped |
 | `COLUMN` | Shipped |
 | `COLUMNS` | Shipped |
 | `FORMULATEXT` | N/A |
@@ -924,21 +924,21 @@ Use `list_calc_functions` (chat tool) against a live Calc session for the author
 | `XLOOKUP` | Shipped |
 | `XMATCH` | Shipped |
 
-### Text (18/37 shipped)
+### Text (23/37 shipped)
 
 | Function | Status |
 |----------|--------|
-| `ARABIC` | Not started |
+| `ARABIC` | Shipped |
 | `ASC` | Not started |
 | `BAHTTEXT` | Not started |
-| `CHAR` | Not started |
+| `CHAR` | Shipped |
 | `CLEAN` | Not started |
-| `CODE` | Not started |
+| `CODE` | Shipped |
 | `CONCAT` | Shipped |
 | `CONCATENATE` | Shipped |
 | `DOLLAR` | Not started |
 | `ENCODEURL` | Not started |
-| `EXACT` | Not started |
+| `EXACT` | Shipped |
 | `FIND` | Shipped |
 | `FIXED` | Not started |
 | `JIS` | Not started |
@@ -950,7 +950,7 @@ Use `list_calc_functions` (chat tool) against a live Calc session for the author
 | `PROPER` | Shipped |
 | `REGEX` | Shipped |
 | `REPLACE` | Shipped |
-| `REPT` | Not started |
+| `REPT` | Shipped |
 | `RIGHT` | Shipped |
 | `SEARCH` | Shipped |
 | `SUBSTITUTE` | Shipped |

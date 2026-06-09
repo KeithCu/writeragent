@@ -131,3 +131,40 @@ def test_tier_d_helpers():
     assert xl.time(12, 0, 0) == 0.5
     assert xl.trimmean([1.0, 2.0, 3.0, 4.0, 5.0], 0.2) == 3.0
     assert xl.forecast(6, [1.0, 2.0, 3.0, 4.0, 5.0], [1.0, 2.0, 3.0, 4.0, 5.0]) == 6.0
+
+
+def test_15_more_helpers():
+    # Lookup
+    assert xl.choose(2, "a", "b", "c") == "b"
+    assert xl.address(1, 1) == "$A$1"
+    assert xl.address(1, 1, 4) == "A1"
+    assert xl.areas("any") == 1.0
+
+    # Date & Time
+    assert abs(xl.yearfrac(44927, 45292, 1) - 1.0) < 0.1
+    assert xl.days360(44927, 45292) == 360.0
+    assert xl.networkdays_intl(46181, 46185, 1) == 5.0
+    assert xl.workday_intl(46181, 4, 1) == 46185.0
+
+    # Logical/Text
+    assert xl.xor(True, False, True) is False
+    assert xl.xor(True, False, False) is True
+    assert xl.char(65) == "A"
+    assert xl.code("A") == 65.0
+
+    # Database
+    db = [
+        ["Tree", "Height", "Age", "Yield", "Profit"],
+        ["Apple", 18.0, 20.0, 14.0, 105.0],
+        ["Pear", 12.0, 12.0, 10.0, 96.0],
+        ["Cherry", 13.0, 7.0, 8.0, 105.0],
+        ["Apple", 14.0, 15.0, 10.0, 75.0],
+        ["Pear", 9.0, 8.0, 8.0, 77.0],
+        ["Apple", 8.0, 9.0, 6.0, 45.0],
+    ]
+    crit = [["Tree", "Height"], ["Apple", ">10"]]
+    assert xl.dcount(db, "Yield", crit) == 2.0
+    assert xl.dsum(db, "Profit", crit) == 180.0
+    assert xl.daverage(db, "Yield", crit) == 12.0
+    assert xl.dmax(db, "Height", crit) == 18.0
+    assert xl.dmin(db, "Height", crit) == 14.0

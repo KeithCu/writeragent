@@ -959,3 +959,298 @@ def type(val: Any) -> float:
     if isinstance(val, (list, np.ndarray)):
         return 64.0
     return 1.0
+
+
+def choose(index: Any, *args: Any) -> Any:
+    try:
+        idx = int(float(index))
+        if 1 <= idx <= len(args):
+            return args[idx - 1]
+    except (ValueError, TypeError):
+        pass
+    return None
+
+
+def address(row: Any, col: Any, abs_num: Any = 1, a1: Any = True, sheet: Any = None) -> str:
+    r = int(float(row))
+    c = int(float(col))
+    abs_n = int(float(abs_num))
+    is_a1 = bool(a1)
+
+    if is_a1:
+        # A1 style
+        col_str = ""
+        temp_c = c
+        while temp_c > 0:
+            temp_c, rem = divmod(temp_c - 1, 26)
+            col_str = chr(65 + rem) + col_str
+
+        row_abs = "$" if abs_n in (1, 2) else ""
+        col_abs = "$" if abs_n in (1, 3) else ""
+        res = f"{col_abs}{col_str}{row_abs}{r}"
+    else:
+        # R1C1 style
+        r_str = f"R{r}" if abs_n in (1, 2) else f"R[{r}]"
+        c_str = f"C{c}" if abs_n in (1, 3) else f"C[{c}]"
+        res = f"{r_str}{c_str}"
+
+    if sheet:
+        res = f"'{str(sheet)}'!{res}"
+    return res
+
+
+def yearfrac(start_date: Any, end_date: Any, basis: Any = 0) -> float:
+    try:
+        sd = datetime.date.fromordinal(int(float(start_date)) + 693594)
+        ed = datetime.date.fromordinal(int(float(end_date)) + 693594)
+    except Exception:
+        return float("nan")
+
+    if sd > ed:
+        sd, ed = ed, sd
+    diff = (ed - sd).days
+    b = int(float(basis))
+
+    if b == 0:  # US (NASD) 30/360
+        return diff / 360.0
+    if b == 1:  # Actual/actual
+        return diff / 365.25
+    if b == 2:  # Actual/360
+        return diff / 360.0
+    if b == 3:  # Actual/365
+        return diff / 365.0
+    if b == 4:  # European 30/360
+        return diff / 360.0
+    return diff / 365.0
+
+
+def days360(start_date: Any, end_date: Any, method: Any = False) -> float:
+    try:
+        sd = datetime.date.fromordinal(int(float(start_date)) + 693594)
+        ed = datetime.date.fromordinal(int(float(end_date)) + 693594)
+    except Exception:
+        return float("nan")
+
+    d1, m1, y1 = sd.day, sd.month, sd.year
+    d2, m2, y2 = ed.day, ed.month, ed.year
+
+    if bool(method):  # European
+        if d1 == 31:
+            d1 = 30
+        if d2 == 31:
+            d2 = 30
+    else:  # US
+        if d1 == 31:
+            d1 = 30
+        if d2 == 31 and d1 == 30:
+            d2 = 30
+
+    return float((y2 - y1) * 360 + (m2 - m1) * 30 + (d2 - d1))
+
+
+def networkdays_intl(start_date: Any, end_date: Any, weekend: Any = 1, holidays: Any | None = None) -> float:
+    try:
+        sd = datetime.date.fromordinal(int(float(start_date)) + 693594)
+        ed = datetime.date.fromordinal(int(float(end_date)) + 693594)
+    except Exception:
+        return float("nan")
+
+    if sd > ed:
+        sign = -1
+        sd, ed = ed, sd
+    else:
+        sign = 1
+
+    wk_days = set()
+    if isinstance(weekend, str):
+        for i, char in enumerate(weekend[:7]):
+            if char == "1":
+                wk_days.add(i)
+    else:
+        w_idx = int(float(weekend))
+        mapping = {
+            1: (5, 6),
+            2: (6, 0),
+            3: (0, 1),
+            4: (1, 2),
+            5: (2, 3),
+            6: (3, 4),
+            7: (4, 5),
+            11: (6,),
+            12: (0,),
+            13: (1,),
+            14: (2,),
+            15: (3,),
+            16: (4,),
+            17: (5,),
+        }
+        wk_days.update(mapping.get(w_idx, (5, 6)))
+
+    h_dates: set[datetime.date] = set()
+    if holidays is not None:
+        for h in np.asarray(holidays).ravel():
+            if h is not None and h != "":
+                try:
+                    h_dates.add(datetime.date.fromordinal(int(float(h)) + 693594))
+                except Exception:
+                    pass
+    curr = sd
+    days = 0
+    while curr <= ed:
+        if curr.weekday() not in wk_days and curr not in h_dates:
+            days += 1
+        curr += datetime.timedelta(days=1)
+    return float(sign * days)
+
+
+def workday_intl(start_date: Any, days: Any, weekend: Any = 1, holidays: Any | None = None) -> float:
+    try:
+        curr = datetime.date.fromordinal(int(float(start_date)) + 693594)
+    except Exception:
+        return float("nan")
+
+    wk_days = set()
+    if isinstance(weekend, str):
+        for i, char in enumerate(weekend[:7]):
+            if char == "1":
+                wk_days.add(i)
+    else:
+        w_idx = int(float(weekend))
+        mapping = {
+            1: (5, 6),
+            2: (6, 0),
+            3: (0, 1),
+            4: (1, 2),
+            5: (2, 3),
+            6: (3, 4),
+            7: (4, 5),
+            11: (6,),
+            12: (0,),
+            13: (1,),
+            14: (2,),
+            15: (3,),
+            16: (4,),
+            17: (5,),
+        }
+        wk_days.update(mapping.get(w_idx, (5, 6)))
+
+    h_dates: set[datetime.date] = set()
+    if holidays is not None:
+        for h in np.asarray(holidays).ravel():
+            if h is not None and h != "":
+                try:
+                    h_dates.add(datetime.date.fromordinal(int(float(h)) + 693594))
+                except Exception:
+                    pass
+
+    remaining = int(float(days))
+    step = 1 if remaining >= 0 else -1
+    while remaining != 0:
+        curr += datetime.timedelta(days=step)
+        if curr.weekday() not in wk_days and curr not in h_dates:
+            remaining -= step
+    return float(curr.toordinal() - 693594)
+
+
+def xor(*args: Any) -> bool:
+    true_count = 0
+    for arg in args:
+        if bool(arg):
+            true_count += 1
+    return true_count % 2 == 1
+
+
+def areas(r: Any) -> float:
+    return 1.0
+
+
+def char(n: Any) -> str:
+    try:
+        return chr(int(float(n)))
+    except (ValueError, TypeError):
+        return ""
+
+
+def code(s: Any) -> float:
+    try:
+        ss = str(s)
+        return float(ord(ss[0])) if ss else float("nan")
+    except (ValueError, TypeError):
+        return float("nan")
+
+
+def _eval_d_criteria(db: Any, field: Any, criteria: Any) -> list[float]:
+    """Shared helper for D* functions."""
+    db_arr = np.asarray(db)
+    if db_arr.ndim != 2:
+        return []
+    headers = [str(h).upper() for h in db_arr[0]]
+
+    f_idx = -1
+    try:
+        f_idx = int(float(field)) - 1
+    except (ValueError, TypeError):
+        f_name = str(field).upper()
+        if f_name in headers:
+            f_idx = headers.index(f_name)
+
+    if f_idx < 0 or f_idx >= db_arr.shape[1]:
+        return []
+
+    crit_arr = np.asarray(criteria)
+    if crit_arr.ndim != 2:
+        return []
+    crit_headers = [str(h).upper() for h in crit_arr[0]]
+
+    matching_vals = []
+    for r_idx in range(1, db_arr.shape[0]):
+        row = db_arr[r_idx]
+        match_any_row = False
+        for c_row_idx in range(1, crit_arr.shape[0]):
+            match_all_cols = True
+            for c_col_idx in range(crit_arr.shape[1]):
+                c_header = crit_headers[c_col_idx]
+                c_val = crit_arr[c_row_idx, c_col_idx]
+                if c_val is None or str(c_val) == "":
+                    continue
+
+                if c_header in headers:
+                    db_col_idx = headers.index(c_header)
+                    if not match_criteria(row[db_col_idx], c_val):
+                        match_all_cols = False
+                        break
+            if match_all_cols:
+                match_any_row = True
+                break
+
+        if match_any_row:
+            try:
+                matching_vals.append(float(row[f_idx]))
+            except (ValueError, TypeError):
+                pass
+    return matching_vals
+
+
+def daverage(db: Any, field: Any, criteria: Any) -> float:
+    vals = _eval_d_criteria(db, field, criteria)
+    return float(np.mean(vals)) if vals else float("nan")
+
+
+def dcount(db: Any, field: Any, criteria: Any) -> float:
+    vals = _eval_d_criteria(db, field, criteria)
+    return float(len(vals))
+
+
+def dmax(db: Any, field: Any, criteria: Any) -> float:
+    vals = _eval_d_criteria(db, field, criteria)
+    return float(np.max(vals)) if vals else float("nan")
+
+
+def dmin(db: Any, field: Any, criteria: Any) -> float:
+    vals = _eval_d_criteria(db, field, criteria)
+    return float(np.min(vals)) if vals else float("nan")
+
+
+def dsum(db: Any, field: Any, criteria: Any) -> float:
+    vals = _eval_d_criteria(db, field, criteria)
+    return float(np.sum(vals))

@@ -509,3 +509,93 @@ def test_translate_new_15_functions():
     assert exec_result(res, []) == 4.0
 
 
+def test_translate_15_more_functions():
+    # 1. CHOOSE
+    res = translate_formula("=CHOOSE(2; \"a\"; \"b\"; \"c\")")
+    assert res.ok
+    assert exec_result(res, []) == "b"
+
+    # 2. ADDRESS
+    res = translate_formula("=ADDRESS(1; 1)")
+    assert res.ok
+    assert exec_result(res, []) == "$A$1"
+
+    # 3. AREAS
+    res = translate_formula("=AREAS(A1:B10)")
+    assert res.ok
+    assert exec_result(res, []) == 1.0
+
+    # 4. YEARFRAC
+    res = translate_formula("=YEARFRAC(45000; 45365)")  # approx 1 year
+    assert res.ok
+    assert abs(exec_result(res, []) - 1.0) < 0.1
+
+    # 5. DAYS360
+    res = translate_formula("=DAYS360(44927; 45292)")  # 2023-01-01 to 2024-01-01
+    assert res.ok
+    assert exec_result(res, []) == 360.0
+
+    # 6. NETWORKDAYS.INTL
+    res = translate_formula("=NETWORKDAYS.INTL(46181; 46185; 1)")  # Mon-Fri
+    assert res.ok
+    assert exec_result(res, []) == 5.0
+
+    # 7. WORKDAY.INTL
+    res = translate_formula("=WORKDAY.INTL(46181; 4; 1)")  # Mon + 4 days -> Fri
+    assert res.ok
+    assert exec_result(res, []) == 46185.0
+
+    # 8. XOR
+    res = translate_formula("=XOR(TRUE; FALSE; TRUE)")
+    assert res.ok
+    assert exec_result(res, []) is False
+    res = translate_formula("=XOR(TRUE; FALSE; FALSE)")
+    assert exec_result(res, []) is True
+
+    # 9. CHAR
+    res = translate_formula("=CHAR(65)")
+    assert res.ok
+    assert exec_result(res, []) == "A"
+
+    # 10. CODE
+    res = translate_formula("=CODE(\"A\")")
+    assert res.ok
+    assert exec_result(res, []) == 65.0
+
+    # 11-15. Database Functions
+    db = [
+        ["Tree", "Height", "Age", "Yield", "Profit"],
+        ["Apple", 18.0, 20.0, 14.0, 105.0],
+        ["Pear", 12.0, 12.0, 10.0, 96.0],
+        ["Cherry", 13.0, 7.0, 8.0, 105.0],
+        ["Apple", 14.0, 15.0, 10.0, 75.0],
+        ["Pear", 9.0, 8.0, 8.0, 77.0],
+        ["Apple", 8.0, 9.0, 6.0, 45.0],
+    ]
+    crit = [["Tree", "Height"], ["Apple", ">10"]]
+    # DCOUNT
+    res = translate_formula("=DCOUNT(A1:E7; \"Yield\"; G1:H2)")
+    assert res.ok
+    assert exec_result(res, [db, crit]) == 2.0
+
+    # DSUM
+    res = translate_formula("=DSUM(A1:E7; \"Profit\"; G1:H2)")
+    assert res.ok
+    assert exec_result(res, [db, crit]) == 180.0
+
+    # DAVERAGE
+    res = translate_formula("=DAVERAGE(A1:E7; \"Yield\"; G1:H2)")
+    assert res.ok
+    assert exec_result(res, [db, crit]) == 12.0
+
+    # DMAX
+    res = translate_formula("=DMAX(A1:E7; \"Height\"; G1:H2)")
+    assert res.ok
+    assert exec_result(res, [db, crit]) == 18.0
+
+    # DMIN
+    res = translate_formula("=DMIN(A1:E7; \"Height\"; G1:H2)")
+    assert res.ok
+    assert exec_result(res, [db, crit]) == 14.0
+
+
