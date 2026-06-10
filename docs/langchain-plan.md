@@ -144,7 +144,7 @@ While we don't need these immediately for the core LibreOffice integration, the 
 ## Architecture Decision: Custom Wrapper vs. Provider Packages
 We will proceed with writing a custom LangChain wrapper (`WriterAgentLangChainModel`) around our existing `LlmClient` rather than importing heavy provider packages like `langchain-openai` or `langchain-ollama`. WriterAgent runs in LibreOffice's constrained Python environment; keeping dependencies minimal (just `langchain-core`) is critical to avoid bloat and cross-platform installation issues, while allowing us to keep our custom UI streaming loops and connection management.
 
-For Phase 4 (embeddings / RAG), see [embeddings.md](embeddings.md): profile-first search (host Cython `top_k_dot`, venv sqlite-vec/NumPy, stdlib fallback), binary float32 sidecar + SQLite metadata, optional HNSW in venv. No Chroma, FAISS, or in-process sqlite-vec in LO.
+For Phase 4 (embeddings / RAG), see [embeddings.md](embeddings.md): **ChromaDB + LangGraph in the user venv only** (ingest + search pipelines); host has no langchain dependency. LibreOffice in-process still has no Chroma/FAISS/sqlite-vec.
 
 ---
 

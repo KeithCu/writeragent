@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # WriterAgent - document-sized embedding encode + query bench (venv worker).
-"""Benchmark batch encode and vectorized cosine search on scripts/longdocsample.odt.
+"""Benchmark batch encode via the warm venv worker (Pickle5 IPC).
 
-Uses the warm venv worker (Pickle5 IPC) with logic aligned to LinuxReport
-embeddings_dedup.py: one batch encode, np.stack corpus matrix, np.dot search.
+Historical note: pre-schema-v2 benches used SQLite BLOB + NumPy search in index.db.
+Production embeddings (schema v2) use Chroma + LangGraph — see docs/embeddings.md.
 
 Run outside LibreOffice:
   .venv/bin/python scripts/bench_embeddings.py

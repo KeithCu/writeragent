@@ -5,7 +5,7 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""Host-side embeddings index RPC — index persist and KNN search in the venv worker (Phase B)."""
+"""Host-side embeddings index RPC — Chroma + LangGraph in the venv worker."""
 from __future__ import annotations
 
 from typing import Any
@@ -18,17 +18,46 @@ from plugin.scripting.venv_worker import run_code_in_user_venv
 
 _INDEX_STUB = """\
 from plugin.scripting.embeddings_index import index_paragraphs as _index
-result = _index(data["db_path"], data["model"], data["rows"])
+result = _index(
+    data["persist_dir"],
+    data["collection_name"],
+    data["meta_path"],
+    data["model"],
+    data["rows"],
+)
 """
 
 _DELETE_STUB = """\
 from plugin.scripting.embeddings_index import delete_paragraphs as _delete
-result = _delete(data["db_path"], data["keys"])
+result = _delete(
+    data["persist_dir"],
+    data["collection_name"],
+    data["meta_path"],
+    data["keys"],
+    model_name=data["model"],
+)
 """
 
 _SEARCH_STUB = """\
 from plugin.scripting.embeddings_index import knn_search as _search
-result = _search(data["db_path"], data["query"], data["k"], model_name=data["model"])
+result = _search(
+    data["persist_dir"],
+    data["collection_name"],
+    data["query"],
+    data["k"],
+    model_name=data["model"],
+    doc_url_filter=data.get("doc_url_filter"),
+)
+"""
+
+_STATS_STUB = """\
+from plugin.scripting.embeddings_index import collection_stats as _stats
+result = _stats(
+    data["persist_dir"],
+    data["collection_name"],
+    data["meta_path"],
+    model_name=data.get("model", ""),
+)
 """
 
 
@@ -55,7 +84,15 @@ def _run_worker(ctx: Any, stub: str, payload: dict[str, Any], *, model: str) -> 
     return result
 
 
-def index_paragraphs(ctx: Any, db_path: str, rows: list[dict[str, Any]], *, model: str) -> dict[str, Any]:
+def index_paragraphs(
+    ctx: Any,
+    persist_dir: str,
+    collection_name: str,
+    meta_path: str,
+    rows: list[dict[str, Any]],
+    *,
+    model: str,
+) -> dict[str, Any]:
     """Persist paragraph rows + vectors via the warm venv worker."""
     model_name = (model or "").strip()
     if not model_name:
@@ -63,12 +100,26 @@ def index_paragraphs(ctx: Any, db_path: str, rows: list[dict[str, Any]], *, mode
     return _run_worker(
         ctx,
         _INDEX_STUB,
-        {"db_path": str(db_path), "model": model_name, "rows": list(rows or [])},
+        {
+            "persist_dir": str(persist_dir),
+            "collection_name": str(collection_name),
+            "meta_path": str(meta_path),
+            "model": model_name,
+            "rows": list(rows or []),
+        },
         model=model_name,
     )
 
 
-def delete_paragraphs(ctx: Any, db_path: str, keys: list[dict[str, Any]], *, model: str) -> dict[str, Any]:
+def delete_paragraphs(
+    ctx: Any,
+    persist_dir: str,
+    collection_name: str,
+    meta_path: str,
+    keys: list[dict[str, Any]],
+    *,
+    model: str,
+) -> dict[str, Any]:
     """Remove paragraph index rows via the warm venv worker."""
     model_name = (model or "").strip()
     if not model_name:
@@ -76,22 +127,67 @@ def delete_paragraphs(ctx: Any, db_path: str, keys: list[dict[str, Any]], *, mod
     return _run_worker(
         ctx,
         _DELETE_STUB,
-        {"db_path": str(db_path), "keys": list(keys or [])},
+        {
+            "persist_dir": str(persist_dir),
+            "collection_name": str(collection_name),
+            "meta_path": str(meta_path),
+            "keys": list(keys or []),
+            "model": model_name,
+        },
         model=model_name,
     )
 
 
-def knn_search(ctx: Any, db_path: str, query: str, k: int, *, model: str) -> dict[str, Any]:
-    """Semantic search over a folder index.db via the warm venv worker."""
+def knn_search(
+    ctx: Any,
+    persist_dir: str,
+    collection_name: str,
+    query: str,
+    k: int,
+    *,
+    model: str,
+    doc_url_filter: str | None = None,
+) -> dict[str, Any]:
+    """Semantic search over a folder Chroma index via the warm venv worker."""
     model_name = (model or "").strip()
     if not model_name:
         raise ToolExecutionError("No embedding model configured.", code="EMBEDDING_MODEL_MISSING")
     return _run_worker(
         ctx,
         _SEARCH_STUB,
-        {"db_path": str(db_path), "query": str(query or ""), "k": int(k or 5), "model": model_name},
+        {
+            "persist_dir": str(persist_dir),
+            "collection_name": str(collection_name),
+            "query": str(query or ""),
+            "k": int(k or 5),
+            "model": model_name,
+            "doc_url_filter": doc_url_filter,
+        },
         model=model_name,
     )
 
 
-__all__ = ["index_paragraphs", "delete_paragraphs", "knn_search"]
+def collection_stats(
+    ctx: Any,
+    persist_dir: str,
+    collection_name: str,
+    meta_path: str,
+    *,
+    model: str = "",
+) -> dict[str, Any]:
+    """Lightweight Chroma corpus stats for host empty/stale checks."""
+    model_name = (model or "").strip()
+    return _run_worker(
+        ctx,
+        _STATS_STUB,
+        {
+            "persist_dir": str(persist_dir),
+            "collection_name": str(collection_name),
+            "meta_path": str(meta_path),
+            "model": model_name,
+        },
+        model=model_name or "stats",
+    )
+
+
+__all__ = ["collection_stats", "delete_paragraphs", "index_paragraphs", "knn_search"]

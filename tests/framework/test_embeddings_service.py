@@ -27,13 +27,37 @@ def test_knn_search_happy_path(ctx):
     worker_payload = {"hits": [{"doc_url": "file:///a.odt", "para_index": 0, "score": 0.9}]}
     with patch("plugin.framework.client.embeddings_service.run_code_in_user_venv", return_value={"status": "ok", "result": worker_payload}) as mock_run:
         with patch("plugin.framework.client.embeddings_service.configured_python_exec_timeout", return_value=30):
-            result = embeddings_service.knn_search(ctx, "/tmp/index.db", "query", 5, model=DEFAULT_EMBEDDING_MODEL)
+            result = embeddings_service.knn_search(
+                ctx,
+                "/tmp/chroma",
+                "folder_key",
+                "query",
+                5,
+                model=DEFAULT_EMBEDDING_MODEL,
+            )
     assert result["hits"][0]["doc_url"] == "file:///a.odt"
     assert mock_run.call_args.kwargs["worker_pool"] == WORKER_POOL_EMBEDDINGS
+    payload = mock_run.call_args.kwargs["data"]
+    assert payload["persist_dir"] == "/tmp/chroma"
+    assert payload["collection_name"] == "folder_key"
 
 
 def test_index_paragraphs_worker_error(ctx):
     with patch("plugin.framework.client.embeddings_service.run_code_in_user_venv", return_value={"status": "error", "message": "boom"}):
         with patch("plugin.framework.client.embeddings_service.configured_python_exec_timeout", return_value=30):
             with pytest.raises(ToolExecutionError, match="boom"):
-                embeddings_service.index_paragraphs(ctx, "/tmp/index.db", [], model=DEFAULT_EMBEDDING_MODEL)
+                embeddings_service.index_paragraphs(
+                    ctx,
+                    "/tmp/chroma",
+                    "folder_key",
+                    "/tmp/meta.json",
+                    [],
+                    model=DEFAULT_EMBEDDING_MODEL,
+                )
+
+
+def test_collection_stats_rpc(ctx):
+    with patch("plugin.framework.client.embeddings_service.run_code_in_user_venv", return_value={"status": "ok", "result": {"chunk_count": 5}}):
+        with patch("plugin.framework.client.embeddings_service.configured_python_exec_timeout", return_value=30):
+            result = embeddings_service.collection_stats(ctx, "/tmp/chroma", "folder_key", "/tmp/meta.json")
+    assert result["chunk_count"] == 5

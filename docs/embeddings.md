@@ -1,8 +1,32 @@
 # Embeddings — Development Plan
 
-> **Status (2026-06):** **Phase B shipped** — per-folder `index.db`, `search_embeddings` tool, background folder indexer ([`embeddings_cache.py`](../plugin/doc/embeddings_cache.py), [`embeddings_indexer.py`](../plugin/doc/embeddings_indexer.py), [`embeddings_periodic.py`](../plugin/doc/embeddings_periodic.py), [`embeddings_service.py`](../plugin/framework/client/embeddings_service.py)). **Dedicated embeddings subprocess + 60 s in-RAM corpus cache** — embed/index/search use `worker_pool=WORKER_POOL_EMBEDDINGS` ([`venv_worker.py`](../plugin/scripting/venv_worker.py), [`embeddings_index.py`](../plugin/scripting/embeddings_index.py)); Calc/chat stay on the default pool. **Incremental maintenance:** filesystem **mtime** vs **`last_indexed_at`** per file, paragraph **`content_hash`** diff, and a **periodic background tick** (`EMBEDDINGS_INDEX_INTERVAL_S`, default 5 min) for the active folder when `DOCUMENT_RESEARCH_SEARCH_MODE=embeddings`. **Phase A:** host `embed_texts()` + trusted venv encode ([`embedding_client.py`](../plugin/framework/client/embedding_client.py)). **Search mode:** compile-time `DOCUMENT_RESEARCH_SEARCH_MODE` in [`constants.py`](../plugin/framework/constants.py) — `"grep"` (default) or `"embeddings"` (mutually exclusive tool registration). Bench harness: [`scripts/bench_embeddings.py`](../scripts/bench_embeddings.py). **Scope (MVP):** one cache per **filesystem folder** (all indexable siblings in that directory) — not per-file caches, not a global index, not in-document RAG storage. **On-disk storage:** single `index.db` per folder (locators + vectors) using standard SQLite; host and embeddings subprocess open the same file directly and pass references (db path / folder key) rather than bulk corpus data. **Supported path today:** normalized float32 vectors in **`chunks.embedding` BLOB** + NumPy dot + top-k in the embeddings venv ([bench](#benchmark-on-your-machine): sub-ms at ~350 paragraphs). **sqlite-vec vec0 is optional** — code probes and uses it when installed, but **do not rely on it** for MVP or dogfood; revisit only if folder-sized profiling shows NumPy search is too slow. Embed compute uses the embeddings warm-worker Pickle5 path. **Phase C live hooks (`XProofreading`, write-tool dirty marks) are not planned** — periodic mtime refresh is sufficient (see [Phase C](#phase-c-incremental)).
+> **Status (2026-06):** **Chroma + LangGraph shipped (schema v2)** — per-folder **Chroma** persist dir + `corpus_meta.json` / `file_index_state.json` on the host ([`embeddings_cache.py`](../plugin/doc/embeddings_cache.py)). **Ingest:** LangGraph pipeline in [`embeddings_ingest_graph.py`](../plugin/scripting/embeddings_ingest_graph.py) (`RecursiveCharacterTextSplitter` → embed → Chroma upsert). **Search:** LangGraph pipeline in [`embeddings_search_graph.py`](../plugin/scripting/embeddings_search_graph.py) (Chroma retrieve → metadata filter → MMR rerank). RPC facades: [`embeddings_index.py`](../plugin/scripting/embeddings_index.py), [`embeddings_service.py`](../plugin/framework/client/embeddings_service.py). **`search_embeddings`** tool + background folder indexer unchanged at the agent surface. **Dedicated embeddings subprocess** — `worker_pool=WORKER_POOL_EMBEDDINGS`. **Incremental maintenance:** host **mtime** + paragraph **`content_hash`** in `file_index_state.json`; periodic tick (`EMBEDDINGS_INDEX_INTERVAL_S`, default 5 min). **Upgrade:** legacy `index.db` is deleted on first access; **cold rebuild** into Chroma. **Venv packages:** `sentence-transformers`, `chromadb`, `langgraph`, `langchain-core`, `langchain-text-splitters` (see [Venv setup](#local-embedders-mvp)). **Search mode:** `DOCUMENT_RESEARCH_SEARCH_MODE` in [`constants.py`](../plugin/framework/constants.py). Bench: [`scripts/bench_embeddings.py`](../scripts/bench_embeddings.py) (encode baseline; Chroma ingest/search bench TBD). **Scope:** one cache per filesystem folder — not per-file, not global, not in-document RAG. **Historical:** SQLite `index.db` + NumPy/sqlite-vec path removed in schema v2.
 
 **Related:** [cython-extension.md](cython-extension.md) · [enabling_numpy_in_libreoffice.md](enabling_numpy_in_libreoffice.md) · [multi-document-dev-plan.md](multi-document-dev-plan.md) · [langchain-plan.md](langchain-plan.md) (chat memory / summarization only)
+
+### Chroma + LangGraph layout (schema v2)
+
+```text
+…/user/writeragent_embeddings/<folder_corpus_key>/
+  chroma/                  # Chroma PersistentClient (collection name = folder_corpus_key)
+  corpus_meta.json         # schema_version, embedding_model, dim, chunk_count, updated_at
+  file_index_state.json    # host-only: per-file mtime / paragraph content_hash (incremental diff)
+```
+
+| Module | Role |
+|--------|------|
+| [`embeddings_chroma.py`](../plugin/scripting/embeddings_chroma.py) | Chroma client, chunk IDs, metadata schema |
+| [`embeddings_ingest_graph.py`](../plugin/scripting/embeddings_ingest_graph.py) | LangGraph: split → embed → upsert / delete |
+| [`embeddings_search_graph.py`](../plugin/scripting/embeddings_search_graph.py) | LangGraph: query → Chroma → filter → MMR → hits |
+| [`embeddings_index.py`](../plugin/scripting/embeddings_index.py) | Thin RPC facades + `embed_texts()` |
+
+**Venv install (minimum):**
+
+```bash
+pip install numpy sentence-transformers chromadb langgraph langchain-core langchain-text-splitters
+```
+
+Legacy **`index.db`** (SQLite BLOB / sqlite-vec) is removed on upgrade; the next index pass cold-builds into Chroma.
 
 ---
 

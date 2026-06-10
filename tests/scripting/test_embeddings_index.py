@@ -18,10 +18,8 @@ from plugin.scripting import embeddings_index
 @pytest.fixture(autouse=True)
 def clear_model_cache():
     embeddings_index._MODEL_CACHE.clear()
-    embeddings_index._CORPUS_RAM_CACHE.clear()
     yield
     embeddings_index._MODEL_CACHE.clear()
-    embeddings_index._CORPUS_RAM_CACHE.clear()
 
 
 def test_embed_texts_empty_input():
@@ -73,129 +71,33 @@ def test_embed_texts_requires_model_name():
         embeddings_index.embed_texts("", ["text"])
 
 
-def test_index_paragraphs_blob_fallback(tmp_path):
-    db_path = tmp_path / "index.db"
-    import sqlite3
-
-    from plugin.doc.embeddings_cache import ensure_host_schema
-
-    with sqlite3.connect(db_path) as conn:
-        conn.row_factory = sqlite3.Row
-        ensure_host_schema(conn, embedding_model="all-MiniLM-L6-v2")
-
-    mock_embedder = MagicMock()
-    mock_embedder.encode.side_effect = lambda texts, **_: [__import__("numpy").array([1.0, 0.0], dtype=__import__("numpy").float32) for _ in texts]
-
-    rows = [
-        {
-            "doc_url": "file:///a.odt",
-            "para_index": 0,
-            "char_start": 0,
-            "char_end": 4,
-            "content_hash": "abc",
-            "text": "hello",
-            "file_mtime": 1.0,
-        }
-    ]
-
-    with patch.object(embeddings_index, "_SQLITE_VEC_AVAILABLE", False):
-        with patch.object(embeddings_index, "_get_embedder", return_value=mock_embedder):
-            result = embeddings_index.index_paragraphs(str(db_path), "all-MiniLM-L6-v2", rows)
-
-    assert result["indexed"] == 1
-    assert result["storage_backend"] == "blob_numpy"
-
-    with patch.object(embeddings_index, "_SQLITE_VEC_AVAILABLE", False):
-        with patch.object(embeddings_index, "_get_embedder", return_value=mock_embedder):
-            search = embeddings_index.knn_search(str(db_path), "hello", 1, model_name="all-MiniLM-L6-v2")
-
-    assert len(search["hits"]) == 1
-    assert search["hits"][0]["doc_url"] == "file:///a.odt"
+def test_index_paragraphs_delegates_to_ingest_graph():
+    with patch("plugin.scripting.embeddings_ingest_graph.ingest_paragraphs", return_value={"indexed": 2, "dim": 384, "storage_backend": "chroma"}) as mock_ingest:
+        result = embeddings_index.index_paragraphs("/chroma", "folder_key", "/meta.json", "all-MiniLM-L6-v2", [{"text": "hi"}])
+    assert result["indexed"] == 2
+    mock_ingest.assert_called_once()
 
 
-def _seed_blob_index(tmp_path, mock_embedder):
-    db_path = tmp_path / "index.db"
-    import sqlite3
-
-    from plugin.doc.embeddings_cache import ensure_host_schema
-
-    with sqlite3.connect(db_path) as conn:
-        conn.row_factory = sqlite3.Row
-        ensure_host_schema(conn, embedding_model="all-MiniLM-L6-v2")
-
-    rows = [
-        {
-            "doc_url": "file:///a.odt",
-            "para_index": 0,
-            "char_start": 0,
-            "char_end": 4,
-            "content_hash": "abc",
-            "text": "hello",
-            "file_mtime": 1.0,
-        }
-    ]
-    with patch.object(embeddings_index, "_SQLITE_VEC_AVAILABLE", False):
-        with patch.object(embeddings_index, "_get_embedder", return_value=mock_embedder):
-            embeddings_index.index_paragraphs(str(db_path), "all-MiniLM-L6-v2", rows)
-    return db_path
+def test_knn_search_delegates_to_search_graph():
+    hits = [{"doc_url": "file:///a.odt", "para_index": 0, "score": 0.9}]
+    with patch("plugin.scripting.embeddings_search_graph.search_embeddings_graph", return_value={"hits": hits}) as mock_search:
+        result = embeddings_index.knn_search("/chroma", "folder_key", "query", 5, model_name="all-MiniLM-L6-v2")
+    assert result["hits"] == hits
+    mock_search.assert_called_once()
 
 
-def test_knn_search_reuses_corpus_ram_cache(tmp_path):
-    mock_embedder = MagicMock()
-    mock_embedder.encode.side_effect = lambda texts, **_: [np.array([1.0, 0.0], dtype=np.float32) for _ in texts]
-    db_path = _seed_blob_index(tmp_path, mock_embedder)
+def test_delete_paragraphs_removes_from_chroma(tmp_path):
+    mock_collection = MagicMock()
+    mock_collection.count.return_value = 0
+    meta_path = tmp_path / "corpus_meta.json"
+    meta_path.write_text('{"chunk_count": "1"}', encoding="utf-8")
 
-    with patch.object(embeddings_index, "_SQLITE_VEC_AVAILABLE", False):
-        with patch.object(embeddings_index, "_get_embedder", return_value=mock_embedder):
-            with patch.object(embeddings_index, "_load_blob_corpus", wraps=embeddings_index._load_blob_corpus) as load:
-                embeddings_index.knn_search(str(db_path), "hello", 1, model_name="all-MiniLM-L6-v2")
-                embeddings_index.knn_search(str(db_path), "hello", 1, model_name="all-MiniLM-L6-v2")
-
-    assert load.call_count == 1
-
-
-def test_index_paragraphs_invalidates_corpus_ram_cache(tmp_path):
-    mock_embedder = MagicMock()
-    mock_embedder.encode.side_effect = lambda texts, **_: [np.array([1.0, 0.0], dtype=np.float32) for _ in texts]
-    db_path = _seed_blob_index(tmp_path, mock_embedder)
-
-    with patch.object(embeddings_index, "_SQLITE_VEC_AVAILABLE", False):
-        with patch.object(embeddings_index, "_get_embedder", return_value=mock_embedder):
-            with patch.object(embeddings_index, "_load_blob_corpus", wraps=embeddings_index._load_blob_corpus) as load:
-                embeddings_index.knn_search(str(db_path), "hello", 1, model_name="all-MiniLM-L6-v2")
-                embeddings_index.index_paragraphs(
-                    str(db_path),
-                    "all-MiniLM-L6-v2",
-                    [
-                        {
-                            "doc_url": "file:///a.odt",
-                            "para_index": 0,
-                            "char_start": 0,
-                            "char_end": 5,
-                            "content_hash": "abcd",
-                            "text": "hello",
-                            "file_mtime": 2.0,
-                        }
-                    ],
-                )
-                embeddings_index.knn_search(str(db_path), "hello", 1, model_name="all-MiniLM-L6-v2")
-
-    assert load.call_count == 2
-
-
-def test_corpus_ram_cache_expires_after_ttl(tmp_path):
-    from plugin.framework.constants import EMBEDDINGS_CORPUS_CACHE_TTL_S
-
-    mock_embedder = MagicMock()
-    mock_embedder.encode.side_effect = lambda texts, **_: [np.array([1.0, 0.0], dtype=np.float32) for _ in texts]
-    db_path = _seed_blob_index(tmp_path, mock_embedder)
-    t0 = 1000.0
-
-    with patch.object(embeddings_index, "_SQLITE_VEC_AVAILABLE", False):
-        with patch.object(embeddings_index, "_get_embedder", return_value=mock_embedder):
-            with patch.object(embeddings_index, "_load_blob_corpus", wraps=embeddings_index._load_blob_corpus) as load:
-                with patch.object(embeddings_index.time, "monotonic", side_effect=[t0, t0 + EMBEDDINGS_CORPUS_CACHE_TTL_S + 1]):
-                    embeddings_index.knn_search(str(db_path), "hello", 1, model_name="all-MiniLM-L6-v2")
-                    embeddings_index.knn_search(str(db_path), "hello", 1, model_name="all-MiniLM-L6-v2")
-
-    assert load.call_count == 2
+    with patch("plugin.scripting.embeddings_chroma.get_collection", return_value=mock_collection):
+        with patch("plugin.scripting.embeddings_chroma.delete_paragraph_keys", return_value=1):
+            result = embeddings_index.delete_paragraphs(
+                str(tmp_path),
+                "folder_key",
+                str(meta_path),
+                [{"doc_url": "file:///a.odt", "para_index": 0}],
+            )
+    assert result["deleted"] == 1

@@ -43,6 +43,8 @@ CHAT_DOCUMENT_CONTEXT_MAX_CHARS = 8000
 # Local sentence-transformers default until multi-model bench picks a winner (docs/embeddings.md).
 DEFAULT_EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 EMBEDDINGS_WORKER_SESSION_PREFIX = "embeddings"
+# Host corpus_meta.json / Chroma schema version (docs/embeddings.md).
+EMBEDDINGS_SCHEMA_VERSION = "2"
 # Background folder index tick when DOCUMENT_RESEARCH_SEARCH_MODE=embeddings (docs/embeddings.md).
 EMBEDDINGS_INDEX_INTERVAL_S = 300
 # Warm venv worker pools (docs/embeddings.md — dedicated embeddings subprocess).

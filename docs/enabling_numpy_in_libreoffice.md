@@ -205,9 +205,9 @@ The **AST sandbox** (`LocalPythonExecutor` + `VENV_AUTHORIZED_IMPORTS`) applies 
 
 | Layer | Interpreter | Sandbox? | Typical use |
 |-------|-------------|----------|-------------|
-| **LibreOffice host** | Embedded Python in-process | No NumPy; stdlib + UNO | UNO, config, chunk extract, **`sqlite3` locator rows**, enqueue index work |
+| **LibreOffice host** | Embedded Python in-process | No NumPy; stdlib + UNO | UNO, config, chunk extract, **`file_index_state.json`** / **`corpus_meta.json`**, enqueue index work |
 | **User venv worker** | User’s venv subprocess | **Yes** for user `code` strings | `=PYTHON()`, `run_venv_python_script` |
-| **Trusted venv modules** | Same subprocess | **No** (normal CPython inside the module) | [`payload_codec.py`](../plugin/scripting/payload_codec.py), [`embeddings_index.py`](../plugin/scripting/embeddings_index.py) (encode; search Phase B), [`calc_functions.py`](../plugin/scripting/calc_functions.py) (Calc parity helpers; auto-imported as `xl` in `=PY()` / LLM scripts) |
+| **Trusted venv modules** | Same subprocess | **No** (normal CPython inside the module) | [`embeddings_index.py`](../plugin/scripting/embeddings_index.py), [`embeddings_chroma.py`](../plugin/scripting/embeddings_chroma.py), [`embeddings_ingest_graph.py`](../plugin/scripting/embeddings_ingest_graph.py), [`embeddings_search_graph.py`](../plugin/scripting/embeddings_search_graph.py), [`payload_codec.py`](../plugin/scripting/payload_codec.py), [`calc_functions.py`](../plugin/scripting/calc_functions.py) |
 
 #### How trusted venv code runs
 
@@ -216,14 +216,14 @@ The **AST sandbox** (`LocalPythonExecutor` + `VENV_AUTHORIZED_IMPORTS`) applies 
 
    ```python
    from plugin.scripting.embeddings_index import knn_search
-   result = knn_search(db_path, query_vec, k)
+   result = knn_search(persist_dir, collection_name, query, k, model_name=model)
    ```
 
-3. The harness still routes the request through [`run_sandboxed_code`](../plugin/scripting/venv_sandbox.py), but only the **stub** is AST-walked. The **imported module** executes as ordinary Python bytecode — filesystem access, `sqlite3`, sqlite-vec, etc. live **inside that module**, not in user scripts.
+3. The harness still routes the request through [`run_sandboxed_code`](../plugin/scripting/venv_sandbox.py), but only the **stub** is AST-walked. The **imported module** executes as ordinary Python bytecode — filesystem access, Chroma, LangGraph, etc. live **inside that module**, not in user scripts.
 
-4. **Optional whitelist entry** — add `plugin.scripting.embeddings_index` (or similar) to [`VENV_AUTHORIZED_IMPORTS`](../plugin/scripting/sandbox_imports.py) so the stub’s `import` passes static policy. **Do not** add `sqlite3`, `os`, or `sqlite_vec` to the LLM import list; keep those imports inside the trusted module only.
+4. **Optional whitelist entry** — add trusted `plugin.scripting.*` modules to [`VENV_AUTHORIZED_IMPORTS`](../plugin/scripting/sandbox_imports.py) so the stub’s `import` passes static policy. **Do not** add `chromadb`, `langgraph`, or `os` to the LLM import list; keep those imports inside the trusted module only.
 
-5. **IPC for bulk data** — pass paragraph lists, query vectors, and `k` via worker **`data=`** (Pickle5) where possible so the stub stays tiny; trusted code may still `open(db_path)` for `index.db` / vec0 maintenance.
+5. **IPC for bulk data** — pass paragraph lists, query text, and `k` via worker **`data=`** (Pickle5); trusted code opens the Chroma persist dir by path reference from the host.
 
 #### What not to do
 
@@ -296,7 +296,7 @@ The host side (stdlib + UNO) is responsible for:
 
 This is the preferred route for any capability that would be awkward, insecure, or impossible inside the LLM sandbox. The LLM (main agent or a specialized delegate) is used for high-level planning, interpretation, and synthesis — not for writing the heavy numeric or I/O code itself.
 
-**Embeddings indexing strategy reminder:** The per-directory semantic index described in [embeddings.md](embeddings.md) (one `index.db` under `writeragent_embeddings/<folder_corpus_key>/` for all indexable siblings in that filesystem folder, using standard SQLite + optional vec0 in the venv) is the **primary (and currently only) cross-document search index**. Do not create additional vector indexes (no per-file sidecars, no global index across the machine, no separate in-document RAG vector stores whose job is search). Within one already-open document, continue to use the existing fast keyword, outline, sheet navigation, and read tools. Embeddings are the "outer router" for `document_research` (and optionally main chat before delegation). After a hit, open one or a few files and let the inner agent use precise read tools at the returned locators.
+**Embeddings indexing strategy reminder:** The per-directory semantic index described in [embeddings.md](embeddings.md) (one Chroma persist dir under `writeragent_embeddings/<folder_corpus_key>/` for all indexable siblings in that filesystem folder, orchestrated by LangGraph in the venv) is the **primary cross-document search index**. Do not create additional vector indexes. Within one already-open document, continue to use the existing fast keyword, outline, sheet navigation, and read tools.
 
 The subsections below outline other high-value directions that become practical once trusted code has unrestricted access to the full scientific stack in the user's venv. All discussion assumes a local focus (the warm worker + packages the user has chosen to install) unless otherwise noted.
 
