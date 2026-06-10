@@ -23,7 +23,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.scripting.config_limits import WARM_WORKER_TIMEOUT_SEC
+from plugin.scripting.config_limits import VISION_PROBE_TIMEOUT_SEC, WARM_WORKER_TIMEOUT_SEC
 from plugin.scripting.venv_worker import (
     PythonWorkerManager,
     _worker_error_message,
@@ -881,13 +881,80 @@ def test_run_venv_self_check_includes_vision():
         "skimage": None,
     }
     with patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr), patch(
-        "plugin.scripting.venv_worker._probe_vision_packages", return_value=vision_probes
+        "plugin.scripting.venv_worker._probe_vision_packages", return_value=(vision_probes, None)
     ):
         ok, msg = run_venv_self_check("/x/python", timeout=1.0)
     assert ok is True
     assert "Vision Libraries" in msg
     assert "pip install" not in msg
     assert "Helpers" not in msg
+
+
+def test_run_venv_self_check_uses_vision_probe_timeout():
+    mock_mgr = MagicMock()
+    mock_mgr.execute.return_value = {
+        "status": "ok",
+        "result": {"v": "3.12.0", "p": {}, "sci": [], "eda": [], "ui": []},
+    }
+    with patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr), patch(
+        "plugin.scripting.venv_worker._probe_vision_packages", return_value=({}, None)
+    ) as mock_probe:
+        run_venv_self_check("/x/python", timeout=1.0)
+    mock_probe.assert_called_once_with("/x/python", timeout=float(VISION_PROBE_TIMEOUT_SEC))
+
+
+def test_probe_vision_packages_timeout_reports_failure():
+    mock_mgr = MagicMock()
+    mock_mgr.execute.return_value = {
+        "status": "ok",
+        "result": {
+            "v": "3.12.0",
+            "arch": "x86_64",
+            "p": {},
+            "sci": [],
+            "eda": [],
+            "ui": [],
+        },
+    }
+    timeout_hint = "Vision probe timed out (Docling import can take 10–30s on first check)."
+    with patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr), patch(
+        "plugin.scripting.venv_worker._probe_vision_packages", return_value=({}, timeout_hint)
+    ):
+        ok, msg = run_venv_self_check("/x/python", timeout=1.0)
+    assert ok is True
+    assert "Vision Libraries" in msg
+    assert timeout_hint in msg
+    assert "Missing: docling" in msg
+
+
+def test_format_self_check_success_vision_probe_failure_hint():
+    from plugin.scripting.venv_worker import _format_self_check_success
+
+    data = {
+        "v": "3.12.0",
+        "p": {},
+        "sci": [],
+        "eda": [],
+        "ui": [],
+        "vision": ["docling", "rapidocr", "css_inline", "paddleocr", "paddle", "ultralytics", "skimage"],
+        "vision_probe_failure": "Vision probe timed out (Docling import can take 10–30s on first check).",
+    }
+    msg = _format_self_check_success(data)
+    assert "Vision probe timed out" in msg
+    assert "Missing: docling" in msg
+
+
+def test_probe_vision_packages_subprocess_timeout():
+    from plugin.scripting.venv_worker import _probe_vision_packages
+
+    with patch(
+        "plugin.scripting.venv_worker.subprocess.run",
+        side_effect=subprocess.TimeoutExpired(cmd=["python"], timeout=30),
+    ):
+        probes, hint = _probe_vision_packages("/x/python", timeout=30.0)
+    assert probes == {}
+    assert hint is not None
+    assert "timed out" in hint.lower()
 
 
 def test_format_self_check_success_analysis_install_hint():

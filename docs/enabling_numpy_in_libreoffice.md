@@ -80,7 +80,7 @@ Module implementation: `plugin/scripting/` (no top-level `python/` package — a
 
 - **Empty path:** `run_venv_python_script` and `=PYTHON()` fall back to **`sys.executable`** (LibreOffice’s embedded Python) — stdlib-only unless that interpreter happens to have extra packages; **use a dedicated venv for NumPy**.
 - **No automatic venv creation** — the user brings their own environment.
-- **Test button:** Validates the path is a directory, resolves `bin/python` or `Scripts\python.exe`, and runs a warm-worker diagnostic via [`run_venv_self_check`](../plugin/scripting/venv_worker.py). Reports **Scientific**, **Data Analysis / EDA**, **UI / Monaco**, and **Vision Libraries** groups (Present/Missing). When OCR packages are absent, the message includes `pip install docling rapidocr-paddle numpy pillow css-inline` (see [Image Recognition](image-recognition.md)).
+- **Test button:** Validates the path is a directory, resolves `bin/python` or `Scripts\python.exe`, and runs a warm-worker diagnostic via [`run_venv_self_check`](../plugin/scripting/venv_worker.py). Reports **Scientific**, **Data Analysis / EDA**, **UI / Monaco**, and **Vision Libraries** groups (Present/Missing). Vision imports use a dedicated ~30s host subprocess probe (`VISION_PROBE_TIMEOUT_SEC` in [`config_limits.py`](../plugin/scripting/config_limits.py)) because Docling cold import can exceed 5s on modest hardware. When OCR packages are absent, the message includes `pip install docling rapidocr-paddle numpy pillow css-inline` (see [Image Recognition](image-recognition.md)).
 
 ### Execution paths (shipped)
 

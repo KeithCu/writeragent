@@ -25,6 +25,9 @@ VISION_WORKER_TIMEOUT_SEC = 120
 # Docling layout + OCR cold start can exceed the Paddle-only budget.
 DOCLING_WORKER_TIMEOUT_SEC = 300
 
+# Settings → Python Test: host subprocess import probe (Docling cold import can exceed 5s).
+VISION_PROBE_TIMEOUT_SEC = 30
+
 _DATA_CELLS_CONFIG_KEY = "scripting.python_max_data_cells"
 
 

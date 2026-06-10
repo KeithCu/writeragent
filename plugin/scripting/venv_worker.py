@@ -27,6 +27,7 @@ from plugin.framework.config import get_config_str
 from plugin.framework.i18n import _
 from plugin.framework.constants import WORKER_POOL_DEFAULT
 from plugin.scripting.config_limits import (
+    VISION_PROBE_TIMEOUT_SEC,
     WARM_WORKER_TIMEOUT_SEC,
     configured_python_exec_timeout,
     python_exec_timeout_default,
@@ -395,48 +396,56 @@ out = {}
 try:
     import docling.document_converter  # noqa: F401
     out["docling"] = "present"
-except ImportError as exc:
+except Exception as exc:
     out["docling"] = None
     out["docling_import_error"] = str(exc)
 try:
     import rapidocr
     out["rapidocr"] = "present"
-except ImportError:
+except Exception:
     try:
         import rapidocr_onnxruntime
         out["rapidocr"] = "present"
-    except ImportError:
+    except Exception:
         out["rapidocr"] = None
 try:
     import paddleocr
     out["paddleocr"] = "present"
-except ImportError:
+except Exception:
     out["paddleocr"] = None
 try:
     import paddle
     out["paddle"] = "present"
-except ImportError:
+except Exception:
     out["paddle"] = None
 try:
     import ultralytics
     out["ultralytics"] = "present"
-except ImportError:
+except Exception:
     out["ultralytics"] = None
 try:
     import skimage
     out["skimage"] = "present"
-except ImportError:
+except Exception:
     out["skimage"] = None
 try:
     import css_inline  # noqa: F401
     out["css_inline"] = "present"
-except ImportError:
+except Exception:
     out["css_inline"] = None
 print(json.dumps(out))
 """
 
+_VISION_PROBE_TIMEOUT_HINT = _(
+    "Vision probe timed out (Docling import can take 10–30s on first check)."
+)
+_VISION_PROBE_FAILED_HINT = _("Vision probe failed (see writeragent_debug.log).")
 
-def _probe_vision_packages(python_exe: str, timeout: float = 5.0) -> dict[str, Any]:
+
+def _probe_vision_packages(
+    python_exe: str,
+    timeout: float = VISION_PROBE_TIMEOUT_SEC,
+) -> Tuple[dict[str, Any], Optional[str]]:
     """Import-check vision stack in the real venv interpreter (not the sandboxed warm worker)."""
     try:
         proc = subprocess.run(
@@ -446,15 +455,23 @@ def _probe_vision_packages(python_exe: str, timeout: float = 5.0) -> dict[str, A
             timeout=max(1.0, timeout),
             env=scrub_subprocess_env(dict(os.environ)),
         )
-    except (OSError, subprocess.TimeoutExpired):
-        return {}
+    except subprocess.TimeoutExpired:
+        return {}, _VISION_PROBE_TIMEOUT_HINT
+    except OSError as exc:
+        log.warning("Vision package probe could not run: %s", exc)
+        return {}, _VISION_PROBE_FAILED_HINT
     if proc.returncode != 0:
-        return {}
+        stderr = (proc.stderr or "").strip()[:200]
+        log.warning("Vision package probe exit %s: %s", proc.returncode, stderr)
+        return {}, _VISION_PROBE_FAILED_HINT
     try:
         parsed = json.loads((proc.stdout or "").strip() or "{}")
     except json.JSONDecodeError:
-        return {}
-    return parsed if isinstance(parsed, dict) else {}
+        log.warning("Vision package probe returned invalid JSON: %r", (proc.stdout or "")[:200])
+        return {}, _VISION_PROBE_FAILED_HINT
+    if not isinstance(parsed, dict):
+        return {}, _VISION_PROBE_FAILED_HINT
+    return parsed, None
 
 
 def _format_self_check_success(data: dict[str, Any]) -> str:
@@ -502,6 +519,9 @@ def _format_self_check_success(data: dict[str, Any]) -> str:
         msg_lines.extend(format_group(_("Quantitative Finance Libraries"), quant_list))
     if vision_list:
         msg_lines.extend(format_group(_("Vision Libraries"), vision_list))
+        vision_failure = data.get("vision_probe_failure")
+        if vision_failure:
+            msg_lines.append(f"  {vision_failure}")
 
     return "\n".join(msg_lines)
 
@@ -525,12 +545,16 @@ def run_venv_self_check(python_exe: str, timeout: float = 10.0) -> Tuple[bool, s
     if not isinstance(data, dict):
         return False, f"Unexpected output from test run: {data!r}"
 
-    vision_probes = _probe_vision_packages(python_exe, timeout=min(5.0, float(timeout_sec)))
-    if vision_probes:
-        packages = data.setdefault("p", {})
-        if isinstance(packages, dict):
-            packages.update(vision_probes)
+    vision_probes, vision_failure = _probe_vision_packages(
+        python_exe,
+        timeout=float(VISION_PROBE_TIMEOUT_SEC),
+    )
+    packages = data.setdefault("p", {})
+    if isinstance(packages, dict) and vision_probes:
+        packages.update(vision_probes)
     data["vision"] = list(_VISION_PACKAGE_KEYS)
+    if vision_failure:
+        data["vision_probe_failure"] = vision_failure
 
     try:
         return True, _format_self_check_success(data)
