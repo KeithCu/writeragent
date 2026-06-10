@@ -1052,11 +1052,17 @@ Varargs deliver separate arrays per range ([§9](#9-multi-range-support-varargs)
 
 **Touch:** [`plugin/scripting/`](../plugin/scripting/) or [`plugin/calc/calc_addin_data.py`](../plugin/calc/calc_addin_data.py). **Tests:** `tests/scripting/`.
 
-#### Shared-kernel dependency / invalidation (optional)
+#### Shared-kernel dependency / invalidation & soft-timeout recovery
 
 With shared globals, Calc's DAG tracks `data` cell references, not Python global mutations. A downstream cell may read stale namespace state if an upstream cell changed a global without passing it through `data`.
 
-**Consider:** AST read/write analysis per cell formula to build a dependency graph and invalidate dependents. **Defer** until users report stale cells in shared-kernel workbooks. **Touch:** [`session_manager.py`](../plugin/scripting/session_manager.py).
+Furthermore, if the worker process is terminated (e.g., due to a timeout/infinite loop in user code), the entire shared global namespace is wiped. On partial recalculations, unaffected upstream cells (which are still marked as "clean" by Calc) are skipped, meaning their variables are not re-declared in the new process, leading to subsequent `NameError` failures in downstream cells.
+
+**Solutions & Considerations:**
+* **Process Recovery (Soft Timeout):** Instead of immediately restarting/killing the worker on timeout, the host can send a `SIGINT` (KeyboardInterrupt) signal to halt the specific running loop while keeping the subprocess (and its shared memory namespace) alive. If the child remains unresponsive after a brief grace period (e.g., 2 seconds), the host escalates to `SIGKILL` (hard restart).
+* **Manual Rebuild (Full Recalculate):** If the memory state is wiped and results in a `NameError` on partial recalcs, the user can easily force Calc to rebuild the entire DAG state by executing a hard recalculate (**Ctrl+Shift+F9**). We reject building a complex internal AST dependency graph to automatically track and invalidate variables, as a manual hard recalc or process recovery is a far simpler and more reliable developer experience.
+
+**Touch:** [`session_manager.py`](../plugin/scripting/session_manager.py) / [`venv_worker.py`](../plugin/scripting/venv_worker.py).
 
 #### Blank vs NaN semantics on ingress
 
