@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 from plugin.writer.locale.grammar_worker_llm import (
     build_grammar_system_prompt,
     call_grammar_llm,
+    detect_languages_for_chunk,
     language_detect_llm_sync,
 )
 from plugin.writer.locale.grammar_work_queue import GrammarWorkItem
@@ -28,12 +29,14 @@ def _item(text: str = "They is here.") -> GrammarWorkItem:
     )
 
 
-def _ec(client: MagicMock | None = None) -> MagicMock:
+def _ec(client: MagicMock | None = None, *, detect_lang_mode: str = "llm") -> MagicMock:
     ec = MagicMock()
     ec.ctx = MagicMock()
     ec.client = client or MagicMock()
     ec.model = "test-model"
     ec.max_tok = 512
+    ec.detect_lang_mode = detect_lang_mode
+    ec.grammar_bcp47 = "en-US"
     return ec
 
 
@@ -82,3 +85,18 @@ def test_language_detect_llm_sync_retries_on_empty() -> None:
     assert "en-US" in out
     assert client.chat_completion_sync.call_count == 2
     assert client.chat_completion_sync.call_args_list[1].kwargs["max_tokens"] >= 256
+
+
+def test_detect_languages_for_chunk_langdetect_mode() -> None:
+    from types import SimpleNamespace
+
+    item = _item("Bonjour le monde.")
+    ec = _ec(detect_lang_mode="langdetect")
+    mock_lang = SimpleNamespace(lang="fr", prob=0.99)
+    with patch("plugin.writer.locale.grammar_worker_llm.get_cached_language", return_value=None), \
+         patch("plugin.writer.locale.grammar_worker_llm.persisted_grammar_skip_lang_detect", return_value=False), \
+         patch("plugin.contrib.langdetect.detect_langs", return_value=[mock_lang]), \
+         patch("plugin.writer.locale.grammar_worker_llm.emit_grammar_status"):
+        detected = detect_languages_for_chunk([(item, item.text)], "", ec)
+    ec.client.chat_completion_sync.assert_not_called()
+    assert detected == ["fr-FR"]

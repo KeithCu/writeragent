@@ -18,7 +18,7 @@ import hashlib
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 _log = logging.getLogger("writeragent.grammar")
 
@@ -211,6 +211,40 @@ GRAMMAR_REGISTRY_LOCALES: dict[str, str] = {
 }
 
 GRAMMAR_REGISTRY_LOCALE_TAGS: tuple[str, ...] = tuple(GRAMMAR_REGISTRY_LOCALES.keys())
+
+GrammarDetectLanguageMode = Literal["off", "llm", "langdetect"]
+
+
+def bcp47_to_langdetect_profile(bcp47: str) -> str:
+    """Map a grammar-registry BCP-47 tag to a langdetect ``profiles/`` folder name."""
+    parts = bcp47.lower().split("-")
+    lang = parts[0]
+    if lang == "zh" and len(parts) > 1:
+        return f"zh-{parts[1]}"
+    if lang in ("nb", "nn"):
+        return "no"
+    return lang
+
+
+def langdetect_profiles_for_grammar_registry() -> frozenset[str]:
+    """Unique langdetect profile files required for shipped grammar locales."""
+    return frozenset(bcp47_to_langdetect_profile(t) for t in GRAMMAR_REGISTRY_LOCALE_TAGS)
+
+
+def get_grammar_detect_language_mode(ctx: Any) -> GrammarDetectLanguageMode:
+    """Read ``doc.grammar_proofreader_detect_language`` (off / llm / langdetect; legacy bool → llm/off)."""
+    from plugin.framework.config import get_config
+
+    raw = get_config(ctx, "doc.grammar_proofreader_detect_language")
+    if isinstance(raw, bool):
+        return "llm" if raw else "off"
+    if isinstance(raw, str):
+        v = raw.strip().lower()
+        if v in ("off", "llm", "langdetect"):
+            return v  # type: ignore[return-value]
+        if v in ("1", "true", "yes", "on"):
+            return "llm"
+    return "off"
 
 
 def bcp47_to_uno_lang_country(bcp47: str) -> tuple[str, str]:

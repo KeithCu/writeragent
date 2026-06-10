@@ -582,7 +582,7 @@ def test_locale_mismatch_proceeds_and_double_caches(
     ctx = MagicMock()
     with patch("plugin.framework.config.is_grammar_enabled", return_value=True), \
          patch("plugin.framework.config.get_config_int_safe", return_value=1), \
-         patch("plugin.framework.config.get_config_bool_safe", side_effect=lambda c, key, default=False: True if "detect_language" in key else False), \
+         patch("plugin.writer.locale.grammar_proofread_locale.get_grammar_detect_language_mode", return_value="llm"), \
          patch("plugin.writer.locale.grammar_proofread_cache.cache_get_sentence", return_value=None), \
          patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_cache_put, \
          patch("plugin.writer.locale.grammar_work_queue._apply_language_change") as mock_apply, \

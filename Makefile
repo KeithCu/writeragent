@@ -207,6 +207,9 @@ help:
 vendor:
 	uv pip install --target vendor -r requirements-vendor.txt
 
+langdetect-contrib:
+	$(PYTHON) scripts/update_langdetect_contrib.py
+
 fix-uno:
 	@echo "Fixing UNO import in .venv..."
 	@$(PYTHON) scripts/fix_uno_import.py

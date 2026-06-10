@@ -165,6 +165,48 @@ def _obs_lang_detect_item(idx: int, source: str, raw: str | None, canon: str | N
     )
 
 
+def _detect_languages_via_langdetect(
+    chunk: list[tuple[Any, str]],
+    detected_langs: list[str | None],
+    item_sources: list[str],
+) -> None:
+    """Fill pending slots in *detected_langs* using bundled langdetect (in-process, no LLM)."""
+    from plugin.contrib.langdetect import detect_langs
+    from plugin.contrib.langdetect.lang_detect_exception import LangDetectException
+
+    pending = [idx for idx, src in enumerate(item_sources) if src == "pending"]
+    if not pending:
+        return
+
+    if len(pending) == 1:
+        idx = pending[0]
+        text = chunk[idx][1]
+        emit_grammar_status("request", text, result="Detecting language")
+    else:
+        emit_grammar_status("request", f"Batch of {len(pending)}", result="Detecting language")
+
+    for idx in pending:
+        text = chunk[idx][1]
+        try:
+            langs = detect_langs(text)
+            raw = langs[0].lang if langs else None
+        except LangDetectException:
+            raw = None
+        except Exception as e:
+            log.warning("[grammar] langdetect failed for preview=%s: %s", slice_preview_debug(text, 48), e, exc_info=True)
+            raw = None
+
+        if raw:
+            canon = grammar_proofread_locale.normalize_detected_bcp47(raw) or raw
+            put_cached_language(text, canon)
+            detected_langs[idx] = canon
+            item_sources[idx] = "langdetect"
+            _obs_lang_detect_item(idx, "langdetect", raw, canon, text)
+        else:
+            item_sources[idx] = "none"
+            _obs_lang_detect_item(idx, "none", None, None, text)
+
+
 def detect_languages_for_chunk(
     chunk: list[tuple[Any, str]],
     detect_lang_instruction: str,
@@ -172,7 +214,10 @@ def detect_languages_for_chunk(
     *,
     trust_persisted_grammar_as_lang: bool = True,
 ) -> list[str | None]:
-    """Resolve BCP47 per sentence (cache, optional persistence heuristic, or LLM)."""
+    """Resolve BCP47 per sentence (cache, optional persistence heuristic, LLM, or langdetect)."""
+    mode = getattr(ec, "detect_lang_mode", "llm") or "llm"
+    if mode not in ("llm", "langdetect"):
+        mode = "llm"
     detected_langs: list[str | None] = []
     item_sources: list[str] = []
     all_cached = True
@@ -196,7 +241,9 @@ def detect_languages_for_chunk(
             all_cached = False
 
     if not all_cached:
-        if len(chunk) > 1:
+        if mode == "langdetect":
+            _detect_languages_via_langdetect(chunk, detected_langs, item_sources)
+        elif len(chunk) > 1:
             user_content = "\n".join(f"{idx+1}. {text}" for idx, (_it, text) in enumerate(chunk))
             detect_prompt = grammar_proofread_locale.LANGUAGE_DETECT_BATCH_SYSTEM_PROMPT.format(detect_lang_instruction=detect_lang_instruction)
             detect_messages = [{"role": "system", "content": detect_prompt}, {"role": "user", "content": user_content}]

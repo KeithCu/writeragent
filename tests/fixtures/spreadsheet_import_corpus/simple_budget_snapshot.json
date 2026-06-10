@@ -1,0 +1,34 @@
+{
+  "sheet_name": "Budget",
+  "start_col": 0,
+  "start_row": 0,
+  "data_array": [
+    ["Item", "Amount", "Tax", "Total"],
+    ["Rent", 1000.0, 0.1, 1100.0],
+    ["Food", 300.0, 0.1, 330.0],
+    ["", 1300.0, "", 1430.0]
+  ],
+  "formula_array": [
+    ["", "", "", ""],
+    ["", "", "=B2*0.1", "=B2+C2"],
+    ["", "", "=B3*0.1", "=B3+C3"],
+    ["", "=SUM(B2:B3)", "", "=SUM(D2:D3)"]
+  ],
+  "expected_formula_order": ["B4", "C2", "C3", "D2", "D3", "D4"],
+  "expected_types": {
+    "A1": "constant",
+    "B2": "constant",
+    "C2": "formula",
+    "D2": "formula",
+    "B4": "formula",
+    "D4": "formula"
+  },
+  "expected_conversions": {
+    "B4": "=SUM(B2:B3)",
+    "C2": "=B2*0.1",
+    "C3": "=B3*0.1",
+    "D2": "=B2+C2",
+    "D3": "=B3+C3",
+    "D4": "=SUM(D2:D3)"
+  }
+}

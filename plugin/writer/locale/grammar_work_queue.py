@@ -232,6 +232,7 @@ class GrammarWorkerContext:
     grammar_bcp47: str
     max_tok: int
     detect_lang_instruction: str = ""
+    detect_lang_mode: str = "off"
 
 
 def deduplicate_grammar_batch(batch: list[GrammarWorkItem]) -> list[GrammarWorkItem]:
@@ -688,7 +689,8 @@ def run_llm_and_cache_batch(
         client = llm_client.LlmClient(config.get_api_config(ctx), ctx)
         batch_size = config.get_config_int_safe(ctx, "doc.grammar_proofreader_batch_sentences")
         batch_size = max(1, min(grammar_proofread_locale.GRAMMAR_BATCH_MAX_SENTENCES, batch_size))
-        detect_lang_enabled = config.get_config_bool_safe(ctx, "doc.grammar_proofreader_detect_language")
+        detect_lang_mode = grammar_proofread_locale.get_grammar_detect_language_mode(ctx)
+        detect_lang_enabled = detect_lang_mode != "off"
 
         chunks, detect_lang_instruction = _worker_build_chunks(valid_items, ctx, batch_size, max_chars, detect_lang_enabled)
         if not chunks:
@@ -703,6 +705,7 @@ def run_llm_and_cache_batch(
             grammar_bcp47=grammar_bcp47,
             max_tok=max_tok,
             detect_lang_instruction=detect_lang_instruction,
+            detect_lang_mode=detect_lang_mode,
         )
 
         for chunk in chunks:

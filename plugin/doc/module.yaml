@@ -43,11 +43,18 @@ config:
     helper: "Max simultaneous background grammar API calls (1-8). 1 matches prior behavior. Raise for OpenRouter or other providers that allow parallel requests; use with care alongside sidebar chat."
 
   grammar_proofreader_detect_language:
-    type: boolean
-    default: false
-    widget: checkbox
-    label: Detect and correct sentence language
-    helper: "When on, asks the AI to verify the language of each sentence against the document's used locales. If incorrect, the language property is updated automatically."
+    type: string
+    default: "off"
+    widget: select
+    label: Sentence language detection
+    helper: "Verify each complete sentence's language against the document locale. AI uses your grammar/chat API; Local uses bundled langdetect (no API call, no venv). Mismatches update CharLocale and re-check grammar."
+    options:
+      - value: "off"
+        label: "Off"
+      - value: "llm"
+        label: "AI (LLM)"
+      - value: "langdetect"
+        label: "Local (langdetect)"
 
   chat_enter_key_sends_message:
     type: boolean

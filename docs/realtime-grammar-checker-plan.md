@@ -18,7 +18,7 @@
 - **Native grammar** is implemented as an `XProofreader` service with Lightproof-style registry (`LinguisticWriterAgentGrammar.xcu`); users enable LLM work on the **Doc** tab and pick the proofreader under Writing aids.
 - **Batching** groups sentences from the same paragraph into chunked LLM requests; batch size is capped (`doc.grammar_proofreader_batch_sentences`, max 8).
 - **Concurrent requests** (`doc.grammar_proofreader_max_in_flight`, 1–8, default **1**): up to N background drain workers and matching grammar HTTP slots; **1** keeps prior global `llm_request_lane` behavior with chat; **>1** allows parallel grammar API calls (e.g. OpenRouter).
-- **Language Detection** automatically identifies mismatches between LibreOffice's `CharLocale` and the actual text using a lightweight LLM call, actively triggering localized paragraph re-checks (`doc.grammar_proofreader_detect_language`).
+- **Language Detection** (`doc.grammar_proofreader_detect_language`: **Off** / **AI (LLM)** / **Local (langdetect)**) compares sentence language to document `CharLocale`. LLM mode uses a lightweight API call; Local mode uses vendored [langdetect](../plugin/contrib/langdetect/) in-process (grammar-registry profile subset, no venv). Mismatches trigger locale update and re-check.
 - **Cache** is **document-embedded**: results live inside the `.odt` as user-defined property `WriterAgentGrammarCache`, so they travel with the file across machines and collaborators. The global SQLite cache was removed since we save directly with the document.
 - **Sidebar chat** is separate: use it for explanations, rewrites, and editorial comment tools—not as a second linguistic pipeline.
 
@@ -497,7 +497,9 @@ Two latent bugs combined:
 **Problem:** Users often type in multiple languages (e.g., mixing English and French sentences in the same document) without actively updating the LibreOffice language property. When the grammar checker runs, it applies rules for the wrong language. LibreOffice's built-in automatic language detection is often flaky or relies on rigid dictionaries.
 
 **Implementation (Current):**
-- **Decoupled Prompting:** The language detection feature (`doc.grammar_proofreader_detect_language`) uses an isolated prompt (`LANGUAGE_DETECT_SYSTEM_PROMPT`) *before* any grammar checking occurs. This ensures the model isn't confused by dual instructions.
+- **Settings:** `doc.grammar_proofreader_detect_language` select — `off`, `llm`, or `langdetect` (legacy boolean `true`/`false` maps to `llm`/`off`).
+- **LLM path:** Isolated prompt (`LANGUAGE_DETECT_SYSTEM_PROMPT`) before grammar checking; uses `grammar_llm_request_gate`.
+- **Local path:** [`plugin/contrib/langdetect/`](../plugin/contrib/langdetect/) (stripped profiles from `GRAMMAR_REGISTRY_LOCALE_TAGS`; refresh via `make langdetect-contrib`).
 - **Incomplete Sentence Guard:** If the user hasn't finished typing the sentence (`looks_complete_sentence` fails), language detection and grammar checking are bypassed entirely to prevent jumping the gun on a half-written word.
 - **Boundary Preservation:** The pipeline respects LibreOffice's paragraph segmentation constraints (`n_suggested_behind_end`). By returning control when a language changes, we allow LibreOffice to naturally iterate over the newly-detected language chunks.
 - **LRU Deduplication:** To prevent redundant LLM calls when a paragraph bounces between locale invalidation updates, we maintain an in-memory `OrderedDict` (`_lang_detect_cache`) bounded to 1,000 sentences. If the text string was recently evaluated for a language, the LLM request is skipped.
