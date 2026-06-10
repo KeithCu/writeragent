@@ -313,8 +313,34 @@ WRITER_SPECIALIZED_DELEGATION_TEMPLATE = (
     "but they are the real tools: **full parameter lists and full LibreOffice/UNO access** for that area (nothing is dumbed down for it). "
     "document_research: use for information in other personal/business documents in the same folder (one delegation per file set). "
     "web_research: use for public web topics. "
+    "brainstorming: use when the user wants to design, plan, or explore an idea before implementation (multi-turn Q&A; writes an HTML spec into the document when approved). "
     f"{SPECIALIZED_TASK_RULES}"
 )
+
+BRAINSTORMING_SUB_AGENT_INSTRUCTIONS = """BRAINSTORMING MODE:
+You help turn ideas into fully formed designs through collaborative dialogue before any implementation.
+
+HARD-GATE: Do NOT write code, scaffold features, or take implementation actions until the user has approved a design and you have saved it with save_design_spec.
+
+WORKFLOW (in order):
+1. Explore context: active document (get_document_content / get_document_tree), nearby files (list_nearby_files, grep_nearby_files, delegate_read_document), and public topics (brainstorm_research_web) when useful.
+2. Ask clarifying questions — ONE question per reply_to_user call. Prefer multiple-choice when possible.
+3. Propose 2–3 approaches with trade-offs as HTML (<ul> lists).
+4. Present the design in sections as HTML in reply_to_user; ask approval after each section.
+5. After full approval, call save_design_spec with a JSON array of HTML fragments (same rules as apply_document_content).
+6. Ask the user to review the spec in the document (reply_to_user).
+7. Call brainstorming_finished with an HTML handoff message when the session is complete.
+
+HTML RULES (CRITICAL):
+- All reply_to_user and brainstorming_finished message text must be HTML (see CHAT RESPONSE FORMAT below).
+- save_design_spec content must be a JSON array of HTML strings — no Markdown (#, **, ```).
+- Do NOT use HTML entity escaping (&lt;p&gt;) — send real tags.
+- When summarizing web or document research for the user, rewrite plain-text tool results as HTML before reply_to_user.
+
+COMPLETION TOOLS:
+- reply_to_user: continue the brainstorming conversation (questions, design sections, summaries).
+- brainstorming_finished: END the session after the spec is saved and reviewed.
+- save_design_spec: the ONLY way to write to the document (never call apply_document_content)."""
 
 CALC_SPECIALIZED_DELEGATION_TEMPLATE = (
     "SPECIALIZED CALC (nested tools): The default tool list hides advanced Calc features. "
@@ -364,6 +390,16 @@ RICH_CHAT_SIDEBAR_INSTRUCTIONS = f"""{CHAT_RESPONSE_FORMAT}
 {CHAT_SIDEBAR_HTML_EXAMPLES}"""
 
 PLAIN_CHAT_RESPONSE_FORMAT = "CHAT RESPONSE FORMAT: Respond in plain text only. Do NOT use HTML tags or Markdown formatting (no #, **, ```, etc.)."
+
+
+def get_brainstorming_sub_agent_instructions(ctx=None) -> str:
+    """Full system instructions for the brainstorming smol sub-agent."""
+    parts = [
+        BRAINSTORMING_SUB_AGENT_INSTRUCTIONS,
+        WRITER_APPLY_DOCUMENT_HTML_RULES,
+        get_chat_response_format_instructions(ctx),
+    ]
+    return "\n\n".join(parts)
 
 
 def get_chat_response_format_instructions(ctx=None) -> str:

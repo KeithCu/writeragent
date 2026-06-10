@@ -35,10 +35,12 @@ class ChatbotModule(ModuleBase):
         from . import web_research
         from . import memory
         from . import librarian
+        from . import brainstorming
 
         services.tools.auto_discover(web_research)
         services.tools.auto_discover(memory)
         services.tools.auto_discover(librarian)
+        services.tools.auto_discover(brainstorming)
         self._adapter = None
 
     def get_adapter(self):

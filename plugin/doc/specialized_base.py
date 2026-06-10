@@ -125,6 +125,30 @@ class DelegateToSpecializedBase(ToolBase):
                 code="DOCUMENT_RESEARCH_REQUIRES_SUB_AGENT",
             )
 
+        if domain == "brainstorming":
+            callback = getattr(ctx, "start_brainstorming_session_callback", None)
+            if callback:
+                if status_callback:
+                    status_callback("Starting brainstorming session...")
+                result = callback(task=task, ctx=ctx)
+                if isinstance(result, dict) and result.get("status") == "ok":
+                    return {
+                        "status": "ok",
+                        "message": _("Brainstorming session started."),
+                        "result": result.get("result", ""),
+                    }
+                if isinstance(result, dict) and result.get("status") == "finished":
+                    return {
+                        "status": "ok",
+                        "message": _("Brainstorming session completed."),
+                        "result": result.get("result", ""),
+                    }
+                return result if isinstance(result, dict) else {"status": "ok", "result": str(result)}
+            return self._tool_error(
+                _("Brainstorming requires sidebar session wiring (start_brainstorming_session_callback)."),
+                code="BRAINSTORMING_SESSION_UNAVAILABLE",
+            )
+
         if not USE_SUB_AGENT:
             # Tell the main LLM loop to switch tools for the next round
             callback = getattr(ctx, "set_active_domain_callback", None)

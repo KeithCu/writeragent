@@ -8,6 +8,7 @@
 """Smolagents few-shot example blocks (Action/Observation) used at runtime.
 
 - **librarian** — onboarding (`reply_to_user`).
+- **brainstorming** — design exploration (`reply_to_user`, `save_design_spec`, `brainstorming_finished`).
 - **web_research** — web sub-agent (`final_answer`).
 - **``*:python``** — venv demo (`run_venv_python_script` + ``sp.prime``; no numpy imports).
 - **All other keys** — shared delegate demo (`specialized_workflow_finished`).
@@ -39,6 +40,41 @@ Action:
   "arguments": {"answer": "Hello, Joe! Would you like to learn more about WriterAgent?"}
 }
 Observation: {"status": "ok"}
+
+"""
+
+BRAINSTORMING_EXAMPLES = """Task: "Brainstorm a sidebar export feature for WriterAgent."
+
+Action:
+{
+  "name": "get_document_tree",
+  "arguments": {}
+}
+Observation: {"status": "ok", "tree": "..."}
+
+Action:
+{
+  "name": "reply_to_user",
+  "arguments": {"answer": "<p>What file format should export support first — PDF only, or Office formats too?</p>"}
+}
+Observation: {"status": "ok"}
+
+Action:
+{
+  "name": "save_design_spec",
+  "arguments": {
+    "content": ["<h1>Design: Sidebar Export</h1>", "<h2>Goals</h2>", "<ul><li>One-click export from chat sidebar</li></ul>"],
+    "target": "end"
+  }
+}
+Observation: {"status": "ok"}
+
+Action:
+{
+  "name": "brainstorming_finished",
+  "arguments": {"message": "<p>Spec saved at the end of your document. Ready to implement when you are.</p>", "spec_saved": true}
+}
+Observation: {"status": "finished"}
 
 """
 
@@ -76,6 +112,8 @@ def get_examples_block(key: str) -> str:
     """
     if key == "librarian":
         return LIBRARIAN_EXAMPLES
+    if key == "brainstorming":
+        return BRAINSTORMING_EXAMPLES
     if key == "web_research":
         return WEB_RESEARCH_EXAMPLES_BLOCK
     if key.endswith(":python"):

@@ -68,6 +68,8 @@ class SendHandlerHost(Protocol):
 
     def resolve_stop_checker(self) -> Callable[[], bool]: ...
     _in_librarian_mode: bool
+    _in_brainstorming_mode: bool
+    _brainstorming_topic: str
     session: "ChatSession"
     response_control: Any
     status_control: Any
@@ -92,6 +94,7 @@ class SendHandlerHost(Protocol):
     def _do_send_direct_image(self, query_text: str, model: Any) -> None: ...
     def _do_send_via_agent_backend(self, query_text: str, model: Any, doc_type_str: str) -> None: ...
     def _run_librarian(self, query_text: str, model: Any) -> None: ...
+    def _run_brainstorming(self, query_text: str, model: Any) -> None: ...
     def _run_web_research(self, query_text: str, model: Any) -> None: ...
 
 
@@ -421,6 +424,23 @@ class SendHandlersMixin:
         for effect in step.effects:
             interpreter.interpret(effect)
 
+    def _run_brainstorming(self: SendHandlerHost, query_text: str, model: Any) -> None:
+        """Run the brainstorming sub-agent and stream its result into the response area."""
+        interpreter = EffectInterpreter(self)
+        current_state = SendHandlerState(handler_type="web", status="ready")
+
+        self._in_brainstorming_mode = True
+        self.session.add_user_message(query_text)
+
+        step = next_state(current_state, StartEvent(query_text, model, "web"))
+        current_state = step.state
+        interpreter.current_state = current_state
+
+        setattr(self, "_active_run_brainstorming", True)
+
+        for effect in step.effects:
+            interpreter.interpret(effect)
+
     def _run_web_research(self: SendHandlerHost, query_text: str, model: Any) -> None:
         """Run the web_research tool via the sub-agent and stream its result into the response area."""
         interpreter = EffectInterpreter(self)
@@ -440,6 +460,9 @@ class SendHandlersMixin:
         is_librarian = getattr(self, "_active_run_librarian", False)
         if hasattr(self, "_active_run_librarian"):
             delattr(self, "_active_run_librarian")
+        is_brainstorming = getattr(self, "_active_run_brainstorming", False)
+        if hasattr(self, "_active_run_brainstorming"):
+            delattr(self, "_active_run_brainstorming")
 
 
 
@@ -527,6 +550,43 @@ class SendHandlersMixin:
 
                         msg = data.get("message", _("Unknown librarian error."))
                         q.put((StreamQueueKind.CHUNK, "\n" + _("[Librarian error: {0}]").format(msg) + "\n"))
+
+                    q.put((StreamQueueKind.STREAM_DONE, {}))
+                elif is_brainstorming:
+                    topic = getattr(self, "_brainstorming_topic", "") or ""
+                    res = get_tools().execute(
+                        "brainstorming_session",
+                        tctx,
+                        bypass_thread_guard=False,
+                        **{"query": query_text, "history_text": history_text, "topic": topic},
+                    )
+                    result = json.dumps(res) if isinstance(res, dict) else str(res)
+
+                    data = safe_json_loads(result)
+                    if not isinstance(data, dict):
+                        log.error("Failed to parse brainstorming result [doc: %s]", doc_type)
+                        parsed_err = AgentParsingError("Invalid JSON from brainstorming tool.", details={"raw_result": result})
+                        data = format_error_payload(parsed_err)
+
+                    if data.get("status") == "ok":
+                        answer = data.get("result", "")
+                        if not isinstance(answer, str):
+                            answer = str(answer)
+                        self._record_assistant_start = True
+                        q.put((StreamQueueKind.CHUNK, answer + "\n"))
+                        self.session.add_assistant_message(content=answer)
+                    elif data.get("status") == "finished":
+                        self._in_brainstorming_mode = False
+                        answer = data.get("result", _("Brainstorming complete."))
+                        if not isinstance(answer, str):
+                            answer = str(answer)
+                        self._record_assistant_start = True
+                        q.put((StreamQueueKind.CHUNK, answer + "\n"))
+                        self.session.add_assistant_message(content=answer)
+                    else:
+                        self._in_brainstorming_mode = False
+                        msg = data.get("message", _("Unknown brainstorming error."))
+                        q.put((StreamQueueKind.CHUNK, "\n" + _("[Brainstorming error: {0}]").format(msg) + "\n"))
 
                     q.put((StreamQueueKind.STREAM_DONE, {}))
                 else:

@@ -329,6 +329,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self._terminal_status = "Ready"
         self._send_busy = False
         self._in_librarian_mode = False
+        self._in_brainstorming_mode = False
+        self._brainstorming_topic = ""
         self.client = None
         self.audio_wav_path = None
         self._current_agent_backend = None  # Set during _do_send_via_agent_backend for Stop button
@@ -1060,6 +1062,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 return
         except Exception:
             log.exception("_do_send: agent backend check failed")
+
+        if self._in_brainstorming_mode:
+            log.info("_do_send: continuing brainstorming session")
+            self._run_brainstorming(query_text, model)
+            return
 
         if self._in_librarian_mode:
             log.info("_do_send: continuing librarian onboarding agent")
