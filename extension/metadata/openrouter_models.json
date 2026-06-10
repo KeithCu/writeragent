@@ -1,6 +1,84 @@
 {
-  "updated_at": "2026-06-05T03:30:41.700Z",
+  "updated_at": "2026-06-10T15:50:29.393Z",
   "models": [
+    {
+      "id": "anthropic/claude-fable-5",
+      "name": "Claude Fable 5",
+      "author_name": "Anthropic",
+      "input_modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "standard",
+      "version_id": "anthropic/claude-5-fable-20260609",
+      "created_at": "2026-06-09T12:18:35.266Z",
+      "context_length": 1000000,
+      "supported_parameters": [
+        "include_reasoning",
+        "max_completion_tokens",
+        "max_tokens",
+        "reasoning",
+        "response_format",
+        "stop",
+        "structured_outputs",
+        "tool_choice",
+        "tools",
+        "verbosity"
+      ],
+      "chat_completions": true,
+      "native_web_search": true,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": 1e-06,
+        "text_cache_write": 1.25e-05,
+        "text_input": 1e-05,
+        "text_output": 5e-05
+      }
+    },
+    {
+      "id": "nex-agi/nex-n2-pro:free",
+      "name": "Nex-N2-Pro (free)",
+      "author_name": "Nex AGI",
+      "input_modalities": [
+        "image",
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "free",
+      "version_id": "nex-agi/nex-n2-pro",
+      "created_at": "2026-06-08T16:45:40.435Z",
+      "context_length": 262144,
+      "supported_parameters": [
+        "frequency_penalty",
+        "include_reasoning",
+        "logprobs",
+        "max_tokens",
+        "reasoning",
+        "response_format",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "top_p"
+      ],
+      "chat_completions": true,
+      "native_web_search": false,
+      "pricing": null
+    },
     {
       "id": "nvidia/nemotron-3-ultra-550b-a55b:free",
       "name": "Nemotron 3 Ultra (free)",
@@ -1118,7 +1196,7 @@
         "reasoning_output": null,
         "text_cache_read": 1.43333e-07,
         "text_cache_write": null,
-        "text_input": 3.78111e-07,
+        "text_input": 3.54889e-07,
         "text_output": 2.972222e-06
       }
     },
@@ -1252,10 +1330,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1.3324e-07,
+        "text_cache_read": 1.26009e-07,
         "text_cache_write": null,
-        "text_input": 1.499393e-06,
-        "text_output": 3.0585e-06
+        "text_input": 1.384967e-06,
+        "text_output": 2.816e-06
       }
     },
     {
@@ -1303,10 +1381,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 2.7264e-08,
+        "text_cache_read": 3.1156e-08,
         "text_cache_write": null,
-        "text_input": 1.32593e-07,
-        "text_output": 2.67329e-07
+        "text_input": 1.28223e-07,
+        "text_output": 2.5832e-07
       }
     },
     {
@@ -1586,10 +1664,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 2.02375e-07,
+        "text_cache_read": 2.07529e-07,
         "text_cache_write": null,
-        "text_input": 8.55079e-07,
-        "text_output": 3.819211e-06
+        "text_input": 8.61738e-07,
+        "text_output": 3.832619e-06
       }
     },
     {
@@ -1753,10 +1831,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 3.03267e-07,
+        "text_cache_read": 2.69214e-07,
         "text_cache_write": null,
-        "text_input": 1.305263e-06,
-        "text_output": 4.166316e-06
+        "text_input": 1.305556e-06,
+        "text_output": 4.164444e-06
       }
     },
     {
@@ -1891,10 +1969,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1.58333e-07,
+        "text_cache_read": 1.3125e-07,
         "text_cache_write": null,
-        "text_input": 1.90455e-07,
-        "text_output": 5.77273e-07
+        "text_input": 1.87273e-07,
+        "text_output": 5.7e-07
       }
     },
     {
@@ -1973,48 +2051,6 @@
         "text_cache_write": 4.0625e-07,
         "text_input": 3.25e-07,
         "text_output": 1.95e-06
-      }
-    },
-    {
-      "id": "z-ai/glm-5v-turbo",
-      "name": "GLM 5V Turbo",
-      "author_name": "Z.ai",
-      "input_modalities": [
-        "image",
-        "text",
-        "video"
-      ],
-      "output_modalities": [
-        "text"
-      ],
-      "reasoning": true,
-      "variant": "standard",
-      "version_id": "z-ai/glm-5v-turbo-20260401",
-      "created_at": "2026-04-01T16:37:38.290Z",
-      "context_length": 202752,
-      "supported_parameters": [
-        "include_reasoning",
-        "max_tokens",
-        "reasoning",
-        "response_format",
-        "temperature",
-        "tool_choice",
-        "tools",
-        "top_p"
-      ],
-      "chat_completions": true,
-      "native_web_search": false,
-      "pricing": {
-        "audio_cache_write": null,
-        "audio_input": null,
-        "image_input": null,
-        "image_output": null,
-        "per_request": null,
-        "reasoning_output": null,
-        "text_cache_read": 2.4e-07,
-        "text_cache_write": null,
-        "text_input": 1.2e-06,
-        "text_output": 4e-06
       }
     },
     {
@@ -2248,10 +2284,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 5.9e-08,
+        "text_cache_read": 5.8e-08,
         "text_cache_write": null,
-        "text_input": 3.879e-07,
-        "text_output": 1.56e-06
+        "text_input": 4.449e-07,
+        "text_output": 1.788e-06
       }
     },
     {
@@ -2610,7 +2646,7 @@
         "reasoning_output": null,
         "text_cache_read": null,
         "text_cache_write": null,
-        "text_input": 1.025e-07,
+        "text_input": 1.175e-07,
         "text_output": 1.75e-07
       }
     },
@@ -3354,10 +3390,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 3.27e-07,
+        "text_cache_read": 2.925e-07,
         "text_cache_write": null,
-        "text_input": 5.44455e-07,
-        "text_output": 3.430909e-06
+        "text_input": 5.49083e-07,
+        "text_output": 3.445e-06
       }
     },
     {
@@ -3407,10 +3443,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 8.4071e-08,
+        "text_cache_read": 8.7115e-08,
         "text_cache_write": null,
-        "text_input": 2.82059e-07,
-        "text_output": 1.25e-06
+        "text_input": 2.75313e-07,
+        "text_output": 1.253125e-06
       }
     },
     {
@@ -3458,8 +3494,8 @@
         "reasoning_output": null,
         "text_cache_read": 2.22917e-07,
         "text_cache_write": null,
-        "text_input": 9.06667e-07,
-        "text_output": 2.831333e-06
+        "text_input": 9.125e-07,
+        "text_output": 2.854375e-06
       }
     },
     {
@@ -3695,8 +3731,8 @@
         "reasoning_output": null,
         "text_cache_read": 1.32273e-07,
         "text_cache_write": null,
-        "text_input": 5.25e-07,
-        "text_output": 2.645833e-06
+        "text_input": 5.23077e-07,
+        "text_output": 2.65e-06
       }
     },
     {
@@ -3880,8 +3916,8 @@
         "reasoning_output": null,
         "text_cache_read": 1e-08,
         "text_cache_write": null,
-        "text_input": 8.0917e-08,
-        "text_output": 4.21667e-07
+        "text_input": 8.31e-08,
+        "text_output": 4.26e-07
       }
     },
     {
@@ -4184,14 +4220,11 @@
         "max_tokens",
         "presence_penalty",
         "reasoning",
-        "repetition_penalty",
         "response_format",
-        "seed",
         "stop",
         "temperature",
         "tool_choice",
         "tools",
-        "top_k",
         "top_p"
       ],
       "chat_completions": true,
@@ -4203,10 +4236,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1.7e-08,
+        "text_cache_read": 1e-08,
         "text_cache_write": null,
-        "text_input": 1.05e-07,
-        "text_output": 3.15e-07
+        "text_input": 1e-07,
+        "text_output": 3e-07
       }
     },
     {
@@ -4280,7 +4313,7 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1e-08,
+        "text_cache_read": null,
         "text_cache_write": null,
         "text_input": 5e-08,
         "text_output": 2e-07
@@ -4541,47 +4574,6 @@
         "text_cache_write": null,
         "text_input": 3e-07,
         "text_output": 9e-07
-      }
-    },
-    {
-      "id": "nex-agi/deepseek-v3.1-nex-n1",
-      "name": "DeepSeek V3.1 Nex N1",
-      "author_name": "Nex AGI",
-      "input_modalities": [
-        "text"
-      ],
-      "output_modalities": [
-        "text"
-      ],
-      "reasoning": false,
-      "variant": "standard",
-      "version_id": "nex-agi/deepseek-v3.1-nex-n1",
-      "created_at": "2025-12-08T14:33:13.218Z",
-      "context_length": 131072,
-      "supported_parameters": [
-        "frequency_penalty",
-        "max_tokens",
-        "response_format",
-        "structured_outputs",
-        "temperature",
-        "tool_choice",
-        "tools",
-        "top_k",
-        "top_p"
-      ],
-      "chat_completions": true,
-      "native_web_search": false,
-      "pricing": {
-        "audio_cache_write": null,
-        "audio_input": null,
-        "image_input": null,
-        "image_output": null,
-        "per_request": null,
-        "reasoning_output": null,
-        "text_cache_read": null,
-        "text_cache_write": null,
-        "text_input": 1.35e-07,
-        "text_output": 5e-07
       }
     },
     {
@@ -5829,7 +5821,7 @@
         "reasoning_output": null,
         "text_cache_read": null,
         "text_cache_write": null,
-        "text_input": 1e-07,
+        "text_input": 4e-07,
         "text_output": 4e-07
       }
     },
@@ -6423,8 +6415,8 @@
         "reasoning_output": null,
         "text_cache_read": 1.31667e-07,
         "text_cache_write": null,
-        "text_input": 2.775e-07,
-        "text_output": 9.75e-07
+        "text_input": 2.9052e-07,
+        "text_output": 9.8568e-07
       }
     },
     {
@@ -6949,52 +6941,6 @@
       }
     },
     {
-      "id": "baidu/ernie-4.5-vl-28b-a3b",
-      "name": "ERNIE 4.5 VL 28B A3B",
-      "author_name": "Baidu",
-      "input_modalities": [
-        "image",
-        "text"
-      ],
-      "output_modalities": [
-        "text"
-      ],
-      "reasoning": true,
-      "variant": "standard",
-      "version_id": "baidu/ernie-4.5-vl-28b-a3b",
-      "created_at": "2025-08-12T21:07:16.565Z",
-      "context_length": 30000,
-      "supported_parameters": [
-        "frequency_penalty",
-        "include_reasoning",
-        "max_tokens",
-        "presence_penalty",
-        "reasoning",
-        "repetition_penalty",
-        "seed",
-        "stop",
-        "temperature",
-        "tool_choice",
-        "tools",
-        "top_k",
-        "top_p"
-      ],
-      "chat_completions": true,
-      "native_web_search": false,
-      "pricing": {
-        "audio_cache_write": null,
-        "audio_input": null,
-        "image_input": null,
-        "image_output": null,
-        "per_request": null,
-        "reasoning_output": null,
-        "text_cache_read": null,
-        "text_cache_write": null,
-        "text_input": 1.4e-07,
-        "text_output": 5.6e-07
-      }
-    },
-    {
       "id": "z-ai/glm-4.5v",
       "name": "GLM 4.5V",
       "author_name": "Z.ai",
@@ -7256,8 +7202,8 @@
         "reasoning_output": null,
         "text_cache_read": 1.575e-07,
         "text_cache_write": null,
-        "text_input": 1.26737e-07,
-        "text_output": 5.59474e-07
+        "text_input": 1.25421e-07,
+        "text_output": 5.50263e-07
       }
     },
     {
@@ -7597,34 +7543,6 @@
       }
     },
     {
-      "id": "z-ai/glm-4.5-air:free",
-      "name": "GLM 4.5 Air (free)",
-      "author_name": "Z.ai",
-      "input_modalities": [
-        "text"
-      ],
-      "output_modalities": [
-        "text"
-      ],
-      "reasoning": true,
-      "variant": "free",
-      "version_id": "z-ai/glm-4.5-air",
-      "created_at": "2025-07-25T19:20:58.066Z",
-      "context_length": 131072,
-      "supported_parameters": [
-        "include_reasoning",
-        "max_tokens",
-        "reasoning",
-        "temperature",
-        "tool_choice",
-        "tools",
-        "top_p"
-      ],
-      "chat_completions": true,
-      "native_web_search": false,
-      "pricing": null
-    },
-    {
       "id": "z-ai/glm-4.5-air",
       "name": "GLM 4.5 Air",
       "author_name": "Z.ai",
@@ -7717,43 +7635,6 @@
         "text_cache_write": null,
         "text_input": 2.119e-07,
         "text_output": 1.839e-06
-      }
-    },
-    {
-      "id": "z-ai/glm-4-32b",
-      "name": "GLM 4 32B ",
-      "author_name": "Z.ai",
-      "input_modalities": [
-        "text"
-      ],
-      "output_modalities": [
-        "text"
-      ],
-      "reasoning": false,
-      "variant": "standard",
-      "version_id": "z-ai/glm-4-32b-0414",
-      "created_at": "2025-07-24T17:03:37.099Z",
-      "context_length": 128000,
-      "supported_parameters": [
-        "max_tokens",
-        "temperature",
-        "tool_choice",
-        "tools",
-        "top_p"
-      ],
-      "chat_completions": true,
-      "native_web_search": false,
-      "pricing": {
-        "audio_cache_write": null,
-        "audio_input": null,
-        "image_input": null,
-        "image_output": null,
-        "per_request": null,
-        "reasoning_output": null,
-        "text_cache_read": null,
-        "text_cache_write": null,
-        "text_input": 1e-07,
-        "text_output": 1e-07
       }
     },
     {
@@ -7923,7 +7804,7 @@
         "reasoning_output": null,
         "text_cache_read": 1.16667e-07,
         "text_cache_write": null,
-        "text_input": 1.66409e-07,
+        "text_input": 1.68136e-07,
         "text_output": 6.52545e-07
       }
     },
@@ -8015,7 +7896,7 @@
         "text_cache_read": 3e-08,
         "text_cache_write": null,
         "text_input": 8.9688e-08,
-        "text_output": 3.375e-07
+        "text_output": 2.625e-07
       }
     },
     {
@@ -8562,8 +8443,8 @@
         "reasoning_output": null,
         "text_cache_read": null,
         "text_cache_write": null,
-        "text_input": 1.125e-07,
-        "text_output": 4.925e-07
+        "text_input": 1.3e-07,
+        "text_output": 5.23333e-07
       }
     },
     {
@@ -8711,8 +8592,8 @@
         "reasoning_output": null,
         "text_cache_read": 1.225e-07,
         "text_cache_write": null,
-        "text_input": 1.30571e-07,
-        "text_output": 5.43714e-07
+        "text_input": 1.35667e-07,
+        "text_output": 5.59333e-07
       }
     },
     {
@@ -9104,7 +8985,7 @@
         "reasoning_output": null,
         "text_cache_read": null,
         "text_cache_write": null,
-        "text_input": 1.55e-07,
+        "text_input": 1.6e-07,
         "text_output": 4.825e-07
       }
     },
@@ -9199,8 +9080,8 @@
         "reasoning_output": null,
         "text_cache_read": null,
         "text_cache_write": null,
-        "text_input": 1.95e-07,
-        "text_output": 3.6e-07
+        "text_input": 1.35e-07,
+        "text_output": 3.7e-07
       }
     },
     {
@@ -9627,8 +9508,8 @@
         "reasoning_output": null,
         "text_cache_read": 4.1e-07,
         "text_cache_write": null,
-        "text_input": 4.25571e-07,
-        "text_output": 7.66643e-07
+        "text_input": 4.49077e-07,
+        "text_output": 7.96385e-07
       }
     },
     {
@@ -10448,49 +10329,6 @@
       }
     },
     {
-      "id": "sao10k/l3-euryale-70b",
-      "name": "Llama 3 Euryale 70B v2.1",
-      "author_name": "Sao10k",
-      "input_modalities": [
-        "text"
-      ],
-      "output_modalities": [
-        "text"
-      ],
-      "reasoning": false,
-      "variant": "standard",
-      "version_id": "sao10k/l3-euryale-70b",
-      "created_at": "2024-06-18T00:00:00.000Z",
-      "context_length": 8192,
-      "supported_parameters": [
-        "frequency_penalty",
-        "max_tokens",
-        "presence_penalty",
-        "repetition_penalty",
-        "seed",
-        "stop",
-        "temperature",
-        "tool_choice",
-        "tools",
-        "top_k",
-        "top_p"
-      ],
-      "chat_completions": true,
-      "native_web_search": false,
-      "pricing": {
-        "audio_cache_write": null,
-        "audio_input": null,
-        "image_input": null,
-        "image_output": null,
-        "per_request": null,
-        "reasoning_output": null,
-        "text_cache_read": null,
-        "text_cache_write": null,
-        "text_input": 1.48e-06,
-        "text_output": 1.48e-06
-      }
-    },
-    {
       "id": "openai/gpt-4o-2024-05-13",
       "name": "GPT-4o (2024-05-13)",
       "author_name": "OpenAI",
@@ -10825,52 +10663,6 @@
       "variant": "standard",
       "version_id": "openai/gpt-4-turbo-preview",
       "created_at": "2024-01-25T00:00:00.000Z",
-      "context_length": 128000,
-      "supported_parameters": [
-        "frequency_penalty",
-        "logit_bias",
-        "logprobs",
-        "max_tokens",
-        "presence_penalty",
-        "response_format",
-        "seed",
-        "stop",
-        "structured_outputs",
-        "temperature",
-        "tool_choice",
-        "tools",
-        "top_logprobs",
-        "top_p"
-      ],
-      "chat_completions": true,
-      "native_web_search": false,
-      "pricing": {
-        "audio_cache_write": null,
-        "audio_input": null,
-        "image_input": null,
-        "image_output": null,
-        "per_request": null,
-        "reasoning_output": null,
-        "text_cache_read": null,
-        "text_cache_write": null,
-        "text_input": 1e-05,
-        "text_output": 3e-05
-      }
-    },
-    {
-      "id": "openai/gpt-4-1106-preview",
-      "name": "GPT-4 Turbo (older v1106)",
-      "author_name": "OpenAI",
-      "input_modalities": [
-        "text"
-      ],
-      "output_modalities": [
-        "text"
-      ],
-      "reasoning": false,
-      "variant": "standard",
-      "version_id": "openai/gpt-4-1106-preview",
-      "created_at": "2023-11-06T00:00:00.000Z",
       "context_length": 128000,
       "supported_parameters": [
         "frequency_penalty",
