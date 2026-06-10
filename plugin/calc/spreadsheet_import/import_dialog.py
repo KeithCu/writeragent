@@ -169,8 +169,24 @@ def run_sheet_conversion(
     from plugin.calc.spreadsheet_import.preserve import enrich_number_formats
     enrich_number_formats(source_sheet, model)
 
+    sheet_bounds: dict[str, tuple[int, int]] = {}
+    try:
+        from plugin.calc.spreadsheet_import.ingest import _used_range_address
+
+        sheets = doc.getSheets()
+        for i in range(sheets.getCount()):
+            sh = sheets.getByIndex(i)
+            addr = _used_range_address(sh)
+            sheet_bounds[sh.getName().upper()] = (addr.EndColumn, addr.EndRow)
+    except Exception:
+        log.exception("Failed to collect workbook sheet bounds for range clipping")
+
     # 2. Translate and Build Converted Output Model
-    output, report = build_converted_output_model(model, vectorize=vectorize)
+    output, report = build_converted_output_model(
+        model,
+        vectorize=vectorize,
+        sheet_bounds=sheet_bounds or None,
+    )
 
     # 3. Resolve Target Sheet
     target_sheet = None

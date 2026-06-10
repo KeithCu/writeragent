@@ -32,13 +32,13 @@ def test_emit_cross_sheet_range_quotes():
 
 
 def test_emit_round_trip_semantics():
-    translation = translate_formula("=SUM(B2:B3)")
+    translation = translate_formula("=AVERAGE(B2:B3)")
     assert translation.ok
     emitted = emit_py_formula(translation.code, translation.data_ranges or [])
     semantics = py_formula_semantics(emitted)
     assert semantics is not None
     code, data_args = semantics
-    assert "np.sum" in code
+    assert "np.mean" in code
     assert data_args == ["B2:B3"]
 
 

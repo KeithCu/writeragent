@@ -476,7 +476,7 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "DB": lambda a: f"xl.db({', '.join(a)})",
     "DDB": lambda a: f"xl.ddb({', '.join(a)})",
     "DISC": lambda a: f"xl.disc({', '.join(a)})",
-    "SUM": lambda a: "xl.calc_sum(*data)" if len(a) > 1 else "xl.calc_sum(data)",
+    # SUM: not translated — keep native =SUM(); inline np.sum(data) is lexer-safe but blank/text semantics differ from Calc.
     "AVERAGE": lambda a: f"np.mean({a[0]})" if len(a) == 1 else f"np.mean(np.concatenate([np.asarray(x).ravel() for x in [{', '.join(a)}]]))",
     "PRODUCT": lambda a: f"np.prod({a[0]})" if len(a) == 1 else f"np.prod([np.prod(x) for x in [{', '.join(a)}]])",
     "MAX": lambda a: f"np.nanmax({a[0]})" if len(a) == 1 else f"np.nanmax([np.nanmax(x) for x in [{', '.join(a)}]])",

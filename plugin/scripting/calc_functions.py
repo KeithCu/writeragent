@@ -2426,19 +2426,6 @@ def n(val: Any) -> float:
     return 0.0
 
 
-def calc_sum(*parts: Any) -> float:
-    """Calc-compatible SUM over one or more ranges/scalars (skips blanks, coerces via ``n``)."""
-    import numpy as np
-
-    total = 0.0
-    for part in parts:
-        for item in np.ravel(np.asarray(part, dtype=object)):
-            if item is None or item == "":
-                continue
-            total += n(item)
-    return total
-
-
 def na() -> float:
     # Usually #N/A in Calc maps to NaN in Python data array
     return float("nan")

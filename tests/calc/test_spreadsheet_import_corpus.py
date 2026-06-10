@@ -53,9 +53,19 @@ def test_budget_corpus_conversion_rate():
             except Exception:
                 pass
 
-    rate = len(report.converted) / len(function_formula_cells) if function_formula_cells else 0.0
+    sum_cells = [
+        a
+        for a in function_formula_cells
+        if model.cells[a].formula and "SUM(" in model.cells[a].formula.upper().replace("_XLFN.", "")
+    ]
+    for addr in sum_cells:
+        assert output.cells[addr].formula == model.cells[addr].formula
+        assert addr in report.pass_through
+
+    translatable = [a for a in function_formula_cells if a not in sum_cells]
+    rate = len(report.converted) / len(translatable) if translatable else 1.0
     assert rate >= 0.70
-    assert len(report.converted) == len(function_formula_cells), report.skipped
+    assert len(report.converted) == len(translatable), report.skipped
 
 
 def test_budget_expected_conversions():

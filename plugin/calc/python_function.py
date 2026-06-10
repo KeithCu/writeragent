@@ -207,6 +207,11 @@ def _format_error_for_display(exc: BaseException) -> str:
     return _("Error: {0}").format(payload.get("message", str(exc)))
 
 
+def _code_uses_indexed_multi_data(code: str) -> bool:
+    """True when inline code references ``data[n]`` (all PY args are data ranges, not a matrix index)."""
+    return "data[" in (code or "")
+
+
 def execute_python_addin(
     ctx: Any,
     code: str,
@@ -223,7 +228,7 @@ def execute_python_addin(
         is_multi = len(args) > 1
         index_arg = None
         if py_data is not None:
-            if is_multi:
+            if is_multi and not _code_uses_indexed_multi_data(code):
                 last_arg = args[-1]
                 if not isinstance(last_arg, (list, tuple)) or count_cells(py_data[-1]) == 1:
                     idx_val = py_data[-1]

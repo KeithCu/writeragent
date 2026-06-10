@@ -19,12 +19,10 @@ def _assert_lexer_safe_formula(formula: str | None) -> None:
     assert not inline_py_code_has_lexer_collisions(formula)
 
 
-def test_corpus_sum_emission():
+def test_corpus_sum_left_as_calc():
     res = translate_formula("=SUM(C5:C6)")
-    assert res.ok
-    formula = emit_py_formula(res.code, res.data_ranges or [])
-    _assert_lexer_safe_formula(formula)
-    assert "xl.calc_sum" in formula
+    assert not res.ok
+    assert res.reason == "UNSUPPORTED_FUNCTION"
 
 
 def test_corpus_text_month_emission():
@@ -76,6 +74,18 @@ def test_vectorize_skipped_for_cross_sheet_sumifs():
         assert ";0)" not in formula or formula.count(";") < 6
 
 
+def test_clip_whole_column_data_ranges():
+    bounds = {"ACTUAL": (5, 54)}  # end_col, end_row (0-based row 54 → row 55)
+    formula = emit_py_formula(
+        "xl.sumifs(data[0], data[1], data[2], data[3], data[4])",
+        ["ACTUAL.F:F", "ACTUAL.C:C", "DASHBOARD FINISHED.C4", "ACTUAL.D:D", "B8"],
+        sheet_bounds=bounds,
+        current_sheet="Dashboard Finished",
+    )
+    assert "Actual.F1:F55" in formula or "ACTUAL.F1:F55" in formula
+    assert "F:F" not in formula
+
+
 def test_income_statement_style_grid():
     model = ingest_from_arrays(
         sheet_name="Income Statement",
@@ -83,7 +93,7 @@ def test_income_statement_style_grid():
         start_row=4,
         data_array=[[100.0, 200.0], [300.0, 400.0]],
         formula_array=[
-            ["=SUM(C5:C6)", "=SUM(D5:D6)"],
+            ["=AVERAGE(C5:C6)", "=AVERAGE(D5:D6)"],
             ["", ""],
         ],
     )

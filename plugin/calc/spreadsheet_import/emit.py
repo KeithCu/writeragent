@@ -27,9 +27,22 @@ def _has_function_node(node) -> bool:
     return any(isinstance(n, FunctionNode) for n in node)
 
 
-def emit_py_formula(code: str, data_ranges: list[str]) -> str:
+def emit_py_formula(
+    code: str,
+    data_ranges: list[str],
+    *,
+    sheet_bounds: dict[str, tuple[int, int]] | None = None,
+    current_sheet: str | None = None,
+) -> str:
     """Build canonical ``=PY("…"; ranges…)``."""
-    return rebuild_python_formula_with_data(code, data_ranges)
+    from plugin.calc.spreadsheet_import.range_clip import clip_workbook_data_ranges
+
+    clipped = clip_workbook_data_ranges(
+        data_ranges,
+        sheet_bounds=sheet_bounds,
+        current_sheet=current_sheet,
+    )
+    return rebuild_python_formula_with_data(code, clipped)
 
 
 def _circular_addresses(model: SheetModel) -> set[str]:
@@ -43,6 +56,7 @@ def build_converted_output_model(
     model: SheetModel,
     *,
     vectorize: bool = False,
+    sheet_bounds: dict[str, tuple[int, int]] | None = None,
 ) -> tuple[OutputSheetModel, ConversionReport]:
     """Translate formula cells to ``=PY()``; preserve constants and normalized PY."""
     from plugin.calc.spreadsheet_import.vectorize import (
@@ -103,7 +117,12 @@ def build_converted_output_model(
                 code = code[6:-1]
 
             for idx, addr in enumerate(group):
-                formula = emit_py_formula(code, vectorized_data_ranges + [str(idx)])
+                formula = emit_py_formula(
+                    code,
+                    vectorized_data_ranges + [str(idx)],
+                    sheet_bounds=sheet_bounds,
+                    current_sheet=model.sheet_name,
+                )
                 vector_handled_cells[addr] = formula
                 report.converted.append(addr)
 
@@ -169,7 +188,12 @@ def build_converted_output_model(
             cells[addr] = OutputCell(
                 address=addr,
                 value=None,
-                formula=emit_py_formula(translation.code, translation.data_ranges),
+                formula=emit_py_formula(
+                    translation.code,
+                    translation.data_ranges,
+                    sheet_bounds=sheet_bounds,
+                    current_sheet=model.sheet_name,
+                ),
                 number_format=None,
             )
             report.converted.append(addr)

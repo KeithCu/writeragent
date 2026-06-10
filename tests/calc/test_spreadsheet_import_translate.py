@@ -28,9 +28,8 @@ def test_preprocess_preserves_quoted_semicolon():
 
 def test_translate_sum_range():
     result = translate_formula("=SUM(A1:A10)")
-    assert result.ok
-    assert result.code == "np.sum(data)"
-    assert result.data_ranges == ["A1:A10"]
+    assert not result.ok
+    assert result.reason == "UNSUPPORTED_FUNCTION"
 
 
 def test_translate_if_semicolon():
@@ -1446,9 +1445,8 @@ def test_translate_group_i():
 
 def test_translate_multiple_arguments_aggregates():
     res = translate_formula("=SUM(C7; C12)")
-    assert res.ok
-    assert res.code == "xl.calc_sum(*data)"
-    assert res.data_ranges == ["C7", "C12"]
+    assert not res.ok
+    assert res.reason == "UNSUPPORTED_FUNCTION"
 
     res = translate_formula("=AVERAGE(A1:A3; B1:B3)")
     assert res.ok
