@@ -56,6 +56,7 @@ dev = [
     "ydata-profiling",
     "pandas-montecarlo",
     "sympy",
+    "pint",
     "matplotlib",
     "deal",
     "crosshair-tool",

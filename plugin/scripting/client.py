@@ -169,6 +169,36 @@ def run_symbolic(
     )
 
 
+# --- Units ---
+
+_UNITS_SESSION_PREFIX = "writeragent:units"
+_UNITS_STUB = """\
+from plugin.scripting.units import run_units as _run
+result = _run(data["spec"], data.get("data"), data.get("context") or {})
+"""
+
+
+def run_units(
+    ctx: Any,
+    spec: dict[str, Any] | str,
+    data: Any = None,
+    *,
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Execute a trusted units helper in the user venv."""
+    timeout_sec = configured_python_exec_timeout(ctx)
+    payload = {"spec": spec, "data": data, "context": context or {}}
+    return _run_trusted_helper(
+        ctx,
+        session_id=_UNITS_SESSION_PREFIX,
+        stub=_UNITS_STUB,
+        payload=payload,
+        timeout_sec=timeout_sec,
+        error_code="UNITS_ERROR",
+        error_label="Units",
+    )
+
+
 # --- Optimize ---
 
 _OPTIMIZE_SESSION_PREFIX = "writeragent:optimize"

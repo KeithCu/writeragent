@@ -287,16 +287,16 @@ The sections below are **roadmaps and reference** for scientific capabilities. *
 
 Shipped domains prove the stack. New domains should mirror them—not invent parallel plumbing.
 
-| Layer | Analysis | Vision | Viz | Symbolic (SymPy) | Planned |
-|-------|----------|--------|-----|------------------|---------|
-| Trusted module | [`analysis.py`](../plugin/scripting/analysis.py) | [`vision.py`](../plugin/scripting/vision.py) | [`viz.py`](../plugin/scripting/viz.py) | [`symbolic.py`](../plugin/scripting/symbolic.py) | `forecast.py`, `text_analytics.py`, … |
-| Templates | `# writeragent:analysis` | `# writeragent:vision` | `# writeragent:viz` | `# writeragent:math` | `# writeragent:forecast`, … |
-| Host client | [`analysis_client.py`](../plugin/framework/client/analysis_client.py) | [`vision_client.py`](../plugin/framework/client/vision_client.py) | [`viz_client.py`](../plugin/framework/client/viz_client.py) | [`symbolic_client.py`](../plugin/framework/client/symbolic_client.py) | Same RPC shape |
-| Runner / egress | [`analysis_runner.py`](../plugin/calc/analysis_runner.py), [`analysis_egress.py`](../plugin/calc/analysis_egress.py) | [`vision_runner.py`](../plugin/scripting/vision_runner.py), [`vision_egress.py`](../plugin/scripting/vision_egress.py) | [`viz_runner.py`](../plugin/scripting/viz_runner.py), [`viz_egress.py`](../plugin/scripting/viz_egress.py) | [`symbolic_runner.py`](../plugin/scripting/symbolic_runner.py), [`symbolic_egress.py`](../plugin/scripting/symbolic_egress.py) | Per domain |
-| Run Python Script | `_analysis_script_section` | `_vision_script_section` | `_viz_script_section` | `_math_script_section` | [`document_scripts.py`](../plugin/scripting/document_scripts.py) |
-| Fast path order | — | 1st | 2nd | 3rd | [`python_runner.py`](../plugin/scripting/python_runner.py): vision → viz → **math** → analysis → generic venv |
-| Settings Test | **Data Analysis / EDA** | **Vision Libraries** | **Visualization Libraries** | **Computer Algebra** | Per domain when shipped |
-| LLM surface | Calc `domain="analysis"` — [`analyze_data`](../plugin/calc/analysis.py), [`plot_data`](../plugin/calc/viz.py) | `analyze_image` deferred | `plot_data` (analysis); raw matplotlib via `run_venv_python_script` | `domain="python"` — [`symbolic_math`](../plugin/calc/symbolic_math.py) | Extend analysis or add domains |
+| Layer | Analysis | Vision | Viz | Symbolic (SymPy) | Units (Pint) | Planned |
+|-------|----------|--------|-----|------------------|--------------|---------|
+| Trusted module | [`analysis.py`](../plugin/scripting/analysis.py) | [`vision.py`](../plugin/scripting/vision.py) | [`viz.py`](../plugin/scripting/viz.py) | [`symbolic.py`](../plugin/scripting/symbolic.py) | [`units.py`](../plugin/scripting/units.py) | `forecast.py`, `text_analytics.py`, … |
+| Templates | `# writeragent:analysis` | `# writeragent:vision` | `# writeragent:viz` | `# writeragent:math` | `# writeragent:units` | `# writeragent:forecast`, … |
+| Host client | [`client.py`](../plugin/scripting/client.py) `run_analysis` | [`client.py`](../plugin/scripting/client.py) `run_vision` | [`client.py`](../plugin/scripting/client.py) `run_viz` | [`client.py`](../plugin/scripting/client.py) `run_symbolic` | [`client.py`](../plugin/scripting/client.py) `run_units` | Same RPC shape |
+| Runner / egress | [`analysis_runner.py`](../plugin/calc/analysis_runner.py), [`analysis_egress.py`](../plugin/calc/analysis_egress.py) | [`vision_runner.py`](../plugin/scripting/vision_runner.py), [`vision_egress.py`](../plugin/scripting/vision_egress.py) | egress in [`viz.py`](../plugin/scripting/viz.py) | egress in [`symbolic.py`](../plugin/scripting/symbolic.py) | egress in [`units.py`](../plugin/scripting/units.py) | Per domain |
+| Run Python Script | `_analysis_script_section` | `_vision_script_section` | `_viz_script_section` | `_math_script_section` | `_units_script_section` | [`document_scripts.py`](../plugin/scripting/document_scripts.py) |
+| Fast path order | — | 1st | 2nd | 3rd | 4th (units) | [`python_runner.py`](../plugin/scripting/python_runner.py): vision → viz → math → **units** → quant → … |
+| Settings Test | **Data Analysis / EDA** | **Vision Libraries** | **Visualization Libraries** | **Computer Algebra** | **Data Engineering Libraries** | Per domain when shipped |
+| LLM surface | Calc `domain="analysis"` — [`analyze_data`](../plugin/calc/analysis.py), [`plot_data`](../plugin/calc/viz.py) | `analyze_image` deferred | `plot_data` (analysis); raw matplotlib via `run_venv_python_script` | `domain="python"` — [`symbolic_math`](../plugin/calc/symbolic_math.py) | `domain="python"` — [`units`](../plugin/calc/units.py); raw `import pint` escape hatch | Extend analysis or add domains |
 
 ```mermaid
 flowchart TD
@@ -338,7 +338,7 @@ The implementation should follow the [Domain helper pattern](#domain-helper-patt
 | 5 | **Optimization & OR** | Partial (scipy, `monte_carlo`) | `optimize_portfolio` |
 | 6 | **Geospatial** | Not started | `[Geo] map_data` |
 | 7 | **Audio / Signal Processing** | Recording shipped; no librosa analysis | Spectrogram via Viz egress |
-| 8 | **Data Engineering** | Not started | `pint` units, `arrow` IO |
+| 8 | **Data Engineering** | **Shipped (Pint)** — [`units.py`](../plugin/scripting/units.py), `units` tool, `[Units]` templates; `pyarrow` IO deferred | `convert_quantity`, `parse_quantity` |
 | 9 | **NLP** | Not started | `spacy` entity extraction |
 | 10 | **Bayesian Opt** | Not started | `skopt` |
 
@@ -489,6 +489,44 @@ run_venv_python_script(code="… plt.plot(…) …")
 **Tests:** [`test_symbolic.py`](../tests/scripting/test_symbolic.py), [`test_symbolic_templates.py`](../tests/scripting/test_symbolic_templates.py), [`test_python_runner_symbolic.py`](../tests/scripting/test_python_runner_symbolic.py), [`test_symbolic_tool.py`](../tests/scripting/test_symbolic_tool.py).
 
 **Out of scope (deferred):** SageMath backend, `sage` sandbox whitelist — [sagemath-integration-dev-plan.md](sagemath-integration-dev-plan.md).
+
+---
+
+### 3b. Data Engineering / Units (Pint) {#data-engineering-units}
+
+**Status:** **Shipped (Pint).** Trusted helpers via [`units.py`](../plugin/scripting/units.py), Run Python Script **Units Helpers**, and `units` chat tool (`domain="python"`). `pyarrow` / Arrow IO remains deferred.
+
+**Goal:** Convert, parse, format, and dimensionally-check physical quantities inside LibreOffice without requiring the LLM to manage `UnitRegistry()` singletons or serialization.
+
+**Why:** Unit normalization composes with analysis and vision workflows (OCR tables, lab data, engineering spreadsheets). Pint covers compound units (`m/s` → `km/h`) beyond Calc's built-in `CONVERT()` symbol set.
+
+**Shipped helpers:**
+
+| Helper | Purpose |
+|--------|---------|
+| `convert_quantity` | Convert a value between units |
+| `parse_quantity` | Parse a quantity string |
+| `format_quantity` | Format magnitude + units for display |
+| `check_dimensionality` | Test dimensional compatibility |
+
+**Integration:**
+
+| Piece | Location |
+|-------|----------|
+| Trusted module | [`units.py`](../plugin/scripting/units.py), [`client.py`](../plugin/scripting/client.py) `run_units` |
+| Run Python Script | `# writeragent:units` templates, **Units Helpers** in [`document_scripts.py`](../plugin/scripting/document_scripts.py) |
+| Writer / Calc egress | `insert_units_result_into_doc` in [`units.py`](../plugin/scripting/units.py) |
+| Chat tool | [`units`](../plugin/calc/units.py) (`domain="python"`) |
+
+**Packages:** `pint` (required). Settings → Python **Data Engineering Libraries** group lists pint.
+
+**Dual access:** Prefer `units` tool / `run_units` helpers. Raw `import pint` is whitelisted for advanced registries, contexts, and custom definitions.
+
+**Run Python Script templates:** **Units Helpers →** `[Units] convert_quantity`, `[Units] parse_quantity`, `[Units] check_dimensionality`.
+
+**Tests:** [`test_units.py`](../tests/scripting/test_units.py), [`test_units_templates.py`](../tests/scripting/test_units_templates.py), [`test_python_runner_units.py`](../tests/scripting/test_python_runner_units.py), [`test_units_tool.py`](../tests/scripting/test_units_tool.py).
+
+**Out of scope (deferred):** `xl.convert()` Calc-parity wrapper, `pyarrow` / `plugin/scripting/io.py`.
 
 ---
 

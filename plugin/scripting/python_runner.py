@@ -361,6 +361,29 @@ def _symbolic_insert_ok_outcome(
     }
 
 
+def _units_insert_ok_outcome(
+    *,
+    helper: str,
+    formatted: str,
+    t0: float,
+    stdout: str | None,
+    result: Any,
+) -> dict[str, Any]:
+    formatted_time = format_elapsed_time(time.perf_counter() - t0)
+    preview = formatted[:80] + ("…" if len(formatted) > 80 else "")
+    status_ok = _("Units '{helper}' completed. Inserted: {preview} (took {time})").format(
+        helper=helper,
+        preview=preview,
+        time=formatted_time,
+    )
+    return {
+        "ok": True,
+        "status_ok_text": status_ok,
+        "stdout": stdout,
+        "result": result,
+    }
+
+
 def execute_and_insert_result(
     ctx: Any,
     doc: Any,
@@ -380,6 +403,7 @@ def execute_and_insert_result(
     from plugin.scripting.vision_templates import parse_vision_script_header
     from plugin.scripting.viz import insert_viz_result_into_doc, is_viz_result, try_insert_plot_result, run_trusted_viz, supports_viz_manual, parse_viz_script_header
     from plugin.scripting.symbolic import insert_symbolic_result_into_doc, is_symbolic_result, run_trusted_symbolic, supports_symbolic_manual, parse_math_script_header
+    from plugin.scripting.units import insert_units_result_into_doc, is_units_result, run_trusted_units, supports_units_manual, parse_units_script_header
     from plugin.calc.quant_egress import insert_quant_result_into_calc, is_quant_result
     from plugin.scripting.quant import run_trusted_quant, parse_quant_script_header
     from plugin.scripting.optimize import insert_optimize_result_into_calc, is_optimize_result, run_trusted_optimize, parse_optimize_script_header
@@ -388,6 +412,7 @@ def execute_and_insert_result(
     vision_meta = parse_vision_script_header(code)
     viz_meta = parse_viz_script_header(code)
     math_meta = parse_math_script_header(code)
+    units_meta = parse_units_script_header(code)
     meta = parse_analysis_script_header(code)
     quant_meta = parse_quant_script_header(code)
     optimize_meta = parse_optimize_script_header(code)
@@ -566,6 +591,55 @@ def execute_and_insert_result(
         return _symbolic_insert_ok_outcome(
             helper=math_meta.helper,
             latex=latex,
+            t0=t0,
+            stdout=None,
+            result=result,
+        )
+
+    if units_meta is not None:
+        if not supports_units_manual(doc):
+            return {
+                "ok": False,
+                "message": _("Units helpers require a Writer or Calc document."),
+            }
+        try:
+            result = run_trusted_units(
+                ctx,
+                doc,
+                helper=units_meta.helper,
+                params=units_meta.params,
+            )
+        except ToolExecutionError as exc:
+            elapsed = time.perf_counter() - t0
+            err_msg = str(exc)
+            formatted_time = format_elapsed_time(elapsed)
+            if not ("timed out" in err_msg.lower() or "timeout" in err_msg.lower()):
+                err_msg = f"{err_msg} (took {formatted_time})"
+            return {"ok": False, "message": err_msg}
+        except Exception as e:
+            elapsed = time.perf_counter() - t0
+            log.exception("execute_and_insert_result units fast path failed")
+            err_msg = str(e)
+            formatted_time = format_elapsed_time(elapsed)
+            return {"ok": False, "message": f"{err_msg} (took {formatted_time})", "traceback": exception_traceback(e)}
+
+        if result.get("status") == "error":
+            elapsed = time.perf_counter() - t0
+            formatted_time = format_elapsed_time(elapsed)
+            message = str(result.get("message") or _("Units helper failed."))
+            return {"ok": False, "message": f"{message} (took {formatted_time})"}
+
+        try:
+            insert_units_result_into_doc(ctx, doc, result)
+        except Exception as e:
+            elapsed_total = time.perf_counter() - t0
+            formatted_time_total = format_elapsed_time(elapsed_total)
+            return {"ok": False, "message": _("Failed to insert result: {error} (took {time})").format(error=str(e), time=formatted_time_total)}
+
+        formatted = str(result.get("formatted") or result.get("text") or units_meta.helper)
+        return _units_insert_ok_outcome(
+            helper=units_meta.helper,
+            formatted=formatted,
             t0=t0,
             stdout=None,
             result=result,
@@ -763,6 +837,18 @@ def execute_and_insert_result(
                 return _symbolic_insert_ok_outcome(
                     helper=helper,
                     latex=latex,
+                    t0=t0,
+                    stdout=stdout,
+                    result=result_data,
+                )
+            if is_units_result(result_data):
+                units_result = cast("dict[str, Any]", result_data)
+                insert_units_result_into_doc(ctx, doc, units_result)
+                formatted = str(units_result.get("formatted") or units_result.get("text") or units_result.get("helper") or "")
+                helper = str(units_result.get("helper") or "")
+                return _units_insert_ok_outcome(
+                    helper=helper,
+                    formatted=formatted,
                     t0=t0,
                     stdout=stdout,
                     result=result_data,

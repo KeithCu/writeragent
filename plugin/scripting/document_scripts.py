@@ -37,6 +37,7 @@ SCRIPT_ORIGIN_ANALYSIS = "analysis"
 SCRIPT_ORIGIN_VISION = "vision"
 SCRIPT_ORIGIN_VIZ = "viz"
 SCRIPT_ORIGIN_MATH = "math"
+SCRIPT_ORIGIN_UNITS = "units"
 SCRIPT_ORIGIN_QUANT = "quant"
 SCRIPT_ORIGIN_OPTIMIZE = "optimize"
 
@@ -45,6 +46,7 @@ ANALYSIS_SCRIPT_DISPLAY_PREFIX = "[Analysis] "
 VISION_SCRIPT_DISPLAY_PREFIX = "[Vision] "
 VIZ_SCRIPT_DISPLAY_PREFIX = "[Viz] "
 MATH_SCRIPT_DISPLAY_PREFIX = "[Math] "
+UNITS_SCRIPT_DISPLAY_PREFIX = "[Units] "
 QUANT_SCRIPT_DISPLAY_PREFIX = "[Quant] "
 OPTIMIZE_SCRIPT_DISPLAY_PREFIX = "[Optimize] "
 
@@ -285,6 +287,16 @@ def parse_math_script_display_name(display: str) -> str | None:
     return None
 
 
+def units_script_display_name(name: str) -> str:
+    return f"{UNITS_SCRIPT_DISPLAY_PREFIX}{name}"
+
+
+def parse_units_script_display_name(display: str) -> str | None:
+    if display.startswith(UNITS_SCRIPT_DISPLAY_PREFIX):
+        return display[len(UNITS_SCRIPT_DISPLAY_PREFIX) :]
+    return None
+
+
 def quant_script_display_name(name: str) -> str:
     return f"{QUANT_SCRIPT_DISPLAY_PREFIX}{name}"
 
@@ -323,6 +335,9 @@ def resolve_script_picker_entry(display_name: str, origin_map: dict[str, str]) -
     if origin == SCRIPT_ORIGIN_MATH:
         real = parse_math_script_display_name(display_name)
         return (real or display_name, SCRIPT_ORIGIN_MATH)
+    if origin == SCRIPT_ORIGIN_UNITS:
+        real = parse_units_script_display_name(display_name)
+        return (real or display_name, SCRIPT_ORIGIN_UNITS)
     if origin == SCRIPT_ORIGIN_QUANT:
         real = parse_quant_script_display_name(display_name)
         return (real or display_name, SCRIPT_ORIGIN_QUANT)
@@ -396,6 +411,22 @@ def _math_script_section(doc: Any | None) -> dict[str, Any] | None:
     templates = get_math_script_templates()
     display_scripts = {math_script_display_name(name): code for name, code in templates.items()}
     return {"id": SCRIPT_ORIGIN_MATH, "title": _("Math Helpers"), "scripts": display_scripts}
+
+
+def _units_script_section(doc: Any | None) -> dict[str, Any] | None:
+    if doc is None:
+        return None
+    from plugin.scripting.units import get_units_script_templates, supports_units_manual
+
+    try:
+        if not supports_units_manual(doc):
+            return None
+    except Exception:
+        return None
+
+    templates = get_units_script_templates()
+    display_scripts = {units_script_display_name(name): code for name, code in templates.items()}
+    return {"id": SCRIPT_ORIGIN_UNITS, "title": _("Units Helpers"), "scripts": display_scripts}
 
 
 def _quant_script_section(doc: Any | None) -> dict[str, Any] | None:
@@ -482,6 +513,14 @@ def build_xdl_script_picker_state(
             merged[display_name] = code
             math_items.append(display_name)
 
+    units_items: list[str] = []
+    units_section = _units_script_section(doc)
+    if units_section:
+        for display_name, code in units_section["scripts"].items():
+            origin_map[display_name] = SCRIPT_ORIGIN_UNITS
+            merged[display_name] = code
+            units_items.append(display_name)
+
     quant_items: list[str] = []
     quant_section = _quant_script_section(doc)
     if quant_section:
@@ -505,6 +544,7 @@ def build_xdl_script_picker_state(
         + vision_items
         + viz_items
         + math_items
+        + units_items
         + quant_items
         + optimize_items
         + [document_script_display_name(n) for n in sorted(doc_scripts.keys())]
@@ -560,6 +600,9 @@ def build_scripts_list_message(
     math_section = _math_script_section(doc)
     if math_section:
         sections.append(math_section)
+    units_section = _units_script_section(doc)
+    if units_section:
+        sections.append(units_section)
     quant_section = _quant_script_section(doc)
     if quant_section:
         sections.append(quant_section)

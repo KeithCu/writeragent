@@ -243,12 +243,14 @@ cas = ['sympy']
 viz = ['matplotlib', 'seaborn']
 ui = ['webview', 'jedi', 'PyQt6', 'PyQt6.QtWebEngineWidgets', 'qtpy']
 quant = ['yfinance', 'pandas_ta', 'quantstats', 'pypfopt']
+data_eng = ['pint']
 res['sci'] = sci
 res['eda'] = eda
 res['cas'] = cas
 res['viz'] = viz
 res['ui'] = ui
 res['quant'] = quant
+res['data_eng'] = data_eng
 
 # Check for Cython accelerator
 try:
@@ -372,6 +374,12 @@ try:
 except ImportError:
     res['p']['pypfopt'] = None
 
+try:
+    import pint
+    res['p']['pint'] = 'present'
+except ImportError:
+    res['p']['pint'] = None
+
 result = res
 """
 
@@ -481,6 +489,7 @@ _SELF_CHECK_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Visualization Libraries", ("matplotlib", "seaborn")),
     ("Computer Algebra", ("sympy",)),
     ("Quantitative Finance Libraries", ("yfinance", "pandas_ta", "quantstats", "pypfopt")),
+    ("Data Engineering Libraries", ("pint",)),
 )
 
 _ALLOWED_PROBE_MODULES = frozenset(pkg for _title, pkgs in _SELF_CHECK_GROUPS for pkg in pkgs)
@@ -532,6 +541,7 @@ def _self_check_group_specs(data: dict[str, Any]) -> list[tuple[str, tuple[str, 
         (_("Visualization Libraries"), tuple(data.get("viz", ()))),
         (_("Computer Algebra"), tuple(data.get("cas", ()))),
         (_("Quantitative Finance Libraries"), tuple(data.get("quant", ()))),
+        (_("Data Engineering Libraries"), tuple(data.get("data_eng", ()))),
         (_("Vision Libraries"), tuple(data.get("vision", ()))),
     ]
 
@@ -643,6 +653,7 @@ def run_venv_self_check_with_progress(
         "viz": list(_SELF_CHECK_GROUPS[3][1]),
         "cas": list(_SELF_CHECK_GROUPS[4][1]),
         "quant": list(_SELF_CHECK_GROUPS[5][1]),
+        "data_eng": list(_SELF_CHECK_GROUPS[6][1]),
     }
     _refresh(data)
 

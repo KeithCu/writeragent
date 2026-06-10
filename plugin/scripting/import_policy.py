@@ -182,3 +182,11 @@ def format_matplotlib_plot_hint(*, doc_type: str | None = None, agent_label: str
     if not resolved:
         return ""
     return _MATPLOTLIB_PLOT_HINTS.get(resolved, "")
+
+
+def format_units_helper_hint() -> str:
+    """Return guidance to prefer trusted units helpers over raw pint imports."""
+    return (
+        "For unit conversion and dimensional analysis, prefer the units tool or run_units helper "
+        "over raw import pint. Raw pint remains available for custom registries, contexts, and definitions."
+    )

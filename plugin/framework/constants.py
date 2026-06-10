@@ -267,13 +267,15 @@ def python_specialized_sub_agent_hint(agent_label: str) -> str:
     else:
         data_hint = " run_venv_python_script does not inject spreadsheet `data`—use document tools for content."
     policy = _VENV_IMPORT_POLICY_FULL or _load_venv_import_policy_full()
-    from plugin.scripting.import_policy import format_matplotlib_plot_hint
+    from plugin.scripting.import_policy import format_matplotlib_plot_hint, format_units_helper_hint
 
     plot_hint = format_matplotlib_plot_hint(agent_label=agent_label)
     plot_suffix = f" {plot_hint}" if plot_hint else ""
+    units_hint = format_units_helper_hint()
     return (
         f" PYTHON (venv): {policy}{data_hint}{plot_suffix}"
         " Prefer symbolic_math for solve/simplify/integrate/differentiate over raw sp/run_venv_python_script."
+        f" {units_hint}"
     )
 
 

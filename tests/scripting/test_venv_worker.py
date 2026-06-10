@@ -783,6 +783,22 @@ def test_format_self_check_success_without_arch():
     assert "(" not in msg.split("\n")[0]
 
 
+def test_format_self_check_success_with_data_engineering_group():
+    from plugin.scripting.venv_worker import _format_self_check_success
+
+    data = {
+        "v": "3.12.0",
+        "p": {"pint": "present"},
+        "sci": [],
+        "eda": [],
+        "ui": [],
+        "data_eng": ["pint"],
+    }
+    msg = _format_self_check_success(data)
+    assert "Data Engineering Libraries" in msg
+    assert "Present: pint" in msg
+
+
 def test_format_self_check_success_with_vision_group():
     from plugin.scripting.venv_worker import _format_self_check_success
 

@@ -17,6 +17,7 @@ from plugin.scripting.import_policy import (
     PYTHON_VENV_SANDBOX_CONTEXT_PREFIX,
     format_inprocess_import_policy_for_prompt,
     format_matplotlib_plot_hint,
+    format_units_helper_hint,
     format_venv_import_policy_for_prompt,
     inprocess_authorized_modules,
     venv_authorized_top_level_modules,
@@ -111,3 +112,15 @@ def test_python_specialized_sub_agent_calc_plot_hint():
     hint = python_specialized_sub_agent_hint("Calc")
     assert "PLOTS:" in hint
     assert "Do not call insert_image" in hint
+
+
+def test_format_units_helper_hint():
+    hint = format_units_helper_hint()
+    assert "units tool" in hint
+    assert "run_units" in hint
+    assert "import pint" in hint
+
+
+def test_python_specialized_sub_agent_units_hint():
+    hint = python_specialized_sub_agent_hint("Writer")
+    assert "units tool" in hint
