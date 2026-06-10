@@ -91,7 +91,7 @@ def test_mark_file_indexed_clears_stale_mtime(tmp_path):
     )
     assert embeddings_indexer.file_is_stale(state_path, doc_url, 100.0) is True
     embeddings_cache.mark_file_indexed(state_path, doc_url, 100.0, indexed_at=150.0, paragraphs={"0": "h"})
-    state = embeddings_indexer.get_file_index_state(state_path, doc_url)
+    state = embeddings_cache.get_file_index_state(state_path, doc_url)
     assert state["file_mtime"] == 100.0
     assert state["last_indexed_at"] == 150.0
     assert embeddings_indexer.file_is_stale(state_path, doc_url, 100.0) is False
