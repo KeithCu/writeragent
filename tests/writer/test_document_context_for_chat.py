@@ -8,10 +8,24 @@ from unittest.mock import MagicMock, patch
 
 from plugin.doc.document_helpers import (
     _inject_markers_into_excerpt,
+    _read_writer_text_slice,
     _writer_selection_overlaps_windows,
     get_document_context_for_chat,
 )
 from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
+
+
+@patch("plugin.doc.document_helpers.get_string_without_tracked_deletions", return_value="visible text")
+@patch("plugin.doc.document_helpers.get_text_cursor_at_range")
+def test_read_writer_text_slice_uses_deletion_filter(mock_get_cursor, mock_without_deletions):
+    cursor = MagicMock()
+    mock_get_cursor.return_value = cursor
+
+    result = _read_writer_text_slice(MagicMock(), 0, 100)
+
+    mock_without_deletions.assert_called_once_with(cursor)
+    assert result == "visible text"
+    cursor.getString.assert_not_called()
 
 
 def test_inject_markers_into_excerpt_selection_inside():

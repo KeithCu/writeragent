@@ -6,6 +6,7 @@ from plugin.doc.document_helpers import (
     get_paragraph_ranges,
     get_document_length,
     ensure_heading_bookmarks,
+    get_document_context_for_chat,
     get_string_without_tracked_deletions,
     WriterStreamedRewriteSession,
 )
@@ -124,6 +125,38 @@ def test_get_string_without_tracked_deletions_hides_deleted_text():
 
         redline_enum = doc.getRedlines().createEnumeration()
         assert redline_enum.hasMoreElements(), "Expected a tracked deletion redline"
+    finally:
+        doc.close(True)
+
+
+@native_test
+def test_get_document_context_for_chat_hides_tracked_deletions():
+    import uno
+
+    desktop = get_desktop(_test_ctx)
+    hidden_prop = uno.createUnoStruct(
+        "com.sun.star.beans.PropertyValue",
+        Name="Hidden",
+        Value=True,
+    )
+    doc = desktop.loadComponentFromURL("private:factory/swriter", "_blank", 0, (hidden_prop,))
+    assert doc is not None, "Could not create hidden Writer document"
+
+    try:
+        text = doc.getText()
+        cursor = text.createTextCursor()
+        text.insertString(cursor, "Hello Beta", False)
+
+        doc.setPropertyValue("RecordChanges", True)
+        cursor.gotoStart(False)
+        cursor.goRight(6, False)
+        cursor.goRight(4, True)
+        cursor.setString("")
+
+        ctx = get_document_context_for_chat(doc, include_selection=False)
+
+        assert "Hello " in ctx
+        assert "Beta" not in ctx
     finally:
         doc.close(True)
 

@@ -539,7 +539,8 @@ def _read_writer_text_slice(model, start_offset: int, length: int) -> str:
     cursor = get_text_cursor_at_range(model, start_offset, end_offset)
     if cursor is None:
         return ""
-    return normalize_linebreaks(safe_call(cursor.getString, "Cursor getString slice"))
+    # cursor.getString() concatenates tracked deletions as plain text; enumerate portions instead.
+    return normalize_linebreaks(get_string_without_tracked_deletions(cursor))
 
 
 def _char_offset_of_position(model, target_start, doc_len: int) -> int:
