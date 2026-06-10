@@ -1475,19 +1475,19 @@ msgstr "Python バージョンを読み込み中..."
 
 #: plugin/scripting/venv_worker.py
 msgid "Vision Libraries: loading (first run may take a while)..."
-msgstr ""
+msgstr "Vision Libraries: 読み込み中 (初回実行時は時間がかかる場合があります)..."
 
 #: plugin/scripting/venv_worker.py
 msgid "Using LibreOffice process Python..."
-msgstr ""
+msgstr "LibreOffice プロセスの Python を使用中..."
 
 #: plugin/scripting/venv_worker.py
 msgid "Resolving venv Python..."
-msgstr ""
+msgstr "venv Python を解決中..."
 
 #: plugin/scripting/venv_worker.py
 msgid "Using"
-msgstr ""
+msgstr "使用中"
 
 #: plugin/scripting/vision_runner.py
 #, python-brace-format
@@ -1594,19 +1594,16 @@ msgstr ""
 "このWriterドキュメントにはインポートされたノートブックレジストリがありません。ノートブックのPythonセッションリセットを有効にするには、「ツール」→「Jupyterノートブックをインポート…」を使用してください。"
 
 #: plugin/scripting/units.py plugin/scripting/python_runner.py
-#, fuzzy
 msgid "Units helper failed."
-msgstr "可視化ヘルパーが失敗しました。"
+msgstr "Units ヘルパーが失敗しました。"
 
 #: plugin/scripting/units.py
-#, fuzzy
 msgid "Units helper returned no formatted text."
-msgstr "可視化ヘルパーから画像データが返されませんでした。"
+msgstr "Units ヘルパーが整形されたテキストを返しませんでした。"
 
 #: plugin/scripting/units.py
-#, fuzzy
 msgid "Unsupported document type for units insertion."
-msgstr "プロットの挿入に対応していないドキュメント形式です。"
+msgstr "単位挿入に対応していないドキュメント形式です。"
 
 #: plugin/scripting/python_runner.py
 #, python-format
@@ -1637,9 +1634,9 @@ msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
 msgstr "Math '{helper}' が完了しました。 挿入済み: {preview} (所要時間: {time})"
 
 #: plugin/scripting/python_runner.py
-#, fuzzy, python-brace-format
+#, python-brace-format
 msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr "Math '{helper}' が完了しました。 挿入済み: {preview} (所要時間: {time})"
+msgstr "Units '{helper}' が完了しました。挿入内容: {preview} (所要時間: {time})"
 
 #: plugin/scripting/python_runner.py
 msgid "Vision helpers require a Writer or Calc document."
@@ -1687,9 +1684,8 @@ msgid "Math helper failed."
 msgstr "Math ヘルパーが失敗しました。"
 
 #: plugin/scripting/python_runner.py
-#, fuzzy
 msgid "Units helpers require a Writer or Calc document."
-msgstr "Viz ヘルパーには Writer または Calc ドキュメントが必要です。"
+msgstr "Units ヘルパーには Writer または Calc ドキュメントが必要です。"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -2231,7 +2227,7 @@ msgstr ""
 "API同時呼び出し数（1～8）。1は従来の動作と同じです。OpenRouterや並列リクエストを許可する他のプロバイダーを使用する場合は増やしてください。サイドバーチャットと併用する場合は注意してください。"
 
 msgid "Sentence language detection"
-msgstr ""
+msgstr "文の言語検出"
 
 msgid ""
 "Verify each complete sentence's language against the document locale. AI "

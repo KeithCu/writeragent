@@ -19,11 +19,11 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT)."
-" Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT). "
+"Enable this in configuration."
 msgstr ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT)."
-" Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT). "
+"Enable this in configuration."
 
 #: plugin/doc/specialized_base.py
 msgid "Brainstorming session started."
@@ -44,12 +44,12 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
-" call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
+"call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
-" call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
+"call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 
 #: plugin/notebook/notebook_runner.py
@@ -62,11 +62,11 @@ msgstr "Notebook run is only supported in LibreOffice Writer."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
-" first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
+"first."
 msgstr ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
-" first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
+"first."
 
 #: plugin/notebook/notebook_runner.py
 msgid "Could not find notebook cell for this control."
@@ -237,8 +237,7 @@ msgstr "This model takes more time than your current configuration."
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid ""
-"Please try another model. {0} would take more time than you configured."
+msgid "Please try another model. {0} would take more time than you configured."
 msgstr ""
 "Please try another model. {0} would take more time than you configured."
 
@@ -323,8 +322,7 @@ msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
 msgstr "Request Timed Out. Try increasing 'Request Timeout' in Settings."
 
 #: plugin/framework/errors.py
-msgid ""
-"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 
@@ -356,11 +354,9 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try "
-"me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
 msgstr ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try "
-"me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
 
 #: plugin/framework/constants.py
 msgid ""
@@ -380,23 +376,21 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest"
-" approaches, and help you build an approved spec in your document when "
-"you're ready."
+"AI: Let's explore and design your idea together. I'll ask questions, suggest "
+"approaches, and help you build an approved spec in your document when you're "
+"ready."
 msgstr ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest"
-" approaches, and help you build an approved spec in your document when "
-"you're ready."
+"AI: Let's explore and design your idea together. I'll ask questions, suggest "
+"approaches, and help you build an approved spec in your document when you're "
+"ready."
 
 #: plugin/framework/constants.py
 msgid ""
 "AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your "
-"approval."
+"writing plan outline, and then implement it incrementally with your approval."
 msgstr ""
 "AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your "
-"approval."
+"writing plan outline, and then implement it incrementally with your approval."
 
 #: plugin/framework/client/errors.py
 #, python-brace-format
@@ -1095,8 +1089,7 @@ msgstr "[Agent backend '{0}' not found.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid ""
-"[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Agent backend '{0}' is not available. Check Settings (path, install).]"
 
@@ -1481,8 +1474,7 @@ msgid "Could not talk to the Python editor."
 msgstr "Could not talk to the Python editor."
 
 #: plugin/scripting/venv_worker.py
-msgid ""
-"Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "Vision probe timed out (Docling import can take 10–30s on first check)."
 
@@ -1797,11 +1789,11 @@ msgstr "Analysis '{helper}' completed. Wrote {rows} rows. (took {time})"
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output."
-" (took {time})"
+"Script executed successfully, but returned no result and produced no output. "
+"(took {time})"
 msgstr ""
-"Script executed successfully, but returned no result and produced no output."
-" (took {time})"
+"Script executed successfully, but returned no result and produced no output. "
+"(took {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -2138,11 +2130,11 @@ msgid "Path / URL"
 msgstr "Path / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
-"http://localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
+"localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
-"http://localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
+"localhost:8000 for Hermes). Empty = try default."
 
 msgid "Extra arguments"
 msgstr "Extra arguments"
@@ -2200,8 +2192,7 @@ msgid "Edit Selection Extra Tokens"
 msgstr "Edit Selection Extra Tokens"
 
 msgid "Extra tokens beyond original text length. 0 = same length as original."
-msgstr ""
-"Extra tokens beyond original text length. 0 = same length as original."
+msgstr "Extra tokens beyond original text length. 0 = same length as original."
 
 msgid "Show Web Search Thinking"
 msgstr "Show Web Search Thinking"
@@ -2252,12 +2243,12 @@ msgstr "Enable AI grammar checker (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
-" after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
+"after you pause typing. Off by default."
 msgstr ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
-" after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
+"after you pause typing. Off by default."
 
 msgid "Grammar check model (optional)"
 msgstr "Grammar check model (optional)"
@@ -2343,11 +2334,11 @@ msgid "Enable MCP Server"
 msgstr "Enable MCP Server"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
-" HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
+"HTTP)."
 msgstr ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
-" HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
+"HTTP)."
 
 msgid "MCP Port"
 msgstr "MCP Port"
@@ -2398,11 +2389,11 @@ msgid "Max Calc data cells"
 msgstr "Max Calc data cells"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
-" values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
+"values use more RAM and time; UNO range read still dominates."
 msgstr ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
-" values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
+"values use more RAM and time; UNO range read still dominates."
 
 msgid "Python session mode"
 msgstr "Python session mode"
@@ -2434,11 +2425,11 @@ msgid "Modeless Run Python Script dialog"
 msgstr "Modeless Run Python Script dialog"
 
 msgid ""
-"When checked, the plain-text Run Python Script dialog floats so you can edit"
-" the document while it is open. Uncheck for the classic modal dialog."
+"When checked, the plain-text Run Python Script dialog floats so you can edit "
+"the document while it is open. Uncheck for the classic modal dialog."
 msgstr ""
-"When checked, the plain-text Run Python Script dialog floats so you can edit"
-" the document while it is open. Uncheck for the classic modal dialog."
+"When checked, the plain-text Run Python Script dialog floats so you can edit "
+"the document while it is open. Uncheck for the classic modal dialog."
 
 msgid "Vision / OCR"
 msgstr "Vision / OCR"
