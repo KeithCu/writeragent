@@ -387,13 +387,13 @@ class _VenvProbeProgressDialog:
             dlg_model = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialogModel", self._ctx)
             dlg_model.Title = _("Python Test")
             dlg_model.Width = 320
-            dlg_model.Height = 288
+            dlg_model.Height = 317
 
             add_dialog_label(dlg_model, "StatusLbl", _("Testing Python environment..."), 8, 8, 304, 12, multiline=False)
-            log_edit = add_dialog_edit(dlg_model, "LogArea", "", 8, 24, 304, 228, readonly=True)
+            log_edit = add_dialog_edit(dlg_model, "LogArea", "", 8, 24, 304, 257, readonly=True)
             log_edit.MultiLine = True
             log_edit.VScroll = True
-            add_dialog_button(dlg_model, "BtnClose", _("Close"), 252, 258, 60, 14, enabled=False)
+            add_dialog_button(dlg_model, "BtnClose", _("Close"), 252, 287, 60, 14, enabled=False)
 
             self._dlg = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialog", self._ctx)
             self._dlg.setModel(dlg_model)
