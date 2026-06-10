@@ -286,7 +286,7 @@ def coerce_to_dataframe(
             continue
         rows.append(coerced_row)
 
-    df = pd.DataFrame(rows, columns=cast(Any, col_names))
+    df = pd.DataFrame(rows, columns=cast("Any", col_names))
     df = _coerce_column_types(df)
     return CoerceResult(df=df, metadata=_build_metadata(df, sheet_hint=sheet_hint, dropped_rows=dropped_rows))
 
@@ -1002,7 +1002,6 @@ def monte_carlo(
     sheet_hint: str | None = None,
 ) -> dict[str, Any]:
     """Monte Carlo simulation on a numeric series (pandas-montecarlo)."""
-    import numpy as np
     try:
         from pandas_montecarlo import montecarlo as pmc_montecarlo
     except ImportError:

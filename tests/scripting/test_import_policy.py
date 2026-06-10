@@ -116,11 +116,10 @@ def test_python_specialized_sub_agent_calc_plot_hint():
 
 def test_format_units_helper_hint():
     hint = format_units_helper_hint()
-    assert "units tool" in hint
+    assert "Units Helpers" in hint
     assert "run_units" in hint
-    assert "import pint" in hint
 
 
 def test_python_specialized_sub_agent_units_hint():
     hint = python_specialized_sub_agent_hint("Writer")
-    assert "units tool" in hint
+    assert "Units Helpers" in hint

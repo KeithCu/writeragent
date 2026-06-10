@@ -296,7 +296,7 @@ Shipped domains prove the stack. New domains should mirror them—not invent par
 | Run Python Script | `_analysis_script_section` | `_vision_script_section` | `_viz_script_section` | `_math_script_section` | `_units_script_section` | [`document_scripts.py`](../plugin/scripting/document_scripts.py) |
 | Fast path order | — | 1st | 2nd | 3rd | 4th (units) | [`python_runner.py`](../plugin/scripting/python_runner.py): vision → viz → math → **units** → quant → … |
 | Settings Test | **Data Analysis / EDA** | **Vision Libraries** | **Visualization Libraries** | **Computer Algebra** | **Data Engineering Libraries** | Per domain when shipped |
-| LLM surface | Calc `domain="analysis"` — [`analyze_data`](../plugin/calc/analysis.py), [`plot_data`](../plugin/calc/viz.py) | `analyze_image` deferred | `plot_data` (analysis); raw matplotlib via `run_venv_python_script` | `domain="python"` — [`symbolic_math`](../plugin/calc/symbolic_math.py) | `domain="python"` — [`units`](../plugin/calc/units.py); raw `import pint` escape hatch | Extend analysis or add domains |
+| LLM surface | Calc `domain="analysis"` — [`analyze_data`](../plugin/calc/analysis.py), [`plot_data`](../plugin/calc/viz.py) | `analyze_image` deferred | `plot_data` (analysis); raw matplotlib via `run_venv_python_script` | `domain="python"` — [`symbolic_math`](../plugin/calc/symbolic_math.py) | Run Python Script **Units Helpers** only | Extend analysis or add domains |
 
 ```mermaid
 flowchart TD
@@ -321,7 +321,7 @@ We are actively expanding the set of supported scientific libraries. These packa
 | Domain | Packages | Implementation |
 |--------|----------|----------------|
 | **Data Engineering** | `pint`, `pyarrow` | Trusted module `plugin/scripting/units.py` or `io.py` |
-| **NLP** | `spacy`, `langdetect` | Trusted module `plugin/scripting/nlp.py` |
+| **NLP** | `langdetect` (grammar, vendored), `spacy` (future) | Bundled [`plugin/contrib/langdetect/`](../plugin/contrib/langdetect/) for grammar Local mode; future `plugin/scripting/nlp.py` for spacy |
 | **Bayesian Opt** | `scikit-optimize` | Trusted module `plugin/scripting/optimization.py` |
 
 The implementation should follow the [Domain helper pattern](#domain-helper-pattern-analysis--vision-canonical) using the established RPC stub architecture.
@@ -338,8 +338,8 @@ The implementation should follow the [Domain helper pattern](#domain-helper-patt
 | 5 | **Optimization & OR** | Partial (scipy, `monte_carlo`) | `optimize_portfolio` |
 | 6 | **Geospatial** | Not started | `[Geo] map_data` |
 | 7 | **Audio / Signal Processing** | Recording shipped; no librosa analysis | Spectrogram via Viz egress |
-| 8 | **Data Engineering** | **Shipped (Pint)** — [`units.py`](../plugin/scripting/units.py), `units` tool, `[Units]` templates; `pyarrow` IO deferred | `convert_quantity`, `parse_quantity` |
-| 9 | **NLP** | Not started | `spacy` entity extraction |
+| 8 | **Data Engineering** | **Shipped (Pint)** — [`units.py`](../plugin/scripting/units.py), `[Units]` templates; `pyarrow` IO deferred | `convert_quantity`, `parse_quantity` |
+| 9 | **NLP** | **Partial** — langdetect vendored for grammar language detection | `spacy` entity extraction |
 | 10 | **Bayesian Opt** | Not started | `skopt` |
 
 ---
@@ -494,7 +494,7 @@ run_venv_python_script(code="… plt.plot(…) …")
 
 ### 3b. Data Engineering / Units (Pint) {#data-engineering-units}
 
-**Status:** **Shipped (Pint).** Trusted helpers via [`units.py`](../plugin/scripting/units.py), Run Python Script **Units Helpers**, and `units` chat tool (`domain="python"`). `pyarrow` / Arrow IO remains deferred.
+**Status:** **Shipped (Pint).** Trusted helpers via [`units.py`](../plugin/scripting/units.py) and Run Python Script **Units Helpers**. `pyarrow` / Arrow IO remains deferred.
 
 **Goal:** Convert, parse, format, and dimensionally-check physical quantities inside LibreOffice without requiring the LLM to manage `UnitRegistry()` singletons or serialization.
 
@@ -516,15 +516,12 @@ run_venv_python_script(code="… plt.plot(…) …")
 | Trusted module | [`units.py`](../plugin/scripting/units.py), [`client.py`](../plugin/scripting/client.py) `run_units` |
 | Run Python Script | `# writeragent:units` templates, **Units Helpers** in [`document_scripts.py`](../plugin/scripting/document_scripts.py) |
 | Writer / Calc egress | `insert_units_result_into_doc` in [`units.py`](../plugin/scripting/units.py) |
-| Chat tool | [`units`](../plugin/calc/units.py) (`domain="python"`) |
 
 **Packages:** `pint` (required). Settings → Python **Data Engineering Libraries** group lists pint.
 
-**Dual access:** Prefer `units` tool / `run_units` helpers. Raw `import pint` is whitelisted for advanced registries, contexts, and custom definitions.
-
 **Run Python Script templates:** **Units Helpers →** `[Units] convert_quantity`, `[Units] parse_quantity`, `[Units] check_dimensionality`.
 
-**Calc egress:** By default, `convert_quantity` and `parse_quantity` write a **single formatted cell** at the selection anchor (e.g. `36 km/h`). Writer inserts the same formatted string as plain text. For a debug/report layout, pass `output_style: "detailed"` in template params or the `units` tool — this writes a key-value grid (formatted value on the first row, then magnitude/units or compatibility fields). `check_dimensionality` defaults to `detailed`.
+**Calc egress:** By default, `convert_quantity` and `parse_quantity` write a **single formatted cell** at the selection anchor (e.g. `36 km/h`). Writer inserts the same formatted string as plain text. For a debug/report layout, pass `output_style: "detailed"` in template params — this writes a key-value grid (formatted value on the first row, then magnitude/units or compatibility fields). `check_dimensionality` defaults to `detailed`.
 
 ```text
 # formatted (default for convert/parse) — anchor cell:
@@ -536,7 +533,7 @@ Magnitude | 36
 Units     | kilometer / hour
 ```
 
-**Tests:** [`test_units.py`](../tests/scripting/test_units.py), [`test_units_templates.py`](../tests/scripting/test_units_templates.py), [`test_python_runner_units.py`](../tests/scripting/test_python_runner_units.py), [`test_units_tool.py`](../tests/scripting/test_units_tool.py).
+**Tests:** [`test_units.py`](../tests/scripting/test_units.py), [`test_units_templates.py`](../tests/scripting/test_units_templates.py), [`test_python_runner_units.py`](../tests/scripting/test_python_runner_units.py).
 
 **Out of scope (deferred):** `xl.convert()` Calc-parity wrapper, `pyarrow` / `plugin/scripting/io.py`.
 
