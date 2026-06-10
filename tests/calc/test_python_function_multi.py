@@ -74,6 +74,25 @@ def test_execute_python_addin_wrapped_varargs_single_range():
         _clear_sessions()
 
 
+def test_execute_python_addin_two_single_cells_not_treated_as_index():
+    """Spreadsheet import SUM(C7,C12) must keep both scalar precedents."""
+    ctx = _Ctx()
+    cell_a = ((23750.0,),)
+    cell_b = ((14000.0,),)
+    try:
+        with unittest.mock.patch("plugin.calc.python_function.run_code_in_user_venv") as mock_run:
+            mock_run.return_value = {"status": "ok", "result": 37750.0}
+            res = execute_python_addin(ctx, "data[0] + data[1]", (cell_a, cell_b))
+            assert res == 37750.0
+            wire = mock_run.call_args.kwargs["data"]
+            if is_multi_data(wire):
+                assert len(wire["items"]) == 2
+            else:
+                assert isinstance(wire, list) and len(wire) == 2
+    finally:
+        _clear_sessions()
+
+
 def test_execute_python_addin_splits_varargs_once():
     ctx = _Ctx()
     col = ((1.0,), (2.0,), (3.0,))
