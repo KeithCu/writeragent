@@ -20,12 +20,13 @@ _STRETCH_CONTROLS = frozenset({
     "response",
     "query",
     "status",
+    "chat_mode_selector",
     "model_selector",
     "image_model_selector",
     "aspect_ratio_selector",
 })
 
-_CONTENT_EDGE_CLAMP = frozenset({"status", "query", "model_selector", "image_model_selector", "aspect_ratio_selector"})
+_CONTENT_EDGE_CLAMP = frozenset({"status", "query", "chat_mode_selector", "model_selector", "image_model_selector", "aspect_ratio_selector"})
 
 # ChatPanelDialog.xdl: response top=16 height=110, status top=128 -> gap=2.
 _XDL_GAP_BELOW_RESPONSE = 2

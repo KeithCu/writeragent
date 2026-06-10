@@ -89,10 +89,11 @@ class TestComputeChatPanelLayout:
     def test_content_edge_matches_clear_button_row(self):
         layouts = compute_chat_panel_layout(900, 500, _xdl_snapshot())
         clear_right = layouts["clear"].x + layouts["clear"].width
-        for name in ("status", "query", "model_selector", "image_model_selector", "aspect_ratio_selector"):
+        for name in ("status", "query", "chat_mode_selector", "model_selector", "image_model_selector", "aspect_ratio_selector"):
             rect = layouts[name]
             assert rect.x + rect.width <= clear_right
             assert rect.width < 200
+        assert layouts["chat_mode_selector"].width == layouts["model_selector"].width
 
 
 class TestPanelResizeListenerIntegration:

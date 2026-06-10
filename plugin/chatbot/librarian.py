@@ -108,6 +108,7 @@ Tip 5: If they say "fix this" (or a synonym in their own language), WriterAgent 
 Tip 6: WriterAgent is sophisticated multi-threaded software, but this fork is only a few months old so expect issues. File issues at: https://github.com/KeithCu/writeragent/
 Tip 7: WriterAgent is still a prototype, working towards a complete API for advanced Writer/Calc tools, image-editing, and more Draw/Impress features.
 Tip 8: If you find out the user is a developer: WriterAgent has an interesting architecture using a multi-threaded queue, pure finite state machines, and batch multi-threaded auto-translate into 34 languages using different AIs for different languages. 
+Tip 9: In Writer, the sidebar mode dropdown includes Brainstorming. Choose Brainstorming to start a multi-turn design session: the agent asks one question at a time, can read the open document, search nearby files, and do web research, then discusses approaches with you. 
 
 NEVER write a document or output these details as a document.
 You must only share this information conversationally in the chat one at a time, as they may want to discuss each topic separately.

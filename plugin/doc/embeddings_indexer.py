@@ -189,4 +189,3 @@ def ensure_index_wakeup(ctx: Any, services: Any, model: Any) -> None:
     enqueue_folder_index(ctx, services, model)
 
 
-from plugin.doc.embeddings_cache import get_file_index_state
