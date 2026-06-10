@@ -9,13 +9,15 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from plugin.framework.tool import ToolBase
+from plugin.framework.tool import ToolBaseDummy
 from plugin.calc.spreadsheet_import.import_dialog import run_sheet_conversion
 
 log = logging.getLogger("writeragent.calc.import_tool")
 
 
-class ConvertSpreadsheetToPython(ToolBase):
+# Hidden from LLM/MCP tool lists (ToolBaseDummy). Menu path still uses run_sheet_conversion
+# via import_dialog.show_import_dialog. Re-enable: change base class back to ToolBase.
+class ConvertSpreadsheetToPython(ToolBaseDummy):
     """Convert spreadsheet formulas to =PY() Python cells."""
 
     name = "convert_spreadsheet_to_python"

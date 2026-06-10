@@ -37,16 +37,11 @@ def teardown_vectorize_uno_tests(ctx):
     _test_ctx = None
 
 
-def _execute_tool(name, args):
-    from plugin.main import get_tools, get_services
-    from plugin.framework.tool import ToolContext
+def _run_conversion(**kwargs):
+    from plugin.calc.spreadsheet_import.import_dialog import run_sheet_conversion
 
-    tctx = ToolContext(_test_doc, _test_ctx, "calc", get_services(), "test")
-    try:
-        res = get_tools().execute(name, tctx, **args)
-    except (KeyError, ValueError) as e:
-        res = {"status": "error", "error": str(e)}
-    return res
+    sheet = _test_doc.getCurrentController().getActiveSheet()
+    return run_sheet_conversion(_test_ctx, _test_doc, sheet, **kwargs)
 
 
 @native_test
@@ -62,17 +57,12 @@ def test_convert_spreadsheet_to_python_vectorized():
     sheet.getCellByPosition(1, 1).setFormula("=A2*2")  # B2
     sheet.getCellByPosition(1, 2).setFormula("=A3*2")  # B3
 
-    res = _execute_tool(
-        "convert_spreadsheet_to_python",
-        {
-            "scope": "sheet",
-            "output_mode": "new_sheet",
-            "vectorize": True,
-            "verify": True,
-        },
+    res = _run_conversion(
+        scope="sheet",
+        output_mode="new_sheet",
+        vectorize=True,
+        verify=True,
     )
-
-    assert res.get("status") == "ok", f"Tool failed: {res}"
     assert not res.get("failed_verifications"), f"Verifications failed: {res.get('failed_verifications')}"
 
     sheets = _test_doc.getSheets()

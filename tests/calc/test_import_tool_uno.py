@@ -36,16 +36,11 @@ def teardown_import_tool_tests(ctx):
     _test_ctx = None
 
 
-def _execute_tool(name, args):
-    from plugin.main import get_tools, get_services
-    from plugin.framework.tool import ToolContext
+def _run_conversion(**kwargs):
+    from plugin.calc.spreadsheet_import.import_dialog import run_sheet_conversion
 
-    tctx = ToolContext(_test_doc, _test_ctx, "calc", get_services(), "test")
-    try:
-        res = get_tools().execute(name, tctx, **args)
-    except (KeyError, ValueError) as e:
-        res = {"status": "error", "error": str(e)}
-    return res
+    sheet = _test_doc.getCurrentController().getActiveSheet()
+    return run_sheet_conversion(_test_ctx, _test_doc, sheet, **kwargs)
 
 
 @native_test
@@ -58,17 +53,12 @@ def test_convert_spreadsheet_to_python_basic():
     sheet.getCellByPosition(1, 0).setFormula("=A1+A2")  # B1
     sheet.getCellByPosition(1, 1).setFormula("=SUM(A1:A2)")  # B2
 
-    res = _execute_tool(
-        "convert_spreadsheet_to_python",
-        {
-            "scope": "sheet",
-            "output_mode": "new_sheet",
-            "vectorize": False,
-            "verify": False,
-        },
+    res = _run_conversion(
+        scope="sheet",
+        output_mode="new_sheet",
+        vectorize=False,
+        verify=False,
     )
-
-    assert res.get("status") == "ok", f"Tool failed: {res}"
     report = res.get("report", {})
     assert len(report.get("converted", [])) >= 2, f"Expected conversion, got report: {report}"
 
