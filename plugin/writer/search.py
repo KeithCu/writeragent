@@ -20,6 +20,7 @@ import logging
 
 from plugin.framework.tool import ToolBase, ToolBaseDummy
 from plugin.writer.paragraph_search import search_paragraph_texts
+from plugin.doc.document_helpers import get_string_without_tracked_deletions
 from . import format as format_support
 
 
@@ -71,7 +72,7 @@ class SearchInDocument(ToolBase):
         for para in para_ranges:
             try:
                 if para.supportsService("com.sun.star.text.Paragraph"):
-                    para_texts.append(para.getString())
+                    para_texts.append(get_string_without_tracked_deletions(para))
                 else:
                     para_texts.append("")
             except Exception:

@@ -24,6 +24,7 @@ import logging
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.service import ServiceBase
 from typing import Any
+from plugin.doc.document_helpers import get_string_without_tracked_deletions
 
 
 log = logging.getLogger("writeragent.writer.nav.tree")
@@ -81,7 +82,7 @@ class TreeService(ServiceBase):
                 if outline_level > 0:
                     while len(stack) > 1 and stack[-1]["level"] >= outline_level:
                         stack.pop()
-                    node = {"level": outline_level, "text": element.getString(), "para_index": para_index, "children": [], "body_paragraphs": 0}
+                    node = {"level": outline_level, "text": get_string_without_tracked_deletions(element), "para_index": para_index, "children": [], "body_paragraphs": 0}
                     stack[-1]["children"].append(node)
                     stack.append(node)
                 else:
@@ -136,7 +137,7 @@ class TreeService(ServiceBase):
                     pass
                 if outline_level > 0:
                     break
-                para_text = element.getString().strip()
+                para_text = get_string_without_tracked_deletions(element).strip()
                 if para_text:
                     preview_parts.append(para_text)
                     current_len += len(para_text)
@@ -171,7 +172,7 @@ class TreeService(ServiceBase):
                     pass
                 if outline_level > 0:
                     break
-                parts.append(element.getString())
+                parts.append(get_string_without_tracked_deletions(element))
             idx += 1
 
         return "\n".join(parts)
@@ -268,7 +269,7 @@ class TreeService(ServiceBase):
                     break
                 if outline_level > 0:
                     break
-                para_text = element.getString()
+                para_text = get_string_without_tracked_deletions(element)
                 preview = para_text[:100] + "..." if len(para_text) > 100 else para_text
                 if content_strategy == "full":
                     children.append({"type": "body", "para_index": idx, "text": para_text})

@@ -31,7 +31,7 @@ import uno
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.service import ServiceBase
 from plugin.framework.uno_context import get_desktop
-from plugin.doc.document_helpers import normalize_linebreaks as _normalize
+from plugin.doc.document_helpers import normalize_linebreaks as _normalize, get_string_without_tracked_deletions
 from .math.html_math_segment import html_fragment_contains_mixed_math, segment_html_with_mixed_math
 from .math.math_mml_convert import convert_latex_to_starmath, convert_mathml_to_starmath, insert_writer_math_formula
 from .ops import get_selection_range
@@ -86,7 +86,7 @@ class FormatService(ServiceBase):
             cursor = safe_call(text.createTextCursor, "Create text cursor")
             safe_call(cursor.gotoStart, "Cursor gotoStart", False)
             safe_call(cursor.gotoEnd, "Cursor gotoEnd", True)
-            content = safe_call(cursor.getString, "Cursor getString")
+            content = get_string_without_tracked_deletions(cursor)
             if max_chars and len(content) > max_chars:
                 content = content[:max_chars] + "\n\n[... truncated ...]"
             return content
@@ -553,14 +553,14 @@ def _range_to_content_via_temp_doc(model, ctx, start, end, max_chars, config_svc
                 style = el.getPropertyValue("ParaStyleName")
             except Exception:
                 style = ""
+            para_text = get_string_without_tracked_deletions(el)
             style = style or ""
-            para_text = el.getString()
-
             # Compute paragraph start offset
             start_cursor = model.getText().createTextCursor()
             start_cursor.gotoStart(False)
             start_cursor.gotoRange(el.getStart(), True)
-            para_start = len(start_cursor.getString())
+            para_start = len(get_string_without_tracked_deletions(start_cursor))
+
             para_end = para_start + len(para_text)
 
             if para_end <= start or para_start >= end:

@@ -19,7 +19,7 @@
 import logging
 
 from plugin.framework.tool import ToolBase, ToolBaseDummy
-from plugin.doc.document_helpers import normalize_linebreaks
+from plugin.doc.document_helpers import normalize_linebreaks, get_string_without_tracked_deletions
 from plugin.framework.errors import safe_json_loads
 import re as re_mod
 
@@ -236,7 +236,7 @@ def _find_chained_range(doc, search_string, all_matches=False):
 
                 check_cursor = text.createTextCursorByRange(forward_cursor)
                 check_cursor.gotoEndOfParagraph(True)
-                para_text = check_cursor.getString()
+                para_text = get_string_without_tracked_deletions(check_cursor)
 
                 is_last = i == len(parts) - 1
                 ok, offset_len = _paragraph_matches_part(para_text, parts[i], head=is_last)
@@ -262,7 +262,7 @@ def _find_chained_range(doc, search_string, all_matches=False):
 
                 check_cursor = text.createTextCursorByRange(backward_cursor)
                 check_cursor.gotoEndOfParagraph(True)
-                para_text = check_cursor.getString()
+                para_text = get_string_without_tracked_deletions(check_cursor)
 
                 is_first = i == 0
                 ok, offset_len = _paragraph_matches_part(para_text, parts[i], tail=is_first)
@@ -672,7 +672,7 @@ def collect_document_stats(doc, doc_svc):
         cursor = text_obj.createTextCursor()
         cursor.gotoStart(False)
         cursor.gotoEnd(True)
-        full_text = cursor.getString()
+        full_text = get_string_without_tracked_deletions(cursor)
         char_count = len(full_text)
         word_count = len(full_text.split())
     except Exception:

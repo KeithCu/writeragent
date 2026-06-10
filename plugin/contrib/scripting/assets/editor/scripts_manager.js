@@ -5,6 +5,7 @@
   var scriptIndex = {};
   var currentSelectedName = "";
   var currentOrigin = "sample";
+  var sampleCode = "";
   var documentAvailable = false;
   var documentReadonly = false;
   var documentStale = false;
@@ -68,6 +69,9 @@
     } else if (msg.scripts) {
       rebuildScriptIndex(legacyScriptsToSections(msg.scripts));
     }
+    if (typeof msg.sample_code === "string") {
+      sampleCode = msg.sample_code;
+    }
     documentAvailable = !!msg.document_available;
     documentReadonly = !!msg.document_readonly;
     documentStale = !!msg.document_stale;
@@ -127,12 +131,19 @@
       if (container) {
         container.classList.toggle("toolbar-hidden", !isRunScript);
       }
-      if (isRunScript && window.pywebview && window.pywebview.api && window.pywebview.api.request_scripts) {
-        window.pywebview.api.request_scripts();
-        initialRequested = true;
+      if (isRunScript) {
+        if (typeof msg.code === "string") {
+          sampleCode = msg.code;
+        }
+        if (window.pywebview && window.pywebview.api && window.pywebview.api.request_scripts) {
+          window.pywebview.api.request_scripts();
+          initialRequested = true;
+        }
       }
     } else if (msg.type === "scripts_list") {
       applyScriptsList(msg);
+    } else if (msg.type === "saved" && currentOrigin === "sample" && window.editor) {
+      sampleCode = window.editor.getValue();
     }
   }
 
@@ -225,6 +236,12 @@
         setStatus("Loaded script '" + name + "'.", "ok");
       }
       setDataBindingVisible(currentOrigin === "analysis");
+    } else if (!name) {
+      if (window.editor) {
+        window.editor.setValue(sampleCode || "");
+        setStatus("Loaded Sample scratchpad.", "ok");
+      }
+      setDataBindingVisible(false);
     } else {
       setDataBindingVisible(false);
     }
@@ -319,6 +336,7 @@
         if (window.editor) {
           window.editor.setValue("");
         }
+        sampleCode = "";
         if (window.pywebview && window.pywebview.api && window.pywebview.api.notify_save_script) {
           window.pywebview.api.notify_save_script("");
         }

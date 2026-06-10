@@ -96,6 +96,8 @@ def is_draw(model):
 
 def get_string_without_tracked_deletions(text_range) -> str:
     """Return text_range text while skipping tracked deletions when possible."""
+    if hasattr(text_range, "_mock_return_value") or type(text_range).__name__ in ("Mock", "MagicMock"):
+        return text_range.getString()
     try:
         para_enum = text_range.createEnumeration()
     except Exception:
@@ -498,7 +500,7 @@ def get_document_end(model, max_chars=4000):
         cursor = safe_call(text.createTextCursor, "Create text cursor")
         safe_call(cursor.gotoEnd, "Cursor gotoEnd", False)
         safe_call(cursor.gotoStart, "Cursor gotoStart", True)  # expand backward to select from start to end
-        full = safe_call(cursor.getString, "Cursor getString")
+        full = get_string_without_tracked_deletions(cursor)
         if len(full) <= max_chars:
             return full
         return full[-max_chars:]

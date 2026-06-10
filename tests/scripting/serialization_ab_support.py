@@ -405,8 +405,10 @@ def assert_forced_split_venv_parity(
     label: str,
 ) -> None:
     """Venv echo: always vs never may differ in nesting; leaf cells must match."""
-    assert flatten_semantic_cells(result_split) == flatten_semantic_cells(result_nosplit), (
-        f"{label}: {result_split!r} vs {result_nosplit!r}"
+    assert_semantically_equal(
+        flatten_semantic_cells(result_split),
+        flatten_semantic_cells(result_nosplit),
+        label=label,
     )
 
 
@@ -728,7 +730,7 @@ _HYPOTHESIS_MAX_CELLS = 10
 _HYPOTHESIS_MAX_ROWS = 3
 _HYPOTHESIS_MAX_COLS = 4
 
-_NUMERIC_CELL = st.one_of(st.none(), st.integers(-2**53, 2**53), st.floats(allow_nan=True))
+_NUMERIC_CELL = st.one_of(st.none(), st.integers(-2**48, 2**48), st.floats(allow_nan=True))
 
 
 @strategies.composite

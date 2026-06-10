@@ -29,6 +29,7 @@ from plugin.framework.errors import ToolExecutionError
 from plugin.framework.service import ServiceBase
 from plugin.writer.locale.stop_words import STOP_WORDS as _STOP_WORDS
 from plugin.writer.locale.stop_words import STOP_WORDS_FALLBACK as _STOP_WORDS_FALLBACK
+from plugin.doc.document_helpers import get_string_without_tracked_deletions
 
 log = logging.getLogger("writeragent.writer.index")
 
@@ -246,7 +247,7 @@ class IndexService(ServiceBase):
         while enum.hasMoreElements():
             el = enum.nextElement()
             if el.supportsService("com.sun.star.text.Paragraph"):
-                text = el.getString()
+                text = get_string_without_tracked_deletions(el)
                 idx.para_texts[para_i] = text
                 raw = _raw_tokens(text)
                 if stemmer:
