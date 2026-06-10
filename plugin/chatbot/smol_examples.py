@@ -59,13 +59,43 @@ Action:
 }
 Observation: {"status": "ok"}
 
+Task: "Office formats too, keep it simple."
+
+Action:
+{
+  "name": "reply_to_user",
+  "arguments": {"answer": "<p><strong>Recommended:</strong> export the active Writer document only, via UNO save APIs.</p><ul><li><strong>Recommended — sidebar button:</strong> one click, uses current doc path; smallest scope.</li><li><strong>Batch folder export:</strong> more UX work; defer unless you need many files.</li><li><strong>Cloud upload:</strong> needs auth and networking; out of scope for v1.</li></ul><p>Does the recommended sidebar-button approach work for you?</p>"}
+}
+Observation: {"status": "ok"}
+
+Action:
+{
+  "name": "reply_to_user",
+  "arguments": {"answer": "<h2>Architecture</h2><p>Sidebar Send handler calls a new export tool on the main thread; the tool resolves the active frame document and invokes UNO store APIs. Errors surface as HTML in chat.</p><p>Does this architecture section look right so far?</p>"}
+}
+Observation: {"status": "ok"}
+
+Action:
+{
+  "name": "reply_to_user",
+  "arguments": {"answer": "<p>Self-review: I removed a vague TBD about cloud sync and tightened the testing section before saving.</p>"}
+}
+Observation: {"status": "ok"}
+
 Action:
 {
   "name": "save_design_spec",
   "arguments": {
-    "content": ["<h1>Design: Sidebar Export</h1>", "<h2>Goals</h2>", "<ul><li>One-click export from chat sidebar</li></ul>"],
+    "content": ["<h1>Design: Sidebar Export</h1>", "<h2>Goals</h2>", "<ul><li>One-click export from chat sidebar</li></ul>", "<h2>Architecture</h2>", "<p>Main-thread UNO export from the active Writer document.</p>", "<h2>Testing</h2>", "<ul><li>Unit test export tool with mocked document</li><li>UNO smoke test on sample .odt</li></ul>"],
     "target": "end"
   }
+}
+Observation: {"status": "ok"}
+
+Action:
+{
+  "name": "reply_to_user",
+  "arguments": {"answer": "<p>I've saved the design spec at the end of your document. Please read it there and tell me if you want any changes before implementation.</p>"}
 }
 Observation: {"status": "ok"}
 

@@ -2,7 +2,12 @@
 
 Brainstorming is a **multi-turn design sub-agent** entered when the main Writer chat delegates `domain="brainstorming"`. It explores ideas with the user, can use web and document research, and writes an **approved HTML design spec** into the active Writer document.
 
-**Entry:** Main agent only — e.g. user asks to brainstorm or plan a feature → `delegate_to_specialized_writer_toolset(domain="brainstorming", task="…")`.
+**Entry:**
+
+- **Sidebar:** Writer deck → mode dropdown → **Brainstorming** → Send (first message sets the topic).
+- **Main agent:** user asks to brainstorm or plan a feature → `delegate_to_specialized_writer_toolset(domain="brainstorming", task="…")` (dropdown syncs to Brainstorming).
+
+**Exit:** `brainstorming_finished` resets the dropdown to **Chat**. Changing the dropdown away from Brainstorming mid-session cancels the in-progress session (history is kept).
 
 **Not in v1:** Visual companion (browser mockups), automatic writing-plans handoff, Calc/Draw spec save.
 
@@ -86,9 +91,26 @@ Raw `apply_document_content` is **not** exposed to the brainstorming sub-agent.
 
 ## Prompt source
 
-Adapted from [superpowers brainstorming](../superpowers/skills/brainstorming/SKILL.md) (not runtime-imported): one question per turn, 2–3 approaches, section-by-section approval, HARD-GATE against implementation until spec is saved.
+Adapted from [superpowers brainstorming](../superpowers/skills/brainstorming/SKILL.md) (not runtime-imported). The skill file is not loaded at runtime; excerpts are vendored into constants and few-shots.
 
-Constants: `BRAINSTORMING_SUB_AGENT_INSTRUCTIONS`, `get_brainstorming_sub_agent_instructions()` in [`plugin/framework/constants.py`](../plugin/framework/constants.py).
+| Superpowers section | WriterAgent adaptation |
+|---------------------|------------------------|
+| HARD-GATE | No implementation until `save_design_spec` |
+| Anti-pattern “too simple” | Short designs still require approval |
+| Scope decomposition | Flag multi-subsystem requests; one sub-project per session |
+| One question / multiple choice | `reply_to_user`, one question per turn |
+| 2–3 approaches + recommendation | HTML `<ul>`, lead with recommended option, YAGNI |
+| Design sections | goals, architecture, components, data flow, error handling, testing |
+| Design for isolation | DESIGN QUALITY block in prompt |
+| Existing codebases | Explore first; targeted improvements only |
+| Spec self-review (4 checks) | Step 5 before `save_design_spec` |
+| User review gate | Step 7 — review spec in document before `brainstorming_finished` |
+| Key principles | YAGNI, incremental validation, flexibility |
+| Visual companion | Not in v1 |
+| Markdown spec + git commit | Replaced by HTML array in Writer document |
+| writing-plans handoff | Not in v1 — user asks main agent to implement after review |
+
+Constants: `BRAINSTORMING_SUB_AGENT_INSTRUCTIONS`, `get_brainstorming_sub_agent_instructions()` in [`plugin/framework/constants.py`](../plugin/framework/constants.py). Few-shots: `BRAINSTORMING_EXAMPLES` in [`plugin/chatbot/smol_examples.py`](../plugin/chatbot/smol_examples.py) (approaches, section approval, self-review, full spec save).
 
 ---
 
