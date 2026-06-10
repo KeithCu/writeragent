@@ -278,11 +278,19 @@ class ToolCallingMixin:
                 def _start_brainstorming_session(*, task, ctx):
                     from plugin.chatbot.brainstorming import start_brainstorming_session_from_delegate
 
-                    self._in_brainstorming_mode = True
-                    self._brainstorming_topic = str(task or "")
+                    delegate_start_cb = getattr(self, "sync_brainstorming_delegate_start", None)
+                    if callable(delegate_start_cb):
+                        delegate_start_cb(str(task or ""))
+                    else:
+                        self._in_brainstorming_mode = True
+                        self._brainstorming_topic = str(task or "")
                     result = start_brainstorming_session_from_delegate(ctx, task=str(task or ""))
                     if isinstance(result, dict) and result.get("status") == "finished":
-                        self._in_brainstorming_mode = False
+                        finished_cb = getattr(self, "on_brainstorming_session_finished", None)
+                        if callable(finished_cb):
+                            finished_cb()
+                        else:
+                            self._in_brainstorming_mode = False
                     return result
 
                 tctx = ToolContext(

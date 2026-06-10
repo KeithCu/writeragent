@@ -27,7 +27,6 @@ from __future__ import annotations
 import logging
 import threading
 import uno
-from plugin.chatbot.dialogs import get_checkbox_state
 from plugin.chatbot.send_handlers import SendHandlersMixin
 from plugin.chatbot.tool_loop import ToolCallingMixin
 
@@ -305,7 +304,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     _record_assistant_start: bool
 
     def __init__(
-        self, ctx, frame, send_control, stop_control, query_control, response_control, image_model_selector, model_selector, status_control, session, direct_image_checkbox=None, aspect_ratio_selector=None, base_size_input=None, web_research_checkbox=None, ensure_path_fn=None, clear_control=None
+        self, ctx, frame, send_control, stop_control, query_control, response_control, image_model_selector, model_selector, status_control, session, chat_mode_selector=None, aspect_ratio_selector=None, base_size_input=None, sidebar_include_brainstorming=True, ensure_path_fn=None, clear_control=None
     ):
         self.ctx = ctx
         self.frame = frame
@@ -318,10 +317,10 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self.model_selector = model_selector
         self.status_control = status_control
         self.session = session
-        self.direct_image_checkbox = direct_image_checkbox
+        self.chat_mode_selector = chat_mode_selector
         self.aspect_ratio_selector = aspect_ratio_selector
         self.base_size_input = base_size_input
-        self.web_research_checkbox = web_research_checkbox
+        self.sidebar_include_brainstorming = sidebar_include_brainstorming
         self.ensure_path_fn = ensure_path_fn
         self.initial_doc_type = None  # Set by _wireControls
         self._stop_requested_fallback = False
@@ -447,6 +446,24 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         """Update the active session (e.g. when switching between Document and Research chat)."""
         self.session = session
         self.client = None  # Force client recreation if needed, though they usually share same config
+
+    def sync_brainstorming_delegate_start(self, topic: str) -> None:
+        """Match sidebar dropdown when main chat delegates domain=brainstorming."""
+        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_BRAINSTORMING, set_selector_mode
+
+        self._in_brainstorming_mode = True
+        self._brainstorming_topic = str(topic or "")
+        if self.chat_mode_selector:
+            set_selector_mode(self.chat_mode_selector, CHAT_MODE_BRAINSTORMING, include_brainstorming=self.sidebar_include_brainstorming)
+
+    def on_brainstorming_session_finished(self) -> None:
+        """Reset sidebar after brainstorming_finished (dropdown returns to Chat)."""
+        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT, clear_brainstorming_session, persist_mode_to_config, set_selector_mode
+
+        clear_brainstorming_session(self)
+        if self.chat_mode_selector:
+            set_selector_mode(self.chat_mode_selector, CHAT_MODE_CHAT, include_brainstorming=self.sidebar_include_brainstorming)
+        persist_mode_to_config(self.ctx, CHAT_MODE_CHAT)
 
     def begin_inline_web_approval(self, query: str, tool: str, event: Any) -> None:
         """Replace Send/Stop/Clear with Accept/Change/Reject (all enabled). Unblock ``event`` when user chooses.
@@ -1022,32 +1039,30 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             else:
                 log.debug("_do_send: model %s supports native audio, proceeding" % current_model)
 
-        # Optional web-research path
-        web_research_checked = False
-        if self.web_research_checkbox:
-            try:
-                web_research_checked = get_checkbox_state(self.web_research_checkbox) == 1
-            except Exception as e:
-                from com.sun.star.lang import DisposedException
-                from com.sun.star.uno import RuntimeException, Exception as UnoException
+        from plugin.chatbot.chat_sidebar_mode import (
+            CHAT_MODE_BRAINSTORMING,
+            CHAT_MODE_IMAGE,
+            CHAT_MODE_WEB_RESEARCH,
+            mode_from_selector,
+        )
 
-                if isinstance(e, (DisposedException, RuntimeException, UnoException)):
-                    log.debug("Failed to read web_research_checkbox (likely disposed): %s", e)
-        if web_research_checked:
+        sidebar_mode = mode_from_selector(self.chat_mode_selector, include_brainstorming=self.sidebar_include_brainstorming)
+
+        if sidebar_mode == CHAT_MODE_WEB_RESEARCH:
             log.info("_do_send: using web research sub-agent — skip chat model and direct image")
             self._run_web_research(query_text, model)
             return
 
-        # Direct image path
-        direct_image_checked = False
-        if self.direct_image_checkbox:
-            try:
-                direct_image_checked = get_checkbox_state(self.direct_image_checkbox) == 1
-            except Exception:
-                log.exception("_do_send: Use Image model checkbox read error")
-        if direct_image_checked:
+        if sidebar_mode == CHAT_MODE_IMAGE:
             log.debug("_do_send: using image model (direct, level=logging.INFO) — skip chat model")
             self._do_send_direct_image(query_text, model)
+            return
+
+        if sidebar_mode == CHAT_MODE_BRAINSTORMING and doc_type_str.lower() == "writer":
+            if not self._brainstorming_topic:
+                self._brainstorming_topic = query_text
+            log.info("_do_send: using brainstorming sub-agent")
+            self._run_brainstorming(query_text, model)
             return
 
         # Agent backend (Aider, Hermes): use external agent instead of built-in LLM
@@ -1062,11 +1077,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 return
         except Exception:
             log.exception("_do_send: agent backend check failed")
-
-        if self._in_brainstorming_mode:
-            log.info("_do_send: continuing brainstorming session")
-            self._run_brainstorming(query_text, model)
-            return
 
         if self._in_librarian_mode:
             log.info("_do_send: continuing librarian onboarding agent")

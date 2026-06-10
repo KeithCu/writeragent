@@ -7,10 +7,9 @@ from com.sun.star.uno import RuntimeException, Exception as UnoException
 # Common exceptions for UI components that may be disposed during layout/refresh
 UNO_DISPOSED_EXCEPTIONS = (DisposedException, RuntimeException, UnoException)
 
-from plugin.chatbot.dialogs import get_optional as get_optional_control, get_checkbox_state, get_control_text, set_control_text, translate_dialog
+from plugin.chatbot.dialogs import get_optional as get_optional_control, get_control_text, set_control_text, translate_dialog
 from plugin.chatbot.panel_resize import _PanelResizeListener
 from plugin.framework.config import get_config
-from plugin.framework.constants import get_greeting_for_document, DEFAULT_RESEARCH_GREETING
 from plugin.framework.i18n import _
 from plugin.framework.event_bus import global_event_bus
 from plugin.framework.logging import init_logging
@@ -84,8 +83,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
         "model_selector": get_optional("model_selector"),
         "model_label": get_optional("model_label"),
         "status": get_optional("status"),
-        "direct_image_check": get_optional("direct_image_check"),
-        "web_research_check": get_optional("web_research_check"),
+        "chat_mode_selector": get_optional("chat_mode_selector"),
         "aspect_ratio_selector": get_optional("aspect_ratio_selector"),
         "base_size_input": get_optional("base_size_input"),
         "base_size_label": get_optional("base_size_label"),
@@ -109,44 +107,39 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
 
     ensure_extension_on_path(self.ctx)
 
+    extra_instructions = ""
+    model = self._get_document_model()
+    initial_mode = "chat"
+    include_brainstorming = False
+
+    def toggle_image_ui(_is_image):
+        return None
+
     # 1. Config, Models, and UI
     try:
         extra_instructions = get_config(self.ctx, "additional_instructions")
 
         self._wire_model_selectors(controls["model_selector"], controls["image_model_selector"])
 
-        self._wire_image_ui(controls["aspect_ratio_selector"], controls["base_size_input"], controls["base_size_label"], controls["direct_image_check"], controls["web_research_check"], controls["model_label"], controls["model_selector"], controls["image_model_selector"])
+        initial_mode, include_brainstorming, toggle_image_ui = self._wire_chat_mode_ui(
+            controls["aspect_ratio_selector"],
+            controls["base_size_input"],
+            controls["base_size_label"],
+            controls["chat_mode_selector"],
+            controls["model_label"],
+            controls["model_selector"],
+            controls["image_model_selector"],
+            model,
+        )
     except Exception as e:
         _show_init_error("Config: %s" % e)
         log.error(traceback.format_exc())
-        extra_instructions = ""
 
     # 2. Setup Sessions
-    model = self._get_document_model()
     self._setup_sessions(model, extra_instructions)
 
-    # 3. Determine Mode & Greeting
-    web_checked = False
-    if controls["web_research_check"]:
-        try:
-            web_checked = get_checkbox_state(controls["web_research_check"]) == 1
-        except Exception as e:
-            if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
-                log.debug("Failed to read web_research_check state (likely disposed): %s", e)
-            else:
-                log.exception("Error reading web_research_check state: %s", e)
-
-    if web_checked:
-        self.session = self.web_session
-        active_greeting = _(DEFAULT_RESEARCH_GREETING)
-    else:
-        self.session = self.doc_session
-        active_greeting = get_greeting_for_document(model)
-
-    self._render_session_history(self.session, controls["response"], model, active_greeting)
-
-    # 4. Buttons
-    self._wire_buttons(controls, model, active_greeting)
+    # 3. Buttons (applies initial mode, session history, and mode listener)
+    self._wire_buttons(controls, model, initial_mode, include_brainstorming, toggle_image_ui)
 
     # Wire query listener to update Record/Send button label (fixed width captured in snapshot before relayout)
     query_text_listener = None
@@ -333,9 +326,9 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
                     except Exception as e:
                         log.debug("on_rich_control_ready relayout_now: %s", e)
                 try:
-                    nonlocal web_checked, model, active_greeting
                     log_rich_scroll("on_ready_step", control=rich_control, step="history")
-                    self._render_session_history(self.session, controls["response"], model, active_greeting)
+                    rich_greeting = self._greeting_for_sidebar_mode(initial_mode, model)
+                    self._render_session_history(self.session, controls["response"], model, rich_greeting)
                 except Exception as e:
                     log.error("Initial RichTextControl render failed: %s", e)
                 if hasattr(self, "_rich_control_listener") and self._rich_control_listener:

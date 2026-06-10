@@ -576,7 +576,11 @@ class SendHandlersMixin:
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
                         self.session.add_assistant_message(content=answer)
                     elif data.get("status") == "finished":
-                        self._in_brainstorming_mode = False
+                        finished_cb = getattr(self, "on_brainstorming_session_finished", None)
+                        if callable(finished_cb):
+                            finished_cb()
+                        else:
+                            self._in_brainstorming_mode = False
                         answer = data.get("result", _("Brainstorming complete."))
                         if not isinstance(answer, str):
                             answer = str(answer)

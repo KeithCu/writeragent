@@ -588,6 +588,7 @@ DEFAULT_WRITER_GREETING = _("AI: I can edit or translate your document instantly
 DEFAULT_CALC_GREETING = _("AI: I can help you with formulas, data analysis, and colorful charts. Try me!")
 DEFAULT_DRAW_GREETING = _("AI: I can help you create and edit polished, colorful shapes in Draw and Impress. Try me!")
 DEFAULT_RESEARCH_GREETING = _("AI: I can do web research to answer any question, or summarize a web page, without seeing or changing your document. Let's chat.")
+DEFAULT_BRAINSTORMING_GREETING = _("AI: Let's explore and design your idea together. I'll ask questions, suggest approaches, and help you build an approved spec in your document when you're ready.")
 
 # Remove dummy _ so it doesn't leak
 del _

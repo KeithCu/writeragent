@@ -63,7 +63,7 @@ except ImportError:
     HAS_RECORDING = False
 
 from plugin.framework.logging import start_watchdog_thread, init_logging
-from plugin.chatbot.dialogs import get_optional as get_optional_control, get_checkbox_state, set_checkbox_state, set_control_text, set_control_enabled, set_control_visible
+from plugin.chatbot.dialogs import get_optional as get_optional_control, set_control_text, set_control_enabled, set_control_visible
 from plugin.framework.uno_context import get_extension_url, get_extension_path
 from plugin.chatbot.panel_wiring import _wireControls as wire_chatpanel_controls
 
@@ -82,7 +82,7 @@ from plugin.framework.config import get_config, set_config, get_current_endpoint
 from plugin.framework.client.model_fetcher import get_text_model, get_image_model, set_image_model
 from plugin.framework.i18n import _
 from plugin.framework.errors import UnoObjectError, ConfigError
-from plugin.framework.constants import get_chat_system_prompt_for_document, get_greeting_for_document, DEFAULT_RESEARCH_GREETING
+from plugin.framework.constants import get_chat_system_prompt_for_document, get_greeting_for_document, DEFAULT_RESEARCH_GREETING, DEFAULT_BRAINSTORMING_GREETING
 from plugin.doc.document_helpers import get_document_property, set_document_property, get_document_type, DocumentType
 
 log = logging.getLogger(__name__)
@@ -436,12 +436,16 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             set_image_val = populate_image_model_selector(self.ctx, image_model_selector)
             if set_image_val != current_image:
                 set_image_model(self.ctx, set_image_val, update_lru=False)
-        # Sync "Use Image model" checkbox from config (same write as Settings: setState first, else model.State)
-        direct_image_check = get_optional("direct_image_check")
-        if direct_image_check:
+        chat_mode_selector = get_optional("chat_mode_selector")
+        if chat_mode_selector:
             try:
-                direct_checked = get_config(self.ctx, "chat_direct_image")
-                set_checkbox_state(direct_image_check, 1 if direct_checked else 0)
+                from plugin.chatbot.chat_sidebar_mode import populate_mode_selector, resolve_initial_mode, set_selector_mode
+
+                model = self._get_document_model()
+                include_brainstorming = self._sidebar_include_brainstorming(model)
+                populate_mode_selector(chat_mode_selector, include_brainstorming=include_brainstorming)
+                mode = resolve_initial_mode(self.ctx, include_brainstorming=include_brainstorming)
+                set_selector_mode(chat_mode_selector, mode, include_brainstorming=include_brainstorming)
             except Exception:
                 pass
         try:
@@ -480,13 +484,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             if model_selector and hasattr(model_selector, "getModel"):
                 set_control_enabled(model_selector, not is_external)
 
-            direct_image_check = get_optional_control(root, "direct_image_check")
-            if direct_image_check and hasattr(direct_image_check, "getModel"):
-                set_control_enabled(direct_image_check, not is_external)
-
-            web_research_check = get_optional_control(root, "web_research_check")
-            if web_research_check and hasattr(web_research_check, "getModel"):
-                set_control_enabled(web_research_check, not is_external)
+            chat_mode_selector = get_optional_control(root, "chat_mode_selector")
+            if chat_mode_selector and hasattr(chat_mode_selector, "getModel"):
+                set_control_enabled(chat_mode_selector, not is_external)
 
         except Exception as e:
             log.error("_update_backend_indicator error: %s" % e)
@@ -556,8 +556,31 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
             image_model_selector.addItemListener(ImageModelSyncListener(self.ctx))
 
-    def _wire_image_ui(self, aspect_ratio_selector, base_size_input, base_size_label, direct_image_check, web_research_check, model_label, model_selector, image_model_selector):
-        """Initializes image-related UI controls and their listeners."""
+    def _sidebar_include_brainstorming(self, model) -> bool:
+        return get_document_type(model) == DocumentType.WRITER
+
+    def _greeting_for_sidebar_mode(self, mode, model):
+        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_BRAINSTORMING, CHAT_MODE_WEB_RESEARCH
+
+        if mode == CHAT_MODE_WEB_RESEARCH:
+            return _(DEFAULT_RESEARCH_GREETING)
+        if mode == CHAT_MODE_BRAINSTORMING:
+            return _(DEFAULT_BRAINSTORMING_GREETING)
+        return get_greeting_for_document(model)
+
+    def _wire_chat_mode_ui(
+        self,
+        aspect_ratio_selector,
+        base_size_input,
+        base_size_label,
+        chat_mode_selector,
+        model_label,
+        model_selector,
+        image_model_selector,
+        model,
+    ):
+        """Initializes sidebar mode dropdown and image-related controls; returns (initial_mode, include_brainstorming, toggle_image_ui)."""
+        from plugin.chatbot.chat_sidebar_mode import is_image_mode, populate_mode_selector, resolve_initial_mode, set_selector_mode
 
         if aspect_ratio_selector:
             aspect_ratio_selector.addItems(("Square", "Landscape (16:9)", "Portrait (9:16)", "Landscape (3:2)", "Portrait (2:3)"), 0)
@@ -615,49 +638,68 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
                         log.debug("Failed to relayout after toggling image UI (likely disposed): %s", e)
 
-        if direct_image_check:
+        include_brainstorming = self._sidebar_include_brainstorming(model)
+        initial_mode = resolve_initial_mode(self.ctx, include_brainstorming=include_brainstorming)
+
+        if chat_mode_selector:
             try:
-                direct_checked = get_config(self.ctx, "chat_direct_image")
-                set_checkbox_state(direct_image_check, 1 if direct_checked else 0)
-                toggle_image_ui(direct_checked)
-
-                if direct_checked:
-                    set_control_enabled(web_research_check, False)
-
-                if hasattr(direct_image_check, "addItemListener"):
-
-                    class DirectImageCheckListener(BaseItemListener):
-                        def __init__(self, ctx, toggle_cb, web_check):
-                            self.ctx = ctx
-                            self.toggle_cb = toggle_cb
-                            self.web_check = web_check
-
-                        def on_item_state_changed(self, rEvent):
-                            ev = rEvent
-                            is_checked = getattr(ev, "Selected", 0) == 1
-                            set_config(self.ctx, "chat_direct_image", is_checked)
-                            self.toggle_cb(is_checked)
-                            set_control_enabled(self.web_check, not is_checked)
-
-                    direct_image_check.addItemListener(DirectImageCheckListener(self.ctx, toggle_image_ui, web_research_check))
+                populate_mode_selector(chat_mode_selector, include_brainstorming=include_brainstorming)
+                set_selector_mode(chat_mode_selector, initial_mode, include_brainstorming=include_brainstorming)
+                toggle_image_ui(is_image_mode(initial_mode))
             except Exception as e:
                 if isinstance(e, ConfigError):
-                    log.error("direct_image_check ConfigError: %s" % e)
+                    log.error("chat_mode_selector ConfigError: %s" % e)
                 else:
                     if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
-                        log.debug("direct_image_check wire error (likely disposed): %s", e)
+                        log.debug("chat_mode_selector wire error (likely disposed): %s", e)
                     else:
-                        log.error("direct_image_check wire error: %s" % e)
+                        log.error("chat_mode_selector wire error: %s" % e)
 
-        if web_research_check:
-            try:
-                if get_checkbox_state(web_research_check) == 1:
-                    set_control_enabled(direct_image_check, False)
-            except Exception as e:
-                if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
-                    log.debug("web_research_check initial wire error (likely disposed): %s", e)
-                else:
-                    log.error("web_research_check initial wire error: %s", e)
+        return initial_mode, include_brainstorming, toggle_image_ui
+
+    def _apply_sidebar_mode(self, mode, model, response_ctrl, send_listener, clear_listener, toggle_image_ui):
+        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_BRAINSTORMING, CHAT_MODE_WEB_RESEARCH, clear_brainstorming_session, is_image_mode
+
+        if mode != CHAT_MODE_BRAINSTORMING and send_listener:
+            clear_brainstorming_session(send_listener)
+        if mode == CHAT_MODE_WEB_RESEARCH:
+            self.session = self.web_session
+        else:
+            self.session = self.doc_session
+        toggle_image_ui(is_image_mode(mode))
+        greeting = self._greeting_for_sidebar_mode(mode, model)
+        if send_listener:
+            send_listener.set_session(self.session)
+        if clear_listener:
+            clear_listener.set_session(self.session, greeting=greeting)
+        if response_ctrl:
+            self._render_session_history(self.session, response_ctrl, model, greeting)
+        return greeting
+
+    def _wire_chat_mode_listener(self, chat_mode_selector, model, response_ctrl, send_listener, clear_listener, toggle_image_ui, include_brainstorming):
+        from plugin.chatbot.chat_sidebar_mode import mode_from_selector, persist_mode_to_config
+
+        if not chat_mode_selector or not hasattr(chat_mode_selector, "addItemListener"):
+            return
+
+        class ChatModeListener(BaseItemListener):
+            def __init__(self, panel, ctx, selector, include_brainstorming_flag, apply_target):
+                self.panel = panel
+                self.ctx = ctx
+                self.selector = selector
+                self.include_brainstorming = include_brainstorming_flag
+                self.apply_target = apply_target
+
+            def on_item_state_changed(self, rEvent):
+                mode = mode_from_selector(self.selector, include_brainstorming=self.include_brainstorming)
+                persist_mode_to_config(self.ctx, mode)
+                self.apply_target(mode)
+
+        def apply_mode(mode):
+            self._apply_sidebar_mode(mode, model, response_ctrl, send_listener, clear_listener, toggle_image_ui)
+
+        chat_mode_selector.addItemListener(ChatModeListener(self, self.ctx, chat_mode_selector, include_brainstorming, apply_mode))
+        return apply_mode
 
     def _setup_sessions(self, model, extra_instructions):
         """Creates the document and web research chat sessions."""
@@ -682,8 +724,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         self.web_session = ChatSession("Observe: Always use the web_search tool to answer questions.", session_id=session_id + "_web")
         self.session = self.doc_session
 
-    def _wire_buttons(self, controls, model, active_greeting):
-        """Wires up the Send, Stop, Clear, and Research toggle buttons."""
+    def _wire_buttons(self, controls, model, initial_mode, include_brainstorming, toggle_image_ui):
+        """Wires up the Send, Stop, Clear, and chat mode selector."""
         from plugin.chatbot.panel import ClearButtonListener, SendButtonListener, StopButtonListener
 
         send_listener = None
@@ -699,10 +741,10 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 controls["model_selector"],
                 controls["status"],
                 self.session,
-                direct_image_checkbox=controls["direct_image_check"],
+                chat_mode_selector=controls["chat_mode_selector"],
                 aspect_ratio_selector=controls["aspect_ratio_selector"],
                 base_size_input=controls["base_size_input"],
-                web_research_checkbox=controls["web_research_check"],
+                sidebar_include_brainstorming=include_brainstorming,
                 ensure_path_fn=_initialize_extension_paths,
                 clear_control=controls.get("clear"),
             )
@@ -733,6 +775,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             log.error("Send/Stop button wiring error: %s", e)
 
         clear_listener = None
+        active_greeting = self._greeting_for_sidebar_mode(initial_mode, model)
         if controls["clear"]:
             try:
                 clear_listener = ClearButtonListener(self.session, controls["response"], controls["status"], greeting=active_greeting, send_listener=send_listener)
@@ -740,39 +783,16 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             except Exception as e:
                 log.exception("Clear button wiring error: %s", e)
 
-        if controls["web_research_check"] and hasattr(controls["web_research_check"], "addItemListener"):
-
-
-            class ResearchChatToggledListener(BaseItemListener):
-                def __init__(self, panel, response_ctrl, model, send_listener, clear_listener, img_check):
-                    self.panel = panel
-                    self.response_ctrl = response_ctrl
-                    self.model = model
-                    self.send_listener = send_listener
-                    self.clear_listener = clear_listener
-                    self.img_check = img_check
-
-                def on_item_state_changed(self, rEvent):
-                    ev = rEvent
-
-
-                    is_research = getattr(ev, "Selected", 0) == 1
-                    set_control_enabled(self.img_check, not is_research)
-
-                    if is_research:
-                        self.panel.session = self.panel.web_session
-                        greeting = _(DEFAULT_RESEARCH_GREETING)
-                    else:
-                        self.panel.session = self.panel.doc_session
-                        greeting = get_greeting_for_document(self.model)
-
-                    if self.send_listener:
-                        self.send_listener.set_session(self.panel.session)
-                    if self.clear_listener:
-                        self.clear_listener.set_session(self.panel.session, greeting=greeting)
-                    self.panel._render_session_history(self.panel.session, self.response_ctrl, self.model, greeting)
-
-            controls["web_research_check"].addItemListener(ResearchChatToggledListener(self, controls["response"], model, send_listener, clear_listener, controls["direct_image_check"]))
+        self._apply_sidebar_mode(initial_mode, model, controls["response"], send_listener, clear_listener, toggle_image_ui)
+        self._wire_chat_mode_listener(
+            controls["chat_mode_selector"],
+            model,
+            controls["response"],
+            send_listener,
+            clear_listener,
+            toggle_image_ui,
+            include_brainstorming,
+        )
 
 
 class ChatPanelFactory(unohelper.Base, XUIElementFactory):

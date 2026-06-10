@@ -291,6 +291,8 @@ class WriterAgentConfig:
     edit_selection_system_prompt: str = ""
     audio_support_map: Dict[str, bool] = dataclasses.field(default_factory=dict)
     chat_direct_image: bool = False
+    # Sidebar mode dropdown: chat | image | web_research | brainstorming
+    chat_sidebar_mode: str = "chat"
     calc_prompt_max_tokens: int = 70
     # When True, treat endpoint as OpenRouter (e.g. custom proxy) even if the URL lacks openrouter.ai.
     is_openrouter: bool = False
@@ -357,6 +359,10 @@ class WriterAgentConfig:
                     setattr(self, f.name, "-1")
                 else:
                     setattr(self, f.name, "")
+
+        if self.chat_sidebar_mode not in ("chat", "image", "web_research", "brainstorming"):
+            log.debug("config validate: reset invalid chat_sidebar_mode %r to chat", self.chat_sidebar_mode)
+            self.chat_sidebar_mode = "chat"
 
         # Cast standard types robustly
         for f in dataclasses.fields(self):
