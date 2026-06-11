@@ -86,7 +86,8 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 - **Persistent Memory**: [Hermes Agent Patterns (memory & skills)](docs/hermes-agent-patterns.md) and [Librarian Onboarding](docs/librarian-agentic-onboarding.md).
 - **34 Locales**: Automated AI-driven translation and review pipeline. [Localization Pipeline](docs/localization.md).
 - **Multilingual Grammar & language detection**: When the AI grammar checker is on, optional **sentence language detection** can verify each complete sentence against the document locale, **auto-switch** the paragraph language when you typed in the wrong one, and **re-run grammar checking** in the correct language—no extra menu or API for the default **Local (langdetect)** mode (bundled in the extension). Use **AI (LLM)** instead if you prefer your chat model for detection. Configure **Settings → Doc → Sentence language detection** (`Off` / `AI (LLM)` / `Local (langdetect)`).
-- **Cross-Document Research**: Say **my** or **our** in the sidebar (e.g. *“pull Q4 from our budget spreadsheet”*) to read other files in the same folder as your saved document; edits stay on the active doc. [Multi-document plan](docs/multi-document-dev-plan.md).
+- **Cross-Document Research**: Say **my** or **our** in the sidebar (e.g. *“pull Q4 from our budget spreadsheet”*) to read other files in the same folder as your saved document; edits stay on the active doc. Cross-file discovery uses **grep_nearby_files** for exact keywords.
+- **Optional embeddings cache** (off by default) adds semantic **search_embeddings** over a per-folder index in `writeragent_embeddings/`. [Multi-document plan](docs/multi-document-dev-plan.md) · [Embeddings](docs/embeddings.md). **Packages:** `sentence-transformers numpy chromadb langgraph langchain-core langchain-text-splitters envwrap`.
 
 ### 🐍 Local Python Execution
 
