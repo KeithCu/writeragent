@@ -91,6 +91,15 @@ config:
     x: 220
     width: 200
 
+  web_research_cdp_enabled:
+    type: boolean
+    default: false
+    widget: checkbox
+    label: Web Research via CDP
+    helper: "Use a local visible Chrome window (Chrome DevTools Protocol) for webpage visits during research."
+    x: 8
+    width: 200
+
   web_cache_max_mb:
     type: int
     default: 50

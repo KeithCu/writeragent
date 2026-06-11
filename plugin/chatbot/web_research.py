@@ -130,6 +130,69 @@ def _write_research_cache(
     return _research_cache_result_fields("saved", unique_key, cache_path, max_age_days, stem_lang=stem_lang)
 
 
+from plugin.contrib.smolagents.tools import Tool
+
+class VisitWebpageCdpTool(Tool):
+    name = "visit_webpage"
+    description = "Visits a webpage at the given url and reads its content as a markdown string. Use this to browse webpages."
+    inputs = {"url": {"type": "string", "description": "The url of the webpage to visit."}}
+    output_type = "string"
+
+    def __init__(self, cdp_url: str, max_output_length: int = 40000, **kwargs):
+        super().__init__()
+        self.cdp_url = cdp_url
+        self.max_output_length = max_output_length
+
+    def forward(self, url: str) -> str:
+        from plugin.chatbot.browser_cdp_tool import browser_cdp
+        import json
+        import time
+
+        try:
+            targets_raw = browser_cdp("Target.getTargets")
+            targets_data = json.loads(targets_raw)
+            if not targets_data.get("success"):
+                return f"Failed to list browser targets: {targets_data.get('error')}"
+            
+            targets = targets_data.get("result", {}).get("targetInfos", [])
+            page_target = next((t for t in targets if t.get("type") == "page"), None)
+            if page_target is None:
+                created_raw = browser_cdp("Target.createTarget", {"url": "about:blank"})
+                created_data = json.loads(created_raw)
+                target_id = created_data.get("result", {}).get("targetId")
+            else:
+                target_id = page_target["targetId"]
+                
+            if not target_id:
+                return "Failed to find or create page target"
+
+            nav_raw = browser_cdp("Page.navigate", {"url": url}, target_id=target_id)
+            nav_data = json.loads(nav_raw)
+            if not nav_data.get("success"):
+                return f"Failed to navigate to {url}: {nav_data.get('error')}"
+            
+            time.sleep(3.0)
+            
+            eval_raw = browser_cdp(
+                "Runtime.evaluate",
+                {"expression": "document.body.innerText", "returnByValue": True},
+                target_id=target_id
+            )
+            eval_data = json.loads(eval_raw)
+            if not eval_data.get("success"):
+                return f"Failed to retrieve page text content: {eval_data.get('error')}"
+            
+            text = eval_data.get("result", {}).get("result", {}).get("value") or ""
+            if not text:
+                text = eval_data.get("result", {}).get("result", {}).get("description") or ""
+                
+            if len(text) > self.max_output_length:
+                return text[:self.max_output_length] + f"\n..._This content has been truncated to stay below {self.max_output_length} characters_...\n"
+            return text
+        except Exception as e:
+            return f"Error visiting webpage via CDP: {e}"
+
+
 class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
     doc_types = ["writer", "calc", "draw", "impress"]
 
@@ -209,6 +272,17 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
         cache_max_mb = 0 if raw_mb <= 0 else max(1, min(500, raw_mb))
         cache_path = os.path.join(udir, "writeragent_web_cache.db") if (udir and cache_max_mb > 0) else None
 
+        cdp_enabled = get_config_bool_safe(ctx.ctx, "web_research_cdp_enabled")
+        cdp_url = None
+        if cdp_enabled:
+            try:
+                from plugin.chatbot.browser_cdp_tool import get_local_chrome_cdp_url
+                cdp_url = get_local_chrome_cdp_url(ctx.ctx)
+                log.info("CDP web research enabled. Local Chrome debug WS URL: %s", cdp_url)
+            except Exception as e:
+                log.warning("Failed to launch or connect to local Chrome via CDP: %s. Falling back to static HTTP.", e)
+                cdp_enabled = False
+
         stop_checker = getattr(ctx, "stop_checker", None)
         cancel_scope = getattr(ctx, "send_cancellation", None)
         smol_model = WriterAgentSmolModel(LlmClient(config, ctx.ctx, cancellation_scope=cancel_scope), max_tokens=max_tokens, status_callback=status_callback, stop_checker=stop_checker)
@@ -242,8 +316,10 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
 
         from plugin.chatbot.smol_examples import get_examples_block
 
+        visit_tool = VisitWebpageCdpTool(cdp_url=cdp_url) if (cdp_enabled and cdp_url) else VisitWebpageTool(cache_path=cache_path, cache_max_mb=cache_max_mb, cache_max_age_days=cache_max_age_days)
+
         agent = WebResearchToolCallingAgent(
-            tools=[DuckDuckGoSearchTool(cache_path=cache_path, cache_max_mb=cache_max_mb, cache_max_age_days=cache_max_age_days), VisitWebpageTool(cache_path=cache_path, cache_max_mb=cache_max_mb, cache_max_age_days=cache_max_age_days)],
+            tools=[DuckDuckGoSearchTool(cache_path=cache_path, cache_max_mb=cache_max_mb, cache_max_age_days=cache_max_age_days), visit_tool],
             model=smol_model,
             max_steps=max_steps,
             instructions=instructions,
@@ -309,37 +385,45 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
                 status_callback(f"{status_msg}...")
             return None
 
-        executor = SmolAgentExecutor(ctx)
-        final_ans = executor.execute_safe(agent, task, tool_call_handler=tool_call_handler, stop_message="Web search stopped by user.", error_prefix="Web search failed")
+        try:
+            executor = SmolAgentExecutor(ctx)
+            final_ans = executor.execute_safe(agent, task, tool_call_handler=tool_call_handler, stop_message="Web search stopped by user.", error_prefix="Web search failed")
 
-        cache_fields: dict[str, Any] = {}
-        if isinstance(final_ans, dict) and "status" in final_ans:
-            if final_ans.get("status") == "ok" and cache_enabled and cache_path and unique_key:
+            cache_fields: dict[str, Any] = {}
+            if isinstance(final_ans, dict) and "status" in final_ans:
+                if final_ans.get("status") == "ok" and cache_enabled and cache_path and unique_key:
+                    try:
+                        raw_mb = get_config_int_safe(ctx.ctx, "web_cache_max_mb")
+                        cache_max_mb = 0 if raw_mb <= 0 else max(1, min(500, raw_mb))
+                        cache_fields = _write_research_cache(ctx, cache_path, unique_key, str(final_ans.get("result", "")), cache_max_mb, cache_max_age_days, stem_lang)
+                    except Exception as e:
+                        log.warning("Failed to write to web research cache: %s", e)
+                if cache_fields:
+                    return {**final_ans, **cache_fields}
+                return final_ans
+
+            result_str = str(final_ans)
+            if cache_enabled and cache_path and unique_key:
                 try:
                     raw_mb = get_config_int_safe(ctx.ctx, "web_cache_max_mb")
                     cache_max_mb = 0 if raw_mb <= 0 else max(1, min(500, raw_mb))
-                    cache_fields = _write_research_cache(ctx, cache_path, unique_key, str(final_ans.get("result", "")), cache_max_mb, cache_max_age_days, stem_lang)
+                    cache_fields = _write_research_cache(ctx, cache_path, unique_key, result_str, cache_max_mb, cache_max_age_days, stem_lang)
                 except Exception as e:
                     log.warning("Failed to write to web research cache: %s", e)
+
+            from plugin.framework.i18n import _
+
+            out: dict[str, Any] = {"status": "ok", "message": _("Web research completed."), "result": result_str}
             if cache_fields:
-                return {**final_ans, **cache_fields}
-            return final_ans
-
-        result_str = str(final_ans)
-        if cache_enabled and cache_path and unique_key:
-            try:
-                raw_mb = get_config_int_safe(ctx.ctx, "web_cache_max_mb")
-                cache_max_mb = 0 if raw_mb <= 0 else max(1, min(500, raw_mb))
-                cache_fields = _write_research_cache(ctx, cache_path, unique_key, result_str, cache_max_mb, cache_max_age_days, stem_lang)
-            except Exception as e:
-                log.warning("Failed to write to web research cache: %s", e)
-
-        from plugin.framework.i18n import _
-
-        out: dict[str, Any] = {"status": "ok", "message": _("Web research completed."), "result": result_str}
-        if cache_fields:
-            out.update(cache_fields)
-        return out
+                out.update(cache_fields)
+            return out
+        finally:
+            if cdp_enabled:
+                try:
+                    from plugin.chatbot.browser_cdp_tool import cleanup_local_chrome
+                    cleanup_local_chrome()
+                except Exception as e:
+                    log.warning("Failed to clean up local Chrome process: %s", e)
 
 
 def _web_search_query_from_arguments(arguments: Any) -> str:
