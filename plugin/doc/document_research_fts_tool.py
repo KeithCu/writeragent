@@ -25,8 +25,7 @@ class SearchNearbyFiles(ToolBase):
     description = (
         "Search the active folder's full-text index for keyword/proximity matches (BM25 + NEAR). "
         "Returns ranked doc_url, score, snippet, and para_index hint. "
-        "Prefer this over grep_nearby_files for multi-word keywords when filenames are unknown; "
-        "use grep_nearby_files for regex or exact contiguous substring search."
+        "Use for cross-file keyword discovery when filenames are unknown."
     )
     tier = "specialized"
     specialized_domain: ClassVar[str | None] = "document_research"

@@ -1,6 +1,6 @@
 # Embeddings — Development Plan
 
-> **Status (2026-06):** **Chroma + LangGraph shipped (schema v2)** — per-folder **Chroma** persist dir + `corpus_meta.json` / `file_index_state.json` beside documents ([`embeddings_cache.py`](../plugin/doc/embeddings_cache.py)). **Index maintenance:** stdlib ODF extract in venv ([`embeddings_fs.py`](../plugin/doc/embeddings_fs.py) + [`embeddings_folder_maintain.py`](../plugin/scripting/embeddings_folder_maintain.py)) via one **`maintain_folder_index` RPC** with **heartbeat** sliding timeout (`EMBEDDINGS_HEARTBEAT_GRACE_S`); host only resolves folder path and `_inflight` dedupe ([`embeddings_indexer.py`](../plugin/doc/embeddings_indexer.py)). **Ingest/search:** LangGraph in [`embeddings_ingest_graph.py`](../plugin/scripting/embeddings_ingest_graph.py) / [`embeddings_search_graph.py`](../plugin/scripting/embeddings_search_graph.py). RPC facades: [`embeddings_index.py`](../plugin/scripting/embeddings_index.py), [`embeddings_service.py`](../plugin/framework/client/embeddings_service.py). **Dedicated embeddings subprocess** — `worker_pool=WORKER_POOL_EMBEDDINGS`. Offline re-index: [`scripts/index_embeddings_folder.py`](../scripts/index_embeddings_folder.py). Offline search: [`scripts/search_embeddings_folder.py`](../scripts/search_embeddings_folder.py). **Search mode:** Settings `embeddings.embeddings_cache_enabled`. **Scope:** one cache per filesystem folder.
+> **Status (2026-06):** **Chroma + LangGraph shipped (schema v2)** — per-folder **Chroma** persist dir + `corpus_meta.json` / `file_index_state.json` beside documents ([`embeddings_cache.py`](../plugin/doc/embeddings_cache.py)). **Index maintenance:** stdlib ODF extract in venv ([`embeddings_fs.py`](../plugin/doc/embeddings_fs.py) + [`embeddings_folder_maintain.py`](../plugin/scripting/embeddings_folder_maintain.py)) via one **`maintain_folder_index` RPC** with **heartbeat** sliding timeout (`EMBEDDINGS_HEARTBEAT_GRACE_S`); host only resolves folder path and `_inflight` dedupe ([`embeddings_indexer.py`](../plugin/doc/embeddings_indexer.py)). **Ingest/search:** LangGraph in [`embeddings_ingest_graph.py`](../plugin/scripting/embeddings_ingest_graph.py) / [`embeddings_search_graph.py`](../plugin/scripting/embeddings_search_graph.py). RPC facades: [`embeddings_index.py`](../plugin/scripting/embeddings_index.py), [`embeddings_service.py`](../plugin/framework/client/embeddings_service.py). **Dedicated embeddings subprocess** — `worker_pool=WORKER_POOL_EMBEDDINGS`. Offline re-index: [`scripts/index_embeddings_folder.py`](../scripts/index_embeddings_folder.py). Offline search: [`scripts/search_embeddings_folder.py`](../scripts/search_embeddings_folder.py). **Search mode:** Settings `embeddings.folder_search_mode` (`none` | `embeddings` | `fts`). **Scope:** one cache per filesystem folder.
 
 **Related:** [cython-extension.md](cython-extension.md) · [enabling_numpy_in_libreoffice.md](enabling_numpy_in_libreoffice.md) · [multi-document-dev-plan.md](multi-document-dev-plan.md) · [langchain-plan.md](langchain-plan.md) (chat memory / summarization only)
 
@@ -353,7 +353,7 @@ The **only** persisted index shape for now:
 | `get_safe_module` bypass for ST | **Done** — avoid hang on import ([`local_python_executor.py`](../plugin/contrib/smolagents/local_python_executor.py)) |
 | [`embedding_client.py`](../plugin/framework/client/embedding_client.py) | **Done** — `embed_texts()` via venv RPC (Phase A; HTTP deferred) |
 | [`embeddings_index.py`](../plugin/scripting/embeddings_index.py) | **Done** — trusted batch encode module (Phase A; index/search in Phase B) |
-| Config `embedding_model` / `embedding_provider` / `embeddings_cache_enabled` | **Done** — Settings → Embeddings ([`plugin/embeddings/module.yaml`](../plugin/embeddings/module.yaml)) |
+| Config `embedding_model` / `embedding_provider` / `folder_search_mode` | **Done** — Settings → Embeddings ([`plugin/embeddings/module.yaml`](../plugin/embeddings/module.yaml)) |
 
 See [Benchmark on your machine](#benchmark-on-your-machine) for sample numbers (349 paragraphs, dot+top-k **0.17 ms** median on Arch).
 
@@ -429,7 +429,7 @@ See also [Index size growth](#index-size-growth) for when RAM footprint matters.
 ### Phase A — Embed client + config **(shipped — venv-only)**
 
 - [x] Host [`embedding_client.py`](../plugin/framework/client/embedding_client.py) — `embed_texts(ctx, texts) -> EmbeddingBatch` via venv RPC
-- [x] Config: `embedding_model`, `embedding_provider`, `embeddings_cache_enabled` — Settings → Embeddings ([`plugin/embeddings/module.yaml`](../plugin/embeddings/module.yaml)); `local` provider only implemented; HTTP tier deferred
+- [x] Config: `embedding_model`, `embedding_provider`, `folder_search_mode` — Settings → Embeddings ([`plugin/embeddings/module.yaml`](../plugin/embeddings/module.yaml)); `local` provider only implemented; HTTP tier deferred
 - [x] Trusted venv module [`embeddings_index.py`](../plugin/scripting/embeddings_index.py) + fixed host stub — see [Trusted extension code in the venv](enabling_numpy_in_libreoffice.md#trusted-extension-code-in-the-venv)
 - [x] Tests: mocked venv RPC + mocked SentenceTransformer ([`test_embedding_client.py`](../tests/framework/test_embedding_client.py), [`test_embeddings_index.py`](../tests/scripting/test_embeddings_index.py))
 - Default model: `all-MiniLM-L6-v2` ([`DEFAULT_EMBEDDING_MODEL`](../plugin/framework/constants.py)) until multi-model bench says otherwise
@@ -452,7 +452,7 @@ See also [Index size growth](#index-size-growth) for when RAM footprint matters.
 
 **Goal:** outer [document_research](../plugin/doc/document_research.py) calls `search_embeddings(query, k)` → ranked hits in the **active folder’s** cache → open top files → inner read at locator.
 
-**Search mode (Settings):** `embeddings.embeddings_cache_enabled` in [`plugin/embeddings/module.yaml`](../plugin/embeddings/module.yaml) — `grep_nearby_files` is always exposed; when on (default off), `search_embeddings` is also exposed (see [Search mode flag](#search-mode-flag) below).
+**Search mode (Settings):** `embeddings.folder_search_mode` in [`plugin/embeddings/module.yaml`](../plugin/embeddings/module.yaml) — dropdown: **None** (grep only), **Embeddings** (+ `search_embeddings`), or **SQLite FTS (venv)** (+ `search_nearby_files`). See [Search mode flag](#search-mode-flag) below.
 
 **Suggested implementation order** (each step should have tests before moving on):
 
@@ -478,39 +478,36 @@ See also [Index size growth](#index-size-growth) for when RAM footprint matters.
 
 - [x] Paragraph chunker with **locator capture** (`para_index`, `char_start`, `char_end`, `content_hash`)
 - [x] Persist per-folder Chroma cache beside documents ([Corpus cache layout](#corpus-cache-layout), [Corpus storage](#corpus-storage))
-- [x] **`search_embeddings`** on outer document_research tool surface (additive when `embeddings.embeddings_cache_enabled`; grep stays available)
+- [x] **`search_embeddings`** on outer document_research tool surface (when `folder_search_mode` is `embeddings`; grep stays available)
 - [x] Open top 1–few hits → `delegate_read_document` → inner read via snippet / `search_in_document` (prompt guidance)
 - [x] Search executes in the venv via LangGraph + Chroma `query` + MMR ([`embeddings_search_graph.py`](../plugin/scripting/embeddings_search_graph.py))
 - [x] Background **index maintenance worker** (separate from agent tool loop) — [Background folder indexer](#background-folder-indexer)
 
 ### Search mode flag {#search-mode-flag}
 
-`grep_nearby_files` is **always** exposed to document_research. `search_embeddings` is **additive** when the cache is enabled:
+`grep_nearby_files` is **always** exposed to document_research. Optional indexed search is **mutually exclusive** — set **Settings → Embeddings → Cross-file search mode**:
 
-| `embeddings.embeddings_cache_enabled` | Exposed to document_research | Hidden from sub-agent |
-|---------------------------------------|-----------------------------|------------------------|
-| `false` (default) | `grep_nearby_files` | `search_embeddings` |
-| `true` | `grep_nearby_files`, `search_embeddings` | — |
+| `embeddings.folder_search_mode` | Exposed to document_research | Hidden from sub-agent |
+|---------------------------------|-----------------------------|------------------------|
+| `none` (default) | `grep_nearby_files` | `search_embeddings`, `search_nearby_files` |
+| `embeddings` | `grep_nearby_files`, `search_embeddings` | `search_nearby_files` |
+| `fts` | `search_nearby_files` | `search_embeddings`, `grep_nearby_files` |
 
-Enable in **Settings → Embeddings → Embeddings cache (per-folder semantic search)**, or set `"embeddings.embeddings_cache_enabled": true` in `writeragent.json`. Both tools are registered at startup; [`filter_document_research_discovery_tools`](../plugin/doc/document_research.py) hides `search_embeddings` only when the flag is off. Background indexing runs only when the flag is on. `list_nearby_files` and `delegate_read_document` are always available. Prefer `grep_nearby_files` for exact keywords; use `search_embeddings` for vague or topical queries (retry grep if embeddings returns weak hits).
+Enable in **Settings → Embeddings → Cross-file search mode**, or set `"embeddings.folder_search_mode": "embeddings"` or `"fts"` in `writeragent.json`. Tools are registered at startup; [`filter_document_research_discovery_tools`](../plugin/doc/document_research.py) hides optional tools when mode is off. Background indexing runs only for the active mode. `list_nearby_files` and `delegate_read_document` are always available. In **none** mode use `grep_nearby_files` for exact keywords; in **embeddings** mode prefer `search_embeddings` for topical queries and keep `grep_nearby_files` for regex or Calc/Draw; in **fts** mode use `search_nearby_files` only (in-proc grep is hidden — FTS NEAR/BM25 replaces it).
 
 ### Folder FTS (SQLite, embeddings venv) {#folder-fts}
 
 **Lexical** cross-folder discovery: BM25 ranking + FTS5 **`NEAR`** (terms with gaps). Runs in the **same embeddings venv worker** as Chroma maintain/search ([`WORKER_POOL_EMBEDDINGS`](../plugin/framework/constants.py)) — stdlib **`sqlite3` only**, no extra pip packages. Index build and search stay **outside** the LibreOffice process.
 
-| Setting | Tool exposed | Hidden when off |
-|---------|--------------|-----------------|
-| `embeddings.folder_fts_enabled` | `search_nearby_files` | yes (via [`filter_document_research_discovery_tools`](../plugin/doc/document_research.py)) |
-
-Enable in **Settings → Embeddings → Folder full-text index (SQLite FTS5)**, or set `"embeddings.folder_fts_enabled": true` in `writeragent.json`.
+Select **SQLite FTS (venv)** in **Settings → Embeddings → Cross-file search mode** (`embeddings.folder_search_mode: "fts"`), or set that key in `writeragent.json`.
 
 **Tool matrix (document_research):**
 
 | Tool | When to use |
 |------|-------------|
-| **`search_nearby_files`** | Multi-word keywords, proximity (`web search`), BM25-ranked snippets — requires FTS flag |
-| **`grep_nearby_files`** | Regex, exact contiguous substring, Calc/Draw — always available |
-| **`search_embeddings`** | Paraphrase / topical semantic search — requires embeddings cache flag |
+| **`search_nearby_files`** | Multi-word keywords, proximity (`web search`), BM25-ranked snippets — FTS mode only |
+| **`grep_nearby_files`** | Regex, exact substring, Calc/Draw — none or embeddings mode (hidden when FTS mode is on) |
+| **`search_embeddings`** | Paraphrase / topical semantic search — embeddings mode only |
 
 **Cache files** (same `writeragent_embeddings/` folder as Chroma):
 
@@ -523,7 +520,7 @@ writeragent_embeddings/
 
 Implementation: [`folder_fts.py`](../plugin/scripting/folder_fts.py) (venv), [`folder_fts_service.py`](../plugin/framework/client/folder_fts_service.py) (host RPC), [`folder_fts_indexer.py`](../plugin/doc/folder_fts_indexer.py) (background maintain). Periodic wakeups share [`embeddings_periodic.py`](../plugin/doc/embeddings_periodic.py) with the Chroma indexer when either flag is on.
 
-**Embeddings vs FTS:** embeddings excel at long paraphrase queries; FTS excels at short keyword/proximity routing (see [Performance: embeddings vs grep](#performance-embeddings-vs-grep)). You can enable one or both; they share folder scan/extract helpers but use separate stores (`chroma/` vs `fts5.db`).
+**Embeddings vs FTS:** embeddings excel at long paraphrase queries; FTS excels at short keyword/proximity routing (see [Performance: embeddings vs grep](#performance-embeddings-vs-grep)). Choose one mode in Settings; they share folder scan/extract helpers but use separate stores (`chroma/` vs `fts5.db`).
 
 ### Corpus cache layout {#corpus-cache-layout}
 
@@ -554,7 +551,7 @@ Indexing and refresh run on a **background maintenance worker** (host thread + v
 
 | Trigger | When |
 |---------|------|
-| **Periodic tick** | Every `EMBEDDINGS_INDEX_INTERVAL_S` (default **300 s / 5 min**) for the **active document’s folder** — started once per process from sidebar wiring ([`embeddings_periodic.py`](../plugin/doc/embeddings_periodic.py)) when `embeddings.embeddings_cache_enabled` is on |
+| **Periodic tick** | Every `EMBEDDINGS_INDEX_INTERVAL_S` (default **300 s / 5 min**) for the **active document’s folder** — started once per process from sidebar wiring ([`embeddings_periodic.py`](../plugin/doc/embeddings_periodic.py)) when `embeddings.folder_search_mode` is `embeddings` or `fts` |
 | **document_research** | Outer delegate starts in a folder ([`specialized_base.py`](../plugin/doc/specialized_base.py)) |
 | **search miss** | `search_embeddings` against empty/stale cache ([`document_research_search_tool.py`](../plugin/doc/document_research_search_tool.py)) |
 

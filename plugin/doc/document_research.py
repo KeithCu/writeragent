@@ -121,8 +121,8 @@ def get_document_research_workflow_hint(ctx=None) -> str:
         "the target file). If you know which file(s) to read — go straight to delegate_read_document instead.\n"
     )
     fts_hint = (
-        "For cross-file keyword discovery when the filename is unknown, prefer search_nearby_files(query, k) over the active folder FTS index; "
-        "it ranks by BM25 and allows terms with gaps (NEAR). grep_nearby_files remains available for regex or exact contiguous matches. "
+        "For cross-file keyword discovery when the filename is unknown, use search_nearby_files(query, k) on the active folder FTS index; "
+        "it ranks by BM25 and allows terms with gaps (NEAR). "
         "search_nearby_files returns ranked doc_url, score, snippet, and optional para_index (weak hint). "
         "Open the top one or few hits with delegate_read_document and tell the inner read agent to search for the snippet "
         "or topic with search_in_document — do not rely on para_index or character offsets as exact LO coordinates.\n"
@@ -144,7 +144,7 @@ def get_document_research_workflow_hint(ctx=None) -> str:
 
 
 def filter_document_research_discovery_tools(tools: list[ToolBase], ctx) -> list[ToolBase]:
-    """Hide optional discovery tools when their Settings flags are off; grep_nearby_files is always kept."""
+    """Hide optional discovery tools by folder_search_mode; list/delegate always kept."""
     from plugin.framework.constants import document_research_uses_embeddings, document_research_uses_folder_fts
 
     hidden: set[str] = set()
@@ -152,6 +152,9 @@ def filter_document_research_discovery_tools(tools: list[ToolBase], ctx) -> list
         hidden.add("search_embeddings")
     if not document_research_uses_folder_fts(ctx):
         hidden.add("search_nearby_files")
+    else:
+        # FTS replaces slow in-proc grep_nearby_files (file-by-file UNO opens).
+        hidden.add("grep_nearby_files")
     if not hidden:
         return tools
     return [t for t in tools if t.name not in hidden]

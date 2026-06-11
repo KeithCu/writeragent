@@ -74,22 +74,29 @@ class ModelCapability(IntFlag):
 # Approach B: In-Place Tool Switching (False) - Switches the main model's tools.
 USE_SUB_AGENT = True
 
-# document_research cross-file discovery: embeddings cache vs grep (Settings: embeddings.embeddings_cache_enabled).
+# document_research cross-file discovery mode (Settings: embeddings.folder_search_mode).
 # See docs/embeddings.md.
+
+_FOLDER_SEARCH_MODE_KEY = "embeddings.folder_search_mode"
+_VALID_FOLDER_SEARCH_MODES = frozenset({"none", "embeddings", "fts"})
+
+
+def get_folder_search_mode(ctx=None) -> str:
+    """Return cross-file search mode: none, embeddings, or fts."""
+    from plugin.framework.config import get_config
+
+    raw = str(get_config(ctx, _FOLDER_SEARCH_MODE_KEY) or "none").strip().lower()
+    return raw if raw in _VALID_FOLDER_SEARCH_MODES else "none"
 
 
 def document_research_uses_embeddings(ctx=None) -> bool:
-    """True when outer document_research also exposes search_embeddings (embeddings cache enabled)."""
-    from plugin.framework.config import get_config_bool_safe
-
-    return get_config_bool_safe(ctx, "embeddings.embeddings_cache_enabled")
+    """True when outer document_research also exposes search_embeddings (embeddings mode)."""
+    return get_folder_search_mode(ctx) == "embeddings"
 
 
 def document_research_uses_folder_fts(ctx=None) -> bool:
-    """True when outer document_research also exposes search_nearby_files (folder FTS enabled)."""
-    from plugin.framework.config import get_config_bool_safe
-
-    return get_config_bool_safe(ctx, "embeddings.folder_fts_enabled")
+    """True when outer document_research also exposes search_nearby_files (FTS mode)."""
+    return get_folder_search_mode(ctx) == "fts"
 
 
 # Browser-style user agent for a small, whitelisted set of sites

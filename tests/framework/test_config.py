@@ -164,7 +164,7 @@ class TestConfigSyncFileIO(unittest.TestCase):
         self.assertEqual(get_config_int(self.ctx, 'extend_selection_max_tokens'), 1000)
         self.assertEqual(get_config_bool(self.ctx, 'chatbot.show_search_thinking'), False)
         self.assertEqual(get_config_bool(self.ctx, 'web_research_cache_enabled'), True)
-        self.assertEqual(get_config_bool(self.ctx, 'embeddings.embeddings_cache_enabled'), False)
+        self.assertEqual(get_config(self.ctx, 'embeddings.folder_search_mode'), 'none')
         self.assertEqual(get_config_int(self.ctx, 'web_research_cache_jaccard_percent'), 40)
         self.assertEqual(get_config_int(self.ctx, 'web_research_cache_min_overlap'), 8)
         self.assertEqual(get_config(self.ctx, 'log_level'), 'DEBUG')

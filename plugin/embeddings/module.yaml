@@ -2,21 +2,19 @@ name: embeddings
 title: Embeddings
 requires: [config]
 config:
-  embeddings_cache_enabled:
-    type: boolean
-    default: false
-    widget: checkbox
-    label: Embeddings cache (per-folder semantic search)
-    width: 400
-    helper: "When on, builds a semantic index in writeragent_embeddings/ beside the active document's folder and also exposes search_embeddings in document_research (grep_nearby_files stays available). Requires Settings → Python venv with sentence-transformers, chromadb, langgraph, langchain-core, langchain-text-splitters, envwrap (see Settings → Python Test)."
-
-  folder_fts_enabled:
-    type: boolean
-    default: false
-    widget: checkbox
-    label: Folder full-text index (SQLite FTS5)
-    width: 400
-    helper: "When on, builds fts5.db beside writeragent_embeddings/ via the embeddings Python venv (stdlib sqlite3 only). Exposes search_nearby_files in document_research. Index build runs outside LibreOffice."
+  folder_search_mode:
+    type: string
+    default: none
+    widget: select
+    label: Cross-file search mode
+    helper: "How document_research discovers content across nearby files. None: grep_nearby_files only. Embeddings: search_embeddings + grep_nearby_files (requires Settings → Python venv with sentence-transformers, chromadb, langgraph, langchain-core, langchain-text-splitters, envwrap; see Settings → Python Test). SQLite FTS (venv): search_nearby_files only — replaces slow in-proc grep (index via stdlib sqlite3 in the embeddings venv worker)."
+    options:
+      - value: none
+        label: None
+      - value: embeddings
+        label: Embeddings
+      - value: fts
+        label: SQLite FTS (venv)
 
   embedding_provider:
     type: string

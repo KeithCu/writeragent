@@ -87,7 +87,7 @@ def test_filter_document_research_discovery_tools_respects_config():
     names = {t.name for t in filtered}
     assert "search_nearby_files" in names
     assert "search_embeddings" not in names
-    assert "grep_nearby_files" in names
+    assert "grep_nearby_files" not in names
 
 
 def test_document_research_workflow_hint_modes():
@@ -114,6 +114,7 @@ def test_document_research_workflow_hint_modes():
     assert "search_nearby_files" in fts_hint
     assert "BM25" in fts_hint
     assert "search_embeddings" not in fts_hint
+    assert "grep_nearby_files" not in fts_hint
 
 
 
