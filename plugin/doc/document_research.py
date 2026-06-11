@@ -101,8 +101,8 @@ def guess_doc_type_from_path(path: str) -> DocTypeGuess:
 
 
 def get_document_research_workflow_hint(ctx=None) -> str:
-    """Outer document_research sub-agent workflow text (grep; optional embeddings when cache enabled)."""
-    from plugin.framework.constants import document_research_uses_embeddings
+    """Outer document_research sub-agent workflow text (grep; optional FTS / embeddings)."""
+    from plugin.framework.constants import document_research_uses_embeddings, document_research_uses_folder_fts
 
     common = (
         "\n\nDocument research workflow:\n"
@@ -120,26 +120,41 @@ def get_document_research_workflow_hint(ctx=None) -> str:
         "Do not use grep_nearby_files when list_nearby_files can resolve the filename (including partial matches, or when you already know "
         "the target file). If you know which file(s) to read — go straight to delegate_read_document instead.\n"
     )
+    fts_hint = (
+        "For cross-file keyword discovery when the filename is unknown, prefer search_nearby_files(query, k) over the active folder FTS index; "
+        "it ranks by BM25 and allows terms with gaps (NEAR). grep_nearby_files remains available for regex or exact contiguous matches. "
+        "search_nearby_files returns ranked doc_url, score, snippet, and optional para_index (weak hint). "
+        "Open the top one or few hits with delegate_read_document and tell the inner read agent to search for the snippet "
+        "or topic with search_in_document — do not rely on para_index or character offsets as exact LO coordinates.\n"
+        "If search_nearby_files returns status indexing, retry after the background index finishes.\n"
+    )
+    embed_hint = (
+        "For cross-file discovery when the filename is unknown, prefer search_embeddings(query, k) over the active folder semantic index; "
+        "grep_nearby_files is also available. "
+        "search_embeddings returns ranked doc_url, score, snippet (indexed passage preview), and optional para_index (weak hint). "
+        "Open the top one or few hits with delegate_read_document and tell the inner read agent to search for the snippet "
+        "or topic with search_in_document — do not rely on para_index or character offsets as exact LO coordinates.\n"
+        "If search_embeddings returns status indexing, retry after the background index finishes.\n"
+    )
+    if document_research_uses_folder_fts(ctx):
+        return common + fts_hint
     if document_research_uses_embeddings(ctx):
-        return (
-            common
-            + "For cross-file discovery when the filename is unknown, prefer search_embeddings(query, k) over the active folder index; "
-            "grep_nearby_files is also available. "
-            "search_embeddings returns ranked doc_url, score, snippet (indexed passage preview), and optional para_index (weak hint). "
-            "Open the top one or few hits with delegate_read_document and tell the inner read agent to search for the snippet "
-            "or topic with search_in_document — do not rely on para_index or character offsets as exact LO coordinates.\n"
-            "If search_embeddings returns status indexing, retry after the background index finishes.\n"
-        )
+        return common + embed_hint
     return common + grep_hint
 
 
 def filter_document_research_discovery_tools(tools: list[ToolBase], ctx) -> list[ToolBase]:
-    """Hide search_embeddings when embeddings cache is disabled; grep_nearby_files is always kept."""
-    from plugin.framework.constants import document_research_uses_embeddings
+    """Hide optional discovery tools when their Settings flags are off; grep_nearby_files is always kept."""
+    from plugin.framework.constants import document_research_uses_embeddings, document_research_uses_folder_fts
 
-    if document_research_uses_embeddings(ctx):
+    hidden: set[str] = set()
+    if not document_research_uses_embeddings(ctx):
+        hidden.add("search_embeddings")
+    if not document_research_uses_folder_fts(ctx):
+        hidden.add("search_nearby_files")
+    if not hidden:
         return tools
-    return [t for t in tools if t.name != "search_embeddings"]
+    return [t for t in tools if t.name not in hidden]
 
 
 def _normalize_path(path: str) -> str:

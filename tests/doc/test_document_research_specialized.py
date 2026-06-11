@@ -14,6 +14,7 @@ from plugin.draw.specialized import DelegateToSpecializedDraw
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
 from tests.chatbot.test_tool_loop import _mock_get_config_int_for_sub_agent
 from plugin.writer.specialized_base import DelegateToSpecializedWriter, SpecializedWorkflowFinished
+from plugin.doc.document_research_fts_tool import SearchNearbyFiles
 from plugin.doc.document_research_grep_tool import GrepNearbyFiles
 from plugin.doc.document_research_search_tool import SearchEmbeddings
 from plugin.doc.document_research_tools import ListNearbyFiles
@@ -54,6 +55,7 @@ def test_filter_document_research_discovery_tools_respects_config():
     r = ToolRegistry(services={})
     r.register(ListNearbyFiles())
     r.register(GrepNearbyFiles())
+    r.register(SearchNearbyFiles())
     r.register(SearchEmbeddings())
     r.register(DelegateReadDocument())
     r.register(SpecializedWorkflowFinished())
@@ -61,18 +63,30 @@ def test_filter_document_research_discovery_tools_respects_config():
     ctx = MagicMock()
 
     with patch("plugin.framework.constants.document_research_uses_embeddings", return_value=False):
-        filtered = filter_document_research_discovery_tools(tools, ctx)
+        with patch("plugin.framework.constants.document_research_uses_folder_fts", return_value=False):
+            filtered = filter_document_research_discovery_tools(tools, ctx)
     names = {t.name for t in filtered}
     assert "list_nearby_files" in names
     assert "grep_nearby_files" in names
     assert "delegate_read_document" in names
     assert "specialized_workflow_finished" in names
     assert "search_embeddings" not in names
+    assert "search_nearby_files" not in names
 
     with patch("plugin.framework.constants.document_research_uses_embeddings", return_value=True):
-        filtered = filter_document_research_discovery_tools(tools, ctx)
+        with patch("plugin.framework.constants.document_research_uses_folder_fts", return_value=False):
+            filtered = filter_document_research_discovery_tools(tools, ctx)
     names = {t.name for t in filtered}
     assert "search_embeddings" in names
+    assert "search_nearby_files" not in names
+    assert "grep_nearby_files" in names
+
+    with patch("plugin.framework.constants.document_research_uses_embeddings", return_value=False):
+        with patch("plugin.framework.constants.document_research_uses_folder_fts", return_value=True):
+            filtered = filter_document_research_discovery_tools(tools, ctx)
+    names = {t.name for t in filtered}
+    assert "search_nearby_files" in names
+    assert "search_embeddings" not in names
     assert "grep_nearby_files" in names
 
 
@@ -81,15 +95,25 @@ def test_document_research_workflow_hint_modes():
 
     ctx = MagicMock()
     with patch("plugin.framework.constants.document_research_uses_embeddings", return_value=False):
-        grep_hint = get_document_research_workflow_hint(ctx)
+        with patch("plugin.framework.constants.document_research_uses_folder_fts", return_value=False):
+            grep_hint = get_document_research_workflow_hint(ctx)
     assert "grep_nearby_files" in grep_hint
     assert "search_embeddings" not in grep_hint
+    assert "search_nearby_files" not in grep_hint
 
     with patch("plugin.framework.constants.document_research_uses_embeddings", return_value=True):
-        embed_hint = get_document_research_workflow_hint(ctx)
+        with patch("plugin.framework.constants.document_research_uses_folder_fts", return_value=False):
+            embed_hint = get_document_research_workflow_hint(ctx)
     assert "search_embeddings" in embed_hint
     assert "snippet" in embed_hint
     assert "grep_nearby_files" in embed_hint
+
+    with patch("plugin.framework.constants.document_research_uses_embeddings", return_value=False):
+        with patch("plugin.framework.constants.document_research_uses_folder_fts", return_value=True):
+            fts_hint = get_document_research_workflow_hint(ctx)
+    assert "search_nearby_files" in fts_hint
+    assert "BM25" in fts_hint
+    assert "search_embeddings" not in fts_hint
 
 
 

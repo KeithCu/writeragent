@@ -16,6 +16,7 @@ class CommonModule(ModuleBase):
 
         from . import (
             diagnostics,
+            document_research_fts_tool,
             document_research_grep_tool,
             document_research_search_tool,
             document_research_specialized,
@@ -28,6 +29,7 @@ class CommonModule(ModuleBase):
             diagnostics,
             document_research_tools,
             document_research_grep_tool,
+            document_research_fts_tool,
             document_research_search_tool,
             document_research_specialized,
             print_doc,

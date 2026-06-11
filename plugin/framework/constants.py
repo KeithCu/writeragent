@@ -85,6 +85,13 @@ def document_research_uses_embeddings(ctx=None) -> bool:
     return get_config_bool_safe(ctx, "embeddings.embeddings_cache_enabled")
 
 
+def document_research_uses_folder_fts(ctx=None) -> bool:
+    """True when outer document_research also exposes search_nearby_files (folder FTS enabled)."""
+    from plugin.framework.config import get_config_bool_safe
+
+    return get_config_bool_safe(ctx, "embeddings.folder_fts_enabled")
+
+
 # Browser-style user agent for a small, whitelisted set of sites
 # (e.g. DuckDuckGo and Wikipedia) that expect a real browser UA.
 BROWSER_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:148.0) Gecko/20100101 Firefox/148.0"

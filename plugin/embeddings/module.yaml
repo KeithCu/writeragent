@@ -10,6 +10,14 @@ config:
     width: 400
     helper: "When on, builds a semantic index in writeragent_embeddings/ beside the active document's folder and also exposes search_embeddings in document_research (grep_nearby_files stays available). Requires Settings → Python venv with sentence-transformers, chromadb, langgraph, langchain-core, langchain-text-splitters, envwrap (see Settings → Python Test)."
 
+  folder_fts_enabled:
+    type: boolean
+    default: false
+    widget: checkbox
+    label: Folder full-text index (SQLite FTS5)
+    width: 400
+    helper: "When on, builds fts5.db beside writeragent_embeddings/ via the embeddings Python venv (stdlib sqlite3 only). Exposes search_nearby_files in document_research. Index build runs outside LibreOffice."
+
   embedding_provider:
     type: string
     default: local

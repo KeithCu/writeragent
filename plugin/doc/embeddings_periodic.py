@@ -17,11 +17,11 @@ _schedule_lock = threading.Lock()
 
 
 def schedule_periodic_embeddings_indexer_once(ctx: Any) -> None:
-    """Start periodic folder index maintenance at most once per process (embeddings mode only)."""
-    from plugin.framework.constants import document_research_uses_embeddings
+    """Start periodic folder index maintenance at most once per process (embeddings and/or FTS)."""
+    from plugin.framework.constants import document_research_uses_embeddings, document_research_uses_folder_fts
     from plugin.framework.worker_pool import run_in_background
 
-    if not document_research_uses_embeddings(ctx):
+    if not document_research_uses_embeddings(ctx) and not document_research_uses_folder_fts(ctx):
         return
     global _scheduled
     with _schedule_lock:
@@ -36,19 +36,24 @@ def schedule_periodic_embeddings_indexer_once(ctx: Any) -> None:
 def run_periodic_embeddings_indexer(ctx: Any) -> None:
     """Daemon loop: enqueue incremental folder index for the active document folder."""
     from plugin.doc.embeddings_indexer import enqueue_folder_index
-    from plugin.framework.constants import EMBEDDINGS_INDEX_INTERVAL_S, document_research_uses_embeddings
+    from plugin.doc.folder_fts_indexer import enqueue_folder_fts_index
+    from plugin.framework.constants import EMBEDDINGS_INDEX_INTERVAL_S, document_research_uses_embeddings, document_research_uses_folder_fts
     from plugin.framework.uno_context import get_active_document
     from plugin.main import get_services
 
     log.info("embeddings periodic indexer: started (interval=%ss)", EMBEDDINGS_INDEX_INTERVAL_S)
     while True:
         time.sleep(EMBEDDINGS_INDEX_INTERVAL_S)
-        if not document_research_uses_embeddings(ctx):
+        if not document_research_uses_embeddings(ctx) and not document_research_uses_folder_fts(ctx):
             continue
         model = get_active_document(ctx)
         if model is None:
             continue
         try:
-            enqueue_folder_index(ctx, get_services(), model)
+            services = get_services()
+            if document_research_uses_embeddings(ctx):
+                enqueue_folder_index(ctx, services, model)
+            if document_research_uses_folder_fts(ctx):
+                enqueue_folder_fts_index(ctx, services, model)
         except Exception:
             log.exception("embeddings periodic indexer tick failed")

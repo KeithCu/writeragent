@@ -360,6 +360,7 @@ def _inject_data(executor: LocalPythonExecutor, data: Any | None) -> None:
 
 _TRUSTED_VISION_STUB_MARKER = "from plugin.scripting.vision import run_vision"
 _TRUSTED_EMBEDDINGS_STUB_MARKER = "from plugin.scripting.embeddings_index import"
+_TRUSTED_FOLDER_FTS_STUB_MARKER = "from plugin.scripting.folder_fts import"
 
 
 def _is_trusted_vision_stub(code: str) -> bool:
@@ -367,7 +368,8 @@ def _is_trusted_vision_stub(code: str) -> bool:
 
 
 def _is_trusted_embeddings_stub(code: str) -> bool:
-    return _TRUSTED_EMBEDDINGS_STUB_MARKER in (code or "")
+    c = code or ""
+    return _TRUSTED_EMBEDDINGS_STUB_MARKER in c or _TRUSTED_FOLDER_FTS_STUB_MARKER in c
 
 
 def _unpack_trusted_payload(data: Any | None) -> dict[str, Any]:
@@ -411,12 +413,45 @@ def _run_trusted_vision_payload(data: Any | None) -> dict[str, Any]:
 
 
 def _run_trusted_embeddings_payload(code: str, data: Any | None) -> dict[str, Any]:
-    """Run fixed embeddings_index RPC stubs outside LocalPythonExecutor (torch/ST/Chroma need real imports)."""
+    """Run fixed embeddings_index / folder_fts RPC stubs outside LocalPythonExecutor."""
     from plugin.scripting import embeddings_index
 
     payload = _unpack_trusted_payload(data)
     stub = code or ""
     try:
+        if _TRUSTED_FOLDER_FTS_STUB_MARKER in stub:
+            from plugin.scripting import folder_fts
+
+            if "maintain_folder_fts" in stub:
+                from typing import cast, Literal
+
+                mode_raw = str(payload.get("mode") or "auto")
+                if mode_raw not in ("auto", "cold", "incremental"):
+                    mode_raw = "auto"
+                result = folder_fts.maintain_folder_fts(
+                    str(payload.get("listing_root") or ""),
+                    cast("Literal['auto', 'cold', 'incremental']", mode_raw),
+                )
+            elif "search_folder_fts" in stub:
+                result = folder_fts.search_folder_fts(
+                    str(payload.get("fts_db_path") or ""),
+                    str(payload.get("query") or ""),
+                    k=int(payload.get("k") or 10),
+                    near_slop=int(payload.get("near_slop") or 10),
+                )
+            elif "fts_stats" in stub:
+                result = folder_fts.fts_stats(
+                    str(payload.get("fts_db_path") or ""),
+                    str(payload.get("meta_path") or ""),
+                )
+            else:
+                return {
+                    "status": "error",
+                    "message": "Unrecognized trusted folder FTS stub.",
+                    "stdout": "",
+                }
+            return {"status": "ok", "result": serialize_result(result), "stdout": ""}
+
         if "maintain_folder_index" in stub:
             result = embeddings_index.maintain_folder_index(
                 str(payload.get("listing_root") or ""),

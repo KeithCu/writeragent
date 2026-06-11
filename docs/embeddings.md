@@ -1,6 +1,6 @@
 # Embeddings — Development Plan
 
-> **Status (2026-06):** **Chroma + LangGraph shipped (schema v2)** — per-folder **Chroma** persist dir + `corpus_meta.json` / `file_index_state.json` beside documents ([`embeddings_cache.py`](../plugin/doc/embeddings_cache.py)). **Index maintenance:** stdlib ODF extract in venv ([`embeddings_fs.py`](../plugin/doc/embeddings_fs.py) + [`embeddings_folder_maintain.py`](../plugin/scripting/embeddings_folder_maintain.py)) via one **`maintain_folder_index` RPC** with **heartbeat** sliding timeout (`EMBEDDINGS_HEARTBEAT_GRACE_S`); host only resolves folder path and `_inflight` dedupe ([`embeddings_indexer.py`](../plugin/doc/embeddings_indexer.py)). **Ingest/search:** LangGraph in [`embeddings_ingest_graph.py`](../plugin/scripting/embeddings_ingest_graph.py) / [`embeddings_search_graph.py`](../plugin/scripting/embeddings_search_graph.py). RPC facades: [`embeddings_index.py`](../plugin/scripting/embeddings_index.py), [`embeddings_service.py`](../plugin/framework/client/embeddings_service.py). **Dedicated embeddings subprocess** — `worker_pool=WORKER_POOL_EMBEDDINGS`. Offline re-index: [`scripts/index_embeddings_folder.py`](../scripts/index_embeddings_folder.py). **Search mode:** Settings `embeddings.embeddings_cache_enabled`. **Scope:** one cache per filesystem folder.
+> **Status (2026-06):** **Chroma + LangGraph shipped (schema v2)** — per-folder **Chroma** persist dir + `corpus_meta.json` / `file_index_state.json` beside documents ([`embeddings_cache.py`](../plugin/doc/embeddings_cache.py)). **Index maintenance:** stdlib ODF extract in venv ([`embeddings_fs.py`](../plugin/doc/embeddings_fs.py) + [`embeddings_folder_maintain.py`](../plugin/scripting/embeddings_folder_maintain.py)) via one **`maintain_folder_index` RPC** with **heartbeat** sliding timeout (`EMBEDDINGS_HEARTBEAT_GRACE_S`); host only resolves folder path and `_inflight` dedupe ([`embeddings_indexer.py`](../plugin/doc/embeddings_indexer.py)). **Ingest/search:** LangGraph in [`embeddings_ingest_graph.py`](../plugin/scripting/embeddings_ingest_graph.py) / [`embeddings_search_graph.py`](../plugin/scripting/embeddings_search_graph.py). RPC facades: [`embeddings_index.py`](../plugin/scripting/embeddings_index.py), [`embeddings_service.py`](../plugin/framework/client/embeddings_service.py). **Dedicated embeddings subprocess** — `worker_pool=WORKER_POOL_EMBEDDINGS`. Offline re-index: [`scripts/index_embeddings_folder.py`](../scripts/index_embeddings_folder.py). Offline search: [`scripts/search_embeddings_folder.py`](../scripts/search_embeddings_folder.py). **Search mode:** Settings `embeddings.embeddings_cache_enabled`. **Scope:** one cache per filesystem folder.
 
 **Related:** [cython-extension.md](cython-extension.md) · [enabling_numpy_in_libreoffice.md](enabling_numpy_in_libreoffice.md) · [multi-document-dev-plan.md](multi-document-dev-plan.md) · [langchain-plan.md](langchain-plan.md) (chat memory / summarization only)
 
@@ -25,6 +25,159 @@ python scripts/dump_embeddings_cache.py --limit 20 --doc-url file:///path/to/doc
 ```
 
 [`scripts/dump_embeddings_cache.py`](../scripts/dump_embeddings_cache.py) reads `corpus_meta.json`, `file_index_state.json`, and `chroma/chroma.sqlite3`.
+
+### Search a cache
+
+Offline search (defaults to embeddings / LangGraph + Chroma, same path as in-app `search_embeddings`):
+
+```bash
+.venv/bin/python scripts/search_embeddings_folder.py "your query"
+.venv/bin/python scripts/search_embeddings_folder.py "your query" --folder ~/Desktop/Writing --k 10
+.venv/bin/python scripts/search_embeddings_folder.py "topic" --json
+.venv/bin/python scripts/search_embeddings_folder.py "topic" --doc-url file:///path/to/doc.odt
+```
+
+**SQLite FTS5** (same path as in-app `search_nearby_files`; stdlib only, no SentenceTransformer load):
+
+```bash
+.venv/bin/python scripts/search_embeddings_folder.py --fts "web search"
+.venv/bin/python scripts/search_embeddings_folder.py --fts "grammar checker" --folder ~/Desktop/Writing --k 10
+```
+
+Defaults: folder `~/Desktop/Writing`, top **10** hits. Embeddings mode requires the embeddings venv packages (same as [`scripts/index_embeddings_folder.py`](../scripts/index_embeddings_folder.py)). FTS mode requires `fts5.db` under `writeragent_embeddings/` (enable folder FTS in WriterAgent or run `maintain_folder_fts` — see [Folder FTS](#folder-fts)).
+
+### Performance: embeddings vs grep (example corpus) {#performance-embeddings-vs-grep}
+
+Future work on **when** to call `search_embeddings` vs `grep_nearby_files` (or a hybrid) should be **data-driven**. This section records one real benchmark on a multi-document folder — not a synthetic eval set, but a useful baseline because it mixes WriterAgent blog drafts, technical notes, and unrelated documents in one directory (the same shape `document_research` sees).
+
+**Corpus:** `~/Desktop/Writing` — **16** indexed Writer `.odt` files, **~1096** Chroma chunks, model **`all-MiniLM-L6-v2`** (schema v2 cache beside the folder). Files include `cursor_for_libreoffice_part2.odt` … `part5.odt`, `writerchat.odt`, `blog_draft_cursor_for_libreoffice.odt`, plus siblings such as `SoftwareWars.odt`, `FormalVerificationText.odt`, `ConduitGeometry.odt`, `rpython.odt` (215 paragraphs — large enough to steal generic “python” queries).
+
+**Method (2026-06):**
+
+1. **Semantic:** [`scripts/search_embeddings_folder.py`](../scripts/search_embeddings_folder.py) → `knn_search` → LangGraph + Chroma; record **top-1** hit (`score`, `doc_url`, `snippet`).
+2. **Lexical baselines** (stdlib ODF extract via [`embeddings_fs.extract_writer_paragraphs`](../plugin/doc/embeddings_fs.py)):
+   - **Strict grep** — paragraph must contain **all** query tokens.
+   - **Nearby-style grep** — rank files by paragraph hit count for **any** query token (approximates `grep_nearby_files` file picking).
+3. **Winner** (when an expected file is known): **grep** if nearby/strict grep hits that file but semantic top-1 does not; **embed** if semantic hits expected file but nearby grep’s top file does not; **both** if either method routes correctly; **neither** if both miss.
+
+Two query sets on the same index:
+
+| Set | Count | Length | Role |
+|-----|------:|--------|------|
+| **Short** | 47 | **1–3 words** | Realistic search / agent keywords |
+| **Long paraphrase** | 29 | 6–12 words | Conversational “which file?” stress test |
+
+#### Short queries (1–3 words) — grep wins most of the time
+
+People and agents rarely paste six-word paraphrases; they type **`grammar`**, **`web search`**, **`venv worker`**. On `~/Desktop/Writing`, **nearby-style grep beat semantic top-1 for file routing** on most labeled short queries:
+
+| Length | Labeled queries | Both OK | Grep only | Embed only | Neither |
+|--------|----------------:|--------:|----------:|-----------:|--------:|
+| 1 word | 10 | 4 | **5** | 0 | 1 |
+| 2 words | 15 | 6 | **8** | 0 | 1 |
+| 3 words | 12 | 3 | **5** | **2** | 2 |
+
+**Headline:** for **37** short queries with a known “home” file, grep-only **18**, both **13**, embed-only **2**, neither **4**. An inverted index / fuzzy nearby grep is the right default for keyword-length queries on this folder.
+
+**Grep-only examples** (semantic had a plausible hit but wrong *file*):
+
+| Query | Semantic top-1 | Nearby grep top file |
+|-------|----------------|----------------------|
+| `web search` (0.83) | `blog_draft_…odt` | `part2.odt` |
+| `tool loop` (0.67) | `blog_draft_…odt` | `part3.odt` |
+| `numpy` (0.57) | `rpython.odt` | `part5.odt` |
+| `grammar checker` (0.60) | `Translation Test.odt` | `part4.odt` |
+| `venv worker process` (0.64) | `writerchat.odt` | `part5.odt` |
+| `document research` (0.53) | `blog_draft_…odt` | `part3.odt` |
+
+**Both OK** (either method — often prefer grep for speed): `type checking`, `math import`, `async grammar checking`, `software wars`, `conduit geometry`, `formal verification`, `MCP`, `microphone`, `OpenRouter`.
+
+**Embed-only at ≤3 words** (only two cases in 47 queries):
+
+| Score | Query | Top file | Why grep lost |
+|------:|-------|----------|---------------|
+| 0.705 | `LibreOffice proofreading API` | `Translation Test.odt` | Wording differs from indexed prose (“linguistic subsystem”) |
+| 0.616 | `cross document search` | `part3.odt` | Top grep file was `writerchat.odt`; semantic landed on `search_in_document` tool discussion |
+
+**Neither method** (duplicate drafts confuse routing): `streaming`, `semantic search`, `web research subagent`, `streaming sidebar tokens` — blog draft vs `partN` siblings share vocabulary; short tokens are ambiguous.
+
+Try short queries:
+
+```bash
+HF_HUB_OFFLINE=1 .venv/bin/python scripts/search_embeddings_folder.py "grammar checker"
+HF_HUB_OFFLINE=1 .venv/bin/python scripts/search_embeddings_folder.py "venv worker"
+```
+
+Compare with grepping the folder for the same tokens — on this corpus grep usually picks the right **`partN`** faster and without loading `SentenceTransformer`.
+
+#### Long paraphrase queries (6+ words) — where semantic search earns its keep
+
+The earlier **29** long queries are **not** typical user search strings; they model an agent asking in full sentences when the filename is unknown. Strict all-token grep finds **zero** paragraphs for most winners (wording mismatch).
+
+| Score | Query | Top file |
+|------:|-------|----------|
+| 0.777 | `proofreader called back by libreoffice linguistic subsystem` | `Translation Test.odt` |
+| 0.761 | `real time multilingual spell and grammar engine` | `writerchat.odt` |
+| 0.729 | `natural language questions better than google search box` | `cursor_for_libreoffice_part2.odt` |
+| 0.701 | `type checking makes python look like c plus plus` | `cursor_for_libreoffice_part3.odt` |
+| 0.701 | `frustrated with grammar checker switched to math` | `cursor_for_libreoffice_part4.odt` |
+| 0.692 | `two level toolset like web research subagent` | `cursor_for_libreoffice_part3.odt` |
+| 0.642 | `week six async grammar and latex math` | `cursor_for_libreoffice_part5.odt` |
+| 0.615 | `grammar checker that blocks the ui thread` | `cursor_for_libreoffice_part4.odt` |
+| 0.574 | `reasoning tokens shown before the final answer` | `blog_draft_cursor_for_libreoffice.odt` |
+| 0.537 | `small specialized agent returns distilled answer not bloating context` | `cursor_for_libreoffice_part2.odt` |
+| 0.523 | `cross platform microphone audio input challenges` | `cursor_for_libreoffice_part2.odt` |
+
+Even here, many intents collapse to short keywords (`grammar checker`, `type checking`) where grep would suffice if the agent extracted tokens first.
+
+Reproduce a long-query row:
+
+```bash
+HF_HUB_OFFLINE=1 .venv/bin/python scripts/search_embeddings_folder.py "type checking makes python look like c plus plus"
+```
+
+#### Cross-file routing (filenames unhelpful)
+
+Works with **short** queries too when the topic is distinctive:
+
+| Score | Query | Top file | Grep |
+|------:|-------|----------|------|
+| 0.74 | `software wars` | `SoftwareWars.odt` | both |
+| 0.73 | `conduit geometry` | `ConduitGeometry.odt` | both |
+| 0.64 | `formal verification` | `FormalVerificationText.odt` | both |
+
+Long-form paraphrase also routes to non-blog siblings (e.g. `geometry of curved conduit surfaces` → `ConduitGeometry.odt`). On this small folder, **2-word grep often ties embeddings** for off-topic files.
+
+#### When grep was as good or better
+
+On this corpus, embeddings **did not** reliably beat grep when:
+
+| Situation | Example | What happened |
+|-----------|---------|----------------|
+| **Short keywords (1–3 words)** | `web search`, `tool loop`, `numpy`, `grammar` | Nearby grep picked the correct **`partN`**; semantic top-1 often **`blog_draft_*`** or **`rpython.odt`**. |
+| **Stable product vocabulary** | `WriterAgent`, `sidebar`, `venv`, `tool loop` | Blog series repeats terms; `grep_nearby_files` + filename heuristics (`part5.odt`) match quickly. |
+| **Generic “python” wording** | `numpy`, `python calc formula` | Top semantic hit **`rpython.odt`**; grep **`part5.odt`**. |
+| **Duplicate draft + part siblings** | `streaming`, `semantic search` | Both methods split across `blog_draft_*` vs `partN`. |
+| **Exact feature names** | `search_embeddings`, `MCP`, `complexity` | Too literal or too vague; weak scores (~0.30–0.40) or wrong file. |
+| **Small folder, descriptive names** | Any query when you already know `partN` | 16 files — opening the suspected sibling + grep inside is often faster than semantic routing. |
+| **Embeddings feature itself** | `finding files in same folder when filename unknown` | Topic lives mainly in repo `docs/`, not in indexed ODTs; top score ~0.33. |
+
+**Practical grep baseline:** `WriterAgent` + `venv` + `numpy` → **`part5.odt`**; `web search` → **`part2.odt`** (16 strict paragraph hits). Semantic paraphrase of the same ideas often loses to **`blog_draft_*`** or **`rpython.odt`**.
+
+#### Takeaways for hybrid retrieval
+
+| Signal | Prefer |
+|--------|--------|
+| Query **≤3 tokens** or distinctive **literals** | **`grep_nearby_files`** first (or token extract → grep) |
+| **Long conversational** agent query, **unknown filename** | **`search_embeddings`** (or run both, merge ranks) |
+| Query mentions **common words** (`python`, `model`, `streaming`) in a **mixed folder** | Grep + dedupe draft/part siblings; treat semantic hits skeptically |
+| Top semantic score **< ~0.40** | Weak hit — retry grep or widen `k` |
+| Top semantic score **≥ ~0.55** on long queries | More trustworthy for **file routing** |
+| **Both** grep and embed agree on `doc_url` | High confidence — open that file |
+
+Industry pattern (see [Problem](#problem)): **combine** methods — inverted index / grep for keywords, embeddings for paraphrase. On `~/Desktop/Writing`, data favors **grep-default, semantic-supplement**: the long paraphrase wins justify keeping `search_embeddings`, but **most realistic 1–3 word searches should not skip grep**.
+
+Scores and file ranks **will change** with model upgrades (`bge-small`, etc.), chunk size, and corpus size — re-run [`search_embeddings_folder.py`](../scripts/search_embeddings_folder.py) and extend this section as more folders are measured.
 
 | Module | Role |
 |--------|------|
@@ -195,6 +348,7 @@ The **only** persisted index shape for now:
 | Item | Status |
 |------|--------|
 | [`scripts/bench_embeddings.py`](../scripts/bench_embeddings.py) | **Done** — batch encode + vectorized search via warm worker |
+| [`scripts/search_embeddings_folder.py`](../scripts/search_embeddings_folder.py) | **Done** — offline semantic search over a folder cache (default `~/Desktop/Writing`, k=10) |
 | `sentence_transformers` on venv whitelist | **Done** — [`sandbox_imports.py`](../plugin/scripting/sandbox_imports.py) |
 | `get_safe_module` bypass for ST | **Done** — avoid hang on import ([`local_python_executor.py`](../plugin/contrib/smolagents/local_python_executor.py)) |
 | [`embedding_client.py`](../plugin/framework/client/embedding_client.py) | **Done** — `embed_texts()` via venv RPC (Phase A; HTTP deferred) |
@@ -339,6 +493,37 @@ See also [Index size growth](#index-size-growth) for when RAM footprint matters.
 | `true` | `grep_nearby_files`, `search_embeddings` | — |
 
 Enable in **Settings → Embeddings → Embeddings cache (per-folder semantic search)**, or set `"embeddings.embeddings_cache_enabled": true` in `writeragent.json`. Both tools are registered at startup; [`filter_document_research_discovery_tools`](../plugin/doc/document_research.py) hides `search_embeddings` only when the flag is off. Background indexing runs only when the flag is on. `list_nearby_files` and `delegate_read_document` are always available. Prefer `grep_nearby_files` for exact keywords; use `search_embeddings` for vague or topical queries (retry grep if embeddings returns weak hits).
+
+### Folder FTS (SQLite, embeddings venv) {#folder-fts}
+
+**Lexical** cross-folder discovery: BM25 ranking + FTS5 **`NEAR`** (terms with gaps). Runs in the **same embeddings venv worker** as Chroma maintain/search ([`WORKER_POOL_EMBEDDINGS`](../plugin/framework/constants.py)) — stdlib **`sqlite3` only**, no extra pip packages. Index build and search stay **outside** the LibreOffice process.
+
+| Setting | Tool exposed | Hidden when off |
+|---------|--------------|-----------------|
+| `embeddings.folder_fts_enabled` | `search_nearby_files` | yes (via [`filter_document_research_discovery_tools`](../plugin/doc/document_research.py)) |
+
+Enable in **Settings → Embeddings → Folder full-text index (SQLite FTS5)**, or set `"embeddings.folder_fts_enabled": true` in `writeragent.json`.
+
+**Tool matrix (document_research):**
+
+| Tool | When to use |
+|------|-------------|
+| **`search_nearby_files`** | Multi-word keywords, proximity (`web search`), BM25-ranked snippets — requires FTS flag |
+| **`grep_nearby_files`** | Regex, exact contiguous substring, Calc/Draw — always available |
+| **`search_embeddings`** | Paraphrase / topical semantic search — requires embeddings cache flag |
+
+**Cache files** (same `writeragent_embeddings/` folder as Chroma):
+
+```text
+writeragent_embeddings/
+  fts5.db              # SQLite FTS5 (venv-maintained)
+  fts_meta.json        # schema_version, row_count, updated_at
+  file_index_state.json  # shared incremental paragraph hashes with embeddings
+```
+
+Implementation: [`folder_fts.py`](../plugin/scripting/folder_fts.py) (venv), [`folder_fts_service.py`](../plugin/framework/client/folder_fts_service.py) (host RPC), [`folder_fts_indexer.py`](../plugin/doc/folder_fts_indexer.py) (background maintain). Periodic wakeups share [`embeddings_periodic.py`](../plugin/doc/embeddings_periodic.py) with the Chroma indexer when either flag is on.
+
+**Embeddings vs FTS:** embeddings excel at long paraphrase queries; FTS excels at short keyword/proximity routing (see [Performance: embeddings vs grep](#performance-embeddings-vs-grep)). You can enable one or both; they share folder scan/extract helpers but use separate stores (`chroma/` vs `fts5.db`).
 
 ### Corpus cache layout {#corpus-cache-layout}
 
