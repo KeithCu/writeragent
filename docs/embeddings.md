@@ -298,7 +298,7 @@ See also [Index size growth](#index-size-growth) for when RAM footprint matters.
 
 **Goal:** outer [document_research](../plugin/doc/document_research.py) calls `search_embeddings(query, k)` → ranked hits in the **active folder’s** cache → open top files → inner read at locator.
 
-**Search mode (Settings):** `embeddings.embeddings_cache_enabled` in [`plugin/embeddings/module.yaml`](../plugin/embeddings/module.yaml) — when off (default), outer document_research uses `grep_nearby_files`; when on, uses `search_embeddings` only (see [Search mode flag](#search-mode-flag) below).
+**Search mode (Settings):** `embeddings.embeddings_cache_enabled` in [`plugin/embeddings/module.yaml`](../plugin/embeddings/module.yaml) — `grep_nearby_files` is always exposed; when on (default off), `search_embeddings` is also exposed (see [Search mode flag](#search-mode-flag) below).
 
 **Suggested implementation order** (each step should have tests before moving on):
 
@@ -324,21 +324,21 @@ See also [Index size growth](#index-size-growth) for when RAM footprint matters.
 
 - [x] Paragraph chunker with **locator capture** (`para_index`, `char_start`, `char_end`, `content_hash`)
 - [x] Persist per-folder Chroma cache beside documents ([Corpus cache layout](#corpus-cache-layout), [Corpus storage](#corpus-storage))
-- [x] **`search_embeddings`** on outer document_research tool surface (mutually exclusive with grep via `embeddings.embeddings_cache_enabled`)
+- [x] **`search_embeddings`** on outer document_research tool surface (additive when `embeddings.embeddings_cache_enabled`; grep stays available)
 - [x] Open top 1–few hits → `delegate_read_document` → inner read via snippet / `search_in_document` (prompt guidance)
 - [x] Search executes in the venv via LangGraph + Chroma `query` + MMR ([`embeddings_search_graph.py`](../plugin/scripting/embeddings_search_graph.py))
 - [x] Background **index maintenance worker** (separate from agent tool loop) — [Background folder indexer](#background-folder-indexer)
 
 ### Search mode flag {#search-mode-flag}
 
-Cross-file discovery tools are **mutually exclusive** based on Settings:
+`grep_nearby_files` is **always** exposed to document_research. `search_embeddings` is **additive** when the cache is enabled:
 
 | `embeddings.embeddings_cache_enabled` | Exposed to document_research | Hidden from sub-agent |
 |---------------------------------------|-----------------------------|------------------------|
 | `false` (default) | `grep_nearby_files` | `search_embeddings` |
-| `true` | `search_embeddings` | `grep_nearby_files` |
+| `true` | `grep_nearby_files`, `search_embeddings` | — |
 
-Enable in **Settings → Embeddings → Embeddings cache (per-folder semantic search)**, or set `"embeddings.embeddings_cache_enabled": true` in `writeragent.json`. Both tools are registered at startup; [`filter_document_research_discovery_tools`](../plugin/doc/document_research.py) picks one per session. Background indexing runs only when the flag is on. `list_nearby_files` and `delegate_read_document` are always available.
+Enable in **Settings → Embeddings → Embeddings cache (per-folder semantic search)**, or set `"embeddings.embeddings_cache_enabled": true` in `writeragent.json`. Both tools are registered at startup; [`filter_document_research_discovery_tools`](../plugin/doc/document_research.py) hides `search_embeddings` only when the flag is off. Background indexing runs only when the flag is on. `list_nearby_files` and `delegate_read_document` are always available. Prefer `grep_nearby_files` for exact keywords; use `search_embeddings` for vague or topical queries (retry grep if embeddings returns weak hits).
 
 ### Corpus cache layout {#corpus-cache-layout}
 

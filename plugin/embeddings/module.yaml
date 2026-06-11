@@ -8,7 +8,7 @@ config:
     widget: checkbox
     label: Embeddings cache (per-folder semantic search)
     width: 400
-    helper: "When on, builds a semantic index in writeragent_embeddings/ beside the active document's folder. document_research uses search_embeddings instead of grep_nearby_files. Requires Settings → Python venv with sentence-transformers, chromadb, langgraph, langchain-core, langchain-text-splitters, envwrap (see Settings → Python Test)."
+    helper: "When on, builds a semantic index in writeragent_embeddings/ beside the active document's folder and also exposes search_embeddings in document_research (grep_nearby_files stays available). Requires Settings → Python venv with sentence-transformers, chromadb, langgraph, langchain-core, langchain-text-splitters, envwrap (see Settings → Python Test)."
 
   embedding_provider:
     type: string

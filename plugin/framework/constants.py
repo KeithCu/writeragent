@@ -79,7 +79,7 @@ USE_SUB_AGENT = True
 
 
 def document_research_uses_embeddings(ctx=None) -> bool:
-    """True when outer document_research exposes search_embeddings instead of grep_nearby_files."""
+    """True when outer document_research also exposes search_embeddings (embeddings cache enabled)."""
     from plugin.framework.config import get_config_bool_safe
 
     return get_config_bool_safe(ctx, "embeddings.embeddings_cache_enabled")

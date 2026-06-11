@@ -73,7 +73,7 @@ def test_filter_document_research_discovery_tools_respects_config():
         filtered = filter_document_research_discovery_tools(tools, ctx)
     names = {t.name for t in filtered}
     assert "search_embeddings" in names
-    assert "grep_nearby_files" not in names
+    assert "grep_nearby_files" in names
 
 
 def test_document_research_workflow_hint_modes():
@@ -89,7 +89,7 @@ def test_document_research_workflow_hint_modes():
         embed_hint = get_document_research_workflow_hint(ctx)
     assert "search_embeddings" in embed_hint
     assert "snippet" in embed_hint
-    assert "grep_nearby_files" not in embed_hint
+    assert "grep_nearby_files" in embed_hint
 
 
 

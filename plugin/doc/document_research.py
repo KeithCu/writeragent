@@ -101,7 +101,7 @@ def guess_doc_type_from_path(path: str) -> DocTypeGuess:
 
 
 def get_document_research_workflow_hint(ctx=None) -> str:
-    """Outer document_research sub-agent workflow text (grep vs embeddings mode)."""
+    """Outer document_research sub-agent workflow text (grep; optional embeddings when cache enabled)."""
     from plugin.framework.constants import document_research_uses_embeddings
 
     common = (
@@ -113,31 +113,33 @@ def get_document_research_workflow_hint(ctx=None) -> str:
         "Pass filter with a substring from their description (e.g. filter='budget' for \"the budget spreadsheet\"), "
         "then delegate_read_document on the matched file name. One delegate_read_document per office file.\n"
     )
-    if document_research_uses_embeddings(ctx):
-        return (
-            common
-            + "For cross-file discovery (semantic or keyword topics), use search_embeddings(query, k) over the active folder index. "
-            "It returns ranked doc_url, score, snippet (indexed passage preview), and optional para_index (weak hint). "
-            "Open the top one or few hits with delegate_read_document and tell the inner read agent to search for the snippet "
-            "or topic with search_in_document — do not rely on para_index or character offsets as exact LO coordinates.\n"
-            "If search_embeddings returns status indexing, retry after the background index finishes.\n"
-        )
-    return (
-        common
-        + "When you are unsure which file — the task names a keyword but no filename "
-        "(e.g. \"documents that mention dspy\") — use grep_nearby_files to see which nearby files match. "
+    grep_hint = (
+        "When you are unsure which file — the task names a keyword but no filename — "
+        "use grep_nearby_files to see which nearby files match. "
         "It returns snippet only, not enough for any real work; use it only for file name discovery, then delegate_read_document for the real task on that document.\n"
         "Do not use grep_nearby_files when list_nearby_files can resolve the filename (including partial matches, or when you already know "
         "the target file). If you know which file(s) to read — go straight to delegate_read_document instead.\n"
     )
+    if document_research_uses_embeddings(ctx):
+        return (
+            common
+            + "For cross-file discovery when the filename is unknown, prefer search_embeddings(query, k) over the active folder index; "
+            "grep_nearby_files is also available. "
+            "search_embeddings returns ranked doc_url, score, snippet (indexed passage preview), and optional para_index (weak hint). "
+            "Open the top one or few hits with delegate_read_document and tell the inner read agent to search for the snippet "
+            "or topic with search_in_document — do not rely on para_index or character offsets as exact LO coordinates.\n"
+            "If search_embeddings returns status indexing, retry after the background index finishes.\n"
+        )
+    return common + grep_hint
 
 
 def filter_document_research_discovery_tools(tools: list[ToolBase], ctx) -> list[ToolBase]:
-    """Keep grep_nearby_files or search_embeddings based on embeddings.embeddings_cache_enabled."""
+    """Hide search_embeddings when embeddings cache is disabled; grep_nearby_files is always kept."""
     from plugin.framework.constants import document_research_uses_embeddings
 
-    hidden = "grep_nearby_files" if document_research_uses_embeddings(ctx) else "search_embeddings"
-    return [t for t in tools if t.name != hidden]
+    if document_research_uses_embeddings(ctx):
+        return tools
+    return [t for t in tools if t.name != "search_embeddings"]
 
 
 def _normalize_path(path: str) -> str:
