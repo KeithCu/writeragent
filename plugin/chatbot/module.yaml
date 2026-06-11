@@ -140,6 +140,13 @@ config:
     label: Rich Text Control Sidebar
     helper: "Formatted chat via RichTextControl (on by default). Requires restart. Uncheck for plain-text chat only."
 
+  humanizer_enabled:
+    type: boolean
+    default: false
+    widget: checkbox
+    label: Humanizer skill (natural prose)
+    helper: "When enabled, injects guidance into the system prompt so the model makes generated or revised document text sound more natural and human (removes AI slop patterns). Edit the rules in your LibreOffice profile under writeragent/skills/humanizer/SKILL.md (the file is auto-created on first use). A dedicated Skills tab can be added later."
+
   query_history:
     type: string
     default: "[]"

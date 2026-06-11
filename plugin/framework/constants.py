@@ -714,6 +714,25 @@ def get_chat_system_prompt_for_document(model, additional_instructions="", ctx=N
 
             logging.getLogger(__name__).debug(f"Failed to read user memory for prompt: {e}")
 
+        # Humanizer skill (minimal addition, re-uses the exact same injection pattern as memory above).
+        # When enabled, the model receives the rules as ambient context for any prose it generates
+        # or revises. This is the primary delivery mechanism — cheap, always-on when active,
+        # and automatically benefits main chat + all writing/brainstorming sub-agents.
+        # User can turn it off in Settings or override the rules by editing the SKILL.md file.
+        # Defined in plugin/chatbot/module.yaml so it appears as a checkbox in the sidebar Settings.
+        try:
+            from plugin.chatbot.skills import SkillStore
+            from plugin.framework.config import get_config_bool_safe
+
+            if get_config_bool_safe(ctx, "chatbot.humanizer_enabled"):
+                hstore = SkillStore(ctx)
+                hguidance = hstore.get_humanizer_guidance()
+                if hguidance:
+                    base += "\n\n[HUMANIZER GUIDANCE — apply when generating or revising prose]\n" + hguidance.strip() + "\n"
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).debug(f"Failed to inject humanizer guidance: {e}")
+
     if additional_instructions and str(additional_instructions).strip():
         return base + "\n\n" + str(additional_instructions).strip()
     return base

@@ -37,12 +37,14 @@ class ChatbotModule(ModuleBase):
         from . import librarian
         from . import brainstorming
         from . import writing
+        from . import skills  # Humanizer skill + future general skills (minimal, re-uses MemoryStore pattern + prompt injection)
 
         services.tools.auto_discover(web_research)
         services.tools.auto_discover(memory)
         services.tools.auto_discover(librarian)
         services.tools.auto_discover(brainstorming)
         services.tools.auto_discover(writing)
+        services.tools.auto_discover(skills)
         self._adapter = None
 
     def get_adapter(self):
