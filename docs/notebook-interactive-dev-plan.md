@@ -40,7 +40,7 @@ This plan is **Writer-first**. Calc notebook import is out of scope unless expli
 
 | Feature | Session policy | Notes |
 |---------|----------------|-------|
-| **`=PYTHON()`** Calc | Opt-in via `scripting.python_session_mode` → `shared` | [`session_manager.py`](../plugin/scripting/session_manager.py), `calc:…` session ids — [python-in-excel-dev-plan.md](python-in-excel-dev-plan.md) Phase 1 |
+| **`=PYTHON()`** Calc | Opt-in via `scripting.python_session_mode` → `shared` | [`session_manager.py`](../plugin/scripting/session_manager.py) — [enabling_numpy §6 session semantics](enabling_numpy_in_libreoffice.md#session-modes-and-recalc-semantics) |
 | **Run Python Script…** | **Isolated** per Run | Document-attached named scripts shipped ([`document_scripts.py`](../plugin/scripting/document_scripts.py)); notebook cells remain TextFields + registry |
 | **Chat `run_venv_python_script`** | **Always isolated** | Do not pass `session_id` |
 | **Notebook Run** | **Always shared** per Writer doc | `notebook:…` session id; one kernel per imported notebook document |
@@ -331,7 +331,7 @@ From [`jupyter-notebook-import.md`](jupyter-notebook-import.md):
 ## References
 
 - [Jupyter notebook import (user-facing)](jupyter-notebook-import.md)
-- [Python-in-Calc dev plan (shared kernel)](python-in-excel-dev-plan.md)
+- [Shared kernel semantics (§6)](enabling_numpy_in_libreoffice.md#session-modes-and-recalc-semantics) · [Python-in-Calc future work](python-in-excel-dev-plan.md)
 - [NumPy / venv bridge](enabling_numpy_in_libreoffice.md)
 - [Writer forms / in-flow controls](../plugin/writer/specialized/forms.py)
 - [Session persistence tests](../tests/scripting/test_session_persistence.py)

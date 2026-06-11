@@ -43,7 +43,7 @@ Back to [Enabling NumPy & Python in LibreOffice](enabling_numpy_in_libreoffice.m
 
 This plan is **in-workbook** conversion (formulas stay in Calc as `=PY()`). It does **not** replace the two-phase chat workflow ([compute in venv → write back with tools](enabling_numpy_in_libreoffice.md#two-phase-llm-workflow)); it automates that rewrite for existing sheets.
 
-**Related:** [Jupyter notebook import](jupyter-notebook-import.md) (external `.ipynb` → Writer) · [Python-in-Calc dev plan](python-in-excel-dev-plan.md) (`=PY()` infrastructure) · [Analysis sub-agent](analysis-sub-agent.md) (xlcalculator / excel_in_python references)
+**Related:** [Jupyter notebook import](jupyter-notebook-import.md) (external `.ipynb` → Writer) · [Enabling NumPy in LibreOffice](enabling_numpy_in_libreoffice.md) (shipped `=PY()` infrastructure) · [Python-in-Calc future work](python-in-excel-dev-plan.md) · [Analysis sub-agent](analysis-sub-agent.md) (xlcalculator / excel_in_python references)
 
 ---
 
@@ -180,7 +180,7 @@ This plan is **in-workbook** conversion (formulas stay in Calc as `=PY()`). It d
 
 ### Architecture choice: explicit `data` args (not Excel `xl()`)
 
-Per [python-in-excel-ideas.md §1.4](python-in-excel-ideas.md#14-architectural-design-choices-microsofts-py-vs-writeragents-python):
+Per [enabling_numpy_in_libreoffice.md — Microsoft Python in Excel vs WriterAgent](enabling_numpy_in_libreoffice.md#microsoft-python-in-excel-vs-writeragent):
 
 - **Do not** parse Python strings for hidden range references.
 - **Do** pass every precedent range as a `=PY()` argument so Calc’s DAG tracks dependencies natively.
@@ -1107,7 +1107,7 @@ Run with `make test`. New tests follow module naming in [AGENTS.md](../AGENTS.md
 | [xlcalculator](https://github.com/bradbase/xlcalculator) | Function coverage checklist; Excel-centric |
 | [Sheet2Code](https://sheet2code.com/) | Chevrotain AST + dependency graph codegen |
 | [analysis-sub-agent.md](analysis-sub-agent.md) | xlcalculator / excel_in_python as eval references |
-| [python-in-excel-ideas.md](python-in-excel-ideas.md) | Explicit `data` &gt; `xl()` for LO |
+| [enabling_numpy_in_libreoffice.md](enabling_numpy_in_libreoffice.md) | Explicit `data` &gt; `xl()` for LO |
 | [LibrePythonista comparison](enabling_numpy_in_libreoffice.md) | `lp()` collapse / DataFrame — not auto-imported |
 
 ---

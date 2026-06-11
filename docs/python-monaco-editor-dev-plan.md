@@ -1,8 +1,10 @@
 # Technical Dev Plan: WebView Monaco Code Editor
 
+**Parent topic doc:** [Enabling NumPy & Python in LibreOffice](enabling_numpy_in_libreoffice.md) — venv bridge, `=PYTHON()`, shared kernel, competitive context, and user-facing Monaco summary ([§3 Monaco](enabling_numpy_in_libreoffice.md#monaco-editor--run-python-script)).
+
 Architectural design for the **LibrePythonista-style Monaco editor** in WriterAgent.
 
-**Status (Phase 2A complete):** Calc **Edit Python in Cell…** (menubar + cell right-click) opens a Monaco/pywebview window in the user venv. A **persistent background child** stays warm between edits; switching cells reloads the editor (no “already open” block). Dual save modes, editable **Data:** range textbox, save feedback, WM-close lifecycle, stderr drain to debug log, and full-traceback failure dialogs are implemented. Jedi autocompletion is wired but **stub-only** (no debounce/background thread yet). See `plugin/scripting/` and `plugin/calc/python_editor.py`.
+**Status (2026-06):** **Phase 2A + Phase 3 shipped.** Calc **Edit Python in Cell…** (menubar + cell right-click) and **Run Python Script…** Monaco both use a persistent pywebview child in the user venv. Dual save modes, editable **Data:** range textbox, document-attached scripts, init script editor, save feedback, WM-close lifecycle, stderr drain, and full-traceback failure dialogs are implemented. **Open:** Phase 2B syntax validate, 2C range picker, 2D Jedi (stub only today), 2E theme sync, 2F Flatpak spawn, sheet-level Python cell list. See `plugin/scripting/` and `plugin/calc/python_editor.py`.
 
 **`=PYTHON()` is not localized:** The Calc add-in always registers the English function name `PYTHON` (programmatic `python`). Formulas stored by Calc must use that token in `getFormula()` / `FormulaLocal`. A localized alias (e.g. a translated function name) is a **bug** in add-in registration — do **not** add `FormulaOpCodeMapper` workarounds in the editor or formula parser.
 
@@ -282,6 +284,7 @@ Port spawn helpers from LibrePythonista (see analysis doc): detect sandbox, wrap
 | **Run Python Script… → Monaco** | Reuse bridge with `load` from `last_python_script_*` config keys; **Run** persists config and executes (not formula save). Falls back to native dialog when pywebview unavailable. Shared launcher: [`editor_host.py`](../plugin/scripting/editor_host.py). Script picker UI: [`scripts_manager.js`](../plugin/contrib/scripting/assets/editor/scripts_manager.js) + [`document_scripts.py`](../plugin/scripting/document_scripts.py). | **Done** |
 | **Sample scratchpad reload** | **Sample** in the picker is the personal scratchpad (`last_python_script_*`), not a saved script. Initial open loads via `load.code`; switching back to Sample after picking **My Scripts** must reload scratchpad text (native XDL dialog already did this; Monaco initially did not). | **Done** |
 | **Formula bar button** | Needs LO UI extension research (Calc input line customization). High effort; do after context menu. | |
+| **Excel-style accelerators** | Wire **Ctrl+Alt+Shift+F9** → **Reset Python Session**; optional **Ctrl+Alt+Shift+P** → **Edit Python in Cell…** per [enabling_numpy §6 shortcuts](enabling_numpy_in_libreoffice.md#keyboard-shortcuts-and-recalc). Touch [`Accelerators.xcu`](../extension/Accelerators.xcu). | |
 | **Tier-2 document store** | [`enabling_numpy_in_libreoffice.md`](enabling_numpy_in_libreoffice.md) Tier 2 (formula key + side store) is a **separate** product decision — do not mix with Monaco until formula-in-cell workflow is stable. | |
 | **Core extension split** | Keep all editor code in `plugin/scripting/` + thin `plugin/calc/python_editor.py` per [`ROADMAP.md`](../docs/ROADMAP.md) Phase 3–4 so a future core OXT can ship `=PYTHON()` + editor without the LLM stack. | |
 
@@ -472,173 +475,10 @@ For a **minimal viable Writer-based editor** (no autocomplete, basic syntax high
 
 ---
 
-## 10. Run Python Script: Document-Attached Scripts (Design & Implementation)
+## 10. Document-attached scripts (shipped)
 
-### Overview
-**Status:** Shipped (2026-05). The personal scratchpad + named library still lives in `writeragent.json`. **Attach** (Monaco toolbar or legacy XDL dialog) stores named scripts in document `UserDefinedProperties` (`WriterAgentDocumentPythonScripts`) so they travel with `.odt`/`.ods`/`.odg`. The script picker shows **My Scripts** and **This Document** as separate sections; execution is unchanged (manual Run only).
+**Status:** Shipped (2026-05). Named scripts stored in document `UserDefinedProperties` as `WriterAgentDocumentPythonScripts` (UTF-8 JSON envelope). The Monaco script picker shows **My Scripts** (personal library in `writeragent.json`) and **This Document** as separate sections. **Attach** / **Copy to My Scripts** in Monaco; read-only documents fall back to the personal library.
 
-### User workflow
-Open **Run Python Script…** → write code → **Attach** (or Save while a document script is selected) → save the document. On another machine, reopen the file and pick the script under **This Document**. **Copy to My Scripts** copies a document script into the personal library. Read-only documents fall back to My Scripts with a clear message.
+**Implementation:** [`document_scripts.py`](../plugin/scripting/document_scripts.py), [`editor_host.py`](../plugin/scripting/editor_host.py) IPC, [`scripts_manager.js`](../plugin/contrib/scripting/assets/editor/scripts_manager.js). **Tests:** [`test_document_scripts.py`](../tests/scripting/test_document_scripts.py), [`test_document_scripts_uno.py`](../tests/scripting/test_document_scripts_uno.py).
 
-Implementation: [`document_scripts.py`](../plugin/scripting/document_scripts.py), [`editor_host.py`](../plugin/scripting/editor_host.py) IPC, [`scripts_manager.js`](../plugin/contrib/scripting/assets/editor/scripts_manager.js). Tests: [`test_document_scripts.py`](../tests/scripting/test_document_scripts.py), [`test_document_scripts_uno.py`](../tests/scripting/test_document_scripts_uno.py).
-
-This is the "both" solution to the storage dilemma (personal reusable library vs. self-contained documents). The notebook interactive dev plan already flags a related cross-feature item under the same name.
-
-### Technical Problem Statement
-`Run Python Script...` (menu, Monaco, and legacy XDL dialog) currently persists two things exclusively in user profile config:
-- Per-app-type scratchpads: `last_python_script_writer`, `last_python_script_calc`, `last_python_script_draw` (and the generic fallback).
-- Global named library: `saved_python_scripts` (dict of name → source).
-
-These appear in:
-- [`plugin/framework/config.py`](../plugin/framework/config.py) (dataclass defaults and schema)
-- [`plugin/scripting/python_runner.py`](../plugin/scripting/python_runner.py) (`show_python_input_dialog`, `_run_python_monaco`, `resolve_run_script_config_key`, `execute_and_insert_result`)
-- [`plugin/scripting/editor_host.py`](../plugin/scripting/editor_host.py) (the `request_scripts` / `save_script` / `delete_script` handlers that feed the Monaco script picker)
-
-The consequence: substantial analysis scripts, data-cleaning helpers, or Monte-Carlo drivers written in the dialog do not travel with the `.odt`/`.ods`/`.odg` when the file is emailed, checked into version control, or opened on another machine. Contrast with:
-- `=PYTHON()` code (lives in cell formulas or referenced cells — document-native).
-- Calc initialization scripts (`WriterAgentCalcInitScript` in `UserDefinedProperties`, see [`document_scripts.py`](../plugin/scripting/document_scripts.py)).
-- Notebook import registry (`WriterAgentNotebookRegistry` + source path, see [`notebook/cell_registry.py`](../plugin/notebook/cell_registry.py)).
-
-Users who want reproducibility must manually copy code into cells or the init script editor. This is workable but loses the convenient library UI, Monaco editing, one-click "Run + insert result", and the personal scratchpad affordances.
-
-### Goals
-- Allow a user to mark a script (or copy one) so that it is stored inside the current document and survives save/reopen/share.
-- Preserve the existing personal library experience unchanged for the common "my tools" case.
-- Make the ownership of any given script in the picker visually and operationally obvious (no spooky action at a distance when switching documents).
-- Keep execution semantics simple: document-attached scripts are still manually invoked via the Run dialog (they do **not** become auto-run like init scripts, and they do **not** participate in the chat `run_venv_python_script` tool unless a later phase explicitly adds them).
-- Reuse existing `UserDefinedProperties` infrastructure with its already-fixed existence checks.
-
-### Non-goals
-- Automatic migration or "smart" attachment heuristics.
-- Making document scripts visible to the LLM agent by default.
-- Deep integration with notebook interactive cells (they already live in the document as TextFields + registry metadata).
-- Per-script execution permissions, signing, or provenance UI.
-- Exporting a document-attached script back to a `.py` file on disk (nice-to-have, out of scope for first cut).
-
-### Data model & storage layer
-**Property name:** `WriterAgentDocumentPythonScripts`
-
-**Stored value:** UTF-8 JSON string (never raw Python). Recommended envelope:
-```json
-{
-  "version": 1,
-  "scripts": {
-    "Clean Sales Data": "import pandas as pd\nresult = ...",
-    "Monte Carlo 10k": "..."
-  }
-}
-```
-- Use a versioned envelope from day one (even if v1 is the only value) so future structural changes do not require property migration gymnastics.
-- Total payload cap: start with the same 900 000 byte limit used by document scripts in [`document_scripts.py`](../plugin/scripting/document_scripts.py). Per-script soft warning at ~200 kB is reasonable.
-- On write, always JSON-encode the whole map; never store individual scripts as separate properties (simpler deletion, atomicity, and size accounting).
-
-**New module (recommended):** `plugin/scripting/document_scripts.py`
-Mirror the shape and error-handling style of `document_scripts.py`:
-- `get_document_scripts(doc: Any) -> dict[str, str]`
-- `set_document_scripts(doc: Any, scripts: dict[str, str]) -> str | None` (returns error message or None)
-- `has_document_scripts(doc: Any) -> bool`
-- Internal helpers: `_load_raw`, `_save_raw`, size check with localized message, hash for change detection if needed later.
-- Import the careful `_user_defined_property_exists` + `get_document_property` / `set_document_property` logic from [`document_helpers.py`](../plugin/doc/document_helpers.py) (the `hasPropertyByName` via `getPropertySetInfo` path is required; the old `hasByName` path was the source of the grammar cache bug).
-
-The module must be importable without side effects and must not pull in UI or editor code.
-
-**Read-only documents:** `set_document_scripts` must attempt the write, catch the inevitable UNO exceptions (or the `UnoObjectError` wrapper), and return a clear error. Callers surface "Document is read-only or properties cannot be written. Script saved to your personal library instead."
-
-### UI architecture – two sources, explicit sections
-The script picker must never present a flat merged namespace. Two clearly separated groups are required:
-1. **My Scripts** — sourced from `saved_python_scripts` in config (unchanged behavior).
-2. **This Document** — sourced from the document property above (empty section when no document or no scripts).
-
-**Monaco path (primary):**
-- Extend the payload of `request_scripts` (see `editor_host.py:362`).
-- Return shape example:
-  ```json
-  {
-    "scripts": [
-      {"name": "Prime Numbers", "code": "...", "origin": "user"},
-      {"name": "Regional Analysis", "code": "...", "origin": "document"}
-    ],
-    "document_readonly": false
-  }
-  ```
-- The editor JS already renders a script list; it will need (small) changes to show section headers or two distinct lists. The host side does the grouping.
-- `save_script` and `delete_script` messages must carry (or the host must remember) the origin of the script being acted on. The handler in `editor_host.py` routes the `set_config` vs. `document_scripts.set_...` call accordingly.
-- On "Run" or explicit Save while a document-origin script is active, the save must target the document property (subject to read-only check).
-
-**Legacy XDL dialog (`show_python_input_dialog` in `python_runner.py`):**
-- The current dropdown (`ScriptSelect`) + Save/Save As/Delete buttons will need the same origin awareness.
-- Simplest first-cut: prefix document scripts with `[Doc] ` in the item list and maintain an in-memory `origin_map[name] = "user"|"document"`.
-- The four action listeners (`_SaveListener`, `_SaveAsListener`, `_DeleteListener`, `_ScriptSelectListener`) must consult the map and call either `set_config(..., "saved_python_scripts", ...)` or the new document helper.
-- "Save As..." on a document script should offer to save into the document store (default) or copy into the personal library.
-- The "Sample" scratchpad remains a special personal-only concept.
-
-**Entry point changes:**
-- `run_python_dialog` already resolves a `config_key` via `resolve_run_script_config_key`. Extend it (or add a parallel resolver) to also return the active document handle so the document script helpers can be called without re-walking the desktop.
-- `_run_python_monaco` and the fallback path both need the document reference at load time.
-
-**Visual & interaction details:**
-- In both UIs, document scripts should be visually distinct (section header, icon, or `[Doc]` badge). Disappearing scripts when the user switches windows must not be a surprise.
-- "Attach to this document" (or "Copy to document scripts") is an explicit action, not a silent checkbox on every save. This matches the mental model of "personal library" vs. "artifact that belongs to the file."
-- Reverse action: "Copy to My Scripts" (one-way, with overwrite confirmation).
-- When the active document changes while the editor is open, the safest behavior is to disable document-script operations and show a status line; re-opening the dialog picks up the new document.
-
-### Execution & integration points
-- No change to `venv_worker.py`, `python_function.py`, or `venv_python.py`. A document-attached script is still just a string passed to `run_code_in_user_venv`.
-- No automatic execution on document load (unlike Calc init scripts, which deliberately run in a dedicated `calc:…:init` session).
-- Future phase could expose document scripts to a specialized "document python" tool surface, but that is explicitly out of scope for the first implementation.
-- The `last_python_script_*` scratchpad keys remain personal-only; they are not candidates for document attachment.
-
-### Edge cases & invariants that must be handled
-- **No active document** (e.g., floating dialog, desktop has no component, or the user is in a non-Writer/Calc/Draw context): treat the document section as empty and disable attach. Fall back to personal library only.
-- **Read-only or properties write failure**: never lose the user's edit. Offer to save to the personal scratchpad/library instead, with a clear message.
-- **Property stripping** (email gateways, some PDF export paths, certain version-control round-trips that export/import ODF): document this as a known limitation, same as for init scripts and the notebook registry. Do not add heroic "re-attach on open" logic.
-- **Name collision on Attach**: if the personal name already exists in the document store, require explicit overwrite confirmation.
-- **Large scripts**: enforce the byte limit at save time in the helper; surface the same style of error message used by init scripts.
-- **Multiple documents open**: each document carries its own independent script map. Switching documents in the UI must refresh the "This Document" section (Monaco can re-request the list; the XDL dialog can be closed/reopened or listen for focus changes).
-- **Save As on the document itself**: LibreOffice copies `UserDefinedProperties` on "Save As". The attached scripts therefore travel correctly. No special handling required.
-- **Document without the property yet**: `get_document_scripts` returns `{}` cleanly.
-- **Unicode / encoding**: all storage is UTF-8 JSON; the existing config path already handles this.
-
-### Interaction with existing document-attached Python state
-- **Calc init scripts**: remain separate (auto-run, one script, special session ID). A user may reasonably have both an init script *and* several manually-run document scripts. Do not merge the concepts.
-- **Notebook registry**: the imported code cells live in the document as first-class TextFields + control shapes + the registry metadata. Document-attached Run scripts are a parallel, simpler "bag of named sources" for the ad-hoc execution surface. They can coexist.
-- **Grammar persistence** and other per-document caches: unrelated; different property names and lifecycles.
-
-### Phased implementation plan
-- **Phase 0 – Storage layer only (no UI, safe to land early)**
-  - Create `plugin/scripting/document_scripts.py` with get/set, size check, proper property existence logic, error returns.
-  - Add unit tests in `tests/scripting/test_document_scripts.py` (mock the doc + UserDefinedProperties bag; exercise add vs. set, size error, round-trip).
-  - No changes to dialogs or editor host. The module can be imported by tests and by later phases.
-- **Phase 1 – Read-only visibility**
-  - Wire `request_scripts` (and the XDL dropdown population) to also return document scripts when a real document is active.
-  - Show the "This Document" section (initially empty or read-only) in both UIs.
-  - No write path yet. This proves the two-source plumbing and the "document can be missing" cases.
-- **Phase 2 – Attach + write path + basic Save routing**
-  - Implement "Attach to document" action (button in Monaco toolbar or XDL dialog).
-  - Extend `save_script` / the Save listeners to route writes correctly based on origin.
-  - Handle the read-only error path and fall back to personal library.
-  - Persist the origin tag so subsequent Saves in the same session go to the right place.
-- **Phase 3 – Delete, Save As, conflict resolution, polish**
-  - Delete routing + confirmation for document scripts.
-  - "Save As..." semantics when the current script is document-backed.
-  - Collision UI on Attach and on explicit rename.
-  - Refresh behavior when the user switches the active document while the editor is open.
-  - Status / error surfacing improvements.
-- **Phase 4 – Documentation, tests, cross-feature verification**
-  - End-to-end UNO tests via `testing_runner.py` (create a real document, attach a script, save/reopen, verify the property survived, run it).
-  - Update documentation, add user-facing text in the Python scripting section and in any "Run Python Script" help.
-  - Add a short note to the notebook interactive dev plan cross-reference if the two features later want to share a kernel.
-  - Consider a lightweight `document_scripts_enabled` setting only if the feature proves noisy; default on.
-
-### Testing strategy
-- **Unit**: pure tests of the helper module (no UNO). Use `unittest.mock` for the document model and the `UserDefinedProperties` bag. Cover the exact existence check path that bit the grammar cache.
-- **Config + runner integration**: extend or add to `tests/scripting/test_python_runner_config.py` and `test_python_runner_monaco.py`. The existing mocks for `get_config`/`set_config` must be joined by mocks (or real-ish fakes) for the new document helper.
-- **UNO / integration**: new or extended tests under `tests/uno/` or via `@native_test` in the scripting test area. Typical scenario:
-  1. Open a fresh Writer doc.
-  2. Run Python Script, write code, Attach to document.
-  3. Save the document to a temp file.
-  4. Close and reopen.
-  5. Re-open the dialog; assert the script appears under "This Document" and executes.
-- Property stripping is hard to test in unit harness; document it and rely on manual verification with email or `libreoffice --headless --convert-to pdf`.
-
-This item is deliberately scoped as Priority 3 because the personal library + cell-based and init-script patterns already cover the majority of real workflows. It is the correct incremental completion of the storage model, not a blocker for the core scientific Python bridge.
+User workflow and feature context: [enabling_numpy_in_libreoffice.md §3 Monaco](enabling_numpy_in_libreoffice.md#monaco-editor--run-python-script) and [§7 document-attached scripts](enabling_numpy_in_libreoffice.md#run-python-script--document-attached-scripts).

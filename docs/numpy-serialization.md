@@ -58,7 +58,7 @@ LibreOffice's embedded Python and the user's venv are **different interpreters**
 | `venv_sandbox.py` | **Isolated (default):** new `LocalPythonExecutor` per request. **Shared kernel:** one executor per `calc:…` session id; inject `data`; serialize `result` |
 | **Code hot cache** | [`sandbox_cache.py`](../plugin/scripting/sandbox_cache.py): SHA-256 keyed LRU (default 4096) caches **parsed AST** + **static** sandbox policy per unchanged source + import allowlist. Skips re-parse and re-validation on recalc; **does not** cache execution `result` or variables. Separate from host [Worker Result Session](#matrix-formula-result-session-ipc-reduction). Also used by in-process [`execute_python_script`](../plugin/calc/python_executor.py). |
 
-**Reset:** `reset_session` / **WriterAgent → Reset Python Session** drops the shared executor (and paired `:init` session). Shared-kernel **Calc semantics** (recalc, idempotent cells): [core §7 — Calc UX](enabling_numpy_in_libreoffice.md#calc-ux-and-output-enhancements).
+**Reset:** `reset_session` / **WriterAgent → Reset Python Session** drops the shared executor (and paired `:init` session). Shared-kernel **Calc semantics** (recalc, idempotent cells): [core §6 — Session modes](enabling_numpy_in_libreoffice.md#session-modes-and-recalc-semantics); shortcuts: [§6 Keyboard shortcuts](enabling_numpy_in_libreoffice.md#keyboard-shortcuts-and-recalc).
 
 Implementation: [`venv_worker.py`](../plugin/scripting/venv_worker.py), [`worker_harness.py`](../plugin/scripting/worker_harness.py), [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py).
 

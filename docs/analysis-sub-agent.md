@@ -20,7 +20,7 @@ This is the focused evolution of the high-level analysis ideas previously sketch
 - [enabling_numpy_in_libreoffice.md](enabling_numpy_in_libreoffice.md): trusted extension code pattern (e.g. `embeddings_index.py`), payload_codec / split-grid for efficient numeric handoff, full venv stack without AST sandbox for shipped modules.
 - [smol-main-chat-tool-architecture.md](smol-main-chat-tool-architecture.md): sub-agents (librarian, specialized) often run via smol/ ReAct for focused tasks.
 - Chat / tool loop for main agent coordination.
-- [python-in-excel-dev-plan.md](python-in-excel-dev-plan.md) and [python-in-excel-ideas.md](python-in-excel-ideas.md): Detailed mapping of Microsoft Python-in-Excel features (we copy useful *features* such as curated init-script helpers, rich object previews, strong data handoff for tables/named ranges/headers, AI-assisted workflows, etc., while keeping our local venv + explicit `data`/`result` architecture).
+- [python-in-excel-dev-plan.md](python-in-excel-dev-plan.md) and [enabling_numpy_in_libreoffice.md — Microsoft Python in Excel vs WriterAgent](enabling_numpy_in_libreoffice.md#microsoft-python-in-excel-vs-writeragent): Mapping of Microsoft Python-in-Excel features (we copy useful *features* such as curated init-script helpers, rich object previews, strong data handoff for tables/named ranges/headers, AI-assisted workflows, etc., while keeping our local venv + explicit `data`/`result` architecture).
 - **TaskWeaver** (`taskweaver/`, [microsoft/TaskWeaver](https://github.com/microsoft/TaskWeaver)): agent orchestration reference (plugin-only mode, eval harness, plugin selection)—**not** analysis math; shipped plugins are weak demos. See [External code sources §7](#7-agent-orchestration--microsoft-taskweaver-taskweaver).
 
 ---
@@ -270,7 +270,7 @@ Planned replacements for custom EDA / card layout code.
 | [YData Profiling](https://ydata-profiling.ydata.ai/) (formerly Pandas-Profiling) | **Implemented** — required for `describe_data` (`ProfileReport`; returns `MISSING_PACKAGE` if absent) |
 | Sweetviz, AutoViz, summarytools | Lighter quick-summary alternatives |
 | [DataPrep `compute_*`](https://docs.dataprep.ai/user_guide/eda/introduction.html) | JSON-serializable EDA stats pattern (no `dataprep` dependency) |
-| Microsoft Python-in-Excel init helpers | [`python-in-excel-ideas.md`](python-in-excel-ideas.md) — `kpi_summary`, `format_currency` |
+| Microsoft Python-in-Excel init helpers | [enabling_numpy_in_libreoffice.md](enabling_numpy_in_libreoffice.md) — init script pattern; example helpers `kpi_summary`, `format_currency` in dev plan Phase 4 |
 | [QuickStats gist](https://gist.github.com/summerofgeorge/646140d175ada739efd2d57b5cea9a5e) | Card layout for `quick_stats` |
 
 #### 3. Excel-like functions — `format_*`, `pivot_aggregate`, etc.
