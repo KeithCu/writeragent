@@ -787,3 +787,56 @@ def test_worker_chunk_skip_lang_validation_failed_obs() -> None:
         _worker_process_chunk([(item, item.text)], ec, "en-US", True, "")
     mock_grammar.assert_not_called()
     mock_obs.assert_any_call("worker_chunk_skip", reason="lang_validation_failed", chunk_len=1)
+
+
+def test_grammar_empty_response_emits_failed_no_requeue() -> None:
+    from plugin.writer.locale.grammar_work_queue import GrammarWorkerContext, _run_grammar_check
+
+    item = _make_item("They is here.", seq=1)
+    ec = GrammarWorkerContext(
+        ctx=MagicMock(),
+        client=MagicMock(),
+        model="test-model",
+        max_tok=512,
+        gq=MagicMock(),
+        detect_lang_mode="off",
+        grammar_bcp47="en-US",
+        original_bcp47="en-US",
+    )
+    chunk = [(item, item.text)]
+    with patch("plugin.writer.locale.grammar_work_queue.call_grammar_llm", return_value=([], 50)), \
+         patch("plugin.writer.locale.grammar_work_queue.emit_grammar_status") as mock_status, \
+         patch("plugin.writer.locale.grammar_work_queue._requeue_individual_item") as mock_requeue, \
+         patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_put:
+        _run_grammar_check(chunk, "en-US", "en-US", ec)
+    mock_status.assert_called_once_with("failed", "Grammar check", result="Empty LLM response")
+    mock_requeue.assert_not_called()
+    mock_put.assert_not_called()
+    ec.gq.enqueue.assert_not_called()
+
+
+def test_grammar_mismatch_requeue_skips_cache_placeholder() -> None:
+    from plugin.writer.locale.grammar_work_queue import GrammarWorkerContext, _run_grammar_check
+
+    a = _make_item("First sentence.", seq=1, inflight_key="k1")
+    b = _make_item("Second sentence.", seq=2, inflight_key="k2")
+    ec = GrammarWorkerContext(
+        ctx=MagicMock(),
+        client=MagicMock(),
+        model="test-model",
+        max_tok=512,
+        gq=MagicMock(),
+        detect_lang_mode="off",
+        grammar_bcp47="en-US",
+        original_bcp47="en-US",
+    )
+    chunk = [(a, a.text), (b, b.text)]
+    with patch("plugin.writer.locale.grammar_work_queue.call_grammar_llm", return_value=([[]], 50)), \
+         patch("plugin.writer.locale.grammar_work_queue.emit_grammar_status"), \
+         patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_put, \
+         patch("plugin.writer.locale.grammar_work_queue._requeue_individual_item") as mock_requeue:
+        _run_grammar_check(chunk, "en-US", "en-US", ec)
+    assert mock_requeue.call_count == 2
+    for _args, kwargs in mock_requeue.call_args_list:
+        assert kwargs.get("cache_placeholder") is False
+    mock_put.assert_not_called()

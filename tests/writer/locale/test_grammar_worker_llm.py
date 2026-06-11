@@ -76,6 +76,46 @@ def test_call_grammar_llm_batch() -> None:
     assert "1. A.\n2. B." in args[0][1]["content"]
 
 
+def test_call_grammar_llm_passes_minimal_reasoning() -> None:
+    client = MagicMock()
+    client.chat_completion_sync.return_value = '{"errors": []}'
+    item = _item()
+    ec = _ec(client)
+    with patch("plugin.writer.locale.grammar_worker_llm.emit_grammar_status"), \
+         patch("plugin.framework.queue_executor.grammar_llm_request_gate"), \
+         patch("plugin.writer.locale.grammar_worker_llm.get_active_ignored_reasons", return_value=set()):
+        call_grammar_llm([(item, item.text)], "en-US", ec)
+    _, kwargs = client.chat_completion_sync.call_args
+    assert kwargs.get("chat_extra") == {"reasoning": {"effort": "minimal"}}
+
+
+def test_call_grammar_llm_retries_on_empty() -> None:
+    client = MagicMock()
+    client.chat_completion_sync.side_effect = ["", '{"errors": []}']
+    item = _item()
+    ec = _ec(client)
+    with patch("plugin.writer.locale.grammar_worker_llm.emit_grammar_status"), \
+         patch("plugin.framework.queue_executor.grammar_llm_request_gate"), \
+         patch("plugin.writer.locale.grammar_worker_llm.get_active_ignored_reasons", return_value=set()):
+        results, _ = call_grammar_llm([(item, item.text)], "en-US", ec)
+    assert len(results) == 1
+    assert client.chat_completion_sync.call_count == 2
+    assert client.chat_completion_sync.call_args_list[1].kwargs["max_tokens"] >= ec.max_tok
+
+
+def test_call_grammar_llm_empty_after_retry_returns_zero_results() -> None:
+    client = MagicMock()
+    client.chat_completion_sync.side_effect = ["", ""]
+    item = _item()
+    ec = _ec(client)
+    with patch("plugin.writer.locale.grammar_worker_llm.emit_grammar_status"), \
+         patch("plugin.framework.queue_executor.grammar_llm_request_gate"), \
+         patch("plugin.writer.locale.grammar_worker_llm.get_active_ignored_reasons", return_value=set()):
+        results, _ = call_grammar_llm([(item, item.text)], "en-US", ec)
+    assert results == []
+    assert client.chat_completion_sync.call_count == 2
+
+
 def test_language_detect_llm_sync_retries_on_empty() -> None:
     client = MagicMock()
     client.chat_completion_sync.side_effect = ["", '{"detected_language_bcp47": "en-US"}']

@@ -376,12 +376,15 @@ def _requeue_individual_item(
     new_bcp47: str,
     original_bcp47: str,
     ec: GrammarWorkerContext,
+    *,
+    cache_placeholder: bool = True,
 ) -> None:
     """Requeue one item after language mismatch or grammar batch count mismatch."""
     sent_complete = (not item.partial_sentence) and grammar_proofread_locale.looks_complete_sentence(text)
     requeue_inflight_key = grammar_proofread_locale.grammar_inflight_key(item.doc_id, new_bcp47, text, sent_complete)
 
-    grammar_proofread_cache.cache_put_sentence(original_bcp47, text, [], ctx=ec.ctx, doc_id=item.doc_id)
+    if cache_placeholder:
+        grammar_proofread_cache.cache_put_sentence(original_bcp47, text, [], ctx=ec.ctx, doc_id=item.doc_id)
 
     if ec.gq:
         new_item = replace(
@@ -509,10 +512,10 @@ def _run_language_validation(
         decision = grammar_worker_phases.decide_language_validation(chunk, target_bcp47, detected)
         _obs_language_validation_decision(chunk, target_bcp47, detected, decision)
         for rq in decision.requeues:
-            log.info("[grammar] Language mismatch detected: %s vs %s. Triggering locale change.", (rq.new_bcp47, rq.original_bcp47))
+            log.info("[grammar] Language mismatch detected: %s vs %s. Triggering locale change.", rq.new_bcp47, rq.original_bcp47)
             _requeue_individual_item(rq.item, rq.text, rq.new_bcp47, rq.original_bcp47, ec)
         if len(chunk) == 1 and decision.target_bcp47 != target_bcp47:
-            log.info("[grammar] Single item language mismatch: %s -> %s. Proceeding with new locale.", (target_bcp47, decision.target_bcp47))
+            log.info("[grammar] Single item language mismatch: %s -> %s. Proceeding with new locale.", target_bcp47, decision.target_bcp47)
         return decision
     except Exception as e:
         log.error("[grammar] Language validation error: %s", e, exc_info=True)
@@ -531,9 +534,21 @@ def _run_grammar_check(
         results, elapsed_ms = call_grammar_llm(chunk, bcp47, ec)
         completion = grammar_worker_phases.decide_grammar_completion(len(chunk), len(results), bcp47, original_bcp47)
         if completion.requeue_all:
-            log.warning("[grammar] LLM batch result count mismatch for chunk: expected %s, got %s. Requeuing items.", (len(chunk), len(results)))
+            if len(results) == 0:
+                log.warning(
+                    "[grammar] LLM returned no parseable results for chunk of %s (model=%s)",
+                    len(chunk),
+                    ec.model or "",
+                )
+                emit_grammar_status("failed", "Grammar check", result="Empty LLM response")
+                return
+            log.warning(
+                "[grammar] LLM batch result count mismatch for chunk: expected %s, got %s. Requeuing items.",
+                len(chunk),
+                len(results),
+            )
             for item, text in chunk:
-                _requeue_individual_item(item, text, bcp47, original_bcp47, ec)
+                _requeue_individual_item(item, text, bcp47, original_bcp47, ec, cache_placeholder=False)
             return
         _process_grammar_results(chunk, results, bcp47, original_bcp47, elapsed_ms, ec)
         grammar_obs("worker_grammar_done", chunk_len=len(chunk), results_len=len(results), elapsed_ms=elapsed_ms, bcp47=bcp47)

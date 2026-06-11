@@ -30,7 +30,7 @@ log = logging.getLogger(__name__)
 class GoogleShim(BaseProviderShim):
     """Shim for Google Gemini native API."""
 
-    def build_chat_request(self, messages, max_tokens, temperature, tools, stream, model_name, response_format):
+    def build_chat_request(self, messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra=None):
         endpoint = self.client._endpoint()
         auth_info = self.client._resolve_auth()
         key = auth_info.get("api_key", "")

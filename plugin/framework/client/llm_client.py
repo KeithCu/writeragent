@@ -132,7 +132,7 @@ class BaseProviderShim:
     def __init__(self, client: "LlmClient"):
         self.client = client
 
-    def build_chat_request(self, messages, max_tokens, temperature, tools, stream, model_name, response_format):
+    def build_chat_request(self, messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra=None):
         raise NotImplementedError()
 
     def parse_response_chunk(self, chunk):
@@ -151,7 +151,7 @@ class BaseProviderShim:
 class OpenAIShim(BaseProviderShim):
     """Shim for OpenAI-compatible providers."""
 
-    def build_chat_request(self, messages, max_tokens, temperature, tools, stream, model_name, response_format):
+    def build_chat_request(self, messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra=None):
         endpoint = self.client._endpoint()
         api_path = self.client._api_path()
         url = endpoint + api_path + "/chat/completions"
@@ -172,6 +172,8 @@ class OpenAIShim(BaseProviderShim):
             extra = self.client.config.get("openrouter_chat_extra")
             if isinstance(extra, dict) and extra:
                 merge_openrouter_chat_extra(data, extra)
+        if isinstance(chat_extra, dict) and chat_extra:
+            merge_openrouter_chat_extra(data, chat_extra)
 
         json_data = json.dumps(data).encode("utf-8")
         path = get_url_path_and_query(url)
@@ -443,7 +445,7 @@ class LlmClient:
         """Extract text content and optional thinking from response chunk (provider-aware)."""
         return self._get_shim().parse_response_chunk(chunk)
 
-    def make_chat_request(self, messages, max_tokens=512, tools=None, stream=False, model=None, response_format=None, *, prepend_dev_build_system_prefix: bool = True):
+    def make_chat_request(self, messages, max_tokens=512, tools=None, stream=False, model=None, response_format=None, chat_extra=None, *, prepend_dev_build_system_prefix: bool = True):
         """Build a chat completions request from a full messages array (provider-aware)."""
         try:
             max_tokens = int(max_tokens)
@@ -549,7 +551,7 @@ class LlmClient:
         temperature = self.config.get("temperature", 0.5)
 
         shim = self._get_shim()
-        method, path, body, headers = shim.build_chat_request(messages, max_tokens, temperature, tools, stream, model_name, response_format)
+        method, path, body, headers = shim.build_chat_request(messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra)
 
         init_logging(self.ctx)
         log.debug("=== Chat Request (provider=%s, tools=%s, stream=%s) ===" % (self._get_provider(), bool(tools), stream))
@@ -797,7 +799,7 @@ class LlmClient:
         method, path, body, headers = self.make_chat_request(messages, max_tokens, tools=None, stream=True, prepend_dev_build_system_prefix=prepend_dev_build_system_prefix)
         self.stream_request(method, path, body, headers, append_callback, append_thinking_callback, stop_checker=stop_checker)
 
-    def request_with_tools(self, messages, max_tokens=512, tools=None, append_callback=None, append_thinking_callback=None, stop_checker=None, body_override=None, model=None, stream=False, response_format=None, prepend_dev_build_system_prefix: bool = True):
+    def request_with_tools(self, messages, max_tokens=512, tools=None, append_callback=None, append_thinking_callback=None, stop_checker=None, body_override=None, model=None, stream=False, response_format=None, chat_extra=None, prepend_dev_build_system_prefix: bool = True):
         """Chat request with support for tools and streaming.
 
         If stream=True, uses callbacks to stream deltas & accumulates tool_calls.
@@ -809,7 +811,7 @@ class LlmClient:
         eff_model = model or self.config.get("model", "")
         n_tool_defs = len(tools) if isinstance(tools, list) else 0
         log.debug("request_with_tools: model=%s stream=%s n_messages=%s n_tool_defs=%s", eff_model, stream, len(messages), n_tool_defs)
-        method, path, body, headers = self.make_chat_request(messages, max_tokens, tools=tools, stream=stream, model=model, response_format=response_format, prepend_dev_build_system_prefix=prepend_dev_build_system_prefix)
+        method, path, body, headers = self.make_chat_request(messages, max_tokens, tools=tools, stream=stream, model=model, response_format=response_format, chat_extra=chat_extra, prepend_dev_build_system_prefix=prepend_dev_build_system_prefix)
         if body_override is not None:
             body = body_override.encode("utf-8") if isinstance(body_override, str) else body_override
 
@@ -947,10 +949,10 @@ class LlmClient:
         kwargs["stream"] = True
         return self.request_with_tools(*args, **kwargs)
 
-    def chat_completion_sync(self, messages, max_tokens=512, model=None, response_format=None, *, prepend_dev_build_system_prefix: bool = True):
+    def chat_completion_sync(self, messages, max_tokens=512, model=None, response_format=None, chat_extra=None, *, prepend_dev_build_system_prefix: bool = True):
         """
         Synchronous chat completion (no streaming, no tools).
         Returns the assistant message content string.
         """
-        result = self.request_with_tools(messages, max_tokens=max_tokens, tools=None, model=model, response_format=response_format, prepend_dev_build_system_prefix=prepend_dev_build_system_prefix)
+        result = self.request_with_tools(messages, max_tokens=max_tokens, tools=None, model=model, response_format=response_format, chat_extra=chat_extra, prepend_dev_build_system_prefix=prepend_dev_build_system_prefix)
         return result.get("content") or ""

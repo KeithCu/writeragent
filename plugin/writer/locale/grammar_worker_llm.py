@@ -17,6 +17,9 @@ from plugin.framework import queue_executor
 
 log = logging.getLogger("writeragent.grammar")
 
+# Mercury and other reasoning models may return null content when effort is unconstrained.
+_GRAMMAR_CHAT_EXTRA = {"reasoning": {"effort": "minimal"}}
+
 
 def get_cached_language(text: str) -> str | None:
     with grammar_persistence.grammar_registry.lock:
@@ -118,6 +121,30 @@ def language_detect_llm_sync(ec: Any, messages: list[dict[str, str]], max_tokens
     return content or ""
 
 
+def grammar_llm_sync(ec: Any, messages: list[dict[str, str]], max_tokens: int) -> str:
+    """Sync grammar LLM call with minimal reasoning and one retry when content is empty."""
+    model = ec.model or None
+    kwargs = {
+        "max_tokens": max_tokens,
+        "model": model,
+        "response_format": {"type": "json_object"},
+        "prepend_dev_build_system_prefix": False,
+        "chat_extra": _GRAMMAR_CHAT_EXTRA,
+    }
+    content = ec.client.chat_completion_sync(messages, **kwargs)
+    if (content or "").strip():
+        return content
+    grammar_obs("grammar_llm_empty_response", model=model or "", max_tokens=max_tokens)
+    log.warning("[grammar] grammar LLM returned empty content (max_tokens=%s model=%s); retrying with higher cap", max_tokens, model)
+    retry_cap = max(max_tokens * 2, ec.max_tok)
+    kwargs["max_tokens"] = retry_cap
+    content = ec.client.chat_completion_sync(messages, **kwargs)
+    if not (content or "").strip():
+        grammar_obs("grammar_llm_empty_response", model=model or "", max_tokens=retry_cap, retry=True)
+        log.warning("[grammar] grammar LLM still empty after retry (max_tokens=%s model=%s)", retry_cap, model)
+    return content or ""
+
+
 def call_grammar_llm(
     chunk: list[tuple[Any, str]],
     bcp47: str,
@@ -145,7 +172,7 @@ def call_grammar_llm(
 
     request_start = time.monotonic()
     with queue_executor.grammar_llm_request_gate(ec.ctx):
-        content = ec.client.chat_completion_sync(messages, max_tokens=max_tokens, model=ec.model or None, response_format={"type": "json_object"}, prepend_dev_build_system_prefix=False)
+        content = grammar_llm_sync(ec, messages, max_tokens)
     elapsed_ms = int((time.monotonic() - request_start) * 1000)
 
     if batch:

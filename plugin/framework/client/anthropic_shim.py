@@ -27,7 +27,7 @@ from .llm_client import BaseProviderShim
 class AnthropicShim(BaseProviderShim):
     """Shim for Anthropic native API."""
 
-    def build_chat_request(self, messages, max_tokens, temperature, tools, stream, model_name, response_format):
+    def build_chat_request(self, messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra=None):
         endpoint = self.client._endpoint()
         url = f"{endpoint}/v1/messages"
         system_msg = ""
