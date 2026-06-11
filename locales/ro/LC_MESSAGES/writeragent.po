@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-10 17:40-0400\n"
+"POT-Creation-Date: 2026-06-11 14:33-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Romanian <LL@li.org>\n"
@@ -19,8 +19,8 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
 "Citirile pentru cercetarea documentelor necesită delegarea sarcinilor "
 "specializate (USE_SUB_AGENT). Activați acest lucru în configurație."
@@ -44,8 +44,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Apelul instrumentului a comutat la „{0}”. Sunteți într-un mod de set de "
@@ -62,8 +62,8 @@ msgstr "Executarea notebook-ului este suportată doar în LibreOffice Writer."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
 "Acest document nu are niciun notebook importat. Utilizați mai întâi "
 "Instrumente → Importă notebook Jupyter…"
@@ -176,8 +176,8 @@ msgid ""
 "Seems that «{}» has problems, double check it, create a new one or join "
 "Discord to ask for help"
 msgstr ""
-"Se pare că «{}» are probleme, verifică-l din nou, creează unul nou sau intră "
-"pe Discord pentru a cere ajutor"
+"Se pare că «{}» are probleme, verifică-l din nou, creează unul nou sau intră"
+" pe Discord pentru a cere ajutor"
 
 #: plugin/contrib/aihordeclient/__init__.py
 msgid "We hit an error, still: "
@@ -241,7 +241,8 @@ msgstr "Acest model necesită mai mult timp decât configurația actuală."
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr ""
 "Vă rugăm să încercați alt model. {0} ar necesita mai mult timp decât ați "
 "configurat."
@@ -331,7 +332,8 @@ msgstr ""
 "pentru cerere” în Setări."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr "Conexiune refuzată. Serverul local AI (Ollama/LM Studio) rulează?"
 
 #: plugin/framework/errors.py
@@ -362,10 +364,11 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
-"AI: Vă pot ajuta cu formule, analiză de date și diagrame colorate. Încercați-"
-"mă!"
+"AI: Vă pot ajuta cu formule, analiză de date și diagrame colorate. "
+"Încercați-mă!"
 
 #: plugin/framework/constants.py
 msgid ""
@@ -386,9 +389,9 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest "
-"approaches, and help you build an approved spec in your document when you're "
-"ready."
+"AI: Let's explore and design your idea together. I'll ask questions, suggest"
+" approaches, and help you build an approved spec in your document when "
+"you're ready."
 msgstr ""
 "AI: Haideți să explorăm și să vă concepem ideea împreună. Voi pune "
 "întrebări, voi sugera abordări și vă voi ajuta să creați o specificație "
@@ -397,7 +400,8 @@ msgstr ""
 #: plugin/framework/constants.py
 msgid ""
 "AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your approval."
+"writing plan outline, and then implement it incrementally with your "
+"approval."
 msgstr ""
 "AI: Să redactăm documentul secțiune cu secțiune. Te voi ajuta să creezi o "
 "schiță a planului de scriere, pe care o vom implementa incremental cu "
@@ -496,7 +500,8 @@ msgstr "Editorul Python a eșuat în mod neașteptat."
 
 #: plugin/calc/python_editor.py
 msgid "Select a cell in a Calc spreadsheet to edit Python."
-msgstr "Selectați o celulă dintr-o foaie de calcul Calc pentru a edita Python."
+msgstr ""
+"Selectați o celulă dintr-o foaie de calcul Calc pentru a edita Python."
 
 #: plugin/calc/python_editor.py
 msgid ""
@@ -981,8 +986,8 @@ msgid ""
 "[Internal Error: Document type changed from {0} to {1}! Please file an "
 "error.]"
 msgstr ""
-"[Eroare internă: Tipul documentului s-a schimbat din {0} în {1}! Vă rugăm să "
-"raportați eroarea.]"
+"[Eroare internă: Tipul documentului s-a schimbat din {0} în {1}! Vă rugăm să"
+" raportați eroarea.]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -1013,7 +1018,8 @@ msgstr "Temperatura trebuie să fie <= 1.0"
 #: plugin/chatbot/web_research_chat.py
 #, python-format
 msgid "This search query '%s' will be sent to the search engine."
-msgstr "Această interogare de căutare „%s” va fi trimisă motorului de căutare."
+msgstr ""
+"Această interogare de căutare „%s” va fi trimisă motorului de căutare."
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1103,7 +1109,8 @@ msgstr "[Backend-ul agentului „{0}” nu a fost găsit.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Backend-ul agentului „{0}” nu este disponibil. Verificați Setările (cale, "
 "instalare).]"
@@ -1162,8 +1169,8 @@ msgid ""
 "A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
 "check for updates and install the latest extension."
 msgstr ""
-"O versiune mai nouă WriterAgent (%s) este disponibilă. Utilizați Instrumente "
-"→ Manager extensii pentru a verifica actualizările și a instala cea mai "
+"O versiune mai nouă WriterAgent (%s) este disponibilă. Utilizați Instrumente"
+" → Manager extensii pentru a verifica actualizările și a instala cea mai "
 "recentă extensie."
 
 #: plugin/chatbot/librarian.py
@@ -1232,8 +1239,8 @@ msgstr "Lățime:"
 #, python-brace-format
 msgid "Document scripts are too large to store in the document ({0} bytes)."
 msgstr ""
-"Scripturile documentului sunt prea mari pentru a fi stocate în document ({0} "
-"octeți)."
+"Scripturile documentului sunt prea mari pentru a fi stocate în document ({0}"
+" octeți)."
 
 #: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
 #: plugin/scripting/editor_host.py
@@ -1493,7 +1500,8 @@ msgid "Could not talk to the Python editor."
 msgstr "Nu s-a putut comunica cu editorul Python."
 
 #: plugin/scripting/venv_worker.py
-msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "Sonda de vizualizare a expirat (importul Docling poate dura 10–30s la prima "
 "verificare)."
@@ -1501,6 +1509,20 @@ msgstr ""
 #: plugin/scripting/venv_worker.py
 msgid "Vision probe failed (see writeragent_debug.log)."
 msgstr "Sonda de vizualizare a eșuat (consultați writeragent_debug.log)."
+
+#: plugin/scripting/venv_worker.py
+msgid ""
+"Embeddings probe timed out (sentence-transformers import can take 10–30s on "
+"first check)."
+msgstr ""
+"Testul de sondare a embedding-urilor a expirat (importarea sentence-"
+"transformers poate dura 10–30s la prima verificare)."
+
+#: plugin/scripting/venv_worker.py
+msgid "Embeddings probe failed (see writeragent_debug.log)."
+msgstr ""
+"Testul de sondare a embedding-urilor a eșuat (consultați "
+"writeragent_debug.log)."
 
 #: plugin/scripting/venv_worker.py
 msgid "Visualization Libraries"
@@ -1523,6 +1545,10 @@ msgid "Vision Libraries"
 msgstr "Biblioteci de viziune"
 
 #: plugin/scripting/venv_worker.py
+msgid "Embeddings Libraries"
+msgstr "Biblioteci de embedding-uri"
+
+#: plugin/scripting/venv_worker.py
 msgid "Starting Python worker..."
 msgstr "Se pornește worker-ul Python..."
 
@@ -1533,6 +1559,10 @@ msgstr "Se citește versiunea Python..."
 #: plugin/scripting/venv_worker.py
 msgid "Vision Libraries: loading (first run may take a while)..."
 msgstr "Biblioteci Vision: se încarcă (prima rulare poate dura)..."
+
+#: plugin/scripting/venv_worker.py
+msgid "Embeddings Libraries: loading (first run may take a while)..."
+msgstr "Biblioteci de embedding-uri: se încarcă (prima rulare poate dura)..."
 
 #: plugin/scripting/venv_worker.py
 msgid "Using LibreOffice process Python..."
@@ -1616,7 +1646,8 @@ msgstr "Nu s-a putut rezolva sesiunea Python a notebook-ului."
 
 #: plugin/scripting/session_manager.py
 msgid "Notebook Python session reset for this document."
-msgstr "Sesiunea Python a notebook-ului a fost resetată pentru acest document."
+msgstr ""
+"Sesiunea Python a notebook-ului a fost resetată pentru acest document."
 
 #: plugin/scripting/session_manager.py
 msgid "Could not reset Python session."
@@ -1659,8 +1690,8 @@ msgid ""
 "This Writer document has no imported notebook registry. Use Tools → Import "
 "Jupyter Notebook… to enable notebook Python session reset."
 msgstr ""
-"Acest document Writer nu are niciun registru de notebook importat. Utilizați "
-"Instrumente → Importă notebook Jupyter… pentru a activa resetarea sesiunii "
+"Acest document Writer nu are niciun registru de notebook importat. Utilizați"
+" Instrumente → Importă notebook Jupyter… pentru a activa resetarea sesiunii "
 "Python a notebook-ului."
 
 #: plugin/scripting/units.py plugin/scripting/python_runner.py
@@ -1687,8 +1718,8 @@ msgstr "Informații"
 #: plugin/scripting/python_runner.py
 msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
 msgstr ""
-"Inserarea rezultatului în Draw/Impress nu este încă suportată. Contribuțiile "
-"sunt binevenite!"
+"Inserarea rezultatului în Draw/Impress nu este încă suportată. Contribuțiile"
+" sunt binevenite!"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -1795,7 +1826,8 @@ msgstr "Optimizarea a eșuat."
 #, python-brace-format
 msgid "Optimize '{helper}' completed. Wrote {rows} rows. (took {time})"
 msgstr ""
-"Optimizare '{helper}' finalizată. S-au scris {rows} rânduri. (durată: {time})"
+"Optimizare '{helper}' finalizată. S-au scris {rows} rânduri. (durată: "
+"{time})"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -1812,13 +1844,14 @@ msgstr "Analiza a eșuat."
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid "Analysis '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr "Analiză „{helper}” finalizată. {rows} rânduri scrise. (durată: {time})"
+msgstr ""
+"Analiză „{helper}” finalizată. {rows} rânduri scrise. (durată: {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "Scriptul a fost executat cu succes, dar nu a returnat niciun rezultat și nu "
 "a produs nicio ieșire. (a durat {time})"
@@ -2162,8 +2195,8 @@ msgid "Path / URL"
 msgstr "Cale / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
 "Calea către CLI-ul backend (de ex. aider) sau URL-ul serverului ACP (de ex. "
 "http://localhost:8000 pentru Hermes). Gol = încearcă valoarea implicită."
@@ -2172,7 +2205,8 @@ msgid "Extra arguments"
 msgstr "Argumente suplimentare"
 
 msgid "Optional arguments for the selected backend (space-separated)."
-msgstr "Argumente opționale pentru backend-ul selectat (separate prin spațiu)."
+msgstr ""
+"Argumente opționale pentru backend-ul selectat (separate prin spațiu)."
 
 msgid "ACP agent name"
 msgstr "Nume agent ACP"
@@ -2181,8 +2215,8 @@ msgid ""
 "Agent name on the ACP server (e.g. hermes). Empty = auto-discover first "
 "agent."
 msgstr ""
-"Numele agentului pe serverul ACP (de ex. hermes). Gol = detectare automată a "
-"primului agent."
+"Numele agentului pe serverul ACP (de ex. hermes). Gol = detectare automată a"
+" primului agent."
 
 msgid "Calc spreadsheet tools"
 msgstr "Instrumente pentru foaia de calcul Calc"
@@ -2217,39 +2251,16 @@ msgstr "Schiță + extras"
 msgid "Stats + outline only"
 msgstr "Statistici + doar schiță"
 
-msgid "Extend Selection Max Tokens"
-msgstr "Extindere număr maxim de tokenuri pentru selecție"
+msgid "Extend max tokens"
+msgstr "Extinde numărul maxim de tokenuri"
 
-msgid "Edit Selection Extra Tokens"
-msgstr "Editare tokenuri suplimentare pentru selecție"
+msgid "Edit extra tokens"
+msgstr "Editează tokenuri suplimentare"
 
 msgid "Extra tokens beyond original text length. 0 = same length as original."
 msgstr ""
 "Tokenuri suplimentare peste lungimea textului original. 0 = aceeași lungime "
 "ca originalul."
-
-msgid "Show Web Search Thinking"
-msgstr "Afișare proces de gândire pentru căutarea web"
-
-msgid "Prompt for Web Research"
-msgstr "Solicitare pentru cercetare web"
-
-msgid "Ask for confirmation before sending a web search query"
-msgstr "Cere confirmare înainte de a trimite o interogare de căutare web"
-
-msgid "Web Cache Max Size (MB)"
-msgstr "Dimensiune maximă cache web (MB)"
-
-msgid "Max disk size for web search cache (0 to disable)"
-msgstr ""
-"Dimensiune maximă pe disc pentru cache-ul de căutare web (0 pentru "
-"dezactivare)"
-
-msgid "Web Cache Validity (Days)"
-msgstr "Valabilitate cache web (zile)"
-
-msgid "How many days cache entries should be considered valid."
-msgstr "Câte zile ar trebui să fie considerate valide intrările din cache."
 
 msgid "Web Research Cache"
 msgstr "Cache cercetare web"
@@ -2258,8 +2269,28 @@ msgid ""
 "Cache completed web research reports by normalized query (reuses web search "
 "cache database)."
 msgstr ""
-"Stochează rapoartele de cercetare web finalizate după interogare normalizată "
-"(reutilizează baza de date a cache-ului de căutare web)."
+"Stochează rapoartele de cercetare web finalizate după interogare normalizată"
+" (reutilizează baza de date a cache-ului de căutare web)."
+
+msgid "Prompt for Web Research"
+msgstr "Solicitare pentru cercetare web"
+
+msgid "Ask for confirmation before sending a web search query"
+msgstr "Cere confirmare înainte de a trimite o interogare de căutare web"
+
+msgid "Cache max (MB)"
+msgstr "Cache maxim (MB)"
+
+msgid "Max disk size for web search cache (0 to disable)"
+msgstr ""
+"Dimensiune maximă pe disc pentru cache-ul de căutare web (0 pentru "
+"dezactivare)"
+
+msgid "Cache validity (days)"
+msgstr "Valabilitate cache (zile)"
+
+msgid "How many days cache entries should be considered valid."
+msgstr "Câte zile ar trebui să fie considerate valide intrările din cache."
 
 msgid "Rich Text Control Sidebar"
 msgstr "Bară laterală control text îmbogățit"
@@ -2271,6 +2302,23 @@ msgstr ""
 "Chat formatat prin RichTextControl (activat implicit). Necesită repornire. "
 "Debifați pentru chat doar text simplu."
 
+msgid "Humanizer skill (natural prose)"
+msgstr "Abilitate de umanizare (proză naturală)"
+
+msgid ""
+"When enabled, injects guidance into the system prompt so the model makes "
+"generated or revised document text sound more natural and human (removes AI "
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
+msgstr ""
+"Când este activată, introduce instrucțiuni în promptul de sistem astfel "
+"încât modelul să facă textul generat sau revizuit să sune mai natural și "
+"uman (elimină tiparele specifice AI). Editați regulile în profilul "
+"LibreOffice sub writeragent/skills/humanizer/SKILL.md (fișierul este creat "
+"automat la prima utilizare). O filă dedicată pentru Abilități poate fi "
+"adăugată ulterior."
+
 msgid "Doc"
 msgstr "Doc"
 
@@ -2279,16 +2327,16 @@ msgstr "Activează corectorul gramatical AI (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "Când este activat, WriterAgent înregistrează corectorul gramatical AI în "
 "Linguistic; textul verificat utilizează API-ul dumneavoastră (Instrumente → "
 "Opțiuni → AI). Sublinierile apar la scurt timp după ce încetați să tastați. "
 "Dezactivat implicit."
 
-msgid "Grammar check model (optional)"
-msgstr "Model de verificare gramaticală (opțional)"
+msgid "Model (optional)"
+msgstr "Model (opțional)"
 
 msgid "Leave empty to use the same text model as chat."
 msgstr "Lăsați gol pentru a utiliza același model de text ca și pentru chat."
@@ -2304,8 +2352,8 @@ msgstr ""
 "ce chat-ul din bara laterală sau agentul rulează, pentru a evita apelurile "
 "API concurente."
 
-msgid "Grammar batch sentences"
-msgstr "Procesare gramaticală pe loturi de propoziții"
+msgid "Batch sentences"
+msgstr "Procesare lot de propoziții"
 
 msgid ""
 "Number of sentences to send per LLM request (1-8). 1 (default) is most "
@@ -2316,8 +2364,8 @@ msgstr ""
 "mai fiabil; valori mai mari sunt mai rapide și mai ieftine, dar pot atinge "
 "limitele de token-uri sau pot cauza erori ale modelului."
 
-msgid "Grammar concurrent requests"
-msgstr "Cereri concurente gramatică"
+msgid "Concurrent requests"
+msgstr "Cereri concurente"
 
 msgid ""
 "Max simultaneous background grammar API calls (1-8). 1 matches prior "
@@ -2365,6 +2413,49 @@ msgstr ""
 msgid "Draw and Impress tools"
 msgstr "Instrumente Draw și Impress"
 
+msgid "Embeddings"
+msgstr "Embeddings"
+
+msgid "Embeddings cache (per-folder semantic search)"
+msgstr "Cache embeddings (căutare semantică per folder)"
+
+msgid ""
+"When on, builds a semantic index in writeragent_embeddings/ beside the "
+"active document's folder and also exposes search_embeddings in "
+"document_research (grep_nearby_files stays available). Requires Settings → "
+"Python venv with sentence-transformers, chromadb, langgraph, langchain-core,"
+" langchain-text-splitters, envwrap (see Settings → Python Test)."
+msgstr ""
+"Când este activat, construiește un index semantic în writeragent_embeddings/"
+" lângă folderul documentului activ și expune search_embeddings în "
+"document_research (grep_nearby_files rămâne disponibil). Necesită Setări → "
+"Python venv cu sentence-transformers, chromadb, langgraph, langchain-core, "
+"langchain-text-splitters, envwrap (vezi Setări → Test Python)."
+
+msgid "Embedding Provider"
+msgstr "Furnizor Embedding"
+
+msgid ""
+"local (sentence-transformers in venv) or endpoint (configured remote/local "
+"endpoint)"
+msgstr ""
+"local (sentence-transformers în venv) sau endpoint (endpoint configurat la "
+"distanță/local)"
+
+msgid "Local (venv)"
+msgstr "Local (venv)"
+
+msgid "Endpoint"
+msgstr "Endpoint"
+
+msgid "Embedding Model"
+msgstr "Model de încorporare"
+
+msgid "HuggingFace model ID for local provider, or endpoint-specific model ID"
+msgstr ""
+"ID-ul modelului HuggingFace pentru furnizorul local sau ID-ul modelului "
+"specific punctului final"
+
 msgid "Core services (config, events, logging)"
 msgstr "Servicii de bază (configurare, evenimente, jurnalizare)"
 
@@ -2375,26 +2466,14 @@ msgid "Enable MCP Server"
 msgstr "Activare server MCP"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Doar localhost, fără autentificare. Clienții utilizează http://localhost:"
-"<port>/mcp (HTTP cu flux)."
+"Doar localhost, fără autentificare. Clienții utilizează "
+"http://localhost:<port>/mcp (HTTP cu flux)."
 
 msgid "MCP Port"
 msgstr "Port MCP"
-
-msgid "Allow CORS from local origins"
-msgstr "Permiteți CORS din origini locale"
-
-msgid ""
-"Automatic for .local, .lan, .home.arpa, .internal, .intern, and LAN IPs in "
-"the browser Origin. For other hosts, add mcp.cors_allowed_origins in "
-"writeragent.json."
-msgstr ""
-"Automat pentru .local, .lan, .home.arpa, .internal, .intern și adrese IP LAN "
-"în Origin-ul browserului. Pentru alte gazde, adăugați "
-"mcp.cors_allowed_origins în writeragent.json."
 
 msgid "Python"
 msgstr "Python"
@@ -2408,10 +2487,10 @@ msgid ""
 "stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
-"Dacă este setat, rulează instrumentele în acel venv (bin/python sau Scripts/"
-"python.exe). Dacă este gol, run_venv_python_script utilizează sys.executable "
-"al acestui proces (stdlib de bază); utilizați un venv pentru numpy/pandas și "
-"asistenți de viziune (paddleocr, paddlepaddle)."
+"Dacă este setat, rulează instrumentele în acel venv (bin/python sau "
+"Scripts/python.exe). Dacă este gol, run_venv_python_script utilizează "
+"sys.executable al acestui proces (stdlib de bază); utilizați un venv pentru "
+"numpy/pandas și asistenți de viziune (paddleocr, paddlepaddle)."
 
 msgid "Test"
 msgstr "Test"
@@ -2430,8 +2509,8 @@ msgid "Max Calc data cells"
 msgstr "Număr maxim de celule de date Calc"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
 "Numărul maxim de celule în datele =PYTHON() sau datele/zona de date Run "
 "Python Script. Valorile mai mari utilizează mai multă memorie RAM și timp; "
@@ -2453,27 +2532,6 @@ msgstr "Izolat (implicit)"
 
 msgid "Shared kernel"
 msgstr "Kernel partajat"
-
-msgid "Force internal script editor"
-msgstr "Forțează editorul de script intern"
-
-msgid ""
-"If checked, bypasses the Monaco script editor and uses the LibreOffice "
-"dialog."
-msgstr ""
-"Dacă este bifat, omite editorul de script Monaco și utilizează dialogul "
-"LibreOffice."
-
-msgid "Modeless Run Python Script dialog"
-msgstr "Dialog de rulare script Python nemodal"
-
-msgid ""
-"When checked, the plain-text Run Python Script dialog floats so you can edit "
-"the document while it is open. Uncheck for the classic modal dialog."
-msgstr ""
-"Dacă este bifată, fereastra de dialog „Execută script Python” (text simplu) "
-"va pluti, permițându-vă să editați documentul în timp ce aceasta este "
-"deschisă. Debifați pentru a reveni la fereastra de dialog modală clasică."
 
 msgid "Vision / OCR"
 msgstr "Viziune / OCR"
@@ -2565,7 +2623,8 @@ msgid "Extract formulas (LaTeX)"
 msgstr "Extrage formule (LaTeX)"
 
 msgid "Opt-in. Downloads extra VLM models on first use; slower."
-msgstr "Opt-in. Descarcă modele VLM suplimentare la prima utilizare; mai lent."
+msgstr ""
+"Opt-in. Descarcă modele VLM suplimentare la prima utilizare; mai lent."
 
 msgid "Code block enrichment"
 msgstr "Îmbogățire bloc de cod"

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-10 17:57-0400\n"
+"POT-Creation-Date: 2026-06-11 14:33-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -1414,6 +1414,16 @@ msgid "Vision probe failed (see writeragent_debug.log)."
 msgstr ""
 
 #: plugin/scripting/venv_worker.py
+msgid ""
+"Embeddings probe timed out (sentence-transformers import can take 10–30s on "
+"first check)."
+msgstr ""
+
+#: plugin/scripting/venv_worker.py
+msgid "Embeddings probe failed (see writeragent_debug.log)."
+msgstr ""
+
+#: plugin/scripting/venv_worker.py
 msgid "Visualization Libraries"
 msgstr ""
 
@@ -1434,6 +1444,10 @@ msgid "Vision Libraries"
 msgstr ""
 
 #: plugin/scripting/venv_worker.py
+msgid "Embeddings Libraries"
+msgstr ""
+
+#: plugin/scripting/venv_worker.py
 msgid "Starting Python worker..."
 msgstr ""
 
@@ -1443,6 +1457,10 @@ msgstr ""
 
 #: plugin/scripting/venv_worker.py
 msgid "Vision Libraries: loading (first run may take a while)..."
+msgstr ""
+
+#: plugin/scripting/venv_worker.py
+msgid "Embeddings Libraries: loading (first run may take a while)..."
 msgstr ""
 
 #: plugin/scripting/venv_worker.py
@@ -2085,34 +2103,13 @@ msgstr ""
 msgid "Stats + outline only"
 msgstr ""
 
-msgid "Extend Selection Max Tokens"
+msgid "Extend max tokens"
 msgstr ""
 
-msgid "Edit Selection Extra Tokens"
+msgid "Edit extra tokens"
 msgstr ""
 
 msgid "Extra tokens beyond original text length. 0 = same length as original."
-msgstr ""
-
-msgid "Show Web Search Thinking"
-msgstr ""
-
-msgid "Prompt for Web Research"
-msgstr ""
-
-msgid "Ask for confirmation before sending a web search query"
-msgstr ""
-
-msgid "Web Cache Max Size (MB)"
-msgstr ""
-
-msgid "Max disk size for web search cache (0 to disable)"
-msgstr ""
-
-msgid "Web Cache Validity (Days)"
-msgstr ""
-
-msgid "How many days cache entries should be considered valid."
 msgstr ""
 
 msgid "Web Research Cache"
@@ -2123,12 +2120,41 @@ msgid ""
 "cache database)."
 msgstr ""
 
+msgid "Prompt for Web Research"
+msgstr ""
+
+msgid "Ask for confirmation before sending a web search query"
+msgstr ""
+
+msgid "Cache max (MB)"
+msgstr ""
+
+msgid "Max disk size for web search cache (0 to disable)"
+msgstr ""
+
+msgid "Cache validity (days)"
+msgstr ""
+
+msgid "How many days cache entries should be considered valid."
+msgstr ""
+
 msgid "Rich Text Control Sidebar"
 msgstr ""
 
 msgid ""
 "Formatted chat via RichTextControl (on by default). Requires restart. "
 "Uncheck for plain-text chat only."
+msgstr ""
+
+msgid "Humanizer skill (natural prose)"
+msgstr ""
+
+msgid ""
+"When enabled, injects guidance into the system prompt so the model makes "
+"generated or revised document text sound more natural and human (removes AI "
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
 msgstr ""
 
 msgid "Doc"
@@ -2143,7 +2169,7 @@ msgid ""
 " after you pause typing. Off by default."
 msgstr ""
 
-msgid "Grammar check model (optional)"
+msgid "Model (optional)"
 msgstr ""
 
 msgid "Leave empty to use the same text model as chat."
@@ -2157,7 +2183,7 @@ msgid ""
 "runs, to avoid concurrent API calls."
 msgstr ""
 
-msgid "Grammar batch sentences"
+msgid "Batch sentences"
 msgstr ""
 
 msgid ""
@@ -2166,7 +2192,7 @@ msgid ""
 "cause model errors."
 msgstr ""
 
-msgid "Grammar concurrent requests"
+msgid "Concurrent requests"
 msgstr ""
 
 msgid ""
@@ -2204,6 +2230,40 @@ msgstr ""
 msgid "Draw and Impress tools"
 msgstr ""
 
+msgid "Embeddings"
+msgstr ""
+
+msgid "Embeddings cache (per-folder semantic search)"
+msgstr ""
+
+msgid ""
+"When on, builds a semantic index in writeragent_embeddings/ beside the "
+"active document's folder and also exposes search_embeddings in "
+"document_research (grep_nearby_files stays available). Requires Settings → "
+"Python venv with sentence-transformers, chromadb, langgraph, langchain-core,"
+" langchain-text-splitters, envwrap (see Settings → Python Test)."
+msgstr ""
+
+msgid "Embedding Provider"
+msgstr ""
+
+msgid ""
+"local (sentence-transformers in venv) or endpoint (configured remote/local "
+"endpoint)"
+msgstr ""
+
+msgid "Local (venv)"
+msgstr ""
+
+msgid "Endpoint"
+msgstr ""
+
+msgid "Embedding Model"
+msgstr ""
+
+msgid "HuggingFace model ID for local provider, or endpoint-specific model ID"
+msgstr ""
+
 msgid "Core services (config, events, logging)"
 msgstr ""
 
@@ -2219,15 +2279,6 @@ msgid ""
 msgstr ""
 
 msgid "MCP Port"
-msgstr ""
-
-msgid "Allow CORS from local origins"
-msgstr ""
-
-msgid ""
-"Automatic for .local, .lan, .home.arpa, .internal, .intern, and LAN IPs in "
-"the browser Origin. For other hosts, add mcp.cors_allowed_origins in "
-"writeragent.json."
 msgstr ""
 
 msgid "Python"
@@ -2274,22 +2325,6 @@ msgid "Isolated (default)"
 msgstr ""
 
 msgid "Shared kernel"
-msgstr ""
-
-msgid "Force internal script editor"
-msgstr ""
-
-msgid ""
-"If checked, bypasses the Monaco script editor and uses the LibreOffice "
-"dialog."
-msgstr ""
-
-msgid "Modeless Run Python Script dialog"
-msgstr ""
-
-msgid ""
-"When checked, the plain-text Run Python Script dialog floats so you can edit"
-" the document while it is open. Uncheck for the classic modal dialog."
 msgstr ""
 
 msgid "Vision / OCR"

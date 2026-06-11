@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-10 17:40-0400\n"
+"POT-Creation-Date: 2026-06-11 14:33-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Finnish <LL@li.org>\n"
@@ -19,11 +19,11 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
-"Asiakirjatutkimus vaatii erikoistuneen tehtävän delegoinnin (USE_SUB_AGENT). "
-"Ota tämä käyttöön asetuksista."
+"Asiakirjatutkimus vaatii erikoistuneen tehtävän delegoinnin (USE_SUB_AGENT)."
+" Ota tämä käyttöön asetuksista."
 
 #: plugin/doc/specialized_base.py
 msgid "Brainstorming session started."
@@ -44,8 +44,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Työkalukutsu vaihdettu tilaan '{0}'. Olet erikoistyökalutilassa. Sinun on "
@@ -62,8 +62,8 @@ msgstr "Muistikirjan suoritus on tuettu vain LibreOffice Writerissa."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
 "Tässä asiakirjassa ei ole tuotua muistikirjaa. Käytä ensin Työkalut → Tuo "
 "Jupyter-muistikirja…"
@@ -237,7 +237,8 @@ msgstr "Tämä malli vie enemmän aikaa kuin nykyinen asetuksesi."
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr "Kokeile toista mallia. {0} vie enemmän aikaa kuin olet määrittänyt."
 
 #: plugin/contrib/aihordeclient/__init__.py
@@ -324,7 +325,8 @@ msgstr ""
 "asetuksista."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Yhteys evätty. Onko paikallinen tekoälypalvelimesi (Ollama/LM Studio) "
 "käynnissä?"
@@ -357,7 +359,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "AI: Voin auttaa sinua kaavojen, data-analyysin ja värikkäiden kaavioiden "
 "kanssa. Kokeile minua!"
@@ -380,9 +383,9 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest "
-"approaches, and help you build an approved spec in your document when you're "
-"ready."
+"AI: Let's explore and design your idea together. I'll ask questions, suggest"
+" approaches, and help you build an approved spec in your document when "
+"you're ready."
 msgstr ""
 "AI: Tutkitaan ja suunnitellaan ideaasi yhdessä. Esitän kysymyksiä, ehdotan "
 "lähestymistapoja ja autan sinua laatimaan hyväksytyn määrittelyn "
@@ -391,7 +394,8 @@ msgstr ""
 #: plugin/framework/constants.py
 msgid ""
 "AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your approval."
+"writing plan outline, and then implement it incrementally with your "
+"approval."
 msgstr ""
 "AI: Luonnostellaan asiakirjasi osio kerrallaan. Autan sinua luomaan "
 "kirjoitussuunnitelman ja toteuttamaan sen vaiheittain hyväksyntäsi "
@@ -516,8 +520,7 @@ msgid ""
 "In that venv run: pip install pywebview\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"Webview-kirjastoa (pywebview) ei voitu tuoda asetuksista valitulla "
-"Pythonilla: \n"
+"Webview-kirjastoa (pywebview) ei voitu tuoda asetuksista valitulla Pythonilla: \n"
 "%(exe)s\n"
 "\n"
 "Suorita kyseisessä virtuaaliympäristössä: pip install pywebview\n"
@@ -1057,8 +1060,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Editoria ei löytynyt (asenna Kate tai Gedit, tai määritä EDITOR-"
-"ympäristömuuttuja). Polku:\n"
+"Editoria ei löytynyt (asenna Kate tai Gedit, tai määritä EDITOR-ympäristömuuttuja). Polku:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -1095,7 +1097,8 @@ msgstr "[Agent-taustajärjestelmää '{0}' ei löytynyt.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Agent-taustajärjestelmä '{0}' ei ole käytettävissä. Tarkista asetukset "
 "(polku, asennus).]"
@@ -1484,7 +1487,8 @@ msgid "Could not talk to the Python editor."
 msgstr "Yhteyden muodostaminen Python-editoriin epäonnistui."
 
 #: plugin/scripting/venv_worker.py
-msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "Vision-koettimen aikakatkaisu (Docling-tuonti voi kestää 10–30 s "
 "ensimmäisellä tarkistuskerralla)."
@@ -1492,6 +1496,18 @@ msgstr ""
 #: plugin/scripting/venv_worker.py
 msgid "Vision probe failed (see writeragent_debug.log)."
 msgstr "Vision-koetin epäonnistui (katso writeragent_debug.log)."
+
+#: plugin/scripting/venv_worker.py
+msgid ""
+"Embeddings probe timed out (sentence-transformers import can take 10–30s on "
+"first check)."
+msgstr ""
+"Upotusten haku aikakatkaistiin (sentence-transformers-tuonti voi viedä 10–30"
+" sekuntia ensimmäisellä tarkistuskerralla)."
+
+#: plugin/scripting/venv_worker.py
+msgid "Embeddings probe failed (see writeragent_debug.log)."
+msgstr "Upotusten haku epäonnistui (katso writeragent_debug.log)."
 
 #: plugin/scripting/venv_worker.py
 msgid "Visualization Libraries"
@@ -1514,6 +1530,10 @@ msgid "Vision Libraries"
 msgstr "Näkökirjastot"
 
 #: plugin/scripting/venv_worker.py
+msgid "Embeddings Libraries"
+msgstr "Upotuskirjastot"
+
+#: plugin/scripting/venv_worker.py
 msgid "Starting Python worker..."
 msgstr "Käynnistetään Python-työntekijää..."
 
@@ -1524,6 +1544,11 @@ msgstr "Luetaan Python-versiota..."
 #: plugin/scripting/venv_worker.py
 msgid "Vision Libraries: loading (first run may take a while)..."
 msgstr "Vision-kirjastot: ladataan (ensimmäinen kerta voi kestää hetken)..."
+
+#: plugin/scripting/venv_worker.py
+msgid "Embeddings Libraries: loading (first run may take a while)..."
+msgstr ""
+"Upotuskirjastot: ladataan (ensimmäinen suorituskerta voi kestää hetken)..."
 
 #: plugin/scripting/venv_worker.py
 msgid "Using LibreOffice process Python..."
@@ -1648,9 +1673,9 @@ msgid ""
 "This Writer document has no imported notebook registry. Use Tools → Import "
 "Jupyter Notebook… to enable notebook Python session reset."
 msgstr ""
-"Tässä Writer-asiakirjassa ei ole tuotua Jupyter-muistikirjarekisteriä. Käytä "
-"Työkalut → Tuo Jupyter-muistikirja… ottaaksesi muistikirjan Python-istunnon "
-"nollauksen käyttöön."
+"Tässä Writer-asiakirjassa ei ole tuotua Jupyter-muistikirjarekisteriä. Käytä"
+" Työkalut → Tuo Jupyter-muistikirja… ottaaksesi muistikirjan Python-istunnon"
+" nollauksen käyttöön."
 
 #: plugin/scripting/units.py plugin/scripting/python_runner.py
 msgid "Units helper failed."
@@ -1806,8 +1831,8 @@ msgstr ""
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "Skripti suoritettiin onnistuneesti, mutta se ei palauttanut tulosta eikä "
 "tuottanut tulostetta. (kesti {time})"
@@ -2147,8 +2172,8 @@ msgid "Path / URL"
 msgstr "Polku / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
 "Taustajärjestelmän CLI-polku (esim. aider) tai ACP-palvelimen URL-osoite "
 "(esim. http://localhost:8000 Hermesille). Tyhjä = kokeile oletusta."
@@ -2204,37 +2229,16 @@ msgstr "Jäsennys + ote"
 msgid "Stats + outline only"
 msgstr "Vain tilastot + jäsennys"
 
-msgid "Extend Selection Max Tokens"
-msgstr "Laajenna valinnan enimmäistunnisteet"
+msgid "Extend max tokens"
+msgstr "Laajenna enimmäistunnuksia"
 
-msgid "Edit Selection Extra Tokens"
-msgstr "Muokkaa valinnan lisätunnisteita"
+msgid "Edit extra tokens"
+msgstr "Muokkaa lisätunnuksia"
 
 msgid "Extra tokens beyond original text length. 0 = same length as original."
 msgstr ""
 "Lisätunnisteet alkuperäisen tekstin pituuden lisäksi. 0 = sama pituus kuin "
 "alkuperäisellä."
-
-msgid "Show Web Search Thinking"
-msgstr "Näytä verkkohaun päättelyprosessi"
-
-msgid "Prompt for Web Research"
-msgstr "Kysy verkkotutkimuksesta"
-
-msgid "Ask for confirmation before sending a web search query"
-msgstr "Pyydä vahvistus ennen verkkohakukyselyn lähettämistä"
-
-msgid "Web Cache Max Size (MB)"
-msgstr "Verkkovälimuistin enimmäiskoko (MB)"
-
-msgid "Max disk size for web search cache (0 to disable)"
-msgstr "Verkkohaun välimuistin enimmäiskoko levyllä (0 = poista käytöstä)"
-
-msgid "Web Cache Validity (Days)"
-msgstr "Verkkovälimuistin voimassaoloaika (päivinä)"
-
-msgid "How many days cache entries should be considered valid."
-msgstr "Kuinka monta päivää välimuistimerkintöjen katsotaan olevan voimassa."
 
 msgid "Web Research Cache"
 msgstr "Verkkotutkimuksen välimuisti"
@@ -2246,6 +2250,24 @@ msgstr ""
 "Välimuistita verkkotutkimusraportit normalisoidun kyselyn mukaan (käyttää "
 "uudelleen verkkohaun välimuistitietokantaa)."
 
+msgid "Prompt for Web Research"
+msgstr "Kysy verkkotutkimuksesta"
+
+msgid "Ask for confirmation before sending a web search query"
+msgstr "Pyydä vahvistus ennen verkkohakukyselyn lähettämistä"
+
+msgid "Cache max (MB)"
+msgstr "Välimuistin enimmäiskoko (MB)"
+
+msgid "Max disk size for web search cache (0 to disable)"
+msgstr "Verkkohaun välimuistin enimmäiskoko levyllä (0 = poista käytöstä)"
+
+msgid "Cache validity (days)"
+msgstr "Välimuistin voimassaolo (päivinä)"
+
+msgid "How many days cache entries should be considered valid."
+msgstr "Kuinka monta päivää välimuistimerkintöjen katsotaan olevan voimassa."
+
 msgid "Rich Text Control Sidebar"
 msgstr "Rich Text Control -sivupalkki"
 
@@ -2256,6 +2278,23 @@ msgstr ""
 "Muotoiltu keskustelu RichTextControlin kautta (oletuksena päällä). Vaatii "
 "uudelleenkäynnistyksen. Poista valinta, jos haluat vain pelkkää tekstiä."
 
+msgid "Humanizer skill (natural prose)"
+msgstr "Humanisointitaito (luonnollinen proosa)"
+
+msgid ""
+"When enabled, injects guidance into the system prompt so the model makes "
+"generated or revised document text sound more natural and human (removes AI "
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
+msgstr ""
+"Kun käytössä, lisää ohjeistuksen järjestelmäkehotteeseen, jotta malli "
+"tuottaa tai muokkaa asiakirjatekstiä luonnollisemman ja inhimillisemmän "
+"kuuloiseksi (poistaa tekoälylle tyypillisiä maneereja). Muokkaa sääntöjä "
+"LibreOffice-profiilissasi kohdassa writeragent/skills/humanizer/SKILL.md "
+"(tiedosto luodaan automaattisesti ensimmäisellä käyttökerralla). Erillinen "
+"Taitojen välilehti voidaan lisätä myöhemmin."
+
 msgid "Doc"
 msgstr "Asiakirja"
 
@@ -2264,16 +2303,16 @@ msgstr "Ota käyttöön tekoälypohjainen kieliopin tarkistus (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "Kun tämä on päällä, WriterAgent rekisteröi tekoälypohjaisen kieliopin "
-"tarkistimensa Linguistic-palveluun; tarkistettu teksti käyttää API-avaintasi "
-"(Työkalut → Asetukset → AI). Alleviivaus ilmestyy pian kirjoitustauon "
+"tarkistimensa Linguistic-palveluun; tarkistettu teksti käyttää API-avaintasi"
+" (Työkalut → Asetukset → AI). Alleviivaus ilmestyy pian kirjoitustauon "
 "jälkeen. Oletuksena pois päältä."
 
-msgid "Grammar check model (optional)"
-msgstr "Kieliopin tarkistusmalli (valinnainen)"
+msgid "Model (optional)"
+msgstr "Malli (valinnainen)"
 
 msgid "Leave empty to use the same text model as chat."
 msgstr "Jätä tyhjäksi, jos haluat käyttää samaa tekstimallia kuin chatissa."
@@ -2286,11 +2325,11 @@ msgid ""
 "runs, to avoid concurrent API calls."
 msgstr ""
 "Kun tämä on päällä, tekoälypohjainen kieliopin tarkistus ohittaa "
-"taustapyynnöt, kun sivupalkin chat tai agentti on käynnissä, jotta vältetään "
-"samanaikaiset API-kutsut."
+"taustapyynnöt, kun sivupalkin chat tai agentti on käynnissä, jotta vältetään"
+" samanaikaiset API-kutsut."
 
-msgid "Grammar batch sentences"
-msgstr "Kieliopin eräkäsittelylauseet"
+msgid "Batch sentences"
+msgstr "Erälauseet"
 
 msgid ""
 "Number of sentences to send per LLM request (1-8). 1 (default) is most "
@@ -2301,8 +2340,8 @@ msgstr ""
 "luotettavin; suuremmat arvot ovat nopeampia ja halvempia, mutta voivat "
 "ylittää tunnisterajat tai aiheuttaa mallivirheitä."
 
-msgid "Grammar concurrent requests"
-msgstr "Kieliopin samanaikaiset pyynnöt"
+msgid "Concurrent requests"
+msgstr "Samanaikaiset pyynnöt"
 
 msgid ""
 "Max simultaneous background grammar API calls (1-8). 1 matches prior "
@@ -2350,6 +2389,50 @@ msgstr ""
 msgid "Draw and Impress tools"
 msgstr "Draw- ja Impress-työkalut"
 
+msgid "Embeddings"
+msgstr "Upotukset"
+
+msgid "Embeddings cache (per-folder semantic search)"
+msgstr "Upotusten välimuisti (kansiokohtainen semanttinen haku)"
+
+msgid ""
+"When on, builds a semantic index in writeragent_embeddings/ beside the "
+"active document's folder and also exposes search_embeddings in "
+"document_research (grep_nearby_files stays available). Requires Settings → "
+"Python venv with sentence-transformers, chromadb, langgraph, langchain-core,"
+" langchain-text-splitters, envwrap (see Settings → Python Test)."
+msgstr ""
+"Kun käytössä, luo semanttisen indeksin writeragent_embeddings/-kansioon "
+"aktiivisen asiakirjan kansion viereen ja tuo search_embeddings-toiminnon "
+"saataville document_research-työkaluun (grep_nearby_files pysyy "
+"käytettävissä). Vaatii asetukset → Python venv, jossa on sentence-"
+"transformers, chromadb, langgraph, langchain-core, langchain-text-splitters "
+"ja envwrap (katso Asetukset → Python-testi)."
+
+msgid "Embedding Provider"
+msgstr "Upotusten tarjoaja"
+
+msgid ""
+"local (sentence-transformers in venv) or endpoint (configured remote/local "
+"endpoint)"
+msgstr ""
+"paikallinen (sentence-transformers venv-ympäristössä) tai päätepiste "
+"(määritetty etä- tai paikallinen päätepiste)"
+
+msgid "Local (venv)"
+msgstr "Paikallinen (venv)"
+
+msgid "Endpoint"
+msgstr "Päätepiste"
+
+msgid "Embedding Model"
+msgstr "Upotusmalli"
+
+msgid "HuggingFace model ID for local provider, or endpoint-specific model ID"
+msgstr ""
+"HuggingFace-mallitunniste paikalliselle palveluntarjoajalle tai päätepisteen"
+" mukainen mallitunniste"
+
 msgid "Core services (config, events, logging)"
 msgstr "Ydinkomponentit (asetukset, tapahtumat, lokitus)"
 
@@ -2360,26 +2443,14 @@ msgid "Enable MCP Server"
 msgstr "Ota MCP-palvelin käyttöön"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Vain localhost, ei todennusta. Asiakasohjelmat käyttävät osoitetta http://"
-"localhost:<port>/mcp (suoratoistettava HTTP)."
+"Vain localhost, ei todennusta. Asiakasohjelmat käyttävät osoitetta "
+"http://localhost:<port>/mcp (suoratoistettava HTTP)."
 
 msgid "MCP Port"
 msgstr "MCP-portti"
-
-msgid "Allow CORS from local origins"
-msgstr "Salli CORS paikallisista lähteistä"
-
-msgid ""
-"Automatic for .local, .lan, .home.arpa, .internal, .intern, and LAN IPs in "
-"the browser Origin. For other hosts, add mcp.cors_allowed_origins in "
-"writeragent.json."
-msgstr ""
-"Automaattinen .local-, .lan-, .home.arpa-, .internal-, .intern- ja "
-"lähiverkon IP-osoitteille selaimen alkuperässä (Origin). Lisää muut "
-"isäntäkoneet tiedostoon writeragent.json kohdassa mcp.cors_allowed_origins."
 
 msgid "Python"
 msgstr "Python"
@@ -2415,8 +2486,8 @@ msgid "Max Calc data cells"
 msgstr "Calc-datasolujen enimmäismäärä"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
 "=PYTHON()-datan tai Run Python Script -datan/data_range-alueen solujen "
 "enimmäismäärä. Suuremmat arvot kuluttavat enemmän RAM-muistia ja aikaa; UNO-"
@@ -2437,27 +2508,6 @@ msgstr "Eristetty (oletus)"
 
 msgid "Shared kernel"
 msgstr "Jaettu ydin"
-
-msgid "Force internal script editor"
-msgstr "Pakota sisäinen skriptieditori"
-
-msgid ""
-"If checked, bypasses the Monaco script editor and uses the LibreOffice "
-"dialog."
-msgstr ""
-"Jos valittu, ohittaa Monaco-skriptieditorin ja käyttää LibreOfficen "
-"valintaikkunaa."
-
-msgid "Modeless Run Python Script dialog"
-msgstr "Malliton Python-komentosarjan suoritusikkuna"
-
-msgid ""
-"When checked, the plain-text Run Python Script dialog floats so you can edit "
-"the document while it is open. Uncheck for the classic modal dialog."
-msgstr ""
-"Kun valittuna, pelkkää tekstiä sisältävä Suorita Python-skripti "
-"-valintaikkuna on kelluva, jolloin voit muokata asiakirjaa sen ollessa auki. "
-"Poista valinta palataksesi perinteiseen modaaliseen valintaikkunaan."
 
 msgid "Vision / OCR"
 msgstr "Vision / OCR"
@@ -2480,7 +2530,8 @@ msgid "Docling artifacts path"
 msgstr "Docling-artefaktien polku"
 
 msgid "Optional folder from docling-tools models download (offline use)."
-msgstr "Valinnainen kansio docling-tools-mallien lataamiseen (offline-käyttö)."
+msgstr ""
+"Valinnainen kansio docling-tools-mallien lataamiseen (offline-käyttö)."
 
 msgid "OCR confidence threshold"
 msgstr "OCR-luottamusraja"

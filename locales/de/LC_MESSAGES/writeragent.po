@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: WriterAgent 1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-10 17:40-0400\n"
+"POT-Creation-Date: 2026-06-11 14:33-0400\n"
 "PO-Revision-Date: 2024-03-21 12:00+0000\n"
 "Last-Translator: \n"
 "Language-Team: German\n"
@@ -14,8 +14,8 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
 "Dokumentenrecherchen erfordern eine spezialisierte Aufgabendelegierung "
 "(USE_SUB_AGENT). Aktivieren Sie dies in der Konfiguration."
@@ -39,8 +39,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Tool-Aufruf auf '{0}' umgeschaltet. Sie befinden sich im spezialisierten "
@@ -58,8 +58,8 @@ msgstr ""
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
 "Dieses Dokument enthält kein importiertes Notebook. Verwenden Sie zuerst "
 "Extras → Jupyter Notebook importieren…"
@@ -156,8 +156,8 @@ msgid ""
 "The Horde is in maintenance mode, please try again later, if you have tried "
 "and the service does not respond for hours, please contact via Discord"
 msgstr ""
-"The Horde befindet sich im Wartungsmodus, bitte versuchen Sie es später noch "
-"einmal. Wenn Sie es versucht haben und der Dienst stundenlang nicht "
+"The Horde befindet sich im Wartungsmodus, bitte versuchen Sie es später noch"
+" einmal. Wenn Sie es versucht haben und der Dienst stundenlang nicht "
 "antwortet, kontaktieren Sie uns bitte über Discord"
 
 #: plugin/contrib/aihordeclient/__init__.py
@@ -240,7 +240,8 @@ msgstr "Dieses Modell benötigt mehr Zeit als Ihre aktuelle Konfiguration."
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr ""
 "Bitte versuchen Sie ein anderes Modell. {0} würde mehr Zeit in Anspruch "
 "nehmen, als Sie konfiguriert haben."
@@ -332,7 +333,8 @@ msgstr ""
 "den Einstellungen zu erhöhen."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr "Verbindung abgelehnt. Läuft Ihr lokaler KI-Server (Ollama/LM Studio)?"
 
 #: plugin/framework/errors.py
@@ -363,7 +365,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "KI: Ich kann Ihnen bei Formeln, Datenanalysen und farbigen Diagrammen "
 "helfen. Probieren Sie es aus!"
@@ -387,9 +390,9 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest "
-"approaches, and help you build an approved spec in your document when you're "
-"ready."
+"AI: Let's explore and design your idea together. I'll ask questions, suggest"
+" approaches, and help you build an approved spec in your document when "
+"you're ready."
 msgstr ""
 "KI: Lassen Sie uns gemeinsam Ihre Idee erkunden und gestalten. Ich werde "
 "Fragen stellen, Ansätze vorschlagen und Ihnen helfen, eine genehmigte "
@@ -398,11 +401,12 @@ msgstr ""
 #: plugin/framework/constants.py
 msgid ""
 "AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your approval."
+"writing plan outline, and then implement it incrementally with your "
+"approval."
 msgstr ""
 "KI: Lassen Sie uns Ihr Dokument abschnittsweise entwerfen. Ich helfe Ihnen "
-"bei der Erstellung eines Schreibplans und setze diesen nach Ihrer Zustimmung "
-"schrittweise um."
+"bei der Erstellung eines Schreibplans und setze diesen nach Ihrer Zustimmung"
+" schrittweise um."
 
 #: plugin/framework/client/errors.py
 #, python-brace-format
@@ -528,8 +532,7 @@ msgid ""
 "In that venv run: pip install pywebview\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"Kann webview (pywebview) nicht mit dem Python aus Einstellungen → Python "
-"importieren:\n"
+"Kann webview (pywebview) nicht mit dem Python aus Einstellungen → Python importieren:\n"
 "%(exe)s\n"
 "\n"
 "Führen Sie in diesem venv aus: pip install pywebview\n"
@@ -989,8 +992,8 @@ msgid ""
 "[Internal Error: Document type changed from {0} to {1}! Please file an "
 "error.]"
 msgstr ""
-"[Interner Fehler: Dokumenttyp hat sich von {0} in {1} geändert! Bitte melden "
-"Sie einen Fehler.]"
+"[Interner Fehler: Dokumenttyp hat sich von {0} in {1} geändert! Bitte melden"
+" Sie einen Fehler.]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -1074,8 +1077,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Kein Editor gefunden (installieren Sie Kate oder Gedit oder setzen Sie "
-"EDITOR). Pfad:\n"
+"Kein Editor gefunden (installieren Sie Kate oder Gedit oder setzen Sie EDITOR). Pfad:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -1112,7 +1114,8 @@ msgstr "[Agent-Backend '{0}' nicht gefunden.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Agent-Backend '{0}' ist nicht verfügbar. Einstellungen prüfen (Pfad, "
 "Installation).]"
@@ -1332,8 +1335,7 @@ msgid ""
 "Enter Python code to execute in the user virtual environment.\n"
 "Assign the result to the 'result' variable."
 msgstr ""
-"Geben Sie den auszuführenden Python-Code für die Benutzer-Virtual-"
-"Environment ein.\n"
+"Geben Sie den auszuführenden Python-Code für die Benutzer-Virtual-Environment ein.\n"
 "Weisen Sie das Ergebnis der Variable 'result' zu."
 
 #: plugin/scripting/python_runner_ui.py
@@ -1357,7 +1359,8 @@ msgstr "Beispiel-Notizblock erfolgreich gespeichert."
 
 #: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
 msgid "No document is open to attach scripts."
-msgstr "Es ist kein Dokument geöffnet, an das Skripte angehängt werden können."
+msgstr ""
+"Es ist kein Dokument geöffnet, an das Skripte angehängt werden können."
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Enter script name:"
@@ -1437,8 +1440,8 @@ msgstr "Skript erfolgreich ausgeführt."
 msgid ""
 "Script executed successfully, but returned no result and produced no output."
 msgstr ""
-"Skript wurde erfolgreich ausgeführt, lieferte jedoch kein Ergebnis und keine "
-"Ausgabe."
+"Skript wurde erfolgreich ausgeführt, lieferte jedoch kein Ergebnis und keine"
+" Ausgabe."
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Success"
@@ -1499,21 +1502,36 @@ msgstr "Das Fenster des Python-Editors wurde nicht gestartet."
 
 #: plugin/scripting/editor_host.py
 msgid "The Python editor exited before it could load your code."
-msgstr "Der Python-Editor wurde beendet, bevor der Code geladen werden konnte."
+msgstr ""
+"Der Python-Editor wurde beendet, bevor der Code geladen werden konnte."
 
 #: plugin/scripting/editor_host.py
 msgid "Could not talk to the Python editor."
 msgstr "Die Kommunikation mit dem Python-Editor ist fehlgeschlagen."
 
 #: plugin/scripting/venv_worker.py
-msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
-"Vision-Sonde Zeitüberschreitung (Docling-Import kann beim ersten Check 10–"
-"30s dauern)."
+"Vision-Sonde Zeitüberschreitung (Docling-Import kann beim ersten Check "
+"10–30s dauern)."
 
 #: plugin/scripting/venv_worker.py
 msgid "Vision probe failed (see writeragent_debug.log)."
 msgstr "Vision-Sonde fehlgeschlagen (siehe writeragent_debug.log)."
+
+#: plugin/scripting/venv_worker.py
+msgid ""
+"Embeddings probe timed out (sentence-transformers import can take 10–30s on "
+"first check)."
+msgstr ""
+"Zeitüberschreitung bei der Überprüfung der Embeddings (der Import von "
+"sentence-transformers kann beim ersten Mal 10–30 Sekunden dauern)."
+
+#: plugin/scripting/venv_worker.py
+msgid "Embeddings probe failed (see writeragent_debug.log)."
+msgstr ""
+"Überprüfung der Embeddings fehlgeschlagen (siehe writeragent_debug.log)."
 
 #: plugin/scripting/venv_worker.py
 msgid "Visualization Libraries"
@@ -1536,6 +1554,10 @@ msgid "Vision Libraries"
 msgstr "Vision-Bibliotheken"
 
 #: plugin/scripting/venv_worker.py
+msgid "Embeddings Libraries"
+msgstr "Embeddings-Bibliotheken"
+
+#: plugin/scripting/venv_worker.py
 msgid "Starting Python worker..."
 msgstr "Starte Python-Worker..."
 
@@ -1547,6 +1569,12 @@ msgstr "Lese Python-Version..."
 msgid "Vision Libraries: loading (first run may take a while)..."
 msgstr ""
 "Vision-Bibliotheken: werden geladen (der erste Start kann etwas dauern)..."
+
+#: plugin/scripting/venv_worker.py
+msgid "Embeddings Libraries: loading (first run may take a while)..."
+msgstr ""
+"Embeddings-Bibliotheken: werden geladen (der erste Start kann eine Weile "
+"dauern)..."
 
 #: plugin/scripting/venv_worker.py
 msgid "Using LibreOffice process Python..."
@@ -1655,8 +1683,8 @@ msgid ""
 "workbook. Cell variables were already isolated per cell."
 msgstr ""
 "Das Initialisierungsskript und jeglicher In-Memory-Initialisierungsstatus "
-"wurden für diese Arbeitsmappe zurückgesetzt. Zellvariablen waren bereits pro "
-"Zelle isoliert."
+"wurden für diese Arbeitsmappe zurückgesetzt. Zellvariablen waren bereits pro"
+" Zelle isoliert."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1752,7 +1780,8 @@ msgstr ""
 #, python-brace-format
 msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
 msgstr ""
-"Vision '{helper}' abgeschlossen. Formatiertes HTML eingefügt. (Dauer: {time})"
+"Vision '{helper}' abgeschlossen. Formatiertes HTML eingefügt. (Dauer: "
+"{time})"
 
 #: plugin/scripting/python_runner.py
 msgid "Viz helpers require a Writer or Calc document."
@@ -1836,11 +1865,11 @@ msgstr ""
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
-"Skript wurde erfolgreich ausgeführt, lieferte jedoch kein Ergebnis und keine "
-"Ausgabe. (Dauer: {time})"
+"Skript wurde erfolgreich ausgeführt, lieferte jedoch kein Ergebnis und keine"
+" Ausgabe. (Dauer: {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -1860,7 +1889,8 @@ msgstr "Skript gespeichert."
 
 #: plugin/scripting/python_runner.py
 msgid "Select data range or enter A1 address (injected as data)."
-msgstr "Datenbereich auswählen oder A1-Adresse eingeben (als Daten eingefügt)."
+msgstr ""
+"Datenbereich auswählen oder A1-Adresse eingeben (als Daten eingefügt)."
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -2181,11 +2211,11 @@ msgid "Path / URL"
 msgstr "Pfad / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Pfad zum Backend-CLI (z. B. aider) oder ACP-Server-URL (z. B. http://"
-"localhost:8000 für Hermes). Leer = Standard versuchen."
+"Pfad zum Backend-CLI (z. B. aider) oder ACP-Server-URL (z. B. "
+"http://localhost:8000 für Hermes). Leer = Standard versuchen."
 
 msgid "Extra arguments"
 msgstr "Zusätzliche Argumente"
@@ -2237,37 +2267,16 @@ msgstr "Gliederung + Auszug"
 msgid "Stats + outline only"
 msgstr "Nur Statistiken + Gliederung"
 
-msgid "Extend Selection Max Tokens"
-msgstr "Max. Tokenanzahl (Auswahl erweitern)"
+msgid "Extend max tokens"
+msgstr "Maximale Token-Anzahl erweitern"
 
-msgid "Edit Selection Extra Tokens"
-msgstr "Zusätzliche Tokenanzahl (Auswahl bearbeiten)"
+msgid "Edit extra tokens"
+msgstr "Zusätzliche Token bearbeiten"
 
 msgid "Extra tokens beyond original text length. 0 = same length as original."
 msgstr ""
 "Zusätzliche Tokens über die ursprüngliche Textlänge hinaus. 0 = gleiche "
 "Länge wie Original."
-
-msgid "Show Web Search Thinking"
-msgstr "Suchschritte (Websuche) anzeigen"
-
-msgid "Prompt for Web Research"
-msgstr "Prompt für Web-Recherche"
-
-msgid "Ask for confirmation before sending a web search query"
-msgstr "Vor dem Senden einer Websuchanfrage um Bestätigung bitten"
-
-msgid "Web Cache Max Size (MB)"
-msgstr "Maximale Größe des Web-Caches (MB)"
-
-msgid "Max disk size for web search cache (0 to disable)"
-msgstr "Maximale Festplattengröße für Web-Such-Cache (0 zum Deaktivieren)"
-
-msgid "Web Cache Validity (Days)"
-msgstr "Web-Cache-Gültigkeit (Tage)"
-
-msgid "How many days cache entries should be considered valid."
-msgstr "Anzahl der Tage, für die Cache-Einträge als gültig betrachtet werden."
 
 msgid "Web Research Cache"
 msgstr "Web-Recherche-Cache"
@@ -2279,6 +2288,24 @@ msgstr ""
 "Zwischenspeichern abgeschlossener Web-Rechercheberichte nach normalisierter "
 "Abfrage (nutzt die Web-Such-Cache-Datenbank wieder)."
 
+msgid "Prompt for Web Research"
+msgstr "Prompt für Web-Recherche"
+
+msgid "Ask for confirmation before sending a web search query"
+msgstr "Vor dem Senden einer Websuchanfrage um Bestätigung bitten"
+
+msgid "Cache max (MB)"
+msgstr "Cache-Maximum (MB)"
+
+msgid "Max disk size for web search cache (0 to disable)"
+msgstr "Maximale Festplattengröße für Web-Such-Cache (0 zum Deaktivieren)"
+
+msgid "Cache validity (days)"
+msgstr "Cache-Gültigkeit (Tage)"
+
+msgid "How many days cache entries should be considered valid."
+msgstr "Anzahl der Tage, für die Cache-Einträge als gültig betrachtet werden."
+
 msgid "Rich Text Control Sidebar"
 msgstr "Rich-Text-Steuerelement-Seitenleiste"
 
@@ -2289,6 +2316,24 @@ msgstr ""
 "Formatierter Chat über RichTextControl (standardmäßig aktiviert). Erfordert "
 "Neustart. Deaktivieren für reinen Text-Chat."
 
+msgid "Humanizer skill (natural prose)"
+msgstr "Humanizer-Skill (natürliche Prosa)"
+
+msgid ""
+"When enabled, injects guidance into the system prompt so the model makes "
+"generated or revised document text sound more natural and human (removes AI "
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
+msgstr ""
+"Wenn aktiviert, wird eine Anleitung in den System-Prompt eingefügt, damit "
+"das Modell generierte oder überarbeitete Dokumenttexte natürlicher und "
+"menschlicher klingen lässt (entfernt typische KI-Muster). Bearbeiten Sie die"
+" Regeln in Ihrem LibreOffice-Profil unter "
+"writeragent/skills/humanizer/SKILL.md (die Datei wird bei der ersten "
+"Verwendung automatisch erstellt). Ein eigener Reiter für Skills kann später "
+"hinzugefügt werden."
+
 msgid "Doc"
 msgstr "Dokument"
 
@@ -2297,16 +2342,16 @@ msgstr "KI-Grammatikprüfer aktivieren (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "Wenn aktiviert, registriert WriterAgent seinen KI-Grammatikprüfer bei "
 "Linguistic; geprüfter Text verwendet Ihre API (Extras → Optionen → KI). "
 "Unterstreichungen erscheinen kurz nachdem Sie das Tippen pausieren. "
 "Standardmäßig deaktiviert."
 
-msgid "Grammar check model (optional)"
-msgstr "Grammatikprüfungsmodell (optional)"
+msgid "Model (optional)"
+msgstr "Modell (optional)"
 
 msgid "Leave empty to use the same text model as chat."
 msgstr "Leer lassen, um dasselbe Textmodell wie im Chat zu verwenden."
@@ -2322,20 +2367,20 @@ msgstr ""
 "Seitenleisten-Chat oder Agent läuft, um gleichzeitige API-Aufrufe zu "
 "vermeiden."
 
-msgid "Grammar batch sentences"
-msgstr "Satzstapel für Grammatikprüfung"
+msgid "Batch sentences"
+msgstr "Satzstapel"
 
 msgid ""
 "Number of sentences to send per LLM request (1-8). 1 (default) is most "
 "reliable; higher values are faster and cheaper but may hit token limits or "
 "cause model errors."
 msgstr ""
-"Anzahl der Sätze pro LLM-Anfrage (1-8). 1 (Standard) ist am zuverlässigsten; "
-"höhere Werte sind schneller und kostengünstiger, können aber Token-Limits "
+"Anzahl der Sätze pro LLM-Anfrage (1-8). 1 (Standard) ist am zuverlässigsten;"
+" höhere Werte sind schneller und kostengünstiger, können aber Token-Limits "
 "überschreiten oder Modellfehler verursachen."
 
-msgid "Grammar concurrent requests"
-msgstr "Gleichzeitige Grammatikanfragen"
+msgid "Concurrent requests"
+msgstr "Gleichzeitige Anfragen"
 
 msgid ""
 "Max simultaneous background grammar API calls (1-8). 1 matches prior "
@@ -2356,9 +2401,9 @@ msgid ""
 "venv). Mismatches update CharLocale and re-check grammar."
 msgstr ""
 "Überprüft jeden vollständigen Satz auf die Dokument-Sprache. KI verwendet "
-"Ihre Grammatik-/Chat-API; Lokal verwendet das mitgelieferte langdetect (kein "
-"API-Aufruf, kein venv). Nichtübereinstimmungen aktualisieren CharLocale und "
-"prüfen die Grammatik erneut."
+"Ihre Grammatik-/Chat-API; Lokal verwendet das mitgelieferte langdetect (kein"
+" API-Aufruf, kein venv). Nichtübereinstimmungen aktualisieren CharLocale und"
+" prüfen die Grammatik erneut."
 
 msgid "Off"
 msgstr "Aus"
@@ -2383,6 +2428,50 @@ msgstr ""
 msgid "Draw and Impress tools"
 msgstr "Draw- und Impress-Werkzeuge"
 
+msgid "Embeddings"
+msgstr "Embeddings"
+
+msgid "Embeddings cache (per-folder semantic search)"
+msgstr "Embeddings-Cache (semantische Suche pro Ordner)"
+
+msgid ""
+"When on, builds a semantic index in writeragent_embeddings/ beside the "
+"active document's folder and also exposes search_embeddings in "
+"document_research (grep_nearby_files stays available). Requires Settings → "
+"Python venv with sentence-transformers, chromadb, langgraph, langchain-core,"
+" langchain-text-splitters, envwrap (see Settings → Python Test)."
+msgstr ""
+"Wenn aktiviert, wird ein semantischer Index in writeragent_embeddings/ neben"
+" dem Ordner des aktiven Dokuments erstellt und search_embeddings in "
+"document_research verfügbar gemacht (grep_nearby_files bleibt verfügbar). "
+"Erfordert Einstellungen → Python-Venv mit sentence-transformers, chromadb, "
+"langgraph, langchain-core, langchain-text-splitters, envwrap (siehe "
+"Einstellungen → Python-Test)."
+
+msgid "Embedding Provider"
+msgstr "Embedding-Anbieter"
+
+msgid ""
+"local (sentence-transformers in venv) or endpoint (configured remote/local "
+"endpoint)"
+msgstr ""
+"lokal (sentence-transformers in venv) oder Endpunkt (konfigurierter "
+"Remote-/lokaler Endpunkt)"
+
+msgid "Local (venv)"
+msgstr "Lokal (venv)"
+
+msgid "Endpoint"
+msgstr "Endpunkt"
+
+msgid "Embedding Model"
+msgstr "Einbettungsmodell"
+
+msgid "HuggingFace model ID for local provider, or endpoint-specific model ID"
+msgstr ""
+"HuggingFace-Modell-ID für lokalen Anbieter oder endpunktspezifische Modell-"
+"ID"
+
 msgid "Core services (config, events, logging)"
 msgstr "Kerndienste (Konfiguration, Ereignisse, Protokollierung)"
 
@@ -2393,26 +2482,14 @@ msgid "Enable MCP Server"
 msgstr "MCP-Server aktivieren"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Nur Localhost, keine Authentifizierung. Clients verwenden http://localhost:"
-"<port>/mcp (streambares HTTP)."
+"Nur Localhost, keine Authentifizierung. Clients verwenden "
+"http://localhost:<port>/mcp (streambares HTTP)."
 
 msgid "MCP Port"
 msgstr "MCP-Port"
-
-msgid "Allow CORS from local origins"
-msgstr "CORS von lokalen Ursprüngen erlauben"
-
-msgid ""
-"Automatic for .local, .lan, .home.arpa, .internal, .intern, and LAN IPs in "
-"the browser Origin. For other hosts, add mcp.cors_allowed_origins in "
-"writeragent.json."
-msgstr ""
-"Automatisch für .local, .lan, .home.arpa, .internal, .intern und LAN-IPs im "
-"Browser-Origin. Für andere Hosts fügen Sie mcp.cors_allowed_origins in "
-"writeragent.json hinzu."
 
 msgid "Python"
 msgstr "Python"
@@ -2448,12 +2525,13 @@ msgid "Max Calc data cells"
 msgstr "Maximale Calc-Datenzellen"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
-"Maximale Zellen in =PYTHON()-Daten oder „Python-Skript ausführen“-Daten/"
-"Datenbereich. Größere Werte verbrauchen mehr Arbeitsspeicher und Zeit; das "
-"Lesen des UNO-Bereichs ist weiterhin der dominierende Faktor."
+"Maximale Zellen in =PYTHON()-Daten oder „Python-Skript "
+"ausführen“-Daten/Datenbereich. Größere Werte verbrauchen mehr "
+"Arbeitsspeicher und Zeit; das Lesen des UNO-Bereichs ist weiterhin der "
+"dominierende Faktor."
 
 msgid "Python session mode"
 msgstr "Python-Sitzungsmodus"
@@ -2462,36 +2540,14 @@ msgid ""
 "Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace "
 "per workbook (variables carry between cells)."
 msgstr ""
-"Isoliert: Jede =PYTHON()-Zelle erhält einen neuen Namensraum. Gemeinsam: Ein "
-"Namensraum pro Arbeitsmappe (Variablen werden zwischen Zellen übertragen)."
+"Isoliert: Jede =PYTHON()-Zelle erhält einen neuen Namensraum. Gemeinsam: Ein"
+" Namensraum pro Arbeitsmappe (Variablen werden zwischen Zellen übertragen)."
 
 msgid "Isolated (default)"
 msgstr "Isoliert (Standard)"
 
 msgid "Shared kernel"
 msgstr "Gemeinsamer Kernel"
-
-msgid "Force internal script editor"
-msgstr "Internen Skript-Editor erzwingen"
-
-msgid ""
-"If checked, bypasses the Monaco script editor and uses the LibreOffice "
-"dialog."
-msgstr ""
-"Falls aktiviert, wird der Monaco-Skript-Editor umgangen und der LibreOffice-"
-"Dialog verwendet."
-
-msgid "Modeless Run Python Script dialog"
-msgstr "Modalloser Dialog 'Python-Skript ausführen'"
-
-msgid ""
-"When checked, the plain-text Run Python Script dialog floats so you can edit "
-"the document while it is open. Uncheck for the classic modal dialog."
-msgstr ""
-"Wenn diese Option aktiviert ist, schwebt der Dialog „Python-Skript "
-"ausführen“ als Nur-Text-Fenster, sodass Sie das Dokument bearbeiten können, "
-"während er geöffnet ist. Deaktivieren Sie diese Option für den klassischen "
-"modalen Dialog."
 
 msgid "Vision / OCR"
 msgstr "Vision / OCR"
@@ -2507,7 +2563,8 @@ msgid "Worker timeout (seconds)"
 msgstr "Worker-Zeitüberschreitung (Sekunden)"
 
 msgid "Host subprocess limit for Vision Helpers (first model download)."
-msgstr "Limit für Host-Subprozesse für Vision-Helfer (erster Modell-Download)."
+msgstr ""
+"Limit für Host-Subprozesse für Vision-Helfer (erster Modell-Download)."
 
 msgid "Docling artifacts path"
 msgstr "Pfad für Docling-Artefakte"
@@ -2551,7 +2608,8 @@ msgid "Keep orphan text clusters"
 msgstr "Verwaiste Textcluster beibehalten"
 
 msgid "Group unassigned text into clusters for messy layouts."
-msgstr "Nicht zugewiesenen Text bei unsauberen Layouts in Clustern gruppieren."
+msgstr ""
+"Nicht zugewiesenen Text bei unsauberen Layouts in Clustern gruppieren."
 
 msgid "Document insert mode"
 msgstr "Dokument-Einfügemodus"

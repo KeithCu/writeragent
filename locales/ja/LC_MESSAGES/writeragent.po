@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-10 17:40-0400\n"
+"POT-Creation-Date: 2026-06-11 14:33-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Japanese <LL@li.org>\n"
@@ -1446,6 +1446,17 @@ msgid "Vision probe failed (see writeragent_debug.log)."
 msgstr "ビジョン・プローブが失敗しました (writeragent_debug.log を参照してください)。"
 
 #: plugin/scripting/venv_worker.py
+msgid ""
+"Embeddings probe timed out (sentence-transformers import can take 10–30s on "
+"first check)."
+msgstr ""
+"埋め込みプローブがタイムアウトしました（sentence-transformersのインポートには初回チェック時10〜30秒かかる場合があります）。"
+
+#: plugin/scripting/venv_worker.py
+msgid "Embeddings probe failed (see writeragent_debug.log)."
+msgstr "埋め込みプローブが失敗しました（writeragent_debug.logを参照してください）。"
+
+#: plugin/scripting/venv_worker.py
 msgid "Visualization Libraries"
 msgstr "可視化ライブラリ"
 
@@ -1466,6 +1477,10 @@ msgid "Vision Libraries"
 msgstr "ビジョンライブラリ"
 
 #: plugin/scripting/venv_worker.py
+msgid "Embeddings Libraries"
+msgstr "埋め込みライブラリ"
+
+#: plugin/scripting/venv_worker.py
 msgid "Starting Python worker..."
 msgstr "Python ワーカーを起動中..."
 
@@ -1476,6 +1491,10 @@ msgstr "Python バージョンを読み込み中..."
 #: plugin/scripting/venv_worker.py
 msgid "Vision Libraries: loading (first run may take a while)..."
 msgstr "Vision Libraries: 読み込み中 (初回実行時は時間がかかる場合があります)..."
+
+#: plugin/scripting/venv_worker.py
+msgid "Embeddings Libraries: loading (first run may take a while)..."
+msgstr "埋め込みライブラリ: 読み込み中（初回実行時は時間がかかる場合があります）..."
 
 #: plugin/scripting/venv_worker.py
 msgid "Using LibreOffice process Python..."
@@ -2127,35 +2146,14 @@ msgstr "アウトライン + 抜粋"
 msgid "Stats + outline only"
 msgstr "統計情報 + アウトラインのみ"
 
-msgid "Extend Selection Max Tokens"
-msgstr "選択範囲拡張の最大トークン数"
+msgid "Extend max tokens"
+msgstr "最大トークン数を拡張"
 
-msgid "Edit Selection Extra Tokens"
-msgstr "選択範囲編集の追加トークン数"
+msgid "Edit extra tokens"
+msgstr "追加トークンを編集"
 
 msgid "Extra tokens beyond original text length. 0 = same length as original."
 msgstr "元のテキスト長に追加するトークン数。0 = 元と同じ長さ。"
-
-msgid "Show Web Search Thinking"
-msgstr "Web検索の思考プロセスを表示"
-
-msgid "Prompt for Web Research"
-msgstr "ウェブ調査用プロンプト"
-
-msgid "Ask for confirmation before sending a web search query"
-msgstr "ウェブ検索クエリを送信する前に確認を求める"
-
-msgid "Web Cache Max Size (MB)"
-msgstr "Web キャッシュ最大サイズ (MB)"
-
-msgid "Max disk size for web search cache (0 to disable)"
-msgstr "Web 検索キャッシュの最大ディスクサイズ (0 で無効化)"
-
-msgid "Web Cache Validity (Days)"
-msgstr "Web キャッシュの有効期間 (日数)"
-
-msgid "How many days cache entries should be considered valid."
-msgstr "キャッシュエントリが有効と見なされる日数。"
 
 msgid "Web Research Cache"
 msgstr "Web Research Cache"
@@ -2164,6 +2162,24 @@ msgid ""
 "Cache completed web research reports by normalized query (reuses web search "
 "cache database)."
 msgstr "正規化されたクエリごとにWebリサーチレポートをキャッシュします（Web検索キャッシュデータベースを再利用します）。"
+
+msgid "Prompt for Web Research"
+msgstr "ウェブ調査用プロンプト"
+
+msgid "Ask for confirmation before sending a web search query"
+msgstr "ウェブ検索クエリを送信する前に確認を求める"
+
+msgid "Cache max (MB)"
+msgstr "キャッシュ最大サイズ (MB)"
+
+msgid "Max disk size for web search cache (0 to disable)"
+msgstr "Web 検索キャッシュの最大ディスクサイズ (0 で無効化)"
+
+msgid "Cache validity (days)"
+msgstr "キャッシュ有効期間 (日)"
+
+msgid "How many days cache entries should be considered valid."
+msgstr "キャッシュエントリが有効と見なされる日数。"
 
 msgid "Rich Text Control Sidebar"
 msgstr "リッチテキストコントロールサイドバー"
@@ -2174,6 +2190,20 @@ msgid ""
 msgstr ""
 "RichTextControlによる書式付きチャット "
 "(デフォルトでオン)。再起動が必要です。プレーンテキストのみのチャットにする場合はチェックを外してください。"
+
+msgid "Humanizer skill (natural prose)"
+msgstr "ヒューマナイザースキル (自然な文章)"
+
+msgid ""
+"When enabled, injects guidance into the system prompt so the model makes "
+"generated or revised document text sound more natural and human (removes AI "
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
+msgstr ""
+"有効にすると、生成または修正された文書のテキストがより自然で人間らしく聞こえるように（AI特有の不自然なパターンを除去）、システムプロンプトにガイダンスを注入します。ルールを編集するには、LibreOfficeプロファイルの"
+" writeragent/skills/humanizer/SKILL.md "
+"を開いてください（このファイルは初回使用時に自動作成されます）。専用の「スキル」タブは後日追加される予定です。"
 
 msgid "Doc"
 msgstr "文書"
@@ -2189,8 +2219,8 @@ msgstr ""
 "オンにすると、WriterAgent は Linguistic に AI 文法校正機能を登録します。チェックされるテキストはあなたの API "
 "を使用します (Tools → Options → AI)。入力が一時停止するとすぐに下線が表示されます。デフォルトでオフです。"
 
-msgid "Grammar check model (optional)"
-msgstr "文法チェック モデル (オプション)"
+msgid "Model (optional)"
+msgstr "モデル (オプション)"
 
 msgid "Leave empty to use the same text model as chat."
 msgstr "チャットと同じテキストモデルを使用するには空にしておいてください。"
@@ -2204,8 +2234,8 @@ msgid ""
 msgstr ""
 "オンにすると、サイドバーチャットまたはエージェント実行中は同時 API 呼び出しを避けるため、AI 文法のバックグラウンドリクエストをスキップします。"
 
-msgid "Grammar batch sentences"
-msgstr "文単位のバッチ処理"
+msgid "Batch sentences"
+msgstr "バッチ文"
 
 msgid ""
 "Number of sentences to send per LLM request (1-8). 1 (default) is most "
@@ -2215,8 +2245,8 @@ msgstr ""
 "LLMリクエストごとに送信する文の数 (1～8)。1 (デフォルト) "
 "が最も確実です。値を大きくすると高速かつ低コストになりますが、トークン制限に達したり、モデルエラーが発生したりする可能性があります。"
 
-msgid "Grammar concurrent requests"
-msgstr "Grammar concurrent requests"
+msgid "Concurrent requests"
+msgstr "同時リクエスト数"
 
 msgid ""
 "Max simultaneous background grammar API calls (1-8). 1 matches prior "
@@ -2257,6 +2287,46 @@ msgstr ""
 msgid "Draw and Impress tools"
 msgstr "Draw と Impress ツール"
 
+msgid "Embeddings"
+msgstr "埋め込み (Embeddings)"
+
+msgid "Embeddings cache (per-folder semantic search)"
+msgstr "埋め込みキャッシュ (フォルダごとのセマンティック検索)"
+
+msgid ""
+"When on, builds a semantic index in writeragent_embeddings/ beside the "
+"active document's folder and also exposes search_embeddings in "
+"document_research (grep_nearby_files stays available). Requires Settings → "
+"Python venv with sentence-transformers, chromadb, langgraph, langchain-core,"
+" langchain-text-splitters, envwrap (see Settings → Python Test)."
+msgstr ""
+"オンにすると、アクティブなドキュメントのフォルダの横に writeragent_embeddings/ "
+"というセマンティックインデックスを作成し、document_research で search_embeddings を公開します "
+"(grep_nearby_files は引き続き利用可能です)。設定 → Python venv に sentence-"
+"transformers、chromadb、langgraph、langchain-core、langchain-text-"
+"splitters、envwrap が必要です (設定 → Python テストを参照)。"
+
+msgid "Embedding Provider"
+msgstr "埋め込みプロバイダー"
+
+msgid ""
+"local (sentence-transformers in venv) or endpoint (configured remote/local "
+"endpoint)"
+msgstr ""
+"local (venv 内の sentence-transformers) または endpoint (設定済みのリモート/ローカルエンドポイント)"
+
+msgid "Local (venv)"
+msgstr "ローカル (venv)"
+
+msgid "Endpoint"
+msgstr "エンドポイント"
+
+msgid "Embedding Model"
+msgstr "埋め込みモデル"
+
+msgid "HuggingFace model ID for local provider, or endpoint-specific model ID"
+msgstr "ローカルプロバイダー用のHuggingFaceモデルID、またはエンドポイント固有のモデルID"
+
 msgid "Core services (config, events, logging)"
 msgstr "コアサービス (設定、イベント、ログ)"
 
@@ -2274,16 +2344,6 @@ msgstr ""
 
 msgid "MCP Port"
 msgstr "MCP ポート"
-
-msgid "Allow CORS from local origins"
-msgstr "ローカルオリジンからのCORSを許可"
-
-msgid ""
-"Automatic for .local, .lan, .home.arpa, .internal, .intern, and LAN IPs in "
-"the browser Origin. For other hosts, add mcp.cors_allowed_origins in "
-"writeragent.json."
-msgstr ""
-"ブラウザのOriginにおいて、.local、.lan、.home.arpa、.internal、.intern、およびLAN内のIPアドレスに対して自動的に適用されます。その他のホストについては、writeragent.jsonのmcp.cors_allowed_originsに追加してください。"
 
 msgid "Python"
 msgstr "Python"
@@ -2339,23 +2399,6 @@ msgstr "分離モード (デフォルト)"
 
 msgid "Shared kernel"
 msgstr "共有カーネル"
-
-msgid "Force internal script editor"
-msgstr "内部スクリプトエディターを強制"
-
-msgid ""
-"If checked, bypasses the Monaco script editor and uses the LibreOffice "
-"dialog."
-msgstr "チェックを入れると、Monacoスクリプトエディターをバイパスし、LibreOfficeのダイアログを使用します。"
-
-msgid "Modeless Run Python Script dialog"
-msgstr "モードレスのPythonスクリプト実行ダイアログ"
-
-msgid ""
-"When checked, the plain-text Run Python Script dialog floats so you can edit"
-" the document while it is open. Uncheck for the classic modal dialog."
-msgstr ""
-"チェックを入れると、プレーンテキストの「Pythonスクリプトの実行」ダイアログがフローティング表示になり、ダイアログを開いたままドキュメントを編集できます。チェックを外すと、従来のモーダルダイアログに戻ります。"
 
 msgid "Vision / OCR"
 msgstr "ビジョン / OCR"

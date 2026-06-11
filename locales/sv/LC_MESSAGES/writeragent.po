@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: WriterAgent 1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-10 17:40-0400\n"
+"POT-Creation-Date: 2026-06-11 14:33-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: \n"
 "Language-Team: Swedish\n"
@@ -14,8 +14,8 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
 "Dokumentforskning kräver specialiserad uppgiftsdelegering (USE_SUB_AGENT). "
 "Aktivera detta i konfigurationen."
@@ -39,8 +39,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Verktygsanrop har växlats till '{0}'. Du befinner dig i ett läge för "
@@ -57,8 +57,8 @@ msgstr "Notebook-körning stöds endast i LibreOffice Writer."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
 "Detta dokument har ingen importerad notebook. Använd Verktyg → Importera "
 "Jupyter Notebook… först."
@@ -160,8 +160,8 @@ msgid ""
 "You have made too many requests, please wait for them to finish, and try "
 "again later"
 msgstr ""
-"Du har gjort för många förfrågningar, vänligen vänta på att de ska slutföras "
-"och försök igen senare"
+"Du har gjort för många förfrågningar, vänligen vänta på att de ska slutföras"
+" och försök igen senare"
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
@@ -233,7 +233,8 @@ msgstr "Denna modell tar längre tid än din nuvarande konfiguration."
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr ""
 "Vänligen prova en annan modell. {0} skulle ta längre tid än du konfigurerat."
 
@@ -322,7 +323,8 @@ msgstr ""
 "Inställningar."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr "Anslutning nekad. Är din lokala AI-server (Ollama/LM Studio) igång?"
 
 #: plugin/framework/errors.py
@@ -353,7 +355,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "AI: Jag kan hjälpa dig med formler, dataanalys och färgglada diagram. Prova "
 "mig!"
@@ -376,9 +379,9 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest "
-"approaches, and help you build an approved spec in your document when you're "
-"ready."
+"AI: Let's explore and design your idea together. I'll ask questions, suggest"
+" approaches, and help you build an approved spec in your document when "
+"you're ready."
 msgstr ""
 "AI: Låt oss utforska och utforma din idé tillsammans. Jag ställer frågor, "
 "föreslår metoder och hjälper dig att skapa en godkänd specifikation i ditt "
@@ -387,7 +390,8 @@ msgstr ""
 #: plugin/framework/constants.py
 msgid ""
 "AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your approval."
+"writing plan outline, and then implement it incrementally with your "
+"approval."
 msgstr ""
 "AI: Låt oss utforma ditt dokument sektion för sektion. Jag hjälper dig att "
 "skapa en disposition för skrivplanen och sedan genomföra den stegvis med "
@@ -464,8 +468,8 @@ msgid ""
 "A1:B10) or =PYTHON(...)."
 msgstr ""
 "Kunde inte bevara cellens PYTHON-formelargument (t.ex. dataområden). "
-"Redigera formeln i Calc, eller använd en citerad kodsträng som =PY(\"code\"; "
-"A1:B10) eller =PYTHON(...)."
+"Redigera formeln i Calc, eller använd en citerad kodsträng som =PY(\"code\";"
+" A1:B10) eller =PYTHON(...)."
 
 #: plugin/calc/python_editor.py
 msgid "Python cell editor"
@@ -511,8 +515,7 @@ msgid ""
 "In that venv run: pip install pywebview\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"Kan inte importera webview (pywebview) med Python från Inställningar → "
-"Python:\n"
+"Kan inte importera webview (pywebview) med Python från Inställningar → Python:\n"
 "%(exe)s\n"
 "\n"
 "Kör följande i den venv:\n"
@@ -961,8 +964,8 @@ msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[Inget kompatibelt LibreOffice-dokument (Writer, Calc eller Draw) hittades i "
-"det aktiva fönstret.]"
+"[Inget kompatibelt LibreOffice-dokument (Writer, Calc eller Draw) hittades i"
+" det aktiva fönstret.]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -1055,8 +1058,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Ingen editor hittades (installera Kate eller Gedit, eller sätt EDITOR). "
-"Sökväg:\n"
+"Ingen editor hittades (installera Kate eller Gedit, eller sätt EDITOR). Sökväg:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -1093,10 +1095,11 @@ msgstr "[Agent-backend '{0}' hittades inte.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
-"[Agent-backend '{0}' är inte tillgänglig. Kontrollera Inställningar (sökväg, "
-"installation).]"
+"[Agent-backend '{0}' är inte tillgänglig. Kontrollera Inställningar (sökväg,"
+" installation).]"
 
 #: plugin/chatbot/send_handlers.py
 msgid "Perfect! I'm switching you to the main assistant now."
@@ -1152,8 +1155,8 @@ msgid ""
 "A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
 "check for updates and install the latest extension."
 msgstr ""
-"En nyare WriterAgent (%s) är tillgänglig. Använd Verktyg → Tilläggshanterare "
-"för att söka efter uppdateringar och installera det senaste tillägget."
+"En nyare WriterAgent (%s) är tillgänglig. Använd Verktyg → Tilläggshanterare"
+" för att söka efter uppdateringar och installera det senaste tillägget."
 
 #: plugin/chatbot/librarian.py
 msgid "Switching to document mode..."
@@ -1346,7 +1349,8 @@ msgstr "Bifoga till dokument"
 #: plugin/scripting/python_runner_ui.py
 #, python-brace-format
 msgid "A script named '{0}' already exists in this document. Overwrite?"
-msgstr "Ett skript med namnet ”{0}” finns redan i detta dokument. Skriva över?"
+msgstr ""
+"Ett skript med namnet ”{0}” finns redan i detta dokument. Skriva över?"
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Attach Script"
@@ -1480,7 +1484,8 @@ msgid "Could not talk to the Python editor."
 msgstr "Kunde inte kommunicera med Python-redigeraren."
 
 #: plugin/scripting/venv_worker.py
-msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "Vision-sökningen tog för lång tid (Docling-import kan ta 10–30 sekunder vid "
 "första kontrollen)."
@@ -1488,6 +1493,18 @@ msgstr ""
 #: plugin/scripting/venv_worker.py
 msgid "Vision probe failed (see writeragent_debug.log)."
 msgstr "Vision-sökningen misslyckades (se writeragent_debug.log)."
+
+#: plugin/scripting/venv_worker.py
+msgid ""
+"Embeddings probe timed out (sentence-transformers import can take 10–30s on "
+"first check)."
+msgstr ""
+"Tidsgränsen för sökning av inbäddningar överskreds (import av sentence-"
+"transformers kan ta 10–30 sekunder vid första kontrollen)."
+
+#: plugin/scripting/venv_worker.py
+msgid "Embeddings probe failed (see writeragent_debug.log)."
+msgstr "Sökning av inbäddningar misslyckades (se writeragent_debug.log)."
 
 #: plugin/scripting/venv_worker.py
 msgid "Visualization Libraries"
@@ -1510,6 +1527,10 @@ msgid "Vision Libraries"
 msgstr "Vision-bibliotek"
 
 #: plugin/scripting/venv_worker.py
+msgid "Embeddings Libraries"
+msgstr "Bibliotek för inbäddningar"
+
+#: plugin/scripting/venv_worker.py
 msgid "Starting Python worker..."
 msgstr "Startar Python-arbetsprocess..."
 
@@ -1520,6 +1541,11 @@ msgstr "Läser Python-version..."
 #: plugin/scripting/venv_worker.py
 msgid "Vision Libraries: loading (first run may take a while)..."
 msgstr "Vision-bibliotek: läser in (första körningen kan ta en stund)..."
+
+#: plugin/scripting/venv_worker.py
+msgid "Embeddings Libraries: loading (first run may take a while)..."
+msgstr ""
+"Bibliotek för inbäddningar: läser in (första körningen kan ta en stund)..."
 
 #: plugin/scripting/venv_worker.py
 msgid "Using LibreOffice process Python..."
@@ -1614,8 +1640,8 @@ msgid ""
 "Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
 "try again."
 msgstr ""
-"Återställ Python-session gäller för Calc-kalkylblad. Öppna en Calc-arbetsbok "
-"och försök igen."
+"Återställ Python-session gäller för Calc-kalkylblad. Öppna en Calc-arbetsbok"
+" och försök igen."
 
 #: plugin/scripting/session_manager.py
 msgid "Python session reset for this workbook."
@@ -1645,8 +1671,8 @@ msgid ""
 "This Writer document has no imported notebook registry. Use Tools → Import "
 "Jupyter Notebook… to enable notebook Python session reset."
 msgstr ""
-"Detta Writer-dokument har inget importerat notebook-register. Använd Verktyg "
-"→ Importera Jupyter Notebook… för att aktivera återställning av Python-"
+"Detta Writer-dokument har inget importerat notebook-register. Använd Verktyg"
+" → Importera Jupyter Notebook… för att aktivera återställning av Python-"
 "session för notebook."
 
 #: plugin/scripting/units.py plugin/scripting/python_runner.py
@@ -1750,8 +1776,8 @@ msgid ""
 "Quant helper requires a data range. Select cells or enter a range in the "
 "Data field."
 msgstr ""
-"Quant-hjälpare kräver ett dataområde. Markera celler eller ange ett område i "
-"datafältet."
+"Quant-hjälpare kräver ett dataområde. Markera celler eller ange ett område i"
+" datafältet."
 
 #: plugin/scripting/python_runner.py
 msgid "Quant failed."
@@ -1799,8 +1825,8 @@ msgstr "Analys '{helper}' slutförd. Skrev {rows} rader. (tog {time})"
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "Skriptet kördes utan problem, men returnerade inget resultat och gav ingen "
 "utdata. (tog {time})"
@@ -2142,11 +2168,11 @@ msgid "Path / URL"
 msgstr "Sökväg / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Sökväg till backend CLI (t.ex. aider) eller ACP-serverns URL (t.ex. http://"
-"localhost:8000 för Hermes). Tom = prova standard."
+"Sökväg till backend CLI (t.ex. aider) eller ACP-serverns URL (t.ex. "
+"http://localhost:8000 för Hermes). Tom = prova standard."
 
 msgid "Extra arguments"
 msgstr "Extra argument"
@@ -2197,36 +2223,15 @@ msgstr "Disposition + utdrag"
 msgid "Stats + outline only"
 msgstr "Endast statistik + disposition"
 
-msgid "Extend Selection Max Tokens"
-msgstr "Utöka urval Max Tokens"
+msgid "Extend max tokens"
+msgstr "Utöka max antal tokens"
 
-msgid "Edit Selection Extra Tokens"
-msgstr "Redigera urval Extra Tokens"
+msgid "Edit extra tokens"
+msgstr "Redigera extra tokens"
 
 msgid "Extra tokens beyond original text length. 0 = same length as original."
 msgstr ""
 "Extra tokens utöver originaltextens längd. 0 = samma längd som originalet."
-
-msgid "Show Web Search Thinking"
-msgstr "Visa tankeprocess för webbsökning"
-
-msgid "Prompt for Web Research"
-msgstr "Prompt för webbundersökning"
-
-msgid "Ask for confirmation before sending a web search query"
-msgstr "Fråga efter bekräftelse innan en webbsökningsfråga skickas"
-
-msgid "Web Cache Max Size (MB)"
-msgstr "Maximal storlek för webbcache (MB)"
-
-msgid "Max disk size for web search cache (0 to disable)"
-msgstr "Max diskstorlek för webbsökningscache (0 för att inaktivera)"
-
-msgid "Web Cache Validity (Days)"
-msgstr "Giltighetstid för webbcache (dagar)"
-
-msgid "How many days cache entries should be considered valid."
-msgstr "Antal dagar som cache-poster ska anses vara giltiga."
 
 msgid "Web Research Cache"
 msgstr "Web-forskningscache"
@@ -2238,6 +2243,24 @@ msgstr ""
 "Cacha slutförda webbforskningsrapporter efter normaliserad sökfråga "
 "(återanvänder databasen för webbsökcache)."
 
+msgid "Prompt for Web Research"
+msgstr "Prompt för webbundersökning"
+
+msgid "Ask for confirmation before sending a web search query"
+msgstr "Fråga efter bekräftelse innan en webbsökningsfråga skickas"
+
+msgid "Cache max (MB)"
+msgstr "Cache max (MB)"
+
+msgid "Max disk size for web search cache (0 to disable)"
+msgstr "Max diskstorlek för webbsökningscache (0 för att inaktivera)"
+
+msgid "Cache validity (days)"
+msgstr "Cache-giltighet (dagar)"
+
+msgid "How many days cache entries should be considered valid."
+msgstr "Antal dagar som cache-poster ska anses vara giltiga."
+
 msgid "Rich Text Control Sidebar"
 msgstr "Sidopanel för RTF-kontroll"
 
@@ -2248,6 +2271,23 @@ msgstr ""
 "Formaterad chatt via RichTextControl (aktiverad som standard). Kräver "
 "omstart. Avmarkera för endast textchatt."
 
+msgid "Humanizer skill (natural prose)"
+msgstr "Humaniseringsfärdighet (naturlig prosa)"
+
+msgid ""
+"When enabled, injects guidance into the system prompt so the model makes "
+"generated or revised document text sound more natural and human (removes AI "
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
+msgstr ""
+"När aktiverad injiceras vägledning i systemprompten så att modellen får "
+"genererad eller reviderad dokumenttext att låta mer naturlig och mänsklig "
+"(tar bort AI-typiska mönster). Redigera reglerna i din LibreOffice-profil "
+"under writeragent/skills/humanizer/SKILL.md (filen skapas automatiskt vid "
+"första användning). En dedikerad flik för färdigheter kan läggas till "
+"senare."
+
 msgid "Doc"
 msgstr "Dok"
 
@@ -2256,16 +2296,16 @@ msgstr "Aktivera AI-grammatikkontroll (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "När funktionen är på registrerar WriterAgent sin AI-grammatikgranskare hos "
-"Linguistic; kontrollerad text använder ditt API (Verktyg → Alternativ → AI). "
-"Understrykningar visas kort efter att du slutar skriva. Avstängd som "
+"Linguistic; kontrollerad text använder ditt API (Verktyg → Alternativ → AI)."
+" Understrykningar visas kort efter att du slutar skriva. Avstängd som "
 "standard."
 
-msgid "Grammar check model (optional)"
-msgstr "Modell för grammatikkontroll (valfritt)"
+msgid "Model (optional)"
+msgstr "Modell (valfritt)"
 
 msgid "Leave empty to use the same text model as chat."
 msgstr "Lämna tomt för att använda samma textmodell som chatten."
@@ -2280,8 +2320,8 @@ msgstr ""
 "När aktiverat hoppar AI-grammatik över bakgrundsförfrågningar medan "
 "sidopanelchatt eller agent körs, för att undvika simultana API-anrop."
 
-msgid "Grammar batch sentences"
-msgstr "Grammatik för satsgrupper"
+msgid "Batch sentences"
+msgstr "Batch-meningar"
 
 msgid ""
 "Number of sentences to send per LLM request (1-8). 1 (default) is most "
@@ -2292,8 +2332,8 @@ msgstr ""
 "tillförlitligt; högre värden är snabbare och billigare men kan nå gränser "
 "för antal tokens eller orsaka modellfel."
 
-msgid "Grammar concurrent requests"
-msgstr "Samtidiga grammatikförfrågningar"
+msgid "Concurrent requests"
+msgstr "Samtidiga förfrågningar"
 
 msgid ""
 "Max simultaneous background grammar API calls (1-8). 1 matches prior "
@@ -2341,6 +2381,50 @@ msgstr ""
 msgid "Draw and Impress tools"
 msgstr "Draw- och Impress-verktyg"
 
+msgid "Embeddings"
+msgstr "Inbäddningar"
+
+msgid "Embeddings cache (per-folder semantic search)"
+msgstr "Cache för inbäddningar (semantisk sökning per mapp)"
+
+msgid ""
+"When on, builds a semantic index in writeragent_embeddings/ beside the "
+"active document's folder and also exposes search_embeddings in "
+"document_research (grep_nearby_files stays available). Requires Settings → "
+"Python venv with sentence-transformers, chromadb, langgraph, langchain-core,"
+" langchain-text-splitters, envwrap (see Settings → Python Test)."
+msgstr ""
+"När aktiverad skapas ett semantiskt index i writeragent_embeddings/ bredvid "
+"det aktiva dokumentets mapp och exponerar även search_embeddings i "
+"document_research (grep_nearby_files förblir tillgänglig). Kräver "
+"Inställningar → Python venv med sentence-transformers, chromadb, langgraph, "
+"langchain-core, langchain-text-splitters, envwrap (se Inställningar → "
+"Python-test)."
+
+msgid "Embedding Provider"
+msgstr "Leverantör för inbäddning"
+
+msgid ""
+"local (sentence-transformers in venv) or endpoint (configured remote/local "
+"endpoint)"
+msgstr ""
+"lokal (sentence-transformers i venv) eller slutpunkt (konfigurerad "
+"fjärr-/lokal slutpunkt)"
+
+msgid "Local (venv)"
+msgstr "Lokal (venv)"
+
+msgid "Endpoint"
+msgstr "Slutpunkt"
+
+msgid "Embedding Model"
+msgstr "Inbäddningsmodell"
+
+msgid "HuggingFace model ID for local provider, or endpoint-specific model ID"
+msgstr ""
+"HuggingFace-modell-ID för lokal leverantör, eller slutpunktsspecifikt "
+"modell-ID"
+
 msgid "Core services (config, events, logging)"
 msgstr "Kärntjänster (konfiguration, händelser, loggning)"
 
@@ -2351,26 +2435,14 @@ msgid "Enable MCP Server"
 msgstr "Aktivera MCP-server"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Endast localhost, ingen autentisering. Klienter använder http://localhost:"
-"<port>/mcp (strömbar HTTP)."
+"Endast localhost, ingen autentisering. Klienter använder "
+"http://localhost:<port>/mcp (strömbar HTTP)."
 
 msgid "MCP Port"
 msgstr "MCP-port"
-
-msgid "Allow CORS from local origins"
-msgstr "Tillåt CORS från lokala ursprung"
-
-msgid ""
-"Automatic for .local, .lan, .home.arpa, .internal, .intern, and LAN IPs in "
-"the browser Origin. For other hosts, add mcp.cors_allowed_origins in "
-"writeragent.json."
-msgstr ""
-"Automatiskt för .local, .lan, .home.arpa, .internal, .intern och LAN-IP-"
-"adresser i webbläsarens Origin. För andra värdar, lägg till "
-"mcp.cors_allowed_origins i writeragent.json."
 
 msgid "Python"
 msgstr "Python"
@@ -2384,8 +2456,8 @@ msgid ""
 "stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
-"Om inställd, körs verktyg i den venv-miljön (bin/python eller Scripts/"
-"python.exe). Om tom använder run_venv_python_script processens "
+"Om inställd, körs verktyg i den venv-miljön (bin/python eller "
+"Scripts/python.exe). Om tom använder run_venv_python_script processens "
 "sys.executable (grundläggande stdlib); använd en venv för numpy/pandas och "
 "Vision Helpers (paddleocr, paddlepaddle)."
 
@@ -2398,18 +2470,19 @@ msgstr "Tidsgräns för Python-skript (sekunder)"
 msgid ""
 "Wall-clock limit for Run Python Script, =PYTHON(), and "
 "run_venv_python_script."
-msgstr "Tidsgräns för Kör Python-skript, =PYTHON() och run_venv_python_script."
+msgstr ""
+"Tidsgräns för Kör Python-skript, =PYTHON() och run_venv_python_script."
 
 msgid "Max Calc data cells"
 msgstr "Max antal Calc-dataceller"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
-"Maximalt antal celler i =PYTHON()-data eller Run Python Script-data/"
-"data_range. Större värden förbrukar mer RAM och tid; UNO-områdesläsning "
-"dominerar fortfarande."
+"Maximalt antal celler i =PYTHON()-data eller Run Python Script-"
+"data/data_range. Större värden förbrukar mer RAM och tid; UNO-områdesläsning"
+" dominerar fortfarande."
 
 msgid "Python session mode"
 msgstr "Python-sessionsläge"
@@ -2427,27 +2500,6 @@ msgstr "Isolerad (standard)"
 msgid "Shared kernel"
 msgstr "Delad kärna"
 
-msgid "Force internal script editor"
-msgstr "Tvinga intern skriptredigerare"
-
-msgid ""
-"If checked, bypasses the Monaco script editor and uses the LibreOffice "
-"dialog."
-msgstr ""
-"Om markerad, förbigås Monaco-skriptredigeraren och LibreOffice-dialogrutan "
-"används istället."
-
-msgid "Modeless Run Python Script dialog"
-msgstr "Modallös dialogruta för att köra Python-skript"
-
-msgid ""
-"When checked, the plain-text Run Python Script dialog floats so you can edit "
-"the document while it is open. Uncheck for the classic modal dialog."
-msgstr ""
-"När markerad flyter dialogrutan Kör Python-skript som vanlig text så att du "
-"kan redigera dokumentet medan den är öppen. Avmarkera för den klassiska "
-"modala dialogrutan."
-
 msgid "Vision / OCR"
 msgstr "Vision / OCR"
 
@@ -2462,7 +2514,8 @@ msgstr "Tidsgräns för arbetsprocess (sekunder)"
 
 msgid "Host subprocess limit for Vision Helpers (first model download)."
 msgstr ""
-"Gräns för värdunderprocesser för Vision Helpers (första modellnedladdningen)."
+"Gräns för värdunderprocesser för Vision Helpers (första "
+"modellnedladdningen)."
 
 msgid "Docling artifacts path"
 msgstr "Sökväg för Docling-artefakter"
@@ -2496,7 +2549,8 @@ msgid "Table cell matching"
 msgstr "Matchning av tabellceller"
 
 msgid "Align detected table cells with content (extract_structure)."
-msgstr "Justera identifierade tabellceller efter innehåll (extract_structure)."
+msgstr ""
+"Justera identifierade tabellceller efter innehåll (extract_structure)."
 
 msgid "Keep orphan text clusters"
 msgstr "Behåll fristående textkluster"

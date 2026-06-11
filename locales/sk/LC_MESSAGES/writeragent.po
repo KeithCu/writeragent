@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-10 17:40-0400\n"
+"POT-Creation-Date: 2026-06-11 14:33-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Slovak <LL@li.org>\n"
@@ -19,8 +19,8 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
 "Čítanie výskumu dokumentov vyžaduje špecializovanú delegáciu úloh "
 "(USE_SUB_AGENT). Povoľte túto možnosť v konfigurácii."
@@ -44,13 +44,13 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Volanie nástroja prepnuté na '{0}'. Nachádzate sa v režime špecializovanej "
-"sady nástrojov. Po dokončení musíte zavolať 'specialized_workflow_finished', "
-"aby sa obnovila úplná sada rozhraní API."
+"sady nástrojov. Po dokončení musíte zavolať 'specialized_workflow_finished',"
+" aby sa obnovila úplná sada rozhraní API."
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
@@ -62,15 +62,16 @@ msgstr "Spustenie poznámkového bloku je podporované iba v LibreOffice Writer.
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
-"Tento dokument neobsahuje žiadny importovaný poznámkový blok. Najprv použite "
-"Nástroje → Importovať Jupyter Notebook…"
+"Tento dokument neobsahuje žiadny importovaný poznámkový blok. Najprv použite"
+" Nástroje → Importovať Jupyter Notebook…"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Could not find notebook cell for this control."
-msgstr "Pre tento ovládací prvok sa nepodarilo nájsť bunku poznámkového bloku."
+msgstr ""
+"Pre tento ovládací prvok sa nepodarilo nájsť bunku poznámkového bloku."
 
 #: plugin/notebook/notebook_runner.py plugin/notebook/import_dialog.py
 msgid "Open a Writer document first."
@@ -238,7 +239,8 @@ msgstr "Tento model vyžaduje viac času, než je vaša aktuálna konfigurácia.
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr "Skúste iný model. {0} by vyžadoval viac času, než ste nastavili."
 
 #: plugin/contrib/aihordeclient/__init__.py
@@ -326,7 +328,8 @@ msgstr ""
 "Nastaveniach."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Pripojenie odmietnuté. Je váš lokálny AI server (Ollama/LM Studio) spustený?"
 
@@ -358,7 +361,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "AI: Pomôžem vám so vzorcami, analýzou údajov a farebnými grafmi. Vyskúšajte "
 "ma!"
@@ -382,9 +386,9 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest "
-"approaches, and help you build an approved spec in your document when you're "
-"ready."
+"AI: Let's explore and design your idea together. I'll ask questions, suggest"
+" approaches, and help you build an approved spec in your document when "
+"you're ready."
 msgstr ""
 "AI: Poďme spoločne preskúmať a navrhnúť váš nápad. Budem klásť otázky, "
 "navrhovať prístupy a pomôžem vám vytvoriť schválenú špecifikáciu vo vašom "
@@ -393,7 +397,8 @@ msgstr ""
 #: plugin/framework/constants.py
 msgid ""
 "AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your approval."
+"writing plan outline, and then implement it incrementally with your "
+"approval."
 msgstr ""
 "AI: Poďme vypracovať váš dokument po častiach. Pomôžem vám vytvoriť osnovu "
 "plánu písania a následne ju postupne realizovať s vaším schválením."
@@ -418,8 +423,8 @@ msgid ""
 "The model is repeating the same chunk (infinite loop). Try again or use a "
 "different model."
 msgstr ""
-"Model opakuje rovnaký úsek (nekonečná slučka). Skúste to znova alebo použite "
-"iný model."
+"Model opakuje rovnaký úsek (nekonečná slučka). Skúste to znova alebo použite"
+" iný model."
 
 #: plugin/calc/python_function.py
 msgid "Image inserted"
@@ -516,8 +521,7 @@ msgid ""
 "In that venv run: pip install pywebview\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"Nemožno importovať webview (pywebview) pomocou Pythonu z Nastavenia → "
-"Python:\n"
+"Nemožno importovať webview (pywebview) pomocou Pythonu z Nastavenia → Python:\n"
 "%(exe)s\n"
 "\n"
 "V tomto virtuálnom prostredí (venv) spustite: pip install pywebview\n"
@@ -1060,8 +1064,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Nenašiel sa žiadny editor (nainštalujte Kate alebo Gedit, prípadne nastavte "
-"premennú EDITOR). Cesta:\n"
+"Nenašiel sa žiadny editor (nainštalujte Kate alebo Gedit, prípadne nastavte premennú EDITOR). Cesta:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -1098,7 +1101,8 @@ msgstr "[Backend agenta „{0}“ sa nenašiel.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Backend agenta „{0}“ nie je k dispozícii. Skontrolujte nastavenia (cesta, "
 "inštalácia).]"
@@ -1238,8 +1242,8 @@ msgid ""
 "Document is read-only or properties cannot be written. Script saved to your "
 "personal library instead."
 msgstr ""
-"Dokument je len na čítanie alebo vlastnosti nie je možné zapísať. Skript bol "
-"namiesto toho uložený do vašej osobnej knižnice."
+"Dokument je len na čítanie alebo vlastnosti nie je možné zapísať. Skript bol"
+" namiesto toho uložený do vašej osobnej knižnice."
 
 #: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
 msgid "Script name cannot be empty."
@@ -1315,8 +1319,7 @@ msgid ""
 "Enter Python code to execute in the user virtual environment.\n"
 "Assign the result to the 'result' variable."
 msgstr ""
-"Zadajte kód v jazyku Python, ktorý sa má vykonať v používateľskom virtuálnom "
-"prostredí.\n"
+"Zadajte kód v jazyku Python, ktorý sa má vykonať v používateľskom virtuálnom prostredí.\n"
 "Výsledok priraďte k premennej 'result'."
 
 #: plugin/scripting/python_runner_ui.py
@@ -1487,14 +1490,27 @@ msgid "Could not talk to the Python editor."
 msgstr "Nepodarilo sa komunikovať s editorom Pythonu."
 
 #: plugin/scripting/venv_worker.py
-msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
-"Časový limit vizuálnej sondy vypršal (import Docling môže pri prvej kontrole "
-"trvať 10 – 30 s)."
+"Časový limit vizuálnej sondy vypršal (import Docling môže pri prvej kontrole"
+" trvať 10 – 30 s)."
 
 #: plugin/scripting/venv_worker.py
 msgid "Vision probe failed (see writeragent_debug.log)."
 msgstr "Vizuálna sonda zlyhala (pozri writeragent_debug.log)."
+
+#: plugin/scripting/venv_worker.py
+msgid ""
+"Embeddings probe timed out (sentence-transformers import can take 10–30s on "
+"first check)."
+msgstr ""
+"Časový limit sondy vložení (import sentence-transformers môže pri prvej "
+"kontrole trvať 10–30 s)."
+
+#: plugin/scripting/venv_worker.py
+msgid "Embeddings probe failed (see writeragent_debug.log)."
+msgstr "Sonda vložení zlyhala (pozri writeragent_debug.log)."
 
 #: plugin/scripting/venv_worker.py
 msgid "Visualization Libraries"
@@ -1517,6 +1533,10 @@ msgid "Vision Libraries"
 msgstr "Knižnice videnia"
 
 #: plugin/scripting/venv_worker.py
+msgid "Embeddings Libraries"
+msgstr "Knižnice vložení"
+
+#: plugin/scripting/venv_worker.py
 msgid "Starting Python worker..."
 msgstr "Spúšťa sa pracovný proces Python..."
 
@@ -1527,6 +1547,10 @@ msgstr "Číta sa verzia Pythonu..."
 #: plugin/scripting/venv_worker.py
 msgid "Vision Libraries: loading (first run may take a while)..."
 msgstr "Knižnice Vision: načítava sa (prvé spustenie môže chvíľu trvať)..."
+
+#: plugin/scripting/venv_worker.py
+msgid "Embeddings Libraries: loading (first run may take a while)..."
+msgstr "Knižnice vložení: načítava sa (prvé spustenie môže chvíľu trvať)..."
 
 #: plugin/scripting/venv_worker.py
 msgid "Using LibreOffice process Python..."
@@ -1621,8 +1645,8 @@ msgid ""
 "Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
 "try again."
 msgstr ""
-"Resetovanie relácie Python sa vzťahuje na tabuľky Calc. Otvorte zošit Calc a "
-"skúste to znova."
+"Resetovanie relácie Python sa vzťahuje na tabuľky Calc. Otvorte zošit Calc a"
+" skúste to znova."
 
 #: plugin/scripting/session_manager.py
 msgid "Python session reset for this workbook."
@@ -1652,8 +1676,8 @@ msgid ""
 "This Writer document has no imported notebook registry. Use Tools → Import "
 "Jupyter Notebook… to enable notebook Python session reset."
 msgstr ""
-"Tento dokument Writer nemá importovaný register poznámkových blokov. Použite "
-"Nástroje → Importovať Jupyter Notebook…, aby ste povolili reset relácie "
+"Tento dokument Writer nemá importovaný register poznámkových blokov. Použite"
+" Nástroje → Importovať Jupyter Notebook…, aby ste povolili reset relácie "
 "Pythonu pre poznámkový blok."
 
 #: plugin/scripting/units.py plugin/scripting/python_runner.py
@@ -1727,7 +1751,8 @@ msgstr ""
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
-msgstr "Vision '{helper}' dokončený. Vložené formátované HTML. (trvalo {time})"
+msgstr ""
+"Vision '{helper}' dokončený. Vložené formátované HTML. (trvalo {time})"
 
 #: plugin/scripting/python_runner.py
 msgid "Viz helpers require a Writer or Calc document."
@@ -1758,8 +1783,8 @@ msgid ""
 "Quant helper requires a data range. Select cells or enter a range in the "
 "Data field."
 msgstr ""
-"Pomocník Quant vyžaduje rozsah údajov. Vyberte bunky alebo zadajte rozsah do "
-"poľa Údaje."
+"Pomocník Quant vyžaduje rozsah údajov. Vyberte bunky alebo zadajte rozsah do"
+" poľa Údaje."
 
 #: plugin/scripting/python_runner.py
 msgid "Quant failed."
@@ -1768,7 +1793,8 @@ msgstr "Quant zlyhal."
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid "Quant '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr "Quant '{helper}' dokončený. Zapísaných {rows} riadkov. (trvalo {time})"
+msgstr ""
+"Quant '{helper}' dokončený. Zapísaných {rows} riadkov. (trvalo {time})"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -1810,8 +1836,8 @@ msgstr ""
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "Skript bol úspešne vykonaný, ale nevrátil žiadny výsledok a nevyprodukoval "
 "žiadny výstup. (trvalo {time})"
@@ -2153,11 +2179,11 @@ msgid "Path / URL"
 msgstr "Cesta / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Cesta k backendovému CLI (napr. aider) alebo URL servera ACP (napr. http://"
-"localhost:8000 pre Hermes). Prázdne = skúsiť predvolené."
+"Cesta k backendovému CLI (napr. aider) alebo URL servera ACP (napr. "
+"http://localhost:8000 pre Hermes). Prázdne = skúsiť predvolené."
 
 msgid "Extra arguments"
 msgstr "Ďalšie argumenty"
@@ -2208,41 +2234,16 @@ msgstr "Osnova + úryvok"
 msgid "Stats + outline only"
 msgstr "Štatistiky + len osnova"
 
-msgid "Extend Selection Max Tokens"
-msgstr "Maximálny počet tokenov rozšíreného výberu"
+msgid "Extend max tokens"
+msgstr "Rozšíriť max. tokenov"
 
-msgid "Edit Selection Extra Tokens"
-msgstr "Dodatočné tokeny úpravy výberu"
+msgid "Edit extra tokens"
+msgstr "Upraviť extra tokeny"
 
 msgid "Extra tokens beyond original text length. 0 = same length as original."
 msgstr ""
 "Dodatočné tokeny nad dĺžku pôvodného textu. 0 = rovnaká dĺžka ako pôvodný "
 "text."
-
-msgid "Show Web Search Thinking"
-msgstr "Zobraziť úvahy pri vyhľadávaní na webe"
-
-msgid "Prompt for Web Research"
-msgstr "Vyzvať na prieskum webu"
-
-msgid "Ask for confirmation before sending a web search query"
-msgstr "Pred odoslaním dotazu na vyhľadávanie na webe vyžiadať potvrdenie"
-
-msgid "Web Cache Max Size (MB)"
-msgstr "Maximálna veľkosť webovej vyrovnávacej pamäte (MB)"
-
-msgid "Max disk size for web search cache (0 to disable)"
-msgstr ""
-"Maximálna veľkosť disku pre vyrovnávaciu pamäť vyhľadávania na webe (0 pre "
-"zakázanie)"
-
-msgid "Web Cache Validity (Days)"
-msgstr "Platnosť webovej vyrovnávacej pamäte (dni)"
-
-msgid "How many days cache entries should be considered valid."
-msgstr ""
-"Počet dní, počas ktorých sa majú záznamy vo vyrovnávacej pamäti považovať za "
-"platné."
 
 msgid "Web Research Cache"
 msgstr "Vyrovnávacia pamäť webového prieskumu"
@@ -2254,6 +2255,28 @@ msgstr ""
 "Ukladá dokončené správy z webového prieskumu podľa normalizovaného dopytu "
 "(opätovne využíva databázu vyrovnávacej pamäte webového vyhľadávania)."
 
+msgid "Prompt for Web Research"
+msgstr "Vyzvať na prieskum webu"
+
+msgid "Ask for confirmation before sending a web search query"
+msgstr "Pred odoslaním dotazu na vyhľadávanie na webe vyžiadať potvrdenie"
+
+msgid "Cache max (MB)"
+msgstr "Max. vyrovnávacia pamäť (MB)"
+
+msgid "Max disk size for web search cache (0 to disable)"
+msgstr ""
+"Maximálna veľkosť disku pre vyrovnávaciu pamäť vyhľadávania na webe (0 pre "
+"zakázanie)"
+
+msgid "Cache validity (days)"
+msgstr "Platnosť vyrovnávacej pamäte (dni)"
+
+msgid "How many days cache entries should be considered valid."
+msgstr ""
+"Počet dní, počas ktorých sa majú záznamy vo vyrovnávacej pamäti považovať za"
+" platné."
+
 msgid "Rich Text Control Sidebar"
 msgstr "Bočný panel ovládača formátovaného textu"
 
@@ -2261,8 +2284,24 @@ msgid ""
 "Formatted chat via RichTextControl (on by default). Requires restart. "
 "Uncheck for plain-text chat only."
 msgstr ""
-"Formátovaný chat cez RichTextControl (predvolene zapnuté). Vyžaduje reštart. "
-"Zrušte začiarknutie pre chat iba s čistým textom."
+"Formátovaný chat cez RichTextControl (predvolene zapnuté). Vyžaduje reštart."
+" Zrušte začiarknutie pre chat iba s čistým textom."
+
+msgid "Humanizer skill (natural prose)"
+msgstr "Zručnosť humanizácie (prirodzený text)"
+
+msgid ""
+"When enabled, injects guidance into the system prompt so the model makes "
+"generated or revised document text sound more natural and human (removes AI "
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
+msgstr ""
+"Keď je povolené, vloží usmernenie do systémovej výzvy, aby generovaný alebo "
+"revidovaný text dokumentu znel prirodzenejšie a ľudskejšie (odstraňuje "
+"vzorce typické pre AI). Pravidlá upravte vo svojom profile LibreOffice v "
+"časti writeragent/skills/humanizer/SKILL.md (súbor sa automaticky vytvorí "
+"pri prvom použití). Vyhradenú kartu Zručnosti možno pridať neskôr."
 
 msgid "Doc"
 msgstr "Dokument"
@@ -2272,16 +2311,16 @@ msgstr "Povoliť kontrolu gramatiky AI (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "Keď je táto možnosť zapnutá, WriterAgent zaregistruje svoj nástroj na "
 "kontrolu gramatiky AI v rámci jazykových nástrojov; kontrolovaný text "
 "využíva vaše API (Nástroje → Možnosti → AI). Podčiarknutie sa objaví krátko "
 "po tom, čo prestanete písať. Predvolene vypnuté."
 
-msgid "Grammar check model (optional)"
-msgstr "Model kontroly gramatiky (voliteľné)"
+msgid "Model (optional)"
+msgstr "Model (voliteľné)"
 
 msgid "Leave empty to use the same text model as chat."
 msgstr ""
@@ -2295,11 +2334,11 @@ msgid ""
 "runs, to avoid concurrent API calls."
 msgstr ""
 "Keď je táto možnosť zapnutá, kontrola gramatiky AI preskočí žiadosti na "
-"pozadí, kým beží chat na bočnom paneli alebo agent, aby sa predišlo súbežným "
-"volaniam API."
+"pozadí, kým beží chat na bočnom paneli alebo agent, aby sa predišlo súbežným"
+" volaniam API."
 
-msgid "Grammar batch sentences"
-msgstr "Dávkové spracovanie viet"
+msgid "Batch sentences"
+msgstr "Dávkové vety"
 
 msgid ""
 "Number of sentences to send per LLM request (1-8). 1 (default) is most "
@@ -2310,8 +2349,8 @@ msgstr ""
 "najspoľahlivejšie; vyššie hodnoty sú rýchlejšie a lacnejšie, ale môžu "
 "prekročiť limity tokenov alebo spôsobiť chyby modelu."
 
-msgid "Grammar concurrent requests"
-msgstr "Súbežné požiadavky na gramatiku"
+msgid "Concurrent requests"
+msgstr "Súbežné požiadavky"
 
 msgid ""
 "Max simultaneous background grammar API calls (1-8). 1 matches prior "
@@ -2331,8 +2370,8 @@ msgid ""
 "uses your grammar/chat API; Local uses bundled langdetect (no API call, no "
 "venv). Mismatches update CharLocale and re-check grammar."
 msgstr ""
-"Overte každú celú vetu podľa jazyka dokumentu. AI používa vaše rozhranie API "
-"pre gramatiku/chat; Lokálne používa pribalený nástroj langdetect (žiadne "
+"Overte každú celú vetu podľa jazyka dokumentu. AI používa vaše rozhranie API"
+" pre gramatiku/chat; Lokálne používa pribalený nástroj langdetect (žiadne "
 "volanie API, žiadne venv). Neshody aktualizujú CharLocale a znova "
 "skontrolujú gramatiku."
 
@@ -2359,6 +2398,51 @@ msgstr ""
 msgid "Draw and Impress tools"
 msgstr "Nástroje pre Draw a Impress"
 
+msgid "Embeddings"
+msgstr "Vektorové reprezentácie (Embeddings)"
+
+msgid "Embeddings cache (per-folder semantic search)"
+msgstr ""
+"Vyrovnávacia pamäť vektorových reprezentácií (sémantické vyhľadávanie podľa "
+"priečinka)"
+
+msgid ""
+"When on, builds a semantic index in writeragent_embeddings/ beside the "
+"active document's folder and also exposes search_embeddings in "
+"document_research (grep_nearby_files stays available). Requires Settings → "
+"Python venv with sentence-transformers, chromadb, langgraph, langchain-core,"
+" langchain-text-splitters, envwrap (see Settings → Python Test)."
+msgstr ""
+"Ak je zapnuté, vytvorí sémantický index v writeragent_embeddings/ vedľa "
+"priečinka aktívneho dokumentu a sprístupní search_embeddings v "
+"document_research (grep_nearby_files zostáva k dispozícii). Vyžaduje "
+"Nastavenia → Python venv s balíkmi sentence-transformers, chromadb, "
+"langgraph, langchain-core, langchain-text-splitters, envwrap (pozri "
+"Nastavenia → Python Test)."
+
+msgid "Embedding Provider"
+msgstr "Poskytovateľ vektorových reprezentácií"
+
+msgid ""
+"local (sentence-transformers in venv) or endpoint (configured remote/local "
+"endpoint)"
+msgstr ""
+"lokálny (sentence-transformers vo venv) alebo koncový bod (nakonfigurovaný "
+"vzdialený/lokálny koncový bod)"
+
+msgid "Local (venv)"
+msgstr "Lokálny (venv)"
+
+msgid "Endpoint"
+msgstr "Koncový bod"
+
+#, fuzzy
+msgid "Embedding Model"
+msgstr "Aktualizujú sa modely..."
+
+msgid "HuggingFace model ID for local provider, or endpoint-specific model ID"
+msgstr ""
+
 msgid "Core services (config, events, logging)"
 msgstr "Základné služby (konfigurácia, udalosti, protokolovanie)"
 
@@ -2369,26 +2453,14 @@ msgid "Enable MCP Server"
 msgstr "Povoliť server MCP"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Iba localhost, bez autentifikácie. Klienti používajú http://localhost:<port>/"
-"mcp (streamovateľné HTTP)."
+"Iba localhost, bez autentifikácie. Klienti používajú "
+"http://localhost:<port>/mcp (streamovateľné HTTP)."
 
 msgid "MCP Port"
 msgstr "Port MCP"
-
-msgid "Allow CORS from local origins"
-msgstr "Povoliť CORS z lokálnych zdrojov"
-
-msgid ""
-"Automatic for .local, .lan, .home.arpa, .internal, .intern, and LAN IPs in "
-"the browser Origin. For other hosts, add mcp.cors_allowed_origins in "
-"writeragent.json."
-msgstr ""
-"Automaticky pre .local, .lan, .home.arpa, .internal, .intern a IP adresy v "
-"lokálnej sieti (LAN) v pôvode prehliadača (Origin). Pre ostatných hostiteľov "
-"pridajte mcp.cors_allowed_origins do súboru writeragent.json."
 
 msgid "Python"
 msgstr "Python"
@@ -2402,10 +2474,10 @@ msgid ""
 "stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
-"Ak je nastavené, spustí nástroje v danom venv (bin/python alebo Scripts/"
-"python.exe). Ak je prázdne, run_venv_python_script použije sys.executable "
-"tohto procesu (základná stdlib); pre numpy/pandas a pomocníkov vízie "
-"(paddleocr, paddlepaddle) použite venv."
+"Ak je nastavené, spustí nástroje v danom venv (bin/python alebo "
+"Scripts/python.exe). Ak je prázdne, run_venv_python_script použije "
+"sys.executable tohto procesu (základná stdlib); pre numpy/pandas a "
+"pomocníkov vízie (paddleocr, paddlepaddle) použite venv."
 
 msgid "Test"
 msgstr "Test"
@@ -2423,12 +2495,12 @@ msgid "Max Calc data cells"
 msgstr "Maximálny počet buniek údajov v Calc"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
 "Maximálny počet buniek v údajoch =PYTHON() alebo v údajoch/oblasti údajov "
-"funkcie Spustiť skript Python. Vyššie hodnoty spotrebúvajú viac pamäte RAM a "
-"času; čítanie rozsahu UNO je stále dominantné."
+"funkcie Spustiť skript Python. Vyššie hodnoty spotrebúvajú viac pamäte RAM a"
+" času; čítanie rozsahu UNO je stále dominantné."
 
 msgid "Python session mode"
 msgstr "Režim relácie Pythonu"
@@ -2445,27 +2517,6 @@ msgstr "Izolované (predvolené)"
 
 msgid "Shared kernel"
 msgstr "Zdieľané jadro"
-
-msgid "Force internal script editor"
-msgstr "Vynútiť interný editor skriptov"
-
-msgid ""
-"If checked, bypasses the Monaco script editor and uses the LibreOffice "
-"dialog."
-msgstr ""
-"Ak je začiarknuté, obíde editor skriptov Monaco a použije dialógové okno "
-"LibreOffice."
-
-msgid "Modeless Run Python Script dialog"
-msgstr "Modálne okno Spustiť skript Python"
-
-msgid ""
-"When checked, the plain-text Run Python Script dialog floats so you can edit "
-"the document while it is open. Uncheck for the classic modal dialog."
-msgstr ""
-"Ak je začiarknuté, dialógové okno Spustiť skript Python v čistom texte bude "
-"plávajúce, takže môžete upravovať dokument, kým je otvorené. Zrušte "
-"začiarknutie pre klasické modálne dialógové okno."
 
 msgid "Vision / OCR"
 msgstr "Vízia / OCR"
@@ -2488,7 +2539,8 @@ msgstr "Cesta k artefaktom Docling"
 
 msgid "Optional folder from docling-tools models download (offline use)."
 msgstr ""
-"Voliteľný priečinok na stiahnuté modely docling-tools (pre offline použitie)."
+"Voliteľný priečinok na stiahnuté modely docling-tools (pre offline "
+"použitie)."
 
 msgid "OCR confidence threshold"
 msgstr "Prahová hodnota spoľahlivosti OCR"
@@ -2532,8 +2584,8 @@ msgid ""
 "html = Docling HTML import (default). structured = bbox column layout in "
 "Writer; native Calc cells for extract_structure tables."
 msgstr ""
-"html = import HTML cez Docling (predvolené). structured = rozloženie stĺpcov "
-"s ohraničením (bbox) vo Writeri; natívne bunky Calc pre tabuľky "
+"html = import HTML cez Docling (predvolené). structured = rozloženie stĺpcov"
+" s ohraničením (bbox) vo Writeri; natívne bunky Calc pre tabuľky "
 "extract_structure."
 
 msgid "Standard HTML"
