@@ -630,13 +630,13 @@ The standardized Split-Grid format fixed the **child** hot path (`frombuffer` vs
 **Status: Experimental / Arch-Specific**
 A high-performance Cython implementation of the flattening loop has been developed to address the remaining Python bottleneck. 
 
-- **Performance Gain**: Achieved a **3.1x to 4x speedup** on the flattening stage.
-- **Data (100k cells)**:
-    - **Pure Python**: ~8.3 ms
-    - **Cython v1 (Generic)**: ~2.6 ms
-    - **Cython v3 (AVX2)**: ~2.5 ms
-- **Architecture Comparison**: The performance difference between **v1** (generic x86-64) and **v3** (AVX2-optimized) is negligible (~3%). This indicates that the flattening process is primarily **memory-bound** (traversing Python objects and writing to a buffer) rather than compute-bound.
-- **Deployment Strategy**: The project targets the standard **x86-64** baseline for its native wheels. This ensures that the generated binaries are compatible with any 64-bit x86 processor and can be built using common toolchains (like GCC 10) in `manylinux2014`. While users can explicitly build for `v2` or `v3` for local performance, the standard release artifacts prioritize universal compatibility.
+- **Performance Gain**: Achieved a **~3–4× speedup** on the flattening stage (Cython vs pure Python).
+- **Data (100k cells, June 2026 bench)**:
+    - **Pure Python**: ~8 ms
+    - **Cython v1 (`x86-64`)**: host_pack ~3.0 ms, total ~3.1 ms
+    - **Cython v3 (`x86-64-v3`)**: host_pack ~3.0 ms, total ~3.0 ms
+- **Architecture comparison**: v1 vs v3 delta is **~1%** — flattening is **memory-bound**, not SIMD-bound. User CPUs are effectively all v3-capable; **v2 would be a fine ISA floor**, but bumping CI/Makefile wheels to v2/v3 buys almost nothing.
+- **Build policy**: release wheels stay on generic **x86-64** — not because users need v1 compatibility, but because changing release build defaults is not worth maintainer time for ~1% gain. **Rebenchmarking is fine**; flipping release defaults is not, unless the pack loop changes materially. Full rationale: [cython-extension.md](cython-extension.md#why-we-still-build-generic-x86-64-june-2026).
 - **Dynamic Loading**: The system dynamically detects the binary and falls back to the optimized Pure Python implementation on other platforms.
 
 #### Priority 1 — Profile inside LibreOffice (gate for everything else)

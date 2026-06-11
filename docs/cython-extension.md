@@ -8,30 +8,45 @@ This document serves as a reference for compiling and packaging custom host-side
 > **Status: Experimental (May 2026)**.
 > A high-performance Cython accelerator for the host-side cell flattening loop has been implemented as an experimental feature. It provides a **3.5x speedup** on the flattening bottleneck (reducing 100k-cell pack time from 8ms to 2ms).
 > 
-> Currently, this only ships for specific local architectures (e.g., Linux x86-64-v3). It is **not yet fully shipped** across all OSes. The system dynamically falls back to the optimized stdlib implementation if the binary is missing or incompatible.
+> Currently, release wheels build for generic **x86-64** (manylinux2014). It is **not yet fully shipped** across all OSes. The system dynamically falls back to the optimized stdlib implementation if the binary is missing or incompatible.
 
 ---
 
 ## x86-64 Micro-architecture Support
 
-The accelerator can be tuned for different x86-64 generations. By default, it builds for generic **x86-64**, which provides a universal performance baseline.
+The accelerator can be tuned for different x86-64 generations via `WRITERAGENT_ARCH`. Release builds default to generic **x86-64** — see [Why we still build generic x86-64](#why-we-still-build-generic-x86-64-june-2026) below.
 
-| Level | Since | Features | Recommended for | Compiler Flag |
-|-------|-------|----------|-----------------|---------------|
-| **x86-64 (Default)** | **2003** | SSE, SSE2 | **Maximum Compatibility** | `x86-64` |
-| **v2** | 2009 | SSE4.2, POPCNT, SSSE3 | Universal Modern Baseline | `x86-64-v2` |
-| **v3** | 2013 | AVX, AVX2, BMI2 | High-perf desktops (Last 10y) | `x86-64-v3` |
-| **v4** | 2017 | AVX-512 | Modern Servers / Workstations | `x86-64-v4` |
+| Level | Since | Features | Compiler Flag |
+|-------|-------|----------|---------------|
+| **x86-64 (Default)** | **2003** | SSE, SSE2 | `x86-64` |
+| **v2** | 2009 | SSE4.2, POPCNT, SSSE3 | `x86-64-v2` |
+| **v3** | 2013 | AVX, AVX2, BMI2 | `x86-64-v3` |
+| **v4** | 2017 | AVX-512 | `x86-64-v4` |
 
-**Why x86-64 for "All" users?**
-Standard x86-64 ensures that the generated wheels can run on any 64-bit x86 processor. While v2 support began in **2009** (Intel Nehalem / AMD Bulldozer) and covers effectively all hardware in use today, using the generic baseline in CI ensures compatibility with older build toolchains (like GCC 10) used in `manylinux2014`.
+Local experiments:
 
-To build for a specific architecture, use:
 ```bash
-WRITERAGENT_ARCH=x86-64-v3 make native  # Optimizes for AVX2
+WRITERAGENT_ARCH=x86-64-v3 make native
 ```
 
-For general distribution, **v2** is the recommended choice, while **v3** can be used locally for performance analysis.
+### Why we still build generic x86-64 (June 2026)
+
+**Fair question:** user hardware is effectively all v3-capable (AVX2); v1-class CPUs are ~0% of the user base. **v2 would be a safe modern floor.** Why not at least v2 in CI?
+
+**Answer:** not compatibility — **`-march` tuning buys almost nothing** on this code path.
+
+Benchmarked with [`scripts/bench_serialization.py`](../scripts/bench_serialization.py), ingress `pickle5+sg`, 100k cells (`20000x5`):
+
+| Build | host_pack | total_ms |
+|-------|-----------|----------|
+| v1 (`x86-64`) | 3.031 ms | 3.062 ms |
+| v3 (`x86-64-v3`) | 3.002 ms | 3.032 ms |
+
+Delta: **~1%** (10k-cell row ~2%; v2 would sit between these). Flattening is **memory-bound** (Python object traversal + buffer writes), not SIMD-bound. Cython itself gives **~3–4×** over pure Python; changing `-march` is the wrong lever.
+
+**Rebenchmark anytime** — re-running the bench after hardware or pack-loop changes is fine. **Changing release build defaults** (Makefile, `pyproject.toml`, cibuildwheel matrix) is what is not worth it unless a future code change shows a large gain. Use `WRITERAGENT_ARCH=x86-64-v3 make native` for local curiosity only.
+
+Release default remains `x86-64` in [`setup.py`](../native/writeragent_vec/setup.py) and [`pyproject.toml`](../native/writeragent_vec/pyproject.toml).
 
 > 
 > **Never vendor NumPy** into LibreOffice; the user **venv** remains where full NumPy/pandas live. A small Cython extension only accelerates **host-side pack** (and optionally other tight loops) inside the embedded interpreter.
