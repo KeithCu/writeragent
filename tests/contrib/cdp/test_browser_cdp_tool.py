@@ -4,7 +4,7 @@ import json
 from unittest.mock import MagicMock, patch
 import pytest
 
-from plugin.chatbot.browser_cdp_tool import (
+from plugin.contrib.cdp.browser_cdp_tool import (
     get_local_chrome_cdp_url,
     cleanup_local_chrome,
     browser_cdp,
@@ -96,7 +96,7 @@ def test_firefox_process_spawning(mock_urlopen, mock_popen, mock_run):
     mock_proc.terminate.assert_called_once()
 
 
-@patch("plugin.chatbot.browser_cdp_tool.browser_cdp")
+@patch("plugin.contrib.cdp.browser_cdp_tool.browser_cdp")
 def test_visit_webpage_cdp_tool_forward(mock_browser_cdp):
     # Mock CDP calls inside VisitWebpageCdpTool
     # First: Target.getTargets

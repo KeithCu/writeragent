@@ -144,7 +144,7 @@ class VisitWebpageCdpTool(Tool):
         self.max_output_length = max_output_length
 
     def forward(self, url: str) -> str:
-        from plugin.chatbot.browser_cdp_tool import browser_cdp
+        from plugin.contrib.cdp.browser_cdp_tool import browser_cdp
         import json
         import time
 
@@ -285,7 +285,7 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
         cdp_url = None
         if cdp_enabled:
             try:
-                from plugin.chatbot.browser_cdp_tool import get_local_chrome_cdp_url
+                from plugin.contrib.cdp.browser_cdp_tool import get_local_chrome_cdp_url
                 cdp_url = get_local_chrome_cdp_url(ctx.ctx, browser_type)
                 log.info("CDP web research enabled (%s). Local debug WS URL: %s", browser_type, cdp_url)
             except Exception as e:
@@ -429,7 +429,7 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
         finally:
             if cdp_enabled:
                 try:
-                    from plugin.chatbot.browser_cdp_tool import cleanup_local_chrome
+                    from plugin.contrib.cdp.browser_cdp_tool import cleanup_local_chrome
                     cleanup_local_chrome()
                 except Exception as e:
                     log.warning("Failed to clean up local Chrome process: %s", e)

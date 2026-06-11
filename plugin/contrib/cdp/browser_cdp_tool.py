@@ -356,7 +356,7 @@ def _browser_cdp_via_supervisor(
     ``asyncio.run_coroutine_threadsafe`` onto the supervisor loop).
     """
     try:
-        from plugin.chatbot.browser_supervisor import SUPERVISOR_REGISTRY
+        from plugin.contrib.cdp.browser_supervisor import SUPERVISOR_REGISTRY
     except Exception as exc:  # pragma: no cover — defensive
         return tool_error(
             f"CDP supervisor is not available: {exc}. frame_id routing requires "
@@ -427,7 +427,7 @@ def _browser_cdp_via_supervisor(
         )
 
     try:
-        from plugin.chatbot.browser_supervisor import safe_schedule_threadsafe
+        from plugin.contrib.cdp.browser_supervisor import safe_schedule_threadsafe
         fut = safe_schedule_threadsafe(_do_cdp(), loop)
         if fut is None:
             return tool_error(
