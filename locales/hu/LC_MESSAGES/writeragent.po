@@ -2650,3 +2650,41 @@ msgstr "Konverziónkénti időtúllépés a Doclingben. 0 = nincs korlát."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer-dokumentumeszközök (beleértve a navigációt és a keresést)"
+
+msgid "Web Research Browser"
+msgstr "Webkutató böngésző"
+
+msgid ""
+"Select the browser backend to use for webpage visits during research (Off "
+"uses static HTTP requests)."
+msgstr ""
+"Válassza ki a kutatás során használt böngésző-háttérprogramot (a „Ki” "
+"beállítás statikus HTTP-kéréseket használ)."
+
+msgid "Off (Static HTTP)"
+msgstr "Ki (statikus HTTP)"
+
+msgid "Firefox (CDP)"
+msgstr "Firefox (CDP)"
+
+msgid "Chromium (CDP)"
+msgstr "Chromium (CDP)"
+
+msgid "Chrome (CDP)"
+msgstr "Chrome (CDP)"
+
+msgid "Cross-file search mode"
+msgstr "Fájlok közötti keresési mód"
+
+msgid ""
+"Cross-file search for document_research. Requires embeddings venv — see "
+"Python Test."
+msgstr ""
+"Fájlok közötti keresés a document_research számára. Beágyazott venv "
+"szükséges – lásd a Python-tesztet."
+
+msgid "None"
+msgstr "Nincs"
+
+msgid "SQLite FTS (venv)"
+msgstr "SQLite FTS (venv)"

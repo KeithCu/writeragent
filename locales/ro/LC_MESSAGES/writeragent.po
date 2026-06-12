@@ -2640,3 +2640,41 @@ msgstr "Timp limită per conversie în Docling. 0 = fără limită."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Instrumente pentru documente Writer (inclusiv navigare și căutare)"
+
+msgid "Web Research Browser"
+msgstr "Browser pentru cercetare web"
+
+msgid ""
+"Select the browser backend to use for webpage visits during research (Off "
+"uses static HTTP requests)."
+msgstr ""
+"Selectați motorul de browser de utilizat pentru vizitarea paginilor web în "
+"timpul cercetării (Oprit utilizează cereri HTTP statice)."
+
+msgid "Off (Static HTTP)"
+msgstr "Oprit (HTTP static)"
+
+msgid "Firefox (CDP)"
+msgstr "Firefox (CDP)"
+
+msgid "Chromium (CDP)"
+msgstr "Chromium (CDP)"
+
+msgid "Chrome (CDP)"
+msgstr "Chrome (CDP)"
+
+msgid "Cross-file search mode"
+msgstr "Mod de căutare între fișiere"
+
+msgid ""
+"Cross-file search for document_research. Requires embeddings venv — see "
+"Python Test."
+msgstr ""
+"Căutare între fișiere pentru document_research. Necesită venv pentru "
+"embeddings — consultați Test Python."
+
+msgid "None"
+msgstr "Niciunul"
+
+msgid "SQLite FTS (venv)"
+msgstr "SQLite FTS (venv)"

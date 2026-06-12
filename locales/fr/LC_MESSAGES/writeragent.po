@@ -2662,3 +2662,41 @@ msgstr "Délai d'expiration par conversion dans Docling. 0 = aucune limite."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Outils de documents Writer (y compris la navigation et la recherche)"
+
+msgid "Web Research Browser"
+msgstr "Navigateur de recherche Web"
+
+msgid ""
+"Select the browser backend to use for webpage visits during research (Off "
+"uses static HTTP requests)."
+msgstr ""
+"Sélectionnez le moteur de navigateur à utiliser pour les visites de pages "
+"Web lors de la recherche (Désactivé utilise des requêtes HTTP statiques)."
+
+msgid "Off (Static HTTP)"
+msgstr "Désactivé (HTTP statique)"
+
+msgid "Firefox (CDP)"
+msgstr "Firefox (CDP)"
+
+msgid "Chromium (CDP)"
+msgstr "Chromium (CDP)"
+
+msgid "Chrome (CDP)"
+msgstr "Chrome (CDP)"
+
+msgid "Cross-file search mode"
+msgstr "Mode de recherche inter-fichiers"
+
+msgid ""
+"Cross-file search for document_research. Requires embeddings venv — see "
+"Python Test."
+msgstr ""
+"Recherche inter-fichiers pour document_research. Nécessite un venv "
+"d'embeddings — voir Test Python."
+
+msgid "None"
+msgstr "Aucun"
+
+msgid "SQLite FTS (venv)"
+msgstr "SQLite FTS (venv)"

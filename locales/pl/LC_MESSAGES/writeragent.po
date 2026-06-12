@@ -2643,3 +2643,41 @@ msgstr "Limit czasu na konwersję wewnątrz Docling. 0 = brak limitu."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Narzędzia dokumentu Writer (w tym nawigacja i wyszukiwanie)"
+
+msgid "Web Research Browser"
+msgstr "Przeglądarka do badań internetowych"
+
+msgid ""
+"Select the browser backend to use for webpage visits during research (Off "
+"uses static HTTP requests)."
+msgstr ""
+"Wybierz silnik przeglądarki używany do odwiedzania stron internetowych "
+"podczas badań (Wyłączony używa statycznych żądań HTTP)."
+
+msgid "Off (Static HTTP)"
+msgstr "Wyłączony (statyczne HTTP)"
+
+msgid "Firefox (CDP)"
+msgstr "Firefox (CDP)"
+
+msgid "Chromium (CDP)"
+msgstr "Chromium (CDP)"
+
+msgid "Chrome (CDP)"
+msgstr "Chrome (CDP)"
+
+msgid "Cross-file search mode"
+msgstr "Tryb wyszukiwania między plikami"
+
+msgid ""
+"Cross-file search for document_research. Requires embeddings venv — see "
+"Python Test."
+msgstr ""
+"Wyszukiwanie między plikami dla document_research. Wymaga środowiska "
+"wirtualnego (venv) z osadzeniami — zobacz Test Python."
+
+msgid "None"
+msgstr "Brak"
+
+msgid "SQLite FTS (venv)"
+msgstr "SQLite FTS (venv)"

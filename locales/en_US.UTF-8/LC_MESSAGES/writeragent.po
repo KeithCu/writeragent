@@ -2582,3 +2582,41 @@ msgstr "Per-conversion timeout inside Docling. 0 = no limit."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer document tools (including navigation and search)"
+
+msgid "Web Research Browser"
+msgstr "Web Research Browser"
+
+msgid ""
+"Select the browser backend to use for webpage visits during research (Off "
+"uses static HTTP requests)."
+msgstr ""
+"Select the browser backend to use for webpage visits during research (Off "
+"uses static HTTP requests)."
+
+msgid "Off (Static HTTP)"
+msgstr "Off (Static HTTP)"
+
+msgid "Firefox (CDP)"
+msgstr "Firefox (CDP)"
+
+msgid "Chromium (CDP)"
+msgstr "Chromium (CDP)"
+
+msgid "Chrome (CDP)"
+msgstr "Chrome (CDP)"
+
+msgid "Cross-file search mode"
+msgstr "Cross-file search mode"
+
+msgid ""
+"Cross-file search for document_research. Requires embeddings venv — see "
+"Python Test."
+msgstr ""
+"Cross-file search for document_research. Requires embeddings venv — see "
+"Python Test."
+
+msgid "None"
+msgstr "None"
+
+msgid "SQLite FTS (venv)"
+msgstr "SQLite FTS (venv)"

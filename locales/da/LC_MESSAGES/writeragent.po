@@ -2609,3 +2609,41 @@ msgstr "Timeout pr. konvertering i Docling. 0 = ingen grænse."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer-dokumentværktøjer (inklusive navigation og søgning)"
+
+msgid "Web Research Browser"
+msgstr "Web-research-browser"
+
+msgid ""
+"Select the browser backend to use for webpage visits during research (Off "
+"uses static HTTP requests)."
+msgstr ""
+"Vælg browser-backend til brug ved besøg på websider under research (Fra "
+"bruger statiske HTTP-anmodninger)."
+
+msgid "Off (Static HTTP)"
+msgstr "Fra (Statisk HTTP)"
+
+msgid "Firefox (CDP)"
+msgstr "Firefox (CDP)"
+
+msgid "Chromium (CDP)"
+msgstr "Chromium (CDP)"
+
+msgid "Chrome (CDP)"
+msgstr "Chrome (CDP)"
+
+msgid "Cross-file search mode"
+msgstr "Søgetilstand på tværs af filer"
+
+msgid ""
+"Cross-file search for document_research. Requires embeddings venv — see "
+"Python Test."
+msgstr ""
+"Søgning på tværs af filer til document_research. Kræver embeddings venv — se"
+" Python-test."
+
+msgid "None"
+msgstr "Ingen"
+
+msgid "SQLite FTS (venv)"
+msgstr "SQLite FTS (venv)"

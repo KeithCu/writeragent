@@ -2643,3 +2643,41 @@ msgstr "Тайм-аут на одно преобразование в Docling. 0
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Инструменты документа Writer (включая навигацию и поиск)"
+
+msgid "Web Research Browser"
+msgstr "Браузер для веб-исследований"
+
+msgid ""
+"Select the browser backend to use for webpage visits during research (Off "
+"uses static HTTP requests)."
+msgstr ""
+"Выберите бэкенд браузера для посещения веб-страниц во время исследования "
+"(режим «Выкл» использует статические HTTP-запросы)."
+
+msgid "Off (Static HTTP)"
+msgstr "Выкл (статический HTTP)"
+
+msgid "Firefox (CDP)"
+msgstr "Firefox (CDP)"
+
+msgid "Chromium (CDP)"
+msgstr "Chromium (CDP)"
+
+msgid "Chrome (CDP)"
+msgstr "Chrome (CDP)"
+
+msgid "Cross-file search mode"
+msgstr "Режим сквозного поиска по файлам"
+
+msgid ""
+"Cross-file search for document_research. Requires embeddings venv — see "
+"Python Test."
+msgstr ""
+"Сквозной поиск по документам. Требуется venv с эмбеддингами — см. Python "
+"Test."
+
+msgid "None"
+msgstr "Нет"
+
+msgid "SQLite FTS (venv)"
+msgstr "SQLite FTS (venv)"

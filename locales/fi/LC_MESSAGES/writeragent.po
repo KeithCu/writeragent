@@ -2615,3 +2615,41 @@ msgstr "Muunnoskohtainen aikakatkaisu Doclingissa. 0 = ei rajoitusta."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer-asiakirjatyökalut (mukaan lukien siirtyminen ja haku)"
+
+msgid "Web Research Browser"
+msgstr "Verkkotutkimusselain"
+
+msgid ""
+"Select the browser backend to use for webpage visits during research (Off "
+"uses static HTTP requests)."
+msgstr ""
+"Valitse selaintausta, jota käytetään verkkosivukäynneillä tutkimuksen aikana"
+" (Pois käytöstä käyttää staattisia HTTP-pyyntöjä)."
+
+msgid "Off (Static HTTP)"
+msgstr "Pois (staattinen HTTP)"
+
+msgid "Firefox (CDP)"
+msgstr "Firefox (CDP)"
+
+msgid "Chromium (CDP)"
+msgstr "Chromium (CDP)"
+
+msgid "Chrome (CDP)"
+msgstr "Chrome (CDP)"
+
+msgid "Cross-file search mode"
+msgstr "Tiedostojen välinen hakutila"
+
+msgid ""
+"Cross-file search for document_research. Requires embeddings venv — see "
+"Python Test."
+msgstr ""
+"Tiedostojen välinen haku kohteelle document_research. Vaatii embeddings-"
+"virtuaaliympäristön – katso Python-testi."
+
+msgid "None"
+msgstr "Ei mitään"
+
+msgid "SQLite FTS (venv)"
+msgstr "SQLite FTS (venv)"

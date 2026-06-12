@@ -2677,3 +2677,42 @@ msgid "Writer document tools (including navigation and search)"
 msgstr ""
 "Εργαλεία εγγράφου Writer (συμπεριλαμβανομένης της πλοήγησης και της "
 "αναζήτησης)"
+
+msgid "Web Research Browser"
+msgstr "Πρόγραμμα περιήγησης διαδικτυακής έρευνας"
+
+msgid ""
+"Select the browser backend to use for webpage visits during research (Off "
+"uses static HTTP requests)."
+msgstr ""
+"Επιλέξτε το πρόγραμμα περιήγησης που θα χρησιμοποιείται για επισκέψεις σε "
+"ιστοσελίδες κατά την έρευνα (Η επιλογή «Off» χρησιμοποιεί στατικά αιτήματα "
+"HTTP)."
+
+msgid "Off (Static HTTP)"
+msgstr "Off (Στατικό HTTP)"
+
+msgid "Firefox (CDP)"
+msgstr "Firefox (CDP)"
+
+msgid "Chromium (CDP)"
+msgstr "Chromium (CDP)"
+
+msgid "Chrome (CDP)"
+msgstr "Chrome (CDP)"
+
+msgid "Cross-file search mode"
+msgstr "Λειτουργία αναζήτησης μεταξύ αρχείων"
+
+msgid ""
+"Cross-file search for document_research. Requires embeddings venv — see "
+"Python Test."
+msgstr ""
+"Αναζήτηση μεταξύ αρχείων για document_research. Απαιτεί venv ενσωματώσεων — "
+"δείτε το Python Test."
+
+msgid "None"
+msgstr "Κανένα"
+
+msgid "SQLite FTS (venv)"
+msgstr "SQLite FTS (venv)"

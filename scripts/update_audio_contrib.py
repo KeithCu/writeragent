@@ -7,9 +7,9 @@ extracts the necessary files, and places them in plugin/contrib/audio.
 Assumes 'uv' is installed and used for package management.
 """
 
-import os
 import platform
 import shutil
+import struct
 import subprocess
 import tempfile
 import zipfile
@@ -20,16 +20,66 @@ REPO_ROOT = Path(__file__).parent.parent.resolve()
 CONTRIB_AUDIO_DIR = REPO_ROOT / "plugin" / "contrib" / "audio"
 PYTHON_VERSIONS = ["3.11", "3.12", "3.13", "3.14"]
 
-# Platforms to fetch for sounddevice (PortAudio binaries) and cffi (backend binaries)
+# macOS: Apple Silicon only — Intel/universal wheels dropped to shrink the OXT.
+MACOS_PLATFORMS = ["macosx_11_0_arm64"]
+
+# Platforms to fetch for cffi backend binaries (and sounddevice on non-macOS).
 PLATFORMS = [
     "win_amd64",
     "win_arm64",
-    "macosx_10_9_x86_64",
-    "macosx_11_0_arm64",
-    "macosx_10_9_universal2",
+    *MACOS_PLATFORMS,
     "manylinux2014_x86_64",
     "manylinux2014_aarch64",
 ]
+
+# Mach-O constants for assert_macos_arm64 (used at harvest time and in tests).
+MH_MAGIC_64 = 0xFEEDFACF
+FAT_MAGIC = 0xCAFEBABE
+FAT_MAGIC_SWAPPED = 0xBEBAFECA
+CPU_TYPE_ARM64 = 0x0100000C
+
+
+def assert_macos_arm64(path: Path) -> None:
+    """Raise ValueError unless path is a single-arch arm64 Mach-O binary."""
+    _check_macos_arm64(path.read_bytes(), path)
+
+
+def _check_macos_arm64(data: bytes, label: Path | str) -> None:
+    if len(data) < 8:
+        raise ValueError(f"{label}: too small for Mach-O")
+
+    magic_be = struct.unpack(">I", data[:4])[0]
+    if magic_be in (FAT_MAGIC, FAT_MAGIC_SWAPPED):
+        raise ValueError(f"{label}: expected single-arch arm64, got fat/universal Mach-O")
+
+    magic = struct.unpack("<I", data[:4])[0]
+    if magic != MH_MAGIC_64:
+        raise ValueError(f"{label}: expected MH_MAGIC_64, got 0x{magic:08x}")
+
+    cputype = struct.unpack("<i", data[4:8])[0]
+    if cputype != CPU_TYPE_ARM64:
+        raise ValueError(f"{label}: expected arm64 (cputype 0x{cputype:08x})")
+
+
+def ensure_macos_arm64_only(path: Path) -> None:
+    """Write a single-arch arm64 Mach-O, thinning universal/fat inputs when needed."""
+    data = path.read_bytes()
+    magic_be = struct.unpack(">I", data[:4])[0]
+    if magic_be in (FAT_MAGIC, FAT_MAGIC_SWAPPED):
+        nfat = struct.unpack(">I", data[4:8])[0]
+        arm64_slice = None
+        for index in range(nfat):
+            base = 8 + index * 20
+            cputype, _cpusubtype, offset, size, _align = struct.unpack(">iiIII", data[base : base + 20])
+            if cputype == CPU_TYPE_ARM64:
+                arm64_slice = data[offset : offset + size]
+                break
+        if arm64_slice is None:
+            raise ValueError(f"{path}: fat Mach-O has no arm64 slice")
+        path.write_bytes(arm64_slice)
+        print(f"  Thinned to arm64-only: {path.name} ({path.stat().st_size} bytes)")
+        data = arm64_slice
+    _check_macos_arm64(data, path)
 
 def run_command(cmd, cwd=None):
     print(f"Running: {' '.join(cmd)}")
@@ -111,10 +161,10 @@ def main():
         print(f"Working in temporary directory: {tmp_dir}")
 
         # 1. Download sounddevice wheels for PortAudio binaries
-        for platform in ["win_amd64", "win_arm64", "macosx_10_9_x86_64", "macosx_11_0_arm64", "macosx_10_9_universal2"]:
+        for platform_tag in ["win_amd64", "win_arm64", *MACOS_PLATFORMS]:
             cmd = base_cmd + [
                 "download", "sounddevice",
-                "--platform", platform,
+                "--platform", platform_tag,
                 "--python-version", "3.12",
                 "--only-binary=:all:",
                 "--dest", str(download_dir)
@@ -123,10 +173,10 @@ def main():
 
         # 2. Download cffi wheels for all platforms and python versions
         for py_ver in PYTHON_VERSIONS:
-            for platform in PLATFORMS:
+            for platform_tag in PLATFORMS:
                 cmd = base_cmd + [
                     "download", "cffi",
-                    "--platform", platform,
+                    "--platform", platform_tag,
                     "--python-version", py_ver,
                     "--only-binary=:all:",
                     "--dest", str(download_dir)
@@ -166,7 +216,11 @@ def main():
                     binaries_dest.mkdir(parents=True, exist_ok=True)
                     for f in binaries_src.glob("*"):
                         print(f"Updating PortAudio binary: {f.name}")
-                        shutil.copy2(f, binaries_dest / f.name)
+                        dest = binaries_dest / f.name
+                        shutil.copy2(f, dest)
+                        if f.suffix == ".dylib":
+                            ensure_macos_arm64_only(dest)
+                            print(f"  Verified arm64: {dest.name}")
                 
                 if not pure_python_updated["sounddevice"]:
                     for f in ["sounddevice.py", "_sounddevice.py"]:
@@ -177,9 +231,13 @@ def main():
             if "cffi" in wheel_name:
                 for f in wheel_extract_dir.glob("_cffi_backend.*"):
                     print(f"Updating cffi backend: {f.name}")
-                    shutil.copy2(f, CONTRIB_AUDIO_DIR / f.name)
+                    dest = CONTRIB_AUDIO_DIR / f.name
+                    shutil.copy2(f, dest)
+                    if "-darwin" in f.name:
+                        assert_macos_arm64(dest)
+                        print(f"  Verified arm64: {dest.name}")
                     # Strip debug symbols to reduce file size
-                    strip_binary(CONTRIB_AUDIO_DIR / f.name)
+                    strip_binary(dest)
                 
                 if not pure_python_updated["cffi"]:
                     cffi_src = wheel_extract_dir / "cffi"

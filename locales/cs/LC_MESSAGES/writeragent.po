@@ -2622,3 +2622,41 @@ msgstr "Časový limit na konverzi v rámci Docling. 0 = bez omezení."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Nástroje dokumentu Writer (včetně navigace a vyhledávání)"
+
+msgid "Web Research Browser"
+msgstr "Prohlížeč pro webový průzkum"
+
+msgid ""
+"Select the browser backend to use for webpage visits during research (Off "
+"uses static HTTP requests)."
+msgstr ""
+"Vyberte backend prohlížeče, který se má použít pro návštěvy webových stránek"
+" během průzkumu (Vypnuto používá statické požadavky HTTP)."
+
+msgid "Off (Static HTTP)"
+msgstr "Vypnuto (statické HTTP)"
+
+msgid "Firefox (CDP)"
+msgstr "Firefox (CDP)"
+
+msgid "Chromium (CDP)"
+msgstr "Chromium (CDP)"
+
+msgid "Chrome (CDP)"
+msgstr "Chrome (CDP)"
+
+msgid "Cross-file search mode"
+msgstr "Režim vyhledávání napříč soubory"
+
+msgid ""
+"Cross-file search for document_research. Requires embeddings venv — see "
+"Python Test."
+msgstr ""
+"Vyhledávání napříč soubory pro document_research. Vyžaduje venv s vnořenými "
+"reprezentacemi (embeddings) — viz Python Test."
+
+msgid "None"
+msgstr "Žádný"
+
+msgid "SQLite FTS (venv)"
+msgstr "SQLite FTS (venv)"

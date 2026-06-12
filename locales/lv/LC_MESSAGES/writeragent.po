@@ -2632,3 +2632,41 @@ msgstr "Noildze katrai konvertēšanai Docling ietvaros. 0 = bez ierobežojuma."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer dokumentu rīki (tostarp navigācija un meklēšana)"
+
+msgid "Web Research Browser"
+msgstr "Tīmekļa izpētes pārlūks"
+
+msgid ""
+"Select the browser backend to use for webpage visits during research (Off "
+"uses static HTTP requests)."
+msgstr ""
+"Atlasiet pārlūka aizmugursistēmu, ko izmantot tīmekļa lapu apmeklējumiem "
+"izpētes laikā (Off izmanto statiskus HTTP pieprasījumus)."
+
+msgid "Off (Static HTTP)"
+msgstr "Izslēgts (statiskais HTTP)"
+
+msgid "Firefox (CDP)"
+msgstr "Firefox (CDP)"
+
+msgid "Chromium (CDP)"
+msgstr "Chromium (CDP)"
+
+msgid "Chrome (CDP)"
+msgstr "Chrome (CDP)"
+
+msgid "Cross-file search mode"
+msgstr "Starpfailu meklēšanas režīms"
+
+msgid ""
+"Cross-file search for document_research. Requires embeddings venv — see "
+"Python Test."
+msgstr ""
+"Starpfailu meklēšana dokumentu izpētei. Nepieciešama iegulto elementu "
+"(embeddings) venv vide — skatīt Python testu."
+
+msgid "None"
+msgstr "Nav"
+
+msgid "SQLite FTS (venv)"
+msgstr "SQLite FTS (venv)"

@@ -2631,3 +2631,41 @@ msgstr ""
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "„Writer“ dokumentų įrankiai (įskaitant naršymą ir paiešką)"
+
+msgid "Web Research Browser"
+msgstr "Žiniatinklio tyrimų naršyklė"
+
+msgid ""
+"Select the browser backend to use for webpage visits during research (Off "
+"uses static HTTP requests)."
+msgstr ""
+"Pasirinkite naršyklės pagrindinę programą, naudojamą lankantis "
+"tinklalapiuose tyrimų metu („Išjungta“ naudoja statines HTTP užklausas)."
+
+msgid "Off (Static HTTP)"
+msgstr "Išjungta (statinis HTTP)"
+
+msgid "Firefox (CDP)"
+msgstr "„Firefox“ (CDP)"
+
+msgid "Chromium (CDP)"
+msgstr "„Chromium“ (CDP)"
+
+msgid "Chrome (CDP)"
+msgstr "„Chrome“ (CDP)"
+
+msgid "Cross-file search mode"
+msgstr "Paieškos tarp failų režimas"
+
+msgid ""
+"Cross-file search for document_research. Requires embeddings venv — see "
+"Python Test."
+msgstr ""
+"Paieška tarp failų dokumentų tyrimams. Reikalinga „embeddings venv“ aplinka "
+"– žr. „Python“ testą."
+
+msgid "None"
+msgstr "Nėra"
+
+msgid "SQLite FTS (venv)"
+msgstr "„SQLite FTS“ (venv)"

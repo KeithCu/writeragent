@@ -2626,3 +2626,41 @@ msgstr "Docling-এর মধ্যে প্রতি রূপান্তর�
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer ডকুমেন্ট টুলস (নেভিগেশন এবং অনুসন্ধান সহ)"
+
+msgid "Web Research Browser"
+msgstr "ওয়েব রিসার্চ ব্রাউজার"
+
+msgid ""
+"Select the browser backend to use for webpage visits during research (Off "
+"uses static HTTP requests)."
+msgstr ""
+"গবেষণার সময় ওয়েবপেজ ভিজিটের জন্য ব্যবহৃত ব্রাউজার ব্যাকএন্ড নির্বাচন করুন "
+"(Off ব্যবহার করলে স্ট্যাটিক HTTP অনুরোধ করা হয়)।"
+
+msgid "Off (Static HTTP)"
+msgstr "Off (স্ট্যাটিক HTTP)"
+
+msgid "Firefox (CDP)"
+msgstr "Firefox (CDP)"
+
+msgid "Chromium (CDP)"
+msgstr "Chromium (CDP)"
+
+msgid "Chrome (CDP)"
+msgstr "Chrome (CDP)"
+
+msgid "Cross-file search mode"
+msgstr "ক্রস-ফাইল অনুসন্ধান মোড"
+
+msgid ""
+"Cross-file search for document_research. Requires embeddings venv — see "
+"Python Test."
+msgstr ""
+"document_research-এর জন্য ক্রস-ফাইল অনুসন্ধান। এমবেডিং venv প্রয়োজন — "
+"Python টেস্ট দেখুন।"
+
+msgid "None"
+msgstr "কোনটিই নয়"
+
+msgid "SQLite FTS (venv)"
+msgstr "SQLite FTS (venv)"

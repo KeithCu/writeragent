@@ -83,6 +83,7 @@ As of March 2026, the supported Python version range has been narrowed to **3.11
 
 - **Dropped Support (3.9, 3.10):** Support for Python 3.9 (EOL Oct 2025) and 3.10 (approaching EOL) was removed to reduce the extension's binary footprint.
 - **Experimental Builds Pruned:** Python 3.14 introduced experimental **free-threaded** builds (labeled `314t`). Since the standard LibreOffice Python interpreter is GIL-enabled, these free-threaded binaries were removed from the extension.
+- **macOS Apple Silicon only:** Intel (`x86_64`) and universal2 macOS wheels were dropped from [`scripts/update_audio_contrib.py`](../scripts/update_audio_contrib.py). Vendored PortAudio and CFFI natives for macOS are **arm64-only** (Apple Silicon). Intel Macs are not supported for bundled voice recording.
 
 ### Disk Space Savings
 By pruning the obsolete and experimental binaries, the size of the `plugin/contrib/audio/` directory was reduced from **15MB** to **11MB**, representing a **27% reduction** in the extension's total compressed size. This ensures the extension remains relatively lightweight while still providing robust, plug-and-play audio support for modern LibreOffice environments.

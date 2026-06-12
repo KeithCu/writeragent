@@ -2468,3 +2468,37 @@ msgstr "Docling 内部单次转换的超时时间。0 = 无限制。"
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer 文档工具（包括导航和搜索）"
+
+msgid "Web Research Browser"
+msgstr "网页研究浏览器"
+
+msgid ""
+"Select the browser backend to use for webpage visits during research (Off "
+"uses static HTTP requests)."
+msgstr "选择研究期间访问网页时使用的浏览器后端（“关闭”表示使用静态 HTTP 请求）。"
+
+msgid "Off (Static HTTP)"
+msgstr "关闭（静态 HTTP）"
+
+msgid "Firefox (CDP)"
+msgstr "Firefox (CDP)"
+
+msgid "Chromium (CDP)"
+msgstr "Chromium (CDP)"
+
+msgid "Chrome (CDP)"
+msgstr "Chrome (CDP)"
+
+msgid "Cross-file search mode"
+msgstr "跨文件搜索模式"
+
+msgid ""
+"Cross-file search for document_research. Requires embeddings venv — see "
+"Python Test."
+msgstr "文档研究的跨文件搜索。需要 embeddings venv — 请参阅 Python 测试。"
+
+msgid "None"
+msgstr "无"
+
+msgid "SQLite FTS (venv)"
+msgstr "SQLite FTS (venv)"

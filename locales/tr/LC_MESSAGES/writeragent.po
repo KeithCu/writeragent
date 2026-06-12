@@ -2623,3 +2623,41 @@ msgstr "Docling içinde dönüştürme başına zaman aşımı. 0 = sınır yok.
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer belge araçları (gezinme ve arama dahil)"
+
+msgid "Web Research Browser"
+msgstr "Web Araştırma Tarayıcısı"
+
+msgid ""
+"Select the browser backend to use for webpage visits during research (Off "
+"uses static HTTP requests)."
+msgstr ""
+"Araştırma sırasında web sayfası ziyaretleri için kullanılacak tarayıcı "
+"altyapısını seçin (Kapalı, statik HTTP isteklerini kullanır)."
+
+msgid "Off (Static HTTP)"
+msgstr "Kapalı (Statik HTTP)"
+
+msgid "Firefox (CDP)"
+msgstr "Firefox (CDP)"
+
+msgid "Chromium (CDP)"
+msgstr "Chromium (CDP)"
+
+msgid "Chrome (CDP)"
+msgstr "Chrome (CDP)"
+
+msgid "Cross-file search mode"
+msgstr "Dosyalar arası arama modu"
+
+msgid ""
+"Cross-file search for document_research. Requires embeddings venv — see "
+"Python Test."
+msgstr ""
+"document_research için dosyalar arası arama. Gömme (embeddings) venv "
+"gerektirir — Python Testine bakın."
+
+msgid "None"
+msgstr "Yok"
+
+msgid "SQLite FTS (venv)"
+msgstr "SQLite FTS (venv)"

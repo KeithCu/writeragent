@@ -2658,3 +2658,41 @@ msgstr "Zeitlimit pro Konvertierung innerhalb von Docling. 0 = kein Limit."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer-Dokumentenwerkzeuge (einschließlich Navigation und Suche)"
+
+msgid "Web Research Browser"
+msgstr "Web-Recherche-Browser"
+
+msgid ""
+"Select the browser backend to use for webpage visits during research (Off "
+"uses static HTTP requests)."
+msgstr ""
+"Wählen Sie das Browser-Backend für Webseitenbesuche während der Recherche "
+"(Aus verwendet statische HTTP-Anfragen)."
+
+msgid "Off (Static HTTP)"
+msgstr "Aus (Statisch HTTP)"
+
+msgid "Firefox (CDP)"
+msgstr "Firefox (CDP)"
+
+msgid "Chromium (CDP)"
+msgstr "Chromium (CDP)"
+
+msgid "Chrome (CDP)"
+msgstr "Chrome (CDP)"
+
+msgid "Cross-file search mode"
+msgstr "Dateiübergreifender Suchmodus"
+
+msgid ""
+"Cross-file search for document_research. Requires embeddings venv — see "
+"Python Test."
+msgstr ""
+"Dateiübergreifende Suche für document_research. Erfordert Embeddings-venv – "
+"siehe Python-Test."
+
+msgid "None"
+msgstr "Keine"
+
+msgid "SQLite FTS (venv)"
+msgstr "SQLite FTS (venv)"

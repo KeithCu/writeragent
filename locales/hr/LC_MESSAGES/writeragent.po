@@ -2617,3 +2617,41 @@ msgstr ""
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Alati za Writer dokumente (uključujući navigaciju i pretraživanje)"
+
+msgid "Web Research Browser"
+msgstr "Preglednik za web istraživanje"
+
+msgid ""
+"Select the browser backend to use for webpage visits during research (Off "
+"uses static HTTP requests)."
+msgstr ""
+"Odaberite pozadinski preglednik koji će se koristiti za posjete web "
+"stranicama tijekom istraživanja (Isključeno koristi statičke HTTP zahtjeve)."
+
+msgid "Off (Static HTTP)"
+msgstr "Isključeno (statički HTTP)"
+
+msgid "Firefox (CDP)"
+msgstr "Firefox (CDP)"
+
+msgid "Chromium (CDP)"
+msgstr "Chromium (CDP)"
+
+msgid "Chrome (CDP)"
+msgstr "Chrome (CDP)"
+
+msgid "Cross-file search mode"
+msgstr "Način pretraživanja kroz više datoteka"
+
+msgid ""
+"Cross-file search for document_research. Requires embeddings venv — see "
+"Python Test."
+msgstr ""
+"Pretraživanje kroz više datoteka za document_research. Zahtijeva venv s "
+"ugradnjama (embeddings) — pogledajte Python test."
+
+msgid "None"
+msgstr "Nijedno"
+
+msgid "SQLite FTS (venv)"
+msgstr "SQLite FTS (venv)"

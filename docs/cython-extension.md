@@ -70,7 +70,7 @@ Release default remains `x86-64` in [`setup.py`](../native/writeragent_vec/setup
 Audio does **not** compile C in this repo for release. [`scripts/update_audio_contrib.py`](../scripts/update_audio_contrib.py) **downloads prebuilt wheels** from PyPI and copies artifacts into [`plugin/contrib/audio/`](../plugin/contrib/audio/):
 
 - **Python tags:** 3.11–3.14 (`PYTHON_VERSIONS` in the script; 3.9/3.10 and free-threaded `314t` pruned per [audio-architecture.md](audio-architecture.md))
-- **Platforms:** `win_amd64`, `win_arm64`, macOS x86_64/arm64/universal2, `manylinux2014` / `musllinux_1_1` x86_64 and aarch64 (`PLATFORMS` in the script)
+- **Platforms:** `win_amd64`, `win_arm64`, macOS `macosx_11_0_arm64` only (Apple Silicon), `manylinux2014` x86_64 and aarch64 (`PLATFORMS` in the script)
 - **Tagged binaries** sit **flat** in one directory, e.g. `_cffi_backend.cpython-312-x86_64-linux-gnu.so` (~**28** files for cffi today)
 - **Runtime:** [`panel_factory.py`](../plugin/chatbot/panel_factory.py) prepends `plugin/contrib/audio` to `sys.path`; Python imports the module whose tag matches **LO’s** `sys.version` and platform
 
@@ -95,7 +95,7 @@ You do **not** need every developer machine to compile the full matrix.
 |-----------|-------------------------------------------------------------------------------|
 | CPython | 3.11, 3.12, 3.13, 3.14 |
 | Windows | `win_amd64`, `win_arm64` |
-| macOS | `macosx_10_9_x86_64`, `macosx_11_0_arm64`, `macosx_10_9_universal2` |
+| macOS | `macosx_11_0_arm64` (Apple Silicon only) |
 | Linux glibc | `manylinux2014_x86_64`, `manylinux2014_aarch64` |
 | Linux musl | `musllinux_1_1_x86_64`, `musllinux_1_1_aarch64` |
 

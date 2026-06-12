@@ -575,7 +575,7 @@ def query_devices(device=None, kind=None) -> ...:
     info = _lib.Pa_GetDeviceInfo(device)
     if not info:
         raise PortAudioError(f'Error querying device {device}')
-    # Relax structVersion assertion for compatibility with newer PortAudio.
+    assert info.structVersion == 2
     name_bytes = _ffi_string(info.name)
     try:
         # We don't know beforehand if DirectSound and MME device names use
@@ -654,7 +654,7 @@ def query_hostapis(index=None) -> ...:
     info = _lib.Pa_GetHostApiInfo(index)
     if not info:
         raise PortAudioError(f'Error querying host API {index}')
-    # Relax structVersion assertion for compatibility with newer PortAudio.
+    assert info.structVersion == 1
     return {
         'name': _ffi_string(info.name).decode(),
         'devices': [_lib.Pa_HostApiDeviceIndexToDeviceIndex(index, i)
@@ -923,7 +923,7 @@ class _StreamBase:
         info = _lib.Pa_GetStreamInfo(self._ptr)
         if not info:
             raise PortAudioError('Could not obtain stream info')
-        # Relax structVersion assertion for compatibility with newer PortAudio.
+        # TODO: assert info.structVersion == 1
         self._samplerate = info.sampleRate
         if not oparameters:
             self._latency = info.inputLatency

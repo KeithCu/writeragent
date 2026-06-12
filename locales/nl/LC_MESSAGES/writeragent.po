@@ -2625,3 +2625,41 @@ msgstr "Time-out per conversie binnen Docling. 0 = geen limiet."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer-documenttools (inclusief navigatie en zoeken)"
+
+msgid "Web Research Browser"
+msgstr "Webonderzoeksbrowser"
+
+msgid ""
+"Select the browser backend to use for webpage visits during research (Off "
+"uses static HTTP requests)."
+msgstr ""
+"Selecteer de browser-backend voor het bezoeken van webpagina's tijdens "
+"onderzoek (Uit gebruikt statische HTTP-verzoeken)."
+
+msgid "Off (Static HTTP)"
+msgstr "Uit (Statische HTTP)"
+
+msgid "Firefox (CDP)"
+msgstr "Firefox (CDP)"
+
+msgid "Chromium (CDP)"
+msgstr "Chromium (CDP)"
+
+msgid "Chrome (CDP)"
+msgstr "Chrome (CDP)"
+
+msgid "Cross-file search mode"
+msgstr "Zoekmodus voor meerdere bestanden"
+
+msgid ""
+"Cross-file search for document_research. Requires embeddings venv — see "
+"Python Test."
+msgstr ""
+"Zoeken in meerdere bestanden voor document_research. Vereist embeddings venv"
+" — zie Python-test."
+
+msgid "None"
+msgstr "Geen"
+
+msgid "SQLite FTS (venv)"
+msgstr "SQLite FTS (venv)"

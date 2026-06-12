@@ -2623,3 +2623,41 @@ msgstr "Batas waktu per konversi di dalam Docling. 0 = tanpa batas."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Alat dokumen Writer (termasuk navigasi dan pencarian)"
+
+msgid "Web Research Browser"
+msgstr "Peramban Riset Web"
+
+msgid ""
+"Select the browser backend to use for webpage visits during research (Off "
+"uses static HTTP requests)."
+msgstr ""
+"Pilih backend peramban yang akan digunakan untuk kunjungan halaman web "
+"selama riset (Mati menggunakan permintaan HTTP statis)."
+
+msgid "Off (Static HTTP)"
+msgstr "Mati (HTTP Statis)"
+
+msgid "Firefox (CDP)"
+msgstr "Firefox (CDP)"
+
+msgid "Chromium (CDP)"
+msgstr "Chromium (CDP)"
+
+msgid "Chrome (CDP)"
+msgstr "Chrome (CDP)"
+
+msgid "Cross-file search mode"
+msgstr "Mode pencarian lintas berkas"
+
+msgid ""
+"Cross-file search for document_research. Requires embeddings venv — see "
+"Python Test."
+msgstr ""
+"Pencarian lintas berkas untuk document_research. Memerlukan venv embeddings "
+"— lihat Uji Python."
+
+msgid "None"
+msgstr "Tidak ada"
+
+msgid "SQLite FTS (venv)"
+msgstr "SQLite FTS (venv)"

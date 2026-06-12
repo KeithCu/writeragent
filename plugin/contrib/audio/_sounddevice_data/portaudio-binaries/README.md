@@ -14,11 +14,10 @@ and another one (`*-asio.dll`) where ASIO is enabled as well.
 For more information about the ASIO SDK see
 http://www.steinberg.net/en/company/developers.html.
 
-dylib for macOS (64-bit, "universal")
-----------------------------------------
+dylib for macOS (Apple Silicon, arm64)
+---------------------------------------
 
-The file `libportaudio.dylib` is compatible both
-with Intel (`x86_64`) and with Apple Silicon (`arm64`) CPUs.
+WriterAgent ships `libportaudio.dylib` as a single-arch **arm64** library for Apple Silicon Macs. Intel Macs are not supported for bundled voice recording.
 
 Details
 -------

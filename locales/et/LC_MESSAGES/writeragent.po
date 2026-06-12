@@ -2609,3 +2609,41 @@ msgstr "Doclingi-sisene teisenduse ajalõpp. 0 = piiranguta."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writeri dokumenditööriistad (sh navigeerimine ja otsing)"
+
+msgid "Web Research Browser"
+msgstr "Veebiuuringute brauser"
+
+msgid ""
+"Select the browser backend to use for webpage visits during research (Off "
+"uses static HTTP requests)."
+msgstr ""
+"Valige brauseri taustaprogramm, mida kasutada veebilehtede külastamiseks "
+"uuringute ajal (Väljas kasutab staatilisi HTTP-päringuid)."
+
+msgid "Off (Static HTTP)"
+msgstr "Väljas (staatiline HTTP)"
+
+msgid "Firefox (CDP)"
+msgstr "Firefox (CDP)"
+
+msgid "Chromium (CDP)"
+msgstr "Chromium (CDP)"
+
+msgid "Chrome (CDP)"
+msgstr "Chrome (CDP)"
+
+msgid "Cross-file search mode"
+msgstr "Failidevahelise otsingu režiim"
+
+msgid ""
+"Cross-file search for document_research. Requires embeddings venv — see "
+"Python Test."
+msgstr ""
+"Failidevaheline otsing dokumendi uuringuteks. Nõuab manustatud venv-i — "
+"vaadake Pythoni testi."
+
+msgid "None"
+msgstr "Puudub"
+
+msgid "SQLite FTS (venv)"
+msgstr "SQLite FTS (venv)"

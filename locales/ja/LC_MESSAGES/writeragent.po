@@ -2499,3 +2499,37 @@ msgstr "Docling内での変換ごとのタイムアウト。0は制限なし。"
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer ドキュメントツール (ナビゲーションと検索を含む)"
+
+msgid "Web Research Browser"
+msgstr "Web Research Browser"
+
+msgid ""
+"Select the browser backend to use for webpage visits during research (Off "
+"uses static HTTP requests)."
+msgstr "リサーチ時にウェブページを閲覧するためのブラウザバックエンドを選択します（「オフ」は静的なHTTPリクエストを使用します）。"
+
+msgid "Off (Static HTTP)"
+msgstr "オフ (静的HTTP)"
+
+msgid "Firefox (CDP)"
+msgstr "Firefox (CDP)"
+
+msgid "Chromium (CDP)"
+msgstr "Chromium (CDP)"
+
+msgid "Chrome (CDP)"
+msgstr "Chrome (CDP)"
+
+msgid "Cross-file search mode"
+msgstr "ファイル横断検索モード"
+
+msgid ""
+"Cross-file search for document_research. Requires embeddings venv — see "
+"Python Test."
+msgstr "document_researchのファイル横断検索。埋め込み用venvが必要です — Pythonテストを参照してください。"
+
+msgid "None"
+msgstr "なし"
+
+msgid "SQLite FTS (venv)"
+msgstr "SQLite FTS (venv)"

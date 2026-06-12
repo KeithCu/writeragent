@@ -37,6 +37,7 @@ dev = [
     "latex2mathml",
     "json-repair",
     "snowballstemmer",
+    "websockets>=13.0,<16",
     "pytest",
     "pyyaml",
     "sounddevice",

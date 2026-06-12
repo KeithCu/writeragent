@@ -2615,3 +2615,41 @@ msgstr "Tidsavbrudd per konvertering i Docling. 0 = ingen grense."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Verktøy for Writer-dokumenter (inkludert navigasjon og søk)"
+
+msgid "Web Research Browser"
+msgstr "Nettleser for nettforskning"
+
+msgid ""
+"Select the browser backend to use for webpage visits during research (Off "
+"uses static HTTP requests)."
+msgstr ""
+"Velg nettleser-backend som skal brukes for nettsidebesøk under forskning (Av"
+" bruker statiske HTTP-forespørsler)."
+
+msgid "Off (Static HTTP)"
+msgstr "Av (statisk HTTP)"
+
+msgid "Firefox (CDP)"
+msgstr "Firefox (CDP)"
+
+msgid "Chromium (CDP)"
+msgstr "Chromium (CDP)"
+
+msgid "Chrome (CDP)"
+msgstr "Chrome (CDP)"
+
+msgid "Cross-file search mode"
+msgstr "Søk på tvers av filer"
+
+msgid ""
+"Cross-file search for document_research. Requires embeddings venv — see "
+"Python Test."
+msgstr ""
+"Søk på tvers av filer for document_research. Krever embeddings-venv – se "
+"Python-test."
+
+msgid "None"
+msgstr "Ingen"
+
+msgid "SQLite FTS (venv)"
+msgstr "SQLite FTS (venv)"

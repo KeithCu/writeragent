@@ -2436,12 +2436,13 @@ msgstr "Lokálny (venv)"
 msgid "Endpoint"
 msgstr "Koncový bod"
 
-#, fuzzy
 msgid "Embedding Model"
-msgstr "Aktualizujú sa modely..."
+msgstr "Vkladací model"
 
 msgid "HuggingFace model ID for local provider, or endpoint-specific model ID"
 msgstr ""
+"ID modelu HuggingFace pre lokálneho poskytovateľa alebo ID modelu špecifické"
+" pre koncový bod"
 
 msgid "Core services (config, events, logging)"
 msgstr "Základné služby (konfigurácia, udalosti, protokolovanie)"
@@ -2623,3 +2624,41 @@ msgstr "Časový limit na konverziu v rámci Docling. 0 = bez limitu."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Nástroje dokumentu Writer (vrátane navigácie a vyhľadávania)"
+
+msgid "Web Research Browser"
+msgstr "Webový prehliadač na prieskum"
+
+msgid ""
+"Select the browser backend to use for webpage visits during research (Off "
+"uses static HTTP requests)."
+msgstr ""
+"Vyberte backend prehliadača, ktorý sa má použiť na návštevy webových stránok"
+" počas prieskumu (Vypnuté používa statické požiadavky HTTP)."
+
+msgid "Off (Static HTTP)"
+msgstr "Vypnuté (statické HTTP)"
+
+msgid "Firefox (CDP)"
+msgstr "Firefox (CDP)"
+
+msgid "Chromium (CDP)"
+msgstr "Chromium (CDP)"
+
+msgid "Chrome (CDP)"
+msgstr "Chrome (CDP)"
+
+msgid "Cross-file search mode"
+msgstr "Režim vyhľadávania naprieč súbormi"
+
+msgid ""
+"Cross-file search for document_research. Requires embeddings venv — see "
+"Python Test."
+msgstr ""
+"Vyhľadávanie naprieč súbormi pre document_research. Vyžaduje venv s "
+"vnoreniami (embeddings) — pozrite si Python Test."
+
+msgid "None"
+msgstr "Žiadny"
+
+msgid "SQLite FTS (venv)"
+msgstr "SQLite FTS (venv)"

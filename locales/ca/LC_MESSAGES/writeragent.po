@@ -2650,3 +2650,42 @@ msgstr "Temps d'espera per conversió dins de Docling. 0 = sense límit."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Eines de document del Writer (incloent-hi la navegació i la cerca)"
+
+msgid "Web Research Browser"
+msgstr "Navegador de recerca web"
+
+msgid ""
+"Select the browser backend to use for webpage visits during research (Off "
+"uses static HTTP requests)."
+msgstr ""
+"Seleccioneu el motor del navegador que s'utilitzarà per a les visites a "
+"pàgines web durant la recerca (Desactivat utilitza peticions HTTP "
+"estàtiques)."
+
+msgid "Off (Static HTTP)"
+msgstr "Desactivat (HTTP estàtic)"
+
+msgid "Firefox (CDP)"
+msgstr "Firefox (CDP)"
+
+msgid "Chromium (CDP)"
+msgstr "Chromium (CDP)"
+
+msgid "Chrome (CDP)"
+msgstr "Chrome (CDP)"
+
+msgid "Cross-file search mode"
+msgstr "Mode de cerca entre fitxers"
+
+msgid ""
+"Cross-file search for document_research. Requires embeddings venv — see "
+"Python Test."
+msgstr ""
+"Cerca entre fitxers per a document_research. Requereix l'entorn virtual "
+"(venv) d'incrustacions — vegeu la prova de Python."
+
+msgid "None"
+msgstr "Cap"
+
+msgid "SQLite FTS (venv)"
+msgstr "SQLite FTS (venv)"
