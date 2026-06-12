@@ -1,1 +1,1 @@
-# WriterAgent vision / OCR settings module (manifest-driven; dialog via module_config_dialog).
+# WriterAgent vision / OCR module (manifest-driven settings; helpers under plugin.vision).

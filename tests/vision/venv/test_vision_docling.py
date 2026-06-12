@@ -10,8 +10,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.scripting import vision_docling as docling_mod
-from plugin.scripting.vision_docling import extract_structure, extract_text
+from plugin.vision.venv import vision_docling as docling_mod
+from plugin.vision.venv.vision_docling import extract_structure, extract_text
 
 
 @pytest.fixture(autouse=True)
@@ -37,10 +37,10 @@ def _mock_document(*, texts=None, tables=None, markdown=None):
 
 
 @patch(
-    "plugin.scripting.vision_html_export.export_docling_to_html",
+    "plugin.vision.venv.vision_html_export.export_docling_to_html",
     return_value="<p><strong>Line A</strong></p>",
 )
-@patch("plugin.scripting.vision_docling._convert_image_bytes")
+@patch("plugin.vision.venv.vision_docling._convert_image_bytes")
 def test_extract_text_maps_docling_document(mock_convert, _mock_html):
     mock_convert.return_value = _mock_document()
 
@@ -55,10 +55,10 @@ def test_extract_text_maps_docling_document(mock_convert, _mock_html):
 
 
 @patch(
-    "plugin.scripting.vision_html_export.export_docling_to_html",
+    "plugin.vision.venv.vision_html_export.export_docling_to_html",
     return_value="<h2>Title</h2><table></table>",
 )
-@patch("plugin.scripting.vision_docling._convert_image_bytes")
+@patch("plugin.vision.venv.vision_docling._convert_image_bytes")
 def test_extract_structure_maps_tables(mock_convert, _mock_html):
     mock_convert.return_value = _mock_document(
         texts=[{"text": "Title", "label": "section_header", "prov": []}],
@@ -74,7 +74,7 @@ def test_extract_structure_maps_tables(mock_convert, _mock_html):
 
 
 def test_extract_text_docling_missing():
-    with patch("plugin.scripting.vision_docling._convert_image_bytes", side_effect=ImportError("docling is not installed")):
+    with patch("plugin.vision.venv.vision_docling._convert_image_bytes", side_effect=ImportError("docling is not installed")):
         result = extract_text(b"png", {})
 
     assert result["status"] == "error"
@@ -84,7 +84,7 @@ def test_extract_text_docling_missing():
 
 def test_extract_text_unknown_ocr_backend():
     with patch(
-        "plugin.scripting.vision_docling._convert_image_bytes",
+        "plugin.vision.venv.vision_docling._convert_image_bytes",
         side_effect=ValueError("Unknown ocr_backend 'nope'"),
     ):
         result = extract_text(b"png", {"ocr_backend": "nope"})
@@ -102,7 +102,7 @@ def test_apply_pipeline_params_maps_flat_keys():
     pipeline.layout_options = layout_opts
     pipeline.accelerator_options = acc_opts
 
-    with patch("plugin.scripting.vision_docling._resolve_layout_model_spec", return_value="heron-spec"):
+    with patch("plugin.vision.venv.vision_docling._resolve_layout_model_spec", return_value="heron-spec"):
         fast_mode = MagicMock()
         mock_pipeline_mod = MagicMock()
         mock_pipeline_mod.TableFormerMode.FAST = fast_mode

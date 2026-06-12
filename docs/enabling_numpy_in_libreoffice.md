@@ -272,7 +272,7 @@ Helpers that need a missing package return `MISSING_PACKAGE` with the install li
 
 #### Optional venv packages (trusted vision helpers)
 
-[`plugin/scripting/vision.py`](../plugin/scripting/vision.py) **Vision Helpers** (Run Python Script → `[Vision] extract_text`) default to Docling in the user venv. Settings → Python **Test** reports these under **Vision Libraries**:
+[`plugin/vision/venv/vision.py`](../plugin/vision/venv/vision.py) **Vision Helpers** (Run Python Script → `[Vision] extract_text`) default to Docling in the user venv. Settings → Python **Test** reports these under **Vision Libraries**:
 
 | Package | Install | Used by |
 |---------|---------|---------|
@@ -319,10 +319,10 @@ Shipped domains prove the stack. New domains should mirror them—not invent par
 
 | Layer | Analysis | Vision | Viz | Symbolic (SymPy) | Units (Pint) | Planned |
 |-------|----------|--------|-----|------------------|--------------|---------|
-| Trusted module | [`analysis.py`](../plugin/scripting/analysis.py) | [`vision.py`](../plugin/scripting/vision.py) | [`viz.py`](../plugin/scripting/viz.py) | [`symbolic.py`](../plugin/scripting/symbolic.py) | [`units.py`](../plugin/scripting/units.py) | `forecast.py`, `text_analytics.py`, … |
+| Trusted module | [`analysis.py`](../plugin/scripting/analysis.py) | [`vision.py`](../plugin/vision/venv/vision.py) | [`viz.py`](../plugin/scripting/viz.py) | [`symbolic.py`](../plugin/scripting/symbolic.py) | [`units.py`](../plugin/scripting/units.py) | `forecast.py`, `text_analytics.py`, … |
 | Templates | `# writeragent:analysis` | `# writeragent:vision` | `# writeragent:viz` | `# writeragent:math` | `# writeragent:units` | `# writeragent:forecast`, … |
 | Host client | [`client.py`](../plugin/scripting/client.py) `run_analysis` | [`client.py`](../plugin/scripting/client.py) `run_vision` | [`client.py`](../plugin/scripting/client.py) `run_viz` | [`client.py`](../plugin/scripting/client.py) `run_symbolic` | [`client.py`](../plugin/scripting/client.py) `run_units` | Same RPC shape |
-| Runner / egress | [`analysis_runner.py`](../plugin/calc/analysis_runner.py), [`analysis_egress.py`](../plugin/calc/analysis_egress.py) | [`vision_runner.py`](../plugin/scripting/vision_runner.py), [`vision_egress.py`](../plugin/scripting/vision_egress.py) | egress in [`viz.py`](../plugin/scripting/viz.py) | egress in [`symbolic.py`](../plugin/scripting/symbolic.py) | egress in [`units.py`](../plugin/scripting/units.py) | Per domain |
+| Runner / egress | [`analysis_runner.py`](../plugin/calc/analysis_runner.py), [`analysis_egress.py`](../plugin/calc/analysis_egress.py) | [`vision_runner.py`](../plugin/vision/vision_runner.py), [`vision_egress.py`](../plugin/vision/vision_egress.py) | egress in [`viz.py`](../plugin/scripting/viz.py) | egress in [`symbolic.py`](../plugin/scripting/symbolic.py) | egress in [`units.py`](../plugin/scripting/units.py) | Per domain |
 | Run Python Script | `_analysis_script_section` | `_vision_script_section` | `_viz_script_section` | `_math_script_section` | `_units_script_section` | [`document_scripts.py`](../plugin/scripting/document_scripts.py) |
 | Fast path order | — | 1st | 2nd | 3rd | 4th (units) | [`python_runner.py`](../plugin/scripting/python_runner.py): vision → viz → math → **units** → quant → … |
 | Settings Test | **Data Analysis / EDA** | **Vision Libraries** | **Visualization Libraries** | **Computer Algebra** | **Data Engineering Libraries** | Per domain when shipped |

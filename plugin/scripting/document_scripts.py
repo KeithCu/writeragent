@@ -365,14 +365,14 @@ def _analysis_script_section(doc: Any | None) -> dict[str, Any] | None:
 def _vision_script_section(doc: Any | None) -> dict[str, Any] | None:
     if doc is None:
         return None
-    from plugin.scripting.vision_runner import supports_vision_manual
+    from plugin.vision.vision_runner import supports_vision_manual
 
     try:
         if not supports_vision_manual(doc):
             return None
     except Exception:
         return None
-    from plugin.scripting.vision_templates import get_vision_script_templates
+    from plugin.vision.vision_templates import get_vision_script_templates
 
     templates = get_vision_script_templates()
     display_scripts = {vision_script_display_name(name): code for name, code in templates.items()}

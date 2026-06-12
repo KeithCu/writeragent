@@ -14,7 +14,7 @@ from plugin.scripting.config_limits import (
     DOCLING_WORKER_TIMEOUT_SEC,
     VISION_WORKER_TIMEOUT_SEC,
 )
-from plugin.scripting.vision_common import resolve_engine
+from plugin.vision.vision_common import resolve_engine
 from plugin.scripting.venv_worker import run_code_in_user_venv
 
 
@@ -233,7 +233,7 @@ def run_optimize(
 
 _VISION_SESSION_PREFIX = "writeragent:vision"
 _VISION_STUB = """\
-from plugin.scripting.vision import run_vision as _run
+from plugin.vision.venv.vision import run_vision as _run
 result = _run(data["spec"], data.get("image"), data.get("context") or {})
 """
 

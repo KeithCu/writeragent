@@ -10,7 +10,7 @@ import logging
 from typing import Any
 
 from plugin.framework.errors import ToolExecutionError
-from plugin.scripting.vision_common import HELPER_NAMES, resolve_vision_insert_mode
+from plugin.vision.vision_common import HELPER_NAMES, resolve_vision_insert_mode
 
 log = logging.getLogger(__name__)
 

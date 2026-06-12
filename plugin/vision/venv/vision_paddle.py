@@ -10,7 +10,7 @@ import logging
 from html.parser import HTMLParser
 from typing import Any
 
-from plugin.scripting.vision_common import (
+from plugin.vision.vision_common import (
     MAX_TABLE_ROWS,
     css_inline_unavailable_result,
     is_css_inline_import_error,
@@ -107,7 +107,7 @@ def extract_text(image: Any, params: dict[str, Any]) -> dict[str, Any]:
         log.exception("extract_text OCR failed")
         return _error_result("VISION_ERROR", str(exc), helper=helper)
 
-    from plugin.scripting.vision_html_export import html_from_paddle_regions
+    from plugin.vision.venv.vision_html_export import html_from_paddle_regions
 
     try:
         html = html_from_paddle_regions(regions)
@@ -353,7 +353,7 @@ def extract_structure(image: Any, params: dict[str, Any]) -> dict[str, Any]:
         log.exception("extract_structure failed")
         return _error_result("VISION_ERROR", str(exc), helper=helper)
 
-    from plugin.scripting.vision_html_export import html_from_paddle_structure
+    from plugin.vision.venv.vision_html_export import html_from_paddle_structure
 
     full_text = "\n".join(text_parts)
     try:

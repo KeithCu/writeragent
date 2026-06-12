@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from plugin.scripting.vision_html_export import (
+from plugin.vision.venv.vision_html_export import (
     CSS_INLINE_INSTALL_CMD,
     apply_structured_insert_html,
     augment_lo_body_paragraph_styles,
@@ -72,7 +72,7 @@ def test_prepare_html_for_lo_import_applies_heading_and_body_augment():
 
 def test_html_from_paddle_regions_escapes_and_wraps():
     with patch(
-        "plugin.scripting.vision_html_export.prepare_html_for_lo_import",
+        "plugin.vision.venv.vision_html_export.prepare_html_for_lo_import",
         side_effect=lambda html: html,
     ):
         html = html_from_paddle_regions([{"text": "Line & one"}, {"text": "Line two"}])
@@ -83,7 +83,7 @@ def test_html_from_paddle_regions_escapes_and_wraps():
 
 def test_html_from_paddle_structure_table_and_heading():
     with patch(
-        "plugin.scripting.vision_html_export.prepare_html_for_lo_import",
+        "plugin.vision.venv.vision_html_export.prepare_html_for_lo_import",
         side_effect=lambda html: html,
     ):
         html = html_from_paddle_structure(
@@ -101,8 +101,8 @@ def test_export_docling_to_html_default():
     doc.export_to_html.return_value = "<p><strong>Hi</strong></p>"
     fake = MagicMock()
     fake.ImageRefMode.EMBEDDED = "embedded"
-    with patch("plugin.scripting.vision_html_export.importlib.import_module", return_value=fake), patch(
-        "plugin.scripting.vision_html_export.prepare_html_for_lo_import",
+    with patch("plugin.vision.venv.vision_html_export.importlib.import_module", return_value=fake), patch(
+        "plugin.vision.venv.vision_html_export.prepare_html_for_lo_import",
         side_effect=lambda html: html,
     ):
         out = export_docling_to_html(doc, {})
@@ -125,7 +125,7 @@ def test_apply_structured_insert_html_replaces_html_in_worker():
         ],
     }
     with patch(
-        "plugin.scripting.vision_html_export.structured_html_from_vision_result",
+        "plugin.vision.venv.vision_html_export.structured_html_from_vision_result",
         return_value="<table><tr><td>Left</td><td>Right</td></tr></table>",
     ):
         out = apply_structured_insert_html(result, {"insert_mode": "structured"})

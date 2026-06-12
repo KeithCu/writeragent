@@ -10,7 +10,7 @@ import logging
 from io import BytesIO
 from typing import Any, Literal
 
-from plugin.scripting.vision_common import (
+from plugin.vision.vision_common import (
     MAX_TABLE_ROWS,
     css_inline_unavailable_result,
     is_css_inline_import_error,
@@ -410,7 +410,7 @@ def extract_text(image: Any, params: dict[str, Any]) -> dict[str, Any]:
     helper = "extract_text"
     try:
         document = _convert_image_bytes(image, params, for_structure=True)
-        from plugin.scripting.vision_html_export import export_docling_to_html
+        from plugin.vision.venv.vision_html_export import export_docling_to_html
 
         html = export_docling_to_html(document, params)
         full_text, regions = _map_docling_text(document)
@@ -449,7 +449,7 @@ def extract_structure(image: Any, params: dict[str, Any]) -> dict[str, Any]:
     helper = "extract_structure"
     try:
         document = _convert_image_bytes(image, params, for_structure=True)
-        from plugin.scripting.vision_html_export import export_docling_to_html
+        from plugin.vision.venv.vision_html_export import export_docling_to_html
 
         html = export_docling_to_html(document, params)
         blocks, tables, text_parts = _map_docling_structure(document)

@@ -6,8 +6,8 @@
 
 from __future__ import annotations
 
-from plugin.scripting.vision import HELPER_NAMES
-from plugin.scripting.vision_templates import (
+from plugin.vision.venv.vision import HELPER_NAMES
+from plugin.vision.vision_templates import (
     VISION_HEADER_PREFIX,
     get_vision_script_templates,
     parse_vision_script_header,

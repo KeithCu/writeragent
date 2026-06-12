@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.framework.errors import ToolExecutionError
-from plugin.scripting.vision_egress import (
+from plugin.vision.vision_egress import (
     insert_vision_result,
     is_vision_result,
     vision_html_from_result,
@@ -58,7 +58,7 @@ def test_vision_html_from_result_missing_html_raises():
     assert exc.value.code == "VISION_ERROR"
 
 
-@patch("plugin.scripting.vision_egress.insert_vision_result_into_writer")
+@patch("plugin.vision.vision_egress.insert_vision_result_into_writer")
 def test_insert_vision_result_writer(mock_writer):
     ctx = MagicMock()
     doc = MagicMock()
@@ -66,7 +66,7 @@ def test_insert_vision_result_writer(mock_writer):
 
     with patch("plugin.doc.document_helpers.is_writer", return_value=True), patch(
         "plugin.doc.document_helpers.is_calc", return_value=False
-    ), patch("plugin.scripting.vision_egress.resolve_vision_insert_mode", return_value="html"):
+    ), patch("plugin.vision.vision_egress.resolve_vision_insert_mode", return_value="html"):
         insert_vision_result(ctx, doc, result)
 
     mock_writer.assert_called_once_with(ctx, doc, result)
@@ -80,7 +80,7 @@ def test_insert_vision_result_calc(mock_calc):
 
     with patch("plugin.doc.document_helpers.is_writer", return_value=False), patch(
         "plugin.doc.document_helpers.is_calc", return_value=True
-    ), patch("plugin.scripting.vision_egress.resolve_vision_insert_mode", return_value="html"):
+    ), patch("plugin.vision.vision_egress.resolve_vision_insert_mode", return_value="html"):
         insert_vision_result(ctx, doc, result)
 
     mock_calc.assert_called_once_with(doc, ctx, "<p>hi</p>")
@@ -100,7 +100,7 @@ def test_insert_vision_result_calc_structured(mock_structured, mock_html):
 
     with patch("plugin.doc.document_helpers.is_writer", return_value=False), patch(
         "plugin.doc.document_helpers.is_calc", return_value=True
-    ), patch("plugin.scripting.vision_egress.resolve_vision_insert_mode", return_value="structured"):
+    ), patch("plugin.vision.vision_egress.resolve_vision_insert_mode", return_value="structured"):
         insert_vision_result(ctx, doc, result, params={"insert_mode": "structured"})
 
     mock_structured.assert_called_once_with(doc, ctx, result)

@@ -10,9 +10,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.scripting import vision_docling as docling_mod
-from plugin.scripting import vision_paddle as paddle_mod
-from plugin.scripting.vision import run_vision
+from plugin.vision.venv import vision_docling as docling_mod
+from plugin.vision.venv import vision_paddle as paddle_mod
+from plugin.vision.venv.vision import run_vision
 
 
 @pytest.fixture(autouse=True)
@@ -57,8 +57,8 @@ def _mock_docling_document(*, texts=None, tables=None, markdown=None):
     return doc
 
 
-@patch("plugin.scripting.vision_html_export.export_docling_to_html", return_value="<p>Hello</p><p>World</p>")
-@patch("plugin.scripting.vision_docling._convert_image_bytes")
+@patch("plugin.vision.venv.vision_html_export.export_docling_to_html", return_value="<p>Hello</p><p>World</p>")
+@patch("plugin.vision.venv.vision_docling._convert_image_bytes")
 def test_extract_text_docling_default_maps_regions(mock_convert, _mock_html):
     mock_convert.return_value = _mock_docling_document()
 
@@ -74,8 +74,8 @@ def test_extract_text_docling_default_maps_regions(mock_convert, _mock_html):
     assert result["metrics"]["ocr_backend"] == "rapidocr"
 
 
-@patch("plugin.scripting.vision_html_export.export_docling_to_html", return_value="")
-@patch("plugin.scripting.vision_docling._convert_image_bytes")
+@patch("plugin.vision.venv.vision_html_export.export_docling_to_html", return_value="")
+@patch("plugin.vision.venv.vision_docling._convert_image_bytes")
 def test_extract_text_docling_empty_adds_warning(mock_convert, _mock_html):
     mock_convert.return_value = _mock_docling_document(texts=[], markdown="")
 
@@ -86,12 +86,12 @@ def test_extract_text_docling_empty_adds_warning(mock_convert, _mock_html):
     assert result["warnings"] == ["No text detected."]
 
 
-@patch("plugin.scripting.vision_docling._convert_image_bytes")
+@patch("plugin.vision.venv.vision_docling._convert_image_bytes")
 def test_extract_text_docling_unavailable_falls_back_to_paddle(mock_convert):
     mock_convert.side_effect = ImportError("docling is not installed")
 
-    with patch("plugin.scripting.vision_paddle._decode_image_bytes") as mock_decode, patch(
-        "plugin.scripting.vision_paddle._get_paddle_ocr"
+    with patch("plugin.vision.venv.vision_paddle._decode_image_bytes") as mock_decode, patch(
+        "plugin.vision.venv.vision_paddle._get_paddle_ocr"
     ) as mock_get_engine:
         engine = MagicMock()
         engine.ocr.return_value = [_sample_ocr_page()]
@@ -108,7 +108,7 @@ def test_extract_text_docling_unavailable_falls_back_to_paddle(mock_convert):
     assert result["metrics"]["fallback_from"] == "docling"
 
 
-@patch("plugin.scripting.vision_docling._convert_image_bytes")
+@patch("plugin.vision.venv.vision_docling._convert_image_bytes")
 def test_extract_text_docling_unavailable_no_fallback(mock_convert):
     mock_convert.side_effect = ImportError("docling is not installed")
 
@@ -122,8 +122,8 @@ def test_extract_text_docling_unavailable_no_fallback(mock_convert):
     assert result["code"] == "DOCLING_UNAVAILABLE"
 
 
-@patch("plugin.scripting.vision_paddle._decode_image_bytes")
-@patch("plugin.scripting.vision_paddle._get_paddle_ocr")
+@patch("plugin.vision.venv.vision_paddle._decode_image_bytes")
+@patch("plugin.vision.venv.vision_paddle._get_paddle_ocr")
 def test_extract_text_paddle_engine_maps_regions(mock_get_engine, mock_decode):
     engine = MagicMock()
     engine.ocr.return_value = [_sample_ocr_page()]
@@ -140,7 +140,7 @@ def test_extract_text_paddle_engine_maps_regions(mock_get_engine, mock_decode):
     assert len(result["regions"]) == 2
 
 
-@patch("plugin.scripting.vision_paddle._get_paddle_ocr")
+@patch("plugin.vision.venv.vision_paddle._get_paddle_ocr")
 def test_extract_text_paddle_unavailable(mock_get_engine):
     mock_get_engine.side_effect = ImportError("paddleocr is not installed")
 
@@ -177,8 +177,8 @@ def _sample_structure_page():
     ]
 
 
-@patch("plugin.scripting.vision_html_export.export_docling_to_html", return_value="<table></table>")
-@patch("plugin.scripting.vision_docling._convert_image_bytes")
+@patch("plugin.vision.venv.vision_html_export.export_docling_to_html", return_value="<table></table>")
+@patch("plugin.vision.venv.vision_docling._convert_image_bytes")
 def test_extract_structure_docling_default(mock_convert, _mock_html):
     mock_convert.return_value = _mock_docling_document(
         texts=[{"text": "Invoice", "label": "text", "prov": [{"bbox": {"l": 10, "t": 10, "r": 100, "b": 30}}]}],
@@ -201,8 +201,8 @@ def test_extract_structure_docling_default(mock_convert, _mock_html):
     assert result["tables"][0]["rows"] == [["Widget", "2"]]
 
 
-@patch("plugin.scripting.vision_paddle._decode_image_bytes")
-@patch("plugin.scripting.vision_paddle._get_pp_structure")
+@patch("plugin.vision.venv.vision_paddle._decode_image_bytes")
+@patch("plugin.vision.venv.vision_paddle._get_pp_structure")
 def test_extract_structure_paddle_engine(mock_get_engine, mock_decode):
     engine = MagicMock()
     engine.predict.return_value = [_sample_structure_page()]
@@ -216,7 +216,7 @@ def test_extract_structure_paddle_engine(mock_get_engine, mock_decode):
     assert result["metrics"]["table_count"] == 1
 
 
-@patch("plugin.scripting.vision_paddle._get_pp_structure")
+@patch("plugin.vision.venv.vision_paddle._get_pp_structure")
 def test_extract_structure_paddle_unavailable(mock_get_engine):
     mock_get_engine.side_effect = ImportError("PPStructureV3 is not available")
 
@@ -226,8 +226,8 @@ def test_extract_structure_paddle_unavailable(mock_get_engine):
     assert result["code"] == "PADDLEOCR_UNAVAILABLE"
 
 
-@patch("plugin.scripting.vision_paddle._decode_image_bytes")
-@patch("plugin.scripting.vision_paddle._get_paddle_ocr")
+@patch("plugin.vision.venv.vision_paddle._decode_image_bytes")
+@patch("plugin.vision.venv.vision_paddle._get_paddle_ocr")
 def test_extract_text_runtime_error_returns_vision_error(mock_get_engine, mock_decode):
     engine = MagicMock()
     engine.ocr.side_effect = RuntimeError("model failed")

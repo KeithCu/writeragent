@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from plugin.scripting.vision_common import (
+from plugin.vision.vision_common import (
     css_inline_unavailable_result,
     is_css_inline_import_error,
     resolve_vision_insert_mode,

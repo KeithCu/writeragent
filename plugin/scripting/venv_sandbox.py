@@ -358,7 +358,7 @@ def _inject_data(executor: LocalPythonExecutor, data: Any | None) -> None:
     executor.send_variables(variables)
 
 
-_TRUSTED_VISION_STUB_MARKER = "from plugin.scripting.vision import run_vision"
+_TRUSTED_VISION_STUB_MARKER = "from plugin.vision.venv.vision import run_vision"
 _TRUSTED_EMBEDDINGS_STUB_MARKER = "from plugin.embeddings.venv.embeddings_index import"
 _TRUSTED_FOLDER_FTS_STUB_MARKER = "from plugin.embeddings.venv.folder_fts import"
 
@@ -387,7 +387,7 @@ def _unpack_trusted_payload(data: Any | None) -> dict[str, Any]:
 
 def _run_trusted_vision_payload(data: Any | None) -> dict[str, Any]:
     """Run vision helpers outside LocalPythonExecutor (docling/paddle are not sandbox imports)."""
-    from plugin.scripting.vision import run_vision
+    from plugin.vision.venv.vision import run_vision
 
     payload = _unpack_trusted_payload(data)
     try:

@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from plugin.scripting.vision_common import (
+from plugin.vision.vision_common import (
     HELPER_NAMES,
     IMPLEMENTED_HELPERS,
     _error_result,
@@ -27,7 +27,7 @@ __all__ = ["HELPER_NAMES", "run_vision"]
 
 
 def _run_paddle_helper(helper: str, image: Any, params: dict[str, Any]) -> dict[str, Any]:
-    from plugin.scripting import vision_paddle as paddle_backend
+    from plugin.vision.venv import vision_paddle as paddle_backend
 
     if helper == "extract_text":
         return paddle_backend.extract_text(image, params)
@@ -35,7 +35,7 @@ def _run_paddle_helper(helper: str, image: Any, params: dict[str, Any]) -> dict[
 
 
 def _run_docling_helper(helper: str, image: Any, params: dict[str, Any]) -> dict[str, Any]:
-    from plugin.scripting import vision_docling as docling_backend
+    from plugin.vision.venv import vision_docling as docling_backend
 
     if helper == "extract_text":
         return docling_backend.extract_text(image, params)
@@ -108,7 +108,7 @@ def run_vision(
 
     try:
         result = _dispatch_helper(helper, image, params)
-        from plugin.scripting.vision_html_export import apply_structured_insert_html
+        from plugin.vision.venv.vision_html_export import apply_structured_insert_html
 
         return apply_structured_insert_html(result, params)
     except Exception as exc:

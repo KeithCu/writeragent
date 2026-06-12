@@ -95,7 +95,7 @@ def is_css_inline_import_error(exc: BaseException) -> bool:
 
 
 def css_inline_unavailable_result(helper: str) -> dict[str, Any]:
-    from plugin.scripting.vision_html_export import CSS_INLINE_INSTALL_CMD
+    from plugin.vision.venv.vision_html_export import CSS_INLINE_INSTALL_CMD
 
     return _error_result(
         "CSS_INLINE_UNAVAILABLE",

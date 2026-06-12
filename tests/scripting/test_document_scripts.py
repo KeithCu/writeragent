@@ -211,7 +211,7 @@ def test_build_scripts_list_includes_vision_section_for_writer():
     ctx = MagicMock()
     doc = MagicMock()
     with patch("plugin.framework.config.get_config", return_value={}), patch(
-        "plugin.scripting.vision_runner.supports_vision_manual", return_value=True
+        "plugin.vision.vision_runner.supports_vision_manual", return_value=True
     ):
         msg = build_scripts_list_message(ctx, session_doc=doc, session_doc_url=None)
     section_ids = [s["id"] for s in msg["sections"]]
@@ -227,7 +227,7 @@ def test_build_scripts_list_includes_vision_section_for_calc():
     with patch("plugin.framework.config.get_config", return_value={}), patch(
         "plugin.scripting.document_scripts.is_calc", return_value=True
     ), patch("plugin.scripting.document_scripts.is_writer", return_value=False), patch(
-        "plugin.scripting.vision_runner.supports_vision_manual", return_value=True
+        "plugin.vision.vision_runner.supports_vision_manual", return_value=True
     ):
         msg = build_scripts_list_message(ctx, session_doc=doc, session_doc_url=None)
     section_ids = [s["id"] for s in msg["sections"]]
@@ -243,7 +243,7 @@ def test_build_scripts_list_excludes_vision_section_for_draw():
         "plugin.scripting.document_scripts.is_draw", return_value=True
     ), patch("plugin.scripting.document_scripts.is_calc", return_value=False), patch(
         "plugin.scripting.document_scripts.is_writer", return_value=False
-    ), patch("plugin.scripting.vision_runner.supports_vision_manual", return_value=False):
+    ), patch("plugin.vision.vision_runner.supports_vision_manual", return_value=False):
         msg = build_scripts_list_message(ctx, session_doc=doc, session_doc_url=None)
     section_ids = [s["id"] for s in msg["sections"]]
     assert SCRIPT_ORIGIN_VISION not in section_ids
@@ -252,7 +252,7 @@ def test_build_scripts_list_excludes_vision_section_for_draw():
 def test_build_xdl_script_picker_includes_vision_for_writer():
     ctx = MagicMock()
     doc = MagicMock()
-    with patch("plugin.scripting.vision_runner.supports_vision_manual", return_value=True):
+    with patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True):
         items, merged, origin_map = build_xdl_script_picker_state(ctx, doc, {})
     for helper in ("extract_text", "extract_structure"):
         display = f"{VISION_SCRIPT_DISPLAY_PREFIX}{helper}"

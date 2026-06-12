@@ -1318,7 +1318,7 @@ def get_safe_module(raw_module, authorized_imports, visited=None):
                 "langgraph",
                 "langchain",
                 "plugin.embeddings.venv",
-                "plugin.scripting.vision",
+                "plugin.vision.venv",
             )
         )
         or name in ("math", "random", "datetime", "re", "collections", "itertools", "functools", "json", "time", "os", "sys")

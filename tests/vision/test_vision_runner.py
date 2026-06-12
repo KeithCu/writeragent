@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.framework.errors import ToolExecutionError
-from plugin.scripting.vision_runner import get_selected_image_bytes, resolve_vision_image_bytes, run_trusted_vision
+from plugin.vision.vision_runner import get_selected_image_bytes, resolve_vision_image_bytes, run_trusted_vision
 from plugin.tests.testing_utils import setup_uno_mocks
 
 setup_uno_mocks()
@@ -22,22 +22,22 @@ def test_get_selected_image_bytes_decodes_png():
     ctx = MagicMock()
     doc = MagicMock()
     raw = b"fake-png-bytes"
-    with patch("plugin.scripting.vision_runner.get_selected_image_base64", return_value=base64.b64encode(raw).decode("ascii")):
+    with patch("plugin.vision.vision_runner.get_selected_image_base64", return_value=base64.b64encode(raw).decode("ascii")):
         assert get_selected_image_bytes(ctx, doc) == raw
 
 
 def test_get_selected_image_bytes_raises_when_no_selection():
     ctx = MagicMock()
     doc = MagicMock()
-    with patch("plugin.scripting.vision_runner.get_selected_image_base64", return_value=None):
+    with patch("plugin.vision.vision_runner.get_selected_image_base64", return_value=None):
         with pytest.raises(ToolExecutionError) as exc:
             get_selected_image_bytes(ctx, doc)
     assert exc.value.code == "NO_IMAGE_SELECTED"
 
 
-@patch("plugin.scripting.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {}))
-@patch("plugin.scripting.vision_runner.run_vision")
-@patch("plugin.scripting.vision_runner.get_selected_image_bytes")
+@patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {}))
+@patch("plugin.vision.vision_runner.run_vision")
+@patch("plugin.vision.vision_runner.get_selected_image_bytes")
 def test_run_trusted_vision_builds_payload(mock_bytes, mock_run_vision, _mock_merge):
     ctx = MagicMock()
     doc = MagicMock()
@@ -63,9 +63,9 @@ def test_run_trusted_vision_rejects_unknown_helper():
     assert exc.value.code == "VISION_ERROR"
 
 
-@patch("plugin.scripting.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {}))
-@patch("plugin.scripting.vision_runner.run_vision")
-@patch("plugin.scripting.vision_runner.resolve_vision_image_bytes")
+@patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {}))
+@patch("plugin.vision.vision_runner.run_vision")
+@patch("plugin.vision.vision_runner.resolve_vision_image_bytes")
 def test_run_trusted_vision_passes_image_name_context(mock_bytes, mock_run_vision, _mock_merge):
     ctx = MagicMock()
     doc = MagicMock()
@@ -83,7 +83,7 @@ def test_run_trusted_vision_passes_image_name_context(mock_bytes, mock_run_visio
     )
 
 
-@patch("plugin.scripting.vision_runner.get_selected_image_bytes")
+@patch("plugin.vision.vision_runner.get_selected_image_bytes")
 def test_resolve_vision_image_bytes_uses_selection_when_name_empty(mock_selected):
     ctx = MagicMock()
     doc = MagicMock()
@@ -92,8 +92,8 @@ def test_resolve_vision_image_bytes_uses_selection_when_name_empty(mock_selected
     mock_selected.assert_called_once_with(ctx, doc)
 
 
-@patch("plugin.scripting.vision_runner.export_graphic_object_to_bytes")
-@patch("plugin.scripting.vision_runner._get_graphic_object")
+@patch("plugin.vision.vision_runner.export_graphic_object_to_bytes")
+@patch("plugin.vision.vision_runner._get_graphic_object")
 def test_resolve_vision_image_bytes_by_name(mock_get_obj, mock_export):
     ctx = MagicMock()
     doc = MagicMock()
@@ -106,7 +106,7 @@ def test_resolve_vision_image_bytes_by_name(mock_get_obj, mock_export):
     mock_export.assert_called_once_with(ctx, graphic)
 
 
-@patch("plugin.scripting.vision_runner._get_graphic_object")
+@patch("plugin.vision.vision_runner._get_graphic_object")
 def test_resolve_vision_image_bytes_raises_when_name_missing(mock_get_obj):
     ctx = MagicMock()
     doc = MagicMock()
@@ -116,10 +116,10 @@ def test_resolve_vision_image_bytes_raises_when_name_missing(mock_get_obj):
     assert exc.value.code == "IMAGE_NOT_FOUND"
 
 
-@patch("plugin.scripting.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {}))
+@patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {}))
 @patch("plugin.framework.i18n.get_lo_locale", return_value="fr_FR")
-@patch("plugin.scripting.vision_runner.run_vision")
-@patch("plugin.scripting.vision_runner.get_selected_image_bytes")
+@patch("plugin.vision.vision_runner.run_vision")
+@patch("plugin.vision.vision_runner.get_selected_image_bytes")
 def test_run_trusted_vision_resolves_lang_from_locale(mock_bytes, mock_run_vision, mock_get_lo_locale, _mock_merge):
     ctx = MagicMock()
     doc = MagicMock()

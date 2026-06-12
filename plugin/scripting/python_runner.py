@@ -398,9 +398,9 @@ def execute_and_insert_result(
     from plugin.calc.venv_python import _resolve_python_data
     from plugin.framework.errors import ToolExecutionError
     from plugin.scripting.analysis import parse_analysis_script_header
-    from plugin.scripting.vision_egress import insert_vision_result, is_vision_result
-    from plugin.scripting.vision_runner import run_trusted_vision, supports_vision_manual
-    from plugin.scripting.vision_templates import parse_vision_script_header
+    from plugin.vision.vision_egress import insert_vision_result, is_vision_result
+    from plugin.vision.vision_runner import run_trusted_vision, supports_vision_manual
+    from plugin.vision.vision_templates import parse_vision_script_header
     from plugin.scripting.viz import insert_viz_result_into_doc, is_viz_result, try_insert_plot_result, run_trusted_viz, supports_viz_manual, parse_viz_script_header
     from plugin.scripting.symbolic import insert_symbolic_result_into_doc, is_symbolic_result, run_trusted_symbolic, supports_symbolic_manual, parse_math_script_header
     from plugin.scripting.units import (

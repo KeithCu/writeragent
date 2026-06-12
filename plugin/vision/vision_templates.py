@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from plugin.scripting.vision import HELPER_NAMES
+from plugin.vision.venv.vision import HELPER_NAMES
 
 VISION_HEADER_PREFIX = "# writeragent:vision"
 _VISION_HEADER_RE = re.compile(
@@ -54,7 +54,7 @@ def _template_body(helper: str, params: dict[str, Any]) -> str:
         f"# {desc}\n"
         f"# Select an embedded graphic OR set image_name in params (from list_images).\n"
         f"# Writer: place text cursor for insert. Calc: select cell-anchored graphic for output row.\n"
-        f"from plugin.scripting.vision import run_vision\n\n"
+        f"from plugin.vision.venv.vision import run_vision\n\n"
         f"result = run_vision(\n"
         f'    {{"helper": "{helper}", "params": {params_json}}},\n'
         f"    image,\n"

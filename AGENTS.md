@@ -42,6 +42,7 @@ If you find ways to lower technical debt, while adding a feature, put that in yo
 | Weekly extension update check | [`plugin/chatbot/extension_update_check.py`](plugin/chatbot/extension_update_check.py) |
 | Python venv sandbox import policy | [`plugin/scripting/import_policy.py`](plugin/scripting/import_policy.py), whitelist in [`plugin/scripting/sandbox_imports.py`](plugin/scripting/sandbox_imports.py) |
 | Embeddings / folder FTS | [`plugin/embeddings/`](plugin/embeddings/) (host cache, indexers, tools); venv worker in [`plugin/embeddings/venv/`](plugin/embeddings/venv/); RPC in [`plugin/framework/client/embeddings_service.py`](plugin/framework/client/embeddings_service.py), [`embedding_client.py`](plugin/framework/client/embedding_client.py), [`folder_fts_service.py`](plugin/framework/client/folder_fts_service.py) — [docs/embeddings.md](docs/embeddings.md) |
+| Vision / OCR | [`plugin/vision/`](plugin/vision/) (host runner, egress, templates); venv worker in [`plugin/vision/venv/`](plugin/vision/venv/); RPC in [`plugin/scripting/client.py`](plugin/scripting/client.py) `run_vision` — [docs/image-recognition.md](docs/image-recognition.md) |
 
 **Layout:** `plugin/` → `framework/` (config, service, state, logging), `modules/` (ai, chatbot—including shared UNO dialogs/listeners/dialog_views/settings_dialog UI, writer, calc, draw, http), [`extension/`](extension/) (OXT resources, [`WriterAgentDialogs/`](extension/WriterAgentDialogs/), [`idl/`](extension/idl/), [`metadata/`](extension/metadata/)), [`scripts/`](scripts/), [`Makefile`](Makefile), [`pyproject.toml`](pyproject.toml).
 
@@ -196,7 +197,7 @@ UNO helpers are split: [`uno_context.py`](plugin/framework/uno_context.py), [`do
 | Localization / translations / `make extract-strings` | [docs/localization.md](docs/localization.md), [locales/README.md](locales/README.md) |
 | Audio Architecture | [docs/audio-architecture.md](docs/audio-architecture.md) |
 | Image generation | [docs/image-generation.md](docs/image-generation.md) |
-| Image recognition (local OCR / detection) | [docs/image-recognition.md](docs/image-recognition.md) |
+| Image recognition (local OCR / detection) | [docs/image-recognition.md](docs/image-recognition.md) — code under [`plugin/vision/`](plugin/vision/) |
 | Math / HTML import design | [docs/math-tex.md](docs/math-tex.md) |
 | Grammar pipeline (cache, queue) | [docs/realtime-grammar-checker-plan.md](docs/realtime-grammar-checker-plan.md) |
 | Test Architecture | [docs/test_architecture_analysis.md](docs/test_architecture_analysis.md) |

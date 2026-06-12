@@ -225,7 +225,7 @@ def _blocks_from_vision_result(result: dict[str, Any]) -> list[dict[str, Any]]:
 
 def structured_html_from_vision_result(result: dict[str, Any]) -> str:
     """Build bbox layout HTML from blocks/regions; must run in the user venv (needs css-inline)."""
-    from plugin.scripting.vision_layout_html import html_from_layout_blocks
+    from plugin.vision.venv.vision_layout_html import html_from_layout_blocks
 
     body = html_from_layout_blocks(_blocks_from_vision_result(result), {})
     tables = result.get("tables")
@@ -246,7 +246,7 @@ def structured_html_from_vision_result(result: dict[str, Any]) -> str:
 
 def apply_structured_insert_html(result: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
     """When insert_mode=structured, replace html in the worker before LO insert (css-inline lives in venv)."""
-    from plugin.scripting.vision_common import DEFAULT_VISION_INSERT_MODE
+    from plugin.vision.vision_common import DEFAULT_VISION_INSERT_MODE
 
     if result.get("status") != "ok":
         return result

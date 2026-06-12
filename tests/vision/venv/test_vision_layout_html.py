@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from plugin.scripting.vision_layout_html import html_from_layout_blocks
+from plugin.vision.venv.vision_layout_html import html_from_layout_blocks
 
 
 def test_two_column_band_renders_side_by_side_cells():
