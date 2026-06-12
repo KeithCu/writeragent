@@ -25,6 +25,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from scripts.strip_code import strip_production_code
+from scripts.prune_vendored_websockets import prune_vendored_websockets
 
 # Files/dirs always included from extension/
 ALWAYS_INCLUDE_EXTENSION = [
@@ -107,6 +108,17 @@ GENERATED_INCLUDES = [
 ]
 
 BUNDLE_DIR = "build/bundle"
+
+
+def _vendor_copy_ignore(_dir: str, names: list[str]) -> list[str]:
+    """Skip bytecode when copying vendor packages into plugin/lib/."""
+    ignored: list[str] = []
+    for name in names:
+        if name == "__pycache__":
+            ignored.append(name)
+        elif name.endswith((".pyc", ".pyo")):
+            ignored.append(name)
+    return ignored
 
 
 def should_exclude(path, with_tests=False):
@@ -223,7 +235,11 @@ def assemble_bundle(base_dir, modules, no_recording=False, with_tests=False, dry
             if os.path.isdir(src_path):
                 if os.path.exists(dst_path):
                     shutil.rmtree(dst_path)
-                shutil.copytree(src_path, dst_path)
+                shutil.copytree(src_path, dst_path, ignore=_vendor_copy_ignore)
+                if entry == "websockets":
+                    pruned = prune_vendored_websockets(dst_path)
+                    if pruned:
+                        print("  Pruned websockets for CDP client (%d paths)" % len(pruned))
             elif os.path.isfile(src_path):
                 os.makedirs(os.path.dirname(dst_path), exist_ok=True)
                 shutil.copy2(src_path, dst_path)

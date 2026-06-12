@@ -9,8 +9,14 @@ from plugin.contrib.cdp.browser_cdp_tool import (
     cleanup_local_chrome,
     browser_cdp,
     tool_error,
+    _WS_AVAILABLE,
 )
 from plugin.chatbot.web_research import VisitWebpageCdpTool
+
+
+def test_websockets_vendored_for_cdp():
+    """CDP requires websockets; shipped via requirements-vendor.txt → plugin/lib/."""
+    assert _WS_AVAILABLE is True
 
 
 def test_tool_error_formatting():
