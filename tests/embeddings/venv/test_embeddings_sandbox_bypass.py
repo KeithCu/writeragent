@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from plugin.scripting.venv_sandbox import run_sandboxed_code
+from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 
 _INDEX_STUB = """\
 from plugin.embeddings.venv.embeddings_index import index_paragraphs as _index
@@ -26,7 +26,7 @@ def test_trusted_embeddings_stub_bypasses_local_executor():
     fake_result = {"indexed": 2, "dim": 384}
 
     with patch(
-        "plugin.scripting.venv_sandbox._run_trusted_embeddings_payload",
+        "plugin.scripting.venv.venv_sandbox._run_trusted_embeddings_payload",
         return_value={"status": "ok", "result": fake_result},
     ) as mock_run:
         response = run_sandboxed_code(
@@ -47,7 +47,7 @@ def test_trusted_embeddings_stub_bypasses_local_executor():
 
 def test_trusted_embeddings_payload_calls_index_paragraphs():
     with patch("plugin.embeddings.venv.embeddings_index.index_paragraphs", return_value={"indexed": 1}) as mock_index:
-        from plugin.scripting.venv_sandbox import _run_trusted_embeddings_payload
+        from plugin.scripting.venv.venv_sandbox import _run_trusted_embeddings_payload
 
         out = _run_trusted_embeddings_payload(
             _INDEX_STUB,
@@ -72,9 +72,9 @@ def test_trusted_embeddings_payload_calls_index_paragraphs():
 
 
 def test_user_code_still_uses_sandbox():
-    with patch("plugin.scripting.venv_sandbox._run_trusted_embeddings_payload") as mock_trusted:
-        with patch("plugin.scripting.venv_sandbox._run_on_executor", return_value={"status": "ok", "result": 2}) as mock_run:
-            with patch("plugin.scripting.venv_sandbox._new_executor", return_value=MagicMock()):
+    with patch("plugin.scripting.venv.venv_sandbox._run_trusted_embeddings_payload") as mock_trusted:
+        with patch("plugin.scripting.venv.venv_sandbox._run_on_executor", return_value={"status": "ok", "result": 2}) as mock_run:
+            with patch("plugin.scripting.venv.venv_sandbox._new_executor", return_value=MagicMock()):
                 response = run_sandboxed_code("result = 1 + 1")
 
     assert response["status"] == "ok"

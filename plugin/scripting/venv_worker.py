@@ -145,7 +145,7 @@ def _worker_error_message(exc: BaseException) -> str:
     return f"Python worker failed: {text}"
 
 
-_HARNESS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "worker_harness.py")
+_HARNESS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "venv", "worker_harness.py")
 _instances: dict[str, PythonWorkerManager] = {}
 _registry_lock = threading.Lock()
 
@@ -1305,7 +1305,7 @@ class PythonWorkerManager:
         grace_sec: int,
         on_heartbeat: Callable[[dict[str, Any]], None] | None,
     ) -> bytes:
-        from plugin.scripting.worker_heartbeat import FRAME_HEARTBEAT, FRAME_RESULT, parse_frame
+        from plugin.scripting.venv.worker_heartbeat import FRAME_HEARTBEAT, FRAME_RESULT, parse_frame
 
         deadline_holder = [time.time() + max(timeout_sec, grace_sec)]
 

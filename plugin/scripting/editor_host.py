@@ -43,7 +43,7 @@ def _script_code_from_message(msg: dict[str, Any]) -> str:
 
 # --- Launcher ---
 
-_EDITOR_MAIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "editor_main.py")
+_EDITOR_MAIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "venv", "editor_main.py")
 _ASSETS_DIR = os.path.normpath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "contrib", "scripting", "assets", "editor")
 )

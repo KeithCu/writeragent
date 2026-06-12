@@ -89,7 +89,7 @@ def test_always_injected_xl_does_not_resolve_bare_x():
     """Auto-imported ``xl`` must not make undefined bare ``x`` silently succeed."""
     from plugin.contrib.smolagents.local_python_executor import InterpreterError
     from plugin.scripting.config_limits import python_exec_timeout_default
-    from plugin.scripting.venv_sandbox import _new_executor, inject_auto_imports
+    from plugin.scripting.venv.venv_sandbox import _new_executor, inject_auto_imports
 
     executor = _new_executor(python_exec_timeout_default())
     inject_auto_imports(executor, "result = x")

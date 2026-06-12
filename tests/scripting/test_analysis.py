@@ -14,7 +14,8 @@ pytest.importorskip("pandas")
 pytest.importorskip("sklearn")
 pytest.importorskip("scipy")
 
-from plugin.scripting import analysis
+import plugin.scripting.analysis as analysis
+from plugin.scripting.analysis import MAX_TABLE_ROWS
 from plugin.scripting.analysis import coerce_to_dataframe
 
 
@@ -352,7 +353,7 @@ def test_table_row_cap():
     grid = [["Region", "Sales"]] + [[f"R{i % 5}", i * 10] for i in range(100)]
     result = analysis.group_summary(grid, by="Region", metrics=["Sales"], aggfunc="sum")
     assert result["tables"][0]["truncated"] is False
-    assert result["tables"][0]["total_rows"] <= analysis.MAX_TABLE_ROWS
+    assert result["tables"][0]["total_rows"] <= MAX_TABLE_ROWS
 
 
 @pytest.mark.parametrize(

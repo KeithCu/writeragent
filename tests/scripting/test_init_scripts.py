@@ -16,8 +16,8 @@ from plugin.scripting.document_scripts import (
     init_script_hash,
     set_calc_init_script,
 )
-from plugin.scripting.venv_sandbox import clear_all_sandbox_sessions, reset_sandbox_session, run_sandboxed_code
-from plugin.scripting.worker_harness import _execute_request
+from plugin.scripting.venv.venv_sandbox import clear_all_sandbox_sessions, reset_sandbox_session, run_sandboxed_code
+from plugin.scripting.venv.worker_harness import _execute_request
 from plugin.tests.testing_utils import setup_uno_mocks
 from tests.writer.test_document_helpers import _DocWithUserDefinedProperties, _UserDefinedProperties
 
@@ -53,7 +53,7 @@ def test_get_set_calc_init_script_roundtrip():
 
 def test_init_script_runs_once_in_isolated_mode():
     """Init runs in :init session once; isolated cells see bindings without re-running expensive init."""
-    from plugin.scripting import venv_sandbox as vs
+    from plugin.scripting.venv import venv_sandbox as vs
 
     init_sid = "calc:wb-isolated-test:init"
     init_code = "INIT_RUNS = 1\nHELPER = 41"
@@ -132,7 +132,7 @@ def test_isolated_cells_do_not_share_cell_assignments():
 
 
 def test_reset_clears_init_session():
-    from plugin.scripting import venv_sandbox as vs
+    from plugin.scripting.venv import venv_sandbox as vs
 
     init_sid = "calc:wb-reset:init"
     cell_sid = "calc:wb-reset"

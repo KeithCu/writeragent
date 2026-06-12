@@ -14,7 +14,7 @@ import pytest
 from plugin.contrib.smolagents.local_python_executor import BASE_BUILTIN_MODULES
 from plugin.scripting import sandbox_cache as hot_cache
 from plugin.scripting.sandbox_cache import clear_python_code_hot_cache, get_hot_entry, validate_sandbox_ast
-from plugin.scripting.worker_harness import _execute_request
+from plugin.scripting.venv.worker_harness import _execute_request
 from plugin.tests.testing_utils import setup_uno_mocks
 
 setup_uno_mocks()

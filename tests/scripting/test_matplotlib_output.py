@@ -73,7 +73,7 @@ def test_host_unpack_data_passthrough():
 def test_figure_to_image_payload_svg_default():
     """Default format is SVG for crisp rendering in LibreOffice."""
     plt = pytest.importorskip("matplotlib.pyplot")
-    from plugin.scripting.venv_sandbox import _figure_to_image_payload
+    from plugin.scripting.venv.venv_sandbox import _figure_to_image_payload
 
     fig, ax = plt.subplots()
     ax.plot([1, 2, 3])
@@ -90,7 +90,7 @@ def test_figure_to_image_payload_svg_default():
 def test_figure_to_image_payload_png_explicit():
     """Explicit fmt='png' produces a PNG raster."""
     plt = pytest.importorskip("matplotlib.pyplot")
-    from plugin.scripting.venv_sandbox import _figure_to_image_payload
+    from plugin.scripting.venv.venv_sandbox import _figure_to_image_payload
 
     fig, ax = plt.subplots()
     ax.plot([1, 2, 3])
@@ -107,7 +107,7 @@ def test_figure_to_image_payload_png_explicit():
 def test_serialize_result_figure():
     """serialize_result produces an SVG image payload by default."""
     plt = pytest.importorskip("matplotlib.pyplot")
-    from plugin.scripting.venv_sandbox import serialize_result
+    from plugin.scripting.venv.venv_sandbox import serialize_result
 
     fig, ax = plt.subplots()
     ax.bar([1, 2, 3], [4, 5, 6])
@@ -127,7 +127,7 @@ def test_serialize_result_figure():
 def test_implicit_open_figure_capture():
     """Open pyplot figure with no result assignment should produce an SVG image payload (post-run get_fignums)."""
     pytest.importorskip("matplotlib")
-    from plugin.scripting.venv_sandbox import run_sandboxed_code
+    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 
     res = run_sandboxed_code(
         "import matplotlib.pyplot as plt\nplt.plot([1, 2, 3])",
@@ -142,7 +142,7 @@ def test_implicit_open_figure_capture():
 def test_explicit_figure_result():
     """result = fig should produce an SVG image payload via serialize_result."""
     pytest.importorskip("matplotlib")
-    from plugin.scripting.venv_sandbox import run_sandboxed_code
+    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 
     res = run_sandboxed_code(
         "import matplotlib.pyplot as plt\nfig, ax = plt.subplots()\nax.plot([1, 2, 3])\nresult = fig",
@@ -156,7 +156,7 @@ def test_explicit_figure_result():
 
 def test_non_matplotlib_code_unaffected():
     """Scalar results should not be wrapped in an image payload."""
-    from plugin.scripting.venv_sandbox import run_sandboxed_code
+    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 
     res = run_sandboxed_code("result = 42", timeout_sec=10)
     assert res["status"] == "ok"
@@ -167,7 +167,7 @@ def test_non_matplotlib_code_unaffected():
 def test_multiple_open_figures_merged_to_single_payload():
     """Two implicit figures should merge into one PNG image payload."""
     pytest.importorskip("matplotlib")
-    from plugin.scripting.venv_sandbox import run_sandboxed_code
+    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 
     code = (
         "import matplotlib.pyplot as plt\n"
@@ -184,7 +184,7 @@ def test_multiple_open_figures_merged_to_single_payload():
 def test_seaborn_implicit_figure():
     """Seaborn plotting should produce an image payload via open-figure capture."""
     pytest.importorskip("seaborn")
-    from plugin.scripting.venv_sandbox import run_sandboxed_code
+    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 
     res = run_sandboxed_code(
         "import seaborn as sns\nsns.lineplot(x=[1, 2, 3], y=[1, 4, 9])\n",

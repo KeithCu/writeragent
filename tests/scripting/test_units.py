@@ -10,12 +10,8 @@ from unittest.mock import patch
 
 import pytest
 
-from plugin.scripting.units import (
-    format_units_for_calc,
-    resolve_output_style,
-    run_units,
-    split_helper_params,
-)
+from plugin.scripting.units import format_units_for_calc, resolve_output_style, split_helper_params
+from plugin.scripting.units import run_units
 
 pytest.importorskip("pint")
 
@@ -114,7 +110,7 @@ def test_run_units_check_dimensionality_incompatible():
 
 
 def test_run_units_missing_package():
-    with patch("plugin.scripting.units._require_pint", return_value=None):
+    with patch("plugin.scripting.venv.units._require_pint", return_value=None):
         result = run_units({"helper": "convert_quantity", "params": {"value": "1", "from_unit": "m", "to_unit": "ft"}}, None, {})
     assert result["status"] == "error"
     assert result["code"] == "MISSING_PACKAGE"

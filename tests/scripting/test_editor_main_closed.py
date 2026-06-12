@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from unittest.mock import MagicMock
-from plugin.scripting import editor_main as em
+from plugin.scripting.venv import editor_main as em
 
 
 def _reset_closed_state() -> None:

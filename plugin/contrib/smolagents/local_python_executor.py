@@ -1318,6 +1318,7 @@ def get_safe_module(raw_module, authorized_imports, visited=None):
                 "langgraph",
                 "langchain",
                 "plugin.embeddings.venv",
+                "plugin.scripting.venv",
                 "plugin.vision.venv",
             )
         )

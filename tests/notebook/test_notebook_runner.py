@@ -151,8 +151,8 @@ def test_insert_run_image_svg_mime():
 
 
 def test_shared_notebook_session_via_sandbox():
-    from plugin.scripting.venv_sandbox import clear_all_sandbox_sessions
-    from plugin.scripting.worker_harness import _execute_request
+    from plugin.scripting.venv.venv_sandbox import clear_all_sandbox_sessions
+    from plugin.scripting.venv.worker_harness import _execute_request
 
     clear_all_sandbox_sessions()
     sid = "notebook:test-runner"

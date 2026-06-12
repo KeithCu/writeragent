@@ -26,8 +26,8 @@ def _mock_plt_module():
     return plt_mod
 
 
-@patch("plugin.scripting.viz._figure_payload", return_value=_mock_figure_payload())
-@patch("plugin.scripting.viz._require_matplotlib")
+@patch("plugin.scripting.venv.viz._figure_payload", return_value=_mock_figure_payload())
+@patch("plugin.scripting.venv.viz._require_matplotlib")
 def test_run_viz_quick_plot(mock_plt, _mock_payload):
     mock_plt.return_value = _mock_plt_module()
     df = pd.DataFrame({"Sales": [10, 20, 30], "Region": ["A", "B", "C"]})
@@ -39,8 +39,8 @@ def test_run_viz_quick_plot(mock_plt, _mock_payload):
     assert result["image"]["__wa_payload__"] == "image"
 
 
-@patch("plugin.scripting.viz._figure_payload", return_value=_mock_figure_payload())
-@patch("plugin.scripting.viz._require_matplotlib")
+@patch("plugin.scripting.venv.viz._figure_payload", return_value=_mock_figure_payload())
+@patch("plugin.scripting.venv.viz._require_matplotlib")
 def test_run_viz_plot_data_scatter(mock_plt, _mock_payload):
     mock_plt.return_value = _mock_plt_module()
     df = pd.DataFrame({"x": [1, 2, 3], "y": [4, 5, 6]})
@@ -60,7 +60,7 @@ def test_run_viz_plot_data_scatter(mock_plt, _mock_payload):
 
 
 def test_run_viz_missing_matplotlib():
-    with patch("plugin.scripting.viz._require_matplotlib", return_value=None):
+    with patch("plugin.scripting.venv.viz._require_matplotlib", return_value=None):
         result = run_viz({"helper": "quick_plot"}, pd.DataFrame({"a": [1]}), {})
     assert result["status"] == "error"
     assert result["code"] == "MISSING_PACKAGE"

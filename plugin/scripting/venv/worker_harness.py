@@ -19,11 +19,11 @@ from typing import Any
 
 # Standalone entry (venv python worker_harness.py): repo root must be on sys.path for plugin.* imports.
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-_PROJECT_ROOT = os.path.abspath(os.path.join(_SCRIPT_DIR, "..", ".."))
+_PROJECT_ROOT = os.path.abspath(os.path.join(_SCRIPT_DIR, "..", "..", ".."))
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
-from plugin.scripting.venv_sandbox import reset_sandbox_session, run_sandboxed_code, serialize_result
+from plugin.scripting.venv.venv_sandbox import reset_sandbox_session, run_sandboxed_code, serialize_result
 
 
 def _execute_request(
@@ -63,7 +63,7 @@ def _unpack_request_data(data: Any | None) -> dict[str, Any]:
 def _handle_maintain_with_heartbeat(request: dict[str, Any], stdout: Any) -> None:
     """Run maintain_folder_index and stream heartbeat frames before the result frame."""
     from plugin.embeddings.venv.embeddings_index import maintain_folder_index
-    from plugin.scripting.worker_heartbeat import HeartbeatEmitter, write_result_frame
+    from plugin.scripting.venv.worker_heartbeat import HeartbeatEmitter, write_result_frame
 
     req_id = str(request.get("id", ""))
     payload = _unpack_request_data(request.get("data"))
@@ -112,7 +112,7 @@ def _handle_request(request: dict[str, Any], *, stdout: Any | None = None) -> di
     )
 
 
-# Back-compat for tests: from plugin.scripting.worker_harness import _serialize
+# Back-compat for tests: from plugin.scripting.venv.worker_harness import _serialize
 def _serialize(obj: Any) -> Any:
     return serialize_result(obj)
 

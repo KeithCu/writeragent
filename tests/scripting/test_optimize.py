@@ -5,8 +5,8 @@ import numpy as np
 from plugin.scripting.optimize import (
     linear_programming,
     optimize_portfolio,
+    run_optimize,
     solve_scheduling_problem,
-    run_optimize
 )
 
 def test_linear_programming():

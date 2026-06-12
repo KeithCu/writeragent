@@ -35,7 +35,7 @@ from plugin.scripting.venv_worker import (
     warm_venv_worker,
     scrub_subprocess_env,
 )
-from plugin.scripting.worker_harness import _execute_request, _serialize
+from plugin.scripting.venv.worker_harness import _execute_request, _serialize
 from plugin.tests.testing_utils import setup_uno_mocks
 
 setup_uno_mocks()
@@ -114,7 +114,7 @@ def test_sentence_transformers_import_not_deep_wrapped():
 
 def test_harness_main_loop_integration():
     """Harness reads and writes Pickle (subprocess smoke)."""
-    harness = __import__("plugin.scripting.worker_harness", fromlist=["main"])
+    harness = __import__("plugin.scripting.venv.worker_harness", fromlist=["main"])
     
     import pickle
     import struct

@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Tests for plugin.scripting.worker_heartbeat."""
+"""Tests for plugin.scripting.venv.worker_heartbeat."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import io
 import pickle
 import struct
 
-from plugin.scripting.worker_heartbeat import (
+from plugin.scripting.venv.worker_heartbeat import (
     FRAME_HEARTBEAT,
     FRAME_RESULT,
     HeartbeatEmitter,

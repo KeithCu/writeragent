@@ -227,7 +227,7 @@ The **AST sandbox** (`LocalPythonExecutor` + `VENV_AUTHORIZED_IMPORTS`) applies 
 
 #### How trusted venv code runs
 
-1. **Ship a normal module** under `plugin/scripting/` or `plugin/embeddings/venv/` (e.g. [`payload_codec.py`](../plugin/scripting/payload_codec.py), [`embeddings_index.py`](../plugin/embeddings/venv/embeddings_index.py) for [embeddings](embeddings.md) Phase A encode).
+1. **Ship a normal module** under `plugin/scripting/venv/` (implementation) with a public facade at `plugin/scripting/*.py` for script authors, or under `plugin/embeddings/venv/` (e.g. [`payload_codec.py`](../plugin/scripting/payload_codec.py), [`embeddings_index.py`](../plugin/embeddings/venv/embeddings_index.py) for [embeddings](embeddings.md) Phase A encode).
 2. **Host calls** [`run_code_in_user_venv`](../plugin/scripting/venv_worker.py) with a **fixed stub** string — not LLM output — for example:
 
    ```python

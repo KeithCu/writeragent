@@ -29,8 +29,8 @@ _window: Any = None
 def _bootstrap_plugin_import_path() -> None:
     """Ensure the directory that contains the ``plugin`` package is on sys.path."""
     candidates = [
-        os.path.join(_SCRIPT_DIR, "..", ".."),
         os.path.join(_SCRIPT_DIR, "..", "..", ".."),
+        os.path.join(_SCRIPT_DIR, "..", "..", "..", ".."),
     ]
     for raw in candidates:
         root = os.path.abspath(raw)
@@ -52,7 +52,7 @@ def _fatal(msg: str, *, exc: BaseException | None = None, code: int = 1) -> NoRe
 
 _bootstrap_plugin_import_path()
 _ASSETS_DIR = os.path.normpath(
-    os.path.join(_SCRIPT_DIR, "..", "contrib", "scripting", "assets", "editor")
+    os.path.join(_SCRIPT_DIR, "..", "..", "contrib", "scripting", "assets", "editor")
 )
 try:
     from plugin.scripting.editor_ipc import EDITOR_DEFAULT_TITLE, message_type, read_message, write_message
@@ -92,7 +92,7 @@ class JediSession:
             return {"items": []}
 
         try:
-            from plugin.scripting.venv_sandbox import apply_auto_imports
+            from plugin.scripting.venv.venv_sandbox import apply_auto_imports
 
             code, lines_added = apply_auto_imports(code)
             target_line = line + lines_added

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from plugin.scripting.venv_sandbox import run_sandboxed_code
+from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 
 _VISION_STUB = """\
 from plugin.vision.venv.vision import run_vision as _run
@@ -19,7 +19,7 @@ result = _run(data["spec"], data.get("image"), data.get("context") or {})
 def test_trusted_vision_stub_bypasses_local_executor():
     fake_result = {"status": "ok", "helper": "extract_text", "full_text": "hi"}
 
-    with patch("plugin.scripting.venv_sandbox._run_trusted_vision_payload", return_value={"status": "ok", "result": fake_result}) as mock_run:
+    with patch("plugin.scripting.venv.venv_sandbox._run_trusted_vision_payload", return_value={"status": "ok", "result": fake_result}) as mock_run:
         response = run_sandboxed_code(_VISION_STUB, data={"spec": {"helper": "extract_text", "params": {}}})
 
     assert response["status"] == "ok"
@@ -29,7 +29,7 @@ def test_trusted_vision_stub_bypasses_local_executor():
 
 def test_trusted_vision_payload_calls_run_vision():
     with patch("plugin.vision.venv.vision.run_vision", return_value={"status": "ok", "helper": "extract_text", "full_text": "x"}) as mock_run:
-        from plugin.scripting.venv_sandbox import _run_trusted_vision_payload
+        from plugin.scripting.venv.venv_sandbox import _run_trusted_vision_payload
 
         out = _run_trusted_vision_payload(
             {

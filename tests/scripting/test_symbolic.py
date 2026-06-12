@@ -47,7 +47,7 @@ def test_run_symbolic_integrate():
 
 
 def test_run_symbolic_missing_package():
-    with patch("plugin.scripting.symbolic._require_sympy", return_value=None):
+    with patch("plugin.scripting.venv.symbolic._require_sympy", return_value=None):
         result = run_symbolic({"helper": "symbolic_simplify", "params": {"expression": "x"}}, None, {})
     assert result["status"] == "error"
     assert result["code"] == "MISSING_PACKAGE"

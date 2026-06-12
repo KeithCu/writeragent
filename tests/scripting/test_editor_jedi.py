@@ -9,7 +9,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 import pytest
 
-from plugin.scripting import editor_main as ej
+from plugin.scripting.venv import editor_main as ej
 
 
 def test_jedi_completions_mapping(monkeypatch):
@@ -37,7 +37,7 @@ def test_jedi_completions_mapping(monkeypatch):
     res = session.get_completions("def ", 1, 5)
 
     # Assert that jedi.Script was called with expected arguments and environment
-    from plugin.scripting.venv_sandbox import apply_auto_imports
+    from plugin.scripting.venv.venv_sandbox import apply_auto_imports
     expected_code, lines_added = apply_auto_imports("def ")
     mock_jedi.Script.assert_called_once_with(expected_code, environment=session._env)
     mock_script.complete.assert_called_once_with(1 + lines_added, 4)  # Monaco 5 maps to Jedi 4
