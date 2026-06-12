@@ -19,6 +19,7 @@
 import logging
 
 from plugin.framework.tool import ToolBase, ToolBaseDummy
+from plugin.framework.constants import APPLY_DOCUMENT_CONTENT_TOOL_RESEARCH_HINT
 from plugin.doc.document_helpers import normalize_linebreaks, get_string_without_tracked_deletions
 from plugin.framework.errors import safe_json_loads
 import re as re_mod
@@ -425,7 +426,8 @@ class ApplyDocumentContent(ToolBase):
     name = "apply_document_content"
     description = (
         "Insert or replace content. "
-        "IMPORTANT: To replace the ENTIRE document use target='full_document' with content only — "
+        f"IMPORTANT: {APPLY_DOCUMENT_CONTENT_TOOL_RESEARCH_HINT} "
+        "To replace the ENTIRE document use target='full_document' with content only — "
         "do NOT pass the whole document as old_content. "
         "Use target='beginning', 'end', or 'selection' to insert. "
         "Use target='search' with old_content for find-and-replace of a specific substring only."

@@ -192,6 +192,15 @@ def should_prepend_dev_llm_system_prefix() -> bool:
 DELEGATION_USER_FILE_DATA_HINT = "to use information that is not in the current document, and may be in (my / our) personal or business documents"
 DELEGATION_PUBLIC_WEB_HINT = "to research public topics"
 
+# Main agent only: after research delegates return plain text, write HTML to the document (not sidebar).
+RESEARCH_DELEGATE_TO_DOCUMENT = (
+    "After web_research or document_research returns plain text in `result`: in the SAME turn, "
+    "MUST call apply_document_content with HTML (per APPLY_DOCUMENT_CONTENT rules). "
+    "Default: write the full report to the open document (empty doc → target='beginning'). "
+    "Sidebar: brief confirmation only — NEVER paste the full report in chat unless the user explicitly asked chat-only."
+)
+APPLY_DOCUMENT_CONTENT_TOOL_RESEARCH_HINT = "Required after web_research or document_research delegates return."
+
 
 def delegation_math_to_python_hint(*, delegate_toolset: str) -> str:
     """Writer/Draw: route computational math to the python specialized sub-agent (fast local venv)."""
@@ -203,17 +212,16 @@ def delegation_math_to_python_hint(*, delegate_toolset: str) -> str:
 
 # Main sidebar chat only (Writer DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE). Sub-agents use
 # final_answer / reply_to_user / delegate task — not this block.
-SIDEBAR_VS_DOCUMENT = """SIDEBAR CHAT (main agent): Your conversation with the user happens in the LibreOffice sidebar.
- The user sees your messages in chat history. Follow CHAT RESPONSE FORMAT above. 
- When asked by the user to do or research something, assume the user wants you to use apply_document_content to create, 
- translate, or edit a document, not just put the answer in the chat window."""
+SIDEBAR_VS_DOCUMENT = """SIDEBAR CHAT (main agent): Chat history is the sidebar only — not the document.
+MUST use apply_document_content for drafts, reports, and research output; sidebar gets at most a brief confirmation.
+Follow CHAT RESPONSE FORMAT for that short reply."""
 
 # Writer main chat: delegation routing (paired with SIDEBAR_VS_DOCUMENT in the system prompt).
 WRITER_CORE_DIRECTIVES = f"""When the user wants {DELEGATION_USER_FILE_DATA_HINT}:
 - You MUST NOT ask the user where to find it, or to upload, paste, its contents.
 - You MUST call delegate_to_specialized_writer_toolset(domain="document_research") once with their described file(s) and task in task; the specialized task lists nearby files to match (paths not required).
 When the user wants {DELEGATION_PUBLIC_WEB_HINT}, delegate_to_specialized_writer_toolset(domain="web_research").
-For web_research and document_research: describe what to research in `task` (topics, sections, depth); the task returns plain text in `result`. When the user wanted a report or draft in the document, format that text as HTML (your memory and APPLY_DOCUMENT_CONTENT rules) and call apply_document_content in the same turn; if they only wanted to look something up, a chat summary is enough.
+For web_research and document_research: describe what to research in `task` (topics, sections, depth). {RESEARCH_DELEGATE_TO_DOCUMENT}
 
 {delegation_math_to_python_hint(delegate_toolset="delegate_to_specialized_writer_toolset")}
 When asked to make a script or run Python, use delegate_to_specialized_writer_toolset(domain="python")."""
@@ -334,7 +342,7 @@ WRITER_SPECIALIZED_DELEGATION_TEMPLATE = (
     "and a `task` string that fully specifies what the specialized task must do. The task executor only sees tools for that domain, "
     "but they are the real tools: **full parameter lists and full LibreOffice/UNO access** for that area (nothing is dumbed down for it). "
     "document_research: use for information in other personal/business documents in the same folder (one delegation per file set). "
-    "web_research: use for public web topics. "
+    "web_research: public web topics; main agent writes returned report to document (apply_document_content). "
     "brainstorming: use when the user wants to design, plan, or explore an idea before implementation (multi-turn Q&A; writes an HTML spec into the document when approved). "
     f"{SPECIALIZED_TASK_RULES}"
 )
@@ -501,7 +509,7 @@ Honor any stated memory preferences for color, etc.
 {{core_directives}}
 
 TOOLS:
-- apply_document_content: Insert or replace HTML in the document (parameters and format — see APPLY_DOCUMENT_CONTENT AND HTML below).
+- apply_document_content: Write HTML to the document (required after research delegates). See APPLY_DOCUMENT_CONTENT AND HTML below.
 - get_document_content: Read document (full/selection/range) as HTML.
 - search_in_document: Find text (use return_offsets for character positions if needed for inspection).
 - apply_style: Apply a paragraph or character style (family='ParagraphStyles' or 'CharacterStyles').

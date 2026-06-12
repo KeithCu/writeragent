@@ -5,6 +5,7 @@ setup_uno_mocks()
 
 from plugin.framework.constants import (
     DELEGATION_USER_FILE_DATA_HINT,
+    RESEARCH_DELEGATE_TO_DOCUMENT,
     SIDEBAR_VS_DOCUMENT,
     get_greeting_for_document,
     get_chat_system_prompt_for_document,
@@ -113,6 +114,21 @@ def test_writer_chat_prompt_includes_sidebar_vs_document_routing():
     assert "apply_document_content" in prompt
 
 
+def test_writer_chat_prompt_research_delegate_to_document():
+    model = MagicMock()
+    model.supportsService.return_value = False
+    prompt = get_chat_system_prompt_for_document(model)
+    assert RESEARCH_DELEGATE_TO_DOCUMENT in prompt
+    assert RESEARCH_DELEGATE_TO_DOCUMENT in WRITER_CORE_DIRECTIVES
+    assert "SAME turn" in prompt
+    assert "target='beginning'" in prompt
+    assert "NEVER paste the full report" in prompt
+    assert "a chat summary is enough" not in prompt
+    assert "required after research delegates" in prompt.lower()
+    block = get_specialized_delegation_for_model(model)
+    assert "main agent writes returned report to document" in block
+
+
 def test_writer_eval_chat_prompt_includes_sidebar_vs_document_routing():
     prompt = get_writer_eval_chat_system_prompt()
     assert SIDEBAR_VS_DOCUMENT in prompt
@@ -183,9 +199,9 @@ def test_get_core_directives_writer():
     assert 'domain="document_research"' in directives
     assert DELEGATION_USER_FILE_DATA_HINT in directives
     assert "to research public topics" in directives
-    assert "returns plain text in `result`" in directives
-    assert "format that text as HTML" in directives
-    assert "apply_document_content in the same turn" in directives
+    assert RESEARCH_DELEGATE_TO_DOCUMENT in directives
+    assert "SAME turn" in directives
+    assert "apply_document_content" in directives
     assert 'domain="web_research") first to find information' not in directives
 
 

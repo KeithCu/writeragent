@@ -141,7 +141,7 @@ def get_local_chrome_cdp_url(ctx: Any = None, browser_type: str = "chrome") -> s
         if not executable:
             executable = "firefox"
     elif browser_type == "chromium":
-        for name in ["chromium-browser", "chromium", "google-chrome", "chrome", "/Applications/Chromium.app/Contents/MacOS/Chromium"]:
+        for name in ["chromium-browser", "chromium", "google-chrome", "google-chrome-stable", "chrome", "/Applications/Chromium.app/Contents/MacOS/Chromium"]:
             try:
                 if os.path.isabs(name) and os.path.exists(name):
                     executable = name
@@ -154,7 +154,7 @@ def get_local_chrome_cdp_url(ctx: Any = None, browser_type: str = "chrome") -> s
         if not executable:
             executable = "chromium"
     elif browser_type == "chrome":
-        for name in ["google-chrome", "chrome", "chromium-browser", "chromium", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"]:
+        for name in ["google-chrome", "google-chrome-stable", "chrome", "chromium-browser", "chromium", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"]:
             try:
                 if os.path.isabs(name) and os.path.exists(name):
                     executable = name
