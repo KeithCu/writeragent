@@ -1,12 +1,10 @@
-
-Consider donating to support development: https://ko-fi.com/johnbalis
-Contributors: 
-- https://github.com/MageDoc/
-
 WriterAgent is released under the GNU General Public License v3 (or later).
 
 ### History & Attribution
-WriterAgent was originally released under the MPL 2.0 license by John Balis. In 2025-2026, significant architectural contributions (config, registries, build system) were made by quazardous. Calc integration features were provided by LibreCalc AI Assistant (originally under the MIT license). In 2026, it was transitioned to GPL v3 by KeithCu.
+WriterAgent was originally released under the MPL 2.0 license by John Balis. 
+In 2025-2026, significant architectural contributions (config, registries, build system) were made by quazardous.
+Calc integration features were provided by LibreCalc AI Assistant (originally under the MIT license).
+In 2026, it was transitioned to GPL v3 by KeithCu.
 
 A large amount of code is derived from the following MPL2.0 licensed code from the Document Foundation:
 https://gerrit.libreoffice.org/c/core/+/159938 
