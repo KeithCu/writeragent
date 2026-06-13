@@ -59,3 +59,23 @@ def test_insert_paragraph_rows_for_fts_only(tmp_path):
         assert embeddings_sqlite.corpus_chunk_count(conn) == 1
     finally:
         conn.close()
+
+
+def test_rebuild_fts_corpus_index_enables_search(tmp_path):
+    db_path = tmp_path / "corpus.db"
+    conn = embeddings_sqlite.connect_corpus_db(db_path)
+    try:
+        embeddings_sqlite.ensure_schema(conn, with_fts=True, with_vec=False)
+        embeddings_sqlite.insert_paragraph_rows(
+            conn,
+            [{"text": "web search tools", "doc_url": "file:///part2.odt", "para_index": 0, "content_hash": "h1"}],
+            with_fts=True,
+        )
+        before = embeddings_sqlite.fts_corpus_search(conn, "web search", k=1, near_slop=10)
+        embeddings_sqlite.rebuild_fts_corpus_index(conn)
+        after = embeddings_sqlite.fts_corpus_search(conn, "web search", k=1, near_slop=10)
+        assert not before
+        assert after
+        assert "part2.odt" in after[0]["doc_url"]
+    finally:
+        conn.close()

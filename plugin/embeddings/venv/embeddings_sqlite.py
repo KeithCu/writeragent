@@ -135,6 +135,19 @@ def _dim_from_meta_path(meta_path: str) -> int | None:
         return None
 
 
+def rebuild_fts_corpus_index(conn: sqlite3.Connection) -> None:
+    """Rebuild FTS5 passages index from external content table (chunks).
+
+    External-content FTS can get out of sync when chunks are bulk-loaded or upgraded;
+    hybrid search depends on a fresh rebuild after maintain completes.
+    """
+    row = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='passages'").fetchone()
+    if row is None:
+        return
+    conn.execute("INSERT INTO passages(passages) VALUES('rebuild')")
+    conn.commit()
+
+
 def corpus_chunk_count(conn: sqlite3.Connection) -> int:
     row = conn.execute("SELECT COUNT(*) AS c FROM chunks").fetchone()
     return int(row["c"] if row else 0)
@@ -396,11 +409,11 @@ def fts_corpus_search(
             p.rowid AS chunk_id,
             c.doc_url,
             c.para_index,
-            snippet(p, 0, '[', ']', '…', 32) AS snippet,
-            bm25(p) AS score
+            snippet(passages, 0, '[', ']', '…', 32) AS snippet,
+            bm25(passages) AS score
         FROM passages p
         JOIN chunks c ON c.chunk_id = p.rowid
-        WHERE p MATCH ?
+        WHERE passages MATCH ?
         ORDER BY score
         LIMIT ?
     """
@@ -605,6 +618,7 @@ __all__ = [
     "insert_paragraph_rows",
     "load_embeddings_for_candidates",
     "mark_file_indexed_in_db",
+    "rebuild_fts_corpus_index",
     "sync_file_paragraph_state_in_db",
     "upsert_chunk_with_vector",
     "vec0_search",

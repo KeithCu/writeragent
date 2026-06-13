@@ -38,6 +38,7 @@ from plugin.embeddings.venv.embeddings_sqlite import (
     delete_paragraph_keys,
     ensure_schema,
     insert_paragraph_rows,
+    rebuild_fts_corpus_index,
 )
 from plugin.framework.constants import EMBEDDINGS_HEARTBEAT_INTERVAL_S, EMBEDDINGS_SCHEMA_VERSION
 
@@ -305,6 +306,15 @@ def maintain_folder_corpus(
         out = _cold_build(root, model, files, hb, build_fts=build_fts, build_vectors=build_vectors)
     else:
         out = _incremental_refresh(root, model, files, hb, build_fts=build_fts, build_vectors=build_vectors)
+
+    if build_fts:
+        db_path = corpus_db_path(root, create_parent=False)
+        if db_path.is_file():
+            conn = connect_corpus_db(db_path)
+            try:
+                rebuild_fts_corpus_index(conn)
+            finally:
+                conn.close()
 
     hb.force({"phase": "done", **out})
     log.info("Corpus maintain %s (%s) for %s: %s", resolved_mode, search_mode, root, out)

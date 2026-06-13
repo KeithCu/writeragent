@@ -196,6 +196,7 @@ def hybrid_search(
     model_name: str,
     near_slop: int = 10,
     doc_url_filter: str | None = None,
+    use_mmr: bool = True,
 ) -> dict[str, Any]:
     """Hybrid FTS + vector search with reciprocal rank fusion."""
     from plugin.embeddings.venv.embeddings_hybrid_search import hybrid_corpus_search
@@ -207,6 +208,7 @@ def hybrid_search(
         model_name=model_name,
         near_slop=near_slop,
         doc_url_filter=doc_url_filter,
+        use_mmr=use_mmr,
     )
 
 

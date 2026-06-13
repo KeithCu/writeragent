@@ -98,6 +98,13 @@ def metadata_filter(state: SearchState) -> dict[str, Any]:
     return {"candidates": list(state.get("candidates") or [])}
 
 
+# Maximal Marginal Relevance (MMR): after RRF (or vec retrieve) we often have several
+# chunks that score high but say almost the same thing (e.g. blog_draft_* vs partN.odt
+# siblings). MMR re-ranks the candidate pool greedily: each pick maximizes
+#   λ * sim(query, chunk) − (1−λ) * max sim(chunk, already_selected)
+# so later hits stay on-topic but are not near-duplicates of earlier ones.
+# λ=MMR_LAMBDA (0.7) favors relevance over diversity. Skipped when k=1 (top-1 routing
+# should stay the best RRF hit, not a diversity pick) — see hybrid_corpus_search.
 def _max_marginal_relevance(
     query_vec: Any,
     candidate_embeddings: list[Any],
@@ -105,7 +112,7 @@ def _max_marginal_relevance(
     k: int,
     lambda_mult: float = MMR_LAMBDA,
 ) -> list[dict[str, Any]]:
-    """Pure NumPy MMR — reduce redundant overlapping sub-chunks."""
+    """Greedy MMR rerank over *candidates* using pre-loaded embeddings."""
     import numpy as np
 
     if not candidates:

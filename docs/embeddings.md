@@ -26,6 +26,15 @@ python scripts/dump_embeddings_cache.py --limit 20 --doc-url file:///path/to/doc
 
 [`scripts/dump_embeddings_cache.py`](../scripts/dump_embeddings_cache.py) reads `corpus_meta.json` and `corpus.db` (including incremental index tables).
 
+**Routing eval** (labeled top-1 file accuracy — hybrid vs FTS vs vec legs):
+
+```bash
+.venv/bin/python scripts/eval_folder_search_routing.py --folder ~/Desktop/Writing --mode all
+.venv/bin/python scripts/eval_folder_search_routing.py --folder ~/Desktop/Writing --json
+```
+
+[`scripts/eval_folder_search_routing.py`](../scripts/eval_folder_search_routing.py) seeds query sets from the Performance section below.
+
 ### Search a cache
 
 Offline search (defaults to embeddings / LangGraph + Chroma, same path as in-app `search_embeddings`):
@@ -164,6 +173,26 @@ On this corpus, embeddings **did not** reliably beat grep when:
 
 **Practical grep baseline:** `WriterAgent` + `venv` + `numpy` → **`part5.odt`**; `web search` → **`part2.odt`** (16 strict paragraph hits). Semantic paraphrase of the same ideas often loses to **`blog_draft_*`** or **`rpython.odt`**.
 
+#### Hybrid RRF baseline (schema v3, re-measured 2026-06)
+
+Same **`~/Desktop/Writing`** corpus as above, re-indexed to schema v3 **`corpus.db`** (**1119** chunks, **`all-MiniLM-L6-v2`**). Method: [`scripts/eval_folder_search_routing.py`](../scripts/eval_folder_search_routing.py) — **37** queries (**33** with an expected file basename), **top-1** `doc_url` vs expected basename; legs = hybrid RRF ([`embeddings_hybrid_search.py`](../plugin/embeddings/venv/embeddings_hybrid_search.py)), FTS-only, vec-only.
+
+| Leg | Labeled correct | Short (21 labeled) | Long (12 labeled) |
+|-----|----------------:|-------------------:|------------------:|
+| **Hybrid RRF** | **21/33 (63.6%)** | **10/21** | 11/12 |
+| Vec-only | 19/33 (57.6%) | 8/21 | 11/12 |
+| FTS-only | 9/33 (27.3%) | 9/21 | 0/12 |
+
+FTS vs vec buckets (labeled queries): **both** 6 · **fts-only** 3 · **vec-only** 13 · **neither** 11.
+
+Compared with the **historical semantic-only** short-query table above (grep-only **18**, both **13** on a slightly different 37-query labeled set): hybrid RRF beats vec-only on **short** routing (**10/21** vs **8/21**) by fusing the FTS leg, but still misroutes some keyword queries (`web search` top-1 can remain **`blog_draft_*`** rather than **`part2.odt`**).
+
+**MMR after RRF:** runs when **k > 1** (default `search_nearby_files` k=10) to dedupe near-duplicate chunks in multi-hit lists. At **k = 1** routing eval, MMR reorders the pool and **lowered** top-1 accuracy — so MMR is skipped when k=1.
+
+```bash
+HF_HUB_OFFLINE=1 .venv/bin/python scripts/eval_folder_search_routing.py --folder ~/Desktop/Writing --mode all
+```
+
 #### Takeaways for hybrid retrieval
 
 | Signal | Prefer |
@@ -174,7 +203,7 @@ On this corpus, embeddings **did not** reliably beat grep when:
 
 Industry pattern (see [Problem](#problem)): **combine** methods — inverted index / grep for keywords, embeddings for paraphrase. On `~/Desktop/Writing`, data favors **grep-default, semantic-supplement**: the long paraphrase wins justify keeping `search_embeddings`, but **most realistic 1–3 word searches should not skip grep**.
 
-Scores and file ranks **will change** with model upgrades (`bge-small`, etc.), chunk size, and corpus size — re-run [`search_embeddings_folder.py`](../scripts/search_embeddings_folder.py) and extend this section as more folders are measured.
+Scores and file ranks **will change** with model upgrades (`bge-small`, etc.), chunk size, and corpus size — re-run [`scripts/eval_folder_search_routing.py`](../scripts/eval_folder_search_routing.py) and extend this section as more folders are measured.
 
 | Module | Role |
 |--------|------|
