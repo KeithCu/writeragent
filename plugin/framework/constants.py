@@ -74,29 +74,16 @@ class ModelCapability(IntFlag):
 # Approach B: In-Place Tool Switching (False) - Switches the main model's tools.
 USE_SUB_AGENT = True
 
-# document_research cross-file discovery mode (Settings: embeddings.folder_search_mode).
-# See docs/embeddings.md.
+# document_research cross-file index (Settings: embeddings.folder_search_mode none | hybrid).
 
 _FOLDER_SEARCH_MODE_KEY = "embeddings.folder_search_mode"
-_VALID_FOLDER_SEARCH_MODES = frozenset({"none", "embeddings", "fts", "hybrid"})
 
 
-def get_folder_search_mode(ctx=None) -> str:
-    """Return cross-file search mode: none, embeddings, fts, or hybrid."""
+def folder_search_enabled(ctx=None) -> bool:
+    """True when cross-file corpus index (FTS + embeddings) is enabled."""
     from plugin.framework.config import get_config
 
-    raw = str(get_config(ctx, _FOLDER_SEARCH_MODE_KEY) or "none").strip().lower()
-    return raw if raw in _VALID_FOLDER_SEARCH_MODES else "none"
-
-
-def document_research_uses_embeddings(ctx=None) -> bool:
-    """True when outer document_research exposes search_embeddings."""
-    return get_folder_search_mode(ctx) in ("embeddings", "hybrid")
-
-
-def document_research_uses_folder_fts(ctx=None) -> bool:
-    """True when outer document_research exposes search_nearby_files."""
-    return get_folder_search_mode(ctx) in ("fts", "hybrid")
+    return str(get_config(ctx, _FOLDER_SEARCH_MODE_KEY) or "none").strip().lower() == "hybrid"
 
 
 # Browser-style user agent for a small, whitelisted set of sites

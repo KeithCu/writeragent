@@ -1,6 +1,6 @@
 # Embeddings — Development Plan
 
-> **Status (2026-06):** **Unified corpus.db + sqlite-vec (schema v3)** — per-folder **`corpus.db`** (chunks + FTS5 external content + vec0) + `corpus_meta.json` / `file_index_state.json` beside documents ([`embeddings_cache.py`](../plugin/embeddings/embeddings_cache.py)). LangGraph ingest/search graphs unchanged; storage nodes use [`embeddings_sqlite.py`](../plugin/embeddings/venv/embeddings_sqlite.py). **Hybrid mode** (`folder_search_mode: hybrid`) builds FTS + vectors in one file and exposes both `search_nearby_files` and `search_embeddings`.
+> **Status (2026-06):** **Unified corpus.db + sqlite-vec (schema v3)** — per-folder **`corpus.db`** (chunks + FTS5 external content + vec0) + `corpus_meta.json` / `file_index_state.json` beside documents ([`embeddings_cache.py`](../plugin/embeddings/embeddings_cache.py)). LangGraph ingest/search graphs unchanged; storage nodes use [`embeddings_sqlite.py`](../plugin/embeddings/venv/embeddings_sqlite.py). **Settings → Embeddings → Cross-file search:** **Off** (default) or **Embeddings + FTS** (`folder_search_mode: hybrid`) — one index, both `search_nearby_files` and `search_embeddings`.
 
 **Related:** [cython-extension.md](cython-extension.md) · [enabling_numpy_in_libreoffice.md](enabling_numpy_in_libreoffice.md) · [multi-document-dev-plan.md](multi-document-dev-plan.md) · [langchain-plan.md](langchain-plan.md) (chat memory / summarization only)
 
@@ -453,7 +453,7 @@ See also [Index size growth](#index-size-growth) for when RAM footprint matters.
 
 **Goal:** outer [document_research](../plugin/doc/document_research.py) calls `search_embeddings(query, k)` → ranked hits in the **active folder’s** cache → open top files → inner read at locator.
 
-**Search mode (Settings):** `embeddings.folder_search_mode` in [`plugin/embeddings/module.yaml`](../plugin/embeddings/module.yaml) — dropdown: **None** (grep only), **Embeddings** (+ `search_embeddings`), or **SQLite FTS (venv)** (+ `search_nearby_files`). See [Search mode flag](#search-mode-flag) below.
+**Search mode (Settings):** [`embeddings.folder_search_mode`](../plugin/embeddings/module.yaml) — **Off** (default, grep only) or **Embeddings + FTS** (unified `corpus.db`). See [Search mode flag](#search-mode-flag) below.
 
 **Suggested implementation order** (each step should have tests before moving on):
 
@@ -486,15 +486,14 @@ See also [Index size growth](#index-size-growth) for when RAM footprint matters.
 
 ### Search mode flag {#search-mode-flag}
 
-`grep_nearby_files` is **always** exposed to document_research. Optional indexed search is **mutually exclusive** — set **Settings → Embeddings → Cross-file search mode**:
+**Settings → Embeddings → Cross-file search** (`embeddings.folder_search_mode`):
 
-| `embeddings.folder_search_mode` | Exposed to document_research | Hidden from sub-agent |
-|---------------------------------|-----------------------------|------------------------|
-| `none` (default) | `grep_nearby_files` | `search_embeddings`, `search_nearby_files` |
-| `embeddings` | `grep_nearby_files`, `search_embeddings` | `search_nearby_files` |
-| `fts` | `search_nearby_files` | `search_embeddings`, `grep_nearby_files` |
+| Value | document_research tools |
+|-------|-------------------------|
+| `none` (default) | `grep_nearby_files`, `list_nearby_files`, `delegate_read_document` |
+| `hybrid` | above + `search_embeddings`, `search_nearby_files` |
 
-Enable in **Settings → Embeddings → Cross-file search mode**, or set `"embeddings.folder_search_mode": "embeddings"` or `"fts"` in `writeragent.json`. Tools are registered at startup; [`filter_document_research_discovery_tools`](../plugin/doc/document_research.py) hides optional tools when mode is off. Background indexing runs only for the active mode. `list_nearby_files` and `delegate_read_document` are always available. In **none** mode use `grep_nearby_files` for exact keywords; in **embeddings** mode prefer `search_embeddings` for topical queries and keep `grep_nearby_files` for regex or Calc/Draw; in **fts** mode use `search_nearby_files` only (in-proc grep is hidden — FTS NEAR/BM25 replaces it).
+When off, [`filter_document_research_discovery_tools`](../plugin/doc/document_research.py) hides the indexed search tools. When on, background maintain always builds FTS + vectors in one `corpus.db` ([`embeddings_indexer.py`](../plugin/embeddings/embeddings_indexer.py)).
 
 ### Folder FTS (SQLite, embeddings venv) {#folder-fts}
 

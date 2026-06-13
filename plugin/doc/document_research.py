@@ -101,8 +101,8 @@ def guess_doc_type_from_path(path: str) -> DocTypeGuess:
 
 
 def get_document_research_workflow_hint(ctx=None) -> str:
-    """Outer document_research sub-agent workflow text (grep; optional FTS / embeddings)."""
-    from plugin.framework.constants import document_research_uses_embeddings, document_research_uses_folder_fts, get_folder_search_mode
+    """Outer document_research sub-agent workflow text."""
+    from plugin.framework.constants import folder_search_enabled
 
     common = (
         "\n\nDocument research workflow:\n"
@@ -120,45 +120,28 @@ def get_document_research_workflow_hint(ctx=None) -> str:
         "Do not use grep_nearby_files when list_nearby_files can resolve the filename (including partial matches, or when you already know "
         "the target file). If you know which file(s) to read — go straight to delegate_read_document instead.\n"
     )
-    fts_hint = (
-        "For cross-file keyword discovery when the filename is unknown, use search_nearby_files(query, k) on the active folder FTS index; "
+    index_hint = (
+        "For cross-file keyword discovery when the filename is unknown, use search_nearby_files(query, k) on the active folder index; "
         "it ranks by BM25 and allows terms with gaps (NEAR). "
-        "search_nearby_files returns ranked doc_url, score, snippet, and optional para_index (weak hint). "
+        "For topical or paraphrased queries, use search_embeddings(query, k). "
+        "grep_nearby_files is also available for regex or Calc/Draw paths. "
+        "Both search tools return ranked doc_url, score, snippet, and optional para_index (weak hint). "
         "Open the top one or few hits with delegate_read_document and tell the inner read agent to search for the snippet "
         "or topic with search_in_document — do not rely on para_index or character offsets as exact LO coordinates.\n"
-        "If search_nearby_files returns status indexing, retry after the background index finishes.\n"
+        "If a search tool returns status indexing, retry after the background index finishes.\n"
     )
-    embed_hint = (
-        "For cross-file discovery when the filename is unknown, prefer search_embeddings(query, k) over the active folder semantic index; "
-        "grep_nearby_files is also available. "
-        "search_embeddings returns ranked doc_url, score, snippet (indexed passage preview), and optional para_index (weak hint). "
-        "Open the top one or few hits with delegate_read_document and tell the inner read agent to search for the snippet "
-        "or topic with search_in_document — do not rely on para_index or character offsets as exact LO coordinates.\n"
-        "If search_embeddings returns status indexing, retry after the background index finishes.\n"
-    )
-    if get_folder_search_mode(ctx) == "hybrid":
-        return common + fts_hint + embed_hint
-    if document_research_uses_folder_fts(ctx):
-        return common + fts_hint
-    if document_research_uses_embeddings(ctx):
-        return common + embed_hint
+    if folder_search_enabled(ctx):
+        return common + index_hint
     return common + grep_hint
 
 
 def filter_document_research_discovery_tools(tools: list[ToolBase], ctx) -> list[ToolBase]:
-    """Hide optional discovery tools by folder_search_mode; list/delegate always kept."""
-    from plugin.framework.constants import document_research_uses_embeddings, document_research_uses_folder_fts, get_folder_search_mode
+    """Hide indexed search tools when cross-file search is off; list/delegate always kept."""
+    from plugin.framework.constants import folder_search_enabled
 
-    hidden: set[str] = set()
-    if not document_research_uses_embeddings(ctx):
-        hidden.add("search_embeddings")
-    if not document_research_uses_folder_fts(ctx):
-        hidden.add("search_nearby_files")
-    elif get_folder_search_mode(ctx) == "fts":
-        # FTS-only mode replaces slow in-proc grep_nearby_files.
-        hidden.add("grep_nearby_files")
-    if not hidden:
+    if folder_search_enabled(ctx):
         return tools
+    hidden = {"search_embeddings", "search_nearby_files"}
     return [t for t in tools if t.name not in hidden]
 
 

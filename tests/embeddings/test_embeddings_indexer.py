@@ -67,8 +67,8 @@ def test_diff_paragraph_rows_detects_change_and_delete(tmp_path):
     assert to_delete == [{"doc_url": "file:///a.odt", "para_index": 2}]
 
 
-def test_enqueue_skipped_in_none_mode():
-    with patch("plugin.embeddings.embeddings_indexer.get_folder_search_mode", return_value="none"):
+def test_enqueue_skipped_when_off():
+    with patch("plugin.embeddings.embeddings_indexer.folder_search_enabled", return_value=False):
         with patch("plugin.embeddings.embeddings_indexer.run_in_background") as bg_mock:
             embeddings_indexer.enqueue_folder_index(MagicMock(), MagicMock(), MagicMock())
             bg_mock.assert_not_called()
@@ -76,7 +76,7 @@ def test_enqueue_skipped_in_none_mode():
 
 def test_enqueue_skipped_when_inflight():
     ctx = MagicMock()
-    with patch("plugin.embeddings.embeddings_indexer.get_folder_search_mode", return_value="embeddings"):
+    with patch("plugin.embeddings.embeddings_indexer.folder_search_enabled", return_value=True):
         with patch(
             "plugin.embeddings.embeddings_indexer.resolve_index_context",
             return_value=("key", MagicMock(), MagicMock(), "/tmp/folder"),
@@ -91,7 +91,7 @@ def test_index_worker_calls_maintain_rpc():
     ctx = MagicMock()
     with patch("plugin.embeddings.embeddings_indexer.get_embedding_model", return_value="m"):
         with patch("plugin.embeddings.embeddings_indexer.maintain_folder_index_rpc") as maintain_mock:
-            embeddings_indexer._index_worker(ctx, "folderkey", "/tmp/listing", "hybrid")
+            embeddings_indexer._index_worker(ctx, "folderkey", "/tmp/listing")
             maintain_mock.assert_called_once_with(
                 ctx,
                 "/tmp/listing",
@@ -106,5 +106,5 @@ def test_index_worker_clears_inflight_on_failure():
     embeddings_indexer._inflight.add("folderkey")
     with patch("plugin.embeddings.embeddings_indexer.get_embedding_model", return_value="m"):
         with patch("plugin.embeddings.embeddings_indexer.maintain_folder_index_rpc", side_effect=RuntimeError("fail")):
-            embeddings_indexer._index_worker(ctx, "folderkey", "/tmp/listing", "fts")
+            embeddings_indexer._index_worker(ctx, "folderkey", "/tmp/listing")
     assert "folderkey" not in embeddings_indexer._inflight

@@ -62,9 +62,8 @@ def test_filter_document_research_discovery_tools_respects_config():
     tools = r.get_tools(doc=MagicMock(), active_domain="document_research", exclude_tiers=())
     ctx = MagicMock()
 
-    with patch("plugin.framework.constants.document_research_uses_embeddings", return_value=False):
-        with patch("plugin.framework.constants.document_research_uses_folder_fts", return_value=False):
-            filtered = filter_document_research_discovery_tools(tools, ctx)
+    with patch("plugin.framework.constants.folder_search_enabled", return_value=False):
+        filtered = filter_document_research_discovery_tools(tools, ctx)
     names = {t.name for t in filtered}
     assert "list_nearby_files" in names
     assert "grep_nearby_files" in names
@@ -73,73 +72,34 @@ def test_filter_document_research_discovery_tools_respects_config():
     assert "search_embeddings" not in names
     assert "search_nearby_files" not in names
 
-    with patch("plugin.framework.constants.document_research_uses_embeddings", return_value=True):
-        with patch("plugin.framework.constants.document_research_uses_folder_fts", return_value=False):
-            filtered = filter_document_research_discovery_tools(tools, ctx)
-    names = {t.name for t in filtered}
-    assert "search_embeddings" in names
-    assert "search_nearby_files" not in names
-    assert "grep_nearby_files" in names
-
-    with patch("plugin.framework.constants.document_research_uses_embeddings", return_value=False):
-        with patch("plugin.framework.constants.document_research_uses_folder_fts", return_value=True):
-            with patch("plugin.framework.constants.get_folder_search_mode", return_value="fts"):
-                filtered = filter_document_research_discovery_tools(tools, ctx)
-    names = {t.name for t in filtered}
-    assert "search_nearby_files" in names
-    assert "search_embeddings" not in names
-    assert "grep_nearby_files" not in names
-
-    with patch("plugin.framework.constants.document_research_uses_embeddings", return_value=True):
-        with patch("plugin.framework.constants.document_research_uses_folder_fts", return_value=True):
-            with patch("plugin.framework.constants.get_folder_search_mode", return_value="hybrid"):
-                filtered = filter_document_research_discovery_tools(tools, ctx)
+    with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
+        filtered = filter_document_research_discovery_tools(tools, ctx)
     names = {t.name for t in filtered}
     assert "search_nearby_files" in names
     assert "search_embeddings" in names
     assert "grep_nearby_files" in names
 
 
-def test_document_research_workflow_hint_modes():
+def test_document_research_workflow_hint_off():
     from plugin.doc.document_research import get_document_research_workflow_hint
 
     ctx = MagicMock()
-    with patch("plugin.framework.constants.document_research_uses_embeddings", return_value=False):
-        with patch("plugin.framework.constants.document_research_uses_folder_fts", return_value=False):
-            grep_hint = get_document_research_workflow_hint(ctx)
-    assert "grep_nearby_files" in grep_hint
-    assert "search_embeddings" not in grep_hint
-    assert "search_nearby_files" not in grep_hint
-
-    with patch("plugin.framework.constants.document_research_uses_embeddings", return_value=True):
-        with patch("plugin.framework.constants.document_research_uses_folder_fts", return_value=False):
-            embed_hint = get_document_research_workflow_hint(ctx)
-    assert "search_embeddings" in embed_hint
-    assert "snippet" in embed_hint
-    assert "grep_nearby_files" in embed_hint
-
-    with patch("plugin.framework.constants.document_research_uses_embeddings", return_value=False):
-        with patch("plugin.framework.constants.document_research_uses_folder_fts", return_value=True):
-            fts_hint = get_document_research_workflow_hint(ctx)
-    assert "search_nearby_files" in fts_hint
-    assert "BM25" in fts_hint
-    assert "search_embeddings" not in fts_hint
-    assert "grep_nearby_files" not in fts_hint
+    with patch("plugin.framework.constants.folder_search_enabled", return_value=False):
+        hint = get_document_research_workflow_hint(ctx)
+    assert "grep_nearby_files" in hint
+    assert "search_embeddings" not in hint
+    assert "search_nearby_files" not in hint
 
 
-def test_document_research_workflow_hint_hybrid():
+def test_document_research_workflow_hint_on():
     from plugin.doc.document_research import get_document_research_workflow_hint
 
     ctx = MagicMock()
-    with patch("plugin.framework.constants.document_research_uses_embeddings", return_value=True):
-        with patch("plugin.framework.constants.document_research_uses_folder_fts", return_value=True):
-            with patch("plugin.framework.constants.get_folder_search_mode", return_value="hybrid"):
-                hint = get_document_research_workflow_hint(ctx)
+    with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
+        hint = get_document_research_workflow_hint(ctx)
     assert "search_embeddings" in hint
     assert "search_nearby_files" in hint
     assert "BM25" in hint
-
-
 
 @patch("plugin.doc.specialized_base.USE_SUB_AGENT", False)
 def test_document_research_requires_sub_agent_when_disabled():

@@ -15,7 +15,7 @@ def test_search_embeddings_disabled_returns_error():
     tool = SearchEmbeddings()
     ctx = MagicMock()
     ctx.ctx = MagicMock()
-    with patch("plugin.framework.constants.document_research_uses_embeddings", return_value=False):
+    with patch("plugin.framework.constants.folder_search_enabled", return_value=False):
         result = tool.execute(ctx, query="budget figures")
     assert result["status"] == "error"
-    assert result.get("code") == "EMBEDDINGS_CACHE_DISABLED"
+    assert result.get("code") == "FOLDER_SEARCH_DISABLED"

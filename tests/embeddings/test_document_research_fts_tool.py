@@ -21,15 +21,15 @@ def _ctx():
 
 def test_search_nearby_files_disabled():
     tool = SearchNearbyFiles()
-    with patch("plugin.framework.constants.document_research_uses_folder_fts", return_value=False):
+    with patch("plugin.framework.constants.folder_search_enabled", return_value=False):
         result = tool.execute(_ctx(), query="web search")
     assert result.get("status") == "error"
-    assert result.get("code") == "FOLDER_FTS_DISABLED"
+    assert result.get("code") == "FOLDER_SEARCH_DISABLED"
 
 
 def test_search_nearby_files_indexing_status():
     tool = SearchNearbyFiles()
-    with patch("plugin.framework.constants.document_research_uses_folder_fts", return_value=True):
+    with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
         with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()):
             with patch(
                 "plugin.embeddings.folder_fts_cache.resolve_fts_context",

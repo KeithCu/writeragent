@@ -6,17 +6,13 @@ config:
     type: string
     default: none
     widget: select
-    label: Cross-file search mode
-    helper: "Cross-file search for document_research. Requires embeddings venv — see Python Test."
+    label: Cross-file search
+    helper: "Indexed semantic + keyword search for document_research (corpus.db). Requires embeddings venv — see Python Test."
     options:
       - value: none
-        label: None
-      - value: embeddings
-        label: Embeddings
-      - value: fts
-        label: SQLite FTS (venv)
+        label: "Off"
       - value: hybrid
-        label: Hybrid (FTS + embeddings)
+        label: Embeddings + FTS
 
   embedding_provider:
     type: string

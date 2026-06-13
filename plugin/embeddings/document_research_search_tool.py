@@ -50,13 +50,13 @@ class SearchEmbeddings(ToolBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.framework.constants import document_research_uses_embeddings
+        from plugin.framework.constants import folder_search_enabled
         from plugin.framework.queue_executor import execute_on_main_thread
 
-        if not document_research_uses_embeddings(ctx.ctx):
+        if not folder_search_enabled(ctx.ctx):
             return self._tool_error(
-                "Embeddings cache is disabled. Enable it in Settings → Embeddings.",
-                code="EMBEDDINGS_CACHE_DISABLED",
+                "Cross-file search is disabled. Enable Embeddings + FTS in Settings → Embeddings.",
+                code="FOLDER_SEARCH_DISABLED",
             )
 
         query = kwargs.get("query")

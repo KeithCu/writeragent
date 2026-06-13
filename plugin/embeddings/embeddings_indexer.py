@@ -18,7 +18,7 @@ from plugin.embeddings.embeddings_cache import (
 )
 from plugin.framework.client.embedding_client import get_embedding_model
 from plugin.framework.client.embeddings_service import maintain_folder_index as maintain_folder_index_rpc
-from plugin.framework.constants import get_folder_search_mode
+from plugin.framework.constants import folder_search_enabled
 from plugin.framework.worker_pool import run_in_background
 
 # Re-export for tests
@@ -47,10 +47,10 @@ def _clear_enqueue(folder_key: str) -> None:
         _inflight.discard(folder_key)
 
 
-def _index_worker(ctx: Any, folder_key: str, listing_root: str, search_mode: str) -> None:
+def _index_worker(ctx: Any, folder_key: str, listing_root: str) -> None:
     try:
-        model = get_embedding_model(ctx) if search_mode in ("embeddings", "hybrid") else ""
-        maintain_folder_index_rpc(ctx, listing_root, model=model, mode="auto", search_mode=search_mode)
+        model = get_embedding_model(ctx)
+        maintain_folder_index_rpc(ctx, listing_root, model=model, mode="auto", search_mode="hybrid")
     except Exception:
         log.exception("Background corpus index failed for folder %s", folder_key)
     finally:
@@ -60,8 +60,7 @@ def _index_worker(ctx: Any, folder_key: str, listing_root: str, search_mode: str
 def enqueue_folder_index(ctx: Any, services: Any, model: Any) -> None:
     """Schedule background corpus maintenance for the active document folder."""
     del services  # venv maintain does not use UNO services
-    search_mode = get_folder_search_mode(ctx)
-    if search_mode == "none":
+    if not folder_search_enabled(ctx):
         return
     resolved = resolve_index_context(ctx, model)
     folder_key, _db, _meta, listing_root = resolved[0], resolved[1], resolved[2], resolved[3]
@@ -71,7 +70,7 @@ def enqueue_folder_index(ctx: Any, services: Any, model: Any) -> None:
         return
 
     def _run() -> None:
-        _index_worker(ctx, folder_key, listing_root, search_mode)
+        _index_worker(ctx, folder_key, listing_root)
 
     run_in_background(_run, name=f"corpus-index-{folder_key[:8]}")
 

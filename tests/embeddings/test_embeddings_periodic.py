@@ -20,26 +20,18 @@ def _reset_periodic_schedule_flag():
     periodic_mod._scheduled = False
 
 
-def test_schedule_periodic_indexer_skipped_in_none_mode():
-    with patch("plugin.framework.constants.get_folder_search_mode", return_value="none"):
+def test_schedule_periodic_indexer_skipped_when_off():
+    with patch("plugin.framework.constants.folder_search_enabled", return_value=False):
         with patch("plugin.framework.worker_pool.run_in_background") as run_bg:
             schedule_periodic_embeddings_indexer_once(MagicMock())
             run_bg.assert_not_called()
 
 
-def test_schedule_periodic_indexer_once_in_embeddings_mode():
+def test_schedule_periodic_indexer_once_when_on():
     ctx = MagicMock()
-    with patch("plugin.framework.constants.get_folder_search_mode", return_value="embeddings"):
+    with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
         with patch("plugin.framework.worker_pool.run_in_background") as run_bg:
             schedule_periodic_embeddings_indexer_once(ctx)
             schedule_periodic_embeddings_indexer_once(ctx)
             assert run_bg.call_count == 1
             assert run_bg.call_args[0][1] is ctx
-
-
-def test_schedule_periodic_indexer_once_in_fts_mode():
-    ctx = MagicMock()
-    with patch("plugin.framework.constants.get_folder_search_mode", return_value="fts"):
-        with patch("plugin.framework.worker_pool.run_in_background") as run_bg:
-            schedule_periodic_embeddings_indexer_once(ctx)
-            assert run_bg.call_count == 1

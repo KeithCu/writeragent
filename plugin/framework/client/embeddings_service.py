@@ -69,7 +69,7 @@ result = _maintain(
     data["listing_root"],
     data["model"],
     data.get("mode", "auto"),
-    search_mode=data.get("search_mode", "embeddings"),
+    search_mode=data.get("search_mode", "hybrid"),
 )
 """
 
@@ -139,11 +139,11 @@ def maintain_folder_index(
     *,
     model: str,
     mode: str = "auto",
-    search_mode: str = "embeddings",
+    search_mode: str = "hybrid",
 ) -> dict[str, Any]:
     """Run full folder corpus maintenance in the embeddings venv."""
     model_name = (model or "").strip()
-    if search_mode in ("embeddings", "hybrid") and not model_name:
+    if not model_name:
         raise ToolExecutionError("No embedding model configured.", code="EMBEDDING_MODEL_MISSING")
     return _run_worker_with_heartbeat(
         ctx,
@@ -152,7 +152,7 @@ def maintain_folder_index(
             "listing_root": str(listing_root),
             "model": model_name,
             "mode": str(mode or "auto"),
-            "search_mode": str(search_mode or "embeddings"),
+            "search_mode": str(search_mode or "hybrid"),
         },
         model=model_name or "corpus",
     )
