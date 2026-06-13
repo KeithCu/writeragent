@@ -16,7 +16,6 @@ from tests.chatbot.test_tool_loop import _mock_get_config_int_for_sub_agent
 from plugin.writer.specialized_base import DelegateToSpecializedWriter, SpecializedWorkflowFinished
 from plugin.embeddings.document_research_fts_tool import SearchNearbyFiles
 from plugin.doc.document_research_grep_tool import GrepNearbyFiles
-from plugin.embeddings.document_research_search_tool import SearchEmbeddings
 from plugin.doc.document_research_tools import ListNearbyFiles
 
 
@@ -56,7 +55,6 @@ def test_filter_document_research_discovery_tools_respects_config():
     r.register(ListNearbyFiles())
     r.register(GrepNearbyFiles())
     r.register(SearchNearbyFiles())
-    r.register(SearchEmbeddings())
     r.register(DelegateReadDocument())
     r.register(SpecializedWorkflowFinished())
     tools = r.get_tools(doc=MagicMock(), active_domain="document_research", exclude_tiers=())
@@ -76,7 +74,7 @@ def test_filter_document_research_discovery_tools_respects_config():
         filtered = filter_document_research_discovery_tools(tools, ctx)
     names = {t.name for t in filtered}
     assert "search_nearby_files" in names
-    assert "search_embeddings" in names
+    assert "search_embeddings" not in names
     assert "grep_nearby_files" in names
 
 
@@ -89,6 +87,7 @@ def test_document_research_workflow_hint_off():
     assert "grep_nearby_files" in hint
     assert "search_embeddings" not in hint
     assert "search_nearby_files" not in hint
+    assert "fused" not in hint
 
 
 def test_document_research_workflow_hint_on():
@@ -97,9 +96,9 @@ def test_document_research_workflow_hint_on():
     ctx = MagicMock()
     with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
         hint = get_document_research_workflow_hint(ctx)
-    assert "search_embeddings" in hint
     assert "search_nearby_files" in hint
-    assert "BM25" in hint
+    assert "search_embeddings" not in hint
+    assert "fused" in hint
 
 @patch("plugin.doc.specialized_base.USE_SUB_AGENT", False)
 def test_document_research_requires_sub_agent_when_disabled():

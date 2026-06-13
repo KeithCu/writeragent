@@ -43,6 +43,18 @@ result = _delete(
 )
 """
 
+_HYBRID_SEARCH_STUB = """\
+from plugin.embeddings.venv.embeddings_index import hybrid_search as _search
+result = _search(
+    data["db_path"],
+    data["query"],
+    data["k"],
+    model_name=data["model"],
+    near_slop=data.get("near_slop", 10),
+    doc_url_filter=data.get("doc_url_filter"),
+)
+"""
+
 _SEARCH_STUB = """\
 from plugin.embeddings.venv.embeddings_index import knn_search as _search
 result = _search(
@@ -214,6 +226,35 @@ def delete_paragraphs(
     )
 
 
+def hybrid_search(
+    ctx: Any,
+    db_path: str,
+    query: str,
+    k: int,
+    *,
+    model: str,
+    near_slop: int = 10,
+    doc_url_filter: str | None = None,
+) -> dict[str, Any]:
+    """Hybrid FTS + semantic search over corpus.db via the warm venv worker."""
+    model_name = (model or "").strip()
+    if not model_name:
+        raise ToolExecutionError("No embedding model configured.", code="EMBEDDING_MODEL_MISSING")
+    return _run_worker(
+        ctx,
+        _HYBRID_SEARCH_STUB,
+        {
+            "db_path": str(db_path),
+            "query": str(query or ""),
+            "k": int(k or 10),
+            "model": model_name,
+            "near_slop": int(near_slop),
+            "doc_url_filter": doc_url_filter,
+        },
+        model=model_name,
+    )
+
+
 def knn_search(
     ctx: Any,
     db_path: str,
@@ -265,6 +306,7 @@ def collection_stats(
 __all__ = [
     "collection_stats",
     "delete_paragraphs",
+    "hybrid_search",
     "index_paragraphs",
     "knn_search",
     "maintain_folder_index",

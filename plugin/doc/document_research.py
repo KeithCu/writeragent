@@ -121,14 +121,13 @@ def get_document_research_workflow_hint(ctx=None) -> str:
         "the target file). If you know which file(s) to read — go straight to delegate_read_document instead.\n"
     )
     index_hint = (
-        "For cross-file keyword discovery when the filename is unknown, use search_nearby_files(query, k) on the active folder index; "
-        "it ranks by BM25 and allows terms with gaps (NEAR). "
-        "For topical or paraphrased queries, use search_embeddings(query, k). "
+        "For cross-file discovery when the filename is unknown, use search_nearby_files(query, k) on the active folder index; "
+        "it combines keyword ranking (BM25/NEAR) and semantic embeddings into one fused result list. "
         "grep_nearby_files is also available for regex or Calc/Draw paths. "
-        "Both search tools return ranked doc_url, score, snippet, and optional para_index (weak hint). "
+        "Returns ranked doc_url, score, snippet, and optional para_index (weak hint). "
         "Open the top one or few hits with delegate_read_document and tell the inner read agent to search for the snippet "
         "or topic with search_in_document — do not rely on para_index or character offsets as exact LO coordinates.\n"
-        "If a search tool returns status indexing, retry after the background index finishes.\n"
+        "If search_nearby_files returns status indexing, retry after the background index finishes.\n"
     )
     if folder_search_enabled(ctx):
         return common + index_hint
@@ -139,9 +138,9 @@ def filter_document_research_discovery_tools(tools: list[ToolBase], ctx) -> list
     """Hide indexed search tools when cross-file search is off; list/delegate always kept."""
     from plugin.framework.constants import folder_search_enabled
 
-    if folder_search_enabled(ctx):
-        return tools
-    hidden = {"search_embeddings", "search_nearby_files"}
+    hidden: set[str] = {"search_embeddings"}
+    if not folder_search_enabled(ctx):
+        hidden.add("search_nearby_files")
     return [t for t in tools if t.name not in hidden]
 
 

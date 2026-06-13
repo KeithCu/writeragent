@@ -317,41 +317,22 @@ def search_folder_fts(
     k: int = 10,
     near_slop: int = 10,
 ) -> dict[str, Any]:
-    """BM25 search over a folder FTS5 index."""
+    """BM25 search over a folder FTS5 index (unified corpus.db or legacy fts5.db)."""
     db_path = Path(str(fts_db_path_str or ""))
     if not db_path.is_file():
         return {"hits": [], "query": query, "match": ""}
 
     limit = max(1, min(int(k or 10), 30))
     match_expr = build_match_query(str(query or ""), near_slop=near_slop)
-    sql = """
-        SELECT
-            doc_url,
-            para_index,
-            snippet(passages, 0, '[', ']', '…', 32) AS snippet,
-            bm25(passages) AS score
-        FROM passages
-        WHERE passages MATCH ?
-        ORDER BY score
-        LIMIT ?
-    """
-    hits: list[dict[str, Any]] = []
-    with _connect(db_path) as conn:
-        try:
-            rows = conn.execute(sql, (match_expr, limit)).fetchall()
-        except sqlite3.OperationalError as exc:
-            log.debug("FTS search failed for %r: %s", match_expr, exc)
-            return {"hits": [], "query": query, "match": match_expr, "error": str(exc)}
 
-    for row in rows:
-        hits.append(
-            {
-                "doc_url": str(row["doc_url"] or ""),
-                "para_index": int(row["para_index"] or 0),
-                "snippet": strip_fts_snippet_markers(str(row["snippet"] or "")),
-                "score": float(row["score"] or 0.0),
-            }
-        )
+    from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, fts_corpus_search
+
+    conn = connect_corpus_db(db_path)
+    try:
+        hits = fts_corpus_search(conn, str(query or ""), k=limit, near_slop=near_slop)
+    finally:
+        conn.close()
+
     return {"hits": hits, "query": query, "match": match_expr}
 
 

@@ -168,12 +168,9 @@ On this corpus, embeddings **did not** reliably beat grep when:
 
 | Signal | Prefer |
 |--------|--------|
-| Query **≤3 tokens** or distinctive **literals** | **`grep_nearby_files`** first (or token extract → grep) |
-| **Long conversational** agent query, **unknown filename** | **`search_embeddings`** (or run both, merge ranks) |
-| Query mentions **common words** (`python`, `model`, `streaming`) in a **mixed folder** | Grep + dedupe draft/part siblings; treat semantic hits skeptically |
-| Top semantic score **< ~0.40** | Weak hit — retry grep or widen `k` |
-| Top semantic score **≥ ~0.55** on long queries | More trustworthy for **file routing** |
-| **Both** grep and embed agree on `doc_url` | High confidence — open that file |
+| Cross-file discovery (folder search on) | **`search_nearby_files`** — hybrid FTS + embeddings fused with **RRF** ([`hybrid_rrf.py`](../plugin/embeddings/venv/hybrid_rrf.py), vendored from [liamca/sqlite-hybrid-search](https://github.com/liamca/sqlite-hybrid-search)) |
+| Query **≤3 tokens** or distinctive **literals** inside one file | **`grep_nearby_files`** |
+| **Both** legs agree on `doc_url` (`matched_by`: fts + vec) | High confidence — open that file |
 
 Industry pattern (see [Problem](#problem)): **combine** methods — inverted index / grep for keywords, embeddings for paraphrase. On `~/Desktop/Writing`, data favors **grep-default, semantic-supplement**: the long paraphrase wins justify keeping `search_embeddings`, but **most realistic 1–3 word searches should not skip grep**.
 

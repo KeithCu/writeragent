@@ -33,7 +33,7 @@ from plugin.embeddings.embeddings_cache import (  # noqa: E402
     read_corpus_meta,
 )
 from plugin.embeddings.folder_fts_cache import fts_db_path, fts_index_is_empty, fts_meta_path  # noqa: E402
-from plugin.embeddings.venv.embeddings_index import EMBEDDINGS_VENV_PIP_INSTALL, knn_search  # noqa: E402
+from plugin.embeddings.venv.embeddings_index import EMBEDDINGS_VENV_PIP_INSTALL, hybrid_search, knn_search  # noqa: E402
 from plugin.embeddings.venv.folder_fts import search_folder_fts  # noqa: E402
 
 DEFAULT_FOLDER = Path("~/Desktop/Writing")
@@ -66,8 +66,64 @@ def search_folder(
     k: int = DEFAULT_K,
     model: str | None = None,
     doc_url: str | None = None,
+    near_slop: int = DEFAULT_NEAR_SLOP,
 ) -> dict[str, Any]:
-    """Semantic search over an existing per-folder corpus.db cache."""
+    """Hybrid FTS + semantic search over an existing per-folder corpus.db cache."""
+    listing_root = folder.expanduser().resolve()
+    if not listing_root.is_dir():
+        raise SearchFolderError(f"Not a directory: {listing_root}")
+
+    query_text = str(query or "").strip()
+    if not query_text:
+        raise SearchFolderError("query is required")
+
+    db_path = corpus_db_path(str(listing_root), create_parent=False)
+    meta_path = corpus_meta_path(str(listing_root), create_parent=False)
+
+    if not db_path.is_file() or index_is_empty(meta_path, db_path):
+        raise SearchFolderError(
+            f"No indexed embeddings cache under {listing_root / 'writeragent_embeddings'}. "
+            f"Build one with: .venv/bin/python scripts/index_embeddings_folder.py {listing_root}"
+        )
+
+    model_name = _resolve_model(meta_path, model)
+    k_clamped = _clamp_k(k)
+
+    try:
+        result = hybrid_search(
+            str(db_path),
+            query_text,
+            k_clamped,
+            model_name=model_name,
+            near_slop=max(0, int(near_slop)),
+            doc_url_filter=doc_url,
+        )
+    except ImportError as exc:
+        raise SearchFolderError(
+            f"Embeddings packages not available ({exc}). Install with: {EMBEDDINGS_VENV_PIP_INSTALL}"
+        ) from exc
+
+    hits = result.get("hits") or []
+    return {
+        "status": "ok",
+        "backend": "hybrid",
+        "folder": str(listing_root),
+        "query": query_text,
+        "k": k_clamped,
+        "model": model_name,
+        "hits": hits,
+    }
+
+
+def search_folder_vec(
+    folder: Path,
+    query: str,
+    *,
+    k: int = DEFAULT_K,
+    model: str | None = None,
+    doc_url: str | None = None,
+) -> dict[str, Any]:
+    """Semantic-only search (dev/debug)."""
     listing_root = folder.expanduser().resolve()
     if not listing_root.is_dir():
         raise SearchFolderError(f"Not a directory: {listing_root}")
@@ -169,13 +225,17 @@ def format_hits(result: dict[str, Any]) -> str:
 
     lines.append(f"Folder: {folder}")
     lines.append(f"Query:  {query!r}")
-    backend = str(result.get("backend") or "embeddings")
+    backend = str(result.get("backend") or "hybrid")
     if backend == "fts":
         lines.append("Backend: FTS (SQLite)")
         match = result.get("match")
         if match:
             lines.append(f"Match:  {match}")
+    elif backend == "embeddings":
+        lines.append("Backend: embeddings (vector only)")
+        lines.append(f"Model:  {result.get('model', '?')}")
     else:
+        lines.append("Backend: hybrid (FTS + embeddings, RRF)")
         lines.append(f"Model:  {result.get('model', '?')}")
     lines.append(f"Hits:   {len(hits)}")
     lines.append("=" * 72)
@@ -199,12 +259,17 @@ def format_hits(result: dict[str, Any]) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Search a WriterAgent per-folder cache (embeddings default, or SQLite FTS5 with --fts)",
+        description="Search a WriterAgent per-folder cache (hybrid FTS+embeddings default; --fts or --vec for single leg)",
     )
     parser.add_argument(
         "--fts",
         action="store_true",
-        help="Search fts5.db (SQLite FTS5) instead of Chroma embeddings (place --fts before the query)",
+        help="FTS keyword leg only (debug)",
+    )
+    parser.add_argument(
+        "--vec",
+        action="store_true",
+        help="Vector semantic leg only (debug)",
     )
     parser.add_argument("query", help="Natural-language or keyword query")
     parser.add_argument(
@@ -248,6 +313,14 @@ def main(argv: list[str] | None = None) -> int:
                 k=args.k,
                 near_slop=args.near_slop,
             )
+        elif args.vec:
+            result = search_folder_vec(
+                args.folder,
+                args.query,
+                k=args.k,
+                model=args.model,
+                doc_url=args.doc_url,
+            )
         else:
             result = search_folder(
                 args.folder,
@@ -255,6 +328,7 @@ def main(argv: list[str] | None = None) -> int:
                 k=args.k,
                 model=args.model,
                 doc_url=args.doc_url,
+                near_slop=args.near_slop,
             )
     except SearchFolderError as exc:
         print(str(exc), file=sys.stderr)

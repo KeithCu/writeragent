@@ -366,6 +366,51 @@ def vec0_search(
     return candidates
 
 
+def fts_corpus_search(
+    conn: sqlite3.Connection,
+    query: str,
+    *,
+    k: int = 10,
+    near_slop: int = 10,
+) -> list[dict[str, Any]]:
+    """BM25 + NEAR search on unified corpus.db passages (rowid = chunk_id)."""
+    from plugin.embeddings.venv.folder_fts import build_match_query, strip_fts_snippet_markers
+
+    limit = max(1, min(int(k or 10), 50))
+    match_expr = build_match_query(str(query or ""), near_slop=near_slop)
+    sql = """
+        SELECT
+            p.rowid AS chunk_id,
+            c.doc_url,
+            c.para_index,
+            snippet(p, 0, '[', ']', '…', 32) AS snippet,
+            bm25(p) AS score
+        FROM passages p
+        JOIN chunks c ON c.chunk_id = p.rowid
+        WHERE p MATCH ?
+        ORDER BY score
+        LIMIT ?
+    """
+    try:
+        rows = conn.execute(sql, (match_expr, limit)).fetchall()
+    except sqlite3.OperationalError as exc:
+        log.debug("FTS corpus search failed for %r: %s", match_expr, exc)
+        return []
+
+    hits: list[dict[str, Any]] = []
+    for row in rows:
+        hits.append(
+            {
+                "chunk_id": int(row["chunk_id"]),
+                "doc_url": str(row["doc_url"] or ""),
+                "para_index": int(row["para_index"] or 0),
+                "snippet": strip_fts_snippet_markers(str(row["snippet"] or "")),
+                "score": float(row["score"] or 0.0),
+            }
+        )
+    return hits
+
+
 def load_embeddings_for_candidates(
     conn: sqlite3.Connection,
     candidates: list[dict[str, Any]],
@@ -403,6 +448,7 @@ __all__ = [
     "delete_by_doc_para",
     "delete_paragraph_keys",
     "ensure_schema",
+    "fts_corpus_search",
     "insert_paragraph_rows",
     "load_embeddings_for_candidates",
     "upsert_chunk_with_vector",

@@ -57,7 +57,7 @@ def test_search_folder_uses_meta_model_and_default_k(tmp_path: Path) -> None:
     _write_corpus_cache(folder / "writeragent_embeddings")
 
     fake_hits = [{"doc_url": "file:///a.odt", "para_index": 1, "snippet": "text", "score": 0.9}]
-    with patch("search_embeddings_folder.knn_search", return_value={"hits": fake_hits}) as mock_search:
+    with patch("search_embeddings_folder.hybrid_search", return_value={"hits": fake_hits}) as mock_search:
         result = search_folder(folder, "remote work")
 
     mock_search.assert_called_once()
@@ -69,6 +69,7 @@ def test_search_folder_uses_meta_model_and_default_k(tmp_path: Path) -> None:
     assert result["status"] == "ok"
     assert result["hits"] == fake_hits
     assert result["model"] == "custom-model"
+    assert result["backend"] == "hybrid"
 
 
 def test_search_folder_model_override(tmp_path: Path) -> None:
@@ -76,7 +77,7 @@ def test_search_folder_model_override(tmp_path: Path) -> None:
     folder.mkdir()
     _write_corpus_cache(folder / "writeragent_embeddings", chunk_count="1", model="stored-model")
 
-    with patch("search_embeddings_folder.knn_search", return_value={"hits": []}) as mock_search:
+    with patch("search_embeddings_folder.hybrid_search", return_value={"hits": []}) as mock_search:
         search_folder(folder, "q", model="override-model", k=5, doc_url="file:///x.odt")
 
     kwargs = mock_search.call_args.kwargs
@@ -111,7 +112,7 @@ def test_main_json_output(tmp_path: Path, capsys: pytest.CaptureFixture[str]) ->
     folder.mkdir()
     _write_corpus_cache(folder / "writeragent_embeddings", chunk_count="1", model="m")
 
-    with patch("search_embeddings_folder.knn_search", return_value={"hits": [{"score": 0.5}]}):
+    with patch("search_embeddings_folder.hybrid_search", return_value={"hits": [{"score": 0.5}]}):
         code = main(["query text", "--folder", str(folder), "--json"])
 
     assert code == 0

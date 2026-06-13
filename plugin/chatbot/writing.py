@@ -25,7 +25,7 @@ _WRITING_DOC_RESEARCH_TOOL_NAMES = frozenset(
         "list_nearby_files",
         "grep_nearby_files",
         "delegate_read_document",
-        "search_embeddings",
+        "search_nearby_files",
     }
 )
 

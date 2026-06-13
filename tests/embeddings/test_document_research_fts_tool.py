@@ -32,11 +32,11 @@ def test_search_nearby_files_indexing_status():
     with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
         with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()):
             with patch(
-                "plugin.embeddings.folder_fts_cache.resolve_fts_context",
+                "plugin.embeddings.embeddings_cache.resolve_index_context",
                 return_value=("key", MagicMock(), MagicMock(), "/tmp/folder"),
             ):
-                with patch("plugin.embeddings.folder_fts_cache.fts_index_is_empty", return_value=True):
-                    with patch("plugin.embeddings.folder_fts_indexer.ensure_fts_wakeup") as wakeup_mock:
+                with patch("plugin.embeddings.embeddings_cache.index_is_empty", return_value=True):
+                    with patch("plugin.embeddings.embeddings_indexer.ensure_index_wakeup") as wakeup_mock:
                         result = tool.execute(_ctx(), query="web search")
     assert result.get("status") == "indexing"
     assert result.get("hits") == []

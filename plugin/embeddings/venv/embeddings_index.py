@@ -171,12 +171,34 @@ def knn_search(
     )
 
 
+def hybrid_search(
+    db_path: str,
+    query_text: str,
+    k: int,
+    *,
+    model_name: str,
+    near_slop: int = 10,
+    doc_url_filter: str | None = None,
+) -> dict[str, Any]:
+    """Hybrid FTS + vector search with reciprocal rank fusion."""
+    from plugin.embeddings.venv.embeddings_hybrid_search import hybrid_corpus_search
+
+    return hybrid_corpus_search(
+        db_path,
+        query_text,
+        k,
+        model_name=model_name,
+        near_slop=near_slop,
+        doc_url_filter=doc_url_filter,
+    )
+
+
 def maintain_folder_index(
     listing_root: str,
     embedding_model: str,
     mode: str = "auto",
     *,
-    search_mode: str = "embeddings",
+    search_mode: str = "hybrid",
     heartbeat_fn: Any | None = None,
 ) -> dict[str, Any]:
     """Folder corpus maintenance (ODF extract + corpus.db) — trusted RPC entry point."""
@@ -237,6 +259,7 @@ __all__ = [
     "collection_stats",
     "delete_paragraphs",
     "embed_texts",
+    "hybrid_search",
     "index_paragraphs",
     "knn_search",
     "maintain_folder_index",

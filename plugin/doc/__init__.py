@@ -24,7 +24,6 @@ class CommonModule(ModuleBase):
         )
         from plugin.embeddings import (
             document_research_fts_tool,
-            document_research_search_tool,
         )
 
         discovery_modules = (
@@ -32,7 +31,6 @@ class CommonModule(ModuleBase):
             document_research_tools,
             document_research_grep_tool,
             document_research_fts_tool,
-            document_research_search_tool,
             document_research_specialized,
             print_doc,
             undo,
