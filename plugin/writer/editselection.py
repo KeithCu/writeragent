@@ -26,6 +26,7 @@ from plugin.framework.i18n import _
 from plugin.framework.config import set_config
 from plugin.framework.client.llm_client import LlmClient
 from plugin.doc.document_helpers import WriterCompoundUndo, WriterStreamedRewriteSession, build_writer_rewrite_prompt, get_string_without_tracked_deletions
+from plugin.writer.edit_review import review_recording_enabled
 
 
 def do_extend_selection(ctx, model, input_box_fn):
@@ -100,7 +101,10 @@ def do_edit_selection(ctx, model, input_box_fn):
         return
 
     client = LlmClient(api_config, ctx)
-    session = WriterStreamedRewriteSession(model, text_range, original_text)
+    session = WriterStreamedRewriteSession(
+        model, text_range, original_text,
+        track_reviewable=review_recording_enabled(ctx),
+    )
 
     def apply_chunk(chunk_text, is_thinking=False):
         if not is_thinking:

@@ -342,6 +342,14 @@ class ApplyStyle(FrameworkToolBase):
                   "style_name": style_name, "family": family, "target": target, "applied": True}
         if target == "search":
             result["matched"] = True  # a search miss would have errored earlier in resolve_target_cursor
+        # A style change is applied directly and does NOT become a tracked change (LibreOffice
+        # records text/char-format edits as redlines, but not a style swap). When review mode is on
+        # the agent expects its edits to be reviewable, so flag that this one was not -- the agent
+        # should tell the user it changed a style they cannot accept/reject like a text edit.
+        from plugin.writer.edit_review import review_recording_enabled
+
+        if review_recording_enabled(ctx.ctx):
+            result["style_unreviewed"] = True
         return result
 
 

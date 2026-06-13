@@ -35,6 +35,7 @@ from plugin.doc.document_helpers import normalize_linebreaks as _normalize, get_
 from .math.html_math_segment import html_fragment_contains_mixed_math, segment_html_with_mixed_math
 from .math.math_mml_convert import convert_latex_to_starmath, convert_mathml_to_starmath, insert_writer_math_formula
 from .ops import get_selection_range
+from .review_authors import deletion_author
 from . import xhtml_style_postprocess as xhtml_post
 
 log = logging.getLogger("writeragent.writer")
@@ -884,9 +885,25 @@ def replace_full_document(model, ctx, content, config_svc=None):
     cursor = text.createTextCursor()
     cursor.gotoStart(False)
     cursor.gotoEnd(True)
-    cursor.setString("")
+    with deletion_author():  # author the deletion distinctly (split by-author coloring)
+        cursor.setString("")
     cursor.gotoStart(False)
     _insert_mixed_or_plain_html(model, ctx, cursor, content, config_svc=config_svc)
+
+
+def _is_recording_changes(model):
+    """True if *model* is currently recording Track Changes (redlines).
+
+    Agent edits made while recording must land as a clean tracked Delete + Insert so the
+    user can accept (-> new text) or reject (-> old text) each one. The format-preserving
+    replace paths (the char-by-char diff in ``replace_preserving_format`` and the
+    paragraph-style restore below) corrupt that into a per-character mess or a FORMAT
+    redline that keeps the old text on Accept -- so those steps are skipped while recording.
+    """
+    try:
+        return bool(model.getPropertyValue("RecordChanges"))
+    except Exception:
+        return False
 
 
 def replace_single_range_with_content(model, text_range, content, ctx, config_svc=None):
@@ -915,7 +932,8 @@ def replace_single_range_with_content(model, text_range, content, ctx, config_sv
             saved_style = None
 
     cursor = text_obj.createTextCursorByRange(text_range)
-    cursor.setString("")
+    with deletion_author():  # author the deletion distinctly (split by-author coloring)
+        cursor.setString("")
 
     if saved_style is not None:
         anchor = text_obj.createTextCursorByRange(cursor.getStart())
@@ -925,12 +943,19 @@ def replace_single_range_with_content(model, text_range, content, ctx, config_sv
         # INSERTED content (not the document end), so [anchor, cursor] bounds it.
         inline_html = prepared.replace("\\n", "\n").replace("\\t", "\t")
         insert_html_fragment_at_cursor(cursor, inline_html, wrap=False, config_svc=config_svc, model=None)
-        try:
-            restore = text_obj.createTextCursorByRange(anchor.getStart())
-            restore.gotoRange(cursor.getEnd(), True)
-            apply_paragraph_style_preserving_direct_char(model, restore, saved_style)
-        except Exception:
-            log.debug("replace_single_range_with_content: could not restore ParaStyleName", exc_info=True)
+        # Re-apply the saved paragraph style (the HTML import can demote Heading -> body).
+        # Skip it while Track Changes is recording: setString("") above leaves the old text in
+        # place as a tracked DELETE, and re-applying a paragraph style across [anchor, cursor]
+        # spans that struck text, converting its DELETE redline into a FORMAT redline -- so
+        # accepting the change would keep BOTH the old and new text. The inline import does not
+        # demote the style here, so skipping the restore keeps a clean Delete + Insert pair.
+        if not _is_recording_changes(model):
+            try:
+                restore = text_obj.createTextCursorByRange(anchor.getStart())
+                restore.gotoRange(cursor.getEnd(), True)
+                apply_paragraph_style_preserving_direct_char(model, restore, saved_style)
+            except Exception:
+                log.debug("replace_single_range_with_content: could not restore ParaStyleName", exc_info=True)
     else:
         # apply_styles=False: a search/replace splits the matched paragraph, so applying a
         # data-lo-style here would restyle the surrounding text. Styled writes use full_document.
@@ -1192,6 +1217,19 @@ def replace_preserving_format(model, target_range, new_text, ctx=None):
     text = target_range.getText()
     old_text = _normalize(target_range.getString())
     new_text = _normalize(new_text)
+
+    # Track Changes: the char-by-char diff below records a separate redline for EACH changed
+    # character, which renders as a scrambled, un-reviewable mess (old and new text interleaved).
+    # When recording, replace the whole range in one shot so the edit is a single tracked
+    # Delete + Insert the user can accept (-> new text) or reject (-> old text) cleanly.
+    if _is_recording_changes(model):
+        cursor = text.createTextCursorByRange(target_range)
+        with deletion_author():  # author the deletion distinctly (split by-author coloring)
+            cursor.setString("")
+        if new_text:
+            text.insertString(cursor, new_text, False)
+        return
+
     old_len = len(old_text)
     new_len = len(new_text)
 

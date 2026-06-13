@@ -3,4 +3,22 @@ title: Writer document tools (including navigation and search)
 requires: [document, config, format, events]
 provides_services: [writer_bookmarks, writer_tree, writer_proximity, writer_index]
 
-config: {}
+config:
+  track_changes_reviewable:
+    type: boolean
+    default: false
+    widget: checkbox
+    label: Review Agent Edits (Track Changes)
+    helper: "Record the agent's edits as tracked changes you can accept or reject"
+  require_edit_review:
+    type: boolean
+    default: false
+    widget: checkbox
+    label: Wait for Edit Review
+    helper: "The agent's edit call waits until you accept or reject its tracked changes (implies recording them)"
+  edit_review_timeout:
+    type: int
+    default: 900
+    widget: number
+    label: Edit Review Max Wait (seconds)
+    helper: "How long an edit call waits for review before returning with the changes still pending (0 disables waiting)"

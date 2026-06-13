@@ -13,6 +13,7 @@ from plugin.framework.uno_context import get_ctx
 from plugin.framework.async_stream import run_stream_async
 from plugin.framework.config import get_api_config, set_config, get_current_endpoint
 from plugin.framework.client.llm_client import LlmClient
+from plugin.writer.edit_review import review_recording_enabled
 from plugin.doc.document_helpers import (
     WriterCompoundUndo,
     get_string_without_tracked_deletions,
@@ -251,7 +252,10 @@ def _edit_writer(services, ctx, doc):
 
     max_tokens = len(original_text) + max_new_tokens
 
-    session = WriterStreamedRewriteSession(doc, text_range, original_text)
+    session = WriterStreamedRewriteSession(
+        doc, text_range, original_text,
+        track_reviewable=review_recording_enabled(ctx),
+    )
 
     def apply_chunk(text, is_thinking=False):
         if not is_thinking:

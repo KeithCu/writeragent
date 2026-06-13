@@ -216,12 +216,15 @@ class WriterStreamedRewriteSession:
 
     _UNDO_CONTEXT_TITLE = "WriterAgent: Edit selection"
 
-    def __init__(self, doc, text_range, original_text: str):
+    def __init__(self, doc, text_range, original_text: str, track_reviewable: bool = False):
         self.doc = doc
         self.text_range = text_range
         self.original_text = original_text
         self.generated_text = ""
         self.was_recording = False
+        # When True (opt-in flag), the agent's edit is collapsed into one tracked
+        # change for the user to review even if they did not have Track Changes on.
+        self.track_reviewable = track_reviewable
         self._compound_undo = WriterCompoundUndo(doc, self._UNDO_CONTEXT_TITLE)
 
         try:
@@ -254,13 +257,53 @@ class WriterStreamedRewriteSession:
     def finish(self) -> str | None:
         """Finalize the rewrite. Returns a warning message on degraded success."""
         try:
-            if not self.was_recording:
+            if not (self.was_recording or self.track_reviewable):
                 return None
 
             try:
-                self.text_range.setString(self.original_text)
-                self.doc.setPropertyValue("RecordChanges", True)
-                self.text_range.setString(self.generated_text)
+                # Review mode only (NOT when the user merely has their own Track Changes on):
+                # snapshot the redlines so the collapsed change can be tagged as an agent change
+                # afterward, and author it as the agent for the by-author coloring.
+                before_ids = None
+                prior_author = None
+                if self.track_reviewable:
+                    try:
+                        from plugin.framework.uno_context import get_ctx
+                        from plugin.writer import review_authors
+                        from plugin.writer.edit_review import snapshot_redline_ids
+
+                        before_ids = snapshot_redline_ids(self.doc)
+                        prior_author = review_authors.begin(get_ctx())
+                    except Exception:
+                        logging.getLogger(__name__).debug("streamed rewrite: review tagging setup failed", exc_info=True)
+                try:
+                    self.text_range.setString(self.original_text)
+                    self.doc.setPropertyValue("RecordChanges", True)
+                    self.text_range.setString(self.generated_text)
+                finally:
+                    if prior_author is not None:
+                        try:
+                            from plugin.framework.uno_context import get_ctx
+                            from plugin.writer import review_authors
+
+                            review_authors.end(get_ctx(), prior_author)
+                        except Exception:
+                            logging.getLogger(__name__).warning("streamed rewrite: author restore failed", exc_info=True)
+                # Restore the user's prior recording state. If they had Track Changes
+                # OFF and we only turned it ON to capture this edit as one reviewable
+                # redline (track_reviewable flag), turn it back OFF so their later
+                # manual typing is not tracked. Existing redlines persist regardless.
+                if not self.was_recording:
+                    self.doc.setPropertyValue("RecordChanges", False)
+                # Tag the collapsed redline(s) with a session token so the inline review UI
+                # (click popup / context menu) treats this streamed edit as an agent change.
+                if before_ids is not None:
+                    try:
+                        from plugin.writer.edit_review import tag_agent_redlines
+
+                        tag_agent_redlines(self.doc, before_ids)
+                    except Exception:
+                        logging.getLogger(__name__).debug("streamed rewrite: redline tagging failed", exc_info=True)
                 return None
             except Exception:
                 logging.getLogger(__name__).exception("Failed to collapse streamed edit into one tracked change")
@@ -275,9 +318,9 @@ class WriterStreamedRewriteSession:
                 except Exception as e:
                     fallback_errors.append(f"restore generated text failed: {e}")
                 try:
-                    self.doc.setPropertyValue("RecordChanges", True)
+                    self.doc.setPropertyValue("RecordChanges", self.was_recording)
                 except Exception as e:
-                    fallback_errors.append(f"re-enable tracking failed: {e}")
+                    fallback_errors.append(f"restore recording state failed: {e}")
 
                 if fallback_errors:
                     return "Failed to finalize the tracked edit and preserve the generated text: " + "; ".join(fallback_errors)

@@ -465,6 +465,8 @@ def execute_and_insert_result(
             return {"ok": False, "message": f"{message} (took {formatted_time})"}
 
         try:
+            # Reviewable-edit recording for the Writer path lives inside
+            # insert_vision_result_into_writer (vision_egress).
             insert_vision_result(ctx, doc, result, params=vision_meta.params)
         except Exception as e:
             elapsed_total = time.perf_counter() - t0
@@ -942,7 +944,15 @@ def execute_and_insert_result(
             elif is_writer(doc):
                 formatted = format_result_for_writer(result_data)
                 if formatted:
-                    insert_content_at_position(doc, ctx, formatted, "selection")
+                    # Review mode: record this agent-driven insertion as a reviewable tracked change.
+                    from plugin.writer.edit_review import EditReviewSession, review_recording_enabled
+
+                    review = EditReviewSession(doc, ctx, enabled=review_recording_enabled(ctx))
+                    try:
+                        with review:
+                            review.record_mutation(lambda: insert_content_at_position(doc, ctx, formatted, "selection"))
+                    finally:
+                        review.cleanup()
             elif is_draw(doc):
                 insert_result_into_draw(doc, ctx, result_data)
             else:
