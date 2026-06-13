@@ -315,6 +315,42 @@ def _register_core_handlers():
 
     register_action_handler("embeddings", "search_dialog", _open_search_dialog)
 
+    def _resolve_change_at_cursor(accept):
+        from plugin.framework.uno_context import get_desktop
+        from plugin.writer.inline_review import resolve_change_at_cursor
+
+        c = get_ctx()
+        model = get_desktop(c).getCurrentComponent()
+        if model is not None:
+            ok, msg = resolve_change_at_cursor(model, c, accept)
+            logging.getLogger("writeragent.main").debug("inline review: accept=%s -> ok=%s msg=%s", accept, ok, msg)
+        else:
+            logging.getLogger("writeragent.main").debug("inline review: no current component")
+
+    register_action_handler("writer", "accept_change", lambda: _resolve_change_at_cursor(True))
+    register_action_handler("writer", "reject_change", lambda: _resolve_change_at_cursor(False))
+
+    def _resolve_all_agent(accept):
+        from plugin.framework.uno_context import get_desktop
+        from plugin.writer.inline_review import resolve_all_agent_changes
+
+        c = get_ctx()
+        model = get_desktop(c).getCurrentComponent()
+        if model is not None:
+            n = resolve_all_agent_changes(model, c, accept)
+            logging.getLogger("writeragent.main").debug("inline review: resolve-all accept=%s -> %d changes", accept, n)
+
+    register_action_handler("writer", "review_accept_all", lambda: _resolve_all_agent(True))
+    register_action_handler("writer", "review_reject_all", lambda: _resolve_all_agent(False))
+
+    try:
+        from plugin.writer.change_context_menu import install_writer_change_context_menu
+
+        install_writer_change_context_menu(get_ctx())
+    except Exception:
+        # WARNING, not debug: a silent install failure looks identical to "menu ignored".
+        log.warning("Writer change context menu install failed", exc_info=True)
+
 
 
 # ── Dynamic menu text infrastructure ─────────────────────────────────
