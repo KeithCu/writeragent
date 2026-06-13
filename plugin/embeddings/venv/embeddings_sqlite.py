@@ -194,6 +194,31 @@ def delete_by_doc_para(
     return len(chunk_ids)
 
 
+def delete_by_chunk_locator(
+    conn: sqlite3.Connection,
+    doc_url: str,
+    para_index: int,
+    char_start: int,
+    char_end: int,
+    *,
+    with_fts: bool = False,
+    with_vec: bool = False,
+) -> int:
+    """Remove one sub-chunk row by locator (any content_hash)."""
+    doc_url = str(doc_url or "")
+    rows = conn.execute(
+        """
+        SELECT chunk_id FROM chunks
+        WHERE doc_url = ? AND para_index = ? AND char_start = ? AND char_end = ?
+        """,
+        (doc_url, int(para_index), int(char_start), int(char_end)),
+    ).fetchall()
+    chunk_ids = [int(row["chunk_id"]) for row in rows]
+    _delete_chunk_ids(conn, chunk_ids, with_fts=with_fts, with_vec=with_vec)
+    conn.commit()
+    return len(chunk_ids)
+
+
 def delete_paragraph_keys(
     conn: sqlite3.Connection,
     keys: list[dict[str, Any]],
@@ -203,13 +228,26 @@ def delete_paragraph_keys(
 ) -> int:
     deleted = 0
     for key in keys or []:
-        deleted += delete_by_doc_para(
-            conn,
-            str(key.get("doc_url") or ""),
-            int(key.get("para_index") or 0),
-            with_fts=with_fts,
-            with_vec=with_vec,
-        )
+        doc_url = str(key.get("doc_url") or "")
+        para_index = int(key.get("para_index") or 0)
+        if "char_start" in key and "char_end" in key:
+            deleted += delete_by_chunk_locator(
+                conn,
+                doc_url,
+                para_index,
+                int(key.get("char_start") or 0),
+                int(key.get("char_end") or 0),
+                with_fts=with_fts,
+                with_vec=with_vec,
+            )
+        else:
+            deleted += delete_by_doc_para(
+                conn,
+                doc_url,
+                para_index,
+                with_fts=with_fts,
+                with_vec=with_vec,
+            )
     return deleted
 
 
@@ -472,23 +510,23 @@ def load_embeddings_for_candidates(
 
 
 def get_file_index_info(conn: sqlite3.Connection, doc_url: str) -> dict[str, float | int]:
-    """Return stored file_mtime, last_indexed_at, and indexed paragraph count."""
+    """Return stored file_mtime, last_indexed_at, and indexed chunk count."""
     doc_url = str(doc_url or "")
     row = conn.execute(
         "SELECT file_mtime, last_indexed_at FROM indexed_files WHERE doc_url = ?",
         (doc_url,),
     ).fetchone()
-    para_row = conn.execute(
-        "SELECT COUNT(*) AS c FROM indexed_paragraphs WHERE doc_url = ?",
+    chunk_row = conn.execute(
+        "SELECT COUNT(*) AS c FROM chunks WHERE doc_url = ?",
         (doc_url,),
     ).fetchone()
-    para_count = int(para_row["c"] if para_row else 0)
+    chunk_count = int(chunk_row["c"] if chunk_row else 0)
     if row is None:
-        return {"file_mtime": 0.0, "last_indexed_at": 0.0, "chunk_count": para_count}
+        return {"file_mtime": 0.0, "last_indexed_at": 0.0, "chunk_count": chunk_count}
     return {
         "file_mtime": float(row["file_mtime"] or 0.0),
         "last_indexed_at": float(row["last_indexed_at"] or 0.0),
-        "chunk_count": para_count,
+        "chunk_count": chunk_count,
     }
 
 
@@ -539,32 +577,38 @@ def mark_file_indexed_in_db(
     conn.commit()
 
 
-def diff_paragraph_rows_in_db(
+def diff_chunk_rows_in_db(
     conn: sqlite3.Connection,
     chunks: list[Any],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Return (rows_to_index, keys_to_delete) comparing extracted chunks to DB state."""
+    """Return (rows_to_index, keys_to_delete) comparing extracted chunks to corpus.db."""
     from plugin.embeddings.embeddings_fs import ParagraphChunk, chunk_to_index_row
 
     to_index: list[dict[str, Any]] = []
-    seen: set[tuple[str, int]] = set()
+    seen: set[tuple[str, int, int, int]] = set()
 
-    stored_by_para: dict[int, str] = {}
+    stored: dict[tuple[int, int, int], str] = {}
     if chunks:
         doc_url = str(chunks[0].doc_url if isinstance(chunks[0], ParagraphChunk) else "")
         if doc_url:
             rows = conn.execute(
-                "SELECT para_index, content_hash FROM indexed_paragraphs WHERE doc_url = ?",
+                """
+                SELECT para_index, char_start, char_end, content_hash
+                FROM chunks WHERE doc_url = ?
+                """,
                 (doc_url,),
             ).fetchall()
-            stored_by_para = {int(row["para_index"]): str(row["content_hash"] or "") for row in rows}
+            for row in rows:
+                locator = (int(row["para_index"]), int(row["char_start"]), int(row["char_end"]))
+                stored[locator] = str(row["content_hash"] or "")
 
     for chunk in chunks:
         if not isinstance(chunk, ParagraphChunk):
             continue
-        key = (chunk.doc_url, chunk.para_index)
+        locator = (chunk.para_index, chunk.char_start, chunk.char_end)
+        key = (chunk.doc_url, *locator)
         seen.add(key)
-        stored_hash = stored_by_para.get(chunk.para_index, "")
+        stored_hash = stored.get(locator, "")
         if stored_hash == chunk.content_hash:
             continue
         to_index.append(chunk_to_index_row(chunk))
@@ -574,11 +618,26 @@ def diff_paragraph_rows_in_db(
 
     doc_url = chunks[0].doc_url
     to_delete: list[dict[str, Any]] = []
-    for para_index in stored_by_para:
-        if (doc_url, para_index) not in seen:
-            to_delete.append({"doc_url": doc_url, "para_index": para_index})
+    for (para_index, char_start, char_end), _stored_hash in stored.items():
+        if (doc_url, para_index, char_start, char_end) not in seen:
+            to_delete.append(
+                {
+                    "doc_url": doc_url,
+                    "para_index": para_index,
+                    "char_start": char_start,
+                    "char_end": char_end,
+                }
+            )
 
     return to_index, to_delete
+
+
+def diff_paragraph_rows_in_db(
+    conn: sqlite3.Connection,
+    chunks: list[Any],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Backward-compatible alias — diff at chunk locator grain."""
+    return diff_chunk_rows_in_db(conn, chunks)
 
 
 def sync_file_paragraph_state_in_db(
@@ -589,27 +648,24 @@ def sync_file_paragraph_state_in_db(
     *,
     indexed_at: float,
 ) -> None:
-    """Update paragraph hashes after a successful index pass."""
-    from plugin.embeddings.embeddings_fs import ParagraphChunk
-
-    paragraphs: dict[str, str] = {}
-    for chunk in chunks:
-        if isinstance(chunk, ParagraphChunk):
-            paragraphs[str(chunk.para_index)] = chunk.content_hash
+    """Advance file timestamps after a successful index pass."""
+    del chunks
     mark_file_indexed_in_db(
         conn,
         doc_url,
         file_mtime,
         indexed_at=indexed_at,
-        paragraphs=paragraphs,
+        paragraphs=None,
     )
 
 
 __all__ = [
     "connect_corpus_db",
     "corpus_chunk_count",
+    "delete_by_chunk_locator",
     "delete_by_doc_para",
     "delete_paragraph_keys",
+    "diff_chunk_rows_in_db",
     "diff_paragraph_rows_in_db",
     "ensure_schema",
     "file_is_stale_in_db",

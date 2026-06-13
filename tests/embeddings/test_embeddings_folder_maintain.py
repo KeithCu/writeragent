@@ -53,7 +53,7 @@ def test_cold_build_ingests_one_file_at_a_time(tmp_path):
     with (
         patch.object(maintain, "clear_folder_cache"),
         patch.object(maintain, "ensure_corpus_meta"),
-        patch.object(maintain, "paragraph_chunks_from_path", side_effect=[[_chunk("file:///a.odt", 0, "a")], [_chunk("file:///b.odt", 0, "b")]]),
+        patch.object(maintain, "indexable_chunks_from_path", side_effect=[(1, [_chunk("file:///a.odt", 0, "a")]), (1, [_chunk("file:///b.odt", 0, "b")])]),
         patch.object(maintain, "_ingest_rows", side_effect=_fake_ingest_rows),
         patch.object(maintain, "sync_file_paragraph_state") as sync_mock,
         patch.object(maintain, "corpus_db_path", return_value=db_path),
@@ -83,7 +83,7 @@ def test_cold_build_skips_ingest_for_empty_files(tmp_path):
     with (
         patch.object(maintain, "clear_folder_cache"),
         patch.object(maintain, "ensure_corpus_meta"),
-        patch.object(maintain, "paragraph_chunks_from_path", return_value=[]),
+        patch.object(maintain, "indexable_chunks_from_path", return_value=(0, [])),
         patch.object(maintain, "_ingest_rows") as ingest_mock,
         patch.object(maintain, "sync_file_paragraph_state") as sync_mock,
         patch.object(maintain, "corpus_db_path", return_value=tmp_path / "writeragent_embeddings" / "corpus.db"),

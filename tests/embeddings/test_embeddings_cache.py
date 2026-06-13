@@ -107,6 +107,8 @@ def test_remove_legacy_index_db(tmp_path):
 
 
 def test_file_index_state_and_diff(tmp_path):
+    from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, ensure_schema, upsert_chunk_with_vector
+
     db_path = tmp_path / "corpus.db"
     chunk = ParagraphChunk(
         doc_url="file:///a.odt",
@@ -117,12 +119,45 @@ def test_file_index_state_and_diff(tmp_path):
         content_hash=content_hash("new"),
         file_mtime=1.0,
     )
-    embeddings_cache.mark_file_indexed(
-        db_path,
-        "file:///a.odt",
-        50.0,
-        paragraphs={"0": content_hash("old"), "2": content_hash("gone")},
+    stale = ParagraphChunk(
+        doc_url="file:///a.odt",
+        para_index=2,
+        char_start=0,
+        char_end=4,
+        text="gone",
+        content_hash=content_hash("gone"),
+        file_mtime=1.0,
     )
-    to_index, to_delete = embeddings_cache.diff_paragraph_rows(db_path, [chunk])
+    conn = connect_corpus_db(db_path)
+    try:
+        ensure_schema(conn, with_fts=False, with_vec=False)
+        upsert_chunk_with_vector(
+            conn,
+            {
+                "doc_url": stale.doc_url,
+                "para_index": stale.para_index,
+                "char_start": stale.char_start,
+                "char_end": stale.char_end,
+                "content_hash": stale.content_hash,
+                "text": stale.text,
+                "file_mtime": stale.file_mtime,
+            },
+            [],
+            model="",
+            with_fts=False,
+            with_vec=False,
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    to_index, to_delete = embeddings_cache.diff_chunk_rows(db_path, [chunk])
     assert len(to_index) == 1
-    assert to_delete == [{"doc_url": "file:///a.odt", "para_index": 2}]
+    assert to_delete == [
+        {
+            "doc_url": "file:///a.odt",
+            "para_index": 2,
+            "char_start": 0,
+            "char_end": 4,
+        }
+    ]

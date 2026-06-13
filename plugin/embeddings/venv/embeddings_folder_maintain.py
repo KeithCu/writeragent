@@ -25,11 +25,10 @@ from plugin.embeddings.embeddings_cache import (
     write_corpus_meta,
 )
 from plugin.embeddings.embeddings_fs import (
-    ParagraphChunk,
     WriterFileEntry,
     chunk_to_index_row,
     guess_indexable_paths,
-    paragraph_chunks_from_path,
+    indexable_chunks_from_path,
 )
 from plugin.embeddings.venv.embeddings_ingest_graph import ingest_paragraphs
 from plugin.embeddings.venv.embeddings_sqlite import (
@@ -152,6 +151,11 @@ def _ingest_rows(
         conn.close()
 
 
+def _extract_file_chunks(entry: WriterFileEntry) -> tuple[int, list[Any]]:
+    """Return native passage count and embed chunk rows for one file."""
+    return indexable_chunks_from_path(entry.path, doc_url=entry.url, file_mtime=entry.modified)
+
+
 def _cold_build(
     listing_root: str,
     embedding_model: str,
@@ -171,14 +175,21 @@ def _cold_build(
 
     for index, entry in enumerate(files):
         hb.force({"phase": "extract", "file": entry.name, "index": index, "total": total, "mode": "cold"})
-        chunks = paragraph_chunks_from_path(entry.path, doc_url=entry.url, file_mtime=entry.modified)
+        paragraph_count, chunks = _extract_file_chunks(entry)
         rows = [chunk_to_index_row(chunk) for chunk in chunks]
-        hb.ping({"phase": "extract", "file": entry.name, "paragraphs": len(chunks)})
+        hb.force(
+            {
+                "phase": "extract",
+                "file": entry.name,
+                "paragraphs": paragraph_count,
+                "chunks": len(rows),
+                "mode": "cold",
+            }
+        )
         if not rows:
             sync_file_paragraph_state(db_path, entry.url, chunks, entry.modified)
             continue
         phase = "embed" if build_vectors else "index"
-        hb.force({"phase": phase, "file": entry.name, "paragraphs": len(rows), "mode": "cold"})
         result = _ingest_rows(
             listing_root,
             embedding_model,
@@ -186,9 +197,20 @@ def _cold_build(
             build_fts=build_fts,
             build_vectors=build_vectors,
         )
+        file_upserted = int(result.get("upserted") or result.get("indexed") or 0)
+        hb.force(
+            {
+                "phase": phase,
+                "file": entry.name,
+                "paragraphs": paragraph_count,
+                "chunks": file_upserted,
+                "upserted": file_upserted,
+                "mode": "cold",
+            }
+        )
         sync_file_paragraph_state(db_path, entry.url, chunks, entry.modified)
         indexed += len(rows)
-        upserted += int(result.get("upserted") or result.get("indexed") or 0)
+        upserted += file_upserted
 
     db_path = corpus_db_path(listing_root, create_parent=False)
     row_count = 0
@@ -229,8 +251,17 @@ def _incremental_refresh(
         if not file_is_stale(db_path, entry.url, entry.modified):
             continue
         hb.force({"phase": "extract", "file": entry.name, "index": index, "total": total, "mode": "incremental"})
-        chunks = paragraph_chunks_from_path(entry.path, doc_url=entry.url, file_mtime=entry.modified)
+        paragraph_count, chunks = _extract_file_chunks(entry)
         to_index, to_delete = diff_paragraph_rows(db_path, chunks)
+        hb.force(
+            {
+                "phase": "extract",
+                "file": entry.name,
+                "paragraphs": paragraph_count,
+                "chunks": len(chunks),
+                "mode": "incremental",
+            }
+        )
         if to_delete:
             hb.force({"phase": "delete", "file": entry.name, "keys": len(to_delete)})
             _ingest_rows(
@@ -242,15 +273,26 @@ def _incremental_refresh(
                 build_vectors=build_vectors,
             )
             deleted += len(to_delete)
+            sync_file_paragraph_state(db_path, entry.url, chunks, entry.modified)
         if to_index:
             phase = "embed" if build_vectors else "index"
-            hb.force({"phase": phase, "file": entry.name, "paragraphs": len(to_index)})
-            _ingest_rows(
+            result = _ingest_rows(
                 listing_root,
                 embedding_model,
                 to_index,
                 build_fts=build_fts,
                 build_vectors=build_vectors,
+            )
+            file_upserted = int(result.get("upserted") or result.get("indexed") or 0)
+            hb.force(
+                {
+                    "phase": phase,
+                    "file": entry.name,
+                    "paragraphs": paragraph_count,
+                    "chunks": file_upserted,
+                    "upserted": file_upserted,
+                    "mode": "incremental",
+                }
             )
             sync_file_paragraph_state(db_path, entry.url, chunks, entry.modified)
             indexed += len(to_index)

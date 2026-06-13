@@ -62,14 +62,36 @@ def test_maintain_incremental_skips_fresh_file(tmp_path: Path):
 
     from plugin.embeddings.embeddings_cache import mark_file_indexed
     from plugin.embeddings.embeddings_fs import content_hash, path_to_file_url
+    from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, ensure_schema, upsert_chunk_with_vector
 
     doc_url = path_to_file_url(str(doc))
+    conn = connect_corpus_db(db_path)
+    try:
+        ensure_schema(conn, with_fts=False, with_vec=False)
+        upsert_chunk_with_vector(
+            conn,
+            {
+                "doc_url": doc_url,
+                "para_index": 0,
+                "char_start": 0,
+                "char_end": 4,
+                "content_hash": content_hash("same"),
+                "text": "same",
+                "file_mtime": doc.stat().st_mtime,
+            },
+            [],
+            model="",
+            with_fts=False,
+            with_vec=False,
+        )
+        conn.commit()
+    finally:
+        conn.close()
     mark_file_indexed(
         db_path,
         doc_url,
         doc.stat().st_mtime,
         indexed_at=doc.stat().st_mtime,
-        paragraphs={"0": content_hash("same")},
     )
 
     with patch("plugin.embeddings.venv.embeddings_folder_maintain._ingest_rows") as ingest_mock:

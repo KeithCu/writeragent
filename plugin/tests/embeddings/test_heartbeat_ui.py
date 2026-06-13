@@ -1,26 +1,37 @@
-import pytest
+# WriterAgent - AI Writing Assistant for LibreOffice
+# Copyright (c) 2026 KeithCu (modifications and relicensing)
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Tests for Search dialog rebuild heartbeat UI."""
+
+from __future__ import annotations
+
+import time
+
+from plugin.embeddings.embeddings_heartbeat import format_index_heartbeat_line, heartbeat_counts_from_payload
+
 
 class MockModel:
     def __init__(self):
         self.Text = ""
 
+
 class MockCtrl:
     def __init__(self):
         self._model = MockModel()
+
     def getModel(self):
         return self._model
 
-# Helper to mimic execute_on_main_thread (calls instantly)
+
 def execute_on_main_thread(func):
     func()
 
 
 def test_heartbeat_updates_results_ctrl(monkeypatch):
-    # Setup
     results_ctrl = MockCtrl()
-    hb_data = {}
+    hb_data: dict = {}
 
-    # Define heartbeat function as in SearchDialog._run_rebuild
     def heartbeat_fn(payload: dict):
         file = payload.get("file")
         if not file:
@@ -28,29 +39,37 @@ def test_heartbeat_updates_results_ctrl(monkeypatch):
         phase = payload.get("phase")
         now = time.time()
         if phase == "extract":
-            hb_data[file] = {"start": now, "paragraphs": payload.get("paragraphs", 0)}
-        else:
+            paragraphs, chunks = heartbeat_counts_from_payload(payload)
+            hb_data[file] = {"start": now, "paragraphs": paragraphs, "chunks": chunks}
+            return
+        if phase in ("embed", "index", "delete"):
             info = hb_data.get(file)
-            if info is not None:
-                elapsed = now - info["start"]
-                para = info.get("paragraphs", 0)
-                line = f"{file}: {para} chunks, {elapsed:.2f}s"
-                def ui_update():
-                    existing = results_ctrl.getModel().Text
-                    new_text = (existing + "\n" if existing else "") + line
-                    results_ctrl.getModel().Text = new_text
-                execute_on_main_thread(ui_update)
-                del hb_data[file]
+            if info is None:
+                return
+            elapsed = now - info["start"]
+            payload_paragraphs, payload_chunks = heartbeat_counts_from_payload(payload)
+            paragraphs = payload_paragraphs or int(info.get("paragraphs") or 0)
+            chunks = payload_chunks or int(info.get("chunks") or 0)
+            line = format_index_heartbeat_line(
+                str(file),
+                paragraphs=paragraphs,
+                chunks=chunks,
+                elapsed_sec=elapsed,
+            )
 
-    # Simulate start of extraction with 5 paragraphs
+            def ui_update():
+                existing = results_ctrl.getModel().Text
+                new_text = (existing + "\n" if existing else "") + line
+                results_ctrl.getModel().Text = new_text
+
+            execute_on_main_thread(ui_update)
+            del hb_data[file]
+
     start_time = 1000.0
     monkeypatch.setattr(time, "time", lambda: start_time)
-    heartbeat_fn({"file": "test.txt", "phase": "extract", "paragraphs": 5})
+    heartbeat_fn({"file": "test.txt", "phase": "extract", "mode": "cold"})
 
-    # Simulate end of processing after 1.234 seconds
     monkeypatch.setattr(time, "time", lambda: start_time + 1.234)
-    heartbeat_fn({"file": "test.txt", "phase": "embed"})
+    heartbeat_fn({"file": "test.txt", "phase": "embed", "paragraphs": 5, "upserted": 6})
 
-    # Verify results_ctrl contains the expected line
-    expected_line = "test.txt: 5 chunks, 1.23s"
-    assert results_ctrl.getModel().Text == expected_line
+    assert results_ctrl.getModel().Text == "test.txt: 5 paragraphs, 6 chunks, 1.23s"

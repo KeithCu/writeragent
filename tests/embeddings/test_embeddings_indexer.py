@@ -18,29 +18,68 @@ def test_file_is_stale_when_no_rows(tmp_path):
 
 
 def test_file_is_stale_when_mtime_newer(tmp_path):
+    from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, ensure_schema, upsert_chunk_with_vector
+
     db_path = tmp_path / "corpus.db"
+    conn = connect_corpus_db(db_path)
+    try:
+        ensure_schema(conn, with_fts=False, with_vec=False)
+        upsert_chunk_with_vector(
+            conn,
+            {
+                "doc_url": "file:///a.odt",
+                "para_index": 0,
+                "char_start": 0,
+                "char_end": 1,
+                "content_hash": content_hash("h"),
+                "text": "h",
+                "file_mtime": 50.0,
+            },
+            [],
+            model="",
+            with_fts=False,
+            with_vec=False,
+        )
+        conn.commit()
+    finally:
+        conn.close()
     embeddings_cache.mark_file_indexed(
         db_path,
         "file:///a.odt",
         50.0,
         indexed_at=50.0,
-        paragraphs={"0": "h"},
     )
     assert embeddings_cache.file_is_stale(db_path, "file:///a.odt", 100.0) is True
     assert embeddings_cache.file_is_stale(db_path, "file:///a.odt", 40.0) is False
 
 
 def test_diff_paragraph_rows_detects_change_and_delete(tmp_path):
+    from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, ensure_schema, upsert_chunk_with_vector
+
     db_path = tmp_path / "corpus.db"
-    embeddings_cache.mark_file_indexed(
-        db_path,
-        "file:///a.odt",
-        1.0,
-        paragraphs={
-            "0": content_hash("old"),
-            "2": content_hash("gone"),
-        },
-    )
+    conn = connect_corpus_db(db_path)
+    try:
+        ensure_schema(conn, with_fts=False, with_vec=False)
+        for para_index, text in ((0, "old"), (2, "gone")):
+            upsert_chunk_with_vector(
+                conn,
+                {
+                    "doc_url": "file:///a.odt",
+                    "para_index": para_index,
+                    "char_start": 0,
+                    "char_end": len(text),
+                    "content_hash": content_hash(text),
+                    "text": text,
+                    "file_mtime": 1.0,
+                },
+                [],
+                model="",
+                with_fts=False,
+                with_vec=False,
+            )
+        conn.commit()
+    finally:
+        conn.close()
 
     chunks = [
         ParagraphChunk(
@@ -56,7 +95,7 @@ def test_diff_paragraph_rows_detects_change_and_delete(tmp_path):
             doc_url="file:///a.odt",
             para_index=1,
             char_start=0,
-            char_end=3,
+            char_end=5,
             text="added",
             content_hash=content_hash("added"),
             file_mtime=1.0,
@@ -64,7 +103,9 @@ def test_diff_paragraph_rows_detects_change_and_delete(tmp_path):
     ]
     to_index, to_delete = embeddings_cache.diff_paragraph_rows(db_path, chunks)
     assert len(to_index) == 2
-    assert to_delete == [{"doc_url": "file:///a.odt", "para_index": 2}]
+    assert to_delete == [
+        {"doc_url": "file:///a.odt", "para_index": 2, "char_start": 0, "char_end": 4}
+    ]
 
 
 def test_enqueue_skipped_when_off():

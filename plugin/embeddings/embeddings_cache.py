@@ -179,12 +179,12 @@ def mark_file_indexed(
         conn.close()
 
 
-def diff_paragraph_rows(
+def diff_chunk_rows(
     db_path: Path,
     chunks: list[Any],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Return (rows_to_index, keys_to_delete) comparing extracted chunks to corpus.db state."""
-    from plugin.embeddings.venv.embeddings_sqlite import diff_paragraph_rows_in_db
+    """Return (rows_to_index, keys_to_delete) comparing extracted chunks to corpus.db."""
+    from plugin.embeddings.venv.embeddings_sqlite import diff_chunk_rows_in_db
 
     if not db_path.is_file():
         from plugin.embeddings.embeddings_fs import ParagraphChunk, chunk_to_index_row
@@ -193,9 +193,17 @@ def diff_paragraph_rows(
         return to_index, []
     conn = _open_index_db(db_path)
     try:
-        return diff_paragraph_rows_in_db(conn, chunks)
+        return diff_chunk_rows_in_db(conn, chunks)
     finally:
         conn.close()
+
+
+def diff_paragraph_rows(
+    db_path: Path,
+    chunks: list[Any],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Alias for :func:`diff_chunk_rows` (chunk-locator incremental diff)."""
+    return diff_chunk_rows(db_path, chunks)
 
 
 def sync_file_paragraph_state(db_path: Path, doc_url: str, chunks: list[Any], file_mtime: float) -> None:

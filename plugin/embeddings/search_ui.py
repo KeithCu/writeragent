@@ -337,6 +337,7 @@ class SearchDialog:
         def _do_rebuild():
             try:
                 from plugin.embeddings.embeddings_cache import clear_folder_cache, resolve_index_context
+                from plugin.embeddings.embeddings_heartbeat import format_index_heartbeat_line, heartbeat_counts_from_payload
                 from plugin.framework.client.embedding_client import get_embedding_model
 
                 
@@ -364,19 +365,31 @@ class SearchDialog:
                     phase = payload.get("phase")
                     now = time.time()
                     if phase == "extract":
-                        hb_data[file] = {"start": now, "paragraphs": payload.get("paragraphs", 0)}
-                    else:
+                        paragraphs, chunks = heartbeat_counts_from_payload(payload)
+                        hb_data[file] = {"start": now, "paragraphs": paragraphs, "chunks": chunks}
+                        return
+                    if phase in ("embed", "index", "delete"):
                         info = hb_data.get(file)
-                        if info is not None:
-                            elapsed = now - info["start"]
-                            para = info.get("paragraphs", 0)
-                            line = f"{file}: {para} chunks, {elapsed:.2f}s"
-                            def ui_update():
-                                existing = results_ctrl.getModel().Text
-                                new_text = (existing + "\n" if existing else "") + line
-                                results_ctrl.getModel().Text = new_text
-                            execute_on_main_thread(ui_update)
-                            del hb_data[file]
+                        if info is None:
+                            return
+                        elapsed = now - info["start"]
+                        payload_paragraphs, payload_chunks = heartbeat_counts_from_payload(payload)
+                        paragraphs = payload_paragraphs or int(info.get("paragraphs") or 0)
+                        chunks = payload_chunks or int(info.get("chunks") or 0)
+                        line = format_index_heartbeat_line(
+                            str(file),
+                            paragraphs=paragraphs,
+                            chunks=chunks,
+                            elapsed_sec=elapsed,
+                        )
+
+                        def ui_update():
+                            existing = results_ctrl.getModel().Text
+                            new_text = (existing + "\n" if existing else "") + line
+                            results_ctrl.getModel().Text = new_text
+
+                        execute_on_main_thread(ui_update)
+                        del hb_data[file]
 
                 # Use the service function (mocked in tests) to rebuild the cache
                 try:

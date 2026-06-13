@@ -669,9 +669,3 @@ __all__ = [
 ]
 
 # Re-export path/env helpers for callers that still import from venv_worker.
-from plugin.scripting.sandbox import (  # noqa: E402
-    resolve_libreoffice_python,
-    resolve_venv_python,
-    scrub_subprocess_env,
-    wrap_command_for_sandbox,
-)

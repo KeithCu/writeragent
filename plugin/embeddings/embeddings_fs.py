@@ -55,7 +55,7 @@ class WriterFileEntry:
 
 
 def content_hash(text: str) -> str:
-    """SHA-256 of normalized paragraph text (stable for incremental invalidation)."""
+    """SHA-256 of normalized passage/chunk text (stable for incremental invalidation)."""
     normalized = str(text or "").strip()
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
@@ -186,31 +186,53 @@ def guess_writer_paths(directory: str) -> list[WriterFileEntry]:
     return guess_indexable_paths(directory)
 
 
-def paragraph_chunks_from_path(path: str, *, doc_url: str | None = None, file_mtime: float | None = None) -> list[ParagraphChunk]:
-    """Build indexable passage chunks from one supported document on disk."""
+def indexable_chunks_from_path(
+    path: str,
+    *,
+    doc_url: str | None = None,
+    file_mtime: float | None = None,
+) -> tuple[int, list[ParagraphChunk]]:
+    """Extract native passages, split to embed chunks; return (passage_count, chunk_rows)."""
+    from plugin.embeddings.embeddings_split import split_passage_to_chunk_meta
+
     norm = _normalize_path(path)
     url = doc_url if doc_url else path_to_file_url(norm)
     try:
         mtime = float(file_mtime if file_mtime is not None else os.path.getmtime(norm))
     except OSError:
         mtime = 0.0
+
+    passages = [text.strip() for text in extract_indexable_passages(norm) if text.strip()]
     chunks: list[ParagraphChunk] = []
-    for para_index, text in enumerate(extract_indexable_passages(norm)):
-        stripped = text.strip()
-        if not stripped:
-            continue
-        chunks.append(
-            ParagraphChunk(
-                doc_url=url,
-                para_index=para_index,
-                char_start=0,
-                char_end=len(stripped),
-                text=stripped,
-                content_hash=content_hash(stripped),
-                file_mtime=mtime,
-                doc_path=norm,
+    for para_index, passage in enumerate(passages):
+        base_meta = {
+            "doc_url": url,
+            "para_index": para_index,
+            "file_mtime": mtime,
+        }
+        for piece in split_passage_to_chunk_meta(passage, base_meta):
+            piece_text = str(piece.get("text") or "").strip()
+            if not piece_text:
+                continue
+            chunks.append(
+                ParagraphChunk(
+                    doc_url=url,
+                    para_index=para_index,
+                    char_start=int(piece.get("char_start") or 0),
+                    char_end=int(piece.get("char_end") or len(piece_text)),
+                    text=piece_text,
+                    content_hash=content_hash(piece_text),
+                    file_mtime=mtime,
+                    doc_path=norm,
+                )
             )
-        )
+    return len(passages), chunks
+
+
+def paragraph_chunks_from_path(path: str, *, doc_url: str | None = None, file_mtime: float | None = None) -> list[ParagraphChunk]:
+    """Build embed-sized chunk rows from one supported document on disk."""
+    _passage_count, chunks = indexable_chunks_from_path(path, doc_url=doc_url, file_mtime=file_mtime)
+    del _passage_count
     return chunks
 
 

@@ -10,9 +10,11 @@
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    import subprocess
 
 # --- Import whitelist (shared by venv_sandbox and import_policy) ---
 

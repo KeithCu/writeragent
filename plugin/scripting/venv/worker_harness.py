@@ -78,6 +78,7 @@ def _handle_maintain_with_heartbeat(request: dict[str, Any], stdout: Any) -> Non
             str(payload.get("listing_root") or ""),
             str(payload.get("model") or ""),
             str(payload.get("mode") or "auto"),
+            search_mode=str(payload.get("search_mode") or "hybrid"),
             heartbeat_fn=emitter.emit,
         )
         write_result_frame(stdout, {"id": req_id, "status": "ok", "result": result})

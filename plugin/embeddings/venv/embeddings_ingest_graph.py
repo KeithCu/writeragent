@@ -14,12 +14,13 @@ import time
 from pathlib import Path
 from typing import Any, NotRequired, TypedDict
 
+from plugin.embeddings.embeddings_split import CHUNK_OVERLAP, CHUNK_SIZE
 from plugin.framework.constants import EMBEDDINGS_INGEST_BATCH_SIZE, EMBEDDINGS_SCHEMA_VERSION as SCHEMA_VERSION
-from plugin.embeddings.venv.embeddings_index import EMBEDDINGS_VENV_PIP_INSTALL, embed_texts
+from plugin.embeddings.venv.embeddings_index import embed_texts
 from plugin.embeddings.venv.embeddings_sqlite import (
     connect_corpus_db,
     corpus_chunk_count,
-    delete_by_doc_para,
+    delete_by_chunk_locator,
     delete_paragraph_keys,
     ensure_schema,
     upsert_chunk_with_vector,
@@ -27,9 +28,6 @@ from plugin.embeddings.venv.embeddings_sqlite import (
 )
 
 log = logging.getLogger(__name__)
-
-CHUNK_SIZE = 512
-CHUNK_OVERLAP = 64
 
 
 class IngestState(TypedDict):
@@ -46,101 +44,29 @@ class IngestState(TypedDict):
     dim: NotRequired[int]
 
 
-def _import_splitter() -> Any:
-    import importlib
-
-    try:
-        mod = importlib.import_module("langchain_text_splitters")
-    except ImportError as exc:
-        raise ImportError(
-            "langchain-text-splitters is not installed in the configured Python venv. "
-            f"Install with: {EMBEDDINGS_VENV_PIP_INSTALL}"
-        ) from exc
-    return mod.RecursiveCharacterTextSplitter(
-        chunk_size=CHUNK_SIZE,
-        chunk_overlap=CHUNK_OVERLAP,
-        separators=["\n\n", "\n", " ", ""],
-    )
-
-
-def _import_document() -> Any:
-    import importlib
-
-    mod = importlib.import_module("langchain_core.documents")
-    return mod.Document
-
-
-def _split_paragraph_text(text: str, base_meta: dict[str, Any]) -> list[dict[str, Any]]:
-    """Split one paragraph into sub-chunks with char offsets relative to paragraph text."""
-    splitter = _import_splitter()
-    pieces = splitter.split_text(text)
-    if not pieces:
-        return []
-
+def rows_to_chunks(state: IngestState) -> dict[str, Any]:
+    """Map pre-split index rows to chunk dicts (extract already applied 512/64 split)."""
     chunks: list[dict[str, Any]] = []
-    search_from = 0
-    for chunk_index, piece in enumerate(pieces):
-        idx = text.find(piece, search_from)
-        if idx < 0:
-            idx = search_from
-        char_start = idx
-        char_end = idx + len(piece)
-        search_from = max(0, char_end - CHUNK_OVERLAP)
-        meta = dict(base_meta)
-        meta.update(
-            {
-                "char_start": char_start,
-                "char_end": char_end,
-                "chunk_index": chunk_index,
-                "text": piece,
-            }
-        )
-        chunks.append(meta)
-    return chunks
-
-
-def rows_to_documents(state: IngestState) -> dict[str, Any]:
-    Document = _import_document()
-    documents: list[Any] = []
     for row in state.get("rows") or []:
         text = str(row.get("text") or "").strip()
         if not text:
             continue
-        meta = {
-            "doc_url": str(row.get("doc_url") or ""),
-            "para_index": int(row.get("para_index", 0)),
-            "content_hash": str(row.get("content_hash") or ""),
-            "file_mtime": float(row.get("file_mtime") or 0.0),
-            "embedding_model": str(state.get("model") or ""),
-        }
-        documents.append(Document(page_content=text, metadata=meta))
-    return {"documents": documents}
-
-
-def split_chunks(state: IngestState) -> dict[str, Any]:
-    chunks: list[dict[str, Any]] = []
-    for doc in state.get("documents") or []:
-        text = str(getattr(doc, "page_content", "") or "").strip()
-        if not text:
-            continue
-        base_meta = dict(getattr(doc, "metadata", {}) or {})
-        if len(text) <= CHUNK_SIZE:
-            base_meta.update(
-                {
-                    "char_start": 0,
-                    "char_end": len(text),
-                    "chunk_index": 0,
-                    "text": text,
-                }
-            )
-            chunks.append(base_meta)
-        else:
-            chunks.extend(_split_paragraph_text(text, base_meta))
+        chunks.append(
+            {
+                "doc_url": str(row.get("doc_url") or ""),
+                "para_index": int(row.get("para_index", 0)),
+                "char_start": int(row.get("char_start") or 0),
+                "char_end": int(row.get("char_end") or len(text)),
+                "content_hash": str(row.get("content_hash") or ""),
+                "file_mtime": float(row.get("file_mtime") or 0.0),
+                "text": text,
+            }
+        )
     return {"chunks": chunks}
 
 
 def delete_stale(state: IngestState) -> dict[str, Any]:
-    """Remove deleted paragraphs and clear sub-chunks before re-indexing changed paragraphs."""
+    """Remove deleted chunk locators before re-indexing changed rows."""
     build_fts = bool(state.get("build_fts"))
     build_vectors = bool(state.get("build_vectors"))
     dim = _dim_from_meta_path(str(state.get("meta_path") or ""))
@@ -156,16 +82,13 @@ def delete_stale(state: IngestState) -> dict[str, Any]:
             with_vec=with_vec,
         )
 
-        seen: set[tuple[str, int]] = set()
         for chunk in state.get("chunks") or []:
-            key = (str(chunk.get("doc_url") or ""), int(chunk.get("para_index", 0)))
-            if key in seen:
-                continue
-            seen.add(key)
-            delete_by_doc_para(
+            delete_by_chunk_locator(
                 conn,
-                key[0],
-                key[1],
+                str(chunk.get("doc_url") or ""),
+                int(chunk.get("para_index") or 0),
+                int(chunk.get("char_start") or 0),
+                int(chunk.get("char_end") or 0),
                 with_fts=build_fts,
                 with_vec=with_vec,
             )
@@ -263,13 +186,11 @@ def _build_ingest_graph() -> Any:
 
     lg = importlib.import_module("langgraph.graph")
     graph = lg.StateGraph(cast("Any", IngestState))
-    graph.add_node("rows_to_documents", rows_to_documents)
-    graph.add_node("split_chunks", split_chunks)
+    graph.add_node("rows_to_chunks", rows_to_chunks)
     graph.add_node("delete_stale", delete_stale)
     graph.add_node("embed_and_upsert_batches", embed_and_upsert_batches)
-    graph.add_edge(lg.START, "rows_to_documents")
-    graph.add_edge("rows_to_documents", "split_chunks")
-    graph.add_edge("split_chunks", "delete_stale")
+    graph.add_edge(lg.START, "rows_to_chunks")
+    graph.add_edge("rows_to_chunks", "delete_stale")
     graph.add_edge("delete_stale", "embed_and_upsert_batches")
     graph.add_edge("embed_and_upsert_batches", lg.END)
     return graph.compile()
@@ -317,4 +238,4 @@ def ingest_paragraphs(
     return {"indexed": upserted, "dim": dim, "storage_backend": "sqlite_vec"}
 
 
-__all__ = ["CHUNK_SIZE", "CHUNK_OVERLAP", "embed_and_upsert_batches", "ingest_paragraphs"]
+__all__ = ["CHUNK_SIZE", "CHUNK_OVERLAP", "embed_and_upsert_batches", "ingest_paragraphs", "rows_to_chunks"]
