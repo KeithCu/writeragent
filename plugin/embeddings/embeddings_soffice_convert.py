@@ -86,40 +86,38 @@ def convert_legacy_to_odf(source_path: str, *, timeout_sec: int = 120) -> Path |
     if not source.is_file():
         return None
 
-    with tempfile.TemporaryDirectory(prefix="writeragent-embed-profile-") as profile_dir:
-        with tempfile.TemporaryDirectory(prefix="writeragent-embed-out-") as out_dir:
-            cmd = [
-                soffice,
-                "--headless",
-                "--nologo",
-                "--nodefault",
-                "--nofirststartwizard",
-                f"--env:UserInstallation={_profile_url(Path(profile_dir))}",
-                "--convert-to",
-                filter_name,
-                "--outdir",
-                out_dir,
-                str(source),
-            ]
-            try:
-                proc = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=max(1, int(timeout_sec)),
-                    check=False,
-                )
-            except (OSError, subprocess.TimeoutExpired):
-                log.debug("legacy soffice convert failed for %s", source_path, exc_info=True)
-                return None
-            if proc.returncode != 0:
-                log.debug(
-                    "legacy soffice convert exit %s for %s: %s",
-                    proc.returncode,
-                    source_path,
-                    (proc.stderr or proc.stdout or "").strip()[:500],
-                )
-                return None
+    with tempfile.TemporaryDirectory(prefix="writeragent-embed-out-") as out_dir:
+        cmd = [
+            soffice,
+            "--headless",
+            "--nologo",
+            "--nodefault",
+            "--nofirststartwizard",
+            "--convert-to",
+            filter_name,
+            "--outdir",
+            out_dir,
+            str(source),
+        ]
+        try:
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=max(1, int(timeout_sec)),
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            log.debug("legacy soffice convert failed for %s", source_path, exc_info=True)
+            return None
+        if proc.returncode != 0:
+            log.debug(
+                "legacy soffice convert exit %s for %s: %s",
+                proc.returncode,
+                source_path,
+                (proc.stderr or proc.stdout or "").strip()[:500],
+            )
+            return None
 
             expected_suffix = f".{filter_name}"
             produced = sorted(Path(out_dir).glob(f"*{expected_suffix}"))

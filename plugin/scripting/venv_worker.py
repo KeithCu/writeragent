@@ -25,7 +25,7 @@ from typing import Any, Callable, Dict, IO, Optional, Tuple
 
 from plugin.framework.config import get_config_str
 from plugin.framework.i18n import _
-from plugin.framework.constants import WORKER_POOL_DEFAULT
+from plugin.framework.constants import WORKER_POOL_DEFAULT, WORKER_POOL_EMBEDDINGS
 from plugin.scripting.config_limits import (
     EMBEDDINGS_PROBE_TIMEOUT_SEC,
     VISION_PROBE_TIMEOUT_SEC,
@@ -1522,8 +1522,8 @@ def reset_python_session(uno_ctx: Any, session_id: str, *, timeout_sec: int | No
     )
 
 
-def warm_venv_worker(uno_ctx: Any) -> None:
-    """Pre-warm the venv subprocess (spawn + trigger auto-imports). Safe to call from a background thread."""
+def warm_venv_worker(uno_ctx: Any, pool: str = WORKER_POOL_DEFAULT) -> None:
+    """Pre-warm a specific venv subprocess pool (spawn + trigger auto-imports + load embedding model if embeddings pool). Safe to call from a background thread."""
     venv_dir = get_config_str(uno_ctx, "scripting.python_venv_path").strip()
     if venv_dir:
         exe = resolve_venv_python(venv_dir)
@@ -1532,5 +1532,27 @@ def warm_venv_worker(uno_ctx: Any) -> None:
     if not exe:
         return
     child_env = scrub_subprocess_env(dict(os.environ))
-    manager = PythonWorkerManager.get(exe, child_env)
+    
+    manager = PythonWorkerManager.get(exe, child_env, pool=pool)
     manager.warm()
+
+    # Pre-load the active embedding model inside the embeddings pool worker so first query executes instantly
+    if pool == WORKER_POOL_EMBEDDINGS:
+        try:
+            from plugin.framework.client.embedding_client import get_embedding_model
+            model = get_embedding_model(uno_ctx)
+            if model:
+                code = (
+                    f"from plugin.embeddings.venv.embeddings_index import _get_embedder\n"
+                    f"_get_embedder({model!r})\n"
+                )
+                res = manager.execute(code, data={"model": model})
+                if res.get("status") != "ok":
+                    log.warning("Embedding model pre-warm returned status %s: %s", res.get("status"), res.get("message"))
+        except Exception:
+            log.exception("Failed to warm embedding model")
+
+
+
+
+

@@ -505,6 +505,16 @@ def _run_trusted_embeddings_payload(code: str, data: Any | None) -> dict[str, An
                 str(payload.get("model") or ""),
                 list(payload.get("texts") or []),
             )
+        elif "_get_embedder" in stub:
+            model_name = str(payload.get("model") or "")
+            if not model_name:
+                import re
+                match = re.search(r"_get_embedder\((['\"])(.*?)\1\)", stub)
+                if match:
+                    model_name = match.group(2)
+            if model_name:
+                embeddings_index._get_embedder(model_name)
+            result = {"status": "warmed"}
         else:
             return {
                 "status": "error",

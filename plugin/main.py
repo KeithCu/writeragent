@@ -309,6 +309,12 @@ def _register_core_handlers():
 
     register_action_handler("writer", "insert_latex_dialog", _insert_latex)
 
+    def _open_search_dialog():
+        from plugin.embeddings.search_ui import show_search_dialog
+        show_search_dialog(get_ctx())
+
+    register_action_handler("embeddings", "search_dialog", _open_search_dialog)
+
 
 
 # ── Dynamic menu text infrastructure ─────────────────────────────────
@@ -503,6 +509,7 @@ def get_menu_text(command):
         "scripting.reset_python_session": _("Reset Python Session"),
         "scripting.import_ipynb": _("Import Jupyter Notebook..."),
         "writer.insert_latex_dialog": _("Insert LaTeX Math..."),
+        "embeddings.search_dialog": _("Search Nearby Files..."),
         "calc.convert_spreadsheet_to_python": _("Convert Sheet to Python..."),
     }
 
