@@ -1436,13 +1436,27 @@ We introduce **LlamaIndex** as an alternative, optional backend for Cross-file s
 
 ### Design & Implementation
 This option subclasses LlamaIndex's core interfaces to map them directly to our existing unified SQLite database (`corpus.db`), keeping on-disk schema compatibility.
+
+**What stays custom (WriterAgent-owned):**
+- `corpus.db` schema, FTS5 `passages`, sqlite-vec `vec0`, incremental `indexed_*` tables ([`embeddings_sqlite.py`](../plugin/embeddings/venv/embeddings_sqlite.py))
+- ODF/folder extraction, cache paths, background maintain loop ([`embeddings_folder_maintain.py`](../plugin/embeddings/venv/embeddings_folder_maintain.py))
+- Agent tool contract (`doc_url`, `para_index`, `snippet`, `score`, optional `matched_by`)
+
+**What LlamaIndex owns when `folder_search_mode="llama_index"`:**
+- Retriever composition: vector + FTS legs fused with RRF ([`build_writer_agent_hybrid_retriever`](../plugin/embeddings/venv/embeddings_llama_index.py))
+- Postprocessors: weak-hit filter, per-file source diversity, MMR rerank ([`run_hybrid_retrieval_pipeline`](../plugin/embeddings/venv/embeddings_llama_index.py))
+- Ingest orchestration via `VectorStoreIndex.insert_nodes` (still writes the same SQLite tables)
+
 - **Warm Worker Process**: To protect the main LibreOffice in-process Python environment from large dependency trees, all LlamaIndex imports and operations are executed inside the trusted `PythonWorkerManager` virtual environment (venv) worker thread.
 - **Custom Adapters**:
   - `WriterAgentEmbedding` subclasses `BaseEmbedding` and routes encoding to our local `SentenceTransformer` embedder.
   - `WriterAgentVectorStore` subclasses `BasePydanticVectorStore` to read/write nodes from our SQLite `chunks` and `vec_chunks` tables.
   - `WriterAgentFTSRetriever` subclasses `BaseRetriever` to perform FTS5 queries and invert BM25 scores.
-  - `WriterAgentQueryFusionRetriever` subclasses `QueryFusionRetriever` for local offline Reciprocal Rank Fusion.
-  - `WriterAgentMMRPostprocessor` subclasses `BaseNodePostprocessor` to apply Maximal Marginal Relevance diversity reranking on retrieved nodes.
+  - `WriterAgentQueryFusionRetriever` subclasses `QueryFusionRetriever` for local offline Reciprocal Rank Fusion with `matched_by` provenance (`fts` / `vec`).
+  - `WriterAgentWeakHitFilterPostprocessor`, `WriterAgentSourceDiversityPostprocessor`, and `WriterAgentMMRPostprocessor` refine fused hits before tool output.
+  - `build_writer_agent_hybrid_retriever` / `run_hybrid_retrieval_pipeline` compose retrieve → filter → diversify → MMR → tool hits.
+
+Background indexing and search both honor Settings `embeddings.folder_search_mode` (including `llama_index`) via [`embeddings_indexer.py`](../plugin/embeddings/embeddings_indexer.py) and [`embeddings_service.py`](../plugin/framework/client/embeddings_service.py).
 
 ### Pluses & Minuses
 
@@ -1464,11 +1478,15 @@ The evaluation suite under `scripts/benchmark.py` evaluates folder search retrie
 
 To evaluate and compare the two backends:
 1. Open **Settings → Embeddings → Cross-file search** and toggle between `hybrid` and `llama_index`.
-2. Run the evaluation benchmark command:
+2. Run folder routing eval (same `corpus.db`, different retrieval stack):
+   ```bash
+   HF_HUB_OFFLINE=1 .venv/bin/python scripts/eval_folder_search_routing.py --folder ~/Desktop/Writing --mode all
+   ```
+3. Compare top-1 file accuracy and `matched_by` (`fts`+`vec` agreement) between backends.
+4. Optional agent eval:
    ```bash
    make run_eval EVAL_ARGS="--models your-model-name -n 5 -j 1"
    ```
-3. Check retrieval quality for queries in the evaluation set to verify if RRF rank-merging behaves differently between the two backends.
 
 ---
 

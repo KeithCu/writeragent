@@ -95,3 +95,25 @@ def test_maintain_folder_index_uses_heartbeat_rpc(ctx):
     assert mock_run.call_args.kwargs["worker_pool"] == WORKER_POOL_EMBEDDINGS
     assert mock_run.call_args.kwargs["data"]["listing_root"] == "/tmp/folder"
     assert mock_run.call_args.kwargs["data"]["search_mode"] == "hybrid"
+
+
+def test_maintain_folder_index_defaults_to_config_mode(ctx):
+    with patch(
+        "plugin.framework.client.embeddings_service.run_code_in_user_venv",
+        return_value={"status": "ok", "result": {"mode": "cold"}},
+    ) as mock_run:
+        with patch("plugin.framework.client.embeddings_service.embeddings_worker_timeout_sec", return_value=120):
+            with patch("plugin.framework.client.embeddings_service._folder_search_mode", return_value="llama_index"):
+                embeddings_service.maintain_folder_index(ctx, "/tmp/folder", model=DEFAULT_EMBEDDING_MODEL)
+    assert mock_run.call_args.kwargs["data"]["search_mode"] == "llama_index"
+
+
+def test_hybrid_search_passes_config_search_mode(ctx):
+    with patch(
+        "plugin.framework.client.embeddings_service.run_code_in_user_venv",
+        return_value={"status": "ok", "result": {"hits": []}},
+    ) as mock_run:
+        with patch("plugin.framework.client.embeddings_service.embeddings_worker_timeout_sec", return_value=120):
+            with patch("plugin.framework.client.embeddings_service._folder_search_mode", return_value="llama_index"):
+                embeddings_service.hybrid_search(ctx, "/tmp/corpus.db", "q", 5, model=DEFAULT_EMBEDDING_MODEL)
+    assert mock_run.call_args.kwargs["data"]["search_mode"] == "llama_index"

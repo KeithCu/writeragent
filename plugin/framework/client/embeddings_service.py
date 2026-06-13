@@ -19,6 +19,13 @@ from plugin.scripting.venv_worker import run_code_in_user_venv
 
 log = logging.getLogger(__name__)
 
+
+def _folder_search_mode(ctx: Any) -> str:
+    """Read Settings cross-file search mode for index/search RPC routing."""
+    from plugin.framework.config import get_config
+
+    return str(get_config(ctx, "embeddings.folder_search_mode") or "none").strip().lower()
+
 _INDEX_STUB = """\
 from plugin.embeddings.venv.embeddings_index import index_paragraphs as _index
 result = _index(
@@ -156,7 +163,7 @@ def maintain_folder_index(
     *,
     model: str,
     mode: str = "auto",
-    search_mode: str = "hybrid",
+    search_mode: str | None = None,
     heartbeat_fn: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Run full folder corpus maintenance in the embeddings venv.
@@ -165,6 +172,9 @@ def maintain_folder_index(
     model_name = (model or "").strip()
     if not model_name:
         raise ToolExecutionError("No embedding model configured.", code="EMBEDDING_MODEL_MISSING")
+    resolved_mode = str(search_mode or _folder_search_mode(ctx) or "hybrid").strip().lower()
+    if resolved_mode not in ("hybrid", "llama_index", "fts", "embeddings"):
+        resolved_mode = "hybrid"
     return _run_worker_with_heartbeat(
         ctx,
         _MAINTAIN_STUB,
@@ -172,7 +182,7 @@ def maintain_folder_index(
             "listing_root": str(listing_root),
             "model": model_name,
             "mode": str(mode or "auto"),
-            "search_mode": str(search_mode or "hybrid"),
+            "search_mode": resolved_mode,
         },
         model=model_name or "corpus",
         heartbeat_fn=heartbeat_fn,
@@ -246,8 +256,7 @@ def hybrid_search(
     doc_url_filter: str | None = None,
 ) -> dict[str, Any]:
     """Hybrid FTS + semantic search over corpus.db via the warm venv worker."""
-    from plugin.framework.config import get_config
-    search_mode = str(get_config(ctx, "embeddings.folder_search_mode") or "none").strip().lower()
+    search_mode = _folder_search_mode(ctx)
     model_name = (model or "").strip()
     if not model_name:
         raise ToolExecutionError("No embedding model configured.", code="EMBEDDING_MODEL_MISSING")
@@ -277,8 +286,7 @@ def knn_search(
     doc_url_filter: str | None = None,
 ) -> dict[str, Any]:
     """Semantic search over a folder corpus.db via the warm venv worker."""
-    from plugin.framework.config import get_config
-    search_mode = str(get_config(ctx, "embeddings.folder_search_mode") or "none").strip().lower()
+    search_mode = _folder_search_mode(ctx)
     model_name = (model or "").strip()
     if not model_name:
         raise ToolExecutionError("No embedding model configured.", code="EMBEDDING_MODEL_MISSING")

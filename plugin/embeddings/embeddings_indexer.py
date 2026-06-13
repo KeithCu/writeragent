@@ -18,6 +18,7 @@ from plugin.embeddings.embeddings_cache import (
 )
 from plugin.framework.client.embedding_client import get_embedding_model
 from plugin.framework.client.embeddings_service import maintain_folder_index as maintain_folder_index_rpc
+from plugin.framework.config import get_config
 from plugin.framework.constants import folder_search_enabled
 from plugin.framework.worker_pool import run_in_background
 
@@ -47,10 +48,24 @@ def _clear_enqueue(folder_key: str) -> None:
         _inflight.discard(folder_key)
 
 
+def _resolve_search_mode(ctx: Any) -> str:
+    """Map Settings cross-file search mode to venv maintain/search backend."""
+    mode = str(get_config(ctx, "embeddings.folder_search_mode") or "none").strip().lower()
+    if mode in ("hybrid", "llama_index", "fts", "embeddings"):
+        return mode
+    return "hybrid"
+
+
 def _index_worker(ctx: Any, folder_key: str, listing_root: str) -> None:
     try:
         model = get_embedding_model(ctx)
-        maintain_folder_index_rpc(ctx, listing_root, model=model, mode="auto", search_mode="hybrid")
+        maintain_folder_index_rpc(
+            ctx,
+            listing_root,
+            model=model,
+            mode="auto",
+            search_mode=_resolve_search_mode(ctx),
+        )
     except Exception:
         log.exception("Background corpus index failed for folder %s", folder_key)
     finally:

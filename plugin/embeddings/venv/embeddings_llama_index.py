@@ -4,16 +4,23 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Trusted venv LlamaIndex search/indexing backend.
 
-Bridges LlamaIndex with the existing SQLite chunks, vec_chunks, and passages FTS5 tables,
-providing reciprocal rank fusion and MMR reranking.
+Bridges LlamaIndex with the existing SQLite chunks, vec_chunks, and passages FTS5 tables.
+Retrieval is composed from vector + FTS retrievers, RRF fusion, and WriterAgent postprocessors.
 """
 from __future__ import annotations
 
 import logging
-import sqlite3
-from typing import Any, List, Optional, Sequence
+from typing import Any, Optional, Sequence
 
 log = logging.getLogger(__name__)
+
+_DEFAULT_POOL_K = 30
+_MAX_POOL_K = 50
+_DEFAULT_RRF_K = 60.0
+_DEFAULT_MAX_PER_DOC = 3
+_VECTOR_LEG = "vec"
+_FTS_LEG = "fts"
+_RETRIEVER_LEGS = (_VECTOR_LEG, _FTS_LEG)
 
 try:
     from llama_index.core import QueryBundle, VectorStoreIndex  # type: ignore
@@ -29,22 +36,33 @@ try:
         VectorStoreQueryResult,
     )
     from pydantic import PrivateAttr
+
     HAS_LLAMA_INDEX = True
 except ImportError:
     HAS_LLAMA_INDEX = False
-    # Fallback dummy definitions to prevent import-time failures when not installed
-    class BaseEmbedding: pass  # type: ignore[no-redef]
-    class BasePydanticVectorStore: pass  # type: ignore[no-redef]
-    class BaseRetriever: pass  # type: ignore[no-redef]
-    class QueryFusionRetriever: pass  # type: ignore[no-redef]
-    class BaseNodePostprocessor: pass  # type: ignore[no-redef]
-    
+
+    class BaseEmbedding:  # type: ignore[no-redef]
+        pass
+
+    class BasePydanticVectorStore:  # type: ignore[no-redef]
+        pass
+
+    class BaseRetriever:  # type: ignore[no-redef]
+        pass
+
+    class QueryFusionRetriever:  # type: ignore[no-redef]
+        pass
+
+    class BaseNodePostprocessor:  # type: ignore[no-redef]
+        pass
+
     class TextNode:  # type: ignore[no-redef]
         embedding: Any = None
         metadata: Any = None
         text: str = ""
         node_id: str = ""
         hash: str = ""
+
         def __init__(self, text: str = "", id_: str = "", metadata: Any = None, **kwargs: Any) -> None:
             self.text = text
             self.node_id = id_
@@ -53,6 +71,7 @@ except ImportError:
     class NodeWithScore:  # type: ignore[no-redef]
         node: Any = None
         score: float = 0.0
+
         def __init__(self, node: Any = None, score: float = 0.0, **kwargs: Any) -> None:
             self.node = node
             self.score = score
@@ -61,13 +80,15 @@ except ImportError:
         nodes: Any = None
         similarities: Any = None
         ids: Any = None
+
         def __init__(self, nodes: Any = None, similarities: Any = None, ids: Any = None, **kwargs: Any) -> None:
             self.nodes = nodes
             self.similarities = similarities
             self.ids = ids
-        
+
     class QueryBundle:  # type: ignore[no-redef]
         query_str: str = ""
+
         def __init__(self, query_str: str = "", **kwargs: Any) -> None:
             self.query_str = query_str
 
@@ -75,7 +96,7 @@ except ImportError:
         @classmethod
         def from_vector_store(cls, *args: Any, **kwargs: Any) -> Any:
             pass
-        
+
     class VectorStoreQuery:  # type: ignore[no-redef]
         query_embedding: Any = None
         similarity_top_k: int = 1
@@ -83,15 +104,91 @@ except ImportError:
         node_ids: Any = None
         query_str: Any = None
         filters: Any = None
-        
+
     class FUSION_MODES:  # type: ignore[no-redef]
         RECIPROCAL_RANK: Any = "reciprocal_rerank"
 
-    # Pydantic dummy
-    def PrivateAttr(*args: Any, **kwargs: Any) -> Any: pass  # type: ignore[no-redef]
+    def PrivateAttr(*args: Any, **kwargs: Any) -> Any:  # type: ignore[no-redef]
+        pass
+
+
+def _fetch_pool_k(k: int, *, pool_k: int = _DEFAULT_POOL_K, max_pool: int = _MAX_POOL_K) -> tuple[int, int]:
+    """Return (final_k, fetch_k) matching custom hybrid_corpus_search pool sizing."""
+    final_k = max(1, min(int(k or 10), 30))
+    fetch_k = max(final_k, min(int(pool_k), max_pool))
+    return final_k, fetch_k
+
+
+def _doc_url_from_node(node: Any) -> str:
+    metadata = getattr(node, "metadata", None) or {}
+    return str(metadata.get("doc_url") or "")
+
+
+def source_diversity_filter(nodes: list[Any], *, max_per_doc: int) -> list[Any]:
+    """Keep rank order but cap how many nodes share the same doc_url."""
+    if max_per_doc <= 0:
+        return list(nodes)
+    counts: dict[str, int] = {}
+    kept: list[Any] = []
+    for item in nodes:
+        doc_url = _doc_url_from_node(getattr(item, "node", item))
+        seen = counts.get(doc_url, 0)
+        if seen >= max_per_doc:
+            continue
+        counts[doc_url] = seen + 1
+        kept.append(item)
+    return kept
+
+
+def _nodes_to_tool_hits(nodes: list[Any]) -> list[dict[str, Any]]:
+    """Convert LlamaIndex nodes to search_nearby_files-compatible hit dicts."""
+    from plugin.embeddings.venv.embeddings_search_graph import _public_hit_from_candidate
+
+    hits: list[dict[str, Any]] = []
+    for n in nodes:
+        metadata = n.node.metadata or {}
+        node_id = str(n.node.node_id or "")
+        cand = {
+            "chunk_id": int(node_id) if node_id.isdigit() else None,
+            "doc_url": metadata.get("doc_url", ""),
+            "para_index": metadata.get("para_index", 0),
+            "snippet": n.node.text,
+            "score": n.score or 0.0,
+        }
+        hit = _public_hit_from_candidate(cand)
+        matched_by = metadata.get("matched_by")
+        if matched_by:
+            if isinstance(matched_by, (list, tuple, set)):
+                hit["matched_by"] = sorted({str(x) for x in matched_by})
+            else:
+                hit["matched_by"] = [str(matched_by)]
+        hits.append(hit)
+    return hits
+
+
+def _sqlite_hit_to_node(hit: dict[str, Any], *, leg: str) -> Any:
+    """Build a TextNode + NodeWithScore from a corpus.db hit dict."""
+    raw_score = hit.get("score")
+    metadata = {
+        "doc_url": hit.get("doc_url", ""),
+        "para_index": hit.get("para_index", 0),
+        "chunk_id": hit.get("chunk_id"),
+        "raw_score": raw_score,
+        "matched_by": [leg],
+    }
+    node = TextNode(
+        text=str(hit.get("snippet") or ""),
+        id_=str(hit.get("chunk_id")),
+        metadata=metadata,
+    )
+    score = float(raw_score or 0.0)
+    if leg == _FTS_LEG:
+        score = -score
+    return NodeWithScore(node=node, score=score)
 
 
 if HAS_LLAMA_INDEX:
+
     class WriterAgentEmbedding(BaseEmbedding):  # type: ignore[valid-type, misc]
         _model_name: str = PrivateAttr()
 
@@ -101,14 +198,17 @@ if HAS_LLAMA_INDEX:
 
         def _get_query_embedding(self, query: str) -> list[float]:
             from plugin.embeddings.venv.embeddings_index import embed_texts
+
             return embed_texts(self._model_name, [query])["vectors"][0]
 
         def _get_text_embedding(self, text: str) -> list[float]:
             from plugin.embeddings.venv.embeddings_index import embed_texts
+
             return embed_texts(self._model_name, [text])["vectors"][0]
 
         def _get_text_embeddings(self, texts: list[str]) -> list[list[float]]:
             from plugin.embeddings.venv.embeddings_index import embed_texts
+
             return embed_texts(self._model_name, texts)["vectors"]
 
         async def _aget_query_embedding(self, query: str) -> list[float]:
@@ -119,7 +219,6 @@ if HAS_LLAMA_INDEX:
 
         async def _aget_text_embeddings(self, texts: list[str]) -> list[list[float]]:
             return self._get_text_embeddings(texts)
-
 
     class WriterAgentVectorStore(BasePydanticVectorStore):  # type: ignore[valid-type, misc]
         stores_text: bool = True
@@ -183,7 +282,8 @@ if HAS_LLAMA_INDEX:
             return [node.node_id for node in nodes]
 
         def delete(self, ref_doc_id: str, **delete_kwargs: Any) -> None:
-            from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, _delete_chunk_ids
+            from plugin.embeddings.venv.embeddings_sqlite import _delete_chunk_ids, connect_corpus_db
+
             conn = connect_corpus_db(self._db_path)
             try:
                 rows = conn.execute("SELECT chunk_id FROM chunks WHERE doc_url = ?", (ref_doc_id,)).fetchall()
@@ -195,6 +295,7 @@ if HAS_LLAMA_INDEX:
 
         def query(self, query: VectorStoreQuery, **kwargs: Any) -> VectorStoreQueryResult:
             from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, vec0_search
+
             conn = connect_corpus_db(self._db_path)
             try:
                 doc_filter = None
@@ -218,7 +319,13 @@ if HAS_LLAMA_INDEX:
                     node = TextNode(
                         text=cand["snippet"],
                         id_=str(cand["chunk_id"]),
-                        metadata={"doc_url": cand["doc_url"], "para_index": cand["para_index"]},
+                        metadata={
+                            "doc_url": cand["doc_url"],
+                            "para_index": cand["para_index"],
+                            "chunk_id": cand["chunk_id"],
+                            "raw_score": cand["score"],
+                            "matched_by": [_VECTOR_LEG],
+                        },
                     )
                     nodes.append(node)
                     similarities.append(cand["score"])
@@ -227,85 +334,157 @@ if HAS_LLAMA_INDEX:
             finally:
                 conn.close()
 
-
     class WriterAgentFTSRetriever(BaseRetriever):  # type: ignore[valid-type, misc]
         _db_path: str = PrivateAttr()
         _near_slop: int = PrivateAttr()
+        _similarity_top_k: int = PrivateAttr()
 
-        def __init__(self, db_path: str, near_slop: int = 10, **kwargs: Any) -> None:
+        def __init__(
+            self,
+            db_path: str,
+            near_slop: int = 10,
+            *,
+            similarity_top_k: int = _DEFAULT_POOL_K,
+            **kwargs: Any,
+        ) -> None:
             super().__init__(**kwargs)
             self._db_path = db_path
             self._near_slop = near_slop
+            self._similarity_top_k = max(1, int(similarity_top_k))
 
         def _retrieve(self, query_bundle: QueryBundle) -> list[NodeWithScore]:
             from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, fts_corpus_search
+
             conn = connect_corpus_db(self._db_path)
             try:
-                hits = fts_corpus_search(conn, query_bundle.query_str, k=50, near_slop=self._near_slop)
-                nodes = []
-                for hit in hits:
-                    node = TextNode(
-                        text=hit["snippet"],
-                        id_=str(hit["chunk_id"]),
-                        metadata={
-                            "doc_url": hit["doc_url"],
-                            "para_index": hit["para_index"],
-                            "raw_score": hit["score"],
-                        },
-                    )
-                    # Invert negative FTS BM25 score so that higher scores correspond to higher relevance
-                    nodes.append(NodeWithScore(node=node, score=-float(hit["score"] or 0.0)))
-                return nodes
+                hits = fts_corpus_search(
+                    conn,
+                    query_bundle.query_str,
+                    k=self._similarity_top_k,
+                    near_slop=self._near_slop,
+                )
+                return [_sqlite_hit_to_node(hit, leg=_FTS_LEG) for hit in hits]
             finally:
                 conn.close()
 
-
     class WriterAgentQueryFusionRetriever(QueryFusionRetriever):  # type: ignore[valid-type, misc]
+        """RRF fusion with configurable k and matched_by provenance on fused nodes."""
+
         _rrf_k: float = PrivateAttr()
 
-        def __init__(self, *args: Any, rrf_k: float = 60.0, **kwargs: Any) -> None:
+        def __init__(self, *args: Any, rrf_k: float = _DEFAULT_RRF_K, **kwargs: Any) -> None:
             super().__init__(*args, **kwargs)
             self._rrf_k = rrf_k
 
+        def _leg_for_retriever(self, retriever_idx: int) -> str:
+            if 0 <= retriever_idx < len(_RETRIEVER_LEGS):
+                return _RETRIEVER_LEGS[retriever_idx]
+            return f"r{retriever_idx}"
+
         def _reciprocal_rerank_fusion(self, results: dict[tuple[str, int], list[NodeWithScore]]) -> list[NodeWithScore]:
-            fused_scores = {}
-            hash_to_node = {}
-            for nodes_with_scores in results.values():
-                for rank, node_with_score in enumerate(
-                    sorted(nodes_with_scores, key=lambda x: x.score or 0.0, reverse=True)
-                ):
+            fused_scores: dict[str, float] = {}
+            hash_to_node: dict[str, NodeWithScore] = {}
+            hash_matched_by: dict[str, set[str]] = {}
+
+            for key, nodes_with_scores in results.items():
+                retriever_idx = key[1] if isinstance(key, tuple) and len(key) > 1 else 0
+                leg = self._leg_for_retriever(int(retriever_idx))
+                ranked = sorted(nodes_with_scores, key=lambda x: x.score or 0.0, reverse=True)
+                for rank, node_with_score in enumerate(ranked):
                     hash_val = node_with_score.node.hash
                     hash_to_node[hash_val] = node_with_score
-                    if hash_val not in fused_scores:
-                        fused_scores[hash_val] = 0.0
-                    fused_scores[hash_val] += 1.0 / (rank + self._rrf_k)
+                    fused_scores[hash_val] = fused_scores.get(hash_val, 0.0) + 1.0 / (rank + self._rrf_k)
+                    hash_matched_by.setdefault(hash_val, set()).update(
+                        node_with_score.node.metadata.get("matched_by") or [leg]
+                    )
 
-            reranked_results = dict(sorted(fused_scores.items(), key=lambda x: x[1], reverse=True))
-            reranked_nodes = []
-            for hash_val, score in reranked_results.items():
-                reranked_nodes.append(hash_to_node[hash_val])
-                reranked_nodes[-1].score = score
+            reranked_nodes: list[NodeWithScore] = []
+            for hash_val, score in sorted(fused_scores.items(), key=lambda x: x[1], reverse=True):
+                node_with_score = hash_to_node[hash_val]
+                node_with_score.score = score
+                meta = dict(node_with_score.node.metadata or {})
+                meta["matched_by"] = sorted(hash_matched_by.get(hash_val, set()))
+                node_with_score.node.metadata = meta
+                reranked_nodes.append(node_with_score)
             return reranked_nodes
 
+    class WriterAgentWeakHitFilterPostprocessor(BaseNodePostprocessor):  # type: ignore[valid-type, misc]
+        """Drop very low RRF scores and nodes with no retrieval-leg metadata."""
+
+        _min_score: float = PrivateAttr()
+
+        def __init__(self, min_score: float = 1e-6, **kwargs: Any) -> None:
+            super().__init__(**kwargs)
+            self._min_score = float(min_score)
+
+        def _postprocess_nodes(
+            self,
+            nodes: list[NodeWithScore],
+            query_bundle: Optional[QueryBundle] = None,
+        ) -> list[NodeWithScore]:
+            kept: list[NodeWithScore] = []
+            for n in nodes:
+                score = float(n.score or 0.0)
+                if score < self._min_score:
+                    continue
+                matched_by = (n.node.metadata or {}).get("matched_by") or []
+                if matched_by:
+                    kept.append(n)
+                    continue
+                # vec-only knn path may omit matched_by; keep positive scores
+                if score > 0.0:
+                    kept.append(n)
+            return kept
+
+    class WriterAgentSourceDiversityPostprocessor(BaseNodePostprocessor):  # type: ignore[valid-type, misc]
+        """Cap how many hits come from the same doc_url (file-level diversity)."""
+
+        _max_per_doc: int = PrivateAttr()
+
+        def __init__(self, max_per_doc: int = _DEFAULT_MAX_PER_DOC, **kwargs: Any) -> None:
+            super().__init__(**kwargs)
+            self._max_per_doc = max(1, int(max_per_doc))
+
+        def _postprocess_nodes(
+            self,
+            nodes: list[NodeWithScore],
+            query_bundle: Optional[QueryBundle] = None,
+        ) -> list[NodeWithScore]:
+            return source_diversity_filter(nodes, max_per_doc=self._max_per_doc)
 
     class WriterAgentMMRPostprocessor(BaseNodePostprocessor):  # type: ignore[valid-type, misc]
         _query_vec: list[float] = PrivateAttr()
         _db_path: str = PrivateAttr()
         _lambda_mult: float = PrivateAttr()
+        _top_k: int = PrivateAttr()
 
-        def __init__(self, query_vec: list[float], db_path: str, lambda_mult: float = 0.7, **kwargs: Any) -> None:
+        def __init__(
+            self,
+            query_vec: list[float],
+            db_path: str,
+            *,
+            top_k: int,
+            lambda_mult: float = 0.7,
+            **kwargs: Any,
+        ) -> None:
             super().__init__(**kwargs)
             self._query_vec = query_vec
             self._db_path = db_path
             self._lambda_mult = lambda_mult
+            self._top_k = max(1, int(top_k))
 
-        def _postprocess_nodes(self, nodes: list[NodeWithScore], query_bundle: Optional[QueryBundle] = None) -> list[NodeWithScore]:
+        def _postprocess_nodes(
+            self,
+            nodes: list[NodeWithScore],
+            query_bundle: Optional[QueryBundle] = None,
+        ) -> list[NodeWithScore]:
             if not nodes:
                 return []
 
             from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db
+
             conn = connect_corpus_db(self._db_path)
-            embeddings = {}
+            embeddings: dict[str, list[float]] = {}
             try:
                 for n in nodes:
                     try:
@@ -313,43 +492,146 @@ if HAS_LLAMA_INDEX:
                         row = conn.execute("SELECT embedding FROM vec_chunks WHERE chunk_id = ?", (cid,)).fetchone()
                         if row:
                             import numpy as np
-                            emb = np.frombuffer(row["embedding"], dtype=np.float32).tolist()
-                            embeddings[n.node.node_id] = emb
+
+                            embeddings[n.node.node_id] = np.frombuffer(row["embedding"], dtype=np.float32).tolist()
                     except (ValueError, TypeError):
                         pass
             finally:
                 conn.close()
 
             from plugin.embeddings.venv.embeddings_search_graph import _max_marginal_relevance
+
             candidates = []
             for n in nodes:
                 candidates.append({
                     "node": n,
-                    "chunk_id": int(n.node.node_id) if n.node.node_id.isdigit() else None,
+                    "chunk_id": int(n.node.node_id) if str(n.node.node_id).isdigit() else None,
                     "embedding": embeddings.get(n.node.node_id),
                 })
 
             with_embeddings = [c for c in candidates if c["embedding"] is not None]
             without = [c for c in candidates if c["embedding"] is None]
 
-            k = len(nodes)
-            reranked = []
-            if with_embeddings:
+            reranked: list[NodeWithScore] = []
+            if with_embeddings and len(with_embeddings) >= self._top_k:
                 import numpy as np
+
                 fused_mmr = _max_marginal_relevance(
                     np.asarray(self._query_vec, dtype=np.float32),
                     [c["embedding"] for c in with_embeddings],
                     with_embeddings,
-                    k,
+                    self._top_k,
                     lambda_mult=self._lambda_mult,
                 )
                 reranked.extend([c["node"] for c in fused_mmr])
 
             for c in without:
+                if len(reranked) >= self._top_k:
+                    break
                 if c["node"] not in reranked:
                     reranked.append(c["node"])
 
-            return reranked
+            if len(reranked) < self._top_k:
+                for c in with_embeddings:
+                    if len(reranked) >= self._top_k:
+                        break
+                    if c["node"] not in reranked:
+                        reranked.append(c["node"])
+
+            return reranked[: self._top_k]
+
+
+def build_writer_agent_hybrid_retriever(
+    db_path: str,
+    model_name: str,
+    *,
+    fetch_k: int,
+    near_slop: int = 10,
+    doc_url_filter: str | None = None,
+    rrf_k: float = _DEFAULT_RRF_K,
+) -> Any:
+    """Compose vector + FTS retrievers with offline RRF fusion (num_queries=1)."""
+    if not HAS_LLAMA_INDEX:
+        raise ImportError("llama-index-core is not installed in the configured Python venv.")
+
+    vector_store = WriterAgentVectorStore(
+        db_path=db_path,
+        embedding_model=model_name,
+        build_fts=True,
+        build_vectors=True,
+    )
+    embed_model = WriterAgentEmbedding(model_name=model_name)
+    index = VectorStoreIndex.from_vector_store(vector_store, embed_model=embed_model)
+
+    filters = None
+    if doc_url_filter:
+        from llama_index.core.vector_stores.types import MetadataFilter, MetadataFilters  # type: ignore
+
+        filters = MetadataFilters(filters=[MetadataFilter(key="doc_url", value=doc_url_filter)])
+
+    vector_retriever = index.as_retriever(similarity_top_k=fetch_k, filters=filters)
+    fts_retriever = WriterAgentFTSRetriever(
+        db_path=db_path,
+        near_slop=near_slop,
+        similarity_top_k=fetch_k,
+    )
+    return WriterAgentQueryFusionRetriever(
+        retrievers=[vector_retriever, fts_retriever],
+        mode=FUSION_MODES.RECIPROCAL_RANK,
+        similarity_top_k=fetch_k,
+        num_queries=1,
+        use_async=False,
+        rrf_k=rrf_k,
+    )
+
+
+def run_hybrid_retrieval_pipeline(
+    db_path: str,
+    query_text: str,
+    k: int,
+    *,
+    model_name: str,
+    near_slop: int = 10,
+    doc_url_filter: str | None = None,
+    use_mmr: bool = True,
+) -> list[dict[str, Any]]:
+    """Retrieve via LlamaIndex hybrid stack; return tool-compatible hit dicts."""
+    if not HAS_LLAMA_INDEX:
+        raise ImportError("llama-index-core is not installed in the configured Python venv.")
+
+    query = str(query_text or "").strip()
+    if not query:
+        return []
+
+    final_k, fetch_k = _fetch_pool_k(k)
+    fusion_retriever = build_writer_agent_hybrid_retriever(
+        db_path,
+        model_name,
+        fetch_k=fetch_k,
+        near_slop=near_slop,
+        doc_url_filter=doc_url_filter,
+    )
+    nodes = fusion_retriever.retrieve(query)
+
+    if doc_url_filter:
+        allowed = str(doc_url_filter)
+        nodes = [n for n in nodes if str((n.node.metadata or {}).get("doc_url") or "") == allowed]
+
+    nodes = WriterAgentWeakHitFilterPostprocessor().postprocess_nodes(nodes)
+    nodes = WriterAgentSourceDiversityPostprocessor().postprocess_nodes(nodes)
+
+    if use_mmr and nodes and final_k > 1:
+        embed_model = WriterAgentEmbedding(model_name=model_name)
+        query_vec = embed_model.get_query_embedding(query)
+        nodes = WriterAgentMMRPostprocessor(
+            query_vec=query_vec,
+            db_path=db_path,
+            top_k=final_k,
+        ).postprocess_nodes(nodes)
+    else:
+        nodes = nodes[:final_k]
+
+    return _nodes_to_tool_hits(nodes)
 
 
 def llama_index_ingest(
@@ -502,26 +784,15 @@ def llama_index_knn_search(
     filters = None
     if doc_url_filter:
         from llama_index.core.vector_stores.types import MetadataFilter, MetadataFilters  # type: ignore
-        filters = MetadataFilters(filters=[
-            MetadataFilter(key="doc_url", value=doc_url_filter),
-        ])
 
-    retriever = index.as_retriever(similarity_top_k=k, filters=filters)
+        filters = MetadataFilters(filters=[MetadataFilter(key="doc_url", value=doc_url_filter)])
+
+    final_k = max(1, min(int(k or 5), 30))
+    retriever = index.as_retriever(similarity_top_k=final_k, filters=filters)
     nodes = retriever.retrieve(query_text)
-
-    from plugin.embeddings.venv.embeddings_search_graph import _hit_snippet
-
-    hits = []
-    for n in nodes:
-        metadata = n.node.metadata or {}
-        hits.append({
-            "chunk_id": int(n.node.node_id) if n.node.node_id.isdigit() else None,
-            "doc_url": metadata.get("doc_url", ""),
-            "para_index": metadata.get("para_index", 0),
-            "snippet": _hit_snippet(n.node.text),
-            "score": n.score or 0.0,
-        })
-    return {"hits": hits}
+    nodes = WriterAgentWeakHitFilterPostprocessor(min_score=0.0).postprocess_nodes(nodes)
+    nodes = nodes[:final_k]
+    return {"hits": _nodes_to_tool_hits(nodes)}
 
 
 def llama_index_hybrid_search(
@@ -534,66 +805,34 @@ def llama_index_hybrid_search(
     doc_url_filter: str | None = None,
     use_mmr: bool = True,
 ) -> dict[str, Any]:
-    """Hybrid FTS + vector search fused using RRF and postprocessed with MMR via LlamaIndex."""
-    if not HAS_LLAMA_INDEX:
-        raise ImportError("llama-index-core is not installed in the configured Python venv.")
-
-    vector_store = WriterAgentVectorStore(
-        db_path=db_path,
-        embedding_model=model_name,
-        build_fts=True,
-        build_vectors=True,
+    """Hybrid FTS + vector search via LlamaIndex retriever composition and postprocessors."""
+    hits = run_hybrid_retrieval_pipeline(
+        db_path,
+        query_text,
+        k,
+        model_name=model_name,
+        near_slop=near_slop,
+        doc_url_filter=doc_url_filter,
+        use_mmr=use_mmr,
     )
-    embed_model = WriterAgentEmbedding(model_name=model_name)
-    index = VectorStoreIndex.from_vector_store(vector_store, embed_model=embed_model)
-
-    # Fetch intermediate candidates pool
-    fetch_k = max(k, min(30, 50))
-
-    filters = None
-    if doc_url_filter:
-        from llama_index.core.vector_stores.types import MetadataFilter, MetadataFilters  # type: ignore
-        filters = MetadataFilters(filters=[
-            MetadataFilter(key="doc_url", value=doc_url_filter),
-        ])
-
-    vector_retriever = index.as_retriever(similarity_top_k=fetch_k, filters=filters)
-    fts_retriever = WriterAgentFTSRetriever(db_path=db_path, near_slop=near_slop)
-
-    from llama_index.core.retrievers.fusion_retriever import QueryFusionRetriever  # type: ignore
-    fusion_retriever = WriterAgentQueryFusionRetriever(
-        retrievers=[vector_retriever, fts_retriever],
-        mode=FUSION_MODES.RECIPROCAL_RANK,
-        similarity_top_k=fetch_k,
-        num_queries=1,
-        use_async=False,
-    )
-
-    nodes = fusion_retriever.retrieve(query_text)
-
-    if doc_url_filter:
-        allowed = str(doc_url_filter)
-        nodes = [n for n in nodes if str(n.node.metadata.get("doc_url") or "") == allowed]
-
-    if use_mmr and nodes and k > 1:
-        query_vec = embed_model.get_query_embedding(query_text)
-        postprocessor = WriterAgentMMRPostprocessor(query_vec=query_vec, db_path=db_path)
-        nodes = postprocessor.postprocess_nodes(nodes)
-
-    nodes = nodes[:k]
-
-    from plugin.embeddings.venv.embeddings_search_graph import _public_hit_from_candidate
-
-    hits = []
-    for n in nodes:
-        metadata = n.node.metadata or {}
-        cand = {
-            "chunk_id": int(n.node.node_id) if n.node.node_id.isdigit() else None,
-            "doc_url": metadata.get("doc_url", ""),
-            "para_index": metadata.get("para_index", 0),
-            "snippet": n.node.text,
-            "score": n.score or 0.0,
-        }
-        hits.append(_public_hit_from_candidate(cand))
-
     return {"hits": hits}
+
+
+__all__ = [
+    "HAS_LLAMA_INDEX",
+    "WriterAgentEmbedding",
+    "WriterAgentFTSRetriever",
+    "WriterAgentMMRPostprocessor",
+    "WriterAgentQueryFusionRetriever",
+    "WriterAgentSourceDiversityPostprocessor",
+    "WriterAgentVectorStore",
+    "WriterAgentWeakHitFilterPostprocessor",
+    "build_writer_agent_hybrid_retriever",
+    "llama_index_hybrid_search",
+    "llama_index_ingest",
+    "llama_index_knn_search",
+    "run_hybrid_retrieval_pipeline",
+    "source_diversity_filter",
+    "_fetch_pool_k",
+    "_nodes_to_tool_hits",
+]

@@ -131,15 +131,24 @@ def test_enqueue_skipped_when_inflight():
 def test_index_worker_calls_maintain_rpc():
     ctx = MagicMock()
     with patch("plugin.embeddings.embeddings_indexer.get_embedding_model", return_value="m"):
-        with patch("plugin.embeddings.embeddings_indexer.maintain_folder_index_rpc") as maintain_mock:
-            embeddings_indexer._index_worker(ctx, "folderkey", "/tmp/listing")
-            maintain_mock.assert_called_once_with(
-                ctx,
-                "/tmp/listing",
-                model="m",
-                mode="auto",
-                search_mode="hybrid",
-            )
+        with patch("plugin.embeddings.embeddings_indexer._resolve_search_mode", return_value="llama_index"):
+            with patch("plugin.embeddings.embeddings_indexer.maintain_folder_index_rpc") as maintain_mock:
+                embeddings_indexer._index_worker(ctx, "folderkey", "/tmp/listing")
+                maintain_mock.assert_called_once_with(
+                    ctx,
+                    "/tmp/listing",
+                    model="m",
+                    mode="auto",
+                    search_mode="llama_index",
+                )
+
+
+def test_resolve_search_mode_reads_config():
+    ctx = MagicMock()
+    with patch("plugin.embeddings.embeddings_indexer.get_config", return_value="llama_index"):
+        assert embeddings_indexer._resolve_search_mode(ctx) == "llama_index"
+    with patch("plugin.embeddings.embeddings_indexer.get_config", return_value="none"):
+        assert embeddings_indexer._resolve_search_mode(ctx) == "hybrid"
 
 
 def test_index_worker_clears_inflight_on_failure():
