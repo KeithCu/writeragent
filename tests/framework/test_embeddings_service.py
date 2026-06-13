@@ -23,6 +23,23 @@ def ctx():
     return MagicMock()
 
 
+def test_hybrid_search_happy_path(ctx):
+    worker_payload = {"hits": [{"doc_url": "file:///a.odt", "para_index": 0, "score": 0.9}]}
+    with patch("plugin.framework.client.embeddings_service.run_code_in_user_venv", return_value={"status": "ok", "result": worker_payload}) as mock_run:
+        with patch("plugin.framework.client.embeddings_service.embeddings_worker_timeout_sec", return_value=120):
+            result = embeddings_service.hybrid_search(
+                ctx,
+                "/tmp/corpus.db",
+                "dspy",
+                20,
+                model=DEFAULT_EMBEDDING_MODEL,
+                near_slop=10,
+            )
+    assert result["hits"][0]["doc_url"] == "file:///a.odt"
+    assert mock_run.call_args.kwargs["worker_pool"] == WORKER_POOL_EMBEDDINGS
+    assert "hybrid_search" in mock_run.call_args.args[1]
+
+
 def test_knn_search_happy_path(ctx):
     worker_payload = {"hits": [{"doc_url": "file:///a.odt", "para_index": 0, "score": 0.9}]}
     with patch("plugin.framework.client.embeddings_service.run_code_in_user_venv", return_value={"status": "ok", "result": worker_payload}) as mock_run:

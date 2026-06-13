@@ -337,8 +337,8 @@ def vec0_search(
         FROM vec_chunks v
         JOIN chunks c ON c.chunk_id = v.chunk_id
         WHERE v.embedding MATCH ?
+          AND k = ?
         ORDER BY v.distance
-        LIMIT ?
         """,
         (q, limit),
     ).fetchall()
@@ -439,7 +439,10 @@ def load_embeddings_for_candidates(
         raw = by_id.get(int(cid))
         if raw is None:
             continue
-        cand["embedding"] = np.asarray(raw, dtype=np.float32)
+        if isinstance(raw, (bytes, memoryview, bytearray)):
+            cand["embedding"] = np.frombuffer(raw, dtype=np.float32).copy()
+        else:
+            cand["embedding"] = np.asarray(raw, dtype=np.float32)
 
 
 __all__ = [

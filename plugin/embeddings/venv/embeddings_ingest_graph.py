@@ -145,14 +145,16 @@ def delete_stale(state: IngestState) -> dict[str, Any]:
     build_fts = bool(state.get("build_fts"))
     build_vectors = bool(state.get("build_vectors"))
     dim = _dim_from_meta_path(str(state.get("meta_path") or ""))
+    # Cold build: embedding dim is unknown until embed_chunks runs; upsert_corpus creates vec_chunks.
+    with_vec = build_vectors and dim is not None
     conn = connect_corpus_db(str(state["db_path"]))
     try:
-        ensure_schema(conn, dim=dim, with_fts=build_fts, with_vec=build_vectors)
+        ensure_schema(conn, dim=dim, with_fts=build_fts, with_vec=with_vec)
         delete_paragraph_keys(
             conn,
             list(state.get("delete_keys") or []),
             with_fts=build_fts,
-            with_vec=build_vectors,
+            with_vec=with_vec,
         )
 
         seen: set[tuple[str, int]] = set()
@@ -166,7 +168,7 @@ def delete_stale(state: IngestState) -> dict[str, Any]:
                 key[0],
                 key[1],
                 with_fts=build_fts,
-                with_vec=build_vectors,
+                with_vec=with_vec,
             )
         conn.commit()
     finally:
