@@ -22,7 +22,8 @@ log = logging.getLogger(__name__)
 
 EMBEDDINGS_VENV_PIP_INSTALL = (
     "pip install sentence-transformers numpy sqlite-vec langgraph "
-    "langchain-core langchain-text-splitters envwrap odfpy"
+    "langchain-core langchain-text-splitters envwrap odfpy pandas "
+    "openpyxl xlrd python-docx"
 )
 
 _MODEL_CACHE: dict[str, Any] = {}

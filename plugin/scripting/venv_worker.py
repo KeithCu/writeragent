@@ -463,6 +463,10 @@ _EMBEDDINGS_PACKAGE_KEYS = (
     "langchain_core",
     "langchain_text_splitters",
     "odfpy",
+    "pandas",
+    "openpyxl",
+    "xlrd",
+    "python_docx",
 )
 _EMBEDDINGS_PROBE_SCRIPT = """
 import json
@@ -503,6 +507,26 @@ try:
     out["odfpy"] = "present"
 except Exception:
     out["odfpy"] = None
+try:
+    import pandas  # noqa: F401
+    out["pandas"] = "present"
+except Exception:
+    out["pandas"] = None
+try:
+    import openpyxl  # noqa: F401
+    out["openpyxl"] = "present"
+except Exception:
+    out["openpyxl"] = None
+try:
+    import xlrd  # noqa: F401
+    out["xlrd"] = "present"
+except Exception:
+    out["xlrd"] = None
+try:
+    import docx  # noqa: F401
+    out["python_docx"] = "present"
+except Exception:
+    out["python_docx"] = None
 print(json.dumps(out))
 """
 

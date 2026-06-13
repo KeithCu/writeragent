@@ -289,7 +289,7 @@ Per-folder semantic search ([embeddings.md](embeddings.md)) runs in the user ven
 
 | Package | Install | Used by |
 |---------|---------|---------|
-| [sentence-transformers](https://www.sbert.net/) (`sentence_transformers`) + **numpy** | `pip install sentence-transformers numpy chromadb langgraph langchain-core langchain-text-splitters envwrap odfpy` | Encode queries and corpus chunks |
+| [sentence-transformers](https://www.sbert.net/) (`sentence_transformers`) + **numpy** | `pip install sentence-transformers numpy chromadb langgraph langchain-core langchain-text-splitters envwrap odfpy pandas openpyxl xlrd python-docx` | Encode queries and corpus chunks; Office sibling extract |
 | [ChromaDB](https://www.trychroma.com/) (`chromadb`) | (same line) | Per-folder vector store beside documents |
 | [LangGraph](https://github.com/langchain-ai/langgraph) + [langchain-core](https://github.com/langchain-ai/langchain) + [langchain-text-splitters](https://github.com/langchain-ai/langchain) | (same line) | Ingest/search graphs in trusted venv modules |
 | [envwrap](https://pypi.org/project/envwrap/) | (same line) | Transitive dependency for `sentence-transformers` / Hugging Face stack on some Python versions |

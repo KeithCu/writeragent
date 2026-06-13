@@ -62,6 +62,7 @@ ALWAYS_INCLUDE_PLUGIN = [
     "plugin/contrib/",
     "plugin/scripting/",
     "plugin/vision/",
+    "plugin/embeddings/",
     "plugin/notebook/",
 ]
 

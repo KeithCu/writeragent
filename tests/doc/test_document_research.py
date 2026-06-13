@@ -28,10 +28,13 @@ from plugin.doc.document_research import (
 
 def test_guess_doc_type_from_path():
     assert guess_doc_type_from_path("/tmp/Budget_2026.ods") == "calc"
+    assert guess_doc_type_from_path("/tmp/Budget_2026.xlsx") == "calc"
     assert guess_doc_type_from_path("/tmp/Report.odt") == "writer"
+    assert guess_doc_type_from_path("/tmp/Report.docx") == "writer"
     assert guess_doc_type_from_path("/tmp/Slides.odp") == "draw"
+    assert guess_doc_type_from_path("/tmp/Slides.pptx") == "draw"
     assert guess_doc_type_from_path("/tmp/photo.png") == "image"
-    assert guess_doc_type_from_path("/tmp/readme.txt") == "unknown"
+    assert guess_doc_type_from_path("/tmp/readme.txt") == "writer"
 
 
 def test_path_to_file_url_uses_three_slashes_on_unix():
@@ -150,6 +153,11 @@ def test_resolve_listing_directory_work_fallback():
 def test_nearby_extensions_constant():
     assert ".ods" in NEARBY_FILE_EXTENSIONS
     assert ".odt" in NEARBY_FILE_EXTENSIONS
+    assert ".xlsx" in NEARBY_FILE_EXTENSIONS
+    assert ".docx" in NEARBY_FILE_EXTENSIONS
+    assert ".pptx" in NEARBY_FILE_EXTENSIONS
+    assert ".txt" in NEARBY_FILE_EXTENSIONS
+    assert ".pdf" not in NEARBY_FILE_EXTENSIONS
     assert ".tmp" not in NEARBY_FILE_EXTENSIONS
     assert ".png" not in NEARBY_FILE_EXTENSIONS
 

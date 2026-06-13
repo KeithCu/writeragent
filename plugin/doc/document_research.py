@@ -18,26 +18,14 @@ from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
 import uno
 
 from plugin.doc.document_helpers import DocumentType, get_document_path, get_document_type, resolve_document_by_url
+from plugin.embeddings.embeddings_fs import ALL_INDEXABLE_EXTENSIONS
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolBase
 
 log = logging.getLogger(__name__)
 
-NEARBY_FILE_EXTENSIONS = frozenset(
-    {
-        ".odt",
-        ".ott",
-        ".ods",
-        ".ots",
-        ".odp",
-        ".otp",
-        ".odg",
-        ".fodt",
-        ".fods",
-        ".fodp",
-    }
-)
+NEARBY_FILE_EXTENSIONS = ALL_INDEXABLE_EXTENSIONS
 
 NEARBY_IMAGE_EXTENSIONS = frozenset(
     {
@@ -71,13 +59,22 @@ _EXTENSION_DOC_TYPE: dict[str, DocTypeGuess] = {
     ".odt": "writer",
     ".ott": "writer",
     ".fodt": "writer",
+    ".docx": "writer",
+    ".doc": "writer",
+    ".rtf": "writer",
+    ".txt": "writer",
     ".ods": "calc",
     ".ots": "calc",
     ".fods": "calc",
+    ".xlsx": "calc",
+    ".xls": "calc",
+    ".csv": "calc",
     ".odp": "draw",
     ".otp": "draw",
     ".fodp": "draw",
     ".odg": "draw",
+    ".pptx": "draw",
+    ".ppt": "draw",
     ".png": "image",
     ".jpg": "image",
     ".jpeg": "image",
@@ -123,7 +120,6 @@ def get_document_research_workflow_hint(ctx=None) -> str:
     index_hint = (
         "For cross-file discovery when the filename is unknown, use search_nearby_files(query, k) on the active folder index; "
         "it combines keyword ranking (BM25/NEAR) and semantic embeddings into one fused result list. "
-        "grep_nearby_files is also available for regex or Calc/Draw paths. "
         "Returns ranked doc_url, score, snippet, and optional para_index (weak hint). "
         "Open the top one or few hits with delegate_read_document and tell the inner read agent to search for the snippet "
         "or topic with search_in_document — do not rely on para_index or character offsets as exact LO coordinates.\n"
@@ -135,11 +131,13 @@ def get_document_research_workflow_hint(ctx=None) -> str:
 
 
 def filter_document_research_discovery_tools(tools: list[ToolBase], ctx) -> list[ToolBase]:
-    """Hide indexed search tools when cross-file search is off; list/delegate always kept."""
+    """Hide cross-file search tools that do not apply to the current folder_search_mode; list/delegate always kept."""
     from plugin.framework.constants import folder_search_enabled
 
     hidden: set[str] = {"search_embeddings"}
-    if not folder_search_enabled(ctx):
+    if folder_search_enabled(ctx):
+        hidden.add("grep_nearby_files")
+    else:
         hidden.add("search_nearby_files")
     return [t for t in tools if t.name not in hidden]
 

@@ -5,7 +5,7 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""Writer/Calc/Impress/Draw ODF extract and folder scan for embeddings / FTS indexing (no UNO)."""
+"""Writer/Calc/Impress/Draw ODF and Microsoft Office extract for embeddings / FTS (no UNO)."""
 from __future__ import annotations
 
 import dataclasses
@@ -25,6 +25,13 @@ WRITER_EXTENSIONS = frozenset({".odt", ".ott", ".fodt"})
 CALC_EXTENSIONS = frozenset({".ods", ".ots", ".fods"})
 DRAW_EXTENSIONS = frozenset({".odp", ".otp", ".fodp", ".odg"})
 INDEXABLE_EXTENSIONS = WRITER_EXTENSIONS | CALC_EXTENSIONS | DRAW_EXTENSIONS
+
+FOREIGN_WRITER_EXTENSIONS = frozenset({".docx", ".doc", ".rtf", ".txt"})
+FOREIGN_CALC_EXTENSIONS = frozenset({".xlsx", ".xls", ".csv"})
+FOREIGN_DRAW_EXTENSIONS = frozenset({".pptx", ".ppt"})
+FOREIGN_EXTENSIONS = FOREIGN_WRITER_EXTENSIONS | FOREIGN_CALC_EXTENSIONS | FOREIGN_DRAW_EXTENSIONS
+
+ALL_INDEXABLE_EXTENSIONS = INDEXABLE_EXTENSIONS | FOREIGN_EXTENSIONS
 
 
 @dataclasses.dataclass(frozen=True)
@@ -92,8 +99,37 @@ def extract_writer_paragraphs(path: str) -> list[str]:
         return []
 
 
+def _extract_foreign_passages(path: str, ext: str) -> list[str]:
+    from plugin.embeddings.venv import embeddings_ooxml_extract as ooxml
+
+    if ext == ".docx":
+        return ooxml.extract_docx_paragraphs(path)
+    if ext in {".xlsx", ".xls"}:
+        return ooxml.extract_spreadsheet_rows(path)
+    if ext == ".csv":
+        return ooxml.extract_csv_rows(path)
+    if ext == ".txt":
+        return ooxml.extract_plaintext_paragraphs(path)
+    if ext == ".rtf":
+        return ooxml.extract_rtf_paragraphs(path)
+    if ext == ".pptx":
+        return ooxml.extract_pptx_passages(path)
+    return []
+
+
+def _extract_legacy_via_soffice(path: str, ext: str) -> list[str]:
+    from plugin.embeddings.embeddings_soffice_convert import LEGACY_BINARY_EXTENSIONS, temporary_converted_odf
+
+    if ext not in LEGACY_BINARY_EXTENSIONS:
+        return []
+    with temporary_converted_odf(path) as converted:
+        if converted is None:
+            return []
+        return extract_indexable_passages(str(converted))
+
+
 def extract_indexable_passages(path: str) -> list[str]:
-    """Extract indexable passage text from Writer, Calc, or Impress/Draw files on disk."""
+    """Extract indexable passage text from ODF, Microsoft Office, or plain-text files on disk."""
     ext = os.path.splitext(path)[1].lower()
     if ext in WRITER_EXTENSIONS:
         return extract_writer_paragraphs(path)
@@ -105,11 +141,16 @@ def extract_indexable_passages(path: str) -> list[str]:
         from plugin.embeddings.venv.embeddings_odf_extract import extract_draw_pages
 
         return extract_draw_pages(path)
+    if ext in FOREIGN_EXTENSIONS:
+        passages = _extract_foreign_passages(path, ext)
+        if passages:
+            return passages
+        return _extract_legacy_via_soffice(path, ext)
     return []
 
 
 def guess_indexable_paths(directory: str) -> list[WriterFileEntry]:
-    """List Writer, Calc, and Impress/Draw siblings in *directory* (stdlib scan, no UNO)."""
+    """List indexable document siblings in *directory* (stdlib scan, no UNO)."""
     listing_root = _normalize_path(directory)
     entries: list[WriterFileEntry] = []
     try:
@@ -122,7 +163,7 @@ def guess_indexable_paths(directory: str) -> list[WriterFileEntry]:
         if not os.path.isfile(full):
             continue
         ext = os.path.splitext(name)[1].lower()
-        if ext not in INDEXABLE_EXTENSIONS:
+        if ext not in ALL_INDEXABLE_EXTENSIONS:
             continue
         try:
             mtime = float(os.path.getmtime(full))
@@ -141,12 +182,12 @@ def guess_indexable_paths(directory: str) -> list[WriterFileEntry]:
 
 
 def guess_writer_paths(directory: str) -> list[WriterFileEntry]:
-    """Alias for :func:`guess_indexable_paths` (Writer, Calc, Impress/Draw)."""
+    """Alias for :func:`guess_indexable_paths`."""
     return guess_indexable_paths(directory)
 
 
 def paragraph_chunks_from_path(path: str, *, doc_url: str | None = None, file_mtime: float | None = None) -> list[ParagraphChunk]:
-    """Build indexable passage chunks from one Writer, Calc, or Impress/Draw file on disk."""
+    """Build indexable passage chunks from one supported document on disk."""
     norm = _normalize_path(path)
     url = doc_url if doc_url else path_to_file_url(norm)
     try:

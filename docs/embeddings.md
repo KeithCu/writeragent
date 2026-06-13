@@ -488,9 +488,9 @@ See also [Index size growth](#index-size-growth) for when RAM footprint matters.
 | Value | document_research tools |
 |-------|-------------------------|
 | `none` (default) | `grep_nearby_files`, `list_nearby_files`, `delegate_read_document` |
-| `hybrid` | above + `search_embeddings`, `search_nearby_files` |
+| `hybrid` | `search_nearby_files`, `list_nearby_files`, `delegate_read_document` (`grep_nearby_files` hidden) |
 
-When off, [`filter_document_research_discovery_tools`](../plugin/doc/document_research.py) hides the indexed search tools. When on, background maintain always builds FTS + vectors in one `corpus.db` ([`embeddings_indexer.py`](../plugin/embeddings/embeddings_indexer.py)).
+When off, [`filter_document_research_discovery_tools`](../plugin/doc/document_research.py) hides indexed search tools (`search_nearby_files`, `search_embeddings`). When on, it hides `grep_nearby_files` and background maintain always builds FTS + vectors in one `corpus.db` ([`embeddings_indexer.py`](../plugin/embeddings/embeddings_indexer.py)).
 
 ### Folder FTS (SQLite, embeddings venv) {#folder-fts}
 
@@ -503,7 +503,7 @@ Select **SQLite FTS (venv)** in **Settings → Embeddings → Cross-file search 
 | Tool | When to use |
 |------|-------------|
 | **`search_nearby_files`** | Multi-word keywords, proximity (`web search`), BM25-ranked snippets — FTS mode only |
-| **`grep_nearby_files`** | Regex, exact substring, Calc/Draw — none or embeddings mode (hidden when FTS mode is on) |
+| **`grep_nearby_files`** | Regex, exact substring, Calc/Draw — `none` mode only (hidden when hybrid mode is on) |
 | **`search_embeddings`** | Paraphrase / topical semantic search — embeddings mode only |
 
 **Cache files** (same `writeragent_embeddings/` folder as Chroma):
@@ -1262,6 +1262,22 @@ Cross-folder index maintain includes **Calc** siblings (`.ods`, `.ots`, `.fods`)
 | **FTS mode** | Same rows land in `fts5.db` — no separate Calc extract |
 
 Existing caches pick up `.ods` on the next incremental or cold maintain pass.
+
+### Microsoft Office and plain-text siblings {#foreign-office-indexing}
+
+Cross-folder index maintain also includes **Microsoft Office** and plain-text siblings beside native ODF files. **PDF is deferred** (future Python PDF library TBD).
+
+| Extensions | Extract path | Embeddings venv packages |
+|------------|--------------|--------------------------|
+| `.xlsx`, `.xls` | [`embeddings_ooxml_extract.extract_spreadsheet_rows`](../plugin/embeddings/venv/embeddings_ooxml_extract.py) — `pandas.read_excel` (`openpyxl` / `xlrd`) | `pandas`, `openpyxl`, `xlrd` |
+| `.docx` | `python-docx` paragraph walk | `python-docx` |
+| `.pptx` | stdlib zip + DrawingML `a:t` text nodes | (stdlib) |
+| `.csv`, `.txt`, `.rtf` | stdlib CSV / blank-line paragraphs / lightweight RTF strip | (stdlib) |
+| `.doc`, `.xls`, `.ppt` (legacy binary) | isolated headless `soffice --convert-to` → temp ODF → existing ODF extract → delete temp ([`embeddings_soffice_convert.py`](../plugin/embeddings/embeddings_soffice_convert.py)) | `soffice` on PATH |
+
+Search hits use the **original** `doc_url` (e.g. `file:///…/Budget.xlsx`). [`list_nearby_files`](../plugin/doc/document_research.py) and [`guess_indexable_paths`](../plugin/embeddings/embeddings_fs.py) share [`ALL_INDEXABLE_EXTENSIONS`](../plugin/embeddings/embeddings_fs.py).
+
+Install (embeddings venv): see `EMBEDDINGS_VENV_PIP_INSTALL` in [`embeddings_index.py`](../plugin/embeddings/venv/embeddings_index.py) — includes `python-docx`, `openpyxl`, `xlrd`, and `pandas` alongside the existing stack.
 
 ### Impress/Draw ODP/ODG indexing {#impress-odp-odg-indexing}
 

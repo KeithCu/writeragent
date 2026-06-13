@@ -75,7 +75,7 @@ def test_filter_document_research_discovery_tools_respects_config():
     names = {t.name for t in filtered}
     assert "search_nearby_files" in names
     assert "search_embeddings" not in names
-    assert "grep_nearby_files" in names
+    assert "grep_nearby_files" not in names
 
 
 def test_document_research_workflow_hint_off():
@@ -98,6 +98,7 @@ def test_document_research_workflow_hint_on():
         hint = get_document_research_workflow_hint(ctx)
     assert "search_nearby_files" in hint
     assert "search_embeddings" not in hint
+    assert "grep_nearby_files" not in hint
     assert "fused" in hint
 
 @patch("plugin.doc.specialized_base.USE_SUB_AGENT", False)

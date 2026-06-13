@@ -62,8 +62,9 @@ def test_paragraph_chunks_from_path(tmp_path: Path):
     assert chunks[0].doc_url.startswith("file:")
 
 
-def test_guess_indexable_paths_includes_ods(tmp_path: Path):
-    (tmp_path / "notes.txt").write_text("x", encoding="utf-8")
+def test_guess_indexable_paths_includes_ods_and_office(tmp_path: Path):
+    (tmp_path / "notes.txt").write_text("hello", encoding="utf-8")
+    (tmp_path / "budget.xlsx").write_bytes(b"placeholder")
     odt = tmp_path / "doc.odt"
     content_xml = b"""<?xml version="1.0"?>
 <office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
@@ -76,7 +77,23 @@ def test_guess_indexable_paths_includes_ods(tmp_path: Path):
     (tmp_path / "deck.odp").write_bytes(b"placeholder")
     entries = embeddings_fs.guess_indexable_paths(str(tmp_path))
     names = sorted(entry.name for entry in entries)
-    assert names == ["Budget.ods", "deck.odp", "doc.odt"]
+    assert names == ["Budget.ods", "budget.xlsx", "deck.odp", "doc.odt", "notes.txt"]
+
+
+def test_all_indexable_extensions_includes_foreign():
+    assert ".xlsx" in embeddings_fs.ALL_INDEXABLE_EXTENSIONS
+    assert ".docx" in embeddings_fs.ALL_INDEXABLE_EXTENSIONS
+    assert ".pptx" in embeddings_fs.ALL_INDEXABLE_EXTENSIONS
+    assert ".pdf" not in embeddings_fs.ALL_INDEXABLE_EXTENSIONS
+
+
+def test_paragraph_chunks_from_txt(tmp_path: Path):
+    path = tmp_path / "notes.txt"
+    path.write_text("Alpha paragraph", encoding="utf-8")
+    chunks = embeddings_fs.paragraph_chunks_from_path(str(path))
+    assert len(chunks) == 1
+    assert chunks[0].text == "Alpha paragraph"
+    assert chunks[0].doc_url.endswith("/notes.txt")
 
 
 def test_guess_writer_paths_alias(tmp_path: Path):
