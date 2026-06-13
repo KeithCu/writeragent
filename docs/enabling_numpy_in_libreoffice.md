@@ -201,7 +201,7 @@ WriterAgent removed upstream’s `find_spec` import pre-check at executor init (
 
 #### Import policy for LLM agents
 
-Prompt text is generated from [`plugin/scripting/import_policy.py`](../plugin/scripting/import_policy.py) (whitelist in [`sandbox_imports.py`](../plugin/scripting/sandbox_imports.py)). It always leads with a **sandbox context prefix** before module lists so models know they are in a powerful **Python sandbox** (many scientific packages assumed in the user venv) with **no networking** and **no host escape**.
+Prompt text is generated from [`plugin/scripting/import_policy.py`](../plugin/scripting/import_policy.py) (whitelist in [`sandbox.py`](../plugin/scripting/sandbox.py)). It always leads with a **sandbox context prefix** before module lists so models know they are in a powerful **Python sandbox** (many scientific packages assumed in the user venv) with **no networking** and **no host escape**.
 
 | Category | Modules |
 |----------|---------|
@@ -237,7 +237,7 @@ The **AST sandbox** (`LocalPythonExecutor` + `VENV_AUTHORIZED_IMPORTS`) applies 
 
 3. The harness still routes the request through [`run_sandboxed_code`](../plugin/scripting/venv_sandbox.py), but only the **stub** is AST-walked. The **imported module** executes as ordinary Python bytecode — filesystem access, sqlite-vec, LangGraph, etc. live **inside that module**, not in user scripts.
 
-4. **Optional whitelist entry** — add trusted `plugin.scripting.*` modules to [`VENV_AUTHORIZED_IMPORTS`](../plugin/scripting/sandbox_imports.py) so the stub’s `import` passes static policy. **Do not** add `sqlite_vec`, `langgraph`, or `os` to the LLM import list; keep those imports inside the trusted module only.
+4. **Optional whitelist entry** — add trusted `plugin.scripting.*` modules to [`VENV_AUTHORIZED_IMPORTS`](../plugin/scripting/sandbox.py) so the stub’s `import` passes static policy. **Do not** add `sqlite_vec`, `langgraph`, or `os` to the LLM import list; keep those imports inside the trusted module only.
 
 5. **IPC for bulk data** — pass paragraph lists, query text, and `k` via worker **`data=`** (Pickle5); trusted code opens the per-folder **`corpus.db`** path by reference from the host.
 
@@ -394,7 +394,7 @@ No `viz.py` yet. Matplotlib figures from user/LLM code are captured in the venv 
 | Chat / LLM | [`venv_python.py`](../plugin/calc/venv_python.py) | **Calc:** auto-insert on active sheet + `image_path`. **Writer/Draw:** `image_path` → `insert_image` |
 | Writer notebook | [`notebook_runner.py`](../plugin/notebook/notebook_runner.py) | Inline image insert (SVG + PNG) on notebook cell run |
 | LLM prompts | [`import_policy.py`](../plugin/scripting/import_policy.py) | App-specific `format_matplotlib_plot_hint()` (Calc / Writer / Draw); not in global import policy |
-| LLM sandbox | [`sandbox_imports.py`](../plugin/scripting/sandbox_imports.py) | `matplotlib`, `seaborn` whitelisted |
+| LLM sandbox | [`sandbox.py`](../plugin/scripting/sandbox.py) | `matplotlib`, `seaborn` whitelisted |
 | Settings Test | [`venv_worker.py`](../plugin/scripting/venv_worker.py) | `matplotlib` under **Scientific Libraries**; **Visualization Libraries** group (`matplotlib`, `seaborn`) when Viz helpers are used |
 | Tests | [`test_matplotlib_output.py`](../tests/scripting/test_matplotlib_output.py), [`test_python_function.py`](../tests/calc/test_python_function.py), [`test_venv_python_image.py`](../tests/calc/test_venv_python_image.py), [`test_python_runner_viz.py`](../tests/scripting/test_python_runner_viz.py), [`test_viz.py`](../tests/scripting/test_viz.py), [`test_plot_data.py`](../tests/calc/test_plot_data.py) | Codec, sandbox e2e, multi-figure merge, Calc chat insert, RPS fast path, trusted helpers |
 

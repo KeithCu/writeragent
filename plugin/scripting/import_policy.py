@@ -13,7 +13,7 @@ Derived from ``VENV_AUTHORIZED_IMPORTS``, ``BASE_BUILTIN_MODULES``, and
 
 from __future__ import annotations
 
-from plugin.scripting.sandbox_imports import (
+from plugin.scripting.sandbox import (
     BASE_BUILTIN_MODULES,
     CALC_AUTHORIZED_IMPORTS,
     DANGEROUS_MODULES,

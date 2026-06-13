@@ -412,7 +412,7 @@ The **only** persisted index shape for now:
 |------|--------|
 | [`scripts/bench_embeddings.py`](../scripts/bench_embeddings.py) | **Done** — batch encode + vectorized search via warm worker |
 | [`scripts/search_embeddings_folder.py`](../scripts/search_embeddings_folder.py) | **Done** — offline semantic search over a folder cache (default `~/Desktop/Writing`, k=10) |
-| `sentence_transformers` on venv whitelist | **Done** — [`sandbox_imports.py`](../plugin/scripting/sandbox_imports.py) |
+| `sentence_transformers` on venv whitelist | **Done** — [`sandbox.py`](../plugin/scripting/sandbox.py) |
 | `get_safe_module` bypass for ST | **Done** — avoid hang on import ([`local_python_executor.py`](../plugin/contrib/smolagents/local_python_executor.py)) |
 | [`embedding_client.py`](../plugin/framework/client/embedding_client.py) | **Done** — `embed_texts()` via venv RPC (Phase A; HTTP deferred) |
 | [`embeddings_index.py`](../plugin/embeddings/venv/embeddings_index.py) | **Done** — trusted batch encode module (Phase A; index/search in Phase B) |
@@ -505,7 +505,7 @@ See also [Index size growth](#index-size-growth) for when RAM footprint matters.
 | Model config | `get_embedding_model(ctx)` | Reads `embedding_model` from config; falls back to `all-MiniLM-L6-v2` |
 | Venv encode | [`embeddings_index.embed_texts`](../plugin/embeddings/venv/embeddings_index.py) | Same shape as worker `result` dict; lazy `SentenceTransformer` cache per model name |
 | IPC transport | `run_code_in_user_venv` + fixed stub | `session_id=f"embeddings:{model_slug}"` reuses loaded model; **stub bypasses LLM sandbox**; timeout from `embeddings_worker_timeout_sec` (120 s) |
-| Whitelist | [`sandbox_imports.py`](../plugin/scripting/sandbox_imports.py) | `plugin.embeddings.venv.embeddings_index` allowed for stub import only |
+| Whitelist | [`sandbox.py`](../plugin/scripting/sandbox.py) | `plugin.embeddings.venv.embeddings_index` allowed for stub import only |
 
 **All of the above now ship in Phase B/C** — unified `corpus.db` + LangGraph ingest/search replace schema v1 `index.db`. Host-side batch encode during tests may still call `embedding_client.embed_texts`; index/search persist via [`embeddings_service.py`](../plugin/framework/client/embeddings_service.py) → [`embeddings_index`](../plugin/embeddings/venv/embeddings_index.py) → ingest/search/hybrid modules.
 
@@ -955,7 +955,7 @@ NumPy carries a heavy "tax" inside a LibreOffice `.oxt`:
 
 Two tiers. **Shipped today (Phase A):** local **`sentence-transformers`** in the configured venv only — via [`embedding_client.embed_texts`](../plugin/framework/client/embedding_client.py). **Tier two (not implemented):** OpenRouter / Together / Ollama HTTP when no venv.
 
-**Current dispatch:** `embedding_provider` must be `local` (default). Host calls `run_code_in_user_venv` with a fixed stub → [`embeddings_index.embed_texts`](../plugin/embeddings/venv/embeddings_index.py). Requires `scripting.python_venv_path` (or LO fallback interpreter) with `pip install sentence-transformers numpy sqlite-vec langgraph langchain-core langchain-text-splitters envwrap odfpy pandas openpyxl xlrd python-docx`.
+**Current dispatch:** `embedding_provider` must be `local` (default). Host calls `run_code_in_user_venv` with a fixed stub → [`embeddings_index.embed_texts`](../plugin/embeddings/venv/embeddings_index.py). Requires `scripting.python_venv_path` with `pip install sentence-transformers numpy sqlite-vec langgraph langchain-core langchain-text-splitters envwrap odfpy pandas openpyxl xlrd python-docx` (embeddings pool does not fall back to LibreOffice embedded Python).
 
 **Future dispatch (when HTTP ships):** if venv + local model → venv RPC; else if chat endpoint supports embeddings → HTTP; else prompt user to configure venv or API.
 

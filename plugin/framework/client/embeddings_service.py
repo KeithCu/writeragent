@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Callable
 
 from plugin.framework.client.embedding_client import _embedding_session_id
 from plugin.framework.constants import EMBEDDINGS_HEARTBEAT_GRACE_S, WORKER_POOL_EMBEDDINGS
@@ -115,10 +115,13 @@ def _run_worker_with_heartbeat(
     payload: dict[str, Any],
     *,
     model: str,
+    heartbeat_fn: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     timeout_sec = embeddings_worker_timeout_sec(ctx)
 
     def _on_heartbeat(hb: dict[str, Any]) -> None:
+        if heartbeat_fn:
+            heartbeat_fn(hb)
         log.debug("embeddings index heartbeat: %s", hb)
 
     response = run_code_in_user_venv(
@@ -152,8 +155,11 @@ def maintain_folder_index(
     model: str,
     mode: str = "auto",
     search_mode: str = "hybrid",
+    heartbeat_fn: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
-    """Run full folder corpus maintenance in the embeddings venv."""
+    """Run full folder corpus maintenance in the embeddings venv.
+    Optional heartbeat_fn will receive per‑file progress dicts.
+    """
     model_name = (model or "").strip()
     if not model_name:
         raise ToolExecutionError("No embedding model configured.", code="EMBEDDING_MODEL_MISSING")
@@ -167,6 +173,7 @@ def maintain_folder_index(
             "search_mode": str(search_mode or "hybrid"),
         },
         model=model_name or "corpus",
+        heartbeat_fn=heartbeat_fn,
     )
 
 

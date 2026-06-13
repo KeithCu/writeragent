@@ -31,7 +31,7 @@ from plugin.contrib.smolagents.local_python_executor import LocalPythonExecutor,
 from plugin.framework.tool import ToolBaseDummy
 from plugin.framework.errors import WriterAgentException
 from plugin.scripting.import_policy import format_inprocess_import_policy_for_prompt
-from plugin.scripting.sandbox_imports import CALC_AUTHORIZED_IMPORTS
+from plugin.scripting.sandbox import CALC_AUTHORIZED_IMPORTS
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.manipulator import CellManipulator
 from plugin.calc.inspector import CellInspector

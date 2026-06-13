@@ -119,23 +119,24 @@ def convert_legacy_to_odf(source_path: str, *, timeout_sec: int = 120) -> Path |
             )
             return None
 
-            expected_suffix = f".{filter_name}"
-            produced = sorted(Path(out_dir).glob(f"*{expected_suffix}"))
-            if not produced:
-                log.debug("legacy soffice convert produced no %s for %s", expected_suffix, source_path)
-                return None
+        # Successful conversion, process output file
+        expected_suffix = f".{filter_name}"
+        produced = sorted(Path(out_dir).glob(f"*{expected_suffix}"))
+        if not produced:
+            log.debug("legacy soffice convert produced no %s for %s", expected_suffix, source_path)
+            return None
 
-            # Move out of TemporaryDirectory so caller can read after context exits.
-            fd, dest_name = tempfile.mkstemp(prefix="writeragent-embed-", suffix=expected_suffix)
-            os.close(fd)
-            dest = Path(dest_name)
-            try:
-                shutil.move(str(produced[0]), dest)
-            except OSError:
-                log.debug("failed to move converted ODF for %s", source_path, exc_info=True)
-                dest.unlink(missing_ok=True)
-                return None
-            return dest
+        # Move out of TemporaryDirectory so caller can read after context exits.
+        fd, dest_name = tempfile.mkstemp(prefix="writeragent-embed-", suffix=expected_suffix)
+        os.close(fd)
+        dest = Path(dest_name)
+        try:
+            shutil.move(str(produced[0]), dest)
+        except OSError:
+            log.debug("failed to move converted ODF for %s", source_path, exc_info=True)
+            dest.unlink(missing_ok=True)
+            return None
+        return dest
 
 
 @contextmanager

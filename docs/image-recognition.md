@@ -257,7 +257,7 @@ result = _run(data["spec"], data.get("image"), data.get("context") or {})
 |------|--------|
 | [`document_scripts.py`](../plugin/scripting/document_scripts.py) | `SCRIPT_ORIGIN_VISION`, `VISION_SCRIPT_DISPLAY_PREFIX = "[Vision] "`, `_vision_script_section(doc)` gated on **`is_writer(doc)`**; wire `build_xdl_script_picker_state` / `build_scripts_list_message` / `resolve_script_picker_entry` |
 | [`python_runner.py`](../plugin/scripting/python_runner.py) | Before generic venv run: if `parse_vision_script_header(code)` → export bytes → `run_trusted_vision` → `insert_vision_result` (Writer or Calc) |
-| [`sandbox_imports.py`](../plugin/scripting/sandbox_imports.py) | Add `plugin.vision.venv.vision` |
+| [`sandbox.py`](../plugin/scripting/sandbox.py) | Add `plugin.vision.venv.vision` |
 | [`scripts_manager.js`](../plugin/contrib/scripting/assets/editor/scripts_manager.js) | `isBuiltInVision = currentOrigin === "vision"`; disable Attach like analysis |
 
 ### 4.4 Host image wire format

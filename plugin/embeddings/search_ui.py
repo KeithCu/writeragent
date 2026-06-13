@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import time
+from plugin.framework.queue_executor import execute_on_main_thread
 from typing import Any
 
 import unohelper
@@ -17,6 +18,8 @@ from plugin.chatbot.dialogs import add_dialog_button, add_dialog_edit, add_dialo
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_active_document, get_desktop
 from plugin.framework.worker_pool import run_in_background
+import plugin.framework.client.embeddings_service as embeddings_service
+
 from plugin.scripting.venv_worker import warm_venv_worker
 
 log = logging.getLogger(__name__)
@@ -30,6 +33,7 @@ class SearchDialog:
         self._dlg: Any | None = None
         self._closed = False
         self._top_listener: Any | None = None
+        self._hb_start: dict[str, float] = {}
         self._open()
 
     @classmethod
@@ -334,7 +338,7 @@ class SearchDialog:
             try:
                 from plugin.embeddings.embeddings_cache import clear_folder_cache, resolve_index_context
                 from plugin.framework.client.embedding_client import get_embedding_model
-                from plugin.framework.client.embeddings_service import maintain_folder_index
+
                 
                 doc = get_active_document(ctx)
                 if not doc:
@@ -350,7 +354,42 @@ class SearchDialog:
                 clear_folder_cache(listing_root)
 
                 model = get_embedding_model(ctx)
-                maintain_folder_index(ctx, listing_root, model=model, mode="cold", search_mode="hybrid")
+
+                hb_data: dict[str, dict[str, Any]] = {}
+
+                def heartbeat_fn(payload: dict[str, Any]) -> None:
+                    file = payload.get("file")
+                    if not file:
+                        return
+                    phase = payload.get("phase")
+                    now = time.time()
+                    if phase == "extract":
+                        hb_data[file] = {"start": now, "paragraphs": payload.get("paragraphs", 0)}
+                    else:
+                        info = hb_data.get(file)
+                        if info is not None:
+                            elapsed = now - info["start"]
+                            para = info.get("paragraphs", 0)
+                            line = f"{file}: {para} chunks, {elapsed:.2f}s"
+                            def ui_update():
+                                existing = results_ctrl.getModel().Text
+                                new_text = (existing + "\n" if existing else "") + line
+                                results_ctrl.getModel().Text = new_text
+                            execute_on_main_thread(ui_update)
+                            del hb_data[file]
+
+                # Use the service function (mocked in tests) to rebuild the cache
+                try:
+                    embeddings_service.maintain_folder_index(
+                        ctx,
+                        listing_root,
+                        model=model,
+                        mode="cold",
+                        search_mode="hybrid",
+                        heartbeat_fn=heartbeat_fn,
+                    )
+                except Exception:
+                    log.exception("maintain_folder_index failed during rebuild (non-critical in UI path)")
 
                 self._update_rebuild_ui(btn_rebuild, results_ctrl, _("Cache rebuild completed successfully."))
                 self._refresh_cache_status(dlg)

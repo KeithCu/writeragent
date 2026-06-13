@@ -33,7 +33,7 @@ This is the focused evolution of the high-level analysis ideas previously sketch
 - `plugin/calc/calc_addin_data.py` + `inspector.py`: Solid data extraction and shaping for Python (`read_range` → values, `pack_calc_data_for_wire`, NaN handling, size limits).
 - Python execution (the current "escape hatch" for real numpy work):
   - `plugin/calc/venv_python.py`: `RunVenvPythonScript` (`run_venv_python_script`, domain="python", `ToolCalcPythonBase`). Supports `code`, `data_range` (injected as `data`), or direct `data`. Uses `run_code_in_user_venv` + payload codec. Works cross-app via `specialized_cross_cutting`.
-  - Full scientific stack is already available in the user venv (as per `sandbox_imports.py`, `enabling_numpy_in_libreoffice.md`).
+  - Full scientific stack is already available in the user venv (as per `sandbox.py`, `enabling_numpy_in_libreoffice.md`).
 - Delegation & sub-agents:
   - `plugin/calc/specialized.py`: `DelegateToSpecializedCalc` (gateway, `delegate_to_specialized_calc_toolset`).
   - `plugin/calc/base.py`: Many `ToolCalc*Base` with `specialized_domain` (solvers, python, pivot_tables, charts, ranges, search, sheets, conditional_formatting, etc.).
@@ -246,7 +246,7 @@ Existing Calc analysis (Goal Seek/Solver in `calc-analysis-tools.md`) can be exp
 
 ### External code sources — planned FOSS replacements
 
-Phase 0 helpers in [`plugin/scripting/analysis.py`](../plugin/scripting/analysis.py) are **interim glue**: they prove the `spec` → trusted venv → compact result contract, but much of the logic is reimplemented in-house. **The plan is to replace those helpers with battle-tested FOSS implementations**—calling them from the user venv (pandas, SciPy, scikit-learn, statsmodels, and targeted packages below; see [`sandbox_imports.py`](../plugin/scripting/sandbox_imports.py)) or adapting their code where a dependency is too heavy. WriterAgent keeps the **wrapper layer** (coercion, size limits, LLM-friendly JSON); the numeric/EDA work moves to libraries that are already used in production everywhere.
+Phase 0 helpers in [`plugin/scripting/analysis.py`](../plugin/scripting/analysis.py) are **interim glue**: they prove the `spec` → trusted venv → compact result contract, but much of the logic is reimplemented in-house. **The plan is to replace those helpers with battle-tested FOSS implementations**—calling them from the user venv (pandas, SciPy, scikit-learn, statsmodels, and targeted packages below; see [`sandbox.py`](../plugin/scripting/sandbox.py)) or adapting their code where a dependency is too heavy. WriterAgent keeps the **wrapper layer** (coercion, size limits, LLM-friendly JSON); the numeric/EDA work moves to libraries that are already used in production everywhere.
 
 #### 1. Core foundation (pandas / SciPy / scikit-learn / statsmodels)
 
