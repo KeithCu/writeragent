@@ -88,7 +88,7 @@ def _template_body(helper: str, params: dict[str, Any]) -> str:
         f"{VIZ_HEADER_PREFIX} helper={helper} params={params_json}\n"  # nosec
         f"# {desc}\n"
         f"# Set the data range in the toolbar (or select cells), then Run.\n"
-        f"from plugin.scripting.viz import run_viz\n\n"
+        f"from writeragent.scripting.viz import run_viz\n\n"
         f"result = run_viz(\n"
         f'    {{"helper": "{helper}", "params": {params_json}}},\n'
         f"    data,\n"

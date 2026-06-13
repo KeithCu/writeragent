@@ -83,7 +83,7 @@ def _template_body(helper: str, params: dict[str, Any]) -> str:
         f"{MATH_HEADER_PREFIX} helper={helper} params={params_json}\n"  # nosec
         f"# {desc}\n"
         f"# Edit params above, then Run.\n"
-        f"from plugin.scripting.symbolic import run_symbolic\n\n"
+        f"from writeragent.scripting.symbolic import run_symbolic\n\n"
         f"result = run_symbolic(\n"
         f'    {{"helper": "{helper}", "params": {params_json}}},\n'
         f"    None,\n"

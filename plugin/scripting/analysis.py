@@ -132,7 +132,7 @@ def _template_body(helper: str, params: dict[str, Any]) -> str:
         f"{ANALYSIS_HEADER_PREFIX} helper={helper} params={params_json}\n"  # nosec
         f"# {desc}\n"
         f"# Set the data range in the toolbar (or select cells), then Run.\n"
-        f"from plugin.scripting.analysis import run_analysis\n\n"
+        f"from writeragent.scripting.analysis import run_analysis\n\n"
         f"result = run_analysis(\n"
         f'    {{"helper": "{helper}", "params": {params_json}}},\n'
         f"    data,\n"

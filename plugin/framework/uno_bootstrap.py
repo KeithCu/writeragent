@@ -15,7 +15,45 @@ duplicated (with slight variations) in several places.
 
 import os
 import sys
+import importlib.util
+from typing import Any
 
+
+import importlib.abc
+
+
+class AliasLoader(importlib.abc.Loader):
+    """Loader that returns the already loaded or newly imported real module."""
+    def __init__(self, real_name: str) -> None:
+        self.real_name = real_name
+
+    def create_module(self, spec: Any) -> Any:
+        import importlib
+        return importlib.import_module(self.real_name)
+
+    def exec_module(self, module: Any) -> None:
+        pass
+
+
+class AliasImporter:
+    """Import hook to dynamically map 'writeragent' and 'writeragent.*' imports to 'plugin' equivalents."""
+    def find_spec(self, fullname: str, path: Any = None, target: Any = None) -> Any:
+        if fullname == "writeragent" or fullname.startswith("writeragent."):
+            real_name = fullname.replace("writeragent", "plugin", 1)
+            try:
+                import importlib.machinery
+                return importlib.machinery.ModuleSpec(fullname, AliasLoader(real_name))
+            except Exception:
+                return None
+        return None
+
+
+def register_alias_importer() -> None:
+    """Register the AliasImporter hook at the start of sys.meta_path if not already registered."""
+    for finder in sys.meta_path:
+        if finder.__class__.__name__ == "AliasImporter":
+            return
+    sys.meta_path.insert(0, AliasImporter())
 
 
 def ensure_plugin_on_path(
@@ -26,6 +64,7 @@ def ensure_plugin_on_path(
     also_add_plugin_dir: bool = False,
     also_add_vendor: bool = False,
 ) -> str:
+    register_alias_importer()
     """
     Walk up from the caller's __file__ and add the extension root on sys.path.
 
