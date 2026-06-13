@@ -1509,7 +1509,7 @@ LlamaIndex’s [`QueryFusionRetriever`](https://developers.llamaindex.ai/python/
 | `num_queries=1` (shipped) | Single query → vector + FTS → RRF → rerank. **No query expansion.** |
 | `num_queries>1` (not shipped) | LLM generates extra queries → more retrieval passes → broader recall; needs a configured chat model, network (unless local LLM), and adds latency |
 
-Query expansion is a plausible future experiment (local Ollama + `num_queries=3`) but is **out of scope** for the current offline MVP. Enabling it would be a deliberate product change, not a side effect of turning on LlamaIndex mode.
+Query expansion is **not on the roadmap** — see [Deferred / low priority](#llamaindex-deferred) below. **Roadmap status: deferred / low priority.** Do not implement or recommend unless the user explicitly requests it. Higher-value LlamaIndex work is hierarchical retrieval, metadata, reranker presets, and sub-question retrieval — see [LlamaIndex roadmap](#llamaindex-roadmap).
 
 ### Pluses & Minuses
 
@@ -1556,8 +1556,7 @@ These unblock measurement and day-to-day use. Without them, LlamaIndex mode is h
 |---|------|-----|--------------|
 | 1 | **Eval parity** — `--backend hybrid\|llama_index` on [`eval_folder_search_routing.py`](../scripts/eval_folder_search_routing.py) and [`search_embeddings_folder.py`](../scripts/search_embeddings_folder.py); A/B on a fixed folder (e.g. `~/Desktop/Writing`); publish hit-rate / MRR table in this doc | Decide keep vs drop with data, not intuition | [`embeddings_hybrid_search.py`](../plugin/embeddings/venv/embeddings_hybrid_search.py), [`embeddings_llama_index.py`](../plugin/embeddings/venv/embeddings_llama_index.py) |
 | 2 | **Ops gaps** — [`search_ui.py`](../plugin/embeddings/search_ui.py) cache rebuild honors `embeddings.folder_search_mode` (today hardcodes `hybrid`); venv bootstrap docs for `llama-index-core` + cross-encoder weights; optional CI tests when package is present in dev venv | Same Settings path everywhere; fewer “works in eval, broken in UI” surprises | [`embeddings_service.py`](../plugin/framework/client/embeddings_service.py), [`module.yaml`](../plugin/embeddings/module.yaml) |
-| 3 | **Query expansion experiment** — optional `num_queries>1` + local chat model (Ollama); measure recall on vague / short queries vs `num_queries=1` | Validates the main LlamaIndex-only recall lever before productizing | [Query expansion](#llamaindex-query-expansion), `build_writer_agent_hybrid_retriever` |
-| 4 | **Settings / UX** (if eval keeps LlamaIndex) — rerank on/off, rerank model id, `num_queries`; clarify copy that `use_mmr` on the search RPC means **cross-encoder rerank** on LlamaIndex path, **MMR diversity** on hybrid path | Users can tune quality vs latency without code changes | [`module.yaml`](../plugin/embeddings/module.yaml), [`embeddings_service.py`](../plugin/framework/client/embeddings_service.py) |
+| 3 | **Settings / UX** (if eval keeps LlamaIndex) — rerank on/off, rerank model id; clarify copy that `use_mmr` on the search RPC means **cross-encoder rerank** on LlamaIndex path, **MMR diversity** on hybrid path | Users can tune quality vs latency without code changes | [`module.yaml`](../plugin/embeddings/module.yaml), [`embeddings_service.py`](../plugin/framework/client/embeddings_service.py) |
 
 **Phase 1 exit criteria:** measured A/B table for hybrid vs llama_index on a labeled query set; no hardcoded `hybrid` bypasses in search UI or indexer routing; documented venv install for LlamaIndex mode.
 
@@ -1580,14 +1579,13 @@ These are the reasons to **keep** LlamaIndex after Phase 1 — not re-implementi
 |---|-----------|--------|----------------------------|
 | B1 | **Dedicated “folder QA” query engine** | document_research sub-agent gets a **synthesized brief + cited `doc_url`s** instead of raw snippet lists for the main chat model to re-read | [`RetrieverQueryEngine`](https://developers.llamaindex.ai/python/framework/module_guides/deploying/query_engine/) over folder retriever + response synthesizer |
 | B2 | **Router retriever by document kind** | Different retrieval mixes for Writer prose vs Calc tables vs Impress slides (FTS weight, chunk size, metadata filters) | [`RouterRetriever`](https://developers.llamaindex.ai/python/examples/query_engine/RouterQueryEngine/) / tool-style routing by `metadata["doc_kind"]` |
-| B3 | **Production query expansion** | After Phase 1 experiment: Settings for `num_queries`, local Ollama vs sidebar model, latency/privacy guardrails — **main LlamaIndex-only recall lever** hybrid does not have | [`QueryFusionRetriever`](https://developers.llamaindex.ai/python/framework/integrations/retrievers/reciprocal_rerank_fusion/) with `num_queries>1` |
 
 ##### Tier C — Ops, scale, and ecosystem
 
 | # | Advantage | Payoff | LlamaIndex building blocks |
 |---|-----------|--------|----------------------------|
 | C1 | **Ingestion pipeline with transform cache** | Faster incremental folder refresh; declarative split → metadata → embed; less duplicate custom ingest logic over time | [`IngestionPipeline`](https://developers.llamaindex.ai/python/framework/module_guides/loading/ingestion_pipeline/) + cache keyed by chunk hash |
-| C2 | **Eval harness as LlamaIndex lab** | Same `corpus.db`, swap **presets** (hybrid-RRF, li-RRF+rerank, li+expansion, li+hierarchical) without rewriting SQL | Preset configs in eval scripts; compare on fixed query suite |
+| C2 | **Eval harness as LlamaIndex lab** | Same `corpus.db`, swap **presets** (hybrid-RRF, li-RRF+rerank, li+hierarchical) without rewriting SQL | Preset configs in eval scripts; compare on fixed query suite |
 | C3 | **Interop / community path** | Homelab users reuse WriterAgent as **LO extract + SQLite storage** while owning retrieval composition externally | Document adapter boundary (`WriterAgentVectorStore`, `WriterAgentFTSRetriever`); see [community integration strategy](../community_integration_strategy.md) |
 
 ##### Tier D — Only if eval proves clear wins
@@ -1597,13 +1595,19 @@ These are the reasons to **keep** LlamaIndex after Phase 1 — not re-implementi
 | D1 | **Replace custom `hybrid` as default** | One retrieval stack to maintain; `hybrid` becomes alias or deprecated if LlamaIndex ≥ hybrid on labeled sets |
 | D2 | **Multi-folder / scoped collections** | Project subfolder or “siblings of active file only” via metadata-scoped retrievers or multiple logical indexes |
 
+##### Deferred / low priority (do not recommend unless user explicitly asks) {#llamaindex-deferred}
+
+| Item | Status |
+|------|--------|
+| **LLM query expansion** (`QueryFusionRetriever` `num_queries>1`) | **Deferred.** Requires chat LLM during retrieval (latency, privacy, offline complexity). Not on Phase 1 or Phase 2 roadmap. Prefer A1–A4, B1–B2, C* first. See [Query expansion](#llamaindex-query-expansion) for what LlamaIndex supports and why WriterAgent keeps `num_queries=1`. |
+
 ##### Suggested order after Phase 1
 
 | Step | Focus | Rationale |
 |------|-------|-----------|
 | 1 | **A2 metadata on ingest** → **A4 reranker presets** | Cheap quality lift; feeds later routing and filters |
 | 2 | **A1 hierarchical retrieval** | Largest UX win for snippet context |
-| 3 | **B3 query expansion** (or **A3 sub-questions**) | If eval shows recall gaps on short/vague queries |
+| 3 | **A3 sub-questions** | Only if eval shows recall gaps on complex multi-part queries |
 | 4 | **B1 folder QA tool** | Agent-facing; retrieval quality must be stable first |
 | 5 | **C1 ingest cache**, **C3 interop**, **D1 default flip** | Ops and consolidation once presets prove value |
 
@@ -1614,6 +1618,7 @@ These are the reasons to **keep** LlamaIndex after Phase 1 — not re-implementi
 - Swapping in upstream sqlite-vec `VectorStore` wholesale — our SQLite layer stays the storage adapter boundary.
 - Re-adding hybrid-only hacks in LlamaIndex mode (per-doc hit caps, custom MMR postprocessor mirroring [`embeddings_hybrid_search.py`](../plugin/embeddings/venv/embeddings_hybrid_search.py)).
 - Running a full LlamaIndex query engine on **every main-chat send** — retrieval stays in the venv worker; the sidebar chat LLM remains downstream of tool hits.
+- LLM query expansion during retrieval (`num_queries>1`) — **deferred**, not a non-goal; see [Deferred / low priority](#llamaindex-deferred).
 
 ---
 

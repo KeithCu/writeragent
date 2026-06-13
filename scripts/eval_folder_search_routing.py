@@ -164,16 +164,32 @@ def run_search_leg(
     k: int,
     near_slop: int,
     use_mmr: bool,
+    backend: str = "hybrid",
+    doc_url_filter: str | None = None,
 ) -> dict[str, Any]:
     if leg == "hybrid":
-        return hybrid_search(
-            str(db_path),
-            query,
-            k,
-            model_name=model_name,
-            near_slop=near_slop,
-            use_mmr=use_mmr,
-        )
+        if backend == "llama_index":
+            # Use LlamaIndex hybrid search instead of default embeddings hybrid
+            from plugin.embeddings.venv.embeddings_llama_index import llama_index_hybrid_search
+            return llama_index_hybrid_search(
+                str(db_path),
+                query,
+                k,
+                model_name=model_name,
+                near_slop=near_slop,
+                doc_url_filter=doc_url_filter,
+                use_mmr=use_mmr,
+            )
+        else:
+            return hybrid_search(
+                str(db_path),
+                query,
+                k,
+                model_name=model_name,
+                near_slop=near_slop,
+                doc_url_filter=doc_url_filter,
+                use_mmr=use_mmr,
+            )
     if leg == "vec":
         return knn_search(str(db_path), query, k, model_name=model_name)
     return search_folder_fts(str(db_path), query, k=k, near_slop=near_slop)
@@ -188,6 +204,7 @@ def evaluate_query(
     near_slop: int,
     use_mmr: bool,
     legs: tuple[Literal["hybrid", "fts", "vec"], ...],
+    backend: str = "hybrid",
 ) -> dict[str, Any]:
     row: dict[str, Any] = {
         "query": labeled.query,
@@ -206,6 +223,7 @@ def evaluate_query(
                 k=k,
                 near_slop=near_slop,
                 use_mmr=use_mmr,
+                backend=backend,
             )
         except ImportError as exc:
             raise EvalRoutingError(
@@ -311,6 +329,7 @@ def run_eval(
     model: str | None = None,
     use_mmr: bool = True,
     query_set: QuerySetName | None = None,
+    backend: str = "hybrid",
 ) -> dict[str, Any]:
     listing_root, db_path, meta_path, default_model = _preflight(folder)
     model_name = model or default_model
@@ -339,6 +358,7 @@ def run_eval(
             near_slop=near_slop,
             use_mmr=use_mmr,
             legs=legs,
+            backend=backend,
         )
         for labeled in queries
     ]
@@ -415,6 +435,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Eval top-1 file routing on labeled folder search queries")
     parser.add_argument("--folder", type=Path, default=DEFAULT_FOLDER, help=f"Document folder (default: {DEFAULT_FOLDER})")
     parser.add_argument(
+        "--backend",
+        choices=("hybrid", "llama_index"),
+        default="hybrid",
+        help="Backend to evaluate (default hybrid).",
+    )
+    parser.add_argument(
         "--mode",
         choices=("hybrid", "fts", "vec", "all"),
         default="all",
@@ -441,6 +467,7 @@ def main(argv: list[str] | None = None) -> int:
             model=args.model,
             use_mmr=not args.no_mmr,
             query_set=args.query_set,
+            backend=args.backend,
         )
     except EvalRoutingError as exc:
         print(str(exc), file=sys.stderr)

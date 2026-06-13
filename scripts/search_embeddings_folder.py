@@ -34,6 +34,7 @@ from plugin.embeddings.embeddings_cache import (  # noqa: E402
 )
 from plugin.embeddings.folder_fts_cache import fts_db_path, fts_index_is_empty, fts_meta_path  # noqa: E402
 from plugin.embeddings.venv.embeddings_index import EMBEDDINGS_VENV_PIP_INSTALL, hybrid_search, knn_search  # noqa: E402
+from plugin.embeddings.venv.embeddings_llama_index import llama_index_hybrid_search  # noqa: E402
 from plugin.embeddings.venv.folder_fts import search_folder_fts  # noqa: E402
 
 DEFAULT_FOLDER = Path("~/Desktop/Writing")
@@ -271,6 +272,12 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Vector semantic leg only (debug)",
     )
+    parser.add_argument(
+        "--backend",
+        choices=("hybrid", "llama_index"),
+        default="hybrid",
+        help="Backend to use for hybrid search (default hybrid).",
+    )
     parser.add_argument("query", help="Natural-language or keyword query")
     parser.add_argument(
         "--folder",
@@ -322,14 +329,26 @@ def main(argv: list[str] | None = None) -> int:
                 doc_url=args.doc_url,
             )
         else:
-            result = search_folder(
-                args.folder,
-                args.query,
-                k=args.k,
-                model=args.model,
-                doc_url=args.doc_url,
-                near_slop=args.near_slop,
-            )
+            if args.backend == "llama_index":
+                # Use LlamaIndex hybrid backend instead of default embeddings hybrid
+                result = llama_index_hybrid_search(
+                    str(corpus_db_path(str(args.folder.expanduser().resolve()), create_parent=False)),
+                    args.query,
+                    args.k,
+                    model_name=args.model,
+                    near_slop=args.near_slop,
+                    doc_url_filter=args.doc_url,
+                    use_mmr=True,
+                )
+            else:
+                result = search_folder(
+                    args.folder,
+                    args.query,
+                    k=args.k,
+                    model=args.model,
+                    doc_url=args.doc_url,
+                    near_slop=args.near_slop,
+                )
     except SearchFolderError as exc:
         print(str(exc), file=sys.stderr)
         return 2 if "query is required" in str(exc) else 1
