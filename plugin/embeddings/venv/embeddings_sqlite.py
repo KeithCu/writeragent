@@ -30,6 +30,19 @@ CREATE TABLE IF NOT EXISTS chunks (
     body TEXT NOT NULL,
     UNIQUE(doc_url, para_index, char_start, char_end, content_hash)
 );
+
+CREATE TABLE IF NOT EXISTS indexed_files (
+    doc_url TEXT PRIMARY KEY,
+    file_mtime REAL NOT NULL DEFAULT 0,
+    last_indexed_at REAL NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS indexed_paragraphs (
+    doc_url TEXT NOT NULL,
+    para_index INTEGER NOT NULL,
+    content_hash TEXT NOT NULL,
+    PRIMARY KEY (doc_url, para_index)
+);
 """
 
 _FTS_DDL = """
@@ -445,15 +458,154 @@ def load_embeddings_for_candidates(
             cand["embedding"] = np.asarray(raw, dtype=np.float32)
 
 
+def get_file_index_info(conn: sqlite3.Connection, doc_url: str) -> dict[str, float | int]:
+    """Return stored file_mtime, last_indexed_at, and indexed paragraph count."""
+    doc_url = str(doc_url or "")
+    row = conn.execute(
+        "SELECT file_mtime, last_indexed_at FROM indexed_files WHERE doc_url = ?",
+        (doc_url,),
+    ).fetchone()
+    para_row = conn.execute(
+        "SELECT COUNT(*) AS c FROM indexed_paragraphs WHERE doc_url = ?",
+        (doc_url,),
+    ).fetchone()
+    para_count = int(para_row["c"] if para_row else 0)
+    if row is None:
+        return {"file_mtime": 0.0, "last_indexed_at": 0.0, "chunk_count": para_count}
+    return {
+        "file_mtime": float(row["file_mtime"] or 0.0),
+        "last_indexed_at": float(row["last_indexed_at"] or 0.0),
+        "chunk_count": para_count,
+    }
+
+
+def file_is_stale_in_db(conn: sqlite3.Connection, doc_url: str, file_mtime: float) -> bool:
+    """True when filesystem mtime is newer than last indexed timestamp."""
+    info = get_file_index_info(conn, doc_url)
+    if info["chunk_count"] == 0:
+        return True
+    return float(file_mtime) > float(info["last_indexed_at"])
+
+
+def mark_file_indexed_in_db(
+    conn: sqlite3.Connection,
+    doc_url: str,
+    file_mtime: float,
+    *,
+    indexed_at: float,
+    paragraphs: dict[str, str] | None = None,
+) -> None:
+    """Advance file timestamps and optionally replace paragraph content hashes."""
+    doc_url = str(doc_url or "")
+    conn.execute(
+        """
+        INSERT INTO indexed_files (doc_url, file_mtime, last_indexed_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(doc_url) DO UPDATE SET
+            file_mtime = excluded.file_mtime,
+            last_indexed_at = excluded.last_indexed_at
+        """,
+        (doc_url, float(file_mtime), float(indexed_at)),
+    )
+    if paragraphs is None:
+        conn.commit()
+        return
+    conn.execute("DELETE FROM indexed_paragraphs WHERE doc_url = ?", (doc_url,))
+    for para_key, para_hash in paragraphs.items():
+        try:
+            para_index = int(para_key)
+        except (TypeError, ValueError):
+            continue
+        conn.execute(
+            """
+            INSERT INTO indexed_paragraphs (doc_url, para_index, content_hash)
+            VALUES (?, ?, ?)
+            """,
+            (doc_url, para_index, str(para_hash)),
+        )
+    conn.commit()
+
+
+def diff_paragraph_rows_in_db(
+    conn: sqlite3.Connection,
+    chunks: list[Any],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Return (rows_to_index, keys_to_delete) comparing extracted chunks to DB state."""
+    from plugin.embeddings.embeddings_fs import ParagraphChunk, chunk_to_index_row
+
+    to_index: list[dict[str, Any]] = []
+    seen: set[tuple[str, int]] = set()
+
+    stored_by_para: dict[int, str] = {}
+    if chunks:
+        doc_url = str(chunks[0].doc_url if isinstance(chunks[0], ParagraphChunk) else "")
+        if doc_url:
+            rows = conn.execute(
+                "SELECT para_index, content_hash FROM indexed_paragraphs WHERE doc_url = ?",
+                (doc_url,),
+            ).fetchall()
+            stored_by_para = {int(row["para_index"]): str(row["content_hash"] or "") for row in rows}
+
+    for chunk in chunks:
+        if not isinstance(chunk, ParagraphChunk):
+            continue
+        key = (chunk.doc_url, chunk.para_index)
+        seen.add(key)
+        stored_hash = stored_by_para.get(chunk.para_index, "")
+        if stored_hash == chunk.content_hash:
+            continue
+        to_index.append(chunk_to_index_row(chunk))
+
+    if not chunks:
+        return to_index, []
+
+    doc_url = chunks[0].doc_url
+    to_delete: list[dict[str, Any]] = []
+    for para_index in stored_by_para:
+        if (doc_url, para_index) not in seen:
+            to_delete.append({"doc_url": doc_url, "para_index": para_index})
+
+    return to_index, to_delete
+
+
+def sync_file_paragraph_state_in_db(
+    conn: sqlite3.Connection,
+    doc_url: str,
+    chunks: list[Any],
+    file_mtime: float,
+    *,
+    indexed_at: float,
+) -> None:
+    """Update paragraph hashes after a successful index pass."""
+    from plugin.embeddings.embeddings_fs import ParagraphChunk
+
+    paragraphs: dict[str, str] = {}
+    for chunk in chunks:
+        if isinstance(chunk, ParagraphChunk):
+            paragraphs[str(chunk.para_index)] = chunk.content_hash
+    mark_file_indexed_in_db(
+        conn,
+        doc_url,
+        file_mtime,
+        indexed_at=indexed_at,
+        paragraphs=paragraphs,
+    )
+
+
 __all__ = [
     "connect_corpus_db",
     "corpus_chunk_count",
     "delete_by_doc_para",
     "delete_paragraph_keys",
+    "diff_paragraph_rows_in_db",
     "ensure_schema",
+    "file_is_stale_in_db",
     "fts_corpus_search",
+    "get_file_index_info",
     "insert_paragraph_rows",
     "load_embeddings_for_candidates",
+    "mark_file_indexed_in_db",
+    "sync_file_paragraph_state_in_db",
     "upsert_chunk_with_vector",
     "vec0_search",
 ]

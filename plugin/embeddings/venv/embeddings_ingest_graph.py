@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 from typing import Any, NotRequired, TypedDict
 
-from plugin.framework.constants import EMBEDDINGS_SCHEMA_VERSION as SCHEMA_VERSION
+from plugin.framework.constants import EMBEDDINGS_INGEST_BATCH_SIZE, EMBEDDINGS_SCHEMA_VERSION as SCHEMA_VERSION
 from plugin.embeddings.venv.embeddings_index import EMBEDDINGS_VENV_PIP_INSTALL, embed_texts
 from plugin.embeddings.venv.embeddings_sqlite import (
     connect_corpus_db,
@@ -42,7 +42,6 @@ class IngestState(TypedDict):
     delete_keys: NotRequired[list[dict[str, Any]]]
     documents: NotRequired[list[Any]]
     chunks: NotRequired[list[dict[str, Any]]]
-    vectors: NotRequired[list[list[float]]]
     upserted: NotRequired[int]
     dim: NotRequired[int]
 
@@ -145,7 +144,7 @@ def delete_stale(state: IngestState) -> dict[str, Any]:
     build_fts = bool(state.get("build_fts"))
     build_vectors = bool(state.get("build_vectors"))
     dim = _dim_from_meta_path(str(state.get("meta_path") or ""))
-    # Cold build: embedding dim is unknown until embed_chunks runs; upsert_corpus creates vec_chunks.
+    # Cold build: embedding dim is unknown until embed runs; upsert creates vec_chunks.
     with_vec = build_vectors and dim is not None
     conn = connect_corpus_db(str(state["db_path"]))
     try:
@@ -176,52 +175,68 @@ def delete_stale(state: IngestState) -> dict[str, Any]:
     return {}
 
 
-def embed_chunks(state: IngestState) -> dict[str, Any]:
-    if not state.get("build_vectors"):
-        return {"vectors": [], "dim": 0}
-    chunks = state.get("chunks") or []
-    if not chunks:
-        return {"vectors": [], "dim": 0}
-    texts = [str(c.get("text") or "") for c in chunks]
-    encoded = embed_texts(str(state.get("model") or ""), texts)
-    return {"vectors": encoded.get("vectors") or [], "dim": int(encoded.get("dim") or 0)}
-
-
-def upsert_corpus(state: IngestState) -> dict[str, Any]:
+def embed_and_upsert_batches(state: IngestState) -> dict[str, Any]:
+    """Embed and upsert sub-chunks in fixed-size windows to bound RAM and CPU spikes."""
     build_fts = bool(state.get("build_fts"))
     build_vectors = bool(state.get("build_vectors"))
     chunks = state.get("chunks") or []
-    vectors = state.get("vectors") or []
     model = str(state.get("model") or "")
-    dim = int(state.get("dim") or 0)
+    batch_size = max(1, EMBEDDINGS_INGEST_BATCH_SIZE)
 
     conn = connect_corpus_db(str(state["db_path"]))
     try:
-        schema_dim = dim if dim > 0 else _dim_from_meta_path(str(state.get("meta_path") or ""))
-        ensure_schema(conn, dim=schema_dim, with_fts=build_fts, with_vec=build_vectors)
+        schema_dim = _dim_from_meta_path(str(state.get("meta_path") or ""))
+        with_vec = build_vectors and schema_dim is not None
+        ensure_schema(conn, dim=schema_dim, with_fts=build_fts, with_vec=with_vec)
 
-        if not chunks or (build_vectors and not vectors):
+        if not chunks:
             count = corpus_chunk_count(conn)
-            _write_meta(state, chunk_count_override=count, dim=dim)
-            return {"upserted": 0}
+            _write_meta(state, chunk_count_override=count, dim=0)
+            return {"upserted": 0, "dim": 0}
 
         upserted = 0
-        for chunk, vec in zip(chunks, vectors if build_vectors else [[] for _ in chunks]):
-            if build_vectors and not vec:
-                continue
-            upsert_chunk_with_vector(
-                conn,
-                chunk,
-                vec if build_vectors else [],
-                model=model,
-                with_fts=build_fts,
-                with_vec=build_vectors,
+        dim = 0
+        total_batches = (len(chunks) + batch_size - 1) // batch_size
+
+        for batch_index, start in enumerate(range(0, len(chunks), batch_size)):
+            window = chunks[start : start + batch_size]
+            vectors: list[list[float]] = [[] for _ in window]
+
+            if build_vectors:
+                texts = [str(c.get("text") or "") for c in window]
+                encoded = embed_texts(model, texts, encode_batch_size=batch_size)
+                dim = int(encoded.get("dim") or dim)
+                vectors = encoded.get("vectors") or []
+                if schema_dim is None and dim > 0:
+                    ensure_schema(conn, dim=dim, with_fts=build_fts, with_vec=True)
+                    schema_dim = dim
+                    with_vec = True
+
+            for chunk, vec in zip(window, vectors if build_vectors else [[] for _ in window]):
+                if build_vectors and not vec:
+                    continue
+                upsert_chunk_with_vector(
+                    conn,
+                    chunk,
+                    vec if build_vectors else [],
+                    model=model,
+                    with_fts=build_fts,
+                    with_vec=with_vec if build_vectors else False,
+                )
+                upserted += 1
+
+            conn.commit()
+            count = corpus_chunk_count(conn)
+            _write_meta(state, chunk_count_override=count, dim=dim)
+            log.debug(
+                "ingest batch %s/%s upserted=%s row_count=%s",
+                batch_index + 1,
+                total_batches,
+                len(window),
+                count,
             )
-            upserted += 1
-        conn.commit()
-        count = corpus_chunk_count(conn)
-        _write_meta(state, chunk_count_override=count, dim=dim)
-        return {"upserted": upserted}
+
+        return {"upserted": upserted, "dim": dim}
     finally:
         conn.close()
 
@@ -251,14 +266,12 @@ def _build_ingest_graph() -> Any:
     graph.add_node("rows_to_documents", rows_to_documents)
     graph.add_node("split_chunks", split_chunks)
     graph.add_node("delete_stale", delete_stale)
-    graph.add_node("embed_chunks", embed_chunks)
-    graph.add_node("upsert_corpus", upsert_corpus)
+    graph.add_node("embed_and_upsert_batches", embed_and_upsert_batches)
     graph.add_edge(lg.START, "rows_to_documents")
     graph.add_edge("rows_to_documents", "split_chunks")
     graph.add_edge("split_chunks", "delete_stale")
-    graph.add_edge("delete_stale", "embed_chunks")
-    graph.add_edge("embed_chunks", "upsert_corpus")
-    graph.add_edge("upsert_corpus", lg.END)
+    graph.add_edge("delete_stale", "embed_and_upsert_batches")
+    graph.add_edge("embed_and_upsert_batches", lg.END)
     return graph.compile()
 
 
@@ -304,4 +317,4 @@ def ingest_paragraphs(
     return {"indexed": upserted, "dim": dim, "storage_backend": "sqlite_vec"}
 
 
-__all__ = ["CHUNK_SIZE", "CHUNK_OVERLAP", "ingest_paragraphs"]
+__all__ = ["CHUNK_SIZE", "CHUNK_OVERLAP", "embed_and_upsert_batches", "ingest_paragraphs"]

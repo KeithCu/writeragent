@@ -55,9 +55,17 @@ def _l2_normalize_rows(matrix: Any) -> Any:
     return matrix / norms
 
 
-def embed_texts(model_name: str, texts: list[str], *, normalize: bool = True) -> dict[str, Any]:
+def embed_texts(
+    model_name: str,
+    texts: list[str],
+    *,
+    normalize: bool = True,
+    encode_batch_size: int | None = None,
+) -> dict[str, Any]:
     """Batch-encode *texts* with a lazily loaded SentenceTransformer."""
     import numpy as np
+
+    from plugin.framework.constants import EMBEDDINGS_INGEST_BATCH_SIZE
 
     model = (model_name or "").strip()
     if not model:
@@ -80,8 +88,16 @@ def embed_texts(model_name: str, texts: list[str], *, normalize: bool = True) ->
     if not valid_texts:
         return {"model": model, "dim": 0, "vectors": [], "indices": []}
 
+    st_batch = encode_batch_size if encode_batch_size is not None else EMBEDDINGS_INGEST_BATCH_SIZE
+    st_batch = max(1, min(st_batch, len(valid_texts)))
+
     embedder = _get_embedder(model)
-    batch = embedder.encode(valid_texts, convert_to_tensor=False, show_progress_bar=False)
+    batch = embedder.encode(
+        valid_texts,
+        batch_size=st_batch,
+        convert_to_tensor=False,
+        show_progress_bar=False,
+    )
     matrix = np.stack(batch).astype(np.float32)
     if normalize:
         matrix = _l2_normalize_rows(matrix)

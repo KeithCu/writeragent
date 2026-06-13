@@ -16,7 +16,6 @@ from plugin.embeddings.embeddings_cache import (
     corpus_meta_path,
     diff_paragraph_rows,
     ensure_corpus_meta,
-    file_index_state_path,
     file_is_stale,
     index_is_empty,
     mark_file_indexed,
@@ -164,41 +163,48 @@ def _cold_build(
     clear_folder_cache(listing_root)
     if build_vectors:
         ensure_corpus_meta(corpus_meta_path(listing_root), embedding_model=embedding_model)
-    all_rows: list[dict[str, Any]] = []
-    file_chunks: dict[str, list[ParagraphChunk]] = {}
+    db_path = corpus_db_path(listing_root)
+    indexed = 0
+    upserted = 0
     total = len(files)
 
     for index, entry in enumerate(files):
         hb.force({"phase": "extract", "file": entry.name, "index": index, "total": total, "mode": "cold"})
         chunks = paragraph_chunks_from_path(entry.path, doc_url=entry.url, file_mtime=entry.modified)
-        file_chunks[entry.url] = chunks
-        for chunk in chunks:
-            all_rows.append(chunk_to_index_row(chunk))
+        rows = [chunk_to_index_row(chunk) for chunk in chunks]
         hb.ping({"phase": "extract", "file": entry.name, "paragraphs": len(chunks)})
+        if not rows:
+            sync_file_paragraph_state(db_path, entry.url, chunks, entry.modified)
+            continue
+        phase = "embed" if build_vectors else "index"
+        hb.force({"phase": phase, "file": entry.name, "paragraphs": len(rows), "mode": "cold"})
+        result = _ingest_rows(
+            listing_root,
+            embedding_model,
+            rows,
+            build_fts=build_fts,
+            build_vectors=build_vectors,
+        )
+        sync_file_paragraph_state(db_path, entry.url, chunks, entry.modified)
+        indexed += len(rows)
+        upserted += int(result.get("upserted") or result.get("indexed") or 0)
 
-    if not all_rows:
-        _write_row_count_meta(listing_root, 0, embedding_model=embedding_model)
-        return {"mode": "cold", "indexed_paragraphs": 0, "files": total}
-
-    phase = "embed" if build_vectors else "index"
-    hb.force({"phase": phase, "paragraphs": len(all_rows), "mode": "cold"})
-    result = _ingest_rows(
-        listing_root,
-        embedding_model,
-        all_rows,
-        build_fts=build_fts,
-        build_vectors=build_vectors,
-    )
-    state_path = file_index_state_path(listing_root)
-    for entry in files:
-        sync_file_paragraph_state(state_path, entry.url, file_chunks.get(entry.url, []), entry.modified)
+    db_path = corpus_db_path(listing_root, create_parent=False)
+    row_count = 0
+    if db_path.is_file():
+        conn = connect_corpus_db(db_path)
+        try:
+            row_count = corpus_chunk_count(conn)
+        finally:
+            conn.close()
+    _write_row_count_meta(listing_root, row_count, embedding_model=embedding_model)
 
     return {
         "mode": "cold",
-        "indexed_paragraphs": len(all_rows),
+        "indexed_paragraphs": indexed,
         "files": total,
-        "upserted": int(result.get("upserted") or result.get("indexed") or 0),
-        "row_count": len(all_rows),
+        "upserted": upserted,
+        "row_count": row_count,
     }
 
 
@@ -211,7 +217,7 @@ def _incremental_refresh(
     build_fts: bool,
     build_vectors: bool,
 ) -> dict[str, Any]:
-    state_path = file_index_state_path(listing_root)
+    db_path = corpus_db_path(listing_root)
     indexed = 0
     deleted = 0
     files_touched = 0
@@ -219,11 +225,11 @@ def _incremental_refresh(
 
     for index, entry in enumerate(files):
         hb.ping({"phase": "scan", "file": entry.name, "index": index, "total": total})
-        if not file_is_stale(state_path, entry.url, entry.modified):
+        if not file_is_stale(db_path, entry.url, entry.modified):
             continue
         hb.force({"phase": "extract", "file": entry.name, "index": index, "total": total, "mode": "incremental"})
         chunks = paragraph_chunks_from_path(entry.path, doc_url=entry.url, file_mtime=entry.modified)
-        to_index, to_delete = diff_paragraph_rows(state_path, chunks)
+        to_index, to_delete = diff_paragraph_rows(db_path, chunks)
         if to_delete:
             hb.force({"phase": "delete", "file": entry.name, "keys": len(to_delete)})
             _ingest_rows(
@@ -245,17 +251,17 @@ def _incremental_refresh(
                 build_fts=build_fts,
                 build_vectors=build_vectors,
             )
-            sync_file_paragraph_state(state_path, entry.url, chunks, entry.modified)
+            sync_file_paragraph_state(db_path, entry.url, chunks, entry.modified)
             indexed += len(to_index)
             files_touched += 1
         elif not to_delete:
-            mark_file_indexed(state_path, entry.url, entry.modified)
+            mark_file_indexed(db_path, entry.url, entry.modified)
             files_touched += 1
 
-    db_path = corpus_db_path(listing_root, create_parent=False)
+    db_path_final = corpus_db_path(listing_root, create_parent=False)
     row_count = 0
-    if db_path.is_file():
-        conn = connect_corpus_db(db_path)
+    if db_path_final.is_file():
+        conn = connect_corpus_db(db_path_final)
         try:
             row_count = corpus_chunk_count(conn)
         finally:

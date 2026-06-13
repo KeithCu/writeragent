@@ -101,7 +101,7 @@ def test_remove_legacy_index_db(tmp_path):
 
 
 def test_file_index_state_and_diff(tmp_path):
-    state_path = tmp_path / "file_index_state.json"
+    db_path = tmp_path / "corpus.db"
     chunk = ParagraphChunk(
         doc_url="file:///a.odt",
         para_index=0,
@@ -112,11 +112,11 @@ def test_file_index_state_and_diff(tmp_path):
         file_mtime=1.0,
     )
     embeddings_cache.mark_file_indexed(
-        state_path,
+        db_path,
         "file:///a.odt",
         50.0,
         paragraphs={"0": content_hash("old"), "2": content_hash("gone")},
     )
-    to_index, to_delete = embeddings_cache.diff_paragraph_rows(state_path, [chunk])
+    to_index, to_delete = embeddings_cache.diff_paragraph_rows(db_path, [chunk])
     assert len(to_index) == 1
     assert to_delete == [{"doc_url": "file:///a.odt", "para_index": 2}]

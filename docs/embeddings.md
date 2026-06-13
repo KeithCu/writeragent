@@ -1,6 +1,6 @@
 # Embeddings — Development Plan
 
-> **Status (2026-06):** **Unified corpus.db + sqlite-vec (schema v3)** — per-folder **`corpus.db`** (chunks + FTS5 external content + vec0) + `corpus_meta.json` / `file_index_state.json` beside documents ([`embeddings_cache.py`](../plugin/embeddings/embeddings_cache.py)). LangGraph ingest/search graphs unchanged; storage nodes use [`embeddings_sqlite.py`](../plugin/embeddings/venv/embeddings_sqlite.py). **Settings → Embeddings → Cross-file search:** **Off** (default) or **Embeddings + FTS** (`folder_search_mode: hybrid`) — one index, both `search_nearby_files` and `search_embeddings`.
+> **Status (2026-06):** **Unified corpus.db + sqlite-vec (schema v3)** — per-folder **`corpus.db`** (chunks + FTS5 + vec0 + incremental `indexed_files` / `indexed_paragraphs` tables) + `corpus_meta.json` beside documents ([`embeddings_cache.py`](../plugin/embeddings/embeddings_cache.py)).
 
 **Related:** [cython-extension.md](cython-extension.md) · [enabling_numpy_in_libreoffice.md](enabling_numpy_in_libreoffice.md) · [multi-document-dev-plan.md](multi-document-dev-plan.md) · [langchain-plan.md](langchain-plan.md) (chat memory / summarization only)
 
@@ -12,7 +12,7 @@
   writeragent_embeddings/              ← ONE cache beside those files (not under LO profile)
     chroma/                            # Chroma PersistentClient (collection name = folder_corpus_key)
     corpus_meta.json                   # schema_version, embedding_model, dim, chunk_count, updated_at
-    file_index_state.json              # host-only: per-file mtime / paragraph content_hash
+    corpus.db                          # chunks + FTS5 + vec0 + indexed_files + indexed_paragraphs
 ```
 
 **Linux example:** `~/Desktop/Writing/writeragent_embeddings/` when working in `~/Desktop/Writing/`.
@@ -24,7 +24,7 @@ python scripts/dump_embeddings_cache.py ~/Desktop/Writing
 python scripts/dump_embeddings_cache.py --limit 20 --doc-url file:///path/to/doc.odt
 ```
 
-[`scripts/dump_embeddings_cache.py`](../scripts/dump_embeddings_cache.py) reads `corpus_meta.json`, `file_index_state.json`, and `chroma/chroma.sqlite3`.
+[`scripts/dump_embeddings_cache.py`](../scripts/dump_embeddings_cache.py) reads `corpus_meta.json` and `corpus.db` (including incremental index tables).
 
 ### Search a cache
 
@@ -527,14 +527,14 @@ Implementation: [`folder_fts.py`](../plugin/embeddings/venv/folder_fts.py) (venv
 /home/user/projects/reporting/writeragent_embeddings/
   chroma/                       # Chroma PersistentClient (collection name = folder_corpus_key)
   corpus_meta.json
-  file_index_state.json
+  corpus.db                            # chunks + FTS5 + vec0 + indexed_files + indexed_paragraphs
 ```
 
 | File / object | Contents |
 |----------------|----------|
 | **`chroma/`** | Chroma persist dir — one collection per folder (`folder_corpus_key`) |
-| **`corpus_meta.json`** | `embedding_model`, `dim`, `schema_version`, `chunk_count`, `storage_backend` (`chroma`) |
-| **`file_index_state.json`** | Host-only incremental state — per-file mtime and paragraph `content_hash` |
+| **`corpus.db`** | Chunks, FTS5, vec0, **`indexed_files`**, **`indexed_paragraphs`** (incremental mtime/hash state) |
+| **`corpus_meta.json`** | `embedding_model`, `dim`, `schema_version`, `chunk_count`, `storage_backend` |
 
 One cache per document directory (sibling folder around the active doc), never per open document and never one global profile cache. Settings / help: *semantic search cache for a folder — vectors from files in that directory only; delete `writeragent_embeddings/` in that folder to force re-index.*
 
@@ -558,8 +558,10 @@ Only one folder job runs at a time per folder key (`_inflight` guard in [`embedd
 
 | Mode | When | Work |
 |------|------|------|
-| **Cold build** | No cache for folder, or `embedding_model` changed | Index **all** indexable siblings — full paragraph extract, batch embed, write cache |
+| **Cold build** | No cache for folder, or `embedding_model` changed | Index **all** indexable siblings — **per-file** extract → ingest → sync incremental state in `corpus.db` |
 | **Incremental refresh** | Cache exists | Per file: compare **file mtime** vs **`last_indexed_at`**; only if stale, extract paragraphs and **paragraph-hash diff** (below) |
+
+**Bounded ingest batches:** The venv ingest pipeline ([`embeddings_ingest_graph.py`](../plugin/embeddings/venv/embeddings_ingest_graph.py)) embeds and upserts sub-chunks in windows of **`EMBEDDINGS_INGEST_BATCH_SIZE`** (default **64**) — not the whole folder or a large file at once. [`embed_texts`](../plugin/embeddings/venv/embeddings_index.py) passes the same size to `SentenceTransformer.encode(batch_size=…)`. This caps peak RAM and CPU spikes; wall time on typical folders may be ~10–20% longer than one monolithic embed.
 
 **Incremental refresh (default once cache exists):**
 
@@ -568,7 +570,7 @@ Only one folder job runs at a time per folder key (`_inflight` guard in [`embedd
 3. **`mtime ≤ last_indexed_at`** (and model unchanged) → **skip file** — no extract, no embed.
 4. **File may have changed** → read-only extract (same path as document_research) → compute **`content_hash` per paragraph** → compare to locator rows.
 5. Send **only paragraphs with new or changed hashes** to the embedder (batch RPC). Unchanged paragraphs keep existing vectors.
-6. The background worker passes changed paragraphs + Chroma path references to the venv. The trusted module runs the LangGraph ingest pipeline ([`embeddings_ingest_graph.py`](../plugin/embeddings/venv/embeddings_ingest_graph.py)): split → batch embed → Chroma upsert; host updates `file_index_state.json` and `corpus_meta.json`.
+6. The background worker passes changed paragraphs to the venv. The trusted module runs the LangGraph ingest pipeline ([`embeddings_ingest_graph.py`](../plugin/embeddings/venv/embeddings_ingest_graph.py)): split → **windowed** batch embed + upsert (see **Bounded ingest batches** above); host updates `corpus_meta.json` and incremental state in `corpus.db` (`indexed_files`, `indexed_paragraphs`).
 7. **Save with unchanged content:** if mtime bumped but hash diff finds nothing to embed or delete, the host calls **`mark_file_indexed`** ([`embeddings_indexer.py`](../plugin/embeddings/embeddings_indexer.py)) to advance `last_indexed_at` / `file_mtime` without a venv RPC — avoids re-scanning the same file on every periodic tick.
 
 Search always uses the **current** index ([Always search](#always-search-update-in-the-background)); maintenance catches up in the background via **mtime + hash diff** on the periodic and event-driven wakeups above. Index may be a few minutes stale — acceptable for cross-file semantic find.

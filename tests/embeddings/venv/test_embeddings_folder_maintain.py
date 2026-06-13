@@ -53,10 +53,10 @@ def test_maintain_incremental_skips_fresh_file(tmp_path: Path):
     doc = tmp_path / "a.odt"
     _write_min_odt(doc, "same")
     meta = tmp_path / "writeragent_embeddings" / "corpus_meta.json"
-    state = tmp_path / "writeragent_embeddings" / "file_index_state.json"
+    db_path = tmp_path / "writeragent_embeddings" / "corpus.db"
     meta.parent.mkdir(parents=True)
     meta.write_text(
-        '{"schema_version":"2","embedding_model":"all-MiniLM-L6-v2","chunk_count":"1"}',
+        '{"schema_version":"3","embedding_model":"all-MiniLM-L6-v2","chunk_count":"1"}',
         encoding="utf-8",
     )
 
@@ -65,7 +65,7 @@ def test_maintain_incremental_skips_fresh_file(tmp_path: Path):
 
     doc_url = path_to_file_url(str(doc))
     mark_file_indexed(
-        state,
+        db_path,
         doc_url,
         doc.stat().st_mtime,
         indexed_at=doc.stat().st_mtime,

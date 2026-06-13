@@ -50,6 +50,8 @@ EMBEDDINGS_INDEX_INTERVAL_S = 300
 # Worker heartbeat during long folder maintain RPC (docs/embeddings.md).
 EMBEDDINGS_HEARTBEAT_INTERVAL_S = 5
 EMBEDDINGS_HEARTBEAT_GRACE_S = 90
+# Max sub-chunks per embed+upsert window during ingest (docs/embeddings.md).
+EMBEDDINGS_INGEST_BATCH_SIZE = 64
 # Warm venv worker pools (docs/embeddings.md — dedicated embeddings subprocess).
 WORKER_POOL_DEFAULT = "default"
 WORKER_POOL_EMBEDDINGS = "embeddings"

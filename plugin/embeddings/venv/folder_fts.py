@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Any, Callable, Literal
 
 from plugin.embeddings.embeddings_cache import (
+    corpus_db_path,
     diff_paragraph_rows,
-    file_index_state_path,
     file_is_stale,
     mark_file_indexed,
     sync_file_paragraph_state,
@@ -226,9 +226,9 @@ def _cold_build(
         _insert_rows(conn, all_rows)
         row_count = _count_rows(conn)
 
-    state_path = file_index_state_path(listing_root)
+    db_path = corpus_db_path(listing_root)
     for entry in files:
-        sync_file_paragraph_state(state_path, entry.url, file_chunks.get(entry.url, []), entry.modified)
+        sync_file_paragraph_state(db_path, entry.url, file_chunks.get(entry.url, []), entry.modified)
     _write_meta(listing_root, row_count)
 
     return {
@@ -245,7 +245,7 @@ def _incremental_refresh(
     hb: _HeartbeatThrottle,
 ) -> dict[str, Any]:
     db = fts_db_path(listing_root)
-    state_path = file_index_state_path(listing_root)
+    db_path = corpus_db_path(listing_root)
     indexed = 0
     deleted = 0
     files_touched = 0
@@ -255,11 +255,11 @@ def _incremental_refresh(
         _ensure_schema(conn)
         for index, entry in enumerate(files):
             hb.ping({"phase": "scan", "file": entry.name, "index": index, "total": total})
-            if not file_is_stale(state_path, entry.url, entry.modified):
+            if not file_is_stale(db_path, entry.url, entry.modified):
                 continue
             hb.force({"phase": "extract", "file": entry.name, "index": index, "total": total, "mode": "incremental"})
             chunks = paragraph_chunks_from_path(entry.path, doc_url=entry.url, file_mtime=entry.modified)
-            to_index, to_delete = diff_paragraph_rows(state_path, chunks)
+            to_index, to_delete = diff_paragraph_rows(db_path, chunks)
             if to_delete:
                 hb.force({"phase": "delete", "file": entry.name, "keys": len(to_delete)})
                 _delete_keys(conn, to_delete)
@@ -267,11 +267,11 @@ def _incremental_refresh(
             if to_index:
                 hb.force({"phase": "index", "file": entry.name, "paragraphs": len(to_index)})
                 _insert_rows(conn, to_index)
-                sync_file_paragraph_state(state_path, entry.url, chunks, entry.modified)
+                sync_file_paragraph_state(db_path, entry.url, chunks, entry.modified)
                 indexed += len(to_index)
                 files_touched += 1
             elif not to_delete:
-                mark_file_indexed(state_path, entry.url, entry.modified)
+                mark_file_indexed(db_path, entry.url, entry.modified)
                 files_touched += 1
 
         row_count = _count_rows(conn)

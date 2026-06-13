@@ -7,8 +7,8 @@ Accepts a document folder or the cache directory itself:
   python scripts/dump_embeddings_cache.py ~/Desktop/Writing/writeragent_embeddings
   python scripts/dump_embeddings_cache.py --limit 20 --doc-url file:///path/to/doc.odt
 
-Schema v3 stores chunks + FTS5 + vec0 in corpus.db. Host-side incremental state lives
-in file_index_state.json; corpus_meta.json records model/schema/chunk_count.
+Schema v3 stores chunks + FTS5 + vec0 + incremental index state in corpus.db.
+corpus_meta.json records model/schema/chunk_count.
 """
 
 from __future__ import annotations
@@ -29,11 +29,10 @@ from plugin.embeddings.embeddings_cache import (  # noqa: E402
     CORPUS_DB_FILENAME,
     CORPUS_META_FILENAME,
     EMBEDDINGS_CACHE_DIRNAME,
-    FILE_INDEX_STATE_FILENAME,
+    LEGACY_FILE_INDEX_STATE_FILENAME,
     LEGACY_INDEX_DB,
     folder_corpus_key,
     read_corpus_meta,
-    read_file_index_state,
 )
 
 _METADATA_TEXT_KEY = "chroma:document"
@@ -107,30 +106,45 @@ def _print_corpus_meta(meta_path: Path) -> None:
         print("  note: chunk_count missing/zero — index may still be building or cold build failed")
 
 
-def _print_file_index_state(state_path: Path) -> None:
-    print("file_index_state.json")
-    if not state_path.is_file():
-        print("  (missing)")
+def _print_file_index_state(corpus_db: Path) -> None:
+    print("indexed_files / indexed_paragraphs (corpus.db)")
+    if not corpus_db.is_file():
+        print("  (missing corpus.db)")
         return
-    state = read_file_index_state(state_path)
-    files = state.get("files") or {}
-    if not isinstance(files, dict) or not files:
-        print("  (no indexed files recorded)")
-        return
-    print(f"  files: {len(files)}")
-    for doc_url in sorted(files):
-        entry = files.get(doc_url)
-        if not isinstance(entry, dict):
-            continue
-        paragraphs = entry.get("paragraphs") or {}
-        para_count = len(paragraphs) if isinstance(paragraphs, dict) else 0
-        file_mtime = entry.get("file_mtime")
-        last_indexed = entry.get("last_indexed_at")
-        print(
-            f"  - {doc_url}\n"
-            f"      paragraphs={para_count}  file_mtime={_fmt_ts(file_mtime)}"
-            f"  last_indexed={_fmt_ts(last_indexed)}"
-        )
+    try:
+        conn = sqlite3.connect(f"file:{corpus_db}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+        tables = {
+            row[0]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        }
+        if "indexed_files" not in tables:
+            print("  (no indexed_files table — delete writeragent_embeddings/ and rebuild)")
+            conn.close()
+            return
+        files = conn.execute(
+            "SELECT doc_url, file_mtime, last_indexed_at FROM indexed_files ORDER BY doc_url"
+        ).fetchall()
+        if not files:
+            print("  (no indexed files recorded)")
+            conn.close()
+            return
+        print(f"  files: {len(files)}")
+        for row in files:
+            doc_url = str(row["doc_url"] or "")
+            para_row = conn.execute(
+                "SELECT COUNT(*) AS c FROM indexed_paragraphs WHERE doc_url = ?",
+                (doc_url,),
+            ).fetchone()
+            para_count = int(para_row["c"] if para_row else 0)
+            print(
+                f"  - {doc_url}\n"
+                f"      paragraphs={para_count}  file_mtime={_fmt_ts(row['file_mtime'])}"
+                f"  last_indexed={_fmt_ts(row['last_indexed_at'])}"
+            )
+        conn.close()
+    except sqlite3.Error as exc:
+        print(f"  error: {exc}")
 
 
 def _chroma_sqlite_path(cache_dir: Path) -> Path:
@@ -398,7 +412,7 @@ def dump_cache(
     corpus_db = cache_dir / CORPUS_DB_FILENAME
     chroma_dir = cache_dir / CHROMA_SUBDIR
     meta_path = cache_dir / CORPUS_META_FILENAME
-    state_path = cache_dir / FILE_INDEX_STATE_FILENAME
+    legacy_state = cache_dir / LEGACY_FILE_INDEX_STATE_FILENAME
     legacy_db = cache_dir / LEGACY_INDEX_DB
 
     print(f"Cache directory: {cache_dir}")
@@ -414,11 +428,13 @@ def dump_cache(
 
     if legacy_db.is_file():
         print(f"Legacy index.db: {legacy_db} (pre-v3; safe to delete after rebuild)")
+    if legacy_state.is_file():
+        print(f"Legacy file_index_state.json: {legacy_state} (removed; delete and rebuild)")
 
     print("=" * 72)
     _print_corpus_meta(meta_path)
     print("-" * 72)
-    _print_file_index_state(state_path)
+    _print_file_index_state(corpus_db)
     print("-" * 72)
     if corpus_db.is_file():
         print(f"Corpus DB: {corpus_db}")
