@@ -14,30 +14,13 @@ from plugin.embeddings.venv import embeddings_llama_index
 from plugin.embeddings.venv.embeddings_llama_index import HAS_LLAMA_INDEX
 
 
-def test_fetch_pool_k_sizes():
-    final_k, fetch_k = embeddings_llama_index._fetch_pool_k(10)
-    assert final_k == 10
-    assert fetch_k == 30
-    final_k, fetch_k = embeddings_llama_index._fetch_pool_k(40)
-    assert final_k == 30
-    assert fetch_k == 30
-    final_k, fetch_k = embeddings_llama_index._fetch_pool_k(5, pool_k=40)
+def test_llama_index_retrieval_pool_over_fetches_for_rerank():
+    final_k, fetch_k = embeddings_llama_index._llama_index_retrieval_pool(5)
     assert final_k == 5
+    assert fetch_k == 20
+    final_k, fetch_k = embeddings_llama_index._llama_index_retrieval_pool(10)
+    assert final_k == 10
     assert fetch_k == 40
-
-
-def test_source_diversity_filter_caps_per_doc_url():
-    nodes = [
-        SimpleNamespace(node=SimpleNamespace(metadata={"doc_url": "file:///a.odt"})),
-        SimpleNamespace(node=SimpleNamespace(metadata={"doc_url": "file:///a.odt"})),
-        SimpleNamespace(node=SimpleNamespace(metadata={"doc_url": "file:///a.odt"})),
-        SimpleNamespace(node=SimpleNamespace(metadata={"doc_url": "file:///b.odt"})),
-    ]
-    kept = embeddings_llama_index.source_diversity_filter(nodes, max_per_doc=2)
-    assert len(kept) == 3
-    urls = [n.node.metadata["doc_url"] for n in kept]
-    assert urls.count("file:///a.odt") == 2
-    assert urls.count("file:///b.odt") == 1
 
 
 def test_nodes_to_tool_hits_preserves_matched_by():
@@ -57,6 +40,17 @@ def test_nodes_to_tool_hits_preserves_matched_by():
     assert hits[0]["doc_url"] == "file:///doc.odt"
     assert hits[0]["para_index"] == 3
     assert hits[0]["matched_by"] == ["fts", "vec"]
+
+
+def test_apply_postprocessors_truncates_without_rerank():
+    nodes = [SimpleNamespace(node=SimpleNamespace(text=f"n{i}", metadata={}), score=1.0) for i in range(5)]
+    out = embeddings_llama_index._apply_llama_index_postprocessors(
+        nodes,
+        SimpleNamespace(query_str="q"),
+        final_k=2,
+        use_rerank=False,
+    )
+    assert len(out) == 2
 
 
 @pytest.mark.skipif(
@@ -131,89 +125,34 @@ def test_writer_agent_vector_store_delete_delegates_to_sqlite():
     not HAS_LLAMA_INDEX,
     reason="llama-index-core is not installed in the testing environment",
 )
-def test_weak_hit_filter_drops_zero_score_nodes():
-    good = embeddings_llama_index.NodeWithScore(
-        node=embeddings_llama_index.TextNode(
-            text="a",
-            id_="1",
-            metadata={"doc_url": "file:///a.odt", "matched_by": ["vec"]},
-        ),
-        score=0.02,
-    )
-    bad = embeddings_llama_index.NodeWithScore(
-        node=embeddings_llama_index.TextNode(text="b", id_="2", metadata={"doc_url": "file:///b.odt"}),
-        score=0.0,
-    )
-    processor = embeddings_llama_index.WriterAgentWeakHitFilterPostprocessor(min_score=1e-6)
-    kept = processor._postprocess_nodes([good, bad])
-    assert len(kept) == 1
-    assert kept[0].node.node_id == "1"
-
-
-@pytest.mark.skipif(
-    not HAS_LLAMA_INDEX,
-    reason="llama-index-core is not installed in the testing environment",
-)
-def test_fusion_retriever_merges_matched_by():
-    vec_node = embeddings_llama_index.NodeWithScore(
-        node=embeddings_llama_index.TextNode(
-            text="same",
-            id_="7",
-            metadata={"doc_url": "file:///x.odt", "matched_by": ["vec"]},
-        ),
-        score=0.9,
-    )
-    fts_node = embeddings_llama_index.NodeWithScore(
-        node=embeddings_llama_index.TextNode(
-            text="same",
-            id_="7",
-            metadata={"doc_url": "file:///x.odt", "matched_by": ["fts"]},
-        ),
-        score=4.0,
-    )
-    # Force same hash so fusion treats them as one chunk
-    vec_node.node.hash = "chunk-7"
-    fts_node.node.hash = "chunk-7"
-
-    fusion = embeddings_llama_index.WriterAgentQueryFusionRetriever(
-        retrievers=[],
-        similarity_top_k=5,
-        num_queries=1,
-        use_async=False,
-    )
-    fused = fusion._reciprocal_rerank_fusion({("q", 0): [vec_node], ("q", 1): [fts_node]})
-    assert len(fused) == 1
-    assert set(fused[0].node.metadata["matched_by"]) == {"fts", "vec"}
-
-
-@pytest.mark.skipif(
-    not HAS_LLAMA_INDEX,
-    reason="llama-index-core is not installed in the testing environment",
-)
-def test_run_hybrid_retrieval_pipeline_returns_tool_hits():
+def test_run_hybrid_retrieval_pipeline_uses_rerank_postprocessor():
     mock_node = embeddings_llama_index.NodeWithScore(
         node=embeddings_llama_index.TextNode(
             text="snippet text",
             id_="9",
-            metadata={"doc_url": "file:///hit.odt", "para_index": 1, "matched_by": ["fts", "vec"]},
+            metadata={"doc_url": "file:///hit.odt", "para_index": 1},
         ),
         score=0.03,
     )
     mock_retriever = MagicMock()
     mock_retriever.retrieve.return_value = [mock_node]
+    mock_reranker = MagicMock()
+    mock_reranker.postprocess_nodes.return_value = [mock_node]
 
     with patch(
         "plugin.embeddings.venv.embeddings_llama_index.build_writer_agent_hybrid_retriever",
         return_value=mock_retriever,
+    ), patch(
+        "plugin.embeddings.venv.embeddings_llama_index.SentenceTransformerRerank",
+        return_value=mock_reranker,
     ):
         hits = embeddings_llama_index.run_hybrid_retrieval_pipeline(
             "/tmp/corpus.db",
             "query",
             5,
             model_name="mock-model",
-            use_mmr=False,
+            use_mmr=True,
         )
     assert len(hits) == 1
     assert hits[0]["doc_url"] == "file:///hit.odt"
-    assert hits[0]["chunk_id"] == 9
-    assert hits[0]["matched_by"] == ["fts", "vec"]
+    mock_reranker.postprocess_nodes.assert_called_once()

@@ -1434,6 +1434,8 @@ Approximate nearest neighbor for bounded in-RAM subsets — not for full corpus 
 
 We introduce **LlamaIndex** as an alternative, optional backend for Cross-file search (FTS + embeddings) under the setting `folder_search_mode="llama_index"`.
 
+**Roadmap:** incremental fixes and big-advantage work items live in [LlamaIndex roadmap — starting point](#llamaindex-roadmap) (Phase 1 eval/ops, Phase 2 retrieval and agent payoffs).
+
 ### Design & Implementation
 This option subclasses LlamaIndex's core interfaces to map them directly to our existing unified SQLite database (`corpus.db`), keeping on-disk schema compatibility.
 
@@ -1443,20 +1445,63 @@ This option subclasses LlamaIndex's core interfaces to map them directly to our 
 - Agent tool contract (`doc_url`, `para_index`, `snippet`, `score`, optional `matched_by`)
 
 **What LlamaIndex owns when `folder_search_mode="llama_index"`:**
-- Retriever composition: vector + FTS legs fused with RRF ([`build_writer_agent_hybrid_retriever`](../plugin/embeddings/venv/embeddings_llama_index.py))
-- Postprocessors: weak-hit filter, per-file source diversity, MMR rerank ([`run_hybrid_retrieval_pipeline`](../plugin/embeddings/venv/embeddings_llama_index.py))
+- **Hybrid retrieval:** stock [`QueryFusionRetriever`](https://developers.llamaindex.ai/python/framework/integrations/retrievers/reciprocal_rerank_fusion/) — vector + FTS legs fused with reciprocal rank fusion (`num_queries=1`, offline).
+- **Two-stage ranking:** over-retrieve (`max(k×4, 20)` capped at 50), then [`SentenceTransformerRerank`](https://developers.llamaindex.ai/python/framework/module_guides/querying/node_postprocessors/) (`cross-encoder/ms-marco-MiniLM-L-6-v2` by default) when `use_mmr=True` on the search RPC. This is **not** the custom hybrid backend’s MMR or per-file hit caps — those stay on the `hybrid` path only.
 - Ingest orchestration via `VectorStoreIndex.insert_nodes` (still writes the same SQLite tables)
 
 - **Warm Worker Process**: To protect the main LibreOffice in-process Python environment from large dependency trees, all LlamaIndex imports and operations are executed inside the trusted `PythonWorkerManager` virtual environment (venv) worker thread.
-- **Custom Adapters**:
-  - `WriterAgentEmbedding` subclasses `BaseEmbedding` and routes encoding to our local `SentenceTransformer` embedder.
-  - `WriterAgentVectorStore` subclasses `BasePydanticVectorStore` to read/write nodes from our SQLite `chunks` and `vec_chunks` tables.
-  - `WriterAgentFTSRetriever` subclasses `BaseRetriever` to perform FTS5 queries and invert BM25 scores.
-  - `WriterAgentQueryFusionRetriever` subclasses `QueryFusionRetriever` for local offline Reciprocal Rank Fusion with `matched_by` provenance (`fts` / `vec`).
-  - `WriterAgentWeakHitFilterPostprocessor`, `WriterAgentSourceDiversityPostprocessor`, and `WriterAgentMMRPostprocessor` refine fused hits before tool output.
-  - `build_writer_agent_hybrid_retriever` / `run_hybrid_retrieval_pipeline` compose retrieve → filter → diversify → MMR → tool hits.
+- **SQLite adapters (storage boundary only):**
+  - `WriterAgentEmbedding` — local `SentenceTransformer` via `embed_texts`
+  - `WriterAgentVectorStore` — read/write `chunks` / `vec_chunks`
+  - `WriterAgentFTSRetriever` — FTS5 over `passages`
+  - `build_writer_agent_hybrid_retriever` / `run_hybrid_retrieval_pipeline` — RRF fusion → optional cross-encoder rerank → tool hits
 
 Background indexing and search both honor Settings `embeddings.folder_search_mode` (including `llama_index`) via [`embeddings_indexer.py`](../plugin/embeddings/embeddings_indexer.py) and [`embeddings_service.py`](../plugin/framework/client/embeddings_service.py).
+
+### What runs on each search — and what the LLM does {#llamaindex-no-chat-llm}
+
+**There is no chat LLM in the LlamaIndex folder-search path.** Sidebar / document_research chat models (OpenRouter, Ollama, etc.) only see the **final hit list** after retrieval finishes. They do not score chunks, fuse ranks, or rerank the index.
+
+Pipeline when `folder_search_mode="llama_index"` (see [`embeddings_llama_index.py`](../plugin/embeddings/venv/embeddings_llama_index.py)):
+
+```text
+User query
+  → [1] Bi-encoder embed (Settings embedding_model / SentenceTransformer)
+        Vector leg: sqlite-vec kNN on vec_chunks
+  → [2] FTS5 keyword leg (BM25/NEAR on passages) — SQL only
+  → [3] RRF fusion (QueryFusionRetriever, reciprocal rank — math, no model)
+  → [4] Cross-encoder rerank (optional; see below)
+  → Top-k hits (doc_url, snippet, score) → search_nearby_files tool → chat LLM reads them
+```
+
+| Step | Component | LLM? | Role |
+|------|-----------|------|------|
+| 1 | `SentenceTransformer` bi-encoder | No | Encode query + compare to chunk vectors (semantic recall) |
+| 2 | SQLite FTS5 | No | Keyword / literal recall |
+| 3 | Reciprocal rank fusion | No | Merge two ranked lists by rank position |
+| 4 | `SentenceTransformerRerank` (`cross-encoder/ms-marco-MiniLM-L-6-v2`) | No | Score each **(query, chunk)** pair jointly; reorder top candidates |
+| After | Sidebar chat model | **Yes** | Interprets hits, opens files, answers the user — **not** part of index search |
+
+**Rerank is not done by the chat LLM.** Step 4 is a small local **cross-encoder** (~22M params): a classifier that outputs a relevance score. It does not generate text. Same idea as search rerankers in production RAG — not GPT/Claude.
+
+On the default **`hybrid`** backend, step 4 is **MMR** (diversity rerank in [`embeddings_hybrid_search.py`](../plugin/embeddings/venv/embeddings_hybrid_search.py)) instead of a cross-encoder. MMR reduces near-duplicate chunks; it does not re-read query+passage semantics the way a cross-encoder does.
+
+**When rerank runs:** cross-encoder rerank runs when the search RPC has `use_mmr=True` **and** final `k > 1`. At `k = 1` (folder routing eval top-1), rerank is skipped — same idea as hybrid skipping MMR at `k = 1`. If the cross-encoder fails to load, the pipeline falls back to fused top-k only.
+
+**Quality vs “without an LLM”:** retrieval quality is not “worse because we skip the chat LLM.” Standard RAG keeps retrieval non-generative (embed + keyword + optional reranker) and uses the chat LLM **after** search. LlamaIndex mode may improve ordering vs hybrid on paraphrase/short queries because of the cross-encoder; we have not published a measured A/B table yet — use [Evaluation & Comparison](#llamaindex-eval) below.
+
+### Query expansion (LlamaIndex feature — disabled in WriterAgent) {#llamaindex-query-expansion}
+
+LlamaIndex’s [`QueryFusionRetriever`](https://developers.llamaindex.ai/python/framework/integrations/retrievers/reciprocal_rerank_fusion/) can optionally **expand the query** before retrieval: with `num_queries > 1`, it uses a **chat LLM** to generate alternate phrasings (e.g. turn “Q4 budget figures” into several related queries), runs each query against the retrievers, then fuses all result lists with RRF.
+
+**WriterAgent sets `num_queries=1`** in [`build_writer_agent_hybrid_retriever`](../plugin/embeddings/venv/embeddings_llama_index.py) — only the user’s original query is used. No LLM call, no extra API cost, fully offline after models are cached.
+
+| Setting | Behavior |
+|---------|----------|
+| `num_queries=1` (shipped) | Single query → vector + FTS → RRF → rerank. **No query expansion.** |
+| `num_queries>1` (not shipped) | LLM generates extra queries → more retrieval passes → broader recall; needs a configured chat model, network (unless local LLM), and adds latency |
+
+Query expansion is a plausible future experiment (local Ollama + `num_queries=3`) but is **out of scope** for the current offline MVP. Enabling it would be a deliberate product change, not a side effect of turning on LlamaIndex mode.
 
 ### Pluses & Minuses
 
@@ -1464,14 +1509,15 @@ Background indexing and search both honor Settings `embeddings.folder_search_mod
 1. **Offline & Privacy-Preserving**: Runs completely locally (offline) with no external network requirements or LLM query-generation API calls (using `num_queries=1` and `use_async=False`).
 2. **Framework Alignment**: Allows standardizing on LlamaIndex data models (`TextNode`, `NodeWithScore`, `QueryBundle`) for compatibility with external libraries and easier integration of standard post-processors (e.g. node parsers, rerankers, metadata enrichment).
 3. **No LO Pollution**: Because LlamaIndex and its transitive dependencies live completely inside the configured python venv, there is zero bloating or package management pollution of the host LibreOffice Python environment.
-4. **Parameterized Fusion**: We subclassed and customized `QueryFusionRetriever` to accept an `rrf_k` dynamic parameter, avoiding the hardcoded `k=60` limitation of the standard LlamaIndex implementation.
+4. **Native reranking**: Uses LlamaIndex `SentenceTransformerRerank` (local cross-encoder) instead of reimplementing custom MMR / per-doc caps from the `hybrid` backend.
 
 #### Minuses:
 1. **Dependency Size**: Adds `llama-index-core` to the venv worker dependencies, which requires additional download time on cold bootstrap.
 2. **Abstraction Overhead**: Standardizing on LlamaIndex introduces Pydantic object serialization and nested class wrappers, which adds a minor overhead compared to our ultra-lean native sqlite-vec + FTS5 SQL queries.
-3. **Loss of Raw Score Scales**: Standard Reciprocal Rank Fusion (RRF) outputs relative rankings rather than raw cosine/BM25 scores. To mitigate this, we preserve raw scores inside the node's `metadata` field.
+3. **Cross-encoder cost**: First rerank loads `cross-encoder/ms-marco-MiniLM-L-6-v2` in the venv worker (extra RAM/latency vs lean `hybrid` RRF-only path).
+4. **Loss of Raw Score Scales**: RRF and reranker scores are relative rankings, not raw cosine/BM25. Raw leg scores remain in node `metadata["raw_score"]` when present.
 
-### Evaluation & Comparison
+### Evaluation & Comparison {#llamaindex-eval}
 
 #### Running Evaluations
 The evaluation suite under `scripts/benchmark.py` evaluates folder search retrieval accuracy (Hit Rate and Mean Reciprocal Rank).
@@ -1487,6 +1533,79 @@ To evaluate and compare the two backends:
    ```bash
    make run_eval EVAL_ARGS="--models your-model-name -n 5 -j 1"
    ```
+
+**Gap (Phase 1):** eval scripts call the `hybrid` path directly today — they do not yet accept `--backend hybrid|llama_index`. Until that lands, A/B comparison requires toggling Settings and re-running the suite manually.
+
+### LlamaIndex roadmap — starting point {#llamaindex-roadmap}
+
+Work below is ordered **incremental fixes first**, then **big advantages** that justify keeping LlamaIndex beyond “another RRF implementation.” Both phases share the same `corpus.db`, tool hit shape, and venv worker boundary.
+
+#### Phase 1 — Incremental fixes (do first)
+
+These unblock measurement and day-to-day use. Without them, LlamaIndex mode is hard to trust or iterate on.
+
+| # | Item | Why | Entry points |
+|---|------|-----|--------------|
+| 1 | **Eval parity** — `--backend hybrid\|llama_index` on [`eval_folder_search_routing.py`](../scripts/eval_folder_search_routing.py) and [`search_embeddings_folder.py`](../scripts/search_embeddings_folder.py); A/B on a fixed folder (e.g. `~/Desktop/Writing`); publish hit-rate / MRR table in this doc | Decide keep vs drop with data, not intuition | [`embeddings_hybrid_search.py`](../plugin/embeddings/venv/embeddings_hybrid_search.py), [`embeddings_llama_index.py`](../plugin/embeddings/venv/embeddings_llama_index.py) |
+| 2 | **Ops gaps** — [`search_ui.py`](../plugin/embeddings/search_ui.py) cache rebuild honors `embeddings.folder_search_mode` (today hardcodes `hybrid`); venv bootstrap docs for `llama-index-core` + cross-encoder weights; optional CI tests when package is present in dev venv | Same Settings path everywhere; fewer “works in eval, broken in UI” surprises | [`embeddings_service.py`](../plugin/framework/client/embeddings_service.py), [`module.yaml`](../plugin/embeddings/module.yaml) |
+| 3 | **Query expansion experiment** — optional `num_queries>1` + local chat model (Ollama); measure recall on vague / short queries vs `num_queries=1` | Validates the main LlamaIndex-only recall lever before productizing | [Query expansion](#llamaindex-query-expansion), `build_writer_agent_hybrid_retriever` |
+| 4 | **Settings / UX** (if eval keeps LlamaIndex) — rerank on/off, rerank model id, `num_queries`; clarify copy that `use_mmr` on the search RPC means **cross-encoder rerank** on LlamaIndex path, **MMR diversity** on hybrid path | Users can tune quality vs latency without code changes | [`module.yaml`](../plugin/embeddings/module.yaml), [`embeddings_service.py`](../plugin/framework/client/embeddings_service.py) |
+
+**Phase 1 exit criteria:** measured A/B table for hybrid vs llama_index on a labeled query set; no hardcoded `hybrid` bypasses in search UI or indexer routing; documented venv install for LlamaIndex mode.
+
+#### Phase 2 — Big advantages (the payoff)
+
+These are the reasons to **keep** LlamaIndex after Phase 1 — not re-implementing hybrid hacks (custom per-doc caps, mirrored MMR), but capabilities the custom stack does not compose cleanly.
+
+##### Tier A — Retrieval quality (biggest product wins)
+
+| # | Advantage | Payoff | LlamaIndex building blocks |
+|---|-----------|--------|----------------------------|
+| A1 | **Hierarchical / parent–child retrieval** | Index small chunks for sharp vectors; return **parent context** (full paragraph, heading section, or file summary) on hit — fixes “snippet too narrow” without worse embeddings | Parent–child `TextNode` links, [`AutoMergingRetriever`](https://developers.llamaindex.ai/python/examples/retrievers/auto_merging_retriever/); map `para_index` → parent in metadata |
+| A2 | **Rich metadata on ingest** | Filter/boost by heading level, doc type (Writer / Calc / ODP), file title, recency — cross-file routing when filenames lie | [`IngestionPipeline`](https://developers.llamaindex.ai/python/framework/module_guides/loading/ingestion_pipeline/) transforms, `MetadataFilters`, title/summary extractors on `TextNode.metadata` |
+| A3 | **Sub-question / decomposed retrieval** | Complex prompts (“compare Q3 and Q4 budget language across the folder”) split into sub-queries, retrieve per part, fuse — better than one `search_nearby_files` call | [`SubQuestionQueryEngine`](https://developers.llamaindex.ai/python/examples/query_engine/sub_question_query_engine/) or custom multi-query retriever + RRF |
+| A4 | **Swappable rerankers and postprocessors** | Quality tuning becomes config + eval presets, not a new `embeddings_*` module each time | [`SentenceTransformerRerank`](https://developers.llamaindex.ai/python/framework/module_guides/querying/node_postprocessors/) (MiniLM, `bge-reranker-base`, …), `SimilarityPostprocessor`, recency / metadata boosts |
+
+##### Tier B — Agent and product shape
+
+| # | Advantage | Payoff | LlamaIndex building blocks |
+|---|-----------|--------|----------------------------|
+| B1 | **Dedicated “folder QA” query engine** | document_research sub-agent gets a **synthesized brief + cited `doc_url`s** instead of raw snippet lists for the main chat model to re-read | [`RetrieverQueryEngine`](https://developers.llamaindex.ai/python/framework/module_guides/deploying/query_engine/) over folder retriever + response synthesizer |
+| B2 | **Router retriever by document kind** | Different retrieval mixes for Writer prose vs Calc tables vs Impress slides (FTS weight, chunk size, metadata filters) | [`RouterRetriever`](https://developers.llamaindex.ai/python/examples/query_engine/RouterQueryEngine/) / tool-style routing by `metadata["doc_kind"]` |
+| B3 | **Production query expansion** | After Phase 1 experiment: Settings for `num_queries`, local Ollama vs sidebar model, latency/privacy guardrails — **main LlamaIndex-only recall lever** hybrid does not have | [`QueryFusionRetriever`](https://developers.llamaindex.ai/python/framework/integrations/retrievers/reciprocal_rerank_fusion/) with `num_queries>1` |
+
+##### Tier C — Ops, scale, and ecosystem
+
+| # | Advantage | Payoff | LlamaIndex building blocks |
+|---|-----------|--------|----------------------------|
+| C1 | **Ingestion pipeline with transform cache** | Faster incremental folder refresh; declarative split → metadata → embed; less duplicate custom ingest logic over time | [`IngestionPipeline`](https://developers.llamaindex.ai/python/framework/module_guides/loading/ingestion_pipeline/) + cache keyed by chunk hash |
+| C2 | **Eval harness as LlamaIndex lab** | Same `corpus.db`, swap **presets** (hybrid-RRF, li-RRF+rerank, li+expansion, li+hierarchical) without rewriting SQL | Preset configs in eval scripts; compare on fixed query suite |
+| C3 | **Interop / community path** | Homelab users reuse WriterAgent as **LO extract + SQLite storage** while owning retrieval composition externally | Document adapter boundary (`WriterAgentVectorStore`, `WriterAgentFTSRetriever`); see [community integration strategy](../community_integration_strategy.md) |
+
+##### Tier D — Only if eval proves clear wins
+
+| # | Advantage | Payoff |
+|---|-----------|--------|
+| D1 | **Replace custom `hybrid` as default** | One retrieval stack to maintain; `hybrid` becomes alias or deprecated if LlamaIndex ≥ hybrid on labeled sets |
+| D2 | **Multi-folder / scoped collections** | Project subfolder or “siblings of active file only” via metadata-scoped retrievers or multiple logical indexes |
+
+##### Suggested order after Phase 1
+
+| Step | Focus | Rationale |
+|------|-------|-----------|
+| 1 | **A2 metadata on ingest** → **A4 reranker presets** | Cheap quality lift; feeds later routing and filters |
+| 2 | **A1 hierarchical retrieval** | Largest UX win for snippet context |
+| 3 | **B3 query expansion** (or **A3 sub-questions**) | If eval shows recall gaps on short/vague queries |
+| 4 | **B1 folder QA tool** | Agent-facing; retrieval quality must be stable first |
+| 5 | **C1 ingest cache**, **C3 interop**, **D1 default flip** | Ops and consolidation once presets prove value |
+
+**Handoff prompt for next implementation session (after Phase 1):** *Implement hierarchical parent–child nodes + AutoMergingRetriever on `corpus.db`, with an eval preset comparing `hybrid` vs `llama_index` hierarchical.*
+
+##### Explicit non-goals (unless eval forces otherwise)
+
+- Swapping in upstream sqlite-vec `VectorStore` wholesale — our SQLite layer stays the storage adapter boundary.
+- Re-adding hybrid-only hacks in LlamaIndex mode (per-doc hit caps, custom MMR postprocessor mirroring [`embeddings_hybrid_search.py`](../plugin/embeddings/venv/embeddings_hybrid_search.py)).
+- Running a full LlamaIndex query engine on **every main-chat send** — retrieval stays in the venv worker; the sidebar chat LLM remains downstream of tool hits.
 
 ---
 
