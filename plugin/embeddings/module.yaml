@@ -14,20 +14,9 @@ config:
       - value: hybrid
         label: Embeddings + FTS
 
-  embedding_provider:
-    type: string
-    default: local
-    widget: select
-    label: Embedding Provider
-    helper: "local (sentence-transformers in venv) or endpoint (configured remote/local endpoint)"
-    options:
-      - value: local
-        label: "Local (venv)"
-      - value: endpoint
-        label: "Endpoint"
   embedding_model:
     type: string
-    default: "all-MiniLM-L6-v2"
+    default: "paraphrase-multilingual-MiniLM-L12-v2"
     widget: text
     label: Embedding Model
     helper: "HuggingFace model ID for local provider, or endpoint-specific model ID"

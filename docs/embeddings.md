@@ -182,15 +182,44 @@ On this corpus, embeddings **did not** reliably beat grep when:
 
 #### Hybrid RRF baseline (schema v3, re-measured 2026-06)
 
-Same **`~/Desktop/Writing`** corpus as above, re-indexed to schema v3 **`corpus.db`** (**1119** chunks, **`all-MiniLM-L6-v2`**). Method: [`scripts/eval_folder_search_routing.py`](../scripts/eval_folder_search_routing.py) — **37** queries (**33** with an expected file basename), **top-1** `doc_url` vs expected basename; legs = hybrid RRF ([`embeddings_hybrid_search.py`](../plugin/embeddings/venv/embeddings_hybrid_search.py)), FTS-only, vec-only.
+Same **`~/Desktop/Writing`** corpus as above, re-indexed to schema v3 **`corpus.db`** (**1119** chunks). Method: [`scripts/eval_folder_search_routing.py`](../scripts/eval_folder_search_routing.py) — **45** queries (**41** with a labeled expected file basename), using top-5 candidate retrieval.
 
-| Leg | Labeled correct | Short (21 labeled) | Long (12 labeled) |
-|-----|----------------:|-------------------:|------------------:|
-| **Hybrid RRF** | **21/33 (63.6%)** | **10/21** | 11/12 |
-| Vec-only | 19/33 (57.6%) | 8/21 | 11/12 |
-| FTS-only | 9/33 (27.3%) | 9/21 | 0/12 |
+We evaluated multiple models on the same corpus:
 
-FTS vs vec buckets (labeled queries): **both** 6 · **fts-only** 3 · **vec-only** 13 · **neither** 11.
+| Model / Leg | Overall Labeled Top-1 | Overall Labeled Top-3 | Overall Mean MRR | Ingestion Time (350 paragraphs) | Query Latency (Median) |
+|-------------|:---------------------:|:---------------------:|:----------------:|:------------------------------:|:----------------------:|
+| **`all-MiniLM-L6-v2`** | **56.1%** (23/41) | **75.6%** (31/41) | **0.646** | 8.12s | **9.94 ms** |
+| -- Hybrid RRF | 23/41 (56.1%) | 31/41 (75.6%) | 0.646 | | |
+| -- Vec-only | 23/41 (56.1%) | 30/41 (73.2%) | 0.634 | | |
+| -- FTS-only | 10/41 (24.4%) | 16/41 (39.0%) | 0.309 | | |
+| **`sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`** (Default) | 46.3% (19/41) | 70.7% (29/41) | 0.590 | - | 10.45 ms |
+| -- Hybrid RRF | 19/41 (46.3%) | 29/41 (70.7%) | 0.590 | | |
+| -- Vec-only | 19/41 (46.3%) | 27/41 (65.9%) | 0.570 | | |
+| -- FTS-only | 10/41 (24.4%) | 16/41 (39.0%) | 0.309 | | |
+| **`BAAI/bge-small-en-v1.5`** | 51.2% (21/41) | 70.7% (29/41) | 0.610 | **5.93s** | 10.11 ms |
+| -- Hybrid RRF | 21/41 (51.2%) | 29/41 (70.7%) | 0.610 | | |
+| -- Vec-only | 21/41 (51.2%) | 30/41 (73.2%) | 0.617 | | |
+| -- FTS-only | 10/41 (24.4%) | 16/41 (39.0%) | 0.309 | | |
+| **`BAAI/bge-base-en-v1.5`** | 51.2% (21/41) | 73.2% (30/41) | 0.617 | - | 12.30 ms |
+| -- Hybrid RRF | 21/41 (51.2%) | 30/41 (73.2%) | 0.617 | | |
+| -- Vec-only | 21/41 (51.2%) | 30/41 (73.2%) | 0.622 | | |
+| -- FTS-only | 10/41 (24.4%) | 16/41 (39.0%) | 0.309 | | |
+| **`sentence-transformers/all-mpnet-base-v2`** | 46.3% (19/41) | 73.2% (30/41) | 0.569 | - | 15.60 ms |
+| -- Hybrid RRF | 19/41 (46.3%) | 30/41 (73.2%) | 0.569 | | |
+| -- Vec-only | 19/41 (46.3%) | 30/41 (73.2%) | 0.580 | | |
+| -- FTS-only | 10/41 (24.4%) | 16/41 (39.0%) | 0.309 | | |
+| **`Snowflake/snowflake-arctic-embed-s`** | 43.9% (18/41) | 68.3% (28/41) | 0.570 | - | 9.85 ms |
+| -- Hybrid RRF | 18/41 (43.9%) | 28/41 (68.3%) | 0.570 | | |
+| -- Vec-only | 18/41 (43.9%) | 28/41 (68.3%) | 0.570 | | |
+| -- FTS-only | 10/41 (24.4%) | 16/41 (39.0%) | 0.309 | | |
+
+FTS vs vec buckets (labeled queries):
+- **all-MiniLM-L6-v2**: **both** 6 · **fts-only** 4 · **vec-only** 17 · **neither** 14
+- **sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2**: **both** 5 · **fts-only** 5 · **vec-only** 14 · **neither** 17
+- **BAAI/bge-small-en-v1.5**: **both** 5 · **fts-only** 5 · **vec-only** 15 · **neither** 16
+- **BAAI/bge-base-en-v1.5**: **both** 5 · **fts-only** 5 · **vec-only** 16 · **neither** 15
+- **sentence-transformers/all-mpnet-base-v2**: **both** 4 · **fts-only** 6 · **vec-only** 15 · **neither** 16
+- **Snowflake/snowflake-arctic-embed-s**: **both** 8 · **fts-only** 2 · **vec-only** 10 · **neither** 21
 
 Compared with the **historical semantic-only** short-query table above (grep-only **18**, both **13** on a slightly different 37-query labeled set): hybrid RRF beats vec-only on **short** routing (**10/21** vs **8/21**) by fusing the FTS leg, but still misroutes some keyword queries (`web search` top-1 can remain **`blog_draft_*`** rather than **`part2.odt`**).
 

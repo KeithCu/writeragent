@@ -26,7 +26,7 @@ from plugin.embeddings.venv.folder_fts import search_folder_fts  # noqa: E402
 
 DEFAULT_FOLDER = Path("~/Desktop/Writing")
 DEFAULT_K = 10
-DEFAULT_MODEL = "all-MiniLM-L6-v2"
+DEFAULT_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
 DEFAULT_NEAR_SLOP = 10
 
 SearchMode = Literal["hybrid", "fts", "vec", "all"]
@@ -68,6 +68,14 @@ SHORT_QUERIES: tuple[LabeledQuery, ...] = (
     LabeledQuery("semantic search", None, "short", note="ambiguous draft vs partN"),
     LabeledQuery("web research subagent", None, "short", note="ambiguous draft vs partN"),
     LabeledQuery("streaming sidebar tokens", None, "short", note="ambiguous draft vs partN"),
+    LabeledQuery("agent delegation", "part3.odt", "short"),
+    LabeledQuery("asynchronous execution", "part5.odt", "short"),
+    LabeledQuery("linguistic extension", "Translation Test.odt", "short"),
+    LabeledQuery("multilingual spellcheck", "writerchat.odt", "short"),
+    LabeledQuery("curved shapes", "ConduitGeometry.odt", "short"),
+    LabeledQuery("logical proofs", "FormalVerificationText.odt", "short"),
+    LabeledQuery("browser competition", "SoftwareWars.odt", "short"),
+    LabeledQuery("equation formatting", "part4.odt", "short"),
 )
 
 LONG_QUERIES: tuple[LabeledQuery, ...] = (
@@ -211,9 +219,21 @@ def evaluate_query(
             "top_basename": doc_basename(top_url) if top_url else "",
             "score": float(top.get("score") or 0.0),
             "matched_by": list(top.get("matched_by") or []) if leg == "hybrid" else [],
+            "correct": False,
+            "correct_top_3": False,
+            "mrr": 0.0,
         }
         if labeled.expected:
-            leg_info["correct"] = matches_expected(top_url, labeled.expected)
+            rank_found = 0
+            for idx, hit in enumerate(hits):
+                url = hit.get("doc_url") or ""
+                if matches_expected(url, labeled.expected):
+                    rank_found = idx + 1
+                    break
+            leg_info["correct"] = (rank_found == 1)
+            leg_info["correct_top_3"] = (0 < rank_found <= 3)
+            leg_info["mrr"] = (1.0 / rank_found) if rank_found > 0 else 0.0
+
         row["legs"][leg] = leg_info
     return row
 
@@ -237,16 +257,39 @@ def classify_fts_vec_bucket(row: dict[str, Any]) -> str | None:
 def summarize_rows(rows: list[dict[str, Any]], *, leg: str) -> dict[str, Any]:
     labeled = [r for r in rows if r.get("expected")]
     correct = sum(1 for r in labeled if r.get("legs", {}).get(leg, {}).get("correct"))
+    correct_top_3 = sum(1 for r in labeled if r.get("legs", {}).get(leg, {}).get("correct_top_3"))
+    total_mrr = sum(r.get("legs", {}).get(leg, {}).get("mrr", 0.0) for r in labeled)
     total = len(labeled)
+    
     pct = (100.0 * correct / total) if total else 0.0
-    by_set: dict[str, dict[str, int]] = {}
+    pct_top_3 = (100.0 * correct_top_3 / total) if total else 0.0
+    mean_mrr = (total_mrr / total) if total else 0.0
+    
+    by_set: dict[str, dict[str, Any]] = {}
     for r in labeled:
         set_name = str(r.get("set") or "unknown")
-        bucket = by_set.setdefault(set_name, {"labeled": 0, "correct": 0})
+        bucket = by_set.setdefault(
+            set_name, 
+            {"labeled": 0, "correct": 0, "correct_top_3": 0, "mrr_sum": 0.0}
+        )
         bucket["labeled"] += 1
-        if r.get("legs", {}).get(leg, {}).get("correct"):
+        leg_data = r.get("legs", {}).get(leg, {})
+        if leg_data.get("correct"):
             bucket["correct"] += 1
-    return {"leg": leg, "labeled": total, "correct": correct, "accuracy_pct": round(pct, 1), "by_set": by_set}
+        if leg_data.get("correct_top_3"):
+            bucket["correct_top_3"] += 1
+        bucket["mrr_sum"] += leg_data.get("mrr", 0.0)
+        
+    return {
+        "leg": leg, 
+        "labeled": total, 
+        "correct": correct, 
+        "accuracy_pct": round(pct, 1), 
+        "correct_top_3": correct_top_3,
+        "accuracy_top_3_pct": round(pct_top_3, 1),
+        "mean_mrr": round(mean_mrr, 3),
+        "by_set": by_set
+    }
 
 
 def summarize_fts_vec_buckets(rows: list[dict[str, Any]]) -> dict[str, int]:
@@ -329,11 +372,23 @@ def format_report(payload: dict[str, Any]) -> str:
             continue
         leg = value.get("leg", key.replace("_routing", ""))
         lines.append(
-            f"{leg}: {value.get('correct', 0)}/{value.get('labeled', 0)} labeled correct "
-            f"({value.get('accuracy_pct', 0)}%)"
+            f"{leg}: {value.get('correct', 0)}/{value.get('labeled', 0)} top-1 correct ({value.get('accuracy_pct', 0)}%) | "
+            f"top-3: {value.get('correct_top_3', 0)} ({value.get('accuracy_top_3_pct', 0)}%) | "
+            f"MRR: {value.get('mean_mrr', 0.0)}"
         )
         for set_name, counts in sorted((value.get("by_set") or {}).items()):
-            lines.append(f"  {set_name}: {counts.get('correct', 0)}/{counts.get('labeled', 0)}")
+            set_labeled = counts.get("labeled", 0)
+            set_correct = counts.get("correct", 0)
+            set_top_3 = counts.get("correct_top_3", 0)
+            set_mrr_sum = counts.get("mrr_sum", 0.0)
+            set_pct = (100.0 * set_correct / set_labeled) if set_labeled else 0.0
+            set_pct_top_3 = (100.0 * set_top_3 / set_labeled) if set_labeled else 0.0
+            set_mrr = (set_mrr_sum / set_labeled) if set_labeled else 0.0
+            lines.append(
+                f"  {set_name}: {set_correct}/{set_labeled} ({round(set_pct, 1)}%) | "
+                f"top-3: {set_top_3} ({round(set_pct_top_3, 1)}%) | "
+                f"MRR: {round(set_mrr, 3)}"
+            )
     buckets = summary.get("fts_vec_buckets")
     if buckets:
         lines.append("FTS vs vec buckets (labeled queries):")
@@ -347,11 +402,11 @@ def format_report(payload: dict[str, Any]) -> str:
         vec = row.get("legs", {}).get("vec") or {}
         parts = [f"q={row.get('query')!r}", f"exp={expected}"]
         if hybrid:
-            parts.append(f"hybrid={hybrid.get('top_basename', '?')}")
+            parts.append(f"hybrid={hybrid.get('top_basename', '?')} (correct={hybrid.get('correct')}, rank_correct={round(1.0/hybrid.get('mrr'), 1) if hybrid.get('mrr') > 0 else 'N/A'})")
         if fts:
             parts.append(f"fts={fts.get('top_basename', '?')}")
         if vec:
-            parts.append(f"vec={vec.get('top_basename', '?')}")
+            parts.append(f"vec={vec.get('top_basename', '?')} (rank={round(1.0/vec.get('mrr'), 1) if vec.get('mrr') > 0 else 'N/A'})")
         lines.append("  ".join(parts))
     return "\n".join(lines)
 
@@ -366,7 +421,7 @@ def main(argv: list[str] | None = None) -> int:
         help="Search leg(s) to evaluate (default: all)",
     )
     parser.add_argument("--set", dest="query_set", choices=("short", "long"), help="Restrict to short or long query set")
-    parser.add_argument("--k", type=int, default=1, help="Top-k for search (routing uses top-1; default: 1)")
+    parser.add_argument("--k", type=int, default=5, help="Top-k for search (default: 5)")
     parser.add_argument("--near-slop", type=int, default=DEFAULT_NEAR_SLOP, help="FTS NEAR slop (default: 10)")
     parser.add_argument("--model", help="Override embedding model id")
     parser.add_argument(

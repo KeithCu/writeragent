@@ -259,8 +259,6 @@ def model_matches_index(meta_path: Path, embedding_model: str) -> bool:
     """False when stored embedding_model differs (requires cold rebuild)."""
     meta = read_corpus_meta(meta_path)
     stored = meta.get("embedding_model", "").strip()
-    if not stored:
-        return True
     return stored == embedding_model.strip()
 
 

@@ -75,7 +75,8 @@ def test_embed_texts_happy_path(ctx, config_data):
     assert _args[0] is ctx
     assert "plugin.embeddings.venv.embeddings_index" in _args[1]
     assert kwargs["data"] == {"model": DEFAULT_EMBEDDING_MODEL, "texts": ["hello", "", "world"]}
-    assert kwargs["session_id"] == f"{EMBEDDINGS_WORKER_SESSION_PREFIX}:all-MiniLM-L6-v2"
+    expected_session_slug = DEFAULT_EMBEDDING_MODEL.replace("/", "_").replace(":", "_")
+    assert kwargs["session_id"] == f"{EMBEDDINGS_WORKER_SESSION_PREFIX}:{expected_session_slug}"
     assert kwargs["timeout_sec"] == EMBEDDINGS_WORKER_TIMEOUT_SEC
     assert kwargs["worker_pool"] == WORKER_POOL_EMBEDDINGS
 

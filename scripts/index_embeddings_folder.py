@@ -21,12 +21,18 @@ from plugin.embeddings.venv.embeddings_folder_maintain import maintain_folder_in
 def main() -> int:
     parser = argparse.ArgumentParser(description="Maintain per-folder WriterAgent embeddings cache (.odt, .ods, .odp, .odg siblings)")
     parser.add_argument("folder", type=Path, help="Document directory containing LibreOffice siblings")
-    parser.add_argument("--model", default="all-MiniLM-L6-v2", help="SentenceTransformer model id")
+    parser.add_argument("--model", default="paraphrase-multilingual-MiniLM-L12-v2", help="SentenceTransformer model id")
     parser.add_argument(
         "--mode",
         choices=("auto", "cold", "incremental"),
         default="auto",
         help="Index mode (default: auto)",
+    )
+    parser.add_argument(
+        "--search-mode",
+        choices=("embeddings", "hybrid", "fts"),
+        default="hybrid",
+        help="Search mode (default: hybrid)",
     )
     args = parser.parse_args()
     folder = args.folder.expanduser().resolve()
@@ -44,6 +50,7 @@ def main() -> int:
             embedding_model=args.model,
             mode=args.mode,
             heartbeat_fn=_heartbeat,
+            search_mode=args.search_mode,
         )
     except Exception as exc:
         print(f"Index failed: {exc}", file=sys.stderr)

@@ -1055,8 +1055,11 @@ class PythonWorkerManager:
         init_session_id: str | None = None,
         init_script_hash: str | None = None,
         allow_heartbeat: bool = False,
+        timeout_sec: int | None = None,
     ) -> dict[str, Any]:
         request: dict[str, Any] = {"id": str(uuid.uuid4())}
+        if timeout_sec is not None:
+            request["timeout_sec"] = timeout_sec
         if action:
             request["action"] = action
             if session_id:
@@ -1101,6 +1104,7 @@ class PythonWorkerManager:
             init_session_id=init_session_id,
             init_script_hash=init_script_hash,
             allow_heartbeat=allow_heartbeat,
+            timeout_sec=timeout_sec,
         )
         payload = pickle.dumps(request, protocol=5)
         header = struct.pack("!I", len(payload))

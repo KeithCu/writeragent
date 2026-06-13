@@ -37,6 +37,7 @@ def _execute_request(
     init_script: str | None = None,
     init_session_id: str | None = None,
     init_script_hash: str | None = None,
+    timeout_sec: int | None = None,
 ) -> dict[str, Any]:
     return run_sandboxed_code(
         code,
@@ -45,6 +46,7 @@ def _execute_request(
         init_script=init_script,
         init_session_id=init_session_id,
         init_script_hash=init_script_hash,
+        timeout_sec=timeout_sec,
     )
 
 
@@ -112,6 +114,7 @@ def _handle_request(request: dict[str, Any], *, stdout: Any | None = None) -> di
         init_script=init_script if isinstance(init_script, str) else None,
         init_session_id=init_session_id if isinstance(init_session_id, str) else None,
         init_script_hash=init_hash if isinstance(init_hash, str) else None,
+        timeout_sec=request.get("timeout_sec"),
     )
 
 

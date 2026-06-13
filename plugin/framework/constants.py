@@ -41,7 +41,7 @@ PLUGIN_DIR = get_plugin_dir()
 CHAT_DOCUMENT_CONTEXT_MAX_CHARS = 8000
 
 # Local sentence-transformers default until multi-model bench picks a winner (docs/embeddings.md).
-DEFAULT_EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+DEFAULT_EMBEDDING_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
 EMBEDDINGS_WORKER_SESSION_PREFIX = "embeddings"
 # Host corpus_meta.json / Chroma schema version (docs/embeddings.md).
 EMBEDDINGS_SCHEMA_VERSION = "3"

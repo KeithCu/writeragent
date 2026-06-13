@@ -39,7 +39,7 @@ from plugin.embeddings.venv.folder_fts import search_folder_fts  # noqa: E402
 DEFAULT_FOLDER = Path("~/Desktop/Writing")
 DEFAULT_K = 10
 MAX_K = 50
-DEFAULT_MODEL = "all-MiniLM-L6-v2"
+DEFAULT_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
 DEFAULT_NEAR_SLOP = 10
 
 

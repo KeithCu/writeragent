@@ -85,9 +85,15 @@ def test_resolve_index_context_ok(tmp_path):
 
 def test_model_matches_index(tmp_path):
     meta_path = tmp_path / "corpus_meta.json"
+    # When stored model is specified
     embeddings_cache.write_corpus_meta(meta_path, embedding_model="model-a")
     assert embeddings_cache.model_matches_index(meta_path, "model-a") is True
     assert embeddings_cache.model_matches_index(meta_path, "model-b") is False
+
+    # When stored model is empty
+    embeddings_cache.write_corpus_meta(meta_path, embedding_model="")
+    assert embeddings_cache.model_matches_index(meta_path, "model-a") is False
+    assert embeddings_cache.model_matches_index(meta_path, "") is True
 
 
 def test_remove_legacy_index_db(tmp_path):
