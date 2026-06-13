@@ -18,6 +18,7 @@ from plugin.embeddings.embeddings_fs import (
     extract_writer_paragraphs,
     guess_indexable_paths,
     guess_writer_paths,
+    indexable_chunks_from_path,
     paragraph_chunks_from_path,
     path_to_file_url,
 )
@@ -32,6 +33,7 @@ __all__ = [
     "extract_writer_paragraphs",
     "guess_indexable_paths",
     "guess_writer_paths",
+    "indexable_chunks_from_path",
     "list_indexable_sibling_files",
     "paragraph_chunks_from_path",
     "path_to_file_url",
