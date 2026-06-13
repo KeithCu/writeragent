@@ -335,4 +335,6 @@ def needs_cold_rebuild(meta_path: Path, embedding_model: str) -> bool:
         return True
     if chunk_count_from_meta(meta_path) == 0:
         return True
-    return not model_matches_index(meta_path, embedding_model)
+    # Model mismatch does not require a cold rebuild of the DB anymore;
+    # missing vectors will be aligned incrementally.
+    return False

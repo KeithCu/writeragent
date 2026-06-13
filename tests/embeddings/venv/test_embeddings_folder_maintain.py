@@ -67,7 +67,7 @@ def test_maintain_incremental_skips_fresh_file(tmp_path: Path):
     doc_url = path_to_file_url(str(doc))
     conn = connect_corpus_db(db_path)
     try:
-        ensure_schema(conn, with_fts=False, with_vec=False)
+        ensure_schema(conn, dim=4, with_fts=False, with_vec=True, model="all-MiniLM-L6-v2")
         upsert_chunk_with_vector(
             conn,
             {
@@ -79,10 +79,10 @@ def test_maintain_incremental_skips_fresh_file(tmp_path: Path):
                 "text": "same",
                 "file_mtime": doc.stat().st_mtime,
             },
-            [],
-            model="",
+            [0.1, 0.2, 0.3, 0.4],
+            model="all-MiniLM-L6-v2",
             with_fts=False,
-            with_vec=False,
+            with_vec=True,
         )
         conn.commit()
     finally:

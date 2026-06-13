@@ -88,7 +88,7 @@ def vec0_retrieve(state: SearchState) -> dict[str, Any]:
             model=model,
             doc_url_filter=doc_filter,
         )
-        load_embeddings_for_candidates(conn, candidates)
+        load_embeddings_for_candidates(conn, candidates, model=model)
     finally:
         conn.close()
     return {"candidates": candidates}

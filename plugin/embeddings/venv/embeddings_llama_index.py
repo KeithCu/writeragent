@@ -54,7 +54,8 @@ except ImportError:
         pass
 
     class QueryFusionRetriever:  # type: ignore[no-redef]
-        pass
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
 
     class TextNode:  # type: ignore[no-redef]
         embedding: Any = None

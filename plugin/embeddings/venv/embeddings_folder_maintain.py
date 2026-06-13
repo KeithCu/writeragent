@@ -38,6 +38,7 @@ from plugin.embeddings.venv.embeddings_sqlite import (
     ensure_schema,
     insert_paragraph_rows,
     rebuild_fts_corpus_index,
+    model_slug,
 )
 from plugin.framework.constants import EMBEDDINGS_HEARTBEAT_INTERVAL_S, EMBEDDINGS_SCHEMA_VERSION
 
@@ -318,6 +319,44 @@ def _incremental_refresh(
         elif not to_delete:
             mark_file_indexed(db_path, entry.url, entry.modified)
             files_touched += 1
+
+    # Vector alignment check: ensure all chunks in DB are embedded for the active model
+    if build_vectors:
+        has_missing = False
+        conn = connect_corpus_db(db_path)
+        try:
+            from plugin.embeddings.venv.embeddings_sqlite import _load_vec_extension
+            _load_vec_extension(conn)
+            slug = model_slug(embedding_model)
+            tbl_name = f"vec_chunks_{slug}"
+            # Check if table exists
+            has_table = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                (tbl_name,),
+            ).fetchone()
+            if not has_table:
+                has_missing = True
+            else:
+                row = conn.execute(
+                    f"SELECT 1 FROM chunks WHERE chunk_id NOT IN (SELECT chunk_id FROM {tbl_name}) LIMIT 1"
+                ).fetchone()
+                if row is not None:
+                    has_missing = True
+        except Exception:
+            log.exception("Error checking for missing vectors in vector alignment check")
+            has_missing = True
+        finally:
+            conn.close()
+
+        if has_missing:
+            _ingest_rows(
+                listing_root,
+                embedding_model,
+                [],
+                build_fts=False,
+                build_vectors=True,
+                search_mode=search_mode,
+            )
 
     db_path_final = corpus_db_path(listing_root, create_parent=False)
     row_count = 0

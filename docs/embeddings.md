@@ -4,15 +4,23 @@
 
 **Related:** [cython-extension.md](cython-extension.md) · [enabling_numpy_in_libreoffice.md](enabling_numpy_in_libreoffice.md) · [multi-document-dev-plan.md](multi-document-dev-plan.md) · [langchain-plan.md](langchain-plan.md) (chat memory / summarization only)
 
-### Corpus cache layout (schema v3)
+### Corpus cache layout (schema v3 with Multi-Model Support)
 
 ```text
 /home/user/projects/reporting/          ← document folder (many .odt/.ods siblings)
   Budget.odt
   writeragent_embeddings/              ← ONE cache beside those files (not under LO profile)
-    corpus.db                          # chunks + FTS5 passages + vec0 + indexed_files + indexed_paragraphs
+    corpus.db                          # chunks + FTS5 passages + model-specific vec tables + indexed_files + indexed_paragraphs
     corpus_meta.json                   # schema_version, embedding_model, dim, chunk_count, updated_at
 ```
+
+#### Multi-Model Database Isolation & Relative Expiry
+To prevent cache directory bloating when users switch embedding models or run different models in the same directory, `corpus.db` supports multiple embedding models concurrently:
+1. **Shared Chunks Table**: Unique paragraph text chunks are stored exactly once in the `chunks` table.
+2. **Model-Specific Vector Tables**: Dynamic virtual tables named `vec_chunks_<model_slug>` (where `<model_slug>` is the sanitized model name) isolate the vector embeddings for each model.
+3. **Model Metadata**: A `model_metadata` table tracks the dimension and last update timestamp of each embedding model's index.
+4. **Vector Alignment**: Mismatched models do not trigger a database rebuild. Instead, the incremental indexer detects missing vectors for the active model and embeds only those paragraphs.
+5. **Relative Age-Based Expiry**: During vector ingestion, any other models whose last update timestamp is more than 7 days older than the active model's last update are dropped, followed by a `VACUUM` to reclaim disk space. If files in the folder are unmodified, no cleanup is run, preserving the valid cache.
 
 > **Historical:** schema v2 used a separate `chroma/` dir and `fts5.db`; schema v1 used profile-side `index.db`. Upgrades delete legacy stores and cold-rebuild into unified `corpus.db` ([`embeddings_cache.py`](../plugin/embeddings/embeddings_cache.py)).
 
@@ -707,18 +715,18 @@ CREATE TABLE chunks (
 CREATE TABLE corpus_meta (key TEXT PRIMARY KEY, value TEXT);
 
 -- Venv fixed RPC: sqlite_vec.load(db) then create vec0 (dim fixed at cold build)
-CREATE VIRTUAL TABLE vec_chunks USING vec0(
+CREATE VIRTUAL TABLE vec_chunks_<model_slug> USING vec0(
   chunk_id INTEGER PRIMARY KEY,
-  embedding float[384]  -- dim from embedding_model / corpus_meta
+  embedding float[384]  -- dim from embedding_model / model_metadata / corpus_meta
 );
 ```
 
 | Operation | vec0 path |
 |-----------|-----------|
-| **Changed paragraph** | `UPDATE vec_chunks SET embedding = ? WHERE chunk_id = ?`; sync `chunks.content_hash` |
-| **New paragraph** | `INSERT INTO chunks …`; `INSERT INTO vec_chunks …` |
-| **Deleted paragraph** | `DELETE FROM vec_chunks WHERE chunk_id = ?`; `DELETE FROM chunks …` |
-| **Search** | `SELECT chunk_id, distance FROM vec_chunks WHERE embedding MATCH ? ORDER BY distance LIMIT ?` in venv RPC |
+| **Changed paragraph** | `UPDATE vec_chunks_<model_slug> SET embedding = ? WHERE chunk_id = ?`; sync `chunks.content_hash` |
+| **New paragraph** | `INSERT INTO chunks …`; `INSERT INTO vec_chunks_<model_slug> …` |
+| **Deleted paragraph** | `DELETE FROM vec_chunks_<model_slug> WHERE chunk_id = ?`; `DELETE FROM chunks …` |
+| **Search** | `SELECT chunk_id, distance FROM vec_chunks_<model_slug> WHERE embedding MATCH ? ORDER BY distance LIMIT ?` in venv RPC |
 
 NumPy arrays pass straight into sqlite-vec (`embedding.astype(np.float32)` — see [sqlite-vec Python docs](https://alexgarcia.xyz/sqlite-vec/python.html)).
 

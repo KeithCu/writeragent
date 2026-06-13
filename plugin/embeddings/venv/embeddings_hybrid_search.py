@@ -66,7 +66,7 @@ def hybrid_corpus_search(
             model=model,
             doc_url_filter=doc_url_filter,
         )
-        load_embeddings_for_candidates(conn, vec_hits)
+        load_embeddings_for_candidates(conn, vec_hits, model=model)
 
         if doc_url_filter:
             allowed = str(doc_url_filter)
@@ -76,7 +76,7 @@ def hybrid_corpus_search(
         fused = merge_hybrid_hits(fts_hits, vec_hits, k=fetch_k, rrf_k=rrf_k)
 
         if use_mmr and fused and final_k > 1:
-            load_embeddings_for_candidates(conn, fused)
+            load_embeddings_for_candidates(conn, fused, model=model)
             with_embeddings = [c for c in fused if c.get("embedding") is not None]
             without = [c for c in fused if c.get("embedding") is None]
             if len(with_embeddings) >= final_k:

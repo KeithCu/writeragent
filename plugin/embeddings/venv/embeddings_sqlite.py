@@ -26,7 +26,6 @@ CREATE TABLE IF NOT EXISTS chunks (
     char_end INTEGER,
     content_hash TEXT NOT NULL,
     file_mtime REAL,
-    embedding_model TEXT,
     body TEXT NOT NULL,
     UNIQUE(doc_url, para_index, char_start, char_end, content_hash)
 );
@@ -42,6 +41,12 @@ CREATE TABLE IF NOT EXISTS indexed_paragraphs (
     para_index INTEGER NOT NULL,
     content_hash TEXT NOT NULL,
     PRIMARY KEY (doc_url, para_index)
+);
+
+CREATE TABLE IF NOT EXISTS model_metadata (
+    embedding_model TEXT PRIMARY KEY,
+    dim INTEGER NOT NULL,
+    updated_at REAL NOT NULL
 );
 """
 
@@ -86,9 +91,16 @@ def _load_vec_extension(conn: sqlite3.Connection) -> None:
     conn.enable_load_extension(False)
 
 
-def _vec_table_ddl(dim: int) -> str:
+def model_slug(model: str) -> str:
+    """Generate a safe table/filename slug from a model name."""
+    if not model:
+        model = "all-MiniLM-L6-v2"
+    return model.replace("/", "_").replace(":", "_").replace(" ", "_").replace("-", "_").replace(".", "_")
+
+
+def _vec_table_ddl(tbl_name: str, dim: int) -> str:
     return f"""
-CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
+CREATE VIRTUAL TABLE IF NOT EXISTS {tbl_name} USING vec0(
     chunk_id INTEGER PRIMARY KEY,
     embedding float[{int(dim)}]
 );
@@ -111,6 +123,7 @@ def ensure_schema(
     dim: int | None = None,
     with_fts: bool = False,
     with_vec: bool = False,
+    model: str = "",
 ) -> None:
     """Create chunks (+ optional FTS5 / vec0) tables."""
     conn.executescript(_CHUNKS_DDL)
@@ -118,13 +131,33 @@ def ensure_schema(
         conn.execute(_FTS_DDL)
     if with_vec:
         _load_vec_extension(conn)
-        has_vec = conn.execute(
+
+        # Legacy migration: rename old vec_chunks table if it exists
+        has_legacy_vec = conn.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='vec_chunks'"
+        ).fetchone()
+        if has_legacy_vec:
+            legacy_model = "all-MiniLM-L6-v2"
+            legacy_slug = model_slug(legacy_model)
+            legacy_tbl = f"vec_chunks_{legacy_slug}"
+            try:
+                conn.execute(f"ALTER TABLE vec_chunks RENAME TO {legacy_tbl}")
+                log.info("Migrated legacy vec_chunks table to %s", legacy_tbl)
+            except Exception:
+                log.warning("Could not rename legacy vec_chunks table, dropping instead", exc_info=True)
+                conn.execute("DROP TABLE IF EXISTS vec_chunks")
+
+        active_model = model or "all-MiniLM-L6-v2"
+        slug = model_slug(active_model)
+        tbl_name = f"vec_chunks_{slug}"
+        has_vec = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+            (tbl_name,),
         ).fetchone()
         if not has_vec:
             if dim is None or dim <= 0:
-                raise ValueError("dim is required when creating vec_chunks")
-            conn.execute(_vec_table_ddl(dim))
+                raise ValueError(f"dim is required when creating vec_chunks table for model {active_model}")
+            conn.execute(_vec_table_ddl(tbl_name, dim))
     conn.commit()
 
 
@@ -170,13 +203,20 @@ def _fts_index_row(conn: sqlite3.Connection, chunk_id: int) -> None:
 def _delete_chunk_ids(conn: sqlite3.Connection, chunk_ids: list[int], *, with_fts: bool, with_vec: bool) -> None:
     if not chunk_ids:
         return
+    vec_tables = []
     if with_vec:
         _load_vec_extension(conn)
+        # Find all vec_chunks_* virtual tables (excluding shadow tables)
+        tables = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND sql LIKE 'CREATE VIRTUAL TABLE%vec0%' AND name LIKE 'vec_chunks_%'"
+        ).fetchall()
+        vec_tables = [row["name"] for row in tables]
     for chunk_id in chunk_ids:
         if with_fts:
             _fts_delete_row(conn, chunk_id)
         if with_vec:
-            conn.execute("DELETE FROM vec_chunks WHERE chunk_id = ?", (int(chunk_id),))
+            for tbl in vec_tables:
+                conn.execute(f"DELETE FROM {tbl} WHERE chunk_id = ?", (int(chunk_id),))
         conn.execute("DELETE FROM chunks WHERE chunk_id = ?", (int(chunk_id),))
 
 
@@ -267,15 +307,14 @@ def _insert_chunk_row(
     content_hash: str,
     body: str,
     file_mtime: float,
-    embedding_model: str,
     with_fts: bool,
 ) -> int:
     conn.execute(
         """
         INSERT INTO chunks (
             doc_url, para_index, char_start, char_end, content_hash,
-            file_mtime, embedding_model, body
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            file_mtime, body
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
         (
             doc_url,
@@ -284,7 +323,6 @@ def _insert_chunk_row(
             int(char_end),
             content_hash,
             float(file_mtime),
-            embedding_model,
             body,
         ),
     )
@@ -313,35 +351,39 @@ def upsert_chunk_with_vector(
     if not body:
         return 0
 
-    existing = conn.execute(
-        """
-        SELECT chunk_id FROM chunks
-        WHERE doc_url = ? AND para_index = ? AND char_start = ? AND char_end = ? AND content_hash = ?
-        """,
-        (doc_url, para_index, char_start, char_end, content_hash),
-    ).fetchone()
-    if existing is not None:
-        _delete_chunk_ids(conn, [int(existing["chunk_id"])], with_fts=with_fts, with_vec=with_vec)
+    chunk_id = chunk.get("chunk_id")
+    if chunk_id is None:
+        existing = conn.execute(
+            """
+            SELECT chunk_id FROM chunks
+            WHERE doc_url = ? AND para_index = ? AND char_start = ? AND char_end = ? AND content_hash = ?
+            """,
+            (doc_url, para_index, char_start, char_end, content_hash),
+        ).fetchone()
+        if existing is not None:
+            chunk_id = int(existing["chunk_id"])
+        else:
+            chunk_id = _insert_chunk_row(
+                conn,
+                doc_url=doc_url,
+                para_index=para_index,
+                char_start=char_start,
+                char_end=char_end,
+                content_hash=content_hash,
+                body=body,
+                file_mtime=float(chunk.get("file_mtime") or 0.0),
+                with_fts=with_fts,
+            )
 
-    chunk_id = _insert_chunk_row(
-        conn,
-        doc_url=doc_url,
-        para_index=para_index,
-        char_start=char_start,
-        char_end=char_end,
-        content_hash=content_hash,
-        body=body,
-        file_mtime=float(chunk.get("file_mtime") or 0.0),
-        embedding_model=model,
-        with_fts=with_fts,
-    )
-    if with_vec:
+    if with_vec and vector:
         import numpy as np
 
         _load_vec_extension(conn)
         emb = np.asarray(vector, dtype=np.float32)
+        slug = model_slug(model)
+        tbl_name = f"vec_chunks_{slug}"
         conn.execute(
-            "INSERT INTO vec_chunks(chunk_id, embedding) VALUES (?, ?)",
+            f"INSERT OR REPLACE INTO {tbl_name}(chunk_id, embedding) VALUES (?, ?)",
             (chunk_id, emb),
         )
     return chunk_id
@@ -368,7 +410,6 @@ def insert_paragraph_rows(
             content_hash=str(row.get("content_hash") or ""),
             body=text,
             file_mtime=float(row.get("file_mtime") or 0.0),
-            embedding_model="",
             with_fts=with_fts,
         )
         inserted += 1
@@ -388,7 +429,18 @@ def vec0_search(
     import numpy as np
 
     _load_vec_extension(conn)
-    count_row = conn.execute("SELECT COUNT(*) AS c FROM vec_chunks").fetchone()
+    slug = model_slug(model)
+    tbl_name = f"vec_chunks_{slug}"
+
+    # Check if table exists
+    has_table = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        (tbl_name,),
+    ).fetchone()
+    if not has_table:
+        return []
+
+    count_row = conn.execute(f"SELECT COUNT(*) AS c FROM {tbl_name}").fetchone()
     count = int(count_row["c"] if count_row else 0)
     if count == 0:
         return []
@@ -396,15 +448,14 @@ def vec0_search(
     limit = min(max(int(k), 1), count)
     q = np.asarray(query_vec, dtype=np.float32)
     rows = conn.execute(
-        """
+        f"""
         SELECT
             v.chunk_id,
             v.distance,
             c.doc_url,
             c.para_index,
-            c.embedding_model,
             c.body
-        FROM vec_chunks v
+        FROM {tbl_name} v
         JOIN chunks c ON c.chunk_id = v.chunk_id
         WHERE v.embedding MATCH ?
           AND k = ?
@@ -417,9 +468,6 @@ def vec0_search(
     for row in rows:
         if doc_url_filter and str(row["doc_url"] or "") != doc_url_filter:
             continue
-        emb_model = str(row["embedding_model"] or "")
-        if emb_model and emb_model != model:
-            continue
         dist = float(row["distance"] or 0.0)
         score = max(0.0, 1.0 - dist)
         candidates.append(
@@ -427,7 +475,7 @@ def vec0_search(
                 "chunk_id": int(row["chunk_id"]),
                 "doc_url": str(row["doc_url"] or ""),
                 "para_index": int(row["para_index"] or 0),
-                "embedding_model": emb_model,
+                "embedding_model": model,
                 "snippet": str(row["body"] or ""),
                 "score": score,
                 "distance": dist,
@@ -484,6 +532,7 @@ def fts_corpus_search(
 def load_embeddings_for_candidates(
     conn: sqlite3.Connection,
     candidates: list[dict[str, Any]],
+    model: str = "",
 ) -> None:
     """Attach vec0 embeddings to candidate dicts for MMR (mutates *candidates*)."""
     import numpy as np
@@ -491,13 +540,29 @@ def load_embeddings_for_candidates(
     if not candidates:
         return
     _load_vec_extension(conn)
+    slug = model_slug(model)
+    tbl_name = f"vec_chunks_{slug}"
+
+    # Check if table exists, fallback to legacy vec_chunks if it exists
+    has_table = conn.execute(
+        f"SELECT 1 FROM sqlite_master WHERE type='table' AND name='{tbl_name}'"
+    ).fetchone()
+    if not has_table:
+        has_legacy = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='vec_chunks'"
+        ).fetchone()
+        if has_legacy:
+            tbl_name = "vec_chunks"
+        else:
+            return
+
     ids = [int(c["chunk_id"]) for c in candidates if c.get("chunk_id") is not None]
     if not ids:
         return
     by_id: dict[int, Any] = {}
     for chunk_id in ids:
         row = conn.execute(
-            "SELECT chunk_id, embedding FROM vec_chunks WHERE chunk_id = ?",
+            f"SELECT chunk_id, embedding FROM {tbl_name} WHERE chunk_id = ?",
             (int(chunk_id),),
         ).fetchone()
         if row is not None:

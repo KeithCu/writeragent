@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-11 14:33-0400\n"
+"POT-Creation-Date: 2026-06-13 11:35-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -266,6 +266,131 @@ msgstr ""
 msgid " with "
 msgstr ""
 
+#: plugin/embeddings/search_ui.py
+msgid "Search Nearby Files"
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+msgid "Search Query:"
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+msgid "Number of Responses:"
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Checking..."
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+msgid "Search"
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+msgid "Rebuild"
+msgstr ""
+
+#: plugin/embeddings/search_ui.py plugin/chatbot/dialog_views.py
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+msgid "Results:"
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: No active document"
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Folder not resolved"
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Not built"
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+msgid "just now"
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "{0}m ago"
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "{0}h ago"
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "Cache Status: Built ({0})"
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Built"
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "Cache Status: Error ({0})"
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+msgid "Please enter a search query."
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+msgid "Searching..."
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+msgid "No active document found."
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+msgid ""
+"Cross-file search is disabled. Enable Embeddings + FTS in Settings → "
+"Embeddings."
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+msgid "Error: "
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+msgid ""
+"Folder index is building in the background. Please retry search shortly."
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+msgid "No matches found."
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+msgid "Error running search: "
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+msgid "Rebuilding cache..."
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+msgid "No active folder resolved."
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache rebuild completed successfully."
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+msgid "Rebuild failed: "
+msgstr ""
+
 #: plugin/framework/errors.py
 #, python-brace-format
 msgid "TLS/SSL Error: {0}"
@@ -404,7 +529,7 @@ msgstr ""
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr ""
 
-#: plugin/calc/vision_egress.py plugin/scripting/vision_runner.py
+#: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
 msgid "Select an embedded image, then Run again."
 msgstr ""
 
@@ -1115,11 +1240,6 @@ msgstr ""
 msgid "Testing Python environment..."
 msgstr ""
 
-#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr ""
-
 #: plugin/chatbot/dialog_views.py
 msgid "Done"
 msgstr ""
@@ -1404,87 +1524,75 @@ msgstr ""
 msgid "Could not talk to the Python editor."
 msgstr ""
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid ""
 "Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision probe failed (see writeragent_debug.log)."
 msgstr ""
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid ""
 "Embeddings probe timed out (sentence-transformers import can take 10–30s on "
 "first check)."
 msgstr ""
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Embeddings probe failed (see writeragent_debug.log)."
 msgstr ""
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Visualization Libraries"
 msgstr ""
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Computer Algebra"
 msgstr ""
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Quantitative Finance Libraries"
 msgstr ""
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Data Engineering Libraries"
 msgstr ""
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries"
 msgstr ""
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Embeddings Libraries"
 msgstr ""
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
 msgstr ""
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Reading Python version..."
 msgstr ""
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries: loading (first run may take a while)..."
 msgstr ""
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Embeddings Libraries: loading (first run may take a while)..."
 msgstr ""
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Using LibreOffice process Python..."
 msgstr ""
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Resolving venv Python..."
 msgstr ""
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Using"
-msgstr ""
-
-#: plugin/scripting/vision_runner.py
-#, python-brace-format
-msgid ""
-"Image '{name}' not found. Use list_images or leave image_name empty and "
-"select the graphic."
-msgstr ""
-
-#: plugin/scripting/vision_runner.py
-#, python-brace-format
-msgid "Image '{name}' could not be exported."
 msgstr ""
 
 #: plugin/scripting/symbolic.py
@@ -1735,6 +1843,18 @@ msgstr ""
 msgid "Select data range or enter A1 address (injected as data)."
 msgstr ""
 
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid ""
+"Image '{name}' not found. Use list_images or leave image_name empty and "
+"select the graphic."
+msgstr ""
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "Image '{name}' could not be exported."
+msgstr ""
+
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
 msgstr ""
@@ -1841,6 +1961,10 @@ msgstr ""
 
 #: plugin/main.py
 msgid "Insert LaTeX Math..."
+msgstr ""
+
+#: plugin/main.py
+msgid "Search Nearby Files..."
 msgstr ""
 
 #: plugin/main.py
@@ -2126,6 +2250,26 @@ msgstr ""
 msgid "Ask for confirmation before sending a web search query"
 msgstr ""
 
+msgid "Web Research Browser"
+msgstr ""
+
+msgid ""
+"Select the browser backend to use for webpage visits during research (Off "
+"uses static HTTP requests)."
+msgstr ""
+
+msgid "Off (Static HTTP)"
+msgstr ""
+
+msgid "Firefox (CDP)"
+msgstr ""
+
+msgid "Chromium (CDP)"
+msgstr ""
+
+msgid "Chrome (CDP)"
+msgstr ""
+
 msgid "Cache max (MB)"
 msgstr ""
 
@@ -2233,29 +2377,15 @@ msgstr ""
 msgid "Embeddings"
 msgstr ""
 
-msgid "Embeddings cache (per-folder semantic search)"
+msgid "Cross-file search"
 msgstr ""
 
 msgid ""
-"When on, builds a semantic index in writeragent_embeddings/ beside the "
-"active document's folder and also exposes search_embeddings in "
-"document_research (grep_nearby_files stays available). Requires Settings → "
-"Python venv with sentence-transformers, chromadb, langgraph, langchain-core,"
-" langchain-text-splitters, envwrap (see Settings → Python Test)."
+"Indexed semantic + keyword search for document_research (corpus.db). "
+"Requires embeddings venv — see Python Test."
 msgstr ""
 
-msgid "Embedding Provider"
-msgstr ""
-
-msgid ""
-"local (sentence-transformers in venv) or endpoint (configured remote/local "
-"endpoint)"
-msgstr ""
-
-msgid "Local (venv)"
-msgstr ""
-
-msgid "Endpoint"
+msgid "Embeddings + FTS"
 msgstr ""
 
 msgid "Embedding Model"
