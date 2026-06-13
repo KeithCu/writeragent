@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
-"""Inspect WriterAgent per-folder embeddings cache (JSON + corpus.db).
+"""Inspect WriterAgent per-folder embeddings cache (schema v3 primary).
 
-Accepts a document folder or the cache directory itself:
+Reads ``corpus_meta.json`` and ``corpus.db`` (chunks + FTS5 passages + vec0 +
+indexed_files / indexed_paragraphs). Accepts a document folder or the cache
+directory itself:
 
   python scripts/dump_embeddings_cache.py ~/Desktop/Writing
   python scripts/dump_embeddings_cache.py ~/Desktop/Writing/writeragent_embeddings
   python scripts/dump_embeddings_cache.py --limit 20 --doc-url file:///path/to/doc.odt
 
-Schema v3 stores chunks + FTS5 + vec0 + incremental index state in corpus.db.
-corpus_meta.json records model/schema/chunk_count.
+Legacy pre-v3 caches used a separate ``chroma/`` directory. Pass ``--chromadb``
+only when inspecting those old caches via the chromadb Python API (not needed
+for schema v3).
 """
 
 from __future__ import annotations
@@ -498,7 +501,7 @@ def main(argv: list[str] | None = None) -> int:
         "--limit",
         type=int,
         default=50,
-        help="Max Chroma chunks to print (default: 50; 0 = summary only)",
+        help="Max chunks to print (default: 50; 0 = summary only)",
     )
     parser.add_argument(
         "--preview-chars",
@@ -518,7 +521,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--chromadb",
         action="store_true",
-        help="Prefer chromadb Python API over raw sqlite (needs venv with chromadb installed)",
+        help="Legacy pre-v3 only: read chroma/ via chromadb Python API (needs chromadb in venv)",
     )
     args = parser.parse_args(argv)
 

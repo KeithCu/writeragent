@@ -4,16 +4,17 @@
 
 **Related:** [cython-extension.md](cython-extension.md) · [enabling_numpy_in_libreoffice.md](enabling_numpy_in_libreoffice.md) · [multi-document-dev-plan.md](multi-document-dev-plan.md) · [langchain-plan.md](langchain-plan.md) (chat memory / summarization only)
 
-### Chroma + LangGraph layout (schema v2)
+### Corpus cache layout (schema v3)
 
 ```text
 /home/user/projects/reporting/          ← document folder (many .odt/.ods siblings)
   Budget.odt
   writeragent_embeddings/              ← ONE cache beside those files (not under LO profile)
-    chroma/                            # Chroma PersistentClient (collection name = folder_corpus_key)
+    corpus.db                          # chunks + FTS5 passages + vec0 + indexed_files + indexed_paragraphs
     corpus_meta.json                   # schema_version, embedding_model, dim, chunk_count, updated_at
-    corpus.db                          # chunks + FTS5 + vec0 + indexed_files + indexed_paragraphs
 ```
+
+> **Historical:** schema v2 used a separate `chroma/` dir and `fts5.db`; schema v1 used profile-side `index.db`. Upgrades delete legacy stores and cold-rebuild into unified `corpus.db` ([`embeddings_cache.py`](../plugin/embeddings/embeddings_cache.py)).
 
 **Linux example:** `~/Desktop/Writing/writeragent_embeddings/` when working in `~/Desktop/Writing/`.
 
@@ -37,7 +38,7 @@ python scripts/dump_embeddings_cache.py --limit 20 --doc-url file:///path/to/doc
 
 ### Search a cache
 
-Offline search (defaults to embeddings / LangGraph + Chroma, same path as in-app `search_embeddings`):
+Offline search (defaults to **hybrid** RRF — same path as in-app `search_nearby_files`):
 
 ```bash
 .venv/bin/python scripts/search_embeddings_folder.py "your query"
@@ -46,24 +47,30 @@ Offline search (defaults to embeddings / LangGraph + Chroma, same path as in-app
 .venv/bin/python scripts/search_embeddings_folder.py "topic" --doc-url file:///path/to/doc.odt
 ```
 
-**SQLite FTS5** (same path as in-app `search_nearby_files`; stdlib only, no SentenceTransformer load):
+**Single-leg debug** (same `corpus.db`):
 
 ```bash
 .venv/bin/python scripts/search_embeddings_folder.py --fts "web search"
+.venv/bin/python scripts/search_embeddings_folder.py --vec "remote work policy" --folder ~/Desktop/Writing
+```
+
+**SQLite FTS5** leg only (stdlib `sqlite3`; no SentenceTransformer load):
+
+```bash
 .venv/bin/python scripts/search_embeddings_folder.py --fts "grammar checker" --folder ~/Desktop/Writing --k 10
 ```
 
-Defaults: folder `~/Desktop/Writing`, top **10** hits. Embeddings mode requires the embeddings venv packages (same as [`scripts/index_embeddings_folder.py`](../scripts/index_embeddings_folder.py)). FTS mode requires `fts5.db` under `writeragent_embeddings/` (enable folder FTS in WriterAgent or run `maintain_folder_fts` — see [Folder FTS](#folder-fts)).
+Defaults: folder `~/Desktop/Writing`, top **10** hits. Requires the embeddings venv packages (same as [`scripts/index_embeddings_folder.py`](../scripts/index_embeddings_folder.py)) and a built **`corpus.db`** under `writeragent_embeddings/` (enable **Embeddings + FTS** in Settings or run index maintain — see [Search mode flag](#search-mode-flag)).
 
 ### Performance: embeddings vs grep (example corpus) {#performance-embeddings-vs-grep}
 
-Future work on **when** to call `search_embeddings` vs `grep_nearby_files` (or a hybrid) should be **data-driven**. This section records one real benchmark on a multi-document folder — not a synthetic eval set, but a useful baseline because it mixes WriterAgent blog drafts, technical notes, and unrelated documents in one directory (the same shape `document_research` sees).
+Future work on **when** to call `search_nearby_files` vs `grep_nearby_files` should be **data-driven**. This section records one real benchmark on a multi-document folder — not a synthetic eval set, but a useful baseline because it mixes WriterAgent blog drafts, technical notes, and unrelated documents in one directory (the same shape `document_research` sees).
 
-**Corpus:** `~/Desktop/Writing` — **16** indexed Writer `.odt` files, **~1096** Chroma chunks, model **`all-MiniLM-L6-v2`** (schema v2 cache beside the folder). Files include `cursor_for_libreoffice_part2.odt` … `part5.odt`, `writerchat.odt`, `blog_draft_cursor_for_libreoffice.odt`, plus siblings such as `SoftwareWars.odt`, `FormalVerificationText.odt`, `ConduitGeometry.odt`, `rpython.odt` (215 paragraphs — large enough to steal generic “python” queries).
+**Corpus (historical semantic-only run):** `~/Desktop/Writing` — **16** indexed Writer `.odt` files, **~1096** chunks, model **`all-MiniLM-L6-v2`** (pre–schema v3 semantic index). Files include `cursor_for_libreoffice_part2.odt` … `part5.odt`, `writerchat.odt`, `blog_draft_cursor_for_libreoffice.odt`, plus siblings such as `SoftwareWars.odt`, `FormalVerificationText.odt`, `ConduitGeometry.odt`, `rpython.odt` (215 paragraphs — large enough to steal generic “python” queries).
 
-**Method (2026-06):**
+**Method (2026-06, historical vec-only leg):**
 
-1. **Semantic:** [`scripts/search_embeddings_folder.py`](../scripts/search_embeddings_folder.py) → `knn_search` → LangGraph + Chroma; record **top-1** hit (`score`, `doc_url`, `snippet`).
+1. **Semantic:** [`scripts/search_embeddings_folder.py`](../scripts/search_embeddings_folder.py) `--vec` → `knn_search` → vec0 + LangGraph MMR; record **top-1** hit (`score`, `doc_url`, `snippet`).
 2. **Lexical baselines** (stdlib ODF extract via [`embeddings_fs.extract_writer_paragraphs`](../plugin/embeddings/embeddings_fs.py)):
    - **Strict grep** — paragraph must contain **all** query tokens.
    - **Nearby-style grep** — rank files by paragraph hit count for **any** query token (approximates `grep_nearby_files` file picking).
@@ -201,7 +208,7 @@ HF_HUB_OFFLINE=1 .venv/bin/python scripts/eval_folder_search_routing.py --folder
 | Query **≤3 tokens** or distinctive **literals** inside one file | **`grep_nearby_files`** |
 | **Both** legs agree on `doc_url` (`matched_by`: fts + vec) | High confidence — open that file |
 
-Industry pattern (see [Problem](#problem)): **combine** methods — inverted index / grep for keywords, embeddings for paraphrase. On `~/Desktop/Writing`, data favors **grep-default, semantic-supplement**: the long paraphrase wins justify keeping `search_embeddings`, but **most realistic 1–3 word searches should not skip grep**.
+Industry pattern (see [Problem](#problem)): **combine** methods — inverted index / grep for keywords, embeddings for paraphrase. On `~/Desktop/Writing`, hybrid RRF improves short routing vs vec-only ([Hybrid RRF baseline](#hybrid-rrf-baseline-schema-v3-re-measured-2026-06)); long paraphrase queries still favor the semantic leg.
 
 Scores and file ranks **will change** with model upgrades (`bge-small`, etc.), chunk size, and corpus size — re-run [`scripts/eval_folder_search_routing.py`](../scripts/eval_folder_search_routing.py) and extend this section as more folders are measured.
 
@@ -213,10 +220,11 @@ Scores and file ranks **will change** with model upgrades (`bge-small`, etc.), c
 | [`embeddings_odf_extract.py`](../plugin/embeddings/venv/embeddings_odf_extract.py) | Impress/Draw `.odp`/`.odg` page and Calc `.ods`/`.ots`/`.fods` row extract (pandas + odfpy, trusted venv) |
 | [`embeddings_folder_maintain.py`](../plugin/embeddings/venv/embeddings_folder_maintain.py) | Trusted venv cold/incremental maintain loop |
 | [`embeddings_periodic.py`](../plugin/embeddings/embeddings_periodic.py) | Periodic folder tick when cache enabled |
-| [`document_research_search_tool.py`](../plugin/embeddings/document_research_search_tool.py) | `search_embeddings` tool |
-| [`embeddings_chroma.py`](../plugin/embeddings/venv/embeddings_chroma.py) | Chroma client, chunk IDs, metadata schema |
-| [`embeddings_ingest_graph.py`](../plugin/embeddings/venv/embeddings_ingest_graph.py) | LangGraph: split → embed → upsert / delete |
-| [`embeddings_search_graph.py`](../plugin/embeddings/venv/embeddings_search_graph.py) | LangGraph: query → Chroma → filter → MMR → hits |
+| [`document_research_fts_tool.py`](../plugin/embeddings/document_research_fts_tool.py) | `search_nearby_files` tool (hybrid FTS + vec + RRF) |
+| [`embeddings_hybrid_search.py`](../plugin/embeddings/venv/embeddings_hybrid_search.py) | Hybrid corpus search + MMR when k>1 |
+| [`embeddings_sqlite.py`](../plugin/embeddings/venv/embeddings_sqlite.py) | Unified `corpus.db`: chunks, FTS5, vec0, incremental tables |
+| [`embeddings_ingest_graph.py`](../plugin/embeddings/venv/embeddings_ingest_graph.py) | LangGraph: split → embed → sqlite-vec upsert / delete |
+| [`embeddings_search_graph.py`](../plugin/embeddings/venv/embeddings_search_graph.py) | LangGraph: query → vec0 retrieve → MMR → hits |
 | [`embeddings_index.py`](../plugin/embeddings/venv/embeddings_index.py) | Trusted venv RPC facades + `embed_texts()` |
 | [`embeddings_service.py`](../plugin/framework/client/embeddings_service.py) | Host index/search/stats RPC |
 | [`embedding_client.py`](../plugin/framework/client/embedding_client.py) | Host `embed_texts()` RPC |
@@ -227,7 +235,7 @@ Scores and file ranks **will change** with model upgrades (`bge-small`, etc.), c
 pip install numpy sentence-transformers sqlite-vec langgraph langchain-core langchain-text-splitters envwrap odfpy
 ```
 
-Legacy **`index.db`** (SQLite BLOB / sqlite-vec) is removed on upgrade; the next index pass cold-builds into Chroma.
+Legacy **`index.db`**, **`chroma/`**, and separate **`fts5.db`** are removed on upgrade; the next index pass cold-builds into unified **`corpus.db`**.
 
 ---
 
@@ -237,7 +245,7 @@ The expensive case is **many documents**, not one.
 
 Today the **outer** [document_research](../plugin/doc/document_research.py) sub-agent discovers siblings with `list_nearby_files`, guesses filenames from vague user language, opens candidates, and greps with `search_in_document` / full reads. That is **better than opening 100 files blindly**, but still slow, token-heavy, and weak on paraphrase ("remote work" vs "WFH policy" in an oddly named `Notes_v3.odt`).
 
-**Embeddings** replace that **outer-layer grep** with semantic lookup over a **per-directory Chroma index** ([Corpus storage](#corpus-storage)) — vectors in **`chroma/`** plus JSON locators/state on the host (`file_index_state.json`). Search hits return **`doc_url` + `score` + `snippet`** (and an optional weak `para_index` hint) — not a second full-text cache for agents. The outer agent searches **that folder’s cache** without opening LO; it then opens **one or a few** files and the inner read agent uses **`search_in_document`** on the snippet or topic. Opening one file after semantic routing is cheap compared to opening dozens and grepping each.
+**Embeddings** replace that **outer-layer grep** with semantic + keyword lookup over a **per-directory `corpus.db` index** ([Corpus storage](#corpus-storage)) — float32 vectors in **vec0**, chunk text in **`chunks.body`**, FTS in **`passages`**, incremental state in **`indexed_*` tables**. Search hits return **`doc_url` + `score` + `snippet`** (and an optional weak `para_index` hint). The outer agent searches **that folder’s cache** without opening LO; it then opens **one or a few** files and the inner read agent uses **`search_in_document`** on the snippet or topic. Opening one file after semantic routing is cheap compared to opening dozens and grepping each.
 
 ### Why embeddings (semantic search) vs pure lexical/grep, and why the difference is bigger for office documents than code
 
@@ -292,7 +300,7 @@ flowchart LR
 
 **Before (outer):** `list_nearby_files(filter="budget")` → guess → open → `search_in_document` / `get_document_content` on each candidate.
 
-**After (outer):** `search_embeddings("Q4 revenue figures")` → `[{doc_url, score, snippet: matched passage ~512 chars}, …]` → `delegate_read_document` on **top hits only** → inner `search_in_document` / range read using the snippet or topic.
+**After (outer):** `search_nearby_files("Q4 revenue figures")` → `[{doc_url, score, snippet: matched passage ~512 chars}, …]` → `delegate_read_document` on **top hits only** → inner `search_in_document` / range read using the snippet or topic.
 
 Main chat may also call the index before delegating, but the **major integration point is the outer document_research tool surface** — smarter, faster file pick, no filename lottery.
 
@@ -302,9 +310,9 @@ The rationale for preferring a semantic router here (rather than relying solely 
 
 The index is **not** a document store. It holds:
 
-- Normalized **float32 vectors** in **Chroma** ([Corpus storage](#corpus-storage)); schema v1 used SQLite BLOB / optional sqlite-vec — removed on upgrade.
+- Normalized **float32 vectors** in **sqlite-vec `vec_chunks`** ([Corpus storage](#corpus-storage)); schema v1 BLOB `index.db` removed on upgrade.
 - **Locators** — enough to find the passage again in LO (paragraph + offset, and Calc/Draw-specific fields as needed later).
-- **Chunk text in Chroma `documents`** — retained at index time for hit previews ([Search hit shape](#search-hit-shape)); not a second FTS index for agents.
+- **Chunk text in `chunks.body`** — retained at index time for hit previews ([Search hit shape](#search-hit-shape)); FTS **`passages`** indexes the same text for the keyword leg.
 
 Lookup returns **where to look**; opening **one** (or a few) files and reading at that locator is intentional and cheap. That beats opening many files and running semantic search inside each.
 
@@ -312,8 +320,8 @@ Lookup returns **where to look**; opening **one** (or a few) files and reading a
 
 ## Vision
 
-- **One minimal index** — vectors + locators; no duplicate FTS/text cache.
-- **Outer document_research** queries embeddings instead of grep across opened siblings.
+- **One unified index** — `corpus.db` holds FTS + vectors + locators (one store per folder).
+- **Outer document_research** queries **`search_nearby_files`** (hybrid) instead of grep across opened siblings when folder search is on.
 - **Open one (or few) files** at known locations — not semantic search inside every file in the folder.
 - Optional in-document injection on main chat send for edge-case huge single files (low priority).
 
@@ -323,7 +331,7 @@ Lookup returns **where to look**; opening **one** (or a few) files and reading a
 
 | Mode | User experience | Priority |
 |------|-----------------|----------|
-| **Outer semantic find** | document_research outer agent: `search_embeddings` → ranked `doc_url` + locators → open top hits | **Primary** |
+| **Outer semantic find** | document_research outer agent: `search_nearby_files` → ranked `doc_url` + locators → open top hits | **Primary** |
 | **Index folder / corpus** | Background embed on open/save; revision-keyed invalidation | **Primary** |
 | **Main → delegate with hits** | Main chat runs index first, passes paths/locators into delegate task | **Primary** |
 | **Cross-doc Q&A** | Top-k locators across corpus, then inner reads on opened files | **Primary** |
@@ -334,14 +342,14 @@ Lookup returns **where to look**; opening **one** (or a few) files and reading a
 - **`sentence-transformers` + NumPy in the user venv** — tier-one **MVP** embedder (offline, batch CPU, no per-paragraph API cost). See [Local embedders (MVP)](#local-embedders-mvp).
 - Cloud embed APIs (OpenRouter / Together / Ollama) when no venv or user prefers hosted models.
 - [`list_nearby_files`](../plugin/doc/document_research.py) + read-only extract for **indexing**; index for **lookup** before any of that on query.
-- **Pickle5 IPC** into the warm venv worker for encode + Chroma index/search ([`bench_embeddings.py`](../scripts/bench_embeddings.py) validates encode + NumPy dot baseline).
-- Host JSON for incremental state; **Chroma** for vectors + search in the venv.
+- **Pickle5 IPC** into the warm venv worker for encode + `corpus.db` maintain/search ([`bench_embeddings.py`](../scripts/bench_embeddings.py) validates encode + NumPy dot baseline).
+- Host **`corpus_meta.json`**; vectors, FTS, and incremental state in **`corpus.db`** (venv trusted modules).
 
 ---
 
 ## Development plan {#development-plan}
 
-**Goal:** outer [document_research](../plugin/doc/document_research.py) calls `search_embeddings(query, k)` → ranked hits **within the active folder’s cache** (`doc_url` + paragraph locators) → open top files → inner read at offset. No parallel FTS index; no chunk text on disk.
+**Goal:** outer [document_research](../plugin/doc/document_research.py) calls `search_nearby_files(query, k)` → ranked hits **within the active folder’s cache** (`doc_url` + paragraph locators) → open top files → inner read at offset.
 
 ### Scope: per-directory cache only (MVP) {#per-directory-cache}
 
@@ -351,23 +359,22 @@ The **only** persisted index shape for now:
 |----------|-------------------------------|
 | **One cache per directory** — all LibreOffice siblings in the same folder share one cache under `writeragent_embeddings/<key>/` | Per-**file** sidecars or per-document `.db` files |
 | Folder key = normalized path of the **directory** being searched (parent of active doc + siblings) | Single global index across `~/Documents` |
-| `search_embeddings` searches **that directory’s** vec0 index | Cross-directory search in one query |
+| `search_nearby_files` searches **that directory’s** hybrid index in `corpus.db` | Cross-directory search in one query |
 | Locator rows identify **which file** each vector belongs to (`doc_url`) | Storing full text in the cache |
 | Background worker builds/refreshes **the whole directory cache** | In-document-only embed cache beside `[DOCUMENT CONTENT]` (Phase D — separate) |
 
 **Mental model:** the cache mirrors “everything in this folder that document_research could grep today” — one semantic index for that **directory of files**, not one index per open document and not one index for the entire machine.
 
-**Rule:** **each directory gets its own cache.** Work in `/projects/reporting/` uses only `writeragent_embeddings/<key-for-reporting>/`. Work in `/projects/legal/` uses a **different** `<key-for-legal>/` — separate `index.db`, built and refreshed independently. No sharing across directories in MVP.
+**Rule:** **each directory gets its own cache.** Work in `/projects/reporting/` uses only `writeragent_embeddings/` beside that folder. Work in `/projects/legal/` uses a **different** cache directory — separate `corpus.db`, built and refreshed independently. No sharing across directories in MVP.
 
 ```text
 /home/user/projects/reporting/          ← real user folder (many .odt/.ods)
   Budget.odt
   Notes_v3.odt
   Q4.ods
-
-~/.config/.../user/writeragent_embeddings/
-  <key-for-reporting>/                  ← ONE cache for that directory
-    index.db                            ← locators + vec0 vectors for ALL files above
+  writeragent_embeddings/
+    corpus.db                           ← chunks + FTS5 + vec0 for ALL files above
+    corpus_meta.json
 ```
 
 ### What is shipped
@@ -388,16 +395,16 @@ See [Benchmark on your machine](#benchmark-on-your-machine) for sample numbers (
 
 Reuse [`PythonWorkerManager`](../plugin/scripting/venv_worker.py) / `run_code_in_user_venv` — same Pickle5 path as `=PYTHON()` and `run_venv_python_script`.
 
-The persistent index is **Chroma** under `<document_folder>/writeragent_embeddings/chroma/` plus host JSON (`corpus_meta.json`, `file_index_state.json`). We pass lightweight *references* (`persist_dir`, `collection_name`, `meta_path`) rather than shipping the corpus or full result matrices on every operation.
+The persistent index is **`corpus.db`** under `<document_folder>/writeragent_embeddings/` plus **`corpus_meta.json`**. The host passes **`listing_root`** or **`db_path`** references over RPC — not the full corpus matrix.
 
 Typical flow:
 
 1. **Host** resolves `listing_root` from the active document folder and enqueues one **maintain** RPC ([`embeddings_indexer.enqueue_folder_index`](../plugin/embeddings/embeddings_indexer.py)); `_inflight` prevents duplicate jobs per folder key.
-2. **Host → venv (RPC stub):** `maintain_folder_index` sends `{listing_root, model, mode}` only. The venv runs stdlib ODF extract ([`embeddings_fs.py`](../plugin/embeddings/embeddings_fs.py)), mtime / `content_hash` diff (`file_index_state.json`), embed, and Chroma upsert at full CPU. **Heartbeat frames** reset the host sliding timeout during long cold builds (`EMBEDDINGS_HEARTBEAT_GRACE_S`). Search still sends query text + `k` + paths.
-3. **Venv (trusted module):** fixed stubs are detected in [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) (`_is_trusted_embeddings_stub`) and run **outside** `LocalPythonExecutor` — `_run_trusted_embeddings_payload` calls [`embeddings_index`](../plugin/embeddings/venv/embeddings_index.py) directly (same pattern as vision). LangGraph ingest/search graphs use real imports (`sentence-transformers`, `chromadb`). Only small results travel back (top-k hits, counts, errors).
+2. **Host → venv (RPC stub):** `maintain_folder_index` sends `{listing_root, model, mode, search_mode}` only. The venv runs stdlib ODF extract ([`embeddings_fs.py`](../plugin/embeddings/embeddings_fs.py)), mtime / `content_hash` diff (`indexed_*` tables in `corpus.db`), embed, and sqlite-vec upsert at full CPU. **Heartbeat frames** reset the host sliding timeout during long cold builds (`EMBEDDINGS_HEARTBEAT_GRACE_S`). Search sends query text + `k` + `db_path`.
+3. **Venv (trusted module):** fixed stubs are detected in [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) (`_is_trusted_embeddings_stub`) and run **outside** `LocalPythonExecutor` — `_run_trusted_embeddings_payload` calls [`embeddings_index`](../plugin/embeddings/venv/embeddings_index.py) directly (same pattern as vision). LangGraph ingest/search graphs use real imports (`sentence-transformers`, `sqlite-vec`, `langgraph`). Only small results travel back (top-k hits, counts, errors).
 4. **Session:** reuse worker `session_id` so the loaded `SentenceTransformer` survives across calls ([`EMBEDDINGS_WORKER_SESSION_PREFIX`](../plugin/framework/constants.py)). Embeddings RPC uses a **separate warm child** (`worker_pool=WORKER_POOL_EMBEDDINGS`) from Calc `=PYTHON()` and chat scripts — see [Dedicated embeddings subprocess](#dedicated-embeddings-subprocess). **Timeout:** [`embeddings_worker_timeout_sec`](../plugin/scripting/config_limits.py) (**120 s**), not Settings `scripting.python_exec_timeout`.
 
-The **LLM / `=PYTHON()` sandbox** still applies to **user-submitted** scripts. **Embeddings RPC does not** — `torch` / `chromadb` cannot load inside the AST sandbox. Bulk *source text for embedding* flows over IPC **`data=`** at index time; vectors live in Chroma beside the document folder.
+The **LLM / `=PYTHON()` sandbox** still applies to **user-submitted** scripts. **Embeddings RPC does not** — `torch` / `sqlite-vec` cannot load inside the AST sandbox. Bulk *source text for embedding* flows over IPC **`data=`** at index time; vectors live in **`corpus.db`** beside the document folder.
 
 **Not pursuing for MVP:** host Cython `top_k_dot`, `/tmp` mmap in worker, LangChain vectorstores — see [Future optimizations](#future-optimizations).
 
@@ -410,7 +417,7 @@ Embeddings encode, index persist, and `knn_search` run in a **second** warm venv
 | Concern | Default pool (Calc / chat) | Embeddings pool |
 |---------|---------------------------|-----------------|
 | **Calc / user NumPy** | Unaffected by long folder re-embed jobs | Folder cold-build / batch re-embed runs here |
-| **Repeated `search_embeddings`** | N/A | Chroma `query` + warm `SentenceTransformer` in embeddings pool |
+| **Repeated `search_nearby_files`** | N/A | Hybrid RRF + warm `SentenceTransformer` in embeddings pool |
 | **Model load** | User script traffic only | `SentenceTransformer` stays warm for document_research bursts |
 
 **Implementation:**
@@ -422,9 +429,9 @@ Embeddings encode, index persist, and `knn_search` run in a **second** warm venv
 
 #### In-worker corpus cache (RAM) {#embeddings-in-worker-cache}
 
-> **Historical (schema v1 only).** The BLOB + NumPy in-RAM matrix cache applied to SQLite `index.db` search. **Schema v2 (Chroma)** uses Chroma persist + `collection.query` instead; this section is kept for context on why repeat-query latency mattered before the Chroma migration.
+> **Historical (schema v1 only).** The BLOB + NumPy in-RAM matrix cache applied to SQLite `index.db` search. **Schema v3 (`corpus.db`)** uses vec0/sqlite-vec query instead; this section is kept for context on why repeat-query latency mattered before unified storage.
 
-**Status (v1):** shipped on BLOB path; **removed** with Chroma migration.
+**Status (v1):** shipped on BLOB path; **removed** with later schema migrations.
 
 Persistent storage remains **`index.db` on disk** (source of truth). The RAM cache is a **read-through / invalidation layer inside the embeddings subprocess** so hot queries avoid re-reading the whole BLOB column on every `search_embeddings` call.
 
@@ -471,13 +478,13 @@ See also [Index size growth](#index-size-growth) for when RAM footprint matters.
 | IPC transport | `run_code_in_user_venv` + fixed stub | `session_id=f"embeddings:{model_slug}"` reuses loaded model; **stub bypasses LLM sandbox**; timeout from `embeddings_worker_timeout_sec` (120 s) |
 | Whitelist | [`sandbox_imports.py`](../plugin/scripting/sandbox_imports.py) | `plugin.embeddings.venv.embeddings_index` allowed for stub import only |
 
-**All of the above now ship in Phase B/C** — Chroma + LangGraph replace schema v1 `index.db`. Host-side batch encode during tests may still call `embedding_client.embed_texts`; index/search persist via [`embeddings_service.py`](../plugin/framework/client/embeddings_service.py) → [`embeddings_index`](../plugin/embeddings/venv/embeddings_index.py) → ingest/search graphs.
+**All of the above now ship in Phase B/C** — unified `corpus.db` + LangGraph ingest/search replace schema v1 `index.db`. Host-side batch encode during tests may still call `embedding_client.embed_texts`; index/search persist via [`embeddings_service.py`](../plugin/framework/client/embeddings_service.py) → [`embeddings_index`](../plugin/embeddings/venv/embeddings_index.py) → ingest/search/hybrid modules.
 
-### Phase B — Minimal index + `search_embeddings` tool {#phase-b}
+### Phase B — Minimal index + cross-file search {#phase-b}
 
 **Shipped.**
 
-**Goal:** outer [document_research](../plugin/doc/document_research.py) calls `search_embeddings(query, k)` → ranked hits in the **active folder’s** cache → open top files → inner read at locator.
+**Goal:** outer [document_research](../plugin/doc/document_research.py) calls `search_nearby_files(query, k)` → ranked hits in the **active folder’s** cache → open top files → inner read at locator.
 
 **Search mode (Settings):** [`embeddings.folder_search_mode`](../plugin/embeddings/module.yaml) — **Off** (default, grep only) or **Embeddings + FTS** (unified `corpus.db`). See [Search mode flag](#search-mode-flag) below.
 
@@ -486,7 +493,7 @@ See also [Index size growth](#index-size-growth) for when RAM footprint matters.
 1. **Folder key + cache paths (host, stdlib only)** — new module e.g. `plugin/embeddings/embeddings_cache.py`:
    - `folder_corpus_key(directory_path) -> str` — stable hash/normalized path (same sibling scope as [`list_nearby_files`](../plugin/doc/document_research.py))
    - `folder_cache_dir(listing_root) -> Path` under `<document_folder>/writeragent_embeddings/`
-   - Host creates JSON state files + Chroma persist dir ([Corpus storage](#corpus-storage))
+   - Host creates `corpus.db` + `corpus_meta.json` ([Corpus storage](#corpus-storage))
 
 2. **Paragraph chunker + locator capture (host)** — extract indexable paragraphs from siblings (reuse document_research read-only extract / ODT path from bench); per paragraph: `doc_url`, `para_index`, `char_start`, `char_end`, `content_hash` ([Chunking](#chunking) — paragraph grain for MVP)
 
@@ -495,19 +502,19 @@ See also [Index size growth](#index-size-growth) for when RAM footprint matters.
    - `knn_search(db_path, query_text, k)` or `knn_search(db_path, query_vec, k)` — vec0 `MATCH` when `sqlite_vec` loads; else NumPy dot + top-k (port search half of [`bench_embeddings.py`](../scripts/bench_embeddings.py))
    - Probe sqlite-vec once at module load; log fallback at debug
 
-4. **`search_embeddings` tool** — register on outer document_research surface ([`document_research_tools.py`](../plugin/doc/document_research_tools.py)); resolve folder from active doc; call venv `knn_search`; return `{doc_url, snippet, score, para_index?}[]` ([Search hit shape](#search-hit-shape))
+4. **`search_nearby_files` tool** — register on outer document_research surface ([`document_research_fts_tool.py`](../plugin/embeddings/document_research_fts_tool.py)); hybrid RRF when `folder_search_mode` is `hybrid`; return `{doc_url, snippet, score, para_index?, matched_by?}[]` ([Search hit shape](#search-hit-shape))
 
-5. **Background folder indexer (host thread + venv IPC)** — [Background folder indexer](#background-folder-indexer): cold build + mtime/hash incremental refresh; **must not block** tool loop; enqueue on document_research start or first `search_embeddings` miss
+5. **Background folder indexer (host thread + venv IPC)** — [Background folder indexer](#background-folder-indexer): cold build + mtime/hash incremental refresh; **must not block** tool loop; enqueue on document_research start or first search miss
 
 6. **Prompt / delegate wiring** — mode-specific hints in [`specialized_base.py`](../plugin/doc/specialized_base.py) via [`get_document_research_workflow_hint`](../plugin/doc/document_research.py)
 
 **Phase B checklist:**
 
 - [x] Paragraph chunker with **locator capture** (`para_index`, `char_start`, `char_end`, `content_hash`)
-- [x] Persist per-folder Chroma cache beside documents ([Corpus cache layout](#corpus-cache-layout), [Corpus storage](#corpus-storage))
-- [x] **`search_embeddings`** on outer document_research tool surface (when `folder_search_mode` is `embeddings`; grep stays available)
+- [x] Persist per-folder **`corpus.db`** beside documents ([Corpus cache layout](#corpus-cache-layout), [Corpus storage](#corpus-storage))
+- [x] **`search_nearby_files`** on outer document_research tool surface when `folder_search_mode` is `hybrid`
 - [x] Open top 1–few hits → `delegate_read_document` → inner read via snippet / `search_in_document` (prompt guidance)
-- [x] Search executes in the venv via LangGraph + Chroma `query` + MMR ([`embeddings_search_graph.py`](../plugin/embeddings/venv/embeddings_search_graph.py))
+- [x] Vec search via LangGraph + vec0 + MMR ([`embeddings_search_graph.py`](../plugin/embeddings/venv/embeddings_search_graph.py)); hybrid via [`embeddings_hybrid_search.py`](../plugin/embeddings/venv/embeddings_hybrid_search.py)
 - [x] Background **index maintenance worker** (separate from agent tool loop) — [Background folder indexer](#background-folder-indexer)
 
 ### Search mode flag {#search-mode-flag}
@@ -519,50 +526,46 @@ See also [Index size growth](#index-size-growth) for when RAM footprint matters.
 | `none` (default) | `grep_nearby_files`, `list_nearby_files`, `delegate_read_document` |
 | `hybrid` | `search_nearby_files`, `list_nearby_files`, `delegate_read_document` (`grep_nearby_files` hidden) |
 
-When off, [`filter_document_research_discovery_tools`](../plugin/doc/document_research.py) hides indexed search tools (`search_nearby_files`, `search_embeddings`). When on, it hides `grep_nearby_files` and background maintain always builds FTS + vectors in one `corpus.db` ([`embeddings_indexer.py`](../plugin/embeddings/embeddings_indexer.py)).
+When off, [`filter_document_research_discovery_tools`](../plugin/doc/document_research.py) hides `search_nearby_files`. When on, it hides `grep_nearby_files` and background maintain always builds FTS + vectors in one `corpus.db` ([`embeddings_indexer.py`](../plugin/embeddings/embeddings_indexer.py)).
 
-### Folder FTS (SQLite, embeddings venv) {#folder-fts}
+### Folder FTS (unified corpus.db) {#folder-fts}
 
-**Lexical** cross-folder discovery: BM25 ranking + FTS5 **`NEAR`** (terms with gaps). Runs in the **same embeddings venv worker** as Chroma maintain/search ([`WORKER_POOL_EMBEDDINGS`](../plugin/framework/constants.py)) — stdlib **`sqlite3` only**, no extra pip packages. Index build and search stay **outside** the LibreOffice process.
+**Lexical** cross-folder discovery: BM25 ranking + FTS5 **`NEAR`** (terms with gaps). The **`passages`** virtual table lives in the same **`corpus.db`** as vec0 ([`embeddings_sqlite.py`](../plugin/embeddings/venv/embeddings_sqlite.py)) — stdlib **`sqlite3` only**, no extra pip packages. Index build and search stay **outside** the LibreOffice process.
 
-Select **SQLite FTS (venv)** in **Settings → Embeddings → Cross-file search mode** (`embeddings.folder_search_mode: "fts"`), or set that key in `writeragent.json`.
+Enable **Embeddings + FTS** in **Settings → Embeddings → Cross-file search** (`embeddings.folder_search_mode: "hybrid"`), or set that key in `writeragent.json`.
 
 **Tool matrix (document_research):**
 
 | Tool | When to use |
 |------|-------------|
-| **`search_nearby_files`** | Multi-word keywords, proximity (`web search`), BM25-ranked snippets — FTS mode only |
-| **`grep_nearby_files`** | Regex, exact substring, Calc/Draw — `none` mode only (hidden when hybrid mode is on) |
-| **`search_embeddings`** | Paraphrase / topical semantic search — embeddings mode only |
+| **`search_nearby_files`** | Hybrid keyword + semantic search (BM25/NEAR + vec0, fused with RRF) — **`hybrid` mode** |
+| **`grep_nearby_files`** | Regex, exact substring, Calc/Draw — **`none` mode only** (hidden when hybrid is on) |
 
-**Cache files** (same `writeragent_embeddings/` folder as Chroma):
+**Cache files** (schema v3 — one folder, one DB):
 
 ```text
 writeragent_embeddings/
-  fts5.db              # SQLite FTS5 (venv-maintained)
-  fts_meta.json        # schema_version, row_count, updated_at
-  file_index_state.json  # shared incremental paragraph hashes with embeddings
+  corpus.db              # chunks + FTS5 passages + vec0 + indexed_files + indexed_paragraphs
+  corpus_meta.json       # schema_version, embedding_model, dim, chunk_count, updated_at
 ```
 
-Implementation: [`folder_fts.py`](../plugin/embeddings/venv/folder_fts.py) (venv), [`folder_fts_service.py`](../plugin/framework/client/folder_fts_service.py) (host RPC), [`folder_fts_indexer.py`](../plugin/embeddings/folder_fts_indexer.py) (background maintain). Periodic wakeups share [`embeddings_periodic.py`](../plugin/embeddings/embeddings_periodic.py) with the Chroma indexer when either flag is on. **Calc `.ods` and Impress/Draw `.odp`/`.odg` siblings** use the same extract path as Writer `.odt`; `search_nearby_files` returns hits with the same `doc_url` / `snippet` / `para_index` shape.
+Implementation: [`folder_fts.py`](../plugin/embeddings/venv/folder_fts.py) (search helpers), [`embeddings_folder_maintain.py`](../plugin/embeddings/venv/embeddings_folder_maintain.py) (maintain), [`embeddings_indexer.py`](../plugin/embeddings/embeddings_indexer.py) (host enqueue). Periodic wakeups share [`embeddings_periodic.py`](../plugin/embeddings/embeddings_periodic.py) when hybrid mode is on. **Calc `.ods` and Impress/Draw `.odp`/`.odg` siblings** use the same extract path as Writer `.odt`.
 
-**Embeddings vs FTS:** embeddings excel at long paraphrase queries; FTS excels at short keyword/proximity routing (see [Performance: embeddings vs grep](#performance-embeddings-vs-grep)). Choose one mode in Settings; they share folder scan/extract helpers but use separate stores (`chroma/` vs `fts5.db`).
+> **Historical:** schema v2 used a separate `fts5.db` beside `chroma/`; upgrades merge into unified `corpus.db`.
 
 ### Corpus cache layout {#corpus-cache-layout}
 
-**Per-directory only:** one **`writeragent_embeddings/`** subfolder per indexed **folder**, **beside the documents**, holding Chroma data and JSON state for **every indexable file in that folder** ([Scope](#per-directory-cache)).
+**Per-directory only:** one **`writeragent_embeddings/`** subfolder per indexed **folder**, **beside the documents**, holding **`corpus.db`** + **`corpus_meta.json`** for **every indexable file in that folder** ([Scope](#per-directory-cache)).
 
 ```text
 /home/user/projects/reporting/writeragent_embeddings/
-  chroma/                       # Chroma PersistentClient (collection name = folder_corpus_key)
-  corpus_meta.json
   corpus.db                            # chunks + FTS5 + vec0 + indexed_files + indexed_paragraphs
+  corpus_meta.json
 ```
 
 | File / object | Contents |
 |----------------|----------|
-| **`chroma/`** | Chroma persist dir — one collection per folder (`folder_corpus_key`) |
-| **`corpus.db`** | Chunks, FTS5, vec0, **`indexed_files`**, **`indexed_paragraphs`** (incremental mtime/hash state) |
+| **`corpus.db`** | Chunks (`body`), FTS5 (`passages`), vec0 (`vec_chunks`), **`indexed_files`**, **`indexed_paragraphs`** |
 | **`corpus_meta.json`** | `embedding_model`, `dim`, `schema_version`, `chunk_count`, `storage_backend` |
 
 One cache per document directory (sibling folder around the active doc), never per open document and never one global profile cache. Settings / help: *semantic search cache for a folder — vectors from files in that directory only; delete `writeragent_embeddings/` in that folder to force re-index.*
@@ -577,9 +580,9 @@ Indexing and refresh run on a **background maintenance worker** (host thread + v
 
 | Trigger | When |
 |---------|------|
-| **Periodic tick** | Every `EMBEDDINGS_INDEX_INTERVAL_S` (default **300 s / 5 min**) for the **active document’s folder** — started once per process from sidebar wiring ([`embeddings_periodic.py`](../plugin/embeddings/embeddings_periodic.py)) when `embeddings.folder_search_mode` is `embeddings` or `fts` |
+| **Periodic tick** | Every `EMBEDDINGS_INDEX_INTERVAL_S` (default **300 s / 5 min**) for the **active document’s folder** — started once per process from sidebar wiring ([`embeddings_periodic.py`](../plugin/embeddings/embeddings_periodic.py)) when `embeddings.folder_search_mode` is **`hybrid`** |
 | **document_research** | Outer delegate starts in a folder ([`specialized_base.py`](../plugin/doc/specialized_base.py)) |
-| **search miss** | `search_embeddings` against empty/stale cache ([`document_research_search_tool.py`](../plugin/embeddings/document_research_search_tool.py)) |
+| **search miss** | `search_nearby_files` against empty/stale cache ([`document_research_fts_tool.py`](../plugin/embeddings/document_research_fts_tool.py)) |
 
 Only one folder job runs at a time per folder key (`_inflight` guard in [`embeddings_indexer.py`](../plugin/embeddings/embeddings_indexer.py)); periodic ticks are no-ops while a job is already queued or running.
 
@@ -622,28 +625,29 @@ flowchart TB
   Hash --> Embed
 ```
 
-Do not block `search_embeddings` or document_research on embed completion; enqueue work and return ranked hits from whatever index is on disk.
+Do not block `search_nearby_files` or document_research on embed completion; enqueue work and return ranked hits from whatever index is on disk.
 
-### Corpus storage (Chroma — schema v2) {#corpus-storage}
+### Corpus storage (schema v3 — sqlite-vec + FTS5) {#corpus-storage}
 
-**Default (shipped today):** vectors and chunk metadata live in **Chroma** under `<folder>/writeragent_embeddings/chroma/`. Host-side incremental state is JSON (`file_index_state.json`, `corpus_meta.json`). **Ingest:** LangGraph split → [`embed_texts`](../plugin/embeddings/venv/embeddings_index.py) → Chroma upsert ([`embeddings_ingest_graph.py`](../plugin/embeddings/venv/embeddings_ingest_graph.py)). **Search:** query embed → Chroma `query` → MMR rerank ([`embeddings_search_graph.py`](../plugin/embeddings/venv/embeddings_search_graph.py)). On-disk size tracks **live chunk count × dim**, not edit history.
+**Default (shipped today):** vectors, chunk text, FTS, and incremental state live in one **`corpus.db`** beside the document folder, plus **`corpus_meta.json`**. **Ingest:** LangGraph split → [`embed_texts`](../plugin/embeddings/venv/embeddings_index.py) → sqlite-vec upsert ([`embeddings_ingest_graph.py`](../plugin/embeddings/venv/embeddings_ingest_graph.py)). **Vec search:** query embed → vec0 `MATCH` → MMR ([`embeddings_search_graph.py`](../plugin/embeddings/venv/embeddings_search_graph.py)). **Hybrid search:** FTS + vec0 legs → RRF → optional MMR when k>1 ([`embeddings_hybrid_search.py`](../plugin/embeddings/venv/embeddings_hybrid_search.py)). On-disk size tracks **live chunk count × dim**, not edit history.
 
-**Upgrade:** legacy **`index.db`** (schema v1 — SQLite BLOB / optional sqlite-vec) is deleted on first access; next index pass **cold-builds into Chroma** ([`embeddings_cache.py`](../plugin/embeddings/embeddings_cache.py)). See [Search fallback (schema v1 historical)](#search-fallback) for the old BLOB/vec0 design.
+**Upgrade:** legacy **`index.db`**, **`chroma/`**, and separate **`fts5.db`** are deleted on first access; next index pass **cold-builds into unified `corpus.db`** ([`embeddings_cache.py`](../plugin/embeddings/embeddings_cache.py)). See [Search fallback (schema v1 historical)](#search-fallback) for the old BLOB design.
 
 ```mermaid
 flowchart LR
-  subgraph primary [Default today]
-    NumPy["NumPy np.dot + top-k\nBLOB column in chunks"]
-  end
-  subgraph optional [Optional later]
-    Vec0["vec0 KNN\nsqlite-vec in venv"]
-  end
-  Query["search_embeddings"] --> Try{"sqlite_vec\nimportable?"}
-  Try -->|no| NumPy
-  Try -->|yes| Vec0
+  Query["search_nearby_files"]
+  FTS["FTS5 passages"]
+  Vec["vec0 MATCH"]
+  RRF["RRF fuse"]
+  MMR["MMR when k>1"]
+  Query --> FTS
+  Query --> Vec
+  FTS --> RRF
+  Vec --> RRF
+  RRF --> MMR
 ```
 
-The worker is given Chroma path references and performs ingest/search locally. No full corpus matrix is shipped over IPC for search.
+The worker opens **`corpus.db` by path** and performs ingest/search locally. No full corpus matrix is shipped over IPC for search.
 
 #### Shared invariants
 
@@ -693,7 +697,7 @@ NumPy arrays pass straight into sqlite-vec (`embedding.astype(np.float32)` — s
 
 #### Search fallback (schema v1 historical) {#search-fallback}
 
-> **Not used in schema v2 (Chroma).** Kept for understanding the pre-Chroma design and bench script.
+> **Not used in schema v3.** Kept for understanding the pre–corpus.db BLOB fallback and bench script.
 
 At worker startup (or first index open), schema v1 **probed** `import sqlite_vec` and `sqlite_vec.load()` on a throwaway `:memory:` connection. Most v1 installs omitted sqlite-vec and stayed on the BLOB + NumPy path.
 
@@ -843,16 +847,16 @@ WriterAgent runs NumPy, **sqlite-vec**, and **sentence-transformers** **only in 
 flowchart TB
   subgraph host [LO_host]
     Outer["Outer document_research"]
-    IndexDB["writeragent_embeddings/chroma\n+ host JSON state"]
-    RPC["embed / search RPC (pass db reference)"]
+    IndexDB["writeragent_embeddings/corpus.db\n+ corpus_meta.json"]
+    RPC["embed / search RPC (pass db_path)"]
   end
   subgraph venv [Warm_venv_worker]
     ST["SentenceTransformer\nbatch encode"]
-    Search["Chroma query\n+ LangGraph MMR"]
+    Search["Hybrid RRF or vec0\n+ LangGraph MMR"]
   end
   Outer --> RPC
-  RPC -->|"Pickle5: texts (index) or query+ref (search)"| ST
-  ST -->|"worker opens IndexDB by ref"| Search
+  RPC -->|"Pickle5: texts (index) or query+db_path (search)"| ST
+  ST -->|"worker opens corpus.db"| Search
   Search -->|"small results (locators+scores)"| RPC
   RPC --> Outer
 ```
@@ -863,27 +867,27 @@ flowchart TB
 ┌─────────────────────────────────────────────────────────────┐
 │ LibreOffice host (embedded Python — stdlib)                  │
 │  • Resolve listing_root; enqueue maintain RPC; _inflight dedupe │
-│  • JSON paths only on host (state read/written in venv maintain) │
+│  • corpus_meta.json on host; incremental state in corpus.db   │
 │  • Heartbeat-aware RPC timeout for long folder builds          │
-│  • Pass listing_root or query over RPC (no paragraph Pickle5)  │
+│  • Pass listing_root or query + db_path over RPC               │
 │  • Optional HTTP embed when no venv (tier two)               │
 └───────────────────────────┬─────────────────────────────────┘
                             │ Pickle5 RPC (texts or query + db reference)
 ┌───────────────────────────▼─────────────────────────────────┐
 │ User venv — warm worker (trusted module, same =PYTHON() venv)│
-│  • Opens Chroma persist dir by reference passed in           │
+│  • Opens corpus.db by path passed in                         │
 │  • sentence-transformers — lazy load, batch encode             │
-│  • Chroma PersistentClient — vector storage + query          │
-│  • LangGraph ingest/search graphs (trusted, unsandboxed)     │
+│  • sqlite-vec vec0 + FTS5 passages — storage and search      │
+│  • LangGraph ingest/search + hybrid RRF (trusted, unsandboxed)│
 │  • Returns only compact locator lists / small results        │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-Chroma + JSON state live beside the document folder. The host orchestrates extract/diff; the venv worker owns encode and Chroma DML/search via trusted modules.
+**`corpus.db` + `corpus_meta.json`** live beside the document folder. The host orchestrates extract/diff enqueue; the venv worker owns encode and sqlite DML/search via trusted modules.
 
-**MVP path:** the worker receives Chroma path references (plus small payloads) over the RPC. Encode and search happen inside trusted modules **outside** the LLM sandbox. [`scripts/bench_embeddings.py`](../scripts/bench_embeddings.py) still validates batch encode + NumPy dot/top-k at 349 paragraphs (dot+top-k **0.17 ms** median) — production search uses Chroma, not full-matrix reload per query. See [Development plan](#development-plan) and [Trusted extension code in the venv](enabling_numpy_in_libreoffice.md#trusted-extension-code-in-the-venv).
+**MVP path:** the worker receives **`corpus.db` path references** (plus small payloads) over the RPC. Encode and search happen inside trusted modules **outside** the LLM sandbox. [`scripts/bench_embeddings.py`](../scripts/bench_embeddings.py) still validates batch encode + NumPy dot/top-k at 349 paragraphs (dot+top-k **0.17 ms** median) — production search uses vec0/hybrid, not full-matrix reload per query. See [Development plan](#development-plan) and [Trusted extension code in the venv](enabling_numpy_in_libreoffice.md#trusted-extension-code-in-the-venv).
 
-**Do not** add `chromadb` / `os` to the **LLM** import whitelist — keep Chroma and model load inside shipped `plugin.embeddings.venv.*` modules invoked via trusted RPC stubs that bypass the sandbox.
+**Do not** add `sqlite-vec` / `langgraph` / `os` to the **LLM** import whitelist — keep model load and DB access inside shipped `plugin.embeddings.venv.*` modules invoked via trusted RPC stubs that bypass the sandbox.
 
 ---
 
@@ -922,11 +926,11 @@ NumPy carries a heavy "tax" inside a LibreOffice `.oxt`:
 
 Two tiers. **Shipped today (Phase A):** local **`sentence-transformers`** in the configured venv only — via [`embedding_client.embed_texts`](../plugin/framework/client/embedding_client.py). **Tier two (not implemented):** OpenRouter / Together / Ollama HTTP when no venv.
 
-**Current dispatch:** `embedding_provider` must be `local` (default). Host calls `run_code_in_user_venv` with a fixed stub → [`embeddings_index.embed_texts`](../plugin/embeddings/venv/embeddings_index.py). Requires `scripting.python_venv_path` (or LO fallback interpreter) with `pip install sentence-transformers numpy chromadb langgraph langchain-core langchain-text-splitters envwrap odfpy`.
+**Current dispatch:** `embedding_provider` must be `local` (default). Host calls `run_code_in_user_venv` with a fixed stub → [`embeddings_index.embed_texts`](../plugin/embeddings/venv/embeddings_index.py). Requires `scripting.python_venv_path` (or LO fallback interpreter) with `pip install sentence-transformers numpy sqlite-vec langgraph langchain-core langchain-text-splitters envwrap odfpy pandas openpyxl xlrd python-docx`.
 
 **Future dispatch (when HTTP ships):** if venv + local model → venv RPC; else if chat endpoint supports embeddings → HTTP; else prompt user to configure venv or API.
 
-**Production path:** indexing and search call [`embeddings_service`](../plugin/framework/client/embeddings_service.py) → [`embeddings_index`](../plugin/embeddings/venv/embeddings_index.py) → LangGraph/Chroma. Host may still call `embedding_client.embed_texts` for raw vectors in tests.
+**Production path:** indexing and search call [`embeddings_service`](../plugin/framework/client/embeddings_service.py) → [`embeddings_index`](../plugin/embeddings/venv/embeddings_index.py) → LangGraph / hybrid / sqlite-vec modules. Host may still call `embedding_client.embed_texts` for raw vectors in tests.
 
 ---
 
@@ -974,7 +978,7 @@ Optional in-worker **text hash cache** during a single index pass (like LinuxRep
 
 **Ollama-local** (`nomic-embed-text`, `embeddinggemma`, …) is an alternative **local** path without `sentence-transformers` in venv — still tier one “local”, different packaging. Pick one local stack per install (ST in venv **or** Ollama HTTP to localhost), not both for the same index.
 
-Store **`embedding_model`** in config as the HuggingFace id (local) or provider model string (cloud). Changing model requires cold rebuild of folder Chroma cache ([Corpus storage](#corpus-storage)).
+Store **`embedding_model`** in config as the HuggingFace id (local) or provider model string (cloud). Changing model requires cold rebuild of the folder **`corpus.db`** cache ([Corpus storage](#corpus-storage)).
 
 ### Venv setup (MVP)
 
@@ -982,11 +986,11 @@ Store **`embedding_model`** in config as the HuggingFace id (local) or provider 
 
 ```bash
 # In the venv referenced by scripting.python_venv_path
-pip install sentence-transformers numpy chromadb langgraph langchain-core langchain-text-splitters envwrap odfpy
+pip install sentence-transformers numpy sqlite-vec langgraph langchain-core langchain-text-splitters envwrap odfpy
 # PyTorch CPU wheel is pulled by sentence-transformers; first run downloads model weights.
 ```
 
-**Optional:** `pip install sqlite-vec` — enables vec0 KNN when load succeeds; see [Installing sqlite-vec](#installing-sqlite-vec). Not needed for dogfood.
+See [Installing sqlite-vec](#installing-sqlite-vec) if `sqlite_vec.load()` fails on your platform. Canonical one-liner: `EMBEDDINGS_VENV_PIP_INSTALL` in [`embeddings_index.py`](../plugin/embeddings/venv/embeddings_index.py).
 
 Warm worker loads the model once; subsequent index batches reuse it (same pattern as LinuxReport's global `embedder` lazy init).
 
@@ -1067,7 +1071,7 @@ Default model `all-MiniLM-L6-v2` (384-dim) → **~1.5 KiB per non-empty paragrap
 
 **Example unit:** [`scripts/longdocsample.odt`](../scripts/longdocsample.odt) — **349** non-empty paragraphs → **~0.51 MiB** vectors only ([benchmark](#benchmark-on-your-machine)).
 
-| Files (longdoc-sized) | Paragraphs | Vector data | Chroma (rough) |
+| Files (longdoc-sized) | Paragraphs | Vector data | corpus.db (rough) |
 |----------------------|------------|-------------|---------------------|
 | 1 | 349 | 0.5 MiB | ~0.6 MiB |
 | 10 | 3,490 | 5 MiB | ~6 MiB |
@@ -1081,31 +1085,32 @@ Default model `all-MiniLM-L6-v2` (384-dim) → **~1.5 KiB per non-empty paragrap
 
 ## Persistence — keep the cache small {#minimal-index}
 
-**Goal:** one compact **`writeragent_embeddings/`** per directory. Vectors in **Chroma**; locators in chunk metadata + host JSON — **no FTS shadow index**. See [Corpus storage](#corpus-storage).
+**Goal:** one compact **`writeragent_embeddings/`** per directory. Vectors, passage text, FTS5, and incremental state in unified **`corpus.db`**; summary in **`corpus_meta.json`**. See [Corpus storage](#corpus-storage).
 
 ### What we store
 
 | Part | Contents | Size driver |
 |------|----------|-------------|
-| **Chroma collection** | Normalized float32 embeddings (primary) | `n × dim × 4` bytes + Chroma overhead |
-| **Chroma `documents`** | Full embedded chunk text (today) | ~bytes of indexed prose (see [Search hit shape](#search-hit-shape)) |
-| **Chunk metadata** | `doc_url`, `para_index`, internal `char_start`/`char_end`, `content_hash` + `file_index_state.json` | Tiny per row |
+| **`vec_chunks` (vec0)** | Normalized float32 embeddings (primary) | `n × dim × 4` bytes + sqlite-vec overhead |
+| **`chunks.body`** | Full embedded chunk text | ~bytes of indexed prose (see [Search hit shape](#search-hit-shape)) |
+| **`passages` (FTS5)** | Same chunk bodies for BM25/NEAR | Duplicates prose for hybrid search ([Folder FTS](#folder-fts)) |
+| **Locator rows** | `doc_url`, `para_index`, internal `char_start`/`char_end`, `content_hash` in `chunks`; **`indexed_files`** / **`indexed_paragraphs`** for incremental maintain | Tiny per row |
 
 ### Search hit shape {#search-hit-shape}
 
-**Shipped (2026-06):** `search_embeddings` returns tool-facing hits only:
+**Shipped (2026-06):** `search_nearby_files` (hybrid mode) returns tool-facing hits only:
 
 ```json
 {"doc_url": "file:///…/notes.odt", "score": 0.85, "snippet": "…passage that was embedded…", "para_index": 12}
 ```
 
-- **`snippet`** — the **full embedded chunk** from the Chroma `documents` column (whitespace-normalized, capped at ingest [`CHUNK_SIZE`](../plugin/embeddings/venv/embeddings_ingest_graph.py) — 512 characters today). This is the same text the vector was computed over, not a short prefix. Inner agent should **`search_in_document`** for this text (or the query topic) after `delegate_read_document`.
+- **`snippet`** — the **full embedded chunk** from `chunks.body` (whitespace-normalized, capped at ingest [`CHUNK_SIZE`](../plugin/embeddings/venv/embeddings_ingest_graph.py) — 512 characters today). This is the same text the vector was computed over, not a short prefix. Inner agent should **`search_in_document`** for this text (or the query topic) after `delegate_read_document`.
 - **`para_index`** — weak hint (ODF extract ordinal; may not match LO body enumeration). **Do not** treat as an exact jump target.
-- **`char_start` / `char_end`** — **not** returned in hits (ODF-local sub-chunk offsets; misleading vs live Writer). Still stored in Chroma metadata for internal `chunk_id` stability.
+- **`char_start` / `char_end`** — **not** returned in hits (ODF-local sub-chunk offsets; misleading vs live Writer). Still stored in `chunks` for internal `chunk_id` stability.
 
 ### Retrieval quality — shipped vs future {#retrieval-quality}
 
-**Shipped (Phase A):** bi-encoder retrieval (`embed_texts` query + Chroma kNN) → MMR dedupe → return **full matched chunk** in each hit. No keyword boost, no parallel FTS index in the cache.
+**Shipped:** hybrid RRF (BM25/NEAR + vec0 kNN) → optional MMR when `k > 1` → return **full matched chunk** in each hit. Vec-only path: bi-encoder kNN → MMR ([`embeddings_search_graph.py`](../plugin/embeddings/venv/embeddings_search_graph.py)).
 
 **Future (not shipped):**
 
@@ -1114,7 +1119,6 @@ Default model `all-MiniLM-L6-v2` (384-dim) → **~1.5 KiB per non-empty paragrap
 | **Parent paragraph expansion** | Index sub-chunks for sharp vectors; return full ODF paragraph on hit (parent-child RAG) | Sub-chunk boundaries still feel too narrow after full-chunk display |
 | **Cross-encoder rerank** | Second-stage `(query, chunk)` scoring in the embeddings venv after wide retrieve | Short identifiers (e.g. library names) rank poorly with bi-encoder alone |
 | **Stronger embedding model** | Settings `embedding_model` → re-index (e.g. `BAAI/bge-small-en-v1.5`) | Before adding rerank complexity |
-| **Hybrid BM25 + dense** | Industry default in Elasticsearch/Weaviate | **Out of scope** — would duplicate corpus text as a second index ([Minimal index](#minimal-index)) |
 
 Professionals rarely grep hit previews; they align **display size with indexed chunk size** and improve **ranking** (reranker, model) when bi-encoder recall is imprecise.
 
@@ -1123,11 +1127,11 @@ Professionals rarely grep hit previews; they align **display size with indexed c
 - **`doc_url`** — which file.
 - **`doc_revision`** / **`file_mtime`** — invalidate when file changes.
 - **`para_index`** — ODF paragraph ordinal at index time (not guaranteed LO-native).
-- **`char_start`**, **`char_end`** — internal sub-chunk identity only (ingest / Chroma upsert).
+- **`char_start`**, **`char_end`** — internal sub-chunk identity only (ingest / `chunks` upsert).
 - **`content_hash`** — incremental invalidation per paragraph.
 - **`chunk_id`** — deterministic id joining vector to metadata.
 
-At **index time**, extract chunk text → embed → upsert vector + metadata; Chroma **`documents`** currently retains the full chunk body for snippet retrieval.
+At **index time**, extract chunk text → embed → upsert into `chunks` + `vec_chunks` + FTS `passages`; `chunks.body` retains the full chunk body for snippet retrieval.
 
 At **query time**, top-k returns **`doc_url` + `snippet`** → outer agent opens file → inner agent searches live content.
 
@@ -1139,7 +1143,7 @@ At **query time**, top-k returns **`doc_url` + `snippet`** → outer agent opens
 
 | Direction | Pros | Cons |
 |-----------|------|------|
-| **Snippet-only in Chroma** | Drop `documents` column; store capped snippet in metadata at ingest | Re-index on format change; snippet already stale vs live doc |
+| **Snippet-only storage** | Store capped snippet in `chunks.body`; drop full duplicate prose | Re-index on format change; snippet already stale vs live doc |
 | **Stronger stdlib ODF walk** | Better `para_index` without LO ([`embeddings_fs.py`](../plugin/embeddings/embeddings_fs.py) body-order walk) | Still not full LO parity (tables, fields) |
 | **Headless LO in venv subprocess** | Matches `getString()` / enumeration | Spawn cost; Flatpak; another moving part |
 | **Shared document_research extract** | One parse path for grep + embeddings | Same alignment research as [document_research](../plugin/doc/document_research.py) |
@@ -1148,7 +1152,7 @@ Keep **own parsing vs background LO** on the document_research roadmap; embeddin
 
 ### Host metadata schema
 
-Locator fields — stored in Chroma metadata and `file_index_state.json` ([Corpus cache layout](#corpus-cache-layout), [Corpus storage](#corpus-storage)):
+Locator fields — stored in `corpus.db` (`chunks`, `indexed_files`, `indexed_paragraphs`) ([Corpus cache layout](#corpus-cache-layout), [Corpus storage](#corpus-storage)):
 
 ```text
 (chunk_id, doc_url, doc_revision, embedding_model,
@@ -1156,11 +1160,11 @@ Locator fields — stored in Chroma metadata and `file_index_state.json` ([Corpu
  file_mtime, last_indexed_at)
 ```
 
-Vectors live in Chroma. Extend with Calc/Draw locator columns when those index paths ship; same “reference only” rule.
+Vectors live in **`vec_chunks`**. Extend with Calc/Draw locator columns when those index paths ship; same “reference only” rule.
 
 ### Modes
 
-1. **On-disk corpus (default)** — Chroma + JSON beside the document folder; scales to folder-sized corpora.
+1. **On-disk corpus (default)** — `corpus.db` + `corpus_meta.json` beside the document folder; scales to folder-sized corpora.
 2. **In-memory subset (optional later)** — bounded “recent N” only; see [HNSW](#hnsw-and-hnsw-lite) in Future optimizations.
 
 ### Versioning
@@ -1186,8 +1190,8 @@ Reference implementations to adapt:
 1. **Discover** — document_research in folder → check per-folder cache; if missing, background scan of all siblings ([Background folder indexer](#background-folder-indexer)); else `list_nearby_files` scope for incremental work.
 2. **Chunk in memory** — ~500-character windows with paragraph/offset tracking ([Chunking](#chunking)).
 3. **Embed** — venv `sentence-transformers` batch (MVP) or cloud HTTP; normalize float32; **discard chunk text** after encode.
-4. **Persist** — Chroma upsert + **`content_hash`** in metadata ([Corpus storage](#corpus-storage)); skip embed when hash unchanged ([Incremental updates](#incremental-updates)).
-5. **Outer lookup** — `search_embeddings(query, k)` → locators → open **1–few** files → inner read at offset.
+4. **Persist** — LangGraph ingest → `corpus.db` (`chunks`, `vec_chunks`, FTS `passages`) + **`content_hash`** ([Corpus storage](#corpus-storage)); skip embed when hash unchanged ([Incremental updates](#incremental-updates)).
+5. **Outer lookup** — `search_nearby_files(query, k)` → locators → open **1–few** files → inner read at offset.
 
 **Optional — active document only:** same pipeline for one `doc_url`; inject live-fetched text on main send (**secondary**).
 
@@ -1212,7 +1216,7 @@ Normalized text for hashing should match what the chunker sees (tracked-deletion
 
 ### Always search; update in the background
 
-**Lookup never blocks on re-embed.** `search_embeddings` reads the **current** Chroma index:
+**Lookup never blocks on re-embed.** `search_nearby_files` reads the **current** `corpus.db` index:
 
 - **Unchanged paragraphs** — existing vectors remain valid (hash match).
 - **Changed paragraphs** — old vectors may still rank until the incremental worker replaces them; locators may drift if paragraph boundaries moved — **re-resolve on open** via `search_in_document` on the hit **snippet** (not character offsets).
@@ -1249,7 +1253,7 @@ Do **not** embed on every keystroke — that would duplicate grammar's stampede 
 
 ### Vector patch strategy
 
-Apply patches with **in-place update semantics** — size tracks live corpus, not edit history ([Corpus storage](#corpus-storage)). **Schema v2:** Chroma upsert/delete via LangGraph ingest; table below describes schema v1 SQLite/vec0.
+Apply patches with **in-place update semantics** — size tracks live corpus, not edit history ([Corpus storage](#corpus-storage)). **Schema v3:** LangGraph ingest upserts/deletes rows in `corpus.db`; table below covers vec0 + BLOB fallback paths.
 
 | Backend | Changed paragraph | New paragraph | Deleted paragraph |
 |---------|-------------------|---------------|-------------------|
@@ -1290,7 +1294,7 @@ Cross-folder index maintain includes **Calc** siblings (`.ods`, `.ots`, `.fods`)
 | **Sheet context** | Row text prefixed with `[Sheet: {name}]\t…` for semantic / FTS snippets |
 | **`para_index`** | Stable row index across the file (sheet order, then row order) — weak locator hint; inner agent uses `search_in_spreadsheet` after open |
 | **Deps** | **`odfpy`** required in the embeddings venv (`pandas` typically already present); probed in Settings → Python Test |
-| **FTS mode** | Same rows land in `fts5.db` — no separate Calc extract |
+| **FTS mode** | Same rows land in `corpus.db` **`passages`** FTS5 — no separate Calc extract |
 
 Existing caches pick up `.ods` on the next incremental or cold maintain pass.
 
@@ -1321,7 +1325,7 @@ Cross-folder index maintain includes **Impress** (`.odp`, `.otp`, `.fodp`) and *
 | **Context prefix** | `[Slide: {name}]\t…` and `[Notes: {name}]\t…` |
 | **`para_index`** | Monotonic over all passages in the file — weak locator; inner agent uses Draw/Impress read tools after open |
 | **Deps** | **`odfpy`** (same as Calc ODS) |
-| **FTS mode** | Same passages land in `fts5.db` |
+| **FTS mode** | Same passages land in `corpus.db` **`passages`** FTS5 |
 
 ---
 
@@ -1356,7 +1360,7 @@ Try these **only when profiling on multi-file corpora** shows IPC NumPy search o
 
 ### Dedicated embeddings worker {#future-dedicated-worker}
 
-See [Planned: dedicated embeddings subprocess](#dedicated-embeddings-subprocess) and [In-worker corpus cache (RAM)](#embeddings-in-worker-cache). Summary: second `PythonWorkerManager` (embeddings-only) + optional ~60 s TTL RAM cache of `(folder_key → corpus_matrix)` so Calc `=PYTHON()` never queues behind batch embed and repeat `search_embeddings` skips re-loading BLOBs from disk.
+See [Planned: dedicated embeddings subprocess](#dedicated-embeddings-subprocess) and [In-worker corpus cache (RAM)](#embeddings-in-worker-cache). Summary: second `PythonWorkerManager` (embeddings-only) + optional ~60 s TTL RAM cache of `(folder_key → corpus_matrix)` so Calc `=PYTHON()` never queues behind batch embed and repeat vec search skips re-loading BLOBs from disk (historical v1 path).
 
 ### Choosing a search backend {#choosing-a-search-backend}
 
