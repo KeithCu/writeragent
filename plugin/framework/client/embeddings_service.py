@@ -52,6 +52,7 @@ result = _search(
     model_name=data["model"],
     near_slop=data.get("near_slop", 10),
     doc_url_filter=data.get("doc_url_filter"),
+    search_mode=data.get("search_mode", "hybrid"),
 )
 """
 
@@ -63,6 +64,7 @@ result = _search(
     data["k"],
     model_name=data["model"],
     doc_url_filter=data.get("doc_url_filter"),
+    search_mode=data.get("search_mode", "hybrid"),
 )
 """
 
@@ -244,6 +246,8 @@ def hybrid_search(
     doc_url_filter: str | None = None,
 ) -> dict[str, Any]:
     """Hybrid FTS + semantic search over corpus.db via the warm venv worker."""
+    from plugin.framework.config import get_config
+    search_mode = str(get_config(ctx, "embeddings.folder_search_mode") or "none").strip().lower()
     model_name = (model or "").strip()
     if not model_name:
         raise ToolExecutionError("No embedding model configured.", code="EMBEDDING_MODEL_MISSING")
@@ -257,6 +261,7 @@ def hybrid_search(
             "model": model_name,
             "near_slop": int(near_slop),
             "doc_url_filter": doc_url_filter,
+            "search_mode": search_mode,
         },
         model=model_name,
     )
@@ -272,6 +277,8 @@ def knn_search(
     doc_url_filter: str | None = None,
 ) -> dict[str, Any]:
     """Semantic search over a folder corpus.db via the warm venv worker."""
+    from plugin.framework.config import get_config
+    search_mode = str(get_config(ctx, "embeddings.folder_search_mode") or "none").strip().lower()
     model_name = (model or "").strip()
     if not model_name:
         raise ToolExecutionError("No embedding model configured.", code="EMBEDDING_MODEL_MISSING")
@@ -284,6 +291,7 @@ def knn_search(
             "k": int(k or 5),
             "model": model_name,
             "doc_url_filter": doc_url_filter,
+            "search_mode": search_mode,
         },
         model=model_name,
     )

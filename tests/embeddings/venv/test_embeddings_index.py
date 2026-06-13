@@ -37,7 +37,7 @@ def test_embed_texts_skips_blank_strings():
     assert result["indices"] == [0, 2]
     assert result["dim"] == 2
     assert len(result["vectors"]) == 2
-    mock_embedder.encode.assert_called_once_with(["hello", "world"], convert_to_tensor=False, show_progress_bar=False)
+    mock_embedder.encode.assert_called_once_with(["hello", "world"], batch_size=2, convert_to_tensor=False, show_progress_bar=False)
 
 
 def test_embed_texts_normalizes_vectors():

@@ -98,6 +98,7 @@ VENV_AUTHORIZED_IMPORTS: tuple[str, ...] = (
     "plugin.scripting.payload_codec",
     "plugin.embeddings.venv.embeddings_index",
     "plugin.embeddings.venv.embeddings_sqlite",
+    "plugin.embeddings.venv.embeddings_llama_index",
     "plugin.embeddings.venv.embeddings_ingest_graph",
     "plugin.embeddings.venv.embeddings_search_graph",
     "plugin.scripting.analysis",

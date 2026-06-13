@@ -74,6 +74,12 @@ def _import_sqlite_vec() -> Any:
 
 
 def _load_vec_extension(conn: sqlite3.Connection) -> None:
+    try:
+        conn.execute("SELECT vec_version()")
+        return
+    except sqlite3.OperationalError:
+        pass
+
     sqlite_vec = _import_sqlite_vec()
     conn.enable_load_extension(True)
     sqlite_vec.load(conn)

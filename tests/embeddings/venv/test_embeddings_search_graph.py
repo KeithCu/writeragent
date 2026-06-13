@@ -122,8 +122,7 @@ def test_search_embeddings_graph_invokes_graph():
         mock_graph.invoke.return_value = {"hits": [{"doc_url": "file:///a.odt", "score": 0.9}]}
         mock_graph_factory.return_value = mock_graph
         result = embeddings_search_graph.search_embeddings_graph(
-            "/chroma",
-            "folder_key",
+            "/chroma/corpus.db",
             "query",
             3,
             model_name="all-MiniLM-L6-v2",

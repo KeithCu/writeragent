@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 EMBEDDINGS_VENV_PIP_INSTALL = (
     "pip install sentence-transformers numpy sqlite-vec langgraph "
     "langchain-core langchain-text-splitters envwrap odfpy pandas "
-    "openpyxl xlrd python-docx"
+    "openpyxl xlrd python-docx llama-index-core"
 )
 
 _MODEL_CACHE: dict[str, Any] = {}
@@ -115,8 +115,21 @@ def index_paragraphs(
     *,
     build_fts: bool = False,
     build_vectors: bool = True,
+    search_mode: str = "hybrid",
 ) -> dict[str, Any]:
-    """Batch-embed *rows* and persist into corpus.db via the LangGraph ingest pipeline."""
+    """Batch-embed *rows* and persist into corpus.db via the LangGraph or LlamaIndex ingest pipeline."""
+    if str(search_mode).strip().lower() == "llama_index":
+        from plugin.embeddings.venv.embeddings_llama_index import llama_index_ingest
+        return llama_index_ingest(
+            db_path,
+            meta_path,
+            model_name,
+            rows,
+            delete_keys=[],
+            build_fts=build_fts,
+            build_vectors=build_vectors,
+        )
+
     from plugin.embeddings.venv.embeddings_ingest_graph import ingest_paragraphs
 
     return ingest_paragraphs(
@@ -138,8 +151,23 @@ def delete_paragraphs(
     model_name: str = "",
     build_fts: bool = False,
     build_vectors: bool = True,
+    search_mode: str = "hybrid",
 ) -> dict[str, Any]:
     """Remove paragraph rows from corpus.db."""
+    if str(search_mode).strip().lower() == "llama_index":
+        from plugin.embeddings.venv.embeddings_llama_index import llama_index_ingest
+        # In llama_index_ingest, we pass keys to delete_keys
+        llama_index_ingest(
+            db_path,
+            meta_path,
+            model_name,
+            [],
+            delete_keys=keys,
+            build_fts=build_fts,
+            build_vectors=build_vectors,
+        )
+        return {"deleted": len(keys)}
+
     from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, corpus_chunk_count, delete_paragraph_keys, ensure_schema
 
     if not keys:
@@ -175,8 +203,19 @@ def knn_search(
     *,
     model_name: str,
     doc_url_filter: str | None = None,
+    search_mode: str = "embeddings",
 ) -> dict[str, Any]:
-    """Semantic search via the LangGraph search pipeline."""
+    """Semantic search via the LangGraph or LlamaIndex search pipeline."""
+    if str(search_mode).strip().lower() == "llama_index":
+        from plugin.embeddings.venv.embeddings_llama_index import llama_index_knn_search
+        return llama_index_knn_search(
+            db_path,
+            query_text,
+            k,
+            model_name=model_name,
+            doc_url_filter=doc_url_filter,
+        )
+
     from plugin.embeddings.venv.embeddings_search_graph import search_embeddings_graph
 
     return search_embeddings_graph(
@@ -197,8 +236,21 @@ def hybrid_search(
     near_slop: int = 10,
     doc_url_filter: str | None = None,
     use_mmr: bool = True,
+    search_mode: str = "hybrid",
 ) -> dict[str, Any]:
     """Hybrid FTS + vector search with reciprocal rank fusion."""
+    if str(search_mode).strip().lower() == "llama_index":
+        from plugin.embeddings.venv.embeddings_llama_index import llama_index_hybrid_search
+        return llama_index_hybrid_search(
+            db_path,
+            query_text,
+            k,
+            model_name=model_name,
+            near_slop=near_slop,
+            doc_url_filter=doc_url_filter,
+            use_mmr=use_mmr,
+        )
+
     from plugin.embeddings.venv.embeddings_hybrid_search import hybrid_corpus_search
 
     return hybrid_corpus_search(

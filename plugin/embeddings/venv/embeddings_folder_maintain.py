@@ -72,8 +72,8 @@ class _HeartbeatThrottle:
 
 def _build_flags(search_mode: str) -> tuple[bool, bool]:
     mode = str(search_mode or "").strip().lower()
-    build_fts = mode in ("fts", "hybrid")
-    build_vectors = mode in ("embeddings", "hybrid")
+    build_fts = mode in ("fts", "hybrid", "llama_index")
+    build_vectors = mode in ("embeddings", "hybrid", "llama_index")
     return build_fts, build_vectors
 
 
@@ -126,9 +126,22 @@ def _ingest_rows(
     delete_keys: list[dict[str, Any]] | None = None,
     build_fts: bool,
     build_vectors: bool,
+    search_mode: str = "embeddings",
 ) -> dict[str, Any]:
     db_path = str(corpus_db_path(listing_root))
     meta_path = str(corpus_meta_path(listing_root))
+    if str(search_mode).strip().lower() == "llama_index":
+        from plugin.embeddings.venv.embeddings_llama_index import llama_index_ingest
+        return llama_index_ingest(
+            db_path,
+            meta_path,
+            embedding_model,
+            rows,
+            delete_keys=delete_keys,
+            build_fts=build_fts,
+            build_vectors=build_vectors,
+        )
+
     if build_vectors:
         return ingest_paragraphs(
             db_path,
@@ -164,6 +177,7 @@ def _cold_build(
     *,
     build_fts: bool,
     build_vectors: bool,
+    search_mode: str = "embeddings",
 ) -> dict[str, Any]:
     clear_folder_cache(listing_root)
     if build_vectors:
@@ -196,6 +210,7 @@ def _cold_build(
             rows,
             build_fts=build_fts,
             build_vectors=build_vectors,
+            search_mode=search_mode,
         )
         file_upserted = int(result.get("upserted") or result.get("indexed") or 0)
         hb.force(
@@ -239,6 +254,7 @@ def _incremental_refresh(
     *,
     build_fts: bool,
     build_vectors: bool,
+    search_mode: str = "embeddings",
 ) -> dict[str, Any]:
     db_path = corpus_db_path(listing_root)
     indexed = 0
@@ -271,6 +287,7 @@ def _incremental_refresh(
                 delete_keys=to_delete,
                 build_fts=build_fts,
                 build_vectors=build_vectors,
+                search_mode=search_mode,
             )
             deleted += len(to_delete)
             sync_file_paragraph_state(db_path, entry.url, chunks, entry.modified)
@@ -282,6 +299,7 @@ def _incremental_refresh(
                 to_index,
                 build_fts=build_fts,
                 build_vectors=build_vectors,
+                search_mode=search_mode,
             )
             file_upserted = int(result.get("upserted") or result.get("indexed") or 0)
             hb.force(
@@ -345,9 +363,9 @@ def maintain_folder_corpus(
 
     files = guess_indexable_paths(root)
     if resolved_mode == "cold":
-        out = _cold_build(root, model, files, hb, build_fts=build_fts, build_vectors=build_vectors)
+        out = _cold_build(root, model, files, hb, build_fts=build_fts, build_vectors=build_vectors, search_mode=search_mode)
     else:
-        out = _incremental_refresh(root, model, files, hb, build_fts=build_fts, build_vectors=build_vectors)
+        out = _incremental_refresh(root, model, files, hb, build_fts=build_fts, build_vectors=build_vectors, search_mode=search_mode)
 
     if build_fts:
         db_path = corpus_db_path(root, create_parent=False)

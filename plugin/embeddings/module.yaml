@@ -13,6 +13,8 @@ config:
         label: "Off"
       - value: hybrid
         label: Embeddings + FTS
+      - value: llama_index
+        label: LlamaIndex
 
   embedding_model:
     type: string

@@ -95,7 +95,12 @@ def vec0_retrieve(state: SearchState) -> dict[str, Any]:
 
 
 def metadata_filter(state: SearchState) -> dict[str, Any]:
-    return {"candidates": list(state.get("candidates") or [])}
+    model = state.get("model")
+    candidates = state.get("candidates") or []
+    if model:
+        filtered = [c for c in candidates if c.get("embedding_model") == model]
+        return {"candidates": filtered}
+    return {"candidates": list(candidates)}
 
 
 # Maximal Marginal Relevance (MMR): after RRF (or vec retrieve) we often have several

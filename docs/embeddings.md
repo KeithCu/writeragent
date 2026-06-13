@@ -1430,6 +1430,48 @@ Approximate nearest neighbor for bounded in-RAM subsets — not for full corpus 
 
 ---
 
+## LlamaIndex search backend option {#llamaindex-option}
+
+We introduce **LlamaIndex** as an alternative, optional backend for Cross-file search (FTS + embeddings) under the setting `folder_search_mode="llama_index"`.
+
+### Design & Implementation
+This option subclasses LlamaIndex's core interfaces to map them directly to our existing unified SQLite database (`corpus.db`), keeping on-disk schema compatibility.
+- **Warm Worker Process**: To protect the main LibreOffice in-process Python environment from large dependency trees, all LlamaIndex imports and operations are executed inside the trusted `PythonWorkerManager` virtual environment (venv) worker thread.
+- **Custom Adapters**:
+  - `WriterAgentEmbedding` subclasses `BaseEmbedding` and routes encoding to our local `SentenceTransformer` embedder.
+  - `WriterAgentVectorStore` subclasses `BasePydanticVectorStore` to read/write nodes from our SQLite `chunks` and `vec_chunks` tables.
+  - `WriterAgentFTSRetriever` subclasses `BaseRetriever` to perform FTS5 queries and invert BM25 scores.
+  - `WriterAgentQueryFusionRetriever` subclasses `QueryFusionRetriever` for local offline Reciprocal Rank Fusion.
+  - `WriterAgentMMRPostprocessor` subclasses `BaseNodePostprocessor` to apply Maximal Marginal Relevance diversity reranking on retrieved nodes.
+
+### Pluses & Minuses
+
+#### Pluses:
+1. **Offline & Privacy-Preserving**: Runs completely locally (offline) with no external network requirements or LLM query-generation API calls (using `num_queries=1` and `use_async=False`).
+2. **Framework Alignment**: Allows standardizing on LlamaIndex data models (`TextNode`, `NodeWithScore`, `QueryBundle`) for compatibility with external libraries and easier integration of standard post-processors (e.g. node parsers, rerankers, metadata enrichment).
+3. **No LO Pollution**: Because LlamaIndex and its transitive dependencies live completely inside the configured python venv, there is zero bloating or package management pollution of the host LibreOffice Python environment.
+4. **Parameterized Fusion**: We subclassed and customized `QueryFusionRetriever` to accept an `rrf_k` dynamic parameter, avoiding the hardcoded `k=60` limitation of the standard LlamaIndex implementation.
+
+#### Minuses:
+1. **Dependency Size**: Adds `llama-index-core` to the venv worker dependencies, which requires additional download time on cold bootstrap.
+2. **Abstraction Overhead**: Standardizing on LlamaIndex introduces Pydantic object serialization and nested class wrappers, which adds a minor overhead compared to our ultra-lean native sqlite-vec + FTS5 SQL queries.
+3. **Loss of Raw Score Scales**: Standard Reciprocal Rank Fusion (RRF) outputs relative rankings rather than raw cosine/BM25 scores. To mitigate this, we preserve raw scores inside the node's `metadata` field.
+
+### Evaluation & Comparison
+
+#### Running Evaluations
+The evaluation suite under `scripts/benchmark.py` evaluates folder search retrieval accuracy (Hit Rate and Mean Reciprocal Rank).
+
+To evaluate and compare the two backends:
+1. Open **Settings → Embeddings → Cross-file search** and toggle between `hybrid` and `llama_index`.
+2. Run the evaluation benchmark command:
+   ```bash
+   make run_eval EVAL_ARGS="--models your-model-name -n 5 -j 1"
+   ```
+3. Check retrieval quality for queries in the evaluation set to verify if RRF rank-merging behaves differently between the two backends.
+
+---
+
 ## Related docs
 
 | Topic | Doc |

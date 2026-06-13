@@ -85,7 +85,8 @@ def folder_search_enabled(ctx=None) -> bool:
     """True when cross-file corpus index (FTS + embeddings) is enabled."""
     from plugin.framework.config import get_config
 
-    return str(get_config(ctx, _FOLDER_SEARCH_MODE_KEY) or "none").strip().lower() == "hybrid"
+    val = str(get_config(ctx, _FOLDER_SEARCH_MODE_KEY) or "none").strip().lower()
+    return val in ("hybrid", "llama_index")
 
 
 # Browser-style user agent for a small, whitelisted set of sites

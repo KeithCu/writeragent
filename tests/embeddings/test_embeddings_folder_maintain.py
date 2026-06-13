@@ -42,6 +42,7 @@ def test_cold_build_ingests_one_file_at_a_time(tmp_path):
         delete_keys=None,
         build_fts: bool,
         build_vectors: bool,
+        **kwargs,
     ) -> dict:
         del root, model, delete_keys, build_fts, build_vectors
         ingest_calls.append(len(rows))

@@ -52,7 +52,7 @@ def test_maintain_and_search_cold(tmp_path):
     assert result["mode"] == "cold"
     assert result["indexed_paragraphs"] == 2
 
-    db_path = listing / "writeragent_embeddings" / "fts5.db"
+    db_path = listing / "writeragent_embeddings" / "corpus.db"
     assert db_path.is_file()
 
     search = folder_fts.search_folder_fts(str(db_path), "web search", k=5, near_slop=10)
@@ -69,11 +69,11 @@ def test_fts_stats(tmp_path):
     listing.mkdir()
     _write_minimal_odt(listing / "a.odt", ["alpha beta"])
     folder_fts.maintain_folder_fts(str(listing), mode="cold")
-    db = listing / "writeragent_embeddings" / "fts5.db"
-    meta = listing / "writeragent_embeddings" / "fts_meta.json"
+    db = listing / "writeragent_embeddings" / "corpus.db"
+    meta = listing / "writeragent_embeddings" / "corpus_meta.json"
     stats = folder_fts.fts_stats(str(db), str(meta))
     assert stats["row_count"] >= 1
-    assert stats["schema_version"] == "1"
+    assert stats["schema_version"] == "3"
 
 
 def test_maintain_and_search_ods_cold(tmp_path: Path):
@@ -87,7 +87,7 @@ def test_maintain_and_search_ods_cold(tmp_path: Path):
     assert result["mode"] == "cold"
     assert result["indexed_paragraphs"] >= 1
 
-    db_path = listing / "writeragent_embeddings" / "fts5.db"
+    db_path = listing / "writeragent_embeddings" / "corpus.db"
     assert db_path.is_file()
 
     search = folder_fts.search_folder_fts(str(db_path), "Q4 revenue", k=5, near_slop=10)
@@ -107,7 +107,7 @@ def test_maintain_and_search_odp_cold(tmp_path: Path):
     assert result["mode"] == "cold"
     assert result["indexed_paragraphs"] >= 1
 
-    db_path = listing / "writeragent_embeddings" / "fts5.db"
+    db_path = listing / "writeragent_embeddings" / "corpus.db"
     assert db_path.is_file()
 
     search = folder_fts.search_folder_fts(str(db_path), "Q4 revenue", k=5, near_slop=10)
