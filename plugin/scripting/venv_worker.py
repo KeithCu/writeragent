@@ -451,14 +451,14 @@ _VISION_PROBE_TIMEOUT_HINT = _(
 _VISION_PROBE_FAILED_HINT = _("Vision probe failed (see writeragent_debug.log).")
 
 # Embeddings stack (docs/embeddings.md): probed outside the AST sandbox because
-# chromadb/langgraph/langchain_* are not whitelisted for LLM-submitted venv scripts.
+# sqlite_vec/langgraph/langchain_* are not whitelisted for LLM-submitted venv scripts.
 from plugin.embeddings.venv.embeddings_index import EMBEDDINGS_VENV_PIP_INSTALL
 
 _EMBEDDINGS_INSTALL_CMD = EMBEDDINGS_VENV_PIP_INSTALL
 _EMBEDDINGS_PACKAGE_KEYS = (
     "envwrap",
     "sentence_transformers",
-    "chromadb",
+    "sqlite_vec",
     "langgraph",
     "langchain_core",
     "langchain_text_splitters",
@@ -479,10 +479,10 @@ except Exception as exc:
     out["sentence_transformers"] = None
     out["sentence_transformers_import_error"] = str(exc)
 try:
-    import chromadb  # noqa: F401
-    out["chromadb"] = "present"
+    import sqlite_vec  # noqa: F401
+    out["sqlite_vec"] = "present"
 except Exception:
-    out["chromadb"] = None
+    out["sqlite_vec"] = None
 try:
     import langgraph  # noqa: F401
     out["langgraph"] = "present"

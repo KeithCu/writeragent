@@ -1,6 +1,6 @@
 # Embeddings — Development Plan
 
-> **Status (2026-06):** **Chroma + LangGraph shipped (schema v2)** — per-folder **Chroma** persist dir + `corpus_meta.json` / `file_index_state.json` beside documents ([`embeddings_cache.py`](../plugin/embeddings/embeddings_cache.py)). **Index maintenance:** Writer stdlib ODF extract; **Calc `.ods` and Impress/Draw `.odp`/`.odg`** via odfpy/pandas ([`embeddings_odf_extract.py`](../plugin/embeddings/venv/embeddings_odf_extract.py)) — dispatch in [`embeddings_fs.py`](../plugin/embeddings/embeddings_fs.py) + [`embeddings_folder_maintain.py`](../plugin/embeddings/venv/embeddings_folder_maintain.py) via one **`maintain_folder_index` RPC** with **heartbeat** sliding timeout (`EMBEDDINGS_HEARTBEAT_GRACE_S`); host only resolves folder path and `_inflight` dedupe ([`embeddings_indexer.py`](../plugin/embeddings/embeddings_indexer.py)). **Same extract path** feeds **SQLite FTS5** when `folder_search_mode` is `fts` ([`folder_fts.py`](../plugin/embeddings/venv/folder_fts.py)). **Ingest/search:** LangGraph in [`embeddings_ingest_graph.py`](../plugin/embeddings/venv/embeddings_ingest_graph.py) / [`embeddings_search_graph.py`](../plugin/embeddings/venv/embeddings_search_graph.py). RPC facades: [`embeddings_index.py`](../plugin/embeddings/venv/embeddings_index.py), [`embeddings_service.py`](../plugin/framework/client/embeddings_service.py). **Dedicated embeddings subprocess** — `worker_pool=WORKER_POOL_EMBEDDINGS`. Offline re-index: [`scripts/index_embeddings_folder.py`](../scripts/index_embeddings_folder.py). Offline search: [`scripts/search_embeddings_folder.py`](../scripts/search_embeddings_folder.py). **Search mode:** Settings `embeddings.folder_search_mode` (`none` | `embeddings` | `fts`). **Scope:** one cache per filesystem folder (`.odt`, `.ods`, `.odp`, `.odg` siblings).
+> **Status (2026-06):** **Unified corpus.db + sqlite-vec (schema v3)** — per-folder **`corpus.db`** (chunks + FTS5 external content + vec0) + `corpus_meta.json` / `file_index_state.json` beside documents ([`embeddings_cache.py`](../plugin/embeddings/embeddings_cache.py)). LangGraph ingest/search graphs unchanged; storage nodes use [`embeddings_sqlite.py`](../plugin/embeddings/venv/embeddings_sqlite.py). **Hybrid mode** (`folder_search_mode: hybrid`) builds FTS + vectors in one file and exposes both `search_nearby_files` and `search_embeddings`.
 
 **Related:** [cython-extension.md](cython-extension.md) · [enabling_numpy_in_libreoffice.md](enabling_numpy_in_libreoffice.md) · [multi-document-dev-plan.md](multi-document-dev-plan.md) · [langchain-plan.md](langchain-plan.md) (chat memory / summarization only)
 
@@ -198,7 +198,7 @@ Scores and file ranks **will change** with model upgrades (`bge-small`, etc.), c
 **Venv install (minimum):**
 
 ```bash
-pip install numpy sentence-transformers chromadb langgraph langchain-core langchain-text-splitters envwrap odfpy
+pip install numpy sentence-transformers sqlite-vec langgraph langchain-core langchain-text-splitters envwrap odfpy
 ```
 
 Legacy **`index.db`** (SQLite BLOB / sqlite-vec) is removed on upgrade; the next index pass cold-builds into Chroma.

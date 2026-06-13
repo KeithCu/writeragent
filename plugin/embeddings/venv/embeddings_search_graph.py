@@ -5,20 +5,23 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""LangGraph search pipeline: embed query → Chroma retrieve → MMR rerank (trusted venv)."""
+"""LangGraph search pipeline: embed query → vec0 retrieve → MMR rerank (trusted venv)."""
 from __future__ import annotations
 
 import logging
 from typing import Any, NotRequired, TypedDict
 
-from plugin.embeddings.venv.embeddings_chroma import get_collection
 from plugin.embeddings.venv.embeddings_ingest_graph import CHUNK_SIZE
 from plugin.embeddings.venv.embeddings_index import embed_texts
+from plugin.embeddings.venv.embeddings_sqlite import (
+    connect_corpus_db,
+    load_embeddings_for_candidates,
+    vec0_search,
+)
 
 log = logging.getLogger(__name__)
 
 MMR_LAMBDA = 0.7
-# Hit preview cap matches ingest CHUNK_SIZE — return the embedded unit the vector matched.
 SNIPPET_MAX_CHARS = CHUNK_SIZE
 
 
@@ -38,14 +41,13 @@ def _public_hit_from_candidate(cand: dict[str, Any]) -> dict[str, Any]:
         "chunk_id": cand.get("chunk_id"),
         "doc_url": cand.get("doc_url"),
         "para_index": cand.get("para_index"),
-        "snippet": str(cand.get("snippet") or ""),
+        "snippet": _hit_snippet(str(cand.get("snippet") or "")),
         "score": float(cand.get("score") or 0.0),
     }
 
 
 class SearchState(TypedDict):
-    persist_dir: str
-    collection_name: str
+    db_path: str
     model: str
     query: str
     k: int
@@ -67,66 +69,33 @@ def embed_query(state: SearchState) -> dict[str, Any]:
     return {"query_vec": vectors[0]}
 
 
-def chroma_retrieve(state: SearchState) -> dict[str, Any]:
+def vec0_retrieve(state: SearchState) -> dict[str, Any]:
     query_vec = state.get("query_vec") or []
     if not query_vec:
         return {"candidates": []}
 
     k = max(1, min(int(state.get("k") or 5), 50))
     n_results = min(max(k * 3, k), 100)
-    collection = get_collection(str(state["persist_dir"]), str(state["collection_name"]))
+    model = str(state.get("model") or "")
+    doc_filter = state.get("doc_url_filter")
+
+    conn = connect_corpus_db(str(state["db_path"]))
     try:
-        count = int(collection.count())
-    except Exception:
-        count = 0
-    if count == 0:
-        return {"candidates": []}
-    n_results = min(n_results, count)
-
-    result = collection.query(
-        query_embeddings=[query_vec],
-        n_results=n_results,
-        include=["metadatas", "distances", "embeddings", "documents"],
-    )
-    ids = (result.get("ids") or [[]])[0]
-    metadatas = (result.get("metadatas") or [[]])[0]
-    distances = (result.get("distances") or [[]])[0]
-    embeddings = (result.get("embeddings") or [[]])[0]
-    documents = (result.get("documents") or [[]])[0]
-
-    candidates: list[dict[str, Any]] = []
-    for i, cid in enumerate(ids):
-        meta = metadatas[i] if i < len(metadatas) else {}
-        dist = float(distances[i]) if i < len(distances) else 1.0
-        emb = embeddings[i] if i < len(embeddings) else None
-        doc_text = documents[i] if i < len(documents) else ""
-        score = max(0.0, 1.0 - dist)
-        candidates.append(
-            {
-                "chunk_id": str(cid),
-                "doc_url": str((meta or {}).get("doc_url") or ""),
-                "para_index": int((meta or {}).get("para_index") or 0),
-                "embedding_model": str((meta or {}).get("embedding_model") or ""),
-                "snippet": _hit_snippet(str(doc_text or "")),
-                "score": score,
-                "embedding": emb,
-            }
+        candidates = vec0_search(
+            conn,
+            query_vec,
+            k=n_results,
+            model=model,
+            doc_url_filter=doc_filter,
         )
+        load_embeddings_for_candidates(conn, candidates)
+    finally:
+        conn.close()
     return {"candidates": candidates}
 
 
 def metadata_filter(state: SearchState) -> dict[str, Any]:
-    model = str(state.get("model") or "")
-    doc_filter = state.get("doc_url_filter")
-    filtered: list[dict[str, Any]] = []
-    for cand in state.get("candidates") or []:
-        if doc_filter and cand.get("doc_url") != doc_filter:
-            continue
-        emb_model = str(cand.get("embedding_model") or "")
-        if emb_model and emb_model != model:
-            continue
-        filtered.append(cand)
-    return {"candidates": filtered}
+    return {"candidates": list(state.get("candidates") or [])}
 
 
 def _max_marginal_relevance(
@@ -211,13 +180,13 @@ def _build_search_graph() -> Any:
     lg = importlib.import_module("langgraph.graph")
     graph = lg.StateGraph(cast("Any", SearchState))
     graph.add_node("embed_query", embed_query)
-    graph.add_node("chroma_retrieve", chroma_retrieve)
+    graph.add_node("vec0_retrieve", vec0_retrieve)
     graph.add_node("metadata_filter", metadata_filter)
     graph.add_node("rerank", rerank)
     graph.add_node("format_hits", format_hits)
     graph.add_edge(lg.START, "embed_query")
-    graph.add_edge("embed_query", "chroma_retrieve")
-    graph.add_edge("chroma_retrieve", "metadata_filter")
+    graph.add_edge("embed_query", "vec0_retrieve")
+    graph.add_edge("vec0_retrieve", "metadata_filter")
     graph.add_edge("metadata_filter", "rerank")
     graph.add_edge("rerank", "format_hits")
     graph.add_edge("format_hits", lg.END)
@@ -235,8 +204,7 @@ def _get_search_graph() -> Any:
 
 
 def search_embeddings_graph(
-    persist_dir: str,
-    collection_name: str,
+    db_path: str,
     query_text: str,
     k: int,
     *,
@@ -252,8 +220,7 @@ def search_embeddings_graph(
         return {"hits": []}
 
     initial: SearchState = {
-        "persist_dir": str(persist_dir),
-        "collection_name": str(collection_name),
+        "db_path": str(db_path),
         "model": model,
         "query": query,
         "k": int(k or 5),

@@ -457,27 +457,29 @@ def _run_trusted_embeddings_payload(code: str, data: Any | None) -> dict[str, An
                 str(payload.get("listing_root") or ""),
                 str(payload.get("model") or ""),
                 str(payload.get("mode") or "auto"),
+                search_mode=str(payload.get("search_mode") or "embeddings"),
             )
         elif "index_paragraphs" in stub:
             result = embeddings_index.index_paragraphs(
-                str(payload.get("persist_dir") or ""),
-                str(payload.get("collection_name") or ""),
+                str(payload.get("db_path") or ""),
                 str(payload.get("meta_path") or ""),
                 str(payload.get("model") or ""),
                 list(payload.get("rows") or []),
+                build_fts=bool(payload.get("build_fts")),
+                build_vectors=bool(payload.get("build_vectors", True)),
             )
         elif "delete_paragraphs" in stub:
             result = embeddings_index.delete_paragraphs(
-                str(payload.get("persist_dir") or ""),
-                str(payload.get("collection_name") or ""),
+                str(payload.get("db_path") or ""),
                 str(payload.get("meta_path") or ""),
                 list(payload.get("keys") or []),
                 model_name=str(payload.get("model") or ""),
+                build_fts=bool(payload.get("build_fts")),
+                build_vectors=bool(payload.get("build_vectors", True)),
             )
         elif "knn_search" in stub:
             result = embeddings_index.knn_search(
-                str(payload.get("persist_dir") or ""),
-                str(payload.get("collection_name") or ""),
+                str(payload.get("db_path") or ""),
                 str(payload.get("query") or ""),
                 int(payload.get("k") or 5),
                 model_name=str(payload.get("model") or ""),
@@ -485,8 +487,7 @@ def _run_trusted_embeddings_payload(code: str, data: Any | None) -> dict[str, An
             )
         elif "collection_stats" in stub:
             result = embeddings_index.collection_stats(
-                str(payload.get("persist_dir") or ""),
-                str(payload.get("collection_name") or ""),
+                str(payload.get("db_path") or ""),
                 str(payload.get("meta_path") or ""),
                 model_name=str(payload.get("model") or ""),
             )

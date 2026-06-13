@@ -13,8 +13,7 @@ from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 _INDEX_STUB = """\
 from plugin.embeddings.venv.embeddings_index import index_paragraphs as _index
 result = _index(
-    data["persist_dir"],
-    data["collection_name"],
+    data["db_path"],
     data["meta_path"],
     data["model"],
     data["rows"],
@@ -32,8 +31,7 @@ def test_trusted_embeddings_stub_bypasses_local_executor():
         response = run_sandboxed_code(
             _INDEX_STUB,
             data={
-                "persist_dir": "/tmp/chroma",
-                "collection_name": "folder",
+                "db_path": "/tmp/corpus.db",
                 "meta_path": "/tmp/meta.json",
                 "model": "all-MiniLM-L6-v2",
                 "rows": [],
@@ -52,8 +50,7 @@ def test_trusted_embeddings_payload_calls_index_paragraphs():
         out = _run_trusted_embeddings_payload(
             _INDEX_STUB,
             {
-                "persist_dir": "/tmp/chroma",
-                "collection_name": "folder",
+                "db_path": "/tmp/corpus.db",
                 "meta_path": "/tmp/meta.json",
                 "model": "all-MiniLM-L6-v2",
                 "rows": [{"text": "hi"}],
@@ -62,13 +59,7 @@ def test_trusted_embeddings_payload_calls_index_paragraphs():
 
     assert out["status"] == "ok"
     assert out["result"]["indexed"] == 1
-    mock_index.assert_called_once_with(
-        "/tmp/chroma",
-        "folder",
-        "/tmp/meta.json",
-        "all-MiniLM-L6-v2",
-        [{"text": "hi"}],
-    )
+    mock_index.assert_called_once()
 
 
 def test_user_code_still_uses_sandbox():

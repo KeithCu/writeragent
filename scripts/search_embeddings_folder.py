@@ -3,10 +3,9 @@
 """Search writeragent_embeddings for a document folder (no LibreOffice).
 
 Embeddings (default) requires the same venv packages as index maintenance:
-  pip install sentence-transformers numpy chromadb langgraph langchain-core langchain-text-splitters envwrap odfpy
+  pip install sentence-transformers numpy sqlite-vec langgraph langchain-core langchain-text-splitters envwrap odfpy
 
-FTS mode (--fts) uses stdlib sqlite3 only; build fts5.db via Settings in LO or:
-  .venv/bin/python -c "from plugin.embeddings.venv.folder_fts import maintain_folder_fts; maintain_folder_fts('~/Desktop/Writing')"
+FTS mode (--fts) uses corpus.db FTS5; build via Settings in LO or maintain_folder_corpus.
 
 Example:
   .venv/bin/python scripts/search_embeddings_folder.py "remote work policy"
@@ -28,9 +27,8 @@ project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
 
 from plugin.embeddings.embeddings_cache import (  # noqa: E402
-    chroma_persist_dir,
+    corpus_db_path,
     corpus_meta_path,
-    folder_corpus_key,
     index_is_empty,
     read_corpus_meta,
 )
@@ -69,7 +67,7 @@ def search_folder(
     model: str | None = None,
     doc_url: str | None = None,
 ) -> dict[str, Any]:
-    """Semantic search over an existing per-folder Chroma cache."""
+    """Semantic search over an existing per-folder corpus.db cache."""
     listing_root = folder.expanduser().resolve()
     if not listing_root.is_dir():
         raise SearchFolderError(f"Not a directory: {listing_root}")
@@ -78,11 +76,10 @@ def search_folder(
     if not query_text:
         raise SearchFolderError("query is required")
 
-    persist_dir = chroma_persist_dir(str(listing_root), create_parent=False)
+    db_path = corpus_db_path(str(listing_root), create_parent=False)
     meta_path = corpus_meta_path(str(listing_root), create_parent=False)
-    collection_name = folder_corpus_key(str(listing_root))
 
-    if not persist_dir.is_dir() or index_is_empty(meta_path, persist_dir):
+    if not db_path.is_file() or index_is_empty(meta_path, db_path):
         raise SearchFolderError(
             f"No indexed embeddings cache under {listing_root / 'writeragent_embeddings'}. "
             f"Build one with: .venv/bin/python scripts/index_embeddings_folder.py {listing_root}"
@@ -93,8 +90,7 @@ def search_folder(
 
     try:
         result = knn_search(
-            str(persist_dir),
-            collection_name,
+            str(db_path),
             query_text,
             k_clamped,
             model_name=model_name,
@@ -110,7 +106,6 @@ def search_folder(
         "status": "ok",
         "backend": "embeddings",
         "folder": str(listing_root),
-        "collection_name": collection_name,
         "query": query_text,
         "k": k_clamped,
         "model": model_name,
@@ -125,7 +120,7 @@ def search_folder_fts_cli(
     k: int = DEFAULT_K,
     near_slop: int = DEFAULT_NEAR_SLOP,
 ) -> dict[str, Any]:
-    """Lexical FTS5 search over an existing per-folder fts5.db cache."""
+    """Lexical FTS5 search over corpus.db passages in writeragent_embeddings/."""
     listing_root = folder.expanduser().resolve()
     if not listing_root.is_dir():
         raise SearchFolderError(f"Not a directory: {listing_root}")

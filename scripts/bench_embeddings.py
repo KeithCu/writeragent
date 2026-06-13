@@ -3,7 +3,7 @@
 """Benchmark batch encode via the warm venv worker (Pickle5 IPC).
 
 Historical note: pre-schema-v2 benches used SQLite BLOB + NumPy search in index.db.
-Production embeddings (schema v2) use Chroma + LangGraph — see docs/embeddings.md.
+Production embeddings (schema v3) use unified corpus.db + sqlite-vec + LangGraph — see docs/embeddings.md.
 
 Run outside LibreOffice:
   .venv/bin/python scripts/bench_embeddings.py
@@ -113,23 +113,22 @@ rows = [
 
 t0 = time.perf_counter()
 res = ingest_paragraphs(
-    persist_dir="/tmp/writeragent_embed_bench_chroma",
-    collection_name="bench_collection",
-    meta_path="/tmp/writeragent_embed_bench_chroma/corpus_meta.json",
+    db_path="/tmp/writeragent_embed_bench/corpus.db",
+    meta_path="/tmp/writeragent_embed_bench/corpus_meta.json",
     model_name={model_name!r},
     rows=rows,
 )
 encode_corpus_sec = time.perf_counter() - t0
 
-# Retrieve info to verify
-from plugin.embeddings.venv.embeddings_chroma import get_collection
-collection = get_collection("/tmp/writeragent_embed_bench_chroma", "bench_collection")
-n = collection.count()
+from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, corpus_chunk_count
+conn = connect_corpus_db("/tmp/writeragent_embed_bench/corpus.db")
+n = corpus_chunk_count(conn)
 try:
-    first_chunk = collection.get(limit=1, include=["embeddings"])
-    dim = len(first_chunk["embeddings"][0]) if first_chunk.get("embeddings") else 0
+    row = conn.execute("SELECT embedding FROM vec_chunks LIMIT 1").fetchone()
+    dim = len(row[0]) if row else 0
 except Exception:
     dim = 0
+conn.close()
 
 result = {{
     "model": {model_name!r},
@@ -151,8 +150,7 @@ hits = []
 for _ in range({search_iters}):
     t0 = time.perf_counter()
     res = search_embeddings_graph(
-        persist_dir="/tmp/writeragent_embed_bench_chroma",
-        collection_name="bench_collection",
+        db_path="/tmp/writeragent_embed_bench/corpus.db",
         query_text={query!r},
         k={k},
         model_name=model_name,
@@ -268,7 +266,8 @@ def main() -> int:
     print()
 
     import shutil
-    shutil.rmtree("/tmp/writeragent_embed_bench_chroma", ignore_errors=True)
+    shutil.rmtree("/tmp/writeragent_embed_bench", ignore_errors=True)
+    Path("/tmp/writeragent_embed_bench").mkdir(parents=True, exist_ok=True)
 
     mgr = PythonWorkerManager.get(exe, scrub_subprocess_env(dict(os.environ)))
     try:

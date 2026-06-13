@@ -44,7 +44,7 @@ CHAT_DOCUMENT_CONTEXT_MAX_CHARS = 8000
 DEFAULT_EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 EMBEDDINGS_WORKER_SESSION_PREFIX = "embeddings"
 # Host corpus_meta.json / Chroma schema version (docs/embeddings.md).
-EMBEDDINGS_SCHEMA_VERSION = "2"
+EMBEDDINGS_SCHEMA_VERSION = "3"
 # Background folder index tick when embeddings cache is enabled (docs/embeddings.md).
 EMBEDDINGS_INDEX_INTERVAL_S = 300
 # Worker heartbeat during long folder maintain RPC (docs/embeddings.md).
@@ -78,11 +78,11 @@ USE_SUB_AGENT = True
 # See docs/embeddings.md.
 
 _FOLDER_SEARCH_MODE_KEY = "embeddings.folder_search_mode"
-_VALID_FOLDER_SEARCH_MODES = frozenset({"none", "embeddings", "fts"})
+_VALID_FOLDER_SEARCH_MODES = frozenset({"none", "embeddings", "fts", "hybrid"})
 
 
 def get_folder_search_mode(ctx=None) -> str:
-    """Return cross-file search mode: none, embeddings, or fts."""
+    """Return cross-file search mode: none, embeddings, fts, or hybrid."""
     from plugin.framework.config import get_config
 
     raw = str(get_config(ctx, _FOLDER_SEARCH_MODE_KEY) or "none").strip().lower()
@@ -90,13 +90,13 @@ def get_folder_search_mode(ctx=None) -> str:
 
 
 def document_research_uses_embeddings(ctx=None) -> bool:
-    """True when outer document_research also exposes search_embeddings (embeddings mode)."""
-    return get_folder_search_mode(ctx) == "embeddings"
+    """True when outer document_research exposes search_embeddings."""
+    return get_folder_search_mode(ctx) in ("embeddings", "hybrid")
 
 
 def document_research_uses_folder_fts(ctx=None) -> bool:
-    """True when outer document_research also exposes search_nearby_files (FTS mode)."""
-    return get_folder_search_mode(ctx) == "fts"
+    """True when outer document_research exposes search_nearby_files."""
+    return get_folder_search_mode(ctx) in ("fts", "hybrid")
 
 
 # Browser-style user agent for a small, whitelisted set of sites

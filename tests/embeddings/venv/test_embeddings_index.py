@@ -71,10 +71,10 @@ def test_embed_texts_requires_model_name():
         embeddings_index.embed_texts("", ["text"])
 
 
-def test_embeddings_venv_pip_install_includes_envwrap():
+def test_embeddings_venv_pip_install_includes_sqlite_vec():
     assert "envwrap" in embeddings_index.EMBEDDINGS_VENV_PIP_INSTALL
     assert "sentence-transformers" in embeddings_index.EMBEDDINGS_VENV_PIP_INSTALL
-    assert "chromadb" in embeddings_index.EMBEDDINGS_VENV_PIP_INSTALL
+    assert "sqlite-vec" in embeddings_index.EMBEDDINGS_VENV_PIP_INSTALL
 
 
 def test_get_embedder_import_error_includes_install_line():
@@ -84,8 +84,8 @@ def test_get_embedder_import_error_includes_install_line():
 
 
 def test_index_paragraphs_delegates_to_ingest_graph():
-    with patch("plugin.embeddings.venv.embeddings_ingest_graph.ingest_paragraphs", return_value={"indexed": 2, "dim": 384, "storage_backend": "chroma"}) as mock_ingest:
-        result = embeddings_index.index_paragraphs("/chroma", "folder_key", "/meta.json", "all-MiniLM-L6-v2", [{"text": "hi"}])
+    with patch("plugin.embeddings.venv.embeddings_ingest_graph.ingest_paragraphs", return_value={"indexed": 2, "dim": 384, "storage_backend": "sqlite_vec"}) as mock_ingest:
+        result = embeddings_index.index_paragraphs("/tmp/corpus.db", "/meta.json", "all-MiniLM-L6-v2", [{"text": "hi"}])
     assert result["indexed"] == 2
     mock_ingest.assert_called_once()
 
@@ -93,23 +93,25 @@ def test_index_paragraphs_delegates_to_ingest_graph():
 def test_knn_search_delegates_to_search_graph():
     hits = [{"doc_url": "file:///a.odt", "para_index": 0, "score": 0.9}]
     with patch("plugin.embeddings.venv.embeddings_search_graph.search_embeddings_graph", return_value={"hits": hits}) as mock_search:
-        result = embeddings_index.knn_search("/chroma", "folder_key", "query", 5, model_name="all-MiniLM-L6-v2")
+        result = embeddings_index.knn_search("/tmp/corpus.db", "query", 5, model_name="all-MiniLM-L6-v2")
     assert result["hits"] == hits
     mock_search.assert_called_once()
 
 
-def test_delete_paragraphs_removes_from_chroma(tmp_path):
-    mock_collection = MagicMock()
-    mock_collection.count.return_value = 0
+def test_delete_paragraphs_removes_from_corpus(tmp_path):
     meta_path = tmp_path / "corpus_meta.json"
-    meta_path.write_text('{"chunk_count": "1"}', encoding="utf-8")
+    meta_path.write_text('{"chunk_count": "1", "dim": "384"}', encoding="utf-8")
+    db_path = tmp_path / "corpus.db"
 
-    with patch("plugin.embeddings.venv.embeddings_chroma.get_collection", return_value=mock_collection):
-        with patch("plugin.embeddings.venv.embeddings_chroma.delete_paragraph_keys", return_value=1):
-            result = embeddings_index.delete_paragraphs(
-                str(tmp_path),
-                "folder_key",
-                str(meta_path),
-                [{"doc_url": "file:///a.odt", "para_index": 0}],
-            )
+    with patch("plugin.embeddings.venv.embeddings_sqlite.connect_corpus_db") as mock_connect:
+        conn = MagicMock()
+        mock_connect.return_value = conn
+        with patch("plugin.embeddings.venv.embeddings_sqlite.ensure_schema"):
+            with patch("plugin.embeddings.venv.embeddings_sqlite.delete_paragraph_keys", return_value=1):
+                with patch("plugin.embeddings.venv.embeddings_sqlite.corpus_chunk_count", return_value=0):
+                    result = embeddings_index.delete_paragraphs(
+                        str(db_path),
+                        str(meta_path),
+                        [{"doc_url": "file:///a.odt", "para_index": 0}],
+                    )
     assert result["deleted"] == 1

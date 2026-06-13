@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Inspect WriterAgent per-folder embeddings cache (JSON + Chroma/SQLite).
+"""Inspect WriterAgent per-folder embeddings cache (JSON + corpus.db).
 
 Accepts a document folder or the cache directory itself:
 
@@ -7,8 +7,7 @@ Accepts a document folder or the cache directory itself:
   python scripts/dump_embeddings_cache.py ~/Desktop/Writing/writeragent_embeddings
   python scripts/dump_embeddings_cache.py --limit 20 --doc-url file:///path/to/doc.odt
 
-Chroma persists vectors in chroma/chroma.sqlite3 (embedding_metadata holds doc_url,
-para_index, char offsets, and chroma:document text). Host-side incremental state lives
+Schema v3 stores chunks + FTS5 + vec0 in corpus.db. Host-side incremental state lives
 in file_index_state.json; corpus_meta.json records model/schema/chunk_count.
 """
 
@@ -27,6 +26,7 @@ sys.path.insert(0, str(project_root))
 
 from plugin.embeddings.embeddings_cache import (  # noqa: E402
     CHROMA_SUBDIR,
+    CORPUS_DB_FILENAME,
     CORPUS_META_FILENAME,
     EMBEDDINGS_CACHE_DIRNAME,
     FILE_INDEX_STATE_FILENAME,
@@ -255,6 +255,52 @@ def _load_entries_from_sqlite(
         conn.close()
 
 
+def _load_entries_from_corpus_db(
+    corpus_db: Path,
+    *,
+    doc_url_filter: str | None,
+    limit: int,
+) -> list[dict[str, Any]]:
+    if not corpus_db.is_file():
+        return []
+    conn = sqlite3.connect(f"file:{corpus_db}?mode=ro", uri=True)
+    try:
+        tables = _sqlite_table_names(conn)
+        if "chunks" not in tables:
+            return []
+        sql = """
+            SELECT chunk_id, doc_url, para_index, char_start, char_end, content_hash, body
+            FROM chunks
+        """
+        params: list[Any] = []
+        if doc_url_filter:
+            sql += " WHERE doc_url = ?"
+            params.append(doc_url_filter)
+        sql += " ORDER BY doc_url, para_index, char_start"
+        if limit > 0:
+            sql += " LIMIT ?"
+            params.append(limit)
+        rows = conn.execute(sql, params).fetchall()
+        entries: list[dict[str, Any]] = []
+        for chunk_id, doc_url, para_index, char_start, char_end, content_hash, body in rows:
+            entries.append(
+                {
+                    "embedding_id": str(chunk_id),
+                    "metadata": {
+                        "doc_url": doc_url,
+                        "para_index": int(para_index or 0),
+                        "char_start": int(char_start or 0),
+                        "char_end": int(char_end or 0),
+                        "content_hash": str(content_hash or ""),
+                    },
+                    "document": str(body or ""),
+                }
+            )
+        return entries
+    finally:
+        conn.close()
+
+
 def _load_entries_from_chromadb(
     chroma_dir: Path,
     collection_name: str,
@@ -349,6 +395,7 @@ def dump_cache(
     prefer_chromadb: bool,
 ) -> int:
     cache_dir, listing_root, folder_key = resolve_cache_paths(path)
+    corpus_db = cache_dir / CORPUS_DB_FILENAME
     chroma_dir = cache_dir / CHROMA_SUBDIR
     meta_path = cache_dir / CORPUS_META_FILENAME
     state_path = cache_dir / FILE_INDEX_STATE_FILENAME
@@ -366,14 +413,22 @@ def dump_cache(
         print(f"Collection key:  {folder_key}")
 
     if legacy_db.is_file():
-        print(f"Legacy index.db: {legacy_db} (pre-Chroma; safe to delete after rebuild)")
+        print(f"Legacy index.db: {legacy_db} (pre-v3; safe to delete after rebuild)")
 
     print("=" * 72)
     _print_corpus_meta(meta_path)
     print("-" * 72)
     _print_file_index_state(state_path)
     print("-" * 72)
-    _print_chroma_sqlite_summary(cache_dir)
+    if corpus_db.is_file():
+        print(f"Corpus DB: {corpus_db}")
+        try:
+            count = sqlite3.connect(f"file:{corpus_db}?mode=ro", uri=True).execute("SELECT COUNT(*) FROM chunks").fetchone()
+            print(f"  chunks: {count[0] if count else 0}")
+        except sqlite3.Error as exc:
+            print(f"  error: {exc}")
+    elif chroma_dir.is_dir():
+        _print_chroma_sqlite_summary(cache_dir)
 
     if summary_only or limit == 0:
         return 0
@@ -382,33 +437,35 @@ def dump_cache(
         print("Cannot list Chroma entries without a collection key.", file=sys.stderr)
         return 1
 
-    entries: list[dict[str, Any]] = []
-    source = "sqlite"
-    sqlite_path = _chroma_sqlite_path(cache_dir)
-
-    if prefer_chromadb:
-        try:
-            entries = _load_entries_from_chromadb(
-                chroma_dir,
-                folder_key,
+    entries = _load_entries_from_corpus_db(corpus_db, doc_url_filter=doc_url, limit=limit)
+    source = "corpus.db"
+    if not entries and chroma_dir.is_dir():
+        sqlite_path = _chroma_sqlite_path(cache_dir)
+        if prefer_chromadb:
+            try:
+                entries = _load_entries_from_chromadb(
+                    chroma_dir,
+                    folder_key or "",
+                    doc_url_filter=doc_url,
+                    limit=limit,
+                )
+                source = "chromadb"
+            except Exception as exc:
+                print(f"chromadb read failed ({exc}); falling back to legacy chroma sqlite", file=sys.stderr)
+        if not entries:
+            all_entries = _load_entries_from_sqlite(
+                sqlite_path,
                 doc_url_filter=doc_url,
-                limit=limit,
+                limit=10_000_000,
             )
-            source = "chromadb"
-        except Exception as exc:
-            print(f"chromadb read failed ({exc}); falling back to sqlite", file=sys.stderr)
-
-    if not entries:
-        all_entries = _load_entries_from_sqlite(
-            sqlite_path,
-            doc_url_filter=doc_url,
-            limit=10_000_000,
-        )
-        if doc_url is None and limit > 0:
-            counts_source = all_entries
-            _print_doc_url_counts(counts_source)
-            print("-" * 72)
-        entries = all_entries[:limit]
+            if doc_url is None and limit > 0 and all_entries:
+                _print_doc_url_counts(all_entries)
+                print("-" * 72)
+            entries = all_entries[:limit]
+            source = "chroma.sqlite3"
+    elif doc_url is None and limit > 0 and entries:
+        _print_doc_url_counts(entries)
+        print("-" * 72)
 
     print("-" * 72)
     _print_entries(entries, preview_chars=preview_chars, source=source)

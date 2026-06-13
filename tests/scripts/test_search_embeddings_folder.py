@@ -24,6 +24,15 @@ from search_embeddings_folder import (  # noqa: E402
 )
 
 
+def _write_corpus_cache(cache_dir: Path, *, chunk_count: str = "3", model: str = "custom-model") -> None:
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    (cache_dir / "corpus.db").write_text("", encoding="utf-8")
+    (cache_dir / "corpus_meta.json").write_text(
+        json.dumps({"embedding_model": model, "chunk_count": chunk_count, "schema_version": "3"}),
+        encoding="utf-8",
+    )
+
+
 def test_search_folder_requires_directory(tmp_path: Path) -> None:
     missing = tmp_path / "nope"
     with pytest.raises(SearchFolderError, match="Not a directory"):
@@ -45,14 +54,7 @@ def test_search_folder_empty_cache(tmp_path: Path) -> None:
 def test_search_folder_uses_meta_model_and_default_k(tmp_path: Path) -> None:
     folder = tmp_path / "Writing"
     folder.mkdir()
-    cache_dir = folder / "writeragent_embeddings"
-    chroma_dir = cache_dir / "chroma"
-    chroma_dir.mkdir(parents=True)
-    meta_path = cache_dir / "corpus_meta.json"
-    meta_path.write_text(
-        json.dumps({"embedding_model": "custom-model", "chunk_count": "3"}),
-        encoding="utf-8",
-    )
+    _write_corpus_cache(folder / "writeragent_embeddings")
 
     fake_hits = [{"doc_url": "file:///a.odt", "para_index": 1, "snippet": "text", "score": 0.9}]
     with patch("search_embeddings_folder.knn_search", return_value={"hits": fake_hits}) as mock_search:
@@ -60,8 +62,8 @@ def test_search_folder_uses_meta_model_and_default_k(tmp_path: Path) -> None:
 
     mock_search.assert_called_once()
     args, kwargs = mock_search.call_args
-    assert args[2] == "remote work"
-    assert args[3] == DEFAULT_K
+    assert args[1] == "remote work"
+    assert args[2] == DEFAULT_K
     assert kwargs["model_name"] == "custom-model"
     assert kwargs["doc_url_filter"] is None
     assert result["status"] == "ok"
@@ -72,18 +74,14 @@ def test_search_folder_uses_meta_model_and_default_k(tmp_path: Path) -> None:
 def test_search_folder_model_override(tmp_path: Path) -> None:
     folder = tmp_path / "Writing"
     folder.mkdir()
-    cache_dir = folder / "writeragent_embeddings"
-    chroma_dir = cache_dir / "chroma"
-    chroma_dir.mkdir(parents=True)
-    meta_path = cache_dir / "corpus_meta.json"
-    meta_path.write_text(json.dumps({"embedding_model": "stored-model", "chunk_count": "1"}), encoding="utf-8")
+    _write_corpus_cache(folder / "writeragent_embeddings", chunk_count="1", model="stored-model")
 
     with patch("search_embeddings_folder.knn_search", return_value={"hits": []}) as mock_search:
         search_folder(folder, "q", model="override-model", k=5, doc_url="file:///x.odt")
 
     kwargs = mock_search.call_args.kwargs
     assert kwargs["model_name"] == "override-model"
-    assert mock_search.call_args.args[3] == 5
+    assert mock_search.call_args.args[2] == 5
     assert kwargs["doc_url_filter"] == "file:///x.odt"
 
 
@@ -111,11 +109,7 @@ def test_format_hits_includes_score_and_snippet() -> None:
 def test_main_json_output(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     folder = tmp_path / "Writing"
     folder.mkdir()
-    cache_dir = folder / "writeragent_embeddings"
-    chroma_dir = cache_dir / "chroma"
-    chroma_dir.mkdir(parents=True)
-    meta_path = cache_dir / "corpus_meta.json"
-    meta_path.write_text(json.dumps({"embedding_model": "m", "chunk_count": "1"}), encoding="utf-8")
+    _write_corpus_cache(folder / "writeragent_embeddings", chunk_count="1", model="m")
 
     with patch("search_embeddings_folder.knn_search", return_value={"hits": [{"score": 0.5}]}):
         code = main(["query text", "--folder", str(folder), "--json"])
@@ -151,10 +145,11 @@ def test_search_folder_fts_happy_path(tmp_path: Path) -> None:
     folder.mkdir()
     cache_dir = folder / "writeragent_embeddings"
     cache_dir.mkdir(parents=True)
-    db_path = cache_dir / "fts5.db"
-    db_path.write_text("", encoding="utf-8")
-    meta_path = cache_dir / "fts_meta.json"
-    meta_path.write_text(json.dumps({"schema_version": "1", "row_count": "2"}), encoding="utf-8")
+    (cache_dir / "corpus.db").write_text("", encoding="utf-8")
+    (cache_dir / "corpus_meta.json").write_text(
+        json.dumps({"schema_version": "3", "row_count": "2", "chunk_count": "2"}),
+        encoding="utf-8",
+    )
 
     fake_hits = [{"doc_url": "file:///part2.odt", "para_index": 1, "snippet": "web search", "score": -1.2}]
     with patch("search_embeddings_folder.search_folder_fts", return_value={"hits": fake_hits, "match": 'NEAR("web" "search", 10)'}) as mock_fts:
@@ -171,9 +166,11 @@ def test_main_fts_flag(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> No
     folder.mkdir()
     cache_dir = folder / "writeragent_embeddings"
     cache_dir.mkdir(parents=True)
-    (cache_dir / "fts5.db").write_text("", encoding="utf-8")
-    meta_path = cache_dir / "fts_meta.json"
-    meta_path.write_text(json.dumps({"schema_version": "1", "row_count": "1"}), encoding="utf-8")
+    (cache_dir / "corpus.db").write_text("", encoding="utf-8")
+    (cache_dir / "corpus_meta.json").write_text(
+        json.dumps({"schema_version": "3", "row_count": "1", "chunk_count": "1"}),
+        encoding="utf-8",
+    )
 
     with patch(
         "search_embeddings_folder.search_folder_fts",

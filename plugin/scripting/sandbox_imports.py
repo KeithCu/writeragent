@@ -88,7 +88,7 @@ VENV_AUTHORIZED_IMPORTS: tuple[str, ...] = (
     "writeragent.*",
     "plugin.scripting.payload_codec",
     "plugin.embeddings.venv.embeddings_index",
-    "plugin.embeddings.venv.embeddings_chroma",
+    "plugin.embeddings.venv.embeddings_sqlite",
     "plugin.embeddings.venv.embeddings_ingest_graph",
     "plugin.embeddings.venv.embeddings_search_graph",
     "plugin.scripting.analysis",

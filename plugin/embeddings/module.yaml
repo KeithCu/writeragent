@@ -15,6 +15,8 @@ config:
         label: Embeddings
       - value: fts
         label: SQLite FTS (venv)
+      - value: hybrid
+        label: Hybrid (FTS + embeddings)
 
   embedding_provider:
     type: string

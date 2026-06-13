@@ -1314,7 +1314,7 @@ def get_safe_module(raw_module, authorized_imports, visited=None):
                 "mpl_toolkits",
                 "matplotlib.",
                 "sentence_transformers",
-                "chromadb",
+                "sqlite_vec",
                 "langgraph",
                 "langchain",
                 "plugin.embeddings.venv",

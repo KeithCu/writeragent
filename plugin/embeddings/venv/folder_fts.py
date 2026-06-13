@@ -133,12 +133,9 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
 
 
 def _clear_fts_files(listing_root: str) -> None:
-    db = fts_db_path(listing_root, create_parent=False)
-    meta = fts_meta_path(listing_root, create_parent=False)
-    if db.is_file():
-        db.unlink()
-    if meta.is_file():
-        meta.unlink()
+    from plugin.embeddings.embeddings_cache import clear_folder_cache
+
+    clear_folder_cache(listing_root)
 
 
 def _count_rows(conn: sqlite3.Connection) -> int:
@@ -296,24 +293,16 @@ def maintain_folder_fts(
     *,
     heartbeat_fn: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
-    """Full folder FTS maintenance in the venv (ODF extract + SQLite FTS5)."""
-    root = str(listing_root or "").strip()
-    if not root:
-        raise ValueError("listing_root is required")
+    """Full folder FTS maintenance — delegates to unified corpus maintain (FTS leg only)."""
+    from plugin.embeddings.venv.embeddings_folder_maintain import maintain_folder_corpus
 
-    resolved_mode = _resolve_mode(root, mode)
-    hb = _HeartbeatThrottle(heartbeat_fn)
-    hb.force({"phase": "start", "mode": resolved_mode, "listing_root": root})
-
-    files = guess_indexable_paths(root)
-    if resolved_mode == "cold":
-        out = _cold_build(root, files, hb)
-    else:
-        out = _incremental_refresh(root, files, hb)
-
-    hb.force({"phase": "done", **out})
-    log.info("Folder FTS maintain %s for %s: %s", resolved_mode, root, out)
-    return out
+    return maintain_folder_corpus(
+        listing_root,
+        embedding_model="",
+        search_mode="fts",
+        mode=mode,
+        heartbeat_fn=heartbeat_fn,
+    )
 
 
 def strip_fts_snippet_markers(snippet: str) -> str:

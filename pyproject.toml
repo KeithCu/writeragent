@@ -66,6 +66,7 @@ dev = [
     "Cython",
     "setuptools",
     "build",
+    "sqlite-vec",
     "css-inline",
 ]
 

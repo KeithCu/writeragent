@@ -5,7 +5,7 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""Host-side embeddings index RPC — Chroma + LangGraph in the venv worker."""
+"""Host-side embeddings index RPC — sqlite-vec + LangGraph in the venv worker."""
 from __future__ import annotations
 
 import logging
@@ -22,30 +22,31 @@ log = logging.getLogger(__name__)
 _INDEX_STUB = """\
 from plugin.embeddings.venv.embeddings_index import index_paragraphs as _index
 result = _index(
-    data["persist_dir"],
-    data["collection_name"],
+    data["db_path"],
     data["meta_path"],
     data["model"],
     data["rows"],
+    build_fts=data.get("build_fts", False),
+    build_vectors=data.get("build_vectors", True),
 )
 """
 
 _DELETE_STUB = """\
 from plugin.embeddings.venv.embeddings_index import delete_paragraphs as _delete
 result = _delete(
-    data["persist_dir"],
-    data["collection_name"],
+    data["db_path"],
     data["meta_path"],
     data["keys"],
     model_name=data["model"],
+    build_fts=data.get("build_fts", False),
+    build_vectors=data.get("build_vectors", True),
 )
 """
 
 _SEARCH_STUB = """\
 from plugin.embeddings.venv.embeddings_index import knn_search as _search
 result = _search(
-    data["persist_dir"],
-    data["collection_name"],
+    data["db_path"],
     data["query"],
     data["k"],
     model_name=data["model"],
@@ -56,8 +57,7 @@ result = _search(
 _STATS_STUB = """\
 from plugin.embeddings.venv.embeddings_index import collection_stats as _stats
 result = _stats(
-    data["persist_dir"],
-    data["collection_name"],
+    data["db_path"],
     data["meta_path"],
     model_name=data.get("model", ""),
 )
@@ -69,6 +69,7 @@ result = _maintain(
     data["listing_root"],
     data["model"],
     data.get("mode", "auto"),
+    search_mode=data.get("search_mode", "embeddings"),
 )
 """
 
@@ -138,10 +139,11 @@ def maintain_folder_index(
     *,
     model: str,
     mode: str = "auto",
+    search_mode: str = "embeddings",
 ) -> dict[str, Any]:
-    """Run full folder index maintenance in the embeddings venv (ODF extract + Chroma)."""
+    """Run full folder corpus maintenance in the embeddings venv."""
     model_name = (model or "").strip()
-    if not model_name:
+    if search_mode in ("embeddings", "hybrid") and not model_name:
         raise ToolExecutionError("No embedding model configured.", code="EMBEDDING_MODEL_MISSING")
     return _run_worker_with_heartbeat(
         ctx,
@@ -150,76 +152,78 @@ def maintain_folder_index(
             "listing_root": str(listing_root),
             "model": model_name,
             "mode": str(mode or "auto"),
+            "search_mode": str(search_mode or "embeddings"),
         },
-        model=model_name,
+        model=model_name or "corpus",
     )
 
 
 def index_paragraphs(
     ctx: Any,
-    persist_dir: str,
-    collection_name: str,
+    db_path: str,
     meta_path: str,
     rows: list[dict[str, Any]],
     *,
     model: str,
+    build_fts: bool = False,
+    build_vectors: bool = True,
 ) -> dict[str, Any]:
     """Persist paragraph rows + vectors via the warm venv worker."""
     model_name = (model or "").strip()
-    if not model_name:
+    if build_vectors and not model_name:
         raise ToolExecutionError("No embedding model configured.", code="EMBEDDING_MODEL_MISSING")
     return _run_worker(
         ctx,
         _INDEX_STUB,
         {
-            "persist_dir": str(persist_dir),
-            "collection_name": str(collection_name),
+            "db_path": str(db_path),
             "meta_path": str(meta_path),
             "model": model_name,
             "rows": list(rows or []),
+            "build_fts": build_fts,
+            "build_vectors": build_vectors,
         },
-        model=model_name,
+        model=model_name or "corpus",
     )
 
 
 def delete_paragraphs(
     ctx: Any,
-    persist_dir: str,
-    collection_name: str,
+    db_path: str,
     meta_path: str,
     keys: list[dict[str, Any]],
     *,
     model: str,
+    build_fts: bool = False,
+    build_vectors: bool = True,
 ) -> dict[str, Any]:
     """Remove paragraph index rows via the warm venv worker."""
     model_name = (model or "").strip()
-    if not model_name:
-        raise ToolExecutionError("No embedding model configured.", code="EMBEDDING_MODEL_MISSING")
     return _run_worker(
         ctx,
         _DELETE_STUB,
         {
-            "persist_dir": str(persist_dir),
-            "collection_name": str(collection_name),
+            "db_path": str(db_path),
             "meta_path": str(meta_path),
             "keys": list(keys or []),
             "model": model_name,
+            "build_fts": build_fts,
+            "build_vectors": build_vectors,
         },
-        model=model_name,
+        model=model_name or "corpus",
     )
 
 
 def knn_search(
     ctx: Any,
-    persist_dir: str,
-    collection_name: str,
+    db_path: str,
     query: str,
     k: int,
     *,
     model: str,
     doc_url_filter: str | None = None,
 ) -> dict[str, Any]:
-    """Semantic search over a folder Chroma index via the warm venv worker."""
+    """Semantic search over a folder corpus.db via the warm venv worker."""
     model_name = (model or "").strip()
     if not model_name:
         raise ToolExecutionError("No embedding model configured.", code="EMBEDDING_MODEL_MISSING")
@@ -227,8 +231,7 @@ def knn_search(
         ctx,
         _SEARCH_STUB,
         {
-            "persist_dir": str(persist_dir),
-            "collection_name": str(collection_name),
+            "db_path": str(db_path),
             "query": str(query or ""),
             "k": int(k or 5),
             "model": model_name,
@@ -240,20 +243,18 @@ def knn_search(
 
 def collection_stats(
     ctx: Any,
-    persist_dir: str,
-    collection_name: str,
+    db_path: str,
     meta_path: str,
     *,
     model: str = "",
 ) -> dict[str, Any]:
-    """Lightweight Chroma corpus stats for host empty/stale checks."""
+    """Lightweight corpus stats for host empty/stale checks."""
     model_name = (model or "").strip()
     return _run_worker(
         ctx,
         _STATS_STUB,
         {
-            "persist_dir": str(persist_dir),
-            "collection_name": str(collection_name),
+            "db_path": str(db_path),
             "meta_path": str(meta_path),
             "model": model_name,
         },

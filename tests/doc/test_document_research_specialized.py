@@ -83,11 +83,21 @@ def test_filter_document_research_discovery_tools_respects_config():
 
     with patch("plugin.framework.constants.document_research_uses_embeddings", return_value=False):
         with patch("plugin.framework.constants.document_research_uses_folder_fts", return_value=True):
-            filtered = filter_document_research_discovery_tools(tools, ctx)
+            with patch("plugin.framework.constants.get_folder_search_mode", return_value="fts"):
+                filtered = filter_document_research_discovery_tools(tools, ctx)
     names = {t.name for t in filtered}
     assert "search_nearby_files" in names
     assert "search_embeddings" not in names
     assert "grep_nearby_files" not in names
+
+    with patch("plugin.framework.constants.document_research_uses_embeddings", return_value=True):
+        with patch("plugin.framework.constants.document_research_uses_folder_fts", return_value=True):
+            with patch("plugin.framework.constants.get_folder_search_mode", return_value="hybrid"):
+                filtered = filter_document_research_discovery_tools(tools, ctx)
+    names = {t.name for t in filtered}
+    assert "search_nearby_files" in names
+    assert "search_embeddings" in names
+    assert "grep_nearby_files" in names
 
 
 def test_document_research_workflow_hint_modes():
@@ -115,6 +125,19 @@ def test_document_research_workflow_hint_modes():
     assert "BM25" in fts_hint
     assert "search_embeddings" not in fts_hint
     assert "grep_nearby_files" not in fts_hint
+
+
+def test_document_research_workflow_hint_hybrid():
+    from plugin.doc.document_research import get_document_research_workflow_hint
+
+    ctx = MagicMock()
+    with patch("plugin.framework.constants.document_research_uses_embeddings", return_value=True):
+        with patch("plugin.framework.constants.document_research_uses_folder_fts", return_value=True):
+            with patch("plugin.framework.constants.get_folder_search_mode", return_value="hybrid"):
+                hint = get_document_research_workflow_hint(ctx)
+    assert "search_embeddings" in hint
+    assert "search_nearby_files" in hint
+    assert "BM25" in hint
 
 
 

@@ -75,11 +75,11 @@ class SearchEmbeddings(ToolBase):
             from plugin.framework.client.embedding_client import get_embedding_model
             from plugin.framework.client.embeddings_service import knn_search
 
-            folder_key, persist_dir, meta_path, listing_or_err = resolve_index_context(ctx.ctx, ctx.doc)
-            if folder_key is None or persist_dir is None or meta_path is None:
+            folder_key, db_path, meta_path, listing_or_err = resolve_index_context(ctx.ctx, ctx.doc)
+            if folder_key is None or db_path is None or meta_path is None:
                 return {"status": "error", "message": listing_or_err}
 
-            if index_is_empty(meta_path, persist_dir):
+            if index_is_empty(meta_path, db_path):
                 ensure_index_wakeup(ctx.ctx, ctx.services, ctx.doc)
                 return {
                     "status": "indexing",
@@ -93,8 +93,7 @@ class SearchEmbeddings(ToolBase):
             try:
                 result = knn_search(
                     ctx.ctx,
-                    str(persist_dir),
-                    folder_key,
+                    str(db_path),
                     str(query),
                     k,
                     model=model,

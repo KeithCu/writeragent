@@ -5,7 +5,7 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""Per-folder embeddings cache paths and host-side index state (Chroma + JSON)."""
+"""Per-folder corpus cache paths and host-side index state (sqlite-vec + JSON)."""
 from __future__ import annotations
 
 import hashlib
@@ -22,11 +22,14 @@ from plugin.framework.constants import EMBEDDINGS_SCHEMA_VERSION as SCHEMA_VERSI
 log = logging.getLogger(__name__)
 
 EMBEDDINGS_CACHE_DIRNAME = "writeragent_embeddings"
-STORAGE_BACKEND = "chroma"
+STORAGE_BACKEND = "sqlite_vec"
 CORPUS_META_FILENAME = "corpus_meta.json"
 FILE_INDEX_STATE_FILENAME = "file_index_state.json"
+CORPUS_DB_FILENAME = "corpus.db"
 LEGACY_INDEX_DB = "index.db"
 CHROMA_SUBDIR = "chroma"
+LEGACY_FTS_DB = "fts5.db"
+LEGACY_FTS_META = "fts_meta.json"
 
 
 def folder_corpus_key(directory_path: str) -> str:
@@ -48,23 +51,25 @@ def _normalized_listing_root(listing_root: str) -> str:
 
 
 def folder_cache_dir(listing_root: str, *, create_parent: bool = True) -> Path:
-    """Base directory for one folder's Chroma + JSON state (beside indexed documents)."""
+    """Base directory for one folder's corpus.db + JSON state (beside indexed documents)."""
     path = Path(_normalized_listing_root(listing_root)) / EMBEDDINGS_CACHE_DIRNAME
     if create_parent:
         path.mkdir(parents=True, exist_ok=True)
     return path
 
 
+def corpus_db_path(listing_root: str, *, create_parent: bool = True) -> Path:
+    """Unified SQLite corpus (chunks + FTS5 + vec0) for the document folder."""
+    return folder_cache_dir(listing_root, create_parent=create_parent) / CORPUS_DB_FILENAME
+
+
 def chroma_persist_dir(listing_root: str, *, create_parent: bool = True) -> Path:
-    """Chroma PersistentClient path for the document folder."""
-    path = folder_cache_dir(listing_root, create_parent=create_parent) / CHROMA_SUBDIR
-    if create_parent:
-        path.mkdir(parents=True, exist_ok=True)
-    return path
+    """Deprecated alias — returns corpus.db path (historical Chroma API name)."""
+    return corpus_db_path(listing_root, create_parent=create_parent)
 
 
 def corpus_meta_path(listing_root: str, *, create_parent: bool = True) -> Path:
-    """JSON corpus metadata beside the Chroma directory."""
+    """JSON corpus metadata beside corpus.db."""
     return folder_cache_dir(listing_root, create_parent=create_parent) / CORPUS_META_FILENAME
 
 
@@ -74,8 +79,22 @@ def file_index_state_path(listing_root: str, *, create_parent: bool = True) -> P
 
 
 def legacy_index_db_path(listing_root: str) -> Path:
-    """Pre-Chroma SQLite index path (removed on upgrade)."""
+    """Pre-v3 SQLite index path (removed on upgrade)."""
     return folder_cache_dir(listing_root, create_parent=False) / LEGACY_INDEX_DB
+
+
+def _remove_path(path: Path) -> bool:
+    if not path.exists():
+        return False
+    try:
+        if path.is_dir():
+            shutil.rmtree(path, ignore_errors=True)
+        else:
+            path.unlink()
+        return True
+    except OSError:
+        log.debug("Could not remove %s", path, exc_info=True)
+        return False
 
 
 def read_corpus_meta(meta_path: Path) -> dict[str, str]:
@@ -152,8 +171,10 @@ def chunk_count_from_meta(meta_path: Path) -> int:
         return 0
 
 
-def index_is_empty(meta_path: Path, persist_dir: Path | None = None) -> bool:
+def index_is_empty(meta_path: Path, db_path: Path | None = None) -> bool:
     """True when corpus has no indexed chunks."""
+    if db_path is not None and not db_path.is_file():
+        return True
     if not meta_path.is_file():
         return True
     return chunk_count_from_meta(meta_path) <= 0
@@ -173,60 +194,57 @@ def schema_matches(meta_path: Path) -> bool:
     return meta.get("schema_version", "") == SCHEMA_VERSION
 
 
+def remove_stale_corpus_stores(listing_root: str) -> bool:
+    """Delete pre-v3 stores (Chroma dir, legacy index.db, separate fts5.db)."""
+    base = folder_cache_dir(listing_root, create_parent=False)
+    removed = False
+    removed |= _remove_path(base / CHROMA_SUBDIR)
+    removed |= _remove_path(base / LEGACY_INDEX_DB)
+    removed |= _remove_path(base / LEGACY_FTS_DB)
+    removed |= _remove_path(base / LEGACY_FTS_META)
+    if removed:
+        log.info("Removed stale embeddings stores in %s (corpus.db cold rebuild)", base)
+    return removed
+
+
 def remove_legacy_index(listing_root: str) -> bool:
-    """Delete legacy index.db when upgrading to Chroma (cold rebuild follows)."""
-    legacy = legacy_index_db_path(listing_root)
-    if not legacy.is_file():
-        return False
-    try:
-        legacy.unlink()
-        log.info(
-            "Removed legacy embeddings index.db in %s (Chroma cold rebuild)",
-            folder_cache_dir(listing_root, create_parent=False),
-        )
-        return True
-    except OSError:
-        log.debug("Could not remove legacy index.db at %s", legacy, exc_info=True)
-        return False
+    """Backward-compatible alias for stale store cleanup."""
+    return remove_stale_corpus_stores(listing_root)
 
 
 def clear_folder_cache(listing_root: str) -> None:
-    """Remove Chroma data and JSON state for a cold rebuild."""
+    """Remove corpus.db and JSON state for a cold rebuild."""
     base = folder_cache_dir(listing_root, create_parent=False)
-    chroma = base / CHROMA_SUBDIR
-    if chroma.is_dir():
-        shutil.rmtree(chroma, ignore_errors=True)
+    _remove_path(base / CORPUS_DB_FILENAME)
+    remove_stale_corpus_stores(listing_root)
     for name in (CORPUS_META_FILENAME, FILE_INDEX_STATE_FILENAME):
-        path = base / name
-        if path.is_file():
-            try:
-                path.unlink()
-            except OSError:
-                log.debug("Could not remove %s", path, exc_info=True)
-    remove_legacy_index(listing_root)
+        _remove_path(base / name)
 
 
 def maybe_upgrade_legacy_index(listing_root: str) -> None:
-    """On first access after upgrade, drop stale index.db so Chroma rebuilds."""
-    remove_legacy_index(listing_root)
+    """On first access after upgrade, drop stale v1/v2 stores."""
+    meta = corpus_meta_path(listing_root, create_parent=False)
+    if schema_matches(meta):
+        remove_stale_corpus_stores(listing_root)
+        return
+    clear_folder_cache(listing_root)
 
 
 def resolve_index_context(ctx: Any, model: Any) -> tuple[str, Path, Path, str] | tuple[None, None, None, str]:
-    """Return (folder_key, chroma_persist_dir, corpus_meta_path, listing_root) or error tuple."""
+    """Return (folder_key, corpus_db_path, corpus_meta_path, listing_root) or error tuple."""
     listing_root = resolve_folder_for_active_doc(ctx, model)
     if not listing_root:
         return None, None, None, "No nearby files found. Save the document or open sibling files in LibreOffice."
     folder_key = folder_corpus_key(listing_root)
     maybe_upgrade_legacy_index(listing_root)
-    persist = chroma_persist_dir(listing_root)
+    db_path = corpus_db_path(listing_root)
     meta = corpus_meta_path(listing_root)
-    return folder_key, persist, meta, listing_root
+    return folder_key, db_path, meta, listing_root
 
 
-# Backward-compatible aliases for tests/code in transition
 def index_db_path(listing_root: str, *, create_parent: bool = True) -> Path:
-    """Deprecated: returns chroma persist dir (historical name kept for minimal churn)."""
-    return chroma_persist_dir(listing_root, create_parent=create_parent)
+    """Deprecated alias for corpus_db_path."""
+    return corpus_db_path(listing_root, create_parent=create_parent)
 
 
 def _file_entry(state: dict[str, Any], doc_url: str) -> dict[str, Any]:

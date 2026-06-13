@@ -21,12 +21,18 @@ def test_folder_corpus_key_stable_and_normalized():
     assert len(a) == 64
 
 
-def test_chroma_persist_dir_beside_documents(tmp_path):
+def test_corpus_db_path_beside_documents(tmp_path):
     listing = tmp_path / "project"
     listing.mkdir()
-    path = embeddings_cache.chroma_persist_dir(str(listing))
-    assert path == listing / "writeragent_embeddings" / "chroma"
-    assert path.is_dir()
+    path = embeddings_cache.corpus_db_path(str(listing))
+    assert path == listing / "writeragent_embeddings" / "corpus.db"
+    assert path.parent.is_dir()
+
+
+def test_chroma_persist_dir_alias(tmp_path):
+    listing = tmp_path / "project"
+    listing.mkdir()
+    assert embeddings_cache.chroma_persist_dir(str(listing)) == embeddings_cache.corpus_db_path(str(listing))
 
 
 def test_ensure_corpus_meta_writes_json(tmp_path):
@@ -42,23 +48,24 @@ def test_ensure_corpus_meta_writes_json(tmp_path):
 
 def test_index_is_empty_missing_and_populated(tmp_path):
     meta_path = tmp_path / "corpus_meta.json"
-    persist = tmp_path / "chroma"
-    assert embeddings_cache.index_is_empty(meta_path, persist) is True
+    db_path = tmp_path / "corpus.db"
+    assert embeddings_cache.index_is_empty(meta_path, db_path) is True
 
     embeddings_cache.write_corpus_meta(meta_path, chunk_count="0")
-    assert embeddings_cache.index_is_empty(meta_path, persist) is True
+    assert embeddings_cache.index_is_empty(meta_path, db_path) is True
 
     embeddings_cache.write_corpus_meta(meta_path, chunk_count="3")
-    assert embeddings_cache.index_is_empty(meta_path, persist) is False
+    db_path.write_text("", encoding="utf-8")
+    assert embeddings_cache.index_is_empty(meta_path, db_path) is False
 
 
 def test_resolve_index_context_no_listing_root():
     ctx = MagicMock()
     model = MagicMock()
     with patch("plugin.embeddings.embeddings_cache.resolve_folder_for_active_doc", return_value=None):
-        key, persist, meta, err = embeddings_cache.resolve_index_context(ctx, model)
+        key, db_path, meta, err = embeddings_cache.resolve_index_context(ctx, model)
     assert key is None
-    assert persist is None
+    assert db_path is None
     assert meta is None
     assert "Save the document" in err
 
@@ -69,10 +76,10 @@ def test_resolve_index_context_ok(tmp_path):
     listing = str(tmp_path / "project")
     Path(listing).mkdir()
     with patch("plugin.embeddings.embeddings_cache.resolve_folder_for_active_doc", return_value=listing):
-        key, persist, meta, root = embeddings_cache.resolve_index_context(ctx, model)
+        key, db_path, meta, root = embeddings_cache.resolve_index_context(ctx, model)
     assert root == listing
     assert key == embeddings_cache.folder_corpus_key(listing)
-    assert persist == Path(listing) / "writeragent_embeddings" / "chroma"
+    assert db_path == Path(listing) / "writeragent_embeddings" / "corpus.db"
     assert meta == Path(listing) / "writeragent_embeddings" / "corpus_meta.json"
 
 

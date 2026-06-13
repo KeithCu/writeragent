@@ -24,7 +24,7 @@ def test_run_venv_self_check_with_progress_emits_grouped_present_missing() -> No
         patch("plugin.scripting.venv_worker._probe_vision_packages", return_value=({"docling": "present"}, None)),
         patch(
             "plugin.scripting.venv_worker._probe_embeddings_packages",
-            return_value=({"envwrap": "present", "chromadb": "present"}, None),
+            return_value=({"envwrap": "present", "sqlite_vec": "present"}, None),
         ),
     ):
         ok, msg = run_venv_self_check_with_progress(

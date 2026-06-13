@@ -927,7 +927,7 @@ def test_format_self_check_success_with_embeddings_group():
         "p": {
             "envwrap": "present",
             "sentence_transformers": "present",
-            "chromadb": "present",
+            "sqlite_vec": "present",
             "langgraph": None,
             "langchain_core": "present",
             "langchain_text_splitters": None,
@@ -938,7 +938,7 @@ def test_format_self_check_success_with_embeddings_group():
         "embeddings": [
             "envwrap",
             "sentence_transformers",
-            "chromadb",
+            "sqlite_vec",
             "langgraph",
             "langchain_core",
             "langchain_text_splitters",
@@ -946,7 +946,7 @@ def test_format_self_check_success_with_embeddings_group():
     }
     msg = _format_self_check_success(data)
     assert "Embeddings Libraries" in msg
-    assert "Embeddings Libraries: envwrap, sentence_transformers, chromadb, langchain_core" in msg
+    assert "Embeddings Libraries: envwrap, sentence_transformers, sqlite_vec, langchain_core" in msg
     assert "Missing: langgraph, langchain_text_splitters" in msg
 
 
@@ -962,7 +962,7 @@ def test_format_self_check_success_embeddings_probe_failure_hint():
         "embeddings": [
             "envwrap",
             "sentence_transformers",
-            "chromadb",
+            "sqlite_vec",
             "langgraph",
             "langchain_core",
             "langchain_text_splitters",
@@ -1024,7 +1024,7 @@ def test_run_venv_self_check_includes_embeddings():
     embeddings_probes = {
         "envwrap": "present",
         "sentence_transformers": None,
-        "chromadb": "present",
+        "sqlite_vec": "present",
         "langgraph": None,
         "langchain_core": None,
         "langchain_text_splitters": None,
@@ -1040,7 +1040,7 @@ def test_run_venv_self_check_includes_embeddings():
         ok, msg = run_venv_self_check("/x/python", timeout=1.0)
     assert ok is True
     assert "Embeddings Libraries" in msg
-    assert "Embeddings Libraries: envwrap, chromadb" in msg
+    assert "Embeddings Libraries: envwrap, sqlite_vec" in msg
     assert "Missing: sentence_transformers" in msg
 
 

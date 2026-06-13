@@ -5,7 +5,7 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""Background per-folder embeddings index maintenance (Chroma + ODF extract in venv)."""
+"""Background per-folder corpus index maintenance (corpus.db in venv)."""
 from __future__ import annotations
 
 import logging
@@ -18,7 +18,7 @@ from plugin.embeddings.embeddings_cache import (
 )
 from plugin.framework.client.embedding_client import get_embedding_model
 from plugin.framework.client.embeddings_service import maintain_folder_index as maintain_folder_index_rpc
-from plugin.framework.constants import document_research_uses_embeddings
+from plugin.framework.constants import get_folder_search_mode
 from plugin.framework.worker_pool import run_in_background
 
 # Re-export for tests
@@ -47,32 +47,33 @@ def _clear_enqueue(folder_key: str) -> None:
         _inflight.discard(folder_key)
 
 
-def _index_worker(ctx: Any, folder_key: str, listing_root: str) -> None:
+def _index_worker(ctx: Any, folder_key: str, listing_root: str, search_mode: str) -> None:
     try:
-        model = get_embedding_model(ctx)
-        maintain_folder_index_rpc(ctx, listing_root, model=model, mode="auto")
+        model = get_embedding_model(ctx) if search_mode in ("embeddings", "hybrid") else ""
+        maintain_folder_index_rpc(ctx, listing_root, model=model, mode="auto", search_mode=search_mode)
     except Exception:
-        log.exception("Background embeddings index failed for folder %s", folder_key)
+        log.exception("Background corpus index failed for folder %s", folder_key)
     finally:
         _clear_enqueue(folder_key)
 
 
 def enqueue_folder_index(ctx: Any, services: Any, model: Any) -> None:
-    """Schedule background index maintenance for the active document folder."""
+    """Schedule background corpus maintenance for the active document folder."""
     del services  # venv maintain does not use UNO services
-    if not document_research_uses_embeddings(ctx):
+    search_mode = get_folder_search_mode(ctx)
+    if search_mode == "none":
         return
     resolved = resolve_index_context(ctx, model)
-    folder_key, _persist, _meta, listing_root = resolved[0], resolved[1], resolved[2], resolved[3]
+    folder_key, _db, _meta, listing_root = resolved[0], resolved[1], resolved[2], resolved[3]
     if folder_key is None or listing_root is None:
         return
     if not _try_enqueue(folder_key):
         return
 
     def _run() -> None:
-        _index_worker(ctx, folder_key, listing_root)
+        _index_worker(ctx, folder_key, listing_root, search_mode)
 
-    run_in_background(_run, name=f"embeddings-index-{folder_key[:8]}")
+    run_in_background(_run, name=f"corpus-index-{folder_key[:8]}")
 
 
 def ensure_index_wakeup(ctx: Any, services: Any, model: Any) -> None:

@@ -102,7 +102,7 @@ def guess_doc_type_from_path(path: str) -> DocTypeGuess:
 
 def get_document_research_workflow_hint(ctx=None) -> str:
     """Outer document_research sub-agent workflow text (grep; optional FTS / embeddings)."""
-    from plugin.framework.constants import document_research_uses_embeddings, document_research_uses_folder_fts
+    from plugin.framework.constants import document_research_uses_embeddings, document_research_uses_folder_fts, get_folder_search_mode
 
     common = (
         "\n\nDocument research workflow:\n"
@@ -136,6 +136,8 @@ def get_document_research_workflow_hint(ctx=None) -> str:
         "or topic with search_in_document — do not rely on para_index or character offsets as exact LO coordinates.\n"
         "If search_embeddings returns status indexing, retry after the background index finishes.\n"
     )
+    if get_folder_search_mode(ctx) == "hybrid":
+        return common + fts_hint + embed_hint
     if document_research_uses_folder_fts(ctx):
         return common + fts_hint
     if document_research_uses_embeddings(ctx):
@@ -145,15 +147,15 @@ def get_document_research_workflow_hint(ctx=None) -> str:
 
 def filter_document_research_discovery_tools(tools: list[ToolBase], ctx) -> list[ToolBase]:
     """Hide optional discovery tools by folder_search_mode; list/delegate always kept."""
-    from plugin.framework.constants import document_research_uses_embeddings, document_research_uses_folder_fts
+    from plugin.framework.constants import document_research_uses_embeddings, document_research_uses_folder_fts, get_folder_search_mode
 
     hidden: set[str] = set()
     if not document_research_uses_embeddings(ctx):
         hidden.add("search_embeddings")
     if not document_research_uses_folder_fts(ctx):
         hidden.add("search_nearby_files")
-    else:
-        # FTS replaces slow in-proc grep_nearby_files (file-by-file UNO opens).
+    elif get_folder_search_mode(ctx) == "fts":
+        # FTS-only mode replaces slow in-proc grep_nearby_files.
         hidden.add("grep_nearby_files")
     if not hidden:
         return tools

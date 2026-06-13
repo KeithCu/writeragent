@@ -34,6 +34,13 @@ def test_get_folder_search_mode_fts():
         assert document_research_uses_folder_fts(MagicMock()) is True
 
 
+def test_get_folder_search_mode_hybrid():
+    with patch("plugin.framework.config.get_config", return_value="hybrid"):
+        assert get_folder_search_mode(MagicMock()) == "hybrid"
+        assert document_research_uses_embeddings(MagicMock()) is True
+        assert document_research_uses_folder_fts(MagicMock()) is True
+
+
 def test_get_folder_search_mode_invalid_falls_back_to_none():
     with patch("plugin.framework.config.get_config", return_value="both"):
         assert get_folder_search_mode(MagicMock()) == "none"

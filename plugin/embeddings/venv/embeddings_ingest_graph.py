@@ -5,7 +5,7 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""LangGraph ingestion pipeline: split → embed → Chroma upsert (trusted venv)."""
+"""LangGraph ingestion pipeline: split → embed → sqlite-vec upsert (trusted venv)."""
 from __future__ import annotations
 
 import json
@@ -15,13 +15,16 @@ from pathlib import Path
 from typing import Any, NotRequired, TypedDict
 
 from plugin.framework.constants import EMBEDDINGS_SCHEMA_VERSION as SCHEMA_VERSION
-from plugin.embeddings.venv.embeddings_chroma import (
-    build_chunk_metadata,
-    chunk_id_for,
-    delete_paragraph_keys,
-    get_collection,
-)
 from plugin.embeddings.venv.embeddings_index import EMBEDDINGS_VENV_PIP_INSTALL, embed_texts
+from plugin.embeddings.venv.embeddings_sqlite import (
+    connect_corpus_db,
+    corpus_chunk_count,
+    delete_by_doc_para,
+    delete_paragraph_keys,
+    ensure_schema,
+    upsert_chunk_with_vector,
+    _dim_from_meta_path,
+)
 
 log = logging.getLogger(__name__)
 
@@ -30,10 +33,11 @@ CHUNK_OVERLAP = 64
 
 
 class IngestState(TypedDict):
-    persist_dir: str
-    collection_name: str
+    db_path: str
     meta_path: str
     model: str
+    build_fts: NotRequired[bool]
+    build_vectors: NotRequired[bool]
     rows: NotRequired[list[dict[str, Any]]]
     delete_keys: NotRequired[list[dict[str, Any]]]
     documents: NotRequired[list[Any]]
@@ -138,22 +142,41 @@ def split_chunks(state: IngestState) -> dict[str, Any]:
 
 def delete_stale(state: IngestState) -> dict[str, Any]:
     """Remove deleted paragraphs and clear sub-chunks before re-indexing changed paragraphs."""
-    collection = get_collection(str(state["persist_dir"]), str(state["collection_name"]))
-    deleted = delete_paragraph_keys(collection, list(state.get("delete_keys") or []))
+    build_fts = bool(state.get("build_fts"))
+    build_vectors = bool(state.get("build_vectors"))
+    dim = _dim_from_meta_path(str(state.get("meta_path") or ""))
+    conn = connect_corpus_db(str(state["db_path"]))
+    try:
+        ensure_schema(conn, dim=dim, with_fts=build_fts, with_vec=build_vectors)
+        delete_paragraph_keys(
+            conn,
+            list(state.get("delete_keys") or []),
+            with_fts=build_fts,
+            with_vec=build_vectors,
+        )
 
-    seen: set[tuple[str, int]] = set()
-    for chunk in state.get("chunks") or []:
-        key = (str(chunk.get("doc_url") or ""), int(chunk.get("para_index", 0)))
-        if key in seen:
-            continue
-        seen.add(key)
-        from plugin.embeddings.venv.embeddings_chroma import delete_by_doc_para
-
-        deleted += delete_by_doc_para(collection, key[0], key[1])
+        seen: set[tuple[str, int]] = set()
+        for chunk in state.get("chunks") or []:
+            key = (str(chunk.get("doc_url") or ""), int(chunk.get("para_index", 0)))
+            if key in seen:
+                continue
+            seen.add(key)
+            delete_by_doc_para(
+                conn,
+                key[0],
+                key[1],
+                with_fts=build_fts,
+                with_vec=build_vectors,
+            )
+        conn.commit()
+    finally:
+        conn.close()
     return {}
 
 
 def embed_chunks(state: IngestState) -> dict[str, Any]:
+    if not state.get("build_vectors"):
+        return {"vectors": [], "dim": 0}
     chunks = state.get("chunks") or []
     if not chunks:
         return {"vectors": [], "dim": 0}
@@ -162,59 +185,43 @@ def embed_chunks(state: IngestState) -> dict[str, Any]:
     return {"vectors": encoded.get("vectors") or [], "dim": int(encoded.get("dim") or 0)}
 
 
-def upsert_chroma(state: IngestState) -> dict[str, Any]:
-    from plugin.embeddings.venv.embeddings_chroma import collection_count
-
+def upsert_corpus(state: IngestState) -> dict[str, Any]:
+    build_fts = bool(state.get("build_fts"))
+    build_vectors = bool(state.get("build_vectors"))
     chunks = state.get("chunks") or []
     vectors = state.get("vectors") or []
-    collection = get_collection(str(state["persist_dir"]), str(state["collection_name"]))
-
-    if not chunks or not vectors:
-        count = collection_count(collection)
-        dim = int(state.get("dim") or 0)
-        _write_meta(state, chunk_count_override=count, dim=dim)
-        return {"upserted": 0}
-
     model = str(state.get("model") or "")
-    ids: list[str] = []
-    metadatas: list[dict[str, Any]] = []
-    documents: list[str] = []
-    embeddings: list[list[float]] = []
-
-    for chunk, vec in zip(chunks, vectors):
-        text = str(chunk.get("text") or "").strip()
-        if not text:
-            continue
-        doc_url = str(chunk.get("doc_url") or "")
-        para_index = int(chunk.get("para_index", 0))
-        char_start = int(chunk.get("char_start") or 0)
-        char_end = int(chunk.get("char_end") or len(text))
-        content_hash = str(chunk.get("content_hash") or "")
-        chunk_index = int(chunk.get("chunk_index") or 0)
-        cid = chunk_id_for(doc_url, para_index, char_start, char_end, content_hash)
-        ids.append(cid)
-        documents.append(text)
-        embeddings.append(vec)
-        metadatas.append(
-            build_chunk_metadata(
-                doc_url=doc_url,
-                para_index=para_index,
-                char_start=char_start,
-                char_end=char_end,
-                content_hash=content_hash,
-                file_mtime=float(chunk.get("file_mtime") or 0.0),
-                embedding_model=model,
-                chunk_index=chunk_index,
-            )
-        )
-
-    if ids:
-        collection.upsert(ids=ids, embeddings=embeddings, metadatas=metadatas, documents=documents)
-
-    count = collection_count(collection)
     dim = int(state.get("dim") or 0)
-    _write_meta(state, chunk_count_override=count, dim=dim)
-    return {"upserted": len(ids)}
+
+    conn = connect_corpus_db(str(state["db_path"]))
+    try:
+        schema_dim = dim if dim > 0 else _dim_from_meta_path(str(state.get("meta_path") or ""))
+        ensure_schema(conn, dim=schema_dim, with_fts=build_fts, with_vec=build_vectors)
+
+        if not chunks or (build_vectors and not vectors):
+            count = corpus_chunk_count(conn)
+            _write_meta(state, chunk_count_override=count, dim=dim)
+            return {"upserted": 0}
+
+        upserted = 0
+        for chunk, vec in zip(chunks, vectors if build_vectors else [[] for _ in chunks]):
+            if build_vectors and not vec:
+                continue
+            upsert_chunk_with_vector(
+                conn,
+                chunk,
+                vec if build_vectors else [],
+                model=model,
+                with_fts=build_fts,
+                with_vec=build_vectors,
+            )
+            upserted += 1
+        conn.commit()
+        count = corpus_chunk_count(conn)
+        _write_meta(state, chunk_count_override=count, dim=dim)
+        return {"upserted": upserted}
+    finally:
+        conn.close()
 
 
 def _write_meta(state: IngestState, *, chunk_count_override: int, dim: int) -> None:
@@ -224,7 +231,7 @@ def _write_meta(state: IngestState, *, chunk_count_override: int, dim: int) -> N
     meta_path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "schema_version": SCHEMA_VERSION,
-        "storage_backend": "chroma",
+        "storage_backend": "sqlite_vec",
         "embedding_model": str(state.get("model") or ""),
         "dim": str(dim),
         "chunk_count": str(chunk_count_override),
@@ -243,13 +250,13 @@ def _build_ingest_graph() -> Any:
     graph.add_node("split_chunks", split_chunks)
     graph.add_node("delete_stale", delete_stale)
     graph.add_node("embed_chunks", embed_chunks)
-    graph.add_node("upsert_chroma", upsert_chroma)
+    graph.add_node("upsert_corpus", upsert_corpus)
     graph.add_edge(lg.START, "rows_to_documents")
     graph.add_edge("rows_to_documents", "split_chunks")
     graph.add_edge("split_chunks", "delete_stale")
     graph.add_edge("delete_stale", "embed_chunks")
-    graph.add_edge("embed_chunks", "upsert_chroma")
-    graph.add_edge("upsert_chroma", lg.END)
+    graph.add_edge("embed_chunks", "upsert_corpus")
+    graph.add_edge("upsert_corpus", lg.END)
     return graph.compile()
 
 
@@ -264,33 +271,35 @@ def _get_ingest_graph() -> Any:
 
 
 def ingest_paragraphs(
-    persist_dir: str,
-    collection_name: str,
+    db_path: str,
     meta_path: str,
     model_name: str,
     rows: list[dict[str, Any]],
     *,
     delete_keys: list[dict[str, Any]] | None = None,
+    build_fts: bool = False,
+    build_vectors: bool = True,
 ) -> dict[str, Any]:
     """Run the LangGraph ingest pipeline for changed paragraph rows."""
     model = (model_name or "").strip()
-    if not model:
+    if not model and build_vectors:
         raise ValueError("embedding model name is required")
     if not rows and not delete_keys:
-        return {"indexed": 0, "dim": 0, "storage_backend": "chroma"}
+        return {"indexed": 0, "dim": 0, "storage_backend": "sqlite_vec"}
 
     initial: IngestState = {
-        "persist_dir": str(persist_dir),
-        "collection_name": str(collection_name),
+        "db_path": str(db_path),
         "meta_path": str(meta_path),
         "model": model,
+        "build_fts": build_fts,
+        "build_vectors": build_vectors,
         "rows": list(rows or []),
         "delete_keys": list(delete_keys or []),
     }
     final = _get_ingest_graph().invoke(initial)
     upserted = int(final.get("upserted") or 0)
     dim = int(final.get("dim") or 0)
-    return {"indexed": upserted, "dim": dim, "storage_backend": "chroma"}
+    return {"indexed": upserted, "dim": dim, "storage_backend": "sqlite_vec"}
 
 
-__all__ = ["ingest_paragraphs"]
+__all__ = ["CHUNK_SIZE", "CHUNK_OVERLAP", "ingest_paragraphs"]

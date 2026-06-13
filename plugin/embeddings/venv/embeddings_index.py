@@ -5,7 +5,7 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""Trusted venv module: embeddings encode + Chroma index/search facades.
+"""Trusted venv module: embeddings encode + sqlite-vec index/search facades.
 
 Invoked from the LO host through fixed RPC stubs — not from LLM-submitted code.
 See docs/embeddings.md and docs/enabling_numpy_in_libreoffice.md.
@@ -21,7 +21,7 @@ from typing import Any
 log = logging.getLogger(__name__)
 
 EMBEDDINGS_VENV_PIP_INSTALL = (
-    "pip install sentence-transformers numpy chromadb langgraph "
+    "pip install sentence-transformers numpy sqlite-vec langgraph "
     "langchain-core langchain-text-splitters envwrap odfpy"
 )
 
@@ -91,42 +91,52 @@ def embed_texts(model_name: str, texts: list[str], *, normalize: bool = True) ->
 
 
 def index_paragraphs(
-    persist_dir: str,
-    collection_name: str,
+    db_path: str,
     meta_path: str,
     model_name: str,
     rows: list[dict[str, Any]],
+    *,
+    build_fts: bool = False,
+    build_vectors: bool = True,
 ) -> dict[str, Any]:
-    """Batch-embed *rows* and persist into Chroma via the LangGraph ingest pipeline."""
+    """Batch-embed *rows* and persist into corpus.db via the LangGraph ingest pipeline."""
     from plugin.embeddings.venv.embeddings_ingest_graph import ingest_paragraphs
 
     return ingest_paragraphs(
-        persist_dir,
-        collection_name,
+        db_path,
         meta_path,
         model_name,
         rows,
         delete_keys=[],
+        build_fts=build_fts,
+        build_vectors=build_vectors,
     )
 
 
 def delete_paragraphs(
-    persist_dir: str,
-    collection_name: str,
+    db_path: str,
     meta_path: str,
     keys: list[dict[str, Any]],
     *,
     model_name: str = "",
+    build_fts: bool = False,
+    build_vectors: bool = True,
 ) -> dict[str, Any]:
-    """Remove paragraph vectors from Chroma."""
-    from plugin.embeddings.venv.embeddings_chroma import collection_count, delete_paragraph_keys, get_collection
+    """Remove paragraph rows from corpus.db."""
+    from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, corpus_chunk_count, delete_paragraph_keys, ensure_schema
 
     if not keys:
         return {"deleted": 0}
 
-    collection = get_collection(str(persist_dir), str(collection_name))
-    deleted = delete_paragraph_keys(collection, keys)
-    count = collection_count(collection)
+    conn = connect_corpus_db(str(db_path))
+    try:
+        ensure_schema(conn, with_fts=build_fts, with_vec=build_vectors)
+        deleted = delete_paragraph_keys(conn, keys, with_fts=build_fts, with_vec=build_vectors)
+        conn.commit()
+        count = corpus_chunk_count(conn)
+    finally:
+        conn.close()
+
     meta_file = Path(str(meta_path))
     if meta_file.is_file():
         try:
@@ -142,8 +152,7 @@ def delete_paragraphs(
 
 
 def knn_search(
-    persist_dir: str,
-    collection_name: str,
+    db_path: str,
     query_text: str,
     k: int,
     *,
@@ -154,8 +163,7 @@ def knn_search(
     from plugin.embeddings.venv.embeddings_search_graph import search_embeddings_graph
 
     return search_embeddings_graph(
-        persist_dir,
-        collection_name,
+        db_path,
         query_text,
         k,
         model_name=model_name,
@@ -168,31 +176,32 @@ def maintain_folder_index(
     embedding_model: str,
     mode: str = "auto",
     *,
+    search_mode: str = "embeddings",
     heartbeat_fn: Any | None = None,
 ) -> dict[str, Any]:
-    """Folder index maintenance (ODF extract + Chroma) — trusted RPC entry point."""
+    """Folder corpus maintenance (ODF extract + corpus.db) — trusted RPC entry point."""
     from typing import cast
 
-    from plugin.embeddings.venv.embeddings_folder_maintain import MaintainMode, maintain_folder_index as _maintain
+    from plugin.embeddings.venv.embeddings_folder_maintain import MaintainMode, maintain_folder_corpus
 
     resolved_mode: MaintainMode = cast("MaintainMode", mode if mode in ("auto", "cold", "incremental") else "auto")
-    return _maintain(
+    return maintain_folder_corpus(
         str(listing_root),
         embedding_model=str(embedding_model),
+        search_mode=str(search_mode or "embeddings"),
         mode=resolved_mode,
         heartbeat_fn=heartbeat_fn,
     )
 
 
 def collection_stats(
-    persist_dir: str,
-    collection_name: str,
+    db_path: str,
     meta_path: str,
     *,
     model_name: str = "",
 ) -> dict[str, Any]:
     """Return chunk count and corpus metadata for host empty/stale checks."""
-    from plugin.embeddings.venv.embeddings_chroma import collection_count, get_collection
+    from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, corpus_chunk_count
 
     meta_file = Path(str(meta_path))
     meta: dict[str, str] = {}
@@ -204,18 +213,22 @@ def collection_stats(
         except (OSError, json.JSONDecodeError):
             log.debug("collection_stats could not read %s", meta_path, exc_info=True)
 
-    try:
-        collection = get_collection(str(persist_dir), str(collection_name))
-        count = collection_count(collection)
-    except Exception:
-        log.debug("collection_stats Chroma open failed", exc_info=True)
-        count = int(meta.get("chunk_count", "0") or 0)
+    count = int(meta.get("chunk_count", "0") or 0)
+    db = Path(str(db_path))
+    if db.is_file():
+        conn = connect_corpus_db(db)
+        try:
+            count = corpus_chunk_count(conn)
+        except Exception:
+            log.debug("collection_stats corpus.db open failed", exc_info=True)
+        finally:
+            conn.close()
 
     return {
         "chunk_count": count,
         "schema_version": meta.get("schema_version", ""),
         "embedding_model": meta.get("embedding_model", ""),
-        "storage_backend": meta.get("storage_backend", "chroma"),
+        "storage_backend": meta.get("storage_backend", "sqlite_vec"),
         "dim": int(meta.get("dim", "0") or 0),
     }
 
