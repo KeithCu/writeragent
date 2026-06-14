@@ -19,7 +19,7 @@ log = logging.getLogger(__name__)
 _MIN_FETCH_K = 20
 _FETCH_MULTIPLIER = 4
 _MAX_FETCH_K = 50
-_DEFAULT_RERANK_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+_DEFAULT_RERANK_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"  # English only; see Settings folder_rerank_model
 _FTS_LEG = "fts"
 _VECTOR_LEG = "vec"
 
@@ -28,6 +28,7 @@ try:
     from llama_index.core.base.base_retriever import BaseRetriever  # type: ignore
     from llama_index.core.embeddings import BaseEmbedding  # type: ignore
     from llama_index.core.postprocessor import SentenceTransformerRerank  # type: ignore
+    from llama_index.core.llms.mock import MockLLM  # type: ignore
     from llama_index.core.retrievers import QueryFusionRetriever  # type: ignore
     from llama_index.core.retrievers.fusion_retriever import FUSION_MODES  # type: ignore
     from llama_index.core.schema import NodeWithScore, TextNode  # type: ignore
@@ -124,6 +125,11 @@ def _llama_index_retrieval_pool(k: int) -> tuple[int, int]:
     final_k = max(1, min(int(k or 10), 30))
     fetch_k = min(max(final_k * _FETCH_MULTIPLIER, _MIN_FETCH_K), _MAX_FETCH_K)
     return final_k, fetch_k
+
+
+def _resolve_rerank_model(rerank_model: str | None) -> str:
+    model = str(rerank_model or "").strip()
+    return model or _DEFAULT_RERANK_MODEL
 
 
 def _nodes_to_tool_hits(nodes: list[Any]) -> list[dict[str, Any]]:
@@ -262,7 +268,13 @@ if HAS_LLAMA_INDEX:
             conn = connect_corpus_db(self._db_path)
             try:
                 dim = len(nodes[0].embedding) if nodes and nodes[0].embedding else None
-                ensure_schema(conn, dim=dim, with_fts=self._build_fts, with_vec=self._build_vectors)
+                ensure_schema(
+                    conn,
+                    dim=dim,
+                    with_fts=self._build_fts,
+                    with_vec=self._build_vectors,
+                    model=self._embedding_model,
+                )
                 for node in nodes:
                     meta = node.metadata or {}
                     chunk = {
@@ -407,12 +419,15 @@ def build_writer_agent_hybrid_retriever(
         near_slop=near_slop,
         similarity_top_k=fetch_k,
     )
+    # num_queries=1 never calls the LLM, but QueryFusionRetriever still resolves
+    # Settings.llm (OpenAI) when llm is omitted — pass MockLLM for offline use.
     return QueryFusionRetriever(
         retrievers=[vector_retriever, fts_retriever],
         mode=FUSION_MODES.RECIPROCAL_RANK,
         similarity_top_k=fetch_k,
         num_queries=1,
         use_async=False,
+        llm=MockLLM(),
     )
 
 
@@ -425,7 +440,7 @@ def run_hybrid_retrieval_pipeline(
     near_slop: int = 10,
     doc_url_filter: str | None = None,
     use_mmr: bool = True,
-    rerank_model: str = _DEFAULT_RERANK_MODEL,
+    rerank_model: str | None = None,
 ) -> list[dict[str, Any]]:
     """Retrieve with RRF fusion, then optional SentenceTransformerRerank (use_mmr=True)."""
     if not HAS_LLAMA_INDEX:
@@ -454,7 +469,7 @@ def run_hybrid_retrieval_pipeline(
         QueryBundle(query_str=query),
         final_k=final_k,
         use_rerank=use_mmr,
-        rerank_model=rerank_model,
+        rerank_model=_resolve_rerank_model(rerank_model),
     )
     return _nodes_to_tool_hits(nodes)
 
@@ -593,6 +608,7 @@ def llama_index_knn_search(
     model_name: str,
     doc_url_filter: str | None = None,
     use_mmr: bool = True,
+    rerank_model: str | None = None,
 ) -> dict[str, Any]:
     """Semantic search: over-retrieve from VectorStoreIndex, then cross-encoder rerank."""
     if not HAS_LLAMA_INDEX:
@@ -625,6 +641,7 @@ def llama_index_knn_search(
         QueryBundle(query_str=query),
         final_k=final_k,
         use_rerank=use_mmr,
+        rerank_model=_resolve_rerank_model(rerank_model),
     )
     return {"hits": _nodes_to_tool_hits(nodes)}
 
@@ -638,6 +655,7 @@ def llama_index_hybrid_search(
     near_slop: int = 10,
     doc_url_filter: str | None = None,
     use_mmr: bool = True,
+    rerank_model: str | None = None,
 ) -> dict[str, Any]:
     """Hybrid FTS + vector: QueryFusionRetriever RRF, then SentenceTransformerRerank when use_mmr."""
     hits = run_hybrid_retrieval_pipeline(
@@ -648,6 +666,7 @@ def llama_index_hybrid_search(
         near_slop=near_slop,
         doc_url_filter=doc_url_filter,
         use_mmr=use_mmr,
+        rerank_model=rerank_model,
     )
     return {"hits": hits}
 

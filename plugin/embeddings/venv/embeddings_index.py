@@ -203,17 +203,22 @@ def knn_search(
     *,
     model_name: str,
     doc_url_filter: str | None = None,
+    use_mmr: bool = True,
+    rerank_model: str | None = None,
     search_mode: str = "embeddings",
 ) -> dict[str, Any]:
     """Semantic search via the LangGraph or LlamaIndex search pipeline."""
     if str(search_mode).strip().lower() == "llama_index":
         from plugin.embeddings.venv.embeddings_llama_index import llama_index_knn_search
+
         return llama_index_knn_search(
             db_path,
             query_text,
             k,
             model_name=model_name,
             doc_url_filter=doc_url_filter,
+            use_mmr=use_mmr,
+            rerank_model=rerank_model,
         )
 
     from plugin.embeddings.venv.embeddings_search_graph import search_embeddings_graph
@@ -236,6 +241,7 @@ def hybrid_search(
     near_slop: int = 10,
     doc_url_filter: str | None = None,
     use_mmr: bool = True,
+    rerank_model: str | None = None,
     search_mode: str = "hybrid",
 ) -> dict[str, Any]:
     """Hybrid FTS + vector search with reciprocal rank fusion."""
@@ -249,6 +255,7 @@ def hybrid_search(
             near_slop=near_slop,
             doc_url_filter=doc_url_filter,
             use_mmr=use_mmr,
+            rerank_model=rerank_model,
         )
 
     from plugin.embeddings.venv.embeddings_hybrid_search import hybrid_corpus_search

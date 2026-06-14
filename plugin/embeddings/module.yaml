@@ -22,3 +22,22 @@ config:
     widget: text
     label: Embedding Model
     helper: "HuggingFace model ID for local provider, or endpoint-specific model ID"
+
+  folder_rerank_enabled:
+    type: boolean
+    default: false
+    widget: checkbox
+    label: Enable cross-file rerank (LlamaIndex)
+    helper: "Second-stage cross-encoder after hybrid retrieve. LlamaIndex mode only; off by default."
+
+  folder_rerank_model:
+    type: string
+    default: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    widget: select
+    label: Rerank model
+    helper: "Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 is multilingual and downloads ~2.3 GB."
+    options:
+      - value: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+        label: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      - value: "BAAI/bge-reranker-v2-m3"
+        label: "BAAI/bge-reranker-v2-m3"

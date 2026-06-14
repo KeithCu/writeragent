@@ -26,6 +26,19 @@ def _folder_search_mode(ctx: Any) -> str:
 
     return str(get_config(ctx, "embeddings.folder_search_mode") or "none").strip().lower()
 
+
+def _folder_search_rerank_options(ctx: Any, search_mode: str) -> dict[str, Any]:
+    """Build use_mmr / rerank_model for search RPC from Settings and backend mode."""
+    from plugin.framework.constants import folder_rerank_enabled, resolve_folder_rerank_model
+
+    if search_mode == "hybrid":
+        return {"use_mmr": True}
+    if search_mode == "llama_index":
+        if folder_rerank_enabled(ctx):
+            return {"use_mmr": True, "rerank_model": resolve_folder_rerank_model(ctx)}
+        return {"use_mmr": False}
+    return {"use_mmr": True}
+
 _INDEX_STUB = """\
 from plugin.embeddings.venv.embeddings_index import index_paragraphs as _index
 result = _index(
@@ -60,6 +73,8 @@ result = _search(
     near_slop=data.get("near_slop", 10),
     doc_url_filter=data.get("doc_url_filter"),
     search_mode=data.get("search_mode", "hybrid"),
+    use_mmr=data.get("use_mmr", True),
+    rerank_model=data.get("rerank_model"),
 )
 """
 
@@ -72,6 +87,8 @@ result = _search(
     model_name=data["model"],
     doc_url_filter=data.get("doc_url_filter"),
     search_mode=data.get("search_mode", "hybrid"),
+    use_mmr=data.get("use_mmr", True),
+    rerank_model=data.get("rerank_model"),
 )
 """
 
@@ -260,20 +277,17 @@ def hybrid_search(
     model_name = (model or "").strip()
     if not model_name:
         raise ToolExecutionError("No embedding model configured.", code="EMBEDDING_MODEL_MISSING")
-    return _run_worker(
-        ctx,
-        _HYBRID_SEARCH_STUB,
-        {
-            "db_path": str(db_path),
-            "query": str(query or ""),
-            "k": int(k or 10),
-            "model": model_name,
-            "near_slop": int(near_slop),
-            "doc_url_filter": doc_url_filter,
-            "search_mode": search_mode,
-        },
-        model=model_name,
-    )
+    payload: dict[str, Any] = {
+        "db_path": str(db_path),
+        "query": str(query or ""),
+        "k": int(k or 10),
+        "model": model_name,
+        "near_slop": int(near_slop),
+        "doc_url_filter": doc_url_filter,
+        "search_mode": search_mode,
+        **_folder_search_rerank_options(ctx, search_mode),
+    }
+    return _run_worker(ctx, _HYBRID_SEARCH_STUB, payload, model=model_name)
 
 
 def knn_search(
@@ -290,19 +304,16 @@ def knn_search(
     model_name = (model or "").strip()
     if not model_name:
         raise ToolExecutionError("No embedding model configured.", code="EMBEDDING_MODEL_MISSING")
-    return _run_worker(
-        ctx,
-        _SEARCH_STUB,
-        {
-            "db_path": str(db_path),
-            "query": str(query or ""),
-            "k": int(k or 5),
-            "model": model_name,
-            "doc_url_filter": doc_url_filter,
-            "search_mode": search_mode,
-        },
-        model=model_name,
-    )
+    payload: dict[str, Any] = {
+        "db_path": str(db_path),
+        "query": str(query or ""),
+        "k": int(k or 5),
+        "model": model_name,
+        "doc_url_filter": doc_url_filter,
+        "search_mode": search_mode,
+        **_folder_search_rerank_options(ctx, search_mode),
+    }
+    return _run_worker(ctx, _SEARCH_STUB, payload, model=model_name)
 
 
 def collection_stats(

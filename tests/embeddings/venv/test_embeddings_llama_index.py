@@ -125,6 +125,37 @@ def test_writer_agent_vector_store_delete_delegates_to_sqlite():
     not HAS_LLAMA_INDEX,
     reason="llama-index-core is not installed in the testing environment",
 )
+def test_build_hybrid_retriever_without_openai_api_key(monkeypatch):
+    """QueryFusionRetriever must not require OPENAI_API_KEY when num_queries=1."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    mock_vector = MagicMock()
+    mock_fts = MagicMock()
+    with patch(
+        "plugin.embeddings.venv.embeddings_llama_index.WriterAgentVectorStore",
+    ), patch(
+        "plugin.embeddings.venv.embeddings_llama_index.WriterAgentEmbedding",
+    ), patch(
+        "plugin.embeddings.venv.embeddings_llama_index.VectorStoreIndex.from_vector_store",
+        return_value=MagicMock(as_retriever=MagicMock(return_value=mock_vector)),
+    ), patch(
+        "plugin.embeddings.venv.embeddings_llama_index.WriterAgentFTSRetriever",
+        return_value=mock_fts,
+    ), patch(
+        "plugin.embeddings.venv.embeddings_llama_index.QueryFusionRetriever",
+    ) as mock_qfr:
+        embeddings_llama_index.build_writer_agent_hybrid_retriever(
+            "/tmp/corpus.db",
+            "mock-model",
+            fetch_k=20,
+        )
+        assert mock_qfr.call_args.kwargs.get("llm") is not None
+        assert mock_qfr.call_args.kwargs.get("num_queries") == 1
+
+
+@pytest.mark.skipif(
+    not HAS_LLAMA_INDEX,
+    reason="llama-index-core is not installed in the testing environment",
+)
 def test_run_hybrid_retrieval_pipeline_uses_rerank_postprocessor():
     mock_node = embeddings_llama_index.NodeWithScore(
         node=embeddings_llama_index.TextNode(

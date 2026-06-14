@@ -89,6 +89,37 @@ def folder_search_enabled(ctx=None) -> bool:
     return val in ("hybrid", "llama_index")
 
 
+# LlamaIndex cross-encoder rerank (Settings: embeddings.folder_rerank_enabled / folder_rerank_model).
+FOLDER_RERANK_ENABLED_KEY = "embeddings.folder_rerank_enabled"
+FOLDER_RERANK_MODEL_KEY = "embeddings.folder_rerank_model"
+# English-only MS MARCO reranker — fast; pair with multilingual embeddings for non-English retrieve.
+FOLDER_RERANK_MODEL_ENGLISH_SMALL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+# Multilingual cross-encoder — slower, ~2.3 GB; use when folder queries are not English-only.
+FOLDER_RERANK_MODEL_MULTILINGUAL = "BAAI/bge-reranker-v2-m3"
+FOLDER_RERANK_MODEL_CHOICES = frozenset({
+    FOLDER_RERANK_MODEL_ENGLISH_SMALL,
+    FOLDER_RERANK_MODEL_MULTILINGUAL,
+})
+DEFAULT_FOLDER_RERANK_MODEL = FOLDER_RERANK_MODEL_ENGLISH_SMALL
+
+
+def folder_rerank_enabled(ctx=None) -> bool:
+    """True when LlamaIndex cross-encoder rerank is enabled in Settings."""
+    from plugin.framework.config import get_config_bool
+
+    return get_config_bool(ctx, FOLDER_RERANK_ENABLED_KEY)
+
+
+def resolve_folder_rerank_model(ctx=None) -> str:
+    """Resolve Settings rerank model id; unknown values fall back to English MiniLM."""
+    from plugin.framework.config import get_config
+
+    model = str(get_config(ctx, FOLDER_RERANK_MODEL_KEY) or DEFAULT_FOLDER_RERANK_MODEL).strip()
+    if model in FOLDER_RERANK_MODEL_CHOICES:
+        return model
+    return DEFAULT_FOLDER_RERANK_MODEL
+
+
 # Browser-style user agent for a small, whitelisted set of sites
 # (e.g. DuckDuckGo and Wikipedia) that expect a real browser UA.
 BROWSER_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:148.0) Gecko/20100101 Firefox/148.0"
