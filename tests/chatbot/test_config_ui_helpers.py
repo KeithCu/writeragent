@@ -1,6 +1,6 @@
 import unittest
 from unittest.mock import MagicMock, patch
-from plugin.chatbot.config_ui_helpers import update_lru_history, populate_combobox_with_lru
+from plugin.chatbot.config_ui_helpers import update_lru_history, populate_combobox_with_lru, sync_sidebar_text_model
 
 class TestConfigUiHelpers(unittest.TestCase):
 
@@ -39,6 +39,106 @@ class TestConfigUiHelpers(unittest.TestCase):
         self.mock_set.reset_mock()
         update_lru_history(self.ctx, 'first', 'prompt_lru', '')
         self.mock_set.assert_not_called()
+
+
+class TestSyncSidebarTextModel(unittest.TestCase):
+    """Sidebar paste must persist combobox text before get_api_config reads text_model."""
+
+    def setUp(self):
+        self.ctx = MagicMock()
+        self.config_data = {}
+        self.endpoint = 'https://openrouter.ai/api'
+
+        def mock_get_config(ctx, key, default=None):
+            if key in self.config_data:
+                return self.config_data[key]
+            return default if default is not None else ''
+
+        def mock_set_config(ctx, key, value):
+            self.config_data[key] = value
+
+        self.get_patcher = patch('plugin.chatbot.config_ui_helpers.get_config', side_effect=mock_get_config)
+        self.set_patcher = patch('plugin.chatbot.config_ui_helpers.set_config', side_effect=mock_set_config)
+        self.endpoint_patcher = patch('plugin.chatbot.config_ui_helpers.get_current_endpoint', return_value=self.endpoint)
+        self.mock_get = self.get_patcher.start()
+        self.mock_set = self.set_patcher.start()
+        self.endpoint_patcher.start()
+
+    def tearDown(self):
+        self.get_patcher.stop()
+        self.set_patcher.stop()
+        self.endpoint_patcher.stop()
+
+    def test_pasted_openrouter_model_replaces_stale_text_model(self):
+        """Regression: pasted combobox text was LRU-only on Send; API still used old text_model."""
+        self.config_data['text_model'] = 'openai/gpt-oss-120b:nitro'
+        ctrl = MagicMock()
+        ctrl.getText.return_value = 'anthropic/claude-3.7-sonnet'
+
+        with patch('plugin.framework.client.model_fetcher.get_text_model', return_value='openai/gpt-oss-120b:nitro'):
+            result = sync_sidebar_text_model(self.ctx, ctrl)
+
+        self.assertEqual(result, 'anthropic/claude-3.7-sonnet')
+        self.assertEqual(self.config_data['text_model'], 'anthropic/claude-3.7-sonnet')
+        self.assertEqual(
+            self.config_data[f'model_lru@{self.endpoint}'],
+            ['anthropic/claude-3.7-sonnet'],
+        )
+
+    def test_unchanged_model_skips_text_model_write(self):
+        self.config_data['text_model'] = 'openai/gpt-oss-120b:nitro'
+        ctrl = MagicMock()
+        ctrl.getText.return_value = 'openai/gpt-oss-120b:nitro'
+
+        with patch('plugin.framework.client.model_fetcher.get_text_model', return_value='openai/gpt-oss-120b:nitro'):
+            sync_sidebar_text_model(self.ctx, ctrl)
+
+        text_model_writes = [c for c in self.mock_set.call_args_list if c.args[1] == 'text_model']
+        self.assertEqual(text_model_writes, [])
+
+    def test_placeholder_not_persisted(self):
+        self.config_data['text_model'] = 'openai/gpt-oss-120b:nitro'
+        ctrl = MagicMock()
+        ctrl.getText.return_value = '(Enter API Key to load models)'
+
+        result = sync_sidebar_text_model(self.ctx, ctrl)
+
+        self.assertIsNone(result)
+        self.assertEqual(self.config_data['text_model'], 'openai/gpt-oss-120b:nitro')
+        self.mock_set.assert_not_called()
+
+    def test_missing_control_returns_none(self):
+        self.assertIsNone(sync_sidebar_text_model(self.ctx, None))
+
+    def test_sync_then_get_api_config_uses_pasted_model(self):
+        """After sync, LlmClient config built via get_api_config must match the combobox."""
+        self.config_data.update({
+            'text_model': 'openai/gpt-oss-120b:nitro',
+            'endpoint': self.endpoint,
+            'api_keys_by_endpoint': {},
+            'temperature': 0.7,
+        })
+        ctrl = MagicMock()
+        ctrl.getText.return_value = 'anthropic/claude-3.7-sonnet'
+
+        def shared_get_config(ctx, key, default=None):
+            if key in self.config_data:
+                return self.config_data[key]
+            return default if default is not None else ''
+
+        def shared_set_config(ctx, key, value):
+            self.config_data[key] = value
+
+        with patch('plugin.framework.config.get_config', side_effect=shared_get_config), \
+             patch('plugin.framework.config.set_config', side_effect=shared_set_config), \
+             patch('plugin.framework.client.model_fetcher.get_text_model') as mock_get_text_model:
+            mock_get_text_model.side_effect = lambda ctx: str(self.config_data.get('text_model') or '')
+            sync_sidebar_text_model(self.ctx, ctrl)
+
+            from plugin.framework.config import get_api_config
+
+            self.assertEqual(get_api_config(self.ctx)['model'], 'anthropic/claude-3.7-sonnet')
+
 
 class TestPopulateComboboxWithLruFetchOptions(unittest.TestCase):
     'populate_combobox_with_lru(skip_remote_fetch / remote_models) must not call fetch_available_models.'

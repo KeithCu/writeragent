@@ -336,6 +336,26 @@ def update_lru_history(ctx, val, lru_key, endpoint, max_items=None):
         return
     set_config(ctx, scoped_key, new_lru)
 
+
+def sync_sidebar_text_model(ctx, ctrl) -> str | None:
+    """Persist sidebar chat model combobox text to text_model and model_lru.
+
+    Dropdown picks fire ItemListener; paste/typing only change ComboBox text.
+    Send and TextListener call this so get_text_model/get_api_config match the UI.
+    """
+    if not ctrl or not hasattr(ctrl, "getText"):
+        return None
+    txt = _sanitize_model_combobox_value(str(ctrl.getText() or ""))
+    if not txt:
+        return None
+    from plugin.framework.client.model_fetcher import get_text_model
+
+    if txt != get_text_model(ctx):
+        set_config(ctx, "text_model", txt)
+    update_lru_history(ctx, txt, "model_lru", get_current_endpoint(ctx))
+    return txt
+
+
 def endpoint_from_selector_text(text):
     """Resolve combobox text to endpoint URL. If text is a preset label, return its URL; else return normalized text."""
     if not text or not isinstance(text, str):

@@ -44,7 +44,7 @@ from plugin.framework.client.model_fetcher import (
     set_image_model,
     set_native_audio_support,
 )
-from plugin.chatbot.config_ui_helpers import update_lru_history
+from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
 from plugin.framework.constants import get_chat_system_prompt_for_document, CHAT_DOCUMENT_CONTEXT_MAX_CHARS
 from plugin.doc.document_helpers import get_document_context_for_chat
 from plugin.framework.errors import format_error_payload, ToolExecutionError, UnoObjectError, NetworkError
@@ -338,12 +338,9 @@ class ToolCallingMixin:
         # base_prompt will be set after reading the document context
         extra_instructions = get_config_str(self.ctx, "additional_instructions")
 
-        if self.model_selector:
-            selected_model = self.model_selector.getText()
-            if selected_model:
-                current_endpoint = get_current_endpoint(self.ctx)
-                update_lru_history(self.ctx, selected_model, "model_lru", current_endpoint)
-                log.debug("_do_send: text model updated to %s" % selected_model)
+        synced_model = sync_sidebar_text_model(self.ctx, self.model_selector)
+        if synced_model:
+            log.debug("_do_send: text model updated to %s" % synced_model)
         if self.image_model_selector:
             selected_image_model = self.image_model_selector.getText()
             if selected_image_model:

@@ -213,7 +213,6 @@ class TestConfigSyncFileIO(unittest.TestCase):
             os.remove(self.config_path)
         from plugin.framework.errors import ConfigError
         self.assertEqual(get_config(self.ctx, 'calc_prompt_max_tokens'), 70)
-        self.assertEqual(get_config(self.ctx, 'chat_direct_image'), False)
         self.assertEqual(get_config(self.ctx, 'prompt_lru'), [])
         self.assertEqual(get_config(self.ctx, 'endpoint'), 'http://localhost:11434')
         self.assertEqual(get_config(self.ctx, 'image_provider'), 'endpoint')
@@ -368,17 +367,3 @@ class TestRobustNumericParsing(unittest.TestCase):
         config = WriterAgentConfig.from_dict({"web_cache_max_mb": "50,0"})
         config.validate()
         self.assertEqual(config._extra_config.get("web_cache_max_mb"), 50)
-
-    def test_chat_sidebar_mode_validation(self):
-        from plugin.framework.config import WriterAgentConfig
-
-        # Valid modes
-        for mode in ("chat", "image", "web_research", "brainstorming", "writing_plan"):
-            config = WriterAgentConfig.from_dict({"chat_sidebar_mode": mode})
-            config.validate()
-            self.assertEqual(config.chat_sidebar_mode, mode)
-
-        # Invalid mode resets to chat
-        config = WriterAgentConfig.from_dict({"chat_sidebar_mode": "invalid_mode"})
-        config.validate()
-        self.assertEqual(config.chat_sidebar_mode, "chat")

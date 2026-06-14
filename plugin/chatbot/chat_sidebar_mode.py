@@ -162,29 +162,6 @@ def set_selector_mode(ctrl: Any, mode: str, *, include_brainstorming: bool = Tru
         log.debug("chat_mode_selector: set selection failed: %s", e)
 
 
-def resolve_initial_mode(ctx: Any, *, include_brainstorming: bool = True) -> str:
-    """Config-backed initial mode; migrates legacy chat_direct_image."""
-    from plugin.framework.config import get_config, get_config_bool
-
-    raw = str(get_config(ctx, "chat_sidebar_mode") or CHAT_MODE_CHAT).strip()
-    mode = raw if raw in _modes_for(include_brainstorming) else CHAT_MODE_CHAT
-    if mode == CHAT_MODE_CHAT and get_config_bool(ctx, "chat_direct_image"):
-        mode = CHAT_MODE_IMAGE
-    if mode == CHAT_MODE_BRAINSTORMING and not include_brainstorming:
-        mode = CHAT_MODE_CHAT
-    return mode
-
-
-def persist_mode_to_config(ctx: Any, mode: str) -> None:
-    """Write sidebar mode and keep chat_direct_image in sync for image mode."""
-    from plugin.framework.config import set_config
-
-    if mode not in _VALID_MODES:
-        mode = CHAT_MODE_CHAT
-    set_config(ctx, "chat_sidebar_mode", mode)
-    set_config(ctx, "chat_direct_image", mode == CHAT_MODE_IMAGE)
-
-
 def clear_brainstorming_session(send_listener: Any) -> None:
     """Drop in-progress brainstorming state (dropdown change or normal exit)."""
     send_listener._in_brainstorming_mode = False

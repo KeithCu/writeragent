@@ -20,6 +20,8 @@ Prompt text lives in [`plugin/framework/constants.py`](../plugin/framework/const
 
 **Menu chat** (non-sidebar entry) has no tool-calling; it is conversational only.
 
+**Sidebar mode dropdown** (Chat, Image, Web Research, …) is session-only: the panel always wires to **Chat** on load. Users can switch modes during the session; the choice is not persisted to `writeragent.json`.
+
 ### Reasoning (`[Thinking]`) and tool calls
 
 During a **tool-loop** send, the sidebar can show provider reasoning under `[Thinking]` while tools still run from native `tool_calls` (or content fallback parsers)—reasoning text is never parsed as a tool invocation. Reasoning is **display-only** for that turn: it is not written into session messages for the next API round (only `content` + `tool_calls` are). That matches common OpenAI-compat streaming behavior; provider docs often ask clients to echo reasoning back on later tool-loop turns for quality on reasoning models—a possible future change, not current behavior.

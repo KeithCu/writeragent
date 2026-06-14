@@ -91,6 +91,37 @@ class TestSearchDialog:
         assert mock_maintain.called
         assert mock_maintain.call_args.kwargs["search_mode"] == "llama_index"
 
+    def test_query_edit_enter_triggers_search(self):
+        mock_ctx = MagicMock()
+        dialog = SearchDialog.__new__(SearchDialog)
+        dialog._ctx = mock_ctx
+
+        mock_dlg = MagicMock()
+        query_ctrl = MagicMock()
+        resp_ctrl = MagicMock()
+        mock_dlg.getControl.side_effect = lambda name: {
+            "QueryEdit": query_ctrl,
+            "RespEdit": resp_ctrl,
+            "BtnSearch": MagicMock(),
+            "BtnRebuild": MagicMock(),
+            "BtnCancel": MagicMock(),
+        }.get(name)
+
+        dialog._wire_listeners(mock_dlg)
+        assert query_ctrl.addKeyListener.called
+        assert resp_ctrl.addKeyListener.called
+        listener = query_ctrl.addKeyListener.call_args[0][0]
+
+        dialog._run_search = MagicMock()
+        enter_event = MagicMock(KeyCode=1280, Modifiers=0)
+        listener.keyPressed(enter_event)
+        dialog._run_search.assert_called_once_with(mock_dlg)
+
+        shift_enter_event = MagicMock(KeyCode=1280, Modifiers=1)
+        listener.keyPressed(shift_enter_event)
+        dialog._run_search.assert_called_with(mock_dlg)
+        assert dialog._run_search.call_count == 2
+
     @patch("plugin.embeddings.search_ui.get_desktop")
     @patch("plugin.embeddings.search_ui.get_active_document")
     @patch("plugin.embeddings.embeddings_cache.clear_folder_cache")

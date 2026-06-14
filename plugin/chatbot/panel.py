@@ -464,7 +464,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             CHAT_MODE_CHAT,
             CHAT_MODE_WRITING_PLAN,
             clear_brainstorming_session,
-            persist_mode_to_config,
             set_selector_mode,
         )
 
@@ -474,25 +473,21 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             self._writing_plan_topic = f"Implement the saved spec: {self._brainstorming_topic}"
             if self.chat_mode_selector:
                 set_selector_mode(self.chat_mode_selector, CHAT_MODE_WRITING_PLAN, include_brainstorming=self.sidebar_include_brainstorming)
-            persist_mode_to_config(self.ctx, CHAT_MODE_WRITING_PLAN)
         else:
             if self.chat_mode_selector:
                 set_selector_mode(self.chat_mode_selector, CHAT_MODE_CHAT, include_brainstorming=self.sidebar_include_brainstorming)
-            persist_mode_to_config(self.ctx, CHAT_MODE_CHAT)
 
     def on_writing_plan_session_finished(self) -> None:
         """Reset sidebar after writing_plan_finished (dropdown returns to Chat)."""
         from plugin.chatbot.chat_sidebar_mode import (
             CHAT_MODE_CHAT,
             clear_writing_plan_session,
-            persist_mode_to_config,
             set_selector_mode,
         )
 
         clear_writing_plan_session(self)
         if self.chat_mode_selector:
             set_selector_mode(self.chat_mode_selector, CHAT_MODE_CHAT, include_brainstorming=self.sidebar_include_brainstorming)
-        persist_mode_to_config(self.ctx, CHAT_MODE_CHAT)
 
     def begin_inline_web_approval(self, query: str, tool: str, event: Any) -> None:
         """Replace Send/Stop/Clear with Accept/Change/Reject (all enabled). Unblock ``event`` when user chooses.
@@ -1033,6 +1028,10 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             from plugin.chatbot.dialogs import set_control_text
 
             set_control_text(self.query_control, "")
+
+        from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
+
+        sync_sidebar_text_model(self.ctx, self.model_selector)
 
         # Transcription Fallback check
         if self.audio_wav_path:

@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from plugin.chatbot.chat_sidebar_mode import (
     CHAT_MODE_BRAINSTORMING,
@@ -21,9 +21,7 @@ from plugin.chatbot.chat_sidebar_mode import (
     get_mode_labels,
     mode_from_label,
     mode_from_selector,
-    persist_mode_to_config,
     populate_mode_selector,
-    resolve_initial_mode,
     set_selector_mode,
 )
 
@@ -67,39 +65,6 @@ def test_populate_mode_selector_sets_string_item_list_on_model():
     labels = tuple(str(x) for x in get_mode_labels(include_brainstorming=True))
     assert model.StringItemList == labels
     ctrl.addItems.assert_called_once_with(labels, 0)
-
-
-def test_resolve_initial_mode_migrates_chat_direct_image():
-    ctx = MagicMock()
-
-    def fake_get_config(_ctx, key):
-        if key == "chat_sidebar_mode":
-            return "chat"
-        return None
-
-    with patch("plugin.framework.config.get_config", side_effect=fake_get_config):
-        with patch("plugin.framework.config.get_config_bool", return_value=True):
-            mode = resolve_initial_mode(ctx, include_brainstorming=True)
-    assert mode == CHAT_MODE_IMAGE
-
-
-def test_persist_mode_to_config_syncs_chat_direct_image():
-    ctx = MagicMock()
-    writes = {}
-
-    def fake_set_config(_ctx, key, value):
-        writes[key] = value
-
-    with patch("plugin.framework.config.set_config", side_effect=fake_set_config):
-        persist_mode_to_config(ctx, CHAT_MODE_IMAGE)
-    assert writes["chat_sidebar_mode"] == CHAT_MODE_IMAGE
-    assert writes["chat_direct_image"] is True
-
-    writes.clear()
-    with patch("plugin.framework.config.set_config", side_effect=fake_set_config):
-        persist_mode_to_config(ctx, CHAT_MODE_CHAT)
-    assert writes["chat_sidebar_mode"] == CHAT_MODE_CHAT
-    assert writes["chat_direct_image"] is False
 
 
 def test_clear_brainstorming_session_resets_flags():

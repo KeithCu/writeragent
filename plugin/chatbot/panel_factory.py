@@ -77,7 +77,7 @@ try:
 except ImportError:
     TOOLPANEL = 3  # Fallback
 
-from plugin.chatbot.listeners import BaseItemListener
+from plugin.chatbot.listeners import BaseItemListener, BaseTextListener
 from plugin.framework.config import get_config, set_config, get_current_endpoint
 from plugin.framework.client.model_fetcher import get_text_model, get_image_model, set_image_model
 from plugin.framework.i18n import _
@@ -439,13 +439,11 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         chat_mode_selector = get_optional("chat_mode_selector")
         if chat_mode_selector:
             try:
-                from plugin.chatbot.chat_sidebar_mode import populate_mode_selector, resolve_initial_mode, set_selector_mode
+                from plugin.chatbot.chat_sidebar_mode import populate_mode_selector
 
                 model = self._get_document_model()
                 include_brainstorming = self._sidebar_include_brainstorming(model)
                 populate_mode_selector(chat_mode_selector, include_brainstorming=include_brainstorming)
-                mode = resolve_initial_mode(self.ctx, include_brainstorming=include_brainstorming)
-                set_selector_mode(chat_mode_selector, mode, include_brainstorming=include_brainstorming)
             except Exception:
                 pass
         try:
@@ -520,23 +518,30 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             if set_image_val != current_image:
                 set_image_model(self.ctx, set_image_val, update_lru=False)
 
-        if model_selector and hasattr(model_selector, "addItemListener"):
+        if model_selector:
 
             class ModelSyncListener(BaseItemListener):
                 def __init__(self, ctx):
                     self.ctx = ctx
 
                 def on_item_state_changed(self, rEvent):
-                    from plugin.chatbot.config_ui_helpers import update_lru_history
+                    from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
 
-                    txt = model_selector.getText()
-                    if not txt or txt == get_text_model(self.ctx):
-                        return
-                    set_config(self.ctx, "text_model", txt)
-                    # Bug fix: sidebar only wrote text_model; Settings dialog debounced refresh calls populate_combobox_with_lru(..., "", ...) which falls back to to_show[0] from LRU — stale head reverted the UI. Mirror apply_settings_result (update model_lru).
-                    update_lru_history(self.ctx, txt, "model_lru", get_current_endpoint(self.ctx))
+                    sync_sidebar_text_model(self.ctx, model_selector)
 
-            model_selector.addItemListener(ModelSyncListener(self.ctx))
+            class ModelTextSyncListener(BaseTextListener):
+                def __init__(self, ctx):
+                    self.ctx = ctx
+
+                def on_text_changed(self, rEvent):
+                    from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
+
+                    sync_sidebar_text_model(self.ctx, model_selector)
+
+            if hasattr(model_selector, "addItemListener"):
+                model_selector.addItemListener(ModelSyncListener(self.ctx))
+            if hasattr(model_selector, "addTextListener"):
+                model_selector.addTextListener(ModelTextSyncListener(self.ctx))
 
         if image_model_selector and hasattr(image_model_selector, "addItemListener"):
 
@@ -580,7 +585,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         model,
     ):
         """Initializes sidebar mode dropdown and image-related controls; returns (initial_mode, include_brainstorming, toggle_image_ui)."""
-        from plugin.chatbot.chat_sidebar_mode import is_image_mode, populate_mode_selector, resolve_initial_mode, set_selector_mode
+        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT, is_image_mode, populate_mode_selector, set_selector_mode
 
         if aspect_ratio_selector:
             aspect_ratio_selector.addItems(("Square", "Landscape (16:9)", "Portrait (9:16)", "Landscape (3:2)", "Portrait (2:3)"), 0)
@@ -639,7 +644,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                         log.debug("Failed to relayout after toggling image UI (likely disposed): %s", e)
 
         include_brainstorming = self._sidebar_include_brainstorming(model)
-        initial_mode = resolve_initial_mode(self.ctx, include_brainstorming=include_brainstorming)
+        initial_mode = CHAT_MODE_CHAT
 
         if chat_mode_selector:
             try:
@@ -677,7 +682,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         return greeting
 
     def _wire_chat_mode_listener(self, chat_mode_selector, model, response_ctrl, send_listener, clear_listener, toggle_image_ui, include_brainstorming):
-        from plugin.chatbot.chat_sidebar_mode import mode_from_selector, persist_mode_to_config
+        from plugin.chatbot.chat_sidebar_mode import mode_from_selector
 
         if not chat_mode_selector or not hasattr(chat_mode_selector, "addItemListener"):
             return
@@ -692,7 +697,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
             def on_item_state_changed(self, rEvent):
                 mode = mode_from_selector(self.selector, include_brainstorming=self.include_brainstorming)
-                persist_mode_to_config(self.ctx, mode)
                 self.apply_target(mode)
 
         def apply_mode(mode):

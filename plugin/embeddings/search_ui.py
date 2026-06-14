@@ -17,12 +17,16 @@ from com.sun.star.awt import XActionListener, XTopWindowListener
 from plugin.chatbot.dialogs import add_dialog_button, add_dialog_edit, add_dialog_label, msgbox
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_active_document, get_desktop
+from plugin.framework.uno_listeners import BaseKeyListener
 from plugin.framework.worker_pool import run_in_background
 import plugin.framework.client.embeddings_service as embeddings_service
 
 from plugin.scripting.venv_worker import warm_venv_worker
 
 log = logging.getLogger(__name__)
+
+# UNO Key.RETURN (same code as chat sidebar; single-line edits have no newline use for Shift+Enter)
+_SEARCH_KEY_RETURN = 1280
 
 
 class SearchDialog:
@@ -180,6 +184,23 @@ class SearchDialog:
         dlg.getControl("BtnSearch").addActionListener(_SearchListener())
         dlg.getControl("BtnRebuild").addActionListener(_RebuildListener())
         dlg.getControl("BtnCancel").addActionListener(_CancelListener())
+
+        class _SearchEnterKeyListener(BaseKeyListener):
+            def on_key_pressed(self, e):
+                if e.KeyCode != _SEARCH_KEY_RETURN:
+                    return
+                try:
+                    if hasattr(e, "Consume"):
+                        setattr(e, "Consume", True)
+                except Exception:
+                    pass
+                owner._run_search(dlg)
+
+        enter_listener = _SearchEnterKeyListener()
+        for ctrl_name in ("QueryEdit", "RespEdit"):
+            ctrl = dlg.getControl(ctrl_name)
+            if ctrl is not None:
+                ctrl.addKeyListener(enter_listener)
 
     def _refresh_cache_status(self, dlg: Any) -> None:
         ctx = self._ctx

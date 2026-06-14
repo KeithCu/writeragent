@@ -69,10 +69,10 @@ config:
 
   web_research_cache_enabled:
     type: boolean
-    default: true
+    default: false
     widget: checkbox
     label: Web Research Cache
-    helper: "Cache completed web research reports by normalized query (reuses web search cache database)."
+    helper: "Cache completed web research reports by normalized query (uses web cache database)."
     inline: true
     x: 8
     width: 200
