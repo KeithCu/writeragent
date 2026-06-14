@@ -114,6 +114,10 @@ except ImportError:
         def postprocess_nodes(self, nodes: list[Any], query_bundle: Any = None) -> list[Any]:
             return nodes
 
+    class MockLLM:  # type: ignore[no-redef]
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
     def PrivateAttr(*args: Any, **kwargs: Any) -> Any:  # type: ignore[no-redef]
         pass
 

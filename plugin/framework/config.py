@@ -299,21 +299,9 @@ class WriterAgentConfig:
     parallel_tool_calls: bool = True
     # Merged into POST \u2026/chat/completions JSON when OpenRouter is active; see AGENTS.md.
     openrouter_chat_extra: Dict[str, Any] = dataclasses.field(default_factory=dict)
-    # Persists the last code entered in the 'Run Python Script' dialog.
-    last_python_script: str = (
-        "# Calculate primes, sharing the sieve via sp.primerange().\n"
-        "low, high = sp.prime(1000), sp.prime(1010)\n\n"
-        "result = {\n"
-        "    \"title\": \"Prime Numbers in Range\",\n"
-        "    \"primes\": [\n"
-        "        {\"position\": i, \"prime\": p}\n"
-        "        for i, p in zip(range(1000, 1011), sp.primerange(low, high + 1))\n"
-        "    ]\n"
-        "}"
-    )
-    last_python_script_writer: str = "# Python Writer script\n" + last_python_script
-    last_python_script_calc: str = "# Python Calc script\n" + last_python_script
-    last_python_script_draw: str = "# Python Draw/Impress script\n" + last_python_script
+    last_python_script_name_writer: str = "PrimeGaps"
+    last_python_script_name_calc: str = "PrimeGaps"
+    last_python_script_name_draw: str = "PrimeGaps"
 
     # Persists the last entries for inserting LaTeX math
     last_latex_input: str = r"x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}"

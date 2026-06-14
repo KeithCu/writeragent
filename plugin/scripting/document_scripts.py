@@ -538,8 +538,7 @@ def build_xdl_script_picker_state(
             optimize_items.append(display_name)
 
     items = (
-        ["Sample"]
-        + sorted(user_scripts.keys())
+        sorted(user_scripts.keys())
         + analysis_items
         + vision_items
         + viz_items
@@ -561,7 +560,7 @@ def build_scripts_list_message(
     status_error_text: str | None = None,
 ) -> dict[str, Any]:
     from plugin.framework.config import get_config, get_config_str
-    from plugin.scripting.python_runner import resolve_run_script_config_key
+    from plugin.scripting.python_runner import resolve_run_script_name_config_key
 
     user_scripts = get_config(ctx, "saved_python_scripts")
     if not isinstance(user_scripts, dict):
@@ -611,8 +610,15 @@ def build_scripts_list_message(
         sections.append(optimize_section)
     sections.append({"id": SCRIPT_ORIGIN_DOCUMENT, "title": _("This Document"), "scripts": doc_scripts})
 
-    config_key = resolve_run_script_config_key(doc)
-    sample_code = get_config_str(ctx, config_key)
+    name_config_key = resolve_run_script_name_config_key(doc)
+    last_name = get_config_str(ctx, name_config_key)
+    names, merged_scripts, unused_origin_map = build_xdl_script_picker_state(ctx, doc, user_scripts)
+    if not last_name or last_name not in merged_scripts:
+        if names:
+            last_name = names[0]
+        else:
+            last_name = ""
+    sample_code = merged_scripts.get(last_name, "")
 
     msg: dict[str, Any] = {
         "type": "scripts_list",

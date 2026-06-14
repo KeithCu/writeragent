@@ -130,13 +130,35 @@ class NativePythonScriptDialog:
         self._script_origin_map = origin_map
         select_ctrl.removeItems(0, select_ctrl.getItemCount())
         select_ctrl.addItems(tuple(names), 0)
+
+        selected_name = ""
         if select_display and select_display in names:
-            for idx, nm in enumerate(names):
-                if nm == select_display:
-                    select_ctrl.selectItemPos(idx, True)
-                    break
+            selected_name = select_display
         else:
-            select_ctrl.selectItemPos(0, True)
+            from plugin.scripting.python_runner import resolve_run_script_name_config_key
+            name_config_key = resolve_run_script_name_config_key(self._doc)
+            last_name = get_config_str(self._ctx, name_config_key)
+            if last_name and last_name in names:
+                selected_name = last_name
+        if not selected_name and names:
+            selected_name = names[0]
+
+        if selected_name:
+            for idx, nm in enumerate(names):
+                if nm == selected_name:
+                    select_ctrl.selectItemPos(idx, True)
+                    from plugin.scripting.python_runner import resolve_run_script_name_config_key
+                    name_config_key = resolve_run_script_name_config_key(self._doc)
+                    set_config(self._ctx, name_config_key, selected_name)
+                    if self._dlg is not None:
+                        try:
+                            code_ctrl = self._dlg.getControl("CodeEdit")
+                            if code_ctrl is not None:
+                                code_ctrl.setText(merged.get(selected_name, ""))
+                        except Exception:
+                            pass
+                    break
+
 
     def _open(self, initial_text: str) -> None:
         ctx = self._ctx
@@ -185,7 +207,7 @@ class NativePythonScriptDialog:
                 20,
             )
 
-            edit = add_dialog_edit(dlg_model, "CodeEdit", initial_text, 8, 48, 334, 164)
+            edit = add_dialog_edit(dlg_model, "CodeEdit", "", 8, 48, 334, 164)
             edit.MultiLine = True
             edit.VScroll = True
             fd = cast("Any", uno.createUnoStruct("com.sun.star.awt.FontDescriptor"))
@@ -203,11 +225,12 @@ class NativePythonScriptDialog:
 
             select_ctrl = dlg.getControl("ScriptSelect")
             self._select_ctrl = select_ctrl
-            if select_ctrl:
-                select_ctrl.selectItemPos(0, True)
 
             self._current_scripts = dict(merged_scripts)
             self._script_origin_map = dict(origin_map)
+
+            # Re-initialize picker items and selection cleanly
+            self._refresh_script_dropdown()
             self._wire_listeners(dlg, select_ctrl)
 
             code_ctrl = dlg.getControl("CodeEdit")
@@ -253,9 +276,39 @@ class NativePythonScriptDialog:
             log.exception("NativePythonScriptDialog._open failed")
             self.close()
 
+    def _save_current_script(self, t: str) -> str | None:
+        select_ctrl = self._select_ctrl
+        if select_ctrl is None:
+            return None
+        pos = select_ctrl.getSelectedItemPos()
+        items = select_ctrl.getItems()
+        if pos >= 0 and pos < len(items):
+            display_name = items[pos]
+            real_name, origin = resolve_script_picker_entry(display_name, self._script_origin_map)
+            self._current_scripts[display_name] = t
+            if origin == SCRIPT_ORIGIN_DOCUMENT:
+                if self._doc is None:
+                    return _("No document is open to save scripts.")
+                err = save_document_script(self._doc, real_name, t)
+                if err:
+                    user_scripts = get_config(self._ctx, "saved_python_scripts")
+                    if not isinstance(user_scripts, dict):
+                        user_scripts = {}
+                    user_scripts[real_name] = t
+                    set_config(self._ctx, "saved_python_scripts", user_scripts)
+                    return _("%s Saved to My Scripts instead.") % err
+                return _("Script '%s' saved to this document.") % real_name
+            else:
+                user_scripts = get_config(self._ctx, "saved_python_scripts")
+                if not isinstance(user_scripts, dict):
+                    user_scripts = {}
+                user_scripts[real_name] = t
+                set_config(self._ctx, "saved_python_scripts", user_scripts)
+                return _("Script '%s' saved successfully.") % real_name
+        return None
+
     def _wire_listeners(self, dlg: Any, select_ctrl: Any) -> None:
         ctx = self._ctx
-        config_key = self._config_key
         owner = self
         doc = owner._doc
 
@@ -267,12 +320,12 @@ class NativePythonScriptDialog:
                     if pos >= 0 and pos < len(items):
                         name = items[pos]
                         code_ctrl = dlg.getControl("CodeEdit")
-                        if name == "Sample":
-                            t = get_config_str(ctx, config_key)
-                            code_ctrl.setText(t)
-                        else:
-                            t = owner._current_scripts.get(name, "")
-                            code_ctrl.setText(t)
+                        # Save the selected name to config
+                        from plugin.scripting.python_runner import resolve_run_script_name_config_key
+                        name_config_key = resolve_run_script_name_config_key(owner._doc)
+                        set_config(ctx, name_config_key, name)
+                        t = owner._current_scripts.get(name, "")
+                        code_ctrl.setText(t)
                 except Exception:
                     log.exception("Failed to change script selection")
 
@@ -285,7 +338,7 @@ class NativePythonScriptDialog:
                     ec = dlg.getControl("CodeEdit")
                     t = (ec.getModel().Text or "").strip()
                     lbl = dlg.getControl("InstructionLbl")
-                    set_config(ctx, config_key, t)
+                    owner._save_current_script(t)
                     from plugin.scripting.python_runner import execute_and_insert_result
 
                     outcome = execute_and_insert_result(ctx, doc, t)
@@ -302,39 +355,10 @@ class NativePythonScriptDialog:
                 try:
                     ec = dlg.getControl("CodeEdit")
                     t = (ec.getModel().Text or "").strip()
-
-                    pos = select_ctrl.getSelectedItemPos()
-                    items = select_ctrl.getItems()
                     lbl = dlg.getControl("InstructionLbl")
-
-                    if pos >= 0 and pos < len(items) and items[pos] != "Sample":
-                        display_name = items[pos]
-                        real_name, origin = resolve_script_picker_entry(display_name, owner._script_origin_map)
-                        owner._current_scripts[display_name] = t
-                        if origin == SCRIPT_ORIGIN_DOCUMENT:
-                            if doc is None:
-                                lbl.getModel().Label = _("No document is open to save scripts.")
-                                return
-                            err = save_document_script(doc, real_name, t)
-                            if err:
-                                user_scripts = get_config(ctx, "saved_python_scripts")
-                                if not isinstance(user_scripts, dict):
-                                    user_scripts = {}
-                                user_scripts[real_name] = t
-                                set_config(ctx, "saved_python_scripts", user_scripts)
-                                lbl.getModel().Label = _("%s Saved to My Scripts instead.") % err
-                                return
-                            lbl.getModel().Label = _("Script '%s' saved to this document.") % real_name
-                        else:
-                            user_scripts = get_config(ctx, "saved_python_scripts")
-                            if not isinstance(user_scripts, dict):
-                                user_scripts = {}
-                            user_scripts[real_name] = t
-                            set_config(ctx, "saved_python_scripts", user_scripts)
-                            lbl.getModel().Label = _("Script '%s' saved successfully.") % real_name
-                    else:
-                        set_config(ctx, config_key, t)
-                        lbl.getModel().Label = _("Sample scratchpad saved successfully.")
+                    res = owner._save_current_script(t)
+                    if res:
+                        lbl.getModel().Label = res
                 except Exception:
                     log.exception("Save failed in dialog")
 
@@ -451,33 +475,25 @@ class NativePythonScriptDialog:
                     display_name = items[pos]
                     lbl = dlg.getControl("InstructionLbl")
 
-                    if display_name == "Sample":
-                        if show_approval_dialog(ctx, _("Are you sure you want to clear the Sample scratchpad?"), _("Clear Script")):
-                            dlg.getControl("CodeEdit").setText("")
-                            set_config(ctx, config_key, "")
-                            lbl.getModel().Label = _("Sample scratchpad cleared.")
-                    else:
-                        real_name, origin = resolve_script_picker_entry(display_name, owner._script_origin_map)
-                        if show_approval_dialog(
-                            ctx,
-                            _("Are you sure you want to delete script '%s'?") % real_name,
-                            _("Delete Script"),
-                        ):
-                            if origin == SCRIPT_ORIGIN_DOCUMENT:
-                                if doc is None:
-                                    lbl.getModel().Label = _("No document is open.")
-                                    return
-                                delete_document_script(doc, real_name)
-                            else:
-                                user_scripts = get_config(ctx, "saved_python_scripts")
-                                if not isinstance(user_scripts, dict):
-                                    user_scripts = {}
-                                user_scripts.pop(real_name, None)
-                                set_config(ctx, "saved_python_scripts", user_scripts)
-                            owner._refresh_script_dropdown()
-                            select_ctrl.selectItemPos(0, True)
-                            dlg.getControl("CodeEdit").setText(get_config_str(ctx, config_key))
-                            lbl.getModel().Label = _("Script '%s' deleted.") % real_name
+                    real_name, origin = resolve_script_picker_entry(display_name, owner._script_origin_map)
+                    if show_approval_dialog(
+                        ctx,
+                        _("Are you sure you want to delete script '%s'?") % real_name,
+                        _("Delete Script"),
+                    ):
+                        if origin == SCRIPT_ORIGIN_DOCUMENT:
+                            if doc is None:
+                                lbl.getModel().Label = _("No document is open.")
+                                return
+                            delete_document_script(doc, real_name)
+                        else:
+                            user_scripts = get_config(ctx, "saved_python_scripts")
+                            if not isinstance(user_scripts, dict):
+                                user_scripts = {}
+                            user_scripts.pop(real_name, None)
+                            set_config(ctx, "saved_python_scripts", user_scripts)
+                        owner._refresh_script_dropdown()
+                        lbl.getModel().Label = _("Script '%s' deleted.") % real_name
                 except Exception:
                     log.exception("Delete failed in dialog")
 
@@ -506,7 +522,7 @@ class NativePythonScriptDialog:
 def show_python_input_dialog(
     ctx: Any,
     initial_text: str = "",
-    config_key: str = "last_python_script",
+    config_key: str = "last_python_script_writer",
     doc: Any | None = None,
 ) -> None:
     """Show the plain-text Run Python Script dialog (modeless when configured)."""

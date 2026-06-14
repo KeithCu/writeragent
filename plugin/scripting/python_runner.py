@@ -12,7 +12,7 @@ import time
 from typing import Any, cast
 
 from plugin.framework.uno_context import get_ctx, get_desktop
-from plugin.framework.config import get_config_str, set_config
+from plugin.framework.config import get_config, get_config_str, set_config
 from plugin.framework.i18n import _
 from plugin.chatbot.dialogs import msgbox
 from plugin.scripting.editor_ipc import exception_traceback
@@ -288,16 +288,17 @@ def insert_result_into_draw(doc: Any, uno_ctx: Any, result: Any) -> None:
     """
 
 
-def resolve_run_script_config_key(doc: Any) -> str:
-    """Return the config key for persisting Run Python Script code for *doc*."""
+
+def resolve_run_script_name_config_key(doc: Any) -> str:
+    """Return the config key for persisting the last selected Run Python Script name for *doc*."""
     if doc:
         if is_calc(doc):
-            return "last_python_script_calc"
+            return "last_python_script_name_calc"
         if is_writer(doc):
-            return "last_python_script_writer"
+            return "last_python_script_name_writer"
         if is_draw(doc):
-            return "last_python_script_draw"
-    return "last_python_script"
+            return "last_python_script_name_draw"
+    return "last_python_script_name_writer"
 
 
 def format_elapsed_time(seconds: float) -> str:
@@ -962,7 +963,7 @@ def execute_and_insert_result(
     }
 
 
-def _run_python_monaco(ctx: Any, doc: Any, *, config_key: str, initial_code: str, exe: str) -> bool:
+def _run_python_monaco(ctx: Any, doc: Any, *, initial_code: str, exe: str) -> bool:
     """Open Monaco for Run Python Script. Return True when the editor session started."""
     from plugin.calc.analysis_runner import calc_selection_to_a1
     from plugin.scripting.analysis import parse_analysis_script_header
@@ -983,7 +984,23 @@ def _run_python_monaco(ctx: Any, doc: Any, *, config_key: str, initial_code: str
         data_binding: str | None = None,
         action: str = "run",
     ) -> dict[str, Any]:
-        set_config(ctx, config_key, code)
+        # Save the edited code back to the currently selected script
+        from plugin.scripting.python_runner import resolve_run_script_name_config_key
+        name_config_key = resolve_run_script_name_config_key(doc)
+        last_name = get_config_str(ctx, name_config_key)
+        if last_name:
+            from plugin.framework.config import get_config
+            saved_scripts = get_config(ctx, "saved_python_scripts")
+            if not isinstance(saved_scripts, dict):
+                saved_scripts = {}
+            if last_name in saved_scripts:
+                saved_scripts[last_name] = code
+                set_config(ctx, "saved_python_scripts", saved_scripts)
+            else:
+                from plugin.scripting.document_scripts import save_document_script, get_document_scripts
+                doc_scripts = get_document_scripts(doc)
+                if last_name in doc_scripts:
+                    save_document_script(doc, last_name, code)
         if action == "save":
             return {"type": "saved", "ok": True, "status_ok_text": save_ok_text}
         outcome = execute_and_insert_result(ctx, doc, code, data_range=data_binding)
@@ -1029,14 +1046,26 @@ def run_python_dialog(uno_ctx: Any = None) -> None:
     desktop = get_desktop(uno_ctx)
     doc = desktop.getCurrentComponent()
 
-    config_key = resolve_run_script_config_key(doc)
+    from plugin.scripting.python_runner import resolve_run_script_name_config_key
+    name_config_key = resolve_run_script_name_config_key(doc)
+    last_name = get_config_str(uno_ctx, name_config_key)
 
-    # Load last script from config
-    initial_code = get_config_str(uno_ctx, config_key)
+    saved_scripts = get_config(uno_ctx, "saved_python_scripts")
+    if not isinstance(saved_scripts, dict):
+        saved_scripts = {}
+    from plugin.scripting.document_scripts import build_xdl_script_picker_state
+    names, merged_scripts, _ = build_xdl_script_picker_state(uno_ctx, doc, saved_scripts)
+
+    if not last_name or last_name not in merged_scripts:
+        if names:
+            last_name = names[0]
+        else:
+            last_name = ""
+    initial_code = merged_scripts.get(last_name, "")
 
     _exe, monaco_ok = monaco_editor_available(uno_ctx)
     if monaco_ok and _exe:
-        if _run_python_monaco(uno_ctx, doc, config_key=config_key, initial_code=initial_code, exe=_exe):
+        if _run_python_monaco(uno_ctx, doc, initial_code=initial_code, exe=_exe):
             return
 
-    show_python_input_dialog(uno_ctx, initial_text=initial_code, config_key=config_key, doc=doc)
+    show_python_input_dialog(uno_ctx, initial_text=initial_code, config_key=name_config_key, doc=doc)
