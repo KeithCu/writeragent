@@ -115,3 +115,40 @@ def test_delete_paragraphs_removes_from_corpus(tmp_path):
                         [{"doc_url": "file:///a.odt", "para_index": 0}],
                     )
     assert result["deleted"] == 1
+
+
+def test_is_garbage_hit():
+    from plugin.embeddings.venv.embeddings_index import _is_garbage_hit
+    assert _is_garbage_hit({"snippet": ""}) is True
+    assert _is_garbage_hit({"snippet": "   \n\t "}) is True
+    assert _is_garbage_hit({"snippet": ","}) is True
+    assert _is_garbage_hit({"snippet": "..."}) is True
+    assert _is_garbage_hit({"snippet": "---"}) is True
+    assert _is_garbage_hit({"snippet": "123"}) is False
+    assert _is_garbage_hit({"snippet": "hello"}) is False
+    assert _is_garbage_hit({"snippet": "Thai ก"}) is False
+
+
+def test_knn_search_filters_garbage():
+    hits = [
+        {"doc_url": "file:///a.odt", "snippet": "valid result", "score": 0.9},
+        {"doc_url": "file:///b.odt", "snippet": ",", "score": 0.8},
+        {"doc_url": "file:///c.odt", "snippet": "", "score": 0.7},
+        {"doc_url": "file:///d.odt", "snippet": "another valid", "score": 0.6},
+    ]
+    with patch("plugin.embeddings.venv.embeddings_search_graph.search_embeddings_graph", return_value={"hits": hits}):
+        result = embeddings_index.knn_search("/tmp/corpus.db", "query", 5, model_name="all-MiniLM-L6-v2")
+    assert len(result["hits"]) == 2
+    assert result["hits"][0]["doc_url"] == "file:///a.odt"
+    assert result["hits"][1]["doc_url"] == "file:///d.odt"
+
+
+def test_hybrid_search_filters_garbage():
+    hits = [
+        {"doc_url": "file:///a.odt", "snippet": "valid", "score": 0.9},
+        {"doc_url": "file:///b.odt", "snippet": "...", "score": 0.8},
+    ]
+    with patch("plugin.embeddings.venv.embeddings_hybrid_search.hybrid_corpus_search", return_value={"hits": hits}):
+        result = embeddings_index.hybrid_search("/tmp/corpus.db", "query", 5, model_name="all-MiniLM-L6-v2")
+    assert len(result["hits"]) == 1
+    assert result["hits"][0]["doc_url"] == "file:///a.odt"

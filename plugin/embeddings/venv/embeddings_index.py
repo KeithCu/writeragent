@@ -196,6 +196,18 @@ def delete_paragraphs(
     return {"deleted": deleted}
 
 
+def _is_garbage_hit(hit: dict[str, Any]) -> bool:
+    """Check if a search hit's snippet is empty, only whitespace, or has no alphanumeric characters."""
+    if "snippet" not in hit:
+        return False
+    snippet = str(hit.get("snippet") or "").strip()
+    if not snippet:
+        return True
+    if not any(c.isalnum() for c in snippet):
+        return True
+    return False
+
+
 def knn_search(
     db_path: str,
     query_text: str,
@@ -211,7 +223,7 @@ def knn_search(
     if str(search_mode).strip().lower() == "llama_index":
         from plugin.embeddings.venv.embeddings_llama_index import llama_index_knn_search
 
-        return llama_index_knn_search(
+        res = llama_index_knn_search(
             db_path,
             query_text,
             k,
@@ -220,16 +232,20 @@ def knn_search(
             use_mmr=use_mmr,
             rerank_model=rerank_model,
         )
+    else:
+        from plugin.embeddings.venv.embeddings_search_graph import search_embeddings_graph
 
-    from plugin.embeddings.venv.embeddings_search_graph import search_embeddings_graph
+        res = search_embeddings_graph(
+            db_path,
+            query_text,
+            k,
+            model_name=model_name,
+            doc_url_filter=doc_url_filter,
+        )
 
-    return search_embeddings_graph(
-        db_path,
-        query_text,
-        k,
-        model_name=model_name,
-        doc_url_filter=doc_url_filter,
-    )
+    if isinstance(res, dict) and "hits" in res:
+        res["hits"] = [h for h in res["hits"] if not _is_garbage_hit(h)]
+    return res
 
 
 def hybrid_search(
@@ -247,7 +263,20 @@ def hybrid_search(
     """Hybrid FTS + vector search with reciprocal rank fusion."""
     if str(search_mode).strip().lower() == "llama_index":
         from plugin.embeddings.venv.embeddings_llama_index import llama_index_hybrid_search
-        return llama_index_hybrid_search(
+        res = llama_index_hybrid_search(
+            db_path,
+            query_text,
+            k,
+            model_name=model_name,
+            near_slop=near_slop,
+            doc_url_filter=doc_url_filter,
+            use_mmr=use_mmr,
+            rerank_model=rerank_model,
+        )
+    else:
+        from plugin.embeddings.venv.embeddings_hybrid_search import hybrid_corpus_search
+
+        res = hybrid_corpus_search(
             db_path,
             query_text,
             k,
@@ -258,18 +287,9 @@ def hybrid_search(
             rerank_model=rerank_model,
         )
 
-    from plugin.embeddings.venv.embeddings_hybrid_search import hybrid_corpus_search
-
-    return hybrid_corpus_search(
-        db_path,
-        query_text,
-        k,
-        model_name=model_name,
-        near_slop=near_slop,
-        doc_url_filter=doc_url_filter,
-        use_mmr=use_mmr,
-        rerank_model=rerank_model,
-    )
+    if isinstance(res, dict) and "hits" in res:
+        res["hits"] = [h for h in res["hits"] if not _is_garbage_hit(h)]
+    return res
 
 
 def maintain_folder_index(
