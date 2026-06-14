@@ -68,6 +68,17 @@ class TestSetGet():
         d = config_svc.get_dict()
         assert (d['mcp.port'] == 9000)
 
+    def test_set_corrupt_config_backups_and_writes(self, config_svc, config_dir, manifest):
+        corrupt = '{ invalid json '
+        config_path = config_dir / 'writeragent.json'
+        backup_path = config_dir / 'writeragent.json.bak'
+        config_path.write_text(corrupt, encoding='utf-8')
+        config_svc.set_manifest(manifest)
+        config_svc.set('mcp.port', 9000)
+        assert backup_path.read_text(encoding='utf-8') == corrupt
+        data = json.loads(config_path.read_text(encoding='utf-8'))
+        assert data['mcp.port'] == 9000
+
 class TestAccessControl():
 
     def test_read_own_key_ok(self, config_svc, manifest):

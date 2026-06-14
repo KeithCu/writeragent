@@ -136,3 +136,12 @@ class TestFetchAvailableModelsCache(unittest.TestCase):
                     cfg.fetch_available_models(endpoint, ctx)
                     cfg.fetch_available_models(endpoint, ctx, api_key_override='key-b')
                     self.assertEqual(mock_sync.call_count, 2)
+
+
+class TestGetModelCapabilityOpenRouter(unittest.TestCase):
+    def test_nitro_suffix_matches_curated_default(self):
+        from plugin.framework.client.model_fetcher import get_model_capability
+        from plugin.framework.constants import ModelCapability
+
+        caps = get_model_capability(MagicMock(), 'openai/gpt-oss-120b:nitro', 'https://openrouter.ai/api')
+        self.assertTrue(isinstance(caps, int) and (caps & ModelCapability.TOOLS))

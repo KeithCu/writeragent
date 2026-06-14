@@ -23,6 +23,7 @@ import dataclasses
 import json
 import logging
 import os
+import shutil
 import time
 from typing import Any, Dict
 
@@ -30,6 +31,7 @@ from plugin.framework.constants import get_plugin_dir
 from plugin.framework.errors import ConfigError, safe_call
 from plugin.framework.event_bus import global_event_bus
 from plugin.framework.i18n import _
+from plugin.framework.json_utils import repair_json
 
 try:
     from plugin._manifest import MODULES
@@ -60,6 +62,7 @@ log = logging.getLogger(__name__)
 # --- Module constants ---
 
 CONFIG_FILENAME = "writeragent.json"
+CONFIG_BACKUP_SUFFIX = ".bak"
 
 # Max items for all LRU lists; base names also listed in _LRU_LIST_CONFIG_KEY_PREFIXES for get_config defaults.
 LRU_MAX_ITEMS = 10
@@ -225,6 +228,121 @@ def user_config_dir(ctx):
         raise ConfigError(f"Failed to resolve config dir: {e}", "CONFIG_DIR_ERROR") from e
 
 
+def _config_backup_path(config_file_path: str) -> str:
+    return config_file_path + CONFIG_BACKUP_SUFFIX
+
+
+def _backup_config_file(config_file_path: str, *, reason: str = "invalid-json") -> str | None:
+    """Copy the raw config file before repair or other destructive handling."""
+    if not config_file_path or not os.path.exists(config_file_path):
+        return None
+    backup_path = _config_backup_path(config_file_path)
+    try:
+        shutil.copy2(config_file_path, backup_path)
+        log.warning("Backed up config %s to %s (%s)", config_file_path, backup_path, reason)
+        return backup_path
+    except OSError as e:
+        log.error("Failed to backup config %s: %s", config_file_path, e)
+        return None
+
+
+def _try_parse_config_dict(text: str) -> dict | None:
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    return data
+
+
+def _try_repair_config_dict(text: str) -> dict | None:
+    """Config-safe JSON repair: json strict=False and json_repair only (no literal_eval / LaTeX rewrite)."""
+    try:
+        data = json.loads(text, strict=False)
+        if isinstance(data, dict):
+            return data
+    except (json.JSONDecodeError, TypeError, ValueError):
+        pass
+
+    try:
+        repaired = repair_json(text)
+        data = json.loads(repaired, strict=False)
+        if isinstance(data, dict):
+            return data
+    except (json.JSONDecodeError, TypeError, ValueError):
+        pass
+
+    return None
+
+
+def _write_config_file(config_file_path: str, data: dict) -> None:
+    with open(config_file_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4)
+
+
+def _invalidate_config_cache() -> None:
+    _cache.data = None
+    _cache.mtime = 0
+    _cache.mtime_last_checked = 0.0
+
+
+def _load_config_dict(
+    config_file_path: str,
+    *,
+    allow_repair: bool = False,
+    persist_repair: bool = False,
+) -> dict:
+    """Load writeragent.json as a dict. Optionally backup, repair, and persist small JSON typos."""
+    if not config_file_path or not os.path.exists(config_file_path):
+        return {}
+
+    try:
+        with open(config_file_path, "r", encoding="utf-8") as f:
+            text = f.read()
+    except OSError as e:
+        raise ConfigError(
+            f"Failed to read config: {e}",
+            "CONFIG_READ_ERROR",
+            details={"path": config_file_path},
+        ) from e
+
+    data = _try_parse_config_dict(text)
+    if data is not None:
+        return data
+
+    backup_path: str | None = None
+    if allow_repair:
+        backup_path = _backup_config_file(config_file_path, reason="invalid-json")
+        data = _try_repair_config_dict(text)
+        if data is not None:
+            log.info(
+                "Auto-repaired invalid JSON in %s (backup: %s)",
+                config_file_path,
+                backup_path,
+            )
+            if persist_repair:
+                try:
+                    _write_config_file(config_file_path, data)
+                    _invalidate_config_cache()
+                except OSError as e:
+                    raise ConfigError(
+                        f"Failed to write repaired config: {e}",
+                        "CONFIG_SAVE_ERROR",
+                        details={"path": config_file_path, "backup_path": backup_path},
+                    ) from e
+            return data
+        log.warning(
+            "Invalid JSON in %s could not be auto-repaired (backup: %s). Using empty dict for this load.",
+            config_file_path,
+            backup_path or "none",
+        )
+        return {}
+
+    log.warning("Invalid JSON in %s (repair disabled). Using empty dict for this load.", config_file_path)
+    return {}
+
+
 def is_grammar_enabled(ctx):
     """True if the AI grammar checker is enabled on the Doc tab."""
     return get_config_bool_safe(ctx, "doc.grammar_proofreader_enabled")
@@ -257,7 +375,7 @@ _cache = ConfigCache()
 class WriterAgentConfig:
     """Dataclass schema for WriterAgent configuration."""
 
-    endpoint: str = "http://127.0.0.1:5000"
+    endpoint: str = "http://localhost:11434"
     text_model: str = ""
     model: str = ""
     temperature: float = -1.0
@@ -277,7 +395,7 @@ class WriterAgentConfig:
     image_auto_gallery: bool = True
     image_insert_frame: bool = False
     image_model: str = ""
-    image_provider: str = "aihorde"
+    image_provider: str = "endpoint"
     # Local sentence-transformers model id (Phase A embeddings); see docs/embeddings.md.
     embedding_provider: str = "local"
     aihorde_model: str = "stable_diffusion"
@@ -299,9 +417,9 @@ class WriterAgentConfig:
     parallel_tool_calls: bool = True
     # Merged into POST \u2026/chat/completions JSON when OpenRouter is active; see AGENTS.md.
     openrouter_chat_extra: Dict[str, Any] = dataclasses.field(default_factory=dict)
-    last_python_script_name_writer: str = "PrimeGaps"
-    last_python_script_name_calc: str = "PrimeGaps"
-    last_python_script_name_draw: str = "PrimeGaps"
+    last_python_script_name_writer: str = "Prime Numbers"
+    last_python_script_name_calc: str = "Prime Numbers"
+    last_python_script_name_draw: str = "Prime Numbers"
 
     # Persists the last entries for inserting LaTeX math
     last_latex_input: str = r"x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}"
@@ -586,29 +704,16 @@ def set_config(ctx, key, value):
     if not config_file_path:
         return
     if os.path.exists(config_file_path):
-        try:
-            with open(config_file_path, "r", encoding="utf-8") as f:
-                config_data = json.load(f)
-            if not isinstance(config_data, dict):
-                config_data = {}
-        except json.JSONDecodeError as e:
-            log.warning("Invalid JSON when updating %s: %s", config_file_path, e)
-            config_data = {}
-        except OSError as e:
-            log.warning("Error reading %s: %s", config_file_path, e)
-            config_data = {}
+        config_data = _load_config_dict(config_file_path, allow_repair=True, persist_repair=False)
     else:
         config_data = {}
     if config_data.get(key) == value:
         return
     config_data[key] = value
     try:
-        with open(config_file_path, "w", encoding="utf-8") as f:
-            json.dump(config_data, f, indent=4)
+        _write_config_file(config_file_path, config_data)
 
-        _cache.data = None
-        _cache.mtime = 0
-        _cache.mtime_last_checked = 0.0
+        _invalidate_config_cache()
 
         global_event_bus.emit("config:changed", ctx=ctx)
 
@@ -635,12 +740,9 @@ def remove_config(ctx, key):
         return
     config_data.pop(key, None)
     try:
-        with open(config_file_path, "w", encoding="utf-8") as f:
-            json.dump(config_data, f, indent=4)
+        _write_config_file(config_file_path, config_data)
 
-        _cache.data = None
-        _cache.mtime = 0
-        _cache.mtime_last_checked = 0.0
+        _invalidate_config_cache()
 
         global_event_bus.emit("config:changed", ctx=ctx)
 
@@ -778,11 +880,15 @@ def _get_validated_config_dict(ctx):
         return _cache.data
 
     try:
-        with open(config_file_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        data = _load_config_dict(config_file_path, allow_repair=True, persist_repair=True)
 
         if not isinstance(data, dict):
             raise ConfigError("Config must be a JSON object", "CONFIG_INVALID_FORMAT")
+
+        try:
+            current_mtime = os.path.getmtime(config_file_path)
+        except OSError:
+            current_mtime = 0
 
         # Perform validation when config is loaded
         config = WriterAgentConfig.from_dict(data)
@@ -793,8 +899,8 @@ def _get_validated_config_dict(ctx):
         _cache.data = out
         _cache.mtime = current_mtime
         return out
-    except json.JSONDecodeError as e:
-        log.error("Invalid JSON in %s: %s", config_file_path, e)
+    except ConfigError as e:
+        log.error("Config error reading %s: %s", config_file_path, e)
         return {}
     except OSError as e:
         log.error("Error reading %s: %s", config_file_path, e)

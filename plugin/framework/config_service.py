@@ -23,6 +23,8 @@ from plugin.framework.config import (
     get_config_dict,
     get_current_endpoint,
     set_api_key_for_endpoint,
+    _load_config_dict,
+    _write_config_file,
     AI_SIMPLE_FIELDS,
 )
 from plugin.framework.client.model_fetcher import set_image_model
@@ -232,19 +234,13 @@ class ConfigService(ServiceBase):
 
         # Test fallback
         if self._config_path:
-            data = {}
             if os.path.exists(self._config_path):
-                try:
-                    with open(self._config_path, "r", encoding="utf-8") as f:
-                        data = json.load(f)
-                    if not isinstance(data, dict):
-                        data = {}
-                except (OSError, json.JSONDecodeError) as e:
-                    log.debug("ConfigService.set config file load error: %s", e)
+                data = _load_config_dict(self._config_path, allow_repair=True, persist_repair=False)
+            else:
+                data = {}
             data[key] = value
             try:
-                with open(self._config_path, "w", encoding="utf-8") as f:
-                    json.dump(data, f)
+                _write_config_file(self._config_path, data)
             except OSError as e:
                 log.error("ConfigService.set config file save error: %s", e)
 

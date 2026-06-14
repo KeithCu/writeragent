@@ -187,8 +187,12 @@ def _filter_fetched_models(models: list[str], req_cap: str) -> list[str]:
             if any(kw in m_lower for kw in include):
                 out.append(m)
     else:
-        # Audio/STT or other: no filtering yet
-        out = list(models)
+        # Audio/STT: name heuristics for local /v1/models (hosted catalogs lack modality).
+        include = {"whisper", "voxtral", "parakeet", "transcribe", "speech"}
+        for m in models:
+            m_lower = m.lower()
+            if any(kw in m_lower for kw in include):
+                out.append(m)
     return out
 
 
@@ -212,10 +216,18 @@ def get_endpoint_presets():
 def get_model_capability(ctx, model_id, endpoint):
     """Check the model catalog for capabilities bitmask."""
     provider = get_provider_from_endpoint(endpoint)
+    model_id = str(model_id or "").strip()
     # Check DEFAULT_MODELS for this ID/provider
     for m in DEFAULT_MODELS:
         effective_id = resolve_model_id(m, provider)
-        if effective_id == model_id:
+        if not effective_id:
+            continue
+        if provider == "openrouter":
+            from plugin.framework.openrouter_model_id import openrouter_model_ids_equivalent
+
+            if openrouter_model_ids_equivalent(effective_id, model_id):
+                return m.get("capability", ModelCapability.CHAT)
+        elif effective_id == model_id:
             return m.get("capability", ModelCapability.CHAT)
     return ModelCapability.NONE
 

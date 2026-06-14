@@ -137,16 +137,16 @@ def test_resolve_run_script_selection_uses_config_default():
     doc = MagicMock()
     saved = {
         "Hello WriterAgent": "result = 'hello'",
-        "PrimeGaps": "result = 'gaps'",
+        "Prime Numbers": "result = 'gaps'",
     }
-    with patch("plugin.framework.config.get_config_str", return_value="PrimeGaps"), patch(
+    with patch("plugin.framework.config.get_config_str", return_value="Prime Numbers"), patch(
         "plugin.scripting.python_runner.resolve_run_script_name_config_key",
         return_value="last_python_script_name_writer",
     ):
         name, code, merged = resolve_run_script_selection(ctx, doc, saved)
-    assert name == "PrimeGaps"
+    assert name == "Prime Numbers"
     assert code == "result = 'gaps'"
-    assert merged["PrimeGaps"] == "result = 'gaps'"
+    assert merged["Prime Numbers"] == "result = 'gaps'"
 
 
 def test_resolve_run_script_selection_falls_back_to_first_name():

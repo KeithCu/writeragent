@@ -374,7 +374,7 @@ class LlmClient:
         self._close_connection()
 
     def _endpoint(self):
-        return self.config.get("endpoint", "http://127.0.0.1:5000")
+        return self.config.get("endpoint", "http://localhost:11434")
 
     def _api_path(self):
         return get_api_version_suffix(self._endpoint(), is_openwebui=self.config.get("is_openwebui"))

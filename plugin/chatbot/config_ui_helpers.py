@@ -6,7 +6,9 @@ from plugin.framework.config import (
     get_config,
     set_config,
     get_current_endpoint,
+    get_api_key_for_endpoint,
 )
+from plugin.framework.client.auth import provider_requires_api_key
 from plugin.framework.client.model_fetcher import (
     get_provider_from_endpoint,
     get_image_model,
@@ -40,6 +42,16 @@ def _default_model_row_matches_combo(capability: Any, req_cap: str) -> bool:
     return False
 
 
+def _catalog_mid_matches(model_id: str, catalog_mid: str, provider: str | None) -> bool:
+    if catalog_mid == model_id:
+        return True
+    if provider == "openrouter":
+        from plugin.framework.openrouter_model_id import openrouter_model_ids_equivalent
+
+        return openrouter_model_ids_equivalent(catalog_mid, model_id)
+    return False
+
+
 def _is_model_id_associated_with_other_provider(model_id: str, current_provider: str | None) -> bool:
     """True if model_id is a known default for SOME provider, but NOT the current_provider.
 
@@ -58,89 +70,231 @@ def _is_model_id_associated_with_other_provider(model_id: str, current_provider:
     for m in DEFAULT_MODELS:
         ids = m.get("ids", {})
         for pid, mid in ids.items():
-            if mid == model_id:
-                if pid == current_provider:
-                    is_known_here = True
-                else:
-                    is_known_elsewhere = True
+            if not _catalog_mid_matches(model_id, str(mid), pid if pid == "openrouter" else None):
+                continue
+            if pid == current_provider:
+                is_known_here = True
+            else:
+                is_known_elsewhere = True
 
     # If it's a known model for others but NOT known for us, it's probably a 'stray'
     return is_known_elsewhere and not is_known_here
 
 
-def populate_combobox_with_lru(ctx, ctrl, current_val, lru_key, endpoint, *, remote_models: list[str] | None = None, skip_remote_fetch: bool = False):
+def _model_known_for_provider(model_id: str, provider: str | None) -> bool:
+    if not model_id or not provider:
+        return False
+    for m in DEFAULT_MODELS:
+        ids = m.get("ids", {})
+        mid = ids.get(provider)
+        if mid and _catalog_mid_matches(model_id, str(mid), provider if provider == "openrouter" else None):
+            return True
+    return False
+
+
+def _is_incompatible_model_for_provider(model_id: str, provider: str | None) -> bool:
+    """True when model_id should not appear on this provider's combobox."""
+    if not model_id or not provider:
+        return False
+    if _is_model_id_associated_with_other_provider(model_id, provider):
+        return True
+    # Hosted slug providers use org/model ids; bare names are typical local Ollama picks.
+    if provider_requires_api_key(provider) and "/" not in model_id:
+        return True
+    return False
+
+
+def _filter_models_for_provider(models: list[str], provider: str | None) -> list[str]:
+    return [mid for mid in models if not _is_incompatible_model_for_provider(mid, provider)]
+
+
+def _effective_api_key(ctx, endpoint: str, api_key_override: str | None) -> str:
+    if api_key_override is not None:
+        return str(api_key_override).strip()
+    return str(get_api_key_for_endpoint(ctx, endpoint) or "").strip()
+
+
+_MODEL_COMBO_PLACEHOLDER_MSGIDS = (
+    "(Enter API Key to load models)",
+    "(Connection failed)",
+    "(No image models on this endpoint)",
+)
+
+
+def _is_model_combobox_placeholder(val: str) -> bool:
+    text = str(val or "").strip()
+    if not text:
+        return False
+    from plugin.framework.i18n import _
+
+    for msgid in _MODEL_COMBO_PLACEHOLDER_MSGIDS:
+        if text == msgid or text == _(msgid):
+            return True
+    return False
+
+
+def _sanitize_model_combobox_value(val: str) -> str:
+    """Drop Settings combobox placeholder strings; they are not real model ids."""
+    cleaned = str(val or "").strip()
+    return "" if _is_model_combobox_placeholder(cleaned) else cleaned
+
+
+def _resolve_display_model_for_combobox(
+    curr_val_str: str,
+    is_incompatible: bool,
+    to_show: list[str],
+    provider: str | None,
+    req_cap: str,
+) -> str:
+    """Pick combobox display value: keep valid current, else curated default, else first item."""
+    if curr_val_str and not is_incompatible:
+        return curr_val_str
+    if not to_show:
+        return ""
+    first = to_show[0]
+    if _is_model_combobox_placeholder(first):
+        return first
+
+    preferred = ""
+    if provider and req_cap in ("text", "audio"):
+        from plugin.framework.default_models import get_provider_defaults
+
+        key = "text_model" if req_cap == "text" else "stt_model"
+        preferred = str(get_provider_defaults(provider).get(key, "") or "").strip()
+
+    if preferred:
+        for mid in to_show:
+            if provider == "openrouter":
+                from plugin.framework.openrouter_model_id import openrouter_model_ids_equivalent
+
+                if openrouter_model_ids_equivalent(mid, preferred):
+                    return preferred if preferred in to_show else mid
+            elif mid == preferred:
+                return mid
+
+    return first
+
+
+def _merge_provider_default_models(to_show: list[str], provider: str, req_cap: str) -> None:
+    """Append curated default model ids for this provider/capability."""
+    for m in DEFAULT_MODELS:
+        capability = m.get("capability", ModelCapability.CHAT)
+        if not _default_model_row_matches_combo(capability, req_cap):
+            continue
+        is_default = False
+        if req_cap == "text" and m.get("default_text"):
+            is_default = True
+        elif req_cap == "image" and m.get("default_image"):
+            is_default = True
+        elif req_cap == "audio" and m.get("default_audio"):
+            is_default = True
+        if not is_default:
+            continue
+        effective_id = resolve_model_id(m, provider)
+        if effective_id and effective_id not in to_show:
+            to_show.append(effective_id)
+
+
+def populate_combobox_with_lru(
+    ctx,
+    ctrl,
+    current_val,
+    lru_key,
+    endpoint,
+    *,
+    remote_models: list[str] | None = None,
+    skip_remote_fetch: bool = False,
+    api_key_override: str | None = None,
+):
     """Helper to populate a combobox with values from an LRU list in config.
     LRU is scoped to the provided endpoint.
     Merges relevant default models based on the capability inferred from lru_key.
     Returns the value set.
 
-    remote_models: when set, use as /v1/models IDs for **text** comboboxes only (skip internal fetch).
+    remote_models: when set, use as /v1/models IDs (skip internal fetch).
     skip_remote_fetch: when True, never call fetch_available_models (LRU + provider defaults).
+    api_key_override: live Settings field value; wins over saved config for auth gating.
     """
+    provider = get_provider_from_endpoint(endpoint)
+    req_cap = "image" if "image" in lru_key.lower() else "audio" if "audio" in lru_key.lower() or "stt" in lru_key.lower() else "text"
+    effective_key = _effective_api_key(ctx, endpoint, api_key_override)
+    auth_blocked = bool(provider and provider_requires_api_key(provider) and not effective_key and remote_models is None)
+
     scoped_key = f"{lru_key}@{endpoint}" if endpoint else lru_key
     lru = get_config(ctx, scoped_key)
     if not isinstance(lru, list):
         lru = []
 
-    provider = get_provider_from_endpoint(endpoint)
-    req_cap = "image" if "image" in lru_key.lower() else "audio" if "audio" in lru_key.lower() or "stt" in lru_key.lower() else "text"
+    fetch_succeeded = False
+    to_show: list[str] = []
+    if not auth_blocked:
+        lru_clean = [m for m in lru if not _is_model_combobox_placeholder(str(m))]
+        to_show = _filter_models_for_provider(lru_clean, provider)
 
-    to_show = list(lru)
+        # We do NOT inline-fetch for known massive providers (openrouter, together).
+        massive_providers = {"openrouter", "together"}
+        fetched_models: list[str] | None = None
+        if remote_models is not None:
+            # OpenRouter/Together /v1/models has no audio modality; curated STT list only.
+            if not (req_cap == "audio" and provider in massive_providers):
+                fetch_succeeded = True
+                fetched_models = remote_models
+        elif skip_remote_fetch:
+            fetched_models = None
+        elif endpoint and (not provider or provider not in massive_providers):
+            fetched_models = fetch_available_models(endpoint, ctx, api_key_override=api_key_override)
+            fetch_succeeded = fetched_models is not None
 
-    # For text models, determine if we should fetch from the API.
-    # We do NOT fetch for known massive providers (openrouter, together).
-    massive_providers = {"openrouter", "together"}
-    fetched_models: list[str] | None = None
-    if remote_models is not None:
-        if req_cap == "text":
-            fetched_models = remote_models
-    elif skip_remote_fetch:
-        fetched_models = None
-    elif endpoint and (not provider or provider not in massive_providers):
-        fetched_models = fetch_available_models(endpoint, ctx)
+        if fetched_models is not None:
+            filtered = _filter_fetched_models(fetched_models, req_cap)
+            for mid in _filter_models_for_provider(filtered, provider):
+                if mid not in to_show:
+                    to_show.append(mid)
 
-    if fetched_models is not None:
-        filtered = _filter_fetched_models(fetched_models, req_cap)
-        for mid in filtered:
-            if mid not in to_show:
-                to_show.append(mid)
-    else:
-        # Merge defaults into the list if no fetching was done or fetching failed
         if provider:
-            for m in DEFAULT_MODELS:
-                capability = m.get("capability", ModelCapability.CHAT)
-                if not _default_model_row_matches_combo(capability, req_cap):
-                    continue
-                # Only add models that are marked as default for this capability
-                is_default = False
-                if req_cap == "text" and m.get("default_text"):
-                    is_default = True
-                elif req_cap == "image" and m.get("default_image"):
-                    is_default = True
-                elif req_cap == "audio" and m.get("default_audio"):
-                    is_default = True
+            _merge_provider_default_models(to_show, provider, req_cap)
 
-                if is_default:
-                    effective_id = resolve_model_id(m, provider)
-                    if effective_id and effective_id not in to_show:
-                        to_show.append(effective_id)
+    curr_val_str = _sanitize_model_combobox_value(current_val)
+    if not auth_blocked and not curr_val_str and req_cap == "text":
+        if provider:
+            from plugin.framework.default_models import get_provider_defaults
 
-    curr_val_str = str(current_val).strip()
-    # Filter out models that belong to other providers if we are on a specific provider endpoint
-    is_stray = _is_model_id_associated_with_other_provider(curr_val_str, provider)
-    
-    if curr_val_str and not is_stray and curr_val_str not in to_show:
+            curr_val_str = str(get_provider_defaults(provider).get("text_model", "") or "").strip()
+        if not curr_val_str:
+            from plugin.framework.client.model_fetcher import get_text_model
+
+            curr_val_str = _sanitize_model_combobox_value(str(get_text_model(ctx) or ""))
+    elif not auth_blocked and not curr_val_str and req_cap == "audio":
+        if provider:
+            from plugin.framework.default_models import get_provider_defaults
+
+            curr_val_str = str(get_provider_defaults(provider).get("stt_model", "") or "").strip()
+        if not curr_val_str:
+            from plugin.framework.client.model_fetcher import get_stt_model
+
+            curr_val_str = _sanitize_model_combobox_value(str(get_stt_model(ctx) or ""))
+
+    is_incompatible = _is_incompatible_model_for_provider(curr_val_str, provider)
+    if auth_blocked:
+        curr_val_str = ""
+        is_incompatible = True
+
+    if curr_val_str and not is_incompatible and curr_val_str not in to_show:
         to_show.insert(0, curr_val_str)
+
+    to_show = [m for m in _filter_models_for_provider(to_show, provider) if not _is_model_combobox_placeholder(m)]
 
     # If the list is empty (fetch failed and no defaults), add a helpful placeholder
     if not to_show:
         from plugin.framework.i18n import _
-        if provider:
+        if auth_blocked or (provider and provider_requires_api_key(provider) and not fetch_succeeded):
             to_show.append(_("(Enter API Key to load models)"))
+        elif req_cap == "image" and fetch_succeeded:
+            to_show.append(_("(No image models on this endpoint)"))
         else:
             to_show.append(_("(Connection failed)"))
 
-    display_val = curr_val_str if (curr_val_str and not is_stray) else (to_show[0] if to_show else "")
+    display_val = _resolve_display_model_for_combobox(curr_val_str, is_incompatible, to_show, provider, req_cap)
 
     if to_show:
         ctrl.removeItems(0, ctrl.getItemCount())
@@ -277,7 +431,15 @@ def get_image_model_options(services):
         options.append({"value": mid_str, "label": mid_str})
     return options
 
-def populate_image_model_selector(ctx, ctrl, override_endpoint=None, *, remote_models: list[str] | None = None, skip_remote_fetch: bool = False):
+def populate_image_model_selector(
+    ctx,
+    ctrl,
+    override_endpoint=None,
+    *,
+    remote_models: list[str] | None = None,
+    skip_remote_fetch: bool = False,
+    api_key_override: str | None = None,
+):
     """Adaptive population of image model selector (ComboBox) based on provider."""
     if not ctrl:
         return ""
@@ -292,4 +454,13 @@ def populate_image_model_selector(ctx, ctrl, override_endpoint=None, *, remote_m
         return current_image_model
     current_image_model = get_image_model(ctx)
     endpoint = override_endpoint if override_endpoint is not None else get_current_endpoint(ctx)
-    return populate_combobox_with_lru(ctx, ctrl, current_image_model, "image_model_lru", endpoint, remote_models=remote_models, skip_remote_fetch=skip_remote_fetch)
+    return populate_combobox_with_lru(
+        ctx,
+        ctrl,
+        current_image_model,
+        "image_model_lru",
+        endpoint,
+        remote_models=remote_models,
+        skip_remote_fetch=skip_remote_fetch,
+        api_key_override=api_key_override,
+    )

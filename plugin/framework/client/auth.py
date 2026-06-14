@@ -100,6 +100,16 @@ def _resolve_provider_id(endpoint: str, provider_hint: Optional[str] = None) -> 
     return "custom"
 
 
+def provider_requires_api_key(provider_id: str | None) -> bool:
+    """True when a known provider expects an API key (Bearer / x-api-key), not local/anonymous."""
+    if not provider_id or provider_id == "custom":
+        return False
+    provider_cfg = PROVIDERS.get(provider_id)
+    if not provider_cfg:
+        return False
+    return provider_cfg.header_style != "none"
+
+
 def resolve_auth_for_config(api_config: Dict[str, Any]) -> Dict[str, Any]:
     """
     Resolve auth information from an API config dict.

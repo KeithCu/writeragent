@@ -80,9 +80,9 @@ class TestPythonRunnerConfig(unittest.TestCase):
     def test_config_defaults(self):
         from plugin.framework.config import WriterAgentConfig
         config = WriterAgentConfig()
-        self.assertEqual(config.last_python_script_name_writer, "PrimeGaps")
-        self.assertEqual(config.last_python_script_name_calc, "PrimeGaps")
-        self.assertEqual(config.last_python_script_name_draw, "PrimeGaps")
+        self.assertEqual(config.last_python_script_name_writer, "Prime Numbers")
+        self.assertEqual(config.last_python_script_name_calc, "Prime Numbers")
+        self.assertEqual(config.last_python_script_name_draw, "Prime Numbers")
 
 if __name__ == '__main__':
     unittest.main()

@@ -23,7 +23,7 @@ from plugin.framework.errors import format_error_payload, UnoObjectError
 from plugin.framework.uno_context import get_active_document, get_desktop, get_extension_url, get_toolkit
 from plugin.framework.i18n import _
 from plugin.framework.config import get_config, get_current_endpoint, set_config, get_config_str, as_bool, parse_int_robust, parse_float_robust
-from plugin.framework.client.model_fetcher import get_text_model
+from plugin.framework.client.model_fetcher import get_text_model, get_stt_model
 from plugin.framework.logging import init_logging
 from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru, update_lru_history
 from plugin.chatbot.history_db import HAS_SQLITE
@@ -120,6 +120,7 @@ class SettingsDialog:
 
             self._setup_tabs()
             self._populate_fields(field_specs, current_endpoint)
+            self._schedule_initial_models_fetch(current_endpoint)
             self._apply_sqlite_restrictions()
             
             translate_dialog(self._dlg)
@@ -172,11 +173,19 @@ class SettingsDialog:
         except Exception:
             pass
 
+    def _api_key_from_field_specs(self, field_specs):
+        for field in field_specs:
+            if field.get("name") == "api_key":
+                return str(field.get("value") or "")
+        return ""
+
     def _populate_fields(self, field_specs, current_endpoint):
         assert self._dlg is not None
         from plugin.chatbot.config_ui_helpers import (
             populate_combobox_with_lru, populate_image_model_selector, populate_endpoint_selector
         )
+
+        api_key_val = self._api_key_from_field_specs(field_specs)
 
         for field in field_specs:
             ctrl = self._dlg.getControl(field["name"])
@@ -187,11 +196,17 @@ class SettingsDialog:
             val = field["value"]
 
             if name == "text_model":
-                populate_combobox_with_lru(self._ctx, ctrl, val, "model_lru", current_endpoint)
+                populate_combobox_with_lru(
+                    self._ctx, ctrl, val, "model_lru", current_endpoint, api_key_override=api_key_val,
+                )
             elif name == "image_model":
-                populate_image_model_selector(self._ctx, ctrl)
+                populate_image_model_selector(
+                    self._ctx, ctrl, override_endpoint=current_endpoint, api_key_override=api_key_val,
+                )
             elif name == "stt_model":
-                populate_combobox_with_lru(self._ctx, ctrl, val, "audio_model_lru", current_endpoint)
+                populate_combobox_with_lru(
+                    self._ctx, ctrl, val, "audio_model_lru", current_endpoint, api_key_override=api_key_val,
+                )
             elif name == "additional_instructions":
                 populate_combobox_with_lru(self._ctx, ctrl, val, "prompt_lru", "")
             elif name == "endpoint":
@@ -201,6 +216,21 @@ class SettingsDialog:
                 populate_combobox_with_lru(self._ctx, ctrl, val, "image_base_size_lru", "")
             else:
                 self._populate_generic_field(ctrl, field)
+
+    def _schedule_initial_models_fetch(self, endpoint):
+        """OpenRouter/Together skip inline fetch; load full catalog when a saved key exists."""
+        from plugin.framework.config import get_api_key_for_endpoint
+        from plugin.framework.client.model_fetcher import get_provider_from_endpoint
+
+        listener = self._endpoint_listener
+        if not listener or not endpoint:
+            return
+        provider = get_provider_from_endpoint(endpoint)
+        if provider not in {"openrouter", "together"}:
+            return
+        if not str(get_api_key_for_endpoint(self._ctx, endpoint) or "").strip():
+            return
+        listener._schedule_debounced_models_fetch()
 
     def _populate_generic_field(self, ctrl, field):
         if is_checkbox_control(ctrl):
@@ -501,10 +531,12 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         from plugin.framework.worker_pool import run_in_background
         from plugin.framework.config import get_api_key_for_endpoint
         from plugin.chatbot.config_ui_helpers import (
-            populate_combobox_with_lru, populate_image_model_selector, endpoint_from_selector_text
+            populate_combobox_with_lru, populate_image_model_selector, endpoint_from_selector_text,
+            _sanitize_model_combobox_value,
         )
         from plugin.framework.client.model_fetcher import (
-            endpoint_url_suitable_for_v1_models_fetch, fetch_available_models
+            endpoint_url_suitable_for_v1_models_fetch, fetch_available_models, _filter_fetched_models,
+            get_provider_from_endpoint, get_image_model,
         )
 
         self._dlg = dialog
@@ -522,6 +554,80 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         self.endpoint_from_selector_text = endpoint_from_selector_text
         self.endpoint_url_suitable_for_v1_models_fetch = endpoint_url_suitable_for_v1_models_fetch
         self.fetch_available_models = fetch_available_models
+        self._filter_fetched_models = _filter_fetched_models
+        self._sanitize_model_combobox_value = _sanitize_model_combobox_value
+        self.get_provider_from_endpoint = get_provider_from_endpoint
+        self.get_image_model = get_image_model
+
+    def _live_api_key(self):
+        ak_ctrl = get_optional(self._dlg, "api_key")
+        return str(get_control_text(ak_ctrl)) if ak_ctrl else ""
+
+    def _apply_dropdowns(self, resolved, models=None, skip_fetch=False):
+        api_key_ov = self._live_api_key()
+        populate_kw = {"api_key_override": api_key_ov, "skip_remote_fetch": skip_fetch}
+        resolved_provider = self.get_provider_from_endpoint(resolved)
+        saved_provider = self.get_provider_from_endpoint(get_current_endpoint(self._ctx))
+        same_provider = bool(resolved_provider and resolved_provider == saved_provider)
+
+        text_ctrl = get_optional(self._dlg, "text_model")
+        if text_ctrl:
+            current = self._sanitize_model_combobox_value(str(text_ctrl.getText() or ""))
+            if not current:
+                current = get_text_model(self._ctx) if same_provider else ""
+            self.populate_combobox_with_lru(
+                self._ctx,
+                text_ctrl,
+                current,
+                "model_lru",
+                resolved,
+                remote_models=models,
+                **populate_kw,
+            )
+
+        stt_ctrl = get_optional(self._dlg, "stt_model")
+        if stt_ctrl:
+            stt_val = self._sanitize_model_combobox_value(str(stt_ctrl.getText() or ""))
+            if not stt_val:
+                if same_provider:
+                    stt_val = str(get_config(self._ctx, "stt_model") or get_stt_model(self._ctx) or "")
+                else:
+                    stt_val = ""
+            stt_remote = None if resolved_provider in {"openrouter", "together"} else models
+            self.populate_combobox_with_lru(
+                self._ctx,
+                stt_ctrl,
+                stt_val,
+                "audio_model_lru",
+                resolved,
+                remote_models=stt_remote,
+                **populate_kw,
+            )
+
+        image_ctrl = get_optional(self._dlg, "image_model")
+        if image_ctrl:
+            if get_config_str(self._ctx, "image_provider") == "endpoint":
+                image_models = self._filter_fetched_models(models, "image") if models is not None else None
+                image_val = self._sanitize_model_combobox_value(str(image_ctrl.getText() or ""))
+                if not image_val:
+                    image_val = str(self.get_image_model(self._ctx) or "")
+                self.populate_combobox_with_lru(
+                    self._ctx,
+                    image_ctrl,
+                    image_val,
+                    "image_model_lru",
+                    resolved,
+                    remote_models=image_models,
+                    **populate_kw,
+                )
+            else:
+                self.populate_image_model_selector(
+                    self._ctx,
+                    image_ctrl,
+                    override_endpoint=resolved,
+                    api_key_override=api_key_ov,
+                    skip_remote_fetch=skip_fetch,
+                )
 
     def close(self):
         self._closed = True
@@ -536,24 +642,12 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         if ak_ctrl:
             set_control_text(ak_ctrl, self.get_api_key_for_endpoint(self._ctx, resolved))
 
-    def _apply_dropdowns(self, resolved, models=None, skip_fetch=False):
-        text_ctrl = get_optional(self._dlg, "text_model")
-        if text_ctrl:
-            self.populate_combobox_with_lru(self._ctx, text_ctrl, "", "model_lru", resolved, remote_models=models, skip_remote_fetch=skip_fetch)
-        
-        image_ctrl = get_optional(self._dlg, "image_model")
-        if image_ctrl:
-            if get_config_str(self._ctx, "image_provider") == "endpoint":
-                self.populate_combobox_with_lru(self._ctx, image_ctrl, "", "image_model_lru", resolved, skip_remote_fetch=skip_fetch)
-            else:
-                self.populate_image_model_selector(self._ctx, image_ctrl)
-
     def _bg_fetch(self, gen, resolved):
         if self._closed or gen != self._debounce_gen: return
-        
+
         ak_ctrl = get_optional(self._dlg, "api_key")
         key_ov = str(get_control_text(ak_ctrl)) if ak_ctrl else None
-        
+
         models = None
         if resolved and self.endpoint_url_suitable_for_v1_models_fetch(resolved):
             models = self.fetch_available_models(resolved, self._ctx, api_key_override=key_ov)
@@ -596,6 +690,9 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         resolved = self.endpoint_from_selector_text(self._ctrl.getText())
         if resolved:
             self._sync_api_key()
+            provider = self.get_provider_from_endpoint(resolved)
+            skip_sync_fetch = provider in {"openrouter", "together"}
+            self._apply_dropdowns(resolved, models=None, skip_fetch=skip_sync_fetch)
             self.run_in_background(lambda: self._bg_fetch(self._debounce_gen, resolved), name="settings-select")
 
 

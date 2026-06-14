@@ -229,21 +229,25 @@ WriterAgent is engineered for professional-grade reliability, moving beyond simp
 - **Async Threading**: A custom worker-pool and queue system keep the LibreOffice UI responsive during heavy reasoning. [Streaming & Threading](docs/streaming-and-threading.md) & [Threading Architecture](docs/threading_architecture.md).
 - **Static Analysis**: [Type Checking](docs/type-checking.md) with (`ty`, `Mypy`, and `Pyright`).
 
-- **Comprehensive Test Suite**: Over 500 tests ensuring stability. [Test Architecture](docs/test_architecture_analysis.md).
+- **Comprehensive Test Suite**: Thousands of tests ensuring stability. [Test Architecture](docs/test_architecture_analysis.md).
 
 
 ---
 
 ## Roadmap & Future Vision
 
-Our primary focus is deep **LibreOffice Fidelity**—systematically closing the gap between the AI's capabilities and the full breadth of the UNO API to ensure the agent can manipulate every professional feature the suite offers.
+> **Help us improve.** WriterAgent is actively used and heavily tested (thousands of automated tests), with architecture aimed at professional reliability. Even so, the problem space is enormous: LibreOffice’s feature set and UNO API, dozens of LLM backends and models, multiple operating systems, 34 locales, and a growing feature set in Writer, Calc, and Draw. You may hit a rough edge—a model that formats tool calls oddly, a Calc formula path that isn't  covered, or a locale-specific quirk. Even a star helps.
+>
+> **We especially welcome people who like to explore and either :** file a [GitHub issue](https://github.com/KeithCu/writeragent/issues) with steps to reproduce, or open a PR. Curious tinkerers are valuable and there is documentation on every feature. If you use Python in LibreOffice (`=PY()` / `=PYTHON()`, etc.), we’d love your input on any holes.
 
-Our application-specific roadmap is focused on closing the remaining gaps in the LibreOffice API surface:
+The primary focus is deep **LibreOffice Fidelity**—systematically closing the gap between the AI's capabilities and the full breadth of the UNO API to ensure the agent can manipulate every professional feature the suite offers.
 
-- **🖋️ Writer**: We are expanding from text and style management into complex document automation, including **Mail Merge** (CSV/DB/Sheets), **Bibliographies**, and **Watermark** support. We are also evolving our **Sections** tools from read-only navigation to a full lifecycle suite (multi-column layouts, conditional visibility, and password protection).
-- **📊 Calc**: Beyond cell and sheet manipulation, we are targeting advanced data modeling. This includes **Macros & VBA compatibility**, **Scenarios (what-if analysis)**, and **External Data** integration (SQL/Web queries). We are also working toward interactive controls like **Table Slicers**, comprehensive **Sheet Protection**, and [**Python/NumPy**](docs/enabling_numpy_in_libreoffice.md) support.
+The application-specific roadmap is focused on closing the remaining gaps in the LibreOffice API surface:
 
-- **🎨 Draw & Impress**: We are moving toward full presentation mastery by adding support for **Slide Animations**, **Layer Management**, and **Slide Show Controls**. High-priority multimedia support, including **Audio/Video insertion** and **3D Shape** manipulation, will round out the creative suite.
+- **🖋️ Writer**: This is expanding from text and style management into complex document automation, including **Mail Merge** (CSV/DB/Sheets), **Bibliographies**, and **Watermark** support. We are also evolving our **Sections** tools from read-only navigation to a full lifecycle suite (multi-column layouts, conditional visibility, and password protection).
+- **📊 Calc**: Beyond cell and sheet manipulation, this is targeting advanced data modeling. This includes **Macros & VBA compatibility**, **Scenarios (what-if analysis)**, and **External Data** integration (SQL/Web queries). We are also working toward interactive controls like **Table Slicers**, comprehensive **Sheet Protection**, and [**Python/NumPy**](docs/enabling_numpy_in_libreoffice.md) support.
+
+- **🎨 Draw & Impress**: This is moving toward full presentation mastery by adding support for **Slide Animations**, **Layer Management**, and **Slide Show Controls**. High-priority multimedia support, including **Audio/Video insertion** and **3D Shape** manipulation, will round out the creative suite.
 
 **Cross-document reads (shipped):** Sidebar chat can already discover and read sibling Writer, Calc, and Draw files in the same folder as your saved document (see [multi-document plan](docs/multi-document-dev-plan.md)). Still ahead: configurable extra directories, `@` mention UI, headless opens, and broader directory-wide synthesis.
 
@@ -259,7 +263,7 @@ WriterAgent stands on the shoulders of giants. We'd like to give credit to:
 |---------|--------------|
 | **[LibreCalc AI Assistant](https://extensions.libreoffice.org/en/extensions/show/99509)** | AI support for LibreOffice Calc provided the foundation and inspiration for our integration |
 | **[LibreOffice MCP Extension](https://github.com/quazardous/mcp-libre)** | Embedded MCP server reference; we used their Makefile system, modular discoverable service registry, and tool registry |
-| **[Hermes Agent](https://github.com/NousResearch/hermes-agent)** | Client-side tool call parsers and JSON repair |
+| **[Hermes Agent](https://github.com/NousResearch/hermes-agent)** | Client-side tool call parsers and JSON repair, memory, humanizer skill, CDP support |
 | **[latex2mathml](https://github.com/roniemartinez/latex2mathml)** | Converts LaTeX to MathML |
 
 ---

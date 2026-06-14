@@ -45,7 +45,7 @@ def test_run_python_dialog_uses_monaco_when_available():
                                         pr.run_python_dialog()
 
     mock_monaco.assert_called_once()
-    assert mock_monaco.call_args.kwargs["initial_code"].startswith("# A simple hello")
+    assert mock_monaco.call_args.kwargs["initial_code"].startswith("# Calculate primes")
     mock_native.assert_not_called()
 
 
@@ -87,20 +87,20 @@ def test_run_python_monaco_on_save_persists_and_executes():
     with patch.object(pr, "launch_monaco_editor", side_effect=fake_launch):
         with patch.object(pr, "set_config") as mock_set:
             with patch.object(pr, "execute_and_insert_result", return_value={"ok": True, "status_ok_text": "done"}):
-                with patch.object(pr, "get_config_str", return_value="PrimeGaps"):
-                    with patch("plugin.framework.config.get_config", return_value={"PrimeGaps": "print(1)"}):
+                with patch.object(pr, "get_config_str", return_value="Prime Numbers"):
+                    with patch("plugin.framework.config.get_config", return_value={"Prime Numbers": "print(1)"}):
                         ok = pr._run_python_monaco(
                             ctx,
                             doc,
                             initial_code="result = 1",
-                            selected_script_name="PrimeGaps",
+                            selected_script_name="Prime Numbers",
                             exe="/venv/bin/python",
                         )
 
                         assert ok is True
                         load = captured["load_message"]
                         assert load["mode"] == "run_script"
-                        assert load["selected_script_name"] == "PrimeGaps"
+                        assert load["selected_script_name"] == "Prime Numbers"
                         assert load["run_label"] is not None
                         assert load["save_label"] is not None
                         assert load["close_label"] is not None
@@ -108,7 +108,7 @@ def test_run_python_monaco_on_save_persists_and_executes():
                         assert load["show_data_binding"] is False
 
                         response = captured["on_save"]("result = 2", False, None, "run")
-                        mock_set.assert_called_with(ctx, "saved_python_scripts", {"PrimeGaps": "result = 2"})
+                        mock_set.assert_called_with(ctx, "saved_python_scripts", {"Prime Numbers": "result = 2"})
                         assert response == {"type": "saved", "ok": True, "status_ok_text": "done"}
 
                         save_response = captured["on_save"]("result = 3", False, None, "save")

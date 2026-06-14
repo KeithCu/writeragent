@@ -27,6 +27,7 @@ from scripts.lib.orca_catalog import (  # noqa: E402
     slim_catalog_payload,
 )
 from plugin.framework.constants import ModelCapability  # noqa: E402
+from plugin.framework.openrouter_model_id import resolve_openrouter_catalog_id  # noqa: E402
 
 DEFAULT_MODELS_PATH = os.path.join(PROJECT_ROOT, "plugin", "framework", "default_models.py")
 # Generated slim catalog (not shipped in the .oxt; used for offline sync fallback + dev reference)
@@ -174,11 +175,12 @@ def merge_defaults_for_openrouter(
         oid = ids.get("openrouter")
         if not oid:
             continue
-        slim = slim_by_id.get(str(oid))
+        catalog_key = resolve_openrouter_catalog_id(str(oid), slim_by_id.keys())
+        slim = slim_by_id.get(catalog_key)
         if slim is None:
             msg = (
                 f"No Orca entry for openrouter id {oid!r} "
-                f"({entry.get('display_name', '?')})"
+                f"(catalog key {catalog_key!r}; {entry.get('display_name', '?')})"
             )
             if strict:
                 raise SystemExit(msg)

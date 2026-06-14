@@ -20,6 +20,14 @@ class TestGetProviderDefaults(unittest.TestCase):
         self.assertEqual(mm["ids"]["together"], "MiniMaxAI/MiniMax-M2.7")
         self.assertEqual(mm["context_length"], 197000)
 
+    def test_openrouter_default_text_model_uses_nitro(self):
+        d = get_provider_defaults("openrouter")
+        self.assertEqual(d.get("text_model"), "openai/gpt-oss-120b:nitro")
+
+    def test_openrouter_default_stt_model_uses_voxtral(self):
+        d = get_provider_defaults("openrouter")
+        self.assertEqual(d.get("stt_model"), "mistralai/voxtral-mini-transcribe")
+
 
 if __name__ == "__main__":
     unittest.main()

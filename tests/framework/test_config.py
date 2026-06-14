@@ -4,7 +4,16 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
-from plugin.framework.config import get_api_key_for_endpoint, set_api_key_for_endpoint, get_config, get_config_bool, get_config_int, set_config
+from plugin.framework.config import (
+    CONFIG_BACKUP_SUFFIX,
+    get_api_key_for_endpoint,
+    set_api_key_for_endpoint,
+    get_config,
+    get_config_bool,
+    get_config_int,
+    set_config,
+)
+from plugin.framework.errors import ConfigError
 from plugin.framework.client.model_fetcher import get_image_model, set_image_model
 from plugin.framework.event_bus import global_event_bus
 from plugin.tests.testing_utils import setup_uno_mocks
@@ -122,8 +131,21 @@ class TestConfigSyncFileIO(unittest.TestCase):
     def tearDown(self):
         self.path_patcher.stop()
         self.temp_dir.cleanup()
+        backup_path = self.config_path + CONFIG_BACKUP_SUFFIX
+        if os.path.exists(backup_path):
+            os.remove(backup_path)
         if os.path.exists(self.config_path):
             os.remove(self.config_path)
+
+    def _reset_config_cache(self):
+        import plugin.framework.config as cfg
+
+        cfg._cache.data = None
+        cfg._cache.mtime = 0
+        cfg._cache.mtime_last_checked = 0.0
+
+    def _backup_path(self):
+        return self.config_path + CONFIG_BACKUP_SUFFIX
 
     def test_set_api_key_file_io(self):
         set_api_key_for_endpoint(self.ctx, 'http://api.openai.com', 'sk-1234')
@@ -140,14 +162,51 @@ class TestConfigSyncFileIO(unittest.TestCase):
         self.assertEqual(get_api_key_for_endpoint(self.ctx, 'http://api.missing.com'), '')
 
     def test_corrupt_config_file_io(self):
+        corrupt = '{ invalid json '
         with open(self.config_path, 'w', encoding='utf-8') as f:
-            f.write('{ invalid json ')
+            f.write(corrupt)
+        self._reset_config_cache()
         self.assertEqual(get_api_key_for_endpoint(self.ctx, 'http://api.openai.com'), '')
+        with open(self._backup_path(), 'r', encoding='utf-8') as f:
+            self.assertEqual(f.read(), corrupt)
         set_api_key_for_endpoint(self.ctx, 'http://api.openai.com', 'sk-recovered')
         self.assertEqual(get_api_key_for_endpoint(self.ctx, 'http://api.openai.com'), 'sk-recovered')
         with open(self.config_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
         self.assertEqual(data['api_keys_by_endpoint']['http://api.openai.com'], 'sk-recovered')
+        with open(self._backup_path(), 'r', encoding='utf-8') as f:
+            self.assertEqual(f.read(), corrupt)
+
+    def test_config_trailing_comma_auto_repair(self):
+        broken = '{"text_model": "gpt",}'
+        with open(self.config_path, 'w', encoding='utf-8') as f:
+            f.write(broken)
+        self._reset_config_cache()
+        self.assertEqual(get_config(self.ctx, 'text_model'), 'gpt')
+        with open(self._backup_path(), 'r', encoding='utf-8') as f:
+            self.assertEqual(f.read(), broken)
+        with open(self.config_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        self.assertEqual(data['text_model'], 'gpt')
+
+    def test_config_read_creates_backup_on_failure(self):
+        corrupt = '{ invalid json '
+        with open(self.config_path, 'w', encoding='utf-8') as f:
+            f.write(corrupt)
+        self._reset_config_cache()
+        self.assertEqual(get_config(self.ctx, 'calc_prompt_max_tokens'), 70)
+        self.assertTrue(os.path.exists(self._backup_path()))
+        with open(self.config_path, 'r', encoding='utf-8') as f:
+            self.assertEqual(f.read(), corrupt)
+
+    def test_valid_config_no_backup_on_set(self):
+        with open(self.config_path, 'w', encoding='utf-8') as f:
+            json.dump({'text_model': 'gpt'}, f)
+        self._reset_config_cache()
+        set_config(self.ctx, 'text_model', 'other')
+        self.assertFalse(os.path.exists(self._backup_path()))
+        with open(self.config_path, 'r', encoding='utf-8') as f:
+            self.assertEqual(json.load(f)['text_model'], 'other')
 
     def test_get_config_default_resolution(self):
         if os.path.exists(self.config_path):
@@ -156,7 +215,9 @@ class TestConfigSyncFileIO(unittest.TestCase):
         self.assertEqual(get_config(self.ctx, 'calc_prompt_max_tokens'), 70)
         self.assertEqual(get_config(self.ctx, 'chat_direct_image'), False)
         self.assertEqual(get_config(self.ctx, 'prompt_lru'), [])
-        self.assertEqual(get_config(self.ctx, 'model_lru@http://127.0.0.1:5000'), [])
+        self.assertEqual(get_config(self.ctx, 'endpoint'), 'http://localhost:11434')
+        self.assertEqual(get_config(self.ctx, 'image_provider'), 'endpoint')
+        self.assertEqual(get_config(self.ctx, 'model_lru@http://localhost:11434'), [])
         self.assertEqual(get_config_int(self.ctx, 'extension_update_check_epoch'), 0)
         # Module-yaml keys (no WriterAgentConfig dataclass field; defaults from MODULES schema)
         self.assertEqual(get_config_int(self.ctx, 'web_cache_max_mb'), 50)
