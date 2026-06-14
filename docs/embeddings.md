@@ -1175,21 +1175,27 @@ Default model `all-MiniLM-L6-v2` (384-dim) → **~1.5 KiB per non-empty paragrap
 {"doc_url": "file:///…/notes.odt", "score": 0.85, "snippet": "…passage that was embedded…", "para_index": 12}
 ```
 
-- **`snippet`** — the **full embedded chunk** from `chunks.body` (whitespace-normalized, capped at ingest [`CHUNK_SIZE`](../plugin/embeddings/venv/embeddings_ingest_graph.py) — 512 characters today). This is the same text the vector was computed over, not a short prefix. Inner agent should **`search_in_document`** for this text (or the query topic) after `delegate_read_document`.
+- **`snippet`** — for multi-chunk paragraphs, the **full ODF paragraph** (sibling sub-chunks merged by `para_index`); otherwise the embedded chunk from `chunks.body` (whitespace-normalized, up to [`CHUNK_SIZE`](../plugin/embeddings/embeddings_split.py) — 512 characters). Inner agent should **`search_in_document`** for this text (or the query topic) after `delegate_read_document`.
 - **`para_index`** — weak hint (ODF extract ordinal; may not match LO body enumeration). **Do not** treat as an exact jump target.
 - **`char_start` / `char_end`** — **not** returned in hits (ODF-local sub-chunk offsets; misleading vs live Writer). Still stored in `chunks` for internal `chunk_id` stability.
 
 ### Retrieval quality — shipped vs future {#retrieval-quality}
 
-**Shipped:** hybrid RRF (BM25/NEAR + vec0 kNN) → optional MMR when `k > 1` → return **full matched chunk** in each hit. Vec-only path: bi-encoder kNN → MMR ([`embeddings_search_graph.py`](../plugin/embeddings/venv/embeddings_search_graph.py)).
+**Shipped:**
+
+- Hybrid RRF (BM25/NEAR + vec0 kNN) → **parent-paragraph merge** (sub-chunks collapsed by `para_index`, full paragraph in `snippet`) → optional MMR when `k > 1` ([`embeddings_hybrid_search.py`](../plugin/embeddings/venv/embeddings_hybrid_search.py), [`embeddings_parent_hits.py`](../plugin/embeddings/venv/embeddings_parent_hits.py)).
+- Vec-only path: bi-encoder kNN → parent merge → MMR ([`embeddings_search_graph.py`](../plugin/embeddings/venv/embeddings_search_graph.py)).
+- LlamaIndex path: RRF fusion → parent merge → optional cross-encoder rerank ([`embeddings_llama_index.py`](../plugin/embeddings/venv/embeddings_llama_index.py)).
+- **Cross-encoder rerank** (LlamaIndex, Settings toggle): second-stage `(query, chunk)` scoring after wide retrieve.
+
+Parent merge is query-time SQL over `chunks` — **no re-index** when enabling it. Folder routing top-1 accuracy is unchanged; only `snippet` width and rerank/MMR inputs differ.
 
 **Future (not shipped):**
 
 | Phase | Idea | When to consider |
 |-------|------|------------------|
-| **Parent paragraph expansion** | Index sub-chunks for sharp vectors; return full ODF paragraph on hit (parent-child RAG) | Sub-chunk boundaries still feel too narrow after full-chunk display |
-| **Cross-encoder rerank** | Second-stage `(query, chunk)` scoring in the embeddings venv after wide retrieve | Short identifiers (e.g. library names) rank poorly with bi-encoder alone |
-| **Stronger embedding model** | Settings `embedding_model` → re-index (e.g. `BAAI/bge-small-en-v1.5`) | Before adding rerank complexity |
+| **Stronger embedding model** | Settings `embedding_model` → re-index (e.g. `BAAI/bge-small-en-v1.5`) | When bi-encoder recall is the bottleneck |
+| **Heading-level / section parents** | Parent context above single paragraph (AutoMergingRetriever with section tree) | When paragraph-level context is still too narrow |
 
 Professionals rarely grep hit previews; they align **display size with indexed chunk size** and improve **ranking** (reranker, model) when bi-encoder recall is imprecise.
 
@@ -1590,23 +1596,21 @@ To evaluate and compare the two backends:
    make run_eval EVAL_ARGS="--models your-model-name -n 5 -j 1"
    ```
 
-**Gap (Phase 1):** eval scripts call the `hybrid` path directly today — they do not yet accept `--backend hybrid|llama_index`. Until that lands, A/B comparison requires toggling Settings and re-running the suite manually.
+Both [`eval_folder_search_routing.py`](../scripts/eval_folder_search_routing.py) and [`search_embeddings_folder.py`](../scripts/search_embeddings_folder.py) accept `--backend hybrid|llama_index`. LlamaIndex CLI also supports `--no-mmr` and `--rerank-model` for offline rerank experiments.
 
 ### LlamaIndex roadmap — starting point {#llamaindex-roadmap}
 
 Work below is ordered **incremental fixes first**, then **big advantages** that justify keeping LlamaIndex beyond “another RRF implementation.” Both phases share the same `corpus.db`, tool hit shape, and venv worker boundary.
 
-#### Phase 1 — Incremental fixes (do first)
+#### Phase 1 — Incremental fixes (done)
 
-These unblock measurement and day-to-day use. Without them, LlamaIndex mode is hard to trust or iterate on.
+| # | Item | Status |
+|---|------|--------|
+| 1 | **Eval parity** — `--backend hybrid\|llama_index` on eval + search CLI; A/B table in [Evaluation](#llamaindex-eval) | **Done** |
+| 2 | **Ops gaps** — search UI rebuild honors `embeddings.folder_search_mode`; CLI rerank flags | **Done** |
+| 3 | **Settings / UX** — rerank on/off + model id dropdown (`use_mmr` = cross-encoder on LlamaIndex, MMR on hybrid) | **Done** |
 
-| # | Item | Why | Entry points |
-|---|------|-----|--------------|
-| 1 | **Eval parity** — `--backend hybrid\|llama_index` on [`eval_folder_search_routing.py`](../scripts/eval_folder_search_routing.py) and [`search_embeddings_folder.py`](../scripts/search_embeddings_folder.py); A/B on a fixed folder (e.g. `~/Desktop/Writing`); publish hit-rate / MRR table in this doc | Decide keep vs drop with data, not intuition | [`embeddings_hybrid_search.py`](../plugin/embeddings/venv/embeddings_hybrid_search.py), [`embeddings_llama_index.py`](../plugin/embeddings/venv/embeddings_llama_index.py) |
-| 2 | **Ops gaps** — [`search_ui.py`](../plugin/embeddings/search_ui.py) cache rebuild honors `embeddings.folder_search_mode` (today hardcodes `hybrid`); venv bootstrap docs for `llama-index-core` + cross-encoder weights; optional CI tests when package is present in dev venv | Same Settings path everywhere; fewer “works in eval, broken in UI” surprises | [`embeddings_service.py`](../plugin/framework/client/embeddings_service.py), [`module.yaml`](../plugin/embeddings/module.yaml) |
-| 3 | **Settings / UX** (if eval keeps LlamaIndex) — rerank on/off, rerank model id; clarify copy that `use_mmr` on the search RPC means **cross-encoder rerank** on LlamaIndex path, **MMR diversity** on hybrid path | Users can tune quality vs latency without code changes | [`module.yaml`](../plugin/embeddings/module.yaml), [`embeddings_service.py`](../plugin/framework/client/embeddings_service.py) |
-
-**Phase 1 exit criteria:** measured A/B table for hybrid vs llama_index on a labeled query set; no hardcoded `hybrid` bypasses in search UI or indexer routing; documented venv install for LlamaIndex mode.
+**Phase 1 exit criteria:** measured A/B table for hybrid vs llama_index on a labeled query set; no hardcoded `hybrid` bypasses in search UI or indexer routing; documented venv install for LlamaIndex mode. **Multilingual rerank** (`BAAI/bge-reranker-v2-m3`) is available in Settings; benchmark deferred (large download, slow).
 
 #### Phase 2 — Big advantages (the payoff)
 
@@ -1616,7 +1620,7 @@ These are the reasons to **keep** LlamaIndex after Phase 1 — not re-implementi
 
 | # | Advantage | Payoff | LlamaIndex building blocks |
 |---|-----------|--------|----------------------------|
-| A1 | **Hierarchical / parent–child retrieval** | Index small chunks for sharp vectors; return **parent context** (full paragraph, heading section, or file summary) on hit — fixes “snippet too narrow” without worse embeddings | Parent–child `TextNode` links, [`AutoMergingRetriever`](https://developers.llamaindex.ai/python/examples/retrievers/auto_merging_retriever/); map `para_index` → parent in metadata |
+| A1 | **Hierarchical / parent–child retrieval** | **Shipped (paragraph level):** merge sub-chunks by `para_index`, return full paragraph in `snippet` on all backends — [`embeddings_parent_hits.py`](../plugin/embeddings/venv/embeddings_parent_hits.py). Aligns with AutoMergingRetriever merge-by-parent semantics without a full in-memory LI docstore. | Section / heading parents remain future |
 | A2 | **Rich metadata on ingest** | Filter/boost by heading level, doc type (Writer / Calc / ODP), file title, recency — cross-file routing when filenames lie | [`IngestionPipeline`](https://developers.llamaindex.ai/python/framework/module_guides/loading/ingestion_pipeline/) transforms, `MetadataFilters`, title/summary extractors on `TextNode.metadata` |
 | A3 | **Sub-question / decomposed retrieval** | Complex prompts (“compare Q3 and Q4 budget language across the folder”) split into sub-queries, retrieve per part, fuse — better than one `search_nearby_files` call | [`SubQuestionQueryEngine`](https://developers.llamaindex.ai/python/examples/query_engine/sub_question_query_engine/) or custom multi-query retriever + RRF |
 | A4 | **Swappable rerankers and postprocessors** | Quality tuning becomes config + eval presets, not a new `embeddings_*` module each time | [`SentenceTransformerRerank`](https://developers.llamaindex.ai/python/framework/module_guides/querying/node_postprocessors/) (MiniLM, `bge-reranker-base`, …), `SimilarityPostprocessor`, recency / metadata boosts |
@@ -1653,13 +1657,12 @@ These are the reasons to **keep** LlamaIndex after Phase 1 — not re-implementi
 
 | Step | Focus | Rationale |
 |------|-------|-----------|
-| 1 | **A2 metadata on ingest** → **A4 reranker presets** | Cheap quality lift; feeds later routing and filters |
-| 2 | **A1 hierarchical retrieval** | Largest UX win for snippet context |
-| 3 | **A3 sub-questions** | Only if eval shows recall gaps on complex multi-part queries |
-| 4 | **B1 folder QA tool** | Agent-facing; retrieval quality must be stable first |
-| 5 | **C1 ingest cache**, **C3 interop**, **D1 default flip** | Ops and consolidation once presets prove value |
+| 1 | **A2 metadata on ingest** | Cheap quality lift; feeds later routing and filters |
+| 2 | **A3 sub-questions** | Only if eval shows recall gaps on complex multi-part queries |
+| 3 | **B1 folder QA tool** | Agent-facing; retrieval quality must be stable first |
+| 4 | **C1 ingest cache**, **C3 interop**, **D1 default flip** | Ops and consolidation once presets prove value |
 
-**Handoff prompt for next implementation session (after Phase 1):** *Implement hierarchical parent–child nodes + AutoMergingRetriever on `corpus.db`, with an eval preset comparing `hybrid` vs `llama_index` hierarchical.*
+**Next implementation handoff:** *Rich metadata on ingest (A2) + metadata filters on retrieve.*
 
 ##### Explicit non-goals (unless eval forces otherwise)
 

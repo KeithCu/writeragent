@@ -42,6 +42,22 @@ def test_nodes_to_tool_hits_preserves_matched_by():
     assert hits[0]["matched_by"] == ["fts", "vec"]
 
 
+def test_nodes_to_tool_hits_skips_snippet_truncation_for_parent_expanded():
+    long_text = "word " * 200
+    node = SimpleNamespace(
+        node_id="1",
+        text=long_text,
+        metadata={
+            "doc_url": "file:///doc.odt",
+            "para_index": 0,
+            "parent_expanded": True,
+        },
+    )
+    scored = SimpleNamespace(node=node, score=0.5)
+    hits = embeddings_llama_index._nodes_to_tool_hits([scored])
+    assert hits[0]["snippet"] == long_text.strip()
+
+
 def test_apply_postprocessors_truncates_without_rerank():
     nodes = [SimpleNamespace(node=SimpleNamespace(text=f"n{i}", metadata={}), score=1.0) for i in range(5)]
     out = embeddings_llama_index._apply_llama_index_postprocessors(
@@ -173,6 +189,9 @@ def test_run_hybrid_retrieval_pipeline_uses_rerank_postprocessor():
     with patch(
         "plugin.embeddings.venv.embeddings_llama_index.build_writer_agent_hybrid_retriever",
         return_value=mock_retriever,
+    ), patch(
+        "plugin.embeddings.venv.embeddings_parent_hits.expand_nodes_to_parent_paragraphs",
+        side_effect=lambda _db, nodes: nodes,
     ), patch(
         "plugin.embeddings.venv.embeddings_llama_index.SentenceTransformerRerank",
         return_value=mock_reranker,

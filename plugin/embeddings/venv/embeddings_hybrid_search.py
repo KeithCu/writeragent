@@ -7,10 +7,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from plugin.embeddings.venv.embeddings_parent_hits import expand_candidates_to_parent_paragraphs
 from plugin.embeddings.venv.embeddings_index import embed_texts
 from plugin.embeddings.venv.embeddings_search_graph import (
     MMR_LAMBDA,
-    _hit_snippet,
     _max_marginal_relevance,
     _public_hit_from_candidate,
 )
@@ -74,6 +74,7 @@ def hybrid_corpus_search(
             vec_hits = [h for h in vec_hits if str(h.get("doc_url") or "") == allowed]
 
         fused = merge_hybrid_hits(fts_hits, vec_hits, k=fetch_k, rrf_k=rrf_k)
+        fused = expand_candidates_to_parent_paragraphs(str(db_path), fused)
 
         if use_mmr and fused and final_k > 1:
             load_embeddings_for_candidates(conn, fused, model=model)
@@ -105,7 +106,6 @@ def hybrid_corpus_search(
     hits: list[dict[str, Any]] = []
     for row in fused:
         cand = dict(row)
-        cand["snippet"] = _hit_snippet(str(cand.get("snippet") or ""))
         hit = _public_hit_from_candidate(cand)
         if row.get("matched_by"):
             hit["matched_by"] = list(row["matched_by"])

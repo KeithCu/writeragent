@@ -198,3 +198,39 @@ def test_format_hits_fts_backend() -> None:
     assert "Backend: FTS" in text
     assert 'NEAR("web" "search", 10)' in text
     assert "Model:" not in text
+
+
+def test_main_llama_index_no_mmr(tmp_path: Path) -> None:
+    folder = tmp_path / "Writing"
+    folder.mkdir()
+    _write_corpus_cache(folder / "writeragent_embeddings", chunk_count="1", model="m")
+
+    with patch("search_embeddings_folder.llama_index_hybrid_search", return_value={"hits": []}) as mock_li:
+        code = main(["query", "--folder", str(folder), "--backend", "llama_index", "--no-mmr"])
+
+    assert code == 0
+    assert mock_li.call_args.kwargs["use_mmr"] is False
+    assert mock_li.call_args.kwargs.get("rerank_model") is None
+
+
+def test_main_llama_index_rerank_model(tmp_path: Path) -> None:
+    folder = tmp_path / "Writing"
+    folder.mkdir()
+    _write_corpus_cache(folder / "writeragent_embeddings", chunk_count="1", model="m")
+
+    with patch("search_embeddings_folder.llama_index_hybrid_search", return_value={"hits": []}) as mock_li:
+        code = main(
+            [
+                "query",
+                "--folder",
+                str(folder),
+                "--backend",
+                "llama_index",
+                "--rerank-model",
+                "cross-encoder/ms-marco-MiniLM-L-6-v2",
+            ]
+        )
+
+    assert code == 0
+    assert mock_li.call_args.kwargs["use_mmr"] is True
+    assert mock_li.call_args.kwargs["rerank_model"] == "cross-encoder/ms-marco-MiniLM-L-6-v2"

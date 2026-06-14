@@ -306,6 +306,15 @@ def main(argv: list[str] | None = None) -> int:
         help="Only return hits from this doc_url (embeddings only; exact file:///… match)",
     )
     parser.add_argument(
+        "--no-mmr",
+        action="store_true",
+        help="LlamaIndex backend only: disable cross-encoder rerank (RRF-only)",
+    )
+    parser.add_argument(
+        "--rerank-model",
+        help="LlamaIndex backend only: HuggingFace cross-encoder model id (default: cross-encoder/ms-marco-MiniLM-L-6-v2)",
+    )
+    parser.add_argument(
         "--json",
         action="store_true",
         help="Print JSON result (hits list) for scripting",
@@ -330,7 +339,6 @@ def main(argv: list[str] | None = None) -> int:
             )
         else:
             if args.backend == "llama_index":
-                # Use LlamaIndex hybrid backend instead of default embeddings hybrid
                 result = llama_index_hybrid_search(
                     str(corpus_db_path(str(args.folder.expanduser().resolve()), create_parent=False)),
                     args.query,
@@ -338,7 +346,8 @@ def main(argv: list[str] | None = None) -> int:
                     model_name=args.model,
                     near_slop=args.near_slop,
                     doc_url_filter=args.doc_url,
-                    use_mmr=True,
+                    use_mmr=not args.no_mmr,
+                    rerank_model=args.rerank_model,
                 )
             else:
                 result = search_folder(

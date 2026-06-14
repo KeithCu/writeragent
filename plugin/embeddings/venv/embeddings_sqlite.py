@@ -711,6 +711,45 @@ def diff_paragraph_rows_in_db(
     return diff_chunk_rows_in_db(conn, chunks)
 
 
+def paragraph_body_for_locator(conn: sqlite3.Connection, doc_url: str, para_index: int) -> str:
+    """Concatenate embed sub-chunks for one ODF paragraph (ordered by char_start)."""
+    bodies = paragraph_bodies_for_locators(conn, {(str(doc_url or ""), int(para_index or 0))})
+    return bodies.get((str(doc_url or ""), int(para_index or 0)), "")
+
+
+def paragraph_bodies_for_locators(
+    conn: sqlite3.Connection,
+    locators: set[tuple[str, int]],
+) -> dict[tuple[str, int], str]:
+    """Batch-load full paragraph text for (doc_url, para_index) locators."""
+    if not locators:
+        return {}
+
+    clauses: list[str] = []
+    params: list[Any] = []
+    for doc_url, para_index in locators:
+        clauses.append("(doc_url = ? AND para_index = ?)")
+        params.extend([doc_url, int(para_index)])
+
+    rows = conn.execute(
+        f"""
+        SELECT doc_url, para_index, char_start, body
+        FROM chunks
+        WHERE {" OR ".join(clauses)}
+        ORDER BY doc_url, para_index, char_start
+        """,
+        params,
+    ).fetchall()
+
+    grouped: dict[tuple[str, int], list[str]] = {}
+    for row in rows:
+        key = (str(row["doc_url"] or ""), int(row["para_index"] or 0))
+        grouped.setdefault(key, []).append(str(row["body"] or "").strip())
+
+    # Sub-chunks use CHUNK_OVERLAP at ingest; joining with spaces may repeat boundary text — acceptable v1.
+    return {key: " ".join(p for p in parts if p) for key, parts in grouped.items()}
+
+
 def sync_file_paragraph_state_in_db(
     conn: sqlite3.Connection,
     doc_url: str,
@@ -745,6 +784,8 @@ __all__ = [
     "insert_paragraph_rows",
     "load_embeddings_for_candidates",
     "mark_file_indexed_in_db",
+    "paragraph_body_for_locator",
+    "paragraph_bodies_for_locators",
     "rebuild_fts_corpus_index",
     "sync_file_paragraph_state_in_db",
     "upsert_chunk_with_vector",

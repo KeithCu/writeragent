@@ -147,6 +147,8 @@ def _nodes_to_tool_hits(nodes: list[Any]) -> list[dict[str, Any]]:
             "snippet": n.node.text,
             "score": n.score or 0.0,
         }
+        if metadata.get("parent_expanded"):
+            cand["parent_expanded"] = True
         hit = _public_hit_from_candidate(cand)
         matched_by = metadata.get("matched_by")
         if matched_by:
@@ -464,6 +466,10 @@ def run_hybrid_retrieval_pipeline(
         allowed = str(doc_url_filter)
         nodes = [n for n in nodes if str((n.node.metadata or {}).get("doc_url") or "") == allowed]
 
+    from plugin.embeddings.venv.embeddings_parent_hits import expand_nodes_to_parent_paragraphs
+
+    nodes = expand_nodes_to_parent_paragraphs(db_path, nodes)
+
     nodes = _apply_llama_index_postprocessors(
         nodes,
         QueryBundle(query_str=query),
@@ -636,6 +642,9 @@ def llama_index_knn_search(
     final_k, fetch_k = _llama_index_retrieval_pool(k)
     retriever = index.as_retriever(similarity_top_k=fetch_k, filters=filters)
     nodes = retriever.retrieve(query)
+    from plugin.embeddings.venv.embeddings_parent_hits import expand_nodes_to_parent_paragraphs
+
+    nodes = expand_nodes_to_parent_paragraphs(db_path, nodes)
     nodes = _apply_llama_index_postprocessors(
         nodes,
         QueryBundle(query_str=query),

@@ -37,11 +37,16 @@ def _hit_snippet(text: str, *, max_chars: int = SNIPPET_MAX_CHARS) -> str:
 
 def _public_hit_from_candidate(cand: dict[str, Any]) -> dict[str, Any]:
     """Tool-facing hit: file router + snippet; no char offsets (ODF-local, not LO-native)."""
+    snippet_raw = str(cand.get("snippet") or "")
+    if cand.get("parent_expanded"):
+        snippet = " ".join(snippet_raw.split())
+    else:
+        snippet = _hit_snippet(snippet_raw)
     return {
         "chunk_id": cand.get("chunk_id"),
         "doc_url": cand.get("doc_url"),
         "para_index": cand.get("para_index"),
-        "snippet": _hit_snippet(str(cand.get("snippet") or "")),
+        "snippet": snippet,
         "score": float(cand.get("score") or 0.0),
     }
 
@@ -150,7 +155,10 @@ def _max_marginal_relevance(
 
 
 def rerank(state: SearchState) -> dict[str, Any]:
+    from plugin.embeddings.venv.embeddings_parent_hits import expand_candidates_to_parent_paragraphs
+
     candidates = list(state.get("candidates") or [])
+    candidates = expand_candidates_to_parent_paragraphs(str(state["db_path"]), candidates)
     k = max(1, min(int(state.get("k") or 5), 50))
     query_vec = state.get("query_vec") or []
     if not candidates or not query_vec:

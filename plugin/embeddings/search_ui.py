@@ -339,8 +339,7 @@ class SearchDialog:
                 from plugin.embeddings.embeddings_cache import clear_folder_cache, resolve_index_context
                 from plugin.embeddings.embeddings_heartbeat import format_index_heartbeat_line, heartbeat_counts_from_payload
                 from plugin.framework.client.embedding_client import get_embedding_model
-
-                
+                from plugin.framework.client.embeddings_service import _folder_search_mode
                 doc = get_active_document(ctx)
                 if not doc:
                     self._update_rebuild_ui(btn_rebuild, results_ctrl, _("No active document found."))
@@ -398,7 +397,7 @@ class SearchDialog:
                         listing_root,
                         model=model,
                         mode="cold",
-                        search_mode="hybrid",
+                        search_mode=_folder_search_mode(ctx),
                         heartbeat_fn=heartbeat_fn,
                     )
                 except Exception:

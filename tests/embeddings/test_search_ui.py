@@ -57,7 +57,8 @@ class TestSearchDialog:
     @patch("plugin.embeddings.embeddings_cache.resolve_index_context")
     @patch("plugin.embeddings.embeddings_cache.clear_folder_cache")
     @patch("plugin.framework.client.embeddings_service.maintain_folder_index")
-    def test_rebuild_action_triggered(self, mock_maintain, mock_clear, mock_resolve, mock_doc, mock_get_desktop):
+    @patch("plugin.framework.client.embeddings_service._folder_search_mode", return_value="llama_index")
+    def test_rebuild_action_triggered(self, mock_search_mode, mock_maintain, mock_clear, mock_resolve, mock_doc, mock_get_desktop):
         mock_ctx = MagicMock()
         mock_smgr = mock_ctx.getServiceManager.return_value
         
@@ -87,3 +88,4 @@ class TestSearchDialog:
 
         assert mock_clear.called
         assert mock_maintain.called
+        assert mock_maintain.call_args.kwargs["search_mode"] == "llama_index"
