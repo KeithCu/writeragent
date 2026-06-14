@@ -27,8 +27,8 @@ config:
     type: boolean
     default: false
     widget: checkbox
-    label: Enable cross-file rerank (LlamaIndex)
-    helper: "Second-stage cross-encoder after hybrid retrieve. LlamaIndex mode only; off by default."
+    label: Enable cross-file rerank
+    helper: "Second-stage cross-encoder after hybrid retrieve (Embeddings + FTS and LlamaIndex). Off by default."
 
   folder_rerank_model:
     type: string

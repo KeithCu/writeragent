@@ -268,6 +268,7 @@ def hybrid_search(
         near_slop=near_slop,
         doc_url_filter=doc_url_filter,
         use_mmr=use_mmr,
+        rerank_model=rerank_model,
     )
 
 

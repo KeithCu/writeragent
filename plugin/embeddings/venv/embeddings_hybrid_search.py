@@ -7,11 +7,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from plugin.embeddings.venv.embeddings_cross_encoder_rerank import cross_encoder_rerank_candidates
 from plugin.embeddings.venv.embeddings_parent_hits import expand_candidates_to_parent_paragraphs
 from plugin.embeddings.venv.embeddings_index import embed_texts
 from plugin.embeddings.venv.embeddings_search_graph import (
-    MMR_LAMBDA,
-    _max_marginal_relevance,
     _public_hit_from_candidate,
 )
 from plugin.embeddings.venv.embeddings_sqlite import (
@@ -20,10 +19,9 @@ from plugin.embeddings.venv.embeddings_sqlite import (
     load_embeddings_for_candidates,
     vec0_search,
 )
+from plugin.embeddings.venv.embeddings_retrieval_pool import hybrid_retrieval_pool
 from plugin.embeddings.venv.hybrid_rrf import merge_hybrid_hits
 
-_DEFAULT_POOL_K = 30
-_MAX_POOL_K = 50
 _DEFAULT_RRF_K = 60
 
 
@@ -34,10 +32,10 @@ def hybrid_corpus_search(
     *,
     model_name: str,
     near_slop: int = 10,
-    pool_k: int = _DEFAULT_POOL_K,
     rrf_k: int = _DEFAULT_RRF_K,
     doc_url_filter: str | None = None,
     use_mmr: bool = True,
+    rerank_model: str | None = None,
 ) -> dict[str, Any]:
     """Run FTS + semantic search on corpus.db; fuse with reciprocal_rank_fusion."""
     model = (model_name or "").strip()
@@ -47,8 +45,7 @@ def hybrid_corpus_search(
     if not query:
         return {"hits": []}
 
-    final_k = max(1, min(int(k or 10), 30))
-    fetch_k = max(final_k, min(int(pool_k or _DEFAULT_POOL_K), _MAX_POOL_K))
+    final_k, fetch_k = hybrid_retrieval_pool(k)
 
     encoded = embed_texts(model, [query])
     vectors = encoded.get("vectors") or []
@@ -76,12 +73,24 @@ def hybrid_corpus_search(
         fused = merge_hybrid_hits(fts_hits, vec_hits, k=fetch_k, rrf_k=rrf_k)
         fused = expand_candidates_to_parent_paragraphs(str(db_path), fused)
 
-        if use_mmr and fused and final_k > 1:
+        rerank_id = str(rerank_model or "").strip()
+        if use_mmr and rerank_id and fused and final_k > 1:
+            fused = cross_encoder_rerank_candidates(
+                query,
+                fused,
+                model=rerank_id,
+                top_n=final_k,
+            )
+        elif use_mmr and fused and final_k > 1:
+            # MMR diversity rerank — disabled for fair cross-encoder experiment (2026-06).
+            # Re-enable if we want hybrid rerank + diversity instead of LI-style rerank-only.
+            '''
             load_embeddings_for_candidates(conn, fused, model=model)
             with_embeddings = [c for c in fused if c.get("embedding") is not None]
             without = [c for c in fused if c.get("embedding") is None]
             if len(with_embeddings) >= final_k:
                 import numpy as np
+                from plugin.embeddings.venv.embeddings_search_graph import MMR_LAMBDA, _max_marginal_relevance
 
                 fused = _max_marginal_relevance(
                     np.asarray(query_vec, dtype=np.float32),
@@ -98,6 +107,8 @@ def hybrid_corpus_search(
                             fused.append(cand)
             else:
                 fused = fused[:final_k]
+            '''
+            fused = fused[:final_k]
         else:
             fused = fused[:final_k]
     finally:

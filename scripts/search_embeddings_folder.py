@@ -68,6 +68,8 @@ def search_folder(
     model: str | None = None,
     doc_url: str | None = None,
     near_slop: int = DEFAULT_NEAR_SLOP,
+    use_mmr: bool = True,
+    rerank_model: str | None = None,
 ) -> dict[str, Any]:
     """Hybrid FTS + semantic search over an existing per-folder corpus.db cache."""
     listing_root = folder.expanduser().resolve()
@@ -98,6 +100,8 @@ def search_folder(
             model_name=model_name,
             near_slop=max(0, int(near_slop)),
             doc_url_filter=doc_url,
+            use_mmr=use_mmr,
+            rerank_model=rerank_model,
         )
     except ImportError as exc:
         raise SearchFolderError(
@@ -308,11 +312,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--no-mmr",
         action="store_true",
-        help="LlamaIndex backend only: disable cross-encoder rerank (RRF-only)",
+        help="Hybrid/LlamaIndex backend: disable cross-encoder rerank (RRF-only)",
     )
     parser.add_argument(
         "--rerank-model",
-        help="LlamaIndex backend only: HuggingFace cross-encoder model id (default: cross-encoder/ms-marco-MiniLM-L-6-v2)",
+        help="Hybrid/LlamaIndex backend: HuggingFace cross-encoder model id (default: cross-encoder/ms-marco-MiniLM-L-6-v2 when rerank on)",
     )
     parser.add_argument(
         "--json",
@@ -338,6 +342,10 @@ def main(argv: list[str] | None = None) -> int:
                 doc_url=args.doc_url,
             )
         else:
+            use_mmr = not args.no_mmr
+            rerank_model = None
+            if use_mmr:
+                rerank_model = (args.rerank_model or "").strip() or "cross-encoder/ms-marco-MiniLM-L-6-v2"
             if args.backend == "llama_index":
                 result = llama_index_hybrid_search(
                     str(corpus_db_path(str(args.folder.expanduser().resolve()), create_parent=False)),
@@ -346,9 +354,18 @@ def main(argv: list[str] | None = None) -> int:
                     model_name=args.model,
                     near_slop=args.near_slop,
                     doc_url_filter=args.doc_url,
-                    use_mmr=not args.no_mmr,
-                    rerank_model=args.rerank_model,
+                    use_mmr=use_mmr,
+                    rerank_model=rerank_model,
                 )
+                result = {
+                    "status": "ok",
+                    "backend": "llama_index",
+                    "folder": str(args.folder.expanduser().resolve()),
+                    "query": args.query,
+                    "k": _clamp_k(args.k),
+                    "model": args.model,
+                    "hits": result.get("hits") or [],
+                }
             else:
                 result = search_folder(
                     args.folder,
@@ -357,6 +374,8 @@ def main(argv: list[str] | None = None) -> int:
                     model=args.model,
                     doc_url=args.doc_url,
                     near_slop=args.near_slop,
+                    use_mmr=use_mmr,
+                    rerank_model=rerank_model,
                 )
     except SearchFolderError as exc:
         print(str(exc), file=sys.stderr)

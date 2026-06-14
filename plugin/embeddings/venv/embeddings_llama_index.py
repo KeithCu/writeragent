@@ -13,12 +13,10 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional, Sequence
 
+from plugin.embeddings.venv.embeddings_retrieval_pool import _MIN_FETCH_K, hybrid_retrieval_pool
+
 log = logging.getLogger(__name__)
 
-# Over-retrieve then rerank — standard LlamaIndex two-stage pattern (not custom MMR / per-doc caps).
-_MIN_FETCH_K = 20
-_FETCH_MULTIPLIER = 4
-_MAX_FETCH_K = 50
 _DEFAULT_RERANK_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"  # English only; see Settings folder_rerank_model
 _FTS_LEG = "fts"
 _VECTOR_LEG = "vec"
@@ -122,9 +120,7 @@ except ImportError:
 
 def _llama_index_retrieval_pool(k: int) -> tuple[int, int]:
     """Return (final_k, fetch_k) for over-retrieval before cross-encoder rerank."""
-    final_k = max(1, min(int(k or 10), 30))
-    fetch_k = min(max(final_k * _FETCH_MULTIPLIER, _MIN_FETCH_K), _MAX_FETCH_K)
-    return final_k, fetch_k
+    return hybrid_retrieval_pool(k)
 
 
 def _resolve_rerank_model(rerank_model: str | None) -> str:

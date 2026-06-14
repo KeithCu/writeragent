@@ -188,9 +188,9 @@ On this corpus, embeddings **did not** reliably beat grep when:
 
 **Practical grep baseline:** `WriterAgent` + `venv` + `numpy` → **`part5.odt`**; `web search` → **`part2.odt`** (16 strict paragraph hits). Semantic paraphrase of the same ideas often loses to **`blog_draft_*`** or **`rpython.odt`**.
 
-#### Hybrid RRF baseline (schema v3, re-measured 2026-06)
+#### Hybrid RRF baseline (schema v3, re-measured 2026-06-13)
 
-Same **`~/Desktop/Writing`** corpus as above, re-indexed to schema v3 **`corpus.db`** (**1119** chunks). Method: [`scripts/eval_folder_search_routing.py`](../scripts/eval_folder_search_routing.py) — **45** queries (**41** with a labeled expected file basename), using top-5 candidate retrieval.
+Same **`~/Desktop/Writing`** corpus as above, re-indexed to schema v3 **`corpus.db`** (**1119** chunks). Method: [`scripts/eval_folder_search_routing.py`](../scripts/eval_folder_search_routing.py) — **45** queries (**41** with a labeled expected file basename), using top-5 candidate retrieval. **Default model row** re-run with parent-paragraph merge + current hybrid backend — see [Latest stack evaluation](#latest-stack-eval) for full backend A/B (custom hybrid vs LlamaIndex RRF vs LlamaIndex + rerank).
 
 We evaluated multiple models on the same corpus:
 
@@ -200,60 +200,55 @@ We evaluated multiple models on the same corpus:
 | -- Hybrid RRF | 23/41 (56.1%) | 31/41 (75.6%) | 0.646 | | |
 | -- Vec-only | 23/41 (56.1%) | 30/41 (73.2%) | 0.634 | | |
 | -- FTS-only | 10/41 (24.4%) | 16/41 (39.0%) | 0.309 | | |
-| **`sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`** (Default) | 46.3% (19/41) | 70.7% (29/41) | 0.590 | - | 10.45 ms |
-| -- Hybrid RRF | 19/41 (46.3%) | 29/41 (70.7%) | 0.590 | | |
-| -- Vec-only | 19/41 (46.3%) | 27/41 (65.9%) | 0.570 | | |
-| -- FTS-only | 10/41 (24.4%) | 16/41 (39.0%) | 0.309 | | |
+| **`sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`** (Default) | 43.9% (18/41) | 68.3% (28/41) | 0.566 | - | 10.45 ms |
+| -- Hybrid RRF | 18/41 (43.9%) | 28/41 (68.3%) | 0.566 | | |
+| -- Vec-only | 18/41 (43.9%) | 26/41 (63.4%) | 0.546 | | |
+| -- FTS-only | 10/41 (24.4%) | 15/41 (36.6%) | 0.301 | | |
 | **`BAAI/bge-small-en-v1.5`** | 51.2% (21/41) | 70.7% (29/41) | 0.610 | **5.93s** | 10.11 ms |
 | -- Hybrid RRF | 21/41 (51.2%) | 29/41 (70.7%) | 0.610 | | |
 | -- Vec-only | 21/41 (51.2%) | 30/41 (73.2%) | 0.617 | | |
 | -- FTS-only | 10/41 (24.4%) | 16/41 (39.0%) | 0.309 | | |
 
-## Latest Hybrid Evaluation (2026‑06‑13)
+## Latest stack evaluation (2026‑06‑13, re‑measured) {#latest-stack-eval}
 
-The evaluation was run with the default embeddings backend (`--backend hybrid`). Summary:
+**Corpus:** `~/Desktop/Writing`, **1119** chunks, embedding model `paraphrase-multilingual-MiniLM-L12-v2`, **41** labeled queries, `k=5`.
 
-- **Hybrid leg Top‑1 accuracy**: **43.9 %** (18/41)
-- **Hybrid leg Top‑3 accuracy**: **68.3 %** (28/41)
-- **Mean MRR**: **0.566**
-- **FTS leg Top‑1 accuracy**: **24.4 %** (10/41)
-- **Vector leg Top‑1 accuracy**: **43.9 %** (18/41)
+**Stack under test:** parent-paragraph merge on all backends ([`embeddings_parent_hits.py`](../plugin/embeddings/venv/embeddings_parent_hits.py)) + optional cross-encoder rerank ([`embeddings_cross_encoder_rerank.py`](../plugin/embeddings/venv/embeddings_cross_encoder_rerank.py) on custom hybrid; LlamaIndex `SentenceTransformerRerank` on LI path). **Shared retrieval pool** ([`embeddings_retrieval_pool.py`](../plugin/embeddings/venv/embeddings_retrieval_pool.py): `min(max(k×4, 20), 50)` on both hybrid backends). **MMR on custom hybrid is commented out** for fair comparison — RRF-only uses fused top‑k; rerank-on uses cross-encoder instead of MMR.
 
-These numbers replace the previous “Hybrid RRF baseline (re‑measured 2026‑06)” section. The `--backend` flag (choices: `hybrid`, `llama_index`) selects the retrieval stack; LlamaIndex mode uses a **local** cross-encoder reranker (`cross-encoder/ms-marco-MiniLM-L-6-v2`) when rerank is on — no chat LLM or API key.
-
-*Updated:* 2026‑06‑13
-
-### LlamaIndex backend — cross-encoder rerank A/B (2026‑06‑13)
-
-Corpus: `~/Desktop/Writing`, embedding model `paraphrase-multilingual-MiniLM-L12-v2`, hybrid leg only, `k=5`. Rerank on/off is `--no-mmr` on the eval script (`use_mmr=True` → cross-encoder rerank on the LlamaIndex path; `use_mmr=False` → RRF fused top‑k only).
+Run (embeddings venv with `sentence-transformers` + `llama-index-core`):
 
 ```bash
-~/Desktop/Python/venv/bin/python scripts/eval_folder_search_routing.py --folder ~/Desktop/Writing --mode hybrid --backend llama_index --k 5
-~/Desktop/Python/venv/bin/python scripts/eval_folder_search_routing.py --folder ~/Desktop/Writing --mode hybrid --backend llama_index --k 5 --no-mmr
+# Fair 4-preset matrix (--rerank-model defaults to cross-encoder/ms-marco-MiniLM-L-6-v2 when rerank on)
+HF_HUB_OFFLINE=1 ~/Desktop/Python/venv/bin/python scripts/eval_folder_search_routing.py --folder ~/Desktop/Writing --mode hybrid --backend hybrid --k 5 --no-mmr
+HF_HUB_OFFLINE=1 ~/Desktop/Python/venv/bin/python scripts/eval_folder_search_routing.py --folder ~/Desktop/Writing --mode hybrid --backend hybrid --k 5
+HF_HUB_OFFLINE=1 ~/Desktop/Python/venv/bin/python scripts/eval_folder_search_routing.py --folder ~/Desktop/Writing --mode hybrid --backend llama_index --k 5 --no-mmr
+HF_HUB_OFFLINE=1 ~/Desktop/Python/venv/bin/python scripts/eval_folder_search_routing.py --folder ~/Desktop/Writing --mode hybrid --backend llama_index --k 5
 ```
 
-| Config | Top‑1 | Top‑3 | Mean MRR |
-|--------|-------|-------|----------|
-| **LlamaIndex + cross-encoder rerank** (`use_mmr=True`) | **51.2 %** (21/41) | **73.2 %** (30/41) | **0.612** |
-| LlamaIndex RRF only (`--no-mmr`) | 43.9 % (18/41) | 70.7 % (29/41) | 0.584 |
-| Custom `hybrid` backend (same corpus, 2026‑06‑13) | 43.9 % (18/41) | 68.3 % (28/41) | 0.566 |
+### Backend A/B — hybrid leg only (fair comparison, 2026‑06‑13, unified pool)
 
-Cross-encoder rerank lifts top‑1 by **+7.3 pp** vs RRF-only on this labeled set and beats the custom hybrid backend on top‑1 / top‑3 / MRR. First rerank run downloads `cross-encoder/ms-marco-MiniLM-L-6-v2` in the embeddings venv (~2 min cold on this machine); warm queries are ~10 s per 41-query sweep vs ~10 s RRF-only.
+| Config | Top‑1 | Top‑3 | Mean MRR | Notes |
+|--------|-------|-------|----------|-------|
+| **LlamaIndex + cross-encoder rerank** | **56.1 %** (23/41) | 65.9 % (27/41) | **0.626** | Best top‑1 / MRR |
+| Custom `hybrid` RRF only (`--no-mmr`) | 53.7 % (22/41) | 70.7 % (29/41) | 0.629 | Vendored RRF + fused top‑k (no MMR) |
+| **Custom `hybrid` + cross-encoder rerank** | 51.2 % (21/41) | **73.2 %** (30/41) | 0.612 | Same rerank model as LI; best top‑3 |
+| LlamaIndex RRF only (`--no-mmr`; Settings default) | 43.9 % (18/41) | 70.7 % (29/41) | 0.584 | `QueryFusionRetriever` RRF |
+
+**Takeaways:** Both backends now share [`hybrid_retrieval_pool`](../plugin/embeddings/venv/embeddings_retrieval_pool.py) (`fetch_k = min(max(k×4, 20), 50)`). With MMR removed on custom hybrid, **RRF-only custom (53.7 %) beats LlamaIndex RRF-only (43.9 %)** on top‑1 — fusion differs, not embeddings or pool size. Cross-encoder on **both** backends narrows the gap; **LI + rerank still leads top‑1** (+4.9 pp vs custom + rerank). Custom + rerank wins **top‑3** (73.2 %). Remaining LI advantage at equal rerank is **fusion** (`QueryFusionRetriever` vs vendored RRF).
+
+On the search RPC, `use_mmr=True` + `rerank_model` means **cross-encoder rerank** on **both** `hybrid` and `llama_index` when Settings **Enable cross-file rerank** is on. Vec-only path still uses MMR.
+
+### Custom `hybrid` — all legs, RRF-only (`--mode all --backend hybrid --no-mmr`)
+
+| Leg | Top‑1 | Top‑3 | Mean MRR |
+|-----|-------|-------|----------|
+| Hybrid RRF (fused top‑k) | 53.7 % (22/41) | 70.7 % (29/41) | 0.629 |
+| FTS only | 24.4 % (10/41) | 36.6 % (15/41) | 0.301 |
+| Vec only | 43.9 % (18/41) | 63.4 % (26/41) | 0.546 |
+
+*Updated:* 2026‑06‑13 (parent-paragraph merge + hybrid cross-encoder rerank + unified `hybrid_retrieval_pool` on both backends).
 
 **Offline note:** `QueryFusionRetriever` must receive `MockLLM()` when `num_queries=1`; otherwise LlamaIndex resolves `Settings.llm` (OpenAI) at init even though query expansion is disabled — see [`embeddings_llama_index.py`](../plugin/embeddings/venv/embeddings_llama_index.py).
-
-| **`BAAI/bge-base-en-v1.5`** | 51.2% (21/41) | 73.2% (30/41) | 0.617 | - | 12.30 ms |
-| -- Hybrid RRF | 21/41 (51.2%) | 30/41 (73.2%) | 0.617 | | |
-| -- Vec-only | 21/41 (51.2%) | 30/41 (73.2%) | 0.622 | | |
-| -- FTS-only | 10/41 (24.4%) | 16/41 (39.0%) | 0.309 | | |
-| **`sentence-transformers/all-mpnet-base-v2`** | 46.3% (19/41) | 73.2% (30/41) | 0.569 | - | 15.60 ms |
-| -- Hybrid RRF | 19/41 (46.3%) | 30/41 (73.2%) | 0.569 | | |
-| -- Vec-only | 19/41 (46.3%) | 30/41 (73.2%) | 0.580 | | |
-| -- FTS-only | 10/41 (24.4%) | 16/41 (39.0%) | 0.309 | | |
-| **`Snowflake/snowflake-arctic-embed-s`** | 43.9% (18/41) | 68.3% (28/41) | 0.570 | - | 9.85 ms |
-| -- Hybrid RRF | 18/41 (43.9%) | 28/41 (68.3%) | 0.570 | | |
-| -- Vec-only | 18/41 (43.9%) | 28/41 (68.3%) | 0.570 | | |
-| -- FTS-only | 10/41 (24.4%) | 16/41 (39.0%) | 0.309 | | |
 
 FTS vs vec buckets (labeled queries):
 - **all-MiniLM-L6-v2**: **both** 6 · **fts-only** 4 · **vec-only** 17 · **neither** 14
@@ -265,7 +260,7 @@ FTS vs vec buckets (labeled queries):
 
 Compared with the **historical semantic-only** short-query table above (grep-only **18**, both **13** on a slightly different 37-query labeled set): hybrid RRF beats vec-only on **short** routing (**10/21** vs **8/21**) by fusing the FTS leg, but still misroutes some keyword queries (`web search` top-1 can remain **`blog_draft_*`** rather than **`part2.odt`**).
 
-**MMR after RRF:** runs when **k > 1** (default `search_nearby_files` k=10) to dedupe near-duplicate chunks in multi-hit lists. At **k = 1** routing eval, MMR reorders the pool and **lowered** top-1 accuracy — so MMR is skipped when k=1.
+**MMR after RRF (historical):** custom hybrid previously used MMR when **k > 1**; MMR is **commented out** on the hybrid path (2026‑06) so cross-encoder rerank can be compared fairly with LlamaIndex. Vec-only search still uses MMR ([`embeddings_search_graph.py`](../plugin/embeddings/venv/embeddings_search_graph.py)).
 
 ```bash
 HF_HUB_OFFLINE=1 .venv/bin/python scripts/eval_folder_search_routing.py --folder ~/Desktop/Writing --mode all
@@ -1183,9 +1178,10 @@ Default model `all-MiniLM-L6-v2` (384-dim) → **~1.5 KiB per non-empty paragrap
 
 **Shipped:**
 
-- Hybrid RRF (BM25/NEAR + vec0 kNN) → **parent-paragraph merge** (sub-chunks collapsed by `para_index`, full paragraph in `snippet`) → optional MMR when `k > 1` ([`embeddings_hybrid_search.py`](../plugin/embeddings/venv/embeddings_hybrid_search.py), [`embeddings_parent_hits.py`](../plugin/embeddings/venv/embeddings_parent_hits.py)).
+- Hybrid RRF (BM25/NEAR + vec0 kNN) → **parent-paragraph merge** → optional **cross-encoder rerank** when Settings enabled (MMR commented out on hybrid for fair comparison; see [`embeddings_cross_encoder_rerank.py`](../plugin/embeddings/venv/embeddings_cross_encoder_rerank.py)) ([`embeddings_hybrid_search.py`](../plugin/embeddings/venv/embeddings_hybrid_search.py), [`embeddings_parent_hits.py`](../plugin/embeddings/venv/embeddings_parent_hits.py)).
 - Vec-only path: bi-encoder kNN → parent merge → MMR ([`embeddings_search_graph.py`](../plugin/embeddings/venv/embeddings_search_graph.py)).
 - LlamaIndex path: RRF fusion → parent merge → optional cross-encoder rerank ([`embeddings_llama_index.py`](../plugin/embeddings/venv/embeddings_llama_index.py)).
+- **Shared retrieval pool** on both hybrid backends: [`hybrid_retrieval_pool`](../plugin/embeddings/venv/embeddings_retrieval_pool.py) — over-fetch `min(max(k×4, 20), 50)` before fusion truncate / cross-encoder rerank.
 - **Cross-encoder rerank** (LlamaIndex, Settings toggle): second-stage `(query, chunk)` scoring after wide retrieve.
 
 Parent merge is query-time SQL over `chunks` — **no re-index** when enabling it. Folder routing top-1 accuracy is unchanged; only `snippet` width and rerank/MMR inputs differ.
@@ -1494,7 +1490,7 @@ This option subclasses LlamaIndex's core interfaces to map them directly to our 
 
 **What LlamaIndex owns when `folder_search_mode="llama_index"`:**
 - **Hybrid retrieval:** stock [`QueryFusionRetriever`](https://developers.llamaindex.ai/python/framework/integrations/retrievers/reciprocal_rerank_fusion/) — vector + FTS legs fused with reciprocal rank fusion (`num_queries=1`, offline).
-- **Two-stage ranking:** over-retrieve (`max(k×4, 20)` capped at 50), then [`SentenceTransformerRerank`](https://developers.llamaindex.ai/python/framework/module_guides/querying/node_postprocessors/) (`cross-encoder/ms-marco-MiniLM-L-6-v2` by default) when `use_mmr=True` on the search RPC. This is **not** the custom hybrid backend’s MMR or per-file hit caps — those stay on the `hybrid` path only.
+- **Two-stage ranking:** over-retrieve via shared [`hybrid_retrieval_pool`](../plugin/embeddings/venv/embeddings_retrieval_pool.py) (`max(k×4, 20)` capped at 50) on **both** `hybrid` and `llama_index`, then [`SentenceTransformerRerank`](https://developers.llamaindex.ai/python/framework/module_guides/querying/node_postprocessors/) (`cross-encoder/ms-marco-MiniLM-L-6-v2` by default) when `use_mmr=True` on the search RPC. Custom hybrid uses the same pool formula and [`embeddings_cross_encoder_rerank.py`](../plugin/embeddings/venv/embeddings_cross_encoder_rerank.py) instead of LI postprocessors.
 - Ingest orchestration via `VectorStoreIndex.insert_nodes` (still writes the same SQLite tables)
 
 - **Warm Worker Process**: To protect the main LibreOffice in-process Python environment from large dependency trees, all LlamaIndex imports and operations are executed inside the trusted `PythonWorkerManager` virtual environment (venv) worker thread.
@@ -1532,9 +1528,9 @@ User query
 
 **Rerank is not done by the chat LLM.** Step 4 is a small local **cross-encoder** (~22M params): a classifier that outputs a relevance score. It does not generate text. Same idea as search rerankers in production RAG — not GPT/Claude.
 
-On the default **`hybrid`** backend, step 4 is **MMR** (diversity rerank in [`embeddings_hybrid_search.py`](../plugin/embeddings/venv/embeddings_hybrid_search.py)) instead of a cross-encoder. MMR reduces near-duplicate chunks; it does not re-read query+passage semantics the way a cross-encoder does.
+On the default **`hybrid`** backend, step 4 is **cross-encoder rerank** when Settings **Enable cross-file rerank** is on (via [`embeddings_cross_encoder_rerank.py`](../plugin/embeddings/venv/embeddings_cross_encoder_rerank.py)); otherwise RRF fused top‑k only. **MMR diversity rerank is commented out** on hybrid (2026‑06 experiment) — vec-only path still uses MMR.
 
-**When rerank runs:** cross-encoder rerank runs when **Enable cross-file rerank (LlamaIndex)** is on, the search RPC has `use_mmr=True`, **and** final `k > 1`. At `k = 1` (folder routing eval top-1), rerank is skipped — same idea as hybrid skipping MMR at `k = 1`. If the cross-encoder fails to load, the pipeline falls back to fused top-k only. **Off by default** — LlamaIndex uses RRF-only until you enable rerank in Settings.
+**When rerank runs:** cross-encoder rerank runs when **Enable cross-file rerank** is on (both **Embeddings + FTS** and **LlamaIndex**), the search RPC has `use_mmr=True` + `rerank_model`, **and** final `k > 1`. **Off by default** — both backends use RRF-only until enabled.
 
 **Settings → Embeddings** (only when **Cross-file search** is **LlamaIndex**):
 
@@ -1608,7 +1604,7 @@ Work below is ordered **incremental fixes first**, then **big advantages** that 
 |---|------|--------|
 | 1 | **Eval parity** — `--backend hybrid\|llama_index` on eval + search CLI; A/B table in [Evaluation](#llamaindex-eval) | **Done** |
 | 2 | **Ops gaps** — search UI rebuild honors `embeddings.folder_search_mode`; CLI rerank flags | **Done** |
-| 3 | **Settings / UX** — rerank on/off + model id dropdown (`use_mmr` = cross-encoder on LlamaIndex, MMR on hybrid) | **Done** |
+| 3 | **Settings / UX** — rerank on/off + model id; `use_mmr` + `rerank_model` = cross-encoder on **both** backends | **Done** |
 
 **Phase 1 exit criteria:** measured A/B table for hybrid vs llama_index on a labeled query set; no hardcoded `hybrid` bypasses in search UI or indexer routing; documented venv install for LlamaIndex mode. **Multilingual rerank** (`BAAI/bge-reranker-v2-m3`) is available in Settings; benchmark deferred (large download, slow).
 

@@ -155,7 +155,7 @@ def test_hybrid_search_disables_rerank_when_llama_index_rerank_off(ctx):
     assert data["use_mmr"] is False
 
 
-def test_hybrid_search_omits_rerank_model_for_hybrid_backend(ctx):
+def test_hybrid_search_omits_rerank_when_disabled_for_hybrid_backend(ctx):
     with patch(
         "plugin.framework.client.embeddings_service.run_code_in_user_venv",
         return_value={"status": "ok", "result": {"hits": []}},
@@ -165,6 +165,25 @@ def test_hybrid_search_omits_rerank_model_for_hybrid_backend(ctx):
                 embeddings_service.hybrid_search(ctx, "/tmp/corpus.db", "q", 5, model=DEFAULT_EMBEDDING_MODEL)
     data = mock_run.call_args.kwargs["data"]
     assert "rerank_model" not in data
+    assert data["use_mmr"] is False
+
+
+def test_hybrid_search_passes_rerank_model_when_hybrid_rerank_enabled(ctx):
+    from plugin.framework.constants import FOLDER_RERANK_MODEL_ENGLISH_SMALL
+
+    with patch(
+        "plugin.framework.client.embeddings_service.run_code_in_user_venv",
+        return_value={"status": "ok", "result": {"hits": []}},
+    ) as mock_run:
+        with patch("plugin.framework.client.embeddings_service.embeddings_worker_timeout_sec", return_value=120):
+            with patch("plugin.framework.client.embeddings_service._folder_search_mode", return_value="hybrid"):
+                with patch(
+                    "plugin.framework.client.embeddings_service._folder_search_rerank_options",
+                    return_value={"use_mmr": True, "rerank_model": FOLDER_RERANK_MODEL_ENGLISH_SMALL},
+                ):
+                    embeddings_service.hybrid_search(ctx, "/tmp/corpus.db", "q", 5, model=DEFAULT_EMBEDDING_MODEL)
+    data = mock_run.call_args.kwargs["data"]
+    assert data["rerank_model"] == FOLDER_RERANK_MODEL_ENGLISH_SMALL
     assert data["use_mmr"] is True
 
 
@@ -186,7 +205,19 @@ def test_folder_search_rerank_options_llama_index_disabled(ctx):
     assert opts == {"use_mmr": False}
 
 
-def test_folder_search_rerank_options_hybrid_backend(ctx):
-    opts = embeddings_service._folder_search_rerank_options(ctx, "hybrid")
-    assert opts == {"use_mmr": True}
-    assert "rerank_model" not in opts
+def test_folder_search_rerank_options_hybrid_backend_disabled(ctx):
+    with patch("plugin.framework.constants.folder_rerank_enabled", return_value=False):
+        opts = embeddings_service._folder_search_rerank_options(ctx, "hybrid")
+    assert opts == {"use_mmr": False}
+
+
+def test_folder_search_rerank_options_hybrid_backend_enabled(ctx):
+    from plugin.framework.constants import FOLDER_RERANK_MODEL_ENGLISH_SMALL
+
+    with patch("plugin.framework.constants.folder_rerank_enabled", return_value=True):
+        with patch(
+            "plugin.framework.constants.resolve_folder_rerank_model",
+            return_value=FOLDER_RERANK_MODEL_ENGLISH_SMALL,
+        ):
+            opts = embeddings_service._folder_search_rerank_options(ctx, "hybrid")
+    assert opts == {"use_mmr": True, "rerank_model": FOLDER_RERANK_MODEL_ENGLISH_SMALL}

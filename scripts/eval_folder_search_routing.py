@@ -166,6 +166,7 @@ def run_search_leg(
     use_mmr: bool,
     backend: str = "hybrid",
     doc_url_filter: str | None = None,
+    rerank_model: str | None = None,
 ) -> dict[str, Any]:
     if leg == "hybrid":
         if backend == "llama_index":
@@ -179,6 +180,7 @@ def run_search_leg(
                 near_slop=near_slop,
                 doc_url_filter=doc_url_filter,
                 use_mmr=use_mmr,
+                rerank_model=rerank_model,
             )
         else:
             return hybrid_search(
@@ -189,6 +191,7 @@ def run_search_leg(
                 near_slop=near_slop,
                 doc_url_filter=doc_url_filter,
                 use_mmr=use_mmr,
+                rerank_model=rerank_model,
             )
     if leg == "vec":
         return knn_search(str(db_path), query, k, model_name=model_name)
@@ -205,6 +208,7 @@ def evaluate_query(
     use_mmr: bool,
     legs: tuple[Literal["hybrid", "fts", "vec"], ...],
     backend: str = "hybrid",
+    rerank_model: str | None = None,
 ) -> dict[str, Any]:
     row: dict[str, Any] = {
         "query": labeled.query,
@@ -224,6 +228,7 @@ def evaluate_query(
                 near_slop=near_slop,
                 use_mmr=use_mmr,
                 backend=backend,
+                rerank_model=rerank_model,
             )
         except ImportError as exc:
             raise EvalRoutingError(
@@ -330,6 +335,7 @@ def run_eval(
     use_mmr: bool = True,
     query_set: QuerySetName | None = None,
     backend: str = "hybrid",
+    rerank_model: str | None = None,
 ) -> dict[str, Any]:
     listing_root, db_path, meta_path, default_model = _preflight(folder)
     model_name = model or default_model
@@ -359,6 +365,7 @@ def run_eval(
             use_mmr=use_mmr,
             legs=legs,
             backend=backend,
+            rerank_model=rerank_model,
         )
         for labeled in queries
     ]
@@ -368,8 +375,10 @@ def run_eval(
         "model": model_name,
         "mode": mode,
         "use_mmr": use_mmr,
+        "rerank_model": rerank_model,
         "k": k,
         "query_count": len(rows),
+        "backend": backend,
     }
     for leg in legs:
         summary[f"{leg}_routing"] = summarize_rows(rows, leg=leg)
@@ -453,10 +462,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--no-mmr",
         action="store_true",
-        help="Hybrid leg only: disable MMR after RRF (compare baseline)",
+        help="Hybrid leg only: disable cross-encoder rerank (RRF-only baseline)",
+    )
+    parser.add_argument(
+        "--rerank-model",
+        help="Hybrid/LlamaIndex leg: HuggingFace cross-encoder model id (default: cross-encoder/ms-marco-MiniLM-L-6-v2 when rerank on)",
     )
     parser.add_argument("--json", action="store_true", help="Print JSON payload")
     args = parser.parse_args(argv)
+
+    rerank_model = None
+    if not args.no_mmr and args.mode in ("hybrid", "all") and args.backend in ("hybrid", "llama_index"):
+        rerank_model = (args.rerank_model or "").strip() or "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
     try:
         payload = run_eval(
@@ -468,6 +485,7 @@ def main(argv: list[str] | None = None) -> int:
             use_mmr=not args.no_mmr,
             query_set=args.query_set,
             backend=args.backend,
+            rerank_model=rerank_model,
         )
     except EvalRoutingError as exc:
         print(str(exc), file=sys.stderr)
