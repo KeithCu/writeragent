@@ -56,6 +56,32 @@ def find_system_uno():
                 lo_program = p
                 break
 
+    # 4. macOS: LibreOffice.app bundle layout. uno.py lives in Contents/Resources
+    #    and pyuno.so in Contents/Frameworks, with soffice in Contents/MacOS.
+    #    We deliberately expose ONLY uno.py (not pyuno.so): the venv's Python
+    #    differs from LibreOffice's bundled Python, so importing the real pyuno
+    #    hangs/crashes. Static type-checking (ty) only needs uno.py plus the
+    #    types-unopy stubs, and the extension itself runs inside LibreOffice's
+    #    own Python, so the venv never needs a working runtime pyuno.
+    if sys.platform == "darwin":
+        app_candidates = ["/Applications/LibreOffice.app"]
+        try:
+            sp = subprocess.run(
+                ["which", "soffice"], capture_output=True, text=True, check=True
+            ).stdout.strip()
+            if sp:
+                # .../Contents/MacOS/soffice -> .../LibreOffice.app
+                contents = os.path.dirname(os.path.dirname(os.path.realpath(sp)))
+                app_candidates.insert(0, os.path.dirname(contents))
+        except Exception:
+            pass
+        for app in app_candidates:
+            res = os.path.join(app, "Contents", "Resources")
+            if os.path.exists(os.path.join(res, "uno.py")):
+                uno_path = res
+                lo_program = None  # do not put pyuno.so on the venv path
+                break
+
     return uno_path, lo_program
 
 def main():
