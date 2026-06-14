@@ -198,30 +198,69 @@ def get_document_directory(model: Any) -> str | None:
     return parent if os.path.isdir(parent) else None
 
 
-def get_work_directory(ctx: Any) -> str | None:
-    """Return LibreOffice profile Work folder as an absolute path, or None."""
+def _path_settings_from_ctx(ctx: Any) -> Any | None:
+    """Return LO PathSettings singleton, or None when UNO is unavailable."""
     if ctx is None:
         return None
     try:
-        smgr = ctx.ServiceManager
-        path_settings = smgr.createInstanceWithContext("com.sun.star.util.thePathSettings", ctx)
-        if path_settings is None:
-            return None
-        work = path_settings.getPropertyValue("Work")
-        if work is None:
-            return None
-        work_str = str(work).strip()
-        if not work_str:
-            return None
-        if work_str.startswith("file://"):
-            resolved = _system_path_from_url(work_str)
-        else:
-            resolved = _normalize_path(work_str)
-        if resolved and os.path.isdir(resolved):
-            return resolved
+        if hasattr(ctx, "getValueByName"):
+            settings = ctx.getValueByName("/singletons/com.sun.star.util.thePathSettings")
+            if settings is not None:
+                return settings
     except Exception:
-        log.debug("get_work_directory failed", exc_info=True)
+        log.debug("_path_settings_from_ctx singleton lookup failed", exc_info=True)
+    try:
+        smgr = ctx.ServiceManager
+        return smgr.createInstanceWithContext("com.sun.star.util.PathSettings", ctx)
+    except Exception:
+        log.debug("_path_settings_from_ctx createInstance failed", exc_info=True)
     return None
+
+
+def _substitute_lo_path_variables(ctx: Any, raw: str) -> str:
+    """Expand LO path variables such as $(home) in a PathSettings value."""
+    text = str(raw).strip()
+    if not text:
+        return ""
+    try:
+        if hasattr(ctx, "getValueByName"):
+            subst = ctx.getValueByName("/singletons/com.sun.star.util.thePathSubstitution")
+            if subst is not None and hasattr(subst, "substituteVariables"):
+                return str(subst.substituteVariables(text, True)).strip()
+    except Exception:
+        log.debug("_substitute_lo_path_variables failed", exc_info=True)
+    return text
+
+
+def _resolve_lo_directory_path(ctx: Any, raw: str) -> str | None:
+    """Normalize a PathSettings directory value to an existing absolute path."""
+    text = _substitute_lo_path_variables(ctx, raw)
+    if not text:
+        return None
+    if text.startswith("file://"):
+        resolved = _system_path_from_url(text)
+    else:
+        resolved = _normalize_path(text)
+    if resolved and os.path.isdir(resolved):
+        return resolved
+    return None
+
+
+def get_work_directory(ctx: Any) -> str | None:
+    """Return LibreOffice My Documents folder (Work path setting), or None."""
+    settings = _path_settings_from_ctx(ctx)
+    if settings is None:
+        return None
+    work_raw: Any = None
+    try:
+        work_raw = settings.getPropertyValue("Work")
+    except Exception:
+        log.debug("get_work_directory getPropertyValue(Work) failed", exc_info=True)
+    if work_raw is None:
+        work_raw = getattr(settings, "Work", None)
+    if work_raw is None:
+        return None
+    return _resolve_lo_directory_path(ctx, str(work_raw))
 
 
 def resolve_listing_directory(ctx: Any, active_model: Any) -> str | None:

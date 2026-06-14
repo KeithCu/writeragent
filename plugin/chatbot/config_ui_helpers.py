@@ -246,7 +246,13 @@ def populate_combobox_with_lru(
             fetch_succeeded = fetched_models is not None
 
         if fetched_models is not None:
-            filtered = _filter_fetched_models(fetched_models, req_cap)
+            # Image remote_models from fetch_available_image_models are already metadata-curated
+            # (OpenRouter architecture / Together type=image). Re-running slug keywords strips
+            # ids like google/gemini-2.5-flash-image that lack flux/sdxl/imagen substrings.
+            if remote_models is not None and req_cap == "image":
+                filtered = list(fetched_models)
+            else:
+                filtered = _filter_fetched_models(fetched_models, req_cap)
             for mid in _filter_models_for_provider(filtered, provider):
                 if mid not in to_show:
                     to_show.append(mid)
@@ -287,12 +293,14 @@ def populate_combobox_with_lru(
     # If the list is empty (fetch failed and no defaults), add a helpful placeholder
     if not to_show:
         from plugin.framework.i18n import _
-        if auth_blocked or (provider and provider_requires_api_key(provider) and not fetch_succeeded):
-            to_show.append(_("(Enter API Key to load models)"))
-        elif req_cap == "image" and fetch_succeeded:
-            to_show.append(_("(No image models on this endpoint)"))
-        else:
-            to_show.append(_("(Connection failed)"))
+        # prompt_lru / image_base_size_lru use endpoint="" — no /v1/models fetch attempted.
+        if endpoint:
+            if auth_blocked or (provider and provider_requires_api_key(provider) and not fetch_succeeded):
+                to_show.append(_("(Enter API Key to load models)"))
+            elif req_cap == "image" and fetch_succeeded:
+                to_show.append(_("(No image models on this endpoint)"))
+            else:
+                to_show.append(_("(Connection failed)"))
 
     display_val = _resolve_display_model_for_combobox(curr_val_str, is_incompatible, to_show, provider, req_cap)
 

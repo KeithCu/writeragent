@@ -29,6 +29,7 @@ class TestFetchAvailableModelsCache(unittest.TestCase):
         keys_to_del = [k for k in cfg._model_fetch_cache if (('127.0.0.1:5890' in k))]
         for k in keys_to_del:
             del cfg._model_fetch_cache[k]
+            cfg._model_fetch_image_cache.pop(k, None)
 
     def test_second_call_does_not_http(self):
         from plugin.framework.client import model_fetcher as cfg
@@ -100,6 +101,7 @@ class TestFetchAvailableModelsCache(unittest.TestCase):
                 for k in list(cfg._model_fetch_cache):
                     if ('58904' in k):
                         del cfg._model_fetch_cache[k]
+                        cfg._model_fetch_image_cache.pop(k, None)
                 with patch('plugin.framework.client.requests.sync_request') as mock_sync:
                     mock_sync.return_value = {'data': [{'id': 'm1'}]}
                     r = cfg.fetch_available_models(endpoint, ctx, api_key_override='from-override')
@@ -131,6 +133,7 @@ class TestFetchAvailableModelsCache(unittest.TestCase):
                 for k in list(cfg._model_fetch_cache):
                     if ('58905' in k):
                         del cfg._model_fetch_cache[k]
+                        cfg._model_fetch_image_cache.pop(k, None)
                 with patch('plugin.framework.client.requests.sync_request') as mock_sync:
                     mock_sync.return_value = {'data': [{'id': 'x'}]}
                     cfg.fetch_available_models(endpoint, ctx)
@@ -145,3 +148,88 @@ class TestGetModelCapabilityOpenRouter(unittest.TestCase):
 
         caps = get_model_capability(MagicMock(), 'openai/gpt-oss-120b:nitro', 'https://openrouter.ai/api')
         self.assertTrue(isinstance(caps, int) and (caps & ModelCapability.TOOLS))
+
+
+class TestFetchAvailableImageModels(unittest.TestCase):
+    def tearDown(self):
+        import plugin.framework.client.model_fetcher as cfg
+
+        for k in list(cfg._model_fetch_cache):
+            if '58907' in k or '58908' in k or 'together.xyz' in k:
+                del cfg._model_fetch_cache[k]
+                cfg._model_fetch_image_cache.pop(k, None)
+
+    def test_openrouter_uses_architecture_not_slug_keywords(self):
+        from plugin.framework.client import model_fetcher as cfg
+
+        payload = {
+            'data': [
+                {
+                    'id': 'google/gemini-2.5-flash-image',
+                    'architecture': {
+                        'output_modalities': ['image', 'text'],
+                        'input_modalities': ['text'],
+                    },
+                },
+                {'id': 'google/gemini-3.1-flash-lite-preview', 'architecture': {'output_modalities': ['text'], 'input_modalities': ['image', 'text']}},
+            ]
+        }
+        with patch('plugin.framework.client.requests.sync_request', return_value=payload):
+            image_ids = cfg.fetch_available_image_models('https://openrouter.ai/api')
+        self.assertEqual(image_ids, ['google/gemini-2.5-flash-image'])
+
+    def test_local_endpoint_falls_back_to_keyword_filter(self):
+        from plugin.framework.client import model_fetcher as cfg
+
+        payload = {'data': [{'id': 'flux'}, {'id': 'llama3.2'}]}
+        with patch('plugin.framework.client.requests.sync_request', return_value=payload):
+            image_ids = cfg.fetch_available_image_models('http://127.0.0.1:58908')
+        self.assertEqual(image_ids, ['flux'])
+
+    def test_image_output_model_ids_from_v1_entries(self):
+        from plugin.framework.client.model_fetcher import _image_output_model_ids_from_v1_entries
+
+        entries = [
+            {'id': 'a', 'architecture': {'output_modalities': ['text']}},
+            {'id': 'b', 'architecture': {'output_modalities': ['image']}},
+            {'id': 'google/flash-image-2.5', 'type': 'image'},
+            {'id': 'openai/gpt-oss-120b', 'type': 'chat'},
+        ]
+        self.assertEqual(
+            _image_output_model_ids_from_v1_entries(entries),
+            ['b', 'google/flash-image-2.5'],
+        )
+
+    def test_together_list_response_parses_all_ids(self):
+        from plugin.framework.client import model_fetcher as cfg
+
+        payload = [
+            {'id': 'openai/gpt-oss-120b', 'type': 'chat'},
+            {'id': 'google/flash-image-2.5', 'type': 'image'},
+        ]
+        with patch('plugin.framework.client.requests.sync_request', return_value=payload):
+            all_ids = cfg.fetch_available_models('https://api.together.xyz')
+        self.assertEqual(all_ids, ['openai/gpt-oss-120b', 'google/flash-image-2.5'])
+
+    def test_together_image_models_from_type_field(self):
+        from plugin.framework.client import model_fetcher as cfg
+
+        payload = [
+            {'id': 'openai/gpt-oss-120b', 'type': 'chat'},
+            {'id': 'google/flash-image-2.5', 'type': 'image'},
+            {'id': 'black-forest-labs/FLUX.1-schnell', 'type': 'image'},
+        ]
+        with patch('plugin.framework.client.requests.sync_request', return_value=payload):
+            image_ids = cfg.fetch_available_image_models('https://api.together.xyz')
+        self.assertEqual(image_ids, ['google/flash-image-2.5', 'black-forest-labs/FLUX.1-schnell'])
+
+    def test_together_image_skips_slug_only_models(self):
+        from plugin.framework.client import model_fetcher as cfg
+
+        payload = [
+            {'id': 'black-forest-labs/FLUX.1-schnell', 'type': 'chat'},
+            {'id': 'google/flash-image-2.5', 'type': 'image'},
+        ]
+        with patch('plugin.framework.client.requests.sync_request', return_value=payload):
+            image_ids = cfg.fetch_available_image_models('https://api.together.xyz')
+        self.assertEqual(image_ids, ['google/flash-image-2.5'])

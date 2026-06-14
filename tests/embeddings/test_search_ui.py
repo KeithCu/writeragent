@@ -5,6 +5,7 @@
 """Tests for SearchDialog."""
 
 from unittest.mock import MagicMock, patch
+from pathlib import Path
 import pytest
 
 from plugin.embeddings.search_ui import SearchDialog, show_search_dialog
@@ -89,3 +90,49 @@ class TestSearchDialog:
         assert mock_clear.called
         assert mock_maintain.called
         assert mock_maintain.call_args.kwargs["search_mode"] == "llama_index"
+
+    @patch("plugin.embeddings.search_ui.get_desktop")
+    @patch("plugin.embeddings.search_ui.get_active_document")
+    @patch("plugin.embeddings.embeddings_cache.clear_folder_cache")
+    @patch("plugin.framework.client.embeddings_service.maintain_folder_index")
+    @patch("plugin.framework.client.embeddings_service._folder_search_mode", return_value="llama_index")
+    def test_rebuild_untitled_doc_uses_my_documents_listing(
+        self,
+        mock_search_mode,
+        mock_maintain,
+        mock_clear,
+        mock_doc,
+        mock_get_desktop,
+        tmp_path,
+    ):
+        mock_ctx = MagicMock()
+        mock_smgr = mock_ctx.getServiceManager.return_value
+
+        mock_dlg_model = MagicMock()
+        mock_dlg = MagicMock()
+        mock_smgr.createInstanceWithContext.side_effect = lambda svc, ctx: {
+            "com.sun.star.awt.UnoControlDialogModel": mock_dlg_model,
+            "com.sun.star.awt.UnoControlDialog": mock_dlg,
+            "com.sun.star.awt.Toolkit": MagicMock(),
+        }.get(svc, MagicMock())
+
+        mock_frame = MagicMock()
+        mock_get_desktop.return_value.getCurrentFrame.return_value = mock_frame
+        mock_frame.getContainerWindow.return_value = MagicMock()
+
+        my_docs = str(tmp_path / "Documents")
+        Path(my_docs).mkdir()
+
+        dialog = SearchDialog(mock_ctx)
+        mock_doc.return_value = MagicMock()
+
+        with patch("plugin.doc.document_helpers.get_document_path", return_value=None):
+            with patch("plugin.doc.document_research.get_work_directory", return_value=my_docs):
+                dialog._run_rebuild(mock_dlg)
+                import time
+                time.sleep(0.2)
+
+        assert mock_clear.called
+        assert mock_clear.call_args.args[0] == my_docs
+        assert mock_maintain.called
+        assert mock_maintain.call_args.args[1] == my_docs

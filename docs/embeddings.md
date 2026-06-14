@@ -1188,10 +1188,16 @@ Parent merge is query-time SQL over `chunks` — **no re-index** when enabling i
 
 **Future (not shipped):**
 
+See also [Index granularity](#index-granularity) for the layered extract → chunk → parent → in-doc model and embedding-dilution problem.
+
 | Phase | Idea | When to consider |
 |-------|------|------------------|
 | **Stronger embedding model** | Settings `embedding_model` → re-index (e.g. `BAAI/bge-small-en-v1.5`) | When bi-encoder recall is the bottleneck |
-| **Heading-level / section parents** | Parent context above single paragraph (AutoMergingRetriever with section tree) | When paragraph-level context is still too narrow |
+| **Configurable chunk size** | Settings or per-`doc_kind` `CHUNK_SIZE` / overlap (tokens vs chars eval) | A/B via [`eval_folder_search_routing.py`](../scripts/eval_folder_search_routing.py) |
+| **Contextual / prepend chunks** | Section title or heading prepended to each chunk before embed (contextual retrieval) | Long docs where chunk text lacks section context |
+| **Sentence-level vectors** | Optional second index or sub-chunk grain for citation | Pinpoint recall; accept N× vector count |
+| **Heading-level / section parents** | Parent context above single paragraph (AutoMergingRetriever with section tree) | When paragraph-level context is still too narrow; paragraph parent is shipped |
+| **Late chunking** | Embed full paragraph once, pool token vectors for sub-spans | Research — may pair with long-context embedders |
 
 Professionals rarely grep hit previews; they align **display size with indexed chunk size** and improve **ranking** (reranker, model) when bi-encoder recall is imprecise.
 
@@ -1274,9 +1280,9 @@ Reference implementations to adapt:
 
 The corpus index must stay **current without full re-embeds**. Grammar proofreading already solves a related problem: detect what changed, queue work, supersede stale jobs, write results to a cache — but on a **sentence** cadence with ~**1 s** quiet windows because users want squiggles immediately ([realtime-grammar-checker-plan.md](realtime-grammar-checker-plan.md), [`grammar_work_queue.py`](../plugin/writer/locale/grammar_work_queue.py)). **Embeddings are the opposite latency class:** stale-by-a-minute is acceptable; cost is **CPU batch encode** (local) or HTTP embed batches (cloud) for changed paragraphs only — not per-keystroke work.
 
-### Paragraph hash (primary) vs sentence hash
+### Paragraph hash (primary) vs sentence hash {#paragraph-hash-primary-vs-sentence-hash}
 
-Store a **content fingerprint per indexed unit** alongside each locator row:
+Store a **content fingerprint per indexed unit** alongside each locator row. Index **vectors** are sub-paragraph chunks; invalidation defaults to **paragraph** grain — see [Index granularity](#index-granularity).
 
 | Granularity | Fingerprint key | Re-embed when | Notes |
 |-------------|-------------------|---------------|-------|
@@ -1356,6 +1362,60 @@ Naive character splits destroy meaning. Vendor MIT **RecursiveCharacterTextSplit
 - **Key file:** `recursive_character.py` — separators `["\n\n", "\n", " ", ""]`, `chunk_overlap` for context bridging.
 - **Index-time only:** while splitting, record **paragraph index and internal char offsets** for stable `chunk_id`s. Public search hits expose **snippets** only ([Search hit shape](#search-hit-shape)).
 
+### Index granularity (extract vs index vs display) {#index-granularity}
+
+Most production RAG stacks use **more than one unit** — not a single “per sentence” or “per paragraph” vector DB. WriterAgent layers extract, index, display, and precision stages:
+
+| Layer | WriterAgent today | Role |
+|-------|-------------------|------|
+| **Extract** | ODF paragraph (or Calc row / slide body) | Stable boundaries; `content_hash` per `para_index` |
+| **Index (vectors)** | Sub-paragraph chunks — 512 chars, 64 overlap ([`embeddings_split.py`](../plugin/embeddings/embeddings_split.py)) | Bi-encoder recall; `vec_chunks_<model>` rows |
+| **Display / context** | Parent-paragraph merge at query time ([`embeddings_parent_hits.py`](../plugin/embeddings/venv/embeddings_parent_hits.py)) | Full paragraph in `snippet` without re-index |
+| **Precision** | Hybrid RRF, wide pool, optional cross-encoder rerank; then **`search_in_document`** in opened file | Fix wrong concept inside a chunk |
+
+**Vector DB rows are chunks**, not sentences and not always whole paragraphs (long paragraphs → multiple vectors).
+
+#### Sentence vs paragraph vs chunk — when each wins
+
+| Granularity | Typical use | WriterAgent |
+|-------------|-------------|-------------|
+| **Sentence** | Citation, claim-level QA, live grammar | Grammar pipeline only; **not** folder embeddings |
+| **Paragraph** | File routing, incremental invalidation | Extract + hash default ([Incremental updates](#incremental-updates)) |
+| **Chunk (sub-paragraph)** | RAG retrieval default (~256–512 tokens/chars in LangChain/LlamaIndex) | **Shipped** index grain |
+
+**Sentence-level index (future):** optional `hash(sentence)` for finer invalidation inside long paragraphs — only if profiling shows paragraph grain is too coarse for **re-embed cost**, not as the first fix for recall ([Paragraph hash vs sentence hash](#paragraph-hash-primary-vs-sentence-hash)).
+
+#### Embedding dilution ("one concept from a chunk")
+
+**Problem:** a 512-char chunk mixing several topics (e.g. venv + numpy + MCP + streaming) yields one blended vector; a query about only "MCP" may rank poorly or surface the wrong sibling idea.
+
+**Mitigations — shipped:**
+
+- Smaller-than-paragraph chunks + overlap
+- Hybrid FTS + vector RRF (keyword leg)
+- Over-fetch `min(max(k×4, 20), 50)` before truncate/rerank ([`embeddings_retrieval_pool.py`](../plugin/embeddings/venv/embeddings_retrieval_pool.py))
+- Parent-paragraph merge (context without re-index)
+- Optional cross-encoder rerank on `(query, chunk)`
+- **Two-stage design:** index answers **which file / which paragraph**; inner agent **`search_in_document`** resolves exact wording in live LO
+
+**When chunks are "good enough":** cross-file routing and paragraph-level discovery (primary `document_research` use case). On `~/Desktop/Writing`, hybrid ~56% top-1 file routing; grep often wins 1–3 word queries ([Hybrid RRF baseline](#hybrid-rrf-baseline-schema-v3-re-measured-2026-06)).
+
+**When chunks are not enough:** pinpoint citation or single-sentence fact without opening the doc → need rerank, smaller chunks, sentence index, or mandatory in-doc search.
+
+```mermaid
+flowchart TD
+  query[Query]
+  hybrid[Hybrid RRF FTS plus vec kNN]
+  pool[Wide pool k times 4 capped 50]
+  parent[Parent paragraph merge]
+  rerank[Optional cross encoder rerank]
+  open[Open 1 few files]
+  inDoc[search_in_document on snippet or topic]
+  query --> hybrid --> pool --> parent --> rerank --> open --> inDoc
+```
+
+**Design invariant:** the index is **not** a document store — lookup returns **where to look** ([Search hit shape](#search-hit-shape)); `para_index` is a weak hint; `char_start` / `char_end` are internal only.
+
 ### Calc ODS indexing {#calc-ods-indexing}
 
 Cross-folder index maintain includes **Calc** siblings (`.ods`, `.ots`, `.fods`) beside Writer files in the same folder.
@@ -1404,7 +1464,7 @@ Cross-folder index maintain includes **Impress** (`.odp`, `.otp`, `.fodp`) and *
 
 ## Corpus intelligence
 
-The index is a **router**, not a library mirror.
+The index is a **router**, not a library mirror. **Chunks are routing signals**, not final answers: embedding dilution in multi-topic passages is expected, and the precision stage is opening the hit file + **`search_in_document`** (and optional cross-encoder rerank). See [Index granularity](#index-granularity) for the full two-stage retrieval model.
 
 ### Outer agent: semantic find replaces grep
 

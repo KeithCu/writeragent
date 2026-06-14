@@ -87,5 +87,11 @@ DEFAULT_MODELS: list[dict[str, Any]] = [
         "ids": {"google": "gemini-3.1-flash-lite-preview", "openrouter": "google/gemini-3.1-flash-lite-preview"},
     },
     {"display_name": "Gemini Flash Image 2.5", "capability": ModelCapability.IMAGE, "ids": {"together": "google/flash-image-2.5"}, "default_image": True},
+    {
+        "display_name": "Gemini 2.5 Flash Image",
+        "capability": ModelCapability.IMAGE,
+        "ids": {"openrouter": "google/gemini-2.5-flash-image"},
+        "default_image": True,
+    },
     {"display_name": "Nvidia Parakeet TDT 0.6B v3", "capability": ModelCapability.AUDIO, "ids": {"together": "nvidia/parakeet-tdt-0.6b-v3"}, "default_audio": True},
 ]

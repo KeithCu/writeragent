@@ -83,6 +83,20 @@ def test_resolve_index_context_ok(tmp_path):
     assert meta == Path(listing) / "writeragent_embeddings" / "corpus_meta.json"
 
 
+def test_resolve_index_context_untitled_uses_work_directory(tmp_path):
+    ctx = MagicMock()
+    model = MagicMock()
+    my_docs = str(tmp_path / "Documents")
+    Path(my_docs).mkdir()
+    with patch("plugin.doc.document_helpers.get_document_path", return_value=None):
+        with patch("plugin.doc.document_research.get_work_directory", return_value=my_docs):
+            key, db_path, meta, root = embeddings_cache.resolve_index_context(ctx, model)
+    assert root == my_docs
+    assert key == embeddings_cache.folder_corpus_key(my_docs)
+    assert db_path == Path(my_docs) / "writeragent_embeddings" / "corpus.db"
+    assert meta == Path(my_docs) / "writeragent_embeddings" / "corpus_meta.json"
+
+
 def test_model_matches_index(tmp_path):
     meta_path = tmp_path / "corpus_meta.json"
     # When stored model is specified

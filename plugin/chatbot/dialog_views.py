@@ -535,7 +535,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
             _sanitize_model_combobox_value,
         )
         from plugin.framework.client.model_fetcher import (
-            endpoint_url_suitable_for_v1_models_fetch, fetch_available_models, _filter_fetched_models,
+            endpoint_url_suitable_for_v1_models_fetch, fetch_available_models, fetch_available_image_models,
             get_provider_from_endpoint, get_image_model,
         )
 
@@ -554,7 +554,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         self.endpoint_from_selector_text = endpoint_from_selector_text
         self.endpoint_url_suitable_for_v1_models_fetch = endpoint_url_suitable_for_v1_models_fetch
         self.fetch_available_models = fetch_available_models
-        self._filter_fetched_models = _filter_fetched_models
+        self.fetch_available_image_models = fetch_available_image_models
         self._sanitize_model_combobox_value = _sanitize_model_combobox_value
         self.get_provider_from_endpoint = get_provider_from_endpoint
         self.get_image_model = get_image_model
@@ -607,7 +607,11 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         image_ctrl = get_optional(self._dlg, "image_model")
         if image_ctrl:
             if get_config_str(self._ctx, "image_provider") == "endpoint":
-                image_models = self._filter_fetched_models(models, "image") if models is not None else None
+                image_models = (
+                    self.fetch_available_image_models(resolved, self._ctx, api_key_override=api_key_ov)
+                    if models is not None
+                    else None
+                )
                 image_val = self._sanitize_model_combobox_value(str(image_ctrl.getText() or ""))
                 if not image_val:
                     image_val = str(self.get_image_model(self._ctx) or "")

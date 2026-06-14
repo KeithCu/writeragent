@@ -57,6 +57,66 @@ ENDPOINT_PRESETS = [
 # session). Key is normalized URL, or ``url + "\\x1f" + api_key`` when ``ctx`` is passed
 # (same host, different keys must not share cache). Value is model id list or None after failure.
 _model_fetch_cache: dict[str, list[str] | None] = {}
+_model_fetch_image_cache: dict[str, list[str] | None] = {}
+
+# /v1/models response shapes (GET {endpoint}/v1/models):
+# - Together (api.together.xyz): top-level JSON array [{id, type, ...}, ...]; image rows use type="image".
+# - OpenRouter (openrouter.ai): {data: [...]}; image rows use architecture.output_modalities (not slug names).
+# - OpenAI-compatible (Ollama, LM Studio, most hosted chat APIs): {data: [{id}, ...]}; image models
+#   are not typed — local discovery uses slug keywords in _filter_fetched_models (flux, sdxl, …).
+# Image-output IDs are extracted at fetch time into _model_fetch_image_cache; see
+# fetch_available_image_models for which providers trust metadata vs slug fallback.
+
+
+def _v1_models_entries_from_body(data: Any) -> list[Any] | None:
+    """Normalize /v1/models JSON to a list of model row dicts."""
+    # Together: bare array (see Together OpenAPI ModelInfoList).
+    if isinstance(data, list):
+        return data
+    # OpenRouter, OpenAI, Ollama, etc.: {"data": [...]}.
+    if isinstance(data, dict) and isinstance(data.get("data"), list):
+        return data["data"]
+    return None
+
+
+def _image_output_model_ids_from_v1_entries(entries: list[Any]) -> list[str]:
+    """Collect model IDs that generate images (not vision-input-only chat models)."""
+    out: list[str] = []
+    for m in entries:
+        if not isinstance(m, dict):
+            continue
+        mid = m.get("id")
+        if not mid:
+            continue
+        arch = m.get("architecture") or {}
+        modalities = arch.get("output_modalities")
+        # OpenRouter: google/gemini-2.5-flash-image, openai/gpt-5-image, etc.
+        if isinstance(modalities, list) and "image" in modalities:
+            out.append(str(mid))
+        # Together: google/flash-image-2.5, black-forest-labs/FLUX.* — type enum, not architecture.
+        elif str(m.get("type") or "").lower() == "image":
+            out.append(str(mid))
+    return out
+
+
+def _parse_v1_models_response(data: Any) -> tuple[list[str], list[str]] | None:
+    """Return (all_ids, image_output_ids) from a /v1/models JSON body."""
+    entries = _v1_models_entries_from_body(data)
+    if entries is None:
+        return None
+    models: list[str] = []
+    for m in entries:
+        if isinstance(m, dict):
+            mid = m.get("id")
+            if mid:
+                models.append(str(mid))
+    image_models = _image_output_model_ids_from_v1_entries(entries)
+    return models, image_models
+
+
+def _store_model_fetch_caches(cache_key: str, models: list[str] | None, image_models: list[str] | None) -> None:
+    _model_fetch_cache[cache_key] = models
+    _model_fetch_image_cache[cache_key] = image_models if models is not None else None
 
 
 def _model_fetch_cache_key(url: str, ctx: Any, base: str, api_key_override: str | None = None) -> str:
@@ -136,19 +196,16 @@ def fetch_available_models(endpoint, ctx=None, api_key_override: str | None = No
             req_headers = build_auth_headers(resolve_auth_for_config(mini))
         except AuthError as e:
             log.debug("fetch_available_models skipping %s: %s", url, e)
-            _model_fetch_cache[cache_key] = None
+            _store_model_fetch_caches(cache_key, None, None)
             return None
 
     try:
         from plugin.framework.client.requests import sync_request
         data = sync_request(url, parse_json=True, headers=req_headers if req_headers else None)
-        if data and isinstance(data, dict) and "data" in data:
-            models = []
-            for m in data["data"]:
-                mid = m.get("id")
-                if mid:
-                    models.append(mid)
-            _model_fetch_cache[cache_key] = models
+        parsed = _parse_v1_models_response(data)
+        if parsed is not None:
+            models, image_models = parsed
+            _store_model_fetch_caches(cache_key, models, image_models)
             return models
     except (ValueError, TypeError, IOError) as e:
         log.warning("fetch_available_models network/parse error for %s: %s", url, e)
@@ -157,8 +214,39 @@ def fetch_available_models(endpoint, ctx=None, api_key_override: str | None = No
             log.warning("fetch_available_models NetworkError for %s: %s", url, e)
         else:
             log.warning("fetch_available_models unexpected error for %s: %s", url, type(e).__name__)
-    _model_fetch_cache[cache_key] = None
+    _store_model_fetch_caches(cache_key, None, None)
     return None
+
+
+def fetch_available_image_models(endpoint, ctx=None, api_key_override: str | None = None):
+    """Image-output model IDs from /v1/models (architecture.output_modalities or type=image).
+
+    Provider policy after shared fetch (see module comment above):
+    - openrouter / together: metadata only (_model_fetch_image_cache); no slug guessing.
+    - ollama / lm studio / custom: keyword filter on id strings when metadata is empty.
+    """
+    if not endpoint:
+        return None
+    base = normalize_endpoint_url(endpoint)
+    if not base:
+        return None
+    if not endpoint_url_suitable_for_v1_models_fetch(base):
+        return None
+    all_models = fetch_available_models(endpoint, ctx, api_key_override=api_key_override)
+    if all_models is None:
+        return None
+    is_owu = get_config_bool_safe(ctx, "is_openwebui") if ctx else False
+    suffix = get_api_version_suffix(base, is_openwebui=is_owu)
+    url = f"{base}{suffix}/models"
+    cache_key = _model_fetch_cache_key(url, ctx, base, api_key_override)
+    arch_ids = _model_fetch_image_cache.get(cache_key) or []
+    provider = get_provider_from_endpoint(base)
+    # Hosted catalogs declare image models in API metadata; slug heuristics mis-classify
+    # (e.g. OpenRouter gemini-*-image names, Together google/flash-image-2.5 without "flux" in id).
+    if provider in ("openrouter", "together"):
+        return list(arch_ids)
+    # Ollama / LM Studio: /v1/models rows lack type/architecture; match flux, sdxl, etc. on id.
+    return _filter_fetched_models(all_models, "image")
 
 def _filter_fetched_models(models: list[str], req_cap: str) -> list[str]:
     """Filter raw model IDs from /v1/models based on the requested capability (text/image/audio)."""
@@ -180,7 +268,7 @@ def _filter_fetched_models(models: list[str], req_cap: str) -> list[str]:
                 continue
             out.append(m)
     elif req_cap == "image":
-        # Positive filter for image models (especially useful for Ollama/Custom endpoints)
+        # Ollama / local only — hosted OpenRouter/Together use fetch_available_image_models metadata path.
         include = {"flux", "stable-diffusion", "sdxl", "dall-e", "aurora", "imagen", "dreamshaper", "playground", "juggernaut"}
         for m in models:
             m_lower = m.lower()

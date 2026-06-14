@@ -238,6 +238,24 @@ class TestPopulateComboboxWithLruFetchOptions(unittest.TestCase):
             mock_fetch.assert_not_called()
         ctrl.setText.assert_called_with('openai/gpt-oss-120b:nitro')
 
+    def test_openrouter_image_remote_models_not_refiltered_by_slug(self):
+        ctrl = MagicMock()
+        ctrl.getItemCount.return_value = 0
+        ep = 'https://openrouter.ai/api'
+        image_ids = ['google/gemini-2.5-flash-image', 'openai/gpt-5-image']
+        populate_combobox_with_lru(
+            self.ctx,
+            ctrl,
+            '',
+            'image_model_lru',
+            ep,
+            remote_models=image_ids,
+            api_key_override='test-key',
+        )
+        items = list(ctrl.addItems.call_args[0][0])
+        self.assertIn('google/gemini-2.5-flash-image', items)
+        self.assertIn('openai/gpt-5-image', items)
+
     def test_openrouter_stt_ignores_remote_catalog(self):
         ctrl = MagicMock()
         ctrl.getItemCount.return_value = 0
@@ -286,3 +304,19 @@ class TestPopulateComboboxWithLruFetchOptions(unittest.TestCase):
                 
         call_args = ctrl.addItems.call_args[0][0]
         assert "(Connection failed)" in call_args
+
+    def test_prompt_lru_empty_no_connection_failed(self):
+        ctrl = MagicMock()
+        ctrl.getItemCount.return_value = 0
+        with patch("plugin.chatbot.config_ui_helpers.get_config", return_value=[]):
+            populate_combobox_with_lru(self.ctx, ctrl, "", "prompt_lru", "")
+        ctrl.addItems.assert_not_called()
+        ctrl.setText.assert_called_with("")
+
+    def test_image_base_size_lru_empty_no_connection_failed(self):
+        ctrl = MagicMock()
+        ctrl.getItemCount.return_value = 0
+        with patch("plugin.chatbot.config_ui_helpers.get_config", return_value=[]):
+            populate_combobox_with_lru(self.ctx, ctrl, "", "image_base_size_lru", "")
+        ctrl.addItems.assert_not_called()
+        ctrl.setText.assert_called_with("")

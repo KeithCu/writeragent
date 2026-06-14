@@ -129,6 +129,52 @@ def test_get_work_directory():
         ctx = MagicMock()
         path_settings = MagicMock()
         path_settings.getPropertyValue.return_value = tmp
+        ctx.getValueByName.side_effect = lambda name: path_settings if name == "/singletons/com.sun.star.util.thePathSettings" else None
+        assert get_work_directory(ctx) == os.path.normpath(tmp)
+        ctx.ServiceManager.createInstanceWithContext.assert_not_called()
+
+
+def test_get_work_directory_substitutes_variables():
+    with tempfile.TemporaryDirectory() as tmp:
+        ctx = MagicMock()
+        path_settings = MagicMock()
+        path_settings.getPropertyValue.return_value = "$(home)/Documents"
+        ctx.getValueByName.side_effect = lambda name: {
+            "/singletons/com.sun.star.util.thePathSettings": path_settings,
+            "/singletons/com.sun.star.util.thePathSubstitution": MagicMock(
+                substituteVariables=lambda text, _force: tmp if "$(home)" in text else text
+            ),
+        }.get(name)
+        assert get_work_directory(ctx) == os.path.normpath(tmp)
+
+
+def test_get_work_directory_file_url():
+    with tempfile.TemporaryDirectory() as tmp:
+        ctx = MagicMock()
+        path_settings = MagicMock()
+        path_settings.getPropertyValue.return_value = _path_to_file_url(tmp)
+        ctx.getValueByName.side_effect = lambda name: path_settings if name == "/singletons/com.sun.star.util.thePathSettings" else None
+        norm = os.path.normpath(tmp)
+        with patch("plugin.doc.document_research._system_path_from_url", return_value=norm):
+            assert get_work_directory(ctx) == norm
+
+
+def test_get_work_directory_uses_singleton_before_create_instance():
+    with tempfile.TemporaryDirectory() as tmp:
+        ctx = MagicMock()
+        path_settings = MagicMock()
+        path_settings.getPropertyValue.return_value = tmp
+        ctx.getValueByName.side_effect = lambda name: path_settings if name == "/singletons/com.sun.star.util.thePathSettings" else None
+        assert get_work_directory(ctx) == os.path.normpath(tmp)
+        ctx.ServiceManager.createInstanceWithContext.assert_not_called()
+
+
+def test_get_work_directory_falls_back_to_create_instance():
+    with tempfile.TemporaryDirectory() as tmp:
+        ctx = MagicMock()
+        path_settings = MagicMock()
+        path_settings.getPropertyValue.return_value = tmp
+        ctx.getValueByName.return_value = None
         ctx.ServiceManager.createInstanceWithContext.return_value = path_settings
         assert get_work_directory(ctx) == os.path.normpath(tmp)
 

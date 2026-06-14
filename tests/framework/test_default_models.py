@@ -28,6 +28,10 @@ class TestGetProviderDefaults(unittest.TestCase):
         d = get_provider_defaults("openrouter")
         self.assertEqual(d.get("stt_model"), "mistralai/voxtral-mini-transcribe")
 
+    def test_openrouter_default_image_model(self):
+        d = get_provider_defaults("openrouter")
+        self.assertEqual(d.get("image_model"), "google/gemini-2.5-flash-image")
+
 
 if __name__ == "__main__":
     unittest.main()
