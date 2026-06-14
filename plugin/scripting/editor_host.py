@@ -558,18 +558,26 @@ class PersistentEditor:
             return
 
         if kind in ("closed", "cancel"):
+            log.info("editor_host _dispatch_incoming: received close/cancel kind=%r", kind)
+            # Capture callbacks at dispatch time so the handler can detect if a new
+            # session has superseded this one before the executor processes the event.
+            captured_on_save = self.on_save
+            captured_on_closed = self.on_closed
             def _handle_close() -> None:
                 try:
-                    on_closed = self.on_closed
-                    if on_closed is not None:
-                        on_closed()
+                    if captured_on_closed is not None:
+                        captured_on_closed()
                 except Exception:
                     log.exception("Editor on_closed failed")
                 finally:
-                    self.on_save = None
-                    self.on_closed = None
                     self._closed_event.set()
-                    set_active_session(None)
+                    # Only clear and tear down if callbacks have not been replaced by
+                    # a new session that was opened while this close event was queued.
+                    if self.on_save is captured_on_save:
+                        self.on_save = None
+                    if self.on_closed is captured_on_closed:
+                        self.on_closed = None
+                        set_active_session(None)
 
             self.executor.execute(_handle_close)
             return
@@ -581,18 +589,24 @@ class PersistentEditor:
 
     def _handle_disconnect(self) -> None:
         """Handle case where the subprocess exits or disconnects unexpectedly."""
+        # Capture at schedule time; the reader loop finishes after terminate_persistent_editor()
+        # which may race with a new session already installing its callbacks.
+        captured_on_save = self.on_save
+        captured_on_closed = self.on_closed
         def _handle_close() -> None:
             try:
-                on_closed = self.on_closed
-                if on_closed is not None:
-                    on_closed()
+                if captured_on_closed is not None:
+                    captured_on_closed()
             except Exception:
                 log.exception("Editor on_closed failed during disconnect")
             finally:
-                self.on_save = None
-                self.on_closed = None
                 self._closed_event.set()
-                set_active_session(None)
+                # Only clear if not superseded by a new session.
+                if self.on_save is captured_on_save:
+                    self.on_save = None
+                if self.on_closed is captured_on_closed:
+                    self.on_closed = None
+                    set_active_session(None)
         self.executor.execute(_handle_close)
 
 
@@ -637,8 +651,14 @@ class EditorSession:
         return _PERSISTENT_EDITOR.wait_for_ready(ctx, timeout_sec)
 
     def _finish(self) -> None:
-        _PERSISTENT_EDITOR.on_save = None
-        _PERSISTENT_EDITOR.on_closed = None
+        # Only clear the shared callbacks if they still belong to this session.
+        # A new session may have already set its own callbacks on _PERSISTENT_EDITOR
+        # (via EditorSession.__init__) before _finish() is called, so we must not
+        # blindly wipe them.
+        if _PERSISTENT_EDITOR.on_save is self._on_save:
+            _PERSISTENT_EDITOR.on_save = None
+        if _PERSISTENT_EDITOR.on_closed is self._on_closed:
+            _PERSISTENT_EDITOR.on_closed = None
 
         global _ACTIVE_SESSION
         with _SESSION_LOCK:
