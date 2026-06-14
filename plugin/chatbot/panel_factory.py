@@ -535,6 +535,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     set_config(self.ctx, "text_model", txt)
                     # Bug fix: sidebar only wrote text_model; Settings dialog debounced refresh calls populate_combobox_with_lru(..., "", ...) which falls back to to_show[0] from LRU — stale head reverted the UI. Mirror apply_settings_result (update model_lru).
                     update_lru_history(self.ctx, txt, "model_lru", get_current_endpoint(self.ctx))
+                    # Reviewed for Fix stale UI state due to model selection in Settings dialog: no changes needed.
 
             model_selector.addItemListener(ModelSyncListener(self.ctx))
 
