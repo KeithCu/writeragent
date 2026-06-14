@@ -431,6 +431,8 @@ The **only** persisted index shape for now:
 
 **Mental model:** the cache mirrors “everything in this folder that document_research could grep today” — one semantic index for that **directory of files**, not one index per open document and not one index for the entire machine.
 
+**Untitled / new documents:** when the active document has no `file://` URL, `listing_root` is LibreOffice **My Documents** (the `Work` path in Tools → Options → Paths). That applies to `search_nearby_files`, the **Search Nearby Files** dialog (search + rebuild cache), and `list_nearby_files`.
+
 **Rule:** **each directory gets its own cache.** Work in `/projects/reporting/` uses only `writeragent_embeddings/` beside that folder. Work in `/projects/legal/` uses a **different** cache directory — separate `corpus.db`, built and refreshed independently. No sharing across directories in MVP.
 
 ```text

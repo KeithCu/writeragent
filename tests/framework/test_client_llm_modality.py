@@ -105,6 +105,33 @@ def test_transcribe_audio_uses_native_audio(mock_sync_chat):
         assert result == "Native multimodal transcript"
         assert mock_sync_chat.called
 
+@patch("plugin.framework.client.llm_client.sync_request")
+def test_transcribe_audio_openrouter_uses_json_body(mock_sync):
+    """OpenRouter /audio/transcriptions expects JSON with base64 input_audio, not multipart."""
+    mock_sync.return_value = {"text": "Hello from OpenRouter STT"}
+    ctx = MagicMock()
+
+    with patch("plugin.framework.client.model_fetcher.has_native_audio", return_value=False):
+        client = LlmClient(
+            {"endpoint": "https://openrouter.ai/api", "stt_model": "mistralai/voxtral-mini-transcribe", "is_openrouter": True},
+            ctx,
+        )
+
+        m = mock_open(read_data=b"dummy audio data")
+        with patch("builtins.open", m):
+            result = client.transcribe_audio("dummy.wav")
+
+        assert result == "Hello from OpenRouter STT"
+        assert mock_sync.called
+        args, kwargs = mock_sync.call_args
+        assert args[0] == "https://openrouter.ai/api/v1/audio/transcriptions"
+        headers = kwargs.get("headers", {})
+        assert headers.get("Content-Type") == "application/json"
+        body = json.loads(kwargs.get("data", b"").decode("utf-8"))
+        assert body["model"] == "mistralai/voxtral-mini-transcribe"
+        assert body["input_audio"]["format"] == "wav"
+        assert body["input_audio"]["data"]  # base64 payload present
+
 def test_llm_client_chat_with_tools_normalizes():
     """
     Test that request_with_tools normalizes standard chat completion responses.

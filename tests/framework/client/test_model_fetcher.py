@@ -150,6 +150,24 @@ class TestGetModelCapabilityOpenRouter(unittest.TestCase):
         self.assertTrue(isinstance(caps, int) and (caps & ModelCapability.TOOLS))
 
 
+class TestHasNativeAudio(unittest.TestCase):
+    def test_audio_only_stt_model_is_not_native_audio(self):
+        from plugin.framework.client.model_fetcher import has_native_audio
+
+        ctx = MagicMock()
+        with patch('plugin.framework.client.model_fetcher.get_config', return_value={}):
+            result = has_native_audio(ctx, 'mistralai/voxtral-mini-transcribe', 'https://openrouter.ai/api')
+        self.assertIsNot(result, True)
+
+    def test_chat_and_audio_model_is_native_audio(self):
+        from plugin.framework.client.model_fetcher import has_native_audio
+
+        ctx = MagicMock()
+        with patch('plugin.framework.client.model_fetcher.get_config', return_value={}):
+            result = has_native_audio(ctx, 'google/gemini-3.1-flash-lite-preview', 'https://openrouter.ai/api')
+        self.assertTrue(result)
+
+
 class TestFetchAvailableImageModels(unittest.TestCase):
     def tearDown(self):
         import plugin.framework.client.model_fetcher as cfg

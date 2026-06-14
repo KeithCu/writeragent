@@ -121,6 +121,7 @@ from .stream_normalizer import (
     extend_reasoning_details_acc,
     extract_reasoning_replay_from_response,
 )
+from .provider_detection import is_openrouter_endpoint
 from .requests import sync_request
 
 log = logging.getLogger(__name__)
@@ -584,8 +585,10 @@ class LlmClient:
         return shim.parse_image_responses(res)
 
     def transcribe_audio(self, wav_path, model=None):
-        """Transcribe audio using the /v1/audio/transcriptions endpoint (fallback path).
-        If the model supports native audio, use a chat request instead.
+        """Transcribe audio via POST /v1/audio/transcriptions (or chat if STT model supports input_audio).
+
+        STT-only models use the transcription endpoint only; chat+audio STT models may
+        try chat completions first. See docs/audio-architecture.md.
         """
         import uuid
         import os
@@ -609,39 +612,36 @@ class LlmClient:
             except Exception as e:
                 log.warning("Multimodal transcription failed: %s. Falling back to stt endpoint." % type(e).__name__)
 
-        # 2. Standard multipart fallback (Whisper, etc.)
-        boundary = "Boundary-%s" % uuid.uuid4().hex
-
         endpoint = self._endpoint()
         api_path = self._api_path()
         url = endpoint + api_path + "/audio/transcriptions"
-
-        # Build multipart/form-data body manually (urllib doesn't have a built-in helper)
-        parts = []
-        # file part
-        filename = os.path.basename(wav_path)
-        parts.append(("--%s" % boundary).encode("utf-8"))
-        parts.append(('Content-Disposition: form-data; name="file"; filename="%s"' % filename).encode("utf-8"))
-        parts.append(b"Content-Type: audio/wav")
-        parts.append(b"")
-        with open(wav_path, "rb") as f:
-            parts.append(f.read())
-
-        # model part
-        parts.append(("--%s" % boundary).encode("utf-8"))
-        parts.append(('Content-Disposition: form-data; name="model"').encode("utf-8"))
-        parts.append(b"")
-        parts.append(model_name.encode("utf-8"))
-
-        # End boundary
-        parts.append(("--%s--" % boundary).encode("utf-8"))
-        parts.append(b"")
-
-        # Headers: use base headers but override Content-Type
         headers = self._headers()
-        headers["Content-Type"] = "multipart/form-data; boundary=%s" % boundary
 
-        body_bytes = b"\r\n".join(parts)
+        # OpenRouter STT uses JSON + base64 input_audio, not OpenAI-style multipart/form-data.
+        if is_openrouter_endpoint(endpoint, explicit_is_openrouter=self.config.get("is_openrouter")):
+            with open(wav_path, "rb") as f:
+                audio_b64 = base64.b64encode(f.read()).decode("utf-8")
+            body_bytes = json.dumps({"model": model_name, "input_audio": {"data": audio_b64, "format": "wav"}}).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        else:
+            # Standard multipart fallback (OpenAI Whisper, local servers, etc.)
+            boundary = "Boundary-%s" % uuid.uuid4().hex
+            parts = []
+            filename = os.path.basename(wav_path)
+            parts.append(("--%s" % boundary).encode("utf-8"))
+            parts.append(('Content-Disposition: form-data; name="file"; filename="%s"' % filename).encode("utf-8"))
+            parts.append(b"Content-Type: audio/wav")
+            parts.append(b"")
+            with open(wav_path, "rb") as f:
+                parts.append(f.read())
+            parts.append(("--%s" % boundary).encode("utf-8"))
+            parts.append(('Content-Disposition: form-data; name="model"').encode("utf-8"))
+            parts.append(b"")
+            parts.append(model_name.encode("utf-8"))
+            parts.append(("--%s--" % boundary).encode("utf-8"))
+            parts.append(b"")
+            headers["Content-Type"] = "multipart/form-data; boundary=%s" % boundary
+            body_bytes = b"\r\n".join(parts)
 
         log.debug("=== STT Request ===")
         log.debug("URL: %s" % url)

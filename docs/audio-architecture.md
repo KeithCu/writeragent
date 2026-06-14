@@ -52,27 +52,70 @@ When the recording stops, `client.py` reads the `.wav` file and converts it to a
 **Crucial Database Optimization:** A 10-second audio clip base64-encoded is hundreds of kilobytes. If we saved the raw API payload to the SQLite history database (`writeragent_history.db`), the file would quickly bloat to gigabytes, severely degrading extension load times.
 In `history_db.py` -> `message_to_dict`, we intercept the message before saving. We strip out any `input_audio` dictionaries and append a simple `[Audio Attached]` tag to the text string. This keeps the database tiny while still indicating in the UI history that audio was used.
 
-## The Fallback System: Handling Non-Multimodal Models
+## The Fallback System: Two API Endpoints for Audio
 
-Not all AI models support native audio input (`input_audio`). To ensure a seamless user experience, WriterAgent implements a multi-stage fallback system.
+WriterAgent can send recorded audio to a model in **two different ways**. They use **different HTTP endpoints** and suit **different model types**. The name `has_native_audio()` means “use the chat endpoint with `input_audio`,” **not** “this model can transcribe.”
 
-### 1. Capability Detection
-In `config.py` -> `has_native_audio()`, the system checks if the selected model supports audio:
-- **Persistent Cache:** If a model previously failed an audio request, it is marked as unsupported in `writeragent.json`.
-- **Model Catalog:** Known multimodal models (e.g., GPT-4o, Gemini 1.5/2.0) are hardcoded as "supported".
-- **Heuristics:** Model names containing "multimodal" or "flash" are prioritized for native audio.
+| Path | HTTP endpoint | Payload | Typical models | When used |
+|------|---------------|---------|----------------|-----------|
+| **Chat audio** (`has_native_audio` = true) | `POST /v1/chat/completions` | Message content includes `{"type": "input_audio", "input_audio": {"data": "<base64>", "format": "wav"}}` | Chat models with audio input (e.g. Gemini) | Chat model supports hearing audio in conversation; recording goes straight into the chat request |
+| **STT transcription** | `POST /v1/audio/transcriptions` | Provider-specific (see below) | Dedicated STT models (e.g. Voxtral, Whisper) | Chat model cannot take `input_audio`, or STT model is transcription-only |
 
-### 2. Transcription Fallback (STT)
-If a model lacks native audio support, the system switches to **Transcription Mode**:
-- The audio is sent to the configured **STT Model** (Settings -> STT Model).
-- We first attempt to use the STT model as a multimodal chat request (asking it to "Transcribe exactly").
-- If that fails, we fallback to the standard `v1/audio/transcriptions` (Whisper-compatible) endpoint.
-- Once the text transcript is received, it is combined with any typed query and sent to the main Chat Model as a normal text-only request.
+**STT-only models can transcribe** — they just use `/audio/transcriptions`, not chat completions. Sending Voxtral a chat message with `input_audio` fails because it is not a chat model.
 
-### 3. Dynamic Runtime Recovery
-Even if a model is *believed* to support audio, the API might return a "modality unsupported" error at runtime.
-- `client.py` -> `is_audio_unsupported_error()` identifies these specific failures.
-- If this occurs, `panel.py` automatically caches the unsupported status for that model/endpoint pair, notifies the user, and **retries the message immediately** using the STT fallback path. The user never has to re-record or manually toggle settings.
+```mermaid
+flowchart TD
+    record[User stops recording] --> chatCheck{Chat model: has_native_audio?}
+    chatCheck -->|Yes| chatPath["POST /chat/completions with input_audio"]
+    chatCheck -->|No| sttStep[Transcribe via STT model]
+    sttStep --> sttCheck{STT model: chat + audio?}
+    sttCheck -->|Yes e.g. Gemini as STT| chatTranscribe["POST /chat/completions: Transcribe exactly"]
+    sttCheck -->|No e.g. Voxtral| sttPath["POST /audio/transcriptions"]
+    chatTranscribe -->|on failure| sttPath
+    sttPath --> textChat[Send transcript as text to chat model]
+    chatPath --> done[Assistant reply]
+    textChat --> done
+```
+
+### 1. Capability detection (`has_native_audio`)
+
+Implementation: [`plugin/framework/client/model_fetcher.py`](../plugin/framework/client/model_fetcher.py) → `has_native_audio()`.
+
+Answers: **“Can this model accept `input_audio` on `/chat/completions`?”** — not “can it do speech-to-text.”
+
+- **Persistent cache:** If a model previously failed an audio-in-chat request, it is marked unsupported in `writeragent.json` (`audio_support_map`).
+- **Model catalog:** A row must have both `CHAT` and `AUDIO` capability bits (e.g. Gemini). `AUDIO`-only STT rows (Voxtral, Parakeet) do **not** count — they use the transcription endpoint instead.
+- **Heuristics:** Model ids containing `gemini` + `1.5`, `audio-preview`, or `multimodal`.
+
+Used in two places:
+
+1. **`panel.py`** — on the **chat model**: if false, run STT first and send text; if true, attach audio to the chat request.
+2. **`llm_client.transcribe_audio()`** — on the **STT model**: if true (chat+audio), optionally try “transcribe via chat” first; STT-only models skip straight to `/audio/transcriptions`.
+
+### 2. Transcription fallback (STT)
+
+When the chat model lacks native audio (`panel.py`):
+
+1. Audio is sent to the configured **STT Model** (Settings → STT Model).
+2. **STT-only models** (Voxtral, Whisper, …) → one call to `POST /v1/audio/transcriptions`.
+3. **Chat+audio STT models** (e.g. Gemini selected as STT) → try chat transcription first; on failure, fall back to `/audio/transcriptions`.
+4. Transcript text is merged with any typed query and sent to the chat model as a normal text message.
+
+**Request body for `/audio/transcriptions`:**
+
+| Provider | Content-Type | Body |
+|----------|--------------|------|
+| OpenAI, many local servers | `multipart/form-data` | `file` (wav bytes) + `model` fields |
+| **OpenRouter** | `application/json` | `{"model": "...", "input_audio": {"data": "<base64>", "format": "wav"}}` |
+
+OpenRouter does **not** accept multipart on this endpoint; see [OpenRouter STT docs](https://openrouter.ai/docs/guides/overview/multimodal/stt).
+
+### 3. Dynamic runtime recovery
+
+Even if a model is *believed* to support chat audio, the API might return a "modality unsupported" error at runtime.
+
+- [`llm_client.py`](../plugin/framework/client/llm_client.py) → `is_audio_unsupported_error()` identifies these failures.
+- If this occurs, `panel.py` caches the unsupported status for that model/endpoint pair, notifies the user, and **retries immediately** using the STT path. The user never has to re-record or manually toggle settings.
 
 ## Python Version Support and Binary Pruning (March 2026 Update)
 

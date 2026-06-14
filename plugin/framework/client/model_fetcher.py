@@ -321,7 +321,11 @@ def get_model_capability(ctx, model_id, endpoint):
 
 
 def has_native_audio(ctx, model_id, endpoint):
-    """Determine if a model supports native audio input.
+    """True if the model accepts input_audio on POST /v1/chat/completions.
+
+    This is not the same as "can transcribe": STT-only models (Voxtral, Whisper)
+    transcribe via POST /v1/audio/transcriptions instead. See docs/audio-architecture.md.
+
     Uses persistent cache first, then catalog/heuristics.
     Returns: True if supported, False if unsupported, None if unknown.
     """
@@ -335,9 +339,9 @@ def has_native_audio(ctx, model_id, endpoint):
         if key in cache:
             return as_bool(cache[key])
 
-    # 2. Catalog check
+    # 2. Catalog check — native audio input is via chat completions; STT-only models (AUDIO, no CHAT) use /audio/transcriptions.
     caps = get_model_capability(ctx, model_id, endpoint)
-    if isinstance(caps, int) and (caps & ModelCapability.AUDIO):
+    if isinstance(caps, int) and (caps & ModelCapability.AUDIO) and (caps & ModelCapability.CHAT):
         return True
 
     # 3. Heuristics (Regex/Keywords) for known audio-native families
