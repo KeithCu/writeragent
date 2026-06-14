@@ -28,6 +28,7 @@ from plugin.scripting.document_scripts import (
     parse_analysis_script_display_name,
     parse_document_script_display_name,
     parse_vision_script_display_name,
+    resolve_run_script_selection,
     resolve_script_picker_entry,
     set_document_scripts,
 )
@@ -131,6 +132,36 @@ def test_build_xdl_script_picker_state():
     assert origin_map["[Doc] DocScript"] == "document"
 
 
+def test_resolve_run_script_selection_uses_config_default():
+    ctx = MagicMock()
+    doc = MagicMock()
+    saved = {
+        "Hello WriterAgent": "result = 'hello'",
+        "PrimeGaps": "result = 'gaps'",
+    }
+    with patch("plugin.framework.config.get_config_str", return_value="PrimeGaps"), patch(
+        "plugin.scripting.python_runner.resolve_run_script_name_config_key",
+        return_value="last_python_script_name_writer",
+    ):
+        name, code, merged = resolve_run_script_selection(ctx, doc, saved)
+    assert name == "PrimeGaps"
+    assert code == "result = 'gaps'"
+    assert merged["PrimeGaps"] == "result = 'gaps'"
+
+
+def test_resolve_run_script_selection_falls_back_to_first_name():
+    ctx = MagicMock()
+    doc = MagicMock()
+    saved = {"Alpha": "a = 1", "Beta": "b = 2"}
+    with patch("plugin.framework.config.get_config_str", return_value="Missing"), patch(
+        "plugin.scripting.python_runner.resolve_run_script_name_config_key",
+        return_value="last_python_script_name_writer",
+    ):
+        name, code, merged = resolve_run_script_selection(ctx, doc, saved)
+    assert name == "Alpha"
+    assert code == "a = 1"
+
+
 def test_resolve_script_picker_entry():
     origin_map = {"Mine": "user", "[Doc] Shared": "document"}
     assert resolve_script_picker_entry("Mine", origin_map) == ("Mine", "user")
@@ -168,6 +199,21 @@ def test_build_scripts_list_message_includes_sample_code():
     mock_key.assert_called_once_with(doc)
     mock_get_str.assert_called_once_with(ctx, "last_python_script_name_writer")
     assert msg["sample_code"] == "print('scratchpad')"
+    assert msg["selected_script_name"] == "Prime"
+
+
+def test_build_scripts_list_message_includes_selected_script_name_when_empty():
+    ctx = MagicMock()
+    doc = MagicMock()
+    with patch("plugin.framework.config.get_config", return_value={"Alpha": "a = 1"}), patch(
+        "plugin.framework.config.get_config_str", return_value=""
+    ), patch(
+        "plugin.scripting.python_runner.resolve_run_script_name_config_key",
+        return_value="last_python_script_name_writer",
+    ):
+        msg = build_scripts_list_message(ctx, session_doc=doc, session_doc_url=None)
+    assert msg["selected_script_name"] == "Alpha"
+    assert msg["sample_code"] == "a = 1"
 
 
 def test_build_scripts_list_message_stale_when_url_changes():

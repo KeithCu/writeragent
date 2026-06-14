@@ -1,5 +1,5 @@
 name: agent_backend
-title: ACP
+title: Agent Communication Protocol
 requires: [config, document]
 config_inline: mcp
 

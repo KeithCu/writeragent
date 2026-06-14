@@ -452,6 +452,9 @@ class WriterAgentConfig:
             log.warning("Invalid openrouter_chat_extra (not a dict), resetting to {}")
             self.openrouter_chat_extra = {}
 
+        if isinstance(self.saved_python_scripts, dict) and "Sample" in self.saved_python_scripts:
+            del self.saved_python_scripts["Sample"]
+
         return self
 
     @classmethod

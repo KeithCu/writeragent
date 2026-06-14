@@ -1,6 +1,7 @@
 # SageMath Integration — Product & Engineering Plan
 
 > **Status:** Proposal / investigation — not scheduled for a release milestone yet.  
+> **Product note (2026-06):** SymPy trusted helpers (`symbolic_math`, Run Python Script **[Math]**) ship first; Sage integration below remains optional future work.  
 > **Last updated:** 2026-06-07  
 > **Owner:** WriterAgent core  
 > **Related:** [Scientific Python bridge](enabling_numpy_in_libreoffice.md) · [Symbolic Math roadmap (§3)](enabling_numpy_in_libreoffice.md#symbolic-math) · [Analysis sub-agent](analysis-sub-agent.md) · [Jupyter notebook import](jupyter-notebook-import.md) · [Math / TeX design](math-tex.md) · [Community integration strategy](../community_integration_strategy.md)
@@ -98,7 +99,7 @@ flowchart LR
 | Asset                   | Location                                                                                                                                  | Notes                                                                  |
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
 | Venv subprocess worker  | `[plugin/scripting/venv_worker.py](../plugin/scripting/venv_worker.py)`, `[worker_harness.py](../plugin/scripting/worker_harness.py)`     | Warm process; Pickle5 IPC                                              |
-| AST sandbox + whitelist | `[plugin/scripting/venv_sandbox.py](../plugin/scripting/venv_sandbox.py)`, `[sandbox_imports.py](../plugin/scripting/sandbox_imports.py)` | `**sympy` whitelisted; `sage` not**                                    |
+| AST sandbox + whitelist | `[plugin/scripting/venv_sandbox.py](../plugin/scripting/venv_sandbox.py)`, `[sandbox.py](../plugin/scripting/sandbox.py)` | `**sympy` whitelisted; `sage` not**                                    |
 | Auto-imports            | `[AUTO_IMPORTS](../plugin/framework/constants.py)`                                                                                        | `np`, `pd`, `sp`, `math` — **do not auto-import Sage** (slow, clashes) |
 | Writer Math insert      | `[math_formula_insert.py](../plugin/writer/math/math_formula_insert.py)`, [math-tex.md](math-tex.md)                                      | LaTeX → StarMath → OLE                                                 |
 | Trusted helper RPC      | `[analysis_client.py](../plugin/framework/client/analysis_client.py)` → `[analysis.py](../plugin/scripting/analysis.py)`                  | **Template for `symbolic_client.py`**                                  |
@@ -293,7 +294,7 @@ Aligns with [enabling_numpy §3 Symbolic Math](enabling_numpy_in_libreoffice.md#
 
 | Deliverable                                                                                  | Notes                   |
 | -------------------------------------------------------------------------------------------- | ----------------------- |
-| Whitelist `sage`, `sage.`* in `[sandbox_imports.py](../plugin/scripting/sandbox_imports.py)` | + serialization helpers |
+| Whitelist `sage`, `sage.`* in `[sandbox.py](../plugin/scripting/sandbox.py)` | + serialization helpers |
 | Prompt policy: explicit `import sage.all` when needed                                        | Never auto-import Sage  |
 | LLM examples in `domain=python`                                                              | Advanced users only     |
 
@@ -341,7 +342,7 @@ Aligns with [enabling_numpy §3 Symbolic Math](enabling_numpy_in_libreoffice.md#
 | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 0     | Spike branch only; update this doc                                                                                                                                                                                       |
 | 1     | `[venv_worker.py](../plugin/scripting/venv_worker.py)`, [enabling_numpy](enabling_numpy_in_libreoffice.md), this doc                                                                                                     |
-| 2     | `symbolic.py`, `symbolic_client.py`, calc/writer tools, `[document_scripts.py](../plugin/scripting/document_scripts.py)`, `[sandbox_imports.py](../plugin/scripting/sandbox_imports.py)` (whitelist trusted module only) |
+| 2     | `symbolic.py`, `symbolic_client.py`, calc/writer tools, `[document_scripts.py](../plugin/scripting/document_scripts.py)`, `[sandbox.py](../plugin/scripting/sandbox.py)` (whitelist trusted module only) |
 | 3     | `[venv_sandbox.py](../plugin/scripting/venv_sandbox.py)`, `[import_policy.py](../plugin/scripting/import_policy.py)`, `[constants.py](../plugin/framework/constants.py)`                                                 |
 | 4     | `[plugin/notebook/](../plugin/notebook/)`, jupyter docs                                                                                                                                                                  |
 

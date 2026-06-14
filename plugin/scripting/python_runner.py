@@ -963,7 +963,14 @@ def execute_and_insert_result(
     }
 
 
-def _run_python_monaco(ctx: Any, doc: Any, *, initial_code: str, exe: str) -> bool:
+def _run_python_monaco(
+    ctx: Any,
+    doc: Any,
+    *,
+    initial_code: str,
+    selected_script_name: str,
+    exe: str,
+) -> bool:
     """Open Monaco for Run Python Script. Return True when the editor session started."""
     from plugin.calc.analysis_runner import calc_selection_to_a1
     from plugin.scripting.analysis import parse_analysis_script_header
@@ -1021,6 +1028,7 @@ def _run_python_monaco(ctx: Any, doc: Any, *, initial_code: str, exe: str) -> bo
         "mode": "run_script",
         "language": "python",
         "code": initial_code,
+        "selected_script_name": selected_script_name,
         "title": _("Run Python Script"),
         "run_label": _("Run"),
         "save_label": _("Save"),
@@ -1046,26 +1054,24 @@ def run_python_dialog(uno_ctx: Any = None) -> None:
     desktop = get_desktop(uno_ctx)
     doc = desktop.getCurrentComponent()
 
+    from plugin.scripting.document_scripts import resolve_run_script_selection
     from plugin.scripting.python_runner import resolve_run_script_name_config_key
-    name_config_key = resolve_run_script_name_config_key(doc)
-    last_name = get_config_str(uno_ctx, name_config_key)
 
+    name_config_key = resolve_run_script_name_config_key(doc)
     saved_scripts = get_config(uno_ctx, "saved_python_scripts")
     if not isinstance(saved_scripts, dict):
         saved_scripts = {}
-    from plugin.scripting.document_scripts import build_xdl_script_picker_state
-    names, merged_scripts, _ = build_xdl_script_picker_state(uno_ctx, doc, saved_scripts)
-
-    if not last_name or last_name not in merged_scripts:
-        if names:
-            last_name = names[0]
-        else:
-            last_name = ""
-    initial_code = merged_scripts.get(last_name, "")
+    last_name, initial_code, _merged_scripts = resolve_run_script_selection(uno_ctx, doc, saved_scripts)
 
     _exe, monaco_ok = monaco_editor_available(uno_ctx)
     if monaco_ok and _exe:
-        if _run_python_monaco(uno_ctx, doc, initial_code=initial_code, exe=_exe):
+        if _run_python_monaco(
+            uno_ctx,
+            doc,
+            initial_code=initial_code,
+            selected_script_name=last_name,
+            exe=_exe,
+        ):
             return
 
     show_python_input_dialog(uno_ctx, initial_text=initial_code, config_key=name_config_key, doc=doc)

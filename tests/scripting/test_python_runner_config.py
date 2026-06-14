@@ -15,7 +15,9 @@ class TestPythonRunnerConfig(unittest.TestCase):
     @patch('plugin.scripting.python_runner.is_writer')
     @patch('plugin.scripting.python_runner.is_calc')
     @patch('plugin.scripting.python_runner.is_draw')
-    @patch('plugin.scripting.python_runner.get_config_str')
+    @patch('plugin.scripting.python_runner.get_config', return_value={})
+    @patch('plugin.framework.config.get_config_str')
+    @patch('plugin.scripting.python_runner.resolve_run_script_name_config_key')
     @patch('plugin.scripting.python_runner.execute_and_insert_result')
     @patch('plugin.scripting.python_runner.set_config')
     @patch('plugin.scripting.python_runner.show_python_input_dialog')
@@ -24,7 +26,9 @@ class TestPythonRunnerConfig(unittest.TestCase):
         mock_show,
         mock_set,
         mock_execute,
-        mock_get,
+        mock_name_key,
+        mock_get_str,
+        mock_get_config,
         mock_is_draw,
         mock_is_calc,
         mock_is_writer,
@@ -36,14 +40,17 @@ class TestPythonRunnerConfig(unittest.TestCase):
         mock_ctx.return_value = mock_ctx_val
         mock_doc = MagicMock()
         mock_desktop.return_value.getCurrentComponent.return_value = mock_doc
+        mock_get_str.return_value = ""
 
         # Test Writer
         mock_is_writer.return_value = True
         mock_is_calc.return_value = False
         mock_is_draw.return_value = False
+        mock_name_key.return_value = "last_python_script_name_writer"
         
         run_python_dialog()
-        mock_get.assert_called_with(mock_ctx_val, "last_python_script_writer")
+        mock_name_key.assert_called_with(mock_doc)
+        mock_get_str.assert_called_with(mock_ctx_val, "last_python_script_name_writer")
         mock_show.assert_called()
         mock_set.assert_not_called()
         mock_execute.assert_not_called()
@@ -52,9 +59,10 @@ class TestPythonRunnerConfig(unittest.TestCase):
         mock_is_writer.return_value = False
         mock_is_calc.return_value = True
         mock_is_draw.return_value = False
+        mock_name_key.return_value = "last_python_script_name_calc"
         
         run_python_dialog()
-        mock_get.assert_called_with(mock_ctx_val, "last_python_script_calc")
+        mock_get_str.assert_called_with(mock_ctx_val, "last_python_script_name_calc")
         mock_set.assert_not_called()
         mock_execute.assert_not_called()
 
@@ -62,18 +70,19 @@ class TestPythonRunnerConfig(unittest.TestCase):
         mock_is_writer.return_value = False
         mock_is_calc.return_value = False
         mock_is_draw.return_value = True
+        mock_name_key.return_value = "last_python_script_name_draw"
         
         run_python_dialog()
-        mock_get.assert_called_with(mock_ctx_val, "last_python_script_draw")
+        mock_get_str.assert_called_with(mock_ctx_val, "last_python_script_name_draw")
         mock_set.assert_not_called()
         mock_execute.assert_not_called()
 
     def test_config_defaults(self):
         from plugin.framework.config import WriterAgentConfig
         config = WriterAgentConfig()
-        self.assertTrue(config.last_python_script_writer.startswith("# Python Writer script"))
-        self.assertTrue(config.last_python_script_calc.startswith("# Python Calc script"))
-        self.assertTrue(config.last_python_script_draw.startswith("# Python Draw/Impress script"))
+        self.assertEqual(config.last_python_script_name_writer, "PrimeGaps")
+        self.assertEqual(config.last_python_script_name_calc, "PrimeGaps")
+        self.assertEqual(config.last_python_script_name_draw, "PrimeGaps")
 
 if __name__ == '__main__':
     unittest.main()

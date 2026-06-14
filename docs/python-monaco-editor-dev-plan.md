@@ -316,6 +316,8 @@ Phase 2D: + completions (child-internal, optional calc_symbols from LO)
 Phase 2E: load.theme field (no new type)
 Phase 3:  load.mode / save_label / show_plain_text / show_data_binding / status_ok_text (no new IPC types)
          scripts_list.sample_code field (scratchpad text for Sample picker entry)
+         load.selected_script_name + scripts_list.selected_script_name (picker sync)
+         select_script (child → LO: persist last_python_script_name_* on dropdown change)
 ```
 
 Consider a top-level `seq: int` on all messages once 2B is in place so async validate/range responses never apply out of order.
@@ -387,7 +389,8 @@ flowchart TD
 | Topic | Behavior |
 |-------|----------|
 | Scratchpad (**Sample**) | Personal-only; stored in `last_python_script_writer` / `_calc` / `_draw` via `resolve_run_script_config_key`. Dropdown value is `""`; label is **Sample**. |
-| Initial load | `load.code` from config key; `scripts_manager.js` seeds `sampleCode` from the same string. |
+| Initial load | `load.code` and `load.selected_script_name` from [`resolve_run_script_selection()`](../plugin/scripting/document_scripts.py) (`last_python_script_name_*` → script body). `scripts_list` repeats `selected_script_name`; JS syncs the dropdown without overwriting editor text on first populate. |
+| Picker selection persist | User changes dropdown → `select_script` IPC → `set_config(last_python_script_name_*)` (same as native XDL `_ScriptSelectListener`). |
 | Switch to named script | `onDropdownChange` loads from `scriptIndex[name].code` (from `scripts_list.sections`). |
 | Switch back to Sample | Reload `sampleCode` from latest `scripts_list.sample_code` (or last Save while Sample selected). |
 | Save while Sample | **Save** → `notify_save_script` → `set_config(config_key, code)`; JS updates `sampleCode` on `saved`. |

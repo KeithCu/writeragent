@@ -264,6 +264,11 @@ class MonacoEditorApi:
     def delete_script(self, name: str, origin: str = "user") -> None:
         _write_parent({"type": "delete_script", "name": name, "origin": origin})
 
+    def select_script(self, name: str) -> None:
+        if not isinstance(name, str):
+            name = str(name) if name is not None else ""
+        _write_parent({"type": "select_script", "name": name})
+
     def notify_cancel(self) -> None:
         log.info("editor_main: notify_cancel called; hiding window")
         _send_closed_once()

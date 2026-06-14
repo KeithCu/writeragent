@@ -416,6 +416,20 @@ class PersistentEditor:
             self.executor.execute(_handle_request)
             return
 
+        if kind == "select_script":
+            name = str(msg.get("name", "") or "").strip()
+
+            def _handle_select() -> None:
+                from plugin.framework.config import set_config
+                from plugin.scripting.python_runner import resolve_run_script_name_config_key
+
+                doc = self._resolve_run_script_doc()
+                name_config_key = resolve_run_script_name_config_key(doc)
+                set_config(self.ctx, name_config_key, name)
+
+            self.executor.execute(_handle_select)
+            return
+
         if kind == "save_script":
             name = str(msg.get("name", "") or "").strip()
             script_code = _script_code_from_message(msg)

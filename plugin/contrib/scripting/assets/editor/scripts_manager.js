@@ -6,6 +6,8 @@
   var currentSelectedName = "";
   var currentOrigin = "sample";
   var sampleCode = "";
+  var selectedScriptName = "";
+  var syncDropdownOnly = false;
   var documentAvailable = false;
   var documentReadonly = false;
   var documentStale = false;
@@ -72,9 +74,13 @@
     if (typeof msg.sample_code === "string") {
       sampleCode = msg.sample_code;
     }
+    if (typeof msg.selected_script_name === "string") {
+      selectedScriptName = msg.selected_script_name;
+    }
     documentAvailable = !!msg.document_available;
     documentReadonly = !!msg.document_readonly;
     documentStale = !!msg.document_stale;
+    syncDropdownOnly = true;
     updateToolbarState();
     updateDropdown();
     if (msg.status_ok_text) {
@@ -135,6 +141,9 @@
         if (typeof msg.code === "string") {
           sampleCode = msg.code;
         }
+        if (typeof msg.selected_script_name === "string") {
+          selectedScriptName = msg.selected_script_name;
+        }
         if (window.pywebview && window.pywebview.api && window.pywebview.api.request_scripts) {
           window.pywebview.api.request_scripts();
           initialRequested = true;
@@ -162,13 +171,12 @@
     if (!select) return;
 
     var lastVal = currentSelectedName || select.value || "";
+    if (!lastVal && selectedScriptName) {
+      lastVal = selectedScriptName;
+    }
     var lastOrigin = currentOrigin;
 
     select.innerHTML = "";
-    var sampleOpt = document.createElement("option");
-    sampleOpt.value = "";
-    sampleOpt.textContent = "Sample";
-    select.appendChild(sampleOpt);
 
     for (var s = 0; s < scriptSections.length; s++) {
       var section = scriptSections[s];
@@ -197,12 +205,21 @@
       restored = true;
     }
     if (!restored) {
-      select.value = "";
-      currentOrigin = "sample";
+      var firstOpt = select.querySelector("option");
+      if (firstOpt) {
+        select.value = firstOpt.value;
+        currentOrigin = firstOpt.dataset.origin || "user";
+      } else {
+        select.value = "";
+        currentOrigin = "user";
+      }
     }
     currentSelectedName = select.value;
     updateDeleteButtonVisibility();
     updateToolbarState();
+    if (syncDropdownOnly) {
+      syncDropdownOnly = false;
+    }
   }
 
   function updateDeleteButtonVisibility() {
@@ -244,6 +261,9 @@
       setDataBindingVisible(false);
     } else {
       setDataBindingVisible(false);
+    }
+    if (window.pywebview && window.pywebview.api && window.pywebview.api.select_script) {
+      window.pywebview.api.select_script(name || "");
     }
   }
 

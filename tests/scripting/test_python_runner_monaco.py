@@ -45,7 +45,7 @@ def test_run_python_dialog_uses_monaco_when_available():
                                         pr.run_python_dialog()
 
     mock_monaco.assert_called_once()
-    assert mock_monaco.call_args.kwargs["config_key"] == "last_python_script_writer"
+    assert mock_monaco.call_args.kwargs["initial_code"].startswith("# A simple hello")
     mock_native.assert_not_called()
 
 
@@ -87,30 +87,32 @@ def test_run_python_monaco_on_save_persists_and_executes():
     with patch.object(pr, "launch_monaco_editor", side_effect=fake_launch):
         with patch.object(pr, "set_config") as mock_set:
             with patch.object(pr, "execute_and_insert_result", return_value={"ok": True, "status_ok_text": "done"}):
-                ok = pr._run_python_monaco(
-                    ctx,
-                    doc,
-                    config_key="last_python_script_writer",
-                    initial_code="result = 1",
-                    exe="/venv/bin/python",
-                )
+                with patch.object(pr, "get_config_str", return_value="PrimeGaps"):
+                    with patch("plugin.framework.config.get_config", return_value={"PrimeGaps": "print(1)"}):
+                        ok = pr._run_python_monaco(
+                            ctx,
+                            doc,
+                            initial_code="result = 1",
+                            selected_script_name="PrimeGaps",
+                            exe="/venv/bin/python",
+                        )
 
-                assert ok is True
-                load = captured["load_message"]
-                assert load["mode"] == "run_script"
-                assert load["run_label"] is not None
-                assert load["save_label"] is not None
-                assert load["close_label"] is not None
-                assert load["show_plain_text"] is False
-                assert load["show_data_binding"] is False
+                        assert ok is True
+                        load = captured["load_message"]
+                        assert load["mode"] == "run_script"
+                        assert load["selected_script_name"] == "PrimeGaps"
+                        assert load["run_label"] is not None
+                        assert load["save_label"] is not None
+                        assert load["close_label"] is not None
+                        assert load["show_plain_text"] is False
+                        assert load["show_data_binding"] is False
 
-                response = captured["on_save"]("result = 2", False, None, "run")
-                mock_set.assert_called_with(ctx, "last_python_script_writer", "result = 2")
-                assert response == {"type": "saved", "ok": True, "status_ok_text": "done"}
+                        response = captured["on_save"]("result = 2", False, None, "run")
+                        mock_set.assert_called_with(ctx, "saved_python_scripts", {"PrimeGaps": "result = 2"})
+                        assert response == {"type": "saved", "ok": True, "status_ok_text": "done"}
 
-                save_response = captured["on_save"]("result = 3", False, None, "save")
-                assert save_response == {"type": "saved", "ok": True, "status_ok_text": "Script saved."}
-                assert mock_set.call_count == 2
+                        save_response = captured["on_save"]("result = 3", False, None, "save")
+                        assert save_response == {"type": "saved", "ok": True, "status_ok_text": "Script saved."}
 
 
 def test_execute_and_insert_result_returns_error_on_failure():
@@ -178,20 +180,23 @@ def test_show_python_input_dialog_run_button_keeps_dialog_open():
     with patch.object(ui, "get_desktop", return_value=desktop):
         with _patch_modal_native():
             with patch.object(ui, "set_config") as mock_set:
-                with patch("plugin.scripting.python_runner.execute_and_insert_result", return_value={"ok": True, "status_ok_text": "done"}) as mock_execute:
-                    def fake_execute_dialog():
-                        for listener in listeners:
-                            if "RunListener" in type(listener).__name__:
-                                listener.actionPerformed(MagicMock())
+                with patch.object(ui, "get_config", return_value={"Sample": "result = 42"}) as mock_get:
+                    with patch.object(ui, "get_config_str", return_value="") as mock_get_str:
+                        with patch("plugin.scripting.python_runner.execute_and_insert_result", return_value={"ok": True, "status_ok_text": "done"}) as mock_execute:
+                            def fake_execute_dialog():
+                                for listener in listeners:
+                                    if "RunListener" in type(listener).__name__:
+                                        listener.actionPerformed(MagicMock())
 
-                    dlg.execute.side_effect = fake_execute_dialog
+                            dlg.execute.side_effect = fake_execute_dialog
 
-                    ui.show_python_input_dialog(ctx, "result = 1", "last_python_script_writer")
+                            ui.show_python_input_dialog(ctx, "result = 1", "last_python_script_writer")
 
-                    dlg.endDialog.assert_not_called()
-                    dlg.setVisible.assert_not_called()
-                    mock_set.assert_called_once_with(ctx, "last_python_script_writer", "result = 42")
-                    mock_execute.assert_called_once_with(ctx, None, "result = 42")
+                            dlg.endDialog.assert_not_called()
+                            dlg.setVisible.assert_not_called()
+                            mock_set.assert_any_call(ctx, "last_python_script_name_writer", "Sample")
+                            mock_set.assert_any_call(ctx, "saved_python_scripts", {"Sample": "result = 42"})
+                            mock_execute.assert_called_once_with(ctx, None, "result = 42")
 
 
 def test_show_python_input_dialog_save_button():
@@ -246,15 +251,17 @@ def test_show_python_input_dialog_save_button():
     with patch.object(ui, "get_desktop", return_value=desktop):
         with _patch_modal_native():
             with patch.object(ui, "set_config") as mock_set:
-                def fake_execute():
-                    for listener in listeners:
-                        if "SaveListener" in type(listener).__name__:
-                            listener.actionPerformed(MagicMock())
-                dlg.execute.side_effect = fake_execute
+                with patch.object(ui, "get_config", return_value={"Sample": "print('hello')"}) as mock_get:
+                    with patch.object(ui, "get_config_str", return_value="") as mock_get_str:
+                        def fake_execute():
+                            for listener in listeners:
+                                if "SaveListener" in type(listener).__name__:
+                                    listener.actionPerformed(MagicMock())
+                        dlg.execute.side_effect = fake_execute
 
-                ui.show_python_input_dialog(ctx, "print('hello')", "last_python_script_writer")
+                        ui.show_python_input_dialog(ctx, "print('hello')", "last_python_script_writer")
 
-                mock_set.assert_called_once_with(ctx, "last_python_script_writer", "print('hello world')")
+                        mock_set.assert_any_call(ctx, "saved_python_scripts", {"Sample": "print('hello world')"})
 
 
 def test_persistent_editor_dispatches_script_actions():
@@ -267,7 +274,7 @@ def test_persistent_editor_dispatches_script_actions():
     doc = MagicMock()
 
     with patch("plugin.framework.config.get_config", return_value={"MyScript": "print(123)"}) as mock_get:
-        with patch("plugin.framework.config.get_config_str", return_value="scratch"):
+        with patch("plugin.framework.config.get_config_str", return_value="MyScript"):
             with patch("plugin.framework.config.set_config") as mock_set:
                 with patch("plugin.scripting.document_scripts.get_active_document_for_scripts", return_value=None):
                     pe._dispatch_incoming({"type": "request_scripts"})
@@ -275,7 +282,11 @@ def test_persistent_editor_dispatches_script_actions():
                     sent = pe.send.call_args[0][0]
                     assert sent["type"] == "scripts_list"
                     assert sent["sections"][0]["scripts"] == {"MyScript": "print(123)"}
-                    assert sent["sample_code"] == "scratch"
+                    assert sent["sample_code"] == "print(123)"
+                    assert sent["selected_script_name"] == "MyScript"
+
+                pe._dispatch_incoming({"type": "select_script", "name": "MyScript"})
+                mock_set.assert_called_with(pe.ctx, "last_python_script_name_writer", "MyScript")
 
                 pe._dispatch_incoming({"type": "save_script", "name": "NewScript", "code": "x = 1", "origin": SCRIPT_ORIGIN_USER})
                 mock_set.assert_called_with(pe.ctx, "saved_python_scripts", {"MyScript": "print(123)", "NewScript": "x = 1"})
@@ -345,18 +356,19 @@ def test_show_python_input_dialog_save_as_button():
     with patch.object(ui, "get_desktop", return_value=desktop):
         with _patch_modal_native():
             with patch.object(ui, "get_config", return_value={}):
-                with patch.object(ui, "set_config") as mock_set:
-                    with patch.object(ui, "show_text_input_dialog", return_value="scriptk") as mock_input:
-                        def fake_execute():
-                            for listener in listeners:
-                                if "SaveAsListener" in type(listener).__name__:
-                                    listener.actionPerformed(MagicMock())
-                        dlg.execute.side_effect = fake_execute
+                with patch.object(ui, "get_config_str", return_value=""):
+                    with patch.object(ui, "set_config") as mock_set:
+                        with patch.object(ui, "show_text_input_dialog", return_value="scriptk") as mock_input:
+                            def fake_execute():
+                                for listener in listeners:
+                                    if "SaveAsListener" in type(listener).__name__:
+                                        listener.actionPerformed(MagicMock())
+                            dlg.execute.side_effect = fake_execute
 
-                        ui.show_python_input_dialog(ctx, "print('hello')", "last_python_script_writer")
+                            ui.show_python_input_dialog(ctx, "print('hello')", "last_python_script_writer")
 
-                        mock_input.assert_called_once()
-                        mock_set.assert_called_once_with(ctx, "saved_python_scripts", {"scriptk": "print('hello world')"})
+                            mock_input.assert_called_once()
+                            mock_set.assert_any_call(ctx, "saved_python_scripts", {"scriptk": "print('hello world')"})
 
 
 def test_show_python_input_dialog_modeless_uses_set_visible():
@@ -389,7 +401,10 @@ def test_show_python_input_dialog_modeless_uses_set_visible():
 
     with patch.object(ui, "get_desktop", return_value=desktop):
         with _patch_modeless_native():
-            ui.show_python_input_dialog(ctx, "x = 1", "last_python_script_writer")
+            with patch.object(ui, "get_config", return_value={}):
+                with patch.object(ui, "get_config_str", return_value=""):
+                    with patch.object(ui, "set_config"):
+                        ui.show_python_input_dialog(ctx, "x = 1", "last_python_script_writer")
 
     dlg.execute.assert_not_called()
     dlg.setVisible.assert_called_once_with(True)
