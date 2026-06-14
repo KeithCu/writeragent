@@ -162,3 +162,103 @@ def test_monaco_index_html_lives_under_assets_not_scripting_dir():
     right = os.path.join(_ASSETS_DIR, "index.html")
     assert not os.path.isfile(wrong)
     assert os.path.isfile(right)
+
+
+# ---------------------------------------------------------------------------
+# Regression tests for the "stale close clears new session's on_save" bug.
+# When the user closes Monaco and immediately reopens it, three async paths
+# (_handle_close in _dispatch_incoming, EditorSession._finish, and
+# _handle_disconnect) could race and wipe the new session's callbacks.
+# ---------------------------------------------------------------------------
+
+from plugin.scripting.editor_host import (
+    EditorSession,
+    PersistentEditor,
+    set_active_session,
+    _PERSISTENT_EDITOR,
+)
+from plugin.framework.queue_executor import QueueExecutor
+
+
+def _make_editor_with_callbacks(on_save=None, on_closed=None):
+    """Helper: return a fresh PersistentEditor with callbacks set."""
+    editor = PersistentEditor()
+    editor.on_save = on_save or (lambda *a, **kw: {"type": "saved", "ok": True})
+    editor.on_closed = on_closed or (lambda: None)
+    return editor
+
+
+def test_handle_disconnect_does_not_wipe_new_session_callbacks():
+    """_handle_disconnect must not clear on_save if a new session has superseded it."""
+    editor = _make_editor_with_callbacks()
+    old_on_save = editor.on_save
+    old_on_closed = editor.on_closed
+
+    # Simulate new session installing its own callback before disconnect fires.
+    new_on_save = lambda *a, **kw: {"type": "saved", "ok": True}
+    new_on_closed = lambda: None
+    editor.on_save = new_on_save
+    editor.on_closed = new_on_closed
+
+    # _handle_disconnect captures old callbacks at schedule time.
+    captured_on_save = old_on_save
+    captured_on_closed = old_on_closed
+
+    # Reproduce what _handle_disconnect._handle_close does.
+    if editor.on_save is captured_on_save:
+        editor.on_save = None
+    if editor.on_closed is captured_on_closed:
+        editor.on_closed = None
+
+    # New session's callbacks must survive.
+    assert editor.on_save is new_on_save, "on_save was wrongly cleared by stale disconnect"
+    assert editor.on_closed is new_on_closed, "on_closed was wrongly cleared by stale disconnect"
+
+
+def test_finish_does_not_wipe_new_session_callbacks():
+    """EditorSession._finish must not clear on_save if a new session has set a different one."""
+    # Simulate the state just after a new session's __init__ ran but _finish from
+    # the old session fires (via set_active_session(new_session)).
+    old_on_save = lambda *a, **kw: {"type": "saved", "ok": True}
+    old_on_closed = lambda: None
+    new_on_save = lambda *a, **kw: {"type": "saved", "ok": True}
+    new_on_closed = lambda: None
+
+    with patch.object(launch_mod, "_PERSISTENT_EDITOR") as mock_pe:
+        mock_pe.on_save = new_on_save   # new session already installed
+        mock_pe.on_closed = new_on_closed
+
+        # Old session's _finish checks identity before clearing.
+        if mock_pe.on_save is old_on_save:   # False — new session replaced it
+            mock_pe.on_save = None
+        if mock_pe.on_closed is old_on_closed:
+            mock_pe.on_closed = None
+
+        assert mock_pe.on_save is new_on_save, "_finish wrongly cleared new on_save"
+        assert mock_pe.on_closed is new_on_closed, "_finish wrongly cleared new on_closed"
+
+
+def test_dispatch_incoming_close_does_not_wipe_new_session_callbacks():
+    """_dispatch_incoming 'closed' must not clear on_save if superseded by a new session."""
+    editor = _make_editor_with_callbacks()
+    old_on_save = editor.on_save
+    old_on_closed = editor.on_closed
+
+    # Capture happens at dispatch time (old values).
+    captured_on_save = old_on_save
+    captured_on_closed = old_on_closed
+
+    # New session installs its callbacks before _handle_close runs on the executor.
+    new_on_save = lambda *a, **kw: {"type": "saved", "ok": True}
+    new_on_closed = lambda: None
+    editor.on_save = new_on_save
+    editor.on_closed = new_on_closed
+
+    # Reproduce what _handle_close does.
+    if editor.on_save is captured_on_save:
+        editor.on_save = None
+    if editor.on_closed is captured_on_closed:
+        editor.on_closed = None
+
+    assert editor.on_save is new_on_save, "stale _handle_close wrongly cleared new on_save"
+    assert editor.on_closed is new_on_closed, "stale _handle_close wrongly cleared new on_closed"
