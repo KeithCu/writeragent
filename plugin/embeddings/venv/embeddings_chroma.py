@@ -388,8 +388,8 @@ def chroma_hybrid_search(
 
     # 1. Try Native ChromaDB Hybrid Search
     try:
-        from chromadb import Search, Knn, Rrf
-        from chromadb import K as FilterK
+        from chromadb import Search, Knn, Rrf  # type: ignore[import-not-found]
+        from chromadb import K as FilterK  # type: ignore[import-not-found]
         collection = get_collection(str(chroma_dir), collection_name)
         
         dense_rank = Knn(query=query, return_rank=True, limit=fetch_k)

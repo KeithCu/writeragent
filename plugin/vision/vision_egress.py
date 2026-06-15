@@ -73,7 +73,15 @@ def insert_vision_result_into_writer(ctx: Any, doc: Any, result: dict[str, Any])
         html.count("style="),
         html[:120],
     )
-    insert_content_at_position(doc, ctx, html, "selection")
+    # Review mode: record this agent-driven insertion as a reviewable tracked change.
+    from plugin.writer.edit_review import EditReviewSession, review_recording_enabled
+
+    review = EditReviewSession(doc, ctx, enabled=review_recording_enabled(ctx))
+    try:
+        with review:
+            review.record_mutation(lambda: insert_content_at_position(doc, ctx, html, "selection"))
+    finally:
+        review.cleanup()
 
 
 def insert_vision_result(

@@ -342,6 +342,14 @@ class ApplyStyle(FrameworkToolBase):
                   "style_name": style_name, "family": family, "target": target, "applied": True}
         if target == "search":
             result["matched"] = True  # a search miss would have errored earlier in resolve_target_cursor
+        # A style change is applied directly and does NOT become a tracked change (LibreOffice
+        # records text/char-format edits as redlines, but not a style swap). When review mode is on
+        # the agent expects its edits to be reviewable, so flag that this one was not -- the agent
+        # should tell the user it changed a style they cannot accept/reject like a text edit.
+        from plugin.writer.edit_review import review_recording_enabled
+
+        if review_recording_enabled(ctx.ctx):
+            result["style_unreviewed"] = True
         return result
 
 
@@ -426,6 +434,12 @@ class UpdateStyle(ToolWriterStyleBase):
                 result["status"] = "error"
                 result["message"] = "Failed to apply any updates."
 
+        # Style changes don't produce tracked changes, so the agent can't review them like a
+        # text edit -- flag it (matches ApplyStyle) so the agent tells the user it changed a style.
+        from plugin.writer.edit_review import review_recording_enabled
+
+        if result.get("status") != "error" and review_recording_enabled(ctx.ctx):
+            result["style_unreviewed"] = True
         return result
 
 
@@ -544,7 +558,13 @@ class CreateStyle(ToolWriterStyleBase):
             msg = getattr(e, "Message", str(e))
             return self._tool_error("Failed to create style: %s" % msg)
 
-        return {"status": "ok", "style_name": style_name, "family": family, "service": service}
+        result = {"status": "ok", "style_name": style_name, "family": family, "service": service}
+        # Style changes aren't reviewable as tracked changes -- flag it for the agent (matches ApplyStyle).
+        from plugin.writer.edit_review import review_recording_enabled
+
+        if review_recording_enabled(ctx.ctx):
+            result["style_unreviewed"] = True
+        return result
 
 
 class ImportStyles(ToolWriterStyleBase):
@@ -600,4 +620,10 @@ class ImportStyles(ToolWriterStyleBase):
         except Exception as e:
             return self._tool_error("Failed to import styles from %s: %s" % (file_path, e))
 
-        return {"status": "ok", "file_path": file_path, "overwrite": overwrite}
+        result = {"status": "ok", "file_path": file_path, "overwrite": overwrite}
+        # Imported styles aren't reviewable as tracked changes -- flag it for the agent (matches ApplyStyle).
+        from plugin.writer.edit_review import review_recording_enabled
+
+        if review_recording_enabled(ctx.ctx):
+            result["style_unreviewed"] = True
+        return result

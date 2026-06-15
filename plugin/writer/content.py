@@ -17,10 +17,13 @@
 """Writer content tools — read, apply, find, and paragraph operations."""
 
 import logging
+import threading
 
 from plugin.framework.tool import ToolBase, ToolBaseDummy
 from plugin.framework.constants import APPLY_DOCUMENT_CONTENT_TOOL_RESEARCH_HINT
 from plugin.doc.document_helpers import normalize_linebreaks, get_string_without_tracked_deletions
+from plugin.writer.edit_review import EditReviewSession, review_recording_enabled
+from plugin.framework.config import get_config_bool_safe, get_config_int_safe
 from plugin.framework.errors import safe_json_loads
 import re as re_mod
 
@@ -446,7 +449,147 @@ class ApplyDocumentContent(ToolBase):
     tier = "core"
     is_mutation = True
 
+    def _review_wait_seconds(self, uno_ctx):
+        """Max seconds the edit call should block waiting for review; 0 = don't wait."""
+        try:
+            if not get_config_bool_safe(uno_ctx, "writer.require_edit_review"):
+                return 0
+            return max(0, get_config_int_safe(uno_ctx, "writer.edit_review_timeout"))
+        except Exception:
+            return 0
+
+    def _wait_enabled_globally(self):
+        """Config read without a tool context, for long_running/is_async (called by the
+        MCP/chat shells before execute). False whenever the context isn't available."""
+        try:
+            from plugin.framework.uno_context import get_ctx
+
+            return self._review_wait_seconds(get_ctx()) > 0
+        except Exception:
+            return False
+
+    @property
+    def long_running(self):
+        # With review-wait on, MCP must run this call on its HTTP thread so the wait can
+        # block there (one request, one response -- the response just comes back after the
+        # user reviews). With it off, stay a normal synchronous main-thread tool.
+        return self._wait_enabled_globally()
+
+    def is_async(self):
+        # When review-wait is on, the chat worker / MCP HTTP thread hosts this call (the
+        # main-thread guard in execute_safe is bypassed) and every document touch is
+        # marshalled via execute_on_main_thread.
+        if self._wait_enabled_globally():
+            return True
+        # Also stay "async" whenever we're ALREADY on a background thread: the chat loop
+        # snapshots the async-tool set once per round and MCP reads long_running per call, so
+        # review can be toggled OFF between that decision and now. If it was, we're running on a
+        # worker thread with the live flag False -- returning True keeps execute_safe's
+        # main-thread guard from rejecting us; execute() then runs the (now wait-free) edit on
+        # the main thread via marshalling, so the toggle is handled safely instead of erroring.
+        return threading.current_thread() is not threading.main_thread()
+
     def execute(self, ctx, **kwargs):
+        wait_seconds = self._review_wait_seconds(ctx.ctx)
+        on_main = threading.current_thread() is threading.main_thread()
+        if wait_seconds <= 0 or on_main:
+            # No review-wait: review is off, it was toggled off after this call was dispatched
+            # to a worker thread, or we ARE the main thread (where blocking would freeze the UI
+            # and the user could never click accept/reject). Edit once, don't wait -- but UNO is
+            # not thread-safe, so when we're on a worker thread (the toggled-off case) the edit
+            # and its cleanup run on the main thread via marshalling rather than here.
+            # The session is registered in session_box the instant _execute_edit creates it (via
+            # session_sink), so its anchor bookmarks are released in `finally` even if the edit
+            # raises mid-way (e.g. the 2nd of 3 replace-all matches fails after the 1st).
+            session_box = []
+
+            def _do_edit():
+                return self._execute_edit(ctx, session_sink=session_box, **kwargs)
+
+            try:
+                if on_main:
+                    result, _ = _do_edit()
+                else:
+                    from plugin.framework.queue_executor import execute_on_main_thread
+                    result, _ = execute_on_main_thread(_do_edit, timeout=60.0)
+                return result
+            finally:
+                if session_box:
+                    if on_main:
+                        session_box[0].cleanup()
+                    else:
+                        from plugin.framework.queue_executor import execute_on_main_thread
+                        execute_on_main_thread(session_box[0].cleanup)
+
+        # Review-wait path, on a background (MCP HTTP / chat worker) thread: run the edit
+        # on the main thread, then block HERE until the user reviews the tracked changes.
+        from plugin.framework.queue_executor import execute_on_main_thread
+
+        # Capture the session as soon as _execute_edit creates it, so its anchor bookmarks can
+        # be released even when the edit raises mid-way. The cleanup is itself marshalled, and
+        # the queue executor serializes main-thread items, so it runs after the edit settles.
+        session_box = []
+
+        def _edit_on_main_thread():
+            # session_sink registers the session in session_box the instant it's created, so
+            # the `except` below can release its bookmarks even if the edit raises mid-way.
+            return self._execute_edit(ctx, session_sink=session_box, **kwargs)
+
+        try:
+            # 60s edit budget: matches the synchronous MCP path's processing timeout; the
+            # default 30s marshalling timeout would reject large full-document replaces that
+            # are fine without review mode.
+            result, session = execute_on_main_thread(_edit_on_main_thread, timeout=60.0)
+        except Exception:
+            if session_box:
+                execute_on_main_thread(session_box[0].cleanup)
+            raise
+        if session is None or not session.changes or result.get("status") != "ok":
+            if session is not None:
+                execute_on_main_thread(session.cleanup)
+            return result
+
+        # In-app chat: surface a sidebar status while we block (MCP has no sidebar -> None, no-op).
+        # The callback marshals onto the chat drain queue, so it is safe from this worker thread.
+        status_cb = getattr(ctx, "status_callback", None)
+        if callable(status_cb):
+            try:
+                status_cb("Review the agent's changes in the document — accept or reject the tracked changes.")
+            except Exception:
+                log.debug("apply_document_content: status_callback failed", exc_info=True)
+
+        # Stop waiting early when the review feature is toggled off mid-wait OR the user
+        # cancels the chat turn (Stop button); MCP has no stop predicate -> None.
+        user_stop = getattr(ctx, "stop_checker", None)
+
+        def _stop():
+            if self._review_wait_seconds(ctx.ctx) <= 0:
+                return True
+            try:
+                return bool(user_stop()) if callable(user_stop) else False
+            except Exception:
+                return False
+
+        review = session.wait_for_review(
+            timeout=wait_seconds,
+            stop_checker=_stop,
+            uno_runner=execute_on_main_thread,
+        )
+        result = dict(result)
+        result["review"] = review
+        if not review.get("complete"):
+            result["message"] = (result.get("message") or "") + (
+                " The user has not finished reviewing these tracked changes; ask them to"
+                " accept or reject the changes in the document, then continue."
+            )
+        return result
+
+    def _execute_edit(self, ctx, session_sink=None, **kwargs):
+        """Apply the edit and return ``(result_dict, session_or_None)``.
+
+        Runs on the MAIN thread always (directly on the sync path; marshalled via
+        execute_on_main_thread on the review-wait path). The caller owns the session's
+        wait/cleanup."""
         from . import format as format_support
         content = kwargs.get("content", "")
         old_content = kwargs.get("old_content")
@@ -455,10 +598,10 @@ class ApplyDocumentContent(ToolBase):
         if not target and old_content is not None:
             target = "search"
         if not target:
-            return self._tool_error("Provide a target ('beginning', 'end', 'selection', 'full_document', 'search') or old_content for find-and-replace.")
+            return self._tool_error("Provide a target ('beginning', 'end', 'selection', 'full_document', 'search') or old_content for find-and-replace."), None
 
         if target == "search" and old_content is None:
-            return self._tool_error("target='search' requires old_content.")
+            return self._tool_error("target='search' requires old_content."), None
 
         # Normalize content:
         # - If the model (or caller) serialized a list as a JSON string,
@@ -496,19 +639,52 @@ class ApplyDocumentContent(ToolBase):
         raw_content = content
 
         config_svc = ctx.services.get("config")
+        # Opt-in review mode: when writer.track_changes_reviewable is on, the EditReviewSession records
+        # the agent's edits as native tracked changes (redlines) the user can accept/reject --
+        # tagging each logical change so its outcome can be reported -- and restores the prior
+        # recording state. Default off -> the session is inert and behavior is unchanged.
+        # get_config_bool_safe tolerates the flag not being registered yet (returns False).
+        track_reviewable = review_recording_enabled(ctx.ctx)
+        session = EditReviewSession(ctx.doc, ctx.ctx, enabled=track_reviewable)
+        # Register with the caller's sink AS SOON AS the session exists, so its anchor
+        # bookmarks are released even if the edit below raises mid-way (a replace-all that
+        # anchors the 1st match then fails on the 2nd) -- before we ever return the session.
+        if session_sink is not None:
+            session_sink.append(session)
+
+        def _plain_preview(value):
+            s = str(value)
+            if format_support.content_has_markup(s):
+                try:
+                    return format_support.html_to_plain_text(s, ctx.ctx, config_svc)
+                except Exception:
+                    return s
+            return s
 
         if target == "full_document":
-            format_support.replace_full_document(ctx.doc, ctx.ctx, content, config_svc=config_svc)
-            return {"status": "ok", "message": "Replaced entire document."}
+            with session:
+                session.record_mutation(
+                    lambda: format_support.replace_full_document(ctx.doc, ctx.ctx, content, config_svc=config_svc),
+                    proposed_preview=_plain_preview(content))
+            return {"status": "ok", "message": "Replaced entire document."}, session
         if target == "end":
-            format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, "end", config_svc=config_svc)
-            return {"status": "ok", "message": "Inserted content at end."}
+            with session:
+                session.record_mutation(
+                    lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, "end", config_svc=config_svc),
+                    proposed_preview=_plain_preview(content))
+            return {"status": "ok", "message": "Inserted content at end."}, session
         if target == "selection":
-            format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, "selection", config_svc=config_svc)
-            return {"status": "ok", "message": "Inserted content at selection."}
+            with session:
+                session.record_mutation(
+                    lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, "selection", config_svc=config_svc),
+                    proposed_preview=_plain_preview(content))
+            return {"status": "ok", "message": "Inserted content at selection."}, session
         if target == "beginning":
-            format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, "beginning", config_svc=config_svc)
-            return {"status": "ok", "message": "Inserted content at beginning."}
+            with session:
+                session.record_mutation(
+                    lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, "beginning", config_svc=config_svc),
+                    proposed_preview=_plain_preview(content))
+            return {"status": "ok", "message": "Inserted content at beginning."}, session
 
         # target == "search" from here on — old_content must be a findable substring, not the full body.
         # Whole-document replace: target='full_document' (no search, no old_content).
@@ -522,7 +698,7 @@ class ApplyDocumentContent(ToolBase):
         if not search_string:
             # Parameter error (like old_content=None), not a search no-op: the search never ran,
             # so there's no replaced_count to report — use the standard tool error shape.
-            return self._tool_error("old_content is empty after normalization.")
+            return self._tool_error("old_content is empty after normalization."), session
         doc = ctx.doc
         # replaced_count is the machine-readable success signal: 0 -> status "error" (a silent
         # no-op surfaced as a failure), N>0 -> "ok". No matched_count/warning/partial-replace:
@@ -533,32 +709,46 @@ class ApplyDocumentContent(ToolBase):
             ranges = _find_all_ranges(doc, search_string)
             count = 0
             # Replace from last to first so earlier character offsets stay valid after edits.
-            for found in reversed(ranges):
-                if use_preserve:
-                    format_support.replace_preserving_format(doc, found, raw_content, ctx.ctx)
-                else:
-                    format_support.replace_single_range_with_content(doc, found, content, ctx.ctx, config_svc)
-                count += 1
+            # One record_mutation per match: each replaced occurrence is its own reviewable
+            # change with its own accept/reject outcome.
+            with session:
+                for found in reversed(ranges):
+                    original = found.getString()
+                    if use_preserve:
+                        session.record_mutation(
+                            lambda f=found: format_support.replace_preserving_format(doc, f, raw_content, ctx.ctx),
+                            original_preview=original, proposed_preview=_plain_preview(raw_content))
+                    else:
+                        session.record_mutation(
+                            lambda f=found: format_support.replace_single_range_with_content(doc, f, content, ctx.ctx, config_svc),
+                            original_preview=original, proposed_preview=_plain_preview(content))
+                    count += 1
             if count == 0:
                 return {"status": "error",
                         "message": "Replaced 0 occurrence(s). No matches found. Try a shorter substring.",
-                        "replaced_count": 0}
+                        "replaced_count": 0}, session
             msg = "Replaced %d occurrence(s)." % count
             if use_preserve:
                 msg += " (formatting preserved)"
-            return {"status": "ok", "message": msg, "replaced_count": count}
+            return {"status": "ok", "message": msg, "replaced_count": count}, session
         found = _find_first_range(doc, search_string)
         if found is None:
             return {"status": "error", "message": "old_content not found in document. Try a shorter, unique substring.",
-                    "replaced_count": 0}
-        if use_preserve:
-            format_support.replace_preserving_format(doc, found, raw_content, ctx.ctx)
-        else:
-            format_support.replace_single_range_with_content(doc, found, content, ctx.ctx, config_svc)
+                    "replaced_count": 0}, session
+        original = found.getString()
+        with session:
+            if use_preserve:
+                session.record_mutation(
+                    lambda: format_support.replace_preserving_format(doc, found, raw_content, ctx.ctx),
+                    original_preview=original, proposed_preview=_plain_preview(raw_content))
+            else:
+                session.record_mutation(
+                    lambda: format_support.replace_single_range_with_content(doc, found, content, ctx.ctx, config_svc),
+                    original_preview=original, proposed_preview=_plain_preview(content))
         msg = "Replaced 1 occurrence (by old_content)."
         if use_preserve:
             msg += " (formatting preserved)"
-        return {"status": "ok", "message": msg, "replaced_count": 1}
+        return {"status": "ok", "message": msg, "replaced_count": 1}, session
 
 
 # ------------------------------------------------------------------

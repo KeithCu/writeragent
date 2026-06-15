@@ -47,20 +47,20 @@ def _stable_doc_id(row: dict[str, Any]) -> str:
 
 def _get_or_create_table(db_path: str, dim: int) -> Any:
     """Open existing LanceDB table or create it with schema."""
-    if not HAS_LANCEDB or _lancedb is None or _pa is None:
+    if not HAS_LANCEDB or lancedb is None or pa is None:
         raise RuntimeError("lancedb is not installed in the configured Python venv. Install with: pip install lancedb")
 
     db = lancedb.connect(db_path)  # type: ignore[attr-defined]
     table_name = "wa_folder_corpus"
 
     schema = pa.schema([
-        _pa.field("id", _pa.string()),
-        _pa.field("doc_url", _pa.string()),
-        _pa.field("body", _pa.string()),
-        _pa.field("para_index", _pa.int32()),
-        _pa.field("content_hash", _pa.string()),
-        _pa.field("file_mtime", _pa.float64()),
-        _pa.field("vector", _pa.list_(_pa.float32(), int(dim))),
+        pa.field("id", pa.string()),
+        pa.field("doc_url", pa.string()),
+        pa.field("body", pa.string()),
+        pa.field("para_index", pa.int32()),
+        pa.field("content_hash", pa.string()),
+        pa.field("file_mtime", pa.float64()),
+        pa.field("vector", pa.list_(pa.float32(), int(dim))),
     ])
 
     try:
@@ -78,7 +78,7 @@ def _get_or_create_table(db_path: str, dim: int) -> Any:
 
 
 def _open_for_search(db_path: str) -> Any:
-    if not HAS_LANCEDB or _lancedb is None:
+    if not HAS_LANCEDB or lancedb is None:
         raise RuntimeError("lancedb is not installed in the configured Python venv.")
     db = lancedb.connect(db_path)  # type: ignore[attr-defined]
     return db.open_table("wa_folder_corpus")
@@ -274,7 +274,7 @@ def maintain_folder_lancedb(
     hb: Any | None = None,
 ) -> dict[str, Any]:
     """LanceDB specific folder maintain."""
-    if not HAS_LANCEDB or _lancedb is None:
+    if not HAS_LANCEDB or lancedb is None:
         raise RuntimeError(
             "LanceDB backend selected but the 'lancedb' package is not importable in the configured Python venv."
         )
