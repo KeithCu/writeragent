@@ -111,8 +111,7 @@ def get_extension_url(ctx=None, extension_id="org.extension.writeragent"):
         if not pip:
             return ""
         return pip.getPackageLocation(extension_id)
-    except Exception as e:
-        log.debug("get_extension_url failed: %s", e)
+    except:
         return "vnd.sun.star.extension://" + extension_id
 
 

@@ -97,6 +97,7 @@ def _make_listener(*, in_librarian_mode: bool) -> SimpleNamespace:
         initial_doc_type=None,
         audio_wav_path=None,
         chat_mode_selector=None,
+        model_selector=MagicMock(),
         sidebar_include_brainstorming=True,
         query_control=query_control,
         _in_librarian_mode=in_librarian_mode,
@@ -685,7 +686,9 @@ def test_do_send_enters_librarian_when_user_memory_missing():
         "plugin.framework.config.get_config", return_value=None
     ), patch(
         "plugin.agent_backend.registry.normalize_backend_id", return_value="builtin"
-    ), patch("plugin.chatbot.memory.MemoryStore") as mock_store:
+    ), patch("plugin.chatbot.config_ui_helpers.sync_sidebar_text_model"), patch(
+        "plugin.chatbot.memory.MemoryStore"
+    ) as mock_store:
         mock_store.return_value.read.return_value = ""
         SendButtonListener._do_send(listener)
 
@@ -703,7 +706,9 @@ def test_do_send_stays_in_librarian_mode_without_rechecking_memory():
         "plugin.framework.config.get_config", return_value=None
     ), patch(
         "plugin.agent_backend.registry.normalize_backend_id", return_value="builtin"
-    ), patch("plugin.chatbot.memory.MemoryStore") as mock_store:
+    ), patch("plugin.chatbot.config_ui_helpers.sync_sidebar_text_model"), patch(
+        "plugin.chatbot.memory.MemoryStore"
+    ) as mock_store:
         SendButtonListener._do_send(listener)
 
     assert listener._in_librarian_mode is True
@@ -721,7 +726,9 @@ def test_do_send_uses_document_chat_after_librarian_flag_clears():
         "plugin.framework.config.get_config", return_value=None
     ), patch(
         "plugin.agent_backend.registry.normalize_backend_id", return_value="builtin"
-    ), patch("plugin.chatbot.memory.MemoryStore") as mock_store:
+    ), patch("plugin.chatbot.config_ui_helpers.sync_sidebar_text_model"), patch(
+        "plugin.chatbot.memory.MemoryStore"
+    ) as mock_store:
         mock_store.return_value.read.return_value = '{"name": "Keith"}'
         SendButtonListener._do_send(listener)
 

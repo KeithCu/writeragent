@@ -38,7 +38,7 @@ def do_extend_selection(ctx, model, input_box_fn):
     extra_instructions = get_config_str(ctx, "additional_instructions")
     system_prompt = extra_instructions
     current_endpoint = get_current_endpoint(ctx)
-    update_lru_history(ctx, system_prompt, "prompt_lru", current_endpoint)
+    update_lru_history(ctx, system_prompt, "prompt_lru", "")
     prompt = original_text
     max_tokens = get_config_int(ctx, "extend_selection_max_tokens")
     model_val = get_text_model(ctx)
@@ -84,7 +84,7 @@ def do_edit_selection(ctx, model, input_box_fn):
             return
         if extra_instructions:
             set_config(ctx, "additional_instructions", extra_instructions)
-            update_lru_history(ctx, extra_instructions, "prompt_lru", get_current_endpoint(ctx))
+            update_lru_history(ctx, extra_instructions, "prompt_lru", "")
     except Exception as e:
         msgbox(ctx, _("WriterAgent: Edit Selection"), _(format_error_message(e)))
         return

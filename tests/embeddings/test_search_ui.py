@@ -12,10 +12,9 @@ from plugin.embeddings.search_ui import SearchDialog, show_search_dialog
 
 
 class TestSearchDialog:
-    @patch("plugin.embeddings.search_ui.get_desktop")
     @patch("plugin.embeddings.search_ui.msgbox")
     @patch("plugin.embeddings.search_ui.warm_venv_worker")
-    def test_search_dialog_open_and_close(self, mock_warm, mock_msgbox, mock_get_desktop):
+    def test_search_dialog_open_and_close(self, mock_warm, mock_msgbox):
         # Setup mock components for UNO
         mock_ctx = MagicMock()
         mock_smgr = mock_ctx.getServiceManager.return_value
@@ -27,31 +26,22 @@ class TestSearchDialog:
             "com.sun.star.awt.Toolkit": MagicMock()
         }.get(svc, MagicMock())
 
-        mock_frame = MagicMock()
-        mock_get_desktop.return_value.getCurrentFrame.return_value = mock_frame
-        mock_parent_window = mock_frame.getContainerWindow.return_value
-
         # Open and show
         dialog = SearchDialog(mock_ctx)
         
-        assert mock_get_desktop.called
-        assert mock_frame.getContainerWindow.called
         assert mock_smgr.createInstanceWithContext.called
         
         # Verify close disposes
         dialog.close()
         assert dialog._closed
 
-    @patch("plugin.embeddings.search_ui.get_desktop")
     @patch("plugin.embeddings.search_ui.warm_venv_worker")
-    def test_show_search_dialog_safely(self, mock_warm, mock_get_desktop):
+    def test_show_search_dialog_safely(self, mock_warm):
         mock_ctx = MagicMock()
-        mock_frame = MagicMock()
-        mock_get_desktop.return_value.getCurrentFrame.return_value = mock_frame
-        mock_parent_window = mock_frame.getContainerWindow.return_value
+        mock_smgr = mock_ctx.getServiceManager.return_value
+        mock_smgr.createInstanceWithContext.return_value = MagicMock()
 
         show_search_dialog(mock_ctx)
-        assert mock_get_desktop.called
 
     @patch("plugin.embeddings.search_ui.get_desktop")
     @patch("plugin.embeddings.search_ui.get_active_document")

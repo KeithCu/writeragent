@@ -175,6 +175,30 @@ def _resolve_display_model_for_combobox(
     return first
 
 
+# Free-text LRU lists (prompts, image base sizes)—not model-id comboboxes.
+_PLAIN_LRU_KEYS: frozenset[str] = frozenset({"prompt_lru", "image_base_size_lru"})
+
+
+def _populate_plain_combobox_with_lru(ctx, ctrl, current_val, lru_key, endpoint) -> str:
+    """Populate combobox from LRU only; no model fetch or text_model fallback."""
+    scoped_key = f"{lru_key}@{endpoint}" if endpoint else lru_key
+    lru = get_config(ctx, scoped_key)
+    if not isinstance(lru, list):
+        lru = []
+    curr_val_str = str(current_val or "").strip()
+    to_show = [str(m).strip() for m in lru if str(m).strip()]
+    if curr_val_str and curr_val_str not in to_show:
+        to_show.insert(0, curr_val_str)
+    if to_show:
+        ctrl.removeItems(0, ctrl.getItemCount())
+        ctrl.addItems(tuple(to_show), 0)
+    if curr_val_str:
+        ctrl.setText(curr_val_str)
+    elif ctrl.getItemCount() == 0 and hasattr(ctrl, "setText"):
+        ctrl.setText("")
+    return curr_val_str
+
+
 def _merge_provider_default_models(to_show: list[str], provider: str, req_cap: str) -> None:
     """Append curated default model ids for this provider/capability."""
     for m in DEFAULT_MODELS:
@@ -215,6 +239,9 @@ def populate_combobox_with_lru(
     skip_remote_fetch: when True, never call fetch_available_models (LRU + provider defaults).
     api_key_override: live Settings field value; wins over saved config for auth gating.
     """
+    if lru_key in _PLAIN_LRU_KEYS:
+        return _populate_plain_combobox_with_lru(ctx, ctrl, current_val, lru_key, endpoint)
+
     provider = get_provider_from_endpoint(endpoint)
     req_cap = "image" if "image" in lru_key.lower() else "audio" if "audio" in lru_key.lower() or "stt" in lru_key.lower() else "text"
     effective_key = _effective_api_key(ctx, endpoint, api_key_override)

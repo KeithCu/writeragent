@@ -235,7 +235,7 @@ def _edit_writer(services, ctx, doc):
         return
     if extra_instructions:
         set_config(ctx, "additional_instructions", extra_instructions)
-        update_lru_history(ctx, extra_instructions, "prompt_lru", get_current_endpoint(ctx))
+        update_lru_history(ctx, extra_instructions, "prompt_lru", "")
 
     config = services.config.proxy_for("chatbot")
     system_prompt = extra_instructions or config.get("system_prompt") or ""
@@ -298,7 +298,7 @@ def _edit_calc(services, ctx, doc):
         return
     if extra_instructions:
         set_config(ctx, "additional_instructions", extra_instructions)
-        update_lru_history(ctx, extra_instructions, "prompt_lru", get_current_endpoint(ctx))
+        update_lru_history(ctx, extra_instructions, "prompt_lru", "")
 
     config = services.config.proxy_for("chatbot")
     system_prompt = extra_instructions or config.get("system_prompt") or ""

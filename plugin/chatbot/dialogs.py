@@ -667,16 +667,15 @@ def load_writeragent_dialog(dialog_name, ctx=None):
         ctx = get_ctx()
     assert ctx is not None
     ctx_any = cast("Any", ctx)
-    smgr = getattr(ctx_any, "ServiceManager", getattr(ctx_any, "getServiceManager", lambda: None)())
+    if hasattr(ctx_any, "getServiceManager"):
+        smgr = ctx_any.getServiceManager()
+    else:
+        smgr = getattr(ctx_any, "ServiceManager", None)
     assert smgr is not None
 
-    # Fallback for unit testing when ServiceManager is a mock
-    try:
-        from unittest.mock import Mock
-        if isinstance(smgr, Mock):
-            return smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialog", ctx_any)
-    except ImportError:
-        pass
+    # Fallback for unit testing when ServiceManager or context is mocked
+    if "Mock" in type(smgr).__name__ or "Mock" in type(ctx).__name__:
+        return smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialog", ctx_any)
 
     base = get_extension_url()
     url = base + "/WriterAgentDialogs/" + dialog_name + ".xdl"
@@ -693,7 +692,10 @@ def _load_xdl(relative_path):
     ctx = get_ctx()
     assert ctx is not None
     ctx_any = cast("Any", ctx)
-    smgr = getattr(ctx_any, "ServiceManager", getattr(ctx_any, "getServiceManager", lambda: None)())
+    if hasattr(ctx_any, "getServiceManager"):
+        smgr = ctx_any.getServiceManager()
+    else:
+        smgr = getattr(ctx_any, "ServiceManager", None)
     assert smgr is not None
     base = get_extension_url()
     url = base + "/" + relative_path

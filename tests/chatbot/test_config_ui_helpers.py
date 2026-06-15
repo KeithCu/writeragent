@@ -413,10 +413,30 @@ class TestPopulateComboboxWithLruFetchOptions(unittest.TestCase):
         ctrl.addItems.assert_not_called()
         ctrl.setText.assert_called_with("")
 
+    def test_prompt_lru_empty_ignores_text_model(self):
+        ctrl = MagicMock()
+        ctrl.getItemCount.return_value = 0
+        with patch("plugin.chatbot.config_ui_helpers.get_config", return_value=[]):
+            with patch("plugin.framework.client.model_fetcher.get_text_model", return_value="llama3.2"):
+                populate_combobox_with_lru(self.ctx, ctrl, "", "prompt_lru", "")
+        ctrl.addItems.assert_not_called()
+        ctrl.setText.assert_called_with("")
+
+    def test_prompt_lru_shows_instruction_history_only(self):
+        ctrl = MagicMock()
+        ctrl.getItemCount.return_value = 0
+        history = ["Use formal tone", "Be concise"]
+        with patch("plugin.chatbot.config_ui_helpers.get_config", return_value=history):
+            with patch("plugin.framework.client.model_fetcher.get_text_model", return_value="gpt-4o"):
+                populate_combobox_with_lru(self.ctx, ctrl, "Use formal tone", "prompt_lru", "")
+        ctrl.addItems.assert_called_once_with(tuple(history), 0)
+        ctrl.setText.assert_called_with("Use formal tone")
+
     def test_image_base_size_lru_empty_no_connection_failed(self):
         ctrl = MagicMock()
         ctrl.getItemCount.return_value = 0
         with patch("plugin.chatbot.config_ui_helpers.get_config", return_value=[]):
-            populate_combobox_with_lru(self.ctx, ctrl, "", "image_base_size_lru", "")
+            with patch("plugin.framework.client.model_fetcher.fetch_available_image_models", return_value=["flux-dev"]):
+                populate_combobox_with_lru(self.ctx, ctrl, "", "image_base_size_lru", "")
         ctrl.addItems.assert_not_called()
         ctrl.setText.assert_called_with("")
