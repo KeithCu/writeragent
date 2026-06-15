@@ -118,8 +118,10 @@ from .stream_normalizer import (
     _extract_thinking_from_delta,
     _normalize_message_content,
     _normalize_delta,
-    extend_reasoning_details_acc,
+    accumulate_streaming_thinking,
     extract_reasoning_replay_from_response,
+    new_streaming_thinking_meta,
+    THINKING_DELTA_KEYS,
 )
 from .provider_detection import is_openrouter_endpoint
 from .requests import sync_request
@@ -816,7 +818,8 @@ class LlmClient:
             body = body_override.encode("utf-8") if isinstance(body_override, str) else body_override
 
         message_snapshot: dict[object, object] = {}
-        reasoning_details_acc: list[Any] = []
+        thinking_parts: list[str] = []
+        thinking_meta: dict[str, Any] = new_streaming_thinking_meta()
         reasoning_replay: dict[str, Any] = {}
         last_finish_reason = None
         images: list[Any] = []
@@ -830,8 +833,9 @@ class LlmClient:
 
             def on_delta(d: dict[object, object]) -> None:
                 _normalize_delta(d)
-                extend_reasoning_details_acc(reasoning_details_acc, cast("dict[str, Any]", d))
-                accumulate_delta(message_snapshot, d)
+                accumulate_streaming_thinking(thinking_parts, thinking_meta, cast("dict[str, Any]", d))
+                d_for_snapshot = {k: v for k, v in d.items() if k not in THINKING_DELTA_KEYS}
+                accumulate_delta(message_snapshot, d_for_snapshot)
 
             log.debug("stream_request_with_tools: building request (%d messages)..." % len(messages))
             try:
@@ -847,7 +851,10 @@ class LlmClient:
             content = _normalize_message_content(raw_content)
             tool_calls = message_snapshot.get("tool_calls")
             usage = cast("dict[str, Any]", message_snapshot.get("usage", {}))
-            reasoning_replay = extract_reasoning_replay_from_response(cast("dict[str, Any]", message_snapshot), reasoning_details_acc)
+            reasoning_replay = extract_reasoning_replay_from_response(
+                streaming_text="".join(thinking_parts),
+                streaming_meta=thinking_meta,
+            )
         else:
             # Sync path
             result = None

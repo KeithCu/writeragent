@@ -1,5 +1,5 @@
 name: embeddings
-title: Embeddings
+title: Vector Search
 requires: [config]
 config:
   folder_search_mode:

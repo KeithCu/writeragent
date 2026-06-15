@@ -162,6 +162,38 @@ def test_stream_request_with_tools_preserves_reasoning_replay(client):
         assert result["tool_calls"][0]["function"]["name"] == "get_weather"
 
 
+def test_stream_request_with_tools_reasoning_replay_single_block(client):
+    mock_responses = [
+        b'data: {"choices": [{"delta": {"reasoning_details": [{"type": "reasoning.text", "format": "unknown", "index": 0}]}}]}\n\n',
+        b'data: {"choices": [{"delta": {"reasoning_details": [{"type": "reasoning.text", "text": "Let me ", "index": 0}]}}]}\n\n',
+        b'data: {"choices": [{"delta": {"reasoning_details": [{"type": "reasoning.text", "text": "think.", "index": 0}]}}]}\n\n',
+        b'data: {"choices": [{"delta": {"content": "Done."}}]}\n\n',
+        b'data: {"choices": [{"finish_reason": "stop", "delta": {}}]}\n\n',
+        b"data: [DONE]\n\n",
+    ]
+
+    with patch("http.client.HTTPSConnection") as mock_https:
+        mock_conn = MagicMock()
+        mock_https.return_value = mock_conn
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_response.__iter__.return_value = iter(mock_responses)
+        mock_conn.getresponse.return_value = mock_response
+
+        result = client.stream_request_with_tools(
+            messages=[{"role": "user", "content": "Think?"}],
+            max_tokens=100,
+            tools=None,
+            append_callback=lambda t: None,
+        )
+
+        assert result["content"] == "Done."
+        assert "reasoning" not in result
+        assert len(result["reasoning_details"]) == 1
+        assert result["reasoning_details"][0]["text"] == "Let me think."
+        assert result["reasoning_details"][0]["format"] == "unknown"
+
+
 def test_stream_request_with_tools_http_error(client):
     with patch("http.client.HTTPSConnection") as mock_https:
         mock_conn = MagicMock()

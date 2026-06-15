@@ -162,7 +162,7 @@ Main-chat tool loops ([`tool_loop.py`](../plugin/chatbot/tool_loop.py) → [`Llm
 
 | Delta field | During stream | After stream ends |
 |-------------|---------------|-------------------|
-| Reasoning / thinking (`reasoning_content`, `reasoning`, `reasoning_details`, …) | `StreamQueueKind.THINKING` → sidebar `[Thinking] …` / ` /thinking` | **Not** stored on the assistant message for the next API turn |
+| Reasoning / thinking (`reasoning_content`, `reasoning`, `reasoning_details`, …) | `StreamQueueKind.THINKING` → sidebar `[Thinking] …` / ` /thinking` | One consolidated block on `session.messages` when `PRESERVE_REASONING_IN_SESSION` is true (see §3.4) |
 | `content` | `StreamQueueKind.CHUNK` → normal reply text | `session.add_assistant_message(..., content=…)` |
 | `tool_calls` (fragments) | No live JSON in sidebar; `accumulate_delta` only | FSM runs tools from merged `tool_calls`; optional **content** parsers if native `tool_calls` missing ([`tool_call_parsers`](../plugin/contrib/tool_call_parsers/)) |
 
@@ -175,7 +175,7 @@ Main-chat tool loops ([`tool_loop.py`](../plugin/chatbot/tool_loop.py) → [`Llm
 Items below are **not bugs** in the current split; they are design tradeoffs to revisit if reasoning+tool models become a primary path.
 
 1. **Reasoning round-trip on multi-turn tool loops** — **implemented (session only).**  
-   [`stream_normalizer.py`](../plugin/framework/client/stream_normalizer.py) globals `PRESERVE_REASONING_IN_SESSION` (default true) and `PRESERVE_REASONING_MAX_CHARS` echo non-empty `reasoning_details` / `reasoning` / `reasoning_content` from each assistant turn onto `session.messages` (echo-capture: same keys the wire used). SQLite history remains text-only. Toggle or cap via those module globals (not Settings yet).
+   [`stream_normalizer.py`](../plugin/framework/client/stream_normalizer.py) globals `PRESERVE_REASONING_IN_SESSION` (default true) and `PRESERVE_REASONING_MAX_CHARS` consolidate streaming thinking into **one block** per assistant turn on `session.messages` for the next API request — not per-SSE-chunk arrays. OpenRouter-style replay uses a merged `reasoning.text` entry plus any `reasoning.encrypted` blobs (merged by `index`; opaque `data` echoed as-is). Provider-specific filtering (e.g. drop stale Gemini encrypted on upstream switch) is **not** implemented yet — see `new_streaming_thinking_meta()` docstring in `stream_normalizer.py`. SQLite history remains text-only. Toggle or cap via those module globals (not Settings yet).
 
 2. **Think tags inside `content`**  
    Some local providers stream `` only in `delta.content`, not in `reasoning_*`. Those tokens appear as normal reply text, not `[Thinking]`. A stateful splitter in `stream_normalizer` is listed as an optional follow-up in [llm-hacks.md](llm-hacks.md) §7.

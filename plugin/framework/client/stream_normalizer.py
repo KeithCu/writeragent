@@ -19,19 +19,29 @@ PRESERVE_REASONING_MAX_CHARS = 32000
 _THINKING_STRING_FIELDS = ("reasoning_content", "reasoning", "thought", "thinking")
 _THINKING_HINT_KEYS = frozenset(_THINKING_STRING_FIELDS) | {"reasoning_details"}
 _REASONING_REPLAY_STRING_KEYS = ("reasoning", "reasoning_content")
-_ASSISTANT_REASONING_REPLAY_KEYS = ("reasoning_details",) + _REASONING_REPLAY_STRING_KEYS
+# Stripped from message_snapshot during streaming so thinking is not double-collected.
+THINKING_DELTA_KEYS = frozenset(_THINKING_STRING_FIELDS) | {"reasoning_details"}
+_DETAIL_TEXT_FIELDS = ("text", "summary", "data")
 
 
-def extend_reasoning_details_acc(acc: list[Any], delta: Mapping[str, Any]) -> None:
-    """Append reasoning_details delta entries in chunk order (OpenRouter encrypted blocks)."""
-    if not isinstance(delta, dict):
-        return
-    details = delta.get("reasoning_details")
-    if not isinstance(details, list):
-        return
-    for item in details:
-        if item is not None:
-            acc.append(item)
+def new_streaming_thinking_meta() -> dict[str, Any]:
+    """Initial meta for ``accumulate_streaming_thinking`` / streaming replay.
+
+    **OpenRouter (implemented):** ``reasoning_details`` replay with one merged
+    ``reasoning.text`` entry plus ``reasoning.encrypted`` blobs (``data`` merged by
+    index). See docs/streaming-and-threading.md §3.4 and OpenRouter reasoning-tokens docs.
+
+    **Future provider-specific work (not implemented — extend here or in a small
+    replay filter before the next request):**
+    - **Gemini / provider switch:** drop or replace stale ``reasoning.encrypted`` when
+      the upstream provider changes mid tool-loop (OpenRouter ai-sdk-provider#491).
+    - **Anthropic via OpenRouter:** ``reasoning.text`` needs valid ``signature`` on replay
+      (we keep last fragment's signature in ``meta['signature']``).
+    - **DeepSeek / Kimi / Ollama:** some paths want ``reasoning_content`` or ``reasoning``
+      string replay instead of ``reasoning_details`` — pick wire shape from first delta.
+    - **reasoning.summary:** same index-merge as text; add to streaming acc if models emit it.
+    """
+    return {"source": None, "format": None, "signature": None, "index": 0, "encrypted_fragments": []}
 
 
 def _truncate_reasoning_string(value: str) -> str:
@@ -41,58 +51,131 @@ def _truncate_reasoning_string(value: str) -> str:
     return value[:max_len]
 
 
+def accumulate_streaming_thinking(text_parts: list[str], meta: dict[str, Any], delta: Mapping[str, Any]) -> None:
+    """Append thinking text as each SSE delta arrives; meta records replay shape (set once)."""
+    if not isinstance(delta, dict):
+        return
+    if meta.get("source") is None:
+        if isinstance(delta.get("reasoning_details"), list) and delta["reasoning_details"]:
+            meta["source"] = "reasoning_details"
+        elif isinstance(delta.get("reasoning_content"), str) and delta["reasoning_content"]:
+            meta["source"] = "reasoning_content"
+        elif any(isinstance(delta.get(f), str) and delta[f] for f in ("reasoning", "thought", "thinking")):
+            meta["source"] = "reasoning"
+    chunk = _thinking_text_from_delta(delta)
+    if chunk:
+        text_parts.append(chunk)
+    details = delta.get("reasoning_details")
+    if not isinstance(details, list):
+        return
+    for item in details:
+        if not isinstance(item, dict):
+            continue
+        item_type = item.get("type")
+        # OpenRouter: opaque blobs must be echoed back inside reasoning_details (not readable text).
+        if item_type == "reasoning.encrypted":
+            meta["source"] = "reasoning_details"
+            meta.setdefault("encrypted_fragments", []).append(copy.deepcopy(item))
+            continue
+        if meta.get("format") is None and item.get("format") is not None:
+            meta["format"] = item.get("format")
+        if item.get("signature") is not None:
+            meta["signature"] = item.get("signature")
+        if isinstance(item.get("index"), int):
+            meta["index"] = item.get("index")
+
+
+def _merge_reasoning_details(entries: list[Any]) -> list[Any]:
+    """Merge streaming fragments (same type + index) for sync/non-stream replay."""
+    if not entries:
+        return []
+    merged: dict[tuple[Any, Any], dict[str, Any]] = {}
+    order: list[tuple[Any, Any]] = []
+    extra: list[Any] = []
+    for item in entries:
+        if not isinstance(item, dict):
+            continue
+        idx = item.get("index")
+        if not isinstance(idx, int):
+            extra.append(copy.deepcopy(item))
+            continue
+        key = (item.get("type"), idx)
+        if key not in merged:
+            merged[key] = copy.deepcopy(item)
+            order.append(key)
+            continue
+        dest = merged[key]
+        for field in _DETAIL_TEXT_FIELDS:
+            piece = item.get(field)
+            if isinstance(piece, str) and piece:
+                dest[field] = (dest.get(field) or "") + piece
+        if item.get("signature") is not None:
+            dest["signature"] = item.get("signature")
+        for field in ("format", "id"):
+            if field in item and dest.get(field) is None:
+                dest[field] = item.get(field)
+    return [merged[k] for k in order] + extra
+
+
+def _streaming_replay(text: str, meta: Mapping[str, Any]) -> dict[str, Any]:
+    text = _truncate_reasoning_string(text)
+    encrypted_raw = meta.get("encrypted_fragments")
+    encrypted_fragments: list[Any] = encrypted_raw if isinstance(encrypted_raw, list) else []
+    merged_encrypted = _merge_reasoning_details(encrypted_fragments)
+    source = meta.get("source")
+
+    # OpenRouter structured replay: reasoning.text + reasoning.encrypted in one array, sorted by index.
+    if source == "reasoning_details" or merged_encrypted:
+        details: list[Any] = []
+        if text:
+            entry: dict[str, Any] = {"type": "reasoning.text", "text": text, "index": meta.get("index", 0)}
+            if meta.get("format") is not None:
+                entry["format"] = meta.get("format")
+            if meta.get("signature") is not None:
+                entry["signature"] = meta.get("signature")
+            details.append(entry)
+        details.extend(merged_encrypted)
+        if not details:
+            return {}
+        details.sort(key=lambda d: d.get("index", 0) if isinstance(d, dict) else 0)
+        return {"reasoning_details": details}
+
+    if not text:
+        return {}
+    if source == "reasoning_content":
+        return {"reasoning_content": text}
+    return {"reasoning": text}
+
+
 def extract_reasoning_replay_from_response(
     message_snapshot: Mapping[str, Any] | None = None,
-    reasoning_details_acc: list[Any] | None = None,
+    streaming_text: str | None = None,
+    streaming_meta: Mapping[str, Any] | None = None,
     sync_message: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Build assistant-message reasoning fields to echo back on the next API request.
-
-    Stores only keys that were non-empty on this turn (echo-capture). See docs/streaming-and-threading.md §3.4.
-    """
+    """Build one consolidated reasoning block for the next API request. See docs/streaming-and-threading.md §3.4."""
     if not PRESERVE_REASONING_IN_SESSION:
         return {}
-
-    replay: dict[str, Any] = {}
-    details: list[Any] = []
-    if reasoning_details_acc:
-        details.extend(reasoning_details_acc)
-
-    for src in (sync_message, message_snapshot):
-        if not isinstance(src, dict):
-            continue
-        rd = src.get("reasoning_details")
-        if isinstance(rd, list):
-            details.extend(rd)
-
-    if details:
-        replay["reasoning_details"] = copy.deepcopy(details)
-
+    if streaming_text is not None:
+        return _streaming_replay(streaming_text, streaming_meta or {})
+    msg = sync_message if isinstance(sync_message, dict) else message_snapshot
+    if not isinstance(msg, dict):
+        return {}
+    details = msg.get("reasoning_details")
+    if isinstance(details, list) and details:
+        return {"reasoning_details": _merge_reasoning_details(details)}
     for key in _REASONING_REPLAY_STRING_KEYS:
-        for src in (sync_message, message_snapshot):
-            if not isinstance(src, dict):
-                continue
-            val = src.get(key)
-            if isinstance(val, str) and val:
-                replay[key] = _truncate_reasoning_string(val)
-                break
-
-    return replay
+        val = msg.get(key)
+        if isinstance(val, str) and val:
+            return {key: _truncate_reasoning_string(val)}
+    return {}
 
 
 def reasoning_replay_from_assistant_response(response: Mapping[str, Any] | None) -> dict[str, Any]:
     """Pick reasoning replay keys already merged onto an assistant API response dict."""
     if not PRESERVE_REASONING_IN_SESSION or not response:
         return {}
-    replay: dict[str, Any] = {}
-    for key in _ASSISTANT_REASONING_REPLAY_KEYS:
-        val = response.get(key)
-        if key == "reasoning_details":
-            if isinstance(val, list) and val:
-                replay[key] = copy.deepcopy(val)
-        elif isinstance(val, str) and val:
-            replay[key] = _truncate_reasoning_string(val)
-    return replay
+    return extract_reasoning_replay_from_response(sync_message=response)
 
 
 def iterate_sse(stream):
