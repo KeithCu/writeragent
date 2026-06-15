@@ -17,6 +17,8 @@ config:
         label: LlamaIndex
       - value: zvec
         label: "Zvec (experimental)"
+      - value: chroma
+        label: "ChromaDB"
 
   embedding_model:
     type: string

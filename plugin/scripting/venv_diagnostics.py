@@ -248,6 +248,7 @@ _VECTOR_SEARCH_PACKAGE_KEYS = (
     "envwrap",
     "sentence_transformers",
     "sqlite_vec",
+    "chromadb",
     "zvec",
     "langgraph",
     "langchain_core",
@@ -277,6 +278,11 @@ try:
     out["sqlite_vec"] = "present"
 except Exception:
     out["sqlite_vec"] = None
+try:
+    import chromadb  # noqa: F401
+    out["chromadb"] = "present"
+except Exception:
+    out["chromadb"] = None
 try:
     import zvec  # noqa: F401
     out["zvec"] = "present"
