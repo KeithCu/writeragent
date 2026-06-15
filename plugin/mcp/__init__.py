@@ -18,7 +18,7 @@
 
 import logging
 import threading
-from typing import Any, cast
+from typing import Any
 
 from plugin.framework.module_base import ModuleBase
 from plugin.mcp.cors_origins import reload_cors_policy_from_config

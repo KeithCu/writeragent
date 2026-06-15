@@ -11,7 +11,7 @@ except ImportError:
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_ctx
 from plugin.framework.async_stream import run_stream_async
-from plugin.framework.config import get_api_config, set_config, get_current_endpoint
+from plugin.framework.config import get_api_config, set_config
 from plugin.framework.client.llm_client import LlmClient
 from plugin.doc.document_helpers import (
     WriterCompoundUndo,

@@ -16,7 +16,7 @@ from com.sun.star.awt import XActionListener, XTopWindowListener
 
 from plugin.chatbot.dialogs import load_writeragent_dialog, msgbox
 from plugin.framework.i18n import _
-from plugin.framework.uno_context import get_active_document, get_desktop
+from plugin.framework.uno_context import get_active_document
 from plugin.framework.uno_listeners import BaseKeyListener
 from plugin.framework.worker_pool import run_in_background
 import plugin.framework.client.embeddings_service as embeddings_service

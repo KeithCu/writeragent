@@ -12,7 +12,6 @@ import unohelper
 from com.sun.star.awt import XActionListener
 
 from plugin.framework.uno_context import get_desktop
-from plugin.framework.i18n import _
 from plugin.chatbot.dialogs import load_writeragent_dialog, msgbox
 from plugin.calc.address_utils import parse_range_string, parse_address
 from plugin.calc.spreadsheet_import.ingest import ingest_sheet

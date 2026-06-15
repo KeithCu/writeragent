@@ -8,12 +8,10 @@
 """UI Dialog logic for 'Run Python Script...' in Writer."""
 
 import logging
-from typing import Any, cast
-import uno
+from typing import Any
 import unohelper
 from com.sun.star.awt import XActionListener, XItemListener, XTopWindowListener
 
-from plugin.framework.uno_context import get_desktop
 from plugin.framework.config import get_config, get_config_str, set_config
 from plugin.framework.i18n import _
 from plugin.chatbot.dialogs import load_writeragent_dialog, msgbox, show_approval_dialog
