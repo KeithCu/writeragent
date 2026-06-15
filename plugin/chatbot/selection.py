@@ -15,7 +15,7 @@ from plugin.framework.config import get_api_config, set_config, get_current_endp
 from plugin.framework.client.llm_client import LlmClient
 from plugin.writer.edit_review import review_recording_enabled
 from plugin.doc.document_helpers import (
-    WriterCompoundUndo,
+    WriterStreamedAppendSession,
     get_string_without_tracked_deletions,
     build_writer_rewrite_prompt,
     WriterStreamedRewriteSession,
@@ -79,27 +79,24 @@ def _extend_writer(services, ctx, doc):
         messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": selected_text})
 
-    compound_undo = WriterCompoundUndo(doc, "WriterAgent: Extend selection")
+    session = WriterStreamedAppendSession(
+        doc, text_range, selected_text,
+        track_reviewable=review_recording_enabled(ctx),
+    )
 
     def apply_chunk(text, is_thinking=False):
         if not is_thinking:
-            try:
-                text_range.setString(text_range.getString() + text)
-            except Exception as e:
-                if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
-                    log.debug("Failed to append text to Writer selection (likely disposed): %s", e)
-                else:
-                    log.exception("Failed to append text")
+            session.append_chunk(text)
 
     def on_done():
-        compound_undo.close()
+        warning = session.finish()
+        if warning:
+            msgbox(ctx, _("WriterAgent: Extend Selection"), warning)
 
     def on_error(e):
-        try:
-            log.exception("Extend selection failed")
-            msgbox(ctx, _("WriterAgent: Extend Selection"), str(e))
-        finally:
-            compound_undo.close()
+        session.abort_and_restore()
+        log.exception("Extend selection failed")
+        msgbox(ctx, _("WriterAgent: Extend Selection"), str(e))
 
     api_config = get_api_config(ctx)
     client = LlmClient(api_config, ctx)

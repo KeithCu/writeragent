@@ -58,7 +58,8 @@ def resolve_change_at_cursor(model: Any, ctx: Any, accept: bool) -> tuple[bool, 
             return False, "No agent changes to review in this document."
         return False, "Put the cursor on a highlighted agent change first."
     if not resolve_agent_change(model, ctx, token, accept):
-        return False, "Could not resolve the agent change at the cursor."
+        return False, ("Could not resolve this change here -- it may share a paragraph with one of"
+                       " your tracked changes or another agent change. Resolve it from Edit > Track Changes > Manage.")
     return True, "Change accepted." if accept else "Change rejected."
 
 
@@ -193,13 +194,100 @@ def cursor_in_agent_change(model: Any) -> str | None:
     return None
 
 
-def resolve_agent_change(model: Any, ctx: Any, token: str, accept: bool) -> bool:
+def _span_contains_point(text: Any, span: Any, point: Any) -> bool:
+    """True if collapsed range ``point`` lies within ``span``'s [start, end] (same ``text``)."""
+    try:
+        if text.compareRegionStarts(point, span) == 1:   # point starts before span -> left of it
+            return False
+        if text.compareRegionEnds(point, span) == -1:    # point ends after span -> right of it
+            return False
+        return True
+    except Exception:
+        return False
+
+
+def _foreign_redline_in_span(model: Any, text: Any, span: Any) -> bool:
+    """True if any redline NOT tagged by an EditReviewSession overlaps ``span``.
+
+    The inline resolve drives a paragraph-wide ``.uno`` dispatch that resolves EVERY redline in
+    the range, so when a user-owned tracked change shares those paragraphs we refuse rather than
+    silently accept/reject it. Best-effort: a detection failure falls back to "no foreign
+    redline" so the common case (the user has none of their own) is never blocked.
+    """
+    from plugin.writer.edit_review import TOKEN_PREFIX
+
+    try:
+        enum = model.getRedlines().createEnumeration()
+    except Exception:
+        return False
+    while enum.hasMoreElements():
+        try:
+            rl = enum.nextElement()
+            if str(rl.getPropertyValue("RedlineComment")).startswith(TOKEN_PREFIX):
+                continue  # one of ours -- safe to resolve
+            s = rl.getPropertyValue("RedlineStart")
+            e = rl.getPropertyValue("RedlineEnd")
+            if s is None or e is None:
+                continue
+            rl_span = text.createTextCursorByRange(s)
+            rl_span.gotoRange(e, True)
+            # Overlap iff the foreign redline's start/end falls inside span, or span starts inside it.
+            if (_span_contains_point(text, span, rl_span.getStart())
+                    or _span_contains_point(text, span, rl_span.getEnd())
+                    or _span_contains_point(text, rl_span, span.getStart())):
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _other_agent_redline_in_span(model: Any, text: Any, span: Any, token: str) -> bool:
+    """True if another agent change token overlaps ``span``.
+
+    The inline "this change" command is only truthful when the paragraph-wide dispatch contains
+    one logical agent change. If a second wa-review token shares the paragraph, LibreOffice would
+    resolve both, so we refuse and leave that dense case to the native Manage dialog.
+    """
+    from plugin.writer.edit_review import TOKEN_PREFIX
+
+    try:
+        enum = model.getRedlines().createEnumeration()
+    except Exception:
+        return False
+    while enum.hasMoreElements():
+        try:
+            rl = enum.nextElement()
+            comment = str(rl.getPropertyValue("RedlineComment"))
+            if not comment.startswith(TOKEN_PREFIX) or comment == token:
+                continue
+            s = rl.getPropertyValue("RedlineStart")
+            e = rl.getPropertyValue("RedlineEnd")
+            if s is None or e is None:
+                continue
+            rl_span = text.createTextCursorByRange(s)
+            rl_span.gotoRange(e, True)
+            if (_span_contains_point(text, span, rl_span.getStart())
+                    or _span_contains_point(text, span, rl_span.getEnd())
+                    or _span_contains_point(text, rl_span, span.getStart())):
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def resolve_agent_change(model: Any, ctx: Any, token: str, accept: bool, refuse_sibling_agent: bool = True) -> bool:
     """Accept/reject ONE agent change (both marks of its pair) by token.
+
+    ``refuse_sibling_agent`` (default True) makes the single "resolve this change" command refuse
+    when ANOTHER agent change shares the paragraph, so it never silently resolves two. resolve-all
+    passes False -- there, resolving sibling agent changes together is the whole point; only a
+    USER redline in the paragraph still blocks it.
 
     The dispatch selection is expanded to whole PARAGRAPHS around the change: empirically,
     .uno:Accept/RejectTrackedChange does not resolve redlines when the selection matches the
-    redline bounds exactly, but does on a paragraph-wide selection. Limitation: another
-    tracked change sharing the same paragraph resolves along with it.
+    redline bounds exactly, but does on a paragraph-wide selection. Because that dispatch
+    resolves EVERY redline in the selection, we first refuse (return False) when a redline that
+    isn't ours shares those paragraphs -- the user's own tracked changes are never touched.
     """
     before = len(_agent_redlines(model))
     left, right = _change_bounds(model, token)
@@ -211,6 +299,16 @@ def resolve_agent_change(model: Any, ctx: Any, token: str, accept: bool) -> bool
         start.gotoStartOfParagraph(False)
         end = text.createTextCursorByRange(right)
         end.gotoEndOfParagraph(True)
+        # Never resolve a paragraph that also holds one of the user's own tracked changes:
+        # the dispatch below would accept/reject it too. Leave that case to the native review UI.
+        para_span = text.createTextCursorByRange(start.getStart())
+        para_span.gotoRange(end.getEnd(), True)
+        if _foreign_redline_in_span(model, text, para_span):
+            log.debug("inline_review: refusing inline resolve of %s -- a user redline shares its paragraph", token)
+            return False
+        if refuse_sibling_agent and _other_agent_redline_in_span(model, text, para_span, token):
+            log.debug("inline_review: refusing inline resolve of %s -- another agent change shares its paragraph", token)
+            return False
         view_cursor = model.getCurrentController().getViewCursor()
         view_cursor.gotoRange(start.getStart(), False)
         view_cursor.gotoRange(end.getEnd(), True)
@@ -251,17 +349,25 @@ def resolve_all_agent_changes(model: Any, ctx: Any, accept: bool) -> int:
     # User redlines are mixed in: resolve agent changes one per pass, flushing pending VCL
     # events between dispatches so each one actually takes effect in the live view.
     resolved = 0
+    skip: set[str] = set()  # changes that share a paragraph with a user redline (or failed)
     try:
         toolkit = ctx.getServiceManager().createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
     except Exception:
         toolkit = None
     for _ in range(200):  # generous upper bound; each pass resolves one change
-        changes = agent_changes(model)
-        if not changes:
+        pending = [c for c in agent_changes(model) if c["token"] not in skip]
+        if not pending:
             break
-        if not resolve_agent_change(model, ctx, changes[0]["token"], accept):
-            log.warning("inline_review: could not resolve %s; stopping", changes[0]["token"])
-            break
+        token = pending[0]["token"]
+        # resolve-all WANTS sibling agent changes in a paragraph resolved together -- only a USER
+        # redline there blocks it (checked inside via _foreign_redline_in_span). Single
+        # "resolve this change" keeps refuse_sibling_agent=True so it stays truthful.
+        if not resolve_agent_change(model, ctx, token, accept, refuse_sibling_agent=False):
+            # Refused (shares a paragraph with the user's own redline) or failed: skip it and keep
+            # resolving the rest -- the user handles the skipped one via the native review UI.
+            log.debug("inline_review: skipping %s in resolve-all (foreign redline or failure)", token)
+            skip.add(token)
+            continue
         resolved += 1
         if toolkit is not None:
             try:

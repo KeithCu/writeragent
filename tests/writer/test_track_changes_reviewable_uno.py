@@ -17,7 +17,7 @@ import contextlib
 
 from plugin.testing_runner import native_test, setup, teardown
 from plugin.tests.testing_utils import TestingFactory
-from plugin.doc.document_helpers import WriterStreamedRewriteSession
+from plugin.doc.document_helpers import WriterStreamedRewriteSession, WriterStreamedAppendSession
 from plugin.writer.content import ApplyDocumentContent
 from plugin.writer.edit_review import EditReviewSession
 from plugin.framework.config import set_config, get_config_bool_safe
@@ -392,3 +392,147 @@ def test_insert_content_at_position_recorded_by_session_uno():
     assert all(r["RedlineComment"].startswith("wa-review:") for r in rls), "tagged: %r" % rls
     assert _doc.getPropertyValue("RecordChanges") is False, "recording restored to OFF"
     _reject_all()
+
+
+# --- extend-selection: append the continuation as ONE tracked INSERTION (the original is never
+# --- struck), tagged as an agent change -- via WriterStreamedAppendSession --------------------
+
+def _append_run(track_reviewable, prior_recording):
+    _reset("Original sentence.")
+    _doc.setPropertyValue("RecordChanges", prior_recording)
+    rng = _doc.getText().createTextCursor()
+    rng.gotoStart(False)
+    rng.gotoEndOfParagraph(True)
+    session = WriterStreamedAppendSession(_doc, rng, "Original sentence.", track_reviewable=track_reviewable)
+    session.append_chunk(" Added continuation.")
+    session.finish()
+
+
+@native_test
+def test_streamed_append_tracks_only_appended_text_uno():
+    """Extend collapses to ONE tracked INSERTION of just the appended text -- the original keeps
+    no Delete redline -- tagged as an agent change. Reject removes only the appended text."""
+    _doc.setPropertyValue("ShowChanges", False)
+    _append_run(track_reviewable=True, prior_recording=False)
+    rls = _redlines()
+    assert rls, "review mode must collapse the appended continuation into a redline"
+    assert all(r["type"] == "Insert" for r in rls), \
+        "extend appends -> Insert only, the original keeps no Delete redline, got %r" % [r["type"] for r in rls]
+    comments = [r["RedlineComment"] for r in rls]
+    assert comments and all(c.startswith("wa-review:") for c in comments), \
+        "appended redline must carry a session token, got %r" % comments
+    assert len(set(comments)) == 1, "the append is ONE agent change (one token), got %r" % comments
+    assert _doc.getPropertyValue("ShowChanges") is True, "review mode forces markup visible"
+    assert _doc.getPropertyValue("RecordChanges") is False, "recording restored to OFF"
+    _reject_all()
+    assert _para_text() == "Original sentence.", "reject removes only the appended continuation"
+
+
+@native_test
+def test_streamed_append_flag_off_no_redline_uno():
+    """Flag off + user not recording: extend appends directly, no redline (today's behavior)."""
+    _append_run(track_reviewable=False, prior_recording=False)
+    assert _redline_types() == [], "flag off + user off must not create a redline"
+    assert _para_text() == "Original sentence. Added continuation.", "the continuation is appended in full"
+
+
+@native_test
+def test_streamed_append_no_output_restores_prior_recording_uno():
+    """A no-op streamed extend still restores the user's RecordChanges state.
+
+    WriterStreamedAppendSession turns recording off while chunks stream, so an empty model result
+    must not leave the user's own tracking disabled just because there was no edit to collapse.
+    """
+    _reset("Original sentence.")
+    _doc.setPropertyValue("RecordChanges", True)
+    rng = _doc.getText().createTextCursor()
+    rng.gotoStart(False)
+    rng.gotoEndOfParagraph(True)
+    session = WriterStreamedAppendSession(_doc, rng, "Original sentence.", track_reviewable=False)
+    warning = session.finish()
+    assert warning is None
+    assert _doc.getPropertyValue("RecordChanges") is True, "no-output append must restore the user's RecordChanges ON state"
+    _doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+def test_update_style_flags_unreviewed_when_review_on_uno():
+    """Like apply_style, update_style is a style mutation -> not reviewable -> must flag the agent."""
+    from plugin.writer.styles import UpdateStyle
+
+    _reset("Body text for style update.")
+    prev = get_config_bool_safe(_ctx, _FLAG)
+    set_config(_ctx, _FLAG, True)
+    try:
+        res = UpdateStyle().execute(
+            _tool_ctx(), style_name="Standard", family="ParagraphStyles",
+            property_updates={"CharWeight": 150.0})  # 150.0 == BOLD
+        assert res.get("status") == "ok", res
+        assert res.get("style_unreviewed") is True, "update_style must flag unreviewed under review mode: %r" % res
+        assert _redline_types() == [], "a style change creates no redline"
+    finally:
+        set_config(_ctx, _FLAG, prev)
+
+
+@native_test
+def test_is_async_true_on_background_thread_when_review_toggled_off_uno():
+    """If review is toggled OFF after the async snapshot dispatched the tool to a worker thread,
+    is_async() must still report True there so execute_safe's main-thread guard won't reject it
+    (execute() then marshals the wait-free edit to the main thread)."""
+    import threading
+
+    prev = get_config_bool_safe(_ctx, "writer.require_edit_review")
+    set_config(_ctx, "writer.require_edit_review", False)
+    try:
+        tool = ApplyDocumentContent()
+        assert tool.is_async() is False, "main thread + review off -> synchronous (no spurious async)"
+        seen = {}
+
+        def _check():
+            seen["v"] = tool.is_async()
+
+        t = threading.Thread(target=_check)
+        t.start()
+        t.join()
+        assert seen.get("v") is True, "on a worker thread is_async must stay True so execute_safe won't reject"
+    finally:
+        set_config(_ctx, "writer.require_edit_review", prev)
+
+
+@native_test
+def test_bookmarks_cleaned_when_edit_raises_midway_uno():
+    """#4: if _execute_edit raises AFTER a change was anchored (a replace-all that fails on a later
+    match, having anchored the first), execute() must still release the session's wa_review_*
+    anchor bookmarks via the session_sink -- none may leak in the document."""
+    from plugin.writer.content import ApplyDocumentContent
+    from plugin.writer.edit_review import EditReviewSession
+
+    _reset("Anchor target paragraph.")
+    prev = get_config_bool_safe(_ctx, _FLAG)
+    set_config(_ctx, _FLAG, True)
+
+    class _BoomTool(ApplyDocumentContent):
+        def _execute_edit(self, ctx, session_sink=None, **kwargs):
+            # Mirror the real path: create the session, register it in the sink, anchor ONE change
+            # (creating a wa_review_* bookmark), then fail before returning.
+            session = EditReviewSession(ctx.doc, ctx.ctx, enabled=True)
+            if session_sink is not None:
+                session_sink.append(session)
+            with session:
+                session.record_mutation(
+                    lambda: fmt.insert_content_at_position(ctx.doc, ctx.ctx, "<p>Inserted.</p>", "end"))
+            raise RuntimeError("boom after anchoring the first change")
+
+    try:
+        raised = False
+        try:
+            _BoomTool().execute(_tool_ctx())
+        except RuntimeError:
+            raised = True
+        assert raised, "the mid-edit failure must propagate to the caller"
+        leaked = [n for n in _doc.getBookmarks().getElementNames() if n.startswith("wa_review_")]
+        assert leaked == [], "anchor bookmarks must be cleaned up on a mid-edit failure, leaked: %r" % leaked
+    finally:
+        set_config(_ctx, _FLAG, prev)
+        if len(_doc.getRedlines()):
+            _reject_all()

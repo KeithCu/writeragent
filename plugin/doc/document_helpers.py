@@ -274,6 +274,14 @@ class WriterStreamedRewriteSession:
 
                         before_ids = snapshot_redline_ids(self.doc)
                         prior_author = review_authors.begin(get_ctx())
+                        # Make the markup visible so a reviewable change isn't left invisible
+                        # when the user has Track Changes display off (matches
+                        # EditReviewSession.__enter__). Review mode only -- never when the user
+                        # merely has their own Track Changes on (we respect their view setting).
+                        try:
+                            self.doc.setPropertyValue("ShowChanges", True)
+                        except Exception:
+                            logging.getLogger(__name__).debug("streamed rewrite: could not force ShowChanges", exc_info=True)
                     except Exception:
                         logging.getLogger(__name__).debug("streamed rewrite: review tagging setup failed", exc_info=True)
                 try:
@@ -343,6 +351,144 @@ class WriterStreamedRewriteSession:
                     self.doc.setPropertyValue("RecordChanges", True)
                 except Exception:
                     pass
+            self._compound_undo.close()
+
+
+class WriterStreamedAppendSession:
+    """Manage a streamed Writer APPEND (extend-selection) that collapses to one tracked insertion.
+
+    Unlike :class:`WriterStreamedRewriteSession` (which REPLACES the range), extend-selection
+    keeps the user's original text and streams the agent's continuation AFTER it. Streaming runs
+    with tracking OFF (the user sees the text appear without a redline per chunk); ``finish()``
+    then converts ONLY the appended continuation into a single tracked INSERTION -- the original
+    is never struck through -- authored as the agent and tagged for the inline review UI.
+    """
+
+    _UNDO_CONTEXT_TITLE = "WriterAgent: Extend selection"
+
+    def __init__(self, doc, text_range, original_text: str, track_reviewable: bool = False):
+        self.doc = doc
+        self.text_range = text_range
+        self.original_text = original_text
+        self.appended_text = ""
+        self.track_reviewable = track_reviewable
+        self._compound_undo = WriterCompoundUndo(doc, self._UNDO_CONTEXT_TITLE)
+
+        try:
+            self.was_recording = bool(self.doc.getPropertyValue("RecordChanges"))
+        except Exception:
+            self.was_recording = False
+        # Stream with tracking OFF so the live continuation isn't recorded as a redline per
+        # chunk; finish() re-records the whole appended run as one tracked insertion.
+        try:
+            if self.was_recording:
+                self.doc.setPropertyValue("RecordChanges", False)
+        except Exception:
+            pass
+
+    def append_chunk(self, chunk: str) -> None:
+        """Append streamed text after the original (tracking off; one redline created at finish)."""
+        if not chunk:
+            return
+        self.appended_text += chunk
+        try:
+            self.text_range.setString(self.original_text + self.appended_text)
+        except Exception:
+            logging.getLogger(__name__).debug("streamed append: chunk apply failed", exc_info=True)
+
+    def finish(self) -> str | None:
+        """Collapse the appended continuation into one tracked insertion. Returns a warning on degraded success."""
+        try:
+            if not self.appended_text:
+                # We may have turned off the user's own Record Changes in __init__ to avoid a
+                # redline per streamed chunk. If the model produced nothing, there is no edit to
+                # collapse, but the user's prior tracking state still must be restored.
+                if self.was_recording:
+                    try:
+                        self.doc.setPropertyValue("RecordChanges", True)
+                    except Exception:
+                        pass
+                return None
+            if not (self.was_recording or self.track_reviewable):
+                return None
+
+            before_ids = None
+            prior_author = None
+            if self.track_reviewable:
+                try:
+                    from plugin.framework.uno_context import get_ctx
+                    from plugin.writer import review_authors
+                    from plugin.writer.edit_review import snapshot_redline_ids
+
+                    before_ids = snapshot_redline_ids(self.doc)
+                    prior_author = review_authors.begin(get_ctx())
+                    # Make the markup visible so a reviewable change isn't invisible when the
+                    # user has Track Changes display off (matches EditReviewSession.__enter__).
+                    try:
+                        self.doc.setPropertyValue("ShowChanges", True)
+                    except Exception:
+                        logging.getLogger(__name__).debug("streamed append: could not force ShowChanges", exc_info=True)
+                except Exception:
+                    logging.getLogger(__name__).debug("streamed append: review tagging setup failed", exc_info=True)
+            try:
+                # Drop the untracked appended run (back to just the original), then re-insert ONLY
+                # that run as a tracked insertion at the end -- so the original carries no redline.
+                self.text_range.setString(self.original_text)
+                self.doc.setPropertyValue("RecordChanges", True)
+                text = self.text_range.getText()
+                end_cursor = text.createTextCursorByRange(self.text_range.getEnd())
+                text.insertString(end_cursor, self.appended_text, False)
+            finally:
+                if prior_author is not None:
+                    try:
+                        from plugin.framework.uno_context import get_ctx
+                        from plugin.writer import review_authors
+
+                        review_authors.end(get_ctx(), prior_author)
+                    except Exception:
+                        logging.getLogger(__name__).warning("streamed append: author restore failed", exc_info=True)
+            # Restore the user's prior recording state (existing redlines persist regardless).
+            if not self.was_recording:
+                try:
+                    self.doc.setPropertyValue("RecordChanges", False)
+                except Exception:
+                    pass
+            if before_ids is not None:
+                try:
+                    from plugin.writer.edit_review import tag_agent_redlines
+
+                    tag_agent_redlines(self.doc, before_ids)
+                except Exception:
+                    logging.getLogger(__name__).debug("streamed append: redline tagging failed", exc_info=True)
+            return None
+        except Exception:
+            logging.getLogger(__name__).exception("Failed to collapse streamed append into one tracked change")
+            # Degrade: keep the user's continuation (untracked) rather than losing it.
+            try:
+                self.doc.setPropertyValue("RecordChanges", False)
+            except Exception:
+                pass
+            try:
+                self.text_range.setString(self.original_text + self.appended_text)
+            except Exception:
+                pass
+            try:
+                self.doc.setPropertyValue("RecordChanges", self.was_recording)
+            except Exception:
+                pass
+            return "Failed to collapse the streamed continuation into a single tracked change. The text was kept, but may not be reviewable."
+        finally:
+            self._compound_undo.close()
+
+    def abort_and_restore(self) -> None:
+        """After a streaming error, restore the recording state and close the undo group.
+
+        The partial continuation is left in place, matching the prior extend-selection behavior."""
+        try:
+            self.doc.setPropertyValue("RecordChanges", bool(self.was_recording))
+        except Exception:
+            pass
+        finally:
             self._compound_undo.close()
 
 

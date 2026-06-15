@@ -254,3 +254,58 @@ def test_cursor_in_agent_change_detects_token_uno():
     _caret_in("Plain paragraph")
     assert cursor_in_agent_change(_doc) is None, "caret outside the change -> None"
     _body("reset")
+
+
+@native_test
+def test_resolve_refuses_when_user_redline_shares_paragraph_uno():
+    """Token-scoping guarantee for the SAME-paragraph case: the paragraph-wide dispatch resolves
+    every redline in the selection, so when one of the user's OWN tracked changes shares a
+    paragraph with an agent change the inline resolve refuses and touches NOTHING -- the user
+    resolves that one via the native UI. (Existing user-redline tests put them in separate
+    paragraphs, where the dispatch never reached them.)"""
+    _body("The quick brown fox jumps.")
+    _tracked_replace("quick", "fast")     # the user's own (untokened) redline ...
+    _agent_edit(("fox", "dog"))           # ... and an agent change in the SAME paragraph
+    _caret_in("dog")
+    before = _redline_count()
+    ok, msg = resolve_change_at_cursor(_doc, _ctx, True)
+    assert ok is False, "must refuse when a user redline shares the paragraph: %r" % msg
+    assert _redline_count() == before, "neither the agent change nor the user's redline may be touched"
+    assert has_agent_changes(_doc), "the agent change stays pending for the native UI"
+    _body("reset")
+
+
+@native_test
+def test_resolve_refuses_when_another_agent_change_shares_paragraph_uno():
+    """Inline "this change" also refuses when another agent token is in the same paragraph.
+
+    The dispatch selection is paragraph-wide, so accepting one token here would accept the other
+    token too and misrepresent the command as a single-change action.
+    """
+    _body("Alpha beta gamma.")
+    _agent_edit(("Alpha", "One"), ("gamma", "three"))
+    changes = agent_changes(_doc)
+    assert len(changes) == 2, changes
+    _caret_in("One")
+    before = _redline_count()
+    ok, msg = resolve_change_at_cursor(_doc, _ctx, True)
+    assert ok is False, "must refuse when another agent change shares the paragraph: %r" % msg
+    assert _redline_count() == before, "no same-paragraph agent change should be resolved by the single-change UI"
+    assert len(agent_changes(_doc)) == 2, "both agent changes stay pending"
+    _body("reset")
+
+
+@native_test
+def test_resolve_all_skips_change_sharing_paragraph_with_user_redline_uno():
+    """resolve-all must spare a user redline even when it shares a paragraph with an agent change:
+    that change is skipped (left for the native UI) while agent changes in clean paragraphs still
+    resolve."""
+    _body("The quick brown fox jumps.", "Lonely agent clause here.")
+    _tracked_replace("quick", "fast")                         # user redline in paragraph 1
+    _agent_edit(("fox", "dog"), ("Lonely agent clause here.", "Lonely agent clause EDITED."))
+    user_and_agent_before = _redline_count()
+    resolved = resolve_all_agent_changes(_doc, _ctx, True)
+    assert resolved == 1, "only the clean-paragraph agent change resolves, got %d" % resolved
+    assert has_agent_changes(_doc), "the shared-paragraph agent change is left pending"
+    assert _redline_count() < user_and_agent_before, "the clean agent change was resolved"
+    _body("reset")

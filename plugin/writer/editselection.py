@@ -25,7 +25,7 @@ from plugin.chatbot.dialogs import msgbox
 from plugin.framework.i18n import _
 from plugin.framework.config import set_config
 from plugin.framework.client.llm_client import LlmClient
-from plugin.doc.document_helpers import WriterCompoundUndo, WriterStreamedRewriteSession, build_writer_rewrite_prompt, get_string_without_tracked_deletions
+from plugin.doc.document_helpers import WriterStreamedAppendSession, WriterStreamedRewriteSession, build_writer_rewrite_prompt, get_string_without_tracked_deletions
 from plugin.writer.edit_review import review_recording_enabled
 
 
@@ -53,20 +53,23 @@ def do_extend_selection(ctx, model, input_box_fn):
 
     client = LlmClient(api_config, ctx)
 
-    compound_undo = WriterCompoundUndo(model, "WriterAgent: Extend selection")
+    session = WriterStreamedAppendSession(
+        model, text_range, original_text,
+        track_reviewable=review_recording_enabled(ctx),
+    )
 
     def apply_chunk(chunk_text, is_thinking=False):
         if not is_thinking:
-            text_range.setString(text_range.getString() + chunk_text)
+            session.append_chunk(chunk_text)
 
     def on_done():
-        compound_undo.close()
+        warning = session.finish()
+        if warning:
+            msgbox(ctx, _("WriterAgent: Extend Selection"), warning)
 
     def on_error(e):
-        try:
-            msgbox(ctx, _("WriterAgent: Extend Selection"), _(format_error_message(e)))
-        finally:
-            compound_undo.close()
+        session.abort_and_restore()
+        msgbox(ctx, _("WriterAgent: Extend Selection"), _(format_error_message(e)))
 
     try:
         run_stream_completion_async(ctx, client, prompt, system_prompt, max_tokens, apply_chunk, on_done, on_error)

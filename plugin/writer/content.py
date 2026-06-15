@@ -476,25 +476,50 @@ class ApplyDocumentContent(ToolBase):
         return self._wait_enabled_globally()
 
     def is_async(self):
-        # Mirrors long_running: when the call may block for review, the chat worker/HTTP
-        # thread hosts it (the main-thread guard in execute_safe is bypassed) and every
-        # document touch below is marshalled via execute_on_main_thread.
-        return self._wait_enabled_globally()
+        # When review-wait is on, the chat worker / MCP HTTP thread hosts this call (the
+        # main-thread guard in execute_safe is bypassed) and every document touch is
+        # marshalled via execute_on_main_thread.
+        if self._wait_enabled_globally():
+            return True
+        # Also stay "async" whenever we're ALREADY on a background thread: the chat loop
+        # snapshots the async-tool set once per round and MCP reads long_running per call, so
+        # review can be toggled OFF between that decision and now. If it was, we're running on a
+        # worker thread with the live flag False -- returning True keeps execute_safe's
+        # main-thread guard from rejecting us; execute() then runs the (now wait-free) edit on
+        # the main thread via marshalling, so the toggle is handled safely instead of erroring.
+        return threading.current_thread() is not threading.main_thread()
 
     def execute(self, ctx, **kwargs):
         wait_seconds = self._review_wait_seconds(ctx.ctx)
-        if wait_seconds <= 0 or threading.current_thread() is threading.main_thread():
-            # No review-wait (or we ARE the main thread, where blocking would freeze the
-            # UI and the user could never click accept/reject): edit directly, no wait.
-            session = None
+        on_main = threading.current_thread() is threading.main_thread()
+        if wait_seconds <= 0 or on_main:
+            # No review-wait: review is off, it was toggled off after this call was dispatched
+            # to a worker thread, or we ARE the main thread (where blocking would freeze the UI
+            # and the user could never click accept/reject). Edit once, don't wait -- but UNO is
+            # not thread-safe, so when we're on a worker thread (the toggled-off case) the edit
+            # and its cleanup run on the main thread via marshalling rather than here.
+            # The session is registered in session_box the instant _execute_edit creates it (via
+            # session_sink), so its anchor bookmarks are released in `finally` even if the edit
+            # raises mid-way (e.g. the 2nd of 3 replace-all matches fails after the 1st).
+            session_box = []
+
+            def _do_edit():
+                return self._execute_edit(ctx, session_sink=session_box, **kwargs)
+
             try:
-                result, session = self._execute_edit(ctx, **kwargs)
+                if on_main:
+                    result, _ = _do_edit()
+                else:
+                    from plugin.framework.queue_executor import execute_on_main_thread
+                    result, _ = execute_on_main_thread(_do_edit, timeout=60.0)
                 return result
             finally:
-                # Always release the session's anchor bookmarks, even when the edit raises
-                # mid-way (e.g. the 2nd of 3 replace-all matches fails after anchoring the 1st).
-                if session is not None:
-                    session.cleanup()
+                if session_box:
+                    if on_main:
+                        session_box[0].cleanup()
+                    else:
+                        from plugin.framework.queue_executor import execute_on_main_thread
+                        execute_on_main_thread(session_box[0].cleanup)
 
         # Review-wait path, on a background (MCP HTTP / chat worker) thread: run the edit
         # on the main thread, then block HERE until the user reviews the tracked changes.
@@ -506,10 +531,9 @@ class ApplyDocumentContent(ToolBase):
         session_box = []
 
         def _edit_on_main_thread():
-            edit_result, edit_session = self._execute_edit(ctx, **kwargs)
-            if edit_session is not None:
-                session_box.append(edit_session)
-            return edit_result, edit_session
+            # session_sink registers the session in session_box the instant it's created, so
+            # the `except` below can release its bookmarks even if the edit raises mid-way.
+            return self._execute_edit(ctx, session_sink=session_box, **kwargs)
 
         try:
             # 60s edit budget: matches the synchronous MCP path's processing timeout; the
@@ -560,7 +584,7 @@ class ApplyDocumentContent(ToolBase):
             )
         return result
 
-    def _execute_edit(self, ctx, **kwargs):
+    def _execute_edit(self, ctx, session_sink=None, **kwargs):
         """Apply the edit and return ``(result_dict, session_or_None)``.
 
         Runs on the MAIN thread always (directly on the sync path; marshalled via
@@ -622,6 +646,11 @@ class ApplyDocumentContent(ToolBase):
         # get_config_bool_safe tolerates the flag not being registered yet (returns False).
         track_reviewable = review_recording_enabled(ctx.ctx)
         session = EditReviewSession(ctx.doc, ctx.ctx, enabled=track_reviewable)
+        # Register with the caller's sink AS SOON AS the session exists, so its anchor
+        # bookmarks are released even if the edit below raises mid-way (a replace-all that
+        # anchors the 1st match then fails on the 2nd) -- before we ever return the session.
+        if session_sink is not None:
+            session_sink.append(session)
 
         def _plain_preview(value):
             s = str(value)
