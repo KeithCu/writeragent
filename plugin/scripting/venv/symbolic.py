@@ -9,7 +9,18 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from plugin.scripting.symbolic import HELPER_NAMES, SYMBOLIC_VENV_PIP_INSTALL
+# Local copy of small pure value from the host facade. The worker must not import
+# from plugin.scripting.* (those modules pull in host-only code and are not guaranteed
+# to exist or be compatible in the user's configured venv interpreter).
+HELPER_NAMES = frozenset(
+    {
+        "solve_equation",
+        "symbolic_simplify",
+        "integrate",
+        "differentiate",
+        "latex_to_math_object",
+    }
+)
 
 log = logging.getLogger(__name__)
 
@@ -84,7 +95,7 @@ def _to_latex(sp: Any, value: Any) -> str:
 def _missing_package(helper: str) -> dict[str, Any]:
     return _error_result(
         "MISSING_PACKAGE",
-        f"sympy is required for {helper}. Install: {SYMBOLIC_VENV_PIP_INSTALL}",
+        f"sympy is required for {helper}.",
         helper=helper,
     )
 

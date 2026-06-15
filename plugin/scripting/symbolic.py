@@ -32,8 +32,6 @@ HELPER_NAMES = frozenset(
     }
 )
 
-SYMBOLIC_VENV_PIP_INSTALL = "pip install sympy"
-
 MATH_HEADER_PREFIX = "# writeragent:math"
 _MATH_HEADER_RE = re.compile(
     r"^\s*#\s*writeragent:math\s+helper=(\w+)\s+params=(\{.*\})\s*$",

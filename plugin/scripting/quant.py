@@ -33,8 +33,6 @@ HELPER_NAMES = (
     "efficient_frontier",
 )
 
-QUANT_VENV_PIP_INSTALL = "pip install yfinance pandas-ta quantstats pyportfolioopt"
-
 QUANT_HEADER_PREFIX = "# writeragent:quant"
 _QUANT_HEADER_RE = re.compile(
     r"^\s*#\s*writeragent:quant\s+helper=(\w+)\s+params=(\{.*\})\s*$",

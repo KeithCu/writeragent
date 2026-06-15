@@ -40,10 +40,6 @@ HELPER_NAMES = frozenset(
 MAX_TABLE_ROWS = 50
 MAX_COLS = 40
 
-ANALYSIS_VENV_PIP_INSTALL = (
-    "pip install numpy pandas scipy scikit-learn statsmodels ydata-profiling pandas-montecarlo"
-)
-
 ANALYSIS_HEADER_PREFIX = "# writeragent:analysis"
 _ANALYSIS_HEADER_RE = re.compile(
     r"^\s*#\s*writeragent:analysis\s+helper=(\w+)\s+params=(\{.*\})\s*$",

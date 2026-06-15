@@ -9,7 +9,17 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from plugin.scripting.units import HELPER_NAMES, UNITS_VENV_PIP_INSTALL, split_helper_params
+# Local copy of small pure value from the host facade. The worker must not import
+# from plugin.scripting.* (those modules pull in host-only code and are not guaranteed
+# to exist or be compatible in the user's configured venv interpreter).
+HELPER_NAMES = frozenset(
+    {
+        "convert_quantity",
+        "parse_quantity",
+        "format_quantity",
+        "check_dimensionality",
+    }
+)
 
 log = logging.getLogger(__name__)
 
@@ -59,7 +69,7 @@ def _require_pint(helper: str) -> Any | None:
 def _missing_package(helper: str) -> dict[str, Any]:
     return _error_result(
         "MISSING_PACKAGE",
-        f"pint is required for {helper}. Install: {UNITS_VENV_PIP_INSTALL}",
+        f"pint is required for {helper}.",
         helper=helper,
     )
 
@@ -251,7 +261,14 @@ def run_units(
     if not isinstance(params, dict):
         params = {}
 
-    clean_params, _output_style = split_helper_params(params)
+    # Inlined from host split_helper_params: strip the egress-only "output_style" key
+    # (the host facade uses this for Calc sheet formatting; the worker does not need it).
+    clean = dict(params)
+    raw_style = clean.pop("output_style", None)
+    output_style = str(raw_style).strip() if raw_style is not None else None
+    if output_style == "":
+        output_style = None
+    clean_params, _output_style = clean, output_style
     result = _dispatch_helper(helper, clean_params)
     if result.get("status") == "ok" and context:
         for key in ("task_hint",):

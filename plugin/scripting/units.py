@@ -31,8 +31,6 @@ HELPER_NAMES = frozenset(
     }
 )
 
-UNITS_VENV_PIP_INSTALL = "pip install pint"
-
 UNITS_HEADER_PREFIX = "# writeragent:units"
 _UNITS_HEADER_RE = re.compile(
     r"^\s*#\s*writeragent:units\s+helper=(\w+)\s+params=(\{.*\})\s*$",

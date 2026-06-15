@@ -38,8 +38,6 @@ HELPER_NAMES = frozenset(
     }
 )
 
-VIZ_VENV_PIP_INSTALL = "pip install matplotlib seaborn"
-
 VIZ_HEADER_PREFIX = "# writeragent:viz"
 _VIZ_HEADER_RE = re.compile(
     r"^\s*#\s*writeragent:viz\s+helper=(\w+)\s+params=(\{.*\})\s*$",

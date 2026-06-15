@@ -10,8 +10,17 @@ import importlib
 import logging
 from typing import Any
 
-from plugin.scripting.quant import HELPER_NAMES, QUANT_VENV_PIP_INSTALL
 from plugin.scripting.venv.coerce import CoerceResult, coerce_to_dataframe
+
+# Local copy of small pure value from the host facade. The worker must not import
+# from plugin.scripting.* (those modules pull in host-only code and are not guaranteed
+# to exist or be compatible in the user's configured venv interpreter).
+HELPER_NAMES = (
+    "fetch_historical_data",
+    "technical_analysis",
+    "portfolio_tearsheet",
+    "efficient_frontier",
+)
 
 log = logging.getLogger(__name__)
 
@@ -26,7 +35,7 @@ def _error_result(code: str, message: str, *, helper: str | None = None) -> dict
 def _missing_package_error(helper: str, package: str) -> dict[str, Any]:
     return _error_result(
         "MISSING_PACKAGE",
-        f"{package} is required for {helper}. Install: {QUANT_VENV_PIP_INSTALL}",
+        f"{package} is required for {helper}.",
         helper=helper,
     )
 

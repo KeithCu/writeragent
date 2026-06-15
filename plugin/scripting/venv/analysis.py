@@ -10,8 +10,31 @@ import json
 import logging
 from typing import Any, cast
 
-from plugin.scripting.analysis import ANALYSIS_VENV_PIP_INSTALL, HELPER_NAMES, MAX_COLS, MAX_TABLE_ROWS
 from plugin.scripting.venv.coerce import CoerceResult, coerce_to_dataframe
+
+# Local copies of small pure values from the host facade. The worker must not import
+# from plugin.scripting.* (those modules pull in host-only code and are not guaranteed
+# to exist or be compatible in the user's configured venv interpreter).
+HELPER_NAMES = frozenset(
+    {
+        "describe_data",
+        "kpi_summary",
+        "detect_outliers",
+        "quick_stats",
+        "format_currency",
+        "format_percent",
+        "clean_and_prepare",
+        "pivot_aggregate",
+        "group_summary",
+        "compare_periods",
+        "correlation_matrix",
+        "run_regression",
+        "cluster_numeric",
+        "monte_carlo",
+    }
+)
+MAX_TABLE_ROWS = 50
+MAX_COLS = 40
 
 log = logging.getLogger(__name__)
 
@@ -64,7 +87,7 @@ def _error_result(code: str, message: str, *, helper: str | None = None, details
 def _missing_package_error(helper: str, package: str) -> dict[str, Any]:
     return _error_result(
         "MISSING_PACKAGE",
-        f"{package} is required for {helper}. Install: {ANALYSIS_VENV_PIP_INSTALL}",
+        f"{package} is required for {helper}.",
         helper=helper,
     )
 

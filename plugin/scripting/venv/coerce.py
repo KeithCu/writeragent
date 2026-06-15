@@ -10,13 +10,6 @@ import re
 from dataclasses import dataclass
 from typing import Any, cast
 
-MAX_TABLE_ROWS = 50
-MAX_COLS = 40
-
-ANALYSIS_VENV_PIP_INSTALL = (
-    "pip install numpy pandas scipy scikit-learn statsmodels ydata-profiling pandas-montecarlo"
-)
-
 _NUMERIC_PROFILE_KEYS = (
     ("mean", "mean"),
     ("std", "std"),
