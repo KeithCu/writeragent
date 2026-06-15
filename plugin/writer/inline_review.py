@@ -387,30 +387,34 @@ def resolve_all_agent_changes(model: Any, ctx: Any, accept: bool) -> int:
 
     # User redlines are mixed in: resolve agent changes one per pass, flushing pending VCL
     # events between dispatches so each one actually takes effect in the live view.
-    resolved = 0
+    initial = len(agent_changes(model))
     skip: set[str] = set()  # changes that share a paragraph with a user redline (or failed)
     try:
         toolkit = ctx.getServiceManager().createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
     except Exception:
         toolkit = None
-    for _ in range(200):  # generous upper bound; each pass resolves one change
+    for _ in range(200):  # generous upper bound; each pass clears at least one change (or skips)
         pending = [c for c in agent_changes(model) if c["token"] not in skip]
         if not pending:
             break
         token = pending[0]["token"]
+        before = len(agent_changes(model))
         # resolve-all WANTS sibling agent changes in a paragraph resolved together -- only a USER
         # redline there blocks it (checked inside via _foreign_redline_in_span). Single
         # "resolve this change" keeps refuse_sibling_agent=True so it stays truthful.
-        if not resolve_agent_change(model, ctx, token, accept, refuse_sibling_agent=False):
-            # Refused (shares a paragraph with the user's own redline) or failed: skip it and keep
-            # resolving the rest -- the user handles the skipped one via the native review UI.
-            log.debug("inline_review: skipping %s in resolve-all (foreign redline or failure)", token)
-            skip.add(token)
-            continue
-        resolved += 1
+        ok = resolve_agent_change(model, ctx, token, accept, refuse_sibling_agent=False)
         if toolkit is not None:
             try:
                 toolkit.processEventsToIdle()
             except Exception:
                 toolkit = None
-    return resolved
+        if not ok or len(agent_changes(model)) >= before:
+            # Refused (shares a paragraph with the user's own redline), failed, or cleared nothing:
+            # skip it so the rest still resolve and a stuck change can't spin the loop. The user
+            # handles the skipped one via the native review UI.
+            log.debug("inline_review: skipping %s in resolve-all (foreign redline or no change)", token)
+            skip.add(token)
+    # Count by how many agent changes actually disappeared, NOT a per-pass +1: one paragraph-wide
+    # dispatch can clear several sibling agent changes in the same clean paragraph at once, so +1
+    # would undercount and make resolve_all_with_feedback report a false "Resolved N of M".
+    return initial - len(agent_changes(model))

@@ -332,3 +332,21 @@ def test_resolve_all_with_feedback_reports_skipped_then_silent_when_clean_uno():
     n2, msg2 = resolve_all_with_feedback(_doc, _ctx, True)
     assert n2 == 2 and msg2 == "", "all-clean resolve-all returns no message, got n=%d msg=%r" % (n2, msg2)
     _body("reset")
+
+
+@native_test
+def test_resolve_all_counts_siblings_cleared_by_one_dispatch_uno():
+    """Two agent changes in the SAME clean paragraph resolve together under one paragraph-wide
+    dispatch -- the count must reflect BOTH, not +1 per loop pass. Otherwise resolve_all_with_
+    feedback reports a false 'Resolved 1 of 2' with nothing actually left. A user redline in
+    ANOTHER paragraph forces the mixed (per-change) path."""
+    _body("User clause here.", "Alpha beta gamma.")
+    _tracked_replace("User clause here.", "User edited.")   # user redline -> mixed path
+    _agent_edit(("Alpha", "One"), ("gamma", "three"))       # two agent changes, SAME paragraph
+    assert len(agent_changes(_doc)) == 2, agent_changes(_doc)
+    n, msg = resolve_all_with_feedback(_doc, _ctx, True)
+    assert n == 2, "both same-paragraph agent changes must count as resolved, got %d" % n
+    assert agent_changes(_doc) == [], "no agent change should remain"
+    assert msg == "", "no false 'Resolved 1 of 2' when everything resolved: %r" % msg
+    assert _redline_count() > 0, "the user's own redline in the other paragraph stays pending"
+    _body("reset")
