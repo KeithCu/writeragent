@@ -151,6 +151,7 @@ def insert_latex_math_dialog(ctx: Any) -> None:
                 "plain_text_label": _("Insert as display block (centered paragraph)"),
                 "save_as_plain": last_display,
                 "save_label": _("Insert"),
+                "close_label": _("Close"),
                 "show_plain_text": True,
                 "show_data_binding": False,
             }

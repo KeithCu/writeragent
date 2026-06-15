@@ -142,7 +142,8 @@ def test_insert_latex_math_dialog_monaco_success() -> None:
     latex_input = r"E = m c^2"
 
     with patch("plugin.writer.math.latex_dialog.monaco_editor_available", return_value=(mock_exe, True)), \
-         patch("plugin.writer.math.latex_dialog.launch_monaco_editor") as mock_launch:
+         patch("plugin.writer.math.latex_dialog.launch_monaco_editor") as mock_launch, \
+         patch("plugin.writer.math.latex_dialog.set_config") as mock_set_config:
 
         insert_latex_math_dialog(_test_ctx)
 
@@ -166,7 +167,8 @@ def test_insert_latex_math_dialog_monaco_success() -> None:
         assert res["ok"] is True
         assert res["status_ok_text"] == "Formula inserted."
 
-        # Verify config was updated
-        assert get_config(_test_ctx, "last_latex_input") == latex_input
-        assert get_config(_test_ctx, "last_latex_display_block") is True
+        # Verify the on_save closure attempted to persist via set_config (mocked to prevent
+        # writing the test example "E = m c^2" into the real user profile's writeragent.json).
+        mock_set_config.assert_any_call(_test_ctx, "last_latex_input", latex_input)
+        mock_set_config.assert_any_call(_test_ctx, "last_latex_display_block", True)
 
