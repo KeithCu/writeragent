@@ -557,7 +557,7 @@ Deeper math design: [`docs/math-tex.md`](math-tex.md).
 
 | Key | Default (schema) | Role |
 |-----|------------------|------|
-| `last_latex_input` | `e = m c^2` | Dialog initial LaTeX |
+| `last_latex_input` | `x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}` | Dialog initial LaTeX |
 | `last_latex_display_block` | `false` | “Insert as display block” checkbox |
 
 ### Tests

@@ -248,6 +248,7 @@ _VECTOR_SEARCH_PACKAGE_KEYS = (
     "envwrap",
     "sentence_transformers",
     "sqlite_vec",
+    "zvec",
     "langgraph",
     "langchain_core",
     "langchain_text_splitters",
@@ -276,6 +277,11 @@ try:
     out["sqlite_vec"] = "present"
 except Exception:
     out["sqlite_vec"] = None
+try:
+    import zvec  # noqa: F401
+    out["zvec"] = "present"
+except Exception:
+    out["zvec"] = None
 try:
     import langgraph  # noqa: F401
     out["langgraph"] = "present"

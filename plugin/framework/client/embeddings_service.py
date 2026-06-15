@@ -31,7 +31,7 @@ def _folder_search_rerank_options(ctx: Any, search_mode: str) -> dict[str, Any]:
     """Build use_mmr / rerank_model for search RPC from Settings and backend mode."""
     from plugin.framework.constants import folder_rerank_enabled, resolve_folder_rerank_model
 
-    if search_mode in ("hybrid", "llama_index"):
+    if search_mode in ("hybrid", "llama_index", "zvec"):
         if folder_rerank_enabled(ctx):
             return {"use_mmr": True, "rerank_model": resolve_folder_rerank_model(ctx)}
         return {"use_mmr": False}

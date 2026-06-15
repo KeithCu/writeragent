@@ -8,6 +8,6 @@
   <dlg:textfield dlg:id="LatexEdit" dlg:left="8" dlg:top="24" dlg:width="334" dlg:height="100" dlg:tabstop="true" dlg:value="" dlg:multiline="true" dlg:vscroll="true"/>
   <dlg:checkbox dlg:id="DisplayBlockCheck" dlg:left="8" dlg:top="130" dlg:width="334" dlg:height="14" dlg:tabstop="true" dlg:value="Insert as display block (centered paragraph)"/>
   <dlg:button dlg:id="BtnInsert" dlg:left="220" dlg:top="154" dlg:width="60" dlg:height="14" dlg:value="Insert" dlg:tabstop="true"/>
-  <dlg:button dlg:id="BtnCancel" dlg:left="286" dlg:top="154" dlg:width="56" dlg:height="14" dlg:value="Cancel" dlg:tabstop="true"/>
+  <dlg:button dlg:id="BtnCancel" dlg:left="286" dlg:top="154" dlg:width="56" dlg:height="14" dlg:value="Close" dlg:tabstop="true"/>
  </dlg:bulletinboard>
 </dlg:window>

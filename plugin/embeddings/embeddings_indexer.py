@@ -51,7 +51,7 @@ def _clear_enqueue(folder_key: str) -> None:
 def _resolve_search_mode(ctx: Any) -> str:
     """Map Settings cross-file search mode to venv maintain/search backend."""
     mode = str(get_config(ctx, "embeddings.folder_search_mode") or "none").strip().lower()
-    if mode in ("hybrid", "llama_index", "fts", "embeddings"):
+    if mode in ("hybrid", "llama_index", "zvec", "fts", "embeddings"):
         return mode
     return "hybrid"
 

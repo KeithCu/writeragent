@@ -170,16 +170,29 @@ class SearchDialog:
 
         def _get_status():
             try:
-                from plugin.embeddings.embeddings_cache import index_is_empty, read_corpus_meta, resolve_index_context
+                from plugin.embeddings.embeddings_cache import (
+                    index_is_empty,
+                    read_corpus_meta,
+                    resolve_index_context,
+                    zvec_collection_looks_populated,
+                    zvec_collection_path,
+                )
+                from plugin.framework.client.embeddings_service import _folder_search_mode
                 doc = get_active_document(ctx)
                 if not doc:
                     return _("Cache Status: No active document")
-                
+
                 folder_key, db_path, meta_path, listing_root = resolve_index_context(ctx, doc)
                 if folder_key is None or db_path is None or meta_path is None:
                     return _("Cache Status: Folder not resolved")
 
-                if index_is_empty(meta_path, db_path):
+                # Mode-aware for zvec side-by-side store
+                mode = _folder_search_mode(ctx)
+                if mode == "zvec":
+                    zpath = zvec_collection_path(listing_root, create_parent=False) if listing_root else None
+                    if not zpath or not zvec_collection_looks_populated(zpath):
+                        return _("Cache Status: Not built (zvec)")
+                elif index_is_empty(meta_path, db_path):
                     return _("Cache Status: Not built")
 
                 meta = read_corpus_meta(meta_path)
@@ -252,29 +265,48 @@ class SearchDialog:
                     )
                     return
 
-                from plugin.embeddings.embeddings_cache import index_is_empty, resolve_index_context
+                from plugin.embeddings.embeddings_cache import (
+                    index_is_empty,
+                    resolve_index_context,
+                    zvec_collection_looks_populated,
+                    zvec_collection_path,
+                )
                 from plugin.embeddings.embeddings_indexer import ensure_index_wakeup
                 from plugin.framework.client.embedding_client import get_embedding_model
-                from plugin.framework.client.embeddings_service import hybrid_search
+                from plugin.framework.client.embeddings_service import hybrid_search, _folder_search_mode
 
                 folder_key, db_path, meta_path, listing_root = resolve_index_context(ctx, doc)
                 if folder_key is None or db_path is None or meta_path is None:
                     self._update_results_ui(results_ctrl, btn_search, _("Error: ") + str(listing_root))
                     return
 
-                if index_is_empty(meta_path, db_path):
-                    ensure_index_wakeup(ctx, None, doc)
-                    self._update_results_ui(
-                        results_ctrl,
-                        btn_search,
-                        _("Folder index is building in the background. Please retry search shortly.")
-                    )
-                    return
+                mode = _folder_search_mode(ctx)
+                if mode == "zvec":
+                    zpath = zvec_collection_path(listing_root, create_parent=False) if listing_root else None
+                    if not zpath or not zvec_collection_looks_populated(zpath):
+                        ensure_index_wakeup(ctx, None, doc)
+                        self._update_results_ui(
+                            results_ctrl,
+                            btn_search,
+                            _("Folder index is building in the background. Please retry search shortly.")
+                        )
+                        return
+                    search_path = str(zvec_collection_path(listing_root, create_parent=True))
+                else:
+                    if index_is_empty(meta_path, db_path):
+                        ensure_index_wakeup(ctx, None, doc)
+                        self._update_results_ui(
+                            results_ctrl,
+                            btn_search,
+                            _("Folder index is building in the background. Please retry search shortly.")
+                        )
+                        return
+                    search_path = str(db_path)
 
                 model = get_embedding_model(ctx)
                 result = hybrid_search(
                     ctx,
-                    str(db_path),
+                    search_path,
                     str(query),
                     k,
                     model=model,

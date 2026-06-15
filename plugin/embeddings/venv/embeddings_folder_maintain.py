@@ -73,8 +73,8 @@ class _HeartbeatThrottle:
 
 def _build_flags(search_mode: str) -> tuple[bool, bool]:
     mode = str(search_mode or "").strip().lower()
-    build_fts = mode in ("fts", "hybrid", "llama_index")
-    build_vectors = mode in ("embeddings", "hybrid", "llama_index")
+    build_fts = mode in ("fts", "hybrid", "llama_index", "zvec")
+    build_vectors = mode in ("embeddings", "hybrid", "llama_index", "zvec")
     return build_fts, build_vectors
 
 
@@ -399,6 +399,18 @@ def maintain_folder_corpus(
     resolved_mode = _resolve_mode(root, model, mode, build_vectors=build_vectors)
     hb = _HeartbeatThrottle(heartbeat_fn)
     hb.force({"phase": "start", "mode": resolved_mode, "listing_root": root, "search_mode": search_mode})
+
+    if str(search_mode or "").strip().lower() == "zvec":
+        # Zvec is a full replacement store (dense + FTS + hybrid native). Side-by-side with sqlite corpus.
+        from plugin.embeddings.venv.embeddings_zvec import maintain_folder_zvec
+
+        return maintain_folder_zvec(
+            root,
+            model,
+            mode=mode,
+            heartbeat_fn=heartbeat_fn,
+            hb=hb,
+        )
 
     files = guess_indexable_paths(root)
     if resolved_mode == "cold":

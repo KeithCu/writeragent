@@ -210,6 +210,7 @@ def test_format_self_check_success_with_vector_search_group():
             "envwrap": "present",
             "sentence_transformers": "present",
             "sqlite_vec": "present",
+            "zvec": None,
             "langgraph": None,
             "langchain_core": "present",
             "langchain_text_splitters": None,
@@ -221,6 +222,7 @@ def test_format_self_check_success_with_vector_search_group():
             "envwrap",
             "sentence_transformers",
             "sqlite_vec",
+            "zvec",
             "langgraph",
             "langchain_core",
             "langchain_text_splitters",
@@ -229,7 +231,7 @@ def test_format_self_check_success_with_vector_search_group():
     msg = _format_self_check_success(data)
     assert "Vector Search Libraries" in msg
     assert "Vector Search Libraries: envwrap, sentence_transformers, sqlite_vec, langchain_core" in msg
-    assert "Missing: langgraph, langchain_text_splitters" in msg
+    assert "Missing: zvec, langgraph, langchain_text_splitters" in msg
 
 
 def test_format_self_check_success_vector_search_probe_failure_hint():
@@ -245,6 +247,7 @@ def test_format_self_check_success_vector_search_probe_failure_hint():
             "envwrap",
             "sentence_transformers",
             "sqlite_vec",
+            "zvec",
             "langgraph",
             "langchain_core",
             "langchain_text_splitters",
@@ -307,6 +310,7 @@ def test_run_venv_self_check_includes_vector_search():
         "envwrap": "present",
         "sentence_transformers": None,
         "sqlite_vec": "present",
+        "zvec": None,
         "langgraph": None,
         "langchain_core": None,
         "langchain_text_splitters": None,

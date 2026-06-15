@@ -101,6 +101,8 @@ VENV_AUTHORIZED_IMPORTS: tuple[str, ...] = (
     "plugin.embeddings.venv.embeddings_llama_index",
     "plugin.embeddings.venv.embeddings_ingest_graph",
     "plugin.embeddings.venv.embeddings_search_graph",
+    "plugin.embeddings.venv.embeddings_zvec",
+    "plugin.embeddings.venv.embeddings_hybrid_search",
     "plugin.scripting.analysis",
     "plugin.vision.venv.vision",
     "plugin.vision.vision_common",

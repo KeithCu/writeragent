@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 EMBEDDINGS_VENV_PIP_INSTALL = (
     "pip install sentence-transformers numpy sqlite-vec langgraph "
     "langchain-core langchain-text-splitters envwrap odfpy pandas "
-    "openpyxl xlrd python-docx llama-index-core"
+    "openpyxl xlrd python-docx llama-index-core zvec"
 )
 
 _MODEL_CACHE: dict[str, Any] = {}
@@ -130,6 +130,18 @@ def index_paragraphs(
             build_vectors=build_vectors,
         )
 
+    if str(search_mode).strip().lower() == "zvec":
+        from plugin.embeddings.venv.embeddings_zvec import zvec_ingest_rows
+        # For zvec the 'db_path' param from caller is actually the collection path when mode=zvec
+        return zvec_ingest_rows(
+            db_path,
+            meta_path,
+            model_name,
+            rows,
+            build_fts=build_fts,
+            build_vectors=build_vectors,
+        )
+
     from plugin.embeddings.venv.embeddings_ingest_graph import ingest_paragraphs
 
     return ingest_paragraphs(
@@ -167,6 +179,12 @@ def delete_paragraphs(
             build_vectors=build_vectors,
         )
         return {"deleted": len(keys)}
+
+    if str(search_mode).strip().lower() == "zvec":
+        from plugin.embeddings.venv.embeddings_zvec import zvec_delete_keys
+        # db_path here is the zvec collection path in zvec mode
+        n = zvec_delete_keys(db_path, keys)
+        return {"deleted": n}
 
     from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, corpus_chunk_count, delete_paragraph_keys, ensure_schema
 
@@ -232,6 +250,19 @@ def knn_search(
             use_mmr=use_mmr,
             rerank_model=rerank_model,
         )
+    elif str(search_mode).strip().lower() == "zvec":
+        from plugin.embeddings.venv.embeddings_zvec import zvec_knn_search
+
+        # db_path is the zvec collection path when called in zvec mode
+        res = zvec_knn_search(
+            db_path,
+            query_text,
+            k,
+            model_name=model_name,
+            doc_url_filter=doc_url_filter,
+            use_mmr=use_mmr,
+            rerank_model=rerank_model,
+        )
     else:
         from plugin.embeddings.venv.embeddings_search_graph import search_embeddings_graph
 
@@ -264,6 +295,19 @@ def hybrid_search(
     if str(search_mode).strip().lower() == "llama_index":
         from plugin.embeddings.venv.embeddings_llama_index import llama_index_hybrid_search
         res = llama_index_hybrid_search(
+            db_path,
+            query_text,
+            k,
+            model_name=model_name,
+            near_slop=near_slop,
+            doc_url_filter=doc_url_filter,
+            use_mmr=use_mmr,
+            rerank_model=rerank_model,
+        )
+    elif str(search_mode).strip().lower() == "zvec":
+        from plugin.embeddings.venv.embeddings_zvec import zvec_hybrid_search
+
+        res = zvec_hybrid_search(
             db_path,
             query_text,
             k,
@@ -336,20 +380,31 @@ def collection_stats(
 
     count = int(meta.get("chunk_count", "0") or 0)
     db = Path(str(db_path))
+    # zvec mode may pass a directory (the collection path) instead of corpus.db file.
+    # In that case, trust the meta count written by the zvec maintain path.
     if db.is_file():
-        conn = connect_corpus_db(db)
         try:
-            count = corpus_chunk_count(conn)
+            conn = connect_corpus_db(db)
+            try:
+                count = corpus_chunk_count(conn)
+            finally:
+                conn.close()
         except Exception:
-            log.debug("collection_stats corpus.db open failed", exc_info=True)
-        finally:
-            conn.close()
+            log.debug("collection_stats corpus.db open failed (may be zvec path passed)", exc_info=True)
+
+    storage = meta.get("storage_backend", "")
+    if not storage:
+        # If we were given a dir that exists, guess zvec; else sqlite_vec default in meta write
+        if db.exists() and db.is_dir():
+            storage = "zvec"
+        else:
+            storage = "sqlite_vec"
 
     return {
         "chunk_count": count,
         "schema_version": meta.get("schema_version", ""),
         "embedding_model": meta.get("embedding_model", ""),
-        "storage_backend": meta.get("storage_backend", "sqlite_vec"),
+        "storage_backend": storage,
         "dim": int(meta.get("dim", "0") or 0),
     }
 

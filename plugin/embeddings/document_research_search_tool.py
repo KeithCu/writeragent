@@ -70,16 +70,33 @@ class SearchEmbeddings(ToolBase):
             k = _DEFAULT_SEARCH_K
 
         def _run() -> dict[str, Any]:
-            from plugin.embeddings.embeddings_cache import index_is_empty, resolve_index_context
+            from plugin.embeddings.embeddings_cache import (
+                index_is_empty,
+                resolve_index_context,
+                zvec_collection_looks_populated,
+                zvec_collection_path,
+            )
             from plugin.embeddings.embeddings_indexer import ensure_index_wakeup
             from plugin.framework.client.embedding_client import get_embedding_model
             from plugin.framework.client.embeddings_service import knn_search
+            from plugin.framework.config import get_config
 
-            folder_key, db_path, meta_path, listing_or_err = resolve_index_context(ctx.ctx, ctx.doc)
+            folder_key, db_path, meta_path, listing_root = resolve_index_context(ctx.ctx, ctx.doc)
             if folder_key is None or db_path is None or meta_path is None:
-                return {"status": "error", "message": listing_or_err}
+                # When resolve fails it returns error string in 4th
+                resolve_err = listing_root or "No folder context"
+                return {"status": "error", "message": resolve_err}
 
-            if index_is_empty(meta_path, db_path):
+            # Mode-aware empty check so zvec works side-by-side without sqlite corpus
+            mode = str(get_config(ctx.ctx, "embeddings.folder_search_mode") or "none").strip().lower()
+            looks_empty = False
+            if mode == "zvec":
+                zpath = zvec_collection_path(listing_root, create_parent=False)
+                looks_empty = not zvec_collection_looks_populated(zpath)
+            else:
+                looks_empty = index_is_empty(meta_path, db_path)
+
+            if looks_empty:
                 ensure_index_wakeup(ctx.ctx, ctx.services, ctx.doc)
                 return {
                     "status": "indexing",
@@ -90,10 +107,13 @@ class SearchEmbeddings(ToolBase):
                 }
 
             model = get_embedding_model(ctx.ctx)
+            # For zvec mode, pass the zvec collection path string in the 'db_path' slot;
+            # the zvec backend in the venv treats the path as its collection root.
+            search_path: str = str(zvec_collection_path(listing_root, create_parent=True)) if mode == "zvec" else str(db_path)
             try:
                 result = knn_search(
                     ctx.ctx,
-                    str(db_path),
+                    search_path,
                     str(query),
                     k,
                     model=model,

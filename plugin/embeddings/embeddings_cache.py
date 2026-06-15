@@ -63,6 +63,30 @@ def corpus_db_path(listing_root: str, *, create_parent: bool = True) -> Path:
     return folder_cache_dir(listing_root, create_parent=create_parent) / CORPUS_DB_FILENAME
 
 
+def zvec_collection_path(listing_root: str, *, create_parent: bool = True) -> Path:
+    """Filesystem path for a zvec collection store for this folder (side-by-side with corpus.db)."""
+    # Place under the same writeragent_embeddings/ sibling dir as the sqlite corpus.
+    base = folder_cache_dir(listing_root, create_parent=create_parent)
+    p = base / "zvec"
+    if create_parent:
+        p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def zvec_collection_looks_populated(collection_path: Path) -> bool:
+    """Host-safe (no zvec import) heuristic: dir exists and has any entries.
+    Used for early 'empty index' checks in tools before kicking off background maintain.
+    """
+    try:
+        p = Path(collection_path)
+        if not p.exists() or not p.is_dir():
+            return False
+        # Any file or subdir is a signal that create_and_open has written something.
+        return any(p.iterdir())
+    except Exception:
+        return False
+
+
 def chroma_persist_dir(listing_root: str, *, create_parent: bool = True) -> Path:
     """Deprecated alias — returns corpus.db path (historical Chroma API name)."""
     return corpus_db_path(listing_root, create_parent=create_parent)
@@ -294,12 +318,14 @@ def remove_legacy_index(listing_root: str) -> bool:
 
 
 def clear_folder_cache(listing_root: str) -> None:
-    """Remove corpus.db and JSON state for a cold rebuild."""
+    """Remove corpus.db and JSON state for a cold rebuild. Also clears zvec store for the folder."""
     base = folder_cache_dir(listing_root, create_parent=False)
     _remove_path(base / CORPUS_DB_FILENAME)
     remove_stale_corpus_stores(listing_root)
     for name in (CORPUS_META_FILENAME, LEGACY_FILE_INDEX_STATE_FILENAME):
         _remove_path(base / name)
+    # Side-by-side zvec store (directory managed by zvec.create_and_open)
+    _remove_path(base / "zvec")
 
 
 def maybe_upgrade_legacy_index(listing_root: str) -> None:

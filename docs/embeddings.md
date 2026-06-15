@@ -593,8 +593,13 @@ See also [Index size growth](#index-size-growth) for when RAM footprint matters.
 |-------|-------------------------|
 | `none` (default) | `grep_nearby_files`, `list_nearby_files`, `delegate_read_document` |
 | `hybrid` | `search_nearby_files`, `list_nearby_files`, `delegate_read_document` (`grep_nearby_files` hidden) |
+| `zvec` (experimental) | Same tools backed by zvec in-process collection (native hybrid FTS+vector). Requires `pip install zvec` in the embeddings venv (e.g. `~/Desktop/Python/venv`). Stores under `writeragent_embeddings/zvec/`. |
 
 When off, [`filter_document_research_discovery_tools`](../plugin/doc/document_research.py) hides `search_nearby_files`. When on, it hides `grep_nearby_files` and background maintain always builds FTS + vectors in one `corpus.db` ([`embeddings_indexer.py`](../plugin/embeddings/embeddings_indexer.py)).
+
+**Zvec backend ("zvec"):** selectable side-by-side engine using the zvec in-process vector DB (dense/sparse vectors + built-in FTS + native hybrid multi-query + RRF/Weighted rerankers, WAL durability). The listing folder's store lives at `writeragent_embeddings/zvec/`. All heavy work (embed, index, search) runs in the user venv exactly like the other modes; the OXT never imports zvec on the LibreOffice Python. See the `module.yaml` for the UI label and the venv `embeddings_zvec.py` for the implementation. Use your existing test folder (e.g. `~/Desktop/Writing`) after `pip install zvec` in the venv configured under Settings → Python Test. The sqlite `corpus.db` path remains untouched — you can flip the setting back to `hybrid` at any time.
+
+See the dedicated section [Zvec search backend option](#zvec-backend) below for a much deeper treatment: the concrete benefits versus the current custom hybrid code, a direct comparison to the LlamaIndex option (the other major "buy something better than our hand-rolled sqlite + vec0 + custom RRF" path), pluses/minuses, evaluation guidance, and the roadmap for when/whether this becomes more than an experimental toggle.
 
 ### Folder FTS (unified corpus.db) {#folder-fts}
 
@@ -1728,6 +1733,160 @@ These are the reasons to **keep** LlamaIndex after Phase 1 — not re-implementi
 - Re-adding hybrid-only hacks in LlamaIndex mode (per-doc hit caps, custom MMR postprocessor mirroring [`embeddings_hybrid_search.py`](../plugin/embeddings/venv/embeddings_hybrid_search.py)).
 - Running a full LlamaIndex query engine on **every main-chat send** — retrieval stays in the venv worker; the sidebar chat LLM remains downstream of tool hits.
 - LLM query expansion during retrieval (`num_queries>1`) — **deferred**, not a non-goal; see [Deferred / low priority](#llamaindex-deferred).
+
+---
+
+## Zvec search backend option {#zvec-backend}
+
+We introduce **zvec** (the Alibaba in-process vector database, implemented in C++ with PyBind11 bindings) as a selectable alternative backend for Cross-file search (FTS + embeddings) under the setting `folder_search_mode="zvec"`.
+
+The `llama_index` option layers a retrieval *framework* on top of our existing custom `corpus.db`. The zvec option is the other major bet you are evaluating: replace the *storage and hybrid execution engine itself* with a purpose-built embedded database that was written to do dense + sparse vectors + native full-text search + hybrid queries in one engine. It is one of the two realistic "go get a better vector database than the current hand-rolled sqlite + sqlite-vec + custom RRF + parent merge + cross-encoder glue" paths (the other being LlamaIndex's retriever composition and post-processor ecosystem).
+
+**Current status (2026-06):** The initial side-by-side implementation is complete — Settings toggle, mode-aware host checks and UI, venv RPC surface, full folder maintain (with our extraction + our embedding model for consistency), knn and hybrid search that produce the exact same hit shapes the `search_embeddings` and `search_nearby_files` tools (and the deck search UI) already expect, plus matching tests and this documentation. Deeper incremental maintenance, index tuning, and any decision to slim or deprecate parts of the custom sqlite hybrid path are explicitly gated on real A/B data from folders such as `~/Desktop/Writing`.
+
+### Design & Implementation
+
+zvec stores its data in a directory (`writeragent_embeddings/zvec/`) that is a first-class zvec collection. It is completely independent of `corpus.db`; the two can (and do) coexist for the same listing folder.
+
+**What stays custom (WriterAgent-owned, same as the other modes):**
+- ODF / OOXML / text extraction and paragraph-level chunking (the same `guess_indexable_paths`, `indexable_chunks_from_path`, `chunk_to_index_row`, etc. used by hybrid and LlamaIndex).
+- Background indexing heartbeat, enqueue, stale detection, and the overall maintain orchestration (`embeddings_folder_maintain.py` dispatches to `maintain_folder_zvec` when the mode is zvec).
+- Embedding generation: we deliberately reuse the exact same `embed_texts` / SentenceTransformer wrapper (with the user's chosen `embedding_model`, the same batching, and the same L2 normalization) so that switching backends does not also change the embedding space.
+- Tool contract and final hit shaping (every backend must return `{doc_url, score, snippet, para_index?, content_hash?, ...}`).
+- Host-side concerns: `resolve_index_context`, mode-aware "is the index empty?" checks (via the pure-filesystem `zvec_collection_looks_populated`), `corpus_meta.json` updates (so the deck status label, collection stats RPC, and "building..." messages work), cache clearing, and the search UI deck.
+- Sandbox allow-listing and the Python Test / venv diagnostics probe (so `zvec: present` or `None` appears in the self-check output exactly like `sqlite_vec` and `llama_index` related packages).
+
+**What zvec owns when `folder_search_mode="zvec"`:**
+- The on-disk collection (WAL, index files, etc.) under the `zvec/` sibling directory.
+- Schema: a `CollectionSchema` with typed scalar `FieldSchema`s (`doc_url` STRING, `body` STRING with FTS index using standard tokenizer + lowercase, `para_index` INT32, `content_hash` STRING, `file_mtime` DOUBLE) plus a `VectorSchema("embedding", DataType.VECTOR_FP32, dimension=..., )`.
+- Native FTS indexing on the body text and vector ANN indexing.
+- Hybrid query execution: callers build a list of `Query` legs (a vector leg + an `Fts(match_string=...)` leg) and hand them to `coll.query(..., reranker=RrfReRanker(rank_constant=60) or a Weighted one)`. The engine does the retrieval and fusion.
+- Durability, visibility, and recovery via WAL; `stats` (including `doc_count`), `flush`, `upsert`, `delete` (by stable id or by filter), `delete_by_filter`, `destroy`, and future `create_index` / `optimize` for the various ANN types (HNSW, DiskANN, Vamana, IVF, Flat, Invert).
+- The actual ANN search and FTS matching in C++.
+
+The maintain implementation (`maintain_folder_zvec`) is intentionally simple and correct for v1: for each file it does a `delete_by_filter('doc_url == "..."')` (so old paragraphs for that file disappear cleanly) then re-extracts the current paragraphs, embeds them with our shared embedder, builds `Doc` objects with stable ids (`{doc_url}#{para_index}#{content_hash_prefix}`), `upsert`s them, and reports heartbeat progress. At the end it updates the shared `corpus_meta.json` with `storage_backend: "zvec"` and the final chunk count. Because it does not rely on the sqlite `indexed_files` / `indexed_paragraphs` tables, a folder can have a perfectly good zvec index even if it has never had a hybrid `corpus.db` built.
+
+Search paths (`zvec_knn_search` for pure semantic, `zvec_hybrid_search` for the normal tool) construct the appropriate `Query` objects (the vector comes from embedding the user's query with the current model; the FTS leg uses `match_string`), apply the reranker when one is configured, map the resulting `Doc`s through a tiny `_shape_hit` helper, and return the standard hit list. `doc_url_filter` becomes a filter on the query; `near_slop` is accepted for future parity (zvec's FTS leg can be extended with more advanced query string syntax later).
+
+Everything is guarded by a `try: import zvec as _zvec; HAS_ZVEC = True` block (modeled exactly on the llama_index guard). If the package is missing in the venv when the user has selected the mode, the worker raises a clear message telling them to `pip install zvec`. The LibreOffice in-process Python never sees the module.
+
+### Benefits in detail — why zvec is interesting as a "better vector database" than the current custom code
+
+The baseline "hybrid" implementation (and the `embeddings_sqlite.py` + `embeddings_hybrid_search.py` + `hybrid_rrf.py` + `embeddings_search_graph.py` + parent merge + alignment repair + retrieval pool that support it) is deliberately lean and self-contained. It gives you paragraph-granularity cross-file search with FTS5 + vec0, incremental maintenance, multi-model isolation, and optional rerank, all on top of stdlib sqlite3 plus one small wheel. The cost is that you (the project) are the author of a vector + FTS database:
+
+- You own the schema (chunks table + external-content FTS5 + per-model vec virtual tables + indexed_* state + model_metadata).
+- You own the "keep the three representations in sync" logic (insert rows, ensure FTS, ensure vectors for the active model, repair missing vectors on incremental runs, vacuum old models).
+- You own the hybrid execution (two separate legs, over-fetch pool, vendored RRF fusion, optional cross-encoder or MMR, parent-paragraph widening).
+- You own the incremental invalidation story (mtime + content_hash on files and paragraphs) and the "cold vs incremental" decision tree.
+
+zvec is a bet that a dedicated, native engine whose *only* job is "rich scalar + vector + FTS collection with hybrid queries, multiple ANN indexes, WAL, and good ergonomics" can do the hard parts better and with less bespoke code on our side over time.
+
+Concrete benefits observed in the design and early implementation:
+
+- **Native hybrid query, not "we glued two things together in Python".** In zvec you express the two legs (vector + FTS) in one `query([...])` call and get RRF (or Weighted) fusion from the engine. The constant factors, tie-breaking, and scoring for the combination are the DB's problem, not a `hybrid_rrf.py` module we have to keep in sync with changes to the legs. This is the single biggest "less custom code" lever.
+
+- **Durability and atomicity as a DB concern.** zvec is built around WAL. A batch of `upsert`s is visible atomically or not at all after a crash. Our current path has solid sqlite usage (and the FTS5 external content + vec0 virtual tables are surprisingly well-behaved), but the *hybrid* invariants (a paragraph row implies an FTS row and the right model-specific vector row; vacuum is safe; etc.) are maintained by our Python code. Moving that into the engine removes a class of subtle consistency bugs.
+
+- **Schema and provenance are declared and queryable inside the engine.** `doc_url`, `para_index`, `content_hash`, `file_mtime`, and the body are first-class typed fields. A filter like `doc_url == "..."` or (in the future) `heading_level >= 2 AND recency > ...` is a natural predicate the engine can use during retrieval, not a post-filter we apply in Python after pulling a superset. Adding a new piece of per-chunk metadata for better routing or filtering is a schema change + populating one more key in the Doc dict, not "ALTER TABLE + backfill + re-embed vectors for all models."
+
+- **Real ANN index choice and future sparse vectors with almost no new glue.** Today we create the collection with a vector field and let the default (Flat) do exact search while you evaluate. Later you (or we) can pass an `HnswIndexParam`, `DiskANN`, etc. when creating or via `create_index`, or add a second sparse vector field and a second query leg. The engine already knows how to maintain, search, and combine them. We do not have to grow another `vec_chunks_*` story or FTS5 tokenizer tweak.
+
+- **Codebase size and maintenance trajectory.** If the numbers on your real folders are good, large parts of the custom storage + hybrid machinery become specific to the "legacy hybrid / llama_index-on-sqlite" paths. The amount of code whose job is "be a vector database for folder paragraphs" can shrink rather than continue to grow every time someone wants a new hybrid feature (better rerank, metadata filters, different chunking, multi-folder collections, ...). This was one of the original hopes when we looked at zvec: a credible path to *less* custom vector DB code over time, not more.
+
+- **Safe, zero-risk side-by-side evaluation on the exact corpora you care about.** Because the zvec store is a separate directory and the mode switch is late (in the venv worker, after the host has already decided "this folder, this model, this search_mode"), you can keep a `corpus.db` that has been working for months and, in the same `~/Desktop/Writing` tree, grow a `zvec/` collection. Select the mode, let the background indexer or the explicit rebuild run, and the document_research tools and the deck search UI just do the right thing. You can flip back to `hybrid` or `llama_index` at any moment with no data loss for the other backend. This is exactly the "incremental, side-by-side, eventually replace if better" workflow you asked for.
+
+- **In-process C++ performance for the hot path, still inside the venv isolation boundary we already trust.** The expensive ANN search, FTS matching, and RRF happen in native code inside the same worker process that already runs sentence-transformers, cross-encoders, and (when selected) llama-index-core. No new surface area on the LibreOffice Python, no new packaging story for end users beyond "pip install zvec in the venv you already configured for Python Test / embeddings."
+
+- **WAL + collection lifecycle primitives that are just there.** `destroy`, `stats`, flush, optimize, index introspection — these are normal DB operations rather than "we wrote a VACUUM policy and a meta file that sometimes lies."
+
+### Comparison to LlamaIndex (the other place to go for a better vector / retrieval story)
+
+Both options exist because the current custom hybrid, while fully understood and dependency-minimal, is a lot of bespoke code to keep correct and to extend.
+
+They buy different things:
+
+- **LlamaIndex** is a *retrieval framework and composition layer*. In `llama_index` mode the storage is still 100% ours (`corpus.db`, the FTS5 `passages` table, the per-model vec virtual tables, the incremental `indexed_*` tables, the cold/incremental maintain that writes rows, the alignment repair, the parent merge, etc.). What we bought is the framework's `QueryFusionRetriever`, `SentenceTransformerRerank`, `TextNode` / `NodeWithScore` model, and the promise of all the higher-level recipes (hierarchical / parent-child, metadata filters and boosts, sub-question decomposition, `IngestionPipeline` with transform caching, `RetrieverQueryEngine` that can synthesize an answer instead of just returning snippets, RouterRetriever, etc.). The custom hybrid glue is still there for the `hybrid` mode and as the storage substrate that the LI adapters talk to. The long-term bet is "our custom RRF + pool will be replaced by stock framework components, and we get a living ecosystem of retrieval strategies and interop for 'free'."
+
+- **zvec** is an *embedded database engine*. It replaces the storage + query execution layer that our current custom code is. We still own "turn real LibreOffice files into clean paragraphs with stable locators and provenance" (the ODF extraction, the chunking heuristics, the heartbeat, the folder FS walking). We still own model choice and the final shaping of hits for the agent tools. But the persistent home for those paragraphs + their vectors + their FTS terms, the indexes that make vector and keyword search fast, the code that runs a hybrid query and fuses the legs, and the durability model move into the zvec collection. The custom Python that currently says "maintain three representations and fuse two legs with this RRF implementation" gets smaller if zvec wins.
+
+The two choices are therefore complementary bets on where the biggest leverage is:
+
+- If the pain / opportunity is "our retrieval *orchestration* and *composition* is the thing that is hard to improve and that would benefit from a big standard framework," LlamaIndex is the natural direction. You keep feeding it your paragraphs (via adapters) and get richer ways to retrieve and (future) synthesize.
+
+- If the pain / opportunity is "being the author of a vector + FTS database (schema, alignment, hybrid glue, incremental state, durability edge cases) is a lot of code and we would rather a native engine did that while we focus on document reality," zvec is the natural direction. The storage/hybrid surface in the project can shrink over time.
+
+Nothing in the architecture prevents a future world in which a zvec collection is one possible backend that a LlamaIndex-style retriever (or a custom one) can be pointed at, or in which LlamaIndex pipelines feed documents into a zvec collection. For the current evaluation they are two clean, independently selectable experiments against the baseline of the custom `hybrid` path.
+
+Persistence model difference that matters for switching: LlamaIndex mode reuses the exact same `corpus.db` files (zero re-index cost when you already have a good hybrid index; you are just using a different retriever on top). Zvec mode writes its own directory. Both update the shared `corpus_meta.json` so the host "Cache Status", stats, and empty checks are uniform.
+
+### Pluses & Minuses
+
+#### Pluses:
+1. **Engine, not glue.** The difficult, subtle, and easy-to-regress parts of hybrid search move into a component whose sole reason for existence is to be excellent at vector + FTS + hybrid + durability. The surface in `embeddings_zvec.py` that we have to reason about is much smaller than the union of `embeddings_sqlite.py` + the hybrid search modules + the alignment/repair logic + the retrieval pool.
+2. **Durability model you don't have to argue about.** WAL + the engine's own notion of a collection, upsert visibility, and recovery are table stakes for zvec rather than "our sqlite usage plus a bunch of virtual tables seems to work."
+3. **Index and lexical strategy flexibility with very little new code on our side.** HNSW / DiskANN / etc. for the vector leg, and (when we get there) BM25 / SPLADE sparse legs, are capabilities of the engine. We declare a field or a vector and issue another query leg. We do not grow another custom index maintenance story.
+4. **Provenance and future metadata are query-time citizens.** Filters on `doc_url`, `para_index`, or later `heading`, `doc_kind`, recency, etc. can be pushed into the retrieval itself instead of always being "retrieve too much and filter in Python."
+5. **Evaluation is safe and cheap.** Same source paragraphs, same tools, same UI, same eval scripts — just a different `folder_search_mode`. Your real `~/Desktop/Writing` corpus (and any other folder you actually write in) is the testbed, with zero risk to the "known good" sqlite store.
+6. **Credible long-term reduction in custom vector DB code.** If the data says zvec is at least as good (or better) on recall, latency, and qualitative feel in document_research sessions, then the bespoke hybrid implementation becomes a legacy path for users who have not opted in, rather than the ever-growing center of the feature. That matches the original goal of looking at zvec: make the codebase smaller and better over time by adopting a superior engine where it makes sense.
+
+#### Minuses:
+1. **Another user-managed native dependency in the venv.** `pip install zvec` (plus its numpy etc.) in the embeddings Python you already use for sentence-transformers, llama-index-core, cross-encoders, etc. The OXT will never ship or hard-depend on the wheel. Cold setup of that venv takes the extra download/build time (usually small, but real on first use).
+2. **v1 maintain is deliberately simple (full per-file refresh).** The current zvec maintain does `delete_by_filter` for the file then re-upserts the current paragraphs. This is easy to understand, correct, and independent of the sqlite incremental state tables — but it is more work per touched file than the sophisticated mtime + hash + "only changed paragraphs" logic we have for `corpus.db`. True cheap incremental inside zvec (or using its own per-doc state) is explicit future work that will only be done if the Phase 1 eval data justifies the investment.
+3. **Different on-disk shape and fewer "just open it with sqlite3" tools.** A `zvec/` directory (with WAL, index artifacts, etc.) is less immediately inspectable with the sqlite tooling you already have for `corpus.db`. We expose `collection_stats` and the meta JSON, and the engine has its own stats / fetch / destroy, but day-to-day debugging will feel a bit different until we grow more diagnostics.
+4. **Still "our paragraphs, our model, our tools."** zvec is not a full RAG framework that will magically split your .odt files the way you want or synthesize answers. You still do the LibreOffice-aware extraction and chunking; you still pick the embedding model; the agent still sees the same shaped snippet hits and still decides what to open next. If the thing you most want to stop owning is the *chunking / paragraph reality* layer, LlamaIndex's higher-level pipelines may feel closer to that goal than a better storage engine.
+5. **No "delete the custom code" decision without data.** We are not ripping out or even de-emphasizing the sqlite hybrid path on the basis of "zvec looks promising in its README." Only after you have run the routing evals (and ideally some agent-level document_research sessions) on `~/Desktop/Writing` and your other real folders will we have the evidence to decide whether zvec becomes the mainline path or remains a supported experimental option like `llama_index` is today.
+
+### Evaluation & Comparison (zvec vs custom hybrid vs LlamaIndex)
+
+Use the same machinery as the other backends. After you have `pip install zvec` in the target venv and have selected "Zvec (experimental)" in Settings → Embeddings → Cross-file search, you can drive everything from the UI (the deck search, document_research tools) or from the CLI:
+
+```bash
+HF_HUB_OFFLINE=1 ~/Desktop/Python/venv/bin/python scripts/eval_folder_search_routing.py --folder ~/Desktop/Writing --mode hybrid --backend zvec --k 5
+# or --mode all --backend zvec, etc.
+```
+
+(The eval harness and the search CLIs already understand the mode coming from Settings / the service and dispatch to the zvec wrappers the same way they dispatch for `hybrid` and `llama_index`. Adding explicit `--backend zvec` flags follows the existing pattern.)
+
+What to measure when you have all three on the same source material:
+- Retrieval quality: top-1 / top-3 / MRR on your labeled query set; `matched_by` (fts / vec / both) distribution; behavior on the queries where the current hybrid is known to be weak.
+- Latency and resource use while building and while searching (cold and warm).
+- Qualitative feel inside real `document_research` sessions on the folder (does the agent surface the right files faster? are the snippets more useful? does rerank help or hurt?).
+- Operational feel: index size on disk, time to incremental update after an edit, how painful it is to switch modes or to blow away one store while keeping the other.
+
+Because the three backends can be pointed at the exact same paragraphs (just different on-disk representations and different retrieval engines), this is as close to an apples-to-apples comparison as you can get without changing the source documents.
+
+### Zvec roadmap — starting point
+
+#### Phase 1 — Make the option real and usable for evaluation (largely complete)
+- Settings + propagation through the entire stack (indexer, service, tools, search UI, empty/stale checks, rebuild).
+- Guarded venv implementation with schema, stable-id upsert, per-file clean delete, knn + hybrid search, and the full folder maintain path using our existing extraction + embedder.
+- Host support (path helpers, FS-only "looks populated" check, meta updates, clear, collection_stats tolerance).
+- Sandbox + diagnostics exposure.
+- Tests (`tests/embeddings/test_embeddings_zvec_backend.py`) and this documentation.
+- Zero interference with existing `corpus.db` users.
+
+**Phase 1 exit criteria (for you):** You can flip the setting on `~/Desktop/Writing` (or any real folder), let it build (or force a rebuild), run searches and the routing eval, and have everything behave like the other two modes. Then you can actually produce the A/B data.
+
+#### Phase 2 — Make zvec the *better* engine (only if Phase 1 data justifies it)
+- Real incremental / delta maintain that is cheap (track per-doc state, use zvec's own delete/upsert more surgically, or keep a tiny sidecar; avoid re-embedding unchanged paragraphs).
+- Surface and use engine primitives: `stats`, `optimize()`, explicit index creation (Hnsw etc.), possibly sparse vector legs.
+- Richer scalar metadata on the schema + query-time filters (heading level, document kind, recency, etc.) once we have the columns and the extraction is populating them.
+- Consider "when zvec mode is selected, only do zvec work" so the two stores do not slowly diverge in subtle ways.
+- Full wiring of `--backend zvec` (and matrix runs) in the benchmark / eval scripts, plus a dated results table in this document (zvec vs custom hybrid vs LlamaIndex on the same query suite and the same source paragraphs).
+
+#### Decision point (data-driven, not roadmap-driven)
+Only after you have the numbers (and the qualitative experience) on your real folders do we consider:
+- Flipping the default for users who have the venv dependency satisfied.
+- Beginning to prune, hide, or mark as "advanced / legacy" large parts of the custom sqlite + RRF + alignment + hybrid glue for the zvec path.
+- Investing in the production niceties (DiskANN for very large writer projects, built-in sparse rerank, etc.).
+
+If the data does not show a clear win on your workloads, zvec remains a supported experimental option (parallel to `llama_index` today) and the custom hybrid stays the fully self-contained, no-extra-pip baseline.
+
+#### Explicit non-goals (for the foreseeable future)
+- Shipping the zvec native wheel inside the OXT or making it a required / non-optional dependency.
+- Replacing the paragraph extraction / chunking / "LibreOffice document reality" layer. zvec is a better place to *put* the paragraphs and ask hybrid questions; it is not an ODF chunker.
+- Running a full zvec-backed query engine or synthesizer on every chat turn. Retrieval remains a tool that returns a hit list; the sidebar chat model is still the thing that interprets them and decides what to do next.
+- Assuming we will delete or deprecate the custom hybrid path without data. We will not. The whole point of the side-by-side design is to let the data (from your actual folders and actual usage) decide.
 
 ---
 
