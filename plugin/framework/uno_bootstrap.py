@@ -56,6 +56,24 @@ def register_alias_importer() -> None:
     sys.meta_path.insert(0, AliasImporter())
 
 
+_stdio_utf8_done = False
+
+
+def ensure_utf8_stdio() -> None:
+    """Reconfigure stdout/stderr to UTF-8 once (macOS GUI LibreOffice often uses ASCII)."""
+    global _stdio_utf8_done
+    if _stdio_utf8_done:
+        return
+    _stdio_utf8_done = True
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
+
 def ensure_plugin_on_path(
     __file__: str,
     levels_up: int = 3,
@@ -131,4 +149,5 @@ def ensure_plugin_on_path(
         if os.path.isdir(vendor_dir) and vendor_dir not in sys.path:
             sys.path.insert(0, vendor_dir)
 
+    ensure_utf8_stdio()
     return ext_root
