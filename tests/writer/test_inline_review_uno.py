@@ -17,6 +17,7 @@ from plugin.writer.inline_review import (
     has_agent_changes,
     resolve_agent_change,
     resolve_all_agent_changes,
+    resolve_all_with_feedback,
     resolve_change_at_cursor,
 )
 
@@ -270,6 +271,7 @@ def test_resolve_refuses_when_user_redline_shares_paragraph_uno():
     before = _redline_count()
     ok, msg = resolve_change_at_cursor(_doc, _ctx, True)
     assert ok is False, "must refuse when a user redline shares the paragraph: %r" % msg
+    assert msg and "Manage" in msg, "refusal must carry a user-facing hint (shown in the UI): %r" % msg
     assert _redline_count() == before, "neither the agent change nor the user's redline may be touched"
     assert has_agent_changes(_doc), "the agent change stays pending for the native UI"
     _body("reset")
@@ -308,4 +310,25 @@ def test_resolve_all_skips_change_sharing_paragraph_with_user_redline_uno():
     assert resolved == 1, "only the clean-paragraph agent change resolves, got %d" % resolved
     assert has_agent_changes(_doc), "the shared-paragraph agent change is left pending"
     assert _redline_count() < user_and_agent_before, "the clean agent change was resolved"
+    _body("reset")
+
+
+@native_test
+def test_resolve_all_with_feedback_reports_skipped_then_silent_when_clean_uno():
+    """resolve_all_with_feedback must surface a user-facing note when some changes are skipped
+    (they share a paragraph with the user's own redline) -- otherwise the menu/popup click looks
+    like it did nothing. A fully clean resolve-all returns an empty message (no nag)."""
+    # Mixed: one agent change shares paragraph 1 with a user redline (skipped), one is clean.
+    _body("The quick brown fox jumps.", "Lonely agent clause here.")
+    _tracked_replace("quick", "fast")
+    _agent_edit(("fox", "dog"), ("Lonely agent clause here.", "Lonely agent clause EDITED."))
+    n, msg = resolve_all_with_feedback(_doc, _ctx, True)
+    assert n == 1, "only the clean-paragraph agent change resolves, got %d" % n
+    assert msg and "Manage" in msg, "a skipped change must produce a user-facing message: %r" % msg
+
+    # All-clean run -> no message.
+    _body("Clean one.", "Clean two.")
+    _agent_edit(("Clean one.", "Clean one EDITED."), ("Clean two.", "Clean two EDITED."))
+    n2, msg2 = resolve_all_with_feedback(_doc, _ctx, True)
+    assert n2 == 2 and msg2 == "", "all-clean resolve-all returns no message, got n=%d msg=%r" % (n2, msg2)
     _body("reset")

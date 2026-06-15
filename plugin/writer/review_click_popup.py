@@ -41,8 +41,9 @@ def _show_popup_and_resolve(model: Any, source_window: Any, x: int, y: int) -> N
             agent_changes,
             cursor_in_agent_change,
             goto_agent_change,
-            resolve_agent_change,
-            resolve_all_agent_changes,
+            resolve_all_with_feedback,
+            resolve_change_at_cursor,
+            show_review_message,
         )
 
         ctx = get_ctx()
@@ -72,13 +73,19 @@ def _show_popup_and_resolve(model: Any, source_window: Any, x: int, y: int) -> N
         rect.Height = 0
         choice = popup.execute(source_window, rect, 0)
         if choice == 1:
-            resolve_agent_change(model, ctx, token, True)
+            ok, msg = resolve_change_at_cursor(model, ctx, True)
+            if not ok:
+                show_review_message(ctx, msg)
         elif choice == 2:
-            resolve_agent_change(model, ctx, token, False)
+            ok, msg = resolve_change_at_cursor(model, ctx, False)
+            if not ok:
+                show_review_message(ctx, msg)
         elif choice == 3:
-            resolve_all_agent_changes(model, ctx, True)
+            _, msg = resolve_all_with_feedback(model, ctx, True)
+            show_review_message(ctx, msg)
         elif choice == 4:
-            resolve_all_agent_changes(model, ctx, False)
+            _, msg = resolve_all_with_feedback(model, ctx, False)
+            show_review_message(ctx, msg)
     except Exception:
         log.warning("review_click_popup: popup failed", exc_info=True)
 

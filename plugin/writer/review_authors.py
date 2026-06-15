@@ -60,20 +60,32 @@ def _set_office_author(ctx: Any, given: str) -> bool:
 def begin(ctx: Any, insert_author: str = INSERT_AUTHOR, delete_author: str = DELETE_AUTHOR):
     """Capture the prior office author, set the INSERT author as the default, and arm
     ``deletion_author()`` on this thread. Returns the prior ``(given, sn)`` for ``end()``, or None.
+
+    Split authoring is armed ONLY if the office author was actually switched. If that fails, the
+    thread-local is left disarmed -- so a failed begin() can never leave ``deletion_author()``
+    armed for a later, unrelated edit on this thread, even when the caller skips ``end()`` on a
+    None return.
     """
     prior = None
+    armed = False
     try:
         access = _author_access(ctx)
         prior = (str(access.getPropertyValue("givenname")), str(access.getPropertyValue("sn")))
         access.setPropertyValue("givenname", insert_author)
         access.setPropertyValue("sn", "")
         access.commitChanges()
+        armed = True
     except Exception:
         log.debug("review_authors.begin failed", exc_info=True)
         prior = None
-    _state.ctx = ctx
-    _state.insert = insert_author
-    _state.delete = delete_author
+    if armed:
+        _state.ctx = ctx
+        _state.insert = insert_author
+        _state.delete = delete_author
+    else:
+        _state.ctx = None
+        _state.insert = None
+        _state.delete = None
     return prior
 
 

@@ -25,6 +25,14 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
+# Shown when a conservative resolve refuses because the change shares a paragraph with the
+# user's own tracked change (or another agent change). Surfaced via show_review_message() so a
+# click that resolves nothing on purpose isn't silent.
+_RESOLVE_REFUSED_HINT = (
+    "Could not resolve this change here -- it may share a paragraph with one of"
+    " your tracked changes or another agent change. Resolve it from Edit > Track Changes > Manage."
+)
+
 
 def _redline_count(model: Any) -> int:
     """Number of tracked changes (redlines) currently in the document."""
@@ -58,9 +66,40 @@ def resolve_change_at_cursor(model: Any, ctx: Any, accept: bool) -> tuple[bool, 
             return False, "No agent changes to review in this document."
         return False, "Put the cursor on a highlighted agent change first."
     if not resolve_agent_change(model, ctx, token, accept):
-        return False, ("Could not resolve this change here -- it may share a paragraph with one of"
-                       " your tracked changes or another agent change. Resolve it from Edit > Track Changes > Manage.")
+        return False, _RESOLVE_REFUSED_HINT
     return True, "Change accepted." if accept else "Change rejected."
+
+
+def resolve_all_with_feedback(model: Any, ctx: Any, accept: bool) -> tuple[int, str]:
+    """Accept/reject all agent changes; return ``(count_resolved, message)``. The message is a
+    user-facing note when some or all changes were skipped -- they share a paragraph with one of
+    the user's own redlines, which resolve-all deliberately won't touch -- and empty when
+    everything resolved (or there was nothing to do)."""
+    total = len(agent_changes(model))
+    if total == 0:
+        return 0, "No agent changes to review in this document."
+    n = resolve_all_agent_changes(model, ctx, accept)
+    if n >= total:
+        return n, ""
+    if n == 0:
+        return 0, ("None could be resolved here -- each shares a paragraph with one of your own"
+                   " tracked changes. Resolve them from Edit > Track Changes > Manage.")
+    return n, ("Resolved %d of %d. The rest share a paragraph with your own tracked changes --"
+               " resolve those from Edit > Track Changes > Manage." % (n, total))
+
+
+def show_review_message(ctx: Any, message: str) -> None:
+    """Surface a review outcome (e.g. a conservative refusal) to the user so a click that
+    resolves nothing isn't silent. No-op on an empty message; best-effort -- UI feedback must
+    never break the resolve itself."""
+    if not message:
+        return
+    try:
+        from plugin.chatbot.dialogs import msgbox
+
+        msgbox(ctx, "Review agent changes", message)
+    except Exception:
+        log.debug("inline_review: could not show review message %r", message, exc_info=True)
 
 
 # --- agent-change helpers (used by the click popup and the context menu) -------------------

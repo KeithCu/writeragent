@@ -317,13 +317,15 @@ def _register_core_handlers():
 
     def _resolve_change_at_cursor(accept):
         from plugin.framework.uno_context import get_desktop
-        from plugin.writer.inline_review import resolve_change_at_cursor
+        from plugin.writer.inline_review import resolve_change_at_cursor, show_review_message
 
         c = get_ctx()
         model = get_desktop(c).getCurrentComponent()
         if model is not None:
             ok, msg = resolve_change_at_cursor(model, c, accept)
             logging.getLogger("writeragent.main").debug("inline review: accept=%s -> ok=%s msg=%s", accept, ok, msg)
+            if not ok:
+                show_review_message(c, msg)
         else:
             logging.getLogger("writeragent.main").debug("inline review: no current component")
 
@@ -332,13 +334,14 @@ def _register_core_handlers():
 
     def _resolve_all_agent(accept):
         from plugin.framework.uno_context import get_desktop
-        from plugin.writer.inline_review import resolve_all_agent_changes
+        from plugin.writer.inline_review import resolve_all_with_feedback, show_review_message
 
         c = get_ctx()
         model = get_desktop(c).getCurrentComponent()
         if model is not None:
-            n = resolve_all_agent_changes(model, c, accept)
+            n, msg = resolve_all_with_feedback(model, c, accept)
             logging.getLogger("writeragent.main").debug("inline review: resolve-all accept=%s -> %d changes", accept, n)
+            show_review_message(c, msg)
 
     register_action_handler("writer", "review_accept_all", lambda: _resolve_all_agent(True))
     register_action_handler("writer", "review_reject_all", lambda: _resolve_all_agent(False))

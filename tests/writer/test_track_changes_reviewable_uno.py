@@ -536,3 +536,23 @@ def test_bookmarks_cleaned_when_edit_raises_midway_uno():
         set_config(_ctx, _FLAG, prev)
         if len(_doc.getRedlines()):
             _reject_all()
+
+
+@native_test
+def test_review_authors_failed_begin_leaves_split_authoring_disarmed_uno():
+    """A failed begin() (office-author access unavailable) must NOT arm the thread-local; otherwise
+    deletion_author() would stay armed for a later, unrelated edit on this thread. The streamed
+    sessions skip end() on a None return, so the safety has to live in begin() itself."""
+    from plugin.writer import review_authors
+
+    class _BadCtx:
+        def getServiceManager(self):  # _author_access() calls this; raising makes begin() fail
+            raise RuntimeError("no service manager")
+
+    prior = review_authors.begin(_BadCtx())
+    try:
+        assert prior is None, "begin() on a broken ctx must return None"
+        assert getattr(review_authors._state, "ctx", None) is None, \
+            "a failed begin() must leave split authoring disarmed (deletion_author stays inert)"
+    finally:
+        review_authors.end(_ctx, None)  # keep the thread-local clean for later tests
