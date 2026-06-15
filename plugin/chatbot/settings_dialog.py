@@ -116,8 +116,9 @@ def _get_module_field_specs(ctx):
 
                 # For select/combo with value/label options, use label for display so dropdown shows correctly
                 if isinstance(opts, list) and opts and isinstance(opts[0], dict):
+                    v_str = str(val).strip().lower()
                     for o in opts:
-                        if isinstance(o, dict) and str(o.get("value", "")) == str(val).strip().lower():
+                        if isinstance(o, dict) and str(o.get("value", "")) == v_str:
                             val = _(str(o.get("label", val)))
                             break
 
@@ -181,10 +182,12 @@ def apply_settings_result(ctx, result):
         
         # Map translated label back to value
         if "options" in spec and val:
+            val_str = str(val)
             for opt in spec["options"]:
                 if isinstance(opt, dict):
-                    lbl = opt.get("label", opt.get("value", ""))
-                    if _(lbl) == str(val):
+                    # We compare translated labels to the UI result to map back to original value
+                    lbl = str(opt.get("label", opt.get("value", "")))
+                    if _(lbl) == val_str:
                         val = opt.get("value", lbl)
                         break
 
