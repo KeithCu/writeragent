@@ -43,7 +43,7 @@ class TestSearchDialog:
 
         show_search_dialog(mock_ctx)
 
-    @patch("plugin.embeddings.search_ui.get_desktop")
+    @patch("plugin.framework.uno_context.get_desktop")
     @patch("plugin.embeddings.search_ui.get_active_document")
     @patch("plugin.embeddings.embeddings_cache.resolve_index_context")
     @patch("plugin.embeddings.embeddings_cache.clear_folder_cache")
@@ -112,7 +112,7 @@ class TestSearchDialog:
         dialog._run_search.assert_called_with(mock_dlg)
         assert dialog._run_search.call_count == 2
 
-    @patch("plugin.embeddings.search_ui.get_desktop")
+    @patch("plugin.framework.uno_context.get_desktop")
     @patch("plugin.embeddings.search_ui.get_active_document")
     @patch("plugin.embeddings.embeddings_cache.clear_folder_cache")
     @patch("plugin.framework.client.embeddings_service.maintain_folder_index")

@@ -177,7 +177,7 @@ def test_show_python_input_dialog_run_button_keeps_dialog_open():
 
     dlg.getControl.side_effect = fake_get_control
 
-    with patch.object(ui, "get_desktop", return_value=desktop):
+    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
         with _patch_modal_native():
             with patch.object(ui, "set_config") as mock_set:
                 with patch.object(ui, "get_config", return_value={"Sample": "result = 42"}) as mock_get:
@@ -248,7 +248,7 @@ def test_show_python_input_dialog_save_button():
         return code_edit
     dlg.getControl.side_effect = fake_get_control
 
-    with patch.object(ui, "get_desktop", return_value=desktop):
+    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
         with _patch_modal_native():
             with patch.object(ui, "set_config") as mock_set:
                 with patch.object(ui, "get_config", return_value={"Sample": "print('hello')"}) as mock_get:
@@ -353,7 +353,7 @@ def test_show_python_input_dialog_save_as_button():
         return code_edit
     dlg.getControl.side_effect = fake_get_control
 
-    with patch.object(ui, "get_desktop", return_value=desktop):
+    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
         with _patch_modal_native():
             with patch.object(ui, "get_config", return_value={}):
                 with patch.object(ui, "get_config_str", return_value=""):
@@ -399,7 +399,7 @@ def test_show_python_input_dialog_modeless_uses_set_visible():
     script_select = MagicMock()
     dlg.getControl.side_effect = lambda name: code_edit if name == "CodeEdit" else script_select
 
-    with patch.object(ui, "get_desktop", return_value=desktop):
+    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
         with _patch_modeless_native():
             with patch.object(ui, "get_config", return_value={}):
                 with patch.object(ui, "get_config_str", return_value=""):
