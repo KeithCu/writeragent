@@ -234,21 +234,23 @@ def _run_brainstorming_agent(ctx: ToolContext, *, query: str, history_text: str 
                 status_callback(f"{step.name}...")
         elif isinstance(step, ActionStep):
             if append_thinking_callback:
-                msg = f"Step {step.step_number}:\n"
+                msg_parts = [f"Step {step.step_number}:\n"]
                 if step.model_output:
                     mo = step.model_output
-                    msg += f"{(mo.strip() if isinstance(mo, str) else str(mo).strip())}\n"
+                    msg_parts.append(f"{(mo.strip() if isinstance(mo, str) else str(mo).strip())}\n")
                 if step.observations:
-                    msg += f"Observation: {str(step.observations).strip()}\n"
+                    msg_parts.append(f"Observation: {str(step.observations).strip()}\n")
                     obs_str = str(step.observations)
                     if "'status': 'finished'" in obs_str or '"status": "finished"' in obs_str:
                         match = re.search(r"'result': '([^']*)'", obs_str) or re.search(r'"result": "([^"]*)"', obs_str)
                         handoff = match.group(1) if match else None
                         spec_match = re.search(r"'spec_saved': (True|False)", obs_str) or re.search(r'"spec_saved": (true|false)', obs_str, re.I)
                         spec_saved = spec_match.group(1).lower() == "true" if spec_match else False
-                        append_thinking_callback(msg + "\n")
+                        msg_parts.append("\n")
+                        append_thinking_callback("".join(msg_parts))
                         return {"status": "finished", "result": handoff or "Brainstorming complete.", "spec_saved": spec_saved}
-                append_thinking_callback(msg + "\n")
+                msg_parts.append("\n")
+                append_thinking_callback("".join(msg_parts))
             elif step.observations:
                 obs_str = str(step.observations)
                 if "'status': 'finished'" in obs_str or '"status": "finished"' in obs_str:
