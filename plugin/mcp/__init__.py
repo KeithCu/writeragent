@@ -284,7 +284,9 @@ class McpModule(ModuleBase):
                 msgbox(ctx, "WriterAgent", _("MCP server failed to start") + "\n" + _("Check writeragent_debug.log in your LibreOffice user config folder"))
 
     def _action_server_status(self):
-        from plugin.chatbot.dialogs import msgbox, add_dialog_label, add_dialog_edit, add_dialog_button
+        import unohelper
+        from com.sun.star.awt import XActionListener
+        from plugin.chatbot.dialogs import msgbox, load_writeragent_dialog
         from plugin.framework.uno_context import get_ctx
         from plugin.framework.i18n import _
 
@@ -306,27 +308,30 @@ class McpModule(ModuleBase):
 
         try:
             assert ctx is not None
-            ctx_any = cast("Any", ctx)
-            smgr = getattr(ctx_any, "ServiceManager", getattr(ctx_any, "getServiceManager", lambda: None)())
-            assert smgr is not None
-            sm_any = cast("Any", smgr)
+            dlg = load_writeragent_dialog("ServerStatusDialog", ctx)
+            if dlg is None:
+                msgbox(ctx, "WriterAgent", msg + "\n" + _("URL: {0}").format(url))
+                return
 
-            dlg_model = sm_any.createInstanceWithContext("com.sun.star.awt.UnoControlDialogModel", ctx_any)
-            dlg_model.Title = _("Server Status")
-            dlg_model.Width = 230
-            dlg_model.Height = 80
+            msg_ctrl = dlg.getControl("Msg")
+            if msg_ctrl is not None:
+                msg_ctrl.getModel().Label = msg
 
-            add_dialog_label(dlg_model, "Msg", msg, 10, 6, 210, 24)
+            url_ctrl = dlg.getControl("UrlField")
+            if url_ctrl is not None:
+                url_ctrl.setText(url)
 
-            # Read-only textfield for the URL — user can select + Ctrl+C
-            add_dialog_edit(dlg_model, "UrlField", url, 10, 34, 210, 14, readonly=True)
+            class _OkListener(unohelper.Base, XActionListener):
+                def actionPerformed(self, rEvent):
+                    dlg.endDialog(1)
 
-            add_dialog_button(dlg_model, "OKBtn", _("OK"), 170, 58, 50, 14, push_button_type=1)
+                def disposing(self, Source):
+                    pass
 
-            dlg = sm_any.createInstanceWithContext("com.sun.star.awt.UnoControlDialog", ctx_any)
-            dlg.setModel(dlg_model)
-            toolkit = sm_any.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx_any)
-            dlg.createPeer(toolkit, None)
+            ok_btn = dlg.getControl("OKBtn")
+            if ok_btn is not None:
+                ok_btn.addActionListener(_OkListener())
+
             dlg.execute()
             dlg.dispose()
         except Exception:

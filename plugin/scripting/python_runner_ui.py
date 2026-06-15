@@ -16,7 +16,7 @@ from com.sun.star.awt import XActionListener, XItemListener, XTopWindowListener
 from plugin.framework.uno_context import get_desktop
 from plugin.framework.config import get_config, get_config_str, set_config
 from plugin.framework.i18n import _
-from plugin.chatbot.dialogs import add_dialog_label, add_dialog_edit, add_dialog_button, msgbox, show_approval_dialog
+from plugin.chatbot.dialogs import load_writeragent_dialog, msgbox, show_approval_dialog
 from plugin.chatbot.dialogs import show_text_input_dialog
 from plugin.framework.worker_pool import run_in_background
 from plugin.scripting.document_scripts import (
@@ -36,20 +36,6 @@ log = logging.getLogger("writeragent.scripting")
 def native_run_script_modeless_enabled(ctx: Any) -> bool:
     """When True, the plain-text Run Python Script dialog floats (document stays editable)."""
     return bool(get_config(ctx, "scripting.native_run_script_modeless"))
-
-
-def add_dialog_listbox(dlg_model: Any, name: str, items: list[str], x: int, y: int, width: int, height: int) -> Any:
-    lb = dlg_model.createInstance("com.sun.star.awt.UnoControlListBoxModel")
-    lb.Name = name
-    lb.PositionX = x
-    lb.PositionY = y
-    lb.Width = width
-    lb.Height = height
-    lb.Dropdown = True
-    lb.MultiSelection = False
-    lb.StringItemList = tuple(items)
-    dlg_model.insertByName(name, lb)
-    return lb
 
 
 class NativePythonScriptDialog:
@@ -163,61 +149,10 @@ class NativePythonScriptDialog:
     def _open(self, initial_text: str) -> None:
         ctx = self._ctx
         try:
-            desktop = get_desktop(ctx)
-            frame = desktop.getCurrentFrame()
-            if frame is None:
+            dlg = load_writeragent_dialog("PythonScriptDialog", ctx)
+            if dlg is None:
                 self.close()
                 return
-            parent_window = frame.getContainerWindow()
-            if parent_window is None:
-                self.close()
-                return
-
-            smgr = ctx.getServiceManager()
-            dlg_model = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialogModel", ctx)
-            dlg_model.Title = _("Run Python Script")
-            dlg_model.Width = 400
-            dlg_model.Height = 220
-            dlg_model.Moveable = True
-            dlg_model.Closeable = True
-
-            add_dialog_button(dlg_model, "BtnRun", _("Run"), 8, 8, 50, 14)
-            add_dialog_button(dlg_model, "BtnSave", _("Save"), 62, 8, 50, 14)
-            add_dialog_button(dlg_model, "BtnCancel", _("Close"), 116, 8, 50, 14)
-
-            saved_scripts = get_config(ctx, "saved_python_scripts")
-            if not isinstance(saved_scripts, dict):
-                saved_scripts = {}
-            doc = self._doc
-            script_names, merged_scripts, origin_map = build_xdl_script_picker_state(ctx, doc, saved_scripts)
-
-            add_dialog_label(dlg_model, "ScriptLbl", _("Script:"), 172, 10, 22, 10, multiline=False)
-            add_dialog_listbox(dlg_model, "ScriptSelect", script_names, 196, 8, 60, 14)
-            add_dialog_button(dlg_model, "BtnAttach", _("Attach"), 260, 8, 44, 14)
-            add_dialog_button(dlg_model, "BtnSaveAs", _("Save As..."), 308, 8, 44, 14)
-            add_dialog_button(dlg_model, "BtnDelete", _("Delete"), 356, 8, 34, 14)
-
-            add_dialog_label(
-                dlg_model,
-                "InstructionLbl",
-                _("Enter Python code to execute in the user virtual environment.\nAssign the result to the 'result' variable."),
-                8,
-                26,
-                334,
-                20,
-            )
-
-            edit = add_dialog_edit(dlg_model, "CodeEdit", "", 8, 48, 334, 164)
-            edit.MultiLine = True
-            edit.VScroll = True
-            fd = cast("Any", uno.createUnoStruct("com.sun.star.awt.FontDescriptor"))
-            fd.Name = "Courier New"
-            edit.FontDescriptor = fd
-
-            dlg = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialog", ctx)
-            dlg.setModel(dlg_model)
-            toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
-            dlg.createPeer(toolkit, parent_window)
             self._dlg = dlg
 
             # Trigger background pre-warming of the venv subprocess for the native fallback case as well
@@ -225,6 +160,12 @@ class NativePythonScriptDialog:
 
             select_ctrl = dlg.getControl("ScriptSelect")
             self._select_ctrl = select_ctrl
+
+            saved_scripts = get_config(ctx, "saved_python_scripts")
+            if not isinstance(saved_scripts, dict):
+                saved_scripts = {}
+            doc = self._doc
+            script_names, merged_scripts, origin_map = build_xdl_script_picker_state(ctx, doc, saved_scripts)
 
             self._current_scripts = dict(merged_scripts)
             self._script_origin_map = dict(origin_map)

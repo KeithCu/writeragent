@@ -13,11 +13,7 @@ from com.sun.star.awt import XActionListener
 
 from plugin.framework.uno_context import get_desktop
 from plugin.framework.i18n import _
-from plugin.chatbot.dialogs import (
-    add_dialog_button,
-    add_dialog_label,
-    msgbox,
-)
+from plugin.chatbot.dialogs import load_writeragent_dialog, msgbox
 from plugin.calc.address_utils import parse_range_string, parse_address
 from plugin.calc.spreadsheet_import.ingest import ingest_sheet
 from plugin.calc.spreadsheet_import.emit import build_converted_output_model
@@ -25,52 +21,6 @@ from plugin.calc.spreadsheet_import.preserve import apply_output_to_sheet
 from plugin.calc.spreadsheet_import.verify import verify_converted_cells
 
 log = logging.getLogger("writeragent.calc.import_dialog")
-
-
-def add_dialog_radio_button(
-    dlg_model: Any,
-    name: str,
-    label: str,
-    x: int,
-    y: int,
-    width: int,
-    height: int,
-    group_name: str,
-    state: int = 0,
-) -> Any:
-    rb = dlg_model.createInstance("com.sun.star.awt.UnoControlRadioButtonModel")
-    rb.Name = name
-    rb.PositionX = x
-    rb.PositionY = y
-    rb.Width = width
-    rb.Height = height
-    rb.Label = _(label)
-    rb.GroupName = group_name
-    rb.State = state
-    dlg_model.insertByName(name, rb)
-    return rb
-
-
-def add_dialog_checkbox(
-    dlg_model: Any,
-    name: str,
-    label: str,
-    x: int,
-    y: int,
-    width: int,
-    height: int,
-    state: int = 0,
-) -> Any:
-    cb = dlg_model.createInstance("com.sun.star.awt.UnoControlCheckBoxModel")
-    cb.Name = name
-    cb.PositionX = x
-    cb.PositionY = y
-    cb.Width = width
-    cb.Height = height
-    cb.Label = _(label)
-    cb.State = state
-    dlg_model.insertByName(name, cb)
-    return cb
 
 
 def get_radio_state(ctrl: Any) -> bool:
@@ -239,39 +189,9 @@ def show_import_dialog(ctx: Any) -> None:
         if source_sheet is None:
             return
 
-        parent_window = doc.getCurrentController().getFrame().getContainerWindow()
-        smgr = ctx.getServiceManager()
-
-        # Build Dialog Model
-        dlg_model = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialogModel", ctx)
-        dlg_model.Title = _("Convert Sheet to Python")
-        dlg_model.Width = 260
-        dlg_model.Height = 180
-
-        # Scope Group
-        add_dialog_label(dlg_model, "ScopeLbl", "Scope", 10, 10, 240, 10, multiline=False)
-        add_dialog_radio_button(dlg_model, "ScopeActive", "Active Sheet", 20, 25, 100, 12, "ScopeGroup", state=1)
-        add_dialog_radio_button(dlg_model, "ScopeSelection", "Selection", 130, 25, 100, 12, "ScopeGroup")
-
-        # Output Mode Group
-        add_dialog_label(dlg_model, "ModeLbl", "Output Mode", 10, 45, 240, 10, multiline=False)
-        add_dialog_radio_button(dlg_model, "ModeNew", "New Sheet (PythonImport)", 20, 60, 200, 12, "ModeGroup", state=1)
-        add_dialog_radio_button(dlg_model, "ModeReplace", "In-place replacement", 20, 75, 200, 12, "ModeGroup")
-
-        # Options Group
-        add_dialog_label(dlg_model, "OptLbl", "Options", 10, 95, 240, 10, multiline=False)
-        add_dialog_checkbox(dlg_model, "OptFormats", "Preserve number formats", 20, 110, 200, 12, state=1)
-        add_dialog_checkbox(dlg_model, "OptVerify", "Verify recalc (oracle diff)", 20, 125, 200, 12, state=1)
-        add_dialog_checkbox(dlg_model, "OptVector", "Vectorize columns when safe", 20, 140, 200, 12, state=1)
-
-        # Action Buttons
-        add_dialog_button(dlg_model, "BtnOK", "OK", 140, 160, 50, 14)
-        add_dialog_button(dlg_model, "BtnCancel", "Cancel", 195, 160, 55, 14)
-
-        dlg = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialog", ctx)
-        dlg.setModel(dlg_model)
-        toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
-        dlg.createPeer(toolkit, parent_window)
+        dlg = load_writeragent_dialog("SpreadsheetImportDialog", ctx)
+        if dlg is None:
+            return
 
         _outcome: dict[str, Any] | None = None
 
@@ -310,8 +230,12 @@ def show_import_dialog(ctx: Any) -> None:
             def disposing(self, Source: Any) -> None:
                 pass
 
-        dlg.getControl("BtnOK").addActionListener(_OkListener())
-        dlg.getControl("BtnCancel").addActionListener(_CancelListener())
+        btn_ok = dlg.getControl("BtnOK")
+        if btn_ok is not None:
+            btn_ok.addActionListener(_OkListener())
+        btn_cancel = dlg.getControl("BtnCancel")
+        if btn_cancel is not None:
+            btn_cancel.addActionListener(_CancelListener())
 
         dlg.execute()
         dlg.dispose()

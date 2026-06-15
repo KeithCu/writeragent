@@ -32,7 +32,7 @@ from .listeners import BaseActionListener, BaseListener
 from .dialogs import (
     TabListener, is_checkbox_control, get_checkbox_state, set_checkbox_state,
     get_optional, set_control_enabled, set_control_text, get_control_text, translate_dialog,
-    msgbox, add_dialog_button, add_dialog_label, add_dialog_edit,
+    msgbox, add_dialog_button, add_dialog_label, add_dialog_edit, load_writeragent_dialog,
 )
 
 log = logging.getLogger(__name__)
@@ -413,24 +413,17 @@ class _VenvProbeProgressDialog:
             self._dispose()
 
     def _create_dialog(self) -> None:
-        parent = _dialog_parent_for_child(self._ctx, self._parent_dlg)
-        smgr = self._ctx.getServiceManager()
-        dlg_model = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialogModel", self._ctx)
-        dlg_model.Title = _("Python Test")
-        dlg_model.Width = 320
-        dlg_model.Height = 285
-
-        add_dialog_label(dlg_model, "StatusLbl", _("Testing Python environment..."), 8, 8, 304, 12, multiline=False)
-        log_edit = add_dialog_edit(dlg_model, "LogArea", "", 8, 24, 304, 225, readonly=True)
-        log_edit.MultiLine = True
-        log_edit.VScroll = True
-        add_dialog_button(dlg_model, "BtnClose", _("Close"), 252, 255, 60, 14, enabled=False)
-
-        self._dlg = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialog", self._ctx)
-        self._dlg.setModel(dlg_model)
-        toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", self._ctx)
-        self._dlg.createPeer(toolkit, parent)
-        self._dlg.getControl("BtnClose").addActionListener(_VenvProbeCloseListener(self))
+        dlg = load_writeragent_dialog("PythonTestProgressDialog", self._ctx)
+        if dlg is None:
+            raise RuntimeError("Failed to load PythonTestProgressDialog")
+        self._dlg = dlg
+        
+        # When peer parent is needed for a child modal (aboveSettingsDialog),
+        # DialogProvider2 dialogs can be re-parented or we can just use the peer created automatically.
+        # Let's add the action listener to BtnClose
+        btn_close = dlg.getControl("BtnClose")
+        if btn_close is not None:
+            btn_close.addActionListener(_VenvProbeCloseListener(self))
 
     def set_display(self, text: str) -> None:
         if self._dlg is None:

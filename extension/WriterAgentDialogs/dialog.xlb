@@ -6,5 +6,15 @@
  <library:element library:name="EditInputDialog"/>
  <library:element library:name="ChatPanelDialog"/>
  <library:element library:name="EvalDialog"/>
+ <library:element library:name="LatexInputDialog"/>
+ <library:element library:name="SearchDialog"/>
+ <library:element library:name="SpreadsheetImportDialog"/>
+ <library:element library:name="PythonScriptDialog"/>
+ <library:element library:name="ServerStatusDialog"/>
+ <library:element library:name="WebSearchQueryEditDialog"/>
+ <library:element library:name="ShortTextInputDialog"/>
+ <library:element library:name="MsgBoxWithCopyDialog"/>
+ <library:element library:name="StatusUpdateDialog"/>
+ <library:element library:name="PythonTestProgressDialog"/>
  <library:element library:name="VisionSettingsDialog"/>
 </library:library>

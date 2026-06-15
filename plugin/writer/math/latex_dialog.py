@@ -14,7 +14,7 @@ from com.sun.star.awt import XActionListener
 
 from plugin.framework.uno_context import get_desktop
 from plugin.framework.config import get_config, get_config_str, set_config
-from plugin.chatbot.dialogs import add_dialog_label, add_dialog_edit, add_dialog_button, msgbox
+from plugin.chatbot.dialogs import load_writeragent_dialog, msgbox
 from plugin.framework.i18n import _
 from plugin.doc.document_helpers import is_writer
 from plugin.writer.math.math_mml_convert import convert_latex_to_starmath, insert_writer_math_formula
@@ -23,59 +23,28 @@ from plugin.scripting.editor_host import launch_monaco_editor, monaco_editor_ava
 log = logging.getLogger("writeragent.writer")
 
 
-def add_dialog_checkbox(dlg_model: Any, name: str, label: str, x: int, y: int, width: int, height: int, checked: bool = False) -> Any:
-    """Add a checkbox control to a dialog model."""
-    cb = dlg_model.createInstance("com.sun.star.awt.UnoControlCheckBoxModel")
-    cb.Name = name
-    cb.PositionX = x
-    cb.PositionY = y
-    cb.Width = width
-    cb.Height = height
-    cb.Label = _(label)
-    cb.State = 1 if checked else 0
-    dlg_model.insertByName(name, cb)
-    return cb
-
-
 def show_latex_input_dialog(ctx: Any, initial_text: str = "", initial_display: bool = False) -> tuple[str, bool] | None:
     """Show a modal multiline dialog for entering LaTeX code and checkbox choice.
 
     Returns tuple (latex_string, display_block) if Insert/OK is clicked, else None.
     """
     try:
-        desktop = get_desktop(ctx)
-        frame = desktop.getCurrentFrame()
-        if frame is None:
-            return None
-        parent_window = frame.getContainerWindow()
-        if parent_window is None:
+        dlg = load_writeragent_dialog("LatexInputDialog", ctx)
+        if dlg is None:
             return None
 
-        smgr = ctx.getServiceManager()
-        dlg_model = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialogModel", ctx)
-        dlg_model.Title = _("Insert LaTeX Math")
-        dlg_model.Width = 350
-        dlg_model.Height = 180
+        # Populate initial values
+        edit = dlg.getControl("LatexEdit")
+        if edit is not None:
+            edit.setText(initial_text)
+            # Use a monospaced font
+            fd = cast("Any", uno.createUnoStruct("com.sun.star.awt.FontDescriptor"))
+            fd.Name = "Courier New"
+            edit.getModel().FontDescriptor = fd
 
-        add_dialog_label(dlg_model, "InstructionLbl", _("Enter LaTeX math code to convert and insert as formula:"), 8, 8, 334, 12, multiline=False)
-        edit = add_dialog_edit(dlg_model, "LatexEdit", initial_text, 8, 24, 334, 100)
-        edit.MultiLine = True
-        edit.VScroll = True
-        # Use a monospaced font
-        fd = cast("Any", uno.createUnoStruct("com.sun.star.awt.FontDescriptor"))
-        fd.Name = "Courier New"
-        edit.FontDescriptor = fd
-
-        # Add the checkbox: "Insert as display block (centered paragraph)"
-        add_dialog_checkbox(dlg_model, "DisplayBlockCheck", _("Insert as display block (centered paragraph)"), 8, 130, 334, 14, checked=initial_display)
-
-        add_dialog_button(dlg_model, "BtnInsert", _("Insert"), 220, 154, 60, 14)
-        add_dialog_button(dlg_model, "BtnCancel", _("Cancel"), 286, 154, 56, 14)
-
-        dlg = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialog", ctx)
-        dlg.setModel(dlg_model)
-        toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
-        dlg.createPeer(toolkit, parent_window)
+        cbc = dlg.getControl("DisplayBlockCheck")
+        if cbc is not None:
+            cbc.getModel().State = 1 if initial_display else 0
 
         _outcome: list[tuple[str, bool] | None] | None = None
 
@@ -89,8 +58,8 @@ def show_latex_input_dialog(ctx: Any, initial_text: str = "", initial_display: b
                     t = ""
 
                 try:
-                    cbc = dlg.getControl("DisplayBlockCheck")
-                    db = (cbc.getModel().State == 1)
+                    cb = dlg.getControl("DisplayBlockCheck")
+                    db = (cb.getModel().State == 1)
                 except Exception:
                     db = False
 
@@ -109,11 +78,16 @@ def show_latex_input_dialog(ctx: Any, initial_text: str = "", initial_display: b
             def disposing(self, Source):
                 pass
 
-        dlg.getControl("BtnInsert").addActionListener(_InsertListener())
-        dlg.getControl("BtnCancel").addActionListener(_CancelListener())
+        btn_insert = dlg.getControl("BtnInsert")
+        if btn_insert is not None:
+            btn_insert.addActionListener(_InsertListener())
+        btn_cancel = dlg.getControl("BtnCancel")
+        if btn_cancel is not None:
+            btn_cancel.addActionListener(_CancelListener())
 
         # Set focus to the edit control
-        dlg.getControl("LatexEdit").setFocus()
+        if edit is not None:
+            edit.setFocus()
 
         dlg.execute()
         dlg.dispose()

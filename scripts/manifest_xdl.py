@@ -642,9 +642,9 @@ def generate_list_detail_xdl(module_name, field_name, schema):
 # ── Standalone modeless config dialogs (SettingsDialog alternative) ───
 
 _STANDALONE_MARGIN = 8
-_STANDALONE_LABEL_WIDTH = 140
-_STANDALONE_FIELD_X = 155
-_STANDALONE_FIELD_WIDTH = 270
+_STANDALONE_LABEL_WIDTH = 120
+_STANDALONE_FIELD_X = 130
+_STANDALONE_FIELD_WIDTH = 200
 _STANDALONE_ROW_HEIGHT = 14
 _STANDALONE_ROW_GAP = 4
 _STANDALONE_HELPER_HEIGHT = 10
@@ -838,14 +838,18 @@ def generate_standalone_config_dialog(module):
 
     footer_y = height - _STANDALONE_FOOTER_MARGIN
     buttons = cfg_dialog.get("buttons") or ["apply", "ok", "close"]
-    btn_specs = [
-        ("apply", "btn_apply", "Apply", footer_y, _STANDALONE_MARGIN + 200),
-        ("ok", "btn_ok", "OK", footer_y, _STANDALONE_MARGIN + 280),
-        ("close", "btn_close", "Close", footer_y, _STANDALONE_MARGIN + 360),
-    ]
+    
+    btn_w = 70
+    btn_gap = 10
+    visible_keys = [k for k in ["apply", "ok", "close"] if k in buttons]
+    btn_specs = []
+    for idx, key in enumerate(visible_keys):
+        label = "Apply" if key == "apply" else ("OK" if key == "ok" else "Close")
+        btn_id = f"btn_{key}"
+        left = width - _STANDALONE_MARGIN - (len(visible_keys) - idx) * btn_w - (len(visible_keys) - 1 - idx) * btn_gap
+        btn_specs.append((key, btn_id, label, footer_y, left))
+
     for key, btn_id, label, top, left in btn_specs:
-        if key not in buttons:
-            continue
         btn_attrs = {
             _dlg("id"): btn_id,
             _dlg("left"): str(left),
@@ -896,6 +900,16 @@ def update_dialog_xlb(library_dir, dialog_names, tpl_path=None):
         "EditInputDialog",
         "ChatPanelDialog",
         "EvalDialog",
+        "LatexInputDialog",
+        "SearchDialog",
+        "SpreadsheetImportDialog",
+        "PythonScriptDialog",
+        "ServerStatusDialog",
+        "WebSearchQueryEditDialog",
+        "ShortTextInputDialog",
+        "MsgBoxWithCopyDialog",
+        "StatusUpdateDialog",
+        "PythonTestProgressDialog",
     ]
     if os.path.isfile(tpl_path):
         with open(tpl_path, encoding="utf-8") as f:

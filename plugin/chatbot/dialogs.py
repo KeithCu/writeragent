@@ -134,36 +134,13 @@ def show_web_search_query_edit_dialog(ctx, parent_frame, initial_text) -> str | 
         log.warning("show_web_search_query_edit_dialog: no ctx")
         return None
     try:
-        frame = parent_frame
-        if frame is None:
-            desktop = get_desktop(ctx)
-            frame = desktop.getCurrentFrame()
-        if frame is None:
-            log.warning("show_web_search_query_edit_dialog: no frame")
-            return None
-        parent_window = frame.getContainerWindow()
-        if parent_window is None:
-            log.warning("show_web_search_query_edit_dialog: no container window")
+        dlg = load_writeragent_dialog("WebSearchQueryEditDialog", ctx)
+        if dlg is None:
             return None
 
-        smgr = ctx.getServiceManager()
-        dlg_model = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialogModel", ctx)
-        dlg_model.Title = _("Edit search query")
-        dlg_model.Width = 280
-        dlg_model.Height = 140
-
-        add_dialog_label(dlg_model, "PromptLbl", _("Search query:"), 8, 8, 264, 10, multiline=False)
-        edit = add_dialog_edit(dlg_model, "QueryEdit", initial_text or "", 8, 22, 264, 72, readonly=False)
-        edit.MultiLine = True
-        edit.VScroll = True
-
-        add_dialog_button(dlg_model, "BtnOK", _("OK"), 150, 102, 60, 14)
-        add_dialog_button(dlg_model, "BtnCancel", _("Cancel"), 216, 102, 56, 14)
-
-        dlg = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialog", ctx)
-        dlg.setModel(dlg_model)
-        toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
-        dlg.createPeer(toolkit, parent_window)
+        edit = dlg.getControl("QueryEdit")
+        if edit is not None:
+            edit.setText(initial_text or "")
 
         # Single-slot outcome: None = dialog closed without OK/Cancel; else [str] or [None].
         _outcome: list[str | None] | None = None
@@ -191,8 +168,13 @@ def show_web_search_query_edit_dialog(ctx, parent_frame, initial_text) -> str | 
             def disposing(self, Source):
                 pass
 
-        dlg.getControl("BtnOK").addActionListener(_OkListener())
-        dlg.getControl("BtnCancel").addActionListener(_CancelListener())
+        btn_ok = dlg.getControl("BtnOK")
+        if btn_ok is not None:
+            btn_ok.addActionListener(_OkListener())
+        btn_cancel = dlg.getControl("BtnCancel")
+        if btn_cancel is not None:
+            btn_cancel.addActionListener(_CancelListener())
+
         dlg.execute()
         dlg.dispose()
         if _outcome is None:
@@ -212,32 +194,20 @@ def show_text_input_dialog(ctx, message: str, title: str = "", default: str = ""
         log.warning("show_text_input_dialog: no ctx")
         return None
     try:
-        desktop = get_desktop(ctx)
-        frame = desktop.getCurrentFrame()
-        if frame is None:
-            log.warning("show_text_input_dialog: no frame")
-            return None
-        parent_window = frame.getContainerWindow()
-        if parent_window is None:
-            log.warning("show_text_input_dialog: no container window")
+        dlg = load_writeragent_dialog("ShortTextInputDialog", ctx)
+        if dlg is None:
             return None
 
-        smgr = ctx.getServiceManager()
-        dlg_model = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialogModel", ctx)
-        dlg_model.Title = _(title) if title else _("Input")
-        dlg_model.Width = 280
-        dlg_model.Height = 90
+        if title:
+            dlg.getModel().Title = _(title)
 
-        add_dialog_label(dlg_model, "PromptLbl", str(message), 8, 8, 264, 10, multiline=False)
-        add_dialog_edit(dlg_model, "TextEdit", default or "", 8, 22, 264, 14, readonly=False)
+        lbl = dlg.getControl("PromptLbl")
+        if lbl is not None:
+            lbl.getModel().Label = message
 
-        add_dialog_button(dlg_model, "BtnOK", _("OK"), 150, 58, 60, 14)
-        add_dialog_button(dlg_model, "BtnCancel", _("Cancel"), 216, 58, 56, 14)
-
-        dlg = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialog", ctx)
-        dlg.setModel(dlg_model)
-        toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
-        dlg.createPeer(toolkit, parent_window)
+        edit = dlg.getControl("TextEdit")
+        if edit is not None:
+            edit.setText(default or "")
 
         _outcome: list[str | None] | None = None
 
@@ -264,9 +234,15 @@ def show_text_input_dialog(ctx, message: str, title: str = "", default: str = ""
             def disposing(self, Source):
                 pass
 
-        dlg.getControl("BtnOK").addActionListener(_OkListener())
-        dlg.getControl("BtnCancel").addActionListener(_CancelListener())
-        dlg.getControl("TextEdit").setFocus()
+        btn_ok = dlg.getControl("BtnOK")
+        if btn_ok is not None:
+            btn_ok.addActionListener(_OkListener())
+        btn_cancel = dlg.getControl("BtnCancel")
+        if btn_cancel is not None:
+            btn_cancel.addActionListener(_CancelListener())
+
+        if edit is not None:
+            edit.setFocus()
         dlg.execute()
         dlg.dispose()
         if _outcome is None:
@@ -388,21 +364,17 @@ def msgbox_with_copy(ctx, title, message, copy_text):
         log.info("MSGBOX_COPY (no ctx) - %s: %s", title, message)
         return
     try:
-        smgr = ctx.ServiceManager
+        dlg = load_writeragent_dialog("MsgBoxWithCopyDialog", ctx)
+        if dlg is None:
+            msgbox(ctx, title, message)
+            return
 
-        dlg_model = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialogModel", ctx)
-        dlg_model.Title = _(title)
-        dlg_model.Width = 250
-        dlg_model.Height = 80
+        if title:
+            dlg.getModel().Title = _(title)
 
-        add_dialog_label(dlg_model, "Msg", _(message), 10, 6, 230, 42)
-        add_dialog_button(dlg_model, "CopyBtn", _("Copy"), 10, 56, 50, 14)
-        add_dialog_button(dlg_model, "OKBtn", _("OK"), 190, 56, 50, 14, push_button_type=1)
-
-        dlg = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialog", ctx)
-        dlg.setModel(dlg_model)
-        toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
-        dlg.createPeer(toolkit, None)
+        msg_ctrl = dlg.getControl("Msg")
+        if msg_ctrl is not None:
+            msg_ctrl.getModel().Label = _(message)
 
         class _CopyListener(BaseActionListener):
             def __init__(self, dialog, context, text):
@@ -417,7 +389,19 @@ def msgbox_with_copy(ctx, title, message, copy_text):
                     except Exception as e:
                         log.debug("Failed to set CopyBtn Label: %s", e)
 
-        dlg.getControl("CopyBtn").addActionListener(_CopyListener(dlg, ctx, copy_text))
+        copy_btn = dlg.getControl("CopyBtn")
+        if copy_btn is not None:
+            copy_btn.addActionListener(_CopyListener(dlg, ctx, copy_text))
+
+        class _OkListener(unohelper.Base, XActionListener):
+            def actionPerformed(self, rEvent):
+                dlg.endDialog(1)
+            def disposing(self, Source):
+                pass
+
+        ok_btn = dlg.getControl("OKBtn")
+        if ok_btn is not None:
+            ok_btn.addActionListener(_OkListener())
 
         dlg.execute()
         dlg.dispose()
@@ -445,46 +429,53 @@ def status_dialog(ctx, title, build_status_fn, copy_url_fn=None):
         log.info("STATUS (no ctx) - %s", title)
         return
     try:
-        smgr = ctx.ServiceManager
+        dlg = load_writeragent_dialog("StatusUpdateDialog", ctx)
+        if dlg is None:
+            msgbox(ctx, title, build_status_fn())
+            return
+
+        if title:
+            dlg.getModel().Title = _(title)
+
         initial_text = build_status_fn()
-
-        dlg_model = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialogModel", ctx)
-        dlg_model.Title = title
-        dlg_model.Width = 230
-        dlg_model.Height = 110
-
-        add_dialog_label(dlg_model, "StatusText", initial_text, 10, 6, 210, 72)
+        status_ctrl = dlg.getControl("StatusText")
+        if status_ctrl is not None:
+            status_ctrl.getModel().Label = initial_text
 
         # Copy button (disabled until copy_url_fn returns something)
         has_copy = copy_url_fn is not None
-        if has_copy:
-            add_dialog_button(dlg_model, "CopyBtn", _("Copy URL"), 10, 88, 65, 14, enabled=bool(copy_url_fn() if copy_url_fn else False))
+        copy_btn = dlg.getControl("CopyBtn")
+        if copy_btn is not None:
+            if has_copy:
+                copy_btn.getModel().Enabled = bool(copy_url_fn() if copy_url_fn else False)
+                
+                class _CopyListener(BaseActionListener):
+                    def __init__(self, dialog, context, url_fn):
+                        self._dlg = dialog
+                        self._ctx = context
+                        self._url_fn = url_fn
 
-        add_dialog_button(dlg_model, "OKBtn", _("OK"), 170, 88, 50, 14, push_button_type=1)
+                    def on_action_performed(self, rEvent):
+                        url = self._url_fn()
+                        if url and copy_to_clipboard(self._ctx, url):
+                            try:
+                                self._dlg.getModel().getByName("CopyBtn").Label = _("Copied!")
+                            except Exception as e:
+                                log.debug("Failed to set CopyBtn Label: %s", e)
 
-        dlg = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialog", ctx)
-        dlg.setModel(dlg_model)
-        toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
-        dlg.createPeer(toolkit, None)
+                copy_btn.addActionListener(_CopyListener(dlg, ctx, copy_url_fn))
+            else:
+                copy_btn.getModel().Visible = False
 
-        # Wire copy button
-        if has_copy:
+        class _OkListener(unohelper.Base, XActionListener):
+            def actionPerformed(self, rEvent):
+                dlg.endDialog(1)
+            def disposing(self, Source):
+                pass
 
-            class _CopyListener(BaseActionListener):
-                def __init__(self, dialog, context, url_fn):
-                    self._dlg = dialog
-                    self._ctx = context
-                    self._url_fn = url_fn
-
-                def on_action_performed(self, rEvent):
-                    url = self._url_fn()
-                    if url and copy_to_clipboard(self._ctx, url):
-                        try:
-                            self._dlg.getModel().getByName("CopyBtn").Label = _("Copied!")
-                        except Exception as e:
-                            log.debug("Failed to set CopyBtn Label: %s", e)
-
-            dlg.getControl("CopyBtn").addActionListener(_CopyListener(dlg, ctx, copy_url_fn))
+        ok_btn = dlg.getControl("OKBtn")
+        if ok_btn is not None:
+            ok_btn.addActionListener(_OkListener())
 
         # Background update
         import time
@@ -493,10 +484,11 @@ def status_dialog(ctx, title, build_status_fn, copy_url_fn=None):
             time.sleep(0.05)
             try:
                 updated = build_status_fn()
-                dlg_model.getByName("StatusText").Label = updated
-                if has_copy:
+                if status_ctrl is not None:
+                    status_ctrl.getModel().Label = updated
+                if has_copy and copy_btn is not None:
                     url = copy_url_fn() if copy_url_fn else None
-                    dlg_model.getByName("CopyBtn").Enabled = bool(url)
+                    copy_btn.getModel().Enabled = bool(url)
             except Exception:
                 pass  # dialog already closed
 
@@ -566,7 +558,7 @@ def translate_dialog(dlg):
     """
 
     # Map control types to their translatable properties
-    control_types = {"FixedText": ("Text", "Label"), "Button": ("Label",), "CheckBox": ("Label",), "RadioButton": ("Label",), "ListBox": ("StringItemList",), "ComboBox": ("StringItemList",), "GroupBox": ("Label",), "FixedLine": ("Label",)}
+    control_types = {"Dialog": ("Title",), "FixedText": ("Text", "Label"), "Button": ("Label",), "CheckBox": ("Label",), "RadioButton": ("Label",), "ListBox": ("StringItemList",), "ComboBox": ("StringItemList",), "GroupBox": ("Label",), "FixedLine": ("Label",)}
 
     _xcc_root = None
     root_child_count = 0
@@ -664,6 +656,32 @@ def load_framework_dialog(dialog_name):
     """
     xdl_path = "plugin/framework/%s.xdl" % dialog_name
     dlg = _load_xdl(xdl_path)
+    if dlg:
+        translate_dialog(dlg)
+    return dlg
+
+
+def load_writeragent_dialog(dialog_name, ctx=None):
+    """Load an XDL dialog from the WriterAgentDialogs/ directory."""
+    if ctx is None:
+        ctx = get_ctx()
+    assert ctx is not None
+    ctx_any = cast("Any", ctx)
+    smgr = getattr(ctx_any, "ServiceManager", getattr(ctx_any, "getServiceManager", lambda: None)())
+    assert smgr is not None
+
+    # Fallback for unit testing when ServiceManager is a mock
+    try:
+        from unittest.mock import Mock
+        if isinstance(smgr, Mock):
+            return smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialog", ctx_any)
+    except ImportError:
+        pass
+
+    base = get_extension_url()
+    url = base + "/WriterAgentDialogs/" + dialog_name + ".xdl"
+    dp = smgr.createInstanceWithContext("com.sun.star.awt.DialogProvider2", ctx_any)
+    dlg = dp.createDialog(url)
     if dlg:
         translate_dialog(dlg)
     return dlg

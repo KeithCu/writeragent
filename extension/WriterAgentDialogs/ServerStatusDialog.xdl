@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE dlg:window PUBLIC "-//OpenOffice.org//DTD OfficeDocument 1.0//EN" "dialog.dtd">
+<dlg:window xmlns:dlg="http://openoffice.org/2000/dialog" xmlns:script="http://openoffice.org/2000/script"
+  dlg:id="ServerStatusDialog" dlg:left="100" dlg:top="50" dlg:width="230" dlg:height="80"
+  dlg:closeable="true" dlg:moveable="true" dlg:title="Server Status">
+ <dlg:bulletinboard>
+  <dlg:text dlg:id="Msg" dlg:left="10" dlg:top="6" dlg:width="210" dlg:height="24" dlg:value="MCP server running" dlg:align="left" dlg:multiline="true"/>
+  <dlg:textfield dlg:id="UrlField" dlg:left="10" dlg:top="34" dlg:width="210" dlg:height="14" dlg:tabstop="true" dlg:readonly="true"/>
+  <dlg:button dlg:id="OKBtn" dlg:left="170" dlg:top="58" dlg:width="50" dlg:height="14" dlg:value="OK" dlg:tabstop="true"/>
+ </dlg:bulletinboard>
+</dlg:window>

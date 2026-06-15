@@ -8,8 +8,8 @@ config_dialog:
   id: VisionSettingsDialog
   library: WriterAgentDialogs
   title: Vision / OCR Settings
-  width: 440
-  height: 240
+  width: 350
+  height: 170
   moveable: true
   resizeable: true
   modeless: true

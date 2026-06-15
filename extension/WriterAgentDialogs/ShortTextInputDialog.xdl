@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE dlg:window PUBLIC "-//OpenOffice.org//DTD OfficeDocument 1.0//EN" "dialog.dtd">
+<dlg:window xmlns:dlg="http://openoffice.org/2000/dialog" xmlns:script="http://openoffice.org/2000/script"
+  dlg:id="ShortTextInputDialog" dlg:left="100" dlg:top="50" dlg:width="280" dlg:height="90"
+  dlg:closeable="true" dlg:moveable="true" dlg:title="Input">
+ <dlg:bulletinboard>
+  <dlg:text dlg:id="PromptLbl" dlg:left="8" dlg:top="8" dlg:width="264" dlg:height="10" dlg:value="Input:" dlg:align="left" dlg:multiline="false"/>
+  <dlg:textfield dlg:id="TextEdit" dlg:left="8" dlg:top="22" dlg:width="264" dlg:height="14" dlg:tabstop="true"/>
+  <dlg:button dlg:id="BtnOK" dlg:left="150" dlg:top="58" dlg:width="60" dlg:height="14" dlg:value="OK" dlg:tabstop="true"/>
+  <dlg:button dlg:id="BtnCancel" dlg:left="216" dlg:top="58" dlg:width="56" dlg:height="14" dlg:value="Cancel" dlg:tabstop="true"/>
+ </dlg:bulletinboard>
+</dlg:window>

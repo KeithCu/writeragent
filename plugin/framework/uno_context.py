@@ -106,10 +106,14 @@ def get_package_info(ctx=None):
 
 def get_extension_url(ctx=None, extension_id="org.extension.writeragent"):
     """Return the base URL of the extension package."""
-    pip = get_package_info(ctx)
-    if not pip:
-        return ""
-    return pip.getPackageLocation(extension_id)
+    try:
+        pip = get_package_info(ctx)
+        if not pip:
+            return ""
+        return pip.getPackageLocation(extension_id)
+    except Exception as e:
+        log.debug("get_extension_url failed: %s", e)
+        return "vnd.sun.star.extension://" + extension_id
 
 
 def get_extension_path(ctx=None, extension_id="org.extension.writeragent"):

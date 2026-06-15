@@ -14,7 +14,7 @@ from typing import Any
 import unohelper
 from com.sun.star.awt import XActionListener, XTopWindowListener
 
-from plugin.chatbot.dialogs import add_dialog_button, add_dialog_edit, add_dialog_label, msgbox
+from plugin.chatbot.dialogs import load_writeragent_dialog, msgbox
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_active_document, get_desktop
 from plugin.framework.uno_listeners import BaseKeyListener
@@ -64,51 +64,11 @@ class SearchDialog:
     def _open(self) -> None:
         ctx = self._ctx
         try:
-            desktop = get_desktop(ctx)
-            frame = desktop.getCurrentFrame()
-            if frame is None:
-                self.close()
-                return
-            parent_window = frame.getContainerWindow()
-            if parent_window is None:
+            dlg = load_writeragent_dialog("SearchDialog", ctx)
+            if dlg is None:
                 self.close()
                 return
 
-            smgr = ctx.getServiceManager()
-            dlg_model = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialogModel", ctx)
-            dlg_model.Title = _("Search Nearby Files")
-            dlg_model.Width = 350
-            dlg_model.Height = 270
-            dlg_model.Moveable = True
-            dlg_model.Closeable = True
-
-            # Layout:
-            # Query Input Label & Edit Field
-            add_dialog_label(dlg_model, "QueryLbl", _("Search Query:"), 8, 8, 80, 10, multiline=False)
-            add_dialog_edit(dlg_model, "QueryEdit", "", 8, 20, 334, 14)
-
-            # Responses Input Label & Edit Field
-            add_dialog_label(dlg_model, "RespLbl", _("Number of Responses:"), 8, 38, 100, 10, multiline=False)
-            add_dialog_edit(dlg_model, "RespEdit", "7", 112, 36, 30, 14)
-
-            # Cache Info Display
-            add_dialog_label(dlg_model, "CacheStatusLbl", _("Cache Status: Checking..."), 8, 56, 334, 10, multiline=False)
-
-            # Action Buttons
-            add_dialog_button(dlg_model, "BtnSearch", _("Search"), 8, 72, 50, 14)
-            add_dialog_button(dlg_model, "BtnRebuild", _("Rebuild"), 64, 72, 50, 14)
-            add_dialog_button(dlg_model, "BtnCancel", _("Close"), 120, 72, 50, 14)
-
-            # Results Display Label & Multiline Edit Control
-            add_dialog_label(dlg_model, "ResultsLbl", _("Results:"), 8, 92, 50, 10, multiline=False)
-            results_edit = add_dialog_edit(dlg_model, "ResultsEdit", "", 8, 104, 334, 158, readonly=True)
-            results_edit.MultiLine = True
-            results_edit.VScroll = True
-
-            dlg = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialog", ctx)
-            dlg.setModel(dlg_model)
-            toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
-            dlg.createPeer(toolkit, parent_window)
             self._dlg = dlg
 
             self._wire_listeners(dlg)

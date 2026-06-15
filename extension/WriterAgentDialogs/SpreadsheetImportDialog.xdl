@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE dlg:window PUBLIC "-//OpenOffice.org//DTD OfficeDocument 1.0//EN" "dialog.dtd">
+<dlg:window xmlns:dlg="http://openoffice.org/2000/dialog" xmlns:script="http://openoffice.org/2000/script"
+  dlg:id="SpreadsheetImportDialog" dlg:left="100" dlg:top="50" dlg:width="260" dlg:height="180"
+  dlg:closeable="true" dlg:moveable="true" dlg:title="Convert Sheet to Python">
+ <dlg:bulletinboard>
+  <dlg:text dlg:id="ScopeLbl" dlg:left="10" dlg:top="10" dlg:width="240" dlg:height="10" dlg:value="Scope" dlg:align="left" dlg:multiline="false"/>
+  <dlg:radiobutton dlg:id="ScopeActive" dlg:left="20" dlg:top="25" dlg:width="100" dlg:height="12" dlg:value="Active Sheet" dlg:group-name="ScopeGroup" dlg:tabstop="true" dlg:checked="true"/>
+  <dlg:radiobutton dlg:id="ScopeSelection" dlg:left="130" dlg:top="25" dlg:width="100" dlg:height="12" dlg:value="Selection" dlg:group-name="ScopeGroup" dlg:tabstop="true"/>
+  <dlg:text dlg:id="ModeLbl" dlg:left="10" dlg:top="45" dlg:width="240" dlg:height="10" dlg:value="Output Mode" dlg:align="left" dlg:multiline="false"/>
+  <dlg:radiobutton dlg:id="ModeNew" dlg:left="20" dlg:top="60" dlg:width="200" dlg:height="12" dlg:value="New Sheet (PythonImport)" dlg:group-name="ModeGroup" dlg:tabstop="true" dlg:checked="true"/>
+  <dlg:radiobutton dlg:id="ModeReplace" dlg:left="20" dlg:top="75" dlg:width="200" dlg:height="12" dlg:value="In-place replacement" dlg:group-name="ModeGroup" dlg:tabstop="true"/>
+  <dlg:text dlg:id="OptLbl" dlg:left="10" dlg:top="95" dlg:width="240" dlg:height="10" dlg:value="Options" dlg:align="left" dlg:multiline="false"/>
+  <dlg:checkbox dlg:id="OptFormats" dlg:left="20" dlg:top="110" dlg:width="200" dlg:height="12" dlg:value="Preserve number formats" dlg:tabstop="true" dlg:checked="true"/>
+  <dlg:checkbox dlg:id="OptVerify" dlg:left="20" dlg:top="125" dlg:width="200" dlg:height="12" dlg:value="Verify recalc (oracle diff)" dlg:tabstop="true" dlg:checked="true"/>
+  <dlg:checkbox dlg:id="OptVector" dlg:left="20" dlg:top="140" dlg:width="200" dlg:height="12" dlg:value="Vectorize columns when safe" dlg:tabstop="true" dlg:checked="true"/>
+  <dlg:button dlg:id="BtnOK" dlg:left="140" dlg:top="160" dlg:width="50" dlg:height="14" dlg:value="OK" dlg:tabstop="true"/>
+  <dlg:button dlg:id="BtnCancel" dlg:left="195" dlg:top="160" dlg:width="55" dlg:height="14" dlg:value="Cancel" dlg:tabstop="true"/>
+ </dlg:bulletinboard>
+</dlg:window>
