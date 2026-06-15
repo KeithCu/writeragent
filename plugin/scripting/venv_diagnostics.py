@@ -16,7 +16,7 @@ import subprocess
 from typing import Any, Callable, Optional, Tuple
 
 from plugin.framework.i18n import _
-from plugin.scripting.config_limits import EMBEDDINGS_PROBE_TIMEOUT_SEC, VISION_PROBE_TIMEOUT_SEC
+from plugin.scripting.config_limits import VECTOR_SEARCH_PROBE_TIMEOUT_SEC, VISION_PROBE_TIMEOUT_SEC
 from plugin.scripting.sandbox import resolve_libreoffice_python, resolve_venv_python, scrub_subprocess_env
 
 log = logging.getLogger(__name__)
@@ -239,12 +239,12 @@ _VISION_PROBE_TIMEOUT_HINT = _(
 )
 _VISION_PROBE_FAILED_HINT = _("Vision probe failed (see writeragent_debug.log).")
 
-# Embeddings stack (docs/embeddings.md): probed outside the AST sandbox because
+# Vector Search stack (docs/embeddings.md): probed outside the AST sandbox because
 # sqlite_vec/langgraph/langchain_* are not whitelisted for LLM-submitted venv scripts.
 from plugin.embeddings.venv.embeddings_index import EMBEDDINGS_VENV_PIP_INSTALL
 
-_EMBEDDINGS_INSTALL_CMD = EMBEDDINGS_VENV_PIP_INSTALL
-_EMBEDDINGS_PACKAGE_KEYS = (
+_VECTOR_SEARCH_INSTALL_CMD = EMBEDDINGS_VENV_PIP_INSTALL
+_VECTOR_SEARCH_PACKAGE_KEYS = (
     "envwrap",
     "sentence_transformers",
     "sqlite_vec",
@@ -257,7 +257,7 @@ _EMBEDDINGS_PACKAGE_KEYS = (
     "xlrd",
     "python_docx",
 )
-_EMBEDDINGS_PROBE_SCRIPT = """
+_VECTOR_SEARCH_PROBE_SCRIPT = """
 import json
 out = {}
 try:
@@ -319,41 +319,41 @@ except Exception:
 print(json.dumps(out))
 """
 
-_EMBEDDINGS_PROBE_TIMEOUT_HINT = _(
-    "Embeddings probe timed out (sentence-transformers import can take 10–30s on first check)."
+_VECTOR_SEARCH_PROBE_TIMEOUT_HINT = _(
+    "Vector Search probe timed out (sentence-transformers import can take 10–30s on first check)."
 )
-_EMBEDDINGS_PROBE_FAILED_HINT = _("Embeddings probe failed (see writeragent_debug.log).")
+_VECTOR_SEARCH_PROBE_FAILED_HINT = _("Vector Search probe failed (see writeragent_debug.log).")
 
 
-def _probe_embeddings_packages(
+def _probe_vector_search_packages(
     python_exe: str,
-    timeout: float = EMBEDDINGS_PROBE_TIMEOUT_SEC,
+    timeout: float = VECTOR_SEARCH_PROBE_TIMEOUT_SEC,
 ) -> Tuple[dict[str, Any], Optional[str]]:
     """Import-check embeddings stack in the real venv interpreter (not the sandboxed warm worker)."""
     try:
         proc = subprocess.run(
-            [python_exe, "-c", _EMBEDDINGS_PROBE_SCRIPT],
+            [python_exe, "-c", _VECTOR_SEARCH_PROBE_SCRIPT],
             capture_output=True,
             text=True,
             timeout=max(1.0, timeout),
             env=scrub_subprocess_env(dict(os.environ)),
         )
     except subprocess.TimeoutExpired:
-        return {}, _EMBEDDINGS_PROBE_TIMEOUT_HINT
+        return {}, _VECTOR_SEARCH_PROBE_TIMEOUT_HINT
     except OSError as exc:
-        log.warning("Embeddings package probe could not run: %s", exc)
-        return {}, _EMBEDDINGS_PROBE_FAILED_HINT
+        log.warning("Vector Search package probe could not run: %s", exc)
+        return {}, _VECTOR_SEARCH_PROBE_FAILED_HINT
     if proc.returncode != 0:
         stderr = (proc.stderr or "").strip()[:200]
-        log.warning("Embeddings package probe exit %s: %s", proc.returncode, stderr)
-        return {}, _EMBEDDINGS_PROBE_FAILED_HINT
+        log.warning("Vector Search package probe exit %s: %s", proc.returncode, stderr)
+        return {}, _VECTOR_SEARCH_PROBE_FAILED_HINT
     try:
         parsed = json.loads((proc.stdout or "").strip() or "{}")
     except json.JSONDecodeError:
-        log.warning("Embeddings package probe returned invalid JSON: %r", (proc.stdout or "")[:200])
-        return {}, _EMBEDDINGS_PROBE_FAILED_HINT
+        log.warning("Vector Search package probe returned invalid JSON: %r", (proc.stdout or "")[:200])
+        return {}, _VECTOR_SEARCH_PROBE_FAILED_HINT
     if not isinstance(parsed, dict):
-        return {}, _EMBEDDINGS_PROBE_FAILED_HINT
+        return {}, _VECTOR_SEARCH_PROBE_FAILED_HINT
     return parsed, None
 
 
@@ -452,7 +452,7 @@ def _self_check_group_specs(data: dict[str, Any]) -> list[tuple[str, tuple[str, 
         (_("Quantitative Finance Libraries"), tuple(data.get("quant", ()))),
         (_("Data Engineering Libraries"), tuple(data.get("data_eng", ()))),
         (_("Vision Libraries"), tuple(data.get("vision", ()))),
-        (_("Embeddings Libraries"), tuple(data.get("embeddings", ()))),
+        (_("Vector Search Libraries"), tuple(data.get("vector_search", ()))),
     ]
 
 
@@ -463,7 +463,7 @@ def _build_probe_display(
     partial_group_keys: tuple[str, ...] | None = None,
     partial_group_title: str | None = None,
     extra_lines_after_header: tuple[str, ...] | None = None,
-    include_embeddings: bool = False,
+    include_vector_search: bool = False,
     include_vision: bool = False,
 ) -> str:
     """Rebuild the Settings → Python Test body in the legacy grouped Present/Missing format."""
@@ -491,23 +491,23 @@ def _build_probe_display(
             vision_failure = data.get("vision_probe_failure")
             if vision_failure:
                 msg_lines.append(f"  {vision_failure}")
-        elif include_embeddings and title == _("Embeddings Libraries"):
+        elif include_vector_search and title == _("Vector Search Libraries"):
             msg_lines.extend(_format_group_lines(title, keys, packages))
-            embeddings_failure = data.get("embeddings_probe_failure")
-            if embeddings_failure:
-                msg_lines.append(f"  {embeddings_failure}")
+            vector_search_failure = data.get("vector_search_probe_failure")
+            if vector_search_failure:
+                msg_lines.append(f"  {vector_search_failure}")
 
     return "\n".join(msg_lines)
 
 
 def _format_self_check_success(data: dict[str, Any]) -> str:
     data = dict(data)
-    data.setdefault("embeddings", list(_EMBEDDINGS_PACKAGE_KEYS))
+    data.setdefault("vector_search", list(_VECTOR_SEARCH_PACKAGE_KEYS))
     data.setdefault("vision", list(_VISION_PACKAGE_KEYS))
     return _build_probe_display(
         data,
         completed_groups=len(_SELF_CHECK_GROUPS),
-        include_embeddings=True,
+        include_vector_search=True,
         include_vision=True,
     )
 
@@ -535,7 +535,7 @@ def run_venv_self_check_with_progress(
         completed_groups: int = 0,
         partial_group_keys: tuple[str, ...] | None = None,
         partial_group_title: str | None = None,
-        include_embeddings: bool = False,
+        include_vector_search: bool = False,
         include_vision: bool = False,
     ) -> None:
         on_display(
@@ -545,7 +545,7 @@ def run_venv_self_check_with_progress(
                 partial_group_keys=partial_group_keys,
                 partial_group_title=partial_group_title,
                 extra_lines_after_header=extra_lines_after_header,
-                include_embeddings=include_embeddings,
+                include_vector_search=include_vector_search,
                 include_vision=include_vision,
             )
         )
@@ -621,21 +621,21 @@ def run_venv_self_check_with_progress(
         data["vision_probe_failure"] = vision_failure
     _refresh(data, completed_groups=len(_SELF_CHECK_GROUPS), include_vision=True)
 
-    _status(_("Embeddings Libraries: loading (first run may take a while)..."))
-    embeddings_probes, embeddings_failure = _probe_embeddings_packages(
+    _status(_("Vector Search Libraries: loading (first run may take a while)..."))
+    vector_search_probes, vector_search_failure = _probe_vector_search_packages(
         python_exe,
-        timeout=float(EMBEDDINGS_PROBE_TIMEOUT_SEC),
+        timeout=float(VECTOR_SEARCH_PROBE_TIMEOUT_SEC),
     )
     packages = data.setdefault("p", {})
-    if isinstance(packages, dict) and embeddings_probes:
-        packages.update(embeddings_probes)
-    data["embeddings"] = list(_EMBEDDINGS_PACKAGE_KEYS)
-    if embeddings_failure:
-        data["embeddings_probe_failure"] = embeddings_failure
+    if isinstance(packages, dict) and vector_search_probes:
+        packages.update(vector_search_probes)
+    data["vector_search"] = list(_VECTOR_SEARCH_PACKAGE_KEYS)
+    if vector_search_failure:
+        data["vector_search_probe_failure"] = vector_search_failure
     _refresh(
         data,
         completed_groups=len(_SELF_CHECK_GROUPS),
-        include_embeddings=True,
+        include_vector_search=True,
         include_vision=True,
     )
 
@@ -643,7 +643,7 @@ def run_venv_self_check_with_progress(
         final_msg = _build_probe_display(
             data,
             completed_groups=len(_SELF_CHECK_GROUPS),
-            include_embeddings=True,
+            include_vector_search=True,
             include_vision=True,
             extra_lines_after_header=extra_lines_after_header,
         )
@@ -685,16 +685,16 @@ def run_venv_self_check(python_exe: str, timeout: float = 10.0) -> Tuple[bool, s
     if vision_failure:
         data["vision_probe_failure"] = vision_failure
 
-    embeddings_probes, embeddings_failure = _probe_embeddings_packages(
+    vector_search_probes, vector_search_failure = _probe_vector_search_packages(
         python_exe,
-        timeout=float(EMBEDDINGS_PROBE_TIMEOUT_SEC),
+        timeout=float(VECTOR_SEARCH_PROBE_TIMEOUT_SEC),
     )
     packages = data.setdefault("p", {})
-    if isinstance(packages, dict) and embeddings_probes:
-        packages.update(embeddings_probes)
-    data["embeddings"] = list(_EMBEDDINGS_PACKAGE_KEYS)
-    if embeddings_failure:
-        data["embeddings_probe_failure"] = embeddings_failure
+    if isinstance(packages, dict) and vector_search_probes:
+        packages.update(vector_search_probes)
+    data["vector_search"] = list(_VECTOR_SEARCH_PACKAGE_KEYS)
+    if vector_search_failure:
+        data["vector_search_probe_failure"] = vector_search_failure
 
     try:
         return True, _format_self_check_success(data)

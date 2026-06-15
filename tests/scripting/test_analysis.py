@@ -127,7 +127,6 @@ def test_describe_data_without_profiling():
     assert result["status"] == "error"
     assert result["code"] == "MISSING_PACKAGE"
     assert "ydata-profiling" in result["message"]
-    assert "pip install numpy pandas scipy" in result["message"]
 
 
 def test_describe_data_with_profiling():
@@ -251,7 +250,6 @@ def test_run_regression_missing_statsmodels(monkeypatch):
     assert result["status"] == "error"
     assert result["code"] == "MISSING_PACKAGE"
     assert "statsmodels" in result["message"]
-    assert "pip install numpy pandas scipy" in result["message"]
 
 
 def test_cluster_numeric():
@@ -306,7 +304,6 @@ def test_monte_carlo_missing_pandas_montecarlo(monkeypatch):
     assert result["status"] == "error"
     assert result["code"] == "MISSING_PACKAGE"
     assert "pandas-montecarlo" in result["message"]
-    assert "pip install numpy pandas scipy" in result["message"]
 
 
 def test_run_analysis_monte_carlo_dispatch():

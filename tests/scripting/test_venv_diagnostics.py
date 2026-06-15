@@ -15,10 +15,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.scripting.config_limits import EMBEDDINGS_PROBE_TIMEOUT_SEC, VISION_PROBE_TIMEOUT_SEC
+from plugin.scripting.config_limits import VECTOR_SEARCH_PROBE_TIMEOUT_SEC, VISION_PROBE_TIMEOUT_SEC
 from plugin.scripting.venv_diagnostics import (
     _format_self_check_success,
-    _probe_embeddings_packages,
+    _probe_vector_search_packages,
     _probe_vision_packages,
     probe_venv_path,
     run_venv_self_check,
@@ -201,7 +201,7 @@ def test_format_self_check_success_vision_install_hint_when_numpy_missing():
     assert "Helpers" not in msg
 
 
-def test_format_self_check_success_with_embeddings_group():
+def test_format_self_check_success_with_vector_search_group():
     from plugin.scripting.venv_diagnostics import _format_self_check_success
 
     data = {
@@ -217,7 +217,7 @@ def test_format_self_check_success_with_embeddings_group():
         "sci": [],
         "eda": [],
         "ui": [],
-        "embeddings": [
+        "vector_search": [
             "envwrap",
             "sentence_transformers",
             "sqlite_vec",
@@ -227,12 +227,12 @@ def test_format_self_check_success_with_embeddings_group():
         ],
     }
     msg = _format_self_check_success(data)
-    assert "Embeddings Libraries" in msg
-    assert "Embeddings Libraries: envwrap, sentence_transformers, sqlite_vec, langchain_core" in msg
+    assert "Vector Search Libraries" in msg
+    assert "Vector Search Libraries: envwrap, sentence_transformers, sqlite_vec, langchain_core" in msg
     assert "Missing: langgraph, langchain_text_splitters" in msg
 
 
-def test_format_self_check_success_embeddings_probe_failure_hint():
+def test_format_self_check_success_vector_search_probe_failure_hint():
     from plugin.scripting.venv_diagnostics import _format_self_check_success
 
     data = {
@@ -241,7 +241,7 @@ def test_format_self_check_success_embeddings_probe_failure_hint():
         "sci": [],
         "eda": [],
         "ui": [],
-        "embeddings": [
+        "vector_search": [
             "envwrap",
             "sentence_transformers",
             "sqlite_vec",
@@ -249,10 +249,10 @@ def test_format_self_check_success_embeddings_probe_failure_hint():
             "langchain_core",
             "langchain_text_splitters",
         ],
-        "embeddings_probe_failure": "Embeddings probe timed out (sentence-transformers import can take 10–30s on first check).",
+        "vector_search_probe_failure": "Vector Search probe timed out (sentence-transformers import can take 10–30s on first check).",
     }
     msg = _format_self_check_success(data)
-    assert "Embeddings probe timed out" in msg
+    assert "Vector Search probe timed out" in msg
     assert "Missing: envwrap" in msg
 
 
@@ -280,17 +280,17 @@ def test_run_venv_self_check_includes_vision():
     with (
         patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
         patch("plugin.scripting.venv_diagnostics._probe_vision_packages", return_value=(vision_probes, None)),
-        patch("plugin.scripting.venv_diagnostics._probe_embeddings_packages", return_value=({}, None)),
+        patch("plugin.scripting.venv_diagnostics._probe_vector_search_packages", return_value=({}, None)),
     ):
         ok, msg = run_venv_self_check("/x/python", timeout=1.0)
     assert ok is True
     assert "Vision Libraries" in msg
-    assert "Embeddings Libraries" in msg
+    assert "Vector Search Libraries" in msg
     assert "pip install" not in msg
     assert "Helpers" not in msg
 
 
-def test_run_venv_self_check_includes_embeddings():
+def test_run_venv_self_check_includes_vector_search():
     mock_mgr = MagicMock()
     mock_mgr.execute.return_value = {
         "status": "ok",
@@ -303,7 +303,7 @@ def test_run_venv_self_check_includes_embeddings():
             "ui": [],
         },
     }
-    embeddings_probes = {
+    vector_search_probes = {
         "envwrap": "present",
         "sentence_transformers": None,
         "sqlite_vec": "present",
@@ -315,14 +315,14 @@ def test_run_venv_self_check_includes_embeddings():
         patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
         patch("plugin.scripting.venv_diagnostics._probe_vision_packages", return_value=({}, None)),
         patch(
-            "plugin.scripting.venv_diagnostics._probe_embeddings_packages",
-            return_value=(embeddings_probes, None),
+            "plugin.scripting.venv_diagnostics._probe_vector_search_packages",
+            return_value=(vector_search_probes, None),
         ),
     ):
         ok, msg = run_venv_self_check("/x/python", timeout=1.0)
     assert ok is True
-    assert "Embeddings Libraries" in msg
-    assert "Embeddings Libraries: envwrap, sqlite_vec" in msg
+    assert "Vector Search Libraries" in msg
+    assert "Vector Search Libraries: envwrap, sqlite_vec" in msg
     assert "Missing: sentence_transformers" in msg
 
 
@@ -335,13 +335,13 @@ def test_run_venv_self_check_uses_vision_probe_timeout():
     with (
         patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
         patch("plugin.scripting.venv_diagnostics._probe_vision_packages", return_value=({}, None)) as mock_vision_probe,
-        patch("plugin.scripting.venv_diagnostics._probe_embeddings_packages", return_value=({}, None)),
+        patch("plugin.scripting.venv_diagnostics._probe_vector_search_packages", return_value=({}, None)),
     ):
         run_venv_self_check("/x/python", timeout=1.0)
     mock_vision_probe.assert_called_once_with("/x/python", timeout=float(VISION_PROBE_TIMEOUT_SEC))
 
 
-def test_run_venv_self_check_uses_embeddings_probe_timeout():
+def test_run_venv_self_check_uses_vector_search_probe_timeout():
     mock_mgr = MagicMock()
     mock_mgr.execute.return_value = {
         "status": "ok",
@@ -350,10 +350,10 @@ def test_run_venv_self_check_uses_embeddings_probe_timeout():
     with (
         patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
         patch("plugin.scripting.venv_diagnostics._probe_vision_packages", return_value=({}, None)),
-        patch("plugin.scripting.venv_diagnostics._probe_embeddings_packages", return_value=({}, None)) as mock_probe,
+        patch("plugin.scripting.venv_diagnostics._probe_vector_search_packages", return_value=({}, None)) as mock_probe,
     ):
         run_venv_self_check("/x/python", timeout=1.0)
-    mock_probe.assert_called_once_with("/x/python", timeout=float(EMBEDDINGS_PROBE_TIMEOUT_SEC))
+    mock_probe.assert_called_once_with("/x/python", timeout=float(VECTOR_SEARCH_PROBE_TIMEOUT_SEC))
 
 
 def test_probe_vision_packages_timeout_reports_failure():
@@ -373,7 +373,7 @@ def test_probe_vision_packages_timeout_reports_failure():
     with (
         patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
         patch("plugin.scripting.venv_diagnostics._probe_vision_packages", return_value=({}, timeout_hint)),
-        patch("plugin.scripting.venv_diagnostics._probe_embeddings_packages", return_value=({}, None)),
+        patch("plugin.scripting.venv_diagnostics._probe_vector_search_packages", return_value=({}, None)),
     ):
         ok, msg = run_venv_self_check("/x/python", timeout=1.0)
     assert ok is True
@@ -382,14 +382,14 @@ def test_probe_vision_packages_timeout_reports_failure():
     assert "Missing: docling" in msg
 
 
-def test_probe_embeddings_packages_subprocess_timeout():
-    from plugin.scripting.venv_diagnostics import _probe_embeddings_packages
+def test_probe_vector_search_packages_subprocess_timeout():
+    from plugin.scripting.venv_diagnostics import _probe_vector_search_packages
 
     with patch(
         "plugin.scripting.venv_diagnostics.subprocess.run",
         side_effect=subprocess.TimeoutExpired(cmd=["python"], timeout=30),
     ):
-        probes, hint = _probe_embeddings_packages("/x/python", timeout=30.0)
+        probes, hint = _probe_vector_search_packages("/x/python", timeout=30.0)
     assert probes == {}
     assert hint is not None
     assert "timed out" in hint.lower()

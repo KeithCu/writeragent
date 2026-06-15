@@ -23,7 +23,7 @@ def test_run_venv_self_check_with_progress_emits_grouped_present_missing() -> No
         patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
         patch("plugin.scripting.venv_diagnostics._probe_vision_packages", return_value=({"docling": "present"}, None)),
         patch(
-            "plugin.scripting.venv_diagnostics._probe_embeddings_packages",
+            "plugin.scripting.venv_diagnostics._probe_vector_search_packages",
             return_value=({"envwrap": "present", "sqlite_vec": "present"}, None),
         ),
     ):
@@ -43,7 +43,7 @@ def test_run_venv_self_check_with_progress_emits_grouped_present_missing() -> No
     assert any("Scientific Libraries: numpy" in text for text in displays)
     assert any("numpy" in text for text in displays)
     assert any("Vision" in text for text in displays)
-    assert any("Embeddings" in text for text in displays)
+    assert any("Vector Search" in text for text in displays)
     assert any("docling" in text for text in displays)
     assert any("envwrap" in text for text in displays)
     assert not any("... OK" in text for text in displays)
