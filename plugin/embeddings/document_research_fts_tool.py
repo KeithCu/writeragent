@@ -90,6 +90,8 @@ class SearchNearbyFiles(ToolBase):
                 resolve_index_context,
                 zvec_collection_looks_populated,
                 zvec_collection_path,
+                lancedb_collection_looks_populated,
+                lancedb_collection_path,
             )
             from plugin.embeddings.embeddings_indexer import ensure_index_wakeup
             from plugin.framework.client.embedding_client import get_embedding_model
@@ -101,12 +103,15 @@ class SearchNearbyFiles(ToolBase):
                 resolve_err = listing_root or "No folder context"
                 return {"status": "error", "message": resolve_err}
 
-            # Mode-aware empty check for zvec side-by-side store (use raw Path values for index_is_empty)
+            # Mode-aware empty check for zvec/lancedb side-by-side stores
             mode = str(get_config(ctx.ctx, "embeddings.folder_search_mode") or "none").strip().lower()
             looks_empty = False
             if mode == "zvec":
                 zpath = zvec_collection_path(listing_root, create_parent=False)
                 looks_empty = not zvec_collection_looks_populated(zpath)
+            elif mode == "lancedb":
+                lpath = lancedb_collection_path(listing_root, create_parent=False)
+                looks_empty = not lancedb_collection_looks_populated(lpath)
             else:
                 looks_empty = index_is_empty(meta_path, db_path)
 
@@ -132,8 +137,14 @@ class SearchNearbyFiles(ToolBase):
                 allowed_urls = {str(c.get("url") or "") for c in candidates if c.get("url")}
 
             model = get_embedding_model(ctx.ctx)
-            # For zvec, pass zvec collection path in the db_path slot (venv zvec backend interprets it)
-            search_path: str = str(zvec_collection_path(listing_root, create_parent=True)) if mode == "zvec" else str(db_path)
+            # For zvec/lancedb, pass corresponding collection path in the db_path slot
+            search_path: str
+            if mode == "zvec":
+                search_path = str(zvec_collection_path(listing_root, create_parent=True))
+            elif mode == "lancedb":
+                search_path = str(lancedb_collection_path(listing_root, create_parent=True))
+            else:
+                search_path = str(db_path)
             try:
                 result = hybrid_search(
                     ctx.ctx,

@@ -142,6 +142,17 @@ def index_paragraphs(
             build_vectors=build_vectors,
         )
 
+    if str(search_mode).strip().lower() == "lancedb":
+        from plugin.embeddings.venv.embeddings_lancedb import lancedb_ingest_rows
+        return lancedb_ingest_rows(
+            db_path,
+            meta_path,
+            model_name,
+            rows,
+            build_fts=build_fts,
+            build_vectors=build_vectors,
+        )
+
     if str(search_mode).strip().lower() == "chroma":
         from plugin.embeddings.venv.embeddings_chroma import chroma_ingest
         return chroma_ingest(
@@ -196,6 +207,11 @@ def delete_paragraphs(
         from plugin.embeddings.venv.embeddings_zvec import zvec_delete_keys
         # db_path here is the zvec collection path in zvec mode
         n = zvec_delete_keys(db_path, keys)
+        return {"deleted": n}
+
+    if str(search_mode).strip().lower() == "lancedb":
+        from plugin.embeddings.venv.embeddings_lancedb import lancedb_delete_keys
+        n = lancedb_delete_keys(db_path, keys)
         return {"deleted": n}
 
     if str(search_mode).strip().lower() == "chroma":
@@ -288,6 +304,18 @@ def knn_search(
             use_mmr=use_mmr,
             rerank_model=rerank_model,
         )
+    elif str(search_mode).strip().lower() == "lancedb":
+        from plugin.embeddings.venv.embeddings_lancedb import lancedb_knn_search
+
+        res = lancedb_knn_search(
+            db_path,
+            query_text,
+            k,
+            model_name=model_name,
+            doc_url_filter=doc_url_filter,
+            use_mmr=use_mmr,
+            rerank_model=rerank_model,
+        )
     elif str(search_mode).strip().lower() == "chroma":
         from plugin.embeddings.venv.embeddings_chroma import chroma_knn_search
 
@@ -345,6 +373,19 @@ def hybrid_search(
         from plugin.embeddings.venv.embeddings_zvec import zvec_hybrid_search
 
         res = zvec_hybrid_search(
+            db_path,
+            query_text,
+            k,
+            model_name=model_name,
+            near_slop=near_slop,
+            doc_url_filter=doc_url_filter,
+            use_mmr=use_mmr,
+            rerank_model=rerank_model,
+        )
+    elif str(search_mode).strip().lower() == "lancedb":
+        from plugin.embeddings.venv.embeddings_lancedb import lancedb_hybrid_search
+
+        res = lancedb_hybrid_search(
             db_path,
             query_text,
             k,
@@ -444,9 +485,12 @@ def collection_stats(
 
     storage = meta.get("storage_backend", "")
     if not storage:
-        # If we were given a dir that exists, guess zvec; else sqlite_vec default in meta write
+        # If we were given a dir that exists, guess zvec/lancedb; else sqlite_vec default in meta write
         if db.exists() and db.is_dir():
-            storage = "zvec"
+            if "lancedb" in db.name.lower():
+                storage = "lancedb"
+            else:
+                storage = "zvec"
         elif (db.parent / "chroma").exists() and (db.parent / "chroma").is_dir():
             storage = "chroma"
         else:

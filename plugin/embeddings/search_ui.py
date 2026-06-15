@@ -176,6 +176,8 @@ class SearchDialog:
                     resolve_index_context,
                     zvec_collection_looks_populated,
                     zvec_collection_path,
+                    lancedb_collection_looks_populated,
+                    lancedb_collection_path,
                 )
                 from plugin.framework.client.embeddings_service import _folder_search_mode
                 doc = get_active_document(ctx)
@@ -186,12 +188,16 @@ class SearchDialog:
                 if folder_key is None or db_path is None or meta_path is None:
                     return _("Cache Status: Folder not resolved")
 
-                # Mode-aware for zvec side-by-side store
+                # Mode-aware for zvec/lancedb side-by-side store
                 mode = _folder_search_mode(ctx)
                 if mode == "zvec":
                     zpath = zvec_collection_path(listing_root, create_parent=False) if listing_root else None
                     if not zpath or not zvec_collection_looks_populated(zpath):
                         return _("Cache Status: Not built (zvec)")
+                elif mode == "lancedb":
+                    lpath = lancedb_collection_path(listing_root, create_parent=False) if listing_root else None
+                    if not lpath or not lancedb_collection_looks_populated(lpath):
+                        return _("Cache Status: Not built (lancedb)")
                 elif index_is_empty(meta_path, db_path):
                     return _("Cache Status: Not built")
 
@@ -270,6 +276,8 @@ class SearchDialog:
                     resolve_index_context,
                     zvec_collection_looks_populated,
                     zvec_collection_path,
+                    lancedb_collection_looks_populated,
+                    lancedb_collection_path,
                 )
                 from plugin.embeddings.embeddings_indexer import ensure_index_wakeup
                 from plugin.framework.client.embedding_client import get_embedding_model
@@ -292,6 +300,17 @@ class SearchDialog:
                         )
                         return
                     search_path = str(zvec_collection_path(listing_root, create_parent=True))
+                elif mode == "lancedb":
+                    lpath = lancedb_collection_path(listing_root, create_parent=False) if listing_root else None
+                    if not lpath or not lancedb_collection_looks_populated(lpath):
+                        ensure_index_wakeup(ctx, None, doc)
+                        self._update_results_ui(
+                            results_ctrl,
+                            btn_search,
+                            _("Folder index is building in the background. Please retry search shortly.")
+                        )
+                        return
+                    search_path = str(lancedb_collection_path(listing_root, create_parent=True))
                 else:
                     if index_is_empty(meta_path, db_path):
                         ensure_index_wakeup(ctx, None, doc)

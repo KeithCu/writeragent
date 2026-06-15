@@ -87,6 +87,26 @@ def zvec_collection_looks_populated(collection_path: Path) -> bool:
         return False
 
 
+def lancedb_collection_path(listing_root: str, *, create_parent: bool = True) -> Path:
+    """Filesystem path for a lancedb collection store for this folder (side-by-side with corpus.db)."""
+    base = folder_cache_dir(listing_root, create_parent=create_parent)
+    p = base / "lancedb"
+    if create_parent:
+        p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def lancedb_collection_looks_populated(collection_path: Path) -> bool:
+    """Host-safe (no lancedb import) heuristic: dir exists and has any entries."""
+    try:
+        p = Path(collection_path)
+        if not p.exists() or not p.is_dir():
+            return False
+        return any(p.iterdir())
+    except Exception:
+        return False
+
+
 def chroma_persist_dir(listing_root: str, *, create_parent: bool = True) -> Path:
     """Deprecated alias — returns corpus.db path (historical Chroma API name)."""
     return corpus_db_path(listing_root, create_parent=create_parent)
@@ -324,8 +344,9 @@ def clear_folder_cache(listing_root: str) -> None:
     remove_stale_corpus_stores(listing_root)
     for name in (CORPUS_META_FILENAME, LEGACY_FILE_INDEX_STATE_FILENAME):
         _remove_path(base / name)
-    # Side-by-side zvec store (directory managed by zvec.create_and_open)
+    # Side-by-side zvec/lancedb store
     _remove_path(base / "zvec")
+    _remove_path(base / "lancedb")
 
 
 def maybe_upgrade_legacy_index(listing_root: str) -> None:

@@ -19,6 +19,8 @@ config:
         label: "Zvec (experimental)"
       - value: chroma
         label: "ChromaDB"
+      - value: lancedb
+        label: "LanceDB (experimental)"
 
   embedding_model:
     type: string

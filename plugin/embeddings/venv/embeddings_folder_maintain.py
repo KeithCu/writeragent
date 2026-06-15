@@ -73,8 +73,8 @@ class _HeartbeatThrottle:
 
 def _build_flags(search_mode: str) -> tuple[bool, bool]:
     mode = str(search_mode or "").strip().lower()
-    build_fts = mode in ("fts", "hybrid", "llama_index", "zvec", "chroma")
-    build_vectors = mode in ("embeddings", "hybrid", "llama_index", "zvec", "chroma")
+    build_fts = mode in ("fts", "hybrid", "llama_index", "zvec", "chroma", "lancedb")
+    build_vectors = mode in ("embeddings", "hybrid", "llama_index", "zvec", "chroma", "lancedb")
     return build_fts, build_vectors
 
 
@@ -417,6 +417,17 @@ def maintain_folder_corpus(
         from plugin.embeddings.venv.embeddings_zvec import maintain_folder_zvec
 
         return maintain_folder_zvec(
+            root,
+            model,
+            mode=mode,
+            heartbeat_fn=heartbeat_fn,
+            hb=hb,
+        )
+
+    if str(search_mode or "").strip().lower() == "lancedb":
+        from plugin.embeddings.venv.embeddings_lancedb import maintain_folder_lancedb
+
+        return maintain_folder_lancedb(
             root,
             model,
             mode=mode,
