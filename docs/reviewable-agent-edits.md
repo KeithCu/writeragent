@@ -15,6 +15,10 @@ Settings live on the **Doc** tab in WriterAgent Settings ([`plugin/doc/module.ya
 | `doc.agent_edit_review_mode` | `off` | **Off** — direct edits. **Record** — tracked changes you accept/reject yourself. **Wait** — same as Record, and `apply_document_content` blocks (on chat/MCP worker thread) until you review. |
 | `doc.edit_review_timeout` | `900` (seconds) | Max time `apply_document_content` blocks when mode is **Wait**. Internal — not shown in Settings; set in `writeragent.json` if you need to change it. |
 
+> [!NOTE]
+> The two original boolean configuration flags (`writer.track_changes_reviewable` and `writer.require_edit_review`) have been consolidated into the single dropdown setting `doc.agent_edit_review_mode`.
+> The timeout setting `doc.edit_review_timeout` is now an internal-only configuration value and is hidden from the Settings UI dialog.
+
 `review_recording_enabled(ctx)` returns true when mode is **record** or **wait**.
 `edit_review_wait_seconds(ctx)` returns the timeout when mode is **wait**, else `0`.
 
@@ -169,25 +173,20 @@ the `format.py` split-author pattern so by-author coloring distinguishes inserti
 
 ### Inline review and menu handlers
 
-* **Document targeting:** accept/reject action handlers in [`main.py`](../plugin/main.py) use
-  `get_desktop().getCurrentComponent()`. AGENTS.md prefers `frame.getController().getModel()` when
-  the sidebar window and "current component" can diverge (multiple Writer windows).
+* **Document targeting:** resolved to use `get_active_document(c)` via `main.py` which is more robust when multiple windows are open.
 * **Foreign redline detection** in [`inline_review.py`](../plugin/writer/inline_review.py) fails
   open on enumeration errors so the common case is never blocked; consider fail-closed if touching
   a user redline via paragraph-wide dispatch becomes a reported bug.
 * **Context menu lifecycle:** [`change_context_menu.py`](../plugin/writer/change_context_menu.py)
-  keeps strong refs to controllers/interceptors without dispose cleanup — one pair may linger per
-  closed view; release on view dispose when that shows up in long sessions.
+  and [`review_click_popup.py`](../plugin/writer/review_click_popup.py) passively clean up strong
+  references to disposed document controllers/interceptors/handlers during new registrations,
+  preventing reference/memory leaks over long sessions.
 * **Click popup:** left-click inside every agent change opens the popup; right-click-only may be
   less noisy if users find it intrusive.
 
 ### Review session behavior
 
-* Restore the user's prior **`ShowChanges`** after `EditReviewSession` / streamed session cleanup,
-  or document permanently forcing markup visible as intentional.
-* When review mode is on but an edit produces **no redlines** (no-op replace, tracking failure),
-  `wait_for_review` can report `complete: true` with an empty `changes` list — the agent may assume
-  success when nothing was reviewable; consider surfacing that explicitly in the tool response.
+* Restore the user's prior **`ShowChanges`** after `EditReviewSession` / streamed session cleanup, or document permanently forcing markup visible as intentional.
 
 ### Tests
 

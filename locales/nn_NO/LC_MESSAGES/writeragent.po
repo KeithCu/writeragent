@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-11 14:33-0400\n"
+"POT-Creation-Date: 2026-06-15 21:36-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Norwegian Nynorsk <LL@li.org>\n"
@@ -292,6 +292,113 @@ msgstr " generert av "
 msgid " with "
 msgstr " med "
 
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: No active document"
+msgstr "Bufra-status: Inget aktivt dokument"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Folder not resolved"
+msgstr "Bufra-status: Mappe ikkje funnen"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Not built (zvec)"
+msgstr "Bufra-status: Ikkje bygd (zvec)"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Not built (lancedb)"
+msgstr "Bufra-status: Ikkje bygd (lancedb)"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Not built"
+msgstr "Bufra-status: Ikkje bygd"
+
+#: plugin/embeddings/search_ui.py
+msgid "just now"
+msgstr "akkurat no"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "{0}m ago"
+msgstr "for {0} minutt sidan"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "{0}h ago"
+msgstr "for {0} timar sidan"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "Cache Status: Built ({0})"
+msgstr "Bufra-status: Bygd ({0})"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Built"
+msgstr "Bufra-status: Bygd"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "Cache Status: Error ({0})"
+msgstr "Bufra status: Feil ({0})"
+
+#: plugin/embeddings/search_ui.py plugin/xdl_strings.py
+msgid "Search"
+msgstr "Søk"
+
+#: plugin/embeddings/search_ui.py
+msgid "Please enter a search query."
+msgstr "Ver venleg og skriv inn eit søk."
+
+#: plugin/embeddings/search_ui.py
+msgid "Searching..."
+msgstr "Søkjer..."
+
+#: plugin/embeddings/search_ui.py
+msgid "No active document found."
+msgstr "Fann ikkje noko aktivt dokument."
+
+#: plugin/embeddings/search_ui.py
+msgid ""
+"Cross-file search is disabled. Enable Embeddings + FTS in Settings → "
+"Embeddings."
+msgstr ""
+"Søk på tvers av filer er deaktivert. Aktiver «Embeddings + FTS» under "
+"Innstillingar → Embeddings."
+
+#: plugin/embeddings/search_ui.py
+msgid "Error: "
+msgstr "Feil: "
+
+#: plugin/embeddings/search_ui.py
+msgid ""
+"Folder index is building in the background. Please retry search shortly."
+msgstr ""
+"Mappeindeksen vert bygd i bakgrunnen. Ver venleg og prøv søket på nytt om ei"
+" lita stund."
+
+#: plugin/embeddings/search_ui.py
+msgid "No matches found."
+msgstr "Ingen treff funne."
+
+#: plugin/embeddings/search_ui.py
+msgid "Error running search: "
+msgstr "Feil ved køyring av søk: "
+
+#: plugin/embeddings/search_ui.py
+msgid "Rebuilding cache..."
+msgstr "Bygger opp att hurtigminne..."
+
+#: plugin/embeddings/search_ui.py
+msgid "No active folder resolved."
+msgstr "Inga aktive mapper funne."
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache rebuild completed successfully."
+msgstr "Oppbygging av hurtigminne fullført."
+
+#: plugin/embeddings/search_ui.py
+msgid "Rebuild failed: "
+msgstr "Oppbygging mislukkast: "
+
 #: plugin/framework/errors.py
 #, python-brace-format
 msgid "TLS/SSL Error: {0}"
@@ -439,7 +546,7 @@ msgid "Please enter edit instructions!"
 msgstr "Ver venleg og skriv inn instruksjonar for redigering!"
 
 #: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/chatbot/dialogs.py plugin/xdl_strings.py
+#: plugin/xdl_strings.py
 msgid "Input"
 msgstr "Inndata"
 
@@ -451,7 +558,7 @@ msgstr "WriterAgent: Rediger utval (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Utvid utval (Calc)"
 
-#: plugin/calc/vision_egress.py plugin/scripting/vision_runner.py
+#: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
 msgid "Select an embedded image, then Run again."
 msgstr "Vel eit innebygd bilete, og køyr på nytt."
 
@@ -462,10 +569,6 @@ msgstr "Forankre biletet til ei celle, vel det, og køyr på nytt."
 #: plugin/calc/vision_egress.py
 msgid "No structured tables or text blocks to insert."
 msgstr "Ingen strukturerte tabellar eller tekstblokker å setje inn."
-
-#: plugin/calc/spreadsheet_import/import_dialog.py
-msgid "Convert Sheet to Python"
-msgstr "Konverter ark til Python"
 
 #: plugin/calc/python_editor.py
 msgid ""
@@ -485,8 +588,8 @@ msgstr "Python-celle-redigering"
 msgid "Save as plain text"
 msgstr "Lagre som rein tekst"
 
-#: plugin/calc/python_editor.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py
+#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
 msgid "Save"
 msgstr "Lagre"
 
@@ -531,6 +634,40 @@ msgstr ""
 msgid "unknown error"
 msgstr "ukjend feil"
 
+#: plugin/writer/change_context_menu.py
+msgid "Accept whole change (agent)"
+msgstr "Godta heile endringa (agent)"
+
+#: plugin/writer/change_context_menu.py
+msgid "Reject whole change (agent)"
+msgstr "Avvis heile endringa (agent)"
+
+#: plugin/writer/change_context_menu.py
+msgid "Accept all agent changes"
+msgstr "Godta alle agentendringar"
+
+#: plugin/writer/change_context_menu.py
+msgid "Reject all agent changes"
+msgstr "Avvis alle agentendringar"
+
+#: plugin/writer/review_click_popup.py
+msgid "Accept this change"
+msgstr "Godta denne endringa"
+
+#: plugin/writer/review_click_popup.py
+msgid "Reject this change"
+msgstr "Avvis denne endringa"
+
+#: plugin/writer/review_click_popup.py
+#, python-brace-format
+msgid "Accept all {0} changes"
+msgstr "Godta alle {0} endringar"
+
+#: plugin/writer/review_click_popup.py
+#, python-brace-format
+msgid "Reject all {0} changes"
+msgstr "Avvis alle {0} endringar"
+
 #: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Utvid utval"
@@ -538,27 +675,6 @@ msgstr "WriterAgent: Utvid utval"
 #: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Rediger utval"
-
-#: plugin/writer/math/latex_dialog.py
-msgid "Insert LaTeX Math"
-msgstr "Set inn LaTeX-matematikk"
-
-#: plugin/writer/math/latex_dialog.py
-msgid "Enter LaTeX math code to convert and insert as formula:"
-msgstr ""
-"Skriv inn LaTeX-matematikkode for å konvertere og setje inn som formel:"
-
-#: plugin/writer/math/latex_dialog.py
-msgid "Insert as display block (centered paragraph)"
-msgstr "Set inn som visingsblokk (sentrert avsnitt)"
-
-#: plugin/writer/math/latex_dialog.py
-msgid "Insert"
-msgstr "Set inn"
-
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/dialogs.py
-msgid "Cancel"
-msgstr "Avbryt"
 
 #: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
 #: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
@@ -582,6 +698,19 @@ msgstr "Formel sett inn."
 #: plugin/writer/math/latex_dialog.py
 msgid "LaTeX Math Editor"
 msgstr "LaTeX-formelredigering"
+
+#: plugin/writer/math/latex_dialog.py plugin/xdl_strings.py
+msgid "Insert as display block (centered paragraph)"
+msgstr "Set inn som visingsblokk (sentrert avsnitt)"
+
+#: plugin/writer/math/latex_dialog.py plugin/xdl_strings.py
+msgid "Insert"
+msgstr "Set inn"
+
+#: plugin/writer/math/latex_dialog.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "Lukk"
 
 #: plugin/writer/math/latex_dialog.py
 msgid "LaTeX Conversion Error"
@@ -881,28 +1010,8 @@ msgid "Tool: %s"
 msgstr "Verktøy: %s"
 
 #: plugin/chatbot/dialogs.py
-msgid "Edit search query"
-msgstr "Rediger søkeførespurnad"
-
-#: plugin/chatbot/dialogs.py
-msgid "Search query:"
-msgstr "Søkeførespurnad:"
-
-#: plugin/chatbot/dialogs.py plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "OK"
-msgstr "OK"
-
-#: plugin/chatbot/dialogs.py
-msgid "Copy"
-msgstr "Kopier"
-
-#: plugin/chatbot/dialogs.py
 msgid "Copied!"
 msgstr "Kopiert!"
-
-#: plugin/chatbot/dialogs.py
-msgid "Copy URL"
-msgstr "Kopier URL"
 
 #: plugin/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
@@ -1015,8 +1124,12 @@ msgstr "Dette søket '%s' vil bli sendt til søkemotoren."
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
-msgid "Research cache hit (fuzzy, %s%% match: %s%s → %s)"
-msgstr "Treff i forskingsmellomlager (fuzzy, %s%% samsvar: %s%s → %s)"
+msgid ""
+"Research cache hit (fuzzy, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
+"%(matched)s)"
+msgstr ""
+"Treff i forskingsmellomlager (fuzzy, %(pct)s%% samsvar: "
+"%(lang_bit)s%(cache_key)s → %(matched)s)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1186,18 +1299,9 @@ msgstr "Venv OK"
 msgid "Venv check failed"
 msgstr "Venv-sjekk feila"
 
-#: plugin/chatbot/dialog_views.py
-msgid "Python Test"
-msgstr "Python-test"
-
-#: plugin/chatbot/dialog_views.py
+#: plugin/chatbot/dialog_views.py plugin/xdl_strings.py
 msgid "Testing Python environment..."
 msgstr "Testar Python-miljø..."
-
-#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "Lukk"
 
 #: plugin/chatbot/dialog_views.py
 msgid "Done"
@@ -1210,6 +1314,10 @@ msgstr "Mislykka"
 #: plugin/chatbot/config_ui_helpers.py
 msgid "(Enter API Key to load models)"
 msgstr "(Skriv inn API-nøkkel for å lasta inn modellar)"
+
+#: plugin/chatbot/config_ui_helpers.py
+msgid "(No image models on this endpoint)"
+msgstr "(Ingen bilete-modellar på dette endepunktet)"
 
 #: plugin/chatbot/config_ui_helpers.py
 msgid "(Connection failed)"
@@ -1290,38 +1398,6 @@ msgstr "Mine skript"
 msgid "This Document"
 msgstr "Dette dokumentet"
 
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
-msgid "Run Python Script"
-msgstr "Køyr Python-skript"
-
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "Køyr"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Script:"
-msgstr "Skript:"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Attach"
-msgstr "Legg til"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Save As..."
-msgstr "Lagre som…"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Delete"
-msgstr "Slett"
-
-#: plugin/scripting/python_runner_ui.py
-msgid ""
-"Enter Python code to execute in the user virtual environment.\n"
-"Assign the result to the 'result' variable."
-msgstr ""
-"Skriv inn Python-kode som skal køyrast i brukaren sitt virtuelle miljø.\n"
-"Tilordna resultatet til variabelen 'result'."
-
 #: plugin/scripting/python_runner_ui.py
 #, python-format
 msgid "%s Saved to My Scripts instead."
@@ -1336,10 +1412,6 @@ msgstr "Skriptet «%s» er lagra i dette dokumentet."
 #, python-format
 msgid "Script '%s' saved successfully."
 msgstr "Skriptet «%s» vart lagra."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Sample scratchpad saved successfully."
-msgstr "Eksempel-notatblokk vart lagra."
 
 #: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
 msgid "No document is open to attach scripts."
@@ -1377,18 +1449,6 @@ msgstr "Lagre skript"
 #, python-brace-format
 msgid "Save script '{0}' to this document?"
 msgstr "Vil du lagre skriptet «{0}» i dette dokumentet?"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Are you sure you want to clear the Sample scratchpad?"
-msgstr "Er du sikker på at du vil tømme eksempel-notatfeltet?"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Clear Script"
-msgstr "Tøm skript"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Sample scratchpad cleared."
-msgstr "Eksempel-notatfelt tømt."
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -1492,95 +1552,81 @@ msgstr ""
 msgid "Could not talk to the Python editor."
 msgstr "Kunne ikkje kommunisera med Python-redigeringsprogrammet."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid ""
 "Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "Vision-sonde tidsavbrot (Docling-import kan ta 10–30 sekund ved første "
 "sjekk)."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision probe failed (see writeragent_debug.log)."
 msgstr "Vision-sonde feila (sjå writeragent_debug.log)."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid ""
-"Embeddings probe timed out (sentence-transformers import can take 10–30s on "
-"first check)."
+"Vector Search probe timed out (sentence-transformers import can take 10–30s "
+"on first check)."
 msgstr ""
-"Tidsavbrot for søk etter innebyggingar (import av sentence-transformers kan "
-"ta 10–30 sekund ved første sjekk)."
+"Tidsavbrot for søk etter vektor (import av sentence-transformers kan ta "
+"10–30 sekund ved første køyring)."
 
-#: plugin/scripting/venv_worker.py
-msgid "Embeddings probe failed (see writeragent_debug.log)."
-msgstr "Søk etter innebyggingar feila (sjå writeragent_debug.log)."
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vector Search probe failed (see writeragent_debug.log)."
+msgstr "Søk etter vektor feila (sjå writeragent_debug.log)."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Visualization Libraries"
 msgstr "Visualiseringsbibliotek"
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Computer Algebra"
 msgstr "Datamaskin-algebra"
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Quantitative Finance Libraries"
 msgstr "Bibliotek for kvantitativ finans"
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Data Engineering Libraries"
 msgstr "Datatekniske bibliotek"
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries"
 msgstr "Synsbibliotek"
 
-#: plugin/scripting/venv_worker.py
-msgid "Embeddings Libraries"
-msgstr "Bibliotek for innebyggingar"
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vector Search Libraries"
+msgstr "Bibliotek for vektorsøk"
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
 msgstr "Startar Python-arbeidar..."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Reading Python version..."
 msgstr "Les Python-versjon..."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries: loading (first run may take a while)..."
 msgstr "Vision-bibliotek: lastar inn (første køyring kan ta litt tid)..."
 
-#: plugin/scripting/venv_worker.py
-msgid "Embeddings Libraries: loading (first run may take a while)..."
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vector Search Libraries: loading (first run may take a while)..."
 msgstr ""
-"Bibliotek for innebyggingar: lastar (første køyring kan ta litt tid)..."
+"Bibliotek for vektorsøk: lastar inn (første køyring kan ta litt tid)..."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Using LibreOffice process Python..."
 msgstr "Brukar LibreOffice-prosess Python..."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Resolving venv Python..."
 msgstr "Finn venv Python..."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Using"
 msgstr "Brukar"
-
-#: plugin/scripting/vision_runner.py
-#, python-brace-format
-msgid ""
-"Image '{name}' not found. Use list_images or leave image_name empty and "
-"select the graphic."
-msgstr ""
-"Biletet '{name}' vart ikkje funne. Bruk list_images eller lat image_name stå"
-" tomt og vel grafikken."
-
-#: plugin/scripting/vision_runner.py
-#, python-brace-format
-msgid "Image '{name}' could not be exported."
-msgstr "Biletet '{name}' kunne ikkje eksporterast."
 
 #: plugin/scripting/symbolic.py
 msgid "Symbolic helper failed."
@@ -1856,9 +1902,31 @@ msgstr "Skriptet vart køyrt utan feil. (tok {time})"
 msgid "Script saved."
 msgstr "Skript lagra."
 
+#: plugin/scripting/python_runner.py plugin/xdl_strings.py
+msgid "Run Python Script"
+msgstr "Køyr Python-skript"
+
+#: plugin/scripting/python_runner.py plugin/xdl_strings.py
+msgid "Run"
+msgstr "Køyr"
+
 #: plugin/scripting/python_runner.py
 msgid "Select data range or enter A1 address (injected as data)."
 msgstr "Vel dataområde eller skriv inn A1-adresse (sett inn som data)."
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid ""
+"Image '{name}' not found. Use list_images or leave image_name empty and "
+"select the graphic."
+msgstr ""
+"Biletet '{name}' vart ikkje funne. Bruk list_images eller lat image_name stå"
+" tomt og vel grafikken."
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "Image '{name}' could not be exported."
+msgstr "Biletet '{name}' kunne ikkje eksporterast."
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -1888,7 +1956,7 @@ msgstr "Sjekk writeragent_debug.log i LibreOffice-brukarmappa di"
 msgid "MCP server is not running"
 msgstr "MCP-tenar køyrer ikkje"
 
-#: plugin/mcp/__init__.py
+#: plugin/mcp/__init__.py plugin/xdl_strings.py
 msgid "MCP server running"
 msgstr "MCP-tenar køyrer"
 
@@ -1896,10 +1964,6 @@ msgstr "MCP-tenar køyrer"
 #, python-brace-format
 msgid "Routes: {0}"
 msgstr "Ruter: {0}"
-
-#: plugin/mcp/__init__.py
-msgid "Server Status"
-msgstr "Tenarstatus"
 
 #: plugin/mcp/__init__.py
 #, python-brace-format
@@ -1969,6 +2033,10 @@ msgid "Insert LaTeX Math..."
 msgstr "Set inn LaTeX-matematikk..."
 
 #: plugin/main.py
+msgid "Search Nearby Files..."
+msgstr "Søk i nærliggjande filer..."
+
+#: plugin/main.py
 msgid "Convert Sheet to Python..."
 msgstr "Konverter ark til Python..."
 
@@ -1997,6 +2065,10 @@ msgid "API Key:"
 msgstr "API-nøkkel:"
 
 #: plugin/xdl_strings.py
+msgid "Active Sheet"
+msgstr "Aktivt ark"
+
+#: plugin/xdl_strings.py
 msgid "Additional Instructions (History):"
 msgstr "Tilleggsinstruksar (historikk):"
 
@@ -2015,6 +2087,10 @@ msgstr "Spør / instruer:"
 #: plugin/xdl_strings.py
 msgid "Aspect Ratio:"
 msgstr "Biletformat:"
+
+#: plugin/xdl_strings.py
+msgid "Attach"
+msgstr "Legg til"
 
 #: plugin/xdl_strings.py
 msgid "Audio Model:"
@@ -2037,8 +2113,16 @@ msgid "CFG Scale:"
 msgstr "CFG-skala:"
 
 #: plugin/xdl_strings.py
+msgid "Cache Status: Checking..."
+msgstr "Bufringsstatus: Kontrollerer..."
+
+#: plugin/xdl_strings.py
 msgid "Calc"
 msgstr "Calc"
+
+#: plugin/xdl_strings.py
+msgid "Cancel"
+msgstr "Avbryt"
 
 #: plugin/xdl_strings.py
 msgid "Categories:"
@@ -2057,6 +2141,22 @@ msgid "Clear"
 msgstr "Tøm"
 
 #: plugin/xdl_strings.py
+msgid "Convert Sheet to Python"
+msgstr "Konverter ark til Python"
+
+#: plugin/xdl_strings.py
+msgid "Copy"
+msgstr "Kopier"
+
+#: plugin/xdl_strings.py
+msgid "Copy URL"
+msgstr "Kopier URL"
+
+#: plugin/xdl_strings.py
+msgid "Delete"
+msgstr "Slett"
+
+#: plugin/xdl_strings.py
 msgid "Draw"
 msgstr "Draw"
 
@@ -2065,12 +2165,29 @@ msgid "Edit config file (JSON)…"
 msgstr "Rediger konfigurasjonsfil (JSON)…"
 
 #: plugin/xdl_strings.py
+msgid "Edit search query"
+msgstr "Rediger søkeførespurnad"
+
+#: plugin/xdl_strings.py
 msgid "Endpoint URL (/v1 added):"
 msgstr "Endepunkt-URL (/v1 lagt til):"
 
 #: plugin/xdl_strings.py
 msgid "Endpoint URL:"
 msgstr "Endepunkt-URL:"
+
+#: plugin/xdl_strings.py
+msgid "Enter LaTeX math code to convert and insert as formula:"
+msgstr ""
+"Skriv inn LaTeX-matematikkode for å konvertere og setje inn som formel:"
+
+#: plugin/xdl_strings.py
+msgid ""
+"Enter Python code to execute in the user virtual environment.\n"
+"Assign the result to the 'result' variable."
+msgstr ""
+"Skriv inn Python-kode som skal køyrast i brukaren sitt virtuelle miljø.\n"
+"Tilordna resultatet til variabelen 'result'."
 
 #: plugin/xdl_strings.py
 msgid "General"
@@ -2085,8 +2202,20 @@ msgid "Image Settings"
 msgstr "Biletinnstillingar"
 
 #: plugin/xdl_strings.py
+msgid "In-place replacement"
+msgstr "Erstatning på staden"
+
+#: plugin/xdl_strings.py
+msgid "Input:"
+msgstr "Inndata:"
+
+#: plugin/xdl_strings.py
 msgid "Insert Frame"
 msgstr "Set inn ramme"
+
+#: plugin/xdl_strings.py
+msgid "Insert LaTeX Math"
+msgstr "Set inn LaTeX-matematikk"
 
 #: plugin/xdl_strings.py
 msgid "Max Tokens:"
@@ -2097,6 +2226,10 @@ msgid "Max Wait (s):"
 msgstr "Maks ventetid (s):"
 
 #: plugin/xdl_strings.py
+msgid "Message"
+msgstr "Melding"
+
+#: plugin/xdl_strings.py
 msgid "Models to Test:"
 msgstr "Modellar å testa:"
 
@@ -2105,20 +2238,92 @@ msgid "Multimodal"
 msgstr "Multimodal"
 
 #: plugin/xdl_strings.py
+msgid "New Sheet (PythonImport)"
+msgstr "Nytt ark (PythonImport)"
+
+#: plugin/xdl_strings.py
+msgid "Number of Responses:"
+msgstr "Tal på svar:"
+
+#: plugin/xdl_strings.py
+msgid "OK"
+msgstr "OK"
+
+#: plugin/xdl_strings.py
+msgid "Options"
+msgstr "Val"
+
+#: plugin/xdl_strings.py
+msgid "Output Mode"
+msgstr "Utdatamodus"
+
+#: plugin/xdl_strings.py
 msgid "Please enter edit instructions:"
 msgstr "Skriv inn redigeringsinstruksar:"
+
+#: plugin/xdl_strings.py
+msgid "Preserve number formats"
+msgstr "Behald talformat"
+
+#: plugin/xdl_strings.py
+msgid "Python Test"
+msgstr "Python-test"
+
+#: plugin/xdl_strings.py
+msgid "Rebuild"
+msgstr "Gjenoppbygg"
+
+#: plugin/xdl_strings.py
+msgid "Results:"
+msgstr "Resultat:"
 
 #: plugin/xdl_strings.py
 msgid "Run Benchmark"
 msgstr "Køyr ytelsestest"
 
 #: plugin/xdl_strings.py
+msgid "Save As..."
+msgstr "Lagre som…"
+
+#: plugin/xdl_strings.py
+msgid "Scope"
+msgstr "Omfang"
+
+#: plugin/xdl_strings.py
+msgid "Script:"
+msgstr "Skript:"
+
+#: plugin/xdl_strings.py
+msgid "Search Nearby Files"
+msgstr "Søk i nærliggande filer"
+
+#: plugin/xdl_strings.py
+msgid "Search Query:"
+msgstr "Søkespørjing:"
+
+#: plugin/xdl_strings.py
+msgid "Search query:"
+msgstr "Søkeførespurnad:"
+
+#: plugin/xdl_strings.py
 msgid "Seed:"
 msgstr "Startverdi:"
 
 #: plugin/xdl_strings.py
+msgid "Selection"
+msgstr "Utval"
+
+#: plugin/xdl_strings.py
+msgid "Server Status"
+msgstr "Tenarstatus"
+
+#: plugin/xdl_strings.py
 msgid "Square"
 msgstr "Kvadrat"
+
+#: plugin/xdl_strings.py
+msgid "Status"
+msgstr "Status"
 
 #: plugin/xdl_strings.py
 msgid "Steps:"
@@ -2145,6 +2350,14 @@ msgid "Use AI Horde for Image Generation"
 msgstr "Bruk AI Horde for biletgenerering"
 
 #: plugin/xdl_strings.py
+msgid "Vectorize columns when safe"
+msgstr "Vektorisér kolonnar når det er trygt"
+
+#: plugin/xdl_strings.py
+msgid "Verify recalc (oracle diff)"
+msgstr "Verifiser omrekning (oracle-diff)"
+
+#: plugin/xdl_strings.py
 msgid "Writer"
 msgstr "Writer"
 
@@ -2152,8 +2365,8 @@ msgstr "Writer"
 msgid "WriterAgent Evaluation Dashboard"
 msgstr "WriterAgent-evalueringspanel"
 
-msgid "ACP"
-msgstr "ACP"
+msgid "Agent Communication Protocol"
+msgstr "Agent-kommunikasjonsprotokoll"
 
 msgid "Backend"
 msgstr "Bakgrunnssystem"
@@ -2245,17 +2458,39 @@ msgid "Web Research Cache"
 msgstr "Nettsøk-mellomlager"
 
 msgid ""
-"Cache completed web research reports by normalized query (reuses web search "
-"cache database)."
+"Cache completed web research reports by normalized query (uses web cache "
+"database)."
 msgstr ""
-"Mellomlagre fullførte nettsøk-rapportar etter normalisert spørjing "
-"(gjenbruker databasen for nettsøk-mellomlager)."
+"Mellomlagre fullførte nettforskingsrapportar etter normalisert spørjing "
+"(brukar nett-mellomlagerdatabase)."
 
 msgid "Prompt for Web Research"
 msgstr "Spør om nettsøk"
 
 msgid "Ask for confirmation before sending a web search query"
 msgstr "Be om stadfesting før eit nettsøk vert sendt"
+
+msgid "Web Research Browser"
+msgstr "Nettlesar for nettsøk"
+
+msgid ""
+"Select the browser backend to use for webpage visits during research (Off "
+"uses static HTTP requests)."
+msgstr ""
+"Vel nettlesar-motor som skal brukast for besøk på nettsider under forsking "
+"(Av brukar statiske HTTP-førespurnader)."
+
+msgid "Off (Static HTTP)"
+msgstr "Av (statisk HTTP)"
+
+msgid "Firefox (CDP)"
+msgstr "Firefox (CDP)"
+
+msgid "Chromium (CDP)"
+msgstr "Chromium (CDP)"
+
+msgid "Chrome (CDP)"
+msgstr "Chrome (CDP)"
 
 msgid "Cache max (MB)"
 msgstr "Maks cache (MB)"
@@ -2385,44 +2620,54 @@ msgstr ""
 "Når denne er på, vil Enter i sidepanelet utføre same handling som Send; "
 "Shift+Enter set inn ei ny linje. Når denne er av, set Enter inn ei ny linje."
 
+msgid "Agent edit review"
+msgstr "Agent-redigeringsgjennomgang"
+
+msgid ""
+"Off = direct edits. Record = tracked changes you accept/reject yourself. "
+"Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
+"review."
+msgstr ""
+"Av = direkte redigering. Registrer = spor endringar som du sjølv "
+"godtek/avviser. Vent = apply_document_content blokkerer (i chat/MCP-"
+"arbeidstråd) til du har gått gjennom."
+
+msgid "Record (track changes)"
+msgstr "Registrer (spor endringar)"
+
+msgid "Wait for review"
+msgstr "Vent på gjennomgang"
+
 msgid "Draw and Impress tools"
 msgstr "Verktøy for Draw og Impress"
 
-msgid "Embeddings"
-msgstr "Embeddingar"
+msgid "Vector Search"
+msgstr "Vektorsøk"
 
-msgid "Embeddings cache (per-folder semantic search)"
-msgstr "Embedding-mellomlager (semantisk søk per mappe)"
-
-msgid ""
-"When on, builds a semantic index in writeragent_embeddings/ beside the "
-"active document's folder and also exposes search_embeddings in "
-"document_research (grep_nearby_files stays available). Requires Settings → "
-"Python venv with sentence-transformers, chromadb, langgraph, langchain-core,"
-" langchain-text-splitters, envwrap (see Settings → Python Test)."
-msgstr ""
-"Når denne er på, vert det bygd ein semantisk indeks i "
-"writeragent_embeddings/ ved sida av mappa til det aktive dokumentet, og "
-"search_embeddings vert tilgjengeleg i document_research (grep_nearby_files "
-"er framleis tilgjengeleg). Krev Innstillingar → Python venv med sentence-"
-"transformers, chromadb, langgraph, langchain-core, langchain-text-splitters,"
-" envwrap (sjå Innstillingar → Python-test)."
-
-msgid "Embedding Provider"
-msgstr "Embedding-tilbydar"
+msgid "Cross-file search"
+msgstr "Søk på tvers av filer"
 
 msgid ""
-"local (sentence-transformers in venv) or endpoint (configured remote/local "
-"endpoint)"
+"Indexed semantic + keyword search for document_research (corpus.db). "
+"Requires embeddings venv — see Python Test."
 msgstr ""
-"lokal (sentence-transformers i venv) eller endepunkt (konfigurert "
-"eksternt/lokalt endepunkt)"
+"Indeksert semantisk + nøkkelordsøk for document_research (corpus.db). Krev "
+"embeddings-venv – sjå Python-test."
 
-msgid "Local (venv)"
-msgstr "Lokal (venv)"
+msgid "Embeddings + FTS"
+msgstr "Embeddings + FTS"
 
-msgid "Endpoint"
-msgstr "Endepunkt"
+msgid "LlamaIndex"
+msgstr "LlamaIndex"
+
+msgid "Zvec (experimental)"
+msgstr "Zvec (eksperimentell)"
+
+msgid "ChromaDB"
+msgstr "ChromaDB"
+
+msgid "LanceDB (experimental)"
+msgstr "LanceDB (eksperimentell)"
 
 msgid "Embedding Model"
 msgstr "Innleiringsmodell"
@@ -2431,6 +2676,32 @@ msgid "HuggingFace model ID for local provider, or endpoint-specific model ID"
 msgstr ""
 "HuggingFace-modell-ID for lokal leverandør, eller endepunktspesifikk modell-"
 "ID"
+
+msgid "Enable cross-file rerank"
+msgstr "Aktiver kryssfil-omrangering"
+
+msgid ""
+"Second-stage cross-encoder after hybrid retrieve (Embeddings + FTS and "
+"LlamaIndex). Off by default."
+msgstr ""
+"Andre-trinns kryss-enkodar etter hybridhenting (vektorinnbygging + FTS og "
+"LlamaIndex). Av som standard."
+
+msgid "Rerank model"
+msgstr "Omrangeringsmodell"
+
+msgid ""
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
+msgstr ""
+"Blir berre brukt når omrangering er aktivert. Engelsk MiniLM er rask; bge-"
+"reranker-v2-m3 er fleirspråkleg og lastar ned ~2,3 GB."
+
+msgid "cross-encoder/ms-marco-MiniLM-L-6-v2"
+msgstr "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
+msgid "BAAI/bge-reranker-v2-m3"
+msgstr "BAAI/bge-reranker-v2-m3"
 
 msgid "Core services (config, events, logging)"
 msgstr "Kjernetenester (konfigurasjon, hendingar, loggføring)"
@@ -2607,44 +2878,3 @@ msgstr "Tidsavbrot for Docling-dokument (s)"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Tidsavbrot per konvertering i Docling. 0 = inga grense."
-
-msgid "Writer document tools (including navigation and search)"
-msgstr "Verktøy for Writer-dokument (inkludert navigasjon og søk)"
-
-msgid "Web Research Browser"
-msgstr "Nettlesar for nettsøk"
-
-msgid ""
-"Select the browser backend to use for webpage visits during research (Off "
-"uses static HTTP requests)."
-msgstr ""
-"Vel nettlesar-motor som skal brukast for besøk på nettsider under forsking "
-"(Av brukar statiske HTTP-førespurnader)."
-
-msgid "Off (Static HTTP)"
-msgstr "Av (statisk HTTP)"
-
-msgid "Firefox (CDP)"
-msgstr "Firefox (CDP)"
-
-msgid "Chromium (CDP)"
-msgstr "Chromium (CDP)"
-
-msgid "Chrome (CDP)"
-msgstr "Chrome (CDP)"
-
-msgid "Cross-file search mode"
-msgstr "Søkemodus på tvers av filer"
-
-msgid ""
-"Cross-file search for document_research. Requires embeddings venv — see "
-"Python Test."
-msgstr ""
-"Søk på tvers av filer for document_research. Krev embeddings-venv – sjå "
-"Python-test."
-
-msgid "None"
-msgstr "Ingen"
-
-msgid "SQLite FTS (venv)"
-msgstr "SQLite FTS (venv)"

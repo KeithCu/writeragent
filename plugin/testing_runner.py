@@ -190,9 +190,44 @@ def run_all_tests(ctx: Any) -> str:
     inside LibreOffice. External callers can parse this JSON, print a report,
     and use total_failed as an exit code condition.
     """
+    # Mock doc.agent_edit_review_mode during tests to default to "off"
+    # and only track its test-specific overrides in memory.
+    import plugin.framework.config
+    original_get_config = plugin.framework.config.get_config
+    original_set_config = plugin.framework.config.set_config
+    original_get_config_dict = plugin.framework.config.get_config_dict
+
+    _review_mode_override: Dict[str, Any] = {}
+
+    def test_get_config(c, key):
+        if key == "doc.agent_edit_review_mode":
+            return _review_mode_override.get(key, "off")
+        return original_get_config(c, key)
+
+    def test_set_config(c, key, value):
+        if key == "doc.agent_edit_review_mode":
+            _review_mode_override[key] = value
+            from plugin.framework.event_bus import global_event_bus
+            global_event_bus.emit("config:changed", ctx=c)
+            return
+        original_set_config(c, key, value)
+
+    def test_get_config_dict(c):
+        base = original_get_config_dict(c)
+        merged = dict(base)
+        merged["doc.agent_edit_review_mode"] = _review_mode_override.get("doc.agent_edit_review_mode", "off")
+        return merged
+
+    setattr(plugin.framework.config, "get_config", test_get_config)
+    setattr(plugin.framework.config, "set_config", test_set_config)
+    setattr(plugin.framework.config, "get_config_dict", test_get_config_dict)
+
     suites: List[Dict[str, Any]] = []
+
+
     total_passed = 0
     total_failed = 0
+
 
     # Try to reuse an existing active document when it matches the suite type;
     # otherwise the underlying helpers will create their own temporary docs.

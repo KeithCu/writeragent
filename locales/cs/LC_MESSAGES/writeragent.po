@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-11 14:33-0400\n"
+"POT-Creation-Date: 2026-06-15 21:36-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Czech <LL@li.org>\n"
@@ -293,6 +293,112 @@ msgstr " vygenerováno pomocí "
 msgid " with "
 msgstr " s "
 
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: No active document"
+msgstr "Stav mezipaměti: Žádný aktivní dokument"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Folder not resolved"
+msgstr "Stav mezipaměti: Složka nebyla vyřešena"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Not built (zvec)"
+msgstr "Stav mezipaměti: Nevytvořeno (zvec)"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Not built (lancedb)"
+msgstr "Stav mezipaměti: Nevytvořeno (lancedb)"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Not built"
+msgstr "Stav mezipaměti: Nevytvořeno"
+
+#: plugin/embeddings/search_ui.py
+msgid "just now"
+msgstr "právě teď"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "{0}m ago"
+msgstr "před {0} m"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "{0}h ago"
+msgstr "před {0} h"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "Cache Status: Built ({0})"
+msgstr "Stav mezipaměti: Vytvořeno ({0})"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Built"
+msgstr "Stav mezipaměti: Vytvořeno"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "Cache Status: Error ({0})"
+msgstr "Stav mezipaměti: Chyba ({0})"
+
+#: plugin/embeddings/search_ui.py plugin/xdl_strings.py
+msgid "Search"
+msgstr "Hledat"
+
+#: plugin/embeddings/search_ui.py
+msgid "Please enter a search query."
+msgstr "Zadejte prosím hledaný výraz."
+
+#: plugin/embeddings/search_ui.py
+msgid "Searching..."
+msgstr "Hledám..."
+
+#: plugin/embeddings/search_ui.py
+msgid "No active document found."
+msgstr "Nebyl nalezen žádný aktivní dokument."
+
+#: plugin/embeddings/search_ui.py
+msgid ""
+"Cross-file search is disabled. Enable Embeddings + FTS in Settings → "
+"Embeddings."
+msgstr ""
+"Hledání napříč soubory je zakázáno. Povolte Vektorové vyhledávání + FTS v "
+"Nastavení → Vektorové vyhledávání."
+
+#: plugin/embeddings/search_ui.py
+msgid "Error: "
+msgstr "Chyba: "
+
+#: plugin/embeddings/search_ui.py
+msgid ""
+"Folder index is building in the background. Please retry search shortly."
+msgstr ""
+"Index složky se vytváří na pozadí. Zkuste vyhledávání opakovat za chvíli."
+
+#: plugin/embeddings/search_ui.py
+msgid "No matches found."
+msgstr "Nebyly nalezeny žádné shody."
+
+#: plugin/embeddings/search_ui.py
+msgid "Error running search: "
+msgstr "Chyba při provádění vyhledávání: "
+
+#: plugin/embeddings/search_ui.py
+msgid "Rebuilding cache..."
+msgstr "Obnovování mezipaměti..."
+
+#: plugin/embeddings/search_ui.py
+msgid "No active folder resolved."
+msgstr "Nebyla nalezena žádná aktivní složka."
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache rebuild completed successfully."
+msgstr "Obnovení mezipaměti bylo úspěšně dokončeno."
+
+#: plugin/embeddings/search_ui.py
+msgid "Rebuild failed: "
+msgstr "Obnovení selhalo: "
+
 #: plugin/framework/errors.py
 #, python-brace-format
 msgid "TLS/SSL Error: {0}"
@@ -441,7 +547,7 @@ msgid "Please enter edit instructions!"
 msgstr "Prosím, zadejte pokyny pro úpravy!"
 
 #: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/chatbot/dialogs.py plugin/xdl_strings.py
+#: plugin/xdl_strings.py
 msgid "Input"
 msgstr "Vstup"
 
@@ -453,7 +559,7 @@ msgstr "WriterAgent: Upravit výběr (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Rozšířit výběr (Calc)"
 
-#: plugin/calc/vision_egress.py plugin/scripting/vision_runner.py
+#: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
 msgid "Select an embedded image, then Run again."
 msgstr "Vyberte vložený obrázek a poté spusťte znovu."
 
@@ -465,10 +571,6 @@ msgstr "Ukotvěte obrázek k buňce, vyberte jej a poté spusťte znovu."
 msgid "No structured tables or text blocks to insert."
 msgstr ""
 "Nebyly nalezeny žádné strukturované tabulky ani textové bloky k vložení."
-
-#: plugin/calc/spreadsheet_import/import_dialog.py
-msgid "Convert Sheet to Python"
-msgstr "Převést list na Python"
 
 #: plugin/calc/python_editor.py
 msgid ""
@@ -488,8 +590,8 @@ msgstr "Editor buněk Python"
 msgid "Save as plain text"
 msgstr "Uložit jako prostý text"
 
-#: plugin/calc/python_editor.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py
+#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
 msgid "Save"
 msgstr "Uložit"
 
@@ -534,6 +636,40 @@ msgstr ""
 msgid "unknown error"
 msgstr "neznámá chyba"
 
+#: plugin/writer/change_context_menu.py
+msgid "Accept whole change (agent)"
+msgstr "Přijmout celou změnu (agent)"
+
+#: plugin/writer/change_context_menu.py
+msgid "Reject whole change (agent)"
+msgstr "Odmítnout celou změnu (agent)"
+
+#: plugin/writer/change_context_menu.py
+msgid "Accept all agent changes"
+msgstr "Přijmout všechny změny agenta"
+
+#: plugin/writer/change_context_menu.py
+msgid "Reject all agent changes"
+msgstr "Odmítnout všechny změny agenta"
+
+#: plugin/writer/review_click_popup.py
+msgid "Accept this change"
+msgstr "Přijmout tuto změnu"
+
+#: plugin/writer/review_click_popup.py
+msgid "Reject this change"
+msgstr "Odmítnout tuto změnu"
+
+#: plugin/writer/review_click_popup.py
+#, python-brace-format
+msgid "Accept all {0} changes"
+msgstr "Přijmout všechny změny {0}"
+
+#: plugin/writer/review_click_popup.py
+#, python-brace-format
+msgid "Reject all {0} changes"
+msgstr "Odmítnout všechny změny {0}"
+
 #: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Rozšířit výběr"
@@ -541,26 +677,6 @@ msgstr "WriterAgent: Rozšířit výběr"
 #: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Upravit výběr"
-
-#: plugin/writer/math/latex_dialog.py
-msgid "Insert LaTeX Math"
-msgstr "Vložit LaTeX matematiku"
-
-#: plugin/writer/math/latex_dialog.py
-msgid "Enter LaTeX math code to convert and insert as formula:"
-msgstr "Zadejte LaTeX matematický kód pro převod a vložení jako vzorec:"
-
-#: plugin/writer/math/latex_dialog.py
-msgid "Insert as display block (centered paragraph)"
-msgstr "Vložit jako blok (centrovaný odstavec)"
-
-#: plugin/writer/math/latex_dialog.py
-msgid "Insert"
-msgstr "Vložit"
-
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/dialogs.py
-msgid "Cancel"
-msgstr "Zrušit"
 
 #: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
 #: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
@@ -584,6 +700,19 @@ msgstr "Vzorec vložen."
 #: plugin/writer/math/latex_dialog.py
 msgid "LaTeX Math Editor"
 msgstr "Editor matematiky LaTeX"
+
+#: plugin/writer/math/latex_dialog.py plugin/xdl_strings.py
+msgid "Insert as display block (centered paragraph)"
+msgstr "Vložit jako blok (centrovaný odstavec)"
+
+#: plugin/writer/math/latex_dialog.py plugin/xdl_strings.py
+msgid "Insert"
+msgstr "Vložit"
+
+#: plugin/writer/math/latex_dialog.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "Zavřít"
 
 #: plugin/writer/math/latex_dialog.py
 msgid "LaTeX Conversion Error"
@@ -883,28 +1012,8 @@ msgid "Tool: %s"
 msgstr "Nástroj: %s"
 
 #: plugin/chatbot/dialogs.py
-msgid "Edit search query"
-msgstr "Upravit vyhledávací dotaz"
-
-#: plugin/chatbot/dialogs.py
-msgid "Search query:"
-msgstr "Vyhledávací dotaz:"
-
-#: plugin/chatbot/dialogs.py plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "OK"
-msgstr "OK"
-
-#: plugin/chatbot/dialogs.py
-msgid "Copy"
-msgstr "Kopírovat"
-
-#: plugin/chatbot/dialogs.py
 msgid "Copied!"
 msgstr "Zkopírováno!"
-
-#: plugin/chatbot/dialogs.py
-msgid "Copy URL"
-msgstr "Kopírovat URL"
 
 #: plugin/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
@@ -1016,10 +1125,12 @@ msgstr "Tento vyhledávací dotaz „%s“ bude odeslán vyhledávači."
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
-msgid "Research cache hit (fuzzy, %s%% match: %s%s → %s)"
+msgid ""
+"Research cache hit (fuzzy, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
+"%(matched)s)"
 msgstr ""
-"Nalezena shoda ve vyrovnávací paměti výzkumu (přibližná, shoda %s%%: %s%s → "
-"%s)"
+"Nalezeno v mezipaměti výzkumu (přibližná shoda %(pct)s%%: "
+"%(lang_bit)s%(cache_key)s → %(matched)s)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1188,18 +1299,9 @@ msgstr "Venv v pořádku"
 msgid "Venv check failed"
 msgstr "Kontrola virtuálního prostředí (venv) selhala"
 
-#: plugin/chatbot/dialog_views.py
-msgid "Python Test"
-msgstr "Test Pythonu"
-
-#: plugin/chatbot/dialog_views.py
+#: plugin/chatbot/dialog_views.py plugin/xdl_strings.py
 msgid "Testing Python environment..."
 msgstr "Testuje se prostředí Pythonu..."
-
-#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "Zavřít"
 
 #: plugin/chatbot/dialog_views.py
 msgid "Done"
@@ -1212,6 +1314,10 @@ msgstr "Selhalo"
 #: plugin/chatbot/config_ui_helpers.py
 msgid "(Enter API Key to load models)"
 msgstr "(Zadejte klíč API pro načtení modelů)"
+
+#: plugin/chatbot/config_ui_helpers.py
+msgid "(No image models on this endpoint)"
+msgstr "(Na tomto koncovém bodě nejsou žádné modely obrázků)"
 
 #: plugin/chatbot/config_ui_helpers.py
 msgid "(Connection failed)"
@@ -1293,38 +1399,6 @@ msgstr "Moje skripty"
 msgid "This Document"
 msgstr "Tento dokument"
 
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
-msgid "Run Python Script"
-msgstr "Spustit skript v Pythonu"
-
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "Spustit"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Script:"
-msgstr "Skript:"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Attach"
-msgstr "Připojit"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Save As..."
-msgstr "Uložit jako..."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Delete"
-msgstr "Odstranit"
-
-#: plugin/scripting/python_runner_ui.py
-msgid ""
-"Enter Python code to execute in the user virtual environment.\n"
-"Assign the result to the 'result' variable."
-msgstr ""
-"Zadejte kód v Pythonu, který se má spustit v uživatelském virtuálním prostředí.\n"
-"Výsledek přiřaďte do proměnné 'result'."
-
 #: plugin/scripting/python_runner_ui.py
 #, python-format
 msgid "%s Saved to My Scripts instead."
@@ -1339,10 +1413,6 @@ msgstr "Skript „%s“ byl uložen do tohoto dokumentu."
 #, python-format
 msgid "Script '%s' saved successfully."
 msgstr "Skript „%s“ byl úspěšně uložen."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Sample scratchpad saved successfully."
-msgstr "Ukázkový poznámkový blok byl úspěšně uložen."
 
 #: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
 msgid "No document is open to attach scripts."
@@ -1379,18 +1449,6 @@ msgstr "Uložit skript"
 #, python-brace-format
 msgid "Save script '{0}' to this document?"
 msgstr "Uložit skript „{0}“ do tohoto dokumentu?"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Are you sure you want to clear the Sample scratchpad?"
-msgstr "Opravdu chcete vymazat vzorový poznámkový blok?"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Clear Script"
-msgstr "Vymazat skript"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Sample scratchpad cleared."
-msgstr "Vzorový poznámkový blok byl vymazán."
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -1493,94 +1551,82 @@ msgstr "Editor Pythonu byl ukončen dříve, než mohl načíst váš kód."
 msgid "Could not talk to the Python editor."
 msgstr "Nepodařilo se komunikovat s editorem Pythonu."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid ""
 "Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "Časový limit vizuální sondy vypršel (import Docling může při první kontrole "
 "trvat 10–30 s)."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision probe failed (see writeragent_debug.log)."
 msgstr "Vizuální sonda selhala (viz writeragent_debug.log)."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid ""
-"Embeddings probe timed out (sentence-transformers import can take 10–30s on "
-"first check)."
+"Vector Search probe timed out (sentence-transformers import can take 10–30s "
+"on first check)."
 msgstr ""
-"Časový limit sondy vnoření vypršel (import sentence-transformers může při "
-"první kontrole trvat 10–30 s)."
+"Časový limit sondy vektorového vyhledávání vypršel (import sentence-"
+"transformers může při první kontrole trvat 10–30 s)."
 
-#: plugin/scripting/venv_worker.py
-msgid "Embeddings probe failed (see writeragent_debug.log)."
-msgstr "Sonda vnoření selhala (viz writeragent_debug.log)."
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vector Search probe failed (see writeragent_debug.log)."
+msgstr "Sonda vektorového vyhledávání selhala (viz writeragent_debug.log)."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Visualization Libraries"
 msgstr "Vizualizační knihovny"
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Computer Algebra"
 msgstr "Počítačová algebra"
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Quantitative Finance Libraries"
 msgstr "Knihovny pro kvantitativní finance"
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Data Engineering Libraries"
 msgstr "Knihovny datového inženýrství"
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries"
 msgstr "Vizuální knihovny"
 
-#: plugin/scripting/venv_worker.py
-msgid "Embeddings Libraries"
-msgstr "Knihovny vnoření"
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vector Search Libraries"
+msgstr "Knihovny vektorového vyhledávání"
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
 msgstr "Spouští se pracovní proces Pythonu..."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Reading Python version..."
 msgstr "Čte se verze Pythonu..."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries: loading (first run may take a while)..."
 msgstr "Knihovny Vision: načítání (první spuštění může chvíli trvat)..."
 
-#: plugin/scripting/venv_worker.py
-msgid "Embeddings Libraries: loading (first run may take a while)..."
-msgstr "Knihovny vnoření: načítání (první spuštění může chvíli trvat)..."
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vector Search Libraries: loading (first run may take a while)..."
+msgstr ""
+"Knihovny vektorového vyhledávání: načítání (první spuštění může chvíli "
+"trvat)..."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Using LibreOffice process Python..."
 msgstr "Používá se proces Pythonu LibreOffice..."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Resolving venv Python..."
 msgstr "Zjišťování Pythonu ve virtuálním prostředí (venv)..."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Using"
 msgstr "Používá se"
-
-#: plugin/scripting/vision_runner.py
-#, python-brace-format
-msgid ""
-"Image '{name}' not found. Use list_images or leave image_name empty and "
-"select the graphic."
-msgstr ""
-"Obrázek '{name}' nebyl nalezen. Použijte list_images nebo ponechte "
-"image_name prázdné a vyberte grafiku."
-
-#: plugin/scripting/vision_runner.py
-#, python-brace-format
-msgid "Image '{name}' could not be exported."
-msgstr "Obrázek '{name}' se nepodařilo exportovat."
 
 #: plugin/scripting/symbolic.py
 msgid "Symbolic helper failed."
@@ -1859,9 +1905,31 @@ msgstr "Skript byl úspěšně proveden. (trvalo {time})"
 msgid "Script saved."
 msgstr "Skript byl uložen."
 
+#: plugin/scripting/python_runner.py plugin/xdl_strings.py
+msgid "Run Python Script"
+msgstr "Spustit skript v Pythonu"
+
+#: plugin/scripting/python_runner.py plugin/xdl_strings.py
+msgid "Run"
+msgstr "Spustit"
+
 #: plugin/scripting/python_runner.py
 msgid "Select data range or enter A1 address (injected as data)."
 msgstr "Vyberte datový rozsah nebo zadejte adresu A1 (vloženo jako data)."
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid ""
+"Image '{name}' not found. Use list_images or leave image_name empty and "
+"select the graphic."
+msgstr ""
+"Obrázek '{name}' nebyl nalezen. Použijte list_images nebo ponechte "
+"image_name prázdné a vyberte grafiku."
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "Image '{name}' could not be exported."
+msgstr "Obrázek '{name}' se nepodařilo exportovat."
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -1893,7 +1961,7 @@ msgstr ""
 msgid "MCP server is not running"
 msgstr "Server MCP neběží"
 
-#: plugin/mcp/__init__.py
+#: plugin/mcp/__init__.py plugin/xdl_strings.py
 msgid "MCP server running"
 msgstr "Server MCP běží"
 
@@ -1901,10 +1969,6 @@ msgstr "Server MCP běží"
 #, python-brace-format
 msgid "Routes: {0}"
 msgstr "Cesty: {0}"
-
-#: plugin/mcp/__init__.py
-msgid "Server Status"
-msgstr "Stav serveru"
 
 #: plugin/mcp/__init__.py
 #, python-brace-format
@@ -1974,6 +2038,10 @@ msgid "Insert LaTeX Math..."
 msgstr "Vložit matematický vzorec LaTeX..."
 
 #: plugin/main.py
+msgid "Search Nearby Files..."
+msgstr "Prohledat okolní soubory..."
+
+#: plugin/main.py
 msgid "Convert Sheet to Python..."
 msgstr "Převést list na Python..."
 
@@ -2002,6 +2070,10 @@ msgid "API Key:"
 msgstr "Klíč API:"
 
 #: plugin/xdl_strings.py
+msgid "Active Sheet"
+msgstr "Aktivní list"
+
+#: plugin/xdl_strings.py
 msgid "Additional Instructions (History):"
 msgstr "Další pokyny (historie):"
 
@@ -2020,6 +2092,10 @@ msgstr "Zeptejte se / instruujte:"
 #: plugin/xdl_strings.py
 msgid "Aspect Ratio:"
 msgstr "Poměr stran:"
+
+#: plugin/xdl_strings.py
+msgid "Attach"
+msgstr "Připojit"
 
 #: plugin/xdl_strings.py
 msgid "Audio Model:"
@@ -2042,8 +2118,16 @@ msgid "CFG Scale:"
 msgstr "Měřítko CFG:"
 
 #: plugin/xdl_strings.py
+msgid "Cache Status: Checking..."
+msgstr "Stav mezipaměti: Kontroluji..."
+
+#: plugin/xdl_strings.py
 msgid "Calc"
 msgstr "Calc"
+
+#: plugin/xdl_strings.py
+msgid "Cancel"
+msgstr "Zrušit"
 
 #: plugin/xdl_strings.py
 msgid "Categories:"
@@ -2062,6 +2146,22 @@ msgid "Clear"
 msgstr "Vymazat"
 
 #: plugin/xdl_strings.py
+msgid "Convert Sheet to Python"
+msgstr "Převést list na Python"
+
+#: plugin/xdl_strings.py
+msgid "Copy"
+msgstr "Kopírovat"
+
+#: plugin/xdl_strings.py
+msgid "Copy URL"
+msgstr "Kopírovat URL"
+
+#: plugin/xdl_strings.py
+msgid "Delete"
+msgstr "Odstranit"
+
+#: plugin/xdl_strings.py
 msgid "Draw"
 msgstr "Draw"
 
@@ -2070,12 +2170,28 @@ msgid "Edit config file (JSON)…"
 msgstr "Upravit konfigurační soubor (JSON)…"
 
 #: plugin/xdl_strings.py
+msgid "Edit search query"
+msgstr "Upravit vyhledávací dotaz"
+
+#: plugin/xdl_strings.py
 msgid "Endpoint URL (/v1 added):"
 msgstr "URL koncového bodu (přidáno /v1):"
 
 #: plugin/xdl_strings.py
 msgid "Endpoint URL:"
 msgstr "URL koncového bodu:"
+
+#: plugin/xdl_strings.py
+msgid "Enter LaTeX math code to convert and insert as formula:"
+msgstr "Zadejte LaTeX matematický kód pro převod a vložení jako vzorec:"
+
+#: plugin/xdl_strings.py
+msgid ""
+"Enter Python code to execute in the user virtual environment.\n"
+"Assign the result to the 'result' variable."
+msgstr ""
+"Zadejte kód v Pythonu, který se má spustit v uživatelském virtuálním prostředí.\n"
+"Výsledek přiřaďte do proměnné 'result'."
 
 #: plugin/xdl_strings.py
 msgid "General"
@@ -2090,8 +2206,20 @@ msgid "Image Settings"
 msgstr "Nastavení obrázku"
 
 #: plugin/xdl_strings.py
+msgid "In-place replacement"
+msgstr "Nahrazení na místě"
+
+#: plugin/xdl_strings.py
+msgid "Input:"
+msgstr "Vstup:"
+
+#: plugin/xdl_strings.py
 msgid "Insert Frame"
 msgstr "Vložit rámec"
+
+#: plugin/xdl_strings.py
+msgid "Insert LaTeX Math"
+msgstr "Vložit LaTeX matematiku"
 
 #: plugin/xdl_strings.py
 msgid "Max Tokens:"
@@ -2102,6 +2230,10 @@ msgid "Max Wait (s):"
 msgstr "Maximální čekání (s):"
 
 #: plugin/xdl_strings.py
+msgid "Message"
+msgstr "Zpráva"
+
+#: plugin/xdl_strings.py
 msgid "Models to Test:"
 msgstr "Modely k testování:"
 
@@ -2110,20 +2242,92 @@ msgid "Multimodal"
 msgstr "Multimodální"
 
 #: plugin/xdl_strings.py
+msgid "New Sheet (PythonImport)"
+msgstr "Nový list (PythonImport)"
+
+#: plugin/xdl_strings.py
+msgid "Number of Responses:"
+msgstr "Počet odpovědí:"
+
+#: plugin/xdl_strings.py
+msgid "OK"
+msgstr "OK"
+
+#: plugin/xdl_strings.py
+msgid "Options"
+msgstr "Možnosti"
+
+#: plugin/xdl_strings.py
+msgid "Output Mode"
+msgstr "Režim výstupu"
+
+#: plugin/xdl_strings.py
 msgid "Please enter edit instructions:"
 msgstr "Zadejte pokyny pro úpravy:"
+
+#: plugin/xdl_strings.py
+msgid "Preserve number formats"
+msgstr "Zachovat formáty čísel"
+
+#: plugin/xdl_strings.py
+msgid "Python Test"
+msgstr "Test Pythonu"
+
+#: plugin/xdl_strings.py
+msgid "Rebuild"
+msgstr "Znovu sestavit"
+
+#: plugin/xdl_strings.py
+msgid "Results:"
+msgstr "Výsledky:"
 
 #: plugin/xdl_strings.py
 msgid "Run Benchmark"
 msgstr "Spustit benchmark"
 
 #: plugin/xdl_strings.py
+msgid "Save As..."
+msgstr "Uložit jako..."
+
+#: plugin/xdl_strings.py
+msgid "Scope"
+msgstr "Rozsah"
+
+#: plugin/xdl_strings.py
+msgid "Script:"
+msgstr "Skript:"
+
+#: plugin/xdl_strings.py
+msgid "Search Nearby Files"
+msgstr "Hledat v okolních souborech"
+
+#: plugin/xdl_strings.py
+msgid "Search Query:"
+msgstr "Hledaný dotaz:"
+
+#: plugin/xdl_strings.py
+msgid "Search query:"
+msgstr "Vyhledávací dotaz:"
+
+#: plugin/xdl_strings.py
 msgid "Seed:"
 msgstr "Seed:"
 
 #: plugin/xdl_strings.py
+msgid "Selection"
+msgstr "Výběr"
+
+#: plugin/xdl_strings.py
+msgid "Server Status"
+msgstr "Stav serveru"
+
+#: plugin/xdl_strings.py
 msgid "Square"
 msgstr "Čtverec"
+
+#: plugin/xdl_strings.py
+msgid "Status"
+msgstr "Stav"
 
 #: plugin/xdl_strings.py
 msgid "Steps:"
@@ -2150,6 +2354,14 @@ msgid "Use AI Horde for Image Generation"
 msgstr "Použít AI Horde pro generování obrázků"
 
 #: plugin/xdl_strings.py
+msgid "Vectorize columns when safe"
+msgstr "Vektorizovat sloupce, je-li to bezpečné"
+
+#: plugin/xdl_strings.py
+msgid "Verify recalc (oracle diff)"
+msgstr "Ověřit přepočet (rozdíl oracle)"
+
+#: plugin/xdl_strings.py
 msgid "Writer"
 msgstr "Writer"
 
@@ -2157,8 +2369,8 @@ msgstr "Writer"
 msgid "WriterAgent Evaluation Dashboard"
 msgstr "Řídicí panel hodnocení WriterAgent"
 
-msgid "ACP"
-msgstr "ACP"
+msgid "Agent Communication Protocol"
+msgstr "Komunikační protokol agenta"
 
 msgid "Backend"
 msgstr "Backend"
@@ -2252,18 +2464,39 @@ msgid "Web Research Cache"
 msgstr "Mezipaměť webového průzkumu"
 
 msgid ""
-"Cache completed web research reports by normalized query (reuses web search "
-"cache database)."
+"Cache completed web research reports by normalized query (uses web cache "
+"database)."
 msgstr ""
-"Ukládat dokončené zprávy z webového průzkumu do mezipaměti podle "
-"normalizovaného dotazu (znovu využívá databázi mezipaměti webového "
-"vyhledávání)."
+"Ukládat dokončené zprávy z průzkumu webu do mezipaměti podle normalizovaného"
+" dotazu (používá databázi webové mezipaměti)."
 
 msgid "Prompt for Web Research"
 msgstr "Dotázat se na vyhledávání na webu"
 
 msgid "Ask for confirmation before sending a web search query"
 msgstr "Před odesláním dotazu pro vyhledávání na webu vyžadovat potvrzení"
+
+msgid "Web Research Browser"
+msgstr "Prohlížeč pro webový průzkum"
+
+msgid ""
+"Select the browser backend to use for webpage visits during research (Off "
+"uses static HTTP requests)."
+msgstr ""
+"Vyberte backend prohlížeče, který se má použít pro návštěvy webových stránek"
+" během průzkumu (Vypnuto používá statické požadavky HTTP)."
+
+msgid "Off (Static HTTP)"
+msgstr "Vypnuto (statické HTTP)"
+
+msgid "Firefox (CDP)"
+msgstr "Firefox (CDP)"
+
+msgid "Chromium (CDP)"
+msgstr "Chromium (CDP)"
+
+msgid "Chrome (CDP)"
+msgstr "Chrome (CDP)"
 
 msgid "Cache max (MB)"
 msgstr "Maximální velikost mezipaměti (MB)"
@@ -2397,45 +2630,54 @@ msgstr ""
 "stejnou akci jako Odeslat; Shift+Enter vloží nový řádek. Je-li vypnuto, "
 "Enter vloží nový řádek."
 
+msgid "Agent edit review"
+msgstr "Revize úprav agentem"
+
+msgid ""
+"Off = direct edits. Record = tracked changes you accept/reject yourself. "
+"Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
+"review."
+msgstr ""
+"Vypnuto = přímé úpravy. Záznam = sledované změny, které sami "
+"přijmete/odmítnete. Čekat = apply_document_content blokuje (ve vlákně "
+"chatu/MCP), dokud neprovedete revizi."
+
+msgid "Record (track changes)"
+msgstr "Záznam (sledovat změny)"
+
+msgid "Wait for review"
+msgstr "Čekat na revizi"
+
 msgid "Draw and Impress tools"
 msgstr "Nástroje pro Draw a Impress"
 
-msgid "Embeddings"
-msgstr "Vektorové reprezentace (Embeddings)"
+msgid "Vector Search"
+msgstr "Vektorové vyhledávání"
 
-msgid "Embeddings cache (per-folder semantic search)"
-msgstr ""
-"Mezipaměť vektorových reprezentací (sémantické vyhledávání podle složek)"
-
-msgid ""
-"When on, builds a semantic index in writeragent_embeddings/ beside the "
-"active document's folder and also exposes search_embeddings in "
-"document_research (grep_nearby_files stays available). Requires Settings → "
-"Python venv with sentence-transformers, chromadb, langgraph, langchain-core,"
-" langchain-text-splitters, envwrap (see Settings → Python Test)."
-msgstr ""
-"Pokud je zapnuto, vytvoří sémantický index ve složce writeragent_embeddings/"
-" vedle složky aktivního dokumentu a zpřístupní search_embeddings v "
-"document_research (grep_nearby_files zůstává k dispozici). Vyžaduje "
-"Nastavení → Python venv s balíčky sentence-transformers, chromadb, "
-"langgraph, langchain-core, langchain-text-splitters, envwrap (viz Nastavení "
-"→ Test Pythonu)."
-
-msgid "Embedding Provider"
-msgstr "Poskytovatel vektorových reprezentací"
+msgid "Cross-file search"
+msgstr "Vyhledávání napříč soubory"
 
 msgid ""
-"local (sentence-transformers in venv) or endpoint (configured remote/local "
-"endpoint)"
+"Indexed semantic + keyword search for document_research (corpus.db). "
+"Requires embeddings venv — see Python Test."
 msgstr ""
-"místní (sentence-transformers ve venv) nebo koncový bod (konfigurovaný "
-"vzdálený/místní koncový bod)"
+"Indexované sémantické a klíčové vyhledávání pro document_research "
+"(corpus.db). Vyžaduje venv s embeddingy — viz Python Test."
 
-msgid "Local (venv)"
-msgstr "Místní (venv)"
+msgid "Embeddings + FTS"
+msgstr "Embeddingy + FTS"
 
-msgid "Endpoint"
-msgstr "Koncový bod"
+msgid "LlamaIndex"
+msgstr "LlamaIndex"
+
+msgid "Zvec (experimental)"
+msgstr "Zvec (experimentální)"
+
+msgid "ChromaDB"
+msgstr "ChromaDB"
+
+msgid "LanceDB (experimental)"
+msgstr "LanceDB (experimentální)"
 
 msgid "Embedding Model"
 msgstr "Model pro vkládání"
@@ -2444,6 +2686,32 @@ msgid "HuggingFace model ID for local provider, or endpoint-specific model ID"
 msgstr ""
 "ID modelu HuggingFace pro místního poskytovatele nebo ID modelu specifické "
 "pro koncový bod"
+
+msgid "Enable cross-file rerank"
+msgstr "Povolit rerank napříč soubory"
+
+msgid ""
+"Second-stage cross-encoder after hybrid retrieve (Embeddings + FTS and "
+"LlamaIndex). Off by default."
+msgstr ""
+"Druhá fáze cross-encoderu po hybridním vyhledávání (vnoření + FTS a "
+"LlamaIndex). Ve výchozím nastavení vypnuto."
+
+msgid "Rerank model"
+msgstr "Model pro rerank"
+
+msgid ""
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
+msgstr ""
+"Použito pouze při povoleném reranku. Anglický MiniLM je rychlý; bge-"
+"reranker-v2-m3 je vícejazyčný a stahuje přibližně 2,3 GB."
+
+msgid "cross-encoder/ms-marco-MiniLM-L-6-v2"
+msgstr "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
+msgid "BAAI/bge-reranker-v2-m3"
+msgstr "BAAI/bge-reranker-v2-m3"
 
 msgid "Core services (config, events, logging)"
 msgstr "Základní služby (konfigurace, události, protokolování)"
@@ -2619,44 +2887,3 @@ msgstr "Časový limit dokumentu Docling (s)"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Časový limit na konverzi v rámci Docling. 0 = bez omezení."
-
-msgid "Writer document tools (including navigation and search)"
-msgstr "Nástroje dokumentu Writer (včetně navigace a vyhledávání)"
-
-msgid "Web Research Browser"
-msgstr "Prohlížeč pro webový průzkum"
-
-msgid ""
-"Select the browser backend to use for webpage visits during research (Off "
-"uses static HTTP requests)."
-msgstr ""
-"Vyberte backend prohlížeče, který se má použít pro návštěvy webových stránek"
-" během průzkumu (Vypnuto používá statické požadavky HTTP)."
-
-msgid "Off (Static HTTP)"
-msgstr "Vypnuto (statické HTTP)"
-
-msgid "Firefox (CDP)"
-msgstr "Firefox (CDP)"
-
-msgid "Chromium (CDP)"
-msgstr "Chromium (CDP)"
-
-msgid "Chrome (CDP)"
-msgstr "Chrome (CDP)"
-
-msgid "Cross-file search mode"
-msgstr "Režim vyhledávání napříč soubory"
-
-msgid ""
-"Cross-file search for document_research. Requires embeddings venv — see "
-"Python Test."
-msgstr ""
-"Vyhledávání napříč soubory pro document_research. Vyžaduje venv s vnořenými "
-"reprezentacemi (embeddings) — viz Python Test."
-
-msgid "None"
-msgstr "Žádný"
-
-msgid "SQLite FTS (venv)"
-msgstr "SQLite FTS (venv)"

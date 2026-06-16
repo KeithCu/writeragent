@@ -22,7 +22,7 @@ import threading
 from plugin.framework.tool import ToolBase, ToolBaseDummy
 from plugin.framework.constants import APPLY_DOCUMENT_CONTENT_TOOL_RESEARCH_HINT
 from plugin.doc.document_helpers import normalize_linebreaks, get_string_without_tracked_deletions
-from plugin.writer.edit_review import EditReviewSession, edit_review_wait_seconds, review_recording_enabled
+from plugin.writer.edit_review import EditReviewSession, edit_review_wait_seconds, review_recording_enabled, get_agent_edit_review_mode
 from plugin.framework.errors import safe_json_loads
 import re as re_mod
 
@@ -466,7 +466,7 @@ class ApplyDocumentContent(ToolBase):
             return False
 
     @property
-    def long_running(self):
+    def long_running(self) -> bool:  # type: ignore[override]
         # With review-wait on, MCP must run this call on its HTTP thread so the wait can
         # block there (one request, one response -- the response just comes back after the
         # user reviews). With it off, stay a normal synchronous main-thread tool.
@@ -489,7 +489,7 @@ class ApplyDocumentContent(ToolBase):
     def execute(self, ctx, **kwargs):
         wait_seconds = self._review_wait_seconds(ctx.ctx)
         on_main = threading.current_thread() is threading.main_thread()
-        if wait_seconds <= 0 or on_main:
+        if get_agent_edit_review_mode(ctx.ctx) != "wait" or on_main:
             # No review-wait: review is off, it was toggled off after this call was dispatched
             # to a worker thread, or we ARE the main thread (where blocking would freeze the UI
             # and the user could never click accept/reject). Edit once, don't wait -- but UNO is
@@ -560,7 +560,7 @@ class ApplyDocumentContent(ToolBase):
         user_stop = getattr(ctx, "stop_checker", None)
 
         def _stop():
-            if self._review_wait_seconds(ctx.ctx) <= 0:
+            if get_agent_edit_review_mode(ctx.ctx) != "wait":
                 return True
             try:
                 return bool(user_stop()) if callable(user_stop) else False

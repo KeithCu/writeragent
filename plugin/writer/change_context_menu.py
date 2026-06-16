@@ -135,10 +135,46 @@ def _make_interceptor(model: Any) -> Any:
     return _interceptor_cls(model)
 
 
+def _cleanup_disposed_controllers() -> None:
+    """Passively remove any disposed controllers/interceptors from our tracking lists."""
+    try:
+        from plugin.writer import review_click_popup
+        with _lock:
+            alive_controllers = []
+            alive_interceptors = []
+            for idx, ctrl in enumerate(_registered_controllers):
+                try:
+                    if ctrl.getModel() is not None:
+                        alive_controllers.append(ctrl)
+                        if idx < len(_interceptors):
+                            alive_interceptors.append(_interceptors[idx])
+                except Exception:
+                    pass
+            _registered_controllers[:] = alive_controllers
+            _interceptors[:] = alive_interceptors
+
+        with review_click_popup._lock:
+            alive_popup_controllers = []
+            alive_popup_handlers = []
+            for idx, ctrl in enumerate(review_click_popup._registered_controllers):
+                try:
+                    if ctrl.getModel() is not None:
+                        alive_popup_controllers.append(ctrl)
+                        if idx < len(review_click_popup._handlers):
+                            alive_popup_handlers.append(review_click_popup._handlers[idx])
+                except Exception:
+                    pass
+            review_click_popup._registered_controllers[:] = alive_popup_controllers
+            review_click_popup._handlers[:] = alive_popup_handlers
+    except Exception:
+        log.debug("change_context_menu: cleanup failed", exc_info=True)
+
+
 def _register_controller(controller: Any) -> None:
     """Register the interceptor on one Writer view controller (idempotent per controller)."""
     if controller is None:
         return
+    _cleanup_disposed_controllers()
     try:
         with _lock:
             if controller in _registered_controllers:  # UNO-identity equality, see above

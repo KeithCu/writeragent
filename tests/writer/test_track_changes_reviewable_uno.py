@@ -553,3 +553,40 @@ def test_review_authors_failed_begin_leaves_split_authoring_disarmed_uno():
             "a failed begin() must leave split authoring disarmed (deletion_author stays inert)"
     finally:
         review_authors.end(_ctx, None)  # keep the thread-local clean for later tests
+
+
+@native_test
+def test_apply_document_content_wait_timeout_zero_returns_pending_uno():
+    """Wait mode with timeout=0 on a background thread: executes edit and returns immediately
+    with complete=False and pending changes."""
+    import threading
+    _reset("Initial text.")
+    prev_mode = get_config(_ctx, _FLAG)
+    prev_timeout = get_config(_ctx, "doc.edit_review_timeout")
+    set_config(_ctx, _FLAG, "wait")
+    set_config(_ctx, "doc.edit_review_timeout", 0)
+
+    try:
+        tool = ApplyDocumentContent()
+        res = {}
+        def _run_tool():
+            # Must run on a background thread so the tool is considered async and enters wait path
+            tool_ctx = _tool_ctx()
+            res["val"] = tool.execute(tool_ctx, target="full_document", content=["New document body."])
+
+        t = threading.Thread(target=_run_tool)
+        t.start()
+        t.join()
+
+        outcome = res.get("val", {})
+        assert outcome.get("status") == "ok", outcome
+        review = outcome.get("review", {})
+        assert review.get("complete") is False, "complete should be False on immediate timeout"
+        assert review.get("timed_out") is True, "timed_out should be True"
+        changes = review.get("changes", [])
+        assert len(changes) == 1, changes
+        assert changes[0]["outcome"] == "pending", changes[0]["outcome"]
+    finally:
+        set_config(_ctx, _FLAG, prev_mode)
+        set_config(_ctx, "doc.edit_review_timeout", prev_timeout)
+        _reject_all()

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-11 14:33-0400\n"
+"POT-Creation-Date: 2026-06-15 21:36-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Hungarian <LL@li.org>\n"
@@ -293,6 +293,113 @@ msgstr " létrehozta: "
 msgid " with "
 msgstr " ezzel: "
 
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: No active document"
+msgstr "Gyorsítótár állapota: Nincs aktív dokumentum"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Folder not resolved"
+msgstr "Gyorsítótár állapota: A mappa nem található"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Not built (zvec)"
+msgstr "Gyorsítótár állapota: Nincs felépítve (zvec)"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Not built (lancedb)"
+msgstr "Gyorsítótár állapota: Nincs felépítve (lancedb)"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Not built"
+msgstr "Gyorsítótár állapota: Nincs felépítve"
+
+#: plugin/embeddings/search_ui.py
+msgid "just now"
+msgstr "épp most"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "{0}m ago"
+msgstr "{0} perce"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "{0}h ago"
+msgstr "{0} órája"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "Cache Status: Built ({0})"
+msgstr "Gyorsítótár állapota: Felépítve ({0})"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Built"
+msgstr "Gyorsítótár állapota: Felépítve"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "Cache Status: Error ({0})"
+msgstr "Gyorsítótár állapota: Hiba ({0})"
+
+#: plugin/embeddings/search_ui.py plugin/xdl_strings.py
+msgid "Search"
+msgstr "Keresés"
+
+#: plugin/embeddings/search_ui.py
+msgid "Please enter a search query."
+msgstr "Kérjük, adjon meg egy keresőkifejezést."
+
+#: plugin/embeddings/search_ui.py
+msgid "Searching..."
+msgstr "Keresés..."
+
+#: plugin/embeddings/search_ui.py
+msgid "No active document found."
+msgstr "Nem található aktív dokumentum."
+
+#: plugin/embeddings/search_ui.py
+msgid ""
+"Cross-file search is disabled. Enable Embeddings + FTS in Settings → "
+"Embeddings."
+msgstr ""
+"A fájlok közötti keresés le van tiltva. Engedélyezze a beágyazásokat és a "
+"teljes szöveges keresést (FTS) a Beállítások → Beágyazások menüpontban."
+
+#: plugin/embeddings/search_ui.py
+msgid "Error: "
+msgstr "Hiba: "
+
+#: plugin/embeddings/search_ui.py
+msgid ""
+"Folder index is building in the background. Please retry search shortly."
+msgstr ""
+"A mappaindex építése a háttérben zajlik. Kérjük, próbálja meg a keresést "
+"később."
+
+#: plugin/embeddings/search_ui.py
+msgid "No matches found."
+msgstr "Nincs találat."
+
+#: plugin/embeddings/search_ui.py
+msgid "Error running search: "
+msgstr "Hiba a keresés futtatásakor: "
+
+#: plugin/embeddings/search_ui.py
+msgid "Rebuilding cache..."
+msgstr "Gyorsítótár újraépítése..."
+
+#: plugin/embeddings/search_ui.py
+msgid "No active folder resolved."
+msgstr "Nem sikerült feloldani az aktív mappát."
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache rebuild completed successfully."
+msgstr "A gyorsítótár újraépítése sikeresen befejeződött."
+
+#: plugin/embeddings/search_ui.py
+msgid "Rebuild failed: "
+msgstr "Az újraépítés sikertelen: "
+
 #: plugin/framework/errors.py
 #, python-brace-format
 msgid "TLS/SSL Error: {0}"
@@ -442,7 +549,7 @@ msgid "Please enter edit instructions!"
 msgstr "Kérjük, adja meg a szerkesztési utasításokat!"
 
 #: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/chatbot/dialogs.py plugin/xdl_strings.py
+#: plugin/xdl_strings.py
 msgid "Input"
 msgstr "Bevitel"
 
@@ -454,7 +561,7 @@ msgstr "WriterAgent: Kijelölés szerkesztése (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Kijelölés kiterjesztése (Calc)"
 
-#: plugin/calc/vision_egress.py plugin/scripting/vision_runner.py
+#: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
 msgid "Select an embedded image, then Run again."
 msgstr "Jelöljön ki egy beágyazott képet, majd futtassa újra."
 
@@ -465,10 +572,6 @@ msgstr "Horgonyozza a képet egy cellához, jelölje ki, majd futtassa újra."
 #: plugin/calc/vision_egress.py
 msgid "No structured tables or text blocks to insert."
 msgstr "Nincsenek beszúrható strukturált táblázatok vagy szövegblokkok."
-
-#: plugin/calc/spreadsheet_import/import_dialog.py
-msgid "Convert Sheet to Python"
-msgstr "Munkalap konvertálása Pythonra"
 
 #: plugin/calc/python_editor.py
 msgid ""
@@ -488,8 +591,8 @@ msgstr "Python cella-szerkesztő"
 msgid "Save as plain text"
 msgstr "Mentés egyszerű szövegként"
 
-#: plugin/calc/python_editor.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py
+#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
 msgid "Save"
 msgstr "Mentés"
 
@@ -536,6 +639,40 @@ msgstr ""
 msgid "unknown error"
 msgstr "ismeretlen hiba"
 
+#: plugin/writer/change_context_menu.py
+msgid "Accept whole change (agent)"
+msgstr "Teljes módosítás elfogadása (ügynök)"
+
+#: plugin/writer/change_context_menu.py
+msgid "Reject whole change (agent)"
+msgstr "Teljes módosítás elutasítása (ügynök)"
+
+#: plugin/writer/change_context_menu.py
+msgid "Accept all agent changes"
+msgstr "Az összes ügynökmódosítás elfogadása"
+
+#: plugin/writer/change_context_menu.py
+msgid "Reject all agent changes"
+msgstr "Az összes ügynökmódosítás elutasítása"
+
+#: plugin/writer/review_click_popup.py
+msgid "Accept this change"
+msgstr "Módosítás elfogadása"
+
+#: plugin/writer/review_click_popup.py
+msgid "Reject this change"
+msgstr "Módosítás elutasítása"
+
+#: plugin/writer/review_click_popup.py
+#, python-brace-format
+msgid "Accept all {0} changes"
+msgstr "Összes {0} módosítás elfogadása"
+
+#: plugin/writer/review_click_popup.py
+#, python-brace-format
+msgid "Reject all {0} changes"
+msgstr "Összes {0} módosítás elvetése"
+
 #: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Kijelölés kiterjesztése"
@@ -543,26 +680,6 @@ msgstr "WriterAgent: Kijelölés kiterjesztése"
 #: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Kijelölés szerkesztése"
-
-#: plugin/writer/math/latex_dialog.py
-msgid "Insert LaTeX Math"
-msgstr "LaTeX-képlet beszúrása"
-
-#: plugin/writer/math/latex_dialog.py
-msgid "Enter LaTeX math code to convert and insert as formula:"
-msgstr "Adja meg a konvertálandó és képletként beszúrandó LaTeX-kódot:"
-
-#: plugin/writer/math/latex_dialog.py
-msgid "Insert as display block (centered paragraph)"
-msgstr "Beszúrás megjelenítési blokként (középre igazított bekezdés)"
-
-#: plugin/writer/math/latex_dialog.py
-msgid "Insert"
-msgstr "Beszúrás"
-
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/dialogs.py
-msgid "Cancel"
-msgstr "Mégse"
 
 #: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
 #: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
@@ -586,6 +703,19 @@ msgstr "Képlet beszúrva."
 #: plugin/writer/math/latex_dialog.py
 msgid "LaTeX Math Editor"
 msgstr "LaTeX képletszerkesztő"
+
+#: plugin/writer/math/latex_dialog.py plugin/xdl_strings.py
+msgid "Insert as display block (centered paragraph)"
+msgstr "Beszúrás megjelenítési blokként (középre igazított bekezdés)"
+
+#: plugin/writer/math/latex_dialog.py plugin/xdl_strings.py
+msgid "Insert"
+msgstr "Beszúrás"
+
+#: plugin/writer/math/latex_dialog.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "Bezárás"
 
 #: plugin/writer/math/latex_dialog.py
 msgid "LaTeX Conversion Error"
@@ -885,28 +1015,8 @@ msgid "Tool: %s"
 msgstr "Eszköz: %s"
 
 #: plugin/chatbot/dialogs.py
-msgid "Edit search query"
-msgstr "Keresési lekérdezés szerkesztése"
-
-#: plugin/chatbot/dialogs.py
-msgid "Search query:"
-msgstr "Keresési lekérdezés:"
-
-#: plugin/chatbot/dialogs.py plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "OK"
-msgstr "OK"
-
-#: plugin/chatbot/dialogs.py
-msgid "Copy"
-msgstr "Másolás"
-
-#: plugin/chatbot/dialogs.py
 msgid "Copied!"
 msgstr "Másolva!"
-
-#: plugin/chatbot/dialogs.py
-msgid "Copy URL"
-msgstr "URL másolása"
 
 #: plugin/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
@@ -1019,8 +1129,12 @@ msgstr "A(z) '%s' keresési lekérdezés el lesz küldve a keresőmotornak."
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
-msgid "Research cache hit (fuzzy, %s%% match: %s%s → %s)"
-msgstr "Kutatási gyorsítótár találat (fuzzy, %s%% egyezés: %s%s → %s)"
+msgid ""
+"Research cache hit (fuzzy, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
+"%(matched)s)"
+msgstr ""
+"Kutatási gyorsítótár találat (fuzzy, %(pct)s%% egyezés: "
+"%(lang_bit)s%(cache_key)s → %(matched)s)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1190,18 +1304,9 @@ msgstr "Venv OK"
 msgid "Venv check failed"
 msgstr "A virtuális környezet ellenőrzése sikertelen"
 
-#: plugin/chatbot/dialog_views.py
-msgid "Python Test"
-msgstr "Python-teszt"
-
-#: plugin/chatbot/dialog_views.py
+#: plugin/chatbot/dialog_views.py plugin/xdl_strings.py
 msgid "Testing Python environment..."
 msgstr "Python-környezet tesztelése..."
-
-#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "Bezárás"
 
 #: plugin/chatbot/dialog_views.py
 msgid "Done"
@@ -1214,6 +1319,10 @@ msgstr "Sikertelen"
 #: plugin/chatbot/config_ui_helpers.py
 msgid "(Enter API Key to load models)"
 msgstr "(Adja meg az API-kulcsot a modellek betöltéséhez)"
+
+#: plugin/chatbot/config_ui_helpers.py
+msgid "(No image models on this endpoint)"
+msgstr "(Nincsenek képmodellek ezen a végponton)"
 
 #: plugin/chatbot/config_ui_helpers.py
 msgid "(Connection failed)"
@@ -1296,38 +1405,6 @@ msgstr "Saját szkriptek"
 msgid "This Document"
 msgstr "Ez a dokumentum"
 
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
-msgid "Run Python Script"
-msgstr "Python-szkript futtatása"
-
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "Futtatás"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Script:"
-msgstr "Parancsfájl:"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Attach"
-msgstr "Csatolás"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Save As..."
-msgstr "Mentés másként…"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Delete"
-msgstr "Törlés"
-
-#: plugin/scripting/python_runner_ui.py
-msgid ""
-"Enter Python code to execute in the user virtual environment.\n"
-"Assign the result to the 'result' variable."
-msgstr ""
-"Adja meg a végrehajtandó Python-kódot a felhasználói virtuális környezetben.\n"
-"A végeredményt rendelje a „result” változóhoz."
-
 #: plugin/scripting/python_runner_ui.py
 #, python-format
 msgid "%s Saved to My Scripts instead."
@@ -1342,10 +1419,6 @@ msgstr "A(z) „%s” parancsfájl mentve ehhez a dokumentumhoz."
 #, python-format
 msgid "Script '%s' saved successfully."
 msgstr "A(z) „%s” parancsfájl sikeresen mentve."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Sample scratchpad saved successfully."
-msgstr "A mintajegyzetfüzet sikeresen mentve."
 
 #: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
 msgid "No document is open to attach scripts."
@@ -1382,18 +1455,6 @@ msgstr "Parancsfájl mentése"
 #, python-brace-format
 msgid "Save script '{0}' to this document?"
 msgstr "Mentse a(z) „{0}” parancsfájlt ebbe a dokumentumba?"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Are you sure you want to clear the Sample scratchpad?"
-msgstr "Biztosan törölni szeretné a mintajegyzetfüzetet?"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Clear Script"
-msgstr "Parancsfájl törlése"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Sample scratchpad cleared."
-msgstr "A mintajegyzetfüzet törölve."
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -1496,95 +1557,82 @@ msgstr "A Python-szerkesztő kilépett, mielőtt betölthette volna a kódot."
 msgid "Could not talk to the Python editor."
 msgstr "Nem sikerült kommunikálni a Python-szerkesztővel."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid ""
 "Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "A vizuális szonda időtúllépést jelzett (a Docling importálása az első "
 "ellenőrzéskor 10–30 másodpercet is igénybe vehet)."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision probe failed (see writeragent_debug.log)."
 msgstr "A vizuális szonda sikertelen (lásd: writeragent_debug.log)."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid ""
-"Embeddings probe timed out (sentence-transformers import can take 10–30s on "
-"first check)."
+"Vector Search probe timed out (sentence-transformers import can take 10–30s "
+"on first check)."
 msgstr ""
-"A beágyazások vizsgálata időtúllépés miatt leállt (a sentence-transformers "
-"importálása az első ellenőrzéskor 10–30 másodpercet is igénybe vehet)."
+"A vektorkeresési próba időtúllépést okozott (a sentence-transformers "
+"importálása 10–30 másodpercet is igénybe vehet az első ellenőrzéskor)."
 
-#: plugin/scripting/venv_worker.py
-msgid "Embeddings probe failed (see writeragent_debug.log)."
-msgstr "A beágyazások vizsgálata sikertelen (lásd: writeragent_debug.log)."
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vector Search probe failed (see writeragent_debug.log)."
+msgstr "A vektorkeresési próba sikertelen (lásd: writeragent_debug.log)."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Visualization Libraries"
 msgstr "Vizualizációs könyvtárak"
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Computer Algebra"
 msgstr "Számítógépes algebra"
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Quantitative Finance Libraries"
 msgstr "Kvantitatív pénzügyi könyvtárak"
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Data Engineering Libraries"
 msgstr "Adatmérnöki könyvtárak"
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries"
 msgstr "Látáskönyvtárak"
 
-#: plugin/scripting/venv_worker.py
-msgid "Embeddings Libraries"
-msgstr "Beágyazási könyvtárak"
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vector Search Libraries"
+msgstr "Vektorkeresési könyvtárak"
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
 msgstr "Python-háttérfolyamat indítása..."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Reading Python version..."
 msgstr "Python-verzió olvasása..."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries: loading (first run may take a while)..."
 msgstr "Vision Libraries: betöltés (az első futtatás eltarthat egy ideig)..."
 
-#: plugin/scripting/venv_worker.py
-msgid "Embeddings Libraries: loading (first run may take a while)..."
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vector Search Libraries: loading (first run may take a while)..."
 msgstr ""
-"Beágyazási könyvtárak: betöltés (az első futtatás eltarthat egy ideig)..."
+"Vektorkeresési könyvtárak: betöltés (az első futtatás eltarthat egy "
+"ideig)..."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Using LibreOffice process Python..."
 msgstr "LibreOffice-folyamat Python használata..."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Resolving venv Python..."
 msgstr "venv Python feloldása..."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Using"
 msgstr "Használat:"
-
-#: plugin/scripting/vision_runner.py
-#, python-brace-format
-msgid ""
-"Image '{name}' not found. Use list_images or leave image_name empty and "
-"select the graphic."
-msgstr ""
-"A(z) '{name}' kép nem található. Használja a list_images parancsot, vagy "
-"hagyja üresen az image_name mezőt, és jelölje ki a grafikát."
-
-#: plugin/scripting/vision_runner.py
-#, python-brace-format
-msgid "Image '{name}' could not be exported."
-msgstr "A(z) '{name}' kép nem exportálható."
 
 #: plugin/scripting/symbolic.py
 msgid "Symbolic helper failed."
@@ -1878,11 +1926,33 @@ msgstr "A szkript sikeresen lefutott. ({time} alatt)"
 msgid "Script saved."
 msgstr "Parancsfájl mentve."
 
+#: plugin/scripting/python_runner.py plugin/xdl_strings.py
+msgid "Run Python Script"
+msgstr "Python-szkript futtatása"
+
+#: plugin/scripting/python_runner.py plugin/xdl_strings.py
+msgid "Run"
+msgstr "Futtatás"
+
 #: plugin/scripting/python_runner.py
 msgid "Select data range or enter A1 address (injected as data)."
 msgstr ""
 "Jelöljön ki egy adattartományt, vagy adjon meg egy A1 címet (adatként "
 "beszúrva)."
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid ""
+"Image '{name}' not found. Use list_images or leave image_name empty and "
+"select the graphic."
+msgstr ""
+"A(z) '{name}' kép nem található. Használja a list_images parancsot, vagy "
+"hagyja üresen az image_name mezőt, és jelölje ki a grafikát."
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "Image '{name}' could not be exported."
+msgstr "A(z) '{name}' kép nem exportálható."
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -1914,7 +1984,7 @@ msgstr ""
 msgid "MCP server is not running"
 msgstr "Az MCP-kiszolgáló nem fut"
 
-#: plugin/mcp/__init__.py
+#: plugin/mcp/__init__.py plugin/xdl_strings.py
 msgid "MCP server running"
 msgstr "Az MCP-kiszolgáló fut"
 
@@ -1922,10 +1992,6 @@ msgstr "Az MCP-kiszolgáló fut"
 #, python-brace-format
 msgid "Routes: {0}"
 msgstr "Útvonalak: {0}"
-
-#: plugin/mcp/__init__.py
-msgid "Server Status"
-msgstr "Kiszolgáló állapota"
 
 #: plugin/mcp/__init__.py
 #, python-brace-format
@@ -1995,6 +2061,10 @@ msgid "Insert LaTeX Math..."
 msgstr "LaTeX-képlet beszúrása..."
 
 #: plugin/main.py
+msgid "Search Nearby Files..."
+msgstr "Keresés a közeli fájlokban..."
+
+#: plugin/main.py
 msgid "Convert Sheet to Python..."
 msgstr "Munkalap konvertálása Pythonra..."
 
@@ -2023,6 +2093,10 @@ msgid "API Key:"
 msgstr "API-kulcs:"
 
 #: plugin/xdl_strings.py
+msgid "Active Sheet"
+msgstr "Aktív munkalap"
+
+#: plugin/xdl_strings.py
 msgid "Additional Instructions (History):"
 msgstr "További utasítások (előzmények):"
 
@@ -2041,6 +2115,10 @@ msgstr "Kérdezés / utasítás:"
 #: plugin/xdl_strings.py
 msgid "Aspect Ratio:"
 msgstr "Képarány:"
+
+#: plugin/xdl_strings.py
+msgid "Attach"
+msgstr "Csatolás"
 
 #: plugin/xdl_strings.py
 msgid "Audio Model:"
@@ -2063,8 +2141,16 @@ msgid "CFG Scale:"
 msgstr "CFG-skála:"
 
 #: plugin/xdl_strings.py
+msgid "Cache Status: Checking..."
+msgstr "Gyorsítótár állapota: Ellenőrzés..."
+
+#: plugin/xdl_strings.py
 msgid "Calc"
 msgstr "Calc"
+
+#: plugin/xdl_strings.py
+msgid "Cancel"
+msgstr "Mégse"
 
 #: plugin/xdl_strings.py
 msgid "Categories:"
@@ -2083,6 +2169,22 @@ msgid "Clear"
 msgstr "Törlés"
 
 #: plugin/xdl_strings.py
+msgid "Convert Sheet to Python"
+msgstr "Munkalap konvertálása Pythonra"
+
+#: plugin/xdl_strings.py
+msgid "Copy"
+msgstr "Másolás"
+
+#: plugin/xdl_strings.py
+msgid "Copy URL"
+msgstr "URL másolása"
+
+#: plugin/xdl_strings.py
+msgid "Delete"
+msgstr "Törlés"
+
+#: plugin/xdl_strings.py
 msgid "Draw"
 msgstr "Draw"
 
@@ -2091,12 +2193,28 @@ msgid "Edit config file (JSON)…"
 msgstr "Konfigurációs fájl szerkesztése (JSON)…"
 
 #: plugin/xdl_strings.py
+msgid "Edit search query"
+msgstr "Keresési lekérdezés szerkesztése"
+
+#: plugin/xdl_strings.py
 msgid "Endpoint URL (/v1 added):"
 msgstr "Végpont URL (/v1 hozzáadva):"
 
 #: plugin/xdl_strings.py
 msgid "Endpoint URL:"
 msgstr "Végpont URL:"
+
+#: plugin/xdl_strings.py
+msgid "Enter LaTeX math code to convert and insert as formula:"
+msgstr "Adja meg a konvertálandó és képletként beszúrandó LaTeX-kódot:"
+
+#: plugin/xdl_strings.py
+msgid ""
+"Enter Python code to execute in the user virtual environment.\n"
+"Assign the result to the 'result' variable."
+msgstr ""
+"Adja meg a végrehajtandó Python-kódot a felhasználói virtuális környezetben.\n"
+"A végeredményt rendelje a „result” változóhoz."
 
 #: plugin/xdl_strings.py
 msgid "General"
@@ -2111,8 +2229,20 @@ msgid "Image Settings"
 msgstr "Képbeállítások"
 
 #: plugin/xdl_strings.py
+msgid "In-place replacement"
+msgstr "Helyben történő csere"
+
+#: plugin/xdl_strings.py
+msgid "Input:"
+msgstr "Bevitel:"
+
+#: plugin/xdl_strings.py
 msgid "Insert Frame"
 msgstr "Keret beszúrása"
+
+#: plugin/xdl_strings.py
+msgid "Insert LaTeX Math"
+msgstr "LaTeX-képlet beszúrása"
 
 #: plugin/xdl_strings.py
 msgid "Max Tokens:"
@@ -2123,6 +2253,10 @@ msgid "Max Wait (s):"
 msgstr "Maximális várakozási idő (mp):"
 
 #: plugin/xdl_strings.py
+msgid "Message"
+msgstr "Üzenet"
+
+#: plugin/xdl_strings.py
 msgid "Models to Test:"
 msgstr "Tesztelendő modellek:"
 
@@ -2131,20 +2265,92 @@ msgid "Multimodal"
 msgstr "Multimodális"
 
 #: plugin/xdl_strings.py
+msgid "New Sheet (PythonImport)"
+msgstr "Új munkalap (PythonImport)"
+
+#: plugin/xdl_strings.py
+msgid "Number of Responses:"
+msgstr "Válaszok száma:"
+
+#: plugin/xdl_strings.py
+msgid "OK"
+msgstr "OK"
+
+#: plugin/xdl_strings.py
+msgid "Options"
+msgstr "Beállítások"
+
+#: plugin/xdl_strings.py
+msgid "Output Mode"
+msgstr "Kimeneti mód"
+
+#: plugin/xdl_strings.py
 msgid "Please enter edit instructions:"
 msgstr "Kérjük, adja meg a szerkesztési utasításokat:"
+
+#: plugin/xdl_strings.py
+msgid "Preserve number formats"
+msgstr "Számformátumok megőrzése"
+
+#: plugin/xdl_strings.py
+msgid "Python Test"
+msgstr "Python-teszt"
+
+#: plugin/xdl_strings.py
+msgid "Rebuild"
+msgstr "Újraépítés"
+
+#: plugin/xdl_strings.py
+msgid "Results:"
+msgstr "Eredmények:"
 
 #: plugin/xdl_strings.py
 msgid "Run Benchmark"
 msgstr "Benchmark futtatása"
 
 #: plugin/xdl_strings.py
+msgid "Save As..."
+msgstr "Mentés másként…"
+
+#: plugin/xdl_strings.py
+msgid "Scope"
+msgstr "Hatókör"
+
+#: plugin/xdl_strings.py
+msgid "Script:"
+msgstr "Parancsfájl:"
+
+#: plugin/xdl_strings.py
+msgid "Search Nearby Files"
+msgstr "Keresés a közeli fájlokban"
+
+#: plugin/xdl_strings.py
+msgid "Search Query:"
+msgstr "Keresési lekérdezés:"
+
+#: plugin/xdl_strings.py
+msgid "Search query:"
+msgstr "Keresési lekérdezés:"
+
+#: plugin/xdl_strings.py
 msgid "Seed:"
 msgstr "Kiinduló érték (seed):"
 
 #: plugin/xdl_strings.py
+msgid "Selection"
+msgstr "Kijelölés"
+
+#: plugin/xdl_strings.py
+msgid "Server Status"
+msgstr "Kiszolgáló állapota"
+
+#: plugin/xdl_strings.py
 msgid "Square"
 msgstr "Négyzet"
+
+#: plugin/xdl_strings.py
+msgid "Status"
+msgstr "Állapot"
 
 #: plugin/xdl_strings.py
 msgid "Steps:"
@@ -2171,6 +2377,14 @@ msgid "Use AI Horde for Image Generation"
 msgstr "AI Horde használata képgeneráláshoz"
 
 #: plugin/xdl_strings.py
+msgid "Vectorize columns when safe"
+msgstr "Oszlopok vektorizálása, ha biztonságos"
+
+#: plugin/xdl_strings.py
+msgid "Verify recalc (oracle diff)"
+msgstr "Újraszámítás ellenőrzése (oracle diff)"
+
+#: plugin/xdl_strings.py
 msgid "Writer"
 msgstr "Writer"
 
@@ -2178,8 +2392,8 @@ msgstr "Writer"
 msgid "WriterAgent Evaluation Dashboard"
 msgstr "WriterAgent kiértékelő irányítópult"
 
-msgid "ACP"
-msgstr "ACP"
+msgid "Agent Communication Protocol"
+msgstr "Ügynökkommunikációs protokoll"
 
 msgid "Backend"
 msgstr "Háttérprogram"
@@ -2275,17 +2489,39 @@ msgid "Web Research Cache"
 msgstr "Webkutatási gyorsítótár"
 
 msgid ""
-"Cache completed web research reports by normalized query (reuses web search "
-"cache database)."
+"Cache completed web research reports by normalized query (uses web cache "
+"database)."
 msgstr ""
-"Webkutatási jelentések gyorsítótárazása normalizált lekérdezés alapján "
-"(újrahasználja a webes keresési gyorsítótár-adatbázist)."
+"Befejezett webes kutatási jelentések gyorsítótárazása normalizált lekérdezés"
+" alapján (webes gyorsítótár-adatbázist használ)."
 
 msgid "Prompt for Web Research"
 msgstr "Webes kutatás kérése"
 
 msgid "Ask for confirmation before sending a web search query"
 msgstr "Megerősítés kérése webes keresési lekérdezés küldése előtt"
+
+msgid "Web Research Browser"
+msgstr "Webkutató böngésző"
+
+msgid ""
+"Select the browser backend to use for webpage visits during research (Off "
+"uses static HTTP requests)."
+msgstr ""
+"Válassza ki a kutatás során használt böngésző-háttérprogramot (a „Ki” "
+"beállítás statikus HTTP-kéréseket használ)."
+
+msgid "Off (Static HTTP)"
+msgstr "Ki (statikus HTTP)"
+
+msgid "Firefox (CDP)"
+msgstr "Firefox (CDP)"
+
+msgid "Chromium (CDP)"
+msgstr "Chromium (CDP)"
+
+msgid "Chrome (CDP)"
+msgstr "Chrome (CDP)"
 
 msgid "Cache max (MB)"
 msgstr "Gyorsítótár maximuma (MB)"
@@ -2420,44 +2656,54 @@ msgstr ""
 "műveletet hajtja végre, mint a Küldés; a Shift+Enter sortörést szúr be. Ha "
 "ki van kapcsolva, az Enter sortörést szúr be."
 
+msgid "Agent edit review"
+msgstr "Agent szerkesztési felülvizsgálat"
+
+msgid ""
+"Off = direct edits. Record = tracked changes you accept/reject yourself. "
+"Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
+"review."
+msgstr ""
+"Ki = közvetlen szerkesztés. Rögzítés = követett módosítások, amelyeket Ön "
+"fogad el/utasít el. Várakozás = az apply_document_content blokkolása "
+"(csevegés/MCP munkaszálon), amíg Ön felül nem vizsgálja."
+
+msgid "Record (track changes)"
+msgstr "Rögzítés (módosítások követése)"
+
+msgid "Wait for review"
+msgstr "Várakozás a felülvizsgálatra"
+
 msgid "Draw and Impress tools"
 msgstr "Draw és Impress eszközök"
 
-msgid "Embeddings"
-msgstr "Beágyazások"
+msgid "Vector Search"
+msgstr "Vektorkeresés"
 
-msgid "Embeddings cache (per-folder semantic search)"
-msgstr "Beágyazások gyorsítótára (mappánkénti szemantikus keresés)"
-
-msgid ""
-"When on, builds a semantic index in writeragent_embeddings/ beside the "
-"active document's folder and also exposes search_embeddings in "
-"document_research (grep_nearby_files stays available). Requires Settings → "
-"Python venv with sentence-transformers, chromadb, langgraph, langchain-core,"
-" langchain-text-splitters, envwrap (see Settings → Python Test)."
-msgstr ""
-"Ha be van kapcsolva, szemantikus indexet épít a writeragent_embeddings/ "
-"mappában az aktív dokumentum mappája mellett, és elérhetővé teszi a "
-"search_embeddings funkciót a document_research-ben (a grep_nearby_files "
-"továbbra is elérhető marad). Szükséges hozzá: Beállítások → Python venv a "
-"sentence-transformers, chromadb, langgraph, langchain-core, langchain-text-"
-"splitters, envwrap csomagokkal (lásd: Beállítások → Python teszt)."
-
-msgid "Embedding Provider"
-msgstr "Beágyazás-szolgáltató"
+msgid "Cross-file search"
+msgstr "Fájlok közötti keresés"
 
 msgid ""
-"local (sentence-transformers in venv) or endpoint (configured remote/local "
-"endpoint)"
+"Indexed semantic + keyword search for document_research (corpus.db). "
+"Requires embeddings venv — see Python Test."
 msgstr ""
-"helyi (sentence-transformers a venv-ben) vagy végpont (konfigurált "
-"távoli/helyi végpont)"
+"Indexelt szemantikus + kulcsszavas keresés a document_research (corpus.db) "
+"számára. Beágyazási venv szükséges – lásd a Python tesztet."
 
-msgid "Local (venv)"
-msgstr "Helyi (venv)"
+msgid "Embeddings + FTS"
+msgstr "Beágyazások + FTS"
 
-msgid "Endpoint"
-msgstr "Végpont"
+msgid "LlamaIndex"
+msgstr "LlamaIndex"
+
+msgid "Zvec (experimental)"
+msgstr "Zvec (kísérleti)"
+
+msgid "ChromaDB"
+msgstr "ChromaDB"
+
+msgid "LanceDB (experimental)"
+msgstr "LanceDB (kísérleti)"
 
 msgid "Embedding Model"
 msgstr "Beágyazási modell"
@@ -2466,6 +2712,32 @@ msgid "HuggingFace model ID for local provider, or endpoint-specific model ID"
 msgstr ""
 "HuggingFace modellazonosító helyi szolgáltatóhoz, vagy végpontspecifikus "
 "modellazonosító"
+
+msgid "Enable cross-file rerank"
+msgstr "Keresztfájl-újrarangsorolás engedélyezése"
+
+msgid ""
+"Second-stage cross-encoder after hybrid retrieve (Embeddings + FTS and "
+"LlamaIndex). Off by default."
+msgstr ""
+"Másodfokú keresztkódoló hibrid lekérdezés (beágyazások + FTS és LlamaIndex) "
+"után. Alapértelmezésben kikapcsolva."
+
+msgid "Rerank model"
+msgstr "Újrarangsoroló modell"
+
+msgid ""
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
+msgstr ""
+"Csak akkor használatos, ha az újrarangsorolás engedélyezve van. Az angol "
+"MiniLM gyors; a bge-reranker-v2-m3 többnyelvű és kb. 2,3 GB-ot tölt le."
+
+msgid "cross-encoder/ms-marco-MiniLM-L-6-v2"
+msgstr "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
+msgid "BAAI/bge-reranker-v2-m3"
+msgstr "BAAI/bge-reranker-v2-m3"
 
 msgid "Core services (config, events, logging)"
 msgstr "Alapszolgáltatások (konfiguráció, események, naplózás)"
@@ -2647,44 +2919,3 @@ msgstr "Docling dokumentum-időtúllépés (mp)"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Konverziónkénti időtúllépés a Doclingben. 0 = nincs korlát."
-
-msgid "Writer document tools (including navigation and search)"
-msgstr "Writer-dokumentumeszközök (beleértve a navigációt és a keresést)"
-
-msgid "Web Research Browser"
-msgstr "Webkutató böngésző"
-
-msgid ""
-"Select the browser backend to use for webpage visits during research (Off "
-"uses static HTTP requests)."
-msgstr ""
-"Válassza ki a kutatás során használt böngésző-háttérprogramot (a „Ki” "
-"beállítás statikus HTTP-kéréseket használ)."
-
-msgid "Off (Static HTTP)"
-msgstr "Ki (statikus HTTP)"
-
-msgid "Firefox (CDP)"
-msgstr "Firefox (CDP)"
-
-msgid "Chromium (CDP)"
-msgstr "Chromium (CDP)"
-
-msgid "Chrome (CDP)"
-msgstr "Chrome (CDP)"
-
-msgid "Cross-file search mode"
-msgstr "Fájlok közötti keresési mód"
-
-msgid ""
-"Cross-file search for document_research. Requires embeddings venv — see "
-"Python Test."
-msgstr ""
-"Fájlok közötti keresés a document_research számára. Beágyazott venv "
-"szükséges – lásd a Python-tesztet."
-
-msgid "None"
-msgstr "Nincs"
-
-msgid "SQLite FTS (venv)"
-msgstr "SQLite FTS (venv)"

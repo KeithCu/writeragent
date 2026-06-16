@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-11 14:33-0400\n"
+"POT-Creation-Date: 2026-06-15 21:36-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Estonian <LL@li.org>\n"
@@ -291,6 +291,111 @@ msgstr " genereerinud "
 msgid " with "
 msgstr " koos "
 
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: No active document"
+msgstr "Vahemälu olek: Aktiivne dokument puudub"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Folder not resolved"
+msgstr "Vahemälu olek: Kausta ei leitud"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Not built (zvec)"
+msgstr "Vahemälu olek: Pole koostatud (zvec)"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Not built (lancedb)"
+msgstr "Vahemälu olek: Pole koostatud (lancedb)"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Not built"
+msgstr "Vahemälu olek: Pole koostatud"
+
+#: plugin/embeddings/search_ui.py
+msgid "just now"
+msgstr "just nüüd"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "{0}m ago"
+msgstr "{0} min tagasi"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "{0}h ago"
+msgstr "{0} h tagasi"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "Cache Status: Built ({0})"
+msgstr "Vahemälu olek: Koostatud ({0})"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Built"
+msgstr "Vahemälu olek: Koostatud"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "Cache Status: Error ({0})"
+msgstr "Vahemälu olek: Viga ({0})"
+
+#: plugin/embeddings/search_ui.py plugin/xdl_strings.py
+msgid "Search"
+msgstr "Otsi"
+
+#: plugin/embeddings/search_ui.py
+msgid "Please enter a search query."
+msgstr "Palun sisesta otsingupäring."
+
+#: plugin/embeddings/search_ui.py
+msgid "Searching..."
+msgstr "Otsin..."
+
+#: plugin/embeddings/search_ui.py
+msgid "No active document found."
+msgstr "Aktiivset dokumenti ei leitud."
+
+#: plugin/embeddings/search_ui.py
+msgid ""
+"Cross-file search is disabled. Enable Embeddings + FTS in Settings → "
+"Embeddings."
+msgstr ""
+"Failidevaheline otsing on keelatud. Luba manused + FTS jaotises Seaded → "
+"Manused."
+
+#: plugin/embeddings/search_ui.py
+msgid "Error: "
+msgstr "Viga: "
+
+#: plugin/embeddings/search_ui.py
+msgid ""
+"Folder index is building in the background. Please retry search shortly."
+msgstr "Kausta indeksit luuakse taustal. Palun proovi otsingut varsti uuesti."
+
+#: plugin/embeddings/search_ui.py
+msgid "No matches found."
+msgstr "Vasteid ei leitud."
+
+#: plugin/embeddings/search_ui.py
+msgid "Error running search: "
+msgstr "Viga otsingu käivitamisel: "
+
+#: plugin/embeddings/search_ui.py
+msgid "Rebuilding cache..."
+msgstr "Puhvri taastamine..."
+
+#: plugin/embeddings/search_ui.py
+msgid "No active folder resolved."
+msgstr "Aktiivset kausta ei tuvastatud."
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache rebuild completed successfully."
+msgstr "Puhvri taastamine õnnestus."
+
+#: plugin/embeddings/search_ui.py
+msgid "Rebuild failed: "
+msgstr "Taastamine ebaõnnestus: "
+
 #: plugin/framework/errors.py
 #, python-brace-format
 msgid "TLS/SSL Error: {0}"
@@ -436,7 +541,7 @@ msgid "Please enter edit instructions!"
 msgstr "Palun sisestage redigeerimisjuhised!"
 
 #: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/chatbot/dialogs.py plugin/xdl_strings.py
+#: plugin/xdl_strings.py
 msgid "Input"
 msgstr "Sisend"
 
@@ -448,7 +553,7 @@ msgstr "WriterAgent: valiku redigeerimine (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: valiku laiendamine (Calc)"
 
-#: plugin/calc/vision_egress.py plugin/scripting/vision_runner.py
+#: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
 msgid "Select an embedded image, then Run again."
 msgstr "Valige manustatud pilt ja käivitage uuesti."
 
@@ -459,10 +564,6 @@ msgstr "Ankurdage pilt lahtrisse, valige see ja käivitage uuesti."
 #: plugin/calc/vision_egress.py
 msgid "No structured tables or text blocks to insert."
 msgstr "Ühtegi struktureeritud tabelit või tekstiplokki pole võimalik lisada."
-
-#: plugin/calc/spreadsheet_import/import_dialog.py
-msgid "Convert Sheet to Python"
-msgstr "Teisenda tabel Pythoniks"
 
 #: plugin/calc/python_editor.py
 msgid ""
@@ -482,8 +583,8 @@ msgstr "Python-lahtriredaktor"
 msgid "Save as plain text"
 msgstr "Salvesta lihttekstina"
 
-#: plugin/calc/python_editor.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py
+#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
 msgid "Save"
 msgstr "Salvesta"
 
@@ -528,6 +629,40 @@ msgstr ""
 msgid "unknown error"
 msgstr "tundmatu viga"
 
+#: plugin/writer/change_context_menu.py
+msgid "Accept whole change (agent)"
+msgstr "Nõustu kogu muudatusega (agent)"
+
+#: plugin/writer/change_context_menu.py
+msgid "Reject whole change (agent)"
+msgstr "Lükka kogu muudatus tagasi (agent)"
+
+#: plugin/writer/change_context_menu.py
+msgid "Accept all agent changes"
+msgstr "Nõustu kõigi agendi muudatustega"
+
+#: plugin/writer/change_context_menu.py
+msgid "Reject all agent changes"
+msgstr "Lükka kõik agendi muudatused tagasi"
+
+#: plugin/writer/review_click_popup.py
+msgid "Accept this change"
+msgstr "Nõustu selle muudatusega"
+
+#: plugin/writer/review_click_popup.py
+msgid "Reject this change"
+msgstr "Lükka see muudatus tagasi"
+
+#: plugin/writer/review_click_popup.py
+#, python-brace-format
+msgid "Accept all {0} changes"
+msgstr "Nõustu kõigi {0} muudatusega"
+
+#: plugin/writer/review_click_popup.py
+#, python-brace-format
+msgid "Reject all {0} changes"
+msgstr "Lükka tagasi kõik {0} muudatust"
+
 #: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: valiku laiendamine"
@@ -535,26 +670,6 @@ msgstr "WriterAgent: valiku laiendamine"
 #: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: valiku redigeerimine"
-
-#: plugin/writer/math/latex_dialog.py
-msgid "Insert LaTeX Math"
-msgstr "Lisa LaTeX-valem"
-
-#: plugin/writer/math/latex_dialog.py
-msgid "Enter LaTeX math code to convert and insert as formula:"
-msgstr "Sisestage LaTeX-i valemi kood teisendamiseks ja lisamiseks:"
-
-#: plugin/writer/math/latex_dialog.py
-msgid "Insert as display block (centered paragraph)"
-msgstr "Lisa plokina (keskendatud lõik)"
-
-#: plugin/writer/math/latex_dialog.py
-msgid "Insert"
-msgstr "Lisa"
-
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/dialogs.py
-msgid "Cancel"
-msgstr "Loobu"
 
 #: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
 #: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
@@ -578,6 +693,19 @@ msgstr "Valem sisestatud."
 #: plugin/writer/math/latex_dialog.py
 msgid "LaTeX Math Editor"
 msgstr "LaTeX-i valemiredaktor"
+
+#: plugin/writer/math/latex_dialog.py plugin/xdl_strings.py
+msgid "Insert as display block (centered paragraph)"
+msgstr "Lisa plokina (keskendatud lõik)"
+
+#: plugin/writer/math/latex_dialog.py plugin/xdl_strings.py
+msgid "Insert"
+msgstr "Lisa"
+
+#: plugin/writer/math/latex_dialog.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "Sulge"
 
 #: plugin/writer/math/latex_dialog.py
 msgid "LaTeX Conversion Error"
@@ -877,28 +1005,8 @@ msgid "Tool: %s"
 msgstr "Tööriist: %s"
 
 #: plugin/chatbot/dialogs.py
-msgid "Edit search query"
-msgstr "Muuda otsingupäringut"
-
-#: plugin/chatbot/dialogs.py
-msgid "Search query:"
-msgstr "Otsingupäring:"
-
-#: plugin/chatbot/dialogs.py plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "OK"
-msgstr "OK"
-
-#: plugin/chatbot/dialogs.py
-msgid "Copy"
-msgstr "Kopeeri"
-
-#: plugin/chatbot/dialogs.py
 msgid "Copied!"
 msgstr "Kopeeritud!"
-
-#: plugin/chatbot/dialogs.py
-msgid "Copy URL"
-msgstr "Kopeeri URL"
 
 #: plugin/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
@@ -1009,8 +1117,12 @@ msgstr "See otsingupäring '%s' saadetakse otsingumootorisse."
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
-msgid "Research cache hit (fuzzy, %s%% match: %s%s → %s)"
-msgstr "Uurimuse vahemälu tabamus (hägune, %s%% vaste: %s%s → %s)"
+msgid ""
+"Research cache hit (fuzzy, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
+"%(matched)s)"
+msgstr ""
+"Uuringute vahemälu tabamus (hägune, %(pct)s%% vaste: "
+"%(lang_bit)s%(cache_key)s → %(matched)s)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1179,18 +1291,9 @@ msgstr "Venv on korras"
 msgid "Venv check failed"
 msgstr "Venv-i kontrollimine ebaõnnestus"
 
-#: plugin/chatbot/dialog_views.py
-msgid "Python Test"
-msgstr "Pythoni test"
-
-#: plugin/chatbot/dialog_views.py
+#: plugin/chatbot/dialog_views.py plugin/xdl_strings.py
 msgid "Testing Python environment..."
 msgstr "Pythoni keskkonna testimine..."
-
-#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "Sulge"
 
 #: plugin/chatbot/dialog_views.py
 msgid "Done"
@@ -1203,6 +1306,10 @@ msgstr "Nurjus"
 #: plugin/chatbot/config_ui_helpers.py
 msgid "(Enter API Key to load models)"
 msgstr "(Sisestage API-võti mudelite laadimiseks)"
+
+#: plugin/chatbot/config_ui_helpers.py
+msgid "(No image models on this endpoint)"
+msgstr "(Selles lõpp-punktis puuduvad pildimudelid)"
 
 #: plugin/chatbot/config_ui_helpers.py
 msgid "(Connection failed)"
@@ -1283,38 +1390,6 @@ msgstr "Minu skriptid"
 msgid "This Document"
 msgstr "See dokument"
 
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
-msgid "Run Python Script"
-msgstr "Käivita Pythoni skript"
-
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "Käivita"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Script:"
-msgstr "Skript:"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Attach"
-msgstr "Lisa"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Save As..."
-msgstr "Salvesta nimega..."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Delete"
-msgstr "Kustuta"
-
-#: plugin/scripting/python_runner_ui.py
-msgid ""
-"Enter Python code to execute in the user virtual environment.\n"
-"Assign the result to the 'result' variable."
-msgstr ""
-"Sisesta Pythoni kood, mida kasutaja virtuaalkeskkonnas käivitada.\n"
-"Omista tulemus muutujale 'result'."
-
 #: plugin/scripting/python_runner_ui.py
 #, python-format
 msgid "%s Saved to My Scripts instead."
@@ -1329,10 +1404,6 @@ msgstr "Skript '%s' on sellesse dokumenti salvestatud."
 #, python-format
 msgid "Script '%s' saved successfully."
 msgstr "Skript „%s“ on edukalt salvestatud."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Sample scratchpad saved successfully."
-msgstr "Näidisplokk on edukalt salvestatud."
 
 #: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
 msgid "No document is open to attach scripts."
@@ -1369,18 +1440,6 @@ msgstr "Salvesta skript"
 #, python-brace-format
 msgid "Save script '{0}' to this document?"
 msgstr "Kas salvestada skript '{0}' sellesse dokumenti?"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Are you sure you want to clear the Sample scratchpad?"
-msgstr "Kas oled kindel, et soovid näidiste mustandivälja tühjendada?"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Clear Script"
-msgstr "Tühjenda skript"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Sample scratchpad cleared."
-msgstr "Näidiste mustandiväli on tühjendatud."
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -1483,94 +1542,81 @@ msgstr "Pythoni redaktor sulgus enne, kui see jõudis koodi laadida."
 msgid "Could not talk to the Python editor."
 msgstr "Pythoni redaktoriga ei saanud ühendust."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid ""
 "Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "Visuaalse kontrolli ajalõpp (Doclingi importimine võib esimesel korral võtta"
 " 10–30 sekundit)."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision probe failed (see writeragent_debug.log)."
 msgstr "Visuaalne kontroll nurjus (vaata writeragent_debug.log)."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid ""
-"Embeddings probe timed out (sentence-transformers import can take 10–30s on "
-"first check)."
+"Vector Search probe timed out (sentence-transformers import can take 10–30s "
+"on first check)."
 msgstr ""
-"Manuste kontrollimise ajalõpp (sentence-transformers importimine võib "
-"esimesel kontrollimisel võtta 10–30 sekundit)."
+"Vektorotsingu päring aegus (sentence-transformers importimine võib esimesel "
+"kontrollimisel võtta 10–30 sekundit)."
 
-#: plugin/scripting/venv_worker.py
-msgid "Embeddings probe failed (see writeragent_debug.log)."
-msgstr "Manuste kontrollimine ebaõnnestus (vaata writeragent_debug.log)."
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vector Search probe failed (see writeragent_debug.log)."
+msgstr "Vektorotsingu päring ebaõnnestus (vaata writeragent_debug.log)."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Visualization Libraries"
 msgstr "Visualiseerimisteegid"
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Computer Algebra"
 msgstr "Arvutialgebra"
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Quantitative Finance Libraries"
 msgstr "Kvantitatiivse rahanduse teegid"
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Data Engineering Libraries"
 msgstr "Andmetöötluse teegid"
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries"
 msgstr "Visuaalsed teegid"
 
-#: plugin/scripting/venv_worker.py
-msgid "Embeddings Libraries"
-msgstr "Manuste teegid"
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vector Search Libraries"
+msgstr "Vektorotsingu teegid"
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
 msgstr "Pythoni tööprotsessi käivitamine..."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Reading Python version..."
 msgstr "Pythoni versiooni lugemine..."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries: loading (first run may take a while)..."
 msgstr "Vision-teegid: laadimine (esmakordne käivitamine võib aega võtta)..."
 
-#: plugin/scripting/venv_worker.py
-msgid "Embeddings Libraries: loading (first run may take a while)..."
-msgstr "Manuste teegid: laadimine (esimene käivitus võib aega võtta)..."
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vector Search Libraries: loading (first run may take a while)..."
+msgstr ""
+"Vektorotsingu teegid: laadimine (esmakordne käivitamine võib aega võtta)..."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Using LibreOffice process Python..."
 msgstr "Kasutan LibreOffice'i Pythoni protsessi..."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Resolving venv Python..."
 msgstr "Tuvastan venv Pythonit..."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Using"
 msgstr "Kasutan"
-
-#: plugin/scripting/vision_runner.py
-#, python-brace-format
-msgid ""
-"Image '{name}' not found. Use list_images or leave image_name empty and "
-"select the graphic."
-msgstr ""
-"Pilti '{name}' ei leitud. Kasutage käsku list_images või jätke image_name "
-"tühjaks ja valige graafikaobjekt."
-
-#: plugin/scripting/vision_runner.py
-#, python-brace-format
-msgid "Image '{name}' could not be exported."
-msgstr "Pilti '{name}' ei saanud eksportida."
 
 #: plugin/scripting/symbolic.py
 msgid "Symbolic helper failed."
@@ -1846,9 +1892,31 @@ msgstr "Skript käivitati edukalt. (kulus {time})"
 msgid "Script saved."
 msgstr "Skript salvestatud."
 
+#: plugin/scripting/python_runner.py plugin/xdl_strings.py
+msgid "Run Python Script"
+msgstr "Käivita Pythoni skript"
+
+#: plugin/scripting/python_runner.py plugin/xdl_strings.py
+msgid "Run"
+msgstr "Käivita"
+
 #: plugin/scripting/python_runner.py
 msgid "Select data range or enter A1 address (injected as data)."
 msgstr "Valige andmevahemik või sisestage A1-aadress (lisatakse andmetena)."
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid ""
+"Image '{name}' not found. Use list_images or leave image_name empty and "
+"select the graphic."
+msgstr ""
+"Pilti '{name}' ei leitud. Kasutage käsku list_images või jätke image_name "
+"tühjaks ja valige graafikaobjekt."
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "Image '{name}' could not be exported."
+msgstr "Pilti '{name}' ei saanud eksportida."
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -1880,7 +1948,7 @@ msgstr ""
 msgid "MCP server is not running"
 msgstr "MCP-server ei tööta"
 
-#: plugin/mcp/__init__.py
+#: plugin/mcp/__init__.py plugin/xdl_strings.py
 msgid "MCP server running"
 msgstr "MCP-server töötab"
 
@@ -1888,10 +1956,6 @@ msgstr "MCP-server töötab"
 #, python-brace-format
 msgid "Routes: {0}"
 msgstr "Marsruudid: {0}"
-
-#: plugin/mcp/__init__.py
-msgid "Server Status"
-msgstr "Serveri olek"
 
 #: plugin/mcp/__init__.py
 #, python-brace-format
@@ -1961,6 +2025,10 @@ msgid "Insert LaTeX Math..."
 msgstr "Lisa LaTeX-valem..."
 
 #: plugin/main.py
+msgid "Search Nearby Files..."
+msgstr "Otsi lähedalolevaid faile..."
+
+#: plugin/main.py
 msgid "Convert Sheet to Python..."
 msgstr "Teisenda leht Pythoniks..."
 
@@ -1989,6 +2057,10 @@ msgid "API Key:"
 msgstr "API-võti:"
 
 #: plugin/xdl_strings.py
+msgid "Active Sheet"
+msgstr "Aktiivne leht"
+
+#: plugin/xdl_strings.py
 msgid "Additional Instructions (History):"
 msgstr "Lisajuhised (ajalugu):"
 
@@ -2007,6 +2079,10 @@ msgstr "Küsi / juhenda:"
 #: plugin/xdl_strings.py
 msgid "Aspect Ratio:"
 msgstr "Kuvasuhe:"
+
+#: plugin/xdl_strings.py
+msgid "Attach"
+msgstr "Lisa"
 
 #: plugin/xdl_strings.py
 msgid "Audio Model:"
@@ -2029,8 +2105,16 @@ msgid "CFG Scale:"
 msgstr "CFG-skaala:"
 
 #: plugin/xdl_strings.py
+msgid "Cache Status: Checking..."
+msgstr "Vahemälu olek: kontrollitakse..."
+
+#: plugin/xdl_strings.py
 msgid "Calc"
 msgstr "Calc"
+
+#: plugin/xdl_strings.py
+msgid "Cancel"
+msgstr "Loobu"
 
 #: plugin/xdl_strings.py
 msgid "Categories:"
@@ -2049,6 +2133,22 @@ msgid "Clear"
 msgstr "Tühjenda"
 
 #: plugin/xdl_strings.py
+msgid "Convert Sheet to Python"
+msgstr "Teisenda tabel Pythoniks"
+
+#: plugin/xdl_strings.py
+msgid "Copy"
+msgstr "Kopeeri"
+
+#: plugin/xdl_strings.py
+msgid "Copy URL"
+msgstr "Kopeeri URL"
+
+#: plugin/xdl_strings.py
+msgid "Delete"
+msgstr "Kustuta"
+
+#: plugin/xdl_strings.py
 msgid "Draw"
 msgstr "Draw"
 
@@ -2057,12 +2157,28 @@ msgid "Edit config file (JSON)…"
 msgstr "Muuda seadistusfaili (JSON)…"
 
 #: plugin/xdl_strings.py
+msgid "Edit search query"
+msgstr "Muuda otsingupäringut"
+
+#: plugin/xdl_strings.py
 msgid "Endpoint URL (/v1 added):"
 msgstr "Lõpp-punkti URL (/v1 lisatud):"
 
 #: plugin/xdl_strings.py
 msgid "Endpoint URL:"
 msgstr "Lõpp-punkti URL:"
+
+#: plugin/xdl_strings.py
+msgid "Enter LaTeX math code to convert and insert as formula:"
+msgstr "Sisestage LaTeX-i valemi kood teisendamiseks ja lisamiseks:"
+
+#: plugin/xdl_strings.py
+msgid ""
+"Enter Python code to execute in the user virtual environment.\n"
+"Assign the result to the 'result' variable."
+msgstr ""
+"Sisesta Pythoni kood, mida kasutaja virtuaalkeskkonnas käivitada.\n"
+"Omista tulemus muutujale 'result'."
 
 #: plugin/xdl_strings.py
 msgid "General"
@@ -2077,8 +2193,20 @@ msgid "Image Settings"
 msgstr "Pildi seaded"
 
 #: plugin/xdl_strings.py
+msgid "In-place replacement"
+msgstr "Asendamine kohapeal"
+
+#: plugin/xdl_strings.py
+msgid "Input:"
+msgstr "Sisend:"
+
+#: plugin/xdl_strings.py
 msgid "Insert Frame"
 msgstr "Lisa raam"
+
+#: plugin/xdl_strings.py
+msgid "Insert LaTeX Math"
+msgstr "Lisa LaTeX-valem"
 
 #: plugin/xdl_strings.py
 msgid "Max Tokens:"
@@ -2089,6 +2217,10 @@ msgid "Max Wait (s):"
 msgstr "Maks. ooteaeg (s):"
 
 #: plugin/xdl_strings.py
+msgid "Message"
+msgstr "Sõnum"
+
+#: plugin/xdl_strings.py
 msgid "Models to Test:"
 msgstr "Testitavad mudelid:"
 
@@ -2097,20 +2229,92 @@ msgid "Multimodal"
 msgstr "Multimodaalne"
 
 #: plugin/xdl_strings.py
+msgid "New Sheet (PythonImport)"
+msgstr "Uus leht (PythonImport)"
+
+#: plugin/xdl_strings.py
+msgid "Number of Responses:"
+msgstr "Vastuste arv:"
+
+#: plugin/xdl_strings.py
+msgid "OK"
+msgstr "OK"
+
+#: plugin/xdl_strings.py
+msgid "Options"
+msgstr "Valikud"
+
+#: plugin/xdl_strings.py
+msgid "Output Mode"
+msgstr "Väljundrežiim"
+
+#: plugin/xdl_strings.py
 msgid "Please enter edit instructions:"
 msgstr "Palun sisesta redigeerimisjuhised:"
+
+#: plugin/xdl_strings.py
+msgid "Preserve number formats"
+msgstr "Säilita arvuvormingud"
+
+#: plugin/xdl_strings.py
+msgid "Python Test"
+msgstr "Pythoni test"
+
+#: plugin/xdl_strings.py
+msgid "Rebuild"
+msgstr "Taasehita"
+
+#: plugin/xdl_strings.py
+msgid "Results:"
+msgstr "Tulemused:"
 
 #: plugin/xdl_strings.py
 msgid "Run Benchmark"
 msgstr "Käivita jõudlustest"
 
 #: plugin/xdl_strings.py
+msgid "Save As..."
+msgstr "Salvesta nimega..."
+
+#: plugin/xdl_strings.py
+msgid "Scope"
+msgstr "Ulatus"
+
+#: plugin/xdl_strings.py
+msgid "Script:"
+msgstr "Skript:"
+
+#: plugin/xdl_strings.py
+msgid "Search Nearby Files"
+msgstr "Otsi lähedalolevatest failidest"
+
+#: plugin/xdl_strings.py
+msgid "Search Query:"
+msgstr "Otsingupäring:"
+
+#: plugin/xdl_strings.py
+msgid "Search query:"
+msgstr "Otsingupäring:"
+
+#: plugin/xdl_strings.py
 msgid "Seed:"
 msgstr "Algväärtus:"
 
 #: plugin/xdl_strings.py
+msgid "Selection"
+msgstr "Valik"
+
+#: plugin/xdl_strings.py
+msgid "Server Status"
+msgstr "Serveri olek"
+
+#: plugin/xdl_strings.py
 msgid "Square"
 msgstr "Ruut"
+
+#: plugin/xdl_strings.py
+msgid "Status"
+msgstr "Olek"
 
 #: plugin/xdl_strings.py
 msgid "Steps:"
@@ -2137,6 +2341,14 @@ msgid "Use AI Horde for Image Generation"
 msgstr "Kasuta piltide genereerimiseks AI Horde'i"
 
 #: plugin/xdl_strings.py
+msgid "Vectorize columns when safe"
+msgstr "Vektoriseeri veerud, kui see on ohutu"
+
+#: plugin/xdl_strings.py
+msgid "Verify recalc (oracle diff)"
+msgstr "Kontrolli ümberarvutust (oraakli erinevus)"
+
+#: plugin/xdl_strings.py
 msgid "Writer"
 msgstr "Writer"
 
@@ -2144,8 +2356,8 @@ msgstr "Writer"
 msgid "WriterAgent Evaluation Dashboard"
 msgstr "WriterAgenti hindamise töölaud"
 
-msgid "ACP"
-msgstr "ACP"
+msgid "Agent Communication Protocol"
+msgstr "Agendi suhtlusprotokoll"
 
 msgid "Backend"
 msgstr "Taustsüsteem"
@@ -2238,17 +2450,39 @@ msgid "Web Research Cache"
 msgstr "Veebiuuringute vahemälu"
 
 msgid ""
-"Cache completed web research reports by normalized query (reuses web search "
-"cache database)."
+"Cache completed web research reports by normalized query (uses web cache "
+"database)."
 msgstr ""
-"Veebiuuringute aruannete vahemällu salvestamine normaliseeritud päringu "
-"alusel (taaskasutab veebiotsingu vahemälu andmebaasi)."
+"Puhverda lõpetatud veebiuuringute aruanded normaliseeritud päringu alusel "
+"(kasutab veebipuhvri andmebaasi)."
 
 msgid "Prompt for Web Research"
 msgstr "Küsi veebiuuringu jaoks viipa"
 
 msgid "Ask for confirmation before sending a web search query"
 msgstr "Küsi kinnitust enne veebiotsingu päringu saatmist"
+
+msgid "Web Research Browser"
+msgstr "Veebiuuringute brauser"
+
+msgid ""
+"Select the browser backend to use for webpage visits during research (Off "
+"uses static HTTP requests)."
+msgstr ""
+"Valige brauseri taustaprogramm, mida kasutada veebilehtede külastamiseks "
+"uuringute ajal (Väljas kasutab staatilisi HTTP-päringuid)."
+
+msgid "Off (Static HTTP)"
+msgstr "Väljas (staatiline HTTP)"
+
+msgid "Firefox (CDP)"
+msgstr "Firefox (CDP)"
+
+msgid "Chromium (CDP)"
+msgstr "Chromium (CDP)"
+
+msgid "Chrome (CDP)"
+msgstr "Chrome (CDP)"
 
 msgid "Cache max (MB)"
 msgstr "Vahemälu maksimum (MB)"
@@ -2381,44 +2615,54 @@ msgstr ""
 "mis Saada; Shift+Enter lisab reavahetuse. Kui see on välja lülitatud, lisab "
 "Enter reavahetuse."
 
+msgid "Agent edit review"
+msgstr "Agendi redigeerimise ülevaade"
+
+msgid ""
+"Off = direct edits. Record = tracked changes you accept/reject yourself. "
+"Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
+"review."
+msgstr ""
+"Väljas = otsesed muudatused. Salvesta = jälgitavad muudatused, mida ise "
+"aktsepteerid/lükkad tagasi. Oota = apply_document_content blokeerib "
+"(vestluse/MCP tööniidil), kuni oled üle vaadanud."
+
+msgid "Record (track changes)"
+msgstr "Salvesta (jälgi muudatusi)"
+
+msgid "Wait for review"
+msgstr "Oota ülevaatust"
+
 msgid "Draw and Impress tools"
 msgstr "Draw ja Impress tööriistad"
 
-msgid "Embeddings"
-msgstr "Manused (embeddings)"
+msgid "Vector Search"
+msgstr "Vektorotsing"
 
-msgid "Embeddings cache (per-folder semantic search)"
-msgstr "Manuste vahemälu (kaustapõhine semantiline otsing)"
-
-msgid ""
-"When on, builds a semantic index in writeragent_embeddings/ beside the "
-"active document's folder and also exposes search_embeddings in "
-"document_research (grep_nearby_files stays available). Requires Settings → "
-"Python venv with sentence-transformers, chromadb, langgraph, langchain-core,"
-" langchain-text-splitters, envwrap (see Settings → Python Test)."
-msgstr ""
-"Sisselülitatuna loob semantilise indeksi kausta writeragent_embeddings/ "
-"aktiivse dokumendi kausta kõrvale ja lisab funktsiooni search_embeddings "
-"moodulisse document_research (grep_nearby_files jääb kättesaadavaks). Nõuab "
-"seadistust: Settings → Python venv, kuhu on installitud sentence-"
-"transformers, chromadb, langgraph, langchain-core, langchain-text-splitters,"
-" envwrap (vt Settings → Python Test)."
-
-msgid "Embedding Provider"
-msgstr "Manuste pakkuja"
+msgid "Cross-file search"
+msgstr "Failideülene otsing"
 
 msgid ""
-"local (sentence-transformers in venv) or endpoint (configured remote/local "
-"endpoint)"
+"Indexed semantic + keyword search for document_research (corpus.db). "
+"Requires embeddings venv — see Python Test."
 msgstr ""
-"kohalik (sentence-transformers venv-is) või lõpp-punkt (konfigureeritud "
-"kaug- või kohalik lõpp-punkt)"
+"Indekseeritud semantiline ja märksõnaotsing dokumendi uurimiseks "
+"(corpus.db). Nõuab manustatud venv-i – vaata Pythoni testi."
 
-msgid "Local (venv)"
-msgstr "Kohalik (venv)"
+msgid "Embeddings + FTS"
+msgstr "Manused + FTS"
 
-msgid "Endpoint"
-msgstr "Lõpp-punkt"
+msgid "LlamaIndex"
+msgstr "LlamaIndex"
+
+msgid "Zvec (experimental)"
+msgstr "Zvec (eksperimentaalne)"
+
+msgid "ChromaDB"
+msgstr "ChromaDB"
+
+msgid "LanceDB (experimental)"
+msgstr "LanceDB (eksperimentaalne)"
 
 msgid "Embedding Model"
 msgstr "Manustamismudel"
@@ -2427,6 +2671,32 @@ msgid "HuggingFace model ID for local provider, or endpoint-specific model ID"
 msgstr ""
 "HuggingFace'i mudeli ID kohaliku teenusepakkuja jaoks või lõpp-punktipõhine "
 "mudeli ID"
+
+msgid "Enable cross-file rerank"
+msgstr "Luba failideülene ümberjärjestamine"
+
+msgid ""
+"Second-stage cross-encoder after hybrid retrieve (Embeddings + FTS and "
+"LlamaIndex). Off by default."
+msgstr ""
+"Teise etapi ristkodeerija pärast hübriidotsingut (vektorid + "
+"täistekstiotsing ja LlamaIndex). Vaikimisi väljas."
+
+msgid "Rerank model"
+msgstr "Ümberjärjestamise mudel"
+
+msgid ""
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
+msgstr ""
+"Kasutatakse ainult siis, kui ümberjärjestamine on lubatud. Ingliskeelne "
+"MiniLM on kiire; bge-reranker-v2-m3 on mitmekeelne ja laadib alla u 2,3 GB."
+
+msgid "cross-encoder/ms-marco-MiniLM-L-6-v2"
+msgstr "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
+msgid "BAAI/bge-reranker-v2-m3"
+msgstr "BAAI/bge-reranker-v2-m3"
 
 msgid "Core services (config, events, logging)"
 msgstr "Põhiteenused (konfiguratsioon, sündmused, logimine)"
@@ -2606,44 +2876,3 @@ msgstr "Doclingi dokumendi ajalõpp (s)"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Doclingi-sisene teisenduse ajalõpp. 0 = piiranguta."
-
-msgid "Writer document tools (including navigation and search)"
-msgstr "Writeri dokumenditööriistad (sh navigeerimine ja otsing)"
-
-msgid "Web Research Browser"
-msgstr "Veebiuuringute brauser"
-
-msgid ""
-"Select the browser backend to use for webpage visits during research (Off "
-"uses static HTTP requests)."
-msgstr ""
-"Valige brauseri taustaprogramm, mida kasutada veebilehtede külastamiseks "
-"uuringute ajal (Väljas kasutab staatilisi HTTP-päringuid)."
-
-msgid "Off (Static HTTP)"
-msgstr "Väljas (staatiline HTTP)"
-
-msgid "Firefox (CDP)"
-msgstr "Firefox (CDP)"
-
-msgid "Chromium (CDP)"
-msgstr "Chromium (CDP)"
-
-msgid "Chrome (CDP)"
-msgstr "Chrome (CDP)"
-
-msgid "Cross-file search mode"
-msgstr "Failidevahelise otsingu režiim"
-
-msgid ""
-"Cross-file search for document_research. Requires embeddings venv — see "
-"Python Test."
-msgstr ""
-"Failidevaheline otsing dokumendi uuringuteks. Nõuab manustatud venv-i — "
-"vaadake Pythoni testi."
-
-msgid "None"
-msgstr "Puudub"
-
-msgid "SQLite FTS (venv)"
-msgstr "SQLite FTS (venv)"

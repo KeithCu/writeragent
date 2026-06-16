@@ -316,11 +316,11 @@ def _register_core_handlers():
     register_action_handler("embeddings", "search_dialog", _open_search_dialog)
 
     def _resolve_change_at_cursor(accept):
-        from plugin.framework.uno_context import get_desktop
+        from plugin.framework.uno_context import get_active_document
         from plugin.writer.inline_review import resolve_change_at_cursor, show_review_message
 
         c = get_ctx()
-        model = get_desktop(c).getCurrentComponent()
+        model = get_active_document(c)
         if model is not None:
             ok, msg = resolve_change_at_cursor(model, c, accept)
             logging.getLogger("writeragent.main").debug("inline review: accept=%s -> ok=%s msg=%s", accept, ok, msg)
@@ -333,11 +333,11 @@ def _register_core_handlers():
     register_action_handler("writer", "reject_change", lambda: _resolve_change_at_cursor(False))
 
     def _resolve_all_agent(accept):
-        from plugin.framework.uno_context import get_desktop
+        from plugin.framework.uno_context import get_active_document
         from plugin.writer.inline_review import resolve_all_with_feedback, show_review_message
 
         c = get_ctx()
-        model = get_desktop(c).getCurrentComponent()
+        model = get_active_document(c)
         if model is not None:
             n, msg = resolve_all_with_feedback(model, c, accept)
             logging.getLogger("writeragent.main").debug("inline review: resolve-all accept=%s -> %d changes", accept, n)

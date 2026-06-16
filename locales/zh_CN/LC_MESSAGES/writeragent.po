@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-11 14:33-0400\n"
+"POT-Creation-Date: 2026-06-15 21:36-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Chinese (Simplified) <LL@li.org>\n"
@@ -272,6 +272,109 @@ msgstr " 由…生成 "
 msgid " with "
 msgstr " 使用 "
 
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: No active document"
+msgstr "缓存状态：无活动文档"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Folder not resolved"
+msgstr "缓存状态：文件夹未解析"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Not built (zvec)"
+msgstr "缓存状态：未构建 (zvec)"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Not built (lancedb)"
+msgstr "缓存状态：未构建 (lancedb)"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Not built"
+msgstr "缓存状态：未构建"
+
+#: plugin/embeddings/search_ui.py
+msgid "just now"
+msgstr "刚刚"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "{0}m ago"
+msgstr "{0}分钟前"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "{0}h ago"
+msgstr "{0}小时前"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "Cache Status: Built ({0})"
+msgstr "缓存状态：已构建 ({0})"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Built"
+msgstr "缓存状态：已构建"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "Cache Status: Error ({0})"
+msgstr "缓存状态：错误 ({0})"
+
+#: plugin/embeddings/search_ui.py plugin/xdl_strings.py
+msgid "Search"
+msgstr "搜索"
+
+#: plugin/embeddings/search_ui.py
+msgid "Please enter a search query."
+msgstr "请输入搜索查询。"
+
+#: plugin/embeddings/search_ui.py
+msgid "Searching..."
+msgstr "正在搜索..."
+
+#: plugin/embeddings/search_ui.py
+msgid "No active document found."
+msgstr "未找到活动文档。"
+
+#: plugin/embeddings/search_ui.py
+msgid ""
+"Cross-file search is disabled. Enable Embeddings + FTS in Settings → "
+"Embeddings."
+msgstr "跨文件搜索已禁用。请在“设置”→“嵌入”中启用“嵌入 + FTS”。"
+
+#: plugin/embeddings/search_ui.py
+msgid "Error: "
+msgstr "错误： "
+
+#: plugin/embeddings/search_ui.py
+msgid ""
+"Folder index is building in the background. Please retry search shortly."
+msgstr "文件夹索引正在后台构建。请稍后重试搜索。"
+
+#: plugin/embeddings/search_ui.py
+msgid "No matches found."
+msgstr "未找到匹配项。"
+
+#: plugin/embeddings/search_ui.py
+msgid "Error running search: "
+msgstr "运行搜索时出错： "
+
+#: plugin/embeddings/search_ui.py
+msgid "Rebuilding cache..."
+msgstr "正在重建缓存..."
+
+#: plugin/embeddings/search_ui.py
+msgid "No active folder resolved."
+msgstr "未解析到活动文件夹。"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache rebuild completed successfully."
+msgstr "缓存重建已成功完成。"
+
+#: plugin/embeddings/search_ui.py
+msgid "Rebuild failed: "
+msgstr "重建失败： "
+
 #: plugin/framework/errors.py
 #, python-brace-format
 msgid "TLS/SSL Error: {0}"
@@ -398,7 +501,7 @@ msgid "Please enter edit instructions!"
 msgstr "请输入编辑指令！"
 
 #: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/chatbot/dialogs.py plugin/xdl_strings.py
+#: plugin/xdl_strings.py
 msgid "Input"
 msgstr "输入"
 
@@ -410,7 +513,7 @@ msgstr "WriterAgent: 编辑选区 (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: 扩展选区 (Calc)"
 
-#: plugin/calc/vision_egress.py plugin/scripting/vision_runner.py
+#: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
 msgid "Select an embedded image, then Run again."
 msgstr "请选择一张嵌入的图像，然后再次运行。"
 
@@ -421,10 +524,6 @@ msgstr "请将图像锚定到单元格，选中它，然后再次运行。"
 #: plugin/calc/vision_egress.py
 msgid "No structured tables or text blocks to insert."
 msgstr "没有可插入的结构化表格或文本块。"
-
-#: plugin/calc/spreadsheet_import/import_dialog.py
-msgid "Convert Sheet to Python"
-msgstr "将工作表转换为 Python"
 
 #: plugin/calc/python_editor.py
 msgid ""
@@ -443,8 +542,8 @@ msgstr "Python 单元格编辑器"
 msgid "Save as plain text"
 msgstr "另存为纯文本"
 
-#: plugin/calc/python_editor.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py
+#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
 msgid "Save"
 msgstr "保存"
 
@@ -488,6 +587,40 @@ msgstr ""
 msgid "unknown error"
 msgstr "未知错误"
 
+#: plugin/writer/change_context_menu.py
+msgid "Accept whole change (agent)"
+msgstr "接受全部更改 (Agent)"
+
+#: plugin/writer/change_context_menu.py
+msgid "Reject whole change (agent)"
+msgstr "拒绝全部更改 (Agent)"
+
+#: plugin/writer/change_context_menu.py
+msgid "Accept all agent changes"
+msgstr "接受所有 Agent 更改"
+
+#: plugin/writer/change_context_menu.py
+msgid "Reject all agent changes"
+msgstr "拒绝所有 Agent 更改"
+
+#: plugin/writer/review_click_popup.py
+msgid "Accept this change"
+msgstr "接受此更改"
+
+#: plugin/writer/review_click_popup.py
+msgid "Reject this change"
+msgstr "拒绝此更改"
+
+#: plugin/writer/review_click_popup.py
+#, python-brace-format
+msgid "Accept all {0} changes"
+msgstr "接受所有 {0} 处更改"
+
+#: plugin/writer/review_click_popup.py
+#, python-brace-format
+msgid "Reject all {0} changes"
+msgstr "拒绝所有 {0} 处更改"
+
 #: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: 扩展选区"
@@ -495,26 +628,6 @@ msgstr "WriterAgent: 扩展选区"
 #: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent：编辑选区"
-
-#: plugin/writer/math/latex_dialog.py
-msgid "Insert LaTeX Math"
-msgstr "插入 LaTeX 公式"
-
-#: plugin/writer/math/latex_dialog.py
-msgid "Enter LaTeX math code to convert and insert as formula:"
-msgstr "输入 LaTeX 数学代码以转换并插入为公式："
-
-#: plugin/writer/math/latex_dialog.py
-msgid "Insert as display block (centered paragraph)"
-msgstr "作为显示块插入（居中段落）"
-
-#: plugin/writer/math/latex_dialog.py
-msgid "Insert"
-msgstr "插入"
-
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/dialogs.py
-msgid "Cancel"
-msgstr "取消"
 
 #: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
 #: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
@@ -538,6 +651,19 @@ msgstr "公式已插入。"
 #: plugin/writer/math/latex_dialog.py
 msgid "LaTeX Math Editor"
 msgstr "LaTeX 数学编辑器"
+
+#: plugin/writer/math/latex_dialog.py plugin/xdl_strings.py
+msgid "Insert as display block (centered paragraph)"
+msgstr "作为显示块插入（居中段落）"
+
+#: plugin/writer/math/latex_dialog.py plugin/xdl_strings.py
+msgid "Insert"
+msgstr "插入"
+
+#: plugin/writer/math/latex_dialog.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "关闭"
 
 #: plugin/writer/math/latex_dialog.py
 msgid "LaTeX Conversion Error"
@@ -837,28 +963,8 @@ msgid "Tool: %s"
 msgstr "工具：%s"
 
 #: plugin/chatbot/dialogs.py
-msgid "Edit search query"
-msgstr "编辑搜索查询"
-
-#: plugin/chatbot/dialogs.py
-msgid "Search query:"
-msgstr "搜索查询："
-
-#: plugin/chatbot/dialogs.py plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "OK"
-msgstr "确定"
-
-#: plugin/chatbot/dialogs.py
-msgid "Copy"
-msgstr "复制"
-
-#: plugin/chatbot/dialogs.py
 msgid "Copied!"
 msgstr "已复制！"
-
-#: plugin/chatbot/dialogs.py
-msgid "Copy URL"
-msgstr "复制 URL"
 
 #: plugin/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
@@ -963,8 +1069,10 @@ msgstr "此搜索查询 '%s' 将发送到搜索引擎。"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
-msgid "Research cache hit (fuzzy, %s%% match: %s%s → %s)"
-msgstr "研究缓存命中（模糊，%s%% 匹配：%s%s → %s）"
+msgid ""
+"Research cache hit (fuzzy, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
+"%(matched)s)"
+msgstr "研究缓存命中（模糊匹配，%(pct)s%% 匹配度：%(lang_bit)s%(cache_key)s → %(matched)s）"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1125,18 +1233,9 @@ msgstr "虚拟环境正常"
 msgid "Venv check failed"
 msgstr "虚拟环境检查失败"
 
-#: plugin/chatbot/dialog_views.py
-msgid "Python Test"
-msgstr "Python 测试"
-
-#: plugin/chatbot/dialog_views.py
+#: plugin/chatbot/dialog_views.py plugin/xdl_strings.py
 msgid "Testing Python environment..."
 msgstr "正在测试 Python 环境..."
-
-#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "关闭"
 
 #: plugin/chatbot/dialog_views.py
 msgid "Done"
@@ -1149,6 +1248,10 @@ msgstr "失败"
 #: plugin/chatbot/config_ui_helpers.py
 msgid "(Enter API Key to load models)"
 msgstr "(输入 API 密钥以加载模型)"
+
+#: plugin/chatbot/config_ui_helpers.py
+msgid "(No image models on this endpoint)"
+msgstr "（此端点上没有图像模型）"
 
 #: plugin/chatbot/config_ui_helpers.py
 msgid "(Connection failed)"
@@ -1227,38 +1330,6 @@ msgstr "我的脚本"
 msgid "This Document"
 msgstr "当前文档"
 
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
-msgid "Run Python Script"
-msgstr "运行 Python 脚本"
-
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "运行"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Script:"
-msgstr "脚本："
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Attach"
-msgstr "附加"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Save As..."
-msgstr "另存为..."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Delete"
-msgstr "删除"
-
-#: plugin/scripting/python_runner_ui.py
-msgid ""
-"Enter Python code to execute in the user virtual environment.\n"
-"Assign the result to the 'result' variable."
-msgstr ""
-"输入要在用户虚拟环境中执行的 Python 代码。\n"
-"将结果赋值给 'result' 变量。"
-
 #: plugin/scripting/python_runner_ui.py
 #, python-format
 msgid "%s Saved to My Scripts instead."
@@ -1273,10 +1344,6 @@ msgstr "脚本“%s”已保存到此文档。"
 #, python-format
 msgid "Script '%s' saved successfully."
 msgstr "脚本“%s”保存成功。"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Sample scratchpad saved successfully."
-msgstr "示例草稿板保存成功。"
 
 #: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
 msgid "No document is open to attach scripts."
@@ -1312,18 +1379,6 @@ msgstr "保存脚本"
 #, python-brace-format
 msgid "Save script '{0}' to this document?"
 msgstr "将脚本“{0}”保存到此文档？"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Are you sure you want to clear the Sample scratchpad?"
-msgstr "您确定要清除示例草稿板吗？"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Clear Script"
-msgstr "清除脚本"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Sample scratchpad cleared."
-msgstr "示例草稿板已清除。"
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -1424,88 +1479,76 @@ msgstr "Python 编辑器在加载您的代码前已退出。"
 msgid "Could not talk to the Python editor."
 msgstr "无法与 Python 编辑器通信。"
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid ""
 "Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr "视觉探测超时（首次检查时 Docling 导入可能需要 10–30 秒）。"
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision probe failed (see writeragent_debug.log)."
 msgstr "视觉探测失败（请参阅 writeragent_debug.log）。"
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid ""
-"Embeddings probe timed out (sentence-transformers import can take 10–30s on "
-"first check)."
-msgstr "嵌入探测超时（首次检查时 sentence-transformers 导入可能需要 10–30 秒）。"
+"Vector Search probe timed out (sentence-transformers import can take 10–30s "
+"on first check)."
+msgstr "向量搜索探测超时（首次检查时，sentence-transformers 导入可能需要 10–30 秒）。"
 
-#: plugin/scripting/venv_worker.py
-msgid "Embeddings probe failed (see writeragent_debug.log)."
-msgstr "嵌入探测失败（请参阅 writeragent_debug.log）。"
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vector Search probe failed (see writeragent_debug.log)."
+msgstr "向量搜索探测失败（请参阅 writeragent_debug.log）。"
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Visualization Libraries"
 msgstr "可视化库"
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Computer Algebra"
 msgstr "计算机代数"
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Quantitative Finance Libraries"
 msgstr "量化金融库"
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Data Engineering Libraries"
 msgstr "数据工程库"
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries"
 msgstr "视觉库"
 
-#: plugin/scripting/venv_worker.py
-msgid "Embeddings Libraries"
-msgstr "嵌入库"
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vector Search Libraries"
+msgstr "向量搜索库"
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
 msgstr "正在启动 Python 工作进程..."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Reading Python version..."
 msgstr "正在读取 Python 版本..."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries: loading (first run may take a while)..."
 msgstr "视觉库：正在加载（首次运行可能需要一些时间）..."
 
-#: plugin/scripting/venv_worker.py
-msgid "Embeddings Libraries: loading (first run may take a while)..."
-msgstr "嵌入库：正在加载（首次运行可能需要一些时间）..."
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vector Search Libraries: loading (first run may take a while)..."
+msgstr "向量搜索库：正在加载（首次运行可能需要一些时间）..."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Using LibreOffice process Python..."
 msgstr "正在使用 LibreOffice 进程 Python..."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Resolving venv Python..."
 msgstr "正在解析 venv Python..."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Using"
 msgstr "正在使用"
-
-#: plugin/scripting/vision_runner.py
-#, python-brace-format
-msgid ""
-"Image '{name}' not found. Use list_images or leave image_name empty and "
-"select the graphic."
-msgstr "未找到图像 '{name}'。请使用 list_images 或将 image_name 留空并选择该图形。"
-
-#: plugin/scripting/vision_runner.py
-#, python-brace-format
-msgid "Image '{name}' could not be exported."
-msgstr "无法导出图像 '{name}'。"
 
 #: plugin/scripting/symbolic.py
 msgid "Symbolic helper failed."
@@ -1754,9 +1797,29 @@ msgstr "脚本执行成功。（耗时 {time}）"
 msgid "Script saved."
 msgstr "脚本已保存。"
 
+#: plugin/scripting/python_runner.py plugin/xdl_strings.py
+msgid "Run Python Script"
+msgstr "运行 Python 脚本"
+
+#: plugin/scripting/python_runner.py plugin/xdl_strings.py
+msgid "Run"
+msgstr "运行"
+
 #: plugin/scripting/python_runner.py
 msgid "Select data range or enter A1 address (injected as data)."
 msgstr "选择数据区域或输入 A1 地址（作为数据注入）。"
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid ""
+"Image '{name}' not found. Use list_images or leave image_name empty and "
+"select the graphic."
+msgstr "未找到图像 '{name}'。请使用 list_images 或将 image_name 留空并选择该图形。"
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "Image '{name}' could not be exported."
+msgstr "无法导出图像 '{name}'。"
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -1786,7 +1849,7 @@ msgstr "请检查 LibreOffice 用户配置文件夹中的 writeragent_debug.log"
 msgid "MCP server is not running"
 msgstr "MCP 服务器未运行"
 
-#: plugin/mcp/__init__.py
+#: plugin/mcp/__init__.py plugin/xdl_strings.py
 msgid "MCP server running"
 msgstr "MCP 服务器运行中"
 
@@ -1794,10 +1857,6 @@ msgstr "MCP 服务器运行中"
 #, python-brace-format
 msgid "Routes: {0}"
 msgstr "路由: {0}"
-
-#: plugin/mcp/__init__.py
-msgid "Server Status"
-msgstr "服务器状态"
 
 #: plugin/mcp/__init__.py
 #, python-brace-format
@@ -1867,6 +1926,10 @@ msgid "Insert LaTeX Math..."
 msgstr "插入 LaTeX 公式..."
 
 #: plugin/main.py
+msgid "Search Nearby Files..."
+msgstr "搜索附近文件..."
+
+#: plugin/main.py
 msgid "Convert Sheet to Python..."
 msgstr "将工作表转换为 Python..."
 
@@ -1895,6 +1958,10 @@ msgid "API Key:"
 msgstr "API 密钥："
 
 #: plugin/xdl_strings.py
+msgid "Active Sheet"
+msgstr "活动工作表"
+
+#: plugin/xdl_strings.py
 msgid "Additional Instructions (History):"
 msgstr "附加指令（历史）："
 
@@ -1913,6 +1980,10 @@ msgstr "提问 / 指令："
 #: plugin/xdl_strings.py
 msgid "Aspect Ratio:"
 msgstr "宽高比："
+
+#: plugin/xdl_strings.py
+msgid "Attach"
+msgstr "附加"
 
 #: plugin/xdl_strings.py
 msgid "Audio Model:"
@@ -1935,8 +2006,16 @@ msgid "CFG Scale:"
 msgstr "CFG 尺度："
 
 #: plugin/xdl_strings.py
+msgid "Cache Status: Checking..."
+msgstr "缓存状态：正在检查..."
+
+#: plugin/xdl_strings.py
 msgid "Calc"
 msgstr "Calc"
+
+#: plugin/xdl_strings.py
+msgid "Cancel"
+msgstr "取消"
 
 #: plugin/xdl_strings.py
 msgid "Categories:"
@@ -1955,6 +2034,22 @@ msgid "Clear"
 msgstr "清除"
 
 #: plugin/xdl_strings.py
+msgid "Convert Sheet to Python"
+msgstr "将工作表转换为 Python"
+
+#: plugin/xdl_strings.py
+msgid "Copy"
+msgstr "复制"
+
+#: plugin/xdl_strings.py
+msgid "Copy URL"
+msgstr "复制 URL"
+
+#: plugin/xdl_strings.py
+msgid "Delete"
+msgstr "删除"
+
+#: plugin/xdl_strings.py
 msgid "Draw"
 msgstr "绘制"
 
@@ -1963,12 +2058,28 @@ msgid "Edit config file (JSON)…"
 msgstr "编辑配置文件 (JSON)…"
 
 #: plugin/xdl_strings.py
+msgid "Edit search query"
+msgstr "编辑搜索查询"
+
+#: plugin/xdl_strings.py
 msgid "Endpoint URL (/v1 added):"
 msgstr "端点 URL (/v1 已添加):"
 
 #: plugin/xdl_strings.py
 msgid "Endpoint URL:"
 msgstr "端点 URL："
+
+#: plugin/xdl_strings.py
+msgid "Enter LaTeX math code to convert and insert as formula:"
+msgstr "输入 LaTeX 数学代码以转换并插入为公式："
+
+#: plugin/xdl_strings.py
+msgid ""
+"Enter Python code to execute in the user virtual environment.\n"
+"Assign the result to the 'result' variable."
+msgstr ""
+"输入要在用户虚拟环境中执行的 Python 代码。\n"
+"将结果赋值给 'result' 变量。"
 
 #: plugin/xdl_strings.py
 msgid "General"
@@ -1983,8 +2094,20 @@ msgid "Image Settings"
 msgstr "图像设置"
 
 #: plugin/xdl_strings.py
+msgid "In-place replacement"
+msgstr "就地替换"
+
+#: plugin/xdl_strings.py
+msgid "Input:"
+msgstr "输入："
+
+#: plugin/xdl_strings.py
 msgid "Insert Frame"
 msgstr "插入框架"
+
+#: plugin/xdl_strings.py
+msgid "Insert LaTeX Math"
+msgstr "插入 LaTeX 公式"
 
 #: plugin/xdl_strings.py
 msgid "Max Tokens:"
@@ -1995,6 +2118,10 @@ msgid "Max Wait (s):"
 msgstr "最大等待时间 (秒)："
 
 #: plugin/xdl_strings.py
+msgid "Message"
+msgstr "消息"
+
+#: plugin/xdl_strings.py
 msgid "Models to Test:"
 msgstr "要测试的模型："
 
@@ -2003,20 +2130,92 @@ msgid "Multimodal"
 msgstr "多模态"
 
 #: plugin/xdl_strings.py
+msgid "New Sheet (PythonImport)"
+msgstr "新建工作表 (PythonImport)"
+
+#: plugin/xdl_strings.py
+msgid "Number of Responses:"
+msgstr "响应数量："
+
+#: plugin/xdl_strings.py
+msgid "OK"
+msgstr "确定"
+
+#: plugin/xdl_strings.py
+msgid "Options"
+msgstr "选项"
+
+#: plugin/xdl_strings.py
+msgid "Output Mode"
+msgstr "输出模式"
+
+#: plugin/xdl_strings.py
 msgid "Please enter edit instructions:"
 msgstr "请输入编辑指令："
+
+#: plugin/xdl_strings.py
+msgid "Preserve number formats"
+msgstr "保留数字格式"
+
+#: plugin/xdl_strings.py
+msgid "Python Test"
+msgstr "Python 测试"
+
+#: plugin/xdl_strings.py
+msgid "Rebuild"
+msgstr "重建"
+
+#: plugin/xdl_strings.py
+msgid "Results:"
+msgstr "结果："
 
 #: plugin/xdl_strings.py
 msgid "Run Benchmark"
 msgstr "运行基准测试"
 
 #: plugin/xdl_strings.py
+msgid "Save As..."
+msgstr "另存为..."
+
+#: plugin/xdl_strings.py
+msgid "Scope"
+msgstr "范围"
+
+#: plugin/xdl_strings.py
+msgid "Script:"
+msgstr "脚本："
+
+#: plugin/xdl_strings.py
+msgid "Search Nearby Files"
+msgstr "搜索附近文件"
+
+#: plugin/xdl_strings.py
+msgid "Search Query:"
+msgstr "搜索查询："
+
+#: plugin/xdl_strings.py
+msgid "Search query:"
+msgstr "搜索查询："
+
+#: plugin/xdl_strings.py
 msgid "Seed:"
 msgstr "种子："
 
 #: plugin/xdl_strings.py
+msgid "Selection"
+msgstr "所选内容"
+
+#: plugin/xdl_strings.py
+msgid "Server Status"
+msgstr "服务器状态"
+
+#: plugin/xdl_strings.py
 msgid "Square"
 msgstr "正方形"
+
+#: plugin/xdl_strings.py
+msgid "Status"
+msgstr "状态"
 
 #: plugin/xdl_strings.py
 msgid "Steps:"
@@ -2043,6 +2242,14 @@ msgid "Use AI Horde for Image Generation"
 msgstr "使用 AI Horde 生成图像"
 
 #: plugin/xdl_strings.py
+msgid "Vectorize columns when safe"
+msgstr "在安全时向量化列"
+
+#: plugin/xdl_strings.py
+msgid "Verify recalc (oracle diff)"
+msgstr "验证重算（预言机差异）"
+
+#: plugin/xdl_strings.py
 msgid "Writer"
 msgstr "Writer"
 
@@ -2050,8 +2257,8 @@ msgstr "Writer"
 msgid "WriterAgent Evaluation Dashboard"
 msgstr "WriterAgent 评估仪表板"
 
-msgid "ACP"
-msgstr "ACP"
+msgid "Agent Communication Protocol"
+msgstr "智能体通信协议"
 
 msgid "Backend"
 msgstr "后端"
@@ -2141,15 +2348,35 @@ msgid "Web Research Cache"
 msgstr "网络研究缓存"
 
 msgid ""
-"Cache completed web research reports by normalized query (reuses web search "
-"cache database)."
-msgstr "按规范化查询缓存已完成的网络研究报告（复用网络搜索缓存数据库）。"
+"Cache completed web research reports by normalized query (uses web cache "
+"database)."
+msgstr "按规范化查询缓存已完成的网络研究报告（使用网络缓存数据库）。"
 
 msgid "Prompt for Web Research"
 msgstr "网络研究提示"
 
 msgid "Ask for confirmation before sending a web search query"
 msgstr "发送网络搜索查询前请求确认"
+
+msgid "Web Research Browser"
+msgstr "网页研究浏览器"
+
+msgid ""
+"Select the browser backend to use for webpage visits during research (Off "
+"uses static HTTP requests)."
+msgstr "选择研究期间访问网页时使用的浏览器后端（“关闭”表示使用静态 HTTP 请求）。"
+
+msgid "Off (Static HTTP)"
+msgstr "关闭（静态 HTTP）"
+
+msgid "Firefox (CDP)"
+msgstr "Firefox (CDP)"
+
+msgid "Chromium (CDP)"
+msgstr "Chromium (CDP)"
+
+msgid "Chrome (CDP)"
+msgstr "Chrome (CDP)"
 
 msgid "Cache max (MB)"
 msgstr "最大缓存 (MB)"
@@ -2261,46 +2488,81 @@ msgid ""
 "Shift+Enter inserts a newline. When off, Enter inserts a newline."
 msgstr "开启时，在侧边栏查询中按回车键执行与“发送”相同的操作；Shift+回车键插入换行符。关闭时，回车键插入换行符。"
 
+msgid "Agent edit review"
+msgstr "智能体编辑审阅"
+
+msgid ""
+"Off = direct edits. Record = tracked changes you accept/reject yourself. "
+"Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
+"review."
+msgstr ""
+"关闭 = 直接编辑。记录 = 您自行接受/拒绝的修订记录。等待 = apply_document_content 将阻塞（在聊天/MCP "
+"工作线程上），直到您完成审阅。"
+
+msgid "Record (track changes)"
+msgstr "记录（修订追踪）"
+
+msgid "Wait for review"
+msgstr "等待审阅"
+
 msgid "Draw and Impress tools"
 msgstr "Draw 和 Impress 工具"
 
-msgid "Embeddings"
-msgstr "嵌入 (Embeddings)"
+msgid "Vector Search"
+msgstr "向量搜索"
 
-msgid "Embeddings cache (per-folder semantic search)"
-msgstr "嵌入缓存 (基于文件夹的语义搜索)"
+msgid "Cross-file search"
+msgstr "跨文件搜索"
 
 msgid ""
-"When on, builds a semantic index in writeragent_embeddings/ beside the "
-"active document's folder and also exposes search_embeddings in "
-"document_research (grep_nearby_files stays available). Requires Settings → "
-"Python venv with sentence-transformers, chromadb, langgraph, langchain-core,"
-" langchain-text-splitters, envwrap (see Settings → Python Test)."
+"Indexed semantic + keyword search for document_research (corpus.db). "
+"Requires embeddings venv — see Python Test."
 msgstr ""
-"开启后，将在活动文档文件夹旁创建 writeragent_embeddings/ 语义索引，并在 document_research 中公开 "
-"search_embeddings (grep_nearby_files 仍可用)。需要设置 → Python 虚拟环境 (venv) 并安装 "
-"sentence-transformers, chromadb, langgraph, langchain-core, langchain-text-"
-"splitters, envwrap (参见设置 → Python 测试)。"
+"用于 document_research (corpus.db) 的索引语义 + 关键词搜索。需要 embeddings 虚拟环境 — 参见 "
+"Python 测试。"
 
-msgid "Embedding Provider"
-msgstr "嵌入提供程序"
+msgid "Embeddings + FTS"
+msgstr "嵌入 + 全文搜索 (FTS)"
 
-msgid ""
-"local (sentence-transformers in venv) or endpoint (configured remote/local "
-"endpoint)"
-msgstr "本地 (虚拟环境中的 sentence-transformers) 或端点 (配置的远程/本地端点)"
+msgid "LlamaIndex"
+msgstr "LlamaIndex"
 
-msgid "Local (venv)"
-msgstr "本地 (虚拟环境)"
+msgid "Zvec (experimental)"
+msgstr "Zvec（实验性）"
 
-msgid "Endpoint"
-msgstr "端点"
+msgid "ChromaDB"
+msgstr "ChromaDB"
+
+msgid "LanceDB (experimental)"
+msgstr "LanceDB (实验性)"
 
 msgid "Embedding Model"
 msgstr "嵌入模型"
 
 msgid "HuggingFace model ID for local provider, or endpoint-specific model ID"
 msgstr "用于本地提供程序的 HuggingFace 模型 ID，或特定于端点的模型 ID"
+
+msgid "Enable cross-file rerank"
+msgstr "启用跨文件重排序"
+
+msgid ""
+"Second-stage cross-encoder after hybrid retrieve (Embeddings + FTS and "
+"LlamaIndex). Off by default."
+msgstr "在混合检索（嵌入 + 全文检索和 LlamaIndex）后的第二阶段交叉编码器。默认关闭。"
+
+msgid "Rerank model"
+msgstr "重排序模型"
+
+msgid ""
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
+msgstr "仅在启用重排序时使用。English MiniLM 速度快；bge-reranker-v2-m3 支持多语言，下载量约为 2.3 GB。"
+
+msgid "cross-encoder/ms-marco-MiniLM-L-6-v2"
+msgstr "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
+msgid "BAAI/bge-reranker-v2-m3"
+msgstr "BAAI/bge-reranker-v2-m3"
 
 msgid "Core services (config, events, logging)"
 msgstr "核心服务 (配置、事件、日志记录)"
@@ -2465,40 +2727,3 @@ msgstr "Docling 文档处理超时时间 (秒)"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Docling 内部单次转换的超时时间。0 = 无限制。"
-
-msgid "Writer document tools (including navigation and search)"
-msgstr "Writer 文档工具（包括导航和搜索）"
-
-msgid "Web Research Browser"
-msgstr "网页研究浏览器"
-
-msgid ""
-"Select the browser backend to use for webpage visits during research (Off "
-"uses static HTTP requests)."
-msgstr "选择研究期间访问网页时使用的浏览器后端（“关闭”表示使用静态 HTTP 请求）。"
-
-msgid "Off (Static HTTP)"
-msgstr "关闭（静态 HTTP）"
-
-msgid "Firefox (CDP)"
-msgstr "Firefox (CDP)"
-
-msgid "Chromium (CDP)"
-msgstr "Chromium (CDP)"
-
-msgid "Chrome (CDP)"
-msgstr "Chrome (CDP)"
-
-msgid "Cross-file search mode"
-msgstr "跨文件搜索模式"
-
-msgid ""
-"Cross-file search for document_research. Requires embeddings venv — see "
-"Python Test."
-msgstr "文档研究的跨文件搜索。需要 embeddings venv — 请参阅 Python 测试。"
-
-msgid "None"
-msgstr "无"
-
-msgid "SQLite FTS (venv)"
-msgstr "SQLite FTS (venv)"

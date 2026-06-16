@@ -47,6 +47,8 @@ def _show_popup_and_resolve(model: Any, source_window: Any, x: int, y: int) -> N
         )
 
         ctx = get_ctx()
+        if ctx is None:
+            return
         token = cursor_in_agent_change(model)
         if token is None:
             return
@@ -57,7 +59,9 @@ def _show_popup_and_resolve(model: Any, source_window: Any, x: int, y: int) -> N
 
         from com.sun.star.awt import Rectangle
 
-        smgr = ctx.getServiceManager()
+        smgr = getattr(ctx, "getServiceManager", lambda: None)()
+        if smgr is None:
+            return
         popup = smgr.createInstanceWithContext("com.sun.star.awt.PopupMenu", ctx)
         popup.insertItem(1, "✓ " + _("Accept this change"), 0, 0)
         popup.insertItem(2, "✗ " + _("Reject this change"), 0, 1)

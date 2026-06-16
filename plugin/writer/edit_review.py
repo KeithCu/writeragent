@@ -447,6 +447,8 @@ class EditReviewSession:
         if self._cleaned:
             return
         self._cleaned = True
+        if not self._active or not self.changes:
+            return
         try:
             bookmarks = self.doc.getBookmarks()
             with self._undo_lock():

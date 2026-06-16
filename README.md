@@ -236,9 +236,9 @@ WriterAgent is engineered for professional-grade reliability, moving beyond simp
 
 ## Roadmap & Future Vision
 
-> **Help us improve.** WriterAgent is actively used and heavily tested (thousands of automated tests), with architecture aimed at professional reliability. Even so, the problem space is enormous: LibreOffice’s feature set and UNO API, dozens of LLM backends and models, multiple operating systems, 34 locales, and a growing feature set in Writer, Calc, and Draw. You may hit a rough edge—a model that formats tool calls oddly, a Calc formula path that isn't  covered, or a locale-specific quirk. Even a star helps.
+> **Help us improve.** WriterAgent is actively used and heavily tested (thousands of automated tests), with architecture aimed at professional reliability. Even so, the problem space is enormous: LibreOffice’s feature set and UNO API, dozens of LLM backends and models, multiple operating systems, 34 locales, and a growing feature set in Writer, Calc, and Draw. You may hit a rough edge—a model that formats tool calls oddly, a Calc formula path that isn't  covered, or a locale-specific quirk.
 >
-> **We especially welcome people who like to explore and either :** file a [GitHub issue](https://github.com/KeithCu/writeragent/issues) with steps to reproduce, or open a PR. Curious tinkerers are valuable and there is documentation on every feature. If you use Python in LibreOffice (`=PY()` / `=PYTHON()`, etc.), we’d love your input on any holes.
+> **We especially welcome people who like to explore and either :** file a [GitHub issue](https://github.com/KeithCu/writeragent/issues) with steps to reproduce, or open a PR. Curious tinkerers are valuable and there is documentation on every feature. If you use Python in LibreOffice (`=PY()` / `=PYTHON()`, etc.), we’d love your input on any holes. Even a star helps.
 
 The primary focus is deep **LibreOffice Fidelity**—systematically closing the gap between the AI's capabilities and the full breadth of the UNO API to ensure the agent can manipulate every professional feature the suite offers.
 

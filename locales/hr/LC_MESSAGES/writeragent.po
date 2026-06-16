@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-11 14:33-0400\n"
+"POT-Creation-Date: 2026-06-15 21:36-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Croatian <LL@li.org>\n"
@@ -293,6 +293,112 @@ msgstr " generirano pomoću "
 msgid " with "
 msgstr " s "
 
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: No active document"
+msgstr "Status predmemorije: Nema aktivnog dokumenta"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Folder not resolved"
+msgstr "Status predmemorije: Mapa nije razriješena"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Not built (zvec)"
+msgstr "Status predmemorije: Nije izgrađeno (zvec)"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Not built (lancedb)"
+msgstr "Status predmemorije: Nije izgrađeno (lancedb)"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Not built"
+msgstr "Status predmemorije: Nije izgrađeno"
+
+#: plugin/embeddings/search_ui.py
+msgid "just now"
+msgstr "upravo sada"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "{0}m ago"
+msgstr "prije {0}m"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "{0}h ago"
+msgstr "prije {0}h"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "Cache Status: Built ({0})"
+msgstr "Status predmemorije: Izgrađeno ({0})"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Built"
+msgstr "Status predmemorije: Izgrađeno"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "Cache Status: Error ({0})"
+msgstr "Status predmemorije: Pogreška ({0})"
+
+#: plugin/embeddings/search_ui.py plugin/xdl_strings.py
+msgid "Search"
+msgstr "Pretraži"
+
+#: plugin/embeddings/search_ui.py
+msgid "Please enter a search query."
+msgstr "Molimo unesite upit za pretraživanje."
+
+#: plugin/embeddings/search_ui.py
+msgid "Searching..."
+msgstr "Pretraživanje..."
+
+#: plugin/embeddings/search_ui.py
+msgid "No active document found."
+msgstr "Nije pronađen nijedan aktivni dokument."
+
+#: plugin/embeddings/search_ui.py
+msgid ""
+"Cross-file search is disabled. Enable Embeddings + FTS in Settings → "
+"Embeddings."
+msgstr ""
+"Pretraživanje više datoteka je onemogućeno. Omogućite Embeddings + FTS u "
+"Postavke → Embeddings."
+
+#: plugin/embeddings/search_ui.py
+msgid "Error: "
+msgstr "Pogreška: "
+
+#: plugin/embeddings/search_ui.py
+msgid ""
+"Folder index is building in the background. Please retry search shortly."
+msgstr ""
+"Indeks mapa se gradi u pozadini. Molimo pokušajte ponovno pretražiti uskoro."
+
+#: plugin/embeddings/search_ui.py
+msgid "No matches found."
+msgstr "Nema pronađenih rezultata."
+
+#: plugin/embeddings/search_ui.py
+msgid "Error running search: "
+msgstr "Pogreška pri pokretanju pretraživanja: "
+
+#: plugin/embeddings/search_ui.py
+msgid "Rebuilding cache..."
+msgstr "Ponovna izgradnja predmemorije..."
+
+#: plugin/embeddings/search_ui.py
+msgid "No active folder resolved."
+msgstr "Nije razrijeđena nijedna aktivna mapa."
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache rebuild completed successfully."
+msgstr "Ponovna izgradnja predmemorije uspješno dovršena."
+
+#: plugin/embeddings/search_ui.py
+msgid "Rebuild failed: "
+msgstr "Ponovna izgradnja nije uspjela: "
+
 #: plugin/framework/errors.py
 #, python-brace-format
 msgid "TLS/SSL Error: {0}"
@@ -439,7 +545,7 @@ msgid "Please enter edit instructions!"
 msgstr "Molimo unesite upute za uređivanje!"
 
 #: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/chatbot/dialogs.py plugin/xdl_strings.py
+#: plugin/xdl_strings.py
 msgid "Input"
 msgstr "Unos"
 
@@ -451,7 +557,7 @@ msgstr "WriterAgent: Uredi odabir (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Proširi odabir (Calc)"
 
-#: plugin/calc/vision_egress.py plugin/scripting/vision_runner.py
+#: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
 msgid "Select an embedded image, then Run again."
 msgstr "Odaberite ugrađenu sliku, a zatim ponovno pokrenite."
 
@@ -462,10 +568,6 @@ msgstr "Sidrite sliku na ćeliju, odaberite je, a zatim ponovno pokrenite."
 #: plugin/calc/vision_egress.py
 msgid "No structured tables or text blocks to insert."
 msgstr "Nema strukturiranih tablica ili blokova teksta za umetanje."
-
-#: plugin/calc/spreadsheet_import/import_dialog.py
-msgid "Convert Sheet to Python"
-msgstr "Pretvori list u Python"
 
 #: plugin/calc/python_editor.py
 msgid ""
@@ -485,8 +587,8 @@ msgstr "Python uređivač ćelija"
 msgid "Save as plain text"
 msgstr "Spremi kao običan tekst"
 
-#: plugin/calc/python_editor.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py
+#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
 msgid "Save"
 msgstr "Spremi"
 
@@ -531,6 +633,40 @@ msgstr ""
 msgid "unknown error"
 msgstr "nepoznata pogreška"
 
+#: plugin/writer/change_context_menu.py
+msgid "Accept whole change (agent)"
+msgstr "Prihvati cijelu promjenu (agent)"
+
+#: plugin/writer/change_context_menu.py
+msgid "Reject whole change (agent)"
+msgstr "Odbij cijelu promjenu (agent)"
+
+#: plugin/writer/change_context_menu.py
+msgid "Accept all agent changes"
+msgstr "Prihvati sve promjene agenta"
+
+#: plugin/writer/change_context_menu.py
+msgid "Reject all agent changes"
+msgstr "Odbij sve promjene agenta"
+
+#: plugin/writer/review_click_popup.py
+msgid "Accept this change"
+msgstr "Prihvati ovu promjenu"
+
+#: plugin/writer/review_click_popup.py
+msgid "Reject this change"
+msgstr "Odbij ovu promjenu"
+
+#: plugin/writer/review_click_popup.py
+#, python-brace-format
+msgid "Accept all {0} changes"
+msgstr "Prihvati sve {0} izmjene"
+
+#: plugin/writer/review_click_popup.py
+#, python-brace-format
+msgid "Reject all {0} changes"
+msgstr "Odbij sve {0} izmjene"
+
 #: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Proširi odabir"
@@ -538,26 +674,6 @@ msgstr "WriterAgent: Proširi odabir"
 #: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Uredi odabir"
-
-#: plugin/writer/math/latex_dialog.py
-msgid "Insert LaTeX Math"
-msgstr "Umetni LaTeX matematiku"
-
-#: plugin/writer/math/latex_dialog.py
-msgid "Enter LaTeX math code to convert and insert as formula:"
-msgstr "Unesite LaTeX matematički kod za pretvorbu i umetanje kao formulu:"
-
-#: plugin/writer/math/latex_dialog.py
-msgid "Insert as display block (centered paragraph)"
-msgstr "Umetni kao blok za prikaz (centrirani odlomak)"
-
-#: plugin/writer/math/latex_dialog.py
-msgid "Insert"
-msgstr "Umetni"
-
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/dialogs.py
-msgid "Cancel"
-msgstr "Odustani"
 
 #: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
 #: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
@@ -581,6 +697,19 @@ msgstr "Formula umetnuta."
 #: plugin/writer/math/latex_dialog.py
 msgid "LaTeX Math Editor"
 msgstr "LaTeX uređivač formula"
+
+#: plugin/writer/math/latex_dialog.py plugin/xdl_strings.py
+msgid "Insert as display block (centered paragraph)"
+msgstr "Umetni kao blok za prikaz (centrirani odlomak)"
+
+#: plugin/writer/math/latex_dialog.py plugin/xdl_strings.py
+msgid "Insert"
+msgstr "Umetni"
+
+#: plugin/writer/math/latex_dialog.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "Zatvori"
 
 #: plugin/writer/math/latex_dialog.py
 msgid "LaTeX Conversion Error"
@@ -880,28 +1009,8 @@ msgid "Tool: %s"
 msgstr "Alat: %s"
 
 #: plugin/chatbot/dialogs.py
-msgid "Edit search query"
-msgstr "Uredi upit za pretraživanje"
-
-#: plugin/chatbot/dialogs.py
-msgid "Search query:"
-msgstr "Upit za pretraživanje:"
-
-#: plugin/chatbot/dialogs.py plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "OK"
-msgstr "U redu"
-
-#: plugin/chatbot/dialogs.py
-msgid "Copy"
-msgstr "Kopiraj"
-
-#: plugin/chatbot/dialogs.py
 msgid "Copied!"
 msgstr "Kopirano!"
-
-#: plugin/chatbot/dialogs.py
-msgid "Copy URL"
-msgstr "Kopiraj URL"
 
 #: plugin/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
@@ -1014,9 +1123,12 @@ msgstr "Ovaj upit za pretraživanje '%s' bit će poslan tražilici."
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
-msgid "Research cache hit (fuzzy, %s%% match: %s%s → %s)"
+msgid ""
+"Research cache hit (fuzzy, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
+"%(matched)s)"
 msgstr ""
-"Pogodak u predmemoriji istraživanja (nejasno, %s%% podudaranje: %s%s → %s)"
+"Pogodak predmemorije istraživanja (nejasno, %(pct)s%% podudaranje: "
+"%(lang_bit)s%(cache_key)s → %(matched)s)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1185,18 +1297,9 @@ msgstr "Venv u redu"
 msgid "Venv check failed"
 msgstr "Provjera Venv-a nije uspjela"
 
-#: plugin/chatbot/dialog_views.py
-msgid "Python Test"
-msgstr "Python test"
-
-#: plugin/chatbot/dialog_views.py
+#: plugin/chatbot/dialog_views.py plugin/xdl_strings.py
 msgid "Testing Python environment..."
 msgstr "Testiranje Python okruženja..."
-
-#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "Zatvori"
 
 #: plugin/chatbot/dialog_views.py
 msgid "Done"
@@ -1209,6 +1312,10 @@ msgstr "Neuspjelo"
 #: plugin/chatbot/config_ui_helpers.py
 msgid "(Enter API Key to load models)"
 msgstr "(Unesite API ključ za učitavanje modela)"
+
+#: plugin/chatbot/config_ui_helpers.py
+msgid "(No image models on this endpoint)"
+msgstr "(Nema modela slika na ovoj krajnjoj točki)"
 
 #: plugin/chatbot/config_ui_helpers.py
 msgid "(Connection failed)"
@@ -1289,38 +1396,6 @@ msgstr "Moje skripte"
 msgid "This Document"
 msgstr "Ovaj dokument"
 
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
-msgid "Run Python Script"
-msgstr "Pokreni Python skriptu"
-
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
-msgid "Run"
-msgstr "Pokreni"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Script:"
-msgstr "Skripta:"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Attach"
-msgstr "Pridruži"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Save As..."
-msgstr "Spremi kao..."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Delete"
-msgstr "Izbriši"
-
-#: plugin/scripting/python_runner_ui.py
-msgid ""
-"Enter Python code to execute in the user virtual environment.\n"
-"Assign the result to the 'result' variable."
-msgstr ""
-"Unesite Python kod za izvršavanje u korisničkom virtualnom okruženju.\n"
-"Dodijelite rezultat varijabli 'result'."
-
 #: plugin/scripting/python_runner_ui.py
 #, python-format
 msgid "%s Saved to My Scripts instead."
@@ -1335,10 +1410,6 @@ msgstr "Skripta '%s' je spremljena u ovaj dokument."
 #, python-format
 msgid "Script '%s' saved successfully."
 msgstr "Skripta '%s' uspješno spremljena."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Sample scratchpad saved successfully."
-msgstr "Uzorak bilježnice uspješno spremljen."
 
 #: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
 msgid "No document is open to attach scripts."
@@ -1375,18 +1446,6 @@ msgstr "Spremi skriptu"
 #, python-brace-format
 msgid "Save script '{0}' to this document?"
 msgstr "Spremiti skriptu '{0}' u ovaj dokument?"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Are you sure you want to clear the Sample scratchpad?"
-msgstr "Jeste li sigurni da želite očistiti oglednu bilježnicu?"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Clear Script"
-msgstr "Očisti skriptu"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Sample scratchpad cleared."
-msgstr "Ogledna bilježnica je očišćena."
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -1489,94 +1548,84 @@ msgstr "Python uređivač se zatvorio prije nego što je mogao učitati vaš kod
 msgid "Could not talk to the Python editor."
 msgstr "Nije bilo moguće komunicirati s Python uređivačem."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid ""
 "Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "Vremensko ograničenje vizualne sonde isteklo (uvoz Doclinga može potrajati "
 "10–30 s pri prvoj provjeri)."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision probe failed (see writeragent_debug.log)."
 msgstr "Vizualna sonda nije uspjela (pogledajte writeragent_debug.log)."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid ""
-"Embeddings probe timed out (sentence-transformers import can take 10–30s on "
-"first check)."
+"Vector Search probe timed out (sentence-transformers import can take 10–30s "
+"on first check)."
 msgstr ""
-"Vrijeme čekanja za provjeru ugradnji (uvoz sentence-transformers može "
-"potrajati 10–30 s pri prvoj provjeri)."
+"Vrijeme ispitivanja vektorskog pretraživanja je isteklo (uvoz sentence-"
+"transformers može potrajati 10–30 s pri prvoj provjeri)."
 
-#: plugin/scripting/venv_worker.py
-msgid "Embeddings probe failed (see writeragent_debug.log)."
-msgstr "Provjera ugradnji nije uspjela (pogledajte writeragent_debug.log)."
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vector Search probe failed (see writeragent_debug.log)."
+msgstr ""
+"Ispitivanje vektorskog pretraživanja nije uspjelo (pogledajte "
+"writeragent_debug.log)."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Visualization Libraries"
 msgstr "Biblioteke za vizualizaciju"
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Computer Algebra"
 msgstr "Računalna algebra"
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Quantitative Finance Libraries"
 msgstr "Knjižnice za kvantitativne financije"
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Data Engineering Libraries"
 msgstr "Biblioteke za inženjering podataka"
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries"
 msgstr "Biblioteke za vid"
 
-#: plugin/scripting/venv_worker.py
-msgid "Embeddings Libraries"
-msgstr "Biblioteke ugradnji"
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vector Search Libraries"
+msgstr "Biblioteke vektorskog pretraživanja"
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
 msgstr "Pokretanje Python radnika..."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Reading Python version..."
 msgstr "Čitanje verzije Pythona..."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries: loading (first run may take a while)..."
 msgstr "Biblioteke vizije: učitavanje (prvo pokretanje može potrajati)..."
 
-#: plugin/scripting/venv_worker.py
-msgid "Embeddings Libraries: loading (first run may take a while)..."
-msgstr "Biblioteke ugradnji: učitavanje (prvo pokretanje može potrajati)..."
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vector Search Libraries: loading (first run may take a while)..."
+msgstr ""
+"Biblioteke vektorskog pretraživanja: učitavanje (prvo pokretanje može "
+"potrajati)..."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Using LibreOffice process Python..."
 msgstr "Korištenje LibreOffice procesa Python..."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Resolving venv Python..."
 msgstr "Razrješavanje venv Pythona..."
 
-#: plugin/scripting/venv_worker.py
+#: plugin/scripting/venv_diagnostics.py
 msgid "Using"
 msgstr "Korištenje"
-
-#: plugin/scripting/vision_runner.py
-#, python-brace-format
-msgid ""
-"Image '{name}' not found. Use list_images or leave image_name empty and "
-"select the graphic."
-msgstr ""
-"Slika '{name}' nije pronađena. Koristite list_images ili ostavite image_name"
-" praznim i odaberite grafiku."
-
-#: plugin/scripting/vision_runner.py
-#, python-brace-format
-msgid "Image '{name}' could not be exported."
-msgstr "Slika '{name}' nije se mogla izvesti."
 
 #: plugin/scripting/symbolic.py
 msgid "Symbolic helper failed."
@@ -1854,10 +1903,32 @@ msgstr "Skripta je uspješno izvršena. (trajalo {time})"
 msgid "Script saved."
 msgstr "Skripta spremljena."
 
+#: plugin/scripting/python_runner.py plugin/xdl_strings.py
+msgid "Run Python Script"
+msgstr "Pokreni Python skriptu"
+
+#: plugin/scripting/python_runner.py plugin/xdl_strings.py
+msgid "Run"
+msgstr "Pokreni"
+
 #: plugin/scripting/python_runner.py
 msgid "Select data range or enter A1 address (injected as data)."
 msgstr ""
 "Odaberite raspon podataka ili unesite A1 adresu (umetnuto kao podaci)."
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid ""
+"Image '{name}' not found. Use list_images or leave image_name empty and "
+"select the graphic."
+msgstr ""
+"Slika '{name}' nije pronađena. Koristite list_images ili ostavite image_name"
+" praznim i odaberite grafiku."
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "Image '{name}' could not be exported."
+msgstr "Slika '{name}' nije se mogla izvesti."
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -1889,7 +1960,7 @@ msgstr ""
 msgid "MCP server is not running"
 msgstr "MCP poslužitelj nije pokrenut"
 
-#: plugin/mcp/__init__.py
+#: plugin/mcp/__init__.py plugin/xdl_strings.py
 msgid "MCP server running"
 msgstr "MCP poslužitelj radi"
 
@@ -1897,10 +1968,6 @@ msgstr "MCP poslužitelj radi"
 #, python-brace-format
 msgid "Routes: {0}"
 msgstr "Rute: {0}"
-
-#: plugin/mcp/__init__.py
-msgid "Server Status"
-msgstr "Status poslužitelja"
 
 #: plugin/mcp/__init__.py
 #, python-brace-format
@@ -1970,6 +2037,10 @@ msgid "Insert LaTeX Math..."
 msgstr "Umetni LaTeX formulu..."
 
 #: plugin/main.py
+msgid "Search Nearby Files..."
+msgstr "Pretraži obližnje datoteke..."
+
+#: plugin/main.py
 msgid "Convert Sheet to Python..."
 msgstr "Pretvori list u Python..."
 
@@ -1998,6 +2069,10 @@ msgid "API Key:"
 msgstr "API ključ:"
 
 #: plugin/xdl_strings.py
+msgid "Active Sheet"
+msgstr "Aktivni list"
+
+#: plugin/xdl_strings.py
 msgid "Additional Instructions (History):"
 msgstr "Dodatne upute (povijest):"
 
@@ -2016,6 +2091,10 @@ msgstr "Pitaj / uputi:"
 #: plugin/xdl_strings.py
 msgid "Aspect Ratio:"
 msgstr "Omjer slike:"
+
+#: plugin/xdl_strings.py
+msgid "Attach"
+msgstr "Pridruži"
 
 #: plugin/xdl_strings.py
 msgid "Audio Model:"
@@ -2038,8 +2117,16 @@ msgid "CFG Scale:"
 msgstr "CFG skala:"
 
 #: plugin/xdl_strings.py
+msgid "Cache Status: Checking..."
+msgstr "Status predmemorije: Provjera..."
+
+#: plugin/xdl_strings.py
 msgid "Calc"
 msgstr "Calc"
+
+#: plugin/xdl_strings.py
+msgid "Cancel"
+msgstr "Odustani"
 
 #: plugin/xdl_strings.py
 msgid "Categories:"
@@ -2058,6 +2145,22 @@ msgid "Clear"
 msgstr "Očisti"
 
 #: plugin/xdl_strings.py
+msgid "Convert Sheet to Python"
+msgstr "Pretvori list u Python"
+
+#: plugin/xdl_strings.py
+msgid "Copy"
+msgstr "Kopiraj"
+
+#: plugin/xdl_strings.py
+msgid "Copy URL"
+msgstr "Kopiraj URL"
+
+#: plugin/xdl_strings.py
+msgid "Delete"
+msgstr "Izbriši"
+
+#: plugin/xdl_strings.py
 msgid "Draw"
 msgstr "Draw"
 
@@ -2066,12 +2169,28 @@ msgid "Edit config file (JSON)…"
 msgstr "Uredi konfiguracijsku datoteku (JSON)…"
 
 #: plugin/xdl_strings.py
+msgid "Edit search query"
+msgstr "Uredi upit za pretraživanje"
+
+#: plugin/xdl_strings.py
 msgid "Endpoint URL (/v1 added):"
 msgstr "URL krajnje točke (dodano /v1):"
 
 #: plugin/xdl_strings.py
 msgid "Endpoint URL:"
 msgstr "URL krajnje točke:"
+
+#: plugin/xdl_strings.py
+msgid "Enter LaTeX math code to convert and insert as formula:"
+msgstr "Unesite LaTeX matematički kod za pretvorbu i umetanje kao formulu:"
+
+#: plugin/xdl_strings.py
+msgid ""
+"Enter Python code to execute in the user virtual environment.\n"
+"Assign the result to the 'result' variable."
+msgstr ""
+"Unesite Python kod za izvršavanje u korisničkom virtualnom okruženju.\n"
+"Dodijelite rezultat varijabli 'result'."
 
 #: plugin/xdl_strings.py
 msgid "General"
@@ -2086,8 +2205,20 @@ msgid "Image Settings"
 msgstr "Postavke slike"
 
 #: plugin/xdl_strings.py
+msgid "In-place replacement"
+msgstr "Zamjena na mjestu"
+
+#: plugin/xdl_strings.py
+msgid "Input:"
+msgstr "Unos:"
+
+#: plugin/xdl_strings.py
 msgid "Insert Frame"
 msgstr "Umetni okvir"
+
+#: plugin/xdl_strings.py
+msgid "Insert LaTeX Math"
+msgstr "Umetni LaTeX matematiku"
 
 #: plugin/xdl_strings.py
 msgid "Max Tokens:"
@@ -2098,6 +2229,10 @@ msgid "Max Wait (s):"
 msgstr "Maks. čekanje (s):"
 
 #: plugin/xdl_strings.py
+msgid "Message"
+msgstr "Poruka"
+
+#: plugin/xdl_strings.py
 msgid "Models to Test:"
 msgstr "Modeli za testiranje:"
 
@@ -2106,20 +2241,92 @@ msgid "Multimodal"
 msgstr "Multimodalno"
 
 #: plugin/xdl_strings.py
+msgid "New Sheet (PythonImport)"
+msgstr "Novi list (PythonImport)"
+
+#: plugin/xdl_strings.py
+msgid "Number of Responses:"
+msgstr "Broj odgovora:"
+
+#: plugin/xdl_strings.py
+msgid "OK"
+msgstr "U redu"
+
+#: plugin/xdl_strings.py
+msgid "Options"
+msgstr "Opcije"
+
+#: plugin/xdl_strings.py
+msgid "Output Mode"
+msgstr "Način izlaza"
+
+#: plugin/xdl_strings.py
 msgid "Please enter edit instructions:"
 msgstr "Unesite upute za uređivanje:"
+
+#: plugin/xdl_strings.py
+msgid "Preserve number formats"
+msgstr "Zadrži formate brojeva"
+
+#: plugin/xdl_strings.py
+msgid "Python Test"
+msgstr "Python test"
+
+#: plugin/xdl_strings.py
+msgid "Rebuild"
+msgstr "Ponovna izgradnja"
+
+#: plugin/xdl_strings.py
+msgid "Results:"
+msgstr "Rezultati:"
 
 #: plugin/xdl_strings.py
 msgid "Run Benchmark"
 msgstr "Pokreni test performansi"
 
 #: plugin/xdl_strings.py
+msgid "Save As..."
+msgstr "Spremi kao..."
+
+#: plugin/xdl_strings.py
+msgid "Scope"
+msgstr "Opseg"
+
+#: plugin/xdl_strings.py
+msgid "Script:"
+msgstr "Skripta:"
+
+#: plugin/xdl_strings.py
+msgid "Search Nearby Files"
+msgstr "Pretraži obližnje datoteke"
+
+#: plugin/xdl_strings.py
+msgid "Search Query:"
+msgstr "Upit za pretraživanje:"
+
+#: plugin/xdl_strings.py
+msgid "Search query:"
+msgstr "Upit za pretraživanje:"
+
+#: plugin/xdl_strings.py
 msgid "Seed:"
 msgstr "Sjeme:"
 
 #: plugin/xdl_strings.py
+msgid "Selection"
+msgstr "Odabir"
+
+#: plugin/xdl_strings.py
+msgid "Server Status"
+msgstr "Status poslužitelja"
+
+#: plugin/xdl_strings.py
 msgid "Square"
 msgstr "Kvadrat"
+
+#: plugin/xdl_strings.py
+msgid "Status"
+msgstr "Status"
 
 #: plugin/xdl_strings.py
 msgid "Steps:"
@@ -2146,6 +2353,14 @@ msgid "Use AI Horde for Image Generation"
 msgstr "Koristi AI Horde za generiranje slika"
 
 #: plugin/xdl_strings.py
+msgid "Vectorize columns when safe"
+msgstr "Vektoriziraj stupce kada je sigurno"
+
+#: plugin/xdl_strings.py
+msgid "Verify recalc (oracle diff)"
+msgstr "Provjeri ponovni izračun (oracle diff)"
+
+#: plugin/xdl_strings.py
 msgid "Writer"
 msgstr "Writer"
 
@@ -2153,8 +2368,8 @@ msgstr "Writer"
 msgid "WriterAgent Evaluation Dashboard"
 msgstr "Nadzorna ploča za procjenu WriterAgenta"
 
-msgid "ACP"
-msgstr "ACP"
+msgid "Agent Communication Protocol"
+msgstr "Protokol komunikacije agenta"
 
 msgid "Backend"
 msgstr "Pozadinski sustav"
@@ -2247,17 +2462,39 @@ msgid "Web Research Cache"
 msgstr "Predmemorija mrežnog istraživanja"
 
 msgid ""
-"Cache completed web research reports by normalized query (reuses web search "
-"cache database)."
+"Cache completed web research reports by normalized query (uses web cache "
+"database)."
 msgstr ""
-"Predmemorirajte dovršena izvješća mrežnog istraživanja prema normaliziranom "
-"upitu (ponovno koristi bazu podataka predmemorije mrežnog pretraživanja)."
+"Predmemoriraj dovršena izvješća web istraživanja prema normaliziranom upitu "
+"(koristi bazu podataka web predmemorije)."
 
 msgid "Prompt for Web Research"
 msgstr "Zatraži web istraživanje"
 
 msgid "Ask for confirmation before sending a web search query"
 msgstr "Zatraži potvrdu prije slanja upita za web pretraživanje"
+
+msgid "Web Research Browser"
+msgstr "Preglednik za web istraživanje"
+
+msgid ""
+"Select the browser backend to use for webpage visits during research (Off "
+"uses static HTTP requests)."
+msgstr ""
+"Odaberite pozadinski preglednik koji će se koristiti za posjete web "
+"stranicama tijekom istraživanja (Isključeno koristi statičke HTTP zahtjeve)."
+
+msgid "Off (Static HTTP)"
+msgstr "Isključeno (statički HTTP)"
+
+msgid "Firefox (CDP)"
+msgstr "Firefox (CDP)"
+
+msgid "Chromium (CDP)"
+msgstr "Chromium (CDP)"
+
+msgid "Chrome (CDP)"
+msgstr "Chrome (CDP)"
 
 msgid "Cache max (MB)"
 msgstr "Maksimalna predmemorija (MB)"
@@ -2390,43 +2627,54 @@ msgstr ""
 "Pošalji; Shift+Enter umeće novi redak. Kada je isključeno, Enter umeće novi "
 "redak."
 
+msgid "Agent edit review"
+msgstr "Pregled uređivanja agenta"
+
+msgid ""
+"Off = direct edits. Record = tracked changes you accept/reject yourself. "
+"Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
+"review."
+msgstr ""
+"Isključeno = izravne izmjene. Zapisivanje = praćene promjene koje sami "
+"prihvaćate/odbijate. Čekanje = apply_document_content blokira (na radnoj "
+"dretvi chata/MCP-a) dok ne pregledate."
+
+msgid "Record (track changes)"
+msgstr "Zapisivanje (praćenje promjena)"
+
+msgid "Wait for review"
+msgstr "Čekanje na pregled"
+
 msgid "Draw and Impress tools"
 msgstr "Alati za Draw i Impress"
 
-msgid "Embeddings"
-msgstr "Ugradnje (Embeddings)"
+msgid "Vector Search"
+msgstr "Vektorsko pretraživanje"
 
-msgid "Embeddings cache (per-folder semantic search)"
-msgstr "Predmemorija ugradnji (semantičko pretraživanje po mapi)"
-
-msgid ""
-"When on, builds a semantic index in writeragent_embeddings/ beside the "
-"active document's folder and also exposes search_embeddings in "
-"document_research (grep_nearby_files stays available). Requires Settings → "
-"Python venv with sentence-transformers, chromadb, langgraph, langchain-core,"
-" langchain-text-splitters, envwrap (see Settings → Python Test)."
-msgstr ""
-"Kada je uključeno, gradi semantički indeks u writeragent_embeddings/ pored "
-"mape aktivnog dokumenta i također izlaže search_embeddings u "
-"document_research (grep_nearby_files ostaje dostupan). Zahtijeva Postavke → "
-"Python venv sa sentence-transformers, chromadb, langgraph, langchain-core, "
-"langchain-text-splitters, envwrap (vidi Postavke → Python test)."
-
-msgid "Embedding Provider"
-msgstr "Pružatelj ugradnji"
+msgid "Cross-file search"
+msgstr "Pretraživanje kroz više datoteka"
 
 msgid ""
-"local (sentence-transformers in venv) or endpoint (configured remote/local "
-"endpoint)"
+"Indexed semantic + keyword search for document_research (corpus.db). "
+"Requires embeddings venv — see Python Test."
 msgstr ""
-"lokalno (sentence-transformers u venv-u) ili krajnja točka (konfigurirana "
-"udaljena/lokalna krajnja točka)"
+"Indeksirano semantičko i pretraživanje ključnih riječi za document_research "
+"(corpus.db). Zahtijeva venv ugradnji (embeddings) — pogledajte Python test."
 
-msgid "Local (venv)"
-msgstr "Lokalno (venv)"
+msgid "Embeddings + FTS"
+msgstr "Ugradnje + FTS"
 
-msgid "Endpoint"
-msgstr "Krajnja točka"
+msgid "LlamaIndex"
+msgstr "LlamaIndex"
+
+msgid "Zvec (experimental)"
+msgstr "Zvec (eksperimentalno)"
+
+msgid "ChromaDB"
+msgstr "ChromaDB"
+
+msgid "LanceDB (experimental)"
+msgstr "LanceDB (eksperimentalno)"
 
 msgid "Embedding Model"
 msgstr "Model za ugradnju"
@@ -2435,6 +2683,32 @@ msgid "HuggingFace model ID for local provider, or endpoint-specific model ID"
 msgstr ""
 "HuggingFace ID modela za lokalnog pružatelja usluga ili ID modela specifičan"
 " za krajnju točku"
+
+msgid "Enable cross-file rerank"
+msgstr "Omogući ponovno rangiranje između datoteka"
+
+msgid ""
+"Second-stage cross-encoder after hybrid retrieve (Embeddings + FTS and "
+"LlamaIndex). Off by default."
+msgstr ""
+"Cross-encoder druge faze nakon hibridnog dohvaćanja (ugradnje + FTS i "
+"LlamaIndex). Isključeno prema zadanim postavkama."
+
+msgid "Rerank model"
+msgstr "Model za ponovno rangiranje"
+
+msgid ""
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
+msgstr ""
+"Koristi se samo kada je omogućeno ponovno rangiranje. Engleski MiniLM je "
+"brz; bge-reranker-v2-m3 je višejezičan i preuzima ~2,3 GB."
+
+msgid "cross-encoder/ms-marco-MiniLM-L-6-v2"
+msgstr "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
+msgid "BAAI/bge-reranker-v2-m3"
+msgstr "BAAI/bge-reranker-v2-m3"
 
 msgid "Core services (config, events, logging)"
 msgstr "Osnovne usluge (konfiguracija, događaji, zapisivanje)"
@@ -2614,44 +2888,3 @@ msgstr "Vremensko ograničenje Docling dokumenta (s)"
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr ""
 "Vremensko ograničenje po pretvorbi unutar Doclinga. 0 = bez ograničenja."
-
-msgid "Writer document tools (including navigation and search)"
-msgstr "Alati za Writer dokumente (uključujući navigaciju i pretraživanje)"
-
-msgid "Web Research Browser"
-msgstr "Preglednik za web istraživanje"
-
-msgid ""
-"Select the browser backend to use for webpage visits during research (Off "
-"uses static HTTP requests)."
-msgstr ""
-"Odaberite pozadinski preglednik koji će se koristiti za posjete web "
-"stranicama tijekom istraživanja (Isključeno koristi statičke HTTP zahtjeve)."
-
-msgid "Off (Static HTTP)"
-msgstr "Isključeno (statički HTTP)"
-
-msgid "Firefox (CDP)"
-msgstr "Firefox (CDP)"
-
-msgid "Chromium (CDP)"
-msgstr "Chromium (CDP)"
-
-msgid "Chrome (CDP)"
-msgstr "Chrome (CDP)"
-
-msgid "Cross-file search mode"
-msgstr "Način pretraživanja kroz više datoteka"
-
-msgid ""
-"Cross-file search for document_research. Requires embeddings venv — see "
-"Python Test."
-msgstr ""
-"Pretraživanje kroz više datoteka za document_research. Zahtijeva venv s "
-"ugradnjama (embeddings) — pogledajte Python test."
-
-msgid "None"
-msgstr "Nijedno"
-
-msgid "SQLite FTS (venv)"
-msgstr "SQLite FTS (venv)"

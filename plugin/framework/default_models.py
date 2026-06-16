@@ -74,24 +74,9 @@ DEFAULT_MODELS: list[dict[str, Any]] = [
     {"display_name": "GPT-OSS 120B", "capability": ModelCapability.CHAT | ModelCapability.TOOLS, "context_length": 131072, "ids": {"together": "openai/gpt-oss-120b", "openrouter": "openai/gpt-oss-120b:nitro"}, "default_text": True},
     {"display_name": "GPT-OSS 20B", "capability": ModelCapability.CHAT | ModelCapability.TOOLS, "context_length": 128000, "ids": {"together": "openai/gpt-oss-20b"}, "default_text": True},
     {"display_name": "Mistral Large 3", "capability": ModelCapability.CHAT | ModelCapability.VISION | ModelCapability.TOOLS, "context_length": 262144, "ids": {"openrouter": "mistralai/mistral-large-2512", "mistral": "mistral-large-latest"}},
-    {
-        "display_name": "Voxtral Mini Transcribe",
-        "capability": ModelCapability.AUDIO,
-        "ids": {"openrouter": "mistralai/voxtral-mini-transcribe"},
-        "default_audio": True,
-    },
-    {
-        "display_name": "Gemini 3.1 Flash Lite Preview",
-        "capability": ModelCapability.CHAT | ModelCapability.AUDIO | ModelCapability.VISION | ModelCapability.TOOLS,
-        "context_length": 1048576,
-        "ids": {"google": "gemini-3.1-flash-lite-preview", "openrouter": "google/gemini-3.1-flash-lite-preview"},
-    },
+    {"display_name": "Voxtral Mini Transcribe", "capability": ModelCapability.AUDIO, "ids": {"openrouter": "mistralai/voxtral-mini-transcribe"}, "default_audio": True},
+    {"display_name": "Gemini 3.1 Flash Lite Preview", "capability": ModelCapability.CHAT | ModelCapability.AUDIO | ModelCapability.VISION | ModelCapability.TOOLS, "context_length": 1048576, "ids": {"google": "gemini-3.1-flash-lite-preview", "openrouter": "google/gemini-3.1-flash-lite-preview"}},
     {"display_name": "Gemini Flash Image 2.5", "capability": ModelCapability.IMAGE, "ids": {"together": "google/flash-image-2.5"}, "default_image": True},
-    {
-        "display_name": "Gemini 2.5 Flash Image",
-        "capability": ModelCapability.IMAGE,
-        "ids": {"openrouter": "google/gemini-2.5-flash-image"},
-        "default_image": True,
-    },
+    {"display_name": "Gemini 2.5 Flash Image", "capability": ModelCapability.IMAGE, "ids": {"openrouter": "google/gemini-2.5-flash-image"}, "default_image": True},
     {"display_name": "Nvidia Parakeet TDT 0.6B v3", "capability": ModelCapability.AUDIO, "ids": {"together": "nvidia/parakeet-tdt-0.6b-v3"}, "default_audio": True},
 ]

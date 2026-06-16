@@ -315,6 +315,10 @@ class QueueExecutor:
         if threading.current_thread() is threading.main_thread():
             return fn(*args, **kwargs)
 
+        import os
+        if os.environ.get("WRITERAGENT_TESTING") == "1":
+            return fn(*args, **kwargs)
+
         svc = self._get_async_callback()
 
         if svc is None:
@@ -330,6 +334,11 @@ class QueueExecutor:
         Unlike execute, does not block or return a result.
         Used for UI updates from background threads.
         """
+        import os
+        if os.environ.get("WRITERAGENT_TESTING") == "1":
+            fn(*args, **kwargs)
+            return
+
         svc = self._get_async_callback()
         if svc is None:
             fn(*args, **kwargs)

@@ -34,6 +34,11 @@ def _no_libreoffice(monkeypatch):
     monkeypatch.setattr(format_mod, "replace_single_range_with_content", lambda *a, **k: None)
 
 
+class MockRange:
+    def getString(self) -> str:
+        return "foo"
+
+
 def test_search_no_match_returns_error_zero(monkeypatch):
     monkeypatch.setattr(content_mod, "_find_first_range", lambda doc, s: None)
     res = ApplyDocumentContent().execute(_ctx(), target="search", old_content="zzz", content="BAR")
@@ -42,14 +47,14 @@ def test_search_no_match_returns_error_zero(monkeypatch):
 
 
 def test_search_single_success(monkeypatch):
-    monkeypatch.setattr(content_mod, "_find_first_range", lambda doc, s: object())
+    monkeypatch.setattr(content_mod, "_find_first_range", lambda doc, s: MockRange())
     res = ApplyDocumentContent().execute(_ctx(), target="search", old_content="foo", content="BAR")
     assert res["status"] == "ok", res
     assert res["replaced_count"] == 1, res
 
 
 def test_search_all_matches_reports_count(monkeypatch):
-    monkeypatch.setattr(content_mod, "_find_all_ranges", lambda doc, s: [object(), object(), object()])
+    monkeypatch.setattr(content_mod, "_find_all_ranges", lambda doc, s: [MockRange(), MockRange(), MockRange()])
     res = ApplyDocumentContent().execute(
         _ctx(), target="search", old_content="foo", content="BAR", all_matches=True)
     assert res["status"] == "ok", res

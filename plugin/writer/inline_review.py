@@ -385,14 +385,12 @@ def resolve_all_agent_changes(model: Any, ctx: Any, accept: bool) -> int:
             log.exception("inline_review: resolve-all global dispatch failed")
             return 0
 
-    # User redlines are mixed in: resolve agent changes one per pass, flushing pending VCL
-    # events between dispatches so each one actually takes effect in the live view.
+    # User redlines are mixed in: resolve agent changes one per pass.
+    # Note: We do not call processEventsToIdle() between dispatches here because it blocks
+    # indefinitely if the event loop is never completely idle (e.g. active animations, cursors,
+    # or background tasks), causing LibreOffice to hang.
     resolved = 0
     skip: set[str] = set()  # changes that share a paragraph with a user redline (or failed)
-    try:
-        toolkit = ctx.getServiceManager().createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
-    except Exception:
-        toolkit = None
     for _ in range(200):  # generous upper bound; each pass resolves one change
         pending = [c for c in agent_changes(model) if c["token"] not in skip]
         if not pending:
@@ -408,9 +406,4 @@ def resolve_all_agent_changes(model: Any, ctx: Any, accept: bool) -> int:
             skip.add(token)
             continue
         resolved += 1
-        if toolkit is not None:
-            try:
-                toolkit.processEventsToIdle()
-            except Exception:
-                toolkit = None
     return resolved
