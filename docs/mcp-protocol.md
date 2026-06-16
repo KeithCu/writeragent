@@ -359,6 +359,26 @@ An outer MCP model that **alternates** between unrelated tool groups in one long
 
 **Still required internally:** Even with a larger MCP surface, the internal agent stack remains necessary for features that are **not** orchestrated by an MCP client— notably the **background grammar checker** ([`docs/realtime-grammar-checker-plan.md`](realtime-grammar-checker-plan.md)) and similar automatic pipelines we may add later. Those run on their own schedules inside LibreOffice; an outer model cannot replace them by calling MCP tools in a chat session.
 
+### Exposing specialized tools directly: `mcp.tool_exposure_mode` (experimental)
+
+An experimental config, `mcp.tool_exposure_mode` (default `delegate`), controls how the ~138 specialized tools are surfaced over MCP. The default is unchanged; the two opt-in modes let clients reach the specialized tools **without** the delegate sub-agent (so no LLM backend is needed for tool access):
+
+| Mode | `tools/list` | For |
+|------|--------------|-----|
+| `delegate` *(default)* | core only; specialized reached via the `delegate_*` gateway | unchanged behavior |
+| `direct_flat` | core **+ all MCP-reachable specialized** (already doc-type filtered, so ~74 on Calc / ~102 on Writer, not all 138 at once; Writer sidebar-only flows excluded) | clients with native tool-search (Claude API; OpenAI `defer_loading`) |
+| `direct_discovery` | core **+ a `find_tools` search tool** | any client (engine-agnostic) |
+
+In both direct modes the specialized tools are invoked **by name** — which already works, since `tools/call` routes through the registry, not the advertised list.
+
+The direct modes **add** direct access; they don't remove delegation. The `delegate_to_specialized_*` gateway stays listed in every mode (it is core-tier), so a client can still delegate if it prefers — this is intentional, the direct modes are additive.
+
+`find_tools(query, domain?)` (advertised only in `direct_discovery`) ranks the hidden catalog with a pure-Python lexical ranker (BM25-lite + substring bonus; no venv/embeddings) and returns ready-to-call schemas plus per-domain usage guidance. It is document-optional (discovery works with no document open; with no document the per-domain guidance is app-neutral) and is rejected by name in the other modes.
+
+> Note: with **no document open** and no `X-Document-URL`, `direct_flat` can't filter by document type, so it lists the **broad** tool catalog (core + specialized, all apps); once a document is active or targeted the list narrows to that app's tools. An `X-Document-URL` that doesn't resolve keeps the normal filtered list (and `tools/call` returns `DOCUMENT_NOT_FOUND`). `delegate` and `direct_discovery` keep the normal document-filtered list (in `direct_discovery`, `find_tools` covers the full no-document catalog on demand).
+
+> Note: `tools/list` is not re-sent when the mode changes mid-connection (`listChanged` is `false`), so reconnect after switching modes.
+
 ---
 
 ## Current Status — What Was Implemented

@@ -81,6 +81,28 @@ _doc_gates: dict[str, threading.Lock] = {}
 _doc_gates_guard = threading.Lock()
 
 
+def _real_active_document(doc_svc):
+    """The active document, or None when no real document is open.
+
+    LibreOffice's Start Center is a live component but not a document, so
+    get_active_document() returns it when nothing is open. A real document -- even an
+    unsupported type like Math/Base -- supports ``com.sun.star.document.OfficeDocument``;
+    the Start Center does not. So only the Start Center is normalized to None (real but
+    unsupported docs are left to fail with the clearer "unsupported document" error). This
+    keeps the MCP layer (NO_DOCUMENT_OPEN, find_tools' no-doc catalog, direct_flat's no-doc
+    broadening) consistent in the real "no document open" state.
+    """
+    doc = doc_svc.get_active_document()
+    if doc is None:
+        return None
+    try:
+        if not doc.supportsService("com.sun.star.document.OfficeDocument"):
+            return None
+    except Exception:
+        pass  # can't introspect -> keep it (don't break a real document)
+    return doc
+
+
 def _resolve_mcp_doc_key(document_url, doc):
     """Stable per-document key for the mutation gate, derived from the RESOLVED document (``doc``).
 
@@ -418,17 +440,56 @@ class MCPProtocolHandler:
     def _mcp_ping(self, params):
         return wire_types.ping_result()
 
+    def _tool_exposure_mode(self):
+        """Read mcp.tool_exposure_mode (delegate | direct_flat | direct_discovery)."""
+        try:
+            return self.services.config.get("mcp.tool_exposure_mode", "delegate") or "delegate"
+        except Exception:
+            return "delegate"
+
     def _mcp_tools_list(self, params, document_url=None):
         def _get_doc():
             doc_svc = self.services.document
             if document_url:
                 doc, _ = doc_svc.resolve_document_by_url(document_url)
                 return doc
-            return doc_svc.get_active_document()
+            return _real_active_document(doc_svc)
 
         doc = self.queue_executor.execute(_get_doc, timeout=10.0)
 
-        schemas = self.tool_registry.get_schemas("mcp", doc=doc, exclude_tiers=frozenset({"specialized", "specialized_control"}))
+        mode = self._tool_exposure_mode()
+        # direct_flat advertises the specialized tools directly (control tools stay hidden --
+        # they only make sense inside an active delegated domain). Every other mode keeps
+        # today's core-only list (specialized tools are still callable by name -- via the
+        # delegate gateway, or the find_tools discovery tool in direct_discovery).
+        if mode == "direct_flat":
+            exclude_tiers = frozenset({"specialized_control"})
+        else:
+            exclude_tiers = frozenset({"specialized", "specialized_control"})
+
+        # In direct_flat with no target at all (no active doc AND no document_url), don't
+        # filter by doc type, or app-specific tools would be dropped with no find_tools
+        # fallback. An unresolvable document_url is a DOCUMENT_NOT_FOUND case, not a
+        # no-target broaden, so it keeps normal filtering -- as do delegate (byte-for-byte
+        # unchanged) and direct_discovery (find_tools has its own no-doc catalog).
+        broaden = mode == "direct_flat" and doc is None and not document_url
+        doc_filter = {"filter_doc_type": False} if broaden else {}
+        schemas = self.tool_registry.get_schemas("mcp", doc=doc, exclude_tiers=exclude_tiers, **doc_filter)
+
+        if mode == "direct_flat":
+            # Keep Writer sidebar-only flows (brainstorming, writing_plan) out of the flat
+            # list -- they need bespoke session orchestration the direct modes don't give.
+            from plugin.doc.find_tools_tool import sidebar_only_tool_names
+            sidebar_only = sidebar_only_tool_names(self.tool_registry, doc)
+            if sidebar_only:
+                schemas = [s for s in schemas if s.get("name") not in sidebar_only]
+
+        # find_tools is the discovery search tool, useful only in direct_discovery mode
+        # (small core list + on-demand search). delegate advertises the gateway and
+        # direct_flat already lists everything, so hide it by name in those modes.
+        if mode != "direct_discovery":
+            schemas = [s for s in schemas if s.get("name") != "find_tools"]
+
         return wire_types.list_tools_result(schemas)
 
     def _mcp_resources_list(self, params):
@@ -446,6 +507,19 @@ class MCPProtocolHandler:
         arg_document_url = arguments.pop("document_url", None)
         if arg_document_url:
             document_url = arg_document_url
+
+        # find_tools is the discovery search tool; it is only advertised in
+        # direct_discovery mode, so reject calling it by name in other modes -- otherwise
+        # the default (delegate) behavior would not really be unchanged.
+        if tool_name == "find_tools" and self._tool_exposure_mode() != "direct_discovery":
+            return {
+                "content": [{"type": "text", "text": json.dumps({
+                    "status": "error", "code": "UNKNOWN_TOOL",
+                    "message": "Tool 'find_tools' is only available when mcp.tool_exposure_mode is 'direct_discovery'.",
+                }, ensure_ascii=False)}],
+                "isError": True,
+            }
+
         tool = self.tool_registry.get(tool_name)
         is_long_running = getattr(tool, "long_running", False) if tool else False
 
@@ -592,7 +666,7 @@ class MCPProtocolHandler:
             if document_url:
                 doc, doc_type = doc_svc.resolve_document_by_url(document_url)
             else:
-                doc = doc_svc.get_active_document()
+                doc = _real_active_document(doc_svc)
                 if doc:
                     doc_type = doc_svc.detect_doc_type(doc)
             import uno
@@ -603,10 +677,13 @@ class MCPProtocolHandler:
 
         doc, doc_type, ctx, doc_key = self.queue_executor.execute(_get_context, timeout=10.0)
 
-        if doc is None and not document_url:
-            return {"status": "error", "code": "NO_DOCUMENT_OPEN", "message": "No document open in LibreOffice."}
-        elif doc is None:
+        # Document-optional tools (e.g. find_tools) run with no document; an explicit
+        # document_url that doesn't resolve is always an error, though.
+        tool = self.tool_registry.get(tool_name)
+        if doc is None and document_url:
             return {"status": "error", "code": "DOCUMENT_NOT_FOUND", "message": "No document open matching X-Document-URL: %s" % document_url, "details": {"document_url": document_url}}
+        if doc is None and getattr(tool, "requires_document", True):
+            return {"status": "error", "code": "NO_DOCUMENT_OPEN", "message": "No document open in LibreOffice."}
 
         from plugin.framework.tool import ToolContext
 
@@ -622,7 +699,6 @@ class MCPProtocolHandler:
 
         # Sub-tools invoked by a delegating tool run in-process (not via this method),
         # so the gate is not re-entered on the same thread -> no self-deadlock.
-        tool = self.tool_registry.get(tool_name)
         needs_gate = _tool_needs_document_mutation_gate(tool, arguments)
         with _document_mutation_gate(doc_key, enabled=needs_gate):
             t0 = time.perf_counter()
@@ -645,14 +721,17 @@ class MCPProtocolHandler:
                 if doc is None:
                     return {"status": "error", "code": "DOCUMENT_NOT_FOUND", "message": "No document open matching X-Document-URL: %s" % (document_url or ""), "details": {"document_url": document_url}}
             else:
-                doc = doc_svc.get_active_document()
+                doc = _real_active_document(doc_svc)
                 if doc:
                     doc_type = doc_svc.detect_doc_type(doc)
         except Exception as e:
             log.warning("Error resolving context in execution: %s", type(e).__name__)
             pass
 
-        if doc is None:
+        # Document-optional tools (e.g. the find_tools discovery meta-tool) run with no
+        # document open; every other tool still requires one.
+        tool = self.tool_registry.get(tool_name)
+        if doc is None and getattr(tool, "requires_document", True):
             return {"status": "error", "code": "NO_DOCUMENT_OPEN", "message": "No document open in LibreOffice."}
 
         # Get UNO context
@@ -678,7 +757,6 @@ class MCPProtocolHandler:
         context = ToolContext(doc=doc, ctx=ctx, doc_type=doc_type, services=self.services, caller="mcp", active_page_index=active_page_idx)
 
         doc_key = _resolve_mcp_doc_key(document_url, doc)
-        tool = self.tool_registry.get(tool_name)
         needs_gate = _tool_needs_document_mutation_gate(tool, arguments)
         with _document_mutation_gate(doc_key, enabled=needs_gate):
             t0 = time.perf_counter()
@@ -743,7 +821,7 @@ class MCPProtocolHandler:
     def _detect_active_doc_type(self):
         try:
             doc_svc = self.services.document
-            doc = doc_svc.get_active_document()
+            doc = _real_active_document(doc_svc)
             if doc:
                 return doc_svc.detect_doc_type(doc)
         except Exception as e:
