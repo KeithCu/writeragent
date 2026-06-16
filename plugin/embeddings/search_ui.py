@@ -432,10 +432,11 @@ class SearchDialog:
                         search_mode=_folder_search_mode(ctx),
                         heartbeat_fn=heartbeat_fn,
                     )
-                except Exception:
-                    log.exception("maintain_folder_index failed during rebuild (non-critical in UI path)")
+                    self._update_rebuild_ui(btn_rebuild, results_ctrl, _("Cache rebuild completed successfully."))
+                except Exception as exc:
+                    log.exception("maintain_folder_index failed during rebuild")
+                    self._update_rebuild_ui(btn_rebuild, results_ctrl, _("Rebuild failed: ") + str(exc))
 
-                self._update_rebuild_ui(btn_rebuild, results_ctrl, _("Cache rebuild completed successfully."))
                 self._refresh_cache_status(dlg)
             except Exception as e:
                 log.exception("Cache rebuild failed")

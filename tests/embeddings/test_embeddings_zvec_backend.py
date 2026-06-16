@@ -38,8 +38,9 @@ def test_stable_doc_id_shape():
         "file_mtime": 1710000000.0,
     }
     doc_id = zv._stable_doc_id(row)  # type: ignore[attr-defined]
-    assert isinstance(doc_id, str) and len(doc_id) > 0
-    assert "foo.odt" in doc_id or "deadbeef" in doc_id
+    assert isinstance(doc_id, str) and len(doc_id) == 64
+    import re
+    assert re.match(r"^[a-f0-9]{64}$", doc_id) is not None
 
 
 @pytest.mark.skipif(not zv.HAS_ZVEC, reason="zvec package not installed in this test python; user opt-in via their embeddings venv")

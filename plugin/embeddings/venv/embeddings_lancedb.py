@@ -110,30 +110,32 @@ def lancedb_ingest_rows(
 
     tbl = _get_or_create_table(db_path, dim or (len(vectors[0]) if vectors else 384))
 
-    # Construct the PyArrow Table to add/upsert
-    pydict = {
-        "id": [_stable_doc_id(r) for r in rows],
-        "doc_url": [str(r.get("doc_url") or "") for r in rows],
-        "body": bodies,
-        "para_index": [int(r.get("para_index") or 0) for r in rows],
-        "content_hash": [str(r.get("content_hash") or "") for r in rows],
-        "file_mtime": [float(r.get("file_mtime") or 0.0) for r in rows],
-        "vector": vectors if vectors else [[0.0] * dim for _ in rows],
-    }
+    # Construct the list of dicts to add/upsert
+    data_list = []
+    for idx, r in enumerate(rows):
+        data_list.append({
+            "id": _stable_doc_id(r),
+            "doc_url": str(r.get("doc_url") or ""),
+            "body": bodies[idx],
+            "para_index": int(r.get("para_index") or 0),
+            "content_hash": str(r.get("content_hash") or ""),
+            "file_mtime": float(r.get("file_mtime") or 0.0),
+            "vector": vectors[idx] if vectors else [0.0] * dim,
+        })
 
     # Perform upsert
     try:
-        tbl.upsert(pydict, on="id")
+        tbl.upsert(data_list, on="id")
     except Exception:
         # Fallback to delete and add
-        ids: list[str] = pydict["id"]  # type: ignore[assignment]
+        ids = [item["id"] for item in data_list]
         if ids:
             try:
                 filter_expr = "id in (" + ", ".join(f"'{id_}'" for id_ in ids) + ")"
                 tbl.delete(filter_expr)
             except Exception:
                 pass
-        tbl.add(pydict)
+        tbl.add(data_list)
 
     if build_fts:
         try:

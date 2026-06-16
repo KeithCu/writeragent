@@ -31,7 +31,7 @@ def _folder_search_rerank_options(ctx: Any, search_mode: str) -> dict[str, Any]:
     """Build use_mmr / rerank_model for search RPC from Settings and backend mode."""
     from plugin.framework.constants import folder_rerank_enabled, resolve_folder_rerank_model
 
-    if search_mode in ("hybrid", "llama_index", "zvec"):
+    if search_mode in ("hybrid", "llama_index", "zvec", "lancedb"):
         if folder_rerank_enabled(ctx):
             return {"use_mmr": True, "rerank_model": resolve_folder_rerank_model(ctx)}
         return {"use_mmr": False}
@@ -188,7 +188,7 @@ def maintain_folder_index(
     if not model_name:
         raise ToolExecutionError("No embedding model configured.", code="EMBEDDING_MODEL_MISSING")
     resolved_mode = str(search_mode or _folder_search_mode(ctx) or "hybrid").strip().lower()
-    if resolved_mode not in ("hybrid", "llama_index", "fts", "embeddings"):
+    if resolved_mode not in ("hybrid", "llama_index", "fts", "embeddings", "zvec", "lancedb"):
         resolved_mode = "hybrid"
     return _run_worker_with_heartbeat(
         ctx,

@@ -67,10 +67,7 @@ def zvec_collection_path(listing_root: str, *, create_parent: bool = True) -> Pa
     """Filesystem path for a zvec collection store for this folder (side-by-side with corpus.db)."""
     # Place under the same writeragent_embeddings/ sibling dir as the sqlite corpus.
     base = folder_cache_dir(listing_root, create_parent=create_parent)
-    p = base / "zvec"
-    if create_parent:
-        p.mkdir(parents=True, exist_ok=True)
-    return p
+    return base / "zvec"
 
 
 def zvec_collection_looks_populated(collection_path: Path) -> bool:

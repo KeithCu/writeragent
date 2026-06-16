@@ -44,4 +44,7 @@ def test_trusted_hybrid_search_stub_dispatches():
         model_name="all-MiniLM-L6-v2",
         near_slop=10,
         doc_url_filter=None,
+        use_mmr=True,
+        rerank_model=None,
+        search_mode="hybrid",
     )

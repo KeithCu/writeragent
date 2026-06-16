@@ -221,3 +221,28 @@ def test_folder_search_rerank_options_hybrid_backend_enabled(ctx):
         ):
             opts = embeddings_service._folder_search_rerank_options(ctx, "hybrid")
     assert opts == {"use_mmr": True, "rerank_model": FOLDER_RERANK_MODEL_ENGLISH_SMALL}
+
+
+def test_folder_search_rerank_options_lancedb_enabled(ctx):
+    from plugin.framework.constants import FOLDER_RERANK_MODEL_ENGLISH_SMALL
+
+    with patch("plugin.framework.constants.folder_rerank_enabled", return_value=True):
+        with patch(
+            "plugin.framework.constants.resolve_folder_rerank_model",
+            return_value=FOLDER_RERANK_MODEL_ENGLISH_SMALL,
+        ):
+            opts = embeddings_service._folder_search_rerank_options(ctx, "lancedb")
+    assert opts == {"use_mmr": True, "rerank_model": FOLDER_RERANK_MODEL_ENGLISH_SMALL}
+
+
+def test_maintain_folder_index_lancedb_mode(ctx):
+    with patch(
+        "plugin.framework.client.embeddings_service.run_code_in_user_venv",
+        return_value={"status": "ok", "result": {"mode": "cold"}},
+    ) as mock_run:
+        with patch("plugin.framework.client.embeddings_service.embeddings_worker_timeout_sec", return_value=120):
+            with patch("plugin.framework.client.embeddings_service._folder_search_mode", return_value="lancedb"):
+                embeddings_service.maintain_folder_index(ctx, "/tmp/folder", model=DEFAULT_EMBEDDING_MODEL)
+    assert mock_run.call_args.kwargs["data"]["search_mode"] == "lancedb"
+
+

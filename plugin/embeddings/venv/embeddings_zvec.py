@@ -45,6 +45,11 @@ except Exception:
 zvec = _zvec  # type: ignore[assignment]
 
 
+# Global cache to reuse collection instances in the same process/thread context to prevent locking errors.
+_COLL_CACHE: dict[str, Any] = {}
+
+
+
 # Reuse the project's embedder (sentence-transformers) already present for embeddings work.
 # This keeps model choice, batching, and normalize behavior consistent with other backends.
 def _embed_texts(model_name: str, texts: list[str], *, normalize: bool = True) -> list[list[float]]:
@@ -56,17 +61,23 @@ def _embed_texts(model_name: str, texts: list[str], *, normalize: bool = True) -
 
 def _stable_doc_id(row: dict[str, Any]) -> str:
     """Stable unique id for a paragraph chunk. Used as zvec Doc id for upsert/delete by id."""
-    # content_hash is already a good content identity; combine with locator for global uniqueness.
+    # zvec C++ primary key validator requires the PK to match ^[a-zA-Z0-9_!@#$%+=.-]{1,64}$
+    # doc_urls contain slashes and colons and can exceed 64 chars, so we hash the raw id.
     doc_url = str(row.get("doc_url") or "")
     para = row.get("para_index")
     ch = str(row.get("content_hash") or "")[:16]
-    return f"{doc_url}#{para}#{ch}"
+    raw_id = f"{doc_url}#{para}#{ch}"
+    import hashlib
+    return hashlib.sha256(raw_id.encode("utf-8")).hexdigest()
 
 
 def _get_or_create_collection(coll_path: str, dim: int) -> Any:
     """Open existing zvec collection or create with a schema that supports hybrid FTS + vector + provenance."""
     if not HAS_ZVEC or zvec is None:
         raise RuntimeError("zvec package is not importable in this Python venv. Install with: pip install zvec")
+
+    if coll_path in _COLL_CACHE:
+        return _COLL_CACHE[coll_path]
 
     p = Path(coll_path)
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -100,18 +111,25 @@ def _get_or_create_collection(coll_path: str, dim: int) -> Any:
         coll = zvec.open(str(p))  # type: ignore[attr-defined]
         # If dim changed (model switch), the caller (maintain) should have cleared or we could destroy here.
         # For v1 we let the query path use whatever dim the collection has; embedder must match.
+        _COLL_CACHE[coll_path] = coll
         return coll
     except Exception:
         # Does not exist or failed to open (e.g. first run) — create fresh.
         coll = zvec.create_and_open(str(p), schema=schema)  # type: ignore[attr-defined]
+        _COLL_CACHE[coll_path] = coll
         return coll
 
 
 def _open_for_search(coll_path: str) -> Any:
     if not HAS_ZVEC or zvec is None:
         raise RuntimeError("zvec package is not importable in this Python venv.")
+    if coll_path in _COLL_CACHE:
+        return _COLL_CACHE[coll_path]
     p = Path(coll_path)
-    return zvec.open(str(p))  # type: ignore[attr-defined]
+    coll = zvec.open(str(p))  # type: ignore[attr-defined]
+    _COLL_CACHE[coll_path] = coll
+    return coll
+
 
 
 def zvec_ingest_rows(
@@ -207,8 +225,13 @@ def zvec_delete_keys(collection_path: str, keys: list[dict[str, Any]]) -> int:
         return 0
     if not HAS_ZVEC or zvec is None:
         return 0
-    coll = zvec.open(str(collection_path))  # type: ignore[attr-defined]
+    if collection_path in _COLL_CACHE:
+        coll = _COLL_CACHE[collection_path]
+    else:
+        coll = zvec.open(str(collection_path))  # type: ignore[attr-defined]
+        _COLL_CACHE[collection_path] = coll
     ids = [_stable_doc_id(k) for k in keys]
+
     # zvec delete accepts str or list[str]
     res = coll.delete(ids)
     try:
@@ -453,7 +476,11 @@ def maintain_folder_zvec(
 
         # For clean per-file refresh, remove any previous docs for this doc_url.
         try:
-            coll = zvec.open(coll_path)  # type: ignore[attr-defined]
+            if coll_path in _COLL_CACHE:
+                coll = _COLL_CACHE[coll_path]
+            else:
+                coll = zvec.open(coll_path)  # type: ignore[attr-defined]
+                _COLL_CACHE[coll_path] = coll
             coll.delete_by_filter(f'doc_url == "{entry.url}"')
         except Exception:
             # Collection may not exist yet; the upsert below will create on open/create path.
@@ -484,7 +511,11 @@ def maintain_folder_zvec(
 
     # Final meta + flush
     try:
-        coll = zvec.open(coll_path)  # type: ignore[attr-defined]
+        if coll_path in _COLL_CACHE:
+            coll = _COLL_CACHE[coll_path]
+        else:
+            coll = zvec.open(coll_path)  # type: ignore[attr-defined]
+            _COLL_CACHE[coll_path] = coll
         try:
             coll.flush()
         except Exception:

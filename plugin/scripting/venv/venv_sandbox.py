@@ -484,6 +484,9 @@ def _run_trusted_embeddings_payload(code: str, data: Any | None) -> dict[str, An
                 int(payload.get("k") or 5),
                 model_name=str(payload.get("model") or ""),
                 doc_url_filter=payload.get("doc_url_filter"),
+                use_mmr=bool(payload.get("use_mmr", True)),
+                rerank_model=payload.get("rerank_model"),
+                search_mode=str(payload.get("search_mode") or "embeddings"),
             )
         elif "hybrid_search" in stub:
             result = embeddings_index.hybrid_search(
@@ -493,6 +496,9 @@ def _run_trusted_embeddings_payload(code: str, data: Any | None) -> dict[str, An
                 model_name=str(payload.get("model") or ""),
                 near_slop=int(payload.get("near_slop") or 10),
                 doc_url_filter=payload.get("doc_url_filter"),
+                use_mmr=bool(payload.get("use_mmr", True)),
+                rerank_model=payload.get("rerank_model"),
+                search_mode=str(payload.get("search_mode") or "hybrid"),
             )
         elif "collection_stats" in stub:
             result = embeddings_index.collection_stats(

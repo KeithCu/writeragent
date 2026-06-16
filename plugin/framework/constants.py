@@ -86,7 +86,7 @@ def folder_search_enabled(ctx=None) -> bool:
     from plugin.framework.config import get_config
 
     val = str(get_config(ctx, _FOLDER_SEARCH_MODE_KEY) or "none").strip().lower()
-    return val in ("hybrid", "llama_index", "zvec")
+    return val in ("hybrid", "llama_index", "zvec", "lancedb")
 
 
 # LlamaIndex cross-encoder rerank (Settings: embeddings.folder_rerank_enabled / folder_rerank_model).
