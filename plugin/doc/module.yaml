@@ -76,3 +76,26 @@ config:
     widget: checkbox
     label: Enter key sends sidebar chat message
     helper: "When on, Enter in the sidebar query runs the same action as Send; Shift+Enter inserts a newline. When off, Enter inserts a newline."
+
+  agent_edit_review_mode:
+    type: string
+    default: "off"
+    widget: select
+    label: Agent edit review
+    helper: "Off = direct edits. Record = tracked changes you accept/reject yourself. Wait = apply_document_content blocks (on chat/MCP worker thread) until you review."
+    options:
+      - value: "off"
+        label: "Off"
+      - value: "record"
+        label: "Record (track changes)"
+      - value: "wait"
+        label: "Wait for review"
+
+  edit_review_timeout:
+    type: int
+    default: 900
+    min: 0
+    widget: number
+    internal: true
+    label: Edit review max wait (seconds)
+    helper: "Only used when mode is Wait. Max time apply_document_content blocks before returning with pending changes."

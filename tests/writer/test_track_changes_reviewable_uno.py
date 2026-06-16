@@ -3,8 +3,8 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Reviewable agent edits — recording coverage. With writer.track_changes_reviewable on, agent
-# edits land as native tracked changes (redlines) the user can accept/reject, tagged with
+# Reviewable agent edits — recording coverage. With doc.agent_edit_review_mode set to record or
+# wait, agent edits land as native tracked changes (redlines) the user can accept/reject, tagged
 # per-change session tokens; the user's prior RecordChanges state is restored afterward. Flag
 # off = today's behavior, byte for byte. Covers: the replace primitives staying Track-Changes-
 # safe under recording (a clean Delete+Insert per change, never a per-character mess or a
@@ -19,11 +19,11 @@ from plugin.testing_runner import native_test, setup, teardown
 from plugin.tests.testing_utils import TestingFactory
 from plugin.doc.document_helpers import WriterStreamedRewriteSession, WriterStreamedAppendSession
 from plugin.writer.content import ApplyDocumentContent
-from plugin.writer.edit_review import EditReviewSession
-from plugin.framework.config import set_config, get_config_bool_safe
+from plugin.writer.edit_review import EditReviewSession, get_agent_edit_review_mode
+from plugin.framework.config import set_config, get_config
 import plugin.writer.format as fmt
 
-_FLAG = "writer.track_changes_reviewable"
+_FLAG = "doc.agent_edit_review_mode"
 
 _doc = None
 _ctx = None
@@ -247,8 +247,8 @@ def test_split_authors_insert_vs_delete_uno():
     """A replace records its Insert and Delete under DIFFERENT authors, so LibreOffice's
     by-author redline coloring shows new vs removed text in two distinct colors."""
     _reset("Old clause body here.")
-    prev = get_config_bool_safe(_ctx, _FLAG)
-    set_config(_ctx, _FLAG, True)
+    prev = get_config(_ctx, _FLAG)
+    set_config(_ctx, _FLAG, "record")
     try:
         res = ApplyDocumentContent().execute(
             _tool_ctx(), target="search", old_content="Old clause body here.", content=["New clause body here."])
@@ -265,14 +265,14 @@ def test_split_authors_insert_vs_delete_uno():
 
 @native_test
 def test_apply_document_content_tool_tracks_when_config_on_uno():
-    """Real tool path: content.py reads writer.track_changes_reviewable=True and records the
+    """Real tool path: content.py reads doc.agent_edit_review_mode=record and records the
     edit as reviewable redlines; reject restores. (Exercises the config read, which the
     primitive-level tests above do not.)"""
     _reset("Old tool body.")
-    prev = get_config_bool_safe(_ctx, _FLAG)
-    set_config(_ctx, _FLAG, True)
+    prev = get_config(_ctx, _FLAG)
+    set_config(_ctx, _FLAG, "record")
     try:
-        assert get_config_bool_safe(_ctx, _FLAG) is True, "flag should read True (test-infra sanity)"
+        assert get_agent_edit_review_mode(_ctx) == "record", "mode should read record (test-infra sanity)"
         res = ApplyDocumentContent().execute(_tool_ctx(), target="full_document", content=["<p>Tool new body.</p>"])
         assert res.get("status") == "ok", res
         rl = _redline_types()
@@ -285,12 +285,12 @@ def test_apply_document_content_tool_tracks_when_config_on_uno():
 
 @native_test
 def test_apply_document_content_tool_untracked_when_config_off_uno():
-    """Flag off (the default): the tool applies directly, no redline."""
+    """Mode off (the default): the tool applies directly, no redline."""
     _reset("Old tool body.")
-    prev = get_config_bool_safe(_ctx, _FLAG)
-    set_config(_ctx, _FLAG, False)
+    prev = get_config(_ctx, _FLAG)
+    set_config(_ctx, _FLAG, "off")
     try:
-        assert get_config_bool_safe(_ctx, _FLAG) is False
+        assert get_agent_edit_review_mode(_ctx) == "off"
         res = ApplyDocumentContent().execute(_tool_ctx(), target="full_document", content=["<p>Tool new body.</p>"])
         assert res.get("status") == "ok", res
         assert _redline_types() == [], "flag off must not create redlines"
@@ -305,8 +305,8 @@ def test_apply_document_content_tool_tags_changes_with_session_tokens_uno():
     and outcome detection key on this session only), and a replace-all yields one tagged change
     PER MATCH."""
     _reset("Tag alpha here. Tag alpha there.")
-    prev = get_config_bool_safe(_ctx, _FLAG)
-    set_config(_ctx, _FLAG, True)
+    prev = get_config(_ctx, _FLAG)
+    set_config(_ctx, _FLAG, "record")
     try:
         res = ApplyDocumentContent().execute(
             _tool_ctx(), target="search", old_content="Tag alpha", content=["Tag beta"], all_matches=True)
@@ -323,23 +323,20 @@ def test_apply_document_content_tool_tags_changes_with_session_tokens_uno():
 
 @native_test
 def test_tool_never_blocks_on_main_thread_even_with_wait_flag_uno():
-    """writer.require_edit_review on: from the MAIN thread the tool must NOT block-wait (the
+    """doc.agent_edit_review_mode=wait: from the MAIN thread the tool must NOT block-wait (the
     user could never click accept/reject if the UI thread were parked) -- it edits, records
     (wait implies recording), and returns without a review payload. The blocking wait only
     happens on a background MCP/chat thread."""
     _reset("Guard body text.")
-    prev_wait = get_config_bool_safe(_ctx, "writer.require_edit_review")
-    prev_rec = get_config_bool_safe(_ctx, _FLAG)
-    set_config(_ctx, "writer.require_edit_review", True)
-    set_config(_ctx, _FLAG, False)
+    prev_mode = get_config(_ctx, _FLAG)
+    set_config(_ctx, _FLAG, "wait")
     try:
         res = ApplyDocumentContent().execute(_tool_ctx(), target="end", content=["<p>Guard addition.</p>"])
         assert res.get("status") == "ok", res
         assert "review" not in res, "main-thread call must not block-wait: %r" % res
-        assert _redline_types(), "the wait flag must imply recording (redlines expected)"
+        assert _redline_types(), "wait mode must imply recording (redlines expected)"
     finally:
-        set_config(_ctx, "writer.require_edit_review", prev_wait)
-        set_config(_ctx, _FLAG, prev_rec)
+        set_config(_ctx, _FLAG, prev_mode)
         _reject_all()
 
 
@@ -350,8 +347,8 @@ def test_apply_style_flags_unreviewed_when_review_on_uno():
     from plugin.writer.styles import ApplyStyle
 
     _reset("Heading target text.")
-    prev = get_config_bool_safe(_ctx, _FLAG)
-    set_config(_ctx, _FLAG, True)
+    prev = get_config(_ctx, _FLAG)
+    set_config(_ctx, _FLAG, "record")
     try:
         res = ApplyStyle().execute(_tool_ctx(), style_name="Heading 2", family="ParagraphStyles", target="full_document")
         assert res.get("status") == "ok", res
@@ -366,8 +363,8 @@ def test_apply_style_no_unreviewed_flag_when_review_off_uno():
     from plugin.writer.styles import ApplyStyle
 
     _reset("Heading target text.")
-    prev = get_config_bool_safe(_ctx, _FLAG)
-    set_config(_ctx, _FLAG, False)
+    prev = get_config(_ctx, _FLAG)
+    set_config(_ctx, _FLAG, "off")
     try:
         res = ApplyStyle().execute(_tool_ctx(), style_name="Heading 2", family="ParagraphStyles", target="full_document")
         assert res.get("status") == "ok", res
@@ -461,8 +458,8 @@ def test_update_style_flags_unreviewed_when_review_on_uno():
     from plugin.writer.styles import UpdateStyle
 
     _reset("Body text for style update.")
-    prev = get_config_bool_safe(_ctx, _FLAG)
-    set_config(_ctx, _FLAG, True)
+    prev = get_config(_ctx, _FLAG)
+    set_config(_ctx, _FLAG, "record")
     try:
         res = UpdateStyle().execute(
             _tool_ctx(), style_name="Standard", family="ParagraphStyles",
@@ -481,8 +478,8 @@ def test_is_async_true_on_background_thread_when_review_toggled_off_uno():
     (execute() then marshals the wait-free edit to the main thread)."""
     import threading
 
-    prev = get_config_bool_safe(_ctx, "writer.require_edit_review")
-    set_config(_ctx, "writer.require_edit_review", False)
+    prev = get_config(_ctx, _FLAG)
+    set_config(_ctx, _FLAG, "off")
     try:
         tool = ApplyDocumentContent()
         assert tool.is_async() is False, "main thread + review off -> synchronous (no spurious async)"
@@ -496,7 +493,7 @@ def test_is_async_true_on_background_thread_when_review_toggled_off_uno():
         t.join()
         assert seen.get("v") is True, "on a worker thread is_async must stay True so execute_safe won't reject"
     finally:
-        set_config(_ctx, "writer.require_edit_review", prev)
+        set_config(_ctx, _FLAG, prev)
 
 
 @native_test
@@ -508,8 +505,8 @@ def test_bookmarks_cleaned_when_edit_raises_midway_uno():
     from plugin.writer.edit_review import EditReviewSession
 
     _reset("Anchor target paragraph.")
-    prev = get_config_bool_safe(_ctx, _FLAG)
-    set_config(_ctx, _FLAG, True)
+    prev = get_config(_ctx, _FLAG)
+    set_config(_ctx, _FLAG, "record")
 
     class _BoomTool(ApplyDocumentContent):
         def _execute_edit(self, ctx, session_sink=None, **kwargs):

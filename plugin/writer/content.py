@@ -22,8 +22,7 @@ import threading
 from plugin.framework.tool import ToolBase, ToolBaseDummy
 from plugin.framework.constants import APPLY_DOCUMENT_CONTENT_TOOL_RESEARCH_HINT
 from plugin.doc.document_helpers import normalize_linebreaks, get_string_without_tracked_deletions
-from plugin.writer.edit_review import EditReviewSession, review_recording_enabled
-from plugin.framework.config import get_config_bool_safe, get_config_int_safe
+from plugin.writer.edit_review import EditReviewSession, edit_review_wait_seconds, review_recording_enabled
 from plugin.framework.errors import safe_json_loads
 import re as re_mod
 
@@ -452,9 +451,7 @@ class ApplyDocumentContent(ToolBase):
     def _review_wait_seconds(self, uno_ctx):
         """Max seconds the edit call should block waiting for review; 0 = don't wait."""
         try:
-            if not get_config_bool_safe(uno_ctx, "writer.require_edit_review"):
-                return 0
-            return max(0, get_config_int_safe(uno_ctx, "writer.edit_review_timeout"))
+            return edit_review_wait_seconds(uno_ctx)
         except Exception:
             return 0
 
@@ -639,7 +636,7 @@ class ApplyDocumentContent(ToolBase):
         raw_content = content
 
         config_svc = ctx.services.get("config")
-        # Opt-in review mode: when writer.track_changes_reviewable is on, the EditReviewSession records
+        # Opt-in review mode: when doc.agent_edit_review_mode is record/wait, EditReviewSession records
         # the agent's edits as native tracked changes (redlines) the user can accept/reject --
         # tagging each logical change so its outcome can be reported -- and restores the prior
         # recording state. Default off -> the session is inert and behavior is unchanged.

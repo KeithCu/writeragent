@@ -98,7 +98,12 @@ def web_research_cache_chat_text(fields: Mapping[str, Any]) -> str:
         lang = fields.get("research_cache_lang") or ""
         matched = fields.get("research_cache_matched_key") or ""
         lang_bit = f"{lang}: " if lang else ""
-        block = "\n" + _("Research cache hit (fuzzy, %s%% match: %s%s → %s)") % (pct, lang_bit, cache_key, matched) + "\n"
+        block = "\n" + _("Research cache hit (fuzzy, %(pct)s%% match: %(lang_bit)s%(cache_key)s → %(matched)s)") % {
+            "pct": pct,
+            "lang_bit": lang_bit,
+            "cache_key": cache_key,
+            "matched": matched,
+        } + "\n"
     elif event == "hit":
         block = "\n" + _("Research cache hit (key: %s)") % (cache_key,) + "\n"
     else:

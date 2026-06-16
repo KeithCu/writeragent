@@ -175,20 +175,8 @@ def finalize_python_return(
     worker_data: Any = None,
 ) -> float | str | bool | tuple:
     """Map worker result to a single value Calc's add-in bridge accepts."""
-    # numpy lives in the venv worker, NOT the LibreOffice host interpreter (import_policy:
-    # "the LibreOffice host environment does not [have NumPy]"). The worker already serializes
-    # arrays to plain lists before returning, so guard this import: on macOS the bundled host
-    # Python has no numpy, and an unguarded import discarded otherwise-successful results.
-    try:
-        import numpy as np
-    except ImportError:
-        np = None
-    if np is not None and isinstance(result, np.ndarray):
-        res_list = result.tolist()
-        if result.ndim == 1:
-            result = [[x] for x in res_list]
-        else:
-            result = res_list
+    # Worker egress (payload_codec.child_pack_result + host_unpack_data) always yields plain
+    # lists/scalars on the host — NumPy lives only in the venv subprocess, not in LO's Python.
 
     if isinstance(result, (list, tuple)):
         if index_arg is not None:

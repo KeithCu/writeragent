@@ -58,16 +58,37 @@ def _preview(text: str) -> str:
     return text[: _PREVIEW_MAX_CHARS - 1] + "…"
 
 
+_AGENT_EDIT_REVIEW_MODES = frozenset({"off", "record", "wait"})
+
+
+def get_agent_edit_review_mode(ctx: Any) -> str:
+    """Read ``doc.agent_edit_review_mode`` (off / record / wait); unknown values → off."""
+    from plugin.framework.config import get_config
+
+    raw = get_config(ctx, "doc.agent_edit_review_mode")
+    if isinstance(raw, str):
+        mode = raw.strip().lower()
+        if mode in _AGENT_EDIT_REVIEW_MODES:
+            return mode
+    return "off"
+
+
 def review_recording_enabled(ctx: Any) -> bool:
     """True when agent edits must be recorded as reviewable tracked changes.
 
-    writer.require_edit_review implies recording, so EVERY agent edit path must check both
-    flags through this helper -- not just writer.track_changes_reviewable.
+    Every agent edit path must use this helper (or ``get_agent_edit_review_mode``) — not the
+    raw config key.
     """
-    from plugin.framework.config import get_config_bool_safe
+    return get_agent_edit_review_mode(ctx) in ("record", "wait")
 
-    return (get_config_bool_safe(ctx, "writer.track_changes_reviewable")
-            or get_config_bool_safe(ctx, "writer.require_edit_review"))
+
+def edit_review_wait_seconds(ctx: Any) -> int:
+    """Max seconds ``apply_document_content`` may block waiting for review; 0 = don't wait."""
+    from plugin.framework.config import get_config_int_safe
+
+    if get_agent_edit_review_mode(ctx) != "wait":
+        return 0
+    return max(0, get_config_int_safe(ctx, "doc.edit_review_timeout"))
 
 
 def snapshot_redline_ids(doc: Any) -> set:
