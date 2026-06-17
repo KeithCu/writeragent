@@ -20,7 +20,7 @@ import logging
 from typing import Any, cast, Type, ClassVar
 
 from plugin.framework.tool import ToolBase
-from plugin.framework.constants import DELEGATE_SPECIALIZED_TASK_PARAM_HINT, USE_SUB_AGENT, python_specialized_sub_agent_hint
+from plugin.framework.constants import DELEGATE_SPECIALIZED_TASK_PARAM_HINT, USE_SUB_AGENT, WRITER_SIDEBAR_ONLY_DOMAINS, python_specialized_sub_agent_hint
 from plugin.framework.i18n import _
 from plugin.chatbot.smol_agent import build_toolcalling_agent, SmolAgentExecutor, SmolToolAdapter
 from plugin.chatbot.smol_examples import get_examples_block
@@ -73,6 +73,8 @@ class DelegateToSpecializedBase(ToolBase):
             if domain:
                 if self._agent_label == "Calc" and domain == "python":
                     continue
+                if self._agent_label == "Writer" and domain in WRITER_SIDEBAR_ONLY_DOMAINS:
+                    continue
                 domains.append(domain)
 
         self.parameters = {
@@ -123,30 +125,6 @@ class DelegateToSpecializedBase(ToolBase):
             return self._tool_error(
                 _("Document research reads require specialized task delegation (USE_SUB_AGENT). Enable this in configuration."),
                 code="DOCUMENT_RESEARCH_REQUIRES_SUB_AGENT",
-            )
-
-        if domain == "brainstorming":
-            callback = getattr(ctx, "start_brainstorming_session_callback", None)
-            if callback:
-                if status_callback:
-                    status_callback("Starting brainstorming session...")
-                result = callback(task=task, ctx=ctx)
-                if isinstance(result, dict) and result.get("status") == "ok":
-                    return {
-                        "status": "ok",
-                        "message": _("Brainstorming session started."),
-                        "result": result.get("result", ""),
-                    }
-                if isinstance(result, dict) and result.get("status") == "finished":
-                    return {
-                        "status": "ok",
-                        "message": _("Brainstorming session completed."),
-                        "result": result.get("result", ""),
-                    }
-                return result if isinstance(result, dict) else {"status": "ok", "result": str(result)}
-            return self._tool_error(
-                _("Brainstorming requires sidebar session wiring (start_brainstorming_session_callback)."),
-                code="BRAINSTORMING_SESSION_UNAVAILABLE",
             )
 
         if not USE_SUB_AGENT:

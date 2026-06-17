@@ -137,6 +137,8 @@ def test_writer_chat_prompt_research_delegate_to_document():
     assert "required after research delegates" in prompt.lower()
     block = get_specialized_delegation_for_model(model)
     assert "main agent writes returned report to document" in block
+    assert "brainstorming:" not in block
+    assert "writing_plan:" not in block
 
 
 def test_writer_eval_chat_prompt_includes_sidebar_vs_document_routing():

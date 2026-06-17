@@ -13,10 +13,10 @@ from __future__ import annotations
 import logging
 import re
 import traceback
-from typing import Any, Iterable, cast
+from typing import Any, Iterable, ClassVar, cast
 
 from plugin.framework.tool import ToolBase, ToolContext
-from plugin.writer.specialized_base import ToolWriterBrainstormingBase
+from plugin.writer.specialized_base import ToolWriterSpecialBase
 
 log = logging.getLogger(__name__)
 
@@ -83,9 +83,15 @@ def collect_brainstorming_tools(ctx: ToolContext) -> list[ToolBase]:
     return list(by_name.values())
 
 
-class BrainstormResearchWeb(ToolWriterBrainstormingBase):
+_BRAINSTORMING_CORE_TOOLS = frozenset(["get_document_content", "get_document_tree", "search_in_document"])
+
+
+class BrainstormResearchWeb(ToolWriterSpecialBase):
     """Web research for brainstorming (public topics); returns plain text for the sub-agent to format as HTML."""
 
+    specialized_domain: ClassVar[str | None] = "brainstorming"
+    required_core_tools: ClassVar[frozenset[str] | None] = _BRAINSTORMING_CORE_TOOLS
+    intent = "review"
     name = "brainstorm_research_web"
     description = "Search the public web for context during brainstorming. Reformats findings as HTML in reply_to_user."
     is_mutation = False
@@ -108,9 +114,12 @@ class BrainstormResearchWeb(ToolWriterBrainstormingBase):
         return WebResearchTool().execute(ctx, query=query)
 
 
-class SaveDesignSpec(ToolWriterBrainstormingBase):
+class SaveDesignSpec(ToolWriterSpecialBase):
     """Write the approved design spec into the active Writer document (HTML array only)."""
 
+    specialized_domain: ClassVar[str | None] = "brainstorming"
+    required_core_tools: ClassVar[frozenset[str] | None] = _BRAINSTORMING_CORE_TOOLS
+    intent = "review"
     name = "save_design_spec"
     description = (
         "Save the approved design spec to the active Writer document. "
@@ -300,9 +309,3 @@ class BrainstormingSessionTool(ToolBase):
             log.error("Brainstorming error: %s", e)
             err = ToolExecutionError(f"Brainstorming failed: {str(e)}\n\n{tb}", details={"query": query})
             return format_error_payload(err)
-
-
-def start_brainstorming_session_from_delegate(ctx: ToolContext, *, task: str) -> dict[str, Any]:
-    """First turn when main agent delegates domain=brainstorming."""
-    topic = str(task or "").strip()
-    return _run_brainstorming_agent(ctx, query=topic or "Let's brainstorm.", history_text=None, topic=topic)

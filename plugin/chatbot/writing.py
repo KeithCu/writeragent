@@ -13,10 +13,10 @@ from __future__ import annotations
 import logging
 import re
 import traceback
-from typing import Any, Iterable, cast
+from typing import Any, Iterable, ClassVar, cast
 
 from plugin.framework.tool import ToolBase, ToolContext
-from plugin.writer.specialized_base import ToolWriterWritingPlanBase
+from plugin.writer.specialized_base import ToolWriterSpecialBase
 
 log = logging.getLogger(__name__)
 
@@ -82,9 +82,15 @@ def collect_writing_tools(ctx: ToolContext) -> list[ToolBase]:
     return list(by_name.values())
 
 
-class WritingResearchWeb(ToolWriterWritingPlanBase):
+_WRITING_PLAN_CORE_TOOLS = frozenset(["get_document_content", "get_document_tree", "search_in_document"])
+
+
+class WritingResearchWeb(ToolWriterSpecialBase):
     """Web research for writing plans (public topics); returns plain text for the sub-agent to format as HTML."""
 
+    specialized_domain: ClassVar[str | None] = "writing_plan"
+    required_core_tools: ClassVar[frozenset[str] | None] = _WRITING_PLAN_CORE_TOOLS
+    intent = "edit"
     name = "writing_research_web"
     description = "Search the public web for context during document writing. Reformats findings as HTML in reply_to_user."
     is_mutation = False
@@ -107,9 +113,12 @@ class WritingResearchWeb(ToolWriterWritingPlanBase):
         return WebResearchTool().execute(ctx, query=query)
 
 
-class WriteDocumentSection(ToolWriterWritingPlanBase):
+class WriteDocumentSection(ToolWriterSpecialBase):
     """Write a specific section of the document."""
 
+    specialized_domain: ClassVar[str | None] = "writing_plan"
+    required_core_tools: ClassVar[frozenset[str] | None] = _WRITING_PLAN_CORE_TOOLS
+    intent = "edit"
     name = "write_document_section"
     description = (
         "Write/append a specific section's content to the document. "

@@ -224,9 +224,8 @@ class ToolCallingMixin:
                 delegate_domain = str(safe_args.get("domain") or "") if name in DELEGATE_GATEWAY_TOOL_NAMES else ""
                 # Delegate gateways forward domain=web_research to WebResearchTool with the same ctx;
                 # they must receive the same HITL wiring as the outer web_research tool.
-                needs_brainstorming_delegate = delegate_domain == "brainstorming"
-                needs_web_research_ui = name == "web_research" or delegate_domain == "web_research" or needs_brainstorming_delegate
-                needs_document_research_ui = delegate_domain == "document_research" or needs_brainstorming_delegate
+                needs_web_research_ui = name == "web_research" or delegate_domain == "web_research"
+                needs_document_research_ui = delegate_domain == "document_research"
                 if needs_web_research_ui or needs_document_research_ui:
 
                     def _sub_agent_chat_append(text):
@@ -275,24 +274,6 @@ class ToolCallingMixin:
 
                 cancel_scope = getattr(self, "_send_cancellation", None)
 
-                def _start_brainstorming_session(*, task, ctx):
-                    from plugin.chatbot.brainstorming import start_brainstorming_session_from_delegate
-
-                    delegate_start_cb = getattr(self, "sync_brainstorming_delegate_start", None)
-                    if callable(delegate_start_cb):
-                        delegate_start_cb(str(task or ""))
-                    else:
-                        self._in_brainstorming_mode = True
-                        self._brainstorming_topic = str(task or "")
-                    result = start_brainstorming_session_from_delegate(ctx, task=str(task or ""))
-                    if isinstance(result, dict) and result.get("status") == "finished":
-                        finished_cb = getattr(self, "on_brainstorming_session_finished", None)
-                        if callable(finished_cb):
-                            finished_cb()
-                        else:
-                            self._in_brainstorming_mode = False
-                    return result
-
                 tctx = ToolContext(
                     doc=doc,
                     ctx=ctx,
@@ -306,7 +287,6 @@ class ToolCallingMixin:
                     approval_callback=approval_cb,
                     chat_append_callback=chat_append_cb if (needs_web_research_ui or needs_document_research_ui) else None,
                     set_active_domain_callback=set_active_domain,
-                    start_brainstorming_session_callback=_start_brainstorming_session if needs_brainstorming_delegate else None,
                     active_domain=active_domain,
                     python_tool_domain=python_tool_domain,
                     send_cancellation=cancel_scope,

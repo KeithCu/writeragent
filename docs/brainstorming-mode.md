@@ -1,15 +1,14 @@
-# Brainstorming mode (specialized delegate)
+# Brainstorming mode (sidebar-only)
 
-Brainstorming is a **multi-turn design sub-agent** entered when the main Writer chat delegates `domain="brainstorming"`. It explores ideas with the user, can use web and document research, and writes an **approved HTML design spec** into the active Writer document.
+Brainstorming is a **multi-turn design sub-agent** the user starts from the Writer sidebar mode dropdown. It explores ideas with the user, can use web and document research, and writes an **approved HTML design spec** into the active Writer document.
 
-**Entry:**
+**Entry:** Writer deck → mode dropdown → **Brainstorming** → Send (first message sets the topic).
 
-- **Sidebar:** Writer deck → mode dropdown → **Brainstorming** → Send (first message sets the topic).
-- **Main agent:** user asks to brainstorm or plan a feature → `delegate_to_specialized_writer_toolset(domain="brainstorming", task="…")` (dropdown syncs to Brainstorming).
+Brainstorming is **not** exposed to the main chat LLM (`delegate_to_specialized_writer_toolset` omits `brainstorming` and `writing_plan` via `WRITER_SIDEBAR_ONLY_DOMAINS` in [`plugin/framework/constants.py`](../plugin/framework/constants.py)).
 
-**Exit:** `brainstorming_finished` resets the dropdown to **Chat**. Changing the dropdown away from Brainstorming mid-session cancels the in-progress session (history is kept).
+**Exit:** `brainstorming_finished` resets the dropdown to **Chat** (or **Writing Plan** when a spec was saved). Changing the dropdown away from Brainstorming mid-session cancels the in-progress session (history is kept).
 
-**Not in v1:** Visual companion (browser mockups), automatic writing-plans handoff, Calc/Draw spec save.
+**Not in v1:** Visual companion (browser mockups), Calc/Draw spec save.
 
 ---
 
@@ -18,15 +17,11 @@ Brainstorming is a **multi-turn design sub-agent** entered when the main Writer 
 ```mermaid
 sequenceDiagram
     participant User
-    participant MainAgent
-    participant DelegateGateway
     participant Panel
     participant BrainstormSubagent
 
-    User->>MainAgent: "Let's brainstorm X"
-    MainAgent->>DelegateGateway: delegate(domain=brainstorming)
-    DelegateGateway->>Panel: _in_brainstorming_mode=True
-    DelegateGateway->>BrainstormSubagent: first turn
+    User->>Panel: Select Brainstorming, Send topic
+    Panel->>BrainstormSubagent: brainstorming_session (first turn)
     BrainstormSubagent-->>User: reply_to_user (HTML)
     User->>Panel: answer
     Panel->>BrainstormSubagent: next turn
@@ -37,11 +32,11 @@ sequenceDiagram
 
 | Phase | Handler |
 |-------|---------|
-| Turn 0 | Main agent calls delegate; gateway starts session |
+| Turn 0 | User selects Brainstorming; first Send sets topic |
 | Turns 1..N | Panel routes Send to `brainstorming_session` (bypasses main tool loop) |
 | Exit | `brainstorming_finished` clears `_in_brainstorming_mode` |
 
-Implementation: [`plugin/chatbot/brainstorming.py`](../plugin/chatbot/brainstorming.py), [`plugin/chatbot/panel.py`](../plugin/chatbot/panel.py), [`plugin/doc/specialized_base.py`](../plugin/doc/specialized_base.py).
+Implementation: [`plugin/chatbot/brainstorming.py`](../plugin/chatbot/brainstorming.py), [`plugin/chatbot/panel.py`](../plugin/chatbot/panel.py), [`plugin/chatbot/send_handlers.py`](../plugin/chatbot/send_handlers.py).
 
 ---
 
@@ -108,7 +103,7 @@ Adapted from [superpowers brainstorming](../superpowers/skills/brainstorming/SKI
 | Key principles | YAGNI, incremental validation, flexibility |
 | Visual companion | Not in v1 |
 | Markdown spec + git commit | Replaced by HTML array in Writer document |
-| writing-plans handoff | Not in v1 — user asks main agent to implement after review |
+| writing-plans handoff | Optional transition to Writing Plan sidebar mode after spec save |
 
 Constants: `BRAINSTORMING_SUB_AGENT_INSTRUCTIONS`, `get_brainstorming_sub_agent_instructions()` in [`plugin/framework/constants.py`](../plugin/framework/constants.py). Few-shots: `BRAINSTORMING_EXAMPLES` in [`plugin/chatbot/smol_examples.py`](../plugin/chatbot/smol_examples.py) (approaches, section approval, self-review, full spec save).
 
@@ -116,4 +111,4 @@ Constants: `BRAINSTORMING_SUB_AGENT_INSTRUCTIONS`, `get_brainstorming_sub_agent_
 
 ## Tests
 
-[`tests/chatbot/test_brainstorming.py`](../tests/chatbot/test_brainstorming.py) — delegate enum, session callback branch, `save_design_spec` HTML passthrough, smol examples.
+[`tests/chatbot/test_brainstorming.py`](../tests/chatbot/test_brainstorming.py) — delegate enum exclusion, `save_design_spec` HTML passthrough, smol examples.

@@ -449,15 +449,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self.session = session
         self.client = None  # Force client recreation if needed, though they usually share same config
 
-    def sync_brainstorming_delegate_start(self, topic: str) -> None:
-        """Match sidebar dropdown when main chat delegates domain=brainstorming."""
-        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_BRAINSTORMING, set_selector_mode
-
-        self._in_brainstorming_mode = True
-        self._brainstorming_topic = str(topic or "")
-        if self.chat_mode_selector:
-            set_selector_mode(self.chat_mode_selector, CHAT_MODE_BRAINSTORMING, include_brainstorming=self.sidebar_include_brainstorming)
-
     def on_brainstorming_session_finished(self, spec_saved: bool = False) -> None:
         """Reset sidebar after brainstorming_finished (dropdown transitions to Writing Plan or Chat)."""
         from plugin.chatbot.chat_sidebar_mode import (

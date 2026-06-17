@@ -129,6 +129,11 @@ def test_to_mcp_schema_delegate_writer_includes_specialized_delegation_hint():
     assert "bookmarks:" in domain_desc
     assert "\n" not in domain_desc
     assert mcp_schema["inputSchema"]["properties"]["domain"]["description"] != "The specialized domain to activate."
+    domain_enum = mcp_schema["inputSchema"]["properties"]["domain"]["enum"]
+    assert "brainstorming" not in domain_enum
+    assert "writing_plan" not in domain_enum
+    assert "brainstorming:" not in domain_desc
+    assert "writing_plan:" not in domain_desc
 
 
 def test_to_mcp_schema_delegate_calc_domain_list_omits_python():

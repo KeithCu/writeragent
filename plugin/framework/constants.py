@@ -356,6 +356,9 @@ SPECIALIZED_TASK_RULES = (
     "Pass a clear `task` describing what the specialized task should accomplish."
 )
 
+# Writer sidebar modes — not exposed on delegate_to_specialized_writer_toolset (user picks from dropdown).
+WRITER_SIDEBAR_ONLY_DOMAINS = frozenset({"brainstorming", "writing_plan"})
+
 # Shape catalog size: LibreOffice core maps ~400+ preset names (e.g. svx EnhancedCustomShapeTypeNames.cxx).
 # Single-line blocks: MCP tool descriptions and many clients do not render newlines inside JSON strings.
 WRITER_SPECIALIZED_DELEGATION_TEMPLATE = (
@@ -365,7 +368,6 @@ WRITER_SPECIALIZED_DELEGATION_TEMPLATE = (
     "but they are the real tools: **full parameter lists and full LibreOffice/UNO access** for that area (nothing is dumbed down for it). "
     "document_research: use for information in other personal/business documents in the same folder (one delegation per file set). "
     "web_research: public web topics; main agent writes returned report to document (apply_document_content). "
-    "brainstorming: use when the user wants to design, plan, or explore an idea before implementation (multi-turn Q&A; writes an HTML spec into the document when approved). "
     f"{SPECIALIZED_TASK_RULES}"
 )
 
@@ -635,6 +637,8 @@ def _get_specialized_domains_str(base_cls, *, agent_label: str | None = None) ->
         desc = getattr(cls, "specialized_domain_description", None)
         if domain:
             if agent_label == "Calc" and domain == "python":
+                continue
+            if agent_label == "Writer" and domain in WRITER_SIDEBAR_ONLY_DOMAINS:
                 continue
             if desc:
                 parts.append(f"{domain}: {desc}")

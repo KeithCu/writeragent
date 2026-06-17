@@ -165,7 +165,6 @@ class ToolContext:
         approval_callback: Optional callable for human-in-the-loop approval.
         chat_append_callback: Optional callable(str) to append plain text to the chat response.
         set_active_domain_callback: Optional callable to update the active domain.
-        start_brainstorming_session_callback: Optional callable(task, ctx) for delegate domain=brainstorming.
         read_only_target: When True, mutation tools are rejected (document_research sibling reads).
         send_cancellation: Optional per-send :class:`~plugin.framework.queue_executor.SendCancellation`
             for worker-thread HTTP registration and stable stop checks.
@@ -183,15 +182,14 @@ class ToolContext:
     approval_callback: Callable[[str], bool] | None
     chat_append_callback: Callable[[str], None] | None
     set_active_domain_callback: Callable[[str | None], None] | None
-    start_brainstorming_session_callback: Callable[..., Any] | None
     active_domain: str | None
     python_tool_domain: str | None
     read_only_target: bool
     send_cancellation: Any | None
 
-    __slots__ = ("doc", "ctx", "doc_type", "services", "caller", "active_page_index", "status_callback", "append_thinking_callback", "stop_checker", "approval_callback", "chat_append_callback", "set_active_domain_callback", "start_brainstorming_session_callback", "active_domain", "python_tool_domain", "read_only_target", "send_cancellation")
+    __slots__ = ("doc", "ctx", "doc_type", "services", "caller", "active_page_index", "status_callback", "append_thinking_callback", "stop_checker", "approval_callback", "chat_append_callback", "set_active_domain_callback", "active_domain", "python_tool_domain", "read_only_target", "send_cancellation")
 
-    def __init__(self, doc, ctx, doc_type, services, caller="", active_page_index=None, status_callback=None, append_thinking_callback=None, stop_checker=None, approval_callback=None, chat_append_callback=None, set_active_domain_callback=None, start_brainstorming_session_callback=None, active_domain=None, python_tool_domain=None, read_only_target=False, send_cancellation=None):
+    def __init__(self, doc, ctx, doc_type, services, caller="", active_page_index=None, status_callback=None, append_thinking_callback=None, stop_checker=None, approval_callback=None, chat_append_callback=None, set_active_domain_callback=None, active_domain=None, python_tool_domain=None, read_only_target=False, send_cancellation=None):
         self.doc = doc
         self.ctx = ctx
         self.doc_type = doc_type
@@ -204,7 +202,6 @@ class ToolContext:
         self.approval_callback = approval_callback
         self.chat_append_callback = chat_append_callback
         self.set_active_domain_callback = set_active_domain_callback
-        self.start_brainstorming_session_callback = start_brainstorming_session_callback
         self.active_domain = active_domain
         self.python_tool_domain = python_tool_domain
         self.read_only_target = read_only_target

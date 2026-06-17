@@ -59,7 +59,6 @@ class DelegateToSpecializedWriter(DelegateToSpecializedBase):
     description = (
         "Delegates a specialized task with a focused toolset. "
         f"document_research {DELEGATION_USER_FILE_DATA_HINT}; web_research {DELEGATION_PUBLIC_WEB_HINT}. "
-        "brainstorming: collaborative design exploration before implementation. "
         "Also: charts, fields, styles, page, textframes, embedded (active doc OLE only), shapes, indexes, "
         "bookmarks, tracking, footnotes, forms, images."
     )
@@ -187,16 +186,6 @@ class ToolWriterDocumentResearchBase(ToolWriterSpecialBase):
     specialized_domain_description: ClassVar[str | None] = f"{DELEGATION_USER_FILE_DATA_HINT}; one delegation for file(s), matching descriptions"
 
 
-class ToolWriterBrainstormingBase(ToolWriterSpecialBase):
-    specialized_domain: ClassVar[str | None] = "brainstorming"
-    specialized_domain_description: ClassVar[str | None] = (
-        "Collaborative design exploration before implementation: "
-        "clarifying questions, web/document research, approaches, approved HTML spec into the document."
-    )
-    required_core_tools: ClassVar[frozenset[str] | None] = (ToolWriterSpecialBase.required_core_tools or frozenset()) | frozenset(["search_in_document"])
-    intent = "review"
-
-
 '''
 # Mock domain base classes: uncomment when implementations are ready.
 class ToolWriterSectionBase(ToolWriterSpecialBase):
@@ -264,15 +253,6 @@ class ToolWriterCustomizationBase(ToolWriterSpecialBase):
     specialized_domain_description: ClassVar[str | None] = "Customize keyboard shortcuts, menu items, and custom commands."
     intent = "edit"
 '''
-
-
-class ToolWriterWritingPlanBase(ToolWriterSpecialBase):
-    specialized_domain: ClassVar[str | None] = "writing_plan"
-    specialized_domain_description: ClassVar[str | None] = (
-        "Collaborative document writing: save writing plan, write document section-by-section, and track status."
-    )
-    required_core_tools: ClassVar[frozenset[str] | None] = (ToolWriterSpecialBase.required_core_tools or frozenset()) | frozenset(["search_in_document"])
-    intent = "edit"
 
 
 class SpecializedWorkflowFinished(ToolBase):

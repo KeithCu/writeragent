@@ -14,7 +14,6 @@ from plugin.chatbot.brainstorming import (
     SaveDesignSpec,
     _normalize_html_content_array,
     collect_brainstorming_tools,
-    start_brainstorming_session_from_delegate,
 )
 from plugin.chatbot.smol_examples import get_examples_block
 from plugin.framework.constants import get_brainstorming_sub_agent_instructions
@@ -26,9 +25,14 @@ def _brainstorming_domains(gateway):
     return gateway.parameters["properties"]["domain"]["enum"]
 
 
-def test_brainstorming_in_writer_delegate_enum():
+def test_brainstorming_not_in_writer_delegate_enum():
     gw = DelegateToSpecializedWriter()
-    assert "brainstorming" in _brainstorming_domains(gw)
+    assert "brainstorming" not in _brainstorming_domains(gw)
+
+
+def test_writing_plan_not_in_writer_delegate_enum():
+    gw = DelegateToSpecializedWriter()
+    assert "writing_plan" not in _brainstorming_domains(gw)
 
 
 def test_brainstorming_examples_use_html_only():
@@ -109,42 +113,6 @@ def test_brainstorm_research_web_delegates_to_web_research():
         assert out["result"] == "facts"
 
 
-def test_delegate_brainstorming_uses_session_callback_not_smol_executor():
-    gw = DelegateToSpecializedWriter()
-
-    class _Ctx:
-        status_callback = None
-
-        def __init__(self):
-            self.start_brainstorming_session_callback = MagicMock(
-                return_value={"status": "ok", "result": "<p>First question?</p>"}
-            )
-
-    ctx = _Ctx()
-
-    with patch("plugin.doc.specialized_base.SmolAgentExecutor") as mock_exec:
-        result = gw.execute(ctx, domain="brainstorming", task="Design export feature")
-        mock_exec.assert_not_called()
-
-    ctx.start_brainstorming_session_callback.assert_called_once()
-    assert result["status"] == "ok"
-    assert "Brainstorming session started" in result["message"]
-    assert "<p>First question?</p>" in result["result"]
-
-
-def test_delegate_brainstorming_errors_without_callback():
-    gw = DelegateToSpecializedWriter()
-
-    class _Ctx:
-        status_callback = None
-
-    ctx = _Ctx()
-
-    result = gw.execute(ctx, domain="brainstorming", task="x")
-    assert result["status"] == "error"
-    assert result.get("code") == "BRAINSTORMING_SESSION_UNAVAILABLE"
-
-
 def test_brainstorming_finished_returns_finished_status():
     tool = BrainstormingFinishedTool()
     result = tool.execute(MagicMock(), message="<p>Done.</p>", spec_saved=True)
@@ -171,16 +139,6 @@ def test_collect_brainstorming_tools_merges_doc_research_reads():
     assert "brainstorm_research_web" in names
     assert "save_design_spec" in names
     assert "list_nearby_files" in names
-
-
-@patch("plugin.chatbot.brainstorming._run_brainstorming_agent")
-def test_start_brainstorming_session_from_delegate(mock_run):
-    mock_run.return_value = {"status": "ok", "result": "<p>Hi</p>"}
-    ctx = MagicMock()
-    out = start_brainstorming_session_from_delegate(ctx, task="Plan feature X")
-    mock_run.assert_called_once()
-    assert mock_run.call_args.kwargs["topic"] == "Plan feature X"
-    assert out["status"] == "ok"
 
 
 @patch("plugin.chatbot.smol_agent.build_toolcalling_agent")
