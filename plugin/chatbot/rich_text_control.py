@@ -340,13 +340,6 @@ def sync_rich_control_bounds(rich_control, root_window, placeholder_ctrl, placeh
         bx, by, bw, bh = _content_bounds_for_rich_control(
             root_window, placeholder_ctrl, placeholder_rect=placeholder_rect,
         )
-        text_len = get_control_text_length(rich_control)
-        if text_len > 0 and _rich_control_needs_bounds(rich_control, bx, by, bw, bh):
-            # LibreOffice resets the RichTextControl viewport to the top when a
-            # non-empty control is resized. Preserve readable scroll position over
-            # live resize precision; a fresh/empty control still takes new bounds.
-            log_rich_scroll("sync_bounds_skip_nonempty", control=rich_control, rect=f"{bx},{by},{bw},{bh}")
-            return True
         bounds_changed = _apply_rich_control_geometry(rich_control, bx, by, bw, bh, update_dialog_model=False)
         if bounds_changed:
             log_rich_scroll("sync_bounds", control=rich_control, rect=f"{bx},{by},{bw},{bh}")
