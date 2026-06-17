@@ -591,11 +591,14 @@ class ToolRegistry:
                     if req:
                         required_core.update(req)
 
+            from plugin.framework.constants import WRITER_SIDEBAR_ONLY_DOMAINS
+
             filtered_tools = []
             for t in tools:
                 if _is_specialized_domain_tool(t, active_domain):
                     filtered_tools.append(t)
-                elif t.name == "specialized_workflow_finished":
+                elif t.name == "specialized_workflow_finished" and active_domain not in WRITER_SIDEBAR_ONLY_DOMAINS:
+                    # Sidebar-only domains (brainstorming, writing_plan) use bespoke finish tools.
                     filtered_tools.append(t)
                 # Dynamically include core tools required for this domain
                 elif getattr(t, "tier", None) == "core" and t.name in required_core:

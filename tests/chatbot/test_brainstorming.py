@@ -141,6 +141,26 @@ def test_collect_brainstorming_tools_merges_doc_research_reads():
     assert "list_nearby_files" in names
 
 
+def test_collect_brainstorming_tools_excludes_specialized_workflow_finished():
+    from plugin.writer.specialized_base import SpecializedWorkflowFinished
+
+    registry = ToolRegistry(services={})
+    registry.register(BrainstormResearchWeb())
+    registry.register(SaveDesignSpec())
+    registry.register(SpecializedWorkflowFinished())
+
+    ctx = ToolContext(
+        doc=MagicMock(),
+        ctx=MagicMock(),
+        doc_type="writer",
+        services={"tools": registry},
+    )
+    names = {t.name for t in collect_brainstorming_tools(ctx)}
+    assert "brainstorm_research_web" in names
+    assert "save_design_spec" in names
+    assert "specialized_workflow_finished" not in names
+
+
 @patch("plugin.chatbot.smol_agent.build_toolcalling_agent")
 @patch("plugin.chatbot.smol_examples.get_examples_block", return_value="")
 @patch("plugin.framework.constants.get_brainstorming_sub_agent_instructions", return_value="instr")
