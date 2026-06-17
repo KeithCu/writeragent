@@ -1,11 +1,16 @@
 # Langchain & smolagents Integration Plan for WriterAgent
 
-This document outlines a phased development plan to integrate `langchain-core` and adapt code from `smolagents` into WriterAgent, starting with basic conversation history and progressively adding more advanced memory, tools, and agentic features.
+This document outlines a phased development plan to integrate ideas from `langchain-core` / `langchain-community` and adapt code from `smolagents` into WriterAgent. It also records **why full LangChain agent orchestration is not a fit** for the main sidebar chat loop.
 
 > **Status (2026-06):** Most of **Phase 1–2** and **smolagents sub-agent isolation** are **already shipped** without `langchain-core`. See [What is already implemented](#what-is-already-implemented-2026-06) and [What is still worth doing](#what-is-still-worth-doing-next). Full LangChain wiring is **optional**, not a prerequisite for the remaining roadmap.
+>
+> **Agent orchestration decision (2026-06):** Replacing the main chat tool loop with LangChain `create_tool_calling_agent` / `AgentExecutor` (or LangChain 1.0 `create_agent`) is **not recommended**. Treat LangChain repos as a **reference library** for vendoring small pieces — not as a runtime dependency for sidebar chat. See [Why not LangChain agent orchestration for main chat?](#why-not-langchain-agent-orchestration-for-main-chat).
 
 ## Goal Description
-Enhance WriterAgent's AI capabilities by replacing manual prompt construction with `langchain-core`'s robust memory and agent abstractions, while vendoring and adapting secure, zero-dependency code from `smolagents`. This will allow the AI to "remember" past interactions, provide a seamless chat experience, and eventually perform complex multi-step document operations autonomously.
+
+Enhance WriterAgent's AI capabilities with robust memory, tools, and agentic features — using **shipped replacements** (`ChatSession`, `tool_loop`, smolagents sub-agents) where they already work, and **vendoring or adapting** LangChain/community code only when a concrete feature needs it.
+
+LangChain is **not** the target architecture for the LibreOffice extension runtime. The extension ships with minimal dependencies (`pyproject.toml` has no `langchain-core`); heavy packages (LangGraph, sentence-transformers, etc.) belong in the **user venv** when needed (embeddings, `=PYTHON()`), not in-process with UNO.
 
 ---
 
@@ -16,12 +21,131 @@ Enhance WriterAgent's AI capabilities by replacing manual prompt construction wi
 | In-memory + persistent chat history | `ChatSession` + `SQLite3History` / `JSONHistory` fallback | [`plugin/chatbot/panel.py`](../plugin/chatbot/panel.py), [`plugin/chatbot/history_db.py`](../plugin/chatbot/history_db.py) |
 | Session keyed by document | `WriterAgentSessionID` on document model (URL hash fallback) | [`plugin/chatbot/panel_factory.py`](../plugin/chatbot/panel_factory.py) |
 | Document context per send (separate from history) | `get_document_context_for_chat` + `session.set_system_context` | [`plugin/chatbot/tool_loop.py`](../plugin/chatbot/tool_loop.py), [`plugin/doc/document_helpers.py`](../plugin/doc/document_helpers.py) |
-| Custom tool-calling loop (not LangChain `AgentExecutor`) | `ToolCallingMixin` / `tool_loop.py` + `LlmClient` | [`plugin/chatbot/tool_loop.py`](../plugin/chatbot/tool_loop.py) |
-| Smolagents sub-agents (web research, librarian) | `web_research`, `librarian_onboarding` tools; final answer only in main history | [`plugin/chatbot/web_research.py`](../plugin/chatbot/web_research.py), [`plugin/chatbot/librarian.py`](../plugin/chatbot/librarian.py) |
+| Custom tool-calling loop (not LangChain `AgentExecutor`) | `ToolCallingMixin` / `tool_loop.py` + `LlmClient` | [`plugin/chatbot/tool_loop.py`](../plugin/chatbot/tool_loop.py), [`plugin/chatbot/tool_loop_state.py`](../plugin/chatbot/tool_loop_state.py) |
+| Smolagents sub-agents (web research, librarian, specialized) | `web_research`, delegate gateways, `librarian_onboarding`; final answer only in main history | [`plugin/chatbot/web_research.py`](../plugin/chatbot/web_research.py), [`plugin/chatbot/librarian.py`](../plugin/chatbot/librarian.py), [`plugin/doc/specialized_base.py`](../plugin/doc/specialized_base.py) |
 | Long-term user profile memory (partial) | `upsert_memory` → JSON in `USER.md`; librarian injects profile | [`plugin/chatbot/memory.py`](../plugin/chatbot/memory.py) |
 | Scientific Python / NumPy (out-of-process) | Warm venv worker (`run_venv_python_script`, `=PYTHON()`) | [enabling_numpy_in_libreoffice.md](enabling_numpy_in_libreoffice.md) |
 
 **Not in `pyproject.toml`:** `langchain-core` — the sidebar does not depend on it today.
+
+**Legacy doc names:** Older plans referred to `chat_panel.py` and `core/api.py`. Main chat lives in [`panel.py`](../plugin/chatbot/panel.py) (`SendButtonListener`) + [`tool_loop.py`](../plugin/chatbot/tool_loop.py) (`ToolCallingMixin`).
+
+---
+
+## Why not LangChain agent orchestration for main chat?
+
+This section records the outcome of a 2026-06 review of replacing the custom tool loop with LangChain's agent APIs (`create_tool_calling_agent` + `AgentExecutor`, or the LangChain 1.0 successor `create_agent` on LangGraph).
+
+**Verdict: do not pursue.** LangChain is useful here only as a **source of ideas and vendorable code** — not as the sidebar's agent runtime.
+
+### What the current loop actually is
+
+The main chat path is **not** a thin `while tool_calls: execute` wrapper. It is a **pure FSM** in [`tool_loop_state.py`](../plugin/chatbot/tool_loop_state.py) (`next_state` → effects) driven by [`tool_loop.py`](../plugin/chatbot/tool_loop.py) on the **LibreOffice main thread**:
+
+```mermaid
+flowchart TB
+  subgraph workers [Background threads]
+    LLM[LlmClient.stream_request_with_tools]
+    TOOL[ToolRegistry.execute via ToolContext]
+  end
+  subgraph main [Main thread - UNO safe]
+    Q[queue.Queue / BatchingStreamQueue]
+    DRAIN[run_stream_drain_loop + processEventsToIdle]
+    FSM[next_state + effects]
+    UI[Sidebar append / status / approval UI]
+  end
+  LLM -->|CHUNK THINKING STREAM_DONE| Q
+  TOOL -->|TOOL_DONE STATUS APPROVAL_REQUIRED| Q
+  Q --> DRAIN --> FSM --> UI
+  FSM -->|SpawnLLMWorkerEffect| LLM
+  FSM -->|SpawnToolWorkerEffect| TOOL
+```
+
+Rough size: ~860 lines (`tool_loop.py`) + ~430 lines (`tool_loop_state.py`) + ~900 lines of tests (`tests/chatbot/test_tool_loop.py`). See also [streaming-and-threading.md](streaming-and-threading.md) and [smol-main-chat-tool-architecture.md](smol-main-chat-tool-architecture.md).
+
+### Behaviors LangChain agent executors do not provide out of the box
+
+| Capability | Where it lives | Why it matters |
+|------------|----------------|----------------|
+| Main-thread UNO drain | `run_stream_drain_loop` + `get_toolkit().processEventsToIdle()` | Tools mutate live LO documents; UI must stay responsive |
+| Producer-side stream batching | `BatchingStreamQueue` | Smooth sidebar typing without flooding UNO events |
+| Reasoning / thinking tokens | `StreamQueueKind.THINKING`, `reasoning_replay` | Models show `[Thinking]` before the answer |
+| Stop / cancellation | `resolve_stop_checker()`, `_send_cancellation` | Stop must reach background LLM + tool workers |
+| Async tools | `web_research`, `generate_image` in background threads | Long-running tools without freezing the sidebar |
+| Human-in-the-loop web approval | `APPROVAL_REQUIRED` + `begin_inline_web_approval` | Inline Accept/Change/Reject before search |
+| Sub-agent streaming into sidebar | `chat_append_callback` → queue `CHUNK` | Delegate/web_research streams steps into chat |
+| Dynamic tool list per round | `_refresh_active_tools_for_session()` | In-place specialized mode swaps schemas mid-loop |
+| Document context refresh after edits | `UpdateDocumentContextEffect` | `[DOCUMENT CONTENT]` updates after mutations |
+| Max-round exhaustion fallback | `SpawnFinalStreamEffect` → no-tools final stream | Forces a natural-language answer when tool budget is spent |
+| Audio input + STT fallback | Native audio in user message; `_transcribe_audio` retry | Endpoint audio support varies |
+| Rich sidebar finalize | `finalize_sidebar_assistant_response` | HTML formatting pass after stream completes |
+
+The `execute_fn` closure in `tool_loop.py` wires many `ToolContext` callbacks (approval, status, thinking, domain switching, brainstorming, cancellation) before `ToolRegistry.execute` — that is application logic, not generic agent plumbing.
+
+### LangChain API status (2025–2026)
+
+The classic pattern cited in early plans:
+
+```python
+from langchain.agents import create_tool_calling_agent, AgentExecutor
+```
+
+is **legacy in LangChain 1.0** (Oct 2025). `create_tool_calling_agent` / `AgentExecutor` moved toward **`langchain-classic`**. The recommended upstream path is **`create_agent`** (built on **LangGraph**), with **middleware** for customization. Even a greenfield LangChain integration today would not use `AgentExecutor` directly.
+
+LangChain's own split:
+
+- **LangChain `create_agent`** — fast default loop (model → tools → response), middleware for HITL/summarization
+- **LangGraph** — fine-grained control, durable state, complex workflows
+
+WriterAgent's main chat needs **LangGraph-level control** (threading, UNO, dynamic tools) but **without** adopting LangGraph as an in-extension dependency — so we already implemented that control as `tool_loop` + `tool_loop_state`.
+
+### What a LangChain swap would still require
+
+Even with `WriterAgentLangChainModel` (a planned `BaseChatModel` wrapper around `LlmClient`, never shipped), you would need to reimplement most of the table above as **custom middleware** or adapters:
+
+1. **`LlmClient` wire policy** — 50ms pacing, `<|…|>` token stripping, Anthropic/Gemini shims, fallback parsers, `merge_openrouter_chat_extra`
+2. **`ToolBase` → LangChain tools** — map `ToolContext` (UNO `doc`, `ctx`, callbacks) to `StructuredTool`
+3. **Threading bridge** — LLM/tools on workers, **all UI on main thread** via queue drain (LangChain knows nothing about `processEventsToIdle()`)
+4. **Streaming protocol** — `StreamQueueKind` queue, batching, tool-thinking lines, research cache formatting
+5. **Packaging** — `langchain` + `langgraph` in the OXT vs. LO's bundled Python; conflicts with minimal-deps policy
+
+Net effect: **~2,200 lines of tested loop code** replaced by **LangChain + a comparable amount of custom middleware** that replicates the same FSM.
+
+### Two agent stacks already exist
+
+WriterAgent deliberately runs **two orchestration idioms** sharing one HTTP client ([smol-main-chat-tool-architecture.md](smol-main-chat-tool-architecture.md)):
+
+| Stack | Role | Runtime |
+|-------|------|---------|
+| **Main chat** (`tool_loop`) | Sidebar, OpenAI-shaped history, streaming FSM | `LlmClient` + UNO drain |
+| **Smolagents** (`ToolCallingAgent`) | Web research, librarian, specialized delegates | `WriterAgentSmolModel` → same `LlmClient` |
+
+Explicit rule from that doc: **do not merge `tool_loop` with `ToolCallingAgent`** — different transcript semantics. Adding LangChain `AgentExecutor` would introduce a **third** idiom.
+
+Multi-step autonomous work (Phase 5's original goal) is already covered: main chat calls `delegate_to_specialized_*_toolset` → smol sub-agent → result folded into main history without ReAct pollution.
+
+### Cost/benefit summary
+
+| Criterion | Custom `tool_loop` | LangChain `AgentExecutor` / `create_agent` |
+|-----------|-------------------|---------------------------------------------|
+| LO UI responsiveness | Purpose-built | Requires custom bridge |
+| Tool registry + UNO | Native `ToolContext` | Adapter + middleware |
+| Streaming UX | Queue + batching + thinking | Callback rewrite |
+| Extension dependencies | Zero LangChain | `langchain-core` + likely `langgraph` |
+| Test coverage | ~900 lines in `test_tool_loop.py` | Would restart from zero |
+| Multi-step agents | Delegates → smol sub-agents | Duplicates smol path |
+| Maintenance | ~1.3k LOC FSM you own | FSM replicated inside middleware |
+
+### How LangChain *is* appropriate for this project
+
+Use LangChain repos as a **reference implementation library**, consistent with the vendoring strategy below:
+
+- Copy **small, stdlib-friendly** pieces (text splitters, summarization prompts, chat-history schema ideas)
+- Run **LangGraph in the user venv only** for embeddings ingest/search ([embeddings.md](embeddings.md)) — not in the LibreOffice process
+- Keep **`LlmClient` as the single HTTP wire** for all in-process agents (main chat + smol)
+- Borrow **middleware concepts** (HITL, summarization) as design patterns implemented in `tool_loop` / `ChatSession`, not as imports
+
+**Do not** add `langchain-core` to the extension solely to replace `tool_loop.py`.
 
 ---
 
@@ -32,14 +156,18 @@ Prioritized by leverage vs. complexity. **Do not** re-implement Phases 1–2 via
 | Priority | Item | Why it matters | Suggested approach |
 |----------|------|----------------|-------------------|
 | **1** | **Inject `USER.md` into main chat** (Hermes-style read path) | Model sees prefs without `upsert_memory` / `read` calls; librarian already injects for onboarding only | Append `[USER PROFILE]` block in `get_chat_system_prompt_for_document` or `set_system_context`; keep `upsert_memory` for writes |
-| **2** | **Chat history summarization** (old Phase 3) | Very long sidebar sessions can exceed model context even when document excerpt is capped at 8k | Token/char budget on `session.messages`; when over threshold, one summarizer LLM call replaces oldest turns with a single system/assistant summary message (persist via `history_db`) |
+| **2** | **Chat history summarization** (old Phase 3) | Very long sidebar sessions can exceed model context even when document excerpt is capped at 8k | Token/char budget on `session.messages`; when over threshold, one summarizer LLM call replaces oldest turns with a single summary message (persist via `history_db`). *Optional:* vendor summarization logic from LangChain as reference — do not adopt `ConversationSummaryBufferMemory` as a dependency |
 | **3** | **Local embedder + routing** | MVP: `sentence-transformers` in venv; cloud HTTP tier-two | See [embeddings.md](embeddings.md) — Phase A bench + `embedding_client.py` |
 | **4** | **Document embeddings index** (old Phase 4, retrieval) | Outer document_research: semantic find instead of grep; minimal locator cache | See [embeddings.md](embeddings.md) |
 | **5** | **Background memory reviewer** | Passive “should we save this?” without burdening main tool loop | Optional second LLM pass after reply (Hermes pattern); uses `MemoryStore` in code, not extra main-chat tools |
 | **6** | **Skills tools** | Procedures on disk; guidance exists in constants | Register [`plugin/chatbot/skills.py`](../plugin/chatbot/skills.py) when ready; optional index injection like memory |
-| **Low** | **Full `langchain-core` integration** | Runnable chains, community vendoring | Only if you want LangChain ecosystem interop; duplicates working `ChatSession` + `tool_loop` |
+| **Low** | **Full `langchain-core` integration** | Runnable chains, ecosystem interop | Only if an external integration explicitly requires it; duplicates working `ChatSession` + `tool_loop` |
 
-**Explicitly deprioritized:** Replacing `tool_loop.py` with LangChain `create_tool_calling_agent` / `AgentExecutor` — current FSM, streaming, and UNO drain are tightly coupled to the custom loop.
+**Explicitly deprioritized / rejected:**
+
+- Replacing `tool_loop.py` with LangChain `create_tool_calling_agent` / `AgentExecutor` or LangChain 1.0 `create_agent`
+- Shipping `WriterAgentLangChainModel` for main sidebar chat (unless a future *non-sidebar* use case needs LangChain interop)
+- Installing `langchain-community` as an extension dependency
 
 ---
 
@@ -50,14 +178,16 @@ Prioritized by leverage vs. complexity. **Do not** re-implement Phases 1–2 via
 
 > **Superseded:** `ChatSession` + `history_db.py` fulfill this phase. Skip LangChain `ConversationBufferMemory` unless you adopt `langchain-core` for other reasons.
 
-- **Dependency Management**: 
+- **Dependency Management**:
   - Add `langchain-core` (and potentially `langchain` or specific provider packages) to the project requirements.
   - Ensure compatibility with LibreOffice's bundled Python environment.
-- **Refactor [core/api.py](file:///home/keithcu/Desktop/Python/writeragent/core/api.py)**:
-  - Implement a custom LangChain `BaseChatModel` wrapper (`WriterAgentLangChainModel`) around the existing `LlmClient`. This avoids the bloat of native provider packages (like `langchain-openai` which brings heavy dependencies like `httpx`) and retains our LibreOffice-optimized streaming loop, connection pooling, and error mapping.
+- **Refactor (legacy `core/api.py` plan)**:
+  - A custom LangChain `BaseChatModel` wrapper (`WriterAgentLangChainModel`) around `LlmClient` was planned to avoid heavy provider packages. **Not shipped**; `LlmClient` remains the direct path for main chat and smol.
   - Introduce `ConversationBufferMemory` to automatically manage the message history.
-- **Update `chat_panel.py`**:
+- **Update main chat panel (`panel.py` + `tool_loop.py`)**:
   - Instead of rebuilding the context string manually via `get_document_context_for_chat` with every message, inject the document state as a dynamic system prompt or context variable within a LangChain `Runnable` or `Chain`.
+
+> **Shipped instead:** `ChatSession.set_system_context(base_prompt, doc_text)` replaces the system message each send; no LangChain `Runnable` required.
 
 ### Phase 2: Persistent Conversation History — **DONE**
 **Objective**: Allow chats to persist across LibreOffice restarts.
@@ -75,26 +205,32 @@ Prioritized by leverage vs. complexity. **Do not** re-implement Phases 1–2 via
 **Objective**: Prevent the conversation history from exceeding the LLM's context window during long sessions.
 
 - **Summarization**:
-  - Replace `ConversationBufferMemory` with `ConversationSummaryBufferMemory`.
-  - Configure a background LLM call to summarize older messages when the token count reaches a configured threshold (e.g., 80% of `chat_context_length`).
+  - Implement char/token budget on `ChatSession.messages`; when over threshold, one summarizer LLM call collapses oldest turns (persist via `history_db`).
+  - *Reference only:* LangChain `ConversationSummaryBufferMemory` — study for prompt structure; implement against `LlmClient` + `ChatSession`, not as a dependency.
 - **Config Updates**:
-  - Add settings for `memory_strategy` (Buffer vs. Summary) and `max_memory_tokens`.(
+  - Add settings for `memory_strategy` (Buffer vs. Summary) and `max_memory_tokens`.
 
 ### Phase 4: Long-Term Document Memory (RAG) — **NEXT (see embeddings.md)**
 
 **Objective**: Enable cross-document find for **document_research** (outer agent) and optional in-document RAG for huge single files.
 
-> **Canonical plan:** [embeddings.md](embeddings.md) — **one minimal index** (vectors + locators); outer document_research `search_embeddings`; **MVP local embed** via `sentence-transformers` in venv; cloud APIs tier-two; ~60 s incremental maintenance.
+> **Canonical plan:** [embeddings.md](embeddings.md) — **one minimal index** (vectors + locators); outer document_research `search_embeddings`; **MVP local embed** via `sentence-transformers` in venv; cloud APIs tier-two; ~60 s incremental maintenance. LangGraph pipelines run **in the user venv only**.
 
+### Phase 5: Agentic Workflows & Multi-Step Reasoning — **DONE (via smolagents, not LangChain)**
 
-### Phase 5: Agentic Workflows & Multi-Step Reasoning
 **Objective**: Transition from a simple "Chat + Tools" model to autonomous problem solving.
 
-- **Agent Orchestration**:
-  - Use LangChain's `create_tool_calling_agent` and `AgentExecutor` to replace the custom tool execution loop in `chat_panel.py`.
-  - Allow the agent to plan multi-step tasks (e.g., "Analyze this table, find errors, and format the erroneous cells red").
-- **Human-in-the-Loop**:
-  - Implement LangChain callbacks to pause execution and ask the user for confirmation before applying destructive changes to the document.
+> **Superseded (2026-06):** Do **not** use LangChain `create_tool_calling_agent` / `AgentExecutor` (or `create_agent`) to replace the main chat loop. See [Why not LangChain agent orchestration for main chat?](#why-not-langchain-agent-orchestration-for-main-chat).
+
+**Shipped approach:**
+
+- **Main chat** keeps `ToolCallingMixin` / `tool_loop.py` for sidebar streaming, UNO safety, and OpenAI-shaped history.
+- **Multi-step work** uses **smolagents sub-agents** via delegate gateway tools (`delegate_to_specialized_writer_toolset`, etc.) and dedicated tools (`web_research`, librarian onboarding).
+- **Human-in-the-loop** for web search is implemented in `tool_loop.py` (`APPROVAL_REQUIRED`, `begin_inline_web_approval`) — not LangChain callbacks.
+
+Example user goal ("Analyze this table, find errors, and format erroneous cells red") flows: main chat → delegate to calc specialized toolset → smol `ToolCallingAgent` with domain tools → structured result back to main history.
+
+Future HITL for destructive document edits, if needed, should extend `ToolContext` / `tool_loop` effects — not adopt LangChain middleware in-process.
 
 ## Note: SQLite ships with Python
 
@@ -118,33 +254,48 @@ Keeping this in mind makes it easier to choose stdlib-friendly storage (e.g. SQL
 While it offers convenience, `langchain-community` is a very heavy package. A basic `pip install langchain-community` pulls in numerous dependencies including `SQLAlchemy`, `PyYAML`, `requests`, `aiohttp`, `dataclasses-json`, and **`numpy`**.
 Because it forces a `numpy` installation (and other heavy libraries) just for the base package, it directly conflicts with our "minimal dependencies" constraint for LibreOffice.
 
-**Conclusion: Vendoring Strategy**
-Instead of installing `langchain-community` as a dependency, we should treat its [open-source repository](https://github.com/langchain-ai/langchain) as a reference implementation library. We continue to depend strictly on `langchain-core` as planned. When we need specific functionality, we will **find the relevant code in `langchain-community`, copy it into our source tree (vendoring), and adapt it** to work within our LibreOffice constraints. This allows us to leverage community-built logic while keeping our footprint small and `numpy` cleanly optional.
+**Conclusion: Vendoring Strategy (reference library, not runtime)**
+
+Treat the [LangChain open-source repository](https://github.com/langchain-ai/langchain) as a **catalog of reference implementations** — same as we already do for smolagents and LangChain text-splitter logic in embeddings docs. When we need specific functionality:
+
+1. Find the relevant upstream file
+2. Copy the minimal logic into our tree (vendoring)
+3. Adapt for LibreOffice constraints (stdlib `sqlite3`, no SQLAlchemy, UNO threading)
+
+We do **not** plan to depend on `langchain-core` in the extension unless a future feature has no reasonable vendored alternative. LangChain agent orchestration (`AgentExecutor`, `create_agent`) is explicitly **out of scope** for main chat; only **patterns and small utilities** are in scope.
 
 ### Vendoring Candidates
 Based on a review of the `langchain-community` codebase, here are specific components we can vendor:
 
-- **Database Chat History (`SQLChatMessageHistory`)**: Located in `chat_message_histories/sql.py`. The upstream version is tightly coupled to `SQLAlchemy` to support multiple database engines. We can use its structural design as a reference but rewrite the database interface to use Python's built-in `sqlite3` module, avoiding the `SQLAlchemy` dependency.
+- **Database Chat History (`SQLChatMessageHistory`)**: Located in `chat_message_histories/sql.py`. The upstream version is tightly coupled to `SQLAlchemy` to support multiple database engines. We can use its structural design as a reference but rewrite the database interface to use Python's built-in `sqlite3` module, avoiding the `SQLAlchemy` dependency. **Already superseded** by `history_db.py` for sidebar chat.
 - **SQLite Vector Store (`SQLiteVec`)**: Located in `vectorstores/sqlitevec.py`. It uses the standard library `sqlite3` and `struct` for storing embeddings as raw bytes. While it relies on the `sqlite-vec` C-extension, we can take its class structure and replace the similarity search backend with our own pure-Python streaming search logic.
 - **File/Text Based Components**: Components like `FileChatMessageHistory` (`chat_message_histories/file.py`) and `TextLoader` (`document_loaders/text.py`) have zero external dependencies. They rely solely on standard Python modules like `pathlib` and `json`, and can be copy-pasted almost verbatim if needed.
+- **Summarization prompts / memory strategies**: LangChain 1.0 middleware for summarization and HITL are useful **design references** for Phase 3 and future destructive-edit confirmation — implement in `ChatSession` / `tool_loop`, do not import.
 
 #### Future Possibilities (Catalog of Ideas)
 While we don't need these immediately for the core LibreOffice integration, the repository contains a massive collection of reference implementations we could vendor if users request specific features:
 - **Document Loaders (170+ integrations)**: If we ever want to allow users to load data into LibreOffice from external sources, there are ready-made classes for Cloud Drives (Google Drive, OneDrive, S3), Workspaces (Confluence, Notion, Slack), and file formats (PDFs, ePub, Dataframes).
-- **Agent Orchestration and Tools (via `smolagents`)**: We have actively begun vendoring and integrating `smolagents` into WriterAgent to handle complex, multi-step sub-agent tasks. This serves as a lightweight alternative to heavier `langchain` paradigms:
-  - **ToolCallingAgent & Memory (`smolagents.agents`, `smolagents.memory`)**: We've vendored the core `ToolCallingAgent` and its associated memory structures structure (`ActionStep`). We bridged this to WriterAgent's existing `LlmClient` via a custom `WriterAgentSmolModel` wrapper, allowing for autonomous ReAct loops (like web searching) without polluting the main LangChain agent's context.
-  - **Zero-Dependency Web Tools (`smolagents/default_tools.py`)**: We adapted their `DuckDuckGoSearchTool` and `VisitWebpageTool` to use pure `urllib.request` and standard library `html.parser`, bypassing external dependencies like `requests`, `beautifulsoup4`, or `markdownify`.
-  - **Secure Local Python Execution (`smolagents.local_python_executor`)**: (Future Candidate) This zero-dependency gem uses Python's `ast` to safely evaluate Python code with strict bounds (preventing dangerous imports, limiting loops). We can vendor this to give our AI a `python_interpreter` tool for processing LibreCalc data safely without heavy sandboxes.
-  - **Web Browsing (`smolagents/vision_web_browser.py`)**: Currently uses `selenium` and `helium`. For WriterAgent, we should conceptually port the interaction logic (like `_escape_xpath_string` and semantic navigation) to a PyCDP (Chrome) or Marionette (Firefox) backend for a lightweight, dependency-free browser automation implementation.
-- **Retrievers (40+ strategies)**: Beyond standard vector search, it contains implementations for Lexical/Keyword search (BM25, TF-IDF, SVM) and Hybrid approaches, which we could adapt for local document search.
-- **Third-Party Model Integrations**: Communication plates for nearly every LLM provider, providing a solid reference if we ever need to expand our `LlmClient` to support obscure model gateways.
+- **Agent Orchestration (via `smolagents`, not LangChain)**: We vendored and integrated `smolagents` for complex, multi-step **sub-agent** tasks — a lightweight alternative to LangChain/LangGraph **in the extension process**:
+  - **ToolCallingAgent & Memory (`smolagents.agents`, `smolagents.memory`)**: Vendored `ToolCallingAgent` and `ActionStep`. Bridged to `LlmClient` via `WriterAgentSmolModel`, allowing autonomous ReAct loops (web search, specialized delegates) without polluting main chat history.
+  - **Zero-Dependency Web Tools (`smolagents/default_tools.py`)**: Adapted `DuckDuckGoSearchTool` and `VisitWebpageTool` to use pure `urllib.request` and `html.parser`.
+  - **Secure Local Python Execution (`smolagents.local_python_executor`)**: (Future Candidate) AST-based safe eval for calc scripting ideas.
+  - **Web Browsing (`smolagents/vision_web_browser.py`)**: Reference for browser automation patterns; would need PyCDP/Marionette for LO constraints.
+- **Retrievers (40+ strategies)**: Beyond standard vector search, lexical/hybrid approaches we could adapt for local document search.
+- **Third-Party Model Integrations**: Reference plates for expanding `LlmClient` to obscure gateways — we keep a single custom client instead of provider packages.
 
 ---
 
 ## Architecture Decision: Custom Wrapper vs. Provider Packages
-We will proceed with writing a custom LangChain wrapper (`WriterAgentLangChainModel`) around our existing `LlmClient` rather than importing heavy provider packages like `langchain-openai` or `langchain-ollama`. WriterAgent runs in LibreOffice's constrained Python environment; keeping dependencies minimal (just `langchain-core`) is critical to avoid bloat and cross-platform installation issues, while allowing us to keep our custom UI streaming loops and connection management.
 
-For Phase 4 (embeddings / RAG), see [embeddings.md](embeddings.md): **sqlite-vec + LangGraph in the user venv only** (ingest + search pipelines); host has no langchain dependency. LibreOffice in-process still has no sqlite-vec/FAISS/NumPy encode.
+**Main chat and smolagents:** Use `LlmClient` directly. A `WriterAgentLangChainModel` wrapper remains a **hypothetical** option for external LangChain interop only — not for replacing `tool_loop`.
+
+**Rationale:** WriterAgent runs in LibreOffice's constrained Python environment. Keeping the extension dependency-free of `langchain-core` avoids bloat and cross-platform install issues. Custom UI streaming, UNO drain, and wire policy stay in one place ([`llm_client.py`](../plugin/framework/client/llm_client.py)).
+
+**Embeddings / RAG:** See [embeddings.md](embeddings.md) — **sqlite-vec + LangGraph in the user venv only** (ingest + search pipelines); host extension has no langchain dependency. LibreOffice in-process still has no sqlite-vec/FAISS/NumPy encode.
+
+**Agent orchestration:** Main chat = `tool_loop` FSM. Multi-step = smol `ToolCallingAgent`. LangChain `AgentExecutor` / `create_agent` = **not planned**.
+
+Related docs: [smol-main-chat-tool-architecture.md](smol-main-chat-tool-architecture.md), [chat-sidebar-implementation.md](chat-sidebar-implementation.md), [streaming-and-threading.md](streaming-and-threading.md).
 
 ---
 
@@ -157,3 +308,4 @@ Moved to [embeddings.md — Appendix: HNSW and hnsw-lite](embeddings.md#appendix
 - **Phase 1**: Verify that multi-turn conversations maintain context without manually re-reading the entire chat history in the prompt.
 - **Phase 2**: Close a document, reopen it, and verify the chat sidebar restores previous context.
 - **Phase 3**: Conduct a very long chat session and verify that older messages are summarized and the LLM does not return context limit errors.
+- **Phase 5 (smol path)**: Delegate to specialized toolset / `web_research`; verify sub-agent steps do not corrupt main `ChatSession` transcript shape; verify stop/cancel and web approval still work on main chat.
