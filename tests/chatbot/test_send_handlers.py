@@ -597,13 +597,15 @@ def test_run_librarian_keeps_panel_flag_until_switch():
                 mock_run_stream.side_effect = fake_drain_loop
 
                 getattr(panel.ctx, "getServiceManager")().createInstanceWithContext.return_value = MagicMock()
-                panel._run_librarian("Hello", model)  # type: ignore
+                with patch("plugin.chatbot.librarian.get_suggested_user_name", return_value="Keith"):
+                    panel._run_librarian("Hello", model)  # type: ignore
 
     assert panel._in_librarian_mode is True
     mock_registry.execute.assert_called_once()
     args, kwargs = mock_registry.execute.call_args
     assert args[0] == "librarian_onboarding"
     assert kwargs["query"] == "Hello"
+    assert kwargs["suggested_user_name"] == "Keith"
 
 
 def test_run_librarian_clears_panel_flag_on_switch_mode():

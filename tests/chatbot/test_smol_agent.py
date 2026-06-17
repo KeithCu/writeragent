@@ -69,6 +69,9 @@ from plugin.chatbot.smol_agent import (
 from plugin.chatbot.librarian import (
     LibrarianOnboardingTool,
     SwitchToDocumentModeTool,
+    get_libreoffice_user_display_name,
+    get_os_login_name,
+    get_suggested_user_name,
 )
 from plugin.chatbot.memory import MemoryTool
 from plugin.contrib.smolagents.agents import ToolCallingAgent
@@ -596,6 +599,102 @@ class TestLibrarianSmol(unittest.TestCase):
             self.assertIn("instructions", kwargs)
             self.assertIn("[USER PROFILE / MEMORY]", kwargs["instructions"])
             self.assertIn('{"favorite_color": "blue", "name": "Alice"}', kwargs["instructions"])
+
+    def test_librarian_onboarding_includes_suggested_user_name_in_instructions(self):
+        ctx = MagicMock()
+        ctx.ctx = MagicMock()
+        ctx.stop_checker.return_value = False
+
+        fa = FinalAnswerStep(output="Hello")
+
+        with patch("plugin.chatbot.memory.MemoryStore") as mock_store_class, \
+             patch("plugin.chatbot.smol_agent.ToolCallingAgent") as mock_agent_class:
+            mock_store = mock_store_class.return_value
+            mock_store.read.return_value = ""
+            mock_agent = mock_agent_class.return_value
+            mock_agent.run.return_value = [fa]
+
+            tool = LibrarianOnboardingTool()
+            tool.execute(ctx, query="hi", suggested_user_name="Keith")
+
+            kwargs = mock_agent_class.call_args.kwargs
+            self.assertIn("called Keith", kwargs["instructions"])
+            self.assertIn("clearly confirm", kwargs["instructions"])
+
+    def test_librarian_onboarding_omits_suggested_block_without_hint(self):
+        ctx = MagicMock()
+        ctx.ctx = MagicMock()
+        ctx.stop_checker.return_value = False
+
+        fa = FinalAnswerStep(output="Hello")
+
+        with patch("plugin.chatbot.memory.MemoryStore") as mock_store_class, \
+             patch("plugin.chatbot.smol_agent.ToolCallingAgent") as mock_agent_class:
+            mock_store = mock_store_class.return_value
+            mock_store.read.return_value = ""
+            mock_agent = mock_agent_class.return_value
+            mock_agent.run.return_value = [fa]
+
+            tool = LibrarianOnboardingTool()
+            tool.execute(ctx, query="hi")
+
+            kwargs = mock_agent_class.call_args.kwargs
+            self.assertIn("Ask what they would like to be called", kwargs["instructions"])
+            self.assertNotIn("called Keith", kwargs["instructions"])
+
+
+def test_get_os_login_name_filters_generic_user():
+    with patch("plugin.chatbot.librarian.getpass.getuser", return_value="user"):
+        assert get_os_login_name() is None
+
+
+def test_get_os_login_name_returns_normalized_login():
+    with patch("plugin.chatbot.librarian.getpass.getuser", return_value="  Keith  "):
+        assert get_os_login_name() == "Keith"
+
+
+def test_get_libreoffice_user_display_name_prefers_givenname():
+    access = MagicMock()
+    access.getPropertyValue.side_effect = lambda key: {"givenname": "Alice", "sn": "Smith"}[key]
+    provider = MagicMock()
+    provider.createInstanceWithArguments.return_value = access
+    smgr = MagicMock()
+    smgr.createInstanceWithContext.return_value = provider
+    ctx = MagicMock()
+    ctx.ctx = ctx
+    ctx.getServiceManager.return_value = smgr
+
+    with patch.dict("sys.modules", {"com.sun.star.beans": MagicMock()}):
+        assert get_libreoffice_user_display_name(ctx) == "Alice"
+
+
+def test_get_libreoffice_user_display_name_falls_back_to_sn():
+    access = MagicMock()
+    access.getPropertyValue.side_effect = lambda key: {"givenname": "", "sn": "Jones"}[key]
+    provider = MagicMock()
+    provider.createInstanceWithArguments.return_value = access
+    smgr = MagicMock()
+    smgr.createInstanceWithContext.return_value = provider
+    ctx = MagicMock()
+    ctx.ctx = ctx
+    ctx.getServiceManager.return_value = smgr
+
+    with patch.dict("sys.modules", {"com.sun.star.beans": MagicMock()}):
+        assert get_libreoffice_user_display_name(ctx) == "Jones"
+
+
+def test_get_suggested_user_name_prefers_libreoffice_over_os():
+    ctx = MagicMock()
+    with patch("plugin.chatbot.librarian.get_libreoffice_user_display_name", return_value="Alice"):
+        with patch("plugin.chatbot.librarian.get_os_login_name", return_value="keithcu"):
+            assert get_suggested_user_name(ctx) == "Alice"
+
+
+def test_get_suggested_user_name_falls_back_to_os_login():
+    ctx = MagicMock()
+    with patch("plugin.chatbot.librarian.get_libreoffice_user_display_name", return_value=None):
+        with patch("plugin.chatbot.librarian.get_os_login_name", return_value="keithcu"):
+            assert get_suggested_user_name(ctx) == "keithcu"
 
 
 # =============================================================================

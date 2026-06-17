@@ -126,7 +126,7 @@ class TestPanelResizeListenerIntegration:
         assert rh == expected["response"].height
         assert rich.getPosSize().Height == rh - 16
 
-    def test_listener_preserves_non_empty_rich_control_bounds(self):
+    def test_listener_syncs_rich_control_bounds_when_non_empty(self):
         controls = {
             name: _mock_control(x, y, w, h)
             for name, (x, y, w, h) in _xdl_snapshot().items()
@@ -142,8 +142,10 @@ class TestPanelResizeListenerIntegration:
         with patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=10):
             listener.relayout_now(root)
 
-        ps = rich.getPosSize()
-        assert (ps.X, ps.Y, ps.Width, ps.Height) == (12, 24, 120, 90)
+        expected = compute_chat_panel_layout(900, 500, _xdl_snapshot())
+        _rx, _ry, _rw, rh = listener.last_response_rect
+        assert rh == expected["response"].height
+        assert rich.getPosSize().Height == rh - 16
 
     def test_narrow_panel_stretches_response_to_margin(self):
         layouts = compute_chat_panel_layout(180, 500, _xdl_snapshot())

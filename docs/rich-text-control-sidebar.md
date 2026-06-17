@@ -231,7 +231,7 @@ Shared HTML import and theme: [`format.py`](../plugin/writer/format.py) (`insert
 
 ### Scroll behavior (why nudge exists)
 
-After bulk copy or history reload, `gotoEnd` on the model cursor alone does not move the RichTextControl viewport; VCL scrollbars are not exposed on this control, and `setSelection` does not reliably scroll it on current Linux/KDE LibreOffice. The implementation briefly focuses the RichTextControl, inserts a zero-width tail marker under `focus_preserved` ([`uno_context.py`](../plugin/framework/uno_context.py)), drains idle events so the view follows the insert, then removes the marker. Once the transcript has content, resize/layout sync preserves the RichTextControl's existing bounds instead of calling `setPosSize`, because LibreOffice resets the viewport to the top when a non-empty RichTextControl is resized. Width at creation/sync uses `last_response_rect` for height and horizontal position but caps width to the live Clear button row (replacing a hard-coded XDL right edge). See `nudge_rich_control_view_to_end` comments in source.
+After bulk copy or history reload, `gotoEnd` on the model cursor alone does not move the RichTextControl viewport; VCL scrollbars are not exposed on this control, and `setSelection` does not reliably scroll it on current Linux/KDE LibreOffice. The implementation briefly focuses the RichTextControl, inserts a zero-width tail marker under `focus_preserved` ([`uno_context.py`](../plugin/framework/uno_context.py)), drains idle events so the view follows the insert, then removes the marker. Relayout always applies bounds via peer `setPosSize` (including when the transcript is non-empty); LibreOffice may reset the viewport to the top when a non-empty RichTextControl is resized — a follow-up nudge may be needed if that proves annoying during live resize. Width at creation/sync uses `last_response_rect` for height and horizontal position but caps width to the live Clear button row (replacing a hard-coded XDL right edge). See `nudge_rich_control_view_to_end` comments in source.
 
 `_assistant_stream_start_len` is set when the **user** message insert completes (main chat). When `_record_assistant_start` marks the **final answer** (web research / librarian), it is re-set to the current control length so rerender replaces only that report tail and preserves internal search-step lines above it. Rich appends from the main-thread drain loop run **inline** (`_run_rich_ui`) so scroll nudges apply before the next queue item.
 
@@ -288,7 +288,7 @@ DEBUG-level `[RICH-SCROLL]` lines record scroll nudges, formatted inserts, layou
 
 **User-send pattern (healthy):** after `phase=copy_done` and `reason=copy` nudge, expect `phase=trailing_break` then `reason=user_trailing_break` nudge before `phase=user_append_done`.
 
-**If scroll jumps after open/resize:** look for `phase=sync_bounds` on a non-empty transcript. A healthy live resize with transcript content logs `phase=sync_bounds_skip_nonempty` instead.
+**If scroll jumps after open/resize:** look for `phase=sync_bounds` on relayout; LibreOffice may reset the viewport when a non-empty control is resized.
 
 ### Formatted insert used a fallback path (diagnostics)
 

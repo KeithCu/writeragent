@@ -3,15 +3,84 @@
 #
 # This program is free software.
 
+import getpass
 import logging
 import re
 import traceback
-from typing import Iterable, cast
+from typing import Any, Iterable, cast
 
 from plugin.framework.tool import ToolBase
 from plugin.chatbot.memory import format_upsert_memory_chat_line_from_arguments
 
 log = logging.getLogger(__name__)
+
+_USER_PROFILE_NODE = "/org.openoffice.UserProfile/Data"
+
+# Login / profile placeholders that are not useful as a greeting name.
+_GENERIC_NAMES = frozenset(
+    {
+        "administrator",
+        "guest",
+        "nobody",
+        "root",
+        "unknown",
+        "user",
+    }
+)
+
+
+def _resolve_uno_ctx(ctx: Any) -> Any:
+    return getattr(ctx, "ctx", ctx)
+
+
+def _normalize_suggested_name(raw: str | None) -> str | None:
+    if raw is None:
+        return None
+    name = str(raw).strip()
+    if not name:
+        return None
+    if name.lower() in _GENERIC_NAMES:
+        return None
+    return name
+
+
+def get_libreoffice_user_display_name(ctx: Any) -> str | None:
+    """Return given name from LibreOffice User Data (Tools → Options → User Data)."""
+    uno_ctx = _resolve_uno_ctx(ctx)
+    if uno_ctx is None:
+        return None
+    try:
+        from com.sun.star.beans import NamedValue
+
+        smgr = uno_ctx.getServiceManager()
+        provider = smgr.createInstanceWithContext("com.sun.star.configuration.ConfigurationProvider", uno_ctx)
+        node = NamedValue()
+        node.Name = "nodepath"
+        node.Value = _USER_PROFILE_NODE
+        access = provider.createInstanceWithArguments("com.sun.star.configuration.ConfigurationAccess", (node,))
+        given = _normalize_suggested_name(str(access.getPropertyValue("givenname")))
+        if given:
+            return given
+        sn = _normalize_suggested_name(str(access.getPropertyValue("sn")))
+        if sn:
+            return sn
+    except Exception:
+        log.debug("Failed to read LibreOffice user profile name", exc_info=True)
+    return None
+
+
+def get_os_login_name() -> str | None:
+    """Return the OS login account name (cross-platform via getpass)."""
+    try:
+        return _normalize_suggested_name(getpass.getuser())
+    except Exception:
+        log.debug("Failed to read OS login name", exc_info=True)
+        return None
+
+
+def get_suggested_user_name(ctx: Any) -> str | None:
+    """Best-effort name for librarian confirmation: LO profile first, then OS login."""
+    return get_libreoffice_user_display_name(ctx) or get_os_login_name()
 
 
 class SwitchToDocumentModeTool(ToolBase):
@@ -38,7 +107,15 @@ class SwitchToDocumentModeTool(ToolBase):
 class LibrarianOnboardingTool(ToolBase):
     name = "librarian_onboarding"
     description = "Librarian agent for new user onboarding."
-    parameters = {"type": "object", "properties": {"query": {"type": "string", "description": "User message"}, "history_text": {"type": "string", "description": "Previous conversation text"}}, "required": ["query"]}
+    parameters = {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "User message"},
+            "history_text": {"type": "string", "description": "Previous conversation text"},
+            "suggested_user_name": {"type": "string", "description": "OS/LO suggested name for confirmation (internal)."},
+        },
+        "required": ["query"],
+    }
     # Hide from the default main-chat tool surface; librarian onboarding owns this tool.
     tier = "specialized_control"
     is_mutation = False
@@ -50,6 +127,11 @@ class LibrarianOnboardingTool(ToolBase):
     def execute(self, ctx, **kwargs):
         query = kwargs.get("query")
         history_text = kwargs.get("history_text")
+        suggested_user_name = kwargs.get("suggested_user_name")
+        if isinstance(suggested_user_name, str):
+            suggested_user_name = suggested_user_name.strip() or None
+        else:
+            suggested_user_name = None
         from plugin.framework.errors import format_error_payload, ToolExecutionError
 
         try:
@@ -80,13 +162,24 @@ class LibrarianOnboardingTool(ToolBase):
             if status_callback:
                 status_callback("Librarian is thinking...")
 
-            instructions = """
+            if suggested_user_name:
+                priority_1 = f"""Priority 1. Confirm what to call the user and save it to memory (key "name") for later.
+  Ask whether they would like to be called {suggested_user_name} (phrase naturally in the user's language).
+  Only call upsert_memory for "name" after they clearly confirm (yes, sure, that works).
+  If they prefer a different name, save what they say. If they decline to share a name, do not pressure them and skip saving it.
+  Also save everything else that could be useful later for future document work."""
+            else:
+                priority_1 = """Priority 1. Learn what to call the user and save it to memory (key "name") for later.
+  Ask what they would like to be called, then save after they answer.
+  Also save everything else that could be useful later for future document work."""
+
+            instructions = f"""
 LIBRARIAN PERSONALITY:
 You are the WriterAgent Librarian - a friendly, curious, and helpful assistant who wants to get to know users and help them succeed.
 Think of this like a first date with your new AI colleague. You are happy to talk as long as the user wants or switch to work mode when they are ready.
 
 YOUR GOALS:
-Priority 1. Learn the user's name, and save it to memory for later. Also save everything else that could be useful later for future document work.
+{priority_1}
 Priority 2. Learn their favorite colors (and accent colors) so WriterAgent can use them later for document formatting.
 When you ask, explain why you are asking so the user feels comfortable sharing.
 Explain that it helps WriterAgent be better in the future when formatting documents since everyone eventually gets bored of only black and white.

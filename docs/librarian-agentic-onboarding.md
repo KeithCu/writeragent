@@ -33,11 +33,23 @@ System: [stores "Keith, but my friends call me Cash" as name]
 
 We get:
 ```
-Librarian: "I'd love to know what to call you! What name do you prefer?"
-User: "Keith, but my friends call me Cash"
-Librarian: [understands context, stores "Cash" as preferred name, "Keith" as full name]
+Librarian: "Would you like me to call you Keith?"  (suggested from LibreOffice User Data or OS login)
+User: "Yes, but my friends call me Cash"
+Librarian: [stores "Cash" via upsert_memory after confirmation]
 Librarian: "Got it! I'll call you Cash. It's great to meet you, Cash! 😊"
 ```
+
+When no name hint is available, the Librarian falls back to asking what the user would like to be called.
+
+### **Suggested name (confirm before save)**
+
+On the UI thread before each librarian turn, [`plugin/chatbot/librarian.py`](plugin/chatbot/librarian.py) resolves a suggested display name:
+
+1. **LibreOffice User Data** — `givenname` / `sn` from Tools → Options → User Data (`/org.openoffice.UserProfile/Data`).
+2. **OS login** — `getpass.getuser()` (cross-platform; `$USER` / `$USERNAME` / passwd lookup).
+
+Generic placeholders (`user`, `root`, `administrator`, …) are filtered out. The hint is injected as `[SUGGESTED USER NAME]` in agent instructions; the model **confirms** before calling `upsert_memory` with key `"name"`. If the user prefers another name or declines, the agent respects that.
+
 
 ## Reply language and localized UI
 
@@ -173,10 +185,11 @@ CONVERSATION STYLE:
 - Make it fun! Use appropriate emojis and enthusiasm
 
 WHAT TO LEARN:
-- User's name: Understand if they have a preferred nickname
-  - "Keith, but my friends call me Cash" → call them "Cash"
-  - "Dr. Samantha Jones" → ask "Should I call you Samantha or Dr. Jones?"
-  - "Just call me Alex" → use "Alex"
+- User's name: When a suggested name is available, confirm first ("Would you like me to call you …?") and only save after yes. If they prefer a nickname, save that instead.
+  - Suggested from LO User Data or OS login; see `get_suggested_user_name()` in `librarian.py`
+  - "Yes, but call me Cash" → store "Cash"
+  - No suggestion → ask what they would like to be called
+  - Already in USER.md memory → skip re-asking
 
 - Favorite color: Use this to personalize the experience
   - "I love blue" → "Great! I'll use blue themes for you 🎨"
@@ -366,9 +379,9 @@ LIBRARIAN CONVERSATION RULES:
 ### **First Meeting**
 
 **User**: "Hello"
-**Librarian**: "👋 Hi there! I'm the WriterAgent Librarian. It's so nice to meet you! I'd love to know what to call you. What name do you prefer?"
+**Librarian**: "👋 Hi there! I'm the WriterAgent Librarian. Would you like me to call you Keith?" *(when OS/LO suggests Keith)*
 
-**User**: "Keith, but my friends call me Cash"
+**User**: "Yes, but my friends call me Cash"
 **Librarian**: "Got it! I'll call you Cash - that's a cool name! 😎 It's great to meet you, Cash. I'm really curious - do you have a favorite color?"
 
 **User**: "Blue, definitely blue"

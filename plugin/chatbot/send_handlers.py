@@ -68,6 +68,7 @@ class SendHandlerHost(Protocol):
 
     def resolve_stop_checker(self) -> Callable[[], bool]: ...
     _in_librarian_mode: bool
+    _librarian_suggested_user_name: str | None
     _in_brainstorming_mode: bool
     _brainstorming_topic: str
     _in_writing_plan_mode: bool
@@ -409,8 +410,13 @@ class SendHandlersMixin:
 
     def _run_librarian(self: SendHandlerHost, query_text: str, model: Any) -> None:
         """Run the librarian onboarding tool via the sub-agent and stream its result into the response area."""
+        from plugin.chatbot.librarian import get_suggested_user_name
+
         interpreter = EffectInterpreter(self)
         current_state = SendHandlerState(handler_type="web", status="ready")  # We can reuse 'web' handler_type or create a new one, but for simplicity, 'web' will dispatch StartEvent
+
+        # Resolve on the UI thread so UNO UserProfile reads stay on the main thread.
+        self._librarian_suggested_user_name = get_suggested_user_name(self.ctx)
 
         self._in_librarian_mode = True
         self.session.add_user_message(query_text)
@@ -543,7 +549,16 @@ class SendHandlersMixin:
                 tctx = ToolContext(doc=model, ctx=self.ctx, stop_checker=stop_checker, doc_type=doc_type, services=get_tools()._services, caller="chat", status_callback=status_cb, append_thinking_callback=thinking_cb, approval_callback=approval_cb, chat_append_callback=chat_append_cb, send_cancellation=cancel_scope)
 
                 if is_librarian:
-                    res = get_tools().execute("librarian_onboarding", tctx, bypass_thread_guard=False, **{"query": query_text, "history_text": history_text})
+                    res = get_tools().execute(
+                        "librarian_onboarding",
+                        tctx,
+                        bypass_thread_guard=False,
+                        **{
+                            "query": query_text,
+                            "history_text": history_text,
+                            "suggested_user_name": getattr(self, "_librarian_suggested_user_name", None),
+                        },
+                    )
                     result = json.dumps(res) if isinstance(res, dict) else str(res)
 
                     data = safe_json_loads(result)

@@ -25,7 +25,7 @@ from plugin.scripting.import_policy import format_venv_import_policy_for_prompt
 
 log = logging.getLogger("writeragent.smol_examples")
 
-LIBRARIAN_EXAMPLES = """Task: My name is Joe."
+LIBRARIAN_EXAMPLES = """Task: User confirmed they want to be called Joe after the librarian asked "Would you like me to call you Joe?"
 
 Action:
 {
@@ -37,7 +37,7 @@ Observation: {"status": "ok"}
 Action:
 {
   "name": "reply_to_user",
-  "arguments": {"answer": "Hello, Joe! Would you like to learn more about WriterAgent?"}
+  "arguments": {"answer": "Great, Joe! Would you like to learn more about WriterAgent?"}
 }
 Observation: {"status": "ok"}
 
