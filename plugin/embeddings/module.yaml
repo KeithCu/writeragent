@@ -17,8 +17,6 @@ config:
         label: LlamaIndex
       - value: zvec
         label: "Zvec (experimental)"
-      - value: chroma
-        label: "ChromaDB"
       - value: lancedb
         label: "LanceDB (experimental)"
 

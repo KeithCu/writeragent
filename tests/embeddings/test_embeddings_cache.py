@@ -29,12 +29,6 @@ def test_corpus_db_path_beside_documents(tmp_path):
     assert path.parent.is_dir()
 
 
-def test_chroma_persist_dir_alias(tmp_path):
-    listing = tmp_path / "project"
-    listing.mkdir()
-    assert embeddings_cache.chroma_persist_dir(str(listing)) == embeddings_cache.corpus_db_path(str(listing))
-
-
 def test_ensure_corpus_meta_writes_json(tmp_path):
     meta_path = tmp_path / "corpus_meta.json"
     embeddings_cache.ensure_corpus_meta(meta_path, embedding_model="all-MiniLM-L6-v2", dim=384, chunk_count=10)

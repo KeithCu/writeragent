@@ -43,7 +43,7 @@ CHAT_DOCUMENT_CONTEXT_MAX_CHARS = 8000
 # Local sentence-transformers default until multi-model bench picks a winner (docs/embeddings.md).
 DEFAULT_EMBEDDING_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
 EMBEDDINGS_WORKER_SESSION_PREFIX = "embeddings"
-# Host corpus_meta.json / Chroma schema version (docs/embeddings.md).
+# Host corpus_meta.json schema version (docs/embeddings.md).
 EMBEDDINGS_SCHEMA_VERSION = "3"
 # Background folder index tick when embeddings cache is enabled (docs/embeddings.md).
 EMBEDDINGS_INDEX_INTERVAL_S = 300

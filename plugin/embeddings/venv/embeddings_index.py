@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 EMBEDDINGS_VENV_PIP_INSTALL = (
     "pip install sentence-transformers numpy sqlite-vec langgraph "
     "langchain-core langchain-text-splitters envwrap odfpy pandas "
-    "openpyxl xlrd python-docx llama-index-core zvec chromadb"
+    "openpyxl xlrd python-docx llama-index-core zvec"
 )
 
 _MODEL_CACHE: dict[str, Any] = {}
@@ -153,18 +153,6 @@ def index_paragraphs(
             build_vectors=build_vectors,
         )
 
-    if str(search_mode).strip().lower() == "chroma":
-        from plugin.embeddings.venv.embeddings_chroma import chroma_ingest
-        return chroma_ingest(
-            db_path,
-            meta_path,
-            model_name,
-            rows,
-            delete_keys=[],
-            build_fts=build_fts,
-            build_vectors=build_vectors,
-        )
-
     from plugin.embeddings.venv.embeddings_ingest_graph import ingest_paragraphs
 
     return ingest_paragraphs(
@@ -213,19 +201,6 @@ def delete_paragraphs(
         from plugin.embeddings.venv.embeddings_lancedb import lancedb_delete_keys
         n = lancedb_delete_keys(db_path, keys)
         return {"deleted": n}
-
-    if str(search_mode).strip().lower() == "chroma":
-        from plugin.embeddings.venv.embeddings_chroma import chroma_ingest
-        chroma_ingest(
-            db_path,
-            meta_path,
-            model_name,
-            [],
-            delete_keys=keys,
-            build_fts=build_fts,
-            build_vectors=build_vectors,
-        )
-        return {"deleted": len(keys)}
 
     from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, corpus_chunk_count, delete_paragraph_keys, ensure_schema
 
@@ -316,18 +291,6 @@ def knn_search(
             use_mmr=use_mmr,
             rerank_model=rerank_model,
         )
-    elif str(search_mode).strip().lower() == "chroma":
-        from plugin.embeddings.venv.embeddings_chroma import chroma_knn_search
-
-        res = chroma_knn_search(
-            db_path,
-            query_text,
-            k,
-            model_name=model_name,
-            doc_url_filter=doc_url_filter,
-            use_mmr=use_mmr,
-            rerank_model=rerank_model,
-        )
     else:
         from plugin.embeddings.venv.embeddings_search_graph import search_embeddings_graph
 
@@ -386,19 +349,6 @@ def hybrid_search(
         from plugin.embeddings.venv.embeddings_lancedb import lancedb_hybrid_search
 
         res = lancedb_hybrid_search(
-            db_path,
-            query_text,
-            k,
-            model_name=model_name,
-            near_slop=near_slop,
-            doc_url_filter=doc_url_filter,
-            use_mmr=use_mmr,
-            rerank_model=rerank_model,
-        )
-    elif str(search_mode).strip().lower() == "chroma":
-        from plugin.embeddings.venv.embeddings_chroma import chroma_hybrid_search
-
-        res = chroma_hybrid_search(
             db_path,
             query_text,
             k,
@@ -491,8 +441,6 @@ def collection_stats(
                 storage = "lancedb"
             else:
                 storage = "zvec"
-        elif (db.parent / "chroma").exists() and (db.parent / "chroma").is_dir():
-            storage = "chroma"
         else:
             storage = "sqlite_vec"
 

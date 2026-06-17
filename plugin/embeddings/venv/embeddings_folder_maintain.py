@@ -73,8 +73,8 @@ class _HeartbeatThrottle:
 
 def _build_flags(search_mode: str) -> tuple[bool, bool]:
     mode = str(search_mode or "").strip().lower()
-    build_fts = mode in ("fts", "hybrid", "llama_index", "zvec", "chroma", "lancedb")
-    build_vectors = mode in ("embeddings", "hybrid", "llama_index", "zvec", "chroma", "lancedb")
+    build_fts = mode in ("fts", "hybrid", "llama_index", "zvec", "lancedb")
+    build_vectors = mode in ("embeddings", "hybrid", "llama_index", "zvec", "lancedb")
     return build_fts, build_vectors
 
 
@@ -134,18 +134,6 @@ def _ingest_rows(
     if str(search_mode).strip().lower() == "llama_index":
         from plugin.embeddings.venv.embeddings_llama_index import llama_index_ingest
         return llama_index_ingest(
-            db_path,
-            meta_path,
-            embedding_model,
-            rows,
-            delete_keys=delete_keys,
-            build_fts=build_fts,
-            build_vectors=build_vectors,
-        )
-
-    if str(search_mode).strip().lower() == "chroma":
-        from plugin.embeddings.venv.embeddings_chroma import chroma_ingest
-        return chroma_ingest(
             db_path,
             meta_path,
             embedding_model,

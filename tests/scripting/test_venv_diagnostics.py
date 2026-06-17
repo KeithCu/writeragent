@@ -210,7 +210,6 @@ def test_format_self_check_success_with_vector_search_group():
             "envwrap": "present",
             "sentence_transformers": "present",
             "sqlite_vec": "present",
-            "chromadb": "present",
             "zvec": None,
             "langgraph": None,
             "langchain_core": "present",
@@ -223,7 +222,6 @@ def test_format_self_check_success_with_vector_search_group():
             "envwrap",
             "sentence_transformers",
             "sqlite_vec",
-            "chromadb",
             "zvec",
             "langgraph",
             "langchain_core",
@@ -232,7 +230,7 @@ def test_format_self_check_success_with_vector_search_group():
     }
     msg = _format_self_check_success(data)
     assert "Vector Search Libraries" in msg
-    assert "Vector Search Libraries: envwrap, sentence_transformers, sqlite_vec, chromadb, langchain_core" in msg
+    assert "Vector Search Libraries: envwrap, sentence_transformers, sqlite_vec, langchain_core" in msg
     assert "Missing: zvec, langgraph, langchain_text_splitters" in msg
 
 
@@ -249,7 +247,6 @@ def test_format_self_check_success_vector_search_probe_failure_hint():
             "envwrap",
             "sentence_transformers",
             "sqlite_vec",
-            "chromadb",
             "zvec",
             "langgraph",
             "langchain_core",
@@ -313,7 +310,6 @@ def test_run_venv_self_check_includes_vector_search():
         "envwrap": "present",
         "sentence_transformers": None,
         "sqlite_vec": "present",
-        "chromadb": "present",
         "zvec": None,
         "langgraph": None,
         "langchain_core": None,
@@ -330,7 +326,7 @@ def test_run_venv_self_check_includes_vector_search():
         ok, msg = run_venv_self_check("/x/python", timeout=1.0)
     assert ok is True
     assert "Vector Search Libraries" in msg
-    assert "Vector Search Libraries: envwrap, sqlite_vec, chromadb" in msg
+    assert "Vector Search Libraries: envwrap, sqlite_vec" in msg
     assert "Missing: sentence_transformers" in msg
 
 

@@ -27,7 +27,6 @@ CORPUS_META_FILENAME = "corpus_meta.json"
 LEGACY_FILE_INDEX_STATE_FILENAME = "file_index_state.json"
 CORPUS_DB_FILENAME = "corpus.db"
 LEGACY_INDEX_DB = "index.db"
-CHROMA_SUBDIR = "chroma"
 LEGACY_FTS_DB = "fts5.db"
 LEGACY_FTS_META = "fts_meta.json"
 
@@ -102,11 +101,6 @@ def lancedb_collection_looks_populated(collection_path: Path) -> bool:
         return any(p.iterdir())
     except Exception:
         return False
-
-
-def chroma_persist_dir(listing_root: str, *, create_parent: bool = True) -> Path:
-    """Deprecated alias — returns corpus.db path (historical Chroma API name)."""
-    return corpus_db_path(listing_root, create_parent=create_parent)
 
 
 def corpus_meta_path(listing_root: str, *, create_parent: bool = True) -> Path:
@@ -317,10 +311,9 @@ def schema_matches(meta_path: Path) -> bool:
 
 
 def remove_stale_corpus_stores(listing_root: str) -> bool:
-    """Delete pre-v3 stores (Chroma dir, legacy index.db, separate fts5.db)."""
+    """Delete pre-v3 stores (legacy index.db, separate fts5.db)."""
     base = folder_cache_dir(listing_root, create_parent=False)
     removed = False
-    removed |= _remove_path(base / CHROMA_SUBDIR)
     removed |= _remove_path(base / LEGACY_INDEX_DB)
     removed |= _remove_path(base / LEGACY_FTS_DB)
     removed |= _remove_path(base / LEGACY_FTS_META)

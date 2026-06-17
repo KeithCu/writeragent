@@ -22,7 +22,7 @@ To prevent cache directory bloating when users switch embedding models or run di
 4. **Vector Alignment**: Mismatched models do not trigger a database rebuild. Instead, the incremental indexer detects missing vectors for the active model and embeds only those paragraphs.
 5. **Relative Age-Based Expiry**: During vector ingestion, any other models whose last update timestamp is more than 7 days older than the active model's last update are dropped, followed by a `VACUUM` to reclaim disk space. If files in the folder are unmodified, no cleanup is run, preserving the valid cache.
 
-> **Historical:** schema v2 used a separate `chroma/` dir and `fts5.db`; schema v1 used profile-side `index.db`. Upgrades delete legacy stores and cold-rebuild into unified `corpus.db` ([`embeddings_cache.py`](../plugin/embeddings/embeddings_cache.py)).
+> **Historical:** schema v2 used a separate `fts5.db`; schema v1 used profile-side `index.db`. Upgrades delete legacy stores and cold-rebuild into unified `corpus.db` ([`embeddings_cache.py`](../plugin/embeddings/embeddings_cache.py)).
 
 **Linux example:** `~/Desktop/Writing/writeragent_embeddings/` when working in `~/Desktop/Writing/`.
 
@@ -301,7 +301,7 @@ Scores and file ranks **will change** with model upgrades (`bge-small`, etc.), c
 pip install numpy sentence-transformers sqlite-vec langgraph langchain-core langchain-text-splitters envwrap odfpy
 ```
 
-Legacy **`index.db`**, **`chroma/`**, and separate **`fts5.db`** are removed on upgrade; the next index pass cold-builds into unified **`corpus.db`**.
+Legacy **`index.db`** and separate **`fts5.db`** are removed on upgrade; the next index pass cold-builds into unified **`corpus.db`**.
 
 ---
 
@@ -601,6 +601,12 @@ When off, [`filter_document_research_discovery_tools`](../plugin/doc/document_re
 
 See the dedicated section [Zvec search backend option](#zvec-backend) below for a much deeper treatment: the concrete benefits versus the current custom hybrid code, a direct comparison to the LlamaIndex option (the other major "buy something better than our hand-rolled sqlite + vec0 + custom RRF" path), pluses/minuses, evaluation guidance, and the roadmap for when/whether this becomes more than an experimental toggle.
 
+### ChromaDB (removed) {#chromadb-removed}
+
+We briefly experimented with ChromaDB as an optional cross-file search backend and **removed it** (2026-06). It is not in Settings, the venv install line, or the supported `folder_search_mode` values.
+
+**Why we dropped it:** WriterAgent cross-file search is built around **hybrid** retrieval — FTS keyword recall plus semantic vectors, fused (RRF) and optionally reranked. Chroma’s **FOSS** stack (`chromadb` on PyPI, local persistent client) does **not** ship that hybrid pipeline: you get vector search and metadata filters, but not the integrated FTS + vector + fusion path we rely on for `search_nearby_files`. Newer Chroma **native hybrid** APIs (`Search`, `Knn`, `Rrf`, and related) are aimed at their **hosted/cloud** product; they are not a complete, self-hosted substitute for what we already have in `corpus.db`, zvec, or LlamaIndex-on-sqlite. Using Chroma in the venv would mean keeping a separate FTS leg and custom fusion anyway — a crippled duplicate of backends we already maintain — without the durability or incremental story of unified `corpus.db`. We are moving away from Chroma for that reason and keeping evaluation focused on **hybrid**, **LlamaIndex**, **zvec**, and **LanceDB**.
+
 ### Folder FTS (unified corpus.db) {#folder-fts}
 
 **Lexical** cross-folder discovery: BM25 ranking + FTS5 **`NEAR`** (terms with gaps). The **`passages`** virtual table lives in the same **`corpus.db`** as vec0 ([`embeddings_sqlite.py`](../plugin/embeddings/venv/embeddings_sqlite.py)) — stdlib **`sqlite3` only**, no extra pip packages. Index build and search stay **outside** the LibreOffice process.
@@ -624,7 +630,7 @@ writeragent_embeddings/
 
 Implementation: [`folder_fts.py`](../plugin/embeddings/venv/folder_fts.py) (search helpers), [`embeddings_folder_maintain.py`](../plugin/embeddings/venv/embeddings_folder_maintain.py) (maintain), [`embeddings_indexer.py`](../plugin/embeddings/embeddings_indexer.py) (host enqueue). Periodic wakeups share [`embeddings_periodic.py`](../plugin/embeddings/embeddings_periodic.py) when hybrid mode is on. **Calc `.ods` and Impress/Draw `.odp`/`.odg` siblings** use the same extract path as Writer `.odt`.
 
-> **Historical:** schema v2 used a separate `fts5.db` beside `chroma/`; upgrades merge into unified `corpus.db`.
+> **Historical:** schema v2 used a separate `fts5.db`; upgrades merge into unified `corpus.db`.
 
 ### Corpus cache layout {#corpus-cache-layout}
 
@@ -704,7 +710,7 @@ Do not block `search_nearby_files` or document_research on embed completion; enq
 
 **Default (shipped today):** vectors, chunk text, FTS, and incremental state live in one **`corpus.db`** beside the document folder, plus **`corpus_meta.json`**. **Ingest:** LangGraph split → [`embed_texts`](../plugin/embeddings/venv/embeddings_index.py) → sqlite-vec upsert ([`embeddings_ingest_graph.py`](../plugin/embeddings/venv/embeddings_ingest_graph.py)). **Vec search:** query embed → vec0 `MATCH` → MMR ([`embeddings_search_graph.py`](../plugin/embeddings/venv/embeddings_search_graph.py)). **Hybrid search:** FTS + vec0 legs → RRF → optional MMR when k>1 ([`embeddings_hybrid_search.py`](../plugin/embeddings/venv/embeddings_hybrid_search.py)). On-disk size tracks **live chunk count × dim**, not edit history.
 
-**Upgrade:** legacy **`index.db`**, **`chroma/`**, and separate **`fts5.db`** are deleted on first access; next index pass **cold-builds into unified `corpus.db`** ([`embeddings_cache.py`](../plugin/embeddings/embeddings_cache.py)). See [Search fallback (schema v1 historical)](#search-fallback) for the old BLOB design.
+**Upgrade:** legacy **`index.db`** and separate **`fts5.db`** are deleted on first access; next index pass **cold-builds into unified `corpus.db`** ([`embeddings_cache.py`](../plugin/embeddings/embeddings_cache.py)). See [Search fallback (schema v1 historical)](#search-fallback) for the old BLOB design.
 
 ```mermaid
 flowchart LR
