@@ -89,13 +89,23 @@ def test_get_chat_system_prompt_allows_html_when_rich_text_control_sidebar():
 def test_get_chat_system_prompt_allows_html_by_default_fallback():
     model = MagicMock()
     model.supportsService.return_value = False
-    from plugin.framework.constants import RICH_CHAT_SIDEBAR_INSTRUCTIONS
+    from plugin.framework.config import _get_schema_default, as_bool
+    from plugin.framework.constants import CHAT_RESPONSE_FORMAT, RICH_CHAT_SIDEBAR_INSTRUCTIONS
 
-    # Patch the lower-level get_config_bool to raise exception, testing get_config_bool_safe's fallback to True for rich_text_control_sidebar
+    rich_default = as_bool(_get_schema_default("rich_text_control_sidebar"))
+
+    # When get_config_bool fails, get_config_bool_safe must fall back to the module.yaml default.
     with patch("plugin.framework.config.get_config_bool", side_effect=Exception("Missing key")):
         prompt = get_chat_system_prompt_for_document(model, ctx=MagicMock())
-    assert RICH_CHAT_SIDEBAR_INSTRUCTIONS in prompt
-    assert "plain text only" not in prompt
+
+    if rich_default:
+        assert RICH_CHAT_SIDEBAR_INSTRUCTIONS in prompt
+        assert CHAT_RESPONSE_FORMAT in prompt
+        assert "plain text only" not in prompt
+    else:
+        assert RICH_CHAT_SIDEBAR_INSTRUCTIONS not in prompt
+        assert CHAT_RESPONSE_FORMAT not in prompt
+        assert "plain text only" in prompt
 
 
 def test_writer_chat_prompt_opens_with_persona_and_color_guidance():
