@@ -285,7 +285,7 @@ def run_vision(
 _SQL_SESSION_PREFIX = "writeragent:sql"
 _SQL_STUB = """\
 from plugin.scripting.duckdb_sql import query_folder_sql as _run
-result = _run(data.get("scoped_dir"), data.get("sql"), data.get("files"))
+result = _run(data.get("scoped_dir"), data.get("sql"), data.get("files"), data.get("preloaded"), data.get("flat_files"))
 """
 
 
@@ -293,11 +293,25 @@ def run_folder_sql(
     ctx: Any,
     scoped_dir: str | None,
     sql: str,
-    files: list[str] | None = None,
+    files: list[str] | dict[str, str] | None = None,
+    preloaded: dict[str, Any] | None = None,
+    flat_files: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    """Execute trusted folder SQL helper in the user venv (read-only, scoped)."""
+    """Execute trusted SQL helper in the user venv (read-only, scoped to folder).
+
+    Supports:
+    - preloaded: grids from ranges or office files (key = table name)
+    - files: list (legacy) or dict name->spec for folder files
+    - flat_files: dict name -> full path for direct DuckDB flat files (CSV/Parquet)
+    """
     timeout_sec = configured_python_exec_timeout(ctx)
-    payload = {"scoped_dir": scoped_dir, "sql": sql, "files": files or []}
+    payload = {
+        "scoped_dir": scoped_dir,
+        "sql": sql,
+        "files": files or [] if isinstance(files, list) else (files or {}),
+        "preloaded": preloaded or {},
+        "flat_files": flat_files or {},
+    }
     # Reuse the common trusted helper runner (expects {"status":"ok", "result": ...} from worker)
     response = run_code_in_user_venv(
         ctx,

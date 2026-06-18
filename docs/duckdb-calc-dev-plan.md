@@ -4,25 +4,25 @@ overview: Add DuckDB as a horizontal analytics layer in the user venv — SQL ov
 todos:
   - id: phase-a-spec
     content: "Phase A: Spec + sandbox whitelist + Settings probe group + path policy for scoped_dir"
-    status: pending
+    status: completed
   - id: phase-a-venv
     content: "Phase A: Trusted venv module plugin/scripting/venv/duckdb_sql.py (folder read-only SQL)"
-    status: pending
+    status: completed
   - id: phase-a-host
     content: "Phase A: Host tool + Run Python Script [SQL] folder templates; scoped_dir; sibling XLSX/ODS via LO import + read_range (not DuckDB read_xlsx)"
-    status: pending
+    status: completed
   - id: phase-a-plus-ods-cache
     content: "Phase A+: writeragent_ods_cache/ beside folder; mtime invalidation for xlsx/xls → cached ods; open cache on hit"
     status: pending
   - id: phase-a-tests
     content: "Phase A: pytest for path guard + folder SQL round-trip (temp dir fixtures)"
-    status: pending
+    status: completed
   - id: phase-b-sheet
     content: "Phase B: Single Calc range → coerce_to_dataframe → duckdb.register → SQL → result egress"
-    status: pending
+    status: completed
   - id: phase-c-multi
     content: "Phase C: Multi-table catalog (named ranges + optional folder files in one SQL request)"
-    status: pending
+    status: completed
   - id: phase-d-cache
     content: "Phase D (optional): Shared-kernel DuckDB session / table cache across =PY() cells"
     status: pending
@@ -33,7 +33,16 @@ isProject: false
 
 Back to [Enabling NumPy & Python in LibreOffice](enabling_numpy_in_libreoffice.md).
 
-**Status:** Phase A foundations landed (whitelist + probe + trusted query_folder_sql + [SQL] Run Python Script templates + QueryFolderSqlTool). Incremental steps per execution plan continue.
+**Status:** Phase A + A+ + B + C landed (multi-table catalog with named ranges + named folder files). Phase D deferred. See execution plan and implementation notes below.
+
+### Current Implementation (as of latest increment)
+- Core: `query_folder_sql` in venv (supports `sql`, legacy `files` list, `preloaded` grids, `flat_files` for named direct reads).
+- Tool: `query_folder_sql` (analysis domain) accepts `sql`, `files` (list or `{name: spec}`), `tables` (named ranges on active doc), `data_range`, `headers`.
+- Host handles: scoped dir resolution, hidden LO opens for .xlsx/.ods, active doc reads for ranges, size limits, preloading.
+- Worker: registers preloaded via `coerce_to_dataframe`, flat files via `read_csv`/`read_parquet` etc. under provided names. Read-only guards.
+- Templates: `[SQL] query_folder_sql` and `query_sheet_sql` in Run Python Script.
+- Limitations: no write-back, no shared kernel cache yet, default first sheet for office files, simple range reads (large fixed range).
+- Usage: Mix tables + files for joins, e.g. live ranges + sibling CSVs. See tool parameters and plan for request shapes.
 
 **Audience:** Product, senior engineers, and future implementers. This doc captures why DuckDB fits WriterAgent, what users get, and how to build on existing Calc↔venv infrastructure without a new architectural pillar.
 
@@ -250,7 +259,7 @@ Folder discovery aligns with [document research](multi-document-dev-plan.md) (`g
 
 ---
 
-### Phase C — Multi-table catalog (joins)
+### Phase C — Multi-table catalog (joins) — **Landed**
 
 **User story:** “Join `Sales!A1:F500` to `Costs!A1:D200` and to `ledger.parquet` in this folder.”
 
@@ -284,6 +293,8 @@ Folder discovery aligns with [document research](multi-document-dev-plan.md) (`g
 - Multi-sheet UNO reads on main thread (analysis sub-agent pattern).
 - LLM-generated SQL injection: prefer host-supplied table **names** only; validate SQL is read-only.
 
+**Implementation note:** Host (tool) resolves all UNO-dependent data (ranges + office files) into `preloaded` + `flat_files`; worker registers by name and executes. `tables` + `files` (as dict) now supported in the tool. Legacy paths preserved.
+
 ---
 
 ### Phase D — Optional session cache (defer)
@@ -296,10 +307,10 @@ Shared-kernel `=PY()` mode ([session modes](enabling_numpy_in_libreoffice.md#ses
 
 | Surface | Phase | Notes |
 |---------|-------|-------|
-| **Run Python Script → SQL Helpers** | A, B | Same UX as Analysis/Viz/Units |
-| **Analysis sub-agent** | A, B, C | `run_sql` or extend `analyze_data` with `helper=sql_*` |
-| **Chat / delegate** | B, C | “Join sheet to CSV in folder” |
-| **`=PY()` / `=PYTHON()`** | B | Single-table; multi-table awkward without catalog API |
+| **Run Python Script → SQL Helpers** | A, B, C | `[SQL] query_folder_sql` / `query_sheet_sql`; supports tables + files |
+| **Analysis sub-agent** | A, B, C | `query_folder_sql` with `tables` / `files` / `data_range` |
+| **Chat / delegate** | B, C | “Join Sales range to costs.csv and ledger.parquet” |
+| **`=PY()` / `=PYTHON()`** | B+ | Direct `import duckdb` possible (authorized); trusted helper preferred for safety |
 | **MCP** | B+ | Optional later via existing tool registry |
 
 **PM note:** Phase A is releasable on its own — valuable for users who export CSV from Calc or receive data drops beside ODS files.
@@ -324,15 +335,15 @@ Add `duckdb` / `duckdb.*` to [`VENV_AUTHORIZED_IMPORTS`](../plugin/scripting/san
 
 | Item | Location / pattern |
 |------|-------------------|
-| Trusted venv module | `plugin/scripting/venv/duckdb_sql.py` (mirror [`plugin/scripting/venv/analysis.py`](../plugin/scripting/venv/analysis.py)) |
-| Host facade | `plugin/scripting/duckdb_client.py` or extend analysis client pattern |
-| Sibling spreadsheet open | Reuse [`open_document_for_read`](../plugin/doc/document_research.py) + `CellInspector` (main thread); close hidden models after read |
-| Calc tool | `plugin/calc/duckdb_tools.py` — `RunSqlTool`, `ToolCalcAnalysisBase` or new base |
-| Run Python Script templates | `plugin/scripting/` template registry (SQL Helpers section) |
-| Settings probe | Extend venv self-check groups in [`venv_worker.py`](../plugin/scripting/venv_worker.py) |
-| Tests | `tests/scripting/test_duckdb_sql.py` — path guard, folder SQL, mock grid → SQL (no LO for A/B unit tests) |
-| UNO tests | Optional `tests/uno/` for end-to-end range → SQL → writeback |
-| Docs | This plan + section in [enabling_numpy_in_libreoffice.md](enabling_numpy_in_libreoffice.md); link from [calc-analysis-tools.md](calc-analysis-tools.md) |
+| Trusted venv module | `plugin/scripting/venv/duckdb_sql.py` (mirror [`plugin/scripting/venv/analysis.py`](../plugin/scripting/venv/analysis.py)) — supports preloaded + flat_files |
+| Host facade / client | `plugin/scripting/client.py` (`run_folder_sql`) + `plugin/calc/duckdb_tools.py` |
+| Sibling spreadsheet open | Reuse [`open_document_for_read`](../plugin/doc/document_research.py) + `CellInspector` (main thread); close hidden models after read — A+ |
+| Calc tool | `plugin/calc/duckdb_tools.py` (`QueryFolderSqlTool` on `ToolCalcAnalysisBase`) — `tables`, `files` (dict), `data_range` |
+| Run Python Script templates | `plugin/scripting/duckdb_sql.py` (host) + document_scripts (SQL Helpers) |
+| Settings probe | Extend venv self-check groups in [`venv_worker.py`](../plugin/scripting/venv_worker.py) — A0 |
+| Tests | `tests/scripting/test_duckdb_sql.py`, `tests/calc/test_duckdb_tools.py` |
+| UNO tests | Optional `tests/uno/` for end-to-end |
+| Docs | This plan + updates in [enabling_numpy_in_libreoffice.md](enabling_numpy_in_libreoffice.md) and [calc-analysis-tools.md](calc-analysis-tools.md) |
 
 **Dependency:** `duckdb` in user venv only (document in Settings guide); not in `pyproject.toml` extension runtime.
 
@@ -393,3 +404,6 @@ No cloud telemetry required. Suggested signals:
 | 2026-06-18 | Initial plan from architecture research (Calc bridge, phased delivery, security). |
 | 2026-06-18 | **Decision:** sibling XLSX/XLS via LO Calc import → UNO range read (not DuckDB `read_xlsx`). |
 | 2026-06-18 | Phase A start: sandbox whitelist, Settings probe (Data Eng), trusted `query_folder_sql` + path guard, host facade + templates, document picker, basic Calc tool. Tests + docs updated. |
+| 2026-06-18 | A+ polish: sibling .xlsx/.xls/.ods via `open_document_for_read` + `CellInspector` + preloaded grids; sheet#hint syntax; size limits; clean stem + orig basename registration + aliases; improved reader + tests. |
+| 2026-06-18 | Phase B: data_range support in tool for active sheet (registers as 'data' table, respects headers). Unified preloaded handling (structured for headers), template for query_sheet_sql, descriptions. |
+| 2026-06-18 | Phase C: multi-table 'tables' param (named ranges on active), files as dict for named flat+office. Worker supports flat_files dict for direct named registration (no chdir). Host prepares preloaded + flat_files. Tool + client updated. |

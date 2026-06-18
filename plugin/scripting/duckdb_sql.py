@@ -18,7 +18,7 @@ from plugin.scripting._lazy_venv import make_getattr
 
 # --- Constants (host) ---
 
-SQL_HELPER_NAMES = frozenset({"query_folder_sql"})
+SQL_HELPER_NAMES = frozenset({"query_folder_sql", "query_sheet_sql"})
 
 SQL_HEADER_PREFIX = "# writeragent:sql"
 _SQL_HEADER_RE = re.compile(
@@ -28,10 +28,12 @@ _SQL_HEADER_RE = re.compile(
 
 _DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
     "query_folder_sql": {"files": ["data.csv"]},
+    "query_sheet_sql": {"data_range": "A1:F100"},
 }
 
 _HELPER_DESCRIPTIONS: dict[str, str] = {
-    "query_folder_sql": "Run read-only SQL against CSV/Parquet/JSON files in the same folder as the saved document",
+    "query_folder_sql": "Run read-only SQL against CSV/Parquet/JSON files (or .xlsx via LO) in the same folder as the saved document",
+    "query_sheet_sql": "Run read-only SQL on a live range from the active Calc sheet (registers as table 'data')",
 }
 
 
@@ -49,6 +51,19 @@ __getattr__ = make_getattr("duckdb_sql", _SQL_VENV_EXPORTS)
 def _template_body(helper: str, params: dict[str, Any]) -> str:
     params_json = json.dumps(params, separators=(",", ":"))
     desc = _HELPER_DESCRIPTIONS.get(helper, helper)
+    if helper == "query_sheet_sql":
+        return (
+            f"{SQL_HEADER_PREFIX} helper={helper} params={params_json}\n"
+            f"# {desc}\n"
+            f"# Set the Data range in the toolbar (or select cells), then Run.\n"
+            f"from writeragent.scripting.duckdb_sql import query_folder_sql\n\n"
+            f"result = query_folder_sql(\n"
+            f'    None,  # folder not used for sheet\n'
+            f'    "SELECT ... FROM data",\n'
+            f"    None,\n"
+            f"    {{\"data\": data}},  # provided by Run Python Script UI from data_range\n"
+            f")\n"
+        )
     return (
         f"{SQL_HEADER_PREFIX} helper={helper} params={params_json}\n"
         f"# {desc}\n"
