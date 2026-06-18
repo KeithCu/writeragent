@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # WriterAgent - offline folder search routing eval (hybrid / FTS / vec legs).
-"""Measure top-1 file routing on a labeled query set (see docs/embeddings.md § Performance).
+"""Measure top-1 file routing on a labeled query set (see docs/embeddings.md § Evaluation reference).
 
 Example:
   .venv/bin/python scripts/eval_folder_search_routing.py --folder ~/Desktop/Writing

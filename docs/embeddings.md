@@ -1,30 +1,439 @@
-# Embeddings — Development Plan
+# Cross-file search (embeddings and hybrid retrieval)
 
-> **Status (2026-06):** **Unified corpus.db + sqlite-vec (schema v3)** — per-folder **`corpus.db`** (chunks + FTS5 + vec0 + incremental `indexed_files` / `indexed_paragraphs` tables) + `corpus_meta.json` beside documents ([`embeddings_cache.py`](../plugin/embeddings/embeddings_cache.py)).
+> **Status (2026-06):** **Shipped** — unified **`corpus.db`** + sqlite-vec (schema v3) with **hybrid FTS + semantic search** (RRF fusion). Default embedding model: **`paraphrase-multilingual-MiniLM-L12-v2`**. Cross-file search is **off by default**; enable **Embeddings + FTS** in **Settings → Vector Search**.
 
-**Related:** [cython-extension.md](cython-extension.md) · [enabling_numpy_in_libreoffice.md](enabling_numpy_in_libreoffice.md) · [multi-document-dev-plan.md](multi-document-dev-plan.md) · [langchain-plan.md](langchain-plan.md) (chat memory / summarization only)
+**Related:** [enabling_numpy_in_libreoffice.md](enabling_numpy_in_libreoffice.md) · [multi-document-dev-plan.md](multi-document-dev-plan.md) · [cython-extension.md](cython-extension.md)
 
-### Corpus cache layout (schema v3 with Multi-Model Support)
+---
+
+## Overview
+
+WriterAgent can index the **sibling files in your document folder** and answer “which file has this?” without opening every `.odt`, `.ods`, or `.docx` in the directory.
+
+When **Cross-file search** is enabled, retrieval is **hybrid**: every query runs **keyword search (FTS5 BM25/NEAR)** and **semantic vector search** in parallel, then **Reciprocal Rank Fusion (RRF)** merges the ranked lists. Users and agents call **`search_nearby_files` once** — there is no per-query choice between grep and embeddings.
+
+When Cross-file search is **Off**, the `document_research` agent uses **`grep_nearby_files`** for discovery instead. That is a **settings** choice, not a routing decision inside a single search.
+
+The index lives beside your documents (not in the LibreOffice profile):
 
 ```text
-/home/user/projects/reporting/          ← document folder (many .odt/.ods siblings)
+/home/user/projects/reporting/          ← document folder
   Budget.odt
-  writeragent_embeddings/              ← ONE cache beside those files (not under LO profile)
-    corpus.db                          # chunks + FTS5 passages + model-specific vec tables + indexed_files + indexed_paragraphs
-    corpus_meta.json                   # schema_version, embedding_model, dim, chunk_count, updated_at
+  Notes_v3.odt
+  writeragent_embeddings/
+    corpus.db                            # chunks + FTS5 + vec0 + incremental state
+    corpus_meta.json                     # model, dim, chunk_count, updated_at
 ```
 
-#### Multi-Model Database Isolation & Relative Expiry
-To prevent cache directory bloating when users switch embedding models or run different models in the same directory, `corpus.db` supports multiple embedding models concurrently:
-1. **Shared Chunks Table**: Unique paragraph text chunks are stored exactly once in the `chunks` table.
-2. **Model-Specific Vector Tables**: Dynamic virtual tables named `vec_chunks_<model_slug>` (where `<model_slug>` is the sanitized model name) isolate the vector embeddings for each model.
-3. **Model Metadata**: A `model_metadata` table tracks the dimension and last update timestamp of each embedding model's index.
-4. **Vector Alignment**: Mismatched models do not trigger a database rebuild. Instead, the incremental indexer detects missing vectors for the active model and embeds only those paragraphs.
-5. **Relative Age-Based Expiry**: During vector ingestion, any other models whose last update timestamp is more than 7 days older than the active model's last update are dropped, followed by a `VACUUM` to reclaim disk space. If files in the folder are unmodified, no cleanup is run, preserving the valid cache.
-
-> **Historical:** schema v2 used a separate `fts5.db`; schema v1 used profile-side `index.db`. Upgrades delete legacy stores and cold-rebuild into unified `corpus.db` ([`embeddings_cache.py`](../plugin/embeddings/embeddings_cache.py)).
-
 **Linux example:** `~/Desktop/Writing/writeragent_embeddings/` when working in `~/Desktop/Writing/`.
+
+---
+
+## User guide
+
+### Turning it on
+
+1. **Settings → Python** — set **Python venv path** and install packages (see [Venv setup](#local-embedders-mvp) and [enabling_numpy_in_libreoffice.md](enabling_numpy_in_libreoffice.md)).
+2. **Settings → Vector Search** — set **Cross-file search** to **Embeddings + FTS** ([`plugin/embeddings/module.yaml`](../plugin/embeddings/module.yaml)).
+3. Optional: change **Embedding Model** or enable **Enable cross-file rerank** (second-stage cross-encoder; off by default).
+
+The first search may return **“index building in the background — retry shortly.”** Background indexing catches up within minutes.
+
+### Search Nearby Files menu
+
+**WriterAgent → Search Nearby Files…** opens a modeless dialog ([`search_ui.py`](../plugin/embeddings/search_ui.py), [`SearchDialog.xdl`](../extension/WriterAgentDialogs/SearchDialog.xdl)) that runs the same hybrid path as the agent tool. It shows cache status, ranked hits, and a **Rebuild** button to cold-reindex the folder.
+
+### What gets indexed
+
+Same extensions as `list_nearby_files` / maintain ([`embeddings_fs.py`](../plugin/embeddings/embeddings_fs.py)):
+
+| Family | Extensions |
+|--------|------------|
+| ODF | `.odt`, `.ods`, `.odp`, `.odg`, `.ots`, `.fods`, … |
+| OOXML | `.docx`, `.xlsx`, `.pptx` |
+| Legacy binary | `.doc`, `.xls`, `.ppt` (headless `soffice --convert-to` → temp ODF) |
+| Plain | `.csv`, `.txt`, `.rtf` |
+
+**PDF** is not indexed yet.
+
+### Untitled documents
+
+When the active document has no `file://` URL, the listing root is LibreOffice **My Documents** (Tools → Options → Paths → **Work**). That applies to search, rebuild, and `list_nearby_files`.
+
+### Disk use
+
+Vector storage scales with chunk count × embedding dimension:
+
+```text
+vector_bytes ≈ num_chunks × dim × 4   (float32)
+```
+
+Default 384-dim models → **~1.5 KiB per chunk** plus FTS text in `corpus.db`. Example: 349 paragraphs ≈ **0.5 MiB** vectors ([Index size](#index-size-growth)).
+
+### Resetting the cache
+
+Delete `<folder>/writeragent_embeddings/` and reopen a document in that folder (or use **Rebuild** in the search dialog). The next maintain pass cold-builds the index.
+
+### Limitations
+
+| Limit | Detail |
+|-------|--------|
+| **Scope** | One folder per query — no cross-directory search |
+| **Staleness** | Index may lag edits by a few minutes (periodic refresh) |
+| **Venv** | Local `sentence-transformers` + `sqlite-vec` required for default hybrid mode |
+| **Experimental backends** | LlamaIndex, Zvec, LanceDB need extra pip packages — see [Appendices](#appendix-a-llamaindex-backend) |
+
+---
+
+## Agent workflows {#primary-use-case-outer-document_research-replaces-grep}
+
+Cross-file search powers the **`document_research`** specialized sub-agent (delegated from main chat, Writing plan, and Brainstorming). **Librarian mode** does not use embeddings — it is onboarding-only ([`librarian.py`](../plugin/chatbot/librarian.py)).
+
+### Two-tier design
+
+```mermaid
+flowchart LR
+  User["User task on active doc"]
+  Main[Main chat]
+  Outer["Outer document_research"]
+  Index["Folder index\ncorpus.db"]
+  Hits["Top-k: doc_url + snippet"]
+  Inner["Inner sub-agent\none opened file"]
+  Read["search_in_document / range read"]
+  Main -->|"delegate"| Outer
+  Outer -->|"search_nearby_files"| Index
+  Index --> Hits
+  Hits -->|"delegate_read_document"| Inner --> Read
+```
+
+**Outer tier** discovers which sibling file(s) matter. **Inner tier** reads the opened file with precise tools (`search_in_document`, `get_document_content`, Calc ranges, etc.). The index is a **router**, not a document store.
+
+### Tool matrix {#search-mode-flag}
+
+Controlled by [`filter_document_research_discovery_tools`](../plugin/doc/document_research.py):
+
+| `embeddings.folder_search_mode` | Discovery | Always available |
+|--------------------------------|-----------|------------------|
+| **`none` (Off, default)** | `grep_nearby_files` | `list_nearby_files`, `delegate_read_document` |
+| **`hybrid`** (Embeddings + FTS) | `search_nearby_files` | same |
+| **`llama_index`** | `search_nearby_files` | same |
+| **`zvec`** (experimental) | `search_nearby_files` | same |
+| **`lancedb`** (experimental) | `search_nearby_files` | same |
+
+Workflow hints ([`get_document_research_workflow_hint`](../plugin/doc/document_research.py)):
+
+- **Off:** `list_nearby_files` → `grep_nearby_files` → `delegate_read_document`
+- **Index on:** `list_nearby_files` → `search_nearby_files` → `delegate_read_document` → inner `search_in_document` on snippet or topic
+
+`search_embeddings` is a legacy hidden tool; use `search_nearby_files`.
+
+### Search hit shape {#search-hit-shape}
+
+`search_nearby_files` returns:
+
+```json
+{"doc_url": "file:///…/notes.odt", "score": 0.85, "snippet": "…passage…", "para_index": 12}
+```
+
+- **`snippet`** — for multi-chunk paragraphs, the **full ODF paragraph** (sibling sub-chunks merged by `para_index`); otherwise the embedded chunk from `chunks.body` (up to 512 characters).
+- **`para_index`** — weak hint (ODF extract ordinal). **Do not** treat as an exact LibreOffice jump target.
+- **`char_start` / `char_end`** — stored internally only; not returned in hits.
+
+After a hit, the inner agent should **`search_in_document`** for the snippet text or query topic — not blind offset reads.
+
+---
+
+## Product rationale (PMs)
+
+### The problem
+
+The expensive case is **many documents in one folder**, not one open file.
+
+Without an index, the outer `document_research` agent lists siblings, guesses filenames from vague language, opens candidates, and greps each one. That is slow, token-heavy, and weak on paraphrase (“remote work policy” vs “WFH guidelines” in `Notes_v3.odt`).
+
+### Why office documents differ from code {#why-embeddings-semantic-search-vs-pure-lexicalgrep-and-why-the-difference-is-bigger-for-office-documents-than-code}
+
+- **Code** is literal and structured — function names, symbols, and `grep` are usually enough. Paraphrase is rare.
+- **Office documents** (Writer prose, Calc labels, policy files, research notes) use natural language, unhelpful filenames, and varied wording for the same idea.
+
+WriterAgent’s ODF files are ZIP archives; opening and grepping every sibling repeats unzip + XML parse cost. A folder index ranks files **before** that cost. Industry pattern for large corpora: **combine keyword and semantic retrieval** — which is exactly what hybrid RRF does.
+
+### What hybrid solves
+
+| Query style | Example | Hybrid behavior |
+|-------------|---------|-----------------|
+| Short keywords | `grammar`, `MCP`, `web search` | FTS leg recalls literal matches |
+| Paraphrase | `proofreader called back by linguistic subsystem` | Vector leg recalls meaning |
+| Both agree (`matched_by`: fts + vec) | Distinctive topic | High-confidence file routing |
+
+Users do **not** choose grep vs vectors per query when hybrid is on — both legs always run.
+
+### Explicit non-goals
+
+| Not this | Why |
+|----------|-----|
+| Sidebar chat history | Separate SQLite (`writeragent_history.db`) |
+| In-document search replacement | `search_in_document`, outline, sheet nav stay primary inside one file |
+| Global machine-wide index | One cache per document **directory** only |
+| Optional in-document RAG on send | Secondary future idea ([Within-document retrieval](#within-document-retrieval-secondary)) |
+
+---
+
+## How hybrid search works
+
+```mermaid
+flowchart LR
+  Query[User query]
+  FTS[FTS5 BM25/NEAR]
+  Vec[vec0 kNN]
+  RRF[RRF fusion]
+  Parent[Parent paragraph merge]
+  Rerank[Optional cross-encoder rerank]
+  Hits[Top-k hits]
+  Query --> FTS
+  Query --> Vec
+  FTS --> RRF
+  Vec --> RRF
+  RRF --> Parent
+  Parent --> Rerank
+  Rerank --> Hits
+```
+
+### Pipeline (default `hybrid` backend)
+
+1. **Encode query** — `SentenceTransformer` in the embeddings venv ([`embeddings_index.py`](../plugin/embeddings/venv/embeddings_index.py)).
+2. **FTS leg** — BM25 + optional `NEAR` on FTS5 `passages` ([`folder_fts.py`](../plugin/embeddings/venv/folder_fts.py)).
+3. **Vector leg** — sqlite-vec `MATCH` on `vec_chunks_<model_slug>` ([`embeddings_search_graph.py`](../plugin/embeddings/venv/embeddings_search_graph.py)).
+4. **RRF fusion** — vendored reciprocal rank fusion ([`hybrid_rrf.py`](../plugin/embeddings/venv/hybrid_rrf.py), from [liamca/sqlite-hybrid-search](https://github.com/liamca/sqlite-hybrid-search)).
+5. **Parent merge** — widen snippets to full paragraph ([`embeddings_parent_hits.py`](../plugin/embeddings/venv/embeddings_parent_hits.py)).
+6. **Optional rerank** — cross-encoder when **Enable cross-file rerank** is on ([`embeddings_cross_encoder_rerank.py`](../plugin/embeddings/venv/embeddings_cross_encoder_rerank.py)).
+
+**Retrieval pool** ([`hybrid_retrieval_pool.py`](../plugin/embeddings/venv/embeddings_retrieval_pool.py)): over-fetch `min(max(k×4, 20), 50)` before fusion truncate / rerank — shared across hybrid backends.
+
+**No chat LLM in retrieval.** The sidebar model only sees the final hit list after search completes.
+
+Implementation: [`embeddings_hybrid_search.py`](../plugin/embeddings/venv/embeddings_hybrid_search.py), host RPC [`embeddings_service.hybrid_search`](../plugin/framework/client/embeddings_service.py), tool [`document_research_fts_tool.py`](../plugin/embeddings/document_research_fts_tool.py).
+
+---
+
+## Settings reference
+
+From [`plugin/embeddings/module.yaml`](../plugin/embeddings/module.yaml) (**Vector Search** tab):
+
+| Config key | UI label | Default | Notes |
+|------------|----------|---------|-------|
+| `embeddings.folder_search_mode` | Cross-file search | `none` (Off) | `hybrid`, `llama_index`, `zvec`, `lancedb` |
+| `embeddings.embedding_model` | Embedding Model | `paraphrase-multilingual-MiniLM-L12-v2` | HuggingFace id (local provider) |
+| `embeddings.folder_rerank_enabled` | Enable cross-file rerank | `false` | Cross-encoder after RRF |
+| `embeddings.folder_rerank_model` | Rerank model | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Or `BAAI/bge-reranker-v2-m3` (~2.3 GB) |
+
+**LlamaIndex** (`llama_index`) reuses the same `corpus.db` and tool surface as hybrid but runs stock `QueryFusionRetriever` + optional `SentenceTransformerRerank` — see [Appendix A: LlamaIndex backend](#llamaindex-option) for design, eval commands, and Phase 2 roadmap.
+
+**Zvec** (`zvec`) replaces the sqlite hybrid **storage and query engine** with Alibaba’s in-process vector DB — separate `writeragent_embeddings/zvec/` store, side-by-side with `corpus.db`. See [Appendix B: Zvec backend](#zvec-backend) for design, comparison to LlamaIndex, eval, and roadmap.
+
+`embedding_provider` in [`config.py`](../plugin/framework/config.py) defaults to `local` — only local `sentence-transformers` is implemented today. HTTP embed APIs are deferred ([Appendix D](#appendix-d-historical-notes)).
+
+When any index mode is on, background maintain builds **FTS + vectors** in one store ([`embeddings_indexer.py`](../plugin/embeddings/embeddings_indexer.py)).
+
+---
+
+## Architecture for developers
+
+```mermaid
+flowchart TB
+  subgraph host [LO host]
+    Outer["document_research / search UI"]
+    Cache["embeddings_cache.py\nembeddings_indexer.py"]
+    RPC["embeddings_service.py"]
+  end
+  subgraph venv [Embeddings venv worker]
+    ST["SentenceTransformer"]
+    Hybrid["hybrid_search / maintain"]
+    DB["corpus.db I/O"]
+  end
+  Outer --> Cache --> RPC
+  RPC -->|"Pickle5 RPC"| ST
+  ST --> Hybrid --> DB
+  Hybrid -->|"hits, counts"| RPC
+```
+
+### Host vs venv boundary {#why-numpy-stays-in-the-venv}
+
+NumPy, **sqlite-vec**, and **sentence-transformers** run **only in the user venv subprocess** ([`PythonWorkerManager`](../plugin/scripting/venv_worker.py)). LibreOffice’s embedded Python stays stdlib — no 50–100 MB science stack in the OXT. See [enabling_numpy_in_libreoffice.md](enabling_numpy_in_libreoffice.md).
+
+| Layer | Responsibility |
+|-------|----------------|
+| **Host** | Folder keys, cache paths, enqueue maintain, heartbeat RPC, `corpus_meta.json` orchestration |
+| **Venv (trusted modules)** | Batch embed, sqlite-vec DML, LangGraph ingest/search, hybrid RRF — **outside** the LLM AST sandbox |
+
+Trusted stubs bypass the sandbox via [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) (`_is_trusted_embeddings_stub`).
+
+### Dedicated embeddings subprocess {#dedicated-embeddings-subprocess}
+
+Embeddings use **`WORKER_POOL_EMBEDDINGS`** — a second warm venv child isolated from Calc `=PYTHON()` and chat scripts. Long folder re-embed jobs do not block user NumPy work.
+
+| Pool | Use |
+|------|-----|
+| `WORKER_POOL_DEFAULT` | Calc, chat `run_venv_python_script` |
+| `WORKER_POOL_EMBEDDINGS` | Folder maintain, `search_nearby_files`, Search dialog |
+
+Same `scripting.python_venv_path`; timeout from `embeddings_worker_timeout_sec` (120 s).
+
+### Background indexer {#background-folder-indexer}
+
+Indexing runs on a **background maintenance worker** — not inside the agent tool loop.
+
+| Trigger | Source |
+|---------|--------|
+| **Periodic tick** | Every 300 s for active doc’s folder ([`embeddings_periodic.py`](../plugin/embeddings/embeddings_periodic.py)) |
+| **document_research start** | [`specialized_base.py`](../plugin/doc/specialized_base.py) |
+| **Empty/stale cache on search** | [`document_research_fts_tool.py`](../plugin/embeddings/document_research_fts_tool.py) |
+
+One job per folder key (`_inflight` guard in [`embeddings_indexer.py`](../plugin/embeddings/embeddings_indexer.py)).
+
+| Mode | When | Work |
+|------|------|------|
+| **Cold build** | No cache or model changed | Index all siblings |
+| **Incremental** | Cache exists | mtime vs `last_indexed_at` → `content_hash` diff → embed changed chunks only |
+
+Ingest batches: **`EMBEDDINGS_INGEST_BATCH_SIZE`** (64) chunks per embed window ([`embeddings_ingest_graph.py`](../plugin/embeddings/venv/embeddings_ingest_graph.py)).
+
+`search_nearby_files` **never blocks** on embed completion — it reads whatever is on disk and enqueues maintain if needed.
+
+### Module map
+
+| Module | Role |
+|--------|------|
+| [`embeddings_cache.py`](../plugin/embeddings/embeddings_cache.py) | Folder keys, paths, legacy store removal |
+| [`embeddings_indexer.py`](../plugin/embeddings/embeddings_indexer.py) | Background enqueue + `_inflight` guard |
+| [`embeddings_fs.py`](../plugin/embeddings/embeddings_fs.py) | Folder scan + ODF/OOXML extract (no UNO) |
+| [`embeddings_folder_maintain.py`](../plugin/embeddings/venv/embeddings_folder_maintain.py) | Cold/incremental maintain loop |
+| [`embeddings_periodic.py`](../plugin/embeddings/embeddings_periodic.py) | Periodic folder tick |
+| [`document_research_fts_tool.py`](../plugin/embeddings/document_research_fts_tool.py) | `search_nearby_files` tool |
+| [`embeddings_hybrid_search.py`](../plugin/embeddings/venv/embeddings_hybrid_search.py) | Hybrid corpus search |
+| [`embeddings_sqlite.py`](../plugin/embeddings/venv/embeddings_sqlite.py) | `corpus.db` schema |
+| [`embeddings_ingest_graph.py`](../plugin/embeddings/venv/embeddings_ingest_graph.py) | LangGraph: split → embed → upsert |
+| [`embeddings_search_graph.py`](../plugin/embeddings/venv/embeddings_search_graph.py) | LangGraph: vec0 retrieve → MMR (vec-only) |
+| [`embeddings_index.py`](../plugin/embeddings/venv/embeddings_index.py) | Venv RPC facades |
+| [`embeddings_service.py`](../plugin/framework/client/embeddings_service.py) | Host index/search/stats RPC |
+| [`embedding_client.py`](../plugin/framework/client/embedding_client.py) | Host `embed_texts()` RPC |
+
+---
+
+## Index and storage {#corpus-storage}
+
+### Corpus cache layout {#corpus-cache-layout}
+
+**One `writeragent_embeddings/` per document directory**, beside the files — never per open document, never one global profile cache.
+
+| File | Contents |
+|------|----------|
+| **`corpus.db`** | `chunks`, FTS5 `passages`, `vec_chunks_<model_slug>`, `indexed_files`, `indexed_paragraphs`, `model_metadata` |
+| **`corpus_meta.json`** | `schema_version`, `embedding_model`, `dim`, `chunk_count`, `storage_backend`, `updated_at` |
+
+Experimental backends use side-by-side stores: `writeragent_embeddings/zvec/` or `lancedb/` — `corpus.db` remains untouched when flipping modes.
+
+### Multi-model isolation
+
+`corpus.db` supports multiple embedding models concurrently:
+
+1. **Shared `chunks` table** — paragraph text stored once.
+2. **Per-model `vec_chunks_<model_slug>`** — isolated vector tables.
+3. **`model_metadata`** — dimension and last update per model.
+4. **Relative expiry** — models more than 7 days older than the active model are dropped + `VACUUM` during ingest.
+
+Changing **Embedding Model** in Settings triggers a **cold rebuild** for that folder.
+
+### Schema (vec0 path)
+
+```sql
+CREATE TABLE chunks (
+  chunk_id INTEGER PRIMARY KEY,
+  doc_url TEXT NOT NULL,
+  para_index INTEGER NOT NULL,
+  char_start INTEGER, char_end INTEGER,
+  content_hash TEXT NOT NULL,
+  file_mtime REAL, last_indexed_at REAL,
+  embedding_model TEXT NOT NULL,
+  body TEXT
+);
+CREATE VIRTUAL TABLE passages USING fts5(body, content='chunks', content_rowid='chunk_id');
+CREATE VIRTUAL TABLE vec_chunks_<model_slug> USING vec0(
+  chunk_id INTEGER PRIMARY KEY,
+  embedding float[384]
+);
+```
+
+Host opens `corpus.db` with stdlib `sqlite3` for locator/metadata; venv loads `sqlite_vec` for vec0 DML and search.
+
+**Upgrade:** legacy `index.db` and separate `fts5.db` are deleted on first access; next maintain cold-builds into unified `corpus.db`.
+
+### Folder FTS (unified) {#folder-fts}
+
+Lexical leg: BM25 + FTS5 **`NEAR`** on `passages` — same `corpus.db`, stdlib `sqlite3` on host for orchestration, venv for search. No separate FTS database.
+
+### Chunking {#chunking}
+
+- **Index grain:** 512-character windows, 64 overlap ([`embeddings_split.py`](../plugin/embeddings/embeddings_split.py)) — vendored RecursiveCharacterTextSplitter logic.
+- **Extract grain:** ODF paragraph, Calc row, Impress slide body ([`embeddings_fs.py`](../plugin/embeddings/embeddings_fs.py)).
+- **Invalidation:** `content_hash` per paragraph ([Incremental maintenance](#incremental-updates)).
+
+#### Index granularity {#index-granularity}
+
+| Layer | Unit | Role |
+|-------|------|------|
+| Extract | Paragraph / row / slide | Stable `para_index`, `content_hash` |
+| Index | Sub-paragraph chunks | Bi-encoder recall |
+| Display | Parent paragraph merge | Full `snippet` without re-index |
+| Precision | `search_in_document` in opened file | Exact wording in live LO |
+
+**Embedding dilution** (multi-topic chunks): mitigated by hybrid FTS leg, wide retrieval pool, optional rerank, and the two-stage design (index routes → inner agent searches live doc).
+
+#### Calc, OOXML, Impress {#calc-ods-indexing}
+
+| Kind | Extract | `para_index` hint |
+|------|---------|-------------------|
+| `.ods` | [`embeddings_ods_extract.py`](../plugin/embeddings/venv/embeddings_ods_extract.py) — row per passage | Row index |
+| `.xlsx`, `.docx`, `.pptx`, `.csv`, `.txt`, `.rtf` | [`embeddings_ooxml_extract.py`](../plugin/embeddings/venv/embeddings_ooxml_extract.py) etc. | Per extract rules |
+| `.odp`, `.odg` | [`embeddings_odp_extract.py`](../plugin/embeddings/venv/embeddings_odp_extract.py) — slide + notes | Monotonic over passages |
+
+### Incremental maintenance {#incremental-updates}
+
+1. List siblings; compare file **mtime** vs `last_indexed_at`.
+2. Skip unchanged files.
+3. Extract → split → **`content_hash` diff** against `chunks`.
+4. Embed and upsert **changed chunks only** (batch windows of 64).
+5. **`mark_file_indexed`** when mtime bumped but hashes unchanged — avoids re-scan loops.
+
+Live keystroke hooks (`XProofreading`) were considered and **not planned** — periodic background refresh is sufficient for cross-file discovery.
+
+### Index size {#index-size-growth}
+
+| Files (longdoc-sized) | Paragraphs | Vector data (384-dim) |
+|----------------------|------------|------------------------|
+| 1 | 349 | ~0.5 MiB |
+| 10 | 3,490 | ~5 MiB |
+| 100 | 34,900 | ~51 MiB |
+
+768-dim models double vector storage. Incremental edits patch rows in place.
+
+### Persistence summary {#minimal-index}
+
+| Part | Size driver |
+|------|-------------|
+| `vec_chunks` (vec0) | `n × dim × 4` bytes |
+| `chunks.body` + FTS `passages` | Indexed prose (duplicated for hybrid) |
+| Locator rows | Tiny per chunk |
+
+### Retrieval quality {#retrieval-quality}
+
+**Shipped:** hybrid RRF → parent merge → optional cross-encoder rerank. Vec-only debug path: kNN → MMR.
+
+**Future (not shipped):** configurable chunk size, heading-level parents, sentence-level index, contextual chunk prepends, sub-question retrieval — tune via [`eval_folder_search_routing.py`](../scripts/eval_folder_search_routing.py) before building.
+
+---
+
+## Operations and debugging
 
 ### Inspect a cache
 
@@ -33,1553 +442,196 @@ python scripts/dump_embeddings_cache.py ~/Desktop/Writing
 python scripts/dump_embeddings_cache.py --limit 20 --doc-url file:///path/to/doc.odt
 ```
 
-[`scripts/dump_embeddings_cache.py`](../scripts/dump_embeddings_cache.py) reads `corpus_meta.json` and `corpus.db` (including incremental index tables).
-
-**Routing eval** (labeled top-1 file accuracy — hybrid vs FTS vs vec legs):
-
-```bash
-.venv/bin/python scripts/eval_folder_search_routing.py --folder ~/Desktop/Writing --mode all
-.venv/bin/python scripts/eval_folder_search_routing.py --folder ~/Desktop/Writing --json
-```
-
-[`scripts/eval_folder_search_routing.py`](../scripts/eval_folder_search_routing.py) seeds query sets from the Performance section below.
-
-### Search a cache
-
-Offline search (defaults to **hybrid** RRF — same path as in-app `search_nearby_files`):
+### Search offline (same path as in-app)
 
 ```bash
 .venv/bin/python scripts/search_embeddings_folder.py "your query"
-.venv/bin/python scripts/search_embeddings_folder.py "your query" --folder ~/Desktop/Writing --k 10
-.venv/bin/python scripts/search_embeddings_folder.py "topic" --json
-.venv/bin/python scripts/search_embeddings_folder.py "topic" --doc-url file:///path/to/doc.odt
+.venv/bin/python scripts/search_embeddings_folder.py "topic" --folder ~/Desktop/Writing --k 10 --json
 ```
 
-**Single-leg debug** (same `corpus.db`):
+**Single-leg debug** (engineering only — production uses hybrid):
 
 ```bash
-.venv/bin/python scripts/search_embeddings_folder.py --fts "web search"
-.venv/bin/python scripts/search_embeddings_folder.py --vec "remote work policy" --folder ~/Desktop/Writing
+.venv/bin/python scripts/search_embeddings_folder.py --fts "grammar checker"
+.venv/bin/python scripts/search_embeddings_folder.py --vec "remote work policy"
 ```
 
-**SQLite FTS5** leg only (stdlib `sqlite3`; no SentenceTransformer load):
+### Build / rebuild
 
 ```bash
-.venv/bin/python scripts/search_embeddings_folder.py --fts "grammar checker" --folder ~/Desktop/Writing --k 10
+.venv/bin/python scripts/index_embeddings_folder.py ~/Desktop/Writing
 ```
 
-Defaults: folder `~/Desktop/Writing`, top **10** hits. Requires the embeddings venv packages (same as [`scripts/index_embeddings_folder.py`](../scripts/index_embeddings_folder.py)) and a built **`corpus.db`** under `writeragent_embeddings/` (enable **Embeddings + FTS** in Settings or run index maintain — see [Search mode flag](#search-mode-flag)).
+### Venv diagnostics
 
-### Performance: embeddings vs grep (example corpus) {#performance-embeddings-vs-grep}
+Settings → **Python Test** and [`venv_diagnostics.py`](../plugin/scripting/venv_diagnostics.py) report `sqlite_vec`, `llama_index`, `zvec`, `lancedb` availability in the configured venv.
 
-Future work on **when** to call `search_nearby_files` vs `grep_nearby_files` should be **data-driven**. This section records one real benchmark on a multi-document folder — not a synthetic eval set, but a useful baseline because it mixes WriterAgent blog drafts, technical notes, and unrelated documents in one directory (the same shape `document_research` sees).
-
-**Corpus (historical semantic-only run):** `~/Desktop/Writing` — **16** indexed Writer `.odt` files, **~1096** chunks, model **`all-MiniLM-L6-v2`** (pre–schema v3 semantic index). Files include `cursor_for_libreoffice_part2.odt` … `part5.odt`, `writerchat.odt`, `blog_draft_cursor_for_libreoffice.odt`, plus siblings such as `SoftwareWars.odt`, `FormalVerificationText.odt`, `ConduitGeometry.odt`, `rpython.odt` (215 paragraphs — large enough to steal generic “python” queries).
-
-**Method (2026-06, historical vec-only leg):**
-
-1. **Semantic:** [`scripts/search_embeddings_folder.py`](../scripts/search_embeddings_folder.py) `--vec` → `knn_search` → vec0 + LangGraph MMR; record **top-1** hit (`score`, `doc_url`, `snippet`).
-2. **Lexical baselines** (stdlib ODF extract via [`embeddings_fs.extract_writer_paragraphs`](../plugin/embeddings/embeddings_fs.py)):
-   - **Strict grep** — paragraph must contain **all** query tokens.
-   - **Nearby-style grep** — rank files by paragraph hit count for **any** query token (approximates `grep_nearby_files` file picking).
-3. **Winner** (when an expected file is known): **grep** if nearby/strict grep hits that file but semantic top-1 does not; **embed** if semantic hits expected file but nearby grep’s top file does not; **both** if either method routes correctly; **neither** if both miss.
-
-Two query sets on the same index:
-
-| Set | Count | Length | Role |
-|-----|------:|--------|------|
-| **Short** | 47 | **1–3 words** | Realistic search / agent keywords |
-| **Long paraphrase** | 29 | 6–12 words | Conversational “which file?” stress test |
-
-#### Short queries (1–3 words) — grep wins most of the time
-
-People and agents rarely paste six-word paraphrases; they type **`grammar`**, **`web search`**, **`venv worker`**. On `~/Desktop/Writing`, **nearby-style grep beat semantic top-1 for file routing** on most labeled short queries:
-
-| Length | Labeled queries | Both OK | Grep only | Embed only | Neither |
-|--------|----------------:|--------:|----------:|-----------:|--------:|
-| 1 word | 10 | 4 | **5** | 0 | 1 |
-| 2 words | 15 | 6 | **8** | 0 | 1 |
-| 3 words | 12 | 3 | **5** | **2** | 2 |
-
-**Headline:** for **37** short queries with a known “home” file, grep-only **18**, both **13**, embed-only **2**, neither **4**. An inverted index / fuzzy nearby grep is the right default for keyword-length queries on this folder.
-
-**Grep-only examples** (semantic had a plausible hit but wrong *file*):
-
-| Query | Semantic top-1 | Nearby grep top file |
-|-------|----------------|----------------------|
-| `web search` (0.83) | `blog_draft_…odt` | `part2.odt` |
-| `tool loop` (0.67) | `blog_draft_…odt` | `part3.odt` |
-| `numpy` (0.57) | `rpython.odt` | `part5.odt` |
-| `grammar checker` (0.60) | `Translation Test.odt` | `part4.odt` |
-| `venv worker process` (0.64) | `writerchat.odt` | `part5.odt` |
-| `document research` (0.53) | `blog_draft_…odt` | `part3.odt` |
-
-**Both OK** (either method — often prefer grep for speed): `type checking`, `math import`, `async grammar checking`, `software wars`, `conduit geometry`, `formal verification`, `MCP`, `microphone`, `OpenRouter`.
-
-**Embed-only at ≤3 words** (only two cases in 47 queries):
-
-| Score | Query | Top file | Why grep lost |
-|------:|-------|----------|---------------|
-| 0.705 | `LibreOffice proofreading API` | `Translation Test.odt` | Wording differs from indexed prose (“linguistic subsystem”) |
-| 0.616 | `cross document search` | `part3.odt` | Top grep file was `writerchat.odt`; semantic landed on `search_in_document` tool discussion |
-
-**Neither method** (duplicate drafts confuse routing): `streaming`, `semantic search`, `web research subagent`, `streaming sidebar tokens` — blog draft vs `partN` siblings share vocabulary; short tokens are ambiguous.
-
-Try short queries:
+**Minimum install:**
 
 ```bash
-HF_HUB_OFFLINE=1 .venv/bin/python scripts/search_embeddings_folder.py "grammar checker"
-HF_HUB_OFFLINE=1 .venv/bin/python scripts/search_embeddings_folder.py "venv worker"
+pip install numpy sentence-transformers sqlite-vec langgraph langchain-core langchain-text-splitters envwrap odfpy pandas openpyxl xlrd python-docx
 ```
 
-Compare with grepping the folder for the same tokens — on this corpus grep usually picks the right **`partN`** faster and without loading `SentenceTransformer`.
+See [`EMBEDDINGS_VENV_PIP_INSTALL`](../plugin/embeddings/venv/embeddings_index.py) for the canonical one-liner. [Installing sqlite-vec](#installing-sqlite-vec) if `sqlite_vec.load()` fails.
 
-#### Long paraphrase queries (6+ words) — where semantic search earns its keep
+---
 
-The earlier **29** long queries are **not** typical user search strings; they model an agent asking in full sentences when the filename is unknown. Strict all-token grep finds **zero** paragraphs for most winners (wording mismatch).
+## Evaluation reference {#performance-embeddings-vs-grep}
 
-| Score | Query | Top file |
-|------:|-------|----------|
-| 0.777 | `proofreader called back by libreoffice linguistic subsystem` | `Translation Test.odt` |
-| 0.761 | `real time multilingual spell and grammar engine` | `writerchat.odt` |
-| 0.729 | `natural language questions better than google search box` | `cursor_for_libreoffice_part2.odt` |
-| 0.701 | `type checking makes python look like c plus plus` | `cursor_for_libreoffice_part3.odt` |
-| 0.701 | `frustrated with grammar checker switched to math` | `cursor_for_libreoffice_part4.odt` |
-| 0.692 | `two level toolset like web research subagent` | `cursor_for_libreoffice_part3.odt` |
-| 0.642 | `week six async grammar and latex math` | `cursor_for_libreoffice_part5.odt` |
-| 0.615 | `grammar checker that blocks the ui thread` | `cursor_for_libreoffice_part4.odt` |
-| 0.574 | `reasoning tokens shown before the final answer` | `blog_draft_cursor_for_libreoffice.odt` |
-| 0.537 | `small specialized agent returns distilled answer not bloating context` | `cursor_for_libreoffice_part2.odt` |
-| 0.523 | `cross platform microphone audio input challenges` | `cursor_for_libreoffice_part2.odt` |
+> **Historical note:** Early benchmarks compared **grep-only** vs **vector-only** file routing and motivated **hybrid RRF**. That per-query choice is **obsolete for product users** — hybrid always runs both legs. The tables below remain useful for **model/backend tuning** and the eval harness ([`eval_folder_search_routing.py`](../scripts/eval_folder_search_routing.py) seeds queries from this section).
 
-Even here, many intents collapse to short keywords (`grammar checker`, `type checking`) where grep would suffice if the agent extracted tokens first.
+### Hybrid RRF baseline {#hybrid-rrf-baseline-schema-v3-re-measured-2026-06-13}
 
-Reproduce a long-query row:
+**Corpus:** `~/Desktop/Writing`, **1119** chunks, model `paraphrase-multilingual-MiniLM-L12-v2`, **41** labeled queries, `k=5`.
 
-```bash
-HF_HUB_OFFLINE=1 .venv/bin/python scripts/search_embeddings_folder.py "type checking makes python look like c plus plus"
-```
+| Model / Leg | Top-1 | Top-3 | Mean MRR |
+|-------------|------:|------:|---------:|
+| **Hybrid RRF (default model)** | **56.1%** (23/41) | **75.6%** (31/41) | **0.646** |
+| — Vec-only | 43.9% (18/41) | 63.4% (26/41) | 0.546 |
+| — FTS-only | 24.4% (10/41) | 36.6% (15/41) | 0.301 |
+| `BAAI/bge-small-en-v1.5` hybrid | 51.2% (21/41) | 70.7% (29/41) | 0.610 |
 
-#### Cross-file routing (filenames unhelpful)
+Hybrid beats either leg alone on this folder — the product rationale for fusing keyword and semantic retrieval.
 
-Works with **short** queries too when the topic is distinctive:
+### Latest stack evaluation {#latest-stack-eval}
 
-| Score | Query | Top file | Grep |
-|------:|-------|----------|------|
-| 0.74 | `software wars` | `SoftwareWars.odt` | both |
-| 0.73 | `conduit geometry` | `ConduitGeometry.odt` | both |
-| 0.64 | `formal verification` | `FormalVerificationText.odt` | both |
-
-Long-form paraphrase also routes to non-blog siblings (e.g. `geometry of curved conduit surfaces` → `ConduitGeometry.odt`). On this small folder, **2-word grep often ties embeddings** for off-topic files.
-
-#### When grep was as good or better
-
-On this corpus, embeddings **did not** reliably beat grep when:
-
-| Situation | Example | What happened |
-|-----------|---------|----------------|
-| **Short keywords (1–3 words)** | `web search`, `tool loop`, `numpy`, `grammar` | Nearby grep picked the correct **`partN`**; semantic top-1 often **`blog_draft_*`** or **`rpython.odt`**. |
-| **Stable product vocabulary** | `WriterAgent`, `sidebar`, `venv`, `tool loop` | Blog series repeats terms; `grep_nearby_files` + filename heuristics (`part5.odt`) match quickly. |
-| **Generic “python” wording** | `numpy`, `python calc formula` | Top semantic hit **`rpython.odt`**; grep **`part5.odt`**. |
-| **Duplicate draft + part siblings** | `streaming`, `semantic search` | Both methods split across `blog_draft_*` vs `partN`. |
-| **Exact feature names** | `search_embeddings`, `MCP`, `complexity` | Too literal or too vague; weak scores (~0.30–0.40) or wrong file. |
-| **Small folder, descriptive names** | Any query when you already know `partN` | 16 files — opening the suspected sibling + grep inside is often faster than semantic routing. |
-| **Embeddings feature itself** | `finding files in same folder when filename unknown` | Topic lives mainly in repo `docs/`, not in indexed ODTs; top score ~0.33. |
-
-**Practical grep baseline:** `WriterAgent` + `venv` + `numpy` → **`part5.odt`**; `web search` → **`part2.odt`** (16 strict paragraph hits). Semantic paraphrase of the same ideas often loses to **`blog_draft_*`** or **`rpython.odt`**.
-
-#### Hybrid RRF baseline (schema v3, re-measured 2026-06-13)
-
-Same **`~/Desktop/Writing`** corpus as above, re-indexed to schema v3 **`corpus.db`** (**1119** chunks). Method: [`scripts/eval_folder_search_routing.py`](../scripts/eval_folder_search_routing.py) — **45** queries (**41** with a labeled expected file basename), using top-5 candidate retrieval. **Default model row** re-run with parent-paragraph merge + current hybrid backend — see [Latest stack evaluation](#latest-stack-eval) for full backend A/B (custom hybrid vs LlamaIndex RRF vs LlamaIndex + rerank).
-
-We evaluated multiple models on the same corpus:
-
-| Model / Leg | Overall Labeled Top-1 | Overall Labeled Top-3 | Overall Mean MRR | Ingestion Time (350 paragraphs) | Query Latency (Median) |
-|-------------|:---------------------:|:---------------------:|:----------------:|:------------------------------:|:----------------------:|
-| **`all-MiniLM-L6-v2`** | **56.1%** (23/41) | **75.6%** (31/41) | **0.646** | 8.12s | **9.94 ms** |
-| -- Hybrid RRF | 23/41 (56.1%) | 31/41 (75.6%) | 0.646 | | |
-| -- Vec-only | 23/41 (56.1%) | 30/41 (73.2%) | 0.634 | | |
-| -- FTS-only | 10/41 (24.4%) | 16/41 (39.0%) | 0.309 | | |
-| **`sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`** (Default) | 43.9% (18/41) | 68.3% (28/41) | 0.566 | - | 10.45 ms |
-| -- Hybrid RRF | 18/41 (43.9%) | 28/41 (68.3%) | 0.566 | | |
-| -- Vec-only | 18/41 (43.9%) | 26/41 (63.4%) | 0.546 | | |
-| -- FTS-only | 10/41 (24.4%) | 15/41 (36.6%) | 0.301 | | |
-| **`BAAI/bge-small-en-v1.5`** | 51.2% (21/41) | 70.7% (29/41) | 0.610 | **5.93s** | 10.11 ms |
-| -- Hybrid RRF | 21/41 (51.2%) | 29/41 (70.7%) | 0.610 | | |
-| -- Vec-only | 21/41 (51.2%) | 30/41 (73.2%) | 0.617 | | |
-| -- FTS-only | 10/41 (24.4%) | 16/41 (39.0%) | 0.309 | | |
-
-## Latest stack evaluation (2026‑06‑13, re‑measured) {#latest-stack-eval}
-
-**Corpus:** `~/Desktop/Writing`, **1119** chunks, embedding model `paraphrase-multilingual-MiniLM-L12-v2`, **41** labeled queries, `k=5`.
-
-**Stack under test:** parent-paragraph merge on all backends ([`embeddings_parent_hits.py`](../plugin/embeddings/venv/embeddings_parent_hits.py)) + optional cross-encoder rerank ([`embeddings_cross_encoder_rerank.py`](../plugin/embeddings/venv/embeddings_cross_encoder_rerank.py) on custom hybrid; LlamaIndex `SentenceTransformerRerank` on LI path). **Shared retrieval pool** ([`embeddings_retrieval_pool.py`](../plugin/embeddings/venv/embeddings_retrieval_pool.py): `min(max(k×4, 20), 50)` on both hybrid backends). **MMR on custom hybrid is commented out** for fair comparison — RRF-only uses fused top‑k; rerank-on uses cross-encoder instead of MMR.
-
-Run (embeddings venv with `sentence-transformers` + `llama-index-core`):
-
-```bash
-# Fair 4-preset matrix (--rerank-model defaults to cross-encoder/ms-marco-MiniLM-L-6-v2 when rerank on)
-HF_HUB_OFFLINE=1 ~/Desktop/Python/venv/bin/python scripts/eval_folder_search_routing.py --folder ~/Desktop/Writing --mode hybrid --backend hybrid --k 5 --no-mmr
-HF_HUB_OFFLINE=1 ~/Desktop/Python/venv/bin/python scripts/eval_folder_search_routing.py --folder ~/Desktop/Writing --mode hybrid --backend hybrid --k 5
-HF_HUB_OFFLINE=1 ~/Desktop/Python/venv/bin/python scripts/eval_folder_search_routing.py --folder ~/Desktop/Writing --mode hybrid --backend llama_index --k 5 --no-mmr
-HF_HUB_OFFLINE=1 ~/Desktop/Python/venv/bin/python scripts/eval_folder_search_routing.py --folder ~/Desktop/Writing --mode hybrid --backend llama_index --k 5
-```
-
-### Backend A/B — hybrid leg only (fair comparison, 2026‑06‑13, unified pool)
-
-| Config | Top‑1 | Top‑3 | Mean MRR | Notes |
-|--------|-------|-------|----------|-------|
-| **LlamaIndex + cross-encoder rerank** | **56.1 %** (23/41) | 65.9 % (27/41) | **0.626** | Best top‑1 / MRR |
-| Custom `hybrid` RRF only (`--no-mmr`) | 53.7 % (22/41) | 70.7 % (29/41) | 0.629 | Vendored RRF + fused top‑k (no MMR) |
-| **Custom `hybrid` + cross-encoder rerank** | 51.2 % (21/41) | **73.2 %** (30/41) | 0.612 | Same rerank model as LI; best top‑3 |
-| LlamaIndex RRF only (`--no-mmr`; Settings default) | 43.9 % (18/41) | 70.7 % (29/41) | 0.584 | `QueryFusionRetriever` RRF |
-
-**Takeaways:** Both backends now share [`hybrid_retrieval_pool`](../plugin/embeddings/venv/embeddings_retrieval_pool.py) (`fetch_k = min(max(k×4, 20), 50)`). With MMR removed on custom hybrid, **RRF-only custom (53.7 %) beats LlamaIndex RRF-only (43.9 %)** on top‑1 — fusion differs, not embeddings or pool size. Cross-encoder on **both** backends narrows the gap; **LI + rerank still leads top‑1** (+4.9 pp vs custom + rerank). Custom + rerank wins **top‑3** (73.2 %). Remaining LI advantage at equal rerank is **fusion** (`QueryFusionRetriever` vs vendored RRF).
-
-On the search RPC, `use_mmr=True` + `rerank_model` means **cross-encoder rerank** on **both** `hybrid` and `llama_index` when Settings **Enable cross-file rerank** is on. Vec-only path still uses MMR.
-
-### Custom `hybrid` — all legs, RRF-only (`--mode all --backend hybrid --no-mmr`)
-
-| Leg | Top‑1 | Top‑3 | Mean MRR |
-|-----|-------|-------|----------|
-| Hybrid RRF (fused top‑k) | 53.7 % (22/41) | 70.7 % (29/41) | 0.629 |
-| FTS only | 24.4 % (10/41) | 36.6 % (15/41) | 0.301 |
-| Vec only | 43.9 % (18/41) | 63.4 % (26/41) | 0.546 |
-
-*Updated:* 2026‑06‑13 (parent-paragraph merge + hybrid cross-encoder rerank + unified `hybrid_retrieval_pool` on both backends).
-
-**Offline note:** `QueryFusionRetriever` must receive `MockLLM()` when `num_queries=1`; otherwise LlamaIndex resolves `Settings.llm` (OpenAI) at init even though query expansion is disabled — see [`embeddings_llama_index.py`](../plugin/embeddings/venv/embeddings_llama_index.py).
-
-FTS vs vec buckets (labeled queries):
-- **all-MiniLM-L6-v2**: **both** 6 · **fts-only** 4 · **vec-only** 17 · **neither** 14
-- **sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2**: **both** 5 · **fts-only** 5 · **vec-only** 14 · **neither** 17
-- **BAAI/bge-small-en-v1.5**: **both** 5 · **fts-only** 5 · **vec-only** 15 · **neither** 16
-- **BAAI/bge-base-en-v1.5**: **both** 5 · **fts-only** 5 · **vec-only** 16 · **neither** 15
-- **sentence-transformers/all-mpnet-base-v2**: **both** 4 · **fts-only** 6 · **vec-only** 15 · **neither** 16
-- **Snowflake/snowflake-arctic-embed-s**: **both** 8 · **fts-only** 2 · **vec-only** 10 · **neither** 21
-
-Compared with the **historical semantic-only** short-query table above (grep-only **18**, both **13** on a slightly different 37-query labeled set): hybrid RRF beats vec-only on **short** routing (**10/21** vs **8/21**) by fusing the FTS leg, but still misroutes some keyword queries (`web search` top-1 can remain **`blog_draft_*`** rather than **`part2.odt`**).
-
-**MMR after RRF (historical):** custom hybrid previously used MMR when **k > 1**; MMR is **commented out** on the hybrid path (2026‑06) so cross-encoder rerank can be compared fairly with LlamaIndex. Vec-only search still uses MMR ([`embeddings_search_graph.py`](../plugin/embeddings/venv/embeddings_search_graph.py)).
+**Stack:** parent-paragraph merge + optional cross-encoder rerank; shared `hybrid_retrieval_pool`; MMR commented out on hybrid path for fair comparison (2026-06).
 
 ```bash
 HF_HUB_OFFLINE=1 .venv/bin/python scripts/eval_folder_search_routing.py --folder ~/Desktop/Writing --mode all
+HF_HUB_OFFLINE=1 .venv/bin/python scripts/eval_folder_search_routing.py --folder ~/Desktop/Writing --mode hybrid --backend hybrid --k 5 --no-mmr
+HF_HUB_OFFLINE=1 .venv/bin/python scripts/eval_folder_search_routing.py --folder ~/Desktop/Writing --mode hybrid --backend llama_index --k 5
 ```
 
-#### Takeaways for hybrid retrieval
+| Config | Top-1 | Top-3 | Mean MRR |
+|--------|------:|------:|---------:|
+| LlamaIndex + cross-encoder rerank | **56.1%** | 65.9% | **0.626** |
+| Custom hybrid RRF only | 53.7% | **70.7%** | 0.629 |
+| Custom hybrid + rerank | 51.2% | **73.2%** | 0.612 |
+| LlamaIndex RRF only | 43.9% | 70.7% | 0.584 |
 
-| Signal | Prefer |
-|--------|--------|
-| Cross-file discovery (folder search on) | **`search_nearby_files`** — hybrid FTS + embeddings fused with **RRF** ([`hybrid_rrf.py`](../plugin/embeddings/venv/hybrid_rrf.py), vendored from [liamca/sqlite-hybrid-search](https://github.com/liamca/sqlite-hybrid-search)) |
-| Query **≤3 tokens** or distinctive **literals** inside one file | **`grep_nearby_files`** |
-| **Both** legs agree on `doc_url` (`matched_by`: fts + vec) | High confidence — open that file |
+Re-run eval when changing models, chunk size, or corpus — scores are folder-specific.
 
-Industry pattern (see [Problem](#problem)): **combine** methods — inverted index / grep for keywords, embeddings for paraphrase. On `~/Desktop/Writing`, hybrid RRF improves short routing vs vec-only ([Hybrid RRF baseline](#hybrid-rrf-baseline-schema-v3-re-measured-2026-06)); long paraphrase queries still favor the semantic leg.
+### Benchmark encode/search {#benchmark-on-your-machine}
 
-Scores and file ranks **will change** with model upgrades (`bge-small`, etc.), chunk size, and corpus size — re-run [`scripts/eval_folder_search_routing.py`](../scripts/eval_folder_search_routing.py) and extend this section as more folders are measured.
-
-| Module | Role |
-|--------|------|
-| [`embeddings_cache.py`](../plugin/embeddings/embeddings_cache.py) | Folder keys, paths, host JSON state, legacy `index.db` removal |
-| [`embeddings_indexer.py`](../plugin/embeddings/embeddings_indexer.py) | Background index enqueue + `_inflight` guard (venv maintain RPC) |
-| [`embeddings_fs.py`](../plugin/embeddings/embeddings_fs.py) | Folder scan + Writer stdlib ODF extract + dispatch to Calc/Impress extract (no UNO) |
-| [`embeddings_odf_extract.py`](../plugin/embeddings/venv/embeddings_odf_extract.py) | Impress/Draw `.odp`/`.odg` page and Calc `.ods`/`.ots`/`.fods` row extract (pandas + odfpy, trusted venv) |
-| [`embeddings_folder_maintain.py`](../plugin/embeddings/venv/embeddings_folder_maintain.py) | Trusted venv cold/incremental maintain loop |
-| [`embeddings_periodic.py`](../plugin/embeddings/embeddings_periodic.py) | Periodic folder tick when cache enabled |
-| [`document_research_fts_tool.py`](../plugin/embeddings/document_research_fts_tool.py) | `search_nearby_files` tool (hybrid FTS + vec + RRF) |
-| [`embeddings_hybrid_search.py`](../plugin/embeddings/venv/embeddings_hybrid_search.py) | Hybrid corpus search + MMR when k>1 |
-| [`embeddings_sqlite.py`](../plugin/embeddings/venv/embeddings_sqlite.py) | Unified `corpus.db`: chunks, FTS5, vec0, incremental tables |
-| [`embeddings_ingest_graph.py`](../plugin/embeddings/venv/embeddings_ingest_graph.py) | LangGraph: split → embed → sqlite-vec upsert / delete |
-| [`embeddings_search_graph.py`](../plugin/embeddings/venv/embeddings_search_graph.py) | LangGraph: query → vec0 retrieve → MMR → hits |
-| [`embeddings_index.py`](../plugin/embeddings/venv/embeddings_index.py) | Trusted venv RPC facades + `embed_texts()` |
-| [`embeddings_service.py`](../plugin/framework/client/embeddings_service.py) | Host index/search/stats RPC |
-| [`embedding_client.py`](../plugin/framework/client/embedding_client.py) | Host `embed_texts()` RPC |
-
-**Venv install (minimum):**
-
-```bash
-pip install numpy sentence-transformers sqlite-vec langgraph langchain-core langchain-text-splitters envwrap odfpy
-```
-
-Legacy **`index.db`** and separate **`fts5.db`** are removed on upgrade; the next index pass cold-builds into unified **`corpus.db`**.
-
----
-
-## Problem
-
-The expensive case is **many documents**, not one.
-
-Today the **outer** [document_research](../plugin/doc/document_research.py) sub-agent discovers siblings with `list_nearby_files`, guesses filenames from vague user language, opens candidates, and greps with `search_in_document` / full reads. That is **better than opening 100 files blindly**, but still slow, token-heavy, and weak on paraphrase ("remote work" vs "WFH policy" in an oddly named `Notes_v3.odt`).
-
-**Embeddings** replace that **outer-layer grep** with semantic + keyword lookup over a **per-directory `corpus.db` index** ([Corpus storage](#corpus-storage)) — float32 vectors in **vec0**, chunk text in **`chunks.body`**, FTS in **`passages`**, incremental state in **`indexed_*` tables**. Search hits return **`doc_url` + `score` + `snippet`** (and an optional weak `para_index` hint). The outer agent searches **that folder’s cache** without opening LO; it then opens **one or a few** files and the inner read agent uses **`search_in_document`** on the snippet or topic. Opening one file after semantic routing is cheap compared to opening dozens and grepping each.
-
-### Why embeddings (semantic search) vs pure lexical/grep, and why the difference is bigger for office documents than code
-
-Recent experience with AI coding agents shows a split in retrieval strategy:
-
-- Code is highly literal and structured. Developers (and agents) usually want an exact function name, variable, string literal, or symbol. Language servers, AST indexes, and fast `grep` (or ripgrep) are extremely effective. Paraphrase is uncommon — you rarely ask for "a function somewhat like authentication"; you ask for the auth handler or grep for "auth". Because code changes frequently, pre-built vector indexes also suffer from staleness and re-indexing cost.
-
-- Office documents (Writer prose, Calc tables with natural-language labels and notes, Draw captions and diagrams, policy files, fiction, research notes, meeting minutes) are different. Content is natural language or semi-structured text. Users describe what they want with vague or high-level language ("the Q4 revenue figures", "the remote-work policy", "the section on expense approvals from last year"). Filenames are often unhelpful or historical. The same idea can be expressed with synonyms, paraphrases, or completely different wording across files.
-
-In short: code search is mostly *lexical lookup of known identifiers*; document search is often *semantic discovery of unknown phrasing*.
-
-This project already exploits the practical consequence of ODF files being ZIP archives: a naive "list siblings then open-and-grep many" path pays repeated unzip + XML parse costs for every candidate. The per-directory embeddings index lets the outer agent perform a cheap semantic ranking *before* paying the extraction cost for most files. Hits return **which file** plus a **snippet** preview; only the top 1–few documents are opened, and the inner agent then uses precise tools (`search_in_document`, range reads, outline navigation, etc.) on the live content — not blind character offsets.
-
-Industry data on coding agents is consistent with a hybrid view rather than "embeddings are dead":
-
-- Tools like Cursor measure clear gains (+12.5% agent accuracy in their tests) from adding semantic search (custom-trained embeddings) alongside grep, especially for conceptual queries in large codebases. They explicitly state that the *combination* of semantic search and grep produces the best results.
-- Other agentic systems (e.g. Claude Code style) favor pure iterative tool use (grep/glob/read + reasoning) for code precisely because of the literal, structured nature of source and the ability of a strong model to explore on the fly.
-
-For the document use cases this index targets — cross-sibling discovery in Writer/Calc/Draw folders — the semantic component has stronger justification than it does for pure code. Fiction writing, policy/legal work, research corpora, creative projects, and any domain where meaning is expressed in varied natural language all amplify the value of embeddings over keyword-only approaches. The design here deliberately scopes embeddings to the outer routing layer only; it never replaces the precise read tools used once the right file(s) are open, and it maintains exactly one index type per directory (no parallel FTS "double cache").
-
-The result is a router that handles the paraphrase/fuzzy-name problem that defeats filename filters and broad greps, while still letting the agent fall back to exact search inside the small number of opened documents.
-
-**Within a single already-open document**, normal search remains enough (`search_in_document`, outline, sheet navigation). **Cross-folder semantic routing for document_research is the main win.**
-
-**One index type per directory:** do **not** maintain FTS5 (or any parallel keyword corpus) alongside embeddings in that folder’s cache — that would be a **double cache** of the same content. Embeddings are the cross-file search layer for **that directory**; after a hit, use existing read tools on the opened file for literals and detail.
-
-This choice also aligns with the domain analysis above: once the right small set of documents has been selected semantically, the agent has cheap, precise, always-fresh lexical tools inside those opened files. There is no need (and no desire) to duplicate a full-text index in the embeddings cache.
-
-**Chat history vs document embeddings:** Sidebar history (`writeragent_history.db`) is unrelated. This is **corpus routing memory**, not turn memory.
-
----
-
-## Primary use case: outer document_research replaces grep
-
-[multi-document-dev-plan.md](multi-document-dev-plan.md) uses a **two-tier** delegate: **outer** lists/opens/orchestrates; **inner** runs read tools on one opened file. **Embeddings target the outer tier** — the first sub-agent that today picks files and greps.
-
-```mermaid
-flowchart LR
-  User["User task on active doc"]
-  Main[Main chat]
-  Outer["Outer document_research sub-agent"]
-  Index["Embeddings index\nvectors + locators only"]
-  Hits["Top-k: doc_url + para + offset"]
-  Inner["Inner sub-agent\none opened file"]
-  Read["Read at locator"]
-  Main -->|"delegate"| Outer
-  Outer -->|"embed query — not grep"| Index
-  Index --> Hits
-  Hits -->|"open 1–few URLs"| Outer
-  Outer -->|"delegate_read_document"| Inner --> Read
-```
-
-**Before (outer):** `list_nearby_files(filter="budget")` → guess → open → `search_in_document` / `get_document_content` on each candidate.
-
-**After (outer):** `search_nearby_files("Q4 revenue figures")` → `[{doc_url, score, snippet: matched passage ~512 chars}, …]` → `delegate_read_document` on **top hits only** → inner `search_in_document` / range read using the snippet or topic.
-
-Main chat may also call the index before delegating, but the **major integration point is the outer document_research tool surface** — smarter, faster file pick, no filename lottery.
-
-The rationale for preferring a semantic router here (rather than relying solely on lexical discovery) is discussed in the Problem section: office documents are natural-language heavy and ODF extraction has per-file cost, unlike the more literal, identifier-driven nature of code search where pure grep + structure often suffices.
-
-### After the hit: open one file, dig up truth
-
-The index is **not** a document store. It holds:
-
-- Normalized **float32 vectors** in **sqlite-vec `vec_chunks`** ([Corpus storage](#corpus-storage)); schema v1 BLOB `index.db` removed on upgrade.
-- **Locators** — enough to find the passage again in LO (paragraph + offset, and Calc/Draw-specific fields as needed later).
-- **Chunk text in `chunks.body`** — retained at index time for hit previews ([Search hit shape](#search-hit-shape)); FTS **`passages`** indexes the same text for the keyword leg.
-
-Lookup returns **where to look**; opening **one** (or a few) files and reading at that locator is intentional and cheap. That beats opening many files and running semantic search inside each.
-
----
-
-## Vision
-
-- **One unified index** — `corpus.db` holds FTS + vectors + locators (one store per folder).
-- **Outer document_research** queries **`search_nearby_files`** (hybrid) instead of grep across opened siblings when folder search is on.
-- **Open one (or few) files** at known locations — not semantic search inside every file in the folder.
-- Optional in-document injection on main chat send for edge-case huge single files (low priority).
-
----
-
-## User-facing modes
-
-| Mode | User experience | Priority |
-|------|-----------------|----------|
-| **Outer semantic find** | document_research outer agent: `search_nearby_files` → ranked `doc_url` + locators → open top hits | **Primary** |
-| **Index folder / corpus** | Background embed on open/save; revision-keyed invalidation | **Primary** |
-| **Main → delegate with hits** | Main chat runs index first, passes paths/locators into delegate task | **Primary** |
-| **Cross-doc Q&A** | Top-k locators across corpus, then inner reads on opened files | **Primary** |
-| **In-document RAG on send** | Optional chunk inject beside `[DOCUMENT CONTENT]` for one huge file | **Secondary** |
-
-**Benefits available with today's stack (no LangChain):**
-
-- **`sentence-transformers` + NumPy in the user venv** — tier-one **MVP** embedder (offline, batch CPU, no per-paragraph API cost). See [Local embedders (MVP)](#local-embedders-mvp).
-- Cloud embed APIs (OpenRouter / Together / Ollama) when no venv or user prefers hosted models.
-- [`list_nearby_files`](../plugin/doc/document_research.py) + read-only extract for **indexing**; index for **lookup** before any of that on query.
-- **Pickle5 IPC** into the warm venv worker for encode + `corpus.db` maintain/search ([`bench_embeddings.py`](../scripts/bench_embeddings.py) validates encode + NumPy dot baseline).
-- Host **`corpus_meta.json`**; vectors, FTS, and incremental state in **`corpus.db`** (venv trusted modules).
-
----
-
-## Development plan {#development-plan}
-
-**Goal:** outer [document_research](../plugin/doc/document_research.py) calls `search_nearby_files(query, k)` → ranked hits **within the active folder’s cache** (`doc_url` + paragraph locators) → open top files → inner read at offset.
-
-### Scope: per-directory cache only (MVP) {#per-directory-cache}
-
-The **only** persisted index shape for now:
-
-| In scope | Out of scope (later or never) |
-|----------|-------------------------------|
-| **One cache per directory** — all LibreOffice siblings in the same folder share one cache under `writeragent_embeddings/<key>/` | Per-**file** sidecars or per-document `.db` files |
-| Folder key = normalized path of the **directory** being searched (parent of active doc + siblings) | Single global index across `~/Documents` |
-| `search_nearby_files` searches **that directory’s** hybrid index in `corpus.db` | Cross-directory search in one query |
-| Locator rows identify **which file** each vector belongs to (`doc_url`) | Storing full text in the cache |
-| Background worker builds/refreshes **the whole directory cache** | In-document-only embed cache beside `[DOCUMENT CONTENT]` (Phase D — separate) |
-
-**Mental model:** the cache mirrors “everything in this folder that document_research could grep today” — one semantic index for that **directory of files**, not one index per open document and not one index for the entire machine.
-
-**Untitled / new documents:** when the active document has no `file://` URL, `listing_root` is LibreOffice **My Documents** (the `Work` path in Tools → Options → Paths). That applies to `search_nearby_files`, the **Search Nearby Files** dialog (search + rebuild cache), and `list_nearby_files`.
-
-**Rule:** **each directory gets its own cache.** Work in `/projects/reporting/` uses only `writeragent_embeddings/` beside that folder. Work in `/projects/legal/` uses a **different** cache directory — separate `corpus.db`, built and refreshed independently. No sharing across directories in MVP.
-
-```text
-/home/user/projects/reporting/          ← real user folder (many .odt/.ods)
-  Budget.odt
-  Notes_v3.odt
-  Q4.ods
-  writeragent_embeddings/
-    corpus.db                           ← chunks + FTS5 + vec0 for ALL files above
-    corpus_meta.json
-```
-
-### What is shipped
-
-| Item | Status |
-|------|--------|
-| [`scripts/bench_embeddings.py`](../scripts/bench_embeddings.py) | **Done** — batch encode + vectorized search via warm worker |
-| [`scripts/search_embeddings_folder.py`](../scripts/search_embeddings_folder.py) | **Done** — offline semantic search over a folder cache (default `~/Desktop/Writing`, k=10) |
-| `sentence_transformers` on venv whitelist | **Done** — [`sandbox.py`](../plugin/scripting/sandbox.py) |
-| `get_safe_module` bypass for ST | **Done** — avoid hang on import ([`local_python_executor.py`](../plugin/contrib/smolagents/local_python_executor.py)) |
-| [`embedding_client.py`](../plugin/framework/client/embedding_client.py) | **Done** — `embed_texts()` via venv RPC (Phase A; HTTP deferred) |
-| [`embeddings_index.py`](../plugin/embeddings/venv/embeddings_index.py) | **Done** — trusted batch encode module (Phase A; index/search in Phase B) |
-| Config `embedding_model` / `embedding_provider` / `folder_search_mode` | **Done** — Settings → Embeddings ([`plugin/embeddings/module.yaml`](../plugin/embeddings/module.yaml)) |
-
-See [Benchmark on your machine](#benchmark-on-your-machine) for sample numbers (349 paragraphs, dot+top-k **0.17 ms** median on Arch).
-
-### Transport: warm-worker IPC (MVP — keep)
-
-Reuse [`PythonWorkerManager`](../plugin/scripting/venv_worker.py) / `run_code_in_user_venv` — same Pickle5 path as `=PYTHON()` and `run_venv_python_script`.
-
-The persistent index is **`corpus.db`** under `<document_folder>/writeragent_embeddings/` plus **`corpus_meta.json`**. The host passes **`listing_root`** or **`db_path`** references over RPC — not the full corpus matrix.
-
-Typical flow:
-
-1. **Host** resolves `listing_root` from the active document folder and enqueues one **maintain** RPC ([`embeddings_indexer.enqueue_folder_index`](../plugin/embeddings/embeddings_indexer.py)); `_inflight` prevents duplicate jobs per folder key.
-2. **Host → venv (RPC stub):** `maintain_folder_index` sends `{listing_root, model, mode, search_mode}` only. The venv runs stdlib ODF extract ([`embeddings_fs.py`](../plugin/embeddings/embeddings_fs.py)), splits to embed chunks ([`embeddings_split.py`](../plugin/embeddings/embeddings_split.py)), mtime / chunk-locator **`content_hash`** diff against the **`chunks`** table, embed, and sqlite-vec upsert at full CPU. **Heartbeat frames** reset the host sliding timeout during long cold builds (`EMBEDDINGS_HEARTBEAT_GRACE_S`); rebuild UI lines show **`N paragraphs, M chunks`** per file ([`embeddings_heartbeat.py`](../plugin/embeddings/embeddings_heartbeat.py)). Search sends query text + `k` + `db_path`.
-3. **Venv (trusted module):** fixed stubs are detected in [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) (`_is_trusted_embeddings_stub`) and run **outside** `LocalPythonExecutor` — `_run_trusted_embeddings_payload` calls [`embeddings_index`](../plugin/embeddings/venv/embeddings_index.py) directly (same pattern as vision). LangGraph ingest/search graphs use real imports (`sentence-transformers`, `sqlite-vec`, `langgraph`). Only small results travel back (top-k hits, counts, errors).
-4. **Session:** reuse worker `session_id` so the loaded `SentenceTransformer` survives across calls ([`EMBEDDINGS_WORKER_SESSION_PREFIX`](../plugin/framework/constants.py)). Embeddings RPC uses a **separate warm child** (`worker_pool=WORKER_POOL_EMBEDDINGS`) from Calc `=PYTHON()` and chat scripts — see [Dedicated embeddings subprocess](#dedicated-embeddings-subprocess). **Timeout:** [`embeddings_worker_timeout_sec`](../plugin/scripting/config_limits.py) (**120 s**), not Settings `scripting.python_exec_timeout`.
-
-The **LLM / `=PYTHON()` sandbox** still applies to **user-submitted** scripts. **Embeddings RPC does not** — `torch` / `sqlite-vec` cannot load inside the AST sandbox. Bulk *source text for embedding* flows over IPC **`data=`** at index time; vectors live in **`corpus.db`** beside the document folder.
-
-**Not pursuing for MVP:** host Cython `top_k_dot`, `/tmp` mmap in worker, LangChain vectorstores — see [Future optimizations](#future-optimizations).
-
-### Dedicated embeddings subprocess {#dedicated-embeddings-subprocess}
-
-**Status: shipped.**
-
-Embeddings encode, index persist, and `knn_search` run in a **second** warm venv child ([`PythonWorkerManager`](../plugin/scripting/venv_worker.py) keyed by `WORKER_POOL_EMBEDDINGS` + python exe). Calc `=PYTHON()`, chat `run_venv_python_script`, and notebooks stay on `WORKER_POOL_DEFAULT`.
-
-| Concern | Default pool (Calc / chat) | Embeddings pool |
-|---------|---------------------------|-----------------|
-| **Calc / user NumPy** | Unaffected by long folder re-embed jobs | Folder cold-build / batch re-embed runs here |
-| **Repeated `search_nearby_files`** | N/A | Hybrid RRF + warm `SentenceTransformer` in embeddings pool |
-| **Model load** | User script traffic only | `SentenceTransformer` stays warm for document_research bursts |
-
-**Implementation:**
-
-- Same `scripting.python_venv_path` interpreter, same Pickle5 stub protocol ([`embeddings_service.py`](../plugin/framework/client/embeddings_service.py) / [`embedding_client.py`](../plugin/framework/client/embedding_client.py) → [`embeddings_index.py`](../plugin/embeddings/venv/embeddings_index.py)).
-- Host passes `worker_pool=WORKER_POOL_EMBEDDINGS` on the two RPC entry points only.
-- Optional Settings later: dedicated venv path vs shared venv (same packages, different process — not required).
-- **Not** a third HTTP stack or a different embedding library — process isolation + caching only.
-
-#### In-worker corpus cache (RAM) {#embeddings-in-worker-cache}
-
-> **Historical (schema v1 only).** The BLOB + NumPy in-RAM matrix cache applied to SQLite `index.db` search. **Schema v3 (`corpus.db`)** uses vec0/sqlite-vec query instead; this section is kept for context on why repeat-query latency mattered before unified storage.
-
-**Status (v1):** shipped on BLOB path; **removed** with later schema migrations.
-
-Persistent storage remains **`index.db` on disk** (source of truth). The RAM cache is a **read-through / invalidation layer inside the embeddings subprocess** so hot queries avoid re-reading the whole BLOB column on every `search_embeddings` call.
-
-**Problem today (BLOB + NumPy path):** for a folder with *N* chunks, each search roughly: open SQLite → `SELECT … embedding FROM chunks` for all rows → `np.stack` → dot + top-k. At 100 longdoc-sized files (*N* ≈ 35k) that is **~50+ MiB read from disk per query** even when the index has not changed since the last query five seconds ago. Encode cost dominates cold builds; **repeat search** on an unchanged index is where RAM caching helps.
-
-**Proposed behavior:**
-
-| Layer | Role |
-|-------|------|
-| **`index.db` (disk)** | Durable locators + vectors; incremental indexer writes here; search **always valid** against disk if RAM cache is cold or evicted |
-| **In-worker cache (RAM)** | Keyed by `(folder_corpus_key or db_path, embedding_model)` → `{corpus_matrix, chunk_ids, locators, loaded_at, corpus_meta_fingerprint}` |
-
-**Cache policy:**
-
-- **Load on first search** for a folder key; reuse for subsequent `knn_search` in the same embeddings process.
-- **TTL `EMBEDDINGS_CORPUS_CACHE_TTL_S` (60 s)** since last access — per-folder sliding window; document_research delegation bursts stay hot without holding matrices forever.
-- **Invalidate** on `index_paragraphs` / `delete_paragraphs` RPC for that `db_path`, or when fingerprint (`chunk_count` + `corpus_meta.updated_at`) changes on next access.
-
-**What this is not:**
-
-- Not a second on-disk index or duplicate of chunk text — only **float matrices + locator tuples** already in `index.db`.
-- Not a substitute for sqlite-vec at huge *N* — at very large corpora, profile vec0 or partial loading; the 60 s RAM window targets **typical folder** repeat-query latency.
-- Not shared across processes — cache lives in the **embeddings-only** subprocess; the general sandbox worker never sees it.
-
-**Expected win:** second and subsequent searches on the same folder within the TTL drop disk BLOB reads and matrix rebuild — query path becomes encode query + in-memory dot + top-k (bench-class **sub-ms to low-ms** for folder-sized *N* when matrix is warm).
-
-See also [Index size growth](#index-size-growth) for when RAM footprint matters.
-
-### Phase A — Embed client + config **(shipped — venv-only)**
-
-- [x] Host [`embedding_client.py`](../plugin/framework/client/embedding_client.py) — `embed_texts(ctx, texts) -> EmbeddingBatch` via venv RPC
-- [x] Config: `embedding_model`, `embedding_provider`, `folder_search_mode` — Settings → Embeddings ([`plugin/embeddings/module.yaml`](../plugin/embeddings/module.yaml)); `local` provider only implemented; HTTP tier deferred
-- [x] Trusted venv module [`embeddings_index.py`](../plugin/embeddings/venv/embeddings_index.py) + fixed host stub — see [Trusted extension code in the venv](enabling_numpy_in_libreoffice.md#trusted-extension-code-in-the-venv)
-- [x] Tests: mocked venv RPC + mocked SentenceTransformer ([`test_embedding_client.py`](../tests/framework/test_embedding_client.py), [`test_embeddings_index.py`](../tests/scripting/test_embeddings_index.py))
-- Default model: `all-MiniLM-L6-v2` ([`DEFAULT_EMBEDDING_MODEL`](../plugin/framework/constants.py)) until multi-model bench says otherwise
-
-#### Phase A — what exists today (handoff for Phase B)
-
-| Piece | Location | Contract |
-|-------|----------|----------|
-| Host API | [`embedding_client.embed_texts`](../plugin/framework/client/embedding_client.py) | `EmbeddingBatch(model, dim, vectors, indices)` — `vectors` are L2-normalized float32 nested lists; `indices` maps each vector back to the input list position (empty strings skipped) |
-| Model config | `get_embedding_model(ctx)` | Reads `embedding_model` from config; falls back to `all-MiniLM-L6-v2` |
-| Venv encode | [`embeddings_index.embed_texts`](../plugin/embeddings/venv/embeddings_index.py) | Same shape as worker `result` dict; lazy `SentenceTransformer` cache per model name |
-| IPC transport | `run_code_in_user_venv` + fixed stub | `session_id=f"embeddings:{model_slug}"` reuses loaded model; **stub bypasses LLM sandbox**; timeout from `embeddings_worker_timeout_sec` (120 s) |
-| Whitelist | [`sandbox.py`](../plugin/scripting/sandbox.py) | `plugin.embeddings.venv.embeddings_index` allowed for stub import only |
-
-**All of the above now ship in Phase B/C** — unified `corpus.db` + LangGraph ingest/search replace schema v1 `index.db`. Host-side batch encode during tests may still call `embedding_client.embed_texts`; index/search persist via [`embeddings_service.py`](../plugin/framework/client/embeddings_service.py) → [`embeddings_index`](../plugin/embeddings/venv/embeddings_index.py) → ingest/search/hybrid modules.
-
-### Phase B — Minimal index + cross-file search {#phase-b}
-
-**Shipped.**
-
-**Goal:** outer [document_research](../plugin/doc/document_research.py) calls `search_nearby_files(query, k)` → ranked hits in the **active folder’s** cache → open top files → inner read at locator.
-
-**Search mode (Settings):** [`embeddings.folder_search_mode`](../plugin/embeddings/module.yaml) — **Off** (default, grep only) or **Embeddings + FTS** (unified `corpus.db`). See [Search mode flag](#search-mode-flag) below.
-
-**Suggested implementation order** (each step should have tests before moving on):
-
-1. **Folder key + cache paths (host, stdlib only)** — new module e.g. `plugin/embeddings/embeddings_cache.py`:
-   - `folder_corpus_key(directory_path) -> str` — stable hash/normalized path (same sibling scope as [`list_nearby_files`](../plugin/doc/document_research.py))
-   - `folder_cache_dir(listing_root) -> Path` under `<document_folder>/writeragent_embeddings/`
-   - Host creates `corpus.db` + `corpus_meta.json` ([Corpus storage](#corpus-storage))
-
-2. **Paragraph chunker + locator capture (host)** — extract indexable paragraphs from siblings (reuse document_research read-only extract / ODT path from bench); per paragraph: `doc_url`, `para_index`, `char_start`, `char_end`, `content_hash` ([Chunking](#chunking) — paragraph grain for MVP)
-
-3. **Extend `embeddings_index` (venv)** — add encode+persist and search alongside existing `embed_texts`:
-   - `index_paragraphs(db_path, model, rows)` — batch embed changed texts, write `vec_chunks` (vec0) or `chunks.embedding` BLOB fallback ([Search fallback](#search-fallback))
-   - `knn_search(db_path, query_text, k)` or `knn_search(db_path, query_vec, k)` — vec0 `MATCH` when `sqlite_vec` loads; else NumPy dot + top-k (port search half of [`bench_embeddings.py`](../scripts/bench_embeddings.py))
-   - Probe sqlite-vec once at module load; log fallback at debug
-
-4. **`search_nearby_files` tool** — register on outer document_research surface ([`document_research_fts_tool.py`](../plugin/embeddings/document_research_fts_tool.py)); hybrid RRF when `folder_search_mode` is `hybrid`; return `{doc_url, snippet, score, para_index?, matched_by?}[]` ([Search hit shape](#search-hit-shape))
-
-5. **Background folder indexer (host thread + venv IPC)** — [Background folder indexer](#background-folder-indexer): cold build + mtime/hash incremental refresh; **must not block** tool loop; enqueue on document_research start or first search miss
-
-6. **Prompt / delegate wiring** — mode-specific hints in [`specialized_base.py`](../plugin/doc/specialized_base.py) via [`get_document_research_workflow_hint`](../plugin/doc/document_research.py)
-
-**Phase B checklist:**
-
-- [x] Paragraph chunker with **locator capture** (`para_index`, `char_start`, `char_end`, `content_hash`)
-- [x] Persist per-folder **`corpus.db`** beside documents ([Corpus cache layout](#corpus-cache-layout), [Corpus storage](#corpus-storage))
-- [x] **`search_nearby_files`** on outer document_research tool surface when `folder_search_mode` is `hybrid`
-- [x] Open top 1–few hits → `delegate_read_document` → inner read via snippet / `search_in_document` (prompt guidance)
-- [x] Vec search via LangGraph + vec0 + MMR ([`embeddings_search_graph.py`](../plugin/embeddings/venv/embeddings_search_graph.py)); hybrid via [`embeddings_hybrid_search.py`](../plugin/embeddings/venv/embeddings_hybrid_search.py)
-- [x] Background **index maintenance worker** (separate from agent tool loop) — [Background folder indexer](#background-folder-indexer)
-
-### Search mode flag {#search-mode-flag}
-
-**Settings → Embeddings → Cross-file search** (`embeddings.folder_search_mode`):
-
-| Value | document_research tools |
-|-------|-------------------------|
-| `none` (default) | `grep_nearby_files`, `list_nearby_files`, `delegate_read_document` |
-| `hybrid` | `search_nearby_files`, `list_nearby_files`, `delegate_read_document` (`grep_nearby_files` hidden) |
-| `zvec` (experimental) | Same tools backed by zvec in-process collection (native hybrid FTS+vector). Requires `pip install zvec` in the embeddings venv (e.g. `~/Desktop/Python/venv`). Stores under `writeragent_embeddings/zvec/`. |
-
-When off, [`filter_document_research_discovery_tools`](../plugin/doc/document_research.py) hides `search_nearby_files`. When on, it hides `grep_nearby_files` and background maintain always builds FTS + vectors in one `corpus.db` ([`embeddings_indexer.py`](../plugin/embeddings/embeddings_indexer.py)).
-
-**Zvec backend ("zvec"):** selectable side-by-side engine using the zvec in-process vector DB (dense/sparse vectors + built-in FTS + native hybrid multi-query + RRF/Weighted rerankers, WAL durability). The listing folder's store lives at `writeragent_embeddings/zvec/`. All heavy work (embed, index, search) runs in the user venv exactly like the other modes; the OXT never imports zvec on the LibreOffice Python. See the `module.yaml` for the UI label and the venv `embeddings_zvec.py` for the implementation. Use your existing test folder (e.g. `~/Desktop/Writing`) after `pip install zvec` in the venv configured under Settings → Python Test. The sqlite `corpus.db` path remains untouched — you can flip the setting back to `hybrid` at any time.
-
-See the dedicated section [Zvec search backend option](#zvec-backend) below for a much deeper treatment: the concrete benefits versus the current custom hybrid code, a direct comparison to the LlamaIndex option (the other major "buy something better than our hand-rolled sqlite + vec0 + custom RRF" path), pluses/minuses, evaluation guidance, and the roadmap for when/whether this becomes more than an experimental toggle.
-
-### ChromaDB (removed) {#chromadb-removed}
-
-We briefly experimented with ChromaDB as an optional cross-file search backend and **removed it** (2026-06). It is not in Settings, the venv install line, or the supported `folder_search_mode` values.
-
-**Why we dropped it:** WriterAgent cross-file search is built around **hybrid** retrieval — FTS keyword recall plus semantic vectors, fused (RRF) and optionally reranked. Chroma’s **FOSS** stack (`chromadb` on PyPI, local persistent client) does **not** ship that hybrid pipeline: you get vector search and metadata filters, but not the integrated FTS + vector + fusion path we rely on for `search_nearby_files`. Newer Chroma **native hybrid** APIs (`Search`, `Knn`, `Rrf`, and related) are aimed at their **hosted/cloud** product; they are not a complete, self-hosted substitute for what we already have in `corpus.db`, zvec, or LlamaIndex-on-sqlite. Using Chroma in the venv would mean keeping a separate FTS leg and custom fusion anyway — a crippled duplicate of backends we already maintain — without the durability or incremental story of unified `corpus.db`. We are moving away from Chroma for that reason and keeping evaluation focused on **hybrid**, **LlamaIndex**, **zvec**, and **LanceDB**.
-
-### Folder FTS (unified corpus.db) {#folder-fts}
-
-**Lexical** cross-folder discovery: BM25 ranking + FTS5 **`NEAR`** (terms with gaps). The **`passages`** virtual table lives in the same **`corpus.db`** as vec0 ([`embeddings_sqlite.py`](../plugin/embeddings/venv/embeddings_sqlite.py)) — stdlib **`sqlite3` only**, no extra pip packages. Index build and search stay **outside** the LibreOffice process.
-
-Enable **Embeddings + FTS** in **Settings → Embeddings → Cross-file search** (`embeddings.folder_search_mode: "hybrid"`), or set that key in `writeragent.json`.
-
-**Tool matrix (document_research):**
-
-| Tool | When to use |
-|------|-------------|
-| **`search_nearby_files`** | Hybrid keyword + semantic search (BM25/NEAR + vec0, fused with RRF) — **`hybrid` mode** |
-| **`grep_nearby_files`** | Regex, exact substring, Calc/Draw — **`none` mode only** (hidden when hybrid is on) |
-
-**Cache files** (schema v3 — one folder, one DB):
-
-```text
-writeragent_embeddings/
-  corpus.db              # chunks + FTS5 passages + vec0 + indexed_files + indexed_paragraphs
-  corpus_meta.json       # schema_version, embedding_model, dim, chunk_count, updated_at
-```
-
-Implementation: [`folder_fts.py`](../plugin/embeddings/venv/folder_fts.py) (search helpers), [`embeddings_folder_maintain.py`](../plugin/embeddings/venv/embeddings_folder_maintain.py) (maintain), [`embeddings_indexer.py`](../plugin/embeddings/embeddings_indexer.py) (host enqueue). Periodic wakeups share [`embeddings_periodic.py`](../plugin/embeddings/embeddings_periodic.py) when hybrid mode is on. **Calc `.ods` and Impress/Draw `.odp`/`.odg` siblings** use the same extract path as Writer `.odt`.
-
-> **Historical:** schema v2 used a separate `fts5.db`; upgrades merge into unified `corpus.db`.
-
-### Corpus cache layout {#corpus-cache-layout}
-
-**Per-directory only:** one **`writeragent_embeddings/`** subfolder per indexed **folder**, **beside the documents**, holding **`corpus.db`** + **`corpus_meta.json`** for **every indexable file in that folder** ([Scope](#per-directory-cache)).
-
-```text
-/home/user/projects/reporting/writeragent_embeddings/
-  corpus.db                            # chunks + FTS5 + vec0 + indexed_files + indexed_paragraphs
-  corpus_meta.json
-```
-
-| File / object | Contents |
-|----------------|----------|
-| **`corpus.db`** | Chunks (`body`), FTS5 (`passages`), vec0 (`vec_chunks`), **`indexed_files`**, **`indexed_paragraphs`** |
-| **`corpus_meta.json`** | `embedding_model`, `dim`, `schema_version`, `chunk_count`, `storage_backend` |
-
-One cache per document directory (sibling folder around the active doc), never per open document and never one global profile cache. Settings / help: *semantic search cache for a folder — vectors from files in that directory only; delete `writeragent_embeddings/` in that folder to force re-index.*
-
-**Linux example:** `/home/user/Desktop/Writing/writeragent_embeddings/` when working in `~/Desktop/Writing/`.
-
-> **Profile cache (historical):** early builds used `~/.config/libreoffice/…/user/writeragent_embeddings/<hash>/`. Current code writes beside the document folder ([`embeddings_cache.py`](../plugin/embeddings/embeddings_cache.py)).
-
-### Background folder indexer {#background-folder-indexer}
-
-Indexing and refresh run on a **background maintenance worker** (host thread + venv IPC) — **not** inside the document_research tool loop and not blocking the outer agent’s LLM turns. **Wakeups:**
-
-| Trigger | When |
-|---------|------|
-| **Periodic tick** | Every `EMBEDDINGS_INDEX_INTERVAL_S` (default **300 s / 5 min**) for the **active document’s folder** — started once per process from sidebar wiring ([`embeddings_periodic.py`](../plugin/embeddings/embeddings_periodic.py)) when `embeddings.folder_search_mode` is **`hybrid`** |
-| **document_research** | Outer delegate starts in a folder ([`specialized_base.py`](../plugin/doc/specialized_base.py)) |
-| **search miss** | `search_nearby_files` against empty/stale cache ([`document_research_fts_tool.py`](../plugin/embeddings/document_research_fts_tool.py)) |
-
-Only one folder job runs at a time per folder key (`_inflight` guard in [`embeddings_indexer.py`](../plugin/embeddings/embeddings_indexer.py)); periodic ticks are no-ops while a job is already queued or running.
-
-**Two modes:**
-
-| Mode | When | Work |
-|------|------|------|
-| **Cold build** | No cache for folder, or `embedding_model` changed | Index **all** indexable siblings — **per-file** extract → ingest → sync incremental state in `corpus.db` |
-| **Incremental refresh** | Cache exists | Per file: compare **file mtime** vs **`last_indexed_at`**; only if stale, extract native passages, split to chunks, **chunk-locator hash diff** against `corpus.db` **`chunks`** (below) |
-
-**Bounded ingest batches:** The venv ingest pipeline ([`embeddings_ingest_graph.py`](../plugin/embeddings/venv/embeddings_ingest_graph.py)) embeds and upserts sub-chunks in windows of **`EMBEDDINGS_INGEST_BATCH_SIZE`** (default **64**) — not the whole folder or a large file at once. [`embed_texts`](../plugin/embeddings/venv/embeddings_index.py) passes the same size to `SentenceTransformer.encode(batch_size=…)`. This caps peak RAM and CPU spikes; wall time on typical folders may be ~10–20% longer than one monolithic embed.
-
-**Incremental refresh (default once cache exists):**
-
-1. List sibling files in the folder (same extensions as `list_nearby_files`).
-2. For each `doc_url`, read filesystem **mtime** (last modified) and compare to **`last_indexed_at`** stored in the cache for that file.
-3. **`mtime ≤ last_indexed_at`** (and model unchanged) → **skip file** — no extract, no embed.
-4. **File may have changed** → read-only extract (native passages — ODF `<text:p>`, calc rows, etc.) → split to 512/64 chunks → compare **`content_hash` per chunk locator** (`para_index`, `char_start`, `char_end`) to rows in **`chunks`**.
-5. Send **only new/changed chunk rows** to the embedder (per-file ingest RPC). Unchanged locators keep existing vectors.
-6. The trusted module runs the LangGraph ingest pipeline ([`embeddings_ingest_graph.py`](../plugin/embeddings/venv/embeddings_ingest_graph.py)): **windowed** batch embed + upsert (split already done at extract); host updates `corpus_meta.json` and `indexed_files` timestamps in `corpus.db`.
-7. **Save with unchanged content:** if mtime bumped but hash diff finds nothing to embed or delete, the host calls **`mark_file_indexed`** ([`embeddings_indexer.py`](../plugin/embeddings/embeddings_indexer.py)) to advance `last_indexed_at` / `file_mtime` without a venv RPC — avoids re-scanning the same file on every periodic tick.
-
-Search always uses the **current** index ([Always search](#always-search-update-in-the-background)); maintenance catches up in the background via **mtime + hash diff** on the periodic and event-driven wakeups above. Index may be a few minutes stale — acceptable for cross-file semantic find.
-
-```mermaid
-flowchart TB
-  Wake["Wakeup:\nperiodic tick,\ndocument_research,\nor search miss"]
-  Worker["Background index\nmaintenance worker"]
-  Cold{"Cache exists\nfor folder?"}
-  Full["Cold: index all\nsiblings"]
-  Inc["Incremental:\nmtime vs last_indexed"]
-  Hash["Paragraph hash\ndiff per stale file"]
-  Embed["Venv batch embed\nchanged paras only"]
-  Wake --> Worker
-  Worker --> Cold
-  Cold -->|no| Full
-  Cold -->|yes| Inc
-  Inc --> Hash
-  Full --> Embed
-  Hash --> Embed
-```
-
-Do not block `search_nearby_files` or document_research on embed completion; enqueue work and return ranked hits from whatever index is on disk.
-
-### Corpus storage (schema v3 — sqlite-vec + FTS5) {#corpus-storage}
-
-**Default (shipped today):** vectors, chunk text, FTS, and incremental state live in one **`corpus.db`** beside the document folder, plus **`corpus_meta.json`**. **Ingest:** LangGraph split → [`embed_texts`](../plugin/embeddings/venv/embeddings_index.py) → sqlite-vec upsert ([`embeddings_ingest_graph.py`](../plugin/embeddings/venv/embeddings_ingest_graph.py)). **Vec search:** query embed → vec0 `MATCH` → MMR ([`embeddings_search_graph.py`](../plugin/embeddings/venv/embeddings_search_graph.py)). **Hybrid search:** FTS + vec0 legs → RRF → optional MMR when k>1 ([`embeddings_hybrid_search.py`](../plugin/embeddings/venv/embeddings_hybrid_search.py)). On-disk size tracks **live chunk count × dim**, not edit history.
-
-**Upgrade:** legacy **`index.db`** and separate **`fts5.db`** are deleted on first access; next index pass **cold-builds into unified `corpus.db`** ([`embeddings_cache.py`](../plugin/embeddings/embeddings_cache.py)). See [Search fallback (schema v1 historical)](#search-fallback) for the old BLOB design.
-
-```mermaid
-flowchart LR
-  Query["search_nearby_files"]
-  FTS["FTS5 passages"]
-  Vec["vec0 MATCH"]
-  RRF["RRF fuse"]
-  MMR["MMR when k>1"]
-  Query --> FTS
-  Query --> Vec
-  FTS --> RRF
-  Vec --> RRF
-  RRF --> MMR
-```
-
-The worker opens **`corpus.db` by path** and performs ingest/search locally. No full corpus matrix is shipped over IPC for search.
-
-#### Shared invariants
-
-| Concern | Rule |
-|---------|------|
-| Scope | One `writeragent_embeddings/` per **document directory** (beside indexed files) |
-| Metadata | Locators in `chunks`: `doc_url`, `para_index`, offsets, `content_hash`, `file_mtime`, `last_indexed_at`, `embedding_model` |
-| Incremental logic | mtime skip → hash diff → batch embed **changed paragraphs only** ([Background folder indexer](#background-folder-indexer)) |
-| Model change | Cold rebuild entire folder cache |
-| Search latency class | Lazy ~60 s background OK; search reads **current** index, may be briefly stale |
-
-#### Schema (vec0 path)
-
-```sql
--- Host creates locator table (stdlib sqlite3 on index worker thread)
-CREATE TABLE chunks (
-  chunk_id INTEGER PRIMARY KEY,
-  doc_url TEXT NOT NULL,
-  para_index INTEGER NOT NULL,
-  char_start INTEGER,
-  char_end INTEGER,
-  content_hash TEXT NOT NULL,
-  file_mtime REAL,
-  last_indexed_at REAL,
-  embedding_model TEXT NOT NULL,
-  embedding BLOB  -- optional mirror for NumPy fallback; omit if vec0-only
-);
-CREATE TABLE corpus_meta (key TEXT PRIMARY KEY, value TEXT);
-
--- Venv fixed RPC: sqlite_vec.load(db) then create vec0 (dim fixed at cold build)
-CREATE VIRTUAL TABLE vec_chunks_<model_slug> USING vec0(
-  chunk_id INTEGER PRIMARY KEY,
-  embedding float[384]  -- dim from embedding_model / model_metadata / corpus_meta
-);
-```
-
-| Operation | vec0 path |
-|-----------|-----------|
-| **Changed paragraph** | `UPDATE vec_chunks_<model_slug> SET embedding = ? WHERE chunk_id = ?`; sync `chunks.content_hash` |
-| **New paragraph** | `INSERT INTO chunks …`; `INSERT INTO vec_chunks_<model_slug> …` |
-| **Deleted paragraph** | `DELETE FROM vec_chunks_<model_slug> WHERE chunk_id = ?`; `DELETE FROM chunks …` |
-| **Search** | `SELECT chunk_id, distance FROM vec_chunks_<model_slug> WHERE embedding MATCH ? ORDER BY distance LIMIT ?` in venv RPC |
-
-NumPy arrays pass straight into sqlite-vec (`embedding.astype(np.float32)` — see [sqlite-vec Python docs](https://alexgarcia.xyz/sqlite-vec/python.html)).
-
-**Host vs venv (shared DB file):** the *same* `index.db` file is the coordination point and is opened by both processes. The host uses plain stdlib `sqlite3` (no loadable extensions required) to manage the `chunks` locator/metadata table, perform mtime + hash diff decisions in the background indexer, and orchestrate work. The trusted module in the venv is given a path/reference over the RPC, opens the identical file, and (if `sqlite_vec` is importable) loads the extension to create/use the `vec0` virtual table for storage and KNN. Even without sqlite-vec the worker opens the same DB to read/write the `embedding` BLOB column and runs the NumPy path locally. SQLite's normal multi-process concurrency rules apply; the worker performs the vector-sensitive DML and search while the host owns most metadata logic. LLM / `=PYTHON()` scripts remain sandboxed — they must not import `sqlite3` or open index paths directly.
-
-#### Search fallback (schema v1 historical) {#search-fallback}
-
-> **Not used in schema v3.** Kept for understanding the pre–corpus.db BLOB fallback and bench script.
-
-At worker startup (or first index open), schema v1 **probed** `import sqlite_vec` and `sqlite_vec.load()` on a throwaway `:memory:` connection. Most v1 installs omitted sqlite-vec and stayed on the BLOB + NumPy path.
-
-| Condition | Persist | Search |
-|-----------|---------|--------|
-| **sqlite-vec not installed / load fails (expected MVP)** | `chunks.embedding` BLOB only; `corpus_meta.storage_backend=blob_numpy` | Load all BLOBs → `np.stack` → `np.dot` + top-k ([bench path](#benchmark-on-your-machine)) |
-| **sqlite-vec OK (optional)** | `vec_chunks` vec0 (+ optional BLOB mirror) | vec0 `MATCH` KNN in venv |
-
-Log once at debug level when vec0 is unavailable or when vec0 is used. Do **not** fail indexing if `sqlite-vec` is missing — that is the **normal** supported configuration today.
-
-**Anti-pattern — do not use:** append-only vector logs, dual-file `vectors.bin` sidecars that grow on every edit without reclaim, or versioned snapshot chains.
-
-#### Installing sqlite-vec in the user venv {#installing-sqlite-vec}
-
-> **Optional — not required for MVP.** Skip this section unless profiling on **your** folder corpora shows NumPy BLOB search is too slow. Minimum venv: **`pip install numpy sentence-transformers`** ([Venv setup](#local-embedders-mvp)).
-
-WriterAgent reads **`scripting.python_venv_path`** ([enabling_numpy_in_libreoffice.md](enabling_numpy_in_libreoffice.md)) — install packages **into that venv**, not system Python. The PyPI wheel bundles the sqlite-vec loadable extension; `pip install sqlite-vec` is the supported path when you choose to enable vec0 ([upstream install guide](https://github.com/asg017/sqlite-vec/blob/main/site/getting-started/installation.md)).
-
-**All platforms (recommended):**
-
-```bash
-# Replace with your actual venv path from WriterAgent Settings
-VENV=/path/to/your/writeragent/venv
-
-"$VENV/bin/pip" install numpy sentence-transformers sqlite-vec
-# sentence-transformers pulls PyTorch CPU; first run downloads model weights.
-```
-
-**Verify:**
-
-```bash
-"$VENV/bin/python" -c "
-import sqlite3, sqlite_vec
-db = sqlite3.connect(':memory:')
-db.enable_load_extension(True)
-sqlite_vec.load(db)
-db.enable_load_extension(False)
-print('vec_version=', db.execute('select vec_version()').fetchone()[0])
-"
-```
-
-**Arch Linux notes:**
-
-Arch marks system Python as [externally managed (PEP 668)](https://peps.python.org/pep-0668/) — **`pip install` on `/usr/bin/python3` fails** unless you use a venv. That matches WriterAgent’s design: always use the configured venv subprocess, never LibreOffice’s embedded interpreter for sqlite-vec.
-
-1. **Use the WriterAgent venv (required):**
-
-```bash
-# Example: venv already pointed at by scripting.python_venv_path
-VENV="$HOME/Desktop/Python/venv"   # adjust to your path
-
-"$VENV/bin/pip" install numpy sentence-transformers sqlite-vec
-```
-
-2. **If the venv has no pip** (fresh `python -m venv` on Arch sometimes needs ensurepip):
-
-```bash
-pacman -S python-pip    # optional: pacman helper; still install into venv below
-"$VENV/bin/python" -m ensurepip --upgrade
-"$VENV/bin/pip" install numpy sentence-transformers sqlite-vec
-```
-
-3. **AUR (`python-sqlite-vec`) — not a substitute:** [`python-sqlite-vec`](https://aur.archlinux.org/packages/python-sqlite-vec) installs into **system** site-packages via an AUR helper (`yay -S python-sqlite-vec`). WriterAgent’s warm worker uses **`scripting.python_venv_path`**, so you still need **`pip install sqlite-vec` inside that venv**. The AUR package is only relevant if you deliberately run the venv’s Python against system packages (unusual — do not rely on it).
-
-4. **SQLite version:** vec0 works best with SQLite **≥ 3.41**. Check the **venv** interpreter, not system `sqlite3`:
-
-```bash
-"$VENV/bin/python" -c "import sqlite3; print(sqlite3.sqlite_version)"
-```
-
-Python 3.12+ venvs on Arch usually ship a recent SQLite. If `enable_load_extension` is missing (some macOS system Pythons), use Homebrew Python or `pysqlite3` — see [sqlite-vec Python docs](https://alexgarcia.xyz/sqlite-vec/python.html).
-
-**Do not** vendor sqlite-vec into the OXT or load it in LibreOffice’s embedded Python — venv trusted module only ([Trusted extension code in the venv](enabling_numpy_in_libreoffice.md#trusted-extension-code-in-the-venv)).
-
-#### Rejected alternatives (historical)
-
-| Alternative | Why not default |
-|-------------|-----------------|
-| Dual-file `index.db` + `vectors.bin` | Two-file sync; append-only `.bin` risk |
-| BLOB-only + always IPC full matrix | Works as **fallback**, but vec0 avoids loading all vectors at large N |
-| Full sidecar rewrite each batch | Write amplification on small edits |
-
-### Phase C — Incremental maintenance {#phase-c-incremental}
-
-> **Superseded (likely indefinitely):** live edit hooks are **not on the roadmap**. Periodic background refresh ([Background folder indexer](#background-folder-indexer)) — **mtime vs `last_indexed_at`**, paragraph **`content_hash`** diff, and **`mark_file_indexed`** when content is unchanged — is the maintained strategy. A few minutes of index staleness is acceptable for cross-file semantic find.
-
-**Shipped via Phase B + periodic worker:**
-
-- [x] Paragraph `content_hash`; skip embed when hash unchanged
-- [x] Vector patch in place (`vec0` + `chunks`, or BLOB fallback) per [Corpus storage](#corpus-storage)
-- [x] Periodic background folder indexer (`EMBEDDINGS_INDEX_INTERVAL_S`)
-- [x] `mark_file_indexed` when mtime changes but hashes match
-
-**Not planned (original Phase C design — kept as historical notes below):**
-
-- [ ] **`XProofreading` change hook**
-- [ ] **~60 s debounced worker** per `doc_url` on every keystroke
-- [ ] Dirty marks from write tools
-- [ ] Supersede keys like [`grammar_work_queue.py`](../plugin/writer/locale/grammar_work_queue.py)
-
-#### `XProofreading` incremental hook {#xproofreading-incremental-hook}
-
-> **Historical / not planned.** The design below described a parallel proofreading hook for ~1-minute-fresh indexes. **Periodic mtime refresh replaces this** — less code, no grammar coupling, and acceptable latency for document_research.
-
-Writer already calls [`doProofreading`](../plugin/writer/locale/ai_grammar_proofreader.py) on the **`XProofreading`** linguistic path whenever the user types — that is how the native grammar proofreader learns which **text slice** changed. Embeddings maintenance **reuses that entry point** but is a **separate code path**:
-
-| | Grammar proofreader | Embeddings indexer |
-|--|---------------------|-------------------|
-| **UNO entry** | `XProofreading.doProofreading` | Same call site (parallel hook) |
-| **Work** | LLM grammar JSON + squiggles | Paragraph hash diff → venv batch re-embed |
-| **Latency** | ~1 s quiet window | **~60 s** quiet window before any embed work |
-| **User-visible** | Underlines | None (background index only) |
-
-**Do not** run embed logic inside the grammar proofreader class or share grammar’s sentence queue. Add a thin **embeddings listener** invoked from the same `doProofreading` dispatch (or shared pre-hook) that:
-
-1. Maps the proofread buffer slice to **paragraph index + normalized text** (same BreakIterator / paragraph boundaries grammar already uses — see [`grammar_proofread_text.py`](../plugin/writer/locale/grammar_proofread_text.py)).
-2. Compares `content_hash` to the locator row for `(doc_url, para_index)`.
-3. On mismatch, **marks paragraph dirty** and resets a **60 s idle timer** for that document — no venv call yet.
-
-When the timer fires (document quiet for **one minute**), drain all dirty paragraphs for that `doc_url` in one batch embed RPC, patch `vec_chunks` + `chunks`, update locator rows. Supersede inflight work if the user keeps typing (same supersede pattern as grammar’s `enqueue_seq`, different timeout constant).
-
-Grammar can be off while embeddings indexing stays on (separate config flags). External saves and non-Writer edits still converge via **mtime + hash diff on open** and the background folder indexer.
-
-### Phase D — Optional later
-
-- Main chat runs index before delegate; pass locators in task string
-- In-document chunk inject beside `[DOCUMENT CONTENT]` for one huge file ([Within-document retrieval](#within-document-retrieval-secondary))
-- Cloud embed tier-two when no venv ([Cloud embedding APIs](#cloud-embedding-apis-tier-two))
-
----
-
-## Within-document retrieval (secondary)
-
-For the **active document only**:
-
-- Writer/Calc already expose fast keyword/outline search to tools and users (`search_in_document`, outline helpers, sheet navigation).
-- Injecting extra chunks from an embedding index on every chat send is **optional** — useful when the 8k excerpt misses a distant section in a **single** 200-page file, not the usual case.
-- Implement after the **corpus index** proves value; same chunker and storage, scoped by `doc_url`.
-
----
-
-## Architecture
-
-WriterAgent runs NumPy, **sqlite-vec**, and **sentence-transformers** **only in the user venv subprocess** ([`PythonWorkerManager`](../plugin/scripting/venv_worker.py)). LibreOffice's embedded interpreter stays stdlib — no NumPy or sqlite-vec in-process.
-
-```mermaid
-flowchart TB
-  subgraph host [LO_host]
-    Outer["Outer document_research"]
-    IndexDB["writeragent_embeddings/corpus.db\n+ corpus_meta.json"]
-    RPC["embed / search RPC (pass db_path)"]
-  end
-  subgraph venv [Warm_venv_worker]
-    ST["SentenceTransformer\nbatch encode"]
-    Search["Hybrid RRF or vec0\n+ LangGraph MMR"]
-  end
-  Outer --> RPC
-  RPC -->|"Pickle5: texts (index) or query+db_path (search)"| ST
-  ST -->|"worker opens corpus.db"| Search
-  Search -->|"small results (locators+scores)"| RPC
-  RPC --> Outer
-```
-
-**Split responsibilities (shared on-disk DB + reference passing):**
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│ LibreOffice host (embedded Python — stdlib)                  │
-│  • Resolve listing_root; enqueue maintain RPC; _inflight dedupe │
-│  • corpus_meta.json on host; incremental state in corpus.db   │
-│  • Heartbeat-aware RPC timeout for long folder builds          │
-│  • Pass listing_root or query + db_path over RPC               │
-│  • Optional HTTP embed when no venv (tier two)               │
-└───────────────────────────┬─────────────────────────────────┘
-                            │ Pickle5 RPC (texts or query + db reference)
-┌───────────────────────────▼─────────────────────────────────┐
-│ User venv — warm worker (trusted module, same =PYTHON() venv)│
-│  • Opens corpus.db by path passed in                         │
-│  • sentence-transformers — lazy load, batch encode             │
-│  • sqlite-vec vec0 + FTS5 passages — storage and search      │
-│  • LangGraph ingest/search + hybrid RRF (trusted, unsandboxed)│
-│  • Returns only compact locator lists / small results        │
-└─────────────────────────────────────────────────────────────┘
-```
-
-**`corpus.db` + `corpus_meta.json`** live beside the document folder. The host orchestrates extract/diff enqueue; the venv worker owns encode and sqlite DML/search via trusted modules.
-
-**MVP path:** the worker receives **`corpus.db` path references** (plus small payloads) over the RPC. Encode and search happen inside trusted modules **outside** the LLM sandbox. [`scripts/bench_embeddings.py`](../scripts/bench_embeddings.py) still validates batch encode + NumPy dot/top-k at 349 paragraphs (dot+top-k **0.17 ms** median) — production search uses vec0/hybrid, not full-matrix reload per query. See [Development plan](#development-plan) and [Trusted extension code in the venv](enabling_numpy_in_libreoffice.md#trusted-extension-code-in-the-venv).
-
-**Do not** add `sqlite-vec` / `langgraph` / `os` to the **LLM** import whitelist — keep model load and DB access inside shipped `plugin.embeddings.venv.*` modules invoked via trusted RPC stubs that bypass the sandbox.
-
----
-
-## How embeddings work
-
-### Meaning signatures
-
-An embedding is a fixed-length list of floats (e.g. 384 or 1536) representing a chunk of text in multi-dimensional space. Chunks from **many files** live in one index; a query vector compares against all of them to surface the best **document + passage** matches.
-
-- "The dog is barky" and "Canine vocalization" are **close together**.
-- "The dog is barky" and "Pythons are interpreted languages" are **very far apart**.
-
-### Closeness = angle, not words
-
-We compare **angles** between vectors. If two vectors point in roughly the same direction, the texts have similar meanings.
-
-- **Dot product**: multiply values at each index and sum.
-- **Cosine similarity**: dot product of two **normalized** vectors (length 1.0).
-
-> **Optimization:** Normalize vectors **once** when stored (or when received from the API). Cosine search then reduces to a fast **dot product** scan.
-
----
-
-## Why NumPy stays in the venv {#why-numpy-stays-in-the-venv}
-
-NumPy carries a heavy "tax" inside a LibreOffice `.oxt`:
-
-- **Binary size**: ~50–100 MB per platform.
-- **Complexity**: packaging for Windows, macOS (Intel + Silicon), and Linux (x86 + ARM) is a maintenance nightmare.
-
-**WriterAgent's solution (shipped):** NumPy and **sentence-transformers** run **only in the user venv subprocess** — see [enabling_numpy_in_libreoffice.md](enabling_numpy_in_libreoffice.md). Host↔venv uses **Pickle5** by default (3.11–3.14). For MVP, **encode and search both stay in the venv** over IPC ([Development plan](#development-plan)).
-
----
-
-## Embedding inference
-
-Two tiers. **Shipped today (Phase A):** local **`sentence-transformers`** in the configured venv only — via [`embedding_client.embed_texts`](../plugin/framework/client/embedding_client.py). **Tier two (not implemented):** OpenRouter / Together / Ollama HTTP when no venv.
-
-**Current dispatch:** `embedding_provider` must be `local` (default). Host calls `run_code_in_user_venv` with a fixed stub → [`embeddings_index.embed_texts`](../plugin/embeddings/venv/embeddings_index.py). Requires `scripting.python_venv_path` with `pip install sentence-transformers numpy sqlite-vec langgraph langchain-core langchain-text-splitters envwrap odfpy pandas openpyxl xlrd python-docx` (embeddings pool does not fall back to LibreOffice embedded Python).
-
-**Future dispatch (when HTTP ships):** if venv + local model → venv RPC; else if chat endpoint supports embeddings → HTTP; else prompt user to configure venv or API.
-
-**Production path:** indexing and search call [`embeddings_service`](../plugin/framework/client/embeddings_service.py) → [`embeddings_index`](../plugin/embeddings/venv/embeddings_index.py) → LangGraph / hybrid / sqlite-vec modules. Host may still call `embedding_client.embed_texts` for raw vectors in tests.
-
----
-
-## Local embedders (MVP) {#local-embedders-mvp}
-
-### Why sentence-transformers is tier one
-
-- **Already fits the venv bridge** — same `PythonWorkerManager` + Pickle5 path as NumPy calc scripts; nothing heavy in LibreOffice.
-- **Offline indexing** — embed a whole folder without API keys or rate limits; incremental paragraph re-embed stays cheap.
-- **CPU-viable** — many small models encode hundreds of paragraphs in seconds on a laptop when you **batch** and use **NumPy dot products** for search (not Python loops).
-- **Same stack as dedup/search prototypes** — proven patterns from [`embeddings_dedup.py`](file:///home/keithcu/Desktop/LinuxReport/embeddings_dedup.py) (LinuxReport project): lazy-loaded model, batch `encode(..., convert_to_tensor=False)`, L2-normalized vectors, `np.dot` for cosine.
-
-### Performance lessons (slow first version → fast second)
-
-The LinuxReport dedup code documents a real refactor:
-
-| Approach | Behavior | Typical cost (200 texts) |
-|----------|----------|---------------------------|
-| **Slow (v1)** | Per-text encode or Python loop over pairs | ~1.5–2.0 s |
-| **Fast (v2)** | Batch `encode` + `np.stack` + matrix `np.dot` | ~0.002 s (~**700–800×** in their benchmark) |
-
-WriterAgent should **never** embed or rank one paragraph at a time in a Python loop for corpus work. MVP pipeline:
-
-1. **Lazy-load** one `SentenceTransformer` per worker process (amortize model load).
-2. **Batch** all paragraphs needing embed in one `encode(valid_texts, convert_to_tensor=False)` call.
-3. **Normalize once** → float32 in **`chunks.embedding` BLOB** (and vec0 when sqlite-vec is installed).
-4. **Query:** encode query → NumPy `np.dot` + top-k in venv ([bench sample](#benchmark-on-your-machine)); vec0 `MATCH` only when sqlite-vec is present.
-
-Optional in-worker **text hash cache** during a single index pass (like LinuxReport's `embedding_cache` dict) avoids re-encoding identical paragraphs across files; persistent dedup uses **`content_hash`** in SQLite instead of storing raw text.
-
-### Model shortlist (beyond legacy MiniLM-only defaults)
-
-`all-MiniLM-L6-v2` (384-dim, ~22M params) is the old default everyone knows — still a solid **baseline**, but test alternatives on **your** CPU before locking config:
-
-| Model (HF id) | Dim | Lean / quality | Notes |
-|---------------|-----|----------------|-------|
-| **`all-MiniLM-L6-v2`** | 384 | Fastest baseline | LinuxReport default; good for benchmarking “classic” speed. |
-| **`BAAI/bge-small-en-v1.5`** | 384 | Fast, strong retrieval | Popular RAG choice; often beats MiniLM on MTEB retrieval at similar size. |
-| **`intfloat/e5-small-v2`** | 384 | Fast | Prefix `"query: "` / `"passage: "` at encode time (library or prompt wrapper). |
-| **`Snowflake/snowflake-arctic-embed-xs`** | 384 | Fast, newer | Competitive small encoder; worth A/B vs MiniLM. |
-| **`sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`** | 384 | Medium speed | Non-English folders. |
-| **`all-mpnet-base-v2`** | 768 | Slower, higher quality | When CPU budget allows; ~2× dim → larger `index.db`. |
-| **`BAAI/bge-base-en-v1.5`** | 768 | Medium–slow | Step up from bge-small when quality gaps show in testing. |
-| **`nomic-embed-text-v1.5`** | 768 | Via ST or Ollama | Long-context friendly; heavier — profile before corpus index. |
-
-**Ollama-local** (`nomic-embed-text`, `embeddinggemma`, …) is an alternative **local** path without `sentence-transformers` in venv — still tier one “local”, different packaging. Pick one local stack per install (ST in venv **or** Ollama HTTP to localhost), not both for the same index.
-
-Store **`embedding_model`** in config as the HuggingFace id (local) or provider model string (cloud). Changing model requires cold rebuild of the folder **`corpus.db`** cache ([Corpus storage](#corpus-storage)).
-
-### Venv setup (MVP)
-
-**Minimum (required):**
-
-```bash
-# In the venv referenced by scripting.python_venv_path
-pip install sentence-transformers numpy sqlite-vec langgraph langchain-core langchain-text-splitters envwrap odfpy
-# PyTorch CPU wheel is pulled by sentence-transformers; first run downloads model weights.
-```
-
-See [Installing sqlite-vec](#installing-sqlite-vec) if `sqlite_vec.load()` fails on your platform. Canonical one-liner: `EMBEDDINGS_VENV_PIP_INSTALL` in [`embeddings_index.py`](../plugin/embeddings/venv/embeddings_index.py).
-
-Warm worker loads the model once; subsequent index batches reuse it (same pattern as LinuxReport's global `embedder` lazy init).
-
-### Benchmark on your machine {#benchmark-on-your-machine}
-
-Run [`scripts/bench_embeddings.py`](../scripts/bench_embeddings.py) — document-sized encode + query timing via the **warm venv worker** (Pickle5 IPC, not worker-side file I/O):
-
-```bash
-python scripts/bench_embeddings.py
-python scripts/bench_embeddings.py --models all-MiniLM-L6-v2,BAAI/bge-small-en-v1.5
-```
-
-Uses [`scripts/longdocsample.odt`](../scripts/longdocsample.odt) (349 non-empty paragraphs). Flow:
-
-1. Host extracts paragraphs (stdlib ODT unzip) and passes the text list via worker **`data=`**.
-2. **Encode bench:** lazy `SentenceTransformer`, one batch `encode(all_paragraphs)`; `corpus_matrix` stays in worker session.
-3. **Search bench:** median over `--search-iters` (default 50) for query encode, `np.dot` + top-k, and combined query time.
-4. Host optionally writes `/tmp/writeragent_embed_paragraphs.json` and `/tmp/writeragent_embed_sidecar.bin` for inspection.
-
-**Sample result (Arch Linux, `/home/keithcu/Desktop/Python/venv`, 2026-06):**
+[`scripts/bench_embeddings.py`](../scripts/bench_embeddings.py) on [`longdocsample.odt`](../scripts/longdocsample.odt) (349 paragraphs):
 
 | Metric | `all-MiniLM-L6-v2` |
 |--------|-------------------|
-| Paragraphs / dim | 349 / 384 |
-| Sidecar | 0.51 MiB |
-| Model load | 2.810 s |
-| Batch encode (corpus) | 1.062 s |
+| Batch encode | 1.062 s |
 | Query encode (median) | 3.715 ms |
 | Dot + top-k (median) | 0.167 ms |
-| Query total (median) | 3.879 ms |
 
-Top hit for query *"offline-first data collection systems KoboToolbox"*: para 245 (0.84), then title para 0 (0.76). Dot+top-k at sub-ms validates the vectorized search path from LinuxReport [`embeddings_dedup.py`](file:///home/keithcu/Desktop/LinuxReport/embeddings_dedup.py).
+Production search uses vec0/hybrid, not full-matrix reload per query.
 
-Repeat with **2–3 models** from the [shortlist](#local-embedders-mvp); record dim, encode s, query ms, sidecar MB (`N × dim × 4`). Log machine, Python version, and BLAS backend when comparing runs.
+### Local embedders {#local-embedders-mvp}
 
-**Reference implementation:** [`embeddings_dedup.py`](file:///home/keithcu/Desktop/LinuxReport/embeddings_dedup.py) — `get_embeddings`, `_compute_cosine_similarities` (batch + NumPy). Port the **batch/NumPy** shape into WriterAgent's venv embed module as the **search fallback**; primary persist/search uses sqlite-vec `vec0` ([Corpus storage](#corpus-storage)).
+**Tier one:** `sentence-transformers` in the configured venv — offline, batched CPU, no per-paragraph API cost.
 
----
+| Model | Dim | Notes |
+|-------|-----|-------|
+| `paraphrase-multilingual-MiniLM-L12-v2` | 384 | **Default** — multilingual |
+| `BAAI/bge-small-en-v1.5` | 384 | Strong English retrieval |
+| `all-MiniLM-L6-v2` | 384 | Fast baseline |
+| `all-mpnet-base-v2` | 768 | Higher quality, larger index |
 
-## Cloud embedding APIs (tier two)
-
-Use when no venv, or when you want hosted large models (e.g. OpenRouter `text-embedding-3-large`) without local GPU/CPU load.
-
-### OpenRouter
-
-- Endpoint: `POST https://openrouter.ai/api/v1/embeddings`
-- Same API key as chat. Request: `model`, `input` (string or array of strings).
-- Optional: `dimensions`, `encoding_format`, `input_type`, `provider`.
-
-### Together AI
-
-- Endpoint: `{configured_endpoint}/embeddings` (OpenAI-compatible).
-- Models: e.g. BAAI/bge-large-en-v1.5, togethercomputer/m2-bert-80M-8k-retrieval.
-
-### Ollama (local HTTP, no ST venv)
-
-- Endpoint: `POST {base}/api/embed`
-- Models: `nomic-embed-text`, `all-minilm`, `embeddinggemma` — local process, not LibreOffice.
-
-### Config
-
-- **`embedding_model`** + **`embedding_model_lru`** (mirror [`get_image_model`](../plugin/framework/client/model_fetcher.py)).
-- **`embedding_provider`**: `local` (sentence-transformers in venv) | `openrouter` | `together` | `ollama` — auto-detect from model id / endpoint when unset.
+Always **batch** embed — never one paragraph at a time in a Python loop.
 
 ---
 
-## Index size growth {#index-size-growth}
+## Within-document retrieval (secondary) {#within-document-retrieval-secondary}
 
-On-disk size scales with **indexed paragraph count**, not raw `.odt` bytes. Vectors dominate.
-
-**Formula (BLOB path, float32):**
-
-```text
-vector_bytes ≈ num_chunks × dim × 4
-```
-
-Default model `all-MiniLM-L6-v2` (384-dim) → **~1.5 KiB per non-empty paragraph** + small locator overhead per row.
-
-**Example unit:** [`scripts/longdocsample.odt`](../scripts/longdocsample.odt) — **349** non-empty paragraphs → **~0.51 MiB** vectors only ([benchmark](#benchmark-on-your-machine)).
-
-| Files (longdoc-sized) | Paragraphs | Vector data | corpus.db (rough) |
-|----------------------|------------|-------------|---------------------|
-| 1 | 349 | 0.5 MiB | ~0.6 MiB |
-| 10 | 3,490 | 5 MiB | ~6 MiB |
-| 100 | 34,900 | 51 MiB | ~55–65 MiB |
-
-768-dim models double vector storage. Short documents contribute far less. Incremental edits patch rows in place — size tracks **live** chunk count, not edit history.
-
-**RAM (search, BLOB path):** each cold load materializes roughly the vector column into a NumPy matrix — e.g. **~50–60 MiB** peak for the 100-longdoc example. That motivates [in-worker corpus cache](#embeddings-in-worker-cache) for repeat queries without re-reading disk every time.
+For the **active document only**: optional future injection of extra chunks beside `[DOCUMENT CONTENT]` on chat send when the 8k excerpt misses a distant section in one huge file. **Not shipped.** Implement after corpus cross-file search proves value; same chunker, scoped by `doc_url`.
 
 ---
 
-## Persistence — keep the cache small {#minimal-index}
-
-**Goal:** one compact **`writeragent_embeddings/`** per directory. Vectors, passage text, FTS5, and incremental state in unified **`corpus.db`**; summary in **`corpus_meta.json`**. See [Corpus storage](#corpus-storage).
-
-### What we store
-
-| Part | Contents | Size driver |
-|------|----------|-------------|
-| **`vec_chunks` (vec0)** | Normalized float32 embeddings (primary) | `n × dim × 4` bytes + sqlite-vec overhead |
-| **`chunks.body`** | Full embedded chunk text | ~bytes of indexed prose (see [Search hit shape](#search-hit-shape)) |
-| **`passages` (FTS5)** | Same chunk bodies for BM25/NEAR | Duplicates prose for hybrid search ([Folder FTS](#folder-fts)) |
-| **Locator rows** | `doc_url`, `para_index`, internal `char_start`/`char_end`, `content_hash` in `chunks`; **`indexed_files`** / **`indexed_paragraphs`** for incremental maintain | Tiny per row |
-
-### Search hit shape {#search-hit-shape}
-
-**Shipped (2026-06):** `search_nearby_files` (hybrid mode) returns tool-facing hits only:
-
-```json
-{"doc_url": "file:///…/notes.odt", "score": 0.85, "snippet": "…passage that was embedded…", "para_index": 12}
-```
-
-- **`snippet`** — for multi-chunk paragraphs, the **full ODF paragraph** (sibling sub-chunks merged by `para_index`); otherwise the embedded chunk from `chunks.body` (whitespace-normalized, up to [`CHUNK_SIZE`](../plugin/embeddings/embeddings_split.py) — 512 characters). Inner agent should **`search_in_document`** for this text (or the query topic) after `delegate_read_document`.
-- **`para_index`** — weak hint (ODF extract ordinal; may not match LO body enumeration). **Do not** treat as an exact jump target.
-- **`char_start` / `char_end`** — **not** returned in hits (ODF-local sub-chunk offsets; misleading vs live Writer). Still stored in `chunks` for internal `chunk_id` stability.
-
-### Retrieval quality — shipped vs future {#retrieval-quality}
-
-**Shipped:**
-
-- Hybrid RRF (BM25/NEAR + vec0 kNN) → **parent-paragraph merge** → optional **cross-encoder rerank** when Settings enabled (MMR commented out on hybrid for fair comparison; see [`embeddings_cross_encoder_rerank.py`](../plugin/embeddings/venv/embeddings_cross_encoder_rerank.py)) ([`embeddings_hybrid_search.py`](../plugin/embeddings/venv/embeddings_hybrid_search.py), [`embeddings_parent_hits.py`](../plugin/embeddings/venv/embeddings_parent_hits.py)).
-- Vec-only path: bi-encoder kNN → parent merge → MMR ([`embeddings_search_graph.py`](../plugin/embeddings/venv/embeddings_search_graph.py)).
-- LlamaIndex path: RRF fusion → parent merge → optional cross-encoder rerank ([`embeddings_llama_index.py`](../plugin/embeddings/venv/embeddings_llama_index.py)).
-- **Shared retrieval pool** on both hybrid backends: [`hybrid_retrieval_pool`](../plugin/embeddings/venv/embeddings_retrieval_pool.py) — over-fetch `min(max(k×4, 20), 50)` before fusion truncate / cross-encoder rerank.
-- **Cross-encoder rerank** (LlamaIndex, Settings toggle): second-stage `(query, chunk)` scoring after wide retrieve.
-
-Parent merge is query-time SQL over `chunks` — **no re-index** when enabling it. Folder routing top-1 accuracy is unchanged; only `snippet` width and rerank/MMR inputs differ.
-
-**Future (not shipped):**
-
-See also [Index granularity](#index-granularity) for the layered extract → chunk → parent → in-doc model and embedding-dilution problem.
-
-| Phase | Idea | When to consider |
-|-------|------|------------------|
-| **Stronger embedding model** | Settings `embedding_model` → re-index (e.g. `BAAI/bge-small-en-v1.5`) | When bi-encoder recall is the bottleneck |
-| **Configurable chunk size** | Settings or per-`doc_kind` `CHUNK_SIZE` / overlap (tokens vs chars eval) | A/B via [`eval_folder_search_routing.py`](../scripts/eval_folder_search_routing.py) |
-| **Contextual / prepend chunks** | Section title or heading prepended to each chunk before embed (contextual retrieval) | Long docs where chunk text lacks section context |
-| **Sentence-level vectors** | Optional second index or sub-chunk grain for citation | Pinpoint recall; accept N× vector count |
-| **Heading-level / section parents** | Parent context above single paragraph (AutoMergingRetriever with section tree) | When paragraph-level context is still too narrow; paragraph parent is shipped |
-| **Late chunking** | Embed full paragraph once, pool token vectors for sub-spans | Research — may pair with long-context embedders |
-
-Professionals rarely grep hit previews; they align **display size with indexed chunk size** and improve **ranking** (reranker, model) when bi-encoder recall is imprecise.
-
-### Locator fields (internal + host JSON)
-
-- **`doc_url`** — which file.
-- **`doc_revision`** / **`file_mtime`** — invalidate when file changes.
-- **`para_index`** — ODF paragraph ordinal at index time (not guaranteed LO-native).
-- **`char_start`**, **`char_end`** — internal sub-chunk identity only (ingest / `chunks` upsert).
-- **`content_hash`** — incremental invalidation per paragraph.
-- **`chunk_id`** — deterministic id joining vector to metadata.
-
-At **index time**, extract chunk text → embed → upsert into `chunks` + `vec_chunks` + FTS `passages`; `chunks.body` retains the full chunk body for snippet retrieval.
-
-At **query time**, top-k returns **`doc_url` + `snippet`** → outer agent opens file → inner agent searches live content.
-
-### Future: slimmer corpus storage (research)
-
-**Goal:** avoid retaining a **full duplicate** of indexed prose in `writeragent_embeddings/` long term — vectors + locators + **short snippet/hash** only.
-
-**Options under consideration** (not shipped):
-
-| Direction | Pros | Cons |
-|-----------|------|------|
-| **Snippet-only storage** | Store capped snippet in `chunks.body`; drop full duplicate prose | Re-index on format change; snippet already stale vs live doc |
-| **Stronger stdlib ODF walk** | Better `para_index` without LO ([`embeddings_fs.py`](../plugin/embeddings/embeddings_fs.py) body-order walk) | Still not full LO parity (tables, fields) |
-| **Headless LO in venv subprocess** | Matches `getString()` / enumeration | Spawn cost; Flatpak; another moving part |
-| **Shared document_research extract** | One parse path for grep + embeddings | Same alignment research as [document_research](../plugin/doc/document_research.py) |
-
-Keep **own parsing vs background LO** on the document_research roadmap; embeddings should converge on whichever extract wins parity measurement ([`scripts/compare_embeddings_extract.py`](../scripts/compare_embeddings_extract.py)).
-
-### Host metadata schema
-
-Locator fields — stored in `corpus.db` (`chunks`, `indexed_files`, `indexed_paragraphs`) ([Corpus cache layout](#corpus-cache-layout), [Corpus storage](#corpus-storage)):
-
-```text
-(chunk_id, doc_url, doc_revision, embedding_model,
- para_index, char_start, char_end, content_hash,
- file_mtime, last_indexed_at)
-```
-
-Vectors live in **`vec_chunks`**. Extend with Calc/Draw locator columns when those index paths ship; same “reference only” rule.
-
-### Modes
-
-1. **On-disk corpus (default)** — `corpus.db` + `corpus_meta.json` beside the document folder; scales to folder-sized corpora.
-2. **In-memory subset (optional later)** — bounded “recent N” only; see [HNSW](#hnsw-and-hnsw-lite) in Future optimizations.
-
-### Versioning
-
-Re-index entire doc when `embedding_model` changes. For day-to-day edits, **`content_hash` per paragraph** drives incremental embed ([Incremental updates](#incremental-updates)); `doc_revision` / mtime catches files edited outside WriterAgent.
-
-### Vendoring patterns (no LangChain dependency)
-
-Reference implementations to adapt:
-
-- **langchain_core.vectorstores.in_memory** — dump/load pattern; replace body with `index.db` vec0 layout.
-- **langchain_community.vectorstores.sklearn** — `BinaryVectorSerializer` — useful for **NumPy fallback** only.
-- **langchain_community.vectorstores.sqlitevec** — primary reference for vec0 integration.
-
-**SQLite note:** Search runs in a **trusted venv module** — sqlite-vec `MATCH` by default; NumPy when [Search fallback](#search-fallback) is active. Host stdlib `sqlite3` may maintain `chunks` locators on the index worker thread ([Trusted extension code in the venv](enabling_numpy_in_libreoffice.md#trusted-extension-code-in-the-venv)).
-
----
-
-## Indexing pipeline
-
-**Build the minimal corpus index:**
-
-1. **Discover** — document_research in folder → check per-folder cache; if missing, background scan of all siblings ([Background folder indexer](#background-folder-indexer)); else `list_nearby_files` scope for incremental work.
-2. **Chunk in memory** — ~500-character windows with paragraph/offset tracking ([Chunking](#chunking)).
-3. **Embed** — venv `sentence-transformers` batch (MVP) or cloud HTTP; normalize float32; **discard chunk text** after encode.
-4. **Persist** — LangGraph ingest → `corpus.db` (`chunks`, `vec_chunks`, FTS `passages`) + **`content_hash`** ([Corpus storage](#corpus-storage)); skip embed when hash unchanged ([Incremental updates](#incremental-updates)).
-5. **Outer lookup** — `search_nearby_files(query, k)` → locators → open **1–few** files → inner read at offset.
-
-**Optional — active document only:** same pipeline for one `doc_url`; inject live-fetched text on main send (**secondary**).
-
----
-
-## Incremental index maintenance {#incremental-updates}
-
-The corpus index must stay **current without full re-embeds**. Grammar proofreading already solves a related problem: detect what changed, queue work, supersede stale jobs, write results to a cache — but on a **sentence** cadence with ~**1 s** quiet windows because users want squiggles immediately ([realtime-grammar-checker-plan.md](realtime-grammar-checker-plan.md), [`grammar_work_queue.py`](../plugin/writer/locale/grammar_work_queue.py)). **Embeddings are the opposite latency class:** stale-by-a-minute is acceptable; cost is **CPU batch encode** (local) or HTTP embed batches (cloud) for changed paragraphs only — not per-keystroke work.
-
-### Paragraph hash (primary) vs sentence hash {#paragraph-hash-primary-vs-sentence-hash}
-
-Store a **content fingerprint per indexed unit** alongside each locator row. Index **vectors** are sub-paragraph chunks; invalidation defaults to **paragraph** grain — see [Index granularity](#index-granularity).
-
-| Granularity | Fingerprint key | Re-embed when | Notes |
-|-------------|-------------------|---------------|-------|
-| **Paragraph (default)** | `hash(normalized_para_text)` | Paragraph body changes | Matches Writer paragraph boundaries; fewer rows than sentences; aligns with chunker `\n\n` splits. |
-| **Sentence (optional)** | `hash(normalized_sentence_text)` | Sentence changes | Finer invalidation inside long paragraphs; more index rows and API calls — use only if profiling shows paragraph grain is too coarse. |
-
-**Schema addition:** `(para_index, content_hash)` — or `(para_index, sent_index, content_hash)` if sentence grain ships later. On index pass, compute hash from extracted text; **skip encode** when hash matches the stored row for that `(doc_url, para_index, embedding_model)`.
-
-Normalized text for hashing should match what the chunker sees (tracked-deletion-free string where grammar uses [`get_string_without_tracked_deletions()`](../plugin/doc/document_helpers.py) — same stability goal as proofreader sentence keys).
-
-### Always search; update in the background
-
-**Lookup never blocks on re-embed.** `search_nearby_files` reads the **current** `corpus.db` index:
-
-- **Unchanged paragraphs** — existing vectors remain valid (hash match).
-- **Changed paragraphs** — old vectors may still rank until the incremental worker replaces them; locators may drift if paragraph boundaries moved — **re-resolve on open** via `search_in_document` on the hit **snippet** (not character offsets).
-- **New paragraphs** — no row yet → optional low-priority enqueue; search may miss until embedded.
-- **Deleted paragraphs** — tombstone or delete locator rows on next maintenance pass.
-
-This is intentional: **semantic find stays fast**; index converges asynchronously.
-
-### Where edits are observed
-
-**Primary — typing in Writer (`XProofreading`):** hook **`doProofreading`** alongside grammar ([XProofreading incremental hook](#xproofreading-incremental-hook)). Separate embeddings listener; **wait 60 s** after last change before batch re-embed. Not sentence-speed — find-doc can be ~1 min stale.
-
-**Secondary — WriterAgent write tools:** after successful `apply_document_content` / Calc·Draw write tools, mark `(doc_url)` dirty (same debounced worker).
-
-**Tertiary — folder / open path:** background folder indexer on document_research; hash diff on doc open; mtime sweep for files edited outside WriterAgent.
-
-**Do not** duplicate UNO mutation listeners everywhere — the proofreading API already delivers paragraph-scale text on every edit when linguistic checking is active; embeddings can subscribe in parallel even when grammar LLM is disabled.
-
-### Debounced worker (~1 minute, not grammar-speed)
-
-Mirror grammar queue **patterns**, not timings. Embeddings **must not** run on every `doProofreading` call — only after **~60 s** with no further dirty marks for that `doc_url`:
-
-| Aspect | Grammar proofreader | Embeddings index |
-|--------|---------------------|------------------|
-| **User expectation** | Errors visible within ~1 s | Find-doc can be ~1 min stale |
-| **Quiet/coalesce window** | ~1 s batch drain (`GRAMMAR_WORKER_PAUSE_TIMEOUT_S`) | **~60 s** (configurable) per `(doc_url)` |
-| **Work unit** | Sentence | Paragraph (default) |
-| **Supersede** | `inflight_key` + `enqueue_seq` — newest wins | Same idea: `{doc_url}|{para_index}|{embedding_model}` |
-| **API call** | Small grammar LLM per batch | **Local:** CPU batch encode in venv; **cloud:** HTTP embed batch for changed hashes only |
-
-On dirty signal: bump `enqueue_seq` for affected paragraph keys; worker waits until the doc is **idle ~60 s**, drains the batch, re-extracts only paragraphs whose **hash ≠ stored hash**, calls `embed_texts` in batch, patches `vec_chunks` + `chunks` ([Corpus storage](#corpus-storage)).
-
-Do **not** embed on every keystroke — that would duplicate grammar's stampede problem at encode cost (local CPU or cloud quota).
-
-### Vector patch strategy
-
-Apply patches with **in-place update semantics** — size tracks live corpus, not edit history ([Corpus storage](#corpus-storage)). **Schema v3:** LangGraph ingest upserts/deletes rows in `corpus.db`; table below covers vec0 + BLOB fallback paths.
-
-| Backend | Changed paragraph | New paragraph | Deleted paragraph |
-|---------|-------------------|---------------|-------------------|
-| **vec0 (default)** | `UPDATE vec_chunks …`; sync `chunks.content_hash` | `INSERT` into both tables | `DELETE` from both |
-| **BLOB fallback** | `UPDATE chunks SET embedding=?, content_hash=?` | `INSERT` row with BLOB | `DELETE` row |
-
-**Anti-pattern — do not use:** append-only vector logs or dual-file `vectors.bin` sidecars that grow on every edit.
-
-Keep **locators** in sync when paragraph indices shift after large edits (re-walk paragraph list on full doc hash mismatch).
-
-### Fleet / multi-writer note
-
-If **all edits flow through WriterAgent**, each installation updates its local index for docs it modifies — no central server required. Two machines editing the same `file://` URL via sync (Nextcloud, etc.) rely on **revision / mtime + hash diff on open** to reconcile; last writer's embedding pass wins per paragraph hash. Document the conflict model; do not promise CRDT merge in v1.
-
-### Phasing
-
-- **Phase B:** `index.db` + vec0; background folder indexer; NumPy [Search fallback](#search-fallback); hash columns stored; periodic mtime refresh.
-- **Phase C (live hooks):** not planned — superseded by periodic background indexer + mtime/hash diff (see [Phase C](#phase-c-incremental)).
-
----
-
-## Chunking {#chunking}
-
-Naive character splits destroy meaning. Vendor MIT **RecursiveCharacterTextSplitter** logic (~100 lines) — no langchain package.
-
-- **Repository:** [langchain-text-splitters](https://github.com/langchain-ai/langchain/tree/master/libs/text-splitters/langchain_text_splitters)
-- **Key file:** `recursive_character.py` — separators `["\n\n", "\n", " ", ""]`, `chunk_overlap` for context bridging.
-- **Index-time only:** while splitting, record **paragraph index and internal char offsets** for stable `chunk_id`s. Public search hits expose **snippets** only ([Search hit shape](#search-hit-shape)).
-
-### Index granularity (extract vs index vs display) {#index-granularity}
-
-Most production RAG stacks use **more than one unit** — not a single “per sentence” or “per paragraph” vector DB. WriterAgent layers extract, index, display, and precision stages:
-
-| Layer | WriterAgent today | Role |
-|-------|-------------------|------|
-| **Extract** | ODF paragraph (or Calc row / slide body) | Stable boundaries; `content_hash` per `para_index` |
-| **Index (vectors)** | Sub-paragraph chunks — 512 chars, 64 overlap ([`embeddings_split.py`](../plugin/embeddings/embeddings_split.py)) | Bi-encoder recall; `vec_chunks_<model>` rows |
-| **Display / context** | Parent-paragraph merge at query time ([`embeddings_parent_hits.py`](../plugin/embeddings/venv/embeddings_parent_hits.py)) | Full paragraph in `snippet` without re-index |
-| **Precision** | Hybrid RRF, wide pool, optional cross-encoder rerank; then **`search_in_document`** in opened file | Fix wrong concept inside a chunk |
-
-**Vector DB rows are chunks**, not sentences and not always whole paragraphs (long paragraphs → multiple vectors).
-
-#### Sentence vs paragraph vs chunk — when each wins
-
-| Granularity | Typical use | WriterAgent |
-|-------------|-------------|-------------|
-| **Sentence** | Citation, claim-level QA, live grammar | Grammar pipeline only; **not** folder embeddings |
-| **Paragraph** | File routing, incremental invalidation | Extract + hash default ([Incremental updates](#incremental-updates)) |
-| **Chunk (sub-paragraph)** | RAG retrieval default (~256–512 tokens/chars in LangChain/LlamaIndex) | **Shipped** index grain |
-
-**Sentence-level index (future):** optional `hash(sentence)` for finer invalidation inside long paragraphs — only if profiling shows paragraph grain is too coarse for **re-embed cost**, not as the first fix for recall ([Paragraph hash vs sentence hash](#paragraph-hash-primary-vs-sentence-hash)).
-
-#### Embedding dilution ("one concept from a chunk")
-
-**Problem:** a 512-char chunk mixing several topics (e.g. venv + numpy + MCP + streaming) yields one blended vector; a query about only "MCP" may rank poorly or surface the wrong sibling idea.
-
-**Mitigations — shipped:**
-
-- Smaller-than-paragraph chunks + overlap
-- Hybrid FTS + vector RRF (keyword leg)
-- Over-fetch `min(max(k×4, 20), 50)` before truncate/rerank ([`embeddings_retrieval_pool.py`](../plugin/embeddings/venv/embeddings_retrieval_pool.py))
-- Parent-paragraph merge (context without re-index)
-- Optional cross-encoder rerank on `(query, chunk)`
-- **Two-stage design:** index answers **which file / which paragraph**; inner agent **`search_in_document`** resolves exact wording in live LO
-
-**When chunks are "good enough":** cross-file routing and paragraph-level discovery (primary `document_research` use case). On `~/Desktop/Writing`, hybrid ~56% top-1 file routing; grep often wins 1–3 word queries ([Hybrid RRF baseline](#hybrid-rrf-baseline-schema-v3-re-measured-2026-06)).
-
-**When chunks are not enough:** pinpoint citation or single-sentence fact without opening the doc → need rerank, smaller chunks, sentence index, or mandatory in-doc search.
-
-```mermaid
-flowchart TD
-  query[Query]
-  hybrid[Hybrid RRF FTS plus vec kNN]
-  pool[Wide pool k times 4 capped 50]
-  parent[Parent paragraph merge]
-  rerank[Optional cross encoder rerank]
-  open[Open 1 few files]
-  inDoc[search_in_document on snippet or topic]
-  query --> hybrid --> pool --> parent --> rerank --> open --> inDoc
-```
-
-**Design invariant:** the index is **not** a document store — lookup returns **where to look** ([Search hit shape](#search-hit-shape)); `para_index` is a weak hint; `char_start` / `char_end` are internal only.
-
-### Calc ODS indexing {#calc-ods-indexing}
-
-Cross-folder index maintain includes **Calc** siblings (`.ods`, `.ots`, `.fods`) beside Writer files in the same folder.
-
-| Aspect | Behavior |
-|--------|----------|
-| **Extract** | [`embeddings_ods_extract.extract_calc_rows`](../plugin/embeddings/venv/embeddings_ods_extract.py) — `pandas.read_excel(..., engine="odf")` |
-| **Passage grain** | One indexable unit per **non-empty spreadsheet row** (tab-joined cell values) |
-| **Sheet context** | Row text prefixed with `[Sheet: {name}]\t…` for semantic / FTS snippets |
-| **`para_index`** | Stable row index across the file (sheet order, then row order) — weak locator hint; inner agent uses `search_in_spreadsheet` after open |
-| **Deps** | **`odfpy`** required in the embeddings venv (`pandas` typically already present); probed in Settings → Python Test |
-| **FTS mode** | Same rows land in `corpus.db` **`passages`** FTS5 — no separate Calc extract |
-
-Existing caches pick up `.ods` on the next incremental or cold maintain pass.
-
-### Microsoft Office and plain-text siblings {#foreign-office-indexing}
-
-Cross-folder index maintain also includes **Microsoft Office** and plain-text siblings beside native ODF files. **PDF is deferred** (future Python PDF library TBD).
-
-| Extensions | Extract path | Embeddings venv packages |
-|------------|--------------|--------------------------|
-| `.xlsx`, `.xls` | [`embeddings_ooxml_extract.extract_spreadsheet_rows`](../plugin/embeddings/venv/embeddings_ooxml_extract.py) — `pandas.read_excel` (`openpyxl` / `xlrd`) | `pandas`, `openpyxl`, `xlrd` |
-| `.docx` | `python-docx` paragraph walk | `python-docx` |
-| `.pptx` | stdlib zip + DrawingML `a:t` text nodes | (stdlib) |
-| `.csv`, `.txt`, `.rtf` | stdlib CSV / blank-line paragraphs / lightweight RTF strip | (stdlib) |
-| `.doc`, `.xls`, `.ppt` (legacy binary) | isolated headless `soffice --convert-to` → temp ODF → existing ODF extract → delete temp ([`embeddings_soffice_convert.py`](../plugin/embeddings/embeddings_soffice_convert.py)) | `soffice` on PATH |
-
-Search hits use the **original** `doc_url` (e.g. `file:///…/Budget.xlsx`). [`list_nearby_files`](../plugin/doc/document_research.py) and [`guess_indexable_paths`](../plugin/embeddings/embeddings_fs.py) share [`ALL_INDEXABLE_EXTENSIONS`](../plugin/embeddings/embeddings_fs.py).
-
-Install (embeddings venv): see `EMBEDDINGS_VENV_PIP_INSTALL` in [`embeddings_index.py`](../plugin/embeddings/venv/embeddings_index.py) — includes `python-docx`, `openpyxl`, `xlrd`, and `pandas` alongside the existing stack.
-
-### Impress/Draw ODP/ODG indexing {#impress-odp-odg-indexing}
-
-Cross-folder index maintain includes **Impress** (`.odp`, `.otp`, `.fodp`) and **Draw** (`.odg`) siblings beside Writer and Calc files.
-
-| Aspect | Behavior |
-|--------|----------|
-| **Extract** | [`embeddings_odp_extract.extract_draw_pages`](../plugin/embeddings/venv/embeddings_odp_extract.py) — `odfpy` `load()` + `getElementsByType(DrawPage)` |
-| **Passage grain** | One indexable unit per **slide/page body**; optional second passage for **speaker notes** |
-| **Context prefix** | `[Slide: {name}]\t…` and `[Notes: {name}]\t…` |
-| **`para_index`** | Monotonic over all passages in the file — weak locator; inner agent uses Draw/Impress read tools after open |
-| **Deps** | **`odfpy`** (same as Calc ODS) |
-| **FTS mode** | Same passages land in `corpus.db` **`passages`** FTS5 |
-
----
-
-## Corpus intelligence
-
-The index is a **router**, not a library mirror. **Chunks are routing signals**, not final answers: embedding dilution in multi-topic passages is expected, and the precision stage is opening the hit file + **`search_in_document`** (and optional cross-encoder rerank). See [Index granularity](#index-granularity) for the full two-stage retrieval model.
-
-### Outer agent: semantic find replaces grep
-
-- **Before:** filename filter + `search_in_document` across many opens.
-- **After:** one embedding query → ranked files + paragraph/offset → open winners → inner read.
-
-Opening **one** file at a known locator is the designed happy path. Opening **many** files without the index is what we eliminate.
-
-Pairs with [multi-document-dev-plan.md](multi-document-dev-plan.md): embeddings upgrade the **outer** tier; inner read tools unchanged.
-
-(See also the discussion in the Problem section above on why semantic search has a larger relative benefit for office/document content than for code search, where literal identifiers and structure make pure lexical tools unusually strong.)
-
-### Thematic clustering (future)
-
-K-Means on document-level vectors to group files by topic without manual folders.
-
-### Synthesis and gap analysis (research)
-
-Compare document vectors to find "semantic delta" — what is in document A but missing from draft B.
-
----
-
-## Future optimizations {#future-optimizations}
-
-Try these **only when profiling on multi-file corpora** shows IPC NumPy search or encode latency is insufficient. MVP stays on warm-worker Pickle5 IPC ([Development plan](#development-plan)).
-
-### Dedicated embeddings worker {#future-dedicated-worker}
-
-See [Planned: dedicated embeddings subprocess](#dedicated-embeddings-subprocess) and [In-worker corpus cache (RAM)](#embeddings-in-worker-cache). Summary: second `PythonWorkerManager` (embeddings-only) + optional ~60 s TTL RAM cache of `(folder_key → corpus_matrix)` so Calc `=PYTHON()` never queues behind batch embed and repeat vec search skips re-loading BLOBs from disk (historical v1 path).
-
-### Choosing a search backend {#choosing-a-search-backend}
-
-| Scenario | Default today | Optional later |
-|----------|---------------|----------------|
-| Single doc / folder, hundreds–few k chunks | NumPy BLOB dot + top-k in venv | sqlite-vec `vec0` if installed |
-| Large corpus, 5k+ chunks | NumPy BLOB (profile first) | vec0 or HNSW in venv (research) |
-| No venv | HTTP embed + stdlib loop on host | Cython top-k |
-
-| Approach | Role | Notes |
-|----------|------|-------|
-| **Venv + NumPy BLOB** | **Default** persist + search | Shipped bench path; sub-ms at N≈350 |
-| **Venv + sqlite-vec** | Optional vec0 when installed | Faster at very large N — enable only after profiling |
-| **Host Cython top-k** | Optional in-process search | [`writeragent_vec_search`](#cython-surface-area) |
-| **Parallel FTS + embeddings** | **Don't** | Double cache |
+## Future work {#future-optimizations}
+
+| Area | Idea |
+|------|------|
+| **Retrieval** | Metadata filters (doc kind, heading level), sub-question decomposition, stronger default model |
+| **Ingest** | Configurable chunk size, contextual chunk prepends, ingestion transform cache |
+| **Storage** | Slimmer cache (snippet-only bodies), optional HNSW at very large N |
+| **Product** | Main chat passes locators into delegate task; thematic clustering; gap analysis between drafts |
+| **Host perf** | Optional Cython `top_k_dot` ([Host Cython top_k_dot](#cython-surface-area)) if vec0 profiling shows need |
+
+Live edit hooks for embeddings are **not planned** — periodic mtime/hash refresh is the maintained strategy.
 
 ### Host Cython `top_k_dot` {#cython-surface-area}
 
-Mirror [`writeragent_vec`](../native/writeragent_vec/) — one hot function: scan row-major normalized float32 vectors, top-k by dot product. Layout: `native/writeragent_vec_search/` → `plugin/contrib/vec_search/`. Wire with `try: import writeragent_vec_search` and stdlib fallback.
+Optional in-process top-k over normalized float32 vectors — mirror [`writeragent_vec`](../native/writeragent_vec/). Defer until profiling on multi-file corpora shows need. See [cython-extension.md](cython-extension.md).
 
-### sqlite-vec in venv {#sqlite-vec-in-venv}
+### Implementation status {#development-plan}
 
-**Primary storage and search** — see [Corpus storage](#corpus-storage) and [Installing sqlite-vec](#installing-sqlite-vec). `sqlite-vec` indexes floats you already have — it does **not** embed text. User `pip install sqlite-vec` in the configured venv; do **not** vendor into OXT or LO process. See [sqlite-vec Python docs](https://alexgarcia.xyz/sqlite-vec/python.html).
-
-### ONNX runtime
-
-`onnxruntime` + exported ONNX weights can shrink dependencies vs full PyTorch for a **fixed** model. Defer — batched `sentence-transformers` is already fast enough ([Benchmark](#benchmark-on-your-machine)).
-
-### HNSW and hnsw-lite {#hnsw-and-hnsw-lite}
-
-Approximate nearest neighbor for bounded in-RAM subsets — not for full corpus streaming search on disk. PyPI: `hnsw-lite`. Rebuild from stored vectors on load; do not persist graphs by default.
-
-### Advanced research
-
-- Document-level vectors, K-Means clustering, semantic “gap analysis” between drafts
-- Dedicated embeddings subprocess + TTL RAM corpus cache ([Dedicated embeddings subprocess](#dedicated-embeddings-subprocess), [In-worker corpus cache](#embeddings-in-worker-cache))
-- Optional dedicated worker `action` for embed/search (see [Trusted extension code in the venv](enabling_numpy_in_libreoffice.md#trusted-extension-code-in-the-venv)) if stub overhead matters
+Cross-file hybrid search is **shipped** (schema v3 `corpus.db`, `search_nearby_files`, background indexer, Search dialog, dedicated embeddings worker pool). Alternative backends (LlamaIndex, Zvec, LanceDB) are optional Settings toggles — see appendices.
 
 ---
 
-## LlamaIndex search backend option {#llamaindex-option}
+## Related docs
 
-We introduce **LlamaIndex** as an alternative, optional backend for Cross-file search (FTS + embeddings) under the setting `folder_search_mode="llama_index"`.
+| Topic | Doc |
+|-------|-----|
+| Venv / NumPy boundary | [enabling_numpy_in_libreoffice.md](enabling_numpy_in_libreoffice.md) |
+| Multi-file discovery plan | [multi-document-dev-plan.md](multi-document-dev-plan.md) |
+| Cython build matrix | [cython-extension.md](cython-extension.md) |
+| Realtime grammar / hash patterns | [realtime-grammar-checker-plan.md](realtime-grammar-checker-plan.md) |
+| Chat memory (unrelated) | [langchain-plan.md](langchain-plan.md) |
 
-**Roadmap:** incremental fixes and big-advantage work items live in [LlamaIndex roadmap — starting point](#llamaindex-roadmap) (Phase 1 eval/ops, Phase 2 retrieval and agent payoffs).
+---
 
-### Design & Implementation
-This option subclasses LlamaIndex's core interfaces to map them directly to our existing unified SQLite database (`corpus.db`), keeping on-disk schema compatibility.
+## Appendix A: LlamaIndex backend {#llamaindex-option}
+
+**LlamaIndex** is an alternative, optional backend for cross-file search (FTS + embeddings) under **Settings → Vector Search → Cross-file search → LlamaIndex** (`folder_search_mode="llama_index"`).
+
+**Why it exists:** the default **`hybrid`** backend is a lean, hand-rolled sqlite-vec + FTS5 + vendored RRF stack. LlamaIndex is the path to **stock retrieval composition** — `QueryFusionRetriever`, `SentenceTransformerRerank`, `IngestionPipeline`, metadata filters, sub-question engines — without growing a parallel custom framework in `plugin/embeddings/venv/`. If you plan to invest in retrieval quality beyond “good enough RRF,” LlamaIndex is the intended integration surface.
+
+**Roadmap:** incremental fixes and big-advantage work items live in [LlamaIndex roadmap](#llamaindex-roadmap) (Phase 1 eval/ops done; Phase 2 retrieval and agent payoffs).
+
+### Design and implementation
+
+This option subclasses LlamaIndex core interfaces to map them directly to the existing unified SQLite database (`corpus.db`), keeping on-disk schema compatibility. Switching from **Embeddings + FTS** to LlamaIndex requires **no re-index** — same `corpus.db`, different retrieval stack.
 
 **What stays custom (WriterAgent-owned):**
+
 - `corpus.db` schema, FTS5 `passages`, sqlite-vec `vec0`, incremental `indexed_*` tables ([`embeddings_sqlite.py`](../plugin/embeddings/venv/embeddings_sqlite.py))
 - ODF/folder extraction, cache paths, background maintain loop ([`embeddings_folder_maintain.py`](../plugin/embeddings/venv/embeddings_folder_maintain.py))
 - Agent tool contract (`doc_url`, `para_index`, `snippet`, `score`, optional `matched_by`)
 
 **What LlamaIndex owns when `folder_search_mode="llama_index"`:**
-- **Hybrid retrieval:** stock [`QueryFusionRetriever`](https://developers.llamaindex.ai/python/framework/integrations/retrievers/reciprocal_rerank_fusion/) — vector + FTS legs fused with reciprocal rank fusion (`num_queries=1`, offline).
-- **Two-stage ranking:** over-retrieve via shared [`hybrid_retrieval_pool`](../plugin/embeddings/venv/embeddings_retrieval_pool.py) (`max(k×4, 20)` capped at 50) on **both** `hybrid` and `llama_index`, then [`SentenceTransformerRerank`](https://developers.llamaindex.ai/python/framework/module_guides/querying/node_postprocessors/) (`cross-encoder/ms-marco-MiniLM-L-6-v2` by default) when `use_mmr=True` on the search RPC. Custom hybrid uses the same pool formula and [`embeddings_cross_encoder_rerank.py`](../plugin/embeddings/venv/embeddings_cross_encoder_rerank.py) instead of LI postprocessors.
-- Ingest orchestration via `VectorStoreIndex.insert_nodes` (still writes the same SQLite tables)
 
-- **Warm Worker Process**: To protect the main LibreOffice in-process Python environment from large dependency trees, all LlamaIndex imports and operations are executed inside the trusted `PythonWorkerManager` virtual environment (venv) worker thread.
-- **SQLite adapters (storage boundary only):**
-  - `WriterAgentEmbedding` — local `SentenceTransformer` via `embed_texts`
-  - `WriterAgentVectorStore` — read/write `chunks` / `vec_chunks`
-  - `WriterAgentFTSRetriever` — FTS5 over `passages`
-  - `build_writer_agent_hybrid_retriever` / `run_hybrid_retrieval_pipeline` — RRF fusion → optional cross-encoder rerank → tool hits
+- **Hybrid retrieval:** stock [`QueryFusionRetriever`](https://developers.llamaindex.ai/python/framework/integrations/retrievers/reciprocal_rerank_fusion/) — vector + FTS legs fused with reciprocal rank fusion (`num_queries=1`, offline).
+- **Two-stage ranking:** over-retrieve via shared [`hybrid_retrieval_pool`](../plugin/embeddings/venv/embeddings_retrieval_pool.py) (`max(k×4, 20)` capped at 50) on **both** `hybrid` and `llama_index`, then [`SentenceTransformerRerank`](https://developers.llamaindex.ai/python/framework/module_guides/querying/node_postprocessors/) (`cross-encoder/ms-marco-MiniLM-L-6-v2` by default) when rerank is enabled on the search RPC. Custom hybrid uses the same pool formula and [`embeddings_cross_encoder_rerank.py`](../plugin/embeddings/venv/embeddings_cross_encoder_rerank.py) instead of LI postprocessors.
+- Ingest orchestration via `VectorStoreIndex.insert_nodes` (still writes the same SQLite tables)
+- **Warm worker process:** all LlamaIndex imports run inside the trusted `PythonWorkerManager` venv — zero pollution of LibreOffice embedded Python.
+
+**SQLite adapters** (storage boundary only — [`embeddings_llama_index.py`](../plugin/embeddings/venv/embeddings_llama_index.py)):
+
+| Adapter | Role |
+|---------|------|
+| `WriterAgentEmbedding` | Local `SentenceTransformer` via `embed_texts` |
+| `WriterAgentVectorStore` | Read/write `chunks` / `vec_chunks` |
+| `WriterAgentFTSRetriever` | FTS5 over `passages` |
+| `build_writer_agent_hybrid_retriever` / `run_hybrid_retrieval_pipeline` | RRF fusion → optional cross-encoder rerank → tool hits |
 
 Background indexing and search both honor Settings `embeddings.folder_search_mode` (including `llama_index`) via [`embeddings_indexer.py`](../plugin/embeddings/embeddings_indexer.py) and [`embeddings_service.py`](../plugin/framework/client/embeddings_service.py).
 
+### Comparison to default `hybrid` backend
+
+| Aspect | Custom `hybrid` | LlamaIndex |
+|--------|-----------------|------------|
+| **Storage** | `corpus.db` | Same `corpus.db` |
+| **RRF fusion** | Vendored [`hybrid_rrf.py`](../plugin/embeddings/venv/hybrid_rrf.py) | `QueryFusionRetriever` |
+| **Rerank** | [`embeddings_cross_encoder_rerank.py`](../plugin/embeddings/venv/embeddings_cross_encoder_rerank.py) | `SentenceTransformerRerank` |
+| **Dependencies** | Minimal (sqlite-vec, langgraph) | + `llama-index-core` |
+| **Future features** | Hand-roll each new retrieval idea | Compose from LI ecosystem (metadata, sub-questions, routers) |
+
+On `~/Desktop/Writing` (41 labeled queries, 2026-06), **LlamaIndex + cross-encoder rerank** led top-1 file routing (56.1%) vs custom hybrid RRF-only (53.7%); custom hybrid + rerank won top-3 (73.2%). See [Latest stack evaluation](#latest-stack-eval). Either backend is viable — LlamaIndex pays off when you want **framework composition** without maintaining parallel fusion/rerank code.
+
 ### What runs on each search — and what the LLM does {#llamaindex-no-chat-llm}
 
-**There is no chat LLM in the LlamaIndex folder-search path.** Sidebar / document_research chat models (OpenRouter, Ollama, etc.) only see the **final hit list** after retrieval finishes. They do not score chunks, fuse ranks, or rerank the index.
+**There is no chat LLM in the LlamaIndex folder-search path.** Sidebar / document_research chat models (OpenRouter, Ollama, etc.) only see the **final hit list** after retrieval finishes.
 
-Pipeline when `folder_search_mode="llama_index"` (see [`embeddings_llama_index.py`](../plugin/embeddings/venv/embeddings_llama_index.py)):
+Pipeline when `folder_search_mode="llama_index"`:
 
 ```text
 User query
@@ -1596,78 +648,81 @@ User query
 | 1 | `SentenceTransformer` bi-encoder | No | Encode query + compare to chunk vectors (semantic recall) |
 | 2 | SQLite FTS5 | No | Keyword / literal recall |
 | 3 | Reciprocal rank fusion | No | Merge two ranked lists by rank position |
-| 4 | `SentenceTransformerRerank` (Settings **Cross-file rerank**) | No | Score each **(query, chunk)** pair jointly; reorder top candidates |
+| 4 | `SentenceTransformerRerank` (Settings **Enable cross-file rerank**) | No | Score each **(query, chunk)** pair jointly; reorder top candidates |
 | After | Sidebar chat model | **Yes** | Interprets hits, opens files, answers the user — **not** part of index search |
 
-**Rerank is not done by the chat LLM.** Step 4 is a small local **cross-encoder** (~22M params): a classifier that outputs a relevance score. It does not generate text. Same idea as search rerankers in production RAG — not GPT/Claude.
+**Rerank is not done by the chat LLM.** Step 4 is a small local **cross-encoder** (~22M params for MiniLM): a classifier that outputs a relevance score. It does not generate text.
 
-On the default **`hybrid`** backend, step 4 is **cross-encoder rerank** when Settings **Enable cross-file rerank** is on (via [`embeddings_cross_encoder_rerank.py`](../plugin/embeddings/venv/embeddings_cross_encoder_rerank.py)); otherwise RRF fused top‑k only. **MMR diversity rerank is commented out** on hybrid (2026‑06 experiment) — vec-only path still uses MMR.
+**When rerank runs:** cross-encoder rerank runs when **Enable cross-file rerank** is on, the search RPC has `use_mmr=True` + `rerank_model`, **and** final `k > 1`. **Off by default** — both backends use RRF-only until enabled.
 
-**When rerank runs:** cross-encoder rerank runs when **Enable cross-file rerank** is on (both **Embeddings + FTS** and **LlamaIndex**), the search RPC has `use_mmr=True` + `rerank_model`, **and** final `k > 1`. **Off by default** — both backends use RRF-only until enabled.
-
-**Settings → Embeddings** (only when **Cross-file search** is **LlamaIndex**):
-
-| Control | Config key | Notes |
-|---------|------------|-------|
-| **Enable cross-file rerank (LlamaIndex)** | `embeddings.folder_rerank_enabled` | Checkbox; default **off** (RRF-only) |
-| **Rerank model** | `embeddings.folder_rerank_model` | Select with HuggingFace model ids |
-
-| Model id (dropdown) | Notes |
-|---------------------|-------|
-| `cross-encoder/ms-marco-MiniLM-L-6-v2` (default) | English queries/passages; ~22M params; fast |
-| `BAAI/bge-reranker-v2-m3` | 100+ languages; ~568M params, ~2.3 GB download |
+| Rerank model (Settings dropdown) | Notes |
+|----------------------------------|-------|
+| `cross-encoder/ms-marco-MiniLM-L-6-v2` (default) | English; ~22M params; fast |
+| `BAAI/bge-reranker-v2-m3` | 100+ languages; ~568M params; ~2.3 GB download |
 
 Embeddings stay on **Embedding Model** (default multilingual MiniLM). Rerank is query-time only — toggle or change model without rebuilding `corpus.db`.
 
-**Quality vs “without an LLM”:** retrieval quality is not “worse because we skip the chat LLM.” Standard RAG keeps retrieval non-generative (embed + keyword + optional reranker) and uses the chat LLM **after** search. LlamaIndex mode may improve ordering vs hybrid on paraphrase/short queries because of the cross-encoder; we have not published a measured A/B table yet — use [Evaluation & Comparison](#llamaindex-eval) below.
+**Offline note:** `QueryFusionRetriever` must receive `MockLLM()` when `num_queries=1`; otherwise LlamaIndex resolves `Settings.llm` (OpenAI) at init even though query expansion is disabled — see [`embeddings_llama_index.py`](../plugin/embeddings/venv/embeddings_llama_index.py).
 
-### Query expansion (LlamaIndex feature — disabled in WriterAgent) {#llamaindex-query-expansion}
+### Query expansion (disabled in WriterAgent) {#llamaindex-query-expansion}
 
-LlamaIndex’s [`QueryFusionRetriever`](https://developers.llamaindex.ai/python/framework/integrations/retrievers/reciprocal_rerank_fusion/) can optionally **expand the query** before retrieval: with `num_queries > 1`, it uses a **chat LLM** to generate alternate phrasings (e.g. turn “Q4 budget figures” into several related queries), runs each query against the retrievers, then fuses all result lists with RRF.
+LlamaIndex’s [`QueryFusionRetriever`](https://developers.llamaindex.ai/python/framework/integrations/retrievers/reciprocal_rerank_fusion/) can optionally **expand the query** before retrieval: with `num_queries > 1`, it uses a **chat LLM** to generate alternate phrasings, runs each query against the retrievers, then fuses all result lists with RRF.
 
 **WriterAgent sets `num_queries=1`** in [`build_writer_agent_hybrid_retriever`](../plugin/embeddings/venv/embeddings_llama_index.py) — only the user’s original query is used. No LLM call, no extra API cost, fully offline after models are cached.
 
 | Setting | Behavior |
 |---------|----------|
 | `num_queries=1` (shipped) | Single query → vector + FTS → RRF → rerank. **No query expansion.** |
-| `num_queries>1` (not shipped) | LLM generates extra queries → more retrieval passes → broader recall; needs a configured chat model, network (unless local LLM), and adds latency |
+| `num_queries>1` (not shipped) | LLM generates extra queries → more retrieval passes → broader recall; needs chat model + network (unless local LLM) |
 
-Query expansion is **not on the roadmap** — see [Deferred / low priority](#llamaindex-deferred) below. **Roadmap status: deferred / low priority.** Do not implement or recommend unless the user explicitly requests it. Higher-value LlamaIndex work is hierarchical retrieval, metadata, reranker presets, and sub-question retrieval — see [LlamaIndex roadmap](#llamaindex-roadmap).
+Query expansion is **not on the roadmap** — see [Deferred / low priority](#llamaindex-deferred). Higher-value LlamaIndex work is hierarchical retrieval, metadata, reranker presets, and sub-question retrieval.
 
-### Pluses & Minuses
+### Pluses and minuses
 
-#### Pluses:
-1. **Offline & Privacy-Preserving**: Runs completely locally (offline) with no external network requirements or LLM query-generation API calls (using `num_queries=1` and `use_async=False`).
-2. **Framework Alignment**: Allows standardizing on LlamaIndex data models (`TextNode`, `NodeWithScore`, `QueryBundle`) for compatibility with external libraries and easier integration of standard post-processors (e.g. node parsers, rerankers, metadata enrichment).
-3. **No LO Pollution**: Because LlamaIndex and its transitive dependencies live completely inside the configured python venv, there is zero bloating or package management pollution of the host LibreOffice Python environment.
-4. **Native reranking**: Uses LlamaIndex `SentenceTransformerRerank` (local cross-encoder) instead of reimplementing custom MMR / per-doc caps from the `hybrid` backend.
+**Pluses:**
 
-#### Minuses:
-1. **Dependency Size**: Adds `llama-index-core` to the venv worker dependencies, which requires additional download time on cold bootstrap.
-2. **Abstraction Overhead**: Standardizing on LlamaIndex introduces Pydantic object serialization and nested class wrappers, which adds a minor overhead compared to our ultra-lean native sqlite-vec + FTS5 SQL queries.
-3. **Cross-encoder cost**: First rerank loads `cross-encoder/ms-marco-MiniLM-L-6-v2` in the venv worker (extra RAM/latency vs lean `hybrid` RRF-only path).
-4. **Loss of Raw Score Scales**: RRF and reranker scores are relative rankings, not raw cosine/BM25. Raw leg scores remain in node `metadata["raw_score"]` when present.
+1. **Offline and privacy-preserving** — no external network or LLM query-generation API calls (`num_queries=1`, `use_async=False`).
+2. **Framework alignment** — standardize on `TextNode`, `NodeWithScore`, `QueryBundle` for external library compatibility and standard post-processors (node parsers, rerankers, metadata enrichment).
+3. **No LO pollution** — LlamaIndex and transitive dependencies live entirely in the configured venv.
+4. **Native reranking** — `SentenceTransformerRerank` instead of reimplementing custom MMR / per-doc caps.
+5. **Same `corpus.db`** — flip backends without re-indexing; safe A/B on real folders.
 
-### Evaluation & Comparison {#llamaindex-eval}
+**Minuses:**
 
-#### Running Evaluations
-The evaluation suite under `scripts/benchmark.py` evaluates folder search retrieval accuracy (Hit Rate and Mean Reciprocal Rank).
+1. **Dependency size** — `llama-index-core` adds download time on cold venv bootstrap.
+2. **Abstraction overhead** — Pydantic serialization vs ultra-lean sqlite-vec + FTS5 SQL.
+3. **Cross-encoder cost** — first rerank loads the model in the venv worker (extra RAM/latency vs RRF-only).
+4. **Loss of raw score scales** — RRF and reranker scores are relative rankings, not raw cosine/BM25. Raw leg scores remain in node `metadata["raw_score"]` when present.
 
-To evaluate and compare the two backends:
-1. Open **Settings → Embeddings → Cross-file search** and toggle between `hybrid` and `llama_index`.
-2. Run folder routing eval (same `corpus.db`, different retrieval stack):
+### Evaluation and comparison {#llamaindex-eval}
+
+To evaluate and compare backends on the **same** `corpus.db`:
+
+1. Open **Settings → Vector Search → Cross-file search** and toggle between `hybrid` and `llama_index`.
+2. Run folder routing eval:
    ```bash
    HF_HUB_OFFLINE=1 .venv/bin/python scripts/eval_folder_search_routing.py --folder ~/Desktop/Writing --mode all
+   HF_HUB_OFFLINE=1 .venv/bin/python scripts/eval_folder_search_routing.py --folder ~/Desktop/Writing --mode hybrid --backend hybrid --k 5 --no-mmr
+   HF_HUB_OFFLINE=1 .venv/bin/python scripts/eval_folder_search_routing.py --folder ~/Desktop/Writing --mode hybrid --backend llama_index --k 5
+   HF_HUB_OFFLINE=1 .venv/bin/python scripts/eval_folder_search_routing.py --folder ~/Desktop/Writing --mode hybrid --backend llama_index --k 5 --no-mmr
    ```
-3. Compare top-1 file accuracy and `matched_by` (`fts`+`vec` agreement) between backends.
-4. Optional agent eval:
+3. Compare top-1 file accuracy, top-3, mean MRR, and `matched_by` (`fts`+`vec` agreement) between backends.
+4. CLI search:
+   ```bash
+   .venv/bin/python scripts/search_embeddings_folder.py "query" --backend llama_index
+   .venv/bin/python scripts/search_embeddings_folder.py "query" --backend llama_index --no-mmr
+   .venv/bin/python scripts/search_embeddings_folder.py "query" --backend llama_index --rerank-model cross-encoder/ms-marco-MiniLM-L-6-v2
+   ```
+5. Optional agent eval:
    ```bash
    make run_eval EVAL_ARGS="--models your-model-name -n 5 -j 1"
    ```
 
-Both [`eval_folder_search_routing.py`](../scripts/eval_folder_search_routing.py) and [`search_embeddings_folder.py`](../scripts/search_embeddings_folder.py) accept `--backend hybrid|llama_index`. LlamaIndex CLI also supports `--no-mmr` and `--rerank-model` for offline rerank experiments.
+Both [`eval_folder_search_routing.py`](../scripts/eval_folder_search_routing.py) and [`search_embeddings_folder.py`](../scripts/search_embeddings_folder.py) accept `--backend hybrid|llama_index`.
 
-### LlamaIndex roadmap — starting point {#llamaindex-roadmap}
+**Venv install:** `llama-index-core` is included in the embeddings venv install line ([`EMBEDDINGS_VENV_PIP_INSTALL`](../plugin/embeddings/venv/embeddings_index.py)). Verify with Settings → Python Test / [`venv_diagnostics.py`](../plugin/scripting/venv_diagnostics.py).
+
+### LlamaIndex roadmap {#llamaindex-roadmap}
 
 Work below is ordered **incremental fixes first**, then **big advantages** that justify keeping LlamaIndex beyond “another RRF implementation.” Both phases share the same `corpus.db`, tool hit shape, and venv worker boundary.
 
@@ -1675,39 +730,39 @@ Work below is ordered **incremental fixes first**, then **big advantages** that 
 
 | # | Item | Status |
 |---|------|--------|
-| 1 | **Eval parity** — `--backend hybrid\|llama_index` on eval + search CLI; A/B table in [Evaluation](#llamaindex-eval) | **Done** |
+| 1 | **Eval parity** — `--backend hybrid\|llama_index` on eval + search CLI; A/B in [Evaluation reference](#latest-stack-eval) | **Done** |
 | 2 | **Ops gaps** — search UI rebuild honors `embeddings.folder_search_mode`; CLI rerank flags | **Done** |
-| 3 | **Settings / UX** — rerank on/off + model id; `use_mmr` + `rerank_model` = cross-encoder on **both** backends | **Done** |
+| 3 | **Settings / UX** — rerank on/off + model id; cross-encoder on **both** backends | **Done** |
 
-**Phase 1 exit criteria:** measured A/B table for hybrid vs llama_index on a labeled query set; no hardcoded `hybrid` bypasses in search UI or indexer routing; documented venv install for LlamaIndex mode. **Multilingual rerank** (`BAAI/bge-reranker-v2-m3`) is available in Settings; benchmark deferred (large download, slow).
+**Phase 1 exit criteria:** measured A/B table for hybrid vs llama_index on a labeled query set; no hardcoded `hybrid` bypasses in search UI or indexer routing; documented venv install for LlamaIndex mode.
 
 #### Phase 2 — Big advantages (the payoff)
 
-These are the reasons to **keep** LlamaIndex after Phase 1 — not re-implementing hybrid hacks (custom per-doc caps, mirrored MMR), but capabilities the custom stack does not compose cleanly.
+These are the reasons to **keep** LlamaIndex after Phase 1 — capabilities the custom stack does not compose cleanly.
 
 ##### Tier A — Retrieval quality (biggest product wins)
 
 | # | Advantage | Payoff | LlamaIndex building blocks |
 |---|-----------|--------|----------------------------|
-| A1 | **Hierarchical / parent–child retrieval** | **Shipped (paragraph level):** merge sub-chunks by `para_index`, return full paragraph in `snippet` on all backends — [`embeddings_parent_hits.py`](../plugin/embeddings/venv/embeddings_parent_hits.py). Aligns with AutoMergingRetriever merge-by-parent semantics without a full in-memory LI docstore. | Section / heading parents remain future |
+| A1 | **Hierarchical / parent–child retrieval** | **Shipped (paragraph level):** merge sub-chunks by `para_index`, return full paragraph in `snippet` on all backends — [`embeddings_parent_hits.py`](../plugin/embeddings/venv/embeddings_parent_hits.py). Section / heading parents remain future. | AutoMergingRetriever semantics |
 | A2 | **Rich metadata on ingest** | Filter/boost by heading level, doc type (Writer / Calc / ODP), file title, recency — cross-file routing when filenames lie | [`IngestionPipeline`](https://developers.llamaindex.ai/python/framework/module_guides/loading/ingestion_pipeline/) transforms, `MetadataFilters`, title/summary extractors on `TextNode.metadata` |
 | A3 | **Sub-question / decomposed retrieval** | Complex prompts (“compare Q3 and Q4 budget language across the folder”) split into sub-queries, retrieve per part, fuse — better than one `search_nearby_files` call | [`SubQuestionQueryEngine`](https://developers.llamaindex.ai/python/examples/query_engine/sub_question_query_engine/) or custom multi-query retriever + RRF |
-| A4 | **Swappable rerankers and postprocessors** | Quality tuning becomes config + eval presets, not a new `embeddings_*` module each time | [`SentenceTransformerRerank`](https://developers.llamaindex.ai/python/framework/module_guides/querying/node_postprocessors/) (MiniLM, `bge-reranker-base`, …), `SimilarityPostprocessor`, recency / metadata boosts |
+| A4 | **Swappable rerankers and postprocessors** | Quality tuning becomes config + eval presets, not a new `embeddings_*` module each time | [`SentenceTransformerRerank`](https://developers.llamaindex.ai/python/framework/module_guides/querying/node_postprocessors/), `SimilarityPostprocessor`, recency / metadata boosts |
 
 ##### Tier B — Agent and product shape
 
 | # | Advantage | Payoff | LlamaIndex building blocks |
 |---|-----------|--------|----------------------------|
 | B1 | **Dedicated “folder QA” query engine** | document_research sub-agent gets a **synthesized brief + cited `doc_url`s** instead of raw snippet lists for the main chat model to re-read | [`RetrieverQueryEngine`](https://developers.llamaindex.ai/python/framework/module_guides/deploying/query_engine/) over folder retriever + response synthesizer |
-| B2 | **Router retriever by document kind** | Different retrieval mixes for Writer prose vs Calc tables vs Impress slides (FTS weight, chunk size, metadata filters) | [`RouterRetriever`](https://developers.llamaindex.ai/python/examples/query_engine/RouterQueryEngine/) / tool-style routing by `metadata["doc_kind"]` |
+| B2 | **Router retriever by document kind** | Different retrieval mixes for Writer prose vs Calc tables vs Impress slides (FTS weight, chunk size, metadata filters) | [`RouterRetriever`](https://developers.llamaindex.ai/python/examples/query_engine/RouterQueryEngine/) / routing by `metadata["doc_kind"]` |
 
 ##### Tier C — Ops, scale, and ecosystem
 
 | # | Advantage | Payoff | LlamaIndex building blocks |
 |---|-----------|--------|----------------------------|
-| C1 | **Ingestion pipeline with transform cache** | Faster incremental folder refresh; declarative split → metadata → embed; less duplicate custom ingest logic over time | [`IngestionPipeline`](https://developers.llamaindex.ai/python/framework/module_guides/loading/ingestion_pipeline/) + cache keyed by chunk hash |
+| C1 | **Ingestion pipeline with transform cache** | Faster incremental folder refresh; declarative split → metadata → embed; less duplicate custom ingest logic | [`IngestionPipeline`](https://developers.llamaindex.ai/python/framework/module_guides/loading/ingestion_pipeline/) + cache keyed by chunk hash |
 | C2 | **Eval harness as LlamaIndex lab** | Same `corpus.db`, swap **presets** (hybrid-RRF, li-RRF+rerank, li+hierarchical) without rewriting SQL | Preset configs in eval scripts; compare on fixed query suite |
-| C3 | **Interop / community path** | Homelab users reuse WriterAgent as **LO extract + SQLite storage** while owning retrieval composition externally | Document adapter boundary (`WriterAgentVectorStore`, `WriterAgentFTSRetriever`); see [community integration strategy](../community_integration_strategy.md) |
+| C3 | **Interop / community path** | Homelab users reuse WriterAgent as **LO extract + SQLite storage** while owning retrieval composition externally | Adapter boundary (`WriterAgentVectorStore`, `WriterAgentFTSRetriever`); see [community integration strategy](../community_integration_strategy.md) |
 
 ##### Tier D — Only if eval proves clear wins
 
@@ -1716,11 +771,11 @@ These are the reasons to **keep** LlamaIndex after Phase 1 — not re-implementi
 | D1 | **Replace custom `hybrid` as default** | One retrieval stack to maintain; `hybrid` becomes alias or deprecated if LlamaIndex ≥ hybrid on labeled sets |
 | D2 | **Multi-folder / scoped collections** | Project subfolder or “siblings of active file only” via metadata-scoped retrievers or multiple logical indexes |
 
-##### Deferred / low priority (do not recommend unless user explicitly asks) {#llamaindex-deferred}
+##### Deferred / low priority {#llamaindex-deferred}
 
 | Item | Status |
 |------|--------|
-| **LLM query expansion** (`QueryFusionRetriever` `num_queries>1`) | **Deferred.** Requires chat LLM during retrieval (latency, privacy, offline complexity). Not on Phase 1 or Phase 2 roadmap. Prefer A1–A4, B1–B2, C* first. See [Query expansion](#llamaindex-query-expansion) for what LlamaIndex supports and why WriterAgent keeps `num_queries=1`. |
+| **LLM query expansion** (`QueryFusionRetriever` `num_queries>1`) | **Deferred.** Requires chat LLM during retrieval (latency, privacy, offline complexity). Prefer A1–A4, B1–B2, C* first. See [Query expansion](#llamaindex-query-expansion). |
 
 ##### Suggested order after Phase 1
 
@@ -1738,171 +793,213 @@ These are the reasons to **keep** LlamaIndex after Phase 1 — not re-implementi
 - Swapping in upstream sqlite-vec `VectorStore` wholesale — our SQLite layer stays the storage adapter boundary.
 - Re-adding hybrid-only hacks in LlamaIndex mode (per-doc hit caps, custom MMR postprocessor mirroring [`embeddings_hybrid_search.py`](../plugin/embeddings/venv/embeddings_hybrid_search.py)).
 - Running a full LlamaIndex query engine on **every main-chat send** — retrieval stays in the venv worker; the sidebar chat LLM remains downstream of tool hits.
-- LLM query expansion during retrieval (`num_queries>1`) — **deferred**, not a non-goal; see [Deferred / low priority](#llamaindex-deferred).
+- LLM query expansion during retrieval (`num_queries>1`) — **deferred**; see [Deferred / low priority](#llamaindex-deferred).
 
 ---
 
-## Zvec search backend option {#zvec-backend}
+## Appendix B: Zvec backend {#zvec-backend}
 
-We introduce **zvec** (the Alibaba in-process vector database, implemented in C++ with PyBind11 bindings) as a selectable alternative backend for Cross-file search (FTS + embeddings) under the setting `folder_search_mode="zvec"`.
+**zvec** (Alibaba in-process vector database, C++ with PyBind11 bindings) is a selectable alternative backend for cross-file search under **Settings → Vector Search → Zvec (experimental)** (`folder_search_mode="zvec"`). Requires `pip install zvec` in the embeddings venv.
 
-The `llama_index` option layers a retrieval *framework* on top of our existing custom `corpus.db`. The zvec option is the other major bet you are evaluating: replace the *storage and hybrid execution engine itself* with a purpose-built embedded database that was written to do dense + sparse vectors + native full-text search + hybrid queries in one engine. It is one of the two realistic "go get a better vector database than the current hand-rolled sqlite + sqlite-vec + custom RRF + parent merge + cross-encoder glue" paths (the other being LlamaIndex's retriever composition and post-processor ecosystem).
+**Why it exists:** the default **`hybrid`** path is a hand-rolled sqlite-vec + FTS5 + vendored RRF stack — you own schema sync, hybrid glue, incremental state, and alignment repair. **LlamaIndex** ([Appendix A](#llamaindex-option)) bets on a *retrieval framework* atop the same `corpus.db`. **Zvec** bets on replacing the *storage and hybrid execution engine itself* with a purpose-built embedded DB for dense + sparse vectors + native FTS + hybrid queries in one engine. It is the other major “get a better vector database than custom sqlite glue” path.
 
-**Current status (2026-06):** The initial side-by-side implementation is complete — Settings toggle, mode-aware host checks and UI, venv RPC surface, full folder maintain (with our extraction + our embedding model for consistency), knn and hybrid search that produce the exact same hit shapes the `search_embeddings` and `search_nearby_files` tools (and the deck search UI) already expect, plus matching tests and this documentation. Deeper incremental maintenance, index tuning, and any decision to slim or deprecate parts of the custom sqlite hybrid path are explicitly gated on real A/B data from folders such as `~/Desktop/Writing`.
+**Current status (2026-06):** Side-by-side implementation is complete — Settings toggle, mode-aware host checks and UI, venv RPC, full folder maintain (shared extraction + embedding model), knn and hybrid search with the same hit shapes as `search_nearby_files` and the Search dialog, tests ([`test_embeddings_zvec_backend.py`](../tests/embeddings/test_embeddings_zvec_backend.py)). Deeper incremental maintenance, index tuning, and any decision to slim the custom sqlite hybrid path are gated on real A/B data from folders such as `~/Desktop/Writing`.
 
-### Design & Implementation
+### Design and implementation
 
-zvec stores its data in a directory (`writeragent_embeddings/zvec/`) that is a first-class zvec collection. It is completely independent of `corpus.db`; the two can (and do) coexist for the same listing folder.
+zvec stores data in `writeragent_embeddings/zvec/` — a first-class zvec collection **independent of `corpus.db`**. Both can coexist for the same listing folder; flip modes without data loss for the other store.
 
-**What stays custom (WriterAgent-owned, same as the other modes):**
-- ODF / OOXML / text extraction and paragraph-level chunking (the same `guess_indexable_paths`, `indexable_chunks_from_path`, `chunk_to_index_row`, etc. used by hybrid and LlamaIndex).
-- Background indexing heartbeat, enqueue, stale detection, and the overall maintain orchestration (`embeddings_folder_maintain.py` dispatches to `maintain_folder_zvec` when the mode is zvec).
-- Embedding generation: we deliberately reuse the exact same `embed_texts` / SentenceTransformer wrapper (with the user's chosen `embedding_model`, the same batching, and the same L2 normalization) so that switching backends does not also change the embedding space.
-- Tool contract and final hit shaping (every backend must return `{doc_url, score, snippet, para_index?, content_hash?, ...}`).
-- Host-side concerns: `resolve_index_context`, mode-aware "is the index empty?" checks (via the pure-filesystem `zvec_collection_looks_populated`), `corpus_meta.json` updates (so the deck status label, collection stats RPC, and "building..." messages work), cache clearing, and the search UI deck.
-- Sandbox allow-listing and the Python Test / venv diagnostics probe (so `zvec: present` or `None` appears in the self-check output exactly like `sqlite_vec` and `llama_index` related packages).
+**What stays custom (WriterAgent-owned):**
 
-**What zvec owns when `folder_search_mode="zvec"`:**
-- The on-disk collection (WAL, index files, etc.) under the `zvec/` sibling directory.
-- Schema: a `CollectionSchema` with typed scalar `FieldSchema`s (`doc_url` STRING, `body` STRING with FTS index using standard tokenizer + lowercase, `para_index` INT32, `content_hash` STRING, `file_mtime` DOUBLE) plus a `VectorSchema("embedding", DataType.VECTOR_FP32, dimension=..., )`.
-- Native FTS indexing on the body text and vector ANN indexing.
-- Hybrid query execution: callers build a list of `Query` legs (a vector leg + an `Fts(match_string=...)` leg) and hand them to `coll.query(..., reranker=RrfReRanker(rank_constant=60) or a Weighted one)`. The engine does the retrieval and fusion.
-- Durability, visibility, and recovery via WAL; `stats` (including `doc_count`), `flush`, `upsert`, `delete` (by stable id or by filter), `delete_by_filter`, `destroy`, and future `create_index` / `optimize` for the various ANN types (HNSW, DiskANN, Vamana, IVF, Flat, Invert).
-- The actual ANN search and FTS matching in C++.
+- ODF / OOXML / text extraction and paragraph-level chunking (same `guess_indexable_paths`, `indexable_chunks_from_path`, `chunk_to_index_row`, etc. as hybrid and LlamaIndex)
+- Background indexing heartbeat, enqueue, stale detection ([`embeddings_folder_maintain.py`](../plugin/embeddings/venv/embeddings_folder_maintain.py) dispatches to `maintain_folder_zvec` when mode is `zvec`)
+- Embedding generation: same `embed_texts` / `SentenceTransformer` wrapper, batching, and L2 normalization — switching backends does not change the embedding space
+- Tool contract and hit shaping (`{doc_url, score, snippet, para_index?, content_hash?, ...}`)
+- Host: `resolve_index_context`, mode-aware empty checks ([`zvec_collection_looks_populated`](../plugin/embeddings/embeddings_cache.py)), `corpus_meta.json` updates, cache clearing, search UI
+- Sandbox allow-listing and venv diagnostics (`zvec: present` or `None` in Python Test)
 
-The maintain implementation (`maintain_folder_zvec`) is intentionally simple and correct for v1: for each file it does a `delete_by_filter('doc_url == "..."')` (so old paragraphs for that file disappear cleanly) then re-extracts the current paragraphs, embeds them with our shared embedder, builds `Doc` objects with stable ids (`{doc_url}#{para_index}#{content_hash_prefix}`), `upsert`s them, and reports heartbeat progress. At the end it updates the shared `corpus_meta.json` with `storage_backend: "zvec"` and the final chunk count. Because it does not rely on the sqlite `indexed_files` / `indexed_paragraphs` tables, a folder can have a perfectly good zvec index even if it has never had a hybrid `corpus.db` built.
+**What zvec owns when `folder_search_mode="zvec"`** ([`embeddings_zvec.py`](../plugin/embeddings/venv/embeddings_zvec.py)):
 
-Search paths (`zvec_knn_search` for pure semantic, `zvec_hybrid_search` for the normal tool) construct the appropriate `Query` objects (the vector comes from embedding the user's query with the current model; the FTS leg uses `match_string`), apply the reranker when one is configured, map the resulting `Doc`s through a tiny `_shape_hit` helper, and return the standard hit list. `doc_url_filter` becomes a filter on the query; `near_slop` is accepted for future parity (zvec's FTS leg can be extended with more advanced query string syntax later).
+| Concern | zvec responsibility |
+|---------|---------------------|
+| **On-disk store** | WAL, index files under `zvec/` |
+| **Schema** | `CollectionSchema`: `doc_url`, `body` (FTS), `para_index`, `content_hash`, `file_mtime` + `VectorSchema("embedding", VECTOR_FP32)` |
+| **Hybrid query** | `Query` legs (vector + `Fts(match_string=...)`) → `coll.query(..., reranker=RrfReRanker(rank_constant=60) or Weighted)` |
+| **ANN / FTS** | Native C++ search and matching |
+| **Lifecycle** | `stats`, `flush`, `upsert`, `delete`, `delete_by_filter`, `destroy`, future `create_index` / `optimize` (HNSW, DiskANN, Vamana, IVF, Flat, Invert) |
 
-Everything is guarded by a `try: import zvec as _zvec; HAS_ZVEC = True` block (modeled exactly on the llama_index guard). If the package is missing in the venv when the user has selected the mode, the worker raises a clear message telling them to `pip install zvec`. The LibreOffice in-process Python never sees the module.
+**Maintain (v1):** `maintain_folder_zvec` does per-file `delete_by_filter('doc_url == "..."')`, re-extracts paragraphs, embeds, builds `Doc` objects with stable ids (`{doc_url}#{para_index}#{content_hash_prefix}`), `upsert`s, heartbeat progress. Updates `corpus_meta.json` with `storage_backend: "zvec"`. Does **not** use sqlite `indexed_files` / `indexed_paragraphs` — a folder can have a good zvec index without ever building `corpus.db`.
 
-### Benefits in detail — why zvec is interesting as a "better vector database" than the current custom code
+**Search:** `zvec_knn_search` (semantic only) and `zvec_hybrid_search` (normal tool path) embed the query, build `Query` objects, apply reranker when configured, map through `_shape_hit` to standard hits. `doc_url_filter` becomes a query filter; `near_slop` accepted for future FTS parity.
 
-The baseline "hybrid" implementation (and the `embeddings_sqlite.py` + `embeddings_hybrid_search.py` + `hybrid_rrf.py` + `embeddings_search_graph.py` + parent merge + alignment repair + retrieval pool that support it) is deliberately lean and self-contained. It gives you paragraph-granularity cross-file search with FTS5 + vec0, incremental maintenance, multi-model isolation, and optional rerank, all on top of stdlib sqlite3 plus one small wheel. The cost is that you (the project) are the author of a vector + FTS database:
+Guarded by `try: import zvec` — if missing, worker raises `pip install zvec`. LibreOffice embedded Python never imports zvec.
 
-- You own the schema (chunks table + external-content FTS5 + per-model vec virtual tables + indexed_* state + model_metadata).
-- You own the "keep the three representations in sync" logic (insert rows, ensure FTS, ensure vectors for the active model, repair missing vectors on incremental runs, vacuum old models).
-- You own the hybrid execution (two separate legs, over-fetch pool, vendored RRF fusion, optional cross-encoder or MMR, parent-paragraph widening).
-- You own the incremental invalidation story (mtime + content_hash on files and paragraphs) and the "cold vs incremental" decision tree.
+### Why zvec vs custom hybrid code
 
-zvec is a bet that a dedicated, native engine whose *only* job is "rich scalar + vector + FTS collection with hybrid queries, multiple ANN indexes, WAL, and good ergonomics" can do the hard parts better and with less bespoke code on our side over time.
+The baseline hybrid stack (`embeddings_sqlite.py`, `embeddings_hybrid_search.py`, `hybrid_rrf.py`, `embeddings_search_graph.py`, parent merge, alignment repair, retrieval pool) is lean but **you are the vector + FTS database author**:
 
-Concrete benefits observed in the design and early implementation:
+- Schema: chunks + external-content FTS5 + per-model vec tables + `indexed_*` + `model_metadata`
+- Sync logic: insert rows, ensure FTS, ensure vectors per model, repair on incremental runs, vacuum old models
+- Hybrid execution: two legs, over-fetch pool, vendored RRF, optional cross-encoder, parent widening
+- Incremental invalidation: mtime + `content_hash` decision tree
 
-- **Native hybrid query, not "we glued two things together in Python".** In zvec you express the two legs (vector + FTS) in one `query([...])` call and get RRF (or Weighted) fusion from the engine. The constant factors, tie-breaking, and scoring for the combination are the DB's problem, not a `hybrid_rrf.py` module we have to keep in sync with changes to the legs. This is the single biggest "less custom code" lever.
+**Concrete benefits of zvec:**
 
-- **Durability and atomicity as a DB concern.** zvec is built around WAL. A batch of `upsert`s is visible atomically or not at all after a crash. Our current path has solid sqlite usage (and the FTS5 external content + vec0 virtual tables are surprisingly well-behaved), but the *hybrid* invariants (a paragraph row implies an FTS row and the right model-specific vector row; vacuum is safe; etc.) are maintained by our Python code. Moving that into the engine removes a class of subtle consistency bugs.
+1. **Native hybrid query** — vector + FTS in one `query([...])` call; RRF/Weighted fusion in the engine, not `hybrid_rrf.py` to maintain.
+2. **Durability** — WAL; batch `upsert` visibility atomic after crash; hybrid invariants are the engine’s job.
+3. **Query-time metadata** — `doc_url`, `para_index`, `content_hash`, `file_mtime` as typed fields; filters during retrieval, not post-filter in Python.
+4. **ANN flexibility** — Flat default today; `HnswIndexParam`, DiskANN, sparse vector legs later with minimal glue.
+5. **Codebase trajectory** — if eval wins, custom storage/hybrid machinery can shrink for zvec users instead of growing with every new hybrid feature.
+6. **Safe side-by-side eval** — keep months-old `corpus.db`; grow `zvec/` in the same folder; flip `folder_search_mode` anytime.
+7. **C++ hot path in trusted venv** — ANN + FTS + RRF in native code inside the embeddings worker; no new LO packaging.
+8. **DB primitives** — `destroy`, `stats`, `flush`, `optimize` as first-class operations.
 
-- **Schema and provenance are declared and queryable inside the engine.** `doc_url`, `para_index`, `content_hash`, `file_mtime`, and the body are first-class typed fields. A filter like `doc_url == "..."` or (in the future) `heading_level >= 2 AND recency > ...` is a natural predicate the engine can use during retrieval, not a post-filter we apply in Python after pulling a superset. Adding a new piece of per-chunk metadata for better routing or filtering is a schema change + populating one more key in the Doc dict, not "ALTER TABLE + backfill + re-embed vectors for all models."
+### Comparison to LlamaIndex {#zvec-vs-llamaindex}
 
-- **Real ANN index choice and future sparse vectors with almost no new glue.** Today we create the collection with a vector field and let the default (Flat) do exact search while you evaluate. Later you (or we) can pass an `HnswIndexParam`, `DiskANN`, etc. when creating or via `create_index`, or add a second sparse vector field and a second query leg. The engine already knows how to maintain, search, and combine them. We do not have to grow another `vec_chunks_*` story or FTS5 tokenizer tweak.
+Both exist because custom hybrid is a lot of bespoke code to keep correct and extend. They buy **different things**:
 
-- **Codebase size and maintenance trajectory.** If the numbers on your real folders are good, large parts of the custom storage + hybrid machinery become specific to the "legacy hybrid / llama_index-on-sqlite" paths. The amount of code whose job is "be a vector database for folder paragraphs" can shrink rather than continue to grow every time someone wants a new hybrid feature (better rerank, metadata filters, different chunking, multi-folder collections, ...). This was one of the original hopes when we looked at zvec: a credible path to *less* custom vector DB code over time, not more.
+| | **LlamaIndex** | **Zvec** |
+|---|----------------|----------|
+| **Bet** | Retrieval *framework* and composition | Embedded *database engine* |
+| **Storage** | Reuses `corpus.db` | Own `zvec/` directory |
+| **Re-index on switch** | No (same DB, different retriever) | Yes (separate store) |
+| **Wins at** | RRF/rerank/postprocessor ecosystem, sub-questions, folder QA engines | Native hybrid, WAL, ANN choice, less custom DB glue |
+| **You still own** | Extraction, chunking, sqlite schema | Extraction, chunking, hit shaping |
 
-- **Safe, zero-risk side-by-side evaluation on the exact corpora you care about.** Because the zvec store is a separate directory and the mode switch is late (in the venv worker, after the host has already decided "this folder, this model, this search_mode"), you can keep a `corpus.db` that has been working for months and, in the same `~/Desktop/Writing` tree, grow a `zvec/` collection. Select the mode, let the background indexer or the explicit rebuild run, and the document_research tools and the deck search UI just do the right thing. You can flip back to `hybrid` or `llama_index` at any moment with no data loss for the other backend. This is exactly the "incremental, side-by-side, eventually replace if better" workflow you asked for.
+- **LlamaIndex pain/opportunity:** retrieval *orchestration* is hard to improve — feed paragraphs via adapters, compose from LI recipes.
+- **Zvec pain/opportunity:** being the author of vector + FTS + hybrid + durability is a lot of code — let a native engine own storage and query execution.
 
-- **In-process C++ performance for the hot path, still inside the venv isolation boundary we already trust.** The expensive ANN search, FTS matching, and RRF happen in native code inside the same worker process that already runs sentence-transformers, cross-encoders, and (when selected) llama-index-core. No new surface area on the LibreOffice Python, no new packaging story for end users beyond "pip install zvec in the venv you already configured for Python Test / embeddings."
+Nothing prevents a future where a zvec collection backs a LlamaIndex retriever, or LI pipelines feed zvec. For now they are independent experiments against the `hybrid` baseline.
 
-- **WAL + collection lifecycle primitives that are just there.** `destroy`, `stats`, flush, optimize, index introspection — these are normal DB operations rather than "we wrote a VACUUM policy and a meta file that sometimes lies."
+### Pluses and minuses
 
-### Comparison to LlamaIndex (the other place to go for a better vector / retrieval story)
+**Pluses:**
 
-Both options exist because the current custom hybrid, while fully understood and dependency-minimal, is a lot of bespoke code to keep correct and to extend.
+1. **Engine, not glue** — hybrid search complexity moves into a component built for vector + FTS + hybrid + durability; [`embeddings_zvec.py`](../plugin/embeddings/venv/embeddings_zvec.py) surface is much smaller than the sqlite hybrid union.
+2. **Durability you don’t argue about** — WAL and collection lifecycle are table stakes for zvec.
+3. **Index strategy flexibility** — HNSW, DiskANN, sparse legs via engine capabilities, not new custom maintenance stories.
+4. **Metadata at query time** — filters on `doc_url`, `para_index`, future `heading` / `doc_kind` / recency pushed into retrieval.
+5. **Safe evaluation** — same paragraphs, tools, UI, eval scripts; zero risk to existing `corpus.db`.
+6. **Credible path to less custom vector DB code** — if data wins, bespoke hybrid becomes legacy for non–zvec users.
 
-They buy different things:
+**Minuses:**
 
-- **LlamaIndex** is a *retrieval framework and composition layer*. In `llama_index` mode the storage is still 100% ours (`corpus.db`, the FTS5 `passages` table, the per-model vec virtual tables, the incremental `indexed_*` tables, the cold/incremental maintain that writes rows, the alignment repair, the parent merge, etc.). What we bought is the framework's `QueryFusionRetriever`, `SentenceTransformerRerank`, `TextNode` / `NodeWithScore` model, and the promise of all the higher-level recipes (hierarchical / parent-child, metadata filters and boosts, sub-question decomposition, `IngestionPipeline` with transform caching, `RetrieverQueryEngine` that can synthesize an answer instead of just returning snippets, RouterRetriever, etc.). The custom hybrid glue is still there for the `hybrid` mode and as the storage substrate that the LI adapters talk to. The long-term bet is "our custom RRF + pool will be replaced by stock framework components, and we get a living ecosystem of retrieval strategies and interop for 'free'."
+1. **Extra venv dependency** — `pip install zvec`; OXT never ships the wheel.
+2. **v1 maintain is per-file refresh** — `delete_by_filter` + re-upsert; more work per touched file than sqlite mtime/hash incremental. Cheap incremental is Phase 2 if eval justifies.
+3. **Different debug tooling** — `zvec/` is not `sqlite3` CLI–friendly; rely on `collection_stats`, meta JSON, engine `stats`/`fetch`/`destroy`.
+4. **Not a RAG framework** — still your extraction, model choice, and agent tools; for chunking/pipeline composition see LlamaIndex.
+5. **No deprecation without data** — custom hybrid stays default until real-folder A/B proves zvec wins.
 
-- **zvec** is an *embedded database engine*. It replaces the storage + query execution layer that our current custom code is. We still own "turn real LibreOffice files into clean paragraphs with stable locators and provenance" (the ODF extraction, the chunking heuristics, the heartbeat, the folder FS walking). We still own model choice and the final shaping of hits for the agent tools. But the persistent home for those paragraphs + their vectors + their FTS terms, the indexes that make vector and keyword search fast, the code that runs a hybrid query and fuses the legs, and the durability model move into the zvec collection. The custom Python that currently says "maintain three representations and fuse two legs with this RRF implementation" gets smaller if zvec wins.
+### Evaluation and comparison {#zvec-eval}
 
-The two choices are therefore complementary bets on where the biggest leverage is:
-
-- If the pain / opportunity is "our retrieval *orchestration* and *composition* is the thing that is hard to improve and that would benefit from a big standard framework," LlamaIndex is the natural direction. You keep feeding it your paragraphs (via adapters) and get richer ways to retrieve and (future) synthesize.
-
-- If the pain / opportunity is "being the author of a vector + FTS database (schema, alignment, hybrid glue, incremental state, durability edge cases) is a lot of code and we would rather a native engine did that while we focus on document reality," zvec is the natural direction. The storage/hybrid surface in the project can shrink over time.
-
-Nothing in the architecture prevents a future world in which a zvec collection is one possible backend that a LlamaIndex-style retriever (or a custom one) can be pointed at, or in which LlamaIndex pipelines feed documents into a zvec collection. For the current evaluation they are two clean, independently selectable experiments against the baseline of the custom `hybrid` path.
-
-Persistence model difference that matters for switching: LlamaIndex mode reuses the exact same `corpus.db` files (zero re-index cost when you already have a good hybrid index; you are just using a different retriever on top). Zvec mode writes its own directory. Both update the shared `corpus_meta.json` so the host "Cache Status", stats, and empty checks are uniform.
-
-### Pluses & Minuses
-
-#### Pluses:
-1. **Engine, not glue.** The difficult, subtle, and easy-to-regress parts of hybrid search move into a component whose sole reason for existence is to be excellent at vector + FTS + hybrid + durability. The surface in `embeddings_zvec.py` that we have to reason about is much smaller than the union of `embeddings_sqlite.py` + the hybrid search modules + the alignment/repair logic + the retrieval pool.
-2. **Durability model you don't have to argue about.** WAL + the engine's own notion of a collection, upsert visibility, and recovery are table stakes for zvec rather than "our sqlite usage plus a bunch of virtual tables seems to work."
-3. **Index and lexical strategy flexibility with very little new code on our side.** HNSW / DiskANN / etc. for the vector leg, and (when we get there) BM25 / SPLADE sparse legs, are capabilities of the engine. We declare a field or a vector and issue another query leg. We do not grow another custom index maintenance story.
-4. **Provenance and future metadata are query-time citizens.** Filters on `doc_url`, `para_index`, or later `heading`, `doc_kind`, recency, etc. can be pushed into the retrieval itself instead of always being "retrieve too much and filter in Python."
-5. **Evaluation is safe and cheap.** Same source paragraphs, same tools, same UI, same eval scripts — just a different `folder_search_mode`. Your real `~/Desktop/Writing` corpus (and any other folder you actually write in) is the testbed, with zero risk to the "known good" sqlite store.
-6. **Credible long-term reduction in custom vector DB code.** If the data says zvec is at least as good (or better) on recall, latency, and qualitative feel in document_research sessions, then the bespoke hybrid implementation becomes a legacy path for users who have not opted in, rather than the ever-growing center of the feature. That matches the original goal of looking at zvec: make the codebase smaller and better over time by adopting a superior engine where it makes sense.
-
-#### Minuses:
-1. **Another user-managed native dependency in the venv.** `pip install zvec` (plus its numpy etc.) in the embeddings Python you already use for sentence-transformers, llama-index-core, cross-encoders, etc. The OXT will never ship or hard-depend on the wheel. Cold setup of that venv takes the extra download/build time (usually small, but real on first use).
-2. **v1 maintain is deliberately simple (full per-file refresh).** The current zvec maintain does `delete_by_filter` for the file then re-upserts the current paragraphs. This is easy to understand, correct, and independent of the sqlite incremental state tables — but it is more work per touched file than the sophisticated mtime + hash + "only changed paragraphs" logic we have for `corpus.db`. True cheap incremental inside zvec (or using its own per-doc state) is explicit future work that will only be done if the Phase 1 eval data justifies the investment.
-3. **Different on-disk shape and fewer "just open it with sqlite3" tools.** A `zvec/` directory (with WAL, index artifacts, etc.) is less immediately inspectable with the sqlite tooling you already have for `corpus.db`. We expose `collection_stats` and the meta JSON, and the engine has its own stats / fetch / destroy, but day-to-day debugging will feel a bit different until we grow more diagnostics.
-4. **Still "our paragraphs, our model, our tools."** zvec is not a full RAG framework that will magically split your .odt files the way you want or synthesize answers. You still do the LibreOffice-aware extraction and chunking; you still pick the embedding model; the agent still sees the same shaped snippet hits and still decides what to open next. If the thing you most want to stop owning is the *chunking / paragraph reality* layer, LlamaIndex's higher-level pipelines may feel closer to that goal than a better storage engine.
-5. **No "delete the custom code" decision without data.** We are not ripping out or even de-emphasizing the sqlite hybrid path on the basis of "zvec looks promising in its README." Only after you have run the routing evals (and ideally some agent-level document_research sessions) on `~/Desktop/Writing` and your other real folders will we have the evidence to decide whether zvec becomes the mainline path or remains a supported experimental option like `llama_index` is today.
-
-### Evaluation & Comparison (zvec vs custom hybrid vs LlamaIndex)
-
-Use the same machinery as the other backends. After you have `pip install zvec` in the target venv and have selected "Zvec (experimental)" in Settings → Embeddings → Cross-file search, you can drive everything from the UI (the deck search, document_research tools) or from the CLI:
+After `pip install zvec` and selecting **Zvec (experimental)** in Settings:
 
 ```bash
-HF_HUB_OFFLINE=1 ~/Desktop/Python/venv/bin/python scripts/eval_folder_search_routing.py --folder ~/Desktop/Writing --mode hybrid --backend zvec --k 5
-# or --mode all --backend zvec, etc.
+HF_HUB_OFFLINE=1 .venv/bin/python scripts/eval_folder_search_routing.py --folder ~/Desktop/Writing --mode hybrid --backend zvec --k 5
+HF_HUB_OFFLINE=1 .venv/bin/python scripts/eval_folder_search_routing.py --folder ~/Desktop/Writing --mode all --backend zvec
 ```
 
-(The eval harness and the search CLIs already understand the mode coming from Settings / the service and dispatch to the zvec wrappers the same way they dispatch for `hybrid` and `llama_index`. Adding explicit `--backend zvec` flags follows the existing pattern.)
+Drive from UI (Search dialog, `document_research` tools) or CLI. Eval harness dispatches to zvec wrappers like `hybrid` and `llama_index`.
 
-What to measure when you have all three on the same source material:
-- Retrieval quality: top-1 / top-3 / MRR on your labeled query set; `matched_by` (fts / vec / both) distribution; behavior on the queries where the current hybrid is known to be weak.
-- Latency and resource use while building and while searching (cold and warm).
-- Qualitative feel inside real `document_research` sessions on the folder (does the agent surface the right files faster? are the snippets more useful? does rerank help or hurt?).
-- Operational feel: index size on disk, time to incremental update after an edit, how painful it is to switch modes or to blow away one store while keeping the other.
+**What to measure** (same source paragraphs, three backends):
 
-Because the three backends can be pointed at the exact same paragraphs (just different on-disk representations and different retrieval engines), this is as close to an apples-to-apples comparison as you can get without changing the source documents.
+| Metric | Notes |
+|--------|-------|
+| **Retrieval quality** | Top-1 / top-3 / MRR; `matched_by` distribution; weak-query behavior |
+| **Latency** | Cold and warm build + search |
+| **Qualitative** | `document_research` sessions — right files faster? useful snippets? |
+| **Operations** | Disk size, incremental update time, mode switching pain |
 
-### Zvec roadmap — starting point
+### Zvec roadmap {#zvec-roadmap}
 
-#### Phase 1 — Make the option real and usable for evaluation (largely complete)
-- Settings + propagation through the entire stack (indexer, service, tools, search UI, empty/stale checks, rebuild).
-- Guarded venv implementation with schema, stable-id upsert, per-file clean delete, knn + hybrid search, and the full folder maintain path using our existing extraction + embedder.
-- Host support (path helpers, FS-only "looks populated" check, meta updates, clear, collection_stats tolerance).
-- Sandbox + diagnostics exposure.
-- Tests (`tests/embeddings/test_embeddings_zvec_backend.py`) and this documentation.
-- Zero interference with existing `corpus.db` users.
+#### Phase 1 — Make the option real (largely complete)
 
-**Phase 1 exit criteria (for you):** You can flip the setting on `~/Desktop/Writing` (or any real folder), let it build (or force a rebuild), run searches and the routing eval, and have everything behave like the other two modes. Then you can actually produce the A/B data.
+- Settings + full stack propagation (indexer, service, tools, search UI, empty/stale checks, rebuild)
+- Guarded venv: schema, stable-id upsert, per-file delete, knn + hybrid search, maintain with shared extract + embedder
+- Host path helpers, FS-only `looks_populated`, meta updates, sandbox + diagnostics
+- Tests and documentation; zero interference with `corpus.db` users
 
-#### Phase 2 — Make zvec the *better* engine (only if Phase 1 data justifies it)
-- Real incremental / delta maintain that is cheap (track per-doc state, use zvec's own delete/upsert more surgically, or keep a tiny sidecar; avoid re-embedding unchanged paragraphs).
-- Surface and use engine primitives: `stats`, `optimize()`, explicit index creation (Hnsw etc.), possibly sparse vector legs.
-- Richer scalar metadata on the schema + query-time filters (heading level, document kind, recency, etc.) once we have the columns and the extraction is populating them.
-- Consider "when zvec mode is selected, only do zvec work" so the two stores do not slowly diverge in subtle ways.
-- Full wiring of `--backend zvec` (and matrix runs) in the benchmark / eval scripts, plus a dated results table in this document (zvec vs custom hybrid vs LlamaIndex on the same query suite and the same source paragraphs).
+**Exit criteria:** flip setting on `~/Desktop/Writing`, build/rebuild, search and routing eval behave like other modes — produce A/B data.
 
-#### Decision point (data-driven, not roadmap-driven)
-Only after you have the numbers (and the qualitative experience) on your real folders do we consider:
-- Flipping the default for users who have the venv dependency satisfied.
-- Beginning to prune, hide, or mark as "advanced / legacy" large parts of the custom sqlite + RRF + alignment + hybrid glue for the zvec path.
-- Investing in the production niceties (DiskANN for very large writer projects, built-in sparse rerank, etc.).
+#### Phase 2 — Make zvec the better engine (only if Phase 1 data justifies)
 
-If the data does not show a clear win on your workloads, zvec remains a supported experimental option (parallel to `llama_index` today) and the custom hybrid stays the fully self-contained, no-extra-pip baseline.
+- Real incremental / delta maintain (per-doc state, surgical delete/upsert, avoid re-embedding unchanged paragraphs)
+- Engine primitives: `stats`, `optimize()`, explicit HNSW etc., possibly sparse vector legs
+- Richer scalar metadata + query-time filters (heading level, doc kind, recency)
+- “Zvec mode only” maintain so stores don’t diverge subtly
+- Dated results table in this doc (zvec vs hybrid vs LlamaIndex on same query suite)
 
-#### Explicit non-goals (for the foreseeable future)
-- Shipping the zvec native wheel inside the OXT or making it a required / non-optional dependency.
-- Replacing the paragraph extraction / chunking / "LibreOffice document reality" layer. zvec is a better place to *put* the paragraphs and ask hybrid questions; it is not an ODF chunker.
-- Running a full zvec-backed query engine or synthesizer on every chat turn. Retrieval remains a tool that returns a hit list; the sidebar chat model is still the thing that interprets them and decides what to do next.
-- Assuming we will delete or deprecate the custom hybrid path without data. We will not. The whole point of the side-by-side design is to let the data (from your actual folders and actual usage) decide.
+#### Decision point (data-driven)
+
+Only after numbers **and** qualitative experience on real folders:
+
+- Flip default for venv users with zvec installed
+- Prune or mark legacy the custom sqlite + RRF + alignment glue for zvec path
+- Production niceties (DiskANN for large folders, built-in sparse rerank)
+
+If data does not show a clear win, zvec stays experimental (like `llama_index` today); custom hybrid remains the self-contained baseline.
+
+#### Explicit non-goals
+
+- Shipping zvec inside the OXT or as a required dependency
+- Replacing ODF extraction / chunking — zvec stores paragraphs; it does not parse `.odt`
+- Full query engine or synthesizer on every chat turn — retrieval returns hit lists; sidebar LLM interprets downstream
+- Deprecating custom hybrid without data
 
 ---
 
-## Related docs
+## Appendix C: LanceDB backend {#lancedb-backend}
 
-| Topic | Doc |
-|-------|-----|
-| Cython build matrix | [cython-extension.md](cython-extension.md) |
-| Venv / NumPy boundary | [enabling_numpy_in_libreoffice.md](enabling_numpy_in_libreoffice.md) |
-| Multi-file discovery | [multi-document-dev-plan.md](multi-document-dev-plan.md) |
-| Chat memory / summarization | [langchain-plan.md](langchain-plan.md) |
-| Realtime grammar / hash patterns | [realtime-grammar-checker-plan.md](realtime-grammar-checker-plan.md) |
-| User profile memory | [hermes-agent-patterns.md](hermes-agent-patterns.md) |
+Experimental: **Settings → LanceDB (experimental)** (`folder_search_mode="lancedb"`). Requires `pip install lancedb` in the embeddings venv ([`embeddings_lancedb.py`](../plugin/embeddings/venv/embeddings_lancedb.py)).
+
+**Store:** `writeragent_embeddings/lancedb/` — side-by-side with `corpus.db`, same pattern as Zvec.
+
+**Implementation:** PyArrow tables via `lancedb.connect()`; `lancedb_hybrid_search` and `lancedb_knn_search` return the same hit shape as other backends. Maintain via `maintain_folder_lancedb` — per-file refresh similar to Zvec v1.
+
+**Host checks:** [`lancedb_collection_path`](plugin/embeddings/embeddings_cache.py), [`lancedb_collection_looks_populated`](plugin/embeddings/embeddings_cache.py) — no LanceDB import on the LibreOffice host.
+
+**Evaluation:** same `eval_folder_search_routing.py` / Search dialog workflow; select LanceDB in Settings and rebuild.
+
+---
+
+## Appendix D: Historical notes
+
+### HNSW and hnsw-lite {#appendix-hnsw-and-hnsw-lite}
+
+Approximate nearest neighbor for bounded in-RAM subsets — PyPI `hnsw-lite`. Rebuild from stored vectors on load; not persisted by default. Research only; production folder search uses vec0 in `corpus.db`.
+
+### Phase B (shipped) {#phase-b}
+
+Cross-file hybrid search shipped as schema v3 `corpus.db`, `search_nearby_files`, background indexer, and Search dialog. See [Implementation status](#development-plan).
+
+### Schema v1 BLOB fallback {#search-fallback}
+
+Pre–`corpus.db` installs used `chunks.embedding` BLOB + NumPy dot in the venv. Schema v3 uses vec0; legacy stores are removed on upgrade. [`bench_embeddings.py`](../scripts/bench_embeddings.py) still validates the NumPy path for encode timing.
+
+### In-worker RAM cache {#embeddings-in-worker-cache}
+
+Schema v1 kept a ~60 s TTL matrix cache in the embeddings subprocess to avoid re-reading BLOBs per query. Schema v3 vec0 queries make this unnecessary for typical folder sizes.
+
+### ChromaDB (removed)
+
+Chroma FOSS lacked integrated self-hosted FTS + vector + fusion. Removed 2026-06; not in Settings or supported modes.
+
+### Cloud embedding APIs (tier two)
+
+OpenRouter, Together, and Ollama embed endpoints are sketched in config (`embedding_provider`) but **not implemented** for folder index. Shipped path: local `sentence-transformers` only.
+
+### Phase C live hooks (not planned)
+
+`XProofreading` keystroke-driven re-embed (~60 s debounce) was designed and **superseded** by periodic mtime/hash refresh — less code, acceptable staleness for cross-file discovery.
+
+### Installing sqlite-vec {#installing-sqlite-vec}
+
+```bash
+VENV=/path/to/your/venv
+"$VENV/bin/pip" install sqlite-vec
+"$VENV/bin/python" -c "import sqlite3, sqlite_vec; db=sqlite3.connect(':memory:'); db.enable_load_extension(True); sqlite_vec.load(db); print(db.execute('select vec_version()').fetchone())"
+```
+
+Install into **`scripting.python_venv_path`**, not system Python or LibreOffice embedded Python. See [sqlite-vec Python docs](https://alexgarcia.xyz/sqlite-vec/python.html).
+
+**Do not** vendor sqlite-vec into the OXT.
