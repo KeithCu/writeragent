@@ -208,7 +208,7 @@ You can plug in **external agent backends** so that Chat with Document uses an e
 
 
 - **[Hermes ACP Integration](https://github.com/NousResearch/hermes-agent)**: Spawns Hermes locally as a subprocess using the Agent Communication Protocol (ACP) via stdio.
-- **Grok Build (ACP)**: Spawns xAI's [Grok Build CLI](https://zed.dev/acp/agent/grok-build) via `grok agent stdio`. Install with `npm install -g @xai-official/grok`, authenticate once with `grok login` (SuperGrok / X Premium+); WriterAgent uses the CLI's cached login — no API key in Settings required.
+- **Grok Build (ACP)**: Spawns xAI's [Grok Build CLI](https://zed.dev/acp/agent/grok-build) WriterAgent uses the CLI's cached login. Note, an endpoint in Settings is required for the nested tool-calling.
 - **HITL (Approve/Reject)**: If a backend requests approval for a tool call, a dialog appears for the user.
 
 ---
