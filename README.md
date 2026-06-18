@@ -342,7 +342,7 @@ WriterAgent requires an OpenAI-compatible backend. Recommended options:
 
 ### Settings
 
-Configure your endpoint, model, and behavior in **WriterAgent > Settings**. The dialog includes **Chat/Text** (endpoint, models, API key, etc.), **Image Settings** (size, aspect ratio, AI Horde options), **Http** (MCP server), **Agent backends**, and other tabs generated from the extension modules.
+Configure your endpoint, model, and behavior in **WriterAgent > Settings**. The dialog includes **Chat/Text** (endpoint, models, API key, etc.), **Image Settings** (size, aspect ratio, gallery/frame options), **Http** (MCP server), **Agent backends**, and other tabs generated from the extension modules.
 
 - **Endpoint URL**: e.g., `http://localhost:11434` for Ollama
 - **Additional Instructions**: A shared system prompt for all features with history support

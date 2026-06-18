@@ -415,7 +415,6 @@ def execute_and_insert_result(
     from plugin.calc.quant_egress import insert_quant_result_into_calc, is_quant_result
     from plugin.scripting.quant import run_trusted_quant, parse_quant_script_header
     from plugin.scripting.optimize import insert_optimize_result_into_calc, is_optimize_result, run_trusted_optimize, parse_optimize_script_header
-    from plugin.scripting.duckdb_sql import parse_sql_script_header
 
     t0 = time.perf_counter()
     vision_meta = parse_vision_script_header(code)
@@ -425,7 +424,6 @@ def execute_and_insert_result(
     meta = parse_analysis_script_header(code)
     quant_meta = parse_quant_script_header(code)
     optimize_meta = parse_optimize_script_header(code)
-    sql_meta = parse_sql_script_header(code)
 
     def _resolve_data_range() -> str | None:
         binding = str(data_range).strip() if data_range else ""

@@ -49,35 +49,21 @@ class TestConfigSync(unittest.TestCase):
         self.get_mf_patcher.stop()
         self.set_mf_patcher.stop()
 
-    def test_set_image_model_aihorde(self):
-        self.config_data['image_provider'] = 'aihorde'
-        with patch.object(global_event_bus, 'emit') as mock_emit:
-            set_image_model(self.ctx, 'new-horde-model')
-            self.assertEqual(self.config_data.get('aihorde_model'), 'new-horde-model')
-            self.assertIsNone(self.config_data.get('image_model'))
-            mock_emit.assert_not_called()
-
     def test_set_image_model_endpoint(self):
-        self.config_data['image_provider'] = 'endpoint'
+        self.config_data['image_model'] = ''
         with patch('plugin.chatbot.config_ui_helpers.update_lru_history') as mock_lru, patch.object(global_event_bus, 'emit') as mock_emit:
             set_image_model(self.ctx, 'new-endpoint-model')
             self.assertEqual(self.config_data.get('image_model'), 'new-endpoint-model')
-            self.assertIsNone(self.config_data.get('aihorde_model'))
             mock_lru.assert_called_once_with(self.ctx, 'new-endpoint-model', 'image_model_lru', '')
             mock_emit.assert_not_called()
 
     def test_set_image_model_skips_when_unchanged(self):
-        self.config_data['image_provider'] = 'endpoint'
         self.config_data['image_model'] = 'same-model'
         self.mock_set.reset_mock()
         set_image_model(self.ctx, 'same-model')
         self.mock_set.assert_not_called()
 
     def test_get_image_model(self):
-        self.config_data['image_provider'] = 'aihorde'
-        self.config_data['aihorde_model'] = 'horde-1'
-        self.assertEqual(get_image_model(self.ctx), 'horde-1')
-        self.config_data['image_provider'] = 'endpoint'
         self.config_data['image_model'] = 'end-1'
         self.assertEqual(get_image_model(self.ctx), 'end-1')
 
@@ -215,7 +201,6 @@ class TestConfigSyncFileIO(unittest.TestCase):
         self.assertEqual(get_config(self.ctx, 'calc_prompt_max_tokens'), 70)
         self.assertEqual(get_config(self.ctx, 'prompt_lru'), [])
         self.assertEqual(get_config(self.ctx, 'endpoint'), 'http://localhost:11434')
-        self.assertEqual(get_config(self.ctx, 'image_provider'), 'endpoint')
         self.assertEqual(get_config(self.ctx, 'model_lru@http://localhost:11434'), [])
         self.assertEqual(get_config_int(self.ctx, 'extension_update_check_epoch'), 0)
         # Module-yaml keys (no WriterAgentConfig dataclass field; defaults from MODULES schema)

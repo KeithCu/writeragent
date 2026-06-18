@@ -290,8 +290,8 @@ def safe_log_exception(e, context="general", logger=None):
         print(f"Logging error: {logging_error}")
 
 
-def log_exception(ex, context="AIHorde"):
-    """Log an exception with traceback to the unified debug log. Used by aihordeclient and others."""
+def log_exception(ex, context="WriterAgent"):
+    """Log an exception with traceback to the unified debug log."""
     try:
         logger = log
         logger.error(f"[{context}] Exception", exc_info=ex)

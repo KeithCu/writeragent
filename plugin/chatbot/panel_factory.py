@@ -553,9 +553,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     txt = image_model_selector.getText()
                     if not txt:
                         return
-                    prov = get_config(self.ctx, "image_provider")
-                    sk = "aihorde_model" if prov == "aihorde" else "image_model"
-                    if txt == str(get_config(self.ctx, sk) or "").strip():
+                    if txt == str(get_config(self.ctx, "image_model") or "").strip():
                         return
                     set_image_model(self.ctx, txt, update_lru=False)
 

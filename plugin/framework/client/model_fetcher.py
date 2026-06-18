@@ -403,42 +403,31 @@ def get_grammar_model(ctx):
 
 
 def get_image_model(ctx):
-    """Return current image model based on provider."""
-    image_provider = get_config(ctx, "image_provider")
-    if image_provider == "aihorde":
-        return str(get_config(ctx, "aihorde_model") or "").strip()
+    """Return current image model for endpoint-based generation."""
     val = str(get_config(ctx, "image_model") or "").strip()
     if val:
         return val
-    if image_provider == "endpoint":
-        current_endpoint = get_current_endpoint(ctx)
-        provider = get_provider_from_endpoint(current_endpoint)
-    else:
-        provider = image_provider
+    current_endpoint = get_current_endpoint(ctx)
+    provider = get_provider_from_endpoint(current_endpoint)
     defaults = get_provider_defaults(provider)
     return str(defaults.get("image_model", "")).strip()
 
 
 def set_image_model(ctx, val, update_lru=True):
-    """Set image model based on provider and notify listeners."""
+    """Set image model and notify listeners."""
     if val is None:
         return
     val_str = str(val).strip()
     if not val_str:
         return
 
-    image_provider = get_config(ctx, "image_provider")
-    storage_key = "aihorde_model" if image_provider == "aihorde" else "image_model"
-    current = str(get_config(ctx, storage_key) or "").strip()
+    current = str(get_config(ctx, "image_model") or "").strip()
     if val_str == current:
         return
 
-    if image_provider == "aihorde":
-        set_config(ctx, "aihorde_model", val_str)
-    else:
-        set_config(ctx, "image_model", val_str)
-        if update_lru:
-            from plugin.chatbot.config_ui_helpers import update_lru_history
+    set_config(ctx, "image_model", val_str)
+    if update_lru:
+        from plugin.chatbot.config_ui_helpers import update_lru_history
 
-            update_lru_history(ctx, val_str, "image_model_lru", get_current_endpoint(ctx))
+        update_lru_history(ctx, val_str, "image_model_lru", get_current_endpoint(ctx))
 

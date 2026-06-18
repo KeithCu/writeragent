@@ -1,101 +1,72 @@
-# WriterAgent Handover Notes (Multimodal AI Integration)
+# WriterAgent Image Generation
 
-This document provides a comprehensive brain dump of the work performed to integrate multimodal image generation and editing into WriterAgent. It is intended to help resume work in a fresh context.
+Image generation and editing in WriterAgent uses the **same endpoint URL and API key as chat**; only the **image model** (`image_model`) differs from the text/chat model.
 
-## Current Architecture State
+## Architecture
 
-### 1. Core Image Services
-- **[core/image_service.py](core/image_service.py)**: Provider-agnostic **ImageService**.
-  - **Two options**: (1) **AI Horde** — its own API/key; (2) **endpoint** (config value `endpoint`) — uses the **endpoint URL/port and API key from Settings** (same as chat). Only the **model** differs: chat uses the text model, image uses **`image_model`**. Implemented via [LlmClient](core/api.py). Legacy: a previous config value for this provider is accepted and treated as `endpoint`.
-  - For the endpoint provider, the image model is taken from config key `image_model`, with fallback to the text/chat model. See [core/config.py](core/config.py) `get_text_model()` and `get_api_config()`.
-  - AI Horde: polling and UI non-blocking via `toolkit.processEvents()` in the informer; endpoint provider: single request/response.
-  - Merges configuration defaults with tool-provided arguments.
-- **[plugin/writer/images/image_tools.py](../plugin/writer/images/image_tools.py)**: Image insertion and selection.
-  - **insert_image**: Injects images into Writer/Calc documents.
-  - **Link vs embed**: Stable user file paths are inserted as **links** (`.uno:InsertGraphic` with `AsLink=True`) so the ODT stays small. Images under the system temp directory or the `writeragent_images` download cache are **embedded** so generated/downloaded assets remain usable if temp files move.
-  - **get_selected_image_base64**: Extracts the currently selected image as base64 for Img2Img.
-  - **add_image_to_gallery**: Adds generated images to the LibreOffice Media Gallery (in this file).
+### Core image service
 
-### 2. Multi-modal Tools
-Integrated into [plugin/writer/images/images.py](../plugin/writer/images/images.py) and available via `delegate_to_specialized_*_toolset(domain="images")`:
-- **list_nearby_image_files**: Lists image files in the document folder (`.png`, `.jpg`, …); use with **insert_image** / **replace_image**. Distinct from **list_images**, which lists graphic objects already in the document.
-- **generate_image**: Creates a new image from a prompt, or edits the selected image (pass `source_image='selection'`). Replaces in place when editing. When provider is `endpoint`, the model used is updated in `image_model_lru` after success.
+[`plugin/writer/images/image_utils.py`](../plugin/writer/images/image_utils.py):
 
-### 3. UI and Configuration
+- **`EndpointImageProvider`**: requests images via `LlmClient` (OpenRouter multimodal chat with `modalities: ["image"]`, or provider shims via `image_completion()`).
+- **`ImageService`**: merges config defaults (base size, steps) and delegates to `EndpointImageProvider`.
 
-**Model naming (text vs image)**  
-- **text_model**: The chat/text model. Stored in config as `text_model`; backward compatibility: read `text_model` or `model`. Used by chat, Extend/Edit Selection, and `get_api_config()` (exposed to LlmClient as `"model"`).
-- **image_model**: The model used for image generation when `image_provider=endpoint`. Same endpoint and API key as chat (from Settings); only this model id differs. Stored as `image_model`; LRU list `image_model_lru` for recently used image models.
+### Tools and document insertion
 
-**Settings dialog** ([WriterAgentDialogs/SettingsDialog.xdl](WriterAgentDialogs/SettingsDialog.xdl))  
-- **Tabbed**: Chat/Text tab and Image Generation tab.
-- **Chat/Text tab**: Endpoint, **Text/Chat Model** (combobox, LRU `model_lru`), **Image model (same endpoint as chat)** (combobox, LRU `image_model_lru`), API key, API type, temperature, chat max tokens, additional instructions.
-- **Image tab**: **Provider (aihorde / same as chat)**, AI Horde API key, width/height, steps, max wait, NSFW options, auto gallery, insert frame.
-- If the tabbed dialog fails to load in some LibreOffice versions, the XML uses `dlg:tabpagecontainer` / `dlg:tabpage`; fallback or alternate layout may be needed.
+[`plugin/writer/images/images.py`](../plugin/writer/images/images.py) — `generate_image` tool (also via `delegate_to_specialized_*_toolset(domain="images")`):
 
-**Chat sidebar** ([WriterAgentDialogs/ChatPanelDialog.xdl](WriterAgentDialogs/ChatPanelDialog.xdl), [chat_panel.py](chat_panel.py))  
-- **AI Model** (combobox): Text/chat model; on send writes to `text_model` and updates `model_lru`.
-- **Image model (same endpoint as chat)** (combobox): Image model; on send writes to `image_model` and updates `image_model_lru`.
-- Additional instructions are **not** in the sidebar; they are read from config (`additional_instructions`) when building the system prompt. Configure them in Settings only.
+- Text-to-image from a prompt.
+- Img2img when `source_image='selection'` and an image is selected in the document.
 
-- **[main.py](main.py)**: `field_specs` and `direct_keys` include `text_model`, `image_model`, and image-related keys. Settings apply logic updates `model_lru` for `text_model` and `image_model_lru` for `image_model`.
+[`plugin/writer/images/image_tools.py`](../plugin/writer/images/image_tools.py):
 
-## Pending Tasks & Next Steps
+- **`insert_image`**: inserts into Writer/Calc; stable paths are linked, temp/cache paths are embedded.
+- **`get_selected_image_base64`**: extracts selected image for img2img.
+- **`add_image_to_gallery`**: optional Media Gallery add after generation.
 
-### Critical Fixes
-1. **Settings Dialog Tabs**: If the tabbed XDL fails to load in some LibreOffice builds, research correct XML for tabs (e.g. `Step` property or different instantiation). The dialog has Chat/Text and Image tabs with `text_model` and `image_model` comboboxes in the Chat tab.
-2. **Img2Img Verification**: Test the **generate_image** edit flow (`source_image='selection'`) with real images (base64 extraction, provider Img2Img params such as `init_strength` for Horde).
+## Model naming
 
-### Enhancements
-1. **Anchoring & Layout**: Improve **insert_image** to support anchoring modes and text wrapping.
-2. **Progress Feedback**: Improve status/informer during long Horde generations (ETA/queue position).
-3. **Endpoint image API**: The current endpoint-based image path is a best-effort fit; confirm the actual API’s image endpoint/response shape (e.g. modalities, response format) and adjust [EndpointImageProvider](core/image_service.py) if needed.
+| Key | Role |
+|-----|------|
+| `text_model` | Chat/text model (also exposed to `LlmClient` as `"model"` via `get_api_config()`). |
+| `image_model` | Model id for image generation on the configured endpoint. |
+| `image_model_lru` | Recent image model ids for Settings and sidebar comboboxes. |
 
-## Config → API mapping
+## Settings UI
 
-Tool handlers in `core/document_tools.py` read config via `get_config_dict(ctx)` and pass values into the image stack:
+**General tab** ([`SettingsDialog.xdl.tpl`](../extension/WriterAgentDialogs/SettingsDialog.xdl.tpl)): endpoint, API key, **Text/Chat Model**, **Image Model**, audio model, temperature, max tokens, additional instructions.
 
-| Config key | Passed to / API role |
-|------------|------------------------|
-| `text_model` (or `model`) | Chat/LLM model; `get_api_config()` exposes as `"model"` to LlmClient. |
-| `image_model` | Image model when `image_provider=endpoint`; used by [ImageService.get_provider("endpoint")](core/image_service.py) (fallback: text model). |
-| `image_model_lru` | Recent image model ids for combobox dropdown (Settings + Chat sidebar). |
-| `image_cfg_scale` | Horde `cfg_scale` (via `prompt_strength` in ImageService / AIHordeImageProvider). |
-| `image_auto_gallery` | `insert_image(..., add_to_gallery=...)` |
-| `image_insert_frame` | `insert_image(..., add_frame=...)` |
-| `image_provider`, `image_width`, `image_height`, etc. | ImageService defaults and tool args |
+**Image Settings tab**: base size, aspect ratio, steps, seed, auto gallery, insert frame.
 
-`generate_image` passes `add_to_gallery` and `add_frame` from config into `insert_image`. After a successful image generation via the chat endpoint, the model used is pushed into `image_model_lru`.
+**Chat sidebar** ([`ChatPanelDialog.xdl`](../extension/WriterAgentDialogs/ChatPanelDialog.xdl)): text model and image model comboboxes; additional instructions come from config only (Settings).
 
+## Config keys used by `generate_image`
 
-## Image editing (img2img) and provider support
+| Config key | Role |
+|------------|------|
+| `image_model` | Image model on the chat endpoint (fallback: text model / provider defaults). |
+| `image_base_size` | Default width/height base dimension. |
+| `image_default_aspect` | Default aspect ratio for the tool. |
+| `image_steps` | Steps passed to the endpoint when &gt; 0. |
+| `image_auto_gallery` | Add generated images to Media Gallery. |
+| `image_insert_frame` | Wrap inserted images in a frame. |
+| `seed` | Reserved for future local generation backends. |
 
-### Unified create/edit design (implemented)
+After a successful endpoint generation, the model used is pushed into `image_model_lru`.
 
-The backend exposes a single `generate_image(prompt, **kwargs)`; when `source_image` (and optionally `strength`) is passed, the provider performs img2img (edit). The tool layer uses one tool `generate_image` with optional `source_image='selection'` to edit the selected image; when omitted, it creates a new image. This aligns with:
+## Img2img (edit selected image)
 
-- **OpenAI Responses API**: single `image_generation` tool with `action`: `auto` | `generate` | `edit`
-- **Stability / Replicate**: same endpoint with optional `image` parameter (no image → text-to-image; with image → img2img)
+Single `generate_image(prompt, source_image=...)` API:
 
-### Provider support matrix
+| Backend | How edit works |
+|---------|----------------|
+| **OpenRouter** | Multimodal user message: text prompt + source image as `image_url` data URL; same response parsing as create. |
+| **OpenAI-compatible / Ollama / Together-style** | Same image endpoint as create; optional `source_image` / `image_url` in the request body where the shim supports it. |
 
-| Provider | Image edit (img2img) | How it works |
-|----------|----------------------|--------------|
-| **AI Horde** | Supported | Uses `source_image` (base64) and `init_strength` / `strength` in the Horde client. No change needed. |
-| **Endpoint (OpenRouter)** | Supported | Uses `/api/v1/chat/completions` with `modalities: ["image"]` and message content that includes both the text prompt and the source image: `content: [{ "type": "text", "text": prompt }, { "type": "image_url", "image_url": { "url": "data:image/png;base64,..." } }]`. Same response parsing as for create. |
-| **Endpoint (Together / OpenAI-compatible)** | Supported | Same `POST .../images/generations` as create; request body includes optional `image_url` (string). For base64 we send a data URL: `data:image/png;base64,<b64>`. Models that support it (e.g. FLUX.2, FLUX Kontext) use it for img2img; others may ignore or return an error. |
+Tool usage: pass `source_image='selection'` with an image selected in the document; optional `strength` (default 0.75) controls edit strength.
 
-### How to add img2img for another provider
+## Related docs
 
-1. In the provider’s `generate()` method, accept `source_image` (base64 str) and optionally `strength` in `**kwargs`.
-2. **OpenRouter-style** (chat completions with image output): Include the source image in the chat message content (e.g. text part + `image_url` part with data URL) and keep using the same request/response path; parse images from the response as for create.
-3. **Together-style** (dedicated images endpoint): Pass `source_image` or `image_url` into the image request builder (e.g. `make_image_request`); add `"image_url": <data URL or URL>` to the JSON body. Use the same POST and response parsing as for create.
-4. Document the provider and any model-specific behavior (e.g. which models support edit) in this section or in [`AGENTS.md`](../AGENTS.md).
-
----
-
-## Technical References
-- **AI Horde Client**: [core/aihordeclient/](core/aihordeclient/) — low-level API (async submit, queue, poll, download). See [`AGENTS.md`](../AGENTS.md) for a short project overview.
-- **Text vs image model**: [core/config.py](core/config.py) — `get_text_model(ctx)` for chat model; `get_api_config(ctx)` returns `"model"` for LlmClient. Image model is `image_model` (used when `image_provider=endpoint`).
-- **Image extraction**: `get_selected_image_base64(model, ctx=None)` in [plugin/writer/image_tools.py](../plugin/writer/image_tools.py) — bridge for Img2Img. Pass `ctx` from the chat panel or MainJob for Calc.
-- **Error logging**: `writeragent_debug.log`; UI shows errors if `createDialog` or image generation fails.
+- Endpoint HTTP details: [`plugin/framework/client/llm_client.py`](../plugin/framework/client/llm_client.py)
+- Sidebar / direct-image mode: [`docs/chat-sidebar-implementation.md`](chat-sidebar-implementation.md)
+- Image generation roadmap (local diffusers): future work via venv sandbox

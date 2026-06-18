@@ -66,15 +66,9 @@ def _get_core_field_specs(ctx, current_endpoint):
 def _get_image_field_specs(ctx):
     return [
         {"name": "image_model", "value": str(get_image_model(ctx))},
-        {"name": "use_aihorde", "value": "true" if get_config(ctx, "image_provider") == "aihorde" else "false", "type": "bool"},
-        {"name": "aihorde_api_key", "value": str(get_config(ctx, "aihorde_api_key") or "")},
         {"name": "image_base_size", "value": str(get_config_int(ctx, "image_base_size")), "type": "int"},
         {"name": "image_default_aspect", "value": get_config_str(ctx, "image_default_aspect")},
-        {"name": "image_cfg_scale", "value": str(get_config_float(ctx, "image_cfg_scale")), "type": "float"},
         {"name": "image_steps", "value": str(get_config_int(ctx, "image_steps")), "type": "int"},
-        {"name": "image_nsfw", "value": "true" if get_config_bool(ctx, "image_nsfw") else "false", "type": "bool"},
-        {"name": "image_censor_nsfw", "value": "true" if get_config_bool(ctx, "image_censor_nsfw") else "false", "type": "bool"},
-        {"name": "image_max_wait", "value": str(get_config_int(ctx, "image_max_wait")), "type": "int"},
         {"name": "image_auto_gallery", "value": "true" if get_config_bool(ctx, "image_auto_gallery") else "false", "type": "bool"},
         {"name": "image_insert_frame", "value": "true" if get_config_bool(ctx, "image_insert_frame") else "false", "type": "bool"},
         {"name": "seed", "value": get_config_str(ctx, "seed")},
@@ -165,7 +159,7 @@ def apply_settings_result(ctx, result):
     current_endpoint = effective_endpoint or get_current_endpoint(ctx)
 
     # Apply most keys directly
-    _apply_skip = ("endpoint", "api_key", "use_aihorde")
+    _apply_skip = ("endpoint", "api_key")
     for key, val in result.items():
         if key in _apply_skip or key not in field_specs_by_name:
             continue
@@ -206,10 +200,6 @@ def apply_settings_result(ctx, result):
 
         set_config(ctx, save_key, val)
         _update_lru_for_key(ctx, key, val, current_endpoint)
-
-    # Handle special toggles and keys
-    if "use_aihorde" in result:
-        set_config(ctx, "image_provider", "aihorde" if result["use_aihorde"] else "endpoint")
 
     if "api_key" in result:
         set_api_key_for_endpoint(ctx, current_endpoint, result["api_key"])

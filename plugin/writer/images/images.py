@@ -86,7 +86,9 @@ class GenerateImage(ToolWriterImageBase):
 
         status_callback = getattr(ctx, "status_callback", None)
         mt_timeout = float(get_config_int(ctx.ctx, "request_timeout"))
-        provider = args.get("provider", get_config_str(ctx.ctx, "image_provider"))
+        provider = args.get("provider") or "endpoint"
+        if provider == "aihorde":
+            provider = "endpoint"
         add_to_gallery = get_config_bool(ctx.ctx, "image_auto_gallery")
         add_frame = get_config_bool(ctx.ctx, "image_insert_frame")
 

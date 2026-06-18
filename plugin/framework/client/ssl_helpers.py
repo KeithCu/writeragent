@@ -7,7 +7,7 @@ import ssl
 
 
 def get_unverified_ssl_context():
-    """Create an SSL context that doesn't verify certificates. Shared by API and aihordeclient."""
+    """Create an SSL context that doesn't verify certificates. Shared by API clients."""
     ssl_context = ssl.create_default_context()
     ssl_context.check_hostname = False
     ssl_context.verify_mode = ssl.CERT_NONE

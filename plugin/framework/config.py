@@ -72,7 +72,7 @@ _LRU_LIST_CONFIG_KEY_PREFIXES: frozenset[str] = frozenset({"model_lru", "prompt_
 
 # Simple AI settings fields that the Tools → Options "AI" page should map
 # directly to top-level config keys (endpoint, model, etc.).
-AI_SIMPLE_FIELDS = {"endpoint", "text_model", "image_model", "stt_model", "temperature", "chat_max_tokens", "request_timeout", "additional_instructions", "aihorde_api_key", "image_provider", "nsfw", "censor_nsfw", "max_wait", "parallel_tool_calls"}
+AI_SIMPLE_FIELDS = {"endpoint", "text_model", "image_model", "stt_model", "temperature", "chat_max_tokens", "request_timeout", "additional_instructions", "parallel_tool_calls"}
 
 
 # --- Small helpers ---
@@ -384,21 +384,14 @@ class WriterAgentConfig:
     request_timeout: int = 120
     stt_model: str = ""
     api_keys_by_endpoint: Dict[str, str] = dataclasses.field(default_factory=dict)
-    aihorde_api_key: str = ""
     image_base_size: int = 512
     image_default_aspect: str = "Square"
-    image_cfg_scale: float = 7.5
     image_steps: int = -1
-    image_nsfw: bool = False
-    image_censor_nsfw: bool = True
-    image_max_wait: int = 5
     image_auto_gallery: bool = True
     image_insert_frame: bool = False
     image_model: str = ""
-    image_provider: str = "endpoint"
     # Local sentence-transformers model id (Phase A embeddings); see docs/embeddings.md.
     embedding_provider: str = "local"
-    aihorde_model: str = "stable_diffusion"
     seed: str = ""
     enable_agent_log: bool = False
     # Last extension update.xml check time (unix seconds); see modules/chatbot/extension_update_check.py
@@ -554,10 +547,6 @@ class WriterAgentConfig:
         if not isinstance(self.temperature, (int, float)):
             log.warning("Invalid temperature %s, falling back to -1.0", self.temperature)
             self.temperature = -1.0
-
-        if not isinstance(self.image_cfg_scale, (int, float)) or self.image_cfg_scale < 0:
-            log.warning("Invalid image_cfg_scale %s, falling back to 7.5", self.image_cfg_scale)
-            self.image_cfg_scale = 7.5
 
         if not isinstance(self.openrouter_chat_extra, dict):
             log.warning("Invalid openrouter_chat_extra (not a dict), resetting to {}")

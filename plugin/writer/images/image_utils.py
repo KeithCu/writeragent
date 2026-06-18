@@ -23,8 +23,7 @@ import re
 import base64
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.client.requests import sync_request
-from plugin.contrib.aihordeclient import AiHordeClient
-from plugin.framework.config import get_config_bool, get_config_int, get_config_float, get_config_str
+from plugin.framework.config import get_config_int
 
 log = logging.getLogger(__name__)
 
@@ -135,148 +134,29 @@ class EndpointImageProvider(ImageProvider):
         return [], ""
 
 
-class AIHordeImageProvider(ImageProvider):
-    def __init__(self, config, ctx):
-        self.ctx = ctx
-        self.config = config
-        self.api_key = get_config_str(ctx, "aihorde_api_key")
-
-        # We need a minimal "informer" to bridge AIHordeClient's callbacks
-        class SimpleInformer:
-            def __init__(self, outer_ctx):
-                self.outer_ctx = outer_ctx
-                self.toolkit = None
-                self.last_error = ""
-                from plugin.framework.errors import UnoObjectError, safe_call
-
-                try:
-                    ctx = outer_ctx.get("ctx")
-                    if ctx:
-                        sm = safe_call(ctx.getServiceManager, "Get ServiceManager")
-                        self.toolkit = safe_call(sm.createInstanceWithContext, "Create Toolkit", "com.sun.star.awt.Toolkit", ctx)
-                except UnoObjectError:
-                    pass
-
-            def update_status(self, text, progress):
-                msg = f"Horde: {text} ({progress}%)"
-                logger.info(msg)
-                if self.outer_ctx.get("status_callback"):
-                    try:
-                        self.outer_ctx["status_callback"](msg)
-                    except TypeError:
-                        pass
-
-            def show_error(self, msg, **kwargs):
-                logger.error(f"Horde Error: {msg}")
-                self.last_error = msg
-                if self.outer_ctx.get("status_callback"):
-                    try:
-                        self.outer_ctx["status_callback"](f"Error: {msg}")
-                    except TypeError:
-                        pass
-
-            def set_finished(self):
-                pass
-
-            def get_generated_image_url_status(self):
-                return ["", 0, ""]
-
-            def set_generated_image_url_status(self, *args):
-                pass
-
-            def get_toolkit(self):
-                return self.toolkit
-
-        # Pass context dict so we can inject callback later if needed,
-        # or just pass it in constructor if we rebuild every time.
-        # But here we are in __init__, so we store the dict.
-        self.callback_context = {"status_callback": None, "ctx": self.ctx}
-
-        self.informer = SimpleInformer(self.callback_context)
-
-        # Build a settings dict from config accessors for AiHordeClient compatibility
-        horde_settings = {"aihorde_api_key": get_config_str(ctx, "aihorde_api_key"), "image_nsfw": get_config_bool(ctx, "image_nsfw"), "image_censor_nsfw": get_config_bool(ctx, "image_censor_nsfw"), "image_max_wait": get_config_int(ctx, "image_max_wait")}
-
-        self.client = AiHordeClient(client_version="1.0.0", url_version_update="", client_help_url="", client_download_url="", settings=horde_settings, client_name="WriterAgent_Horde_Client", informer=self.informer)
-        # We need to manually inject the toolkit because SimpleInformer.__init__
-        # expects an object with ServiceManager if we passed ctx directly.
-        # Actually SimpleInformer above takes outer_ctx which is expected to be the UNO component context.
-        # Let's fix SimpleInformer to take (ctx, callback_dict).
-
-    def generate(self, prompt, width=512, height=512, model="stable_diffusion", source_image=None, status_callback=None, **kwargs):
-        # Update the callback in the context shared with the informer
-        if status_callback:
-            self.callback_context["status_callback"] = status_callback
-
-        options = {
-            "prompt": prompt,
-            "image_width": width,
-            "image_height": height,
-            "model": model,
-            "api_key": self.api_key,
-            "max_wait_minutes": kwargs.get("max_wait", 5),
-            "prompt_strength": kwargs.get("strength", 0.6),  # LOSHD uses 1 - init_strength
-            "steps": int(float(kwargs["steps"])) if kwargs.get("steps") is not None and int(float(kwargs["steps"] or 0)) > 0 else 30,
-            "seed": kwargs.get("seed", ""),
-            "nsfw": kwargs.get("nsfw", False),
-            "censor_nsfw": kwargs.get("censor_nsfw", True),
-        }
-        if source_image:
-            options["source_image"] = source_image
-            options["mode"] = "MODE_IMG2IMG"  # AIHordeClient constant
-            options["init_strength"] = kwargs.get("strength", 0.6)
-
-        # AiHordeClient.generate_image is blocking and handles polling internally
-        paths = []
-        try:
-            paths = self.client.generate_image(options)
-        except (ValueError, TypeError, IOError) as e:
-            logger.error("AIHorde generator crashed with IO/Parse error: %s", e)
-            self.informer.last_error = str(e)
-        except Exception as e:
-            from plugin.framework.errors import NetworkError
-
-            if isinstance(e, NetworkError):
-                logger.error("AIHorde generator crashed with NetworkError: %s", e)
-            else:
-                logger.exception("AIHorde generator crashed with unexpected error")
-            self.informer.last_error = str(e)
-
-        if not paths and self.informer.last_error:
-            return paths, self.informer.last_error
-        return paths, ""
-
-
 class ImageService:
     def __init__(self, ctx, config):
         self.ctx = ctx
         self.config = config
         self.providers = {}
 
-    def get_provider(self, name):
-        if name == "aihorde":
-            return AIHordeImageProvider(self.config, self.ctx)
-        if name == "endpoint":
-            from plugin.framework.config import get_api_config
-            from plugin.framework.client.model_fetcher import get_image_model
+    def get_provider(self, name=None):
+        if name and name not in ("endpoint", "openrouter"):
+            return None
+        from plugin.framework.config import get_api_config
+        from plugin.framework.client.model_fetcher import get_image_model
 
-            api_config = get_api_config(self.ctx).copy()
-            cfg = self.config or {}
-            api_config["model"] = (cfg.get("image_model") or "").strip() or get_image_model(self.ctx)
-            return EndpointImageProvider(api_config, self.ctx)
-        return None
+        api_config = get_api_config(self.ctx).copy()
+        cfg = self.config or {}
+        api_config["model"] = (cfg.get("image_model") or "").strip() or get_image_model(self.ctx)
+        return EndpointImageProvider(api_config, self.ctx)
 
     def generate_image(self, prompt, provider_name=None, status_callback=None, **kwargs):
-        if not provider_name:
-            provider_name = get_config_str(self.ctx, "image_provider")
-
-        provider = self.get_provider(provider_name)
+        provider = self.get_provider(provider_name or "endpoint")
         if not provider:
             raise ValueError(f"Unknown provider: {provider_name}")
 
         # Merge configuration defaults with kwargs
-        # Note: width/height are explicitly calculated in tool_generate_image
-        # but we provide safe fallbacks here just in case of direct calls
         base_size = get_config_int(self.ctx, "image_base_size")
         steps = get_config_int(self.ctx, "image_steps")
 
@@ -285,18 +165,9 @@ class ImageService:
         defaults: dict[str, Any] = {
             "width": base_size,
             "height": base_size,
-            "strength": get_config_float(self.ctx, "image_cfg_scale"),
             "steps": steps,
-            "nsfw": get_config_bool(self.ctx, "image_nsfw"),
-            "censor_nsfw": get_config_bool(self.ctx, "image_censor_nsfw"),
-            "max_wait": get_config_int(self.ctx, "image_max_wait"),
         }
 
-        # Provider-specific defaults
-        if provider_name == "aihorde":
-            defaults["model"] = get_config_str(self.ctx, "aihorde_model")
-
-        # Special case: prompt translation
         for k, v in defaults.items():
             if k not in kwargs:
                 kwargs[k] = v

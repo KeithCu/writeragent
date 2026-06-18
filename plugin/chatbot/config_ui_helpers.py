@@ -495,18 +495,9 @@ def populate_image_model_selector(
     skip_remote_fetch: bool = False,
     api_key_override: str | None = None,
 ):
-    """Adaptive population of image model selector (ComboBox) based on provider."""
+    """Adaptive population of image model selector (ComboBox) for endpoint generation."""
     if not ctrl:
         return ""
-    image_provider = get_config(ctx, "image_provider")
-    if image_provider == "aihorde":
-        current_image_model = get_image_model(ctx)
-        from plugin.contrib.aihordeclient import MODELS
-
-        ctrl.removeItems(0, ctrl.getItemCount())
-        ctrl.addItems(tuple(MODELS), 0)
-        ctrl.setText(current_image_model)
-        return current_image_model
     current_image_model = get_image_model(ctx)
     endpoint = override_endpoint if override_endpoint is not None else get_current_endpoint(ctx)
     return populate_combobox_with_lru(

@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 
 def sync_request(url, data=None, headers=None, timeout=10, parse_json=True, method=None):
     """
-    Blocking HTTP GET or POST. Shared by aihordeclient and other code.
+    Blocking HTTP GET or POST. Shared by LLM client and other code.
     url: str or urllib.request.Request. If Request, headers/data come from it.
     data: optional bytes for POST. headers: optional dict (used only if url is str).
     Returns response data: decoded JSON if parse_json else raw bytes. Raises on error.

@@ -123,26 +123,13 @@ class ConfigService(ServiceBase):
                 endpoint = get_current_endpoint(ctx)
                 from plugin.framework.config import get_api_key_for_endpoint
                 return str(get_api_key_for_endpoint(ctx, endpoint) or "")
-            elif field == "horde_model":
-                return get_config(get_ctx(), "image_model")
 
             if field in AI_SIMPLE_FIELDS:
                 ctx = get_ctx()
                 if field == "endpoint":
                     return str(get_config(ctx, "endpoint") or "").strip()
 
-                # Internal mappings
-                config_key = field
-                if field == "aihorde_api_key":
-                    config_key = "aihorde_api_key"
-                elif field == "max_wait":
-                    config_key = "image_max_wait"
-                elif field == "nsfw":
-                    config_key = "image_nsfw"
-                elif field == "censor_nsfw":
-                    config_key = "image_censor_nsfw"
-
-                return get_config(ctx, config_key)
+                return get_config(ctx, field)
 
         # Test fallback
         if self._config_path and os.path.exists(self._config_path):
@@ -191,20 +178,6 @@ class ConfigService(ServiceBase):
                     bus = self._events or global_event_bus
                     bus.emit("config:changed", key=key, value=value, old_value=old_value, ctx=ctx)
                 return
-            elif field == "horde_model":
-                ctx = get_ctx()
-                set_image_model(ctx, value or "", update_lru=True)
-                if value != old_value:
-                    bus = self._events or global_event_bus
-                    bus.emit("config:changed", key=key, value=value, old_value=old_value, ctx=ctx)
-                return
-            elif field == "horde_api_key":
-                ctx = get_ctx()
-                set_config(ctx, "aihorde_api_key", value)
-                if value != old_value:
-                    bus = self._events or global_event_bus
-                    bus.emit("config:changed", key=key, value=value, old_value=old_value, ctx=ctx)
-                return
 
             if field in AI_SIMPLE_FIELDS:
                 ctx = get_ctx()
@@ -215,14 +188,6 @@ class ConfigService(ServiceBase):
                         set_config(ctx, "endpoint", resolved)
                 elif field == "image_model":
                     set_image_model(ctx, value or "", update_lru=True)
-                elif field == "aihorde_api_key":
-                    set_config(ctx, "aihorde_api_key", value)
-                elif field == "max_wait":
-                    set_config(ctx, "image_max_wait", int(value) if value else 5)
-                elif field == "nsfw":
-                    set_config(ctx, "image_nsfw", value)
-                elif field == "censor_nsfw":
-                    set_config(ctx, "image_censor_nsfw", value)
                 else:
                     # Direct 1:1 mapping to top-level key.
                     set_config(ctx, field, value)

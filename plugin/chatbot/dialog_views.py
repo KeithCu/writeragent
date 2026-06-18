@@ -599,32 +599,23 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
 
         image_ctrl = get_optional(self._dlg, "image_model")
         if image_ctrl:
-            if get_config_str(self._ctx, "image_provider") == "endpoint":
-                image_models = (
-                    self.fetch_available_image_models(resolved, self._ctx, api_key_override=api_key_ov)
-                    if models is not None
-                    else None
-                )
-                image_val = self._sanitize_model_combobox_value(str(image_ctrl.getText() or ""))
-                if not image_val:
-                    image_val = str(self.get_image_model(self._ctx) or "")
-                self.populate_combobox_with_lru(
-                    self._ctx,
-                    image_ctrl,
-                    image_val,
-                    "image_model_lru",
-                    resolved,
-                    remote_models=image_models,
-                    **populate_kw,
-                )
-            else:
-                self.populate_image_model_selector(
-                    self._ctx,
-                    image_ctrl,
-                    override_endpoint=resolved,
-                    api_key_override=api_key_ov,
-                    skip_remote_fetch=skip_fetch,
-                )
+            image_models = (
+                self.fetch_available_image_models(resolved, self._ctx, api_key_override=api_key_ov)
+                if models is not None
+                else None
+            )
+            image_val = self._sanitize_model_combobox_value(str(image_ctrl.getText() or ""))
+            if not image_val:
+                image_val = str(self.get_image_model(self._ctx) or "")
+            self.populate_combobox_with_lru(
+                self._ctx,
+                image_ctrl,
+                image_val,
+                "image_model_lru",
+                resolved,
+                remote_models=image_models,
+                **populate_kw,
+            )
 
     def close(self):
         self._closed = True

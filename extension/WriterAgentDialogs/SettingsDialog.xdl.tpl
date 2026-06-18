@@ -46,9 +46,7 @@
   <dlg:button dlg:id="btn_edit_config_json" dlg:page="1" dlg:left="8" dlg:top="154" dlg:width="240" dlg:height="14" dlg:tabstop="true" dlg:value="Edit config file (JSON)…"/>
 
   <!-- === Page 2: Image Settings === -->
-  <!-- Section 1: shared (all providers). Section 2: AI Horde only (below fixedline). -->
 
-  <!-- Section 1: Image settings (all providers) -->
   <dlg:text dlg:id="label_image_base_size" dlg:page="2" dlg:left="8" dlg:top="26" dlg:width="60" dlg:height="10" dlg:value="Base Size:" dlg:align="left"/>
   <dlg:combobox dlg:id="image_base_size" dlg:page="2" dlg:left="70" dlg:top="24" dlg:width="50" dlg:height="14" dlg:tabstop="true" dlg:spin="true" dlg:dropdown="true" dlg:value="512" dlg:border="1"/>
   <dlg:text dlg:id="label_image_default_aspect" dlg:page="2" dlg:left="130" dlg:top="26" dlg:width="70" dlg:height="10" dlg:value="Aspect Ratio:" dlg:align="left"/>
@@ -63,21 +61,6 @@
   <!-- Row 3: Checkboxes on one row -->
   <dlg:checkbox dlg:id="image_auto_gallery" dlg:page="2" dlg:left="8" dlg:top="56" dlg:width="100" dlg:height="10" dlg:value="Auto Gallery" dlg:checked="true"/>
   <dlg:checkbox dlg:id="image_insert_frame" dlg:page="2" dlg:left="115" dlg:top="56" dlg:width="100" dlg:height="10" dlg:value="Insert Frame" dlg:checked="false"/>
-  <!-- Visual separator line (no label so line is visible), then section below -->
-  <dlg:fixedline dlg:id="fixedline_horde" dlg:page="2" dlg:left="8" dlg:top="74" dlg:width="424" dlg:height="6" dlg:value=""/>
-  <dlg:checkbox dlg:id="use_aihorde" dlg:page="2" dlg:left="8" dlg:top="82" dlg:width="250" dlg:height="10" dlg:value="Use AI Horde for Image Generation" dlg:checked="false"/>
-
-  <!-- Section 2: AI Horde only -->
-  <dlg:text dlg:id="label_aihorde_api_key" dlg:page="2" dlg:left="8" dlg:top="98" dlg:width="150" dlg:height="10" dlg:value="AI Horde API Key:" dlg:align="left"/>
-  <dlg:textfield dlg:id="aihorde_api_key" dlg:page="2" dlg:left="165" dlg:top="96" dlg:width="265" dlg:height="14" dlg:tabstop="true" dlg:value=""/>
-
-  <dlg:text dlg:id="label_image_cfg_scale" dlg:page="2" dlg:left="8" dlg:top="114" dlg:width="60" dlg:height="10" dlg:value="CFG Scale:" dlg:align="left"/>
-  <dlg:textfield dlg:id="image_cfg_scale" dlg:page="2" dlg:left="70" dlg:top="112" dlg:width="50" dlg:height="14" dlg:tabstop="true" dlg:value="7.5"/>
-  <dlg:text dlg:id="label_image_max_wait" dlg:page="2" dlg:left="130" dlg:top="114" dlg:width="60" dlg:height="10" dlg:value="Max Wait (s):" dlg:align="left"/>
-  <dlg:textfield dlg:id="image_max_wait" dlg:page="2" dlg:left="192" dlg:top="112" dlg:width="40" dlg:height="14" dlg:tabstop="true" dlg:value="5"/>
-
-  <dlg:checkbox dlg:id="image_nsfw" dlg:page="2" dlg:left="8" dlg:top="132" dlg:width="100" dlg:height="10" dlg:value="Allow NSFW" dlg:checked="false"/>
-  <dlg:checkbox dlg:id="image_censor_nsfw" dlg:page="2" dlg:left="120" dlg:top="132" dlg:width="100" dlg:height="10" dlg:value="Censor NSFW" dlg:checked="true"/>
 
   <!-- AUTO_GENERATED_PAGES -->
 
