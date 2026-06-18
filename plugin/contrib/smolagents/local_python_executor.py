@@ -1317,6 +1317,8 @@ def get_safe_module(raw_module, authorized_imports, visited=None):
                 "sqlite_vec",
                 "langgraph",
                 "langchain",
+                "duckdb",
+                "duckdb.",
                 "plugin.embeddings.venv",
                 "plugin.scripting.venv",
                 "plugin.vision.venv",

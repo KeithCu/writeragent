@@ -40,6 +40,7 @@ SCRIPT_ORIGIN_MATH = "math"
 SCRIPT_ORIGIN_UNITS = "units"
 SCRIPT_ORIGIN_QUANT = "quant"
 SCRIPT_ORIGIN_OPTIMIZE = "optimize"
+SCRIPT_ORIGIN_SQL = "sql"
 
 DOC_SCRIPT_DISPLAY_PREFIX = "[Doc] "
 ANALYSIS_SCRIPT_DISPLAY_PREFIX = "[Analysis] "
@@ -49,6 +50,7 @@ MATH_SCRIPT_DISPLAY_PREFIX = "[Math] "
 UNITS_SCRIPT_DISPLAY_PREFIX = "[Units] "
 QUANT_SCRIPT_DISPLAY_PREFIX = "[Quant] "
 OPTIMIZE_SCRIPT_DISPLAY_PREFIX = "[Optimize] "
+SQL_SCRIPT_DISPLAY_PREFIX = "[SQL] "
 
 
 def _normalize_doc_url(url: Any) -> str:
@@ -317,6 +319,16 @@ def parse_optimize_script_display_name(display: str) -> str | None:
     return None
 
 
+def sql_script_display_name(name: str) -> str:
+    return f"{SQL_SCRIPT_DISPLAY_PREFIX}{name}"
+
+
+def parse_sql_script_display_name(display: str) -> str | None:
+    if display.startswith(SQL_SCRIPT_DISPLAY_PREFIX):
+        return display[len(SQL_SCRIPT_DISPLAY_PREFIX) :]
+    return None
+
+
 def resolve_script_picker_entry(display_name: str, origin_map: dict[str, str]) -> tuple[str, str]:
     """Return (real_name, origin) for a listbox/display label."""
     origin = origin_map.get(display_name, SCRIPT_ORIGIN_USER)
@@ -344,6 +356,9 @@ def resolve_script_picker_entry(display_name: str, origin_map: dict[str, str]) -
     if origin == SCRIPT_ORIGIN_OPTIMIZE:
         real = parse_optimize_script_display_name(display_name)
         return (real or display_name, SCRIPT_ORIGIN_OPTIMIZE)
+    if origin == SCRIPT_ORIGIN_SQL:
+        real = parse_sql_script_display_name(display_name)
+        return (real or display_name, SCRIPT_ORIGIN_SQL)
     return (display_name, SCRIPT_ORIGIN_USER)
 
 
@@ -461,6 +476,21 @@ def _optimize_script_section(doc: Any | None) -> dict[str, Any] | None:
     return {"id": SCRIPT_ORIGIN_OPTIMIZE, "title": _("Optimize Helpers"), "scripts": display_scripts}
 
 
+def _sql_script_section(doc: Any | None) -> dict[str, Any] | None:
+    if doc is None:
+        return None
+    try:
+        if not is_calc(doc):
+            return None
+    except Exception:
+        return None
+    from plugin.scripting.duckdb_sql import get_sql_script_templates
+
+    templates = get_sql_script_templates()
+    display_scripts = {sql_script_display_name(name): code for name, code in templates.items()}
+    return {"id": SCRIPT_ORIGIN_SQL, "title": _("SQL Helpers"), "scripts": display_scripts}
+
+
 def build_xdl_script_picker_state(
     ctx: Any,
     doc: Any | None,
@@ -488,6 +518,14 @@ def build_xdl_script_picker_state(
             origin_map[display_name] = SCRIPT_ORIGIN_ANALYSIS
             merged[display_name] = code
             analysis_items.append(display_name)
+
+    sql_items: list[str] = []
+    sql_section = _sql_script_section(doc)
+    if sql_section:
+        for display_name, code in sql_section["scripts"].items():
+            origin_map[display_name] = SCRIPT_ORIGIN_SQL
+            merged[display_name] = code
+            sql_items.append(display_name)
 
     vision_items: list[str] = []
     vision_section = _vision_script_section(doc)
@@ -540,6 +578,7 @@ def build_xdl_script_picker_state(
     items = (
         sorted(user_scripts.keys())
         + analysis_items
+        + sql_items
         + vision_items
         + viz_items
         + math_items
@@ -628,6 +667,9 @@ def build_scripts_list_message(
     optimize_section = _optimize_script_section(doc)
     if optimize_section:
         sections.append(optimize_section)
+    sql_section = _sql_script_section(doc)
+    if sql_section:
+        sections.append(sql_section)
     sections.append({"id": SCRIPT_ORIGIN_DOCUMENT, "title": _("This Document"), "scripts": doc_scripts})
 
     selected_name, sample_code, _merged_scripts = resolve_run_script_selection(ctx, doc, user_scripts)

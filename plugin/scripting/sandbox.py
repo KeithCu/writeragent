@@ -115,6 +115,8 @@ VENV_AUTHORIZED_IMPORTS: tuple[str, ...] = (
     "plugin.scripting.units",
     "pint",
     "pint.*",
+    "duckdb",
+    "duckdb.*",
     "sentence_transformers",
     "sentence_transformers.*",
     "yfinance",

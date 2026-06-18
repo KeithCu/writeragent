@@ -10,7 +10,7 @@ All tools below live under the **`analysis`** specialized domain. The main chat 
 | Single-variable what-if on live formulas | `calc_goal_seek` |
 | Constrained optimization on formula cells | `calc_solver` |
 
-See [calc-specialized-toolsets.md](calc-specialized-toolsets.md) for delegation mechanics and [Analysis Sub-Agent](analysis-sub-agent.md) for the broader plan.
+See [calc-specialized-toolsets.md](calc-specialized-toolsets.md) for delegation mechanics and [Analysis Sub-Agent](analysis-sub-agent.md) for the broader plan. Folder SQL via DuckDB (Phase A: sibling CSV/Parquet): use `query_folder_sql` (under analysis domain or Run Python Script → SQL Helpers). Full plan: [duckdb-calc-dev-plan.md](duckdb-calc-dev-plan.md).
 
 **Threading:** The analysis sub-agent runs on a background worker. Tools marked `is_async` (including `analyze_data`) still marshal Calc range reads through `execute_on_main_thread` inside the tool body; only the venv IPC runs on the worker.
 

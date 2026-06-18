@@ -108,6 +108,21 @@ def test_sentence_transformers_import_not_deep_wrapped():
     assert "SentenceTransformer" in r["result"]
 
 
+def test_duckdb_import_not_deep_wrapped():
+    """DuckDB (C-backed analytics lib) must bypass get_safe_module like other heavy packages."""
+    duck = pytest.importorskip("duckdb")
+    from plugin.contrib.smolagents.local_python_executor import get_safe_module
+
+    assert get_safe_module(duck, []) is duck
+    # Simple execution test to ensure import + basic use works inside the sandbox
+    r = _execute_request(
+        "import duckdb\ncon = duckdb.connect()\nresult = con.execute('SELECT 42 AS x').df().to_dict()",
+        None,
+    )
+    assert r["status"] == "ok"
+    assert "x" in str(r.get("result", "")) or 42 in str(r.get("result", ""))
+
+
 def test_harness_main_loop_integration():
     """Harness reads and writes Pickle (subprocess smoke)."""
     harness = __import__("plugin.scripting.venv.worker_harness", fromlist=["main"])

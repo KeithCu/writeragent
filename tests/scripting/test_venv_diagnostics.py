@@ -114,15 +114,16 @@ def test_format_self_check_success_with_data_engineering_group():
 
     data = {
         "v": "3.12.0",
-        "p": {"pint": "present"},
+        "p": {"pint": "present", "duckdb": None},
         "sci": [],
         "eda": [],
         "ui": [],
-        "data_eng": ["pint"],
+        "data_eng": ["pint", "duckdb"],
     }
     msg = _format_self_check_success(data)
     assert "Data Engineering Libraries" in msg
     assert "Data Engineering Libraries: pint" in msg
+    assert "duckdb" in msg  # newly probed under the group (present/absent shown)
 
 
 def test_format_self_check_success_with_vision_group():

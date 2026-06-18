@@ -30,6 +30,7 @@ def test_venv_authorized_includes_json_numpy_matplotlib():
     assert "json" in allowed
     assert "numpy" in allowed
     assert "matplotlib" in allowed
+    assert "duckdb" in allowed
 
 
 def test_venv_authorized_excludes_requests():

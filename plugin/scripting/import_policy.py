@@ -113,7 +113,8 @@ def format_venv_import_policy_for_prompt(*, compact: bool = False) -> str:
         "Pre-imported (do not write import lines): np, pd, sp, math, xl. "
         "DO NOT import numpy, pandas, sympy, math, or plugin.scripting.calc_functions. "
         "Use xl.* for Calc-parity helpers (SUMIF, XLOOKUP, FILTER, etc.). "
-        "Prefer np/sp/pd and scipy over hand-rolled Python."
+        "Prefer np/sp/pd and scipy over hand-rolled Python. "
+        "For folder SQL analytics over CSV/Parquet use the trusted query_folder_sql (or run_sql) helper when available."
     )
     blocked_security = _join_modules(tuple(sorted(DANGEROUS_MODULES)))
     blocked_network = _join_modules(

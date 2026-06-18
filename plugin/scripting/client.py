@@ -278,3 +278,41 @@ def run_vision(
         error_code="VISION_ERROR",
         error_label="Vision",
     )
+
+
+# --- DuckDB SQL (folder) ---
+
+_SQL_SESSION_PREFIX = "writeragent:sql"
+_SQL_STUB = """\
+from plugin.scripting.duckdb_sql import query_folder_sql as _run
+result = _run(data.get("scoped_dir"), data.get("sql"), data.get("files"))
+"""
+
+
+def run_folder_sql(
+    ctx: Any,
+    scoped_dir: str | None,
+    sql: str,
+    files: list[str] | None = None,
+) -> dict[str, Any]:
+    """Execute trusted folder SQL helper in the user venv (read-only, scoped)."""
+    timeout_sec = configured_python_exec_timeout(ctx)
+    payload = {"scoped_dir": scoped_dir, "sql": sql, "files": files or []}
+    # Reuse the common trusted helper runner (expects {"status":"ok", "result": ...} from worker)
+    response = run_code_in_user_venv(
+        ctx,
+        _SQL_STUB,
+        data=payload,
+        timeout_sec=timeout_sec,
+        session_id=_SQL_SESSION_PREFIX,
+    )
+    if response.get("status") != "ok":
+        message = str(response.get("message") or "DuckDB SQL worker failed.")
+        raise ToolExecutionError(message, code="DUCKDB_SQL_ERROR", details={"worker": response})
+    # For direct trusted SQL the worker result is already the dict from query_folder_sql
+    # (status inside). Return as-is so callers see the helper shape.
+    result = response.get("result")
+    if isinstance(result, dict):
+        return result
+    # Fallback shape
+    return {"status": "ok", "result": result}
