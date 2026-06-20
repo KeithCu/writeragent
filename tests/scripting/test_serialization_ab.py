@@ -61,6 +61,7 @@ from tests.scripting.serialization_ab_support import (
     venv_expected_cases,
     venv_transform_cases,
     ab_hypothesis_max_examples,
+    fancier_result_strategy,
 )
 
 _EX = ab_hypothesis_max_examples()
@@ -271,6 +272,27 @@ def test_hypothesis_multi_range_venv_echo(grids: list[list[Any] | list[list[Any]
     assert len(result) == len(grids)
     for idx, grid in enumerate(grids):
         assert flatten_semantic_cells(grid) == flatten_semantic_cells(result[idx]), f"index {idx}"
+
+
+@given(result=fancier_result_strategy())
+@settings(max_examples=_EX.get("fancier_result", 100), deadline=None, suppress_health_check=[HealthCheck.filter_too_much])
+def test_hypothesis_fancier_result_roundtrip(result: Any) -> None:
+    """Fuzz: roundtrip complex/fancier results through child_pack_result and host_unpack_data."""
+    from plugin.scripting.payload_codec import host_unpack_data, child_pack_result
+
+    packed = child_pack_result(result)
+    unpacked = host_unpack_data(packed)
+
+    def normalize(val: Any) -> Any:
+        if isinstance(val, tuple):
+            return [normalize(x) for x in val]
+        if isinstance(val, list):
+            return [normalize(x) for x in val]
+        if isinstance(val, dict):
+            return {k: normalize(v) for k, v in val.items()}
+        return val
+
+    assert normalize(unpacked) == normalize(result)
 
 
 if __name__ == "__main__":

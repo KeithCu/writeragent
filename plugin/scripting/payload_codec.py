@@ -199,7 +199,11 @@ def _is_image_payload_envelope(envelope: object) -> bool:
     if not isinstance(envelope, dict):
         return False
     env_dict = cast("dict[str, Any]", envelope)
-    return env_dict.get("__wa_payload__") == PAYLOAD_IMAGE and isinstance(env_dict.get("data"), bytes)
+    return (
+        env_dict.get("__wa_payload__") == PAYLOAD_IMAGE
+        and isinstance(env_dict.get("data"), bytes)
+        and isinstance(env_dict.get("format"), str)
+    )
 
 
 def is_image_payload(obj: Any) -> bool:
@@ -223,12 +227,17 @@ def find_image_payloads(obj: Any) -> list[dict[str, Any]]:
     return []
 
 
-
 def _is_dataframe_envelope(envelope: object) -> bool:
     if not isinstance(envelope, dict):
         return False
     env_dict = cast("dict[str, Any]", envelope)
-    return env_dict.get("__wa_payload__") == PAYLOAD_DATAFRAME
+    if env_dict.get("__wa_payload__") != PAYLOAD_DATAFRAME:
+        return False
+    cols = env_dict.get("columns")
+    if not isinstance(cols, list) or not all(isinstance(c, str) for c in cols):
+        return False
+    data = env_dict.get("data")
+    return isinstance(data, (list, tuple, dict)) or data is None
 
 
 def is_dataframe_payload(obj: Any) -> bool:
@@ -906,6 +915,13 @@ def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = T
     return [flat_list[r * ncols : (r + 1) * ncols] for r in range(nrows)]
 
 
+@deal.pre(
+    lambda wire, *_, **__: _is_any_payload_envelope(wire)
+    or isinstance(wire, (list, tuple, dict, str, int, float, bool))
+    or wire is None
+)
+@deal.post(lambda result, *_, **__: result is not None)
+@deal.raises(ValueError, TypeError, AttributeError)
 def host_unpack_data(wire: Any, *, as_nested_list: bool = True) -> Any:
     """Unpack worker ``data`` or ``result`` on host (list, scalar, split_grid, multi_data, image, or dataframe)."""
     if is_image_payload(wire):

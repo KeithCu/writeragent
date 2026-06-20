@@ -907,6 +907,57 @@ def run_multi_venv_echo(
     return host_unpack_data(result, as_nested_list=True)
 
 
+# --- Strategies for fancier payloads (images and dataframes) ---
+
+@strategies.composite
+def image_payload_strategy(draw) -> dict[str, Any]:
+    fmt = draw(st.sampled_from(["svg", "png"]))
+    # Short byte sizes (1 KB max) as requested by the user
+    data_bytes = draw(st.binary(min_size=1, max_size=1000))
+    return {
+        "__wa_payload__": "image",
+        "format": fmt,
+        "data": data_bytes,
+    }
+
+
+@strategies.composite
+def dataframe_payload_strategy(draw) -> dict[str, Any]:
+    num_cols = draw(st.integers(1, 4))
+    cols = [f"col_{i}" for i in range(num_cols)]
+    grid = draw(rectangular_grid(max_rows=3, max_cols=num_cols, max_cells=10))
+    if grid and isinstance(grid[0], (list, tuple)):
+        grid = [list(row)[:num_cols] + [None] * max(0, num_cols - len(row)) for row in grid]
+    elif grid:
+        grid = [grid[:num_cols]]
+    else:
+        grid = []
+    return {
+        "__wa_payload__": "dataframe",
+        "columns": cols,
+        "data": grid,
+    }
+
+
+def fancier_result_strategy() -> Any:
+    base_strat = st.one_of(
+        st.none(),
+        st.integers(),
+        st.floats(allow_nan=True),
+        st.text(min_size=1, max_size=10),
+        image_payload_strategy(),
+        dataframe_payload_strategy(),
+    )
+    return st.recursive(
+        base_strat,
+        lambda children: st.one_of(
+            st.lists(children, min_size=1, max_size=5),
+            st.dictionaries(st.text(min_size=1, max_size=10), children, min_size=1, max_size=3),
+        ),
+        max_leaves=10,
+    )
+
+
 __all__ = [
     "AbGridCase",
     "VenvTransformCase",
@@ -940,4 +991,7 @@ __all__ = [
     "run_multi_venv_echo",
     "BINARY_MIN_CELLS",
     "multi_range_grid",
+    "image_payload_strategy",
+    "dataframe_payload_strategy",
+    "fancier_result_strategy",
 ]

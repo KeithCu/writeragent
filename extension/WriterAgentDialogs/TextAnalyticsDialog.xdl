@@ -14,9 +14,9 @@
   <dlg:button dlg:id="BtnPhrases"  dlg:left="120" dlg:top="28" dlg:width="108" dlg:height="16" dlg:value="Key Phrases" dlg:tabstop="true"/>
 
   <dlg:text dlg:id="ResultsLbl" dlg:left="8" dlg:top="48" dlg:width="60" dlg:height="10" dlg:value="Results:" dlg:align="left" dlg:multiline="false"/>
-  <dlg:textfield dlg:id="ResultsEdit" dlg:left="8" dlg:top="60" dlg:width="344" dlg:height="114" dlg:tabstop="true" dlg:readonly="true" dlg:multiline="true" dlg:vscroll="true"/>
+  <dlg:textfield dlg:id="ResultsEdit" dlg:left="8" dlg:top="60" dlg:width="344" dlg:height="148" dlg:tabstop="true" dlg:readonly="true" dlg:multiline="true" dlg:vscroll="true"/>
 
-  <dlg:button dlg:id="BtnInsert" dlg:left="8" dlg:top="182" dlg:width="120" dlg:height="16" dlg:value="Insert report here" dlg:tabstop="true"/>
-  <dlg:button dlg:id="BtnClose"  dlg:left="120" dlg:top="182" dlg:width="70" dlg:height="16" dlg:value="Close" dlg:tabstop="true"/>
+  <dlg:button dlg:id="BtnInsert" dlg:left="8" dlg:top="216" dlg:width="108" dlg:height="16" dlg:value="Insert report here" dlg:tabstop="true"/>
+  <dlg:button dlg:id="BtnClose"  dlg:left="120" dlg:top="216" dlg:width="108" dlg:height="16" dlg:value="Close" dlg:tabstop="true"/>
  </dlg:bulletinboard>
 </dlg:window>
