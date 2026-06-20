@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE dlg:window PUBLIC "-//OpenOffice.org//DTD OfficeDocument 1.0//EN" "dialog.dtd">
+<dlg:window xmlns:dlg="http://openoffice.org/2000/dialog" xmlns:script="http://openoffice.org/2000/script"
+  dlg:id="TextAnalyticsDialog" dlg:left="120" dlg:top="60" dlg:width="360" dlg:height="240"
+  dlg:closeable="true" dlg:moveable="true" dlg:title="Text Analytics">
+ <dlg:bulletinboard>
+  <!-- A few buttons as requested: direct actions for the most useful pure-Python case -->
+  <dlg:button dlg:id="BtnReadDoc" dlg:left="8" dlg:top="8" dlg:width="108" dlg:height="16" dlg:value="Readability (doc)" dlg:tabstop="true"/>
+  <dlg:button dlg:id="BtnReadSel" dlg:left="120" dlg:top="8" dlg:width="108" dlg:height="16" dlg:value="Readability (sel)" dlg:tabstop="true"/>
+  <dlg:button dlg:id="BtnStats"  dlg:left="232" dlg:top="8" dlg:width="80" dlg:height="16" dlg:value="Entities" dlg:tabstop="true"/>
+
+  <dlg:text dlg:id="ResultsLbl" dlg:left="8" dlg:top="32" dlg:width="60" dlg:height="10" dlg:value="Results:" dlg:align="left" dlg:multiline="false"/>
+  <dlg:textfield dlg:id="ResultsEdit" dlg:left="8" dlg:top="44" dlg:width="344" dlg:height="130" dlg:tabstop="true" dlg:readonly="true" dlg:multiline="true" dlg:vscroll="true"/>
+
+  <dlg:button dlg:id="BtnInsert" dlg:left="8" dlg:top="182" dlg:width="120" dlg:height="16" dlg:value="Insert report here" dlg:tabstop="true"/>
+  <dlg:button dlg:id="BtnClose"  dlg:left="120" dlg:top="182" dlg:width="70" dlg:height="16" dlg:value="Close" dlg:tabstop="true"/>
+ </dlg:bulletinboard>
+</dlg:window>

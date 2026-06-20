@@ -330,3 +330,37 @@ def run_folder_sql(
         return result
     # Fallback shape
     return {"status": "ok", "result": result}
+
+
+# --- Text Analytics (spaCy + textdescriptives) ---
+
+_TEXT_SESSION_PREFIX = "writeragent:text"
+_TEXT_STUB = """\
+from plugin.scripting.text_analytics import run_text_analytics as _run
+result = _run(data.get("spec"), data.get("text"), data.get("context") or {})
+"""
+
+
+def run_text_analytics(
+    ctx: Any,
+    spec: dict[str, Any] | str,
+    text: str | list[str] | None = None,
+    *,
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Execute high-quality multilingual text analytics in the user venv.
+
+    The heavy lifting (spaCy model load + processing) happens in the warm worker.
+    Requires `spacy` + `textdescriptives` (and suitable models) in the configured venv.
+    """
+    timeout_sec = configured_python_exec_timeout(ctx)
+    payload = {"spec": spec, "text": text, "context": context or {}}
+    return _run_trusted_helper(
+        ctx,
+        session_id=_TEXT_SESSION_PREFIX,
+        stub=_TEXT_STUB,
+        payload=payload,
+        timeout_sec=timeout_sec,
+        error_code="TEXT_ANALYTICS_ERROR",
+        error_label="Text Analytics",
+    )

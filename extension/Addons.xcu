@@ -98,6 +98,20 @@
               <value>_self</value>
             </prop>
           </node>
+          <node oor:name="M3d_text" oor:op="replace">
+            <prop oor:name="Title">
+              <value xml:lang="en-US">Text Analytics...</value>
+            </prop>
+            <prop oor:name="URL">
+              <value>org.extension.writeragent:textanalytics.open_dialog</value>
+            </prop>
+            <prop oor:name="Context" oor:type="xs:string">
+              <value>com.sun.star.text.TextDocument</value>
+            </prop>
+            <prop oor:name="Target" oor:type="xs:string">
+              <value>_self</value>
+            </prop>
+          </node>
           <node oor:name="M3d_py_cell" oor:op="replace">
             <prop oor:name="Title">
               <value xml:lang="en-US">Edit Python in Cell...</value>

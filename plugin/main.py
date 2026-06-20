@@ -315,6 +315,12 @@ def _register_core_handlers():
 
     register_action_handler("embeddings", "search_dialog", _open_search_dialog)
 
+    def _open_text_analytics():
+        from plugin.scripting.text_analytics_ui import TextAnalyticsDialog
+        TextAnalyticsDialog.show(get_ctx())
+
+    register_action_handler("textanalytics", "open_dialog", _open_text_analytics)
+
     def _resolve_change_at_cursor(accept):
         from plugin.framework.uno_context import get_active_document
         from plugin.writer.inline_review import resolve_change_at_cursor, show_review_message
@@ -549,6 +555,7 @@ def get_menu_text(command):
         "scripting.import_ipynb": _("Import Jupyter Notebook..."),
         "writer.insert_latex_dialog": _("Insert LaTeX Math..."),
         "embeddings.search_dialog": _("Search Nearby Files..."),
+        "textanalytics.open_dialog": _("Text Analytics..."),
         "calc.convert_spreadsheet_to_python": _("Convert Sheet to Python..."),
     }
 
