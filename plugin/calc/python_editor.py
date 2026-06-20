@@ -316,7 +316,7 @@ def _open_python_cell_editor_impl(ctx: Any) -> None:
             summary = _(
                 "Cannot import webview (pywebview) with the Python from Settings → Python:\n"
                 "%(exe)s\n\n"
-                "In that venv run: pip install pywebview\n"
+                "In that venv run: uv pip install pywebview   # or: pip install pywebview\n"
                 "(import name is webview, package name is pywebview)."
             ) % {"exe": exe}
             msgbox(ctx, "WriterAgent", failure_message(summary, detail=webview_detail or _("unknown error")))

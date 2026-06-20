@@ -66,10 +66,11 @@ Same framing as [`worker_harness.py`](../plugin/scripting/worker_harness.py) (`s
 
 ## 4. Dependencies
 
-- **Settings → Python → `scripting.python_venv_path`:** must point at the venv where you run `pip install pywebview`. The Monaco editor **does not** use LibreOffice’s embedded Python.
+- **Settings → Python → `scripting.python_venv_path`:** must point at the venv where you run `uv pip install pywebview` (recommended) or `pip install pywebview`. The Monaco editor **does not** use LibreOffice’s embedded Python.
 - **`pywebview`** and GUI backends in that venv. For robust cross-platform support (especially in isolated venvs on Linux/Python 3.14), the following stack is verified:
   ```bash
-  pip install pywebview PyQt6 PyQt6-WebEngine qtpy
+  uv pip install pywebview PyQt6 PyQt6-WebEngine qtpy
+  # or: pip install ...
   ```
   - **Why:** `pywebview` requires a GUI driver. While it can use system GTK, a venv often cannot see system bindings. `PyQt6` + `WebEngine` provides a self-contained Chromium-based browser engine. `qtpy` is a mandatory shim for the `pywebview` Qt driver.
 - **Linux GUI:** child inherits `DISPLAY`, `WAYLAND_DISPLAY`, `XDG_RUNTIME_DIR`, `DBUS_SESSION_BUS_ADDRESS`, `LD_LIBRARY_PATH` from the LO process. Optional `WRITERAGENT_PYWEBVIEW_GUI=qt|gtk` for [`editor_main.py`](../plugin/scripting/editor_main.py).
@@ -138,7 +139,7 @@ tests/
 
 ## 7. Manual test
 
-1. Create or pick a venv; `pip install pywebview` (and any packages your `=PYTHON()` code needs).
+1. Create or pick a venv; `uv pip install pywebview` (recommended) or `pip install pywebview` (and any packages your `=PYTHON()` code needs).
 2. **WriterAgent Settings → Python:** set **Python venv path** to that directory (not merely “venv active” in a terminal).
 3. `make deploy`, restart LibreOffice, open Calc.
 4. Select any cell (empty or `=PYTHON("result = 1")`).

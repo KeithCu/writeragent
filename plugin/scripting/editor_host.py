@@ -79,7 +79,7 @@ def resolve_editor_python(uno_ctx: Any) -> tuple[str | None, str]:
         return (
             None,
             "Set the Python venv path in WriterAgent Settings → Python (same venv where you ran "
-            "'pip install pywebview'). LibreOffice's built-in Python cannot run the Monaco editor.",
+            "'uv pip install pywebview' or 'pip install pywebview'). LibreOffice's built-in Python cannot run the Monaco editor.",
         )
     exe = resolve_venv_python(venv_dir)
     if not exe:

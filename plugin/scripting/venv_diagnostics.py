@@ -34,6 +34,7 @@ viz = ['matplotlib', 'seaborn']
 ui = ['webview', 'jedi', 'PyQt6', 'PyQt6.QtWebEngineWidgets', 'qtpy']
 quant = ['yfinance', 'pandas_ta', 'quantstats', 'pypfopt']
 data_eng = ['pint']
+nlp = ['spacy', 'textdescriptives']
 res['sci'] = sci
 res['eda'] = eda
 res['cas'] = cas
@@ -41,6 +42,7 @@ res['viz'] = viz
 res['ui'] = ui
 res['quant'] = quant
 res['data_eng'] = data_eng
+res['nlp'] = nlp
 
 # Check for Cython accelerator
 try:
@@ -170,24 +172,39 @@ try:
 except ImportError:
     res['p']['pint'] = None
 
+try:
+    import spacy
+    res['p']['spacy'] = 'present'
+except ImportError:
+    res['p']['spacy'] = None
+
+try:
+    import textdescriptives
+    res['p']['textdescriptives'] = 'present'
+except ImportError:
+    res['p']['textdescriptives'] = None
+
 result = res
 """
 
-_QUANT_INSTALL_CMD = "pip install yfinance pandas-ta quantstats pyportfolioopt"
+# Install hints use uv (recommended for speed and modern workflows) with classic pip as fallback.
+# Users point Settings → Python at a venv; they can create it with `uv venv ...` and install via `uv pip`.
+_QUANT_INSTALL_CMD = "uv pip install yfinance pandas-ta quantstats pyportfolioopt   # or: pip install ..."
 
 # Vision stack (docs/image-recognition.md §7–§13): probed outside the AST sandbox because
 # docling/paddleocr/paddle are not whitelisted for LLM-submitted venv scripts.
 # Primary OCR: docling + rapidocr-paddle. Fallback: paddleocr + paddle.
 # Optional: ultralytics (detection helpers), skimage (trusted helper preprocessing).
 _ANALYSIS_INSTALL_CMD = (
-    "pip install numpy pandas scipy scikit-learn statsmodels ydata-profiling pandas-montecarlo"
+    "uv pip install numpy pandas scipy scikit-learn statsmodels ydata-profiling pandas-montecarlo   # or: pip install ..."
 )
 _VISION_PACKAGE_KEYS = ("docling", "rapidocr", "css_inline", "paddleocr", "paddle", "ultralytics", "skimage")
-_DOCLING_INSTALL_CMD = "pip install docling rapidocr-paddle numpy pillow css-inline"
+_DOCLING_INSTALL_CMD = "uv pip install docling rapidocr-paddle numpy pillow css-inline   # or: pip install ..."
 _VISION_OCR_INSTALL_CMD = _DOCLING_INSTALL_CMD
-_VISION_PADDLE_FALLBACK_CMD = "pip install paddleocr paddlepaddle numpy"
-_VIZ_INSTALL_CMD = "pip install matplotlib seaborn"
-_SYMBOLIC_INSTALL_CMD = "pip install sympy"
+_VISION_PADDLE_FALLBACK_CMD = "uv pip install paddleocr paddlepaddle numpy   # or: pip install ..."
+_VIZ_INSTALL_CMD = "uv pip install matplotlib seaborn   # or: pip install ..."
+_SYMBOLIC_INSTALL_CMD = "uv pip install sympy   # or: pip install ..."
+_TEXT_ANALYTICS_INSTALL_CMD = "uv pip install spacy textdescriptives && python -m spacy download xx_sent_ud_sm   # or: pip install ..."
 _VISION_PROBE_SCRIPT = """
 import json
 out = {}
@@ -403,6 +420,7 @@ _SELF_CHECK_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Computer Algebra", ("sympy",)),
     ("Quantitative Finance Libraries", ("yfinance", "pandas_ta", "quantstats", "pypfopt")),
     ("Data Engineering Libraries", ("pint", "duckdb")),
+    ("Text / NLP Libraries", ("spacy", "textdescriptives")),
 )
 
 _ALLOWED_PROBE_MODULES = frozenset(pkg for _title, pkgs in _SELF_CHECK_GROUPS for pkg in pkgs)
@@ -457,6 +475,7 @@ def _self_check_group_specs(data: dict[str, Any]) -> list[tuple[str, tuple[str, 
         (_("Computer Algebra"), tuple(data.get("cas", ()))),
         (_("Quantitative Finance Libraries"), tuple(data.get("quant", ()))),
         (_("Data Engineering Libraries"), tuple(data.get("data_eng", ()))),
+        (_("Text / NLP Libraries"), tuple(data.get("nlp", ()))),
         (_("Vision Libraries"), tuple(data.get("vision", ()))),
         (_("Vector Search Libraries"), tuple(data.get("vector_search", ()))),
     ]
@@ -510,6 +529,7 @@ def _format_self_check_success(data: dict[str, Any]) -> str:
     data = dict(data)
     data.setdefault("vector_search", list(_VECTOR_SEARCH_PACKAGE_KEYS))
     data.setdefault("vision", list(_VISION_PACKAGE_KEYS))
+    data.setdefault("nlp", ("spacy", "textdescriptives"))
     return _build_probe_display(
         data,
         completed_groups=len(_SELF_CHECK_GROUPS),

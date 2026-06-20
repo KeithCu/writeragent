@@ -41,6 +41,7 @@ SCRIPT_ORIGIN_UNITS = "units"
 SCRIPT_ORIGIN_QUANT = "quant"
 SCRIPT_ORIGIN_OPTIMIZE = "optimize"
 SCRIPT_ORIGIN_SQL = "sql"
+SCRIPT_ORIGIN_TEXT_ANALYTICS = "text"
 
 DOC_SCRIPT_DISPLAY_PREFIX = "[Doc] "
 ANALYSIS_SCRIPT_DISPLAY_PREFIX = "[Analysis] "
@@ -51,6 +52,7 @@ UNITS_SCRIPT_DISPLAY_PREFIX = "[Units] "
 QUANT_SCRIPT_DISPLAY_PREFIX = "[Quant] "
 OPTIMIZE_SCRIPT_DISPLAY_PREFIX = "[Optimize] "
 SQL_SCRIPT_DISPLAY_PREFIX = "[SQL] "
+TEXT_ANALYTICS_SCRIPT_DISPLAY_PREFIX = "[Text] "
 
 
 def _normalize_doc_url(url: Any) -> str:
@@ -329,6 +331,16 @@ def parse_sql_script_display_name(display: str) -> str | None:
     return None
 
 
+def text_analytics_script_display_name(name: str) -> str:
+    return f"{TEXT_ANALYTICS_SCRIPT_DISPLAY_PREFIX}{name}"
+
+
+def parse_text_analytics_script_display_name(display: str) -> str | None:
+    if display.startswith(TEXT_ANALYTICS_SCRIPT_DISPLAY_PREFIX):
+        return display[len(TEXT_ANALYTICS_SCRIPT_DISPLAY_PREFIX) :]
+    return None
+
+
 def resolve_script_picker_entry(display_name: str, origin_map: dict[str, str]) -> tuple[str, str]:
     """Return (real_name, origin) for a listbox/display label."""
     origin = origin_map.get(display_name, SCRIPT_ORIGIN_USER)
@@ -359,6 +371,9 @@ def resolve_script_picker_entry(display_name: str, origin_map: dict[str, str]) -
     if origin == SCRIPT_ORIGIN_SQL:
         real = parse_sql_script_display_name(display_name)
         return (real or display_name, SCRIPT_ORIGIN_SQL)
+    if origin == SCRIPT_ORIGIN_TEXT_ANALYTICS:
+        real = parse_text_analytics_script_display_name(display_name)
+        return (real or display_name, SCRIPT_ORIGIN_TEXT_ANALYTICS)
     return (display_name, SCRIPT_ORIGIN_USER)
 
 
@@ -442,6 +457,22 @@ def _units_script_section(doc: Any | None) -> dict[str, Any] | None:
     templates = get_units_script_templates()
     display_scripts = {units_script_display_name(name): code for name, code in templates.items()}
     return {"id": SCRIPT_ORIGIN_UNITS, "title": _("Units Helpers"), "scripts": display_scripts}
+
+
+def _text_analytics_script_section(doc: Any | None) -> dict[str, Any] | None:
+    if doc is None:
+        return None
+    from plugin.scripting.text_analytics import get_text_analytics_script_templates, supports_text_analytics_manual
+
+    try:
+        if not supports_text_analytics_manual(doc):
+            return None
+    except Exception:
+        return None
+
+    templates = get_text_analytics_script_templates()
+    display_scripts = {text_analytics_script_display_name(name): code for name, code in templates.items()}
+    return {"id": SCRIPT_ORIGIN_TEXT_ANALYTICS, "title": _("Text Analytics Helpers"), "scripts": display_scripts}
 
 
 def _quant_script_section(doc: Any | None) -> dict[str, Any] | None:
@@ -559,6 +590,14 @@ def build_xdl_script_picker_state(
             merged[display_name] = code
             units_items.append(display_name)
 
+    text_items: list[str] = []
+    text_section = _text_analytics_script_section(doc)
+    if text_section:
+        for display_name, code in text_section["scripts"].items():
+            origin_map[display_name] = SCRIPT_ORIGIN_TEXT_ANALYTICS
+            merged[display_name] = code
+            text_items.append(display_name)
+
     quant_items: list[str] = []
     quant_section = _quant_script_section(doc)
     if quant_section:
@@ -583,6 +622,7 @@ def build_xdl_script_picker_state(
         + viz_items
         + math_items
         + units_items
+        + text_items
         + quant_items
         + optimize_items
         + [document_script_display_name(n) for n in sorted(doc_scripts.keys())]
@@ -661,6 +701,9 @@ def build_scripts_list_message(
     units_section = _units_script_section(doc)
     if units_section:
         sections.append(units_section)
+    text_section = _text_analytics_script_section(doc)
+    if text_section:
+        sections.append(text_section)
     quant_section = _quant_script_section(doc)
     if quant_section:
         sections.append(quant_section)

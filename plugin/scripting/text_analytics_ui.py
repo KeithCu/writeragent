@@ -19,6 +19,7 @@ from plugin.doc.document_helpers import get_string_without_tracked_deletions, is
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_active_document
 from plugin.scripting.client import run_text_analytics
+from plugin.scripting.text_analytics import get_doc_language
 from plugin.writer.format import insert_content_at_position
 
 log = logging.getLogger(__name__)
@@ -147,11 +148,18 @@ class TextAnalyticsDialog:
 
         try:
             # This goes to the venv worker. Model loading happens there.
+            # Pass detected doc language (from CharLocale) so venv can prefer a
+            # language-specific model for higher quality metrics/entities.
+            lang = get_doc_language(doc)
+            ctx_payload: dict[str, Any] = {}
+            if lang:
+                ctx_payload["lang"] = lang
+                ctx_payload["doc_lang"] = lang
             result = run_text_analytics(
                 ctx,
                 spec={"helper": helper},
                 text=raw,
-                context={},
+                context=ctx_payload,
             )
         except Exception as e:
             log.exception("Text analytics worker call failed")
@@ -262,7 +270,7 @@ class TextAnalyticsDialog:
         # Entities (compact)
         ents = data.get("entities") or []
         if ents:
-            labels = {}
+            labels: dict[str, int] = {}
             for e in ents:
                 labels[e.get("label", "?")] = labels.get(e.get("label", "?"), 0) + 1
             for lab, cnt in sorted(labels.items(), key=lambda x: -x[1])[:12]:

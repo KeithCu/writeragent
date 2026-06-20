@@ -412,6 +412,13 @@ def execute_and_insert_result(
         parse_units_script_header,
         split_helper_params,
     )
+    from plugin.scripting.text_analytics import (
+        insert_text_analytics_result_into_doc,
+        is_text_analytics_result,
+        run_trusted_text_analytics,
+        supports_text_analytics_manual,
+        parse_text_analytics_script_header,
+    )
     from plugin.calc.quant_egress import insert_quant_result_into_calc, is_quant_result
     from plugin.scripting.quant import run_trusted_quant, parse_quant_script_header
     from plugin.scripting.optimize import insert_optimize_result_into_calc, is_optimize_result, run_trusted_optimize, parse_optimize_script_header
@@ -421,6 +428,7 @@ def execute_and_insert_result(
     viz_meta = parse_viz_script_header(code)
     math_meta = parse_math_script_header(code)
     units_meta = parse_units_script_header(code)
+    text_meta = parse_text_analytics_script_header(code)
     meta = parse_analysis_script_header(code)
     quant_meta = parse_quant_script_header(code)
     optimize_meta = parse_optimize_script_header(code)
@@ -656,6 +664,57 @@ def execute_and_insert_result(
             result=result,
         )
 
+    if text_meta is not None:
+        if not supports_text_analytics_manual(doc):
+            return {
+                "ok": False,
+                "message": _("Text analytics helpers require a Writer document."),
+            }
+        try:
+            result = run_trusted_text_analytics(
+                ctx,
+                doc,
+                helper=text_meta.helper,
+                params=text_meta.params,
+            )
+        except ToolExecutionError as exc:
+            elapsed = time.perf_counter() - t0
+            err_msg = str(exc)
+            formatted_time = format_elapsed_time(elapsed)
+            if not ("timed out" in err_msg.lower() or "timeout" in err_msg.lower()):
+                err_msg = f"{err_msg} (took {formatted_time})"
+            return {"ok": False, "message": err_msg}
+        except Exception as e:
+            elapsed = time.perf_counter() - t0
+            log.exception("execute_and_insert_result text_analytics fast path failed")
+            err_msg = str(e)
+            formatted_time = format_elapsed_time(elapsed)
+            return {"ok": False, "message": f"{err_msg} (took {formatted_time})", "traceback": exception_traceback(e)}
+
+        if result.get("status") == "error":
+            elapsed = time.perf_counter() - t0
+            formatted_time = format_elapsed_time(elapsed)
+            message = str(result.get("message") or _("Text analytics helper failed."))
+            return {"ok": False, "message": f"{message} (took {formatted_time})"}
+
+        try:
+            insert_text_analytics_result_into_doc(ctx, doc, result)
+        except Exception as e:
+            elapsed_total = time.perf_counter() - t0
+            formatted_time_total = format_elapsed_time(elapsed_total)
+            return {"ok": False, "message": _("Failed to insert result: {error} (took {time})").format(error=str(e), time=formatted_time_total)}
+
+        # Use a short title for status
+        title = text_meta.helper
+        formatted_time = format_elapsed_time(time.perf_counter() - t0)
+        return {
+            "ok": True,
+            "status_ok_text": _("Text analytics '{helper}' completed. (took {time})").format(
+                helper=title, time=formatted_time
+            ),
+            "result": result,
+        }
+
     if quant_meta is not None and is_calc(doc):
         dr = _resolve_data_range()
         if not dr and quant_meta.helper != "fetch_historical_data":
@@ -864,6 +923,19 @@ def execute_and_insert_result(
                     stdout=stdout,
                     result=result_data,
                 )
+            if is_text_analytics_result(result_data):
+                ta_result = cast("dict[str, Any]", result_data)
+                insert_text_analytics_result_into_doc(ctx, doc, ta_result)
+                formatted_time = format_elapsed_time(time.perf_counter() - t0)
+                helper = str(ta_result.get("helper") or ta_result.get("result", {}).get("meta", {}).get("model") or "text")
+                return {
+                    "ok": True,
+                    "status_ok_text": _("Text analytics '{helper}' completed. (took {time})").format(
+                        helper=helper, time=formatted_time
+                    ),
+                    "stdout": stdout,
+                    "result": result_data,
+                }
             if is_viz_result(result_data):
                 viz_result = cast("dict[str, Any]", result_data)
                 insert_viz_result_into_doc(ctx, doc, viz_result)

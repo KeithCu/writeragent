@@ -113,6 +113,10 @@ VENV_AUTHORIZED_IMPORTS: tuple[str, ...] = (
     "plugin.scripting.viz",
     "plugin.scripting.symbolic",
     "plugin.scripting.units",
+    "plugin.scripting.text_analytics",  # trusted text analytics (spaCy) for Run Python Script + direct imports in user scripts
+    "spacy",
+    "spacy.*",
+    "textdescriptives",
     "pint",
     "pint.*",
     "duckdb",

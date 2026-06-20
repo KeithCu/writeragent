@@ -84,6 +84,22 @@ Module implementation: `plugin/scripting/` (no top-level `python/` package — a
 - **No automatic venv creation** — the user brings their own environment.
 - **Test button:** Validates the path is a directory, resolves `bin/python` or `Scripts\python.exe`, and runs a warm-worker diagnostic via [`run_venv_self_check`](../plugin/scripting/venv_worker.py). Reports **Scientific**, **Data Analysis / EDA**, **UI / Monaco**, **Vision Libraries**, and **Embeddings Libraries** groups (Present/Missing). Vision and Embeddings imports use dedicated ~30s host subprocess probes (`EMBEDDINGS_PROBE_TIMEOUT_SEC`, `VISION_PROBE_TIMEOUT_SEC` in [`config_limits.py`](../plugin/scripting/config_limits.py)) because cold `sentence-transformers` / Docling imports can exceed 5s on modest hardware. See [Embeddings venv packages](#embeddings-venv-packages) and [Image Recognition](image-recognition.md).
 
+**Creating the venv (uv recommended in 2026):**
+
+```bash
+# Create a dedicated venv (choose a Python close to what you develop with)
+uv venv ~/.writeragent_venv --python 3.12
+
+# Activate (optional for uv pip) and install what you need
+source ~/.writeragent_venv/bin/activate
+uv pip install numpy pandas scipy scikit-learn matplotlib sympy spacy textdescriptives
+python -m spacy download xx_sent_ud_sm
+
+# Point Settings → Python at the venv root (~/.writeragent_venv) or the bin/ dir.
+```
+
+`uv pip` is a fast drop-in for `pip`. Classic `python -m venv ... && pip install ...` still works fine.
+
 ### Execution paths (shipped)
 
 | Entry | Module | Notes |
@@ -143,7 +159,7 @@ WriterAgent ships a **Monaco-based code editor** (pywebview child in the configu
 | **Theme sync (2E)** — Monaco + toolbar chrome automatically follow LO light/dark | **Shipped** | [`appearance.py`](plugin/framework/appearance.py), editor host + JS/CSS |
 | Syntax squiggles (2B), range picker (2C), full Jedi (2D), sheet cell list | **Backlog** | [Monaco dev plan §8](python-monaco-editor-dev-plan.md#8-next-development-plan-detailed) |
 
-**Requirements:** Settings → Python → `scripting.python_venv_path` with `pip install pywebview` (on Linux, also `PyQt6 PyQt6-WebEngine qtpy` for a self-contained WebEngine backend). **Edit Python in Cell…** does not fall back to embedded LO Python — fix the venv if the editor fails to open. **Run Python Script…** falls back to the native multiline dialog when pywebview is unavailable.
+**Requirements:** Settings → Python → `scripting.python_venv_path` with `uv pip install pywebview` (recommended) or `pip install pywebview` (on Linux, also `PyQt6 PyQt6-WebEngine qtpy` for a self-contained WebEngine backend). **Edit Python in Cell…** does not fall back to embedded LO Python — fix the venv if the editor fails to open. **Run Python Script…** falls back to the native multiline dialog when pywebview is unavailable.
 
 ---
 
@@ -257,7 +273,10 @@ The **AST sandbox** (`LocalPythonExecutor` + `VENV_AUTHORIZED_IMPORTS`) applies 
 The 14 Calc **Analysis Helpers** in [`plugin/scripting/analysis.py`](../plugin/scripting/analysis.py) require a fixed scientific stack in the user venv. Settings → Python **Test** reports these under **Data Analysis / EDA Libraries** and prints an install line when any are missing.
 
 ```bash
-pip install numpy pandas scipy scikit-learn statsmodels ydata-profiling pandas-montecarlo
+# Recommended (fast, modern)
+uv pip install numpy pandas scipy scikit-learn statsmodels ydata-profiling pandas-montecarlo
+# or with classic pip:
+# pip install numpy pandas scipy scikit-learn statsmodels ydata-profiling pandas-montecarlo
 ```
 
 | Package | Used by |
@@ -277,10 +296,10 @@ Helpers that need a missing package return `MISSING_PACKAGE` with the install li
 
 | Package | Install | Used by |
 |---------|---------|---------|
-| [Docling](https://github.com/docling-project/docling) + RapidOCR paddle backend (`docling`, `rapidocr`) + **css-inline** | `pip install docling rapidocr-paddle numpy pillow css-inline` | `extract_text` / `extract_structure` — **default** (`engine=docling`); **css-inline** inlines Docling CSS for LibreOffice HTML import |
-| [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) + [PaddlePaddle](https://github.com/PaddlePaddle/Paddle) (`paddleocr`, `paddle`) | `pip install paddleocr paddlepaddle numpy` | Fallback — `engine=paddle` |
-| [Ultralytics](https://github.com/ultralytics/ultralytics) | `pip install ultralytics` | `detect_objects` and related helpers — **Phase 4+**; informational in Test until then |
-| [scikit-image](https://scikit-image.org/) (`skimage`) | `pip install scikit-image` | Optional image processing inside trusted helpers — graceful skip if absent |
+| [Docling](https://github.com/docling-project/docling) + RapidOCR paddle backend (`docling`, `rapidocr`) + **css-inline** | `uv pip install ...` (or `pip install docling rapidocr-paddle numpy pillow css-inline`) | `extract_text` / `extract_structure` — **default** (`engine=docling`); **css-inline** inlines Docling CSS for LibreOffice HTML import |
+| [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) + [PaddlePaddle](https://github.com/PaddlePaddle/Paddle) (`paddleocr`, `paddle`) | `uv pip install ...` (or `pip install paddleocr paddlepaddle numpy`) | Fallback — `engine=paddle` |
+| [Ultralytics](https://github.com/ultralytics/ultralytics) | `uv pip install ultralytics` (or pip) | `detect_objects` and related helpers — **Phase 4+**; informational in Test until then |
+| [scikit-image](https://scikit-image.org/) (`skimage`) | `uv pip install scikit-image` (or pip) | Optional image processing inside trusted helpers — graceful skip if absent |
 
 Full design and egress rules: [Image Recognition](image-recognition.md). **Future:** visual/layout HTML (colored panels, multi-column flyers) — deferred dev plan in [Image Recognition §21](image-recognition.md#21-visuallayout-html-fidelity-deferred-dev-plan).
 
@@ -290,7 +309,7 @@ Per-folder semantic search ([embeddings.md](embeddings.md)) runs in the user ven
 
 | Package | Install | Used by |
 |---------|---------|---------|
-| [sentence-transformers](https://www.sbert.net/) (`sentence_transformers`) + **numpy** | `pip install sentence-transformers numpy sqlite-vec langgraph langchain-core langchain-text-splitters envwrap odfpy pandas openpyxl xlrd python-docx` | Encode queries and corpus chunks; Office sibling extract |
+| [sentence-transformers](https://www.sbert.net/) (`sentence_transformers`) + **numpy** | `uv pip install sentence-transformers numpy sqlite-vec ...` (or pip) | Encode queries and corpus chunks; Office sibling extract |
 | [sqlite-vec](https://github.com/asg017/sqlite-vec) (`sqlite_vec`) | (same line) | vec0 KNN in unified `corpus.db` |
 | [LangGraph](https://github.com/langchain-ai/langgraph) + [langchain-core](https://github.com/langchain-ai/langchain) + [langchain-text-splitters](https://github.com/langchain-ai/langchain) | (same line) | Ingest/search graphs in trusted venv modules |
 | [envwrap](https://pypi.org/project/envwrap/) | (same line) | Transitive dependency for `sentence-transformers` / Hugging Face stack on some Python versions |
@@ -572,32 +591,34 @@ Units     | kilometer / hour
 
 ### 4. Text / Document Analytics {#text-analytics}
 
-**Status:** **Not shipped.** Writer outline, grammar, and LO-DOM tooling exist; no trusted text-analytics module.
+**Status:** High-quality spaCy implementation (multilingual via textdescriptives + spaCy pipelines). Exposed via modeless dialog (Writer), Run Python Script templates (Writer), direct imports, and Settings Python self-check. No stdlib fallback.
 
 **Goal:** Readability, topic structure, key phrases, sentiment by section, and cross-document comparison for reports and long-form Writer content.
 
 **Why:** Strengthens core Writer use case; overlaps with professional writers, legal, academic users.
 
-**Input sources (host):** [`get_document_tree`](../plugin/writer/outline.py), selected ranges, [LO-DOM semantic tree](lo-dom-semantic-tree.md), optional grammar pipeline locators.
+**Input sources (host):** Document text (whole or selection) is extracted on the host and sent to the venv worker.
 
-**Proposed helpers:**
+**High-quality spaCy features (multilingual):**
 
-| Helper | Purpose | Packages |
-|--------|---------|----------|
-| `document_statistics` | Counts, structure summary | stdlib / pure Python |
-| `readability_scores` | Flesch, Gunning Fog, … | stdlib formulas feasible |
-| `topic_modeling` | Simple LDA topics | `sklearn` |
-| `extract_key_phrases` | Section-level phrases | venv NLP (sklearn or lightweight) |
-| `sentiment_by_section` | Polarity per heading block | optional venv |
-| `compare_documents` | Revision / multi-file diff stats | host extracts two bodies |
+- Readability + descriptive stats via `textdescriptives`
+- Entity extraction (NER)
+- Key phrases (noun chunks)
+- Linguistic profile
 
-**Module:** `plugin/scripting/text_analytics.py`.
+**Module:** `plugin/scripting/text_analytics.py` (real spaCy + textdescriptives implementation; runs inside the user venv).
 
-**Run Python Script:** **Text Analysis Helpers →** `[Text Analysis] readability`, `[Text Analysis] compare_selection`.
+**UI (minimal):** WriterAgent → **Text Analytics...** opens a modeless dialog with a few buttons (Readability doc/sel, Entities, Insert report). All work is done with real spaCy pipelines in your configured Python venv (Settings → Python).
 
-**Sub-agent:** Writer main agent or future `domain="text"` specialized delegate when user asks to "analyze this report."
+**Run Python Script (Writer):** "Text Analytics Helpers" section with built-in templates for `full`, `readability`, `entities`, and `key_phrases`. Select text or run on the whole document; results insert as a compact HTML table after the caret/selection. Scripts use the header `# writeragent:text helper=...` and call `from writeragent.scripting.text_analytics import run_text_analytics`.
 
-**Fallback:** Readability-only path with stdlib when sklearn absent.
+**Settings → Python Test:** Reports a "Text / NLP Libraries" group (spacy, textdescriptives). Install hint (uv recommended): `uv pip install spacy textdescriptives && python -m spacy download xx_sent_ud_sm` (or use `pip`).
+
+**Requirements in the venv:** `spacy` + `textdescriptives` + at least one model (`xx_sent_ud_sm` recommended for multilingual, or language-specific models for best accuracy). The document's `CharLocale` (if present) is passed to prefer a better model.
+
+**Direct use:** From any `run_venv_python_script` or Run Python Script you can `from writeragent.scripting.text_analytics import analyze_text, run_text_analytics`.
+
+**No LLM tool surface** for this helper yet; access via the dialog or by writing/running scripts.
 
 ---
 
@@ -609,8 +630,6 @@ Units     | kilometer / hour
 
 **Proposed helpers:**
 
-| Helper | Purpose | Packages |
-|--------|---------|----------|
 | `optimize_portfolio` | Mean-variance or constraint-based | `scipy.optimize`, numpy |
 | `linear_programming` | LP from spec dict | `scipy.optimize.linprog` (pulp deferred) |
 | `solve_scheduling_problem` | Assignment / small IP | `scipy.optimize.linear_sum_assignment` (ortools/pulp deferred) |
