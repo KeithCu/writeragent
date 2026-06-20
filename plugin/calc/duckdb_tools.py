@@ -76,6 +76,7 @@ class QueryFolderSqlTool(ToolCalcAnalysisBase):
             return self._tool_error("sql is required")
 
         files_raw = kwargs.get("files") or []
+        files: list[str] | dict[str, str]
         if isinstance(files_raw, (list, tuple)):
             files = [str(x) for x in files_raw if str(x).strip()]
         elif isinstance(files_raw, dict):
@@ -147,10 +148,10 @@ class QueryFolderSqlTool(ToolCalcAnalysisBase):
                 full_path = os.path.join(scoped, bn) if scoped else bn
                 if scoped and os.path.isfile(full_path):
                     if ext in OFFICE_EXTS:
-                        tbl, grid = _read_sibling_office_file_as_grid(ctx.ctx, full_path, sheet_hint=sheet_hint)
-                        if tbl and grid:
+                        tbl, office_grid = _read_sibling_office_file_as_grid(ctx.ctx, full_path, sheet_hint=sheet_hint)
+                        if tbl and office_grid:
                             use_name = name_hint or bn
-                            preloaded[use_name] = {"grid": grid, "headers": headers}
+                            preloaded[use_name] = {"grid": office_grid, "headers": headers}
                             continue
                     else:
                         # flat file -> use flat_files for named direct DuckDB read (Phase C)

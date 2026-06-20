@@ -1369,7 +1369,7 @@ Jupyter `.ipynb` import (separate feature): [jupyter-notebook-import.md](jupyter
 
 - **Scientific domain roadmaps (remaining)** — [Forecasting](#forecasting), [Text Analytics](#text-analytics), [Optimization](#optimization), [Geospatial](#geospatial), [Audio/Signal](#audio-signal). **Shipped:** [Analysis](#scientific-domain-roadmap-trusted-helpers), [Vision](image-recognition.md), [Visualization (Phase A–C)](#visualization), [Symbolic Math (SymPy)](#symbolic-math).
 - **SageMath integration** — optional future CAS backend; SymPy ships today — [sagemath-integration-dev-plan.md](sagemath-integration-dev-plan.md).
-- **Serialization next steps** — [Future work](numpy-serialization.md#future-work--serialization-performance): LO profile first, Tier 0, opaque blob, float32, pandas egress, worker cache; Tier 2b codecs; optional [Cython `vec_pack`](numpy-serialization.md#building-host-native-extensions-cython) (not started).
+- **Serialization next steps** — [Future work](numpy-serialization.md#future-work--serialization-performance): LO profile first, Tier 0, opaque blob, float32 (pandas rectangular+columns egress shipped), worker cache; Tier 2b codecs; optional [Cython `vec_pack`](numpy-serialization.md#building-host-native-extensions-cython) (not started).
 - Venv ↔ LO **tool RPC** ([§7](#venv--libreoffice-tool-rpc)) — [`writeragent_api.py`](../plugin/scripting/writeragent_api.py) stubs only.
 - **Calc landscape backlog** — range alignment, shared-kernel invalidation, Mito recorder, dynamic sidebar UI, shared-kernel memory bounds ([§7 Calc backlog](#calc-backlog-from-landscape-survey)).
 - **Blank vs NaN wire semantics** — [calc-blanks-vs-nans.md](calc-blanks-vs-nans.md).

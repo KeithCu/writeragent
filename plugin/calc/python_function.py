@@ -25,7 +25,7 @@ from plugin.calc.python_image_egress import insert_image_result_on_sheet
 from plugin.framework.errors import format_error_payload
 from plugin.framework.i18n import _
 from plugin.scripting.config_limits import configured_python_max_data_cells
-from plugin.scripting.payload_codec import is_image_payload, is_split_grid
+from plugin.scripting.payload_codec import is_dataframe_payload, is_image_payload, is_split_grid
 # Optional: reset worker init/cell sessions on workbook close (see python_workbook_lifecycle.py).
 # from plugin.calc.python_workbook_lifecycle import ensure_calc_workbook_unload_resets_python
 from plugin.scripting.document_scripts import build_python_eval_init_kwargs, get_calc_document_from_ctx
@@ -65,6 +65,15 @@ def is_scalar_index_arg(py_data: list | list[list] | None) -> bool:
 
 # Tests and legacy imports
 _is_scalar_index_arg = is_scalar_index_arg
+
+
+def _strip_dataframe_envelope(result: Any) -> Any:
+    """If *result* is a dataframe payload envelope, return its inner 'data' grid for Calc consumers.
+    This lets =PYTHON() matrix/session/index paths treat DF results like ordinary rectangular lists
+    (the columns are available for Writer/chat paths via the envelope)."""
+    if is_dataframe_payload(result):
+        return result.get("data")
+    return result
 
 
 def coerce_index(value: Any) -> int:
@@ -179,6 +188,7 @@ def finalize_python_return(
     """Map worker result to a single value Calc's add-in bridge accepts."""
     # Worker egress (payload_codec.child_pack_result + host_unpack_data) always yields plain
     # lists/scalars on the host — NumPy lives only in the venv subprocess, not in LO's Python.
+    result = _strip_dataframe_envelope(result)
 
     if isinstance(result, (list, tuple)):
         if index_arg is not None:
@@ -282,6 +292,7 @@ def execute_python_addin(
         log.debug("PYTHON res from worker: %r", res)
         if res.get("status") == "ok":
             result = res.get("result")
+            result = _strip_dataframe_envelope(result)
             log.debug("PYTHON raw result: %r (type: %s)", result, type(result).__name__)
             if is_image_payload(result):
                 insert_image_result_on_sheet(ctx, cast("dict[str, Any]", result))

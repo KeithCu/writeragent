@@ -528,7 +528,7 @@ Calc UNO range
 | Host pack | [`payload_codec.py`](../plugin/scripting/payload_codec.py) | **Single-pass** flattening loop; handles `None` in fast path | **Bottleneck** (Python loop) |
 | Host encode | [`venv_worker.py`](../plugin/scripting/venv_worker.py) | `pickle.dumps` of request dict | **Instant** (binary buffer) |
 | Child unpack | [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) | `frombuffer` + `reshape` → ndarray | **Instant** (C-speed) |
-| Return | [`serialize_result`](../plugin/scripting/venv_sandbox.py) | `child_pack_result` for ndarray/list; DataFrame still `to_dict(orient="records")` | Large ndarray egress as binary buffer, not `.tolist()` |
+| Return | [`serialize_result`](../plugin/scripting/venv_sandbox.py) | `child_pack_result` for ndarray/list; DataFrame/Series use rectangular `dataframe` envelope (columns + split_grid data) | Large ndarray/DF egress as binary buffer |
 | Host decode | [`venv_worker.py`](../plugin/scripting/venv_worker.py) | `_normalize_response` → `host_unpack_data` on `result` | Nested lists for LLM, smol observations, Calc matrix/session |
 | Calc return | [`python_function.py`](../plugin/calc/python_function.py) | `finalize_python_return` / session flattening | Per-cell scalars for legacy add-in bridge |
 
@@ -703,7 +703,7 @@ Larger architectural slice than “faster JSON.”
 | Idea | Notes |
 |------|--------|
 | **`float32` envelope** | Optional `dtype` in wire dict; ~half bytes when precision allows; policy + round-trip tests. |
-| **Pandas egress** | Large `DataFrame` still `to_dict(orient="records")` in [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py); route numeric blocks through `child_pack_result` / blob where possible. |
+| **Pandas egress** | Shipped (rectangular + columns): DataFrames/Series emit `dataframe` envelope (columns + split_grid-able data) instead of records list-of-dicts. See [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) and [`payload_codec.py`](../plugin/scripting/payload_codec.py). |
 
 #### Priority 6 — Worker payload cache (same range, many recalcs)
 

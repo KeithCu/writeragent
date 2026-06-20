@@ -192,3 +192,51 @@ def test_seaborn_implicit_figure():
     )
     assert res["status"] == "ok"
     assert is_image_payload(res["result"])
+
+
+def test_serialize_result_dataframe_numeric():
+    """DataFrame with numeric values should serialize to dataframe envelope with split_grid inner when large."""
+    pd = pytest.importorskip("pandas")
+    np = pytest.importorskip("numpy")
+    from plugin.scripting.venv.venv_sandbox import serialize_result
+    from plugin.scripting.payload_codec import is_dataframe_payload, is_split_grid, PAYLOAD_DATAFRAME
+
+    df = pd.DataFrame({"a": np.arange(200), "b": np.arange(200) * 0.5})
+    res = serialize_result(df)
+    assert is_dataframe_payload(res)
+    assert res["__wa_payload__"] == PAYLOAD_DATAFRAME
+    assert res["columns"] == ["a", "b"]
+    inner = res["data"]
+    # Above BINARY_MIN_CELLS -> split_grid
+    assert is_split_grid(inner)
+    assert inner["shape"][0] == 200
+
+
+def test_serialize_result_dataframe_mixed_and_roundtrip():
+    """Mixed DF should keep strings via the inner grid/strings path; host unpack yields lists."""
+    pd = pytest.importorskip("pandas")
+    from plugin.scripting.venv.venv_sandbox import serialize_result
+    from plugin.scripting.payload_codec import host_unpack_data, is_dataframe_payload
+
+    df = pd.DataFrame({"num": [1, 2, 3], "txt": ["x", "y", None]})
+    res = serialize_result(df)
+    assert is_dataframe_payload(res)
+    assert res["columns"] == ["num", "txt"]
+    unpacked = host_unpack_data(res)
+    assert unpacked["columns"] == ["num", "txt"]
+    data = unpacked["data"]
+    assert data[0] == [1, "x"]
+    assert data[2] == [3, None]
+
+
+def test_run_sandboxed_dataframe_produces_envelope():
+    """End-to-end: code returning a DF yields the envelope in the worker response."""
+    pytest.importorskip("pandas")
+    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+    from plugin.scripting.payload_codec import is_dataframe_payload
+
+    code = "import pandas as pd\ndf = pd.DataFrame({'x': [10, 20], 'y': ['p', 'q']})\nresult = df"
+    res = run_sandboxed_code(code, timeout_sec=30)
+    assert res["status"] == "ok"
+    assert is_dataframe_payload(res["result"])
+    assert res["result"]["columns"] == ["x", "y"]

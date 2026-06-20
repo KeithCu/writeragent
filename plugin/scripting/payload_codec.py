@@ -148,6 +148,11 @@ PAYLOAD_MULTI_DATA = "multi_data"
 PAYLOAD_IMAGE = "image"
 """Matplotlib figure or other visualization serialized as SVG or PNG bytes."""
 
+PAYLOAD_DATAFRAME = "dataframe"
+"""Pandas DataFrame (or named Series) egress envelope: column labels + rectangular data grid.
+The inner 'data' uses split_grid for large numeric/mixed rectangular results (same as plain arrays)
+so that we avoid the expensive list-of-dicts records path while preserving column order/names."""
+
 # --- When to use binary envelope (default: at least 100 cells) -----------------------
 
 BINARY_MIN_CELLS = 100
@@ -201,8 +206,19 @@ def is_image_payload(obj: Any) -> bool:
     return _is_image_payload_envelope(obj)
 
 
+def _is_dataframe_envelope(envelope: object) -> bool:
+    if not isinstance(envelope, dict):
+        return False
+    env_dict = cast("dict[str, Any]", envelope)
+    return env_dict.get("__wa_payload__") == PAYLOAD_DATAFRAME
+
+
+def is_dataframe_payload(obj: Any) -> bool:
+    return _is_dataframe_envelope(obj)
+
+
 def _is_any_payload_envelope(obj: object) -> bool:
-    return _is_split_grid_envelope(obj) or _is_multi_data_envelope(obj) or _is_image_payload_envelope(obj)
+    return _is_split_grid_envelope(obj) or _is_multi_data_envelope(obj) or _is_image_payload_envelope(obj) or _is_dataframe_envelope(obj)
 
 
 def _is_split_grid_envelope(envelope: object) -> bool:
@@ -307,6 +323,11 @@ def describe_wire_value(obj: Any, *, sample: int = 3) -> str:
             f"split_grid shape={obj.get('shape')} cells={wire_cell_count(obj)} "
             f"column_kinds={obj.get('column_kinds')} strings={len(strings)} raw_bytes={len(buf)}"
         )
+    if is_dataframe_payload(obj):
+        cols = obj.get("columns") or []
+        inner = obj.get("data")
+        n = wire_cell_count(inner) if inner is not None else 0
+        return f"dataframe cols={len(cols)} cells~{n}"
     if obj is None:
         return "None"
     if isinstance(obj, (str, int, float, bool)):
@@ -868,7 +889,7 @@ def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = T
 
 
 def host_unpack_data(wire: Any, *, as_nested_list: bool = True) -> Any:
-    """Unpack worker ``data`` or ``result`` on host (list, scalar, split_grid, multi_data, or image)."""
+    """Unpack worker ``data`` or ``result`` on host (list, scalar, split_grid, multi_data, image, or dataframe)."""
     if is_image_payload(wire):
         return wire
     if is_multi_data(wire):
@@ -876,6 +897,15 @@ def host_unpack_data(wire: Any, *, as_nested_list: bool = True) -> Any:
         return [host_unpack_data(item, as_nested_list=as_nested_list) for item in items]
     if is_split_grid(wire):
         return host_unpack_split_grid(wire, as_nested_list=as_nested_list)
+    if is_dataframe_payload(wire):
+        cols = wire.get("columns") or []
+        inner = wire.get("data")
+        unpacked_inner = host_unpack_data(inner, as_nested_list=as_nested_list)
+        return {
+            "__wa_payload__": PAYLOAD_DATAFRAME,
+            "columns": cols,
+            "data": unpacked_inner,
+        }
     if isinstance(wire, dict):
         return {k: host_unpack_data(v, as_nested_list=as_nested_list) for k, v in wire.items()}
     if isinstance(wire, (list, tuple)):

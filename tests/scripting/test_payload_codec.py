@@ -22,6 +22,7 @@ import pytest
 from plugin.scripting import payload_codec
 from plugin.scripting.payload_codec import (
     BINARY_MIN_CELLS,
+    PAYLOAD_DATAFRAME,
     PAYLOAD_MULTI_DATA,
     PAYLOAD_SPLIT_GRID,
     binary_envelope_skip_reason,
@@ -31,6 +32,7 @@ from plugin.scripting.payload_codec import (
     host_pack_data,
     host_pack_multi_data,
     host_unpack_data,
+    is_dataframe_payload,
     is_multi_data,
     is_numeric_coercible,
     is_numeric_grid,
@@ -893,5 +895,49 @@ def test_pure_python_pack_speed_regression():
     
     assert is_split_grid(wire)
     assert elapsed_ms < 15.0, f"Serialization took too long: {elapsed_ms:.2f}ms"
+
+
+# ---------------------------------------------------------------------------
+# Dataframe payload (pandas egress envelope) tests
+# ---------------------------------------------------------------------------
+
+
+def test_is_dataframe_payload_and_describe():
+    env = {"__wa_payload__": PAYLOAD_DATAFRAME, "columns": ["A", "B"], "data": [[1, 2], [3, 4]]}
+    assert is_dataframe_payload(env) is True
+    assert not is_dataframe_payload({"foo": 1})
+    desc = describe_wire_value(env)
+    assert "dataframe" in desc and "cols=2" in desc
+
+
+def test_dataframe_envelope_roundtrips_through_host_unpack():
+    # Simulate child: a rectangular grid packed, wrapped as df payload.
+    grid = [[10, "x"], [20, "y"]]
+    inner = child_pack_result(grid, force="always")
+    assert is_split_grid(inner) or isinstance(inner, list)
+    df_env = {
+        "__wa_payload__": PAYLOAD_DATAFRAME,
+        "columns": ["num", "label"],
+        "data": inner,
+    }
+    unpacked = host_unpack_data(df_env, as_nested_list=True)
+    assert is_dataframe_payload(unpacked)
+    assert unpacked["columns"] == ["num", "label"]
+    data = unpacked["data"]
+    # After unpack, inner should be list-of-lists
+    assert isinstance(data, list) and len(data) == 2
+    assert data[0] == [10, "x"] or data[0][0] == 10
+
+
+def test_dataframe_host_unpack_preserves_split_grid_for_numeric():
+    np = pytest.importorskip("numpy")
+    arr = np.array([[1.0, 2.0], [3.0, 4.0]])
+    inner = child_pack_result(arr, force="always")
+    df_env = {"__wa_payload__": PAYLOAD_DATAFRAME, "columns": ["c0", "c1"], "data": inner}
+    unpacked = host_unpack_data(df_env)
+    assert unpacked["columns"] == ["c0", "c1"]
+    # numeric path keeps list after host unpack (not ndarray on host)
+    assert isinstance(unpacked["data"], list)
+    assert unpacked["data"][0][0] == pytest.approx(1.0)
 
 

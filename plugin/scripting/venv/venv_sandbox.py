@@ -27,6 +27,7 @@ log = logging.getLogger(__name__)
 
 from plugin.contrib.smolagents.local_python_executor import InterpreterError, LocalPythonExecutor
 from plugin.scripting.payload_codec import (
+    PAYLOAD_DATAFRAME,
     child_pack_result,
     child_unpack_data,
     describe_wire_value,
@@ -114,7 +115,13 @@ def inject_auto_imports(executor: LocalPythonExecutor, code: str) -> None:
 
 
 def serialize_result(obj: Any) -> Any:
-    """Convert numpy/pandas and containers to JSON-safe values (split_grid for large numeric/mixed arrays)."""
+    """Convert numpy/pandas and containers to JSON-safe values (split_grid for large numeric/mixed arrays).
+
+    DataFrames (and named Series) are returned as a dataframe envelope with 'columns' and 'data'
+    (the latter is a split_grid envelope when large enough, or nested lists). This replaces the
+    previous to_dict(orient="records") path which produced expensive list-of-dicts and bypassed
+    the binary grid fast path.
+    """
     try:
         return _serialize_result_impl(obj)
     except Exception:
@@ -212,9 +219,48 @@ def _serialize_result_impl(obj: Any) -> Any:
     pd_mod = optional_module("pandas")
     if pd_mod is not None:
         if isinstance(obj, pd_mod.DataFrame):
-            return child_pack_result(obj.to_dict(orient="records"))
+            df: Any = obj
+            columns = [str(c) for c in df.columns]
+            # Build rectangular data for packing: ndarray fast path for homogeneous numeric;
+            # list-of-lists for mixed so strings/None go through the split_grid strings map
+            # instead of the old per-row to_dict("records") which defeated binary envelopes.
+            if len(df) == 0 or len(df.columns) == 0:
+                data_part: Any = []
+            else:
+                try:
+                    arr = df.to_numpy(copy=False)
+                    if getattr(arr, "dtype", None) is not None and arr.dtype.kind not in ("O", "U", "S"):
+                        data_part = child_pack_result(arr)
+                    else:
+                        grid = [list(row) for row in df.itertuples(index=False, name=None)]
+                        data_part = child_pack_result(grid)
+                except Exception:
+                    grid = [list(row) for row in df.itertuples(index=False, name=None)]
+                    data_part = child_pack_result(grid)
+            return {
+                "__wa_payload__": PAYLOAD_DATAFRAME,
+                "columns": columns,
+                "data": data_part,
+            }
         if isinstance(obj, pd_mod.Series):
-            return child_pack_result(obj.to_numpy())
+            s: Any = obj
+            name = getattr(s, "name", None)
+            try:
+                arr = s.to_numpy(copy=False)
+                if getattr(arr, "dtype", None) is not None and arr.dtype.kind in ("O", "U", "S"):
+                    lst = s.tolist()
+                    packed = child_pack_result(lst)
+                else:
+                    packed = child_pack_result(arr)
+            except Exception:
+                packed = child_pack_result(s.tolist())
+            if name is not None:
+                return {
+                    "__wa_payload__": PAYLOAD_DATAFRAME,
+                    "columns": [str(name)],
+                    "data": packed,
+                }
+            return packed
     if isinstance(obj, (dict, list, tuple)):
         return child_pack_result(obj)
     return obj

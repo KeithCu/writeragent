@@ -24,16 +24,38 @@ from plugin.doc.document_helpers import is_calc, is_writer, is_draw
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.manipulator import CellManipulator
 from plugin.calc.address_utils import index_to_column
+from plugin.scripting.payload_codec import is_dataframe_payload
 
 log = logging.getLogger("writeragent.scripting")
 
 
-def _format_list_to_table(data: list) -> str:
-    """Internal helper to convert a list (of dicts or lists) to an HTML table."""
+def _format_list_to_table(data: list, *, headers: list | None = None) -> str:
+    """Internal helper to convert a list (of dicts or lists) to an HTML table.
+    If *headers* is provided, they are used for the thead (for dataframe egress).
+    """
     if not data:
         return ""
 
-    # Handle list of dicts (e.g. pandas records)
+    # Explicit headers (e.g. from dataframe payload) take precedence for order and 1-col cases.
+    if headers:
+        html = '<table border="1"><thead><tr>'
+        for h in headers:
+            html += f"<th>{h}</th>"
+        html += "</tr></thead><tbody>"
+        # data may be list of lists (2d) or flat list (1-col series-like)
+        if data and isinstance(data[0], (list, tuple)):
+            for row in data:
+                html += "<tr>"
+                for cell in row:
+                    html += f"<td>{cell}</td>"
+                html += "</tr>"
+        else:
+            for v in data:
+                html += f"<tr><td>{v}</td></tr>"
+        html += "</tbody></table>"
+        return html
+
+    # Handle list of dicts (e.g. pandas records) -- legacy path
     if isinstance(data[0], dict):
         keys = list(data[0].keys())
         html = '<table border="1"><thead><tr>'
@@ -77,6 +99,12 @@ def format_result_for_writer(result: Any) -> str:
         return ""
     if isinstance(result, str) and not result:
         return ""
+
+    if is_dataframe_payload(result):
+        d = result if isinstance(result, dict) else {}
+        cols = d.get("columns") or []
+        data = d.get("data") or []
+        return _format_list_to_table(data if isinstance(data, list) else [], headers=cols if cols else None)
 
     if isinstance(result, list):
         return _format_list_to_table(result)

@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 # These will only succeed when the module is imported inside a properly equipped venv.
 # On the LibreOffice host side we never import this directly for computation.
@@ -34,7 +34,7 @@ def _load_nlp(lang: str | None = None) -> Any:
       (required for good readability and linguistic metrics via textdescriptives).
     - `xx_sent_ud_sm` is an excellent multilingual base for 100+ languages.
     """
-    import spacy  # ty: ignore[unresolved-import]
+    import spacy
 
     lang = (lang or "").lower().strip()[:2] or None
 
@@ -81,7 +81,7 @@ def _load_nlp(lang: str | None = None) -> Any:
             # Add textdescriptives for high-quality readability, stats, complexity, etc.
             # It registers several components; using the package's convenience is fine.
             try:
-                import textdescriptives as td  # noqa: F401  # ty: ignore[unresolved-import]
+                import textdescriptives as td  # noqa: F401
 
                 # textdescriptives >= 2 adds components under "textdescriptives/..."
                 # The package also provides a simple way to ensure the basics are there.
@@ -144,10 +144,10 @@ def analyze_text(text: str, *, lang: str | None = None, context: dict[str, Any] 
 
     # --- textdescriptives metrics (the high-quality path) ---
     try:
-        import textdescriptives as td  # ty: ignore[unresolved-import]
+        import textdescriptives as td
 
         # extract_dict works on a single Doc and returns a flat dict of metrics.
-        td_metrics = td.extract_dict(doc)
+        td_metrics = cast(Any, td.extract_dict(doc))
         # td_metrics is usually a dict with keys like 'readability', 'descriptive_stats', etc.
         # We surface the most useful top-level groups.
         result["descriptive_stats"] = td_metrics.get("descriptive_stats", {})
@@ -225,10 +225,10 @@ def analyze_text(text: str, *, lang: str | None = None, context: dict[str, Any] 
 def check_diagnostics() -> dict[str, Any]:
     """Perform self-diagnostics of the spaCy + textdescriptives installation."""
     try:
-        import spacy  # ty: ignore[unresolved-import]
+        import spacy
         has_td = False
         try:
-            import textdescriptives as td  # noqa: F401  # ty: ignore[unresolved-import]
+            import textdescriptives as td  # noqa: F401
             has_td = True
         except ImportError:
             pass
@@ -247,7 +247,7 @@ def check_diagnostics() -> dict[str, Any]:
 
         return {
             "status": "ok",
-            "spacy_version": spacy.__version__,
+            "spacy_version": getattr(spacy, "__version__", "unknown"),
             "has_textdescriptives": has_td,
             "models": models,
         }

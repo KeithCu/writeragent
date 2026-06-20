@@ -23,6 +23,12 @@ class TestCSVImportLogic(unittest.TestCase):
         self.bridge.get_active_sheet.return_value = self.sheet
         self.bridge._index_to_column.return_value = "A"
         self.bridge.parse_range_string.return_value = ((0,0), (0,0))
+        from types import SimpleNamespace
+        self.range_mock = MagicMock()
+        self.range_mock.getRangeAddress.return_value = SimpleNamespace(
+            StartColumn=0, StartRow=0, EndColumn=0, EndRow=0
+        )
+        self.bridge.resolve_range_or_address.return_value = self.range_mock
 
     def test_detect_comma(self):
         csv_data = "Name,Age,Country\nJohn,28,USA"
