@@ -33,6 +33,18 @@
     }
   }
 
+  function applyTheme(tinfo) {
+    // Make the HTML chrome (toolbar, inputs, script picker) follow LO.
+    // Monaco itself is handled via monaco.editor.setTheme.
+    if (!tinfo) return;
+    var isDark = !!(tinfo.is_dark || (tinfo.monaco && tinfo.monaco.indexOf("dark") !== -1));
+    document.body.classList.toggle("dark", isDark);
+    document.body.classList.toggle("light", !isDark);
+
+    // If richer colors were provided in future, we could set CSS vars here, e.g.:
+    // if (tinfo.bg != null) { document.documentElement.style.setProperty('--wa-bg', '#' + tinfo.bg.toString(16).padStart(6,'0')); }
+  }
+
   function formatErrorMessage(msg) {
     var text = msg.message || "Error";
     if (msg.traceback) {
@@ -125,6 +137,18 @@
       monaco.editor.setModelLanguage(editor.getModel(), msg.language || "python");
       setStatus("Ready", "");
     }
+
+    // Apply LO theme (Monaco + our toolbar chrome). Sent on every load so
+    // switching cells or re-opening sees the current LO appearance.
+    if (msg.theme) {
+      var monacoTheme = msg.theme.monaco || (msg.theme.is_dark ? "vs-dark" : "vs");
+      try {
+        monaco.editor.setTheme(monacoTheme);
+      } catch (e) {
+        // Monaco may not be fully ready; ignore, creation default is vs
+      }
+      applyTheme(msg.theme);
+    }
   }
 
   function updateDataBindingEnabled() {
@@ -158,6 +182,8 @@
                 setStatus(okText, "ok");
               } else if (msg.type === "error") {
                 setStatus(formatErrorMessage(msg), "error");
+              } else if (msg.type === "theme") {
+                applyTheme(msg);
               }
             }
           }

@@ -748,10 +748,28 @@ def launch_monaco_editor(
     _PERSISTENT_EDITOR.ctx = ctx
     # Host-only keys (e.g. pyuno document refs) must not cross the pickle IPC boundary.
     ipc_message = dict(load_message)
+    run_script_doc = None
     if ipc_message.get("mode") == "run_script":
-        doc = ipc_message.pop("run_script_doc", None)
-        _PERSISTENT_EDITOR.set_run_script_document(doc)
+        run_script_doc = ipc_message.pop("run_script_doc", None)
+        _PERSISTENT_EDITOR.set_run_script_document(run_script_doc)
     closed_handler = on_closed if on_closed is not None else (lambda: None)
+
+    # Inject current LO theme so the child Monaco + toolbar chrome automatically
+    # match the LibreOffice light/dark (and basic surface color) without any
+    # user setting or toggle in the editor. This is computed from the active
+    # window's StyleSettings (same heuristic used by the chat sidebar).
+    # We always recompute on send so that switching cells or reopening picks
+    # up a theme change. See plugin/framework/appearance.py.
+    if "theme" not in ipc_message:
+        try:
+            from plugin.framework.appearance import get_monaco_theme_info
+
+            # Prefer any doc we had for the run_script case or if caller left it in msg
+            doc_for_theme = run_script_doc or ipc_message.get("doc") or ipc_message.get("run_script_doc")
+            ipc_message["theme"] = get_monaco_theme_info(doc=doc_for_theme, ctx=ctx)
+        except Exception:
+            log.debug("Failed to compute monaco theme info; falling back to light", exc_info=True)
+            ipc_message["theme"] = {"monaco": "vs", "is_dark": False}
 
     if _PERSISTENT_EDITOR.is_running:
         log.info("editor_host: reusing running Monaco background process")

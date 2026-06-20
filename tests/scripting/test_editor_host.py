@@ -39,7 +39,11 @@ def test_launch_monaco_editor_reuses_running_process():
             )
 
     assert ok is True
-    assert sent_messages == [{"type": "load", "code": "print(1)"}]
+    # Theme is always injected by launch (automatic LO follow)
+    assert sent_messages[0]["type"] == "load"
+    assert sent_messages[0]["code"] == "print(1)"
+    assert "theme" in sent_messages[0]
+    assert sent_messages[0]["theme"]["monaco"] in ("vs", "vs-dark")
     mock_session_cls.assert_called_once()
 
 
@@ -68,7 +72,11 @@ def test_launch_monaco_editor_spawns_when_not_running():
     assert ok is True
     mock_persistent.set_run_script_document.assert_called_once_with(mock_doc)
     session.start_reader.assert_called_once()
-    session.send.assert_called_once_with({"type": "load", "mode": "run_script"})
+    # Theme injection happens (for automatic follow); the exact theme value depends on mock ctx
+    sent = session.send.call_args[0][0]
+    assert sent["type"] == "load"
+    assert sent["mode"] == "run_script"
+    assert "theme" in sent
     assert load_message["run_script_doc"] is mock_doc
 
 

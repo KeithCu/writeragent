@@ -158,49 +158,12 @@ class HiddenDocHTMLImporter:
         _tighten_list_indent(body_range)
 
 
-def get_theme_colors(doc=None, style_window=None):
-    """Retrieve theme-aware colors based on StyleSettings from *style_window* or *doc*'s frame.
+# Re-export / delegate to shared implementation (single source of truth for
+# StyleSettings luminance + dark/light decision used by chat + Monaco editor).
+from plugin.framework.appearance import get_theme_colors  # noqa: F401
 
-    Returns (bg_color, user_color, assistant_color).
-    """
-    win = style_window
-    if win is None and doc is not None:
-        try:
-            controller = doc.getCurrentController()
-            if controller:
-                frame = controller.getFrame()
-                if frame:
-                    win = frame.getContainerWindow()
-        except Exception as e:
-            log.debug("get_theme_colors: doc frame lookup failed: %s", e)
-    try:
-        if win and hasattr(win, "StyleSettings"):
-            style_settings = win.StyleSettings
-            if style_settings:
-                field_color = getattr(style_settings, "FieldColor", 0xFFFFFF)
-                if isinstance(field_color, int):
-                    r = (field_color >> 16) & 0xFF
-                    g = (field_color >> 8) & 0xFF
-                    b = field_color & 0xFF
-                    luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
-
-                    if luminance < 128:
-                        # Dark mode colors
-                        return field_color, 0x60A5FA, 0xE2E8F0
-                    else:
-                        # Light mode colors
-                        # Dynamically darken DialogColor slightly (by 6%) to create a beautiful, soft contrast
-                        dialog_color = getattr(style_settings, "DialogColor", 0xEFF0F1)
-                        if isinstance(dialog_color, int):
-                            r = int(((dialog_color >> 16) & 0xFF) * 0.94)
-                            g = int(((dialog_color >> 8) & 0xFF) * 0.94)
-                            b = int((dialog_color & 0xFF) * 0.94)
-                            light_bg = (r << 16) | (g << 8) | b
-                            return light_bg, 0x2A6099, 0x1E293B
-                        return 0xE0E1E2, 0x2A6099, 0x1E293B
-    except Exception as e:
-        log.debug("Failed to resolve theme colors from StyleSettings: %s", e)
-    return 0xE0E1E2, 0x2A6099, 0x1E293B
+# The old implementation body has been extracted to appearance.py to avoid
+# duplication and make the Monaco editor theme follow LO automatically.
 
 
 def _tighten_list_indent(body_range):

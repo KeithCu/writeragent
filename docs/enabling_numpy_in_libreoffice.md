@@ -132,7 +132,7 @@ This keeps user scripts free of UNO and matches today’s shipped behavior. Prom
 
 ### Monaco editor & Run Python Script
 
-WriterAgent ships a **Monaco-based code editor** (pywebview child in the configured venv) for Calc formulas and ad-hoc scripts. IPC, threading, and phase 2B–2F backlog: [python-monaco-editor-dev-plan.md](python-monaco-editor-dev-plan.md).
+WriterAgent ships a **Monaco-based code editor** (pywebview child in the configured venv) for Calc formulas and ad-hoc scripts. IPC, threading, and remaining phase 2B–2F backlog: [python-monaco-editor-dev-plan.md](python-monaco-editor-dev-plan.md). (Theme sync 2E is shipped.)
 
 | Feature | Status | Entry |
 |---------|--------|-------|
@@ -140,7 +140,8 @@ WriterAgent ships a **Monaco-based code editor** (pywebview child in the configu
 | **Run Python Script…** (Writer/Calc/Draw) | **Shipped** | [`python_runner.py`](plugin/scripting/python_runner.py) + [`editor_host.py`](plugin/scripting/editor_host.py) — **Run** / **Save** / script picker |
 | **Document-attached scripts** (`WriterAgentDocumentPythonScripts`) | **Shipped** | [`document_scripts.py`](plugin/scripting/document_scripts.py) — **This Document** vs **My Scripts** in picker |
 | **Edit Initialization Script…** (Calc) | **Shipped** | [`init_script_editor.py`](plugin/calc/init_script_editor.py) — workbook startup script in document properties |
-| Syntax squiggles (2B), range picker (2C), full Jedi (2D), theme sync (2E), sheet cell list | **Backlog** | [Monaco dev plan §8](python-monaco-editor-dev-plan.md#8-next-development-plan-detailed) |
+| **Theme sync (2E)** — Monaco + toolbar chrome automatically follow LO light/dark | **Shipped** | [`appearance.py`](plugin/framework/appearance.py), editor host + JS/CSS |
+| Syntax squiggles (2B), range picker (2C), full Jedi (2D), sheet cell list | **Backlog** | [Monaco dev plan §8](python-monaco-editor-dev-plan.md#8-next-development-plan-detailed) |
 
 **Requirements:** Settings → Python → `scripting.python_venv_path` with `pip install pywebview` (on Linux, also `PyQt6 PyQt6-WebEngine qtpy` for a self-contained WebEngine backend). **Edit Python in Cell…** does not fall back to embedded LO Python — fix the venv if the editor fails to open. **Run Python Script…** falls back to the native multiline dialog when pywebview is unavailable.
 
@@ -1358,7 +1359,7 @@ Jupyter `.ipynb` import (separate feature): [jupyter-notebook-import.md](jupyter
 - **Calc landscape backlog** — range alignment, shared-kernel invalidation, Mito recorder, dynamic sidebar UI, shared-kernel memory bounds ([§7 Calc backlog](#calc-backlog-from-landscape-survey)).
 - **Blank vs NaN wire semantics** — [calc-blanks-vs-nans.md](calc-blanks-vs-nans.md).
 - Managed venv (Strategy 2), worker idle shutdown, per-formula `timeout_sec`, Python edit dialog tiers 1–3.
-- **Monaco backlog** — syntax validate (2B), range picker (2C), full Jedi (2D), theme sync (2E), sheet-level Python cell list — [python-monaco-editor-dev-plan.md](python-monaco-editor-dev-plan.md).
+- **Monaco backlog** — syntax validate (2B), range picker (2C), full Jedi (2D), sheet-level Python cell list — [python-monaco-editor-dev-plan.md](python-monaco-editor-dev-plan.md). Theme sync (2E) is shipped.
 - **Jupyter notebook import** — see [jupyter-notebook-import.md](jupyter-notebook-import.md) (Writer import shipped; execution loop deferred).
 - **Calc UX backlog** — dynamic spill, object cards, diagnostics pane, named ranges/tables — [§7 Calc UX](#calc-ux-and-output-enhancements).
 

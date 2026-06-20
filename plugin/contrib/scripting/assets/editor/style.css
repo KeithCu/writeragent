@@ -180,3 +180,110 @@ body {
   min-height: 0;
   width: 100%;
 }
+
+/* --- Automatic dark theme support (LO light/dark via class set from theme info) ---
+   Body gets .dark or .light from applyTheme in editor.js when LO StyleSettings
+   indicate dark (luminance < 128 on FieldColor). Keeps the pywebview window
+   visually consistent with the LibreOffice chrome without any editor setting.
+*/
+:root {
+  --wa-toolbar-bg: #f3f3f3;
+  --wa-toolbar-border: #e0e0e0;
+  --wa-input-bg: #fff;
+  --wa-input-border: #ccc;
+  --wa-text: #333;
+  --wa-text-muted: #57606a;
+}
+
+body.dark {
+  background: #1e1e1e;
+  color: #d4d4d4;
+}
+
+body.dark #toolbar {
+  background: #252526;
+  border-bottom: 1px solid #1e1e1e;
+}
+
+body.dark #status {
+  color: #aaa;
+}
+
+body.dark #status.status-ok {
+  color: #3fb950;
+}
+
+body.dark #status.status-error {
+  color: #f85149;
+}
+
+body.dark .data-binding-label {
+  color: #aaa;
+}
+
+body.dark #data-binding-input {
+  background: #2d2d2d;
+  color: #d4d4d4;
+  border-color: #3c3c3c;
+}
+
+body.dark #data-binding-input:disabled {
+  background: #252526;
+  color: #888;
+}
+
+body.dark #script-manager-container {
+  border-left-color: #3c3c3c;
+  border-right-color: #3c3c3c;
+}
+
+body.dark #script-manager-container label {
+  color: #aaa;
+}
+
+body.dark #script-select {
+  background-color: #2d2d2d;
+  color: #d4d4d4;
+  border-color: #3c3c3c;
+}
+
+body.dark #script-select:focus {
+  border-color: #4a9eff;
+  box-shadow: 0 0 0 3px rgba(74, 158, 255, 0.2);
+}
+
+body.dark #btn-save-as {
+  color: #d4d4d4;
+  background-color: #2d2d2d;
+  border-color: #3c3c3c;
+}
+
+body.dark #btn-save-as:hover {
+  background-color: #3c3c3c;
+  border-color: #4a4a4a;
+}
+
+body.dark #btn-save-as:active {
+  background-color: #1f1f1f;
+}
+
+body.dark #btn-delete-script {
+  color: #f85149;
+  background-color: #2d2d2d;
+  border-color: #3c3c3c;
+}
+
+body.dark #btn-delete-script:hover {
+  color: #fff;
+  background-color: #c72e2e;
+  border-color: #c72e2e;
+}
+
+body.dark .toolbar-check {
+  color: #d4d4d4;
+}
+
+/* Make the main editor container background follow body (Monaco draws its own) */
+body.dark #editor {
+  background: #1e1e1e;
+}

@@ -4,7 +4,7 @@
 
 Architectural design for the **LibrePythonista-style Monaco editor** in WriterAgent.
 
-**Status (2026-06):** **Phase 2A + Phase 3 shipped.** Calc **Edit Python in Cell…** (menubar + cell right-click) and **Run Python Script…** Monaco both use a persistent pywebview child in the user venv. Dual save modes, editable **Data:** range textbox, document-attached scripts, init script editor, save feedback, WM-close lifecycle, stderr drain, and full-traceback failure dialogs are implemented. **Open:** Phase 2B syntax validate, 2C range picker, 2D Jedi (stub only today), 2E theme sync, 2F Flatpak spawn, sheet-level Python cell list. See `plugin/scripting/` and `plugin/calc/python_editor.py`.
+**Status (2026-06):** **Phase 2A + Phase 3 + 2E shipped.** Calc **Edit Python in Cell…** (menubar + cell right-click) and **Run Python Script…** Monaco both use a persistent pywebview child in the user venv. Dual save modes, editable **Data:** range textbox, document-attached scripts, init script editor, save feedback, WM-close lifecycle, stderr drain, full-traceback failure dialogs, and **automatic LibreOffice theme sync** (Monaco + toolbar chrome) are implemented. **Open:** Phase 2B syntax validate, 2C range picker, 2D Jedi (stub only today), 2F Flatpak spawn, sheet-level Python cell list. See `plugin/scripting/`, `plugin/calc/python_editor.py`, and `plugin/framework/appearance.py`.
 
 **`=PYTHON()` is not localized:** The Calc add-in always registers the English function name `PYTHON` (programmatic `python`). Formulas stored by Calc must use that token in `getFormula()` / `FormulaLocal`. A localized alias (e.g. a translated function name) is a **bug** in add-in registration — do **not** add `FormulaOpCodeMapper` workarounds in the editor or formula parser.
 
@@ -86,7 +86,7 @@ Same framing as [`worker_harness.py`](../plugin/scripting/worker_harness.py) (`s
 |---------|--------|
 | Syntax validation | Debounced `compile()` on LO main thread; squiggles in Monaco |
 | Range picker | `GlobalCalcRangeSelector` via pipe + main thread (**deferred**; editable textbox for data ranges shipped first) |
-| Theme sync | LO VCL → `vs` / `vs-dark` |
+| Theme sync | LO VCL → `vs` / `vs-dark` + toolbar chrome (shipped in 2E via appearance.py + editor.js) |
 | Flatpak/Snap spawn | `flatpak-spawn --host` |
 | Formula bar button | Optional |
 | Jedi completions | **Stub shipped** in [`editor_jedi.py`](../plugin/scripting/editor_main.py) + `get_completions` in JS; Phase 2D adds debounce, background thread, Settings hint |
@@ -150,6 +150,7 @@ tests/
 10. On save error (if reproducible), toolbar shows red error text and the editor stays open.
 11. **Run Python Script…** (Writer/Calc/Draw): with venv + pywebview, opens Monaco with colored Python, **Run** / **Save** / **Close** buttons (no Data/plain-text controls). **Run** executes and inserts result; **Save** persists script to config only; **Close** hides the editor. Without pywebview, the plain multiline dialog appears (no error msgbox).
 12. **Run Python Script… script picker:** save scratchpad content via **Save** while **Sample** is selected; switch to a **My Scripts** entry — editor changes; switch back to **Sample** — scratchpad content must reload (not a no-op). **Delete** on Sample clears the scratchpad.
+13. **Theme follows LO:** Change LibreOffice appearance (Tools ▸ Options ▸ LibreOffice ▸ Appearance or system dark mode with LO on "System"). Re-open editor (cell or Run Python Script). Toolbar must use matching dark/light colors; Monaco must use `vs-dark` vs `vs`; no white-on-white or black-on-black. Switching between cells re-applies current theme. Check both light and dark.
 
 **If it fails:** the msgbox should include child stderr and a Python traceback. Also check `writeragent_debug.log` under the LO user profile (`writeragent.json` directory). Common causes: wrong venv path in Settings, pywebview not installed in *that* venv, or missing display/GTK backend on Linux.
 
@@ -255,13 +256,252 @@ on debounced complete (child GUI thread pool or worker thread)
 
 ---
 
-### Phase 2E — Theme sync (low/medium risk)
+### Phase 2E — Theme sync — Monaco + toolbar automatically follows LibreOffice theme (low/medium risk)
 
-**Goal:** Monaco `vs` / `vs-dark` tracks LO light/dark.
+**Shipped (2026-06).** See implementation in `plugin/framework/appearance.py`, `editor_host.py`, `editor.js`, `style.css`, and `tests/framework/test_appearance.py`. The detailed design below is retained as the historical spec.
 
-On `load`, LO includes `theme: "dark" | "light"` from VCL (probe existing LO theme APIs or config; Calc `ThemeCalc` mentioned in LP docs). JS calls `monaco.editor.setTheme(...)`. Toolbar chrome in `style.css` can follow CSS variables set from the same message.
+**Implemented:**
+- Central `get_monaco_theme_info()` + `get_style_window()` (shared with chat `get_theme_colors` for debt reduction).
+- Theme payload injected on every `load` (cell switch / reopen / Run Python Script) → fresh detection from active window's `StyleSettings`.
+- `monaco.editor.setTheme()` + `body.dark`/`body.light` + matching CSS for toolbar chrome.
+- Unit tests + updated host tests. Works for both editor surfaces and "no document" Run Python Script case.
 
-Defer custom per-color mapping until simple binary dark/light works.
+**Goal (original):** The editor (Monaco code area + native toolbar chrome in the pywebview window) automatically adopts the active LibreOffice light/dark appearance (and ideally surface colors) **with no manual toggle, no separate setting, and no hard-coded assumption**. It derives the theme at open time from the running LO instance and can be extended to follow live changes.
+
+Current state: `editor.js:377` hard-codes `theme: "vs"`. `style.css` hard-codes light grays (#ffffff, #f3f3f3, #333). No theme key is sent in any `load` message from `python_editor.py` or `python_runner.py`. Existing heuristic lives only in chat UI.
+
+**Success criteria**
+- Open editor while LO is Light (or System + light desktop) → toolbar light, Monaco `vs`, readable text.
+- Open (or switch cell) while LO is Dark → toolbar dark, Monaco `vs-dark`.
+- Same behavior for **Edit Python in Cell…** and **Run Python Script…** (and any future init-script editor).
+- Colors derived live from the active document/frame's window (no global singleton assumption).
+- CSS chrome (toolbar, status, inputs, script picker, buttons) updates for contrast.
+- Unit tests cover the detector with mocked `StyleSettings`.
+- Manual checklist passes on at least one Linux + one Windows build.
+- No new user-facing "Editor theme" combobox.
+
+---
+
+#### 1. Theme detection in host (Python / UNO)
+
+Create or centralize a detector. To reduce tech debt, **extract** the luminance logic from [`plugin/chatbot/rich_text.py:get_theme_colors`](../plugin/chatbot/rich_text.py) into a shared place (recommended: `plugin/framework/appearance.py` or `plugin/scripting/editor_theme.py` for narrow scope).
+
+Core extraction:
+
+```python
+def get_lo_style_window(doc=None, style_window=None, ctx=None):
+    """Return a window that has .StyleSettings (or None)."""
+    ...
+
+def get_lo_theme_info(*, doc=None, style_window=None, ctx=None) -> dict[str, Any]:
+    """Return dict suitable for IPC:
+    {
+      "monaco": "vs" | "vs-dark",
+      "is_dark": bool,
+      # Optional richer palette (hex strings or 0xRRGGBB ints)
+      "bg": 0x1e1e1e,
+      "fg": 0xd4d4d4,
+      "toolbar_bg": ...,
+      "accent": ...,
+    }
+    """
+    # Use FieldColor / DialogColor + luminance (0.2126*R + 0.7152*G + 0.0722*B)
+    # < 128 → dark
+    ...
+    return {"monaco": "vs-dark" if dark else "vs", "is_dark": dark, ...}
+```
+
+Adapt the exact luminance + DialogColor darkening trick already proven for chat.
+
+Call sites get a window via the same pattern used for chat:
+- From doc: `doc.getCurrentController().getFrame().getContainerWindow()`
+- Or the desktop frame when no doc (Run Python Script from menu).
+- Fallback to safe light values.
+
+In launch paths (no duplication):
+
+- [`plugin/calc/python_editor.py:_launch_editor_with_code`](../plugin/calc/python_editor.py) — after resolving doc/cell
+- [`plugin/scripting/python_runner.py:_run_python_monaco`](../plugin/scripting/python_runner.py)
+- Any init script launcher
+
+Always do:
+
+```python
+theme = get_lo_theme_info(doc=doc, ctx=ctx)
+load_msg["theme"] = theme
+load_msg["monaco_theme"] = theme["monaco"]  # convenience
+```
+
+Keep the computation on the **LO main thread** (inside the `executor.execute` or before send).
+
+Add subscription in `editor_host.py` (next to the existing `config:changed` handler for venv) so that if a future "appearance changed" event is available we can push updates.
+
+---
+
+#### 2. Protocol (no new mandatory top-level types for v1)
+
+On `load`:
+
+```json
+{
+  "type": "load",
+  ...,
+  "theme": {
+    "monaco": "vs-dark",
+    "is_dark": true,
+    "bg": 0x1e1e1e,
+    "toolbar_bg": 0x252526
+  }
+}
+```
+
+Optional future push (while editor is open):
+
+```json
+{ "type": "theme", "monaco": "...", "is_dark": true, ... }
+```
+
+`scripts_list` etc. never carry theme.
+
+Update the "Protocol evolution summary" table at the bottom of the doc.
+
+---
+
+#### 3. Child / JS side
+
+In `editor.js`:
+
+- After `monaco.editor.create(...)` (or inside `applyLoadMessage` for the first `load`):
+  ```js
+  if (msg.theme) {
+    var t = msg.theme.monaco || (msg.theme.is_dark ? "vs-dark" : "vs");
+    monaco.editor.setTheme(t);
+    applyChromeTheme(msg.theme);
+  }
+  ```
+- Implement `applyChromeTheme(tinfo)`:
+  - `document.body.classList.toggle("dark", !!tinfo.is_dark)`
+  - `document.body.classList.toggle("light", !tinfo.is_dark)`
+  - Optionally set CSS custom properties on `:root` or directly style a few elements (toolbar, select, input) from the palette if richer data is present.
+  - Re-apply on any subsequent `"theme"` message delivered via the poll queue.
+
+Add support in the pipe dispatch of `editor_main.py` if needed (current generic `handleScriptsManagerMessage` + editor.js poll path already works for extra fields on known messages and new `type:"theme"`).
+
+Update initial create to still use `"vs"` as safe default; the load will correct it immediately.
+
+---
+
+#### 4. CSS (style.css)
+
+- Add class-based rules:
+  ```css
+  body.dark {
+    background: #1e1e1e;
+    color: #cccccc;
+  }
+  body.dark #toolbar {
+    background: #252526;
+    border-bottom-color: #1e1e1e;
+  }
+  body.dark #data-binding-input,
+  body.dark #script-select { ... dark input styles ... }
+  body.dark .status-ok { color: #3fb950; }
+  /* dark variants for script buttons, focus rings, etc. */
+  ```
+- Convert repeated color literals to CSS vars where easy (`--wa-toolbar-bg`, `--wa-border`).
+- Keep light as the no-class default for backward compat.
+- Test high-contrast if LO reports it (map to `hc-light` / `hc-black`).
+
+Use the script-manager colors already present (some GitHub-inspired) and supply `.dark` overrides for them.
+
+---
+
+#### 5. Optional richer matching (Phase 2E+)
+
+After binary works:
+
+- Use richer palette from `StyleSettings` (FaceColor, ButtonTextColor, etc.).
+- On the JS side call `monaco.editor.defineTheme('lo-dark', { base: 'vs-dark', inherit: true, rules: [...], colors: { 'editor.background': '#...', 'editor.foreground': ..., 'keyword': '...' } })` then `setTheme('lo-dark')`.
+- Pick 6–8 token colors that give Python a pleasant LO-native feel without inventing a full color scheme.
+- Toolbar chrome should use the same accent for focus rings / selection if available.
+
+Defer until the simple `vs`/`vs-dark` + chrome class is solid and tested.
+
+---
+
+#### 6. Live / automatic updates while the window is open
+
+"Automatically" implies reacting when the user changes LibreOffice → Options → Appearance (or OS theme while LO is "System").
+
+- Minimum (automatic enough for most users): every `load` message (cell switch, reopen) carries a **fresh** theme computed at send time.
+- Nice-to-have: push a `{"type":"theme", ...}` when we notice a change.
+  - Hook `global_event_bus` for `"config:changed"` (some appearance keys may surface).
+  - Or install a one-time listener via `com.sun.star.frame.theGlobalEventBroadcaster` if a suitable event exists for style settings.
+  - Fallback: a cheap 5–10s poll inside the PersistentEditor reader (only while a session is active) that compares a signature (e.g. FieldColor) and sends delta.
+- Child must handle the update without resetting editor content or cursor (just `setTheme` + `applyChromeTheme`).
+
+Document the chosen approach and any platform caveats (Wayland vs X11 theme propagation can be delayed).
+
+---
+
+#### 7. Implementation order & tests inside Phase 2E
+
+1. Extract / add `get_lo_theme_info` + unit test (pure, no UNO).
+2. Wire into the two load builders; always include `"theme"`.
+3. JS + CSS changes so that dark works on first open. Manual smoke: switch LO appearance, restart LO (or just the editor), verify.
+4. Update `applyLoadMessage` / poll path for re-apply.
+5. Add support for a pushed `"theme"` message (host can send it later).
+6. Add integration-level test: `test_editor_host.py` or new `test_appearance.py` that spies the sent load and asserts `theme` key present with sensible values (mock the StyleSettings object).
+7. Extend manual test checklist in §7 of this doc.
+8. Update docs (this file + one sentence in `enabling_numpy_in_libreoffice.md`).
+
+**Unit test example sketch** (no LO needed):
+
+```python
+def test_get_lo_theme_info_dark_from_field_color():
+    mock_win = MagicMock()
+    mock_win.StyleSettings.FieldColor = 0x2d2d2d   # darkish
+    mock_win.StyleSettings.DialogColor = 0x1e1e1e
+    info = get_lo_theme_info(style_window=mock_win)
+    assert info["is_dark"] is True
+    assert info["monaco"] == "vs-dark"
+```
+
+Add corresponding light case and fallback test.
+
+**UNO / native tests:** optional, only if we can drive Options change in a test runner (rare).
+
+---
+
+#### 8. Edge cases & platform notes
+
+- No document open (Run Python Script from Start Center or menu) → fall back to desktop window or safe default.
+- LO in high-contrast mode → map or stay with vs/vs-dark.
+- "System" preference: the `StyleSettings` values already reflect what LO chose; we don't need to read the setting key separately.
+- Qt WebEngine / GTK pywebview backends: colors are controlled 100% in the web content; native titlebar may follow OS but content follows us.
+- Color ints are 0xRRGGBB (matches existing chat code).
+- Fallback values must be light (current hard-coded) so a broken detector never produces unreadable white-on-white.
+- Update title bar? pywebview title is text only; we cannot easily theme the OS frame from inside.
+
+---
+
+#### 9. Files likely touched
+
+- `plugin/scripting/editor_theme.py` (new, narrow) **or** `plugin/framework/appearance.py` (debt reduction)
+- `plugin/scripting/editor_host.py` (load enrichment + change listener)
+- `plugin/calc/python_editor.py`
+- `plugin/scripting/python_runner.py`
+- `plugin/contrib/scripting/assets/editor/editor.js`
+- `plugin/contrib/scripting/assets/editor/style.css`
+- `tests/framework/test_appearance.py` (new) + updates to `test_editor_host.py` (historical plan text)
+- `docs/python-monaco-editor-dev-plan.md` (this)
+- `docs/enabling_numpy_in_libreoffice.md` (status line)
+
+Keep changes small. Reuse the poll / queue path — no new threads.
+
+---
+
+This phase is intentionally after 2A (UX solid) and can be done in parallel with parts of 2D (Jedi) because it touches a different surface (presentation, not language service).
 
 ---
 
@@ -313,7 +553,7 @@ Session 1:  ready | load | save | saved | error | closed | cancel
 Phase 2B: + validate | validate_result
 Phase 2C: + pick_range | range_result
 Phase 2D: + completions (child-internal, optional calc_symbols from LO)
-Phase 2E: load.theme field (no new type)
+Phase 2E: load.theme (and optional pushed "theme") field (no new required top-level type)
 Phase 3:  load.mode / save_label / show_plain_text / show_data_binding / status_ok_text (no new IPC types)
          scripts_list.sample_code field (scratchpad text for Sample picker entry)
          load.selected_script_name + scripts_list.selected_script_name (picker sync)
@@ -345,10 +585,11 @@ flowchart TD
     C --> D
     D --> E[2E Theme sync]
     E --> F[2F Flatpak spawn]
+    note right of E: auto-detect from LO StyleSettings + chrome CSS
     F --> G[3 Broader surfaces]
 ```
 
-**Rationale:** 2A reduces support burden immediately. 2B and 2C are the two features users ask for after “it opens.” Jedi (2D) depends on stable editor loop and should not compete with range picker for main-thread LO time. Theme and Flatpak are polish/distribution. Phase 3 only after Calc cell editing is trusted daily-driver quality.
+**Rationale:** 2A reduces support burden immediately. 2B and 2C are the two features users ask for after “it opens.” Jedi (2D) depends on stable editor loop and should not compete with range picker for main-thread LO time. Theme sync (2E) is high-visibility polish that benefits from a solid UX base (loads, saves, status) but is otherwise independent. Flatpak and Phase 3 after core editing is trusted.
 
 ---
 
@@ -365,7 +606,8 @@ flowchart TD
 
 - **Session 1 (done):** native LO + configured venv with pywebview: menubar **Edit Python in Cell…**, edit any selected Calc cell, Save updates `=PYTHON()` and recalc; failures show full tracebacks.
 - **Phase 2A (done):** context menu, stderr drain, multi-cell reload, persistent child reuse.
-- **Later:** syntax squiggles (2B), range picker button (2C), Jedi finish (2D), theme sync (2E), Flatpak spawn (2F).
+- **Phase 2E (done):** automatic theme (LO light/dark drives Monaco `vs`/`vs-dark` + full toolbar chrome via shared appearance detector).
+- **Later:** syntax squiggles (2B), range picker button (2C), Jedi finish (2D), Flatpak spawn (2F).
 - `make test` green; typecheck clean; no UNO calls off main thread in bridge code paths.
 
 ### Session 1 behavior reference
