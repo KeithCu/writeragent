@@ -164,10 +164,11 @@ def test_non_matplotlib_code_unaffected():
     assert not is_image_payload(res["result"])
 
 
-def test_multiple_open_figures_merged_to_single_payload():
-    """Two implicit figures should merge into one PNG image payload."""
+def test_multiple_open_figures_captured_individually():
+    """Two implicit figures should be captured individually as a multi_data envelope containing two SVG figures."""
     pytest.importorskip("matplotlib")
     from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+    from plugin.scripting.payload_codec import is_multi_data
 
     code = (
         "import matplotlib.pyplot as plt\n"
@@ -176,9 +177,36 @@ def test_multiple_open_figures_merged_to_single_payload():
     )
     res = run_sandboxed_code(code, timeout_sec=30)
     assert res["status"] == "ok"
-    assert is_image_payload(res["result"])
-    assert res["result"]["format"] == "png"
-    assert "Merged 2 open figures" in (res.get("stdout") or "")
+    assert is_multi_data(res["result"])
+    items = res["result"]["items"]
+    assert len(items) == 2
+    assert items[0]["__wa_payload__"] == "image"
+    assert items[0]["format"] == "svg"
+    assert items[1]["__wa_payload__"] == "image"
+    assert items[1]["format"] == "svg"
+    assert "Captured 2 open figures" in (res.get("stdout") or "")
+
+
+def test_serialize_list_of_figures():
+    """A list of Figures should be serialized to a list of image payloads recursively."""
+    plt = pytest.importorskip("matplotlib.pyplot")
+    from plugin.scripting.venv.venv_sandbox import serialize_result
+
+    fig1, ax1 = plt.subplots()
+    ax1.plot([1, 2])
+    fig2, ax2 = plt.subplots()
+    ax2.plot([3, 4])
+
+    res = serialize_result([fig1, fig2])
+    plt.close(fig1)
+    plt.close(fig2)
+
+    assert isinstance(res, list)
+    assert len(res) == 2
+    assert res[0]["__wa_payload__"] == "image"
+    assert res[0]["format"] == "svg"
+    assert res[1]["__wa_payload__"] == "image"
+    assert res[1]["format"] == "svg"
 
 
 def test_seaborn_implicit_figure():
@@ -240,3 +268,27 @@ def test_run_sandboxed_dataframe_produces_envelope():
     assert res["status"] == "ok"
     assert is_dataframe_payload(res["result"])
     assert res["result"]["columns"] == ["x", "y"]
+
+
+def test_serialize_pil_image():
+    """A PIL Image should be serialized to an image payload with format png."""
+    Image = pytest.importorskip("PIL.Image")
+    from plugin.scripting.venv.venv_sandbox import serialize_result
+
+    img = Image.new("RGB", (100, 100), color="red")
+    res = serialize_result(img)
+    assert res["__wa_payload__"] == "image"
+    assert res["format"] == "png"
+    assert isinstance(res["data"], bytes)
+
+
+def test_serialize_dict_of_dataframes():
+    """A dictionary containing DataFrames should serialize its DataFrame values correctly."""
+    pd = pytest.importorskip("pandas")
+    from plugin.scripting.venv.venv_sandbox import serialize_result
+    from plugin.scripting.payload_codec import is_dataframe_payload
+
+    df = pd.DataFrame({"x": [1, 2]})
+    res = serialize_result({"df_key": df})
+    assert isinstance(res, dict)
+    assert is_dataframe_payload(res["df_key"])

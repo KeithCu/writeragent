@@ -34,6 +34,7 @@ from plugin.scripting.payload_codec import (
     is_image_payload,
     is_multi_data,
     is_split_grid,
+    find_image_payloads,
 )
 from plugin.scripting.config_limits import python_exec_timeout_default
 from plugin.framework.constants import AUTO_IMPORTS
@@ -182,8 +183,12 @@ def _capture_open_figures_payload(*, fmt: str = "svg") -> tuple[dict[str, Any] |
     figs = [plt_mod.figure(num) for num in fignums]
     note = ""
     if len(figs) > 1:
-        payload = _merge_figures_to_image_payload(figs, fmt=fmt)
-        note = f"Merged {len(figs)} open figures into one image.\n"
+        items = [_figure_to_image_payload(fig, fmt=fmt) for fig in figs]
+        payload = {
+            "__wa_payload__": "multi_data",
+            "items": items,
+        }
+        note = f"Captured {len(figs)} open figures.\n"
     else:
         payload = _figure_to_image_payload(figs[0], fmt=fmt)
     plt_mod.close("all")
@@ -208,10 +213,47 @@ def _figure_to_image_payload(fig: Any, *, fmt: str = "svg") -> dict[str, Any]:
     return {"__wa_payload__": "image", "format": fmt, "data": buf.read()}
 
 
+def _pil_image_to_payload(img: Any) -> dict[str, Any]:
+    """Convert a PIL Image to an image payload dict."""
+    import io
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return {"__wa_payload__": "image", "format": "png", "data": buf.getvalue()}
+
+
+def _has_custom_serialize_objects(obj: Any) -> bool:
+    mpl_fig = optional_module("matplotlib.figure")
+    pd_mod = optional_module("pandas")
+    pil_mod = optional_module("PIL.Image")
+
+    custom_types = []
+    if mpl_fig is not None:
+        custom_types.append(mpl_fig.Figure)
+    if pd_mod is not None:
+        custom_types.extend([pd_mod.DataFrame, pd_mod.Series])
+    if pil_mod is not None:
+        custom_types.append(pil_mod.Image)
+
+    if not custom_types:
+        return False
+
+    custom_tuple = tuple(custom_types)
+    if isinstance(obj, custom_tuple):
+        return True
+    if isinstance(obj, (list, tuple)):
+        return any(isinstance(x, custom_tuple) for x in obj)
+    if isinstance(obj, dict):
+        return any(isinstance(v, custom_tuple) for v in obj.values())
+    return False
+
+
 def _serialize_result_impl(obj: Any) -> Any:
     mpl_fig = optional_module("matplotlib.figure")
     if mpl_fig is not None and isinstance(obj, mpl_fig.Figure):
         return _figure_to_image_payload(obj)
+    pil_mod = optional_module("PIL.Image")
+    if pil_mod is not None and isinstance(obj, pil_mod.Image):
+        return _pil_image_to_payload(obj)
     np_mod = optional_module("numpy")
     if np_mod is not None:
         if isinstance(obj, (np_mod.ndarray, np_mod.integer, np_mod.floating, np_mod.bool_)):
@@ -262,8 +304,16 @@ def _serialize_result_impl(obj: Any) -> Any:
                 }
             return packed
     if isinstance(obj, (dict, list, tuple)):
+        if _has_custom_serialize_objects(obj):
+            if isinstance(obj, dict):
+                return {str(k): serialize_result(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [serialize_result(v) for v in obj]
+            else:
+                return tuple(serialize_result(v) for v in obj)
         return child_pack_result(obj)
     return obj
+
 
 
 def _new_executor(timeout_sec: int) -> LocalPythonExecutor:
@@ -593,7 +643,7 @@ def _run_on_executor(executor: LocalPythonExecutor, code: str) -> dict[str, Any]
         serialized = serialize_result(result)
 
         extra_stdout = ""
-        if not is_image_payload(serialized):
+        if not find_image_payloads(serialized):
             captured, note = _capture_open_figures_payload()
             if captured is not None:
                 serialized = captured

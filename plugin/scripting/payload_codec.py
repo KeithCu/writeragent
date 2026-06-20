@@ -206,6 +206,24 @@ def is_image_payload(obj: Any) -> bool:
     return _is_image_payload_envelope(obj)
 
 
+def find_image_payloads(obj: Any) -> list[dict[str, Any]]:
+    """Recursively find all image payloads in the object."""
+    if is_image_payload(obj):
+        return [obj]
+    if isinstance(obj, dict):
+        res = []
+        for v in obj.values():
+            res.extend(find_image_payloads(v))
+        return res
+    if isinstance(obj, (list, tuple)):
+        res = []
+        for x in obj:
+            res.extend(find_image_payloads(x))
+        return res
+    return []
+
+
+
 def _is_dataframe_envelope(envelope: object) -> bool:
     if not isinstance(envelope, dict):
         return False

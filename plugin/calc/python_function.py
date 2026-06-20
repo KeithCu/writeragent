@@ -25,7 +25,7 @@ from plugin.calc.python_image_egress import insert_image_result_on_sheet
 from plugin.framework.errors import format_error_payload
 from plugin.framework.i18n import _
 from plugin.scripting.config_limits import configured_python_max_data_cells
-from plugin.scripting.payload_codec import is_dataframe_payload, is_image_payload, is_split_grid
+from plugin.scripting.payload_codec import is_dataframe_payload, is_split_grid, find_image_payloads
 # Optional: reset worker init/cell sessions on workbook close (see python_workbook_lifecycle.py).
 # from plugin.calc.python_workbook_lifecycle import ensure_calc_workbook_unload_resets_python
 from plugin.scripting.document_scripts import build_python_eval_init_kwargs, get_calc_document_from_ctx
@@ -564,9 +564,11 @@ def execute_python_addin(
             result = res.get("result")
             result = _strip_dataframe_envelope(result)
             log.debug("PYTHON raw result: %r (type: %s)", result, type(result).__name__)
-            if is_image_payload(result):
-                insert_image_result_on_sheet(ctx, cast("dict[str, Any]", result))
-                return _("Image inserted")
+            images = find_image_payloads(result)
+            if images:
+                for img in images:
+                    insert_image_result_on_sheet(ctx, img)
+                return _("Image inserted") if len(images) == 1 else _("Images inserted")
             final_ret = finalize_python_return(ctx, code, result, index_arg=index_arg, worker_data=worker_data)
             log.debug("PYTHON returning scalar: %r (type: %s)", final_ret, type(final_ret).__name__)
             return final_ret

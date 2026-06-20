@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any
 
 from plugin.chatbot.dialogs import msgbox
 from plugin.doc.document_helpers import is_writer
@@ -34,7 +34,7 @@ from plugin.notebook.writer_importer import (
     _strip_ansi,
     flush_ui_idle,
 )
-from plugin.scripting.payload_codec import host_unpack_data, is_image_payload
+from plugin.scripting.payload_codec import host_unpack_data, is_image_payload, find_image_payloads
 from plugin.scripting.session_manager import notebook_session_id
 from plugin.scripting.venv_worker import run_code_in_user_venv
 
@@ -61,7 +61,17 @@ def format_run_output_text(result: dict[str, Any]) -> str:
         parts.append(_strip_ansi(str(tb)))
     elif result.get("status") == "ok":
         wire = result.get("result")
-        if wire is not None and not is_image_payload(wire):
+        def is_only_images(obj: Any) -> bool:
+            if is_image_payload(obj):
+                return True
+            if isinstance(obj, list) and obj and all(is_only_images(x) for x in obj):
+                return True
+            if isinstance(obj, dict) and obj.get("__wa_payload__") == "multi_data":
+                items = obj.get("items")
+                if isinstance(items, list) and items and all(is_only_images(x) for x in items):
+                    return True
+            return False
+        if wire is not None and not is_only_images(wire):
             try:
                 value = host_unpack_data(wire)
             except Exception:
@@ -188,8 +198,9 @@ def apply_run_result(
                 _append_body_text_block(doc, display, _STYLE_OUTPUT, lead_break=True)
     if result.get("status") == "ok":
         wire = result.get("result")
-        if is_image_payload(wire):
-            _insert_run_image(doc, cast("dict[str, Any]", wire), ctx=ctx, images_before=0)
+        images = find_image_payloads(wire)
+        for img in images:
+            _insert_run_image(doc, img, ctx=ctx, images_before=0)
 
 
 def update_in_prompt(doc: Any, cell: NotebookCodeCell, execution_count: int | None) -> None:

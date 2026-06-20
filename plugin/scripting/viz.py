@@ -21,7 +21,7 @@ from plugin.calc.venv_python import _resolve_python_data
 from plugin.doc.document_helpers import is_calc, is_draw, is_writer
 from plugin.scripting.client import run_viz as client_run_viz
 from plugin.scripting.image_payload import write_image_payload_to_temp
-from plugin.scripting.payload_codec import is_image_payload
+from plugin.scripting.payload_codec import is_image_payload, find_image_payloads
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.i18n import _
 
@@ -199,7 +199,11 @@ def is_viz_result(value: Any) -> bool:
     if isinstance(helper, str) and helper in HELPER_NAMES:
         return True
     image = value.get("image")
-    return is_image_payload(image)
+    if is_image_payload(image):
+        return True
+    if image is not None and bool(find_image_payloads(image)):
+        return True
+    return False
 
 
 def extract_image_payload(value: Any) -> dict[str, Any] | None:
@@ -210,7 +214,9 @@ def extract_image_payload(value: Any) -> dict[str, Any] | None:
         image = value.get("image")
         if is_image_payload(image):
             return image
-    return None
+    # Fallback to the first found image payload if there are multiple
+    images = find_image_payloads(value)
+    return images[0] if images else None
 
 
 def insert_image_payload_for_doc(
@@ -247,25 +253,27 @@ def insert_viz_result_into_doc(ctx: Any, doc: Any, result: dict[str, Any]) -> No
         code = str(result.get("code") or "VIZ_ERROR")
         message = str(result.get("message") or _("Viz helper failed."))
         raise ToolExecutionError(message, code=code, details={"viz_result": result})
-    payload = extract_image_payload(result)
-    if payload is None:
+    images = find_image_payloads(result)
+    if not images:
         raise ToolExecutionError(
             _("Viz helper returned no image payload."),
             code="VIZ_ERROR",
             details={"viz_result": result},
         )
     title = str(result.get("title") or result.get("helper") or "Plot")
-    insert_image_payload_for_doc(ctx, doc, payload, title=title)
+    for img in images:
+        insert_image_payload_for_doc(ctx, doc, img, title=title)
 
 
 def try_insert_plot_result(ctx: Any, doc: Any, result_data: Any) -> bool:
     """Insert plot/image results when present. Returns True if insertion ran."""
-    payload = extract_image_payload(result_data)
-    if payload is None:
+    images = find_image_payloads(result_data)
+    if not images:
         return False
     title = "Plot"
     if isinstance(result_data, dict):
         title = str(result_data.get("title") or result_data.get("helper") or "Plot")
-    insert_image_payload_for_doc(ctx, doc, payload, title=title)
+    for img in images:
+        insert_image_payload_for_doc(ctx, doc, img, title=title)
     return True
 

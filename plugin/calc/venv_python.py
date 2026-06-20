@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, ClassVar, cast
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from plugin.calc.base import ToolCalcPythonBase
 from plugin.calc.bridge import CalcBridge
@@ -20,7 +20,7 @@ from plugin.framework.constants import PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE
 from plugin.scripting.import_policy import format_matplotlib_plot_hint
 from plugin.scripting.image_payload import write_image_payload_to_temp
 from plugin.scripting.config_limits import configured_python_max_data_cells
-from plugin.scripting.payload_codec import is_image_payload
+from plugin.scripting.payload_codec import find_image_payloads
 from plugin.scripting.venv_worker import run_code_in_user_venv
 
 if TYPE_CHECKING:
@@ -178,21 +178,28 @@ class RunVenvPythonScript(ToolCalcPythonBase):
         )
 
         result = res.get("result")
-        if res.get("status") == "ok" and is_image_payload(result):
-            img = cast("dict[str, Any]", result)
-            tmp_path = write_image_payload_to_temp(img)
-            out: dict[str, Any] = {
-                "status": "ok",
-                "message": "Plot generated",
-                "image_path": tmp_path,
-            }
-            if ctx.doc_type == "calc":
-                from plugin.calc.python_image_egress import insert_image_result_on_sheet
-                from plugin.framework.queue_executor import execute_on_main_thread
+        if res.get("status") == "ok":
+            images = find_image_payloads(result)
+            if images:
+                img_paths = [write_image_payload_to_temp(img) for img in images]
+                out: dict[str, Any] = {
+                    "status": "ok",
+                    "message": f"{len(images)} plot(s) generated",
+                    "image_paths": img_paths,
+                }
+                if len(img_paths) == 1:
+                    out["image_path"] = img_paths[0]
+                else:
+                    out["image_path"] = img_paths
 
-                execute_on_main_thread(insert_image_result_on_sheet, ctx.ctx, img)
-                out["message"] = "Plot inserted on active sheet"
-                out["image_inserted"] = True
-            return out
+                if ctx.doc_type == "calc":
+                    from plugin.calc.python_image_egress import insert_image_result_on_sheet
+                    from plugin.framework.queue_executor import execute_on_main_thread
+
+                    for img in images:
+                        execute_on_main_thread(insert_image_result_on_sheet, ctx.ctx, img)
+                    out["message"] = f"{len(images)} plot(s) inserted on active sheet"
+                    out["image_inserted"] = True
+                return out
 
         return res
