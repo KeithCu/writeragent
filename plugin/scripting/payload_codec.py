@@ -411,7 +411,10 @@ def wire_cell_count(data: Any) -> int:
 
 
 def grid_from_nested_list(grid: list[Any] | list[list[Any]]) -> list[Any] | list[list[Any]]:
-    """Normalize to flat or 2D Python lists (JSON path, no envelope)."""
+    """Normalize to flat or 2D Python lists for small grids (below BINARY_MIN_CELLS) or non-split_grid results.
+
+    Uses the pickle list path (no envelope). NaN values are preserved; only Python None is normalized here.
+    """
     if not grid:
         return []
     if type(grid[0]) in (list, tuple):
@@ -420,7 +423,13 @@ def grid_from_nested_list(grid: list[Any] | list[list[Any]]) -> list[Any] | list
 
 
 def _cell_for_json(value: Any) -> Any:
-    if value is None or (isinstance(value, float) and math.isnan(value)):
+    """Normalize a single egress cell for list paths.
+
+    Python None (from mixed/text results or explicit) becomes None (later mapped to empty cell in Calc).
+    float('nan') / np.nan is preserved so it surfaces as a Calc error (cascades) rather than a silent blank.
+    This applies to small grids (< BINARY_MIN_CELLS) and list results that do not use the split_grid envelope.
+    """
+    if value is None:
         return None
     return value
 
@@ -806,7 +815,11 @@ def host_pack_multi_data(
 @deal.post(lambda result: isinstance(result, list))
 @deal.raises(ValueError)
 def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = True) -> list[Any] | list[list[Any]]:
-    """Decode split_grid envelope on host (stdlib only). Reconstructs list or list of lists."""
+    """Decode split_grid envelope on host (stdlib only). Reconstructs list or list of lists.
+
+    NaN values in the buffer are preserved as float('nan') (they become Calc errors on =PYTHON() egress).
+    Python None is only introduced for string cells (from the strings map) or for genuine None in mixed results.
+    """
     buf = array.array("d")
     if "buffer" in envelope:
         buf.frombytes(envelope["buffer"])
@@ -819,7 +832,8 @@ def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = T
     is_1d = len(shape) == 1
     nrows, ncols = (shape[0], 1) if is_1d else (shape[0], shape[1])
 
-    # Convert keys of strings to integers in case standard JSON/Base64 test harness sent stringified keys
+    # Convert keys of strings to integers in case legacy test harnesses sent stringified keys.
+    # Production wire is length-prefixed Pickle5 carrying split_grid (or nested lists for < BINARY_MIN_CELLS).
     raw_strings = envelope.get("strings", {})
     strings = {int(k): v for k, v in raw_strings.items()} if raw_strings else {}
     uniform = envelope_uniform_column_kind(envelope, ncols=ncols)
@@ -827,17 +841,19 @@ def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = T
     flat_list: list[Any]
     if not strings and uniform is not None:
         if uniform == "int":
-            flat_list = [None if math.isnan(v) else int(v) for v in buf]
+            # Preserve NaN for int-declared columns (will surface as Calc error); coerce only valid values.
+            flat_list = [int(v) if not math.isnan(v) else float("nan") for v in buf]
         elif uniform == "bool":
-            flat_list = [None if math.isnan(v) else (v == 1.0) for v in buf]
+            flat_list = [(v == 1.0) if not math.isnan(v) else float("nan") for v in buf]
         else:
-            flat_list = [None if math.isnan(v) else v for v in buf]
+            # Float column: NaN stays as NaN (computed NaN or pass-through blank in numeric grid).
+            flat_list = list(buf)
     else:
         column_kinds = envelope_column_kinds(envelope, ncols=ncols)
         col_kind = [column_kinds[0 if is_1d else i % ncols] for i in range(len(buf))]
         flat_list = [
             strings[i] if i in strings else 
-            (None if math.isnan(val) else (
+            (val if math.isnan(val) else (
                 True if col_kind[i] == "bool" and val == 1.0 else
                 False if col_kind[i] == "bool" and val == 0.0 else
                 int(val) if col_kind[i] == "int" else val

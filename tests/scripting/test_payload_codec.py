@@ -44,10 +44,8 @@ from tests.scripting.payload_codec_test_support import (
     NUMERIC_4X4,
     NUMERIC_AT_THRESHOLD,
     NUMERIC_BELOW_THRESHOLD,
-    grid_with_cell_count,
     pickle5_roundtrip,
     rect_shape_for_cell_count,
-    sequential_grid_sum,
 )
 from plugin.tests.testing_utils import setup_uno_mocks
 
@@ -335,9 +333,15 @@ def test_round_trip_split_grid_1d():
     assert wire_child_mixed["shape"] == [4]
     assert wire_child_mixed["strings"] == {1: "banana"}
     
-    # Unpack on host -> flat list
+    # Unpack on host -> flat list.
+    # A Python None in the list (hole) was packed via split_grid (nan in buffer, no strings entry).
+    # With the egress policy, host unpack now preserves it as nan (Calc will show error for that slot).
+    import math
     host_unpacked_mixed = host_unpack_data(wire_child_mixed, as_nested_list=True)
-    assert host_unpacked_mixed == [1.5, "banana", None, 4.5]
+    assert host_unpacked_mixed[0] == 1.5
+    assert host_unpacked_mixed[1] == "banana"
+    assert math.isnan(host_unpacked_mixed[2])
+    assert host_unpacked_mixed[3] == 4.5
 
 
 def test_child_unpack_single_entry_auto_scalar_and_integer_coercion():
@@ -442,24 +446,30 @@ def test_none_mixed_ingress_child_gets_python_none() -> None:
 
 
 def test_nan_egress_child_pack_host_unpack() -> None:
-    """NumPy result with np.nan: host unpack maps buffer NaN to None for Calc/LLM."""
+    """NumPy result with np.nan: host unpack preserves NaN (it becomes a Calc error on =PYTHON() egress)."""
     np = pytest.importorskip("numpy")
+    import math
     wire = child_pack_result(np.array([1.0, np.nan, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]), force="always")
     back = host_unpack_data(wire, as_nested_list=True)
     assert back[0] == pytest.approx(1.0)
-    assert back[1] is None
+    assert math.isnan(back[1])
 
 
 def test_none_host_egress_round_trip() -> None:
-    """Rectangular grid with holes: host pack -> child ndarray -> host list restores None."""
+    """Rectangular numeric grid with holes: host pack -> child ndarray (nan) -> host list preserves nan (Calc will show error).
+
+    We no longer coerce buffer NaN back to Python None on host unpack. A Calc blank that flows through
+    a pure-numeric range becomes nan on egress and surfaces as a Calc error (by design).
+    """
     np = pytest.importorskip("numpy")
+    import math
     grid = [[1.0, None, 3.0, 4.0], [5.0, 6.0, None, 8.0], [9.0, 10.0, 11.0, 12.0]]
     wire = host_pack_data(grid, force="always")
     arr = child_unpack_data(wire)
     assert isinstance(arr, np.ndarray)
     back = host_unpack_data(wire, as_nested_list=True)
-    assert back[0][1] is None
-    assert back[1][2] is None
+    assert math.isnan(back[0][1])
+    assert math.isnan(back[1][2])
 
 
 def test_inf_egress_from_numpy_result() -> None:
@@ -662,9 +672,14 @@ def test_split_grid_boolean_roundtrip_fidelity():
     assert child_unpacked[2] == [True, "cherry", None]
     assert child_unpacked[3] == [None, "date", 40]
     
-    # 3. Test round-trip unpacking on host
+    # 3. Test round-trip unpacking on host.
+    # Holes (None) become bare NaN slots (no strings entry). Host unpack preserves nan (Calc error policy).
+    import math
     host_unpacked = host_unpack_data(wire, as_nested_list=True)
-    assert host_unpacked == grid
+    assert host_unpacked[0] == [True, "apple", 10]
+    assert host_unpacked[1] == [False, "banana", 20]
+    assert host_unpacked[2][0] is True and host_unpacked[2][1] == "cherry" and math.isnan(host_unpacked[2][2])
+    assert math.isnan(host_unpacked[3][0]) and host_unpacked[3][1] == "date" and host_unpacked[3][2] == 40
 
 
 def test_split_grid_numpy_bool_scalars():
@@ -676,8 +691,8 @@ def test_split_grid_numpy_bool_scalars():
     unpacked = child_unpack_data(wire)
     assert isinstance(unpacked, np.ndarray)
     assert unpacked.dtype == np.bool_
-    assert unpacked[0, 0] == True
-    assert unpacked[1, 0] == False
+    assert bool(unpacked[0, 0]) is True
+    assert bool(unpacked[1, 0]) is False
 
 
 def test_split_grid_empty_and_edge_cases():

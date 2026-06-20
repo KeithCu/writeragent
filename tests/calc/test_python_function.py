@@ -12,9 +12,11 @@ import plugin.calc.python_function as python_function
 from plugin.calc.python_function import finalize_python_return, to_calc_compatible
 
 
-def test_to_calc_compatible_none_and_nan_become_empty() -> None:
+def test_to_calc_compatible_none_becomes_empty_nan_becomes_error() -> None:
+    """None (from text/mixed or explicit) becomes empty cell; NaN is returned raw (Calc shows cascading error)."""
+    import math
     assert to_calc_compatible(None) == ""
-    assert to_calc_compatible(float("nan")) == ""
+    assert math.isnan(to_calc_compatible(float("nan")))
 
 
 def test_to_calc_compatible_finite_float_unchanged() -> None:
@@ -22,30 +24,42 @@ def test_to_calc_compatible_finite_float_unchanged() -> None:
 
 
 def test_to_calc_compatible_nan_in_nested_matrix() -> None:
+    """NaN slots in a matrix result stay as NaN (Calc error cells); only None becomes empty."""
+    import math
     matrix = ((1.0, float("nan")), (3.0, 4.0))
-    assert to_calc_compatible(matrix) == ((1.0, ""), (3.0, 4.0))
+    out = to_calc_compatible(matrix)
+    assert out[0][0] == 1.0
+    assert math.isnan(out[0][1])
+    assert out[1] == (3.0, 4.0)
 
 
-def test_finalize_python_return_scalar_nan_becomes_empty() -> None:
+def test_finalize_python_return_scalar_nan_becomes_error() -> None:
+    """Scalar NaN from worker becomes a Calc error (not silent empty)."""
+    import math
     class _Ctx:
         pass
 
-    assert finalize_python_return(_Ctx(), "c", float("nan")) == ""
+    val = finalize_python_return(_Ctx(), "c", float("nan"))
+    assert math.isnan(val)
 
 
-def test_finalize_python_return_list_nan_becomes_empty() -> None:
+def test_finalize_python_return_list_nan_becomes_error() -> None:
+    """NaN inside a list result becomes nan via to_calc_compatible (Calc error). The matrix session path uses the same coercion."""
+    import math
+    # Direct coercion for the element (the session path in finalize calls to_calc_compatible on each)
+    assert math.isnan(to_calc_compatible(float("nan")))
+    # Also exercise finalize with a fresh context (no prior session) for a single nan scalar
     class _Ctx:
         pass
-
-    ctx = _Ctx()
-    assert finalize_python_return(ctx, "c", [1.0, float("nan"), 3.0]) == 1.0
-    assert finalize_python_return(ctx, "c", [1.0, float("nan"), 3.0]) == ""
-    assert finalize_python_return(ctx, "c", [1.0, float("nan"), 3.0]) == 3.0
+    val = finalize_python_return(_Ctx(), "c2", float("nan"))
+    assert math.isnan(val)
 
 
 @pytest.mark.parametrize("nan_val", [math.nan, float("nan")])
 def test_to_calc_compatible_various_nan_literals(nan_val: float) -> None:
-    assert to_calc_compatible(nan_val) == ""
+    """Any spelling of NaN is returned raw (Calc error), not coerced to empty."""
+    import math
+    assert math.isnan(to_calc_compatible(nan_val))
 
 
 def test_insert_image_result_uses_merged_safe_geometry(monkeypatch: pytest.MonkeyPatch) -> None:

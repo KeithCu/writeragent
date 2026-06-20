@@ -848,20 +848,24 @@ LibreOffice Calc operates strictly on double-precision floats (`double`/`float`)
 * **The resolution:** Every return value from `=PYTHON()` is recursively filtered through a coercion pipeline (`to_calc_compatible`):
   - `int` -> `float` (coerced to UNO `double`)
   - `None` -> `""` (coerced to empty cell)
-  - `float('nan')` / `np.nan` -> `""` (empty cell; keeps downstream formulas healthy)
+  - `float('nan')` / `np.nan` -> raw NaN (the Calc add-in bridge renders this as a cascading error, typically `#NUM!` or `#VALUE!`)
   - Other `bool`, `float`, and `str` values are preserved as-is.
   - Lists and tuples are recursively converted to tuples of these Calc-supported types.
 
+**Note on transport:** `=PYTHON()` and `run_venv_python_script` cross the host↔venv boundary via length-prefixed **Pickle5** frames carrying either a `split_grid` envelope (dense numeric/mixed 2D grids) or plain nested lists (small grids). There is no JSON on the production wire for these payloads (JSON appears only in benchmarks and a few legacy test paths).
+
 #### Empty cells vs NaN
 
-Calc **empty cells** and Python/NumPy **NaN** are treated as the same *missing* value on the wire, but they surface differently in Python on **ingress** and are **normalized to empty cells** on **egress** so sheet formulas stay healthy.
+Calc **empty cells** and Python/NumPy **NaN** are intentionally **not distinguished on the wire**. Both use NaN slots in the `split_grid` float64 buffer (or `None` in small/mixed list results). The production transport is **length-prefixed Pickle5** carrying `split_grid` (or plain nested lists below threshold). JSON is not used on the runtime wire.
 
-| Direction | From | To | Why |
-|-----------|------|-----|-----|
-| **Ingress** | Calc empty | Python `None` | Natural null in nested lists and mixed grids. |
-| **Ingress** | Calc empty | NumPy `np.nan` | Pure numeric ranges materialize as a float64 `ndarray` via `np.frombuffer`; holes must be NaN slots, not Python `None`. |
-| **Egress** | Python `None` | Calc empty | Standard spreadsheet behavior (`""` via [`to_calc_compatible`](../plugin/calc/python_function.py)). |
-| **Egress** | Python / NumPy NaN | Calc empty | Same as `None`; avoids `#NUM!` / `#VALUE!` when a matrix or downstream formula references the cell. |
+**Ingress (Calc → Python):**
+- Empty cell → `None` (mixed or small grids) or `np.nan` (pure numeric split_grid ndarray).
+- Use `np.nansum` / `np.nanmean` / masks when blanks should be ignored rather than poison.
+
+**Egress (Python → Calc):**
+- Python `None` → `""` (empty cell).
+- `float('nan')` / `np.nan` → raw NaN; Calc renders this as a **cascading error** (`#NUM!` or `#VALUE!`).
+- `±inf` passes through (may also error in formulas).
 
 **What you see in scripts**
 
@@ -871,51 +875,44 @@ Calc **empty cells** and Python/NumPy **NaN** are treated as the same *missing* 
 | **Pure numeric** (≥10 cells, split_grid) | `np.nan` in `data` | Fast path; use **`np.nansum`**, **`np.nanmean`**, or **`np.isnan`** when holes must be ignored. |
 | **Small range** (&lt;10 cells, nested list) | `None` in lists | Same as mixed; may be promoted to `ndarray` only if the child reloads a clean numeric grid. |
 
-**Return path:** worker results pass through [`host_unpack_data`](../plugin/scripting/payload_codec.py) (buffer NaN → `None` in nested lists) and then [`to_calc_compatible`](../plugin/calc/python_function.py) (`None` and NaN floats → `""`). A scalar `result = float('nan')` or a matrix slot with `np.nan` therefore displays as a **blank cell**, not `#NUM!`.
+**Return path:** `host_unpack_data` / `host_unpack_split_grid` preserve `float('nan')` (they no longer coerce NaN → `None`). `to_calc_compatible` then maps `None → ""` and leaves `nan` as a raw double (Calc error).
 
-**We do not round-trip “real NaN” into Calc.** If your script computes a missing numeric result you want visible as an error, return a string (e.g. `"N/A"`) or a normal value; do not rely on `np.nan` to show as `#NUM!` in the sheet.
-
-**Infinity:** `±inf` is **not** collapsed to empty on egress and may still produce `#NUM!` in Calc — only NaN/`None` map to blank cells.
-
-**Wire format:** on the split_grid binary lane, both empty cells and NaN values occupy NaN slots in the float64 buffer ([details in NumPy serialization — Cell semantics](numpy-serialization.md#cell-semantics-calc-python-and-numpy)). That is an implementation detail; authors should follow the table above.
+A scalar `result = float('nan')` or a matrix NaN slot now shows as an **error**, not a silent blank.
 
 **Examples**
 
 ```python
-# Ingress — numeric block B1:B5 with a blank in B3
-result = np.nansum(data)          # OK: ignores np.nan holes
-result = np.sum(data)             # NaN poisons the sum unless you mask
+# Ingress
+result = np.nansum(data)          # ignores blanks
+result = np.sum(data)             # poisons on blanks/NaN
 
-# Egress — both become empty cells in the sheet
-result = None
-result = float("nan")
-result = [[1.0, np.nan, 3.0]]     # matrix formula → 1, blank, 3
+# Egress
+result = None                     # empty cell
+result = float("nan")             # #NUM! / #VALUE! (cascades)
+result = [[1.0, np.nan, 3.0]]     # 1, error, 3
 ```
 
-### Gotcha: Silent Blank Cells from NaN Poisoning (and how to display "NaN")
+**We do not round-trip "real NaN" as a special visible sentinel.** Return a string (e.g. `"NaN"`) if you want a non-error marker. `±inf` is never coerced to empty.
 
-If a spreadsheet range contains empty cells, calling standard functions like `np.mean(data)` or `np.sum(data)` will be poisoned by the `None` or `nan` values and evaluate to float `nan`.
+### Computed NaN surfaces as a visible, cascading error
 
-Because `nan` is coerced to an empty string (`""`) on egress to keep downstream spreadsheet formulas healthy, the target cell will appear **completely blank** with no error messages.
+A scalar `result = np.mean(data)` (or any `nan` result) now becomes a **Calc error cell** that propagates to dependent formulas. There is no longer a silent-blank surprise for computed undefined values.
 
-If you encounter this and either want to compute a correct value ignoring blanks, or explicitly display `"NaN"` in the sheet, use one of the following patterns:
+If you want blanks on ingress to be ignored (like Excel AVERAGE), use the `nan*` helpers or explicit masking on the Python side:
 
-#### 1. Ignore blank/empty cells in calculation
-* **NumPy float conversion (works for any range size):**
-  ```python
-  np.nanmean(np.array(data, dtype=float))
-  ```
-* **Pure Python list comprehension (for small ranges < 10 cells):**
-  ```python
-  np.mean([x for x in data if x is not None])
-  ```
-
-#### 2. Explicitly display "NaN" in the sheet
-If you want `nan` results to be visible to the user as `"NaN"` instead of being swallowed into a blank cell:
 ```python
-val = np.nanmean(np.array(data, dtype=float))
-result = "NaN" if np.isnan(val) else val
+np.nanmean(data)                     # for ndarray from split_grid
+np.nanmean(np.array(data, dtype=float))
 ```
+
+If you prefer a visible non-error marker in the sheet, return a string:
+
+```python
+val = np.mean(...)
+result = "NaN" if (isinstance(val, float) and math.isnan(val)) else val
+```
+
+Ingress blanks can still poison naive `np.sum`/`np.mean` — use `nan*` or a mask. The old silent-blank coercion for computed NaN is gone.
 
 #### 2. Normal (Single-Cell) Formulas vs. Matrix (Array) Formulas
 Calc's legacy add-in bridge only accepts **one scalar** (number, text, or boolean) per `=PYTHON()` evaluation. It cannot receive a Python list/tuple as a native array return (that yields `#VALUE!` even with **Ctrl+Shift+Enter**).

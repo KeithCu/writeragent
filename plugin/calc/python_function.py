@@ -95,9 +95,11 @@ def to_calc_compatible(val: Any) -> float | str | bool | tuple:
     if isinstance(val, int):
         return float(val)
     if isinstance(val, float):
-        # NaN from Python/NumPy egress must become an empty cell, not a raw double (#NUM! / #VALUE!).
+        # Computed NaN (or NaN from a numeric grid that contained blanks) is returned as-is.
+        # The Calc add-in bridge renders a raw NaN double as a cascading error (#NUM! or #VALUE!).
+        # Python None is mapped to "" (empty cell). We intentionally do NOT collapse NaN here.
         if math.isnan(val):
-            return ""
+            return val
         return val
     if isinstance(val, str):
         return val

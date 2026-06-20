@@ -2,6 +2,8 @@
 
 Back to the [core NumPy and Python guide](enabling_numpy_in_libreoffice.md).
 
+**Production wire format:** length-prefixed **Pickle5** frames carrying `split_grid` envelopes (for qualifying 2D grids) or plain nested Python lists (small grids). There is no JSON on the runtime host↔venv path for data/results. JSON and Base64 variants exist only in the benchmark suite and a few legacy test helpers.
+
 This page is the technical reference for WriterAgent's **host↔venv compute bridge**: warm worker lifecycle, length-prefixed Pickle5 IPC, Linux pipe performance, wire formats (`split_grid`, `multi_data`), benchmarks, pipeline costs, and future optimization work. The [core guide](enabling_numpy_in_libreoffice.md) covers ABI strategy, Settings, sandbox safety, trusted extension code, and `=PYTHON()` author UX.
 
 ## Table of contents
@@ -363,7 +365,7 @@ Use this when designing new serialization or bool tests ([`tests/calc/serializat
 | `bool` | `0.0` / `1.0` | — |
 | `str` (including `"02138"`) | `NaN` | text preserved by flat index (never treated as a numeric cell for `np.array(list)` reload) |
 
-Grids with **&lt; 10 cells** use nested Pickle lists ([`BINARY_MIN_CELLS`](../plugin/scripting/payload_codec.py)); [`_cell_for_json`](../plugin/scripting/payload_codec.py) maps `float('nan')` to `None` on that path only.
+Grids with **&lt; 10 cells** use nested Pickle lists ([`BINARY_MIN_CELLS`](../plugin/scripting/payload_codec.py)); `_cell_for_json` only normalizes Python `None`; `float('nan')` is preserved so it becomes a Calc error on egress (not a silent blank).
 
 #### Child materialization (ingress)
 
@@ -379,24 +381,21 @@ Use `np.nansum(data)` (or mask with `np.isnan`) on numeric-only ingress when you
 
 | Child `result` | Host / UI after unpack |
 |----------------|------------------------|
-| `np.ndarray` with `np.nan` | Nested lists with **`None`** (`math.isnan` on host) |
+| `np.ndarray` with `np.nan` | `float('nan')` preserved in nested lists (becomes Calc error on =PYTHON() egress) |
 | `np.inf` / `-np.inf` | Still **inf** (not treated as missing) |
-| Large numeric array (≥ 10 cells) | `split_grid` on wire; host unpack → nested lists for Calc matrix / LLM |
+| Large numeric array (≥ 10 cells) | `split_grid` on wire (Pickle5); host unpack → nested lists (NaN preserved) for Calc / LLM |
 
 #### Empty cells vs NaN (policy)
 
 Author-facing summary (script examples and LLM guidance): [Empty cells vs NaN](enabling_numpy_in_libreoffice.md#empty-cells-vs-nan).
 
-We **do not** distinguish empty Calc cells from Python/NumPy NaN on the wire (both use `NaN` in the split_grid buffer). On **egress to Calc**, both become **empty cells** so downstream formulas stay healthy.
+We **do not** distinguish empty Calc cells from Python/NumPy NaN on the wire (both use `NaN` in the split_grid buffer, or `None` in small mixed lists). Production transport: **length-prefixed Pickle5** + `split_grid` (or plain lists below threshold). No JSON on the runtime wire.
 
-| Direction | From | To | Why |
-|-----------|------|-----|-----|
-| **Ingress** | Calc empty | Python `None` | Natural null in list/mixed grids. |
-| **Ingress** | Calc empty | NumPy `np.nan` | Required for pure numeric `ndarray` fast path (`frombuffer`). Use `np.nansum` / `np.isnan` when holes matter. |
-| **Egress** | Python `None` | Calc empty | Standard spreadsheet behavior (`""` via [`to_calc_compatible`](../plugin/calc/python_function.py)). |
-| **Egress** | Python / NumPy NaN | Calc empty | Same as `None`; avoids `#NUM!` / `#VALUE!` in matrix blocks and referencing formulas. |
+**Ingress:** empty → `None` (mixed/small) or `np.nan` (numeric split_grid). Use `nan*` helpers when blanks must be ignored.
 
-**Wire / host unpack:** buffer NaN slots decode to `None` in nested lists ([`host_unpack_split_grid`](../plugin/scripting/payload_codec.py)); [`to_calc_compatible`](../plugin/calc/python_function.py) maps both `None` and NaN floats to `""`. **`±inf`** is unchanged on egress (may still show `#NUM!`).
+**Egress (Calc):** `None` → `""` (empty cell); `nan` → raw NaN (Calc renders a cascading `#NUM!`/`#VALUE!` error). `±inf` is unchanged.
+
+**Wire / host unpack:** buffer NaN slots are preserved as `float('nan')` in nested lists (not coerced to `None`); `to_calc_compatible` leaves NaN as a double for Calc (error) and maps `None` to `""`.
 
 #### Performance Impact:
 - **~20x Speedup** over Column-Wise mixed grids.
@@ -574,7 +573,7 @@ User-facing varargs examples: [core §9 — Multi-Range Support](enabling_numpy_
 - **Host may use small vendored natives** — same precedent as audio ([audio-architecture.md](audio-architecture.md): `sounddevice` / CFFI wheels under `vendor/` / `plugin/vendor/`, injected from [`plugin/main.py`](../plugin/main.py)) and future embeddings search (`sqlite-vec` `vec0`, ~1 MB per OS in [embeddings.md](embeddings.md)). A serialization codec wheel or tiny custom `.so` is acceptable if it stays in the **few‑MB** budget and is pruned per OS/Python ABI like audio — not a 50–100 MB science stack.
 - **Wire format uses length-prefixed binary streams carrying Pickle5 payloads** — this standard provides extremely fast, out-of-band zero-copy buffer sharing between processes without any Base64 encoding or JSON parsing overhead. Since we package both the extension host and the sandboxed child worker together inside the OXT, backward compatibility is not a constraint, allowing us to evolve the IPC protocol to be as fast as possible.
 - **Sandbox must not grant arbitrary filesystem access** — [`LocalPythonExecutor`](../plugin/contrib/smolagents/local_python_executor.py) blocks `os` / `pathlib` in user code; temp files and mmap paths must be **host-allocated, host-trusted paths** passed in the request envelope, not paths chosen by LLM-generated scripts.
-- **LLM and Calc still need JSON-safe or scalar outputs** eventually — even an optimized ingress path usually ends with compact `result` (scalar, short list, summary stats) or a second-phase host tool (`write_formula_range`) for sheet output ([core user guide](enabling_numpy_in_libreoffice.md#3-user-guide)).
+- **LLM and Calc still need scalar or small structured outputs** eventually — even an optimized ingress path usually ends with compact `result` (scalar, short list, summary stats) or a second-phase host tool (`write_formula_range`) for sheet output ([core user guide](enabling_numpy_in_libreoffice.md#3-user-guide)). The wire itself is Pickle5 + split_grid (or small lists); any JSON-safe requirement is at the final consumer (text for the model, cells for Calc), not the IPC.
 
 ### Building host native extensions (Cython)
 
@@ -611,7 +610,7 @@ Record: cells/sec host→child, cells/sec child→host, bytes on wire, and wheth
 |-----------|--------|
 | Dense numeric or mixed numeric/strings 2D grids (≥10 cells) | **Pickle5 + Split-Grid envelope** (shipped) |
 | Small ranges (<10 cells), 1D mixed types, scalars | **Standard Pickle lists** (no envelope) |
-| LLM chat with huge outputs | Summaries + **tool RPC** / `write_formula_range`, not giant `result` JSON |
+| LLM chat with huge outputs | Summaries + **tool RPC** / `write_formula_range`, not giant `result` payloads |
 | Host still slow after split_grid in LO profiles | Vendored msgpack/orjson (few MB OXT) |
 | Very large ranges / stdin size limits | **Temp file + mmap** + optional **payload cache** |
 | **Next optimizations** | See [Future work — serialization performance](#future-work--serialization-performance) (profile in LO first, then summaries → host paths → defer vendored/mmap) |
