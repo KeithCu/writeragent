@@ -77,6 +77,27 @@ class CalcBridge:
         start, end = parse_range_string(range_str)
         return sheet.getCellRangeByPosition(start[0], start[1], end[0], end[1])
 
+    def resolve_range_or_address(self, range_or_address: str):
+        """Resolves a string identifier to a cell or cell range object.
+
+        Supports:
+        - Named Ranges (e.g. "MyRange")
+        - A1:B2 Range Strings
+        - A1 Cell Address Strings
+        """
+        range_or_address = range_or_address.strip()
+        if hasattr(self.doc, "NamedRanges") and self.doc.NamedRanges.hasByName(range_or_address):
+            named_range = self.doc.NamedRanges.getByName(range_or_address)
+            return named_range.getReferredCells()
+
+        if ":" in range_or_address:
+            return self.get_cell_range(self.get_active_sheet(), range_or_address)
+
+        try:
+            return self.get_cell_by_address(range_or_address)
+        except Exception:
+            return self.get_active_sheet().getCellRangeByName(range_or_address)
+
     @staticmethod
     def _index_to_column(index: int) -> str:
         return index_to_column(index)

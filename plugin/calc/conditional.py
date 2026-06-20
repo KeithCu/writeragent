@@ -120,7 +120,7 @@ class ListConditionalFormats(ToolCalcConditionalBase):
         try:
             sheet = bridge.get_active_sheet()
             if range_str:
-                cell_range = bridge.get_cell_range(sheet, range_str)
+                cell_range = bridge.resolve_range_or_address(range_str)
             else:
                 cursor = sheet.createCursor()
                 cursor.gotoStartOfUsedArea(False)
@@ -201,8 +201,7 @@ class AddConditionalFormat(ToolCalcConditionalBase):
             if op_upper not in ("DUPLICATE", "NOT_DUPLICATE") and not formula1.strip():
                 raise UnoObjectError("formula1 is required for this operator.")
 
-            sheet = bridge.get_active_sheet()
-            cell_range = bridge.get_cell_range(sheet, range_str)
+            cell_range = bridge.resolve_range_or_address(range_str)
 
             props = []
             pv = PropertyValue()
@@ -254,8 +253,7 @@ class RemoveConditionalFormats(ToolCalcConditionalBase):
         index = kwargs.get("rule_index")
 
         try:
-            sheet = bridge.get_active_sheet()
-            cell_range = bridge.get_cell_range(sheet, range_str)
+            cell_range = bridge.resolve_range_or_address(range_str)
             formats = cell_range.getPropertyValue("ConditionalFormat")
 
             if index is not None:

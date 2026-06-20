@@ -187,24 +187,24 @@ except ImportError:
 result = res
 """
 
-# Install hints use uv (recommended for speed and modern workflows) with classic pip as fallback.
-# Users point Settings → Python at a venv; they can create it with `uv venv ...` and install via `uv pip`.
-_QUANT_INSTALL_CMD = "uv pip install yfinance pandas-ta quantstats pyportfolioopt   # or: pip install ..."
+# Install hints use uv (recommended).
+# Users point Settings → Python at a venv created with `uv venv` and populated via `uv pip`.
+_QUANT_INSTALL_CMD = "uv pip install yfinance pandas-ta quantstats pyportfolioopt"
 
 # Vision stack (docs/image-recognition.md §7–§13): probed outside the AST sandbox because
 # docling/paddleocr/paddle are not whitelisted for LLM-submitted venv scripts.
 # Primary OCR: docling + rapidocr-paddle. Fallback: paddleocr + paddle.
 # Optional: ultralytics (detection helpers), skimage (trusted helper preprocessing).
 _ANALYSIS_INSTALL_CMD = (
-    "uv pip install numpy pandas scipy scikit-learn statsmodels ydata-profiling pandas-montecarlo   # or: pip install ..."
+    "uv pip install numpy pandas scipy scikit-learn statsmodels ydata-profiling pandas-montecarlo"
 )
 _VISION_PACKAGE_KEYS = ("docling", "rapidocr", "css_inline", "paddleocr", "paddle", "ultralytics", "skimage")
-_DOCLING_INSTALL_CMD = "uv pip install docling rapidocr-paddle numpy pillow css-inline   # or: pip install ..."
+_DOCLING_INSTALL_CMD = "uv pip install docling rapidocr-paddle numpy pillow css-inline"
 _VISION_OCR_INSTALL_CMD = _DOCLING_INSTALL_CMD
-_VISION_PADDLE_FALLBACK_CMD = "uv pip install paddleocr paddlepaddle numpy   # or: pip install ..."
-_VIZ_INSTALL_CMD = "uv pip install matplotlib seaborn   # or: pip install ..."
-_SYMBOLIC_INSTALL_CMD = "uv pip install sympy   # or: pip install ..."
-_TEXT_ANALYTICS_INSTALL_CMD = "uv pip install spacy textdescriptives && python -m spacy download xx_sent_ud_sm   # or: pip install ..."
+_VISION_PADDLE_FALLBACK_CMD = "uv pip install paddleocr paddlepaddle numpy"
+_VIZ_INSTALL_CMD = "uv pip install matplotlib seaborn"
+_SYMBOLIC_INSTALL_CMD = "uv pip install sympy"
+_TEXT_ANALYTICS_INSTALL_CMD = "uv pip install spacy textdescriptives && python -m spacy download xx_sent_ud_sm"
 _VISION_PROBE_SCRIPT = """
 import json
 out = {}

@@ -98,7 +98,6 @@ python -m spacy download xx_sent_ud_sm
 # Point Settings → Python at the venv root (~/.writeragent_venv) or the bin/ dir.
 ```
 
-`uv pip` is a fast drop-in for `pip`. Classic `python -m venv ... && pip install ...` still works fine.
 
 ### Execution paths (shipped)
 
@@ -159,7 +158,7 @@ WriterAgent ships a **Monaco-based code editor** (pywebview child in the configu
 | **Theme sync (2E)** — Monaco + toolbar chrome automatically follow LO light/dark | **Shipped** | [`appearance.py`](plugin/framework/appearance.py), editor host + JS/CSS |
 | Syntax squiggles (2B), range picker (2C), full Jedi (2D), sheet cell list | **Backlog** | [Monaco dev plan §8](python-monaco-editor-dev-plan.md#8-next-development-plan-detailed) |
 
-**Requirements:** Settings → Python → `scripting.python_venv_path` with `uv pip install pywebview` (recommended) or `pip install pywebview` (on Linux, also `PyQt6 PyQt6-WebEngine qtpy` for a self-contained WebEngine backend). **Edit Python in Cell…** does not fall back to embedded LO Python — fix the venv if the editor fails to open. **Run Python Script…** falls back to the native multiline dialog when pywebview is unavailable.
+**Requirements:** Settings → Python → `scripting.python_venv_path` with `uv pip install pywebview` (on Linux, also `PyQt6 PyQt6-WebEngine qtpy` for a self-contained WebEngine backend). **Edit Python in Cell…** does not fall back to embedded LO Python — fix the venv if the editor fails to open. **Run Python Script…** falls back to the native multiline dialog when pywebview is unavailable.
 
 ---
 
@@ -273,10 +272,7 @@ The **AST sandbox** (`LocalPythonExecutor` + `VENV_AUTHORIZED_IMPORTS`) applies 
 The 14 Calc **Analysis Helpers** in [`plugin/scripting/analysis.py`](../plugin/scripting/analysis.py) require a fixed scientific stack in the user venv. Settings → Python **Test** reports these under **Data Analysis / EDA Libraries** and prints an install line when any are missing.
 
 ```bash
-# Recommended (fast, modern)
 uv pip install numpy pandas scipy scikit-learn statsmodels ydata-profiling pandas-montecarlo
-# or with classic pip:
-# pip install numpy pandas scipy scikit-learn statsmodels ydata-profiling pandas-montecarlo
 ```
 
 | Package | Used by |
@@ -296,10 +292,10 @@ Helpers that need a missing package return `MISSING_PACKAGE` with the install li
 
 | Package | Install | Used by |
 |---------|---------|---------|
-| [Docling](https://github.com/docling-project/docling) + RapidOCR paddle backend (`docling`, `rapidocr`) + **css-inline** | `uv pip install ...` (or `pip install docling rapidocr-paddle numpy pillow css-inline`) | `extract_text` / `extract_structure` — **default** (`engine=docling`); **css-inline** inlines Docling CSS for LibreOffice HTML import |
-| [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) + [PaddlePaddle](https://github.com/PaddlePaddle/Paddle) (`paddleocr`, `paddle`) | `uv pip install ...` (or `pip install paddleocr paddlepaddle numpy`) | Fallback — `engine=paddle` |
-| [Ultralytics](https://github.com/ultralytics/ultralytics) | `uv pip install ultralytics` (or pip) | `detect_objects` and related helpers — **Phase 4+**; informational in Test until then |
-| [scikit-image](https://scikit-image.org/) (`skimage`) | `uv pip install scikit-image` (or pip) | Optional image processing inside trusted helpers — graceful skip if absent |
+| [Docling](https://github.com/docling-project/docling) + RapidOCR paddle backend (`docling`, `rapidocr`) + **css-inline** | `uv pip install docling rapidocr-paddle numpy pillow css-inline` | `extract_text` / `extract_structure` — **default** (`engine=docling`); **css-inline** inlines Docling CSS for LibreOffice HTML import |
+| [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) + [PaddlePaddle](https://github.com/PaddlePaddle/Paddle) (`paddleocr`, `paddle`) | `uv pip install paddleocr paddlepaddle numpy` | Fallback — `engine=paddle` |
+| [Ultralytics](https://github.com/ultralytics/ultralytics) | `uv pip install ultralytics` | `detect_objects` and related helpers — **Phase 4+**; informational in Test until then |
+| [scikit-image](https://scikit-image.org/) (`skimage`) | `uv pip install scikit-image` | Optional image processing inside trusted helpers — graceful skip if absent |
 
 Full design and egress rules: [Image Recognition](image-recognition.md). **Future:** visual/layout HTML (colored panels, multi-column flyers) — deferred dev plan in [Image Recognition §21](image-recognition.md#21-visuallayout-html-fidelity-deferred-dev-plan).
 
@@ -309,7 +305,7 @@ Per-folder semantic search ([embeddings.md](embeddings.md)) runs in the user ven
 
 | Package | Install | Used by |
 |---------|---------|---------|
-| [sentence-transformers](https://www.sbert.net/) (`sentence_transformers`) + **numpy** | `uv pip install sentence-transformers numpy sqlite-vec ...` (or pip) | Encode queries and corpus chunks; Office sibling extract |
+| [sentence-transformers](https://www.sbert.net/) (`sentence_transformers`) + **numpy** | `uv pip install sentence-transformers numpy sqlite-vec langgraph langchain-core langchain-text-splitters envwrap odfpy pandas openpyxl xlrd python-docx` | Encode queries and corpus chunks; Office sibling extract |
 | [sqlite-vec](https://github.com/asg017/sqlite-vec) (`sqlite_vec`) | (same line) | vec0 KNN in unified `corpus.db` |
 | [LangGraph](https://github.com/langchain-ai/langgraph) + [langchain-core](https://github.com/langchain-ai/langchain) + [langchain-text-splitters](https://github.com/langchain-ai/langchain) | (same line) | Ingest/search graphs in trusted venv modules |
 | [envwrap](https://pypi.org/project/envwrap/) | (same line) | Transitive dependency for `sentence-transformers` / Hugging Face stack on some Python versions |
@@ -612,7 +608,7 @@ Units     | kilometer / hour
 
 **Run Python Script (Writer):** "Text Analytics Helpers" section with built-in templates for `full`, `readability`, `entities`, and `key_phrases`. Select text or run on the whole document; results insert as a compact HTML table after the caret/selection. Scripts use the header `# writeragent:text helper=...` and call `from writeragent.scripting.text_analytics import run_text_analytics`.
 
-**Settings → Python Test:** Reports a "Text / NLP Libraries" group (spacy, textdescriptives). Install hint (uv recommended): `uv pip install spacy textdescriptives && python -m spacy download xx_sent_ud_sm` (or use `pip`).
+**Settings → Python Test:** Reports a "Text / NLP Libraries" group (spacy, textdescriptives). Install hint: `uv pip install spacy textdescriptives && python -m spacy download xx_sent_ud_sm`.
 
 **Requirements in the venv:** `spacy` + `textdescriptives` + at least one model (`xx_sent_ud_sm` recommended for multilingual, or language-specific models for best accuracy). The document's `CharLocale` (if present) is passed to prefer a better model.
 

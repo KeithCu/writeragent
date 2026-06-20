@@ -447,13 +447,11 @@ class CellManipulator:
             raise ToolExecutionError(str(e)) from e
 
     def _set_range_style(self, range_str, bold=None, italic=None, bg_color=None, font_color=None, font_size=None, h_align=None, v_align=None, wrap_text=None, border_color=None):
-        sheet = self.bridge.get_active_sheet()
-        cell_range = self.bridge.get_cell_range(sheet, range_str)
+        cell_range = self.bridge.resolve_range_or_address(range_str)
         self._apply_style_properties(cell_range, bold, italic, bg_color, font_color, font_size, h_align, v_align, wrap_text, border_color)
 
     def _set_range_number_format(self, range_str: str, format_str: str):
-        sheet = self.bridge.get_active_sheet()
-        cell_range = self.bridge.get_cell_range(sheet, range_str)
+        cell_range = self.bridge.resolve_range_or_address(range_str)
         doc = self.bridge.get_active_document()
         formats = doc.getNumberFormats()
         locale = doc.getPropertyValue("CharLocale")
@@ -481,8 +479,7 @@ class CellManipulator:
             range_str: Cell range (e.g. "A1:D10").
         """
         try:
-            sheet = self.bridge.get_active_sheet()
-            cell_range = self.bridge.get_cell_range(sheet, range_str)
+            cell_range = self.bridge.resolve_range_or_address(range_str)
             # CellFlags: VALUE=1, DATETIME=2, STRING=4, FORMULA=16 -> 23
             cell_range.clearContents(23)
             logger.info("Range %s cleared.", range_str.upper())
@@ -498,8 +495,7 @@ class CellManipulator:
             center: Centre content after merging.
         """
         try:
-            sheet = self.bridge.get_active_sheet()
-            cell_range = self.bridge.get_cell_range(sheet, range_str)
+            cell_range = self.bridge.resolve_range_or_address(range_str)
             cell_range.merge(True)
             logger.info("Range %s merged.", range_str.upper())
 
@@ -523,8 +519,7 @@ class CellManipulator:
             Description string.
         """
         try:
-            sheet = self.bridge.get_active_sheet()
-            cell_range = self.bridge.get_cell_range(sheet, range_str)
+            cell_range = self.bridge.resolve_range_or_address(range_str)
 
             import uno  # noqa: F401 – needed in UNO context
 
@@ -568,21 +563,17 @@ class CellManipulator:
                 self.clear_range(range_str)
                 return f"Range {range_str} cleared."
 
-            sheet = self.bridge.get_active_sheet()
-            start, end = self.bridge.parse_range_string(range_str)
+            cell_range = self.bridge.resolve_range_or_address(range_str)
+            addr = cell_range.getRangeAddress()
+            start = (addr.StartColumn, addr.StartRow)
+            end = (addr.EndColumn, addr.EndRow)
 
-            num_rows = end[1] - start[1] + 1
-            num_cols = end[0] - start[0] + 1
+            num_rows = addr.EndRow - addr.StartRow + 1
+            num_cols = addr.EndColumn - addr.StartColumn + 1
             total_cells = num_rows * num_cols
 
-            # True when this invocation writes exactly one cell (parse_range_string
-            # corners match). Passed into string parsing so we do not run the CSV
-            # "single row → many fields" path for prose/comments that contain commas
-            # or semicolons—csv.reader cannot tell that from an intentional CSV row.
-            #
-            # Note: range_name ["A1","B1"] in the tool loops two *separate* one-cell
-            # writes with the same string each time; that is not the same as one write
-            # to contiguous A1:B1.
+            # True when this invocation writes exactly one cell (corners match).
+            # Passed into string parsing so we do not run the CSV "single row → many fields" path.
             single_cell_range = start == end
 
             # Normalise string-as-array from AI callers.
@@ -655,7 +646,7 @@ class CellManipulator:
                 data_array.append(tuple(data_row))
                 formula_array.append(tuple(formula_row))
 
-            cell_range = sheet.getCellRangeByPosition(start[0], start[1], end[0], end[1])
+            cell_range = cell_range.getSpreadsheet().getCellRangeByPosition(start[0], start[1], end[0], end[1])
 
             if not has_formulas:
                 cell_range.setDataArray(tuple(data_array))

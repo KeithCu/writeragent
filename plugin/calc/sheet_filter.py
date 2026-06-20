@@ -102,8 +102,7 @@ def _build_filter_fields2(uno: Any, criteria: list[dict[str, Any]]) -> tuple[Any
 
 def _get_filterable_for_range(ctx: Any, range_name: str) -> tuple[Any, Any]:
     bridge = CalcBridge(ctx.doc)
-    sheet = bridge.get_active_sheet()
-    cell_range = bridge.get_cell_range(sheet, range_name)
+    cell_range = bridge.resolve_range_or_address(range_name)
     xf = _query_interface(cell_range, "com.sun.star.sheet.XSheetFilterable")
     if xf is None:
         raise UnoObjectError("This range does not support filtering (XSheetFilterable missing).")

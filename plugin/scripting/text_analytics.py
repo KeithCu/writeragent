@@ -3,10 +3,7 @@
 This module is intended to be imported and executed inside the user's Python venv
 (via the trusted worker stub). It requires:
 
-    # Recommended (uv is fast and modern)
     uv pip install spacy textdescriptives
-    # or classic pip:
-    # pip install spacy textdescriptives
 
 And at least one suitable spaCy model, e.g.:
 

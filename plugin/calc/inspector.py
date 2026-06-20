@@ -85,7 +85,11 @@ class CellInspector:
             dict with keys: address, value, formula, type.
         """
         try:
-            cell = self.bridge.get_cell_by_address(address)
+            cell = self.bridge.resolve_range_or_address(address)
+            if hasattr(cell, "getRangeAddress"):
+                addr = cell.getRangeAddress()
+                if addr.StartColumn != addr.EndColumn or addr.StartRow != addr.EndRow:
+                    raise ValueError(f"Address '{address}' resolved to a cell range, not a single cell.")
             cell_type = cell.getType()
 
             if cell_type == EMPTY:
@@ -118,7 +122,11 @@ class CellInspector:
             italic, h_align, v_align, wrap_text.
         """
         try:
-            cell = self.bridge.get_cell_by_address(address)
+            cell = self.bridge.resolve_range_or_address(address)
+            if hasattr(cell, "getRangeAddress"):
+                addr = cell.getRangeAddress()
+                if addr.StartColumn != addr.EndColumn or addr.StartRow != addr.EndRow:
+                    raise ValueError(f"Address '{address}' resolved to a cell range, not a single cell.")
             cell_type = cell.getType()
 
             if cell_type == EMPTY:
@@ -162,15 +170,16 @@ class CellInspector:
             2D list of dicts, each with keys: address, value, formula, type.
         """
         try:
-            sheet = self.bridge.get_active_sheet()
+            cell_range = self.bridge.resolve_range_or_address(range_name)
 
-            # Single cell shortcut
-            if ":" not in range_name:
+            if hasattr(cell_range, "getRangeAddress"):
+                addr = cell_range.getRangeAddress()
+                if addr.StartColumn == addr.EndColumn and addr.StartRow == addr.EndRow:
+                    cell_info = self.read_cell(range_name)
+                    return [[cell_info]]
+            else:
                 cell_info = self.read_cell(range_name)
                 return [[cell_info]]
-
-            cell_range = self.bridge.get_cell_range(sheet, range_name)
-            addr = cell_range.getRangeAddress()
 
             data_array = cell_range.getDataArray()
             formula_array = cell_range.getFormulaArray()

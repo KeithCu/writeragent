@@ -365,7 +365,7 @@ result = run_analysis(spec, data, context)
 **Required venv packages** (install into `scripting.python_venv_path`; no in-code fallbacks):
 
 ```bash
-uv pip install numpy pandas scipy scikit-learn statsmodels ydata-profiling pandas-montecarlo  # or pip
+uv pip install numpy pandas scipy scikit-learn statsmodels ydata-profiling pandas-montecarlo
 ```
 
 Settings → Python **Test** reports **Data Analysis / EDA Libraries** and suggests this line when packages are missing. See [enabling_numpy_in_libreoffice.md](enabling_numpy_in_libreoffice.md).
