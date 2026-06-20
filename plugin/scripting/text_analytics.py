@@ -222,6 +222,42 @@ def analyze_text(text: str, *, lang: str | None = None, context: dict[str, Any] 
     return {"status": "ok", "result": result}
 
 
+def check_diagnostics() -> dict[str, Any]:
+    """Perform self-diagnostics of the spaCy + textdescriptives installation."""
+    try:
+        import spacy  # ty: ignore[unresolved-import]
+        has_td = False
+        try:
+            import textdescriptives as td  # noqa: F401  # ty: ignore[unresolved-import]
+            has_td = True
+        except ImportError:
+            pass
+
+        # Try to find installed models
+        models: list[str] = []
+        try:
+            models = spacy.util.get_installed_models()
+        except Exception:
+            for m in ("xx_sent_ud_sm", "en_core_web_sm", "de_core_news_sm", "fr_core_news_sm", "es_core_news_sm"):
+                try:
+                    spacy.load(m)
+                    models.append(m)
+                except Exception:
+                    pass
+
+        return {
+            "status": "ok",
+            "spacy_version": spacy.__version__,
+            "has_textdescriptives": has_td,
+            "models": models,
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e),
+        }
+
+
 def run_text_analytics(
     spec: dict[str, Any] | str,
     text: str | list[str] | None = None,
@@ -240,6 +276,9 @@ def run_text_analytics(
     else:
         helper = str(spec or "full")
         params = {}
+
+    if helper in ("diagnostics", "check"):
+        return {"status": "ok", "result": check_diagnostics()}
 
     # Normalize text input (support list of sections)
     if isinstance(text, list):
@@ -294,7 +333,9 @@ def get_text_analytics_script_templates() -> dict[str, str]:
     These appear under Text Analytics Helpers in Run Python Script (Writer documents).
     The implementation requires spaCy + textdescriptives + a model in the venv.
     """
-    return {helper: _template_body(helper, dict(_DEFAULT_PARAMS.get(helper, {}))) for helper in sorted(HELPER_NAMES)}
+    # Exclude internal/UI helper commands from script templates
+    public_helpers = {h for h in HELPER_NAMES if h not in ("diagnostics", "check")}
+    return {helper: _template_body(helper, dict(_DEFAULT_PARAMS.get(helper, {}))) for helper in sorted(public_helpers)}
 
 
 # ---------------------------------------------------------------------------
@@ -304,7 +345,7 @@ def get_text_analytics_script_templates() -> dict[str, str]:
 # (for the trusted stub) does not pull host-only deps.
 # ---------------------------------------------------------------------------
 
-HELPER_NAMES = frozenset({"full", "readability", "entities", "key_phrases"})
+HELPER_NAMES = frozenset({"full", "readability", "entities", "key_phrases", "diagnostics", "check"})
 
 _DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
     "full": {},

@@ -110,7 +110,9 @@ class TextAnalyticsDialog:
 
         dlg.getControl("BtnReadDoc").addActionListener(_Btn(lambda d: owner._compute(d, "readability", "whole")))
         dlg.getControl("BtnReadSel").addActionListener(_Btn(lambda d: owner._compute(d, "readability", "selection")))
-        dlg.getControl("BtnStats").addActionListener(_Btn(lambda d: owner._compute(d, "entities", "whole")))  # repurposed button for Entities for minimal UI
+        dlg.getControl("BtnEntities").addActionListener(_Btn(lambda d: owner._compute(d, "entities", "whole")))
+        dlg.getControl("BtnPhrases").addActionListener(_Btn(lambda d: owner._compute(d, "key_phrases", "whole")))
+        dlg.getControl("BtnCheck").addActionListener(_Btn(lambda d: owner._compute(d, "diagnostics", "whole")))
 
         dlg.getControl("BtnInsert").addActionListener(_Btn(lambda d: owner._insert_report(d)))
         dlg.getControl("BtnClose").addActionListener(_Btn(lambda d: owner.close()))
@@ -134,6 +136,22 @@ class TextAnalyticsDialog:
         if res_ctrl is None:
             return
 
+        if helper in ("diagnostics", "check"):
+            res_ctrl.getModel().Text = _("Checking spaCy installation...")
+            try:
+                result = run_text_analytics(
+                    ctx,
+                    spec={"helper": helper},
+                )
+            except Exception as e:
+                log.exception("Text analytics worker call failed")
+                res_ctrl.getModel().Text = _("Error: %s\n\n(Make sure spaCy is installed in your Python venv.)") % e
+                return
+
+            self._last_result = result
+            res_ctrl.getModel().Text = self._format_result_for_display(helper, result)
+            return
+
         doc = get_active_document(ctx)
         if not doc or not is_writer(doc):
             res_ctrl.getModel().Text = _("Open a Writer document to analyze.")
@@ -147,9 +165,6 @@ class TextAnalyticsDialog:
         res_ctrl.getModel().Text = _("Analyzing with spaCy...")
 
         try:
-            # This goes to the venv worker. Model loading happens there.
-            # Pass detected doc language (from CharLocale) so venv can prefer a
-            # language-specific model for higher quality metrics/entities.
             lang = get_doc_language(doc)
             ctx_payload: dict[str, Any] = {}
             if lang:
@@ -167,7 +182,6 @@ class TextAnalyticsDialog:
             return
 
         self._last_result = result
-        # Present the interesting data directly in the dialog.
         res_ctrl.getModel().Text = self._format_result_for_display(helper, result)
 
     def _format_result_for_display(self, helper: str, result: dict[str, Any]) -> str:
@@ -176,6 +190,24 @@ class TextAnalyticsDialog:
 
         data = result.get("result", {}) or {}
         lines: list[str] = []
+
+        if helper in ("diagnostics", "check"):
+            if data.get("status") == "error":
+                return f"Diagnostics Error:\n{data.get('message')}"
+            
+            lines.append("spaCy Diagnostics:")
+            lines.append(f"  spaCy version: {data.get('spacy_version', 'N/A')}")
+            lines.append(f"  textdescriptives: {'Installed' if data.get('has_textdescriptives') else 'Missing'}")
+            
+            models = data.get("models") or []
+            if models:
+                lines.append(f"  Installed Models ({len(models)}):")
+                for m in models:
+                    lines.append(f"    - {m}")
+            else:
+                lines.append("  No models detected/loaded. Install one using e.g. 'python -m spacy download xx_sent_ud_sm'")
+            
+            return "\n".join(lines)
 
         if helper == "readability":
             rd = data.get("readability") or {}
@@ -201,11 +233,21 @@ class TextAnalyticsDialog:
             if not ents:
                 return "No entities found."
             lines.append(f"Entities ({len(ents)}):")
-            # Show a compact sample
             for e in ents[:30]:
                 lines.append(f"  {e.get('text')} [{e.get('label')}]")
             if len(ents) > 30:
                 lines.append(f"  ... and {len(ents)-30} more")
+            return "\n".join(lines)
+
+        if helper in ("key_phrases", "chunks"):
+            kps = data.get("key_phrases") or []
+            if not kps:
+                return "No key phrases found."
+            lines.append(f"Key Phrases ({len(kps)}):")
+            for kp in kps[:30]:
+                lines.append(f"  {kp.get('text')} (lemma: {kp.get('lemma')})")
+            if len(kps) > 30:
+                lines.append(f"  ... and {len(kps)-30} more")
             return "\n".join(lines)
 
         # Fallback pretty print

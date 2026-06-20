@@ -93,3 +93,29 @@ def test_text_analytics_supports_and_names():
     # A dummy object should return bool without raising
     val = ta.supports_text_analytics_manual(object())
     assert isinstance(val, bool)
+
+
+def test_check_diagnostics():
+    try:
+        out = ta.check_diagnostics()
+    except ImportError:
+        pytest.skip("spacy package not installed in test environment")
+
+    assert out["status"] in ("ok", "error")
+    if out["status"] == "ok":
+        assert "spacy_version" in out
+        assert "has_textdescriptives" in out
+        assert "models" in out
+        assert isinstance(out["models"], list)
+
+
+def test_run_text_analytics_diagnostics_dispatch():
+    try:
+        out = ta.run_text_analytics("diagnostics")
+    except ImportError:
+        pytest.skip("spacy package not installed in test environment")
+
+    assert out["status"] == "ok"
+    assert "result" in out
+    assert out["result"]["status"] in ("ok", "error")
+
