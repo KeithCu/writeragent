@@ -177,6 +177,173 @@ def scalar_for_list_result(ctx: Any, code: str, result: Any, *, worker_data: Any
     return state.flat[-1] if state.flat else ""
 
 
+# The spill registry tracks coordinates that were spilled by each formula cell.
+# Key: (doc_url, sheet_name, formula_row, formula_col)
+# Value: list of (spilled_row, spilled_col) coordinates
+SPILL_REGISTRY: dict[tuple[str, str, int, int], list[tuple[int, int]]] = {}
+LOADED_DOCUMENTS: set[str] = set()
+
+
+def load_spill_registry_for_doc(doc: Any) -> None:
+    """Load the document's spill registry from its UserDefinedProperties."""
+    try:
+        from plugin.doc.document_helpers import get_document_property
+        import json
+        raw = get_document_property(doc, "WriterAgentSpillRegistry", None)
+        if raw:
+            data = json.loads(raw)
+            doc_url = getattr(doc, "getURL", lambda: "")() or ""
+            for key, value in data.items():
+                parts = key.split(":")
+                if len(parts) == 2:
+                    sheet_name, coords = parts
+                    row_col = coords.split(",")
+                    if len(row_col) == 2:
+                        frow, fcol = int(row_col[0]), int(row_col[1])
+                        spill_coords = [(int(r), int(c)) for r, c in value]
+                        SPILL_REGISTRY[(doc_url, sheet_name, frow, fcol)] = spill_coords
+    except Exception:
+        log.exception("Failed to load spill registry from document property")
+
+
+def save_spill_registry_for_doc(doc: Any) -> None:
+    """Save the document's spill registry to its UserDefinedProperties."""
+    try:
+        from plugin.doc.document_helpers import set_document_property
+        import json
+        doc_url = getattr(doc, "getURL", lambda: "")() or ""
+        doc_spills = {}
+        for key, value in SPILL_REGISTRY.items():
+            k_url, sheet_name, frow, fcol = key
+            if k_url == doc_url:
+                doc_spills[f"{sheet_name}:{frow},{fcol}"] = value
+        set_document_property(doc, "WriterAgentSpillRegistry", json.dumps(doc_spills))
+    except Exception:
+        log.exception("Failed to save spill registry to document property")
+
+
+def locate_formula_cell(ctx: Any, sheet: Any, code_str: str) -> tuple[int, int] | None:
+    """Find the row and column coordinates of the cell containing the Python formula."""
+    # 1. Fast-path: check active selection and adjacent cells (above, left)
+    try:
+        smgr = ctx.ServiceManager
+        desktop = smgr.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+        doc = desktop.getCurrentComponent()
+        if doc is not None:
+            ctrl = doc.getCurrentController()
+            if ctrl is not None:
+                selection = ctrl.getSelection()
+                if selection is not None and hasattr(selection, "getRangeAddress"):
+                    addr = selection.getRangeAddress()
+                    candidates = [
+                        (addr.StartRow, addr.StartColumn),
+                        (addr.StartRow - 1, addr.StartColumn),
+                        (addr.StartRow, addr.StartColumn - 1),
+                    ]
+                    for r, c in candidates:
+                        if r >= 0 and c >= 0:
+                            cell = sheet.getCellByPosition(c, r)
+                            formula = cell.getFormula()
+                            if ("PYTHON" in formula or "PY" in formula) and code_str in formula:
+                                return (r, c)
+    except Exception:
+        pass
+
+    # 2. Fallback: query the sheet for formula cells
+    try:
+        # com.sun.star.sheet.CellFlags.FORMULA = 16
+        formula_cells = sheet.queryContentCells(16)
+        if formula_cells is not None:
+            for i in range(formula_cells.getCount()):
+                cell_range = formula_cells.getByIndex(i)
+                addr = cell_range.getRangeAddress()
+                for r in range(addr.StartRow, addr.EndRow + 1):
+                    for c in range(addr.StartColumn, addr.EndColumn + 1):
+                        cell = sheet.getCellByPosition(c, r)
+                        formula = cell.getFormula()
+                        if ("PYTHON" in formula or "PY" in formula) and code_str in formula:
+                            return (r, c)
+    except Exception:
+        pass
+
+    return None
+
+
+def perform_deferred_spill(
+    ctx: Any,
+    doc_url: str,
+    sheet_name: str,
+    formula_row: int,
+    formula_col: int,
+    grid: list[list[Any]]
+) -> None:
+    """Clear old spilled cells and write new values deferred (collision check is done synchronously)."""
+    try:
+        smgr = ctx.ServiceManager
+        desktop = smgr.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+        doc = desktop.getCurrentComponent()
+        if doc is None:
+            return
+        
+        current_url = getattr(doc, "getURL", lambda: "")() or ""
+        if current_url != doc_url:
+            return
+        
+        sheet = doc.getSheets().getByName(sheet_name)
+        if sheet is None:
+            return
+
+        reg_key = (doc_url, sheet_name, formula_row, formula_col)
+        
+        # 1. Clear previously spilled cells
+        previous_spills = SPILL_REGISTRY.get(reg_key, [])
+        for r, c in previous_spills:
+            if (r, c) != (formula_row, formula_col):
+                try:
+                    cell = sheet.getCellByPosition(c, r)
+                    # Clear contents: VALUE, DATETIME, STRING, FORMULA (23)
+                    cell.clearContents(23)
+                except Exception:
+                    pass
+
+        # 2. Determine bounds
+        num_rows = len(grid)
+        num_cols = max(len(row) for row in grid) if num_rows > 0 else 0
+        if num_rows == 0 or num_cols == 0:
+            SPILL_REGISTRY[reg_key] = []
+            save_spill_registry_for_doc(doc)
+            return
+
+        # 3. Spill new values (no collision check needed here as it was validated synchronously)
+        new_spills = []
+        for r_offset in range(num_rows):
+            for c_offset in range(num_cols):
+                target_r = formula_row + r_offset
+                target_c = formula_col + c_offset
+                
+                if (target_r, target_c) == (formula_row, formula_col):
+                    continue
+                
+                cell = sheet.getCellByPosition(target_c, target_r)
+                val = grid[r_offset][c_offset] if c_offset < len(grid[r_offset]) else None
+                calc_val = to_calc_compatible(val)
+                
+                if isinstance(calc_val, (int, float)):
+                    cell.setValue(calc_val)
+                elif isinstance(calc_val, bool):
+                    cell.setValue(1.0 if calc_val else 0.0)
+                else:
+                    cell.setString(str(calc_val))
+                    
+                new_spills.append((target_r, target_c))
+
+        SPILL_REGISTRY[reg_key] = new_spills
+        save_spill_registry_for_doc(doc)
+
+    except Exception:
+        log.exception("Error in perform_deferred_spill")
+
+
 def finalize_python_return(
     ctx: Any,
     code: str,
@@ -190,6 +357,108 @@ def finalize_python_return(
     # lists/scalars on the host — NumPy lives only in the venv subprocess, not in LO's Python.
     result = _strip_dataframe_envelope(result)
 
+    # Auto-spill check: If it's a list/tuple, index_arg is not provided, and it's not a matrix selection
+    is_matrix = False
+    if isinstance(result, (list, tuple)) and index_arg is None and len(result) > 0:
+        from plugin.framework.config import get_config_bool
+        if get_config_bool(ctx, "scripting.python_auto_spill"):
+            try:
+                smgr = ctx.ServiceManager
+                desktop = smgr.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+                doc = desktop.getCurrentComponent()
+                if doc is not None:
+                    ctrl = doc.getCurrentController()
+                    if ctrl is not None:
+                        selection = ctrl.getSelection()
+                        if selection is not None and hasattr(selection, "getRangeAddress"):
+                            addr = selection.getRangeAddress()
+                            is_matrix = (addr.EndColumn - addr.StartColumn > 0) or (addr.EndRow - addr.StartRow > 0)
+            except Exception:
+                pass
+        else:
+            is_matrix = True
+
+        if not is_matrix:
+            grid_to_spill = []
+            first_elem = result[0]
+            if isinstance(first_elem, (list, tuple)):
+                grid_to_spill = [list(row) for row in result]
+            else:
+                grid_to_spill = [[x] for x in result]
+
+            # Get document and sheet to locate formula cell
+            try:
+                smgr = ctx.ServiceManager
+                desktop = smgr.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+                doc = desktop.getCurrentComponent()
+                if doc is not None:
+                    doc_url = getattr(doc, "getURL", lambda: "")() or ""
+                    ctrl = doc.getCurrentController()
+                    if ctrl is not None:
+                        sheet = ctrl.getActiveSheet()
+                        if sheet is not None:
+                            sheet_name = sheet.getName()
+                            formula_coord = locate_formula_cell(ctx, sheet, code)
+                            log.debug("Spill: located formula cell at %r for code %r", formula_coord, code)
+                            if formula_coord is not None:
+                                formula_row, formula_col = formula_coord
+                                
+                                # Check for collisions synchronously
+                                if doc_url not in LOADED_DOCUMENTS:
+                                    load_spill_registry_for_doc(doc)
+                                    LOADED_DOCUMENTS.add(doc_url)
+                                
+                                num_rows = len(grid_to_spill)
+                                num_cols = max(len(row) for row in grid_to_spill) if num_rows > 0 else 0
+                                reg_key = (doc_url, sheet_name, formula_row, formula_col)
+                                previous_spills = SPILL_REGISTRY.get(reg_key, [])
+                                prev_spill_set = set(previous_spills)
+                                
+                                log.debug("Spill: previous spills for cell %r: %r", reg_key, previous_spills)
+                                
+                                try:
+                                    from com.sun.star.table.CellContentType import EMPTY
+                                except ImportError:
+                                    EMPTY = cast("Any", 0)
+
+                                collides = False
+                                for r_offset in range(num_rows):
+                                    for c_offset in range(num_cols):
+                                        target_r = formula_row + r_offset
+                                        target_c = formula_col + c_offset
+                                        
+                                        if target_r >= 1048576 or target_c >= 16384:
+                                            log.debug("Spill: collision: target coordinate %r is out of bounds", (target_r, target_c))
+                                            collides = True
+                                            break
+                                        if (target_r, target_c) == (formula_row, formula_col):
+                                            continue
+                                        if (target_r, target_c) in prev_spill_set:
+                                            continue
+                                        cell = sheet.getCellByPosition(target_c, target_r)
+                                        cell_type = cell.getType()
+                                        if cell_type != EMPTY:
+                                            log.debug("Spill: collision: cell at %r (type=%s, val=%r, formula=%r) is not empty", 
+                                                      (target_r, target_c), cell_type, cell.getValue() or cell.getString(), cell.getFormula())
+                                            collides = True
+                                            break
+                                    if collides:
+                                        break
+                                
+                                if collides:
+                                    return "#SPILL!"
+                                
+                                t = threading.Timer(
+                                    0.1,
+                                    perform_deferred_spill,
+                                    args=(ctx, doc_url, sheet_name, formula_row, formula_col, grid_to_spill)
+                                )
+                                t.start()
+                                
+                                return to_calc_compatible(grid_to_spill[0][0])
+            except Exception:
+                log.exception("Error checking spill collision or locating formula cell")
+
     if isinstance(result, (list, tuple)):
         if index_arg is not None:
             flat = flatten_result_values(result)
@@ -201,6 +470,7 @@ def finalize_python_return(
         return scalar_for_list_result(ctx, code, result, worker_data=worker_data)
 
     return to_calc_compatible(result)
+
 
 
 # Backward-compatible alias for tests and callers.

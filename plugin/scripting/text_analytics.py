@@ -147,7 +147,7 @@ def analyze_text(text: str, *, lang: str | None = None, context: dict[str, Any] 
         import textdescriptives as td
 
         # extract_dict works on a single Doc and returns a flat dict of metrics.
-        td_metrics = cast(Any, td.extract_dict(doc))
+        td_metrics = cast("Any", td.extract_dict(doc))
         # td_metrics is usually a dict with keys like 'readability', 'descriptive_stats', etc.
         # We surface the most useful top-level groups.
         result["descriptive_stats"] = td_metrics.get("descriptive_stats", {})

@@ -58,6 +58,14 @@ config:
       - value: shared
         label: Shared kernel
 
+  python_auto_spill:
+    type: bool
+    default: true
+    widget: checkbox
+    label: Python auto spill in Calc
+    helper: Automatically spill multi-cell array/DataFrame results from =PYTHON() into adjacent cells.
+    public: true
+
   force_internal_script_editor:
     type: bool
     default: false
