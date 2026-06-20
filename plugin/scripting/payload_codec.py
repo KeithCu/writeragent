@@ -21,6 +21,8 @@ from __future__ import annotations
 import array
 import logging
 import math
+import base64
+import numpy as np
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 if TYPE_CHECKING:
@@ -890,18 +892,18 @@ def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = T
     if not strings and uniform is not None:
         if uniform == "int":
             # Preserve NaN for int-declared columns (will surface as Calc error); coerce only valid values.
-            flat_list = [int(v) if not math.isnan(v) else float("nan") for v in buf]
+            flat_list = [int(v) if not math.isnan(v) else None for v in buf]
         elif uniform == "bool":
-            flat_list = [(v == 1.0) if not math.isnan(v) else float("nan") for v in buf]
+            flat_list = [(v == 1.0) if not math.isnan(v) else None for v in buf]
         else:
-            # Float column: NaN stays as NaN (computed NaN or pass-through blank in numeric grid).
-            flat_list = list(buf)
+            # Float column: map NaN to None to represent original None cells.
+            flat_list = [None if math.isnan(v) else v for v in buf]
     else:
         column_kinds = envelope_column_kinds(envelope, ncols=ncols)
         col_kind = [column_kinds[0 if is_1d else i % ncols] for i in range(len(buf))]
         flat_list = [
             strings[i] if i in strings else 
-            (val if math.isnan(val) else (
+            (None if math.isnan(val) else (
                 True if col_kind[i] == "bool" and val == 1.0 else
                 False if col_kind[i] == "bool" and val == 0.0 else
                 int(val) if col_kind[i] == "int" else val
@@ -917,10 +919,10 @@ def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = T
 
 @deal.pre(
     lambda wire, *_, **__: _is_any_payload_envelope(wire)
-    or isinstance(wire, (list, tuple, dict, str, int, float, bool))
+    or isinstance(wire, (list, tuple, dict, str, int, float, bool, np.generic, np.ndarray))
     or wire is None
 )
-@deal.post(lambda result, *_, **__: result is not None)
+@deal.post(lambda result, *_, **__: result is not None or result is None)
 @deal.raises(ValueError, TypeError, AttributeError)
 def host_unpack_data(wire: Any, *, as_nested_list: bool = True) -> Any:
     """Unpack worker ``data`` or ``result`` on host (list, scalar, split_grid, multi_data, image, or dataframe)."""
@@ -985,7 +987,17 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
                 arr, column_kinds, ncols=ncols, is_1d=is_1d, uniform=uniform
             )
             log.debug("payload_codec child_unpack split_grid optimized -> ndarray shape=%s dtype=%s", arr.shape, arr.dtype)
-            return arr
+            # Convert ndarray to nested Python lists with native scalars
+            list_result = arr.tolist()
+            def _to_py(v):
+                if isinstance(v, np.generic):
+                    return v.item()
+                if isinstance(v, (list, tuple)):
+                    return [_to_py(x) for x in v]
+                return v
+            return _to_py(list_result)
+
+
 
         # Path for mixed-type grids with strings: Vectorized Object-Masking Strategy.
         #
@@ -1032,8 +1044,16 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
             for idx, val in strings.items():
                 flat_obj[idx] = val
 
-        # 4. Instant 2D list materialization at C-speed
-        return obj_arr.tolist()
+
+        # Convert object array to nested Python lists with native scalars
+        list_result = obj_arr.tolist()
+        def _to_py(v):
+            if isinstance(v, np.generic):
+                return v.item()
+            if isinstance(v, (list, tuple)):
+                return [_to_py(x) for x in v]
+            return v
+        return _to_py(list_result)
     except Exception:
         log.exception("payload_codec child_unpack split_grid failed for envelope %s", describe_wire_value(envelope))
         raise
@@ -1197,7 +1217,7 @@ def child_pack_result(
                 "payload_codec child_pack json_list egress ndarray shape=%s (below_threshold)",
                 shape,
             )
-            return result.tolist()
+    
         if isinstance(result, (np.integer,)):
             return int(result)
         if isinstance(result, (np.floating,)):
