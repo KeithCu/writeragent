@@ -203,21 +203,19 @@ def _fts_index_row(conn: sqlite3.Connection, chunk_id: int) -> None:
 def _delete_chunk_ids(conn: sqlite3.Connection, chunk_ids: list[int], *, with_fts: bool, with_vec: bool) -> None:
     if not chunk_ids:
         return
-    vec_tables = []
+    chunk_id_params = [(int(cid),) for cid in chunk_ids]
+    if with_fts:
+        conn.executemany("INSERT INTO passages(passages, rowid) VALUES ('delete', ?)", chunk_id_params)
     if with_vec:
         _load_vec_extension(conn)
         # Find all vec_chunks_* virtual tables (excluding shadow tables)
         tables = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND sql LIKE 'CREATE VIRTUAL TABLE%vec0%' AND name LIKE 'vec_chunks_%'"
         ).fetchall()
-        vec_tables = [row["name"] for row in tables]
-    for chunk_id in chunk_ids:
-        if with_fts:
-            _fts_delete_row(conn, chunk_id)
-        if with_vec:
-            for tbl in vec_tables:
-                conn.execute(f"DELETE FROM {tbl} WHERE chunk_id = ?", (int(chunk_id),))
-        conn.execute("DELETE FROM chunks WHERE chunk_id = ?", (int(chunk_id),))
+        for row in tables:
+            tbl = row["name"]
+            conn.executemany(f"DELETE FROM {tbl} WHERE chunk_id = ?", chunk_id_params)
+    conn.executemany("DELETE FROM chunks WHERE chunk_id = ?", chunk_id_params)
 
 
 def delete_by_doc_para(
