@@ -368,9 +368,27 @@ def run_text_analytics(
 ) -> dict[str, Any]:
     """Execute high-quality multilingual text analytics in the user venv.
 
-    The heavy lifting (spaCy model load + processing) happens in the warm worker.
-    Requires `spacy` + `textdescriptives` (and suitable models) in the configured venv.
+    The heavy lifting (model load + processing) happens in the warm worker.
+    For sentiment: uses transformers + a multilingual model (default: XLM-RoBERTa based).
+    Requires `spacy` + `textdescriptives` for other helpers; `transformers` + `torch` (CPU) for sentiment.
     """
+    # Read JSON config overrides so users can change the model via writeragent.json
+    # (e.g. for a different multilingual model or future engine). For now only "transformers" is supported.
+    try:
+        from plugin.framework.config import get_config_dict
+        cfg = get_config_dict(ctx) or {}
+        model = cfg.get("text_analytics_sentiment_model")
+        if model:
+            if isinstance(spec, dict):
+                p = spec.setdefault("params", {})
+                p["model"] = model
+            else:
+                # spec is str like "sentiment" — wrap temporarily for consistency
+                # (callers that pass str will still work; model is best passed in dict form).
+                pass
+    except Exception:
+        pass  # config optional; fall back to hard-coded default in _extract_sentiment
+
     timeout_sec = _resolve_trusted_timeout(ctx, _TEXT_SESSION_PREFIX)
     payload = {"spec": spec, "text": text, "context": context or {}}
     return _run_trusted_helper(

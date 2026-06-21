@@ -34,6 +34,7 @@ class TextAnalyticsDialog:
       - Entities                    → spaCy NER (multilingual)
       - Key Phrases                 → noun chunks
       - Topics                      → NMF topic model (uses sections for structure)
+      - Sentiment                   → lexicon-based sentiment by section (whole doc)
       - Insert report here          → appends a clean table after the caret/selection
     """
 
@@ -116,6 +117,7 @@ class TextAnalyticsDialog:
         dlg.getControl("BtnEntities").addActionListener(_Btn(lambda d: owner._compute(d, "entities", scope)))
         dlg.getControl("BtnPhrases").addActionListener(_Btn(lambda d: owner._compute(d, "key_phrases", scope)))
         dlg.getControl("BtnTopics").addActionListener(_Btn(lambda d: owner._compute(d, "topics", "whole")))  # topics work best on whole-doc sections
+        dlg.getControl("BtnSentiment").addActionListener(_Btn(lambda d: owner._compute(d, "sentiment", "whole")))  # sentiment works best on whole-doc sections
         dlg.getControl("BtnCheck").addActionListener(_Btn(lambda d: owner._compute(d, "diagnostics", "whole")))
 
         dlg.getControl("BtnInsert").addActionListener(_Btn(lambda d: owner._insert_report(d)))
@@ -141,7 +143,7 @@ class TextAnalyticsDialog:
             return
 
         if helper in ("diagnostics", "check"):
-            res_ctrl.getModel().Text = _("Checking spaCy installation...")
+            res_ctrl.getModel().Text = _("Checking spaCy / textdescriptives / transformers installation...")
             try:
                 result = run_text_analytics(
                     ctx,
@@ -162,15 +164,14 @@ class TextAnalyticsDialog:
             return
 
         raw: str | list[str] = self._get_text(doc, scope)
-        # Topics benefit enormously from section structure (heading + body groups).
-        # When the user clicks Topics we force whole-doc section extraction on the host
-        # before shipping the list to the trusted worker.
-        if helper == "topics":
+        # Topics and sentiment benefit enormously from section structure (heading + body groups).
+        # Force whole-doc section extraction on the host before shipping the list to the trusted worker.
+        if helper in ("topics", "sentiment"):
             try:
                 from plugin.scripting.text_analytics import _get_writer_sections
                 secs = _get_writer_sections(doc)
                 if secs:
-                    raw = secs  # list[str] is supported by the topics helper
+                    raw = secs
             except Exception:
                 pass  # fall back to flat text
 
@@ -194,7 +195,7 @@ class TextAnalyticsDialog:
             )
         except Exception as e:
             log.exception("Text analytics worker call failed")
-            res_ctrl.getModel().Text = _("Error: %s\n\n(Make sure spaCy + textdescriptives and a model are installed in your Python venv.)") % e
+            res_ctrl.getModel().Text = _("Error: %s\n\n(Make sure transformers + torch (CPU) and a model are installed in your Python venv for sentiment.)") % e
             return
 
         self._last_result = result
@@ -211,7 +212,7 @@ class TextAnalyticsDialog:
             if data.get("status") == "error":
                 return f"Diagnostics Error:\n{data.get('message')}"
             
-            lines.append("spaCy Diagnostics:")
+            lines.append("Text Analytics Diagnostics:")
             lines.append(f"  spaCy version: {data.get('spacy_version', 'N/A')}")
             lines.append(f"  textdescriptives: {'Installed' if data.get('has_textdescriptives') else 'Missing'}")
             
@@ -222,6 +223,11 @@ class TextAnalyticsDialog:
                     lines.append(f"    - {m}")
             else:
                 lines.append("  No models detected/loaded. Install one using e.g. 'python -m spacy download xx_sent_ud_sm'")
+            
+            # New: report on transformers (for the multilingual sentiment feature)
+            lines.append(f"  transformers: {'Installed' if data.get('has_transformers') else 'Missing'}")
+            if data.get('has_transformers'):
+                lines.append(f"  transformers version: {data.get('transformers_version', 'N/A')}")
             
             return "\n".join(lines)
 
@@ -288,6 +294,24 @@ class TextAnalyticsDialog:
             meta = data.get("meta") or {}
             if meta:
                 lines.append(f"\nMeta: {meta}")
+            return "\n".join(lines)
+
+        if helper == "sentiment":
+            sent = data.get("sentiment") or {}
+            if not sent or "score" not in sent:
+                err = data.get("error") or data.get("note")
+                if err:
+                    return f"Sentiment: {err}"
+                return "No sentiment data."
+            lines.append(f"Sentiment: {sent.get('label')} (score: {sent.get('score')})")
+            per = data.get("per_section") or []
+            if per:
+                lines.append(f"\nBy section ({len(per)}):")
+                for p in per[:6]:
+                    idx = p.get("section_index")
+                    lines.append(f"  [{idx}] {p.get('label')} ({p.get('score')})")
+                if len(per) > 6:
+                    lines.append(f"  ... and {len(per)-6} more")
             return "\n".join(lines)
 
         # Fallback pretty print

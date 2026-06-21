@@ -34,7 +34,7 @@ viz = ['matplotlib', 'seaborn']
 ui = ['webview', 'jedi', 'PyQt6', 'PyQt6.QtWebEngineWidgets', 'qtpy']
 quant = ['yfinance', 'pandas_ta', 'quantstats', 'pypfopt']
 data_eng = ['pint']
-nlp = ['spacy', 'textdescriptives']
+nlp = ['spacy', 'textdescriptives', 'transformers']
 res['sci'] = sci
 res['eda'] = eda
 res['cas'] = cas
@@ -184,6 +184,12 @@ try:
 except ImportError:
     res['p']['textdescriptives'] = None
 
+try:
+    import transformers
+    res['p']['transformers'] = 'present'
+except ImportError:
+    res['p']['transformers'] = None
+
 result = res
 """
 
@@ -204,7 +210,7 @@ _VISION_OCR_INSTALL_CMD = _DOCLING_INSTALL_CMD
 _VISION_PADDLE_FALLBACK_CMD = "uv pip install paddleocr paddlepaddle numpy"
 _VIZ_INSTALL_CMD = "uv pip install matplotlib seaborn"
 _SYMBOLIC_INSTALL_CMD = "uv pip install sympy"
-_TEXT_ANALYTICS_INSTALL_CMD = "uv pip install spacy textdescriptives && python -m spacy download xx_sent_ud_sm"
+_TEXT_ANALYTICS_INSTALL_CMD = "uv pip install spacy textdescriptives transformers torch --index-url https://download.pytorch.org/whl/cpu && python -m spacy download xx_sent_ud_sm"
 _VISION_PROBE_SCRIPT = """
 import json
 out = {}
@@ -420,7 +426,7 @@ _SELF_CHECK_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Computer Algebra", ("sympy",)),
     ("Quantitative Finance Libraries", ("yfinance", "pandas_ta", "quantstats", "pypfopt")),
     ("Data Engineering Libraries", ("pint", "duckdb")),
-    ("Text / NLP Libraries", ("spacy", "textdescriptives")),
+    ("Text / NLP Libraries", ("spacy", "textdescriptives", "transformers")),
 )
 
 _ALLOWED_PROBE_MODULES = frozenset(pkg for _title, pkgs in _SELF_CHECK_GROUPS for pkg in pkgs)
@@ -529,7 +535,7 @@ def _format_self_check_success(data: dict[str, Any]) -> str:
     data = dict(data)
     data.setdefault("vector_search", list(_VECTOR_SEARCH_PACKAGE_KEYS))
     data.setdefault("vision", list(_VISION_PACKAGE_KEYS))
-    data.setdefault("nlp", ("spacy", "textdescriptives"))
+    data.setdefault("nlp", ("spacy", "textdescriptives", "transformers"))
     return _build_probe_display(
         data,
         completed_groups=len(_SELF_CHECK_GROUPS),

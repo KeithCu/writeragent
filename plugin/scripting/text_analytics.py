@@ -1,13 +1,14 @@
 """High-quality multilingual text analytics powered by spaCy + textdescriptives.
 
-Topics (fancier analysis) additionally uses scikit-learn (NMF) when available.
+Topics uses scikit-learn (NMF). Sentiment uses transformers + a multilingual model
+(default XLM-RoBERTa based for good coverage across 34 locales).
 
 This module is intended to be imported and executed inside the user's Python venv
 (via the trusted worker stub). It requires:
 
     uv pip install spacy textdescriptives
-
-(For topics modeling also install scikit-learn from the analysis stack.)
+    # For sentiment (CPU wheels):
+    uv pip install transformers torch --index-url https://download.pytorch.org/whl/cpu
 
 And at least one suitable spaCy model, e.g.:
 
@@ -86,16 +87,14 @@ def _load_nlp(lang: str | None = None) -> Any:
     for model_name in candidates:
         try:
             nlp = spacy.load(model_name)
-            # Add textdescriptives for high-quality readability, stats, complexity, etc.
-            # It registers several components; using the package's convenience is fine.
+            # Add textdescriptives components for readability and stats.
+            # In textdescriptives >=2 the factories are namespaced (e.g. textdescriptives/readability).
+            # Adding the specific ones we need ensures the extensions are registered.
             try:
                 import textdescriptives as td  # noqa: F401
-
-                # textdescriptives >= 2 adds components under "textdescriptives/..."
-                # The package also provides a simple way to ensure the basics are there.
-                # We add the main pipeline if not already present.
-                if "textdescriptives" not in nlp.pipe_names:
-                    nlp.add_pipe("textdescriptives")
+                for comp in ("textdescriptives/descriptive_stats", "textdescriptives/readability"):
+                    if comp not in nlp.pipe_names:
+                        nlp.add_pipe(comp)
             except Exception:
                 # textdescriptives not installed — we can still do entities + chunks.
                 pass  # nosec B110 - best-effort optional enhancement
@@ -144,19 +143,41 @@ def _extract_meta(nlp: Any, doc: Any, lang: str | None) -> dict[str, Any]:
     return {
         "model": nlp.meta.get("name") or getattr(nlp, "path", None) or "unknown",
         "lang": getattr(doc._, "lang", None) or (lang or "unknown"),
-        "has_textdescriptives": "textdescriptives" in nlp.pipe_names,
+        "has_textdescriptives": any(p.startswith("textdescriptives/") for p in nlp.pipe_names),
     }
 
 
 def _extract_readability(doc: Any) -> "tuple[dict[str, Any], dict[str, Any]]":
-    """Return (readability_dict, descriptive_stats_dict) from textdescriptives (or basic fallback)."""
+    """Return (readability_dict, descriptive_stats_dict) from textdescriptives (or basic fallback).
+
+    textdescriptives >=2 returns a flat dict (after the components have run on the doc).
+    We split it into the two groups the rest of the code expects.
+    """
     try:
         import textdescriptives as td
 
-        td_metrics = cast("Any", td.extract_dict(doc))
-        return td_metrics.get("readability", {}), td_metrics.get("descriptive_stats", {})
+        m = cast("Any", td.extract_dict(doc))
+        if isinstance(m, list):
+            m = m[0]
+        # readability metrics (the formula-based scores)
+        readability_keys = {
+            "flesch_reading_ease", "flesch_kincaid_grade", "smog",
+            "gunning_fog", "automated_readability_index", "coleman_liau_index",
+            "lix", "rix"
+        }
+        rd = {k: v for k, v in m.items() if k in readability_keys}
+        # descriptive stats (counts and averages)
+        descriptive_keys = {
+            "n_tokens", "n_unique_tokens", "proportion_unique_tokens",
+            "n_characters", "n_sentences",
+            "token_length_mean", "token_length_median", "token_length_std",
+            "sentence_length_mean", "sentence_length_median", "sentence_length_std",
+            "syllables_per_token_mean", "syllables_per_token_median", "syllables_per_token_std"
+        }
+        ds = {k: v for k, v in m.items() if k in descriptive_keys or k.startswith("n_")}
+        return rd, ds
     except Exception:
-        # textdescriptives not available — fall back to basic spaCy stats.
+        # textdescriptives not available or failed to extract — fall back to basic spaCy stats.
         return {}, {"n_tokens": len(doc), "n_sents": len(list(doc.sents))}
 
 
@@ -272,6 +293,92 @@ def _extract_topics(text: str | list[str], n_topics: int = 4) -> dict[str, Any]:
         return {"topics": [], "error": f"topic_model_failed: {exc}"}
 
 
+def _extract_sentiment(text: str | list[str], params: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Sentiment analysis using transformers + a strong multilingual model (XLM-RoBERTa based).
+
+    Default model provides good cross-lingual performance across many languages.
+    This replaced the previous spacytextblob implementation (which had limited multilingual support).
+
+    Returns overall score/label + per-section results when a list of sections is passed
+    (reusing the same section extraction as topics for "by section" analysis on Writer docs).
+
+    Config override via text_analytics_sentiment_model (JSON setting) for future flexibility.
+    For now only "transformers" engine is supported.
+    """
+    params = params or {}
+    if isinstance(text, (list, tuple)):
+        sections = [str(t).strip() for t in text if str(t).strip()]
+        is_multi = True
+    else:
+        sections = [str(text).strip()] if str(text or "").strip() else []
+        is_multi = False
+
+    if not sections:
+        return {"overall": {"score": 0.0, "label": "neutral"}, "note": "no text"}
+
+    model = params.get("model") or "cardiffnlp/twitter-xlm-roberta-base-sentiment"
+
+    try:
+        from transformers import pipeline
+        # device=-1 forces CPU for broad compatibility in user venvs.
+        # The model is loaded once per warm worker invocation.
+        clf = pipeline("sentiment-analysis", model=model, device=-1)
+    except Exception as exc:
+        return {
+            "overall": {"score": 0.0, "label": "neutral"},
+            "error": "MISSING_PACKAGE",
+            "install_hint": "transformers (with CPU torch) for multilingual sentiment",
+            "install": "uv pip install transformers torch --index-url https://download.pytorch.org/whl/cpu",
+            "detail": str(exc),
+        }
+
+    per_section: list[dict[str, Any]] = []
+    scores: list[float] = []
+
+    for i, sec in enumerate(sections):
+        # Truncate conservatively for transformer limits; sections from headings are usually reasonable.
+        text_for_clf = sec[:512] if len(sec) > 512 else sec
+        res = clf(text_for_clf)[0]
+        # HF returns label like 'positive'/'negative'/'neutral' and score 0-1.
+        label = str(res.get("label", "neutral")).lower()
+        sc = float(res.get("score", 0.0))
+        # Map to our consistent labels.
+        if label in ("pos", "positive", "1", "5"):
+            label = "positive"
+        elif label in ("neg", "negative", "0"):
+            label = "negative"
+        else:
+            label = "neutral"
+        scores.append(sc if label == "positive" else (-sc if label == "negative" else 0.0))
+        per_section.append({
+            "section_index": i,
+            "score": round(sc if label != "negative" else -sc, 3),
+            "label": label,
+        })
+
+    if is_multi and scores:
+        avg_score = sum(scores) / len(scores)
+        # Derive overall label from avg.
+        if avg_score > 0.15:
+            overall_label = "positive"
+        elif avg_score < -0.15:
+            overall_label = "negative"
+        else:
+            overall_label = "neutral"
+        overall = {
+            "score": round(avg_score, 3),
+            "label": overall_label,
+        }
+    else:
+        overall = per_section[0] if per_section else {"score": 0.0, "label": "neutral"}
+
+    res: dict[str, Any] = {"overall": overall}
+    if is_multi:
+        res["per_section"] = per_section
+        res["n_sections"] = len(per_section)
+    return res
+
+
 def analyze_text(text: str, *, lang: str | None = None, context: dict[str, Any] | None = None) -> dict[str, Any]:
     """Run a rich multilingual analysis on a single text using spaCy + textdescriptives.
 
@@ -295,18 +402,22 @@ def analyze_text(text: str, *, lang: str | None = None, context: dict[str, Any] 
         import textdescriptives as td
 
         # extract_dict works on a single Doc and returns a flat dict of metrics.
-        td_metrics = cast("Any", td.extract_dict(doc))
-        # td_metrics is usually a dict with keys like 'readability', 'descriptive_stats', etc.
-        # We surface the most useful top-level groups.
-        result["descriptive_stats"] = td_metrics.get("descriptive_stats", {})
-        result["readability"] = td_metrics.get("readability", {})
-        result["dependency_distance"] = td_metrics.get("dependency_distance", {})
-        result["pos_proportions"] = td_metrics.get("pos_proportions", {})
-        # coherence and quality may or may not be present depending on version
-        if "coherence" in td_metrics:
-            result["coherence"] = td_metrics["coherence"]
-        if "quality" in td_metrics:
-            result["quality"] = td_metrics["quality"]
+        m = cast("Any", td.extract_dict(doc))
+        if isinstance(m, list):
+            m = m[0]
+        # textdescriptives now returns flat dict. Split into the groups we document.
+        readability_keys = {"flesch_reading_ease", "flesch_kincaid_grade", "smog", "gunning_fog",
+                            "automated_readability_index", "coleman_liau_index", "lix", "rix"}
+        descriptive_keys = {"n_tokens", "n_unique_tokens", "proportion_unique_tokens", "n_characters", "n_sentences",
+                            "token_length_mean", "token_length_median", "token_length_std",
+                            "sentence_length_mean", "sentence_length_median", "sentence_length_std",
+                            "syllables_per_token_mean", "syllables_per_token_median", "syllables_per_token_std"}
+        result["readability"] = {k: m[k] for k in readability_keys if k in m}
+        result["descriptive_stats"] = {k: m[k] for k in descriptive_keys if k in m}
+        # other groups if present (they may be flat too)
+        for other in ("dependency_distance", "pos_proportions", "coherence", "quality"):
+            if other in m:
+                result[other] = m[other]
     except Exception:
         # textdescriptives not available — fall back to basic spaCy stats.
         result["descriptive_stats"] = {
@@ -340,7 +451,11 @@ def analyze_text(text: str, *, lang: str | None = None, context: dict[str, Any] 
 
 
 def check_diagnostics() -> dict[str, Any]:
-    """Perform self-diagnostics of the spaCy + textdescriptives installation."""
+    """Perform self-diagnostics of the spaCy + textdescriptives + transformers (for sentiment) installation.
+
+    Updated to cover the new multilingual sentiment implementation (transformers + XLM-RoBERTa model)
+    in addition to the original spaCy features.
+    """
     try:
         import spacy
         has_td = False
@@ -362,11 +477,23 @@ def check_diagnostics() -> dict[str, Any]:
                 except Exception:
                     pass
 
+        # New: check for transformers (used by sentiment)
+        has_transformers = False
+        transformers_version = None
+        try:
+            import transformers
+            has_transformers = True
+            transformers_version = getattr(transformers, "__version__", "unknown")
+        except ImportError:
+            pass
+
         return {
             "status": "ok",
             "spacy_version": getattr(spacy, "__version__", "unknown"),
             "has_textdescriptives": has_td,
             "models": models,
+            "has_transformers": has_transformers,
+            "transformers_version": transformers_version,
         }
     except Exception as e:
         return {
@@ -397,7 +524,9 @@ def run_text_analytics(
     if helper in ("diagnostics", "check"):
         return {"status": "ok", "result": check_diagnostics()}
 
-    # Normalize text input (support list of sections)
+    # Preserve original list form for section-aware helpers (topics, sentiment).
+    # Only join for helpers that expect a single string.
+    original_text = text
     if isinstance(text, list):
         text = "\n\n".join(str(t) for t in text if t)
 
@@ -433,14 +562,29 @@ def run_text_analytics(
         return {"status": "ok", "result": {"key_phrases": _extract_key_phrases(doc), "meta": _extract_meta(nlp, doc, resolved_lang)}}
 
     if helper in ("topics", "topic", "topic_model"):
-        # Pass original (str or list) so _extract_topics can do per-section assignments.
-        # Do *not* force the list-join that other helpers do.
-        raw_for_topics = text if isinstance(text, list) else str(text or "")
+        # Use preserved original (may still be list) for per-section support.
+        raw_for_topics = original_text if isinstance(original_text, list) else str(text or "")
         topic_data = _extract_topics(raw_for_topics, n_topics=params.get("n_topics", 4))
         # Normalize into the same result envelope the rest of the system expects.
         if topic_data.get("error") == "MISSING_PACKAGE":
             return {"status": "ok", "result": topic_data, "note": "install scikit-learn for topics"}
         return {"status": "ok", "result": {"topics": topic_data.get("topics", []), "assignments": topic_data.get("assignments"), "meta": {"n_topics": topic_data.get("n_sections") or len(topic_data.get("topics", [])) or None }}}
+
+    if helper in ("sentiment", "polarity"):
+        # Use preserved original (may still be list) for per-section support.
+        raw_for_sent = original_text if isinstance(original_text, list) else str(text or "")
+        # Pass params so model can be overridden via JSON config (see WriterAgentConfig).
+        sent_data = _extract_sentiment(raw_for_sent, params=params)
+        if sent_data.get("error"):
+            # Surface missing package or load errors at result level
+            return {"status": "ok", "result": sent_data}
+        res = {
+            "sentiment": sent_data.get("overall", {}),
+            "meta": {"n_sections": sent_data.get("n_sections")}
+        }
+        if "per_section" in sent_data:
+            res["per_section"] = sent_data["per_section"]
+        return {"status": "ok", "result": res}
 
     # Default to full high-quality analysis
     return analyze_text(str(text), lang=lang, context=context)
@@ -472,7 +616,7 @@ def get_text_analytics_script_templates() -> dict[str, str]:
 # (for the trusted stub) does not pull host-only deps.
 # ---------------------------------------------------------------------------
 
-HELPER_NAMES = frozenset({"full", "readability", "entities", "key_phrases", "topics", "diagnostics", "check"})
+HELPER_NAMES = frozenset({"full", "readability", "entities", "key_phrases", "topics", "sentiment", "diagnostics", "check"})
 
 _DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
     "full": {},
@@ -480,6 +624,7 @@ _DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
     "entities": {},
     "key_phrases": {},
     "topics": {"n_topics": 4},
+    "sentiment": {},
 }
 
 _HELPER_DESCRIPTIONS: dict[str, str] = {
@@ -488,6 +633,7 @@ _HELPER_DESCRIPTIONS: dict[str, str] = {
     "entities": "Named entity recognition (multilingual NER)",
     "key_phrases": "Key phrases via noun chunks (lemmatized)",
     "topics": "Topic modeling (NMF + TF-IDF). Best results when whole document yields section list.",
+    "sentiment": "transformers + multilingual model (XLM-RoBERTa default) sentiment (score + label). Best with whole document for per-section results. Override model via JSON config.",
 }
 
 
@@ -570,10 +716,10 @@ def run_trusted_text_analytics(
     if not is_writer(doc):
         raise ToolExecutionError("Text analytics helpers require a Writer document.", code="TEXT_ANALYTICS_ERROR")
 
-    # For topics we prefer structured sections (heading + body) so the model can report
-    # per-section topic assignments. This is the main "fancy" improvement.
+    # For topics and sentiment we prefer structured sections (heading + body)
+    # so the helper can report per-section results. This is the main "fancy" improvement.
     text: str | list[str]
-    if name == "topics":
+    if name in ("topics", "sentiment"):
         text = _get_writer_sections(doc)
     else:
         text = _get_writer_text(doc)
@@ -723,11 +869,11 @@ def is_text_analytics_result(value: Any) -> bool:
     # Our results have a top-level "result" with known keys, or the helper dispatch shape.
     res = value.get("result")
     if isinstance(res, dict):
-        for k in ("readability", "descriptive_stats", "entities", "key_phrases", "topics", "meta"):
+        for k in ("readability", "descriptive_stats", "entities", "key_phrases", "topics", "sentiment", "meta"):
             if k in res:
                 return True
     # Also accept the narrow shapes returned by specific helpers
-    for k in ("entities", "key_phrases", "readability", "topics"):
+    for k in ("entities", "key_phrases", "readability", "topics", "sentiment"):
         if k in value:
             return True
     return False
@@ -771,6 +917,20 @@ def _result_to_html_table(data: dict[str, Any]) -> str:
             counts = Counter(a.get("dominant_topic") for a in assigns)
             summary = "; ".join(f"t{tid}:{cnt}" for tid, cnt in sorted(counts.items()))
             rows.append(f"<tr><td>topic sections</td><td>{summary}</td></tr>")
+
+    # Sentiment: overall + summary of per-section if available
+    sent = data.get("sentiment") or data.get("overall") or {}
+    if sent and isinstance(sent, dict) and "score" in sent:
+        sc = sent.get("score", 0)
+        lab = sent.get("label", "neutral")
+        rows.append(f"<tr><td>sentiment</td><td>{lab} ({sc})</td></tr>")
+    per_sec = data.get("per_section") or []
+    if per_sec:
+        # Count labels across sections
+        labels = Counter(p.get("label") for p in per_sec if isinstance(p, dict))
+        if labels:
+            summary = "; ".join(f"{lab}:{cnt}" for lab, cnt in labels.most_common())
+            rows.append(f"<tr><td>sections</td><td>{summary}</td></tr>")
 
     if not rows:
         return ""

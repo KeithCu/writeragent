@@ -138,6 +138,7 @@ def _json_to_python(text):
 def generate_manifest_py(modules, output_path):
     """Generate _manifest.py with module descriptors as Python dicts."""
     from plugin.version import EXTENSION_VERSION
+    from manifest_common import write_if_changed
 
     lines = [
         '"""Auto-generated module manifest. DO NOT EDIT."""',
@@ -168,9 +169,7 @@ def generate_manifest_py(modules, output_path):
     lines.append("]")
     lines.append("")
 
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    with open(output_path, "w") as f:
-        f.write("\n".join(lines))
+    write_if_changed(output_path, "\n".join(lines))
     print("  Generated %s (%d modules)" % (output_path, len(modules)))
 
 

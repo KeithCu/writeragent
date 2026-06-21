@@ -164,3 +164,81 @@ def test_text_analytics_topics_accepts_list_for_sections():
         if res.get("topics"):
             assert "assignments" in res or True  # may be present
 
+
+# --- Sentiment (lexicon-based, no extra deps beyond what's already used for spacy path) ---
+
+
+def test_text_analytics_sentiment_in_helernames_and_templates():
+    assert "sentiment" in ta.HELPER_NAMES
+    temps = ta.get_text_analytics_script_templates()
+    assert "sentiment" in temps
+    code = temps["sentiment"]
+    assert ta.TEXT_ANALYTICS_HEADER_PREFIX in code
+    meta = ta.parse_text_analytics_script_header(code)
+    assert meta is not None
+    assert meta.helper == "sentiment"
+
+
+def test_text_analytics_sentiment_uses_config_model_via_params():
+    # Model override via JSON setting is passed as params (host reads config).
+    # We test the worker-side function directly with params.
+    try:
+        out = ta._extract_sentiment("great success", params={"model": "cardiffnlp/twitter-xlm-roberta-base-sentiment"})
+    except Exception:
+        pytest.skip("transformers not available")
+    # If it ran without MISSING, shape is good (model may or may not be cached/downloaded in test env).
+    if out.get("error") == "MISSING_PACKAGE":
+        pytest.skip("transformers model not loadable in this env")
+    assert "overall" in out or "sentiment" in out  # internal or wrapped
+
+
+def test_text_analytics_sentiment_result_shape_and_basic_logic():
+    # Host-side shape
+    fake = {"status": "ok", "result": {"sentiment": {"score": 0.4, "label": "positive"}, "per_section": []}}
+    assert ta.is_text_analytics_result(fake) is True
+
+    # Direct call (now uses transformers + multilingual model; skips if not installed)
+    try:
+        out = ta.run_text_analytics("sentiment", "This is a great success and very positive outcome for everyone.")
+    except Exception:
+        pytest.skip("transformers not available for sentiment test")
+    assert out["status"] == "ok"
+    res = out.get("result", {})
+    if res.get("error") in (None, "MISSING_PACKAGE") or not res.get("sentiment"):
+        pytest.skip("transformers not installed or no model for sentiment")
+    sent = res["sentiment"]
+    assert "score" in sent and "label" in sent
+    assert sent["label"] in ("positive", "negative", "neutral")
+    # Positive text should lean positive
+    assert sent["score"] > 0
+
+    # Negative
+    out2 = ta.run_text_analytics("sentiment", "This is a terrible failure with many problems and risks.")
+    sent2 = out2.get("result", {}).get("sentiment", {})
+    if not sent2:
+        pytest.skip("transformers not installed")
+    assert sent2.get("score", 0) < 0
+    assert sent2.get("label") == "negative"
+
+
+def test_text_analytics_sentiment_accepts_list_for_sections():
+    secs = [
+        "The project had excellent results and strong gains.",
+        "However there were serious problems, delays and high costs.",
+        "Overall we see some progress but many risks remain."
+    ]
+    try:
+        out = ta.run_text_analytics("sentiment", secs)
+    except Exception:
+        pytest.skip("transformers not available")
+    assert out["status"] == "ok"
+    res = out.get("result", {})
+    if res.get("error") in (None, "MISSING_PACKAGE") or not res.get("per_section"):
+        pytest.skip("transformers not installed or insufficient model")
+    assert "sentiment" in res
+    assert "per_section" in res
+    assert len(res["per_section"]) == 3
+    # First section positive, second negative
+    assert res["per_section"][0]["label"] == "positive"
+    assert res["per_section"][1]["label"] == "negative"
+

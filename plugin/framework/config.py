@@ -411,6 +411,12 @@ class WriterAgentConfig:
     last_python_script_name_calc: str = "Prime Numbers"
     last_python_script_name_draw: str = "Prime Numbers"
 
+    # Text analytics (sentiment etc.) — see plugin/scripting/text_analytics.py.
+    # engine is "transformers" for now (good multilingual default); model can be overridden
+    # via JSON for a different HF model or future engines.
+    text_analytics_sentiment_engine: str = "transformers"
+    text_analytics_sentiment_model: str = "cardiffnlp/twitter-xlm-roberta-base-sentiment"
+
     # Persists the last entries for inserting LaTeX math
     last_latex_input: str = r"x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}"
     last_latex_display_block: bool = False

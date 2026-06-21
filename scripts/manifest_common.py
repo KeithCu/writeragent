@@ -134,3 +134,18 @@ def add_helper(board, helper_id, helper_text, left, top, width, height):
         _dlg("value"): helper_text,
     }
     return ET.SubElement(board, _dlg("text"), attrs)
+
+
+def write_if_changed(path, content, mode="w", encoding="utf-8"):
+    """Write content to path only if the file does not exist or the content has changed."""
+    import os
+    if os.path.exists(path):
+        try:
+            with open(path, "r" if "b" not in mode else "rb", encoding=encoding if "b" not in mode else None) as f:
+                if f.read() == content:
+                    return
+        except Exception:
+            pass
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, mode, encoding=encoding if "b" not in mode else None) as f:
+        f.write(content)

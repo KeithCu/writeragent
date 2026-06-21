@@ -134,12 +134,12 @@ config:
 
   web_research_cache_jaccard_percent:
     type: int
-    default: 40
+    default: 60
     min: 0
     max: 100
     widget: number
     label: Research Cache Fuzzy Match (%)
-    helper: "Minimum similarity (0-100) for a fuzzy cache hit. JSON only (internal); default 40."
+    helper: "Minimum similarity (0-100) for a fuzzy cache hit. JSON only (internal); default 60."
     internal: true
 
   web_research_cache_min_overlap:

@@ -11,6 +11,7 @@ from scripts.manifest_common import (
     add_combobox as _common_add_combobox,
     add_button as _common_add_button,
     add_helper as _common_add_helper,
+    write_if_changed as _write_if_changed,
 )
 
 # ── XDL Generation (using xml.etree.ElementTree) ─────────────────────
@@ -56,6 +57,7 @@ def _dlg(local):
 
 def _oor(local):
     """Qualified name in oor: namespace."""
+    return "{%s}%s" % (_OOR_NS, local)
 
 def _pretty_name(name):
     """Convert dotted or underscored name to title case with spaces."""
@@ -881,8 +883,7 @@ def generate_standalone_config_dialogs(modules, output_base):
             continue
         dialog_id = cfg_dialog.get("id") or ("WriterAgent_%sSettings" % m["name"].replace(".", "_"))
         xdl_path = os.path.join(out_dir, "%s.xdl" % dialog_id)
-        with open(xdl_path, "w", encoding="utf-8") as f:
-            f.write(generate_standalone_config_dialog(m))
+        _write_if_changed(xdl_path, generate_standalone_config_dialog(m))
         dialog_names.append(dialog_id)
         count += 1
     if count:
@@ -946,9 +947,7 @@ def update_dialog_xlb(library_dir, dialog_names, tpl_path=None):
             "</library:library>",
             marker + "\n" + block + "\n</library:library>",
         )
-    os.makedirs(library_dir, exist_ok=True)
-    with open(xlb_path, "w", encoding="utf-8") as f:
-        f.write(new_content)
+    _write_if_changed(xlb_path, new_content)
 
 
 def generate_xdl_files(modules, output_dir):
@@ -1016,11 +1015,10 @@ def generate_xdl_files(modules, output_dir):
 
         # Main page (regular fields, skips list_detail)
         xdl_path = os.path.join(output_dir, "%s.xdl" % safe)
-        with open(xdl_path, "w") as f:
-            f.write(generate_xdl(name, config,
-                                 title=title,
-                                 page_helper=page_helper,
-                                 inline_children=children))
+        _write_if_changed(xdl_path, generate_xdl(name, config,
+                                                 title=title,
+                                                 page_helper=page_helper,
+                                                 inline_children=children))
         generated_paths.add(xdl_path)
         count += 1
 
@@ -1032,8 +1030,7 @@ def generate_xdl_files(modules, output_dir):
                 continue  # inline list_detail is on the main page
             ld_safe = "%s__%s" % (safe, field_name)
             ld_path = os.path.join(output_dir, "%s.xdl" % ld_safe)
-            with open(ld_path, "w") as f:
-                f.write(generate_list_detail_xdl(name, field_name, schema))
+            _write_if_changed(ld_path, generate_list_detail_xdl(name, field_name, schema))
             generated_paths.add(ld_path)
             count += 1
 

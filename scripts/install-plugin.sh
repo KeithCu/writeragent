@@ -211,31 +211,56 @@ install_to_cache() {
 
     local cache_dir
     cache_dir=$(find_unopkg_cache_dir)
+    local needs_full_install=false
+
     if [ -z "$cache_dir" ]; then
-        echo "[X] Could not find uno_packages cache directory"
-        echo "    Run a normal install first: $0 --force"
-        exit 1
-    fi
-
-    local packages_dir="$cache_dir/cache/uno_packages"
-    if [ ! -d "$packages_dir" ]; then
-        echo "[X] Cache packages dir not found: $packages_dir"
-        echo "    Run a normal install first: $0 --force"
-        exit 1
-    fi
-
-    # Find the *.tmp_ directory containing our extension
-    local ext_dir=""
-    for d in "$packages_dir"/*.tmp_; do
-        if [ -d "$d/WriterAgent.oxt" ]; then
-            ext_dir="$d/WriterAgent.oxt"
-            break
+        needs_full_install=true
+    else
+        local packages_dir="$cache_dir/cache/uno_packages"
+        if [ ! -d "$packages_dir" ]; then
+            needs_full_install=true
+        else
+            # Find the *.tmp_ directory containing our extension
+            local ext_dir=""
+            for d in "$packages_dir"/*.tmp_; do
+                if [ -d "$d/WriterAgent.oxt" ]; then
+                    ext_dir="$d/WriterAgent.oxt"
+                    break
+                fi
+            done
+            if [ -z "$ext_dir" ]; then
+                needs_full_install=true
+            fi
         fi
-    done
-    if [ -z "$ext_dir" ]; then
-        echo "[X] Extension not found in cache. Run a normal install first."
-        exit 1
     fi
+
+    if $needs_full_install; then
+        echo "[!] Extension not found in cache. Performing full install first..."
+        UNOPKG=$(find_unopkg)
+        if [ -z "$UNOPKG" ]; then
+            echo "[X] unopkg not found. Install LibreOffice first."
+            exit 1
+        fi
+        build_oxt || exit 1
+        install_extension "$UNOPKG" || exit 1
+
+        # Re-resolve cache dir and ext_dir after full install
+        cache_dir=$(find_unopkg_cache_dir)
+        if [ -n "$cache_dir" ]; then
+            local packages_dir="$cache_dir/cache/uno_packages"
+            for d in "$packages_dir"/*.tmp_; do
+                if [ -d "$d/WriterAgent.oxt" ]; then
+                    ext_dir="$d/WriterAgent.oxt"
+                    break
+                fi
+            done
+        fi
+        if [ -z "$ext_dir" ]; then
+            echo "[X] Extension still not found in cache after installation."
+            exit 1
+        fi
+    fi
+
     echo "[OK] Cache dir: $ext_dir"
 
     # Sync project files into the cache
@@ -252,18 +277,42 @@ install_to_cache() {
     # extension/ resources -> .oxt root
     for item in Addons.xcu Accelerators.xcu description.xml XPythonFunction.rdb XPromptFunction.rdb; do
         if [ -f "$PROJECT_ROOT/extension/$item" ]; then
-            cp "$PROJECT_ROOT/extension/$item" "$ext_dir/$item"
-            echo "    $item"
+            rsync -av "$PROJECT_ROOT/extension/$item" "$ext_dir/$item"
+            echo "    $item synced"
             deployed=$((deployed + 1))
         fi
     done
-    for dir in META-INF assets registration registry WriterAgentDialogs; do
+    for dir in META-INF assets registration registry; do
         if [ -d "$PROJECT_ROOT/extension/$dir" ]; then
             rsync -av --delete "$PROJECT_ROOT/extension/$dir/" "$ext_dir/$dir/"
             echo "    $dir/ synced"
             deployed=$((deployed + 1))
         fi
     done
+
+    # Sync dialogs (static + dynamically generated)
+    if [ -d "$PROJECT_ROOT/extension/WriterAgentDialogs" ]; then
+        local excludes=()
+        if [ -d "$PROJECT_ROOT/build/generated/WriterAgentDialogs" ]; then
+            for f in "$PROJECT_ROOT/build/generated/WriterAgentDialogs"/*; do
+                if [ -f "$f" ]; then
+                    excludes+=(--exclude "$(basename "$f")")
+                fi
+            done
+        fi
+        rsync -av --delete "${excludes[@]}" "$PROJECT_ROOT/extension/WriterAgentDialogs/" "$ext_dir/WriterAgentDialogs/"
+        echo "    WriterAgentDialogs/ (static) synced"
+        deployed=$((deployed + 1))
+    fi
+    if [ -d "$PROJECT_ROOT/build/generated/WriterAgentDialogs" ]; then
+        rsync -av "$PROJECT_ROOT/build/generated/WriterAgentDialogs/" "$ext_dir/WriterAgentDialogs/"
+        echo "    WriterAgentDialogs/ (generated) synced"
+    fi
+    if [ -d "$PROJECT_ROOT/build/generated/dialogs" ]; then
+        rsync -av --delete "$PROJECT_ROOT/build/generated/dialogs/" "$ext_dir/dialogs/"
+        echo "    dialogs/ synced"
+        deployed=$((deployed + 1))
+    fi
 
 
     # Clean __pycache__

@@ -604,6 +604,8 @@ Units     | kilometer / hour
 - Key phrases (noun chunks)
 - Linguistic profile
 
+**Sentiment by section** (lexicon-based, works on sections extracted from headings)
+
 **Fancier: Topics**
 
 `topics` helper (added in 2026) performs lightweight topic modeling with TF-IDF + NMF from scikit-learn. It is especially useful on whole documents because the host extracts logical sections (using the heading tree) and passes a list of section texts. The result includes:
@@ -613,15 +615,29 @@ Units     | kilometer / hour
 
 This gives writers an at-a-glance "map" of the major themes and where they appear — exactly the "topic structure" goal.
 
+**Sentiment (by section)**
+
+`sentiment` helper uses `transformers` + a strong multilingual model (default: `cardiffnlp/twitter-xlm-roberta-base-sentiment`, an XLM-RoBERTa model with good cross-lingual performance). When run on the whole document it uses heading-based section extraction and returns both overall sentiment and per-section results. This delivers the "sentiment by section" goal for reports and long-form Writer content across 34 locales.
+
+The old spacytextblob implementation has been removed (it provided only limited multilingual support).
+
+Install hint (CPU wheels recommended for broad compatibility):
+
+    uv pip install transformers torch --index-url https://download.pytorch.org/whl/cpu
+
+Override the model (or engine in future) via the JSON setting `text_analytics_sentiment_model` (see config).
+
+Results are inserted as compact tables and usable from scripts.
+
 **Module:** `plugin/scripting/text_analytics.py` (real spaCy + textdescriptives implementation; runs inside the user venv).
 
 **UI (minimal):** WriterAgent → **Text Analytics...** opens a modeless dialog with buttons for Readability (doc/sel), Entities, Key Phrases, **Topics**, Check Venv, and "Insert report here". All work is done with real spaCy pipelines (or sklearn for topics) in your configured Python venv (Settings → Python).
 
 **Run Python Script (Writer):** "Text Analytics Helpers" section with built-in templates for `full`, `readability`, `entities`, `key_phrases`, and `topics`. Select text or run on the whole document (topics prefers whole-doc section extraction); results insert as a compact HTML table after the caret/selection. Scripts use the header `# writeragent:text helper=...` and call `from writeragent.scripting.text_analytics import run_text_analytics`.
 
-**Settings → Python Test:** Reports a "Text / NLP Libraries" group (spacy, textdescriptives). For topics also install scikit-learn (usually already present if you use the Data Analysis / EDA stack). Install hint: `uv pip install spacy textdescriptives scikit-learn && python -m spacy download xx_sent_ud_sm`.
+**Settings → Python Test:** Reports a "Text / NLP Libraries" group (spacy, textdescriptives, transformers). For topics also install scikit-learn. Install hint: `uv pip install spacy textdescriptives transformers torch --index-url https://download.pytorch.org/whl/cpu && python -m spacy download xx_sent_ud_sm`.
 
-**Requirements in the venv:** `spacy` + `textdescriptives` + at least one model for the spaCy features. `scikit-learn` for the `topics` helper. The document's `CharLocale` (if present) is passed to prefer a better model for spaCy.
+**Requirements in the venv:** `spacy` + `textdescriptives` + at least one model for the spaCy features. `transformers` + `torch` (CPU) for the `sentiment` helper (multilingual XLM-RoBERTa default). `scikit-learn` for the `topics` helper. The document's `CharLocale` (if present) is passed to prefer a better model for spaCy.
 
 **Direct use:** From any `run_venv_python_script` or Run Python Script you can `from writeragent.scripting.text_analytics import analyze_text, run_text_analytics`.
 

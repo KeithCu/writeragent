@@ -498,7 +498,7 @@ lo-restart:
 	rm -f $(LO_CONF)/.lock $(LO_CONF)/user/.lock
 	$(MAKE) lo-start
 
-deploy: build register-built-oxt
+deploy: dev-deploy
 	@$(if $(SELECTED_COMPONENT),$(MAKE) lo-start-log COMPONENT=$(SELECTED_COMPONENT))
 
 writer calc draw impress:
