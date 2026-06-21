@@ -5,8 +5,9 @@
   dlg:closeable="true" dlg:moveable="true" dlg:title="Text Analytics">
  <dlg:bulletinboard>
   <!-- Row 1 Buttons -->
-  <dlg:button dlg:id="BtnReadDoc" dlg:left="8" dlg:top="8" dlg:width="108" dlg:height="16" dlg:value="Readability (doc)" dlg:tabstop="true"/>
-  <dlg:button dlg:id="BtnReadSel" dlg:left="120" dlg:top="8" dlg:width="108" dlg:height="16" dlg:value="Readability (sel)" dlg:tabstop="true"/>
+  <dlg:checkbox dlg:id="ChkScope" dlg:left="8" dlg:top="8" dlg:width="120" dlg:height="16" dlg:value="Whole Document" dlg:state="1" dlg:tabstop="true"/>
+    <dlg:button dlg:id="BtnRead" dlg:left="140" dlg:top="8" dlg:width="108" dlg:height="16" dlg:value="Readability" dlg:tabstop="true"/>
+  
   <dlg:button dlg:id="BtnCheck"   dlg:left="232" dlg:top="8" dlg:width="120" dlg:height="16" dlg:value="Check Venv" dlg:tabstop="true"/>
 
   <!-- Row 2 Buttons -->

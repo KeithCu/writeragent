@@ -584,6 +584,8 @@ With the highly optimized pure-Python/NumPy vectorized object-masking strategy i
 
 Re-run when changing [`payload_codec.py`](../plugin/scripting/payload_codec.py) or considering vendored codecs or mmap. **Standalone bench (outside LO):** [`scripts/bench_serialization.py`](../scripts/bench_serialization.py) — asymmetric host (stdlib) vs child (NumPy), ingress and egress, scalar/list/ndarray sizes up to 100 000 cells (includes 20 000×5); compares `json_list`, `json+sg`, `pickle5`, and `pickle5+sg`. Production path is `pickle5+sg`; `json+sg` is the historical JSON/Base64 diagnostic lane. Production policy matches bench defaults (`BINARY_MIN_CELLS = 100`).
 
+**Regression note (2026-06):** A change in June 2026 inadvertently made the pure-numeric (`strings == {}`) path in `child_unpack_split_grid` do `.tolist()` + recursive conversion even for split_grid envelopes. This regressed the C-speed `frombuffer` materialize (visible as ~52 ms child mat on 20k×5 / 100k cells in ingress bench vs the prior microsecond numbers). The contract ("return ndarray directly" for no-strings case) and calling code in `_child_unpack_single_data` were restored; the fast path is now guarded by an explicit ndarray-vs-list sentinel in tests. Re-bench `pickle5+sg` ingress after edits to `payload_codec.py`.
+
 ```bash
 python scripts/bench_serialization.py --direction both
 python scripts/bench_serialization.py --child-only   # isolate np.array vs frombuffer
@@ -623,6 +625,18 @@ Record: cells/sec host→child, cells/sec child→host, bytes on wire, and wheth
 The standardized Split-Grid format fixed the **child** hot path (`frombuffer` vs `np.array(list)`). Remaining cost is mostly **host work** (UNO read → Python objects → pack), **extra crossings** (same range sent every recalc), and **downstream consumers** that force blob → nested lists. Do not add vendored or mmap OXT weight until **LibreOffice profiles** show serialization dominates compute.
 
 **Suggested next sprint:** (1) LO profile → (2) product/prompt fixes → (3) host opaque blob or single-pass UNO→bytes **only if** step 1 points there.
+
+#### Documented challenge: datetime / temporal values (high-speed handling not implemented)
+
+Calc represents dates/times as serial number floats (days since 1899-12-30, with optional time fraction). On ingress they arrive as plain floats (see `_unwrap_cell` in `calc_addin_data.py` and the import doc). On egress, Python `datetime`/`date` objects are stringified (`to_calc_compatible` in `python_function.py`) because the wire and Calc cell model do not carry first-class temporal objects for the main `=PYTHON()` / scripting paths.
+
+The split-grid fast path (float64 buffer + frombuffer) is extremely fast precisely because it stays in a uniform numeric dtype. Any first-class datetime representation would either:
+
+- Force a mixed-type (object) array path (losing the pure frombuffer win for grids that contain dates),
+- Require a parallel "datetime mask" or column-kind extension + custom high-speed pack/unpack (more complex than current strings map, adds per-cell overhead, and still needs to feed into Calc which ultimately stores serials or formatted text),
+- Or keep using float serials on the wire (current behavior) and only convert at the very edges for user code that wants `datetime` objects.
+
+Adding true high-speed (but not as fast as current pure-numeric) datetime support on the split-grid wire is a plausible future optimization, but it is out of scope for the current performance work. This note records the trade-off and why the status quo (floats in, strings out for datetimes) exists.
 
 #### Experimental Cython Accelerator (May 2026)
 

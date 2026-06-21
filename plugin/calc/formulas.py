@@ -30,6 +30,7 @@ Provides built-in Calc function discovery and arbitrary formula pre-evaluation t
 """
 
 import datetime
+from plugin.framework.constants import now_aware
 import logging
 from typing import Any, cast
 
@@ -170,13 +171,14 @@ class EvaluateFormula(ToolCalcErrorBase):
         except Exception as e:
             raise ToolExecutionError(f"Failed to get active sheet: {str(e)}") from e
 
-        temp_sheet_name = f"__wa_eval_copy_{int(datetime.datetime.now().timestamp())}__"
+        from plugin.framework.constants import now_aware
+        temp_sheet_name = f"__wa_eval_copy_{int(now_aware().timestamp())}_0__"
 
         # Ensure name uniqueness
         counter = 0
         while sheets.hasByName(temp_sheet_name):
             counter += 1
-            temp_sheet_name = f"__wa_eval_copy_{int(datetime.datetime.now().timestamp())}_{counter}__"
+            temp_sheet_name = f"__wa_eval_copy_{int(now_aware().timestamp())}_{counter}__"
 
         try:
             # Copy active sheet with all its data

@@ -21,9 +21,25 @@ from __future__ import annotations
 import array
 import logging
 import math
-import base64
-import numpy as np
 from typing import TYPE_CHECKING, Any, Literal, cast
+
+def _to_py(v: Any) -> Any:
+    """Recursively convert numpy scalars and nested sequences to native Python types.
+
+    This is only reached for mixed-type (strings-present) child materialization paths.
+    The import is local so the module can be imported on the host (LibreOffice's Python,
+    which ships without NumPy).
+    """
+    try:
+        import numpy as np  # local: safe on host; present in child for mixed grids
+        if isinstance(v, np.generic):
+            return v.item()
+    except Exception:
+        # numpy not present or v not a numpy scalar; fall through
+        pass
+    if isinstance(v, (list, tuple)):
+        return [_to_py(x) for x in v]
+    return v
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -239,7 +255,9 @@ def _is_dataframe_envelope(envelope: object) -> bool:
     if not isinstance(cols, list) or not all(isinstance(c, str) for c in cols):
         return False
     data = env_dict.get("data")
-    return isinstance(data, (list, tuple, dict)) or data is None
+    # Accept list/tuple/dict (split_grid or nested), None, or ndarray (small numeric DF/Series data left as ndarray
+    # by child_pack_result below BINARY_MIN_CELLS per design choice; host unpack tolerates ndarray).
+    return isinstance(data, (list, tuple, dict)) or data is None or _is_ndarray(data)
 
 
 def is_dataframe_payload(obj: Any) -> bool:
@@ -372,8 +390,12 @@ def describe_wire_value(obj: Any, *, sample: int = 3) -> str:
             return "list[]"
         first = obj[0]
         if isinstance(first, (list, tuple)):
-            ncols = max((len(r) for r in obj), default=0)
-            return f"list[{n}x{ncols}] sample_row={list(first)[:sample]!r}"
+            # Be defensive: some list elements may not be rows (e.g. hypothesis fancier results with mixed nesting).
+            try:
+                ncols = max((len(r) for r in obj if isinstance(r, (list, tuple))), default=0)
+                return f"list[{n}x{ncols}] sample_row={list(first)[:sample]!r}"
+            except Exception:
+                return f"list[{n}x?] sample_row={list(first)[:sample]!r}"
         return f"list[{n}] sample={list(obj)[:sample]!r}"
     return f"{type(obj).__name__}={repr(obj)[:120]}"
 
@@ -467,7 +489,8 @@ def grid_from_nested_list(grid: list[Any] | list[list[Any]]) -> list[Any] | list
     """
     if not grid:
         return []
-    if type(grid[0]) in (list, tuple):
+    if type(grid[0]) in (list, tuple) and all(isinstance(r, (list, tuple)) for r in grid):
+        # Only treat as 2D if every element is a row list; otherwise preserve as 1D list containing sublists/scalars (fancier results).
         return [[_cell_for_json(c) for c in row] for row in grid]
     return [_cell_for_json(x) for x in grid]
 
@@ -891,19 +914,21 @@ def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = T
     flat_list: list[Any]
     if not strings and uniform is not None:
         if uniform == "int":
-            # Preserve NaN for int-declared columns (will surface as Calc error); coerce only valid values.
-            flat_list = [int(v) if not math.isnan(v) else None for v in buf]
+            # Preserve NaN (as float('nan')) for int-declared columns so it surfaces as Calc error.
+            # Only coerce non-NaN values to int.
+            flat_list = [int(v) if not math.isnan(v) else float("nan") for v in buf]
         elif uniform == "bool":
-            flat_list = [(v == 1.0) if not math.isnan(v) else None for v in buf]
+            flat_list = [(v == 1.0) if not math.isnan(v) else float("nan") for v in buf]
         else:
-            # Float column: map NaN to None to represent original None cells.
-            flat_list = [None if math.isnan(v) else v for v in buf]
+            # Float column: pass NaN through as float('nan') (becomes Calc error on egress).
+            # Python None only comes from the strings map for genuine text/None cells.
+            flat_list = list(buf)
     else:
         column_kinds = envelope_column_kinds(envelope, ncols=ncols)
         col_kind = [column_kinds[0 if is_1d else i % ncols] for i in range(len(buf))]
         flat_list = [
             strings[i] if i in strings else 
-            (None if math.isnan(val) else (
+            (val if math.isnan(val) else (
                 True if col_kind[i] == "bool" and val == 1.0 else
                 False if col_kind[i] == "bool" and val == 0.0 else
                 int(val) if col_kind[i] == "int" else val
@@ -919,8 +944,10 @@ def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = T
 
 @deal.pre(
     lambda wire, *_, **__: _is_any_payload_envelope(wire)
-    or isinstance(wire, (list, tuple, dict, str, int, float, bool, np.generic, np.ndarray))
+    or isinstance(wire, (list, tuple, dict, str, int, float, bool))
     or wire is None
+    or _is_ndarray(wire)
+    or getattr(type(wire), "__module__", "") == "numpy"
 )
 @deal.post(lambda result, *_, **__: result is not None or result is None)
 @deal.raises(ValueError, TypeError, AttributeError)
@@ -987,15 +1014,11 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
                 arr, column_kinds, ncols=ncols, is_1d=is_1d, uniform=uniform
             )
             log.debug("payload_codec child_unpack split_grid optimized -> ndarray shape=%s dtype=%s", arr.shape, arr.dtype)
-            # Convert ndarray to nested Python lists with native scalars
-            list_result = arr.tolist()
-            def _to_py(v):
-                if isinstance(v, np.generic):
-                    return v.item()
-                if isinstance(v, (list, tuple)):
-                    return [_to_py(x) for x in v]
-                return v
-            return _to_py(list_result)
+            # Pure-numeric fast path: return ndarray directly (frombuffer + reshape + column casts).
+            # This is the C-speed materialization contract for split_grid with no strings.
+            # Callers that need Python lists (e.g. host egress) do their own conversion.
+            # Mixed grids (strings present) go through the tolist + _to_py path below.
+            return arr
 
 
 
@@ -1047,12 +1070,7 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
 
         # Convert object array to nested Python lists with native scalars
         list_result = obj_arr.tolist()
-        def _to_py(v):
-            if isinstance(v, np.generic):
-                return v.item()
-            if isinstance(v, (list, tuple)):
-                return [_to_py(x) for x in v]
-            return v
+        # _to_py moved to module level
         return _to_py(list_result)
     except Exception:
         log.exception("payload_codec child_unpack split_grid failed for envelope %s", describe_wire_value(envelope))
@@ -1230,7 +1248,8 @@ def child_pack_result(
             if _needs_elementwise_pack(result):
                 packed = [child_pack_result(x, min_cells=min_cells, force=force) for x in result]
                 return type(result)(packed)
-            if result and (type(result[0]) in (list, tuple)):
+            if result and (type(result[0]) in (list, tuple)) and all(isinstance(r, (list, tuple)) for r in result):
+                # Strict rectangular 2D grid: all rows are lists/tuples. Otherwise fall through to treat as 1D list-of-mixed (supports fancier result strategy).
                 grid = [list(row) for row in result]
                 grid_shape: tuple[int, ...] = (len(grid), max((len(r) for r in grid), default=0))
             else:

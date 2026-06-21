@@ -17,6 +17,7 @@
 """Writer comment / annotation tools."""
 
 import datetime
+from plugin.framework.constants import now_aware
 import logging
 import uno
 
@@ -381,7 +382,7 @@ class Workflow(ToolWriterCommentBase):
 
 def _set_annotation_date(annotation):
     """Set DateTimeValue (and Date) to now for a new annotation."""
-    now = datetime.datetime.now()
+    now = now_aware()
     try:
         dt = uno.createUnoStruct("com.sun.star.util.DateTime")
         dt.Year = now.year  # type: ignore

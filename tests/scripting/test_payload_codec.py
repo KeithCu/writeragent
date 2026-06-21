@@ -120,6 +120,7 @@ def test_round_trip_host_split_grid_child_ndarray():
     assert wire["__wa_payload__"] == PAYLOAD_SPLIT_GRID
     arr = child_unpack_data(wire)
     assert isinstance(arr, np.ndarray)
+    assert not isinstance(arr, list)  # perf sentinel: pure-numeric split_grid must not regress to list materialization
     assert arr.shape == (4, 2)
     assert arr[0, 0] == pytest.approx(1.0)
     assert arr[3, 1] == pytest.approx(8.0)
@@ -192,7 +193,7 @@ def test_child_pack_integer_ndarray_sets_column_kinds():
 
 
 def test_none_becomes_nan_in_split_grid():
-    np = pytest.importorskip("numpy")
+    pytest.importorskip("numpy")
     wire = host_pack_data([[1.0, None, 3.0]], force="always")
     arr = child_unpack_data(wire)
     assert arr.shape == (1, 3)
@@ -222,7 +223,7 @@ def test_wire_cell_count_split_grid():
 
 
 def test_child_list_path_array():
-    np = pytest.importorskip("numpy")
+    pytest.importorskip("numpy")
     wire = host_pack_data([1.0, 2.0, 3.0], force="never")
     arr = child_unpack_data(wire)
     assert list(arr) == pytest.approx([1.0, 2.0, 3.0])
@@ -434,6 +435,7 @@ def test_none_numeric_ingress_child_gets_np_nan() -> None:
     grid = [[1.0, None, 3.0, 4.0], [5.0, 6.0, None, 8.0], [9.0, 10.0, 11.0, 12.0]]
     arr = child_unpack_data(host_pack_data(grid, force="always"))
     assert isinstance(arr, np.ndarray)
+    assert not isinstance(arr, list)  # perf sentinel: pure-numeric split_grid fast path must return ndarray (not list-of-lists from tolist)
     assert np.isnan(arr[0, 1])
     assert arr[0, 0] == pytest.approx(1.0)
 
@@ -567,14 +569,22 @@ def test_split_grid_flat_row_10_shape() -> None:
 
 
 def test_child_pack_below_threshold_returns_list() -> None:
-    """Small ndarray egress uses tolist(), not split_grid envelope."""
+    """Small ndarray egress below threshold returns the ndarray (not forced tolist or split_grid).
+
+    Per small_ndarray_result choice, we leave ndarray objects for sub-threshold pure numeric results
+    rather than converting to list. Host unpack and downstream (e.g. to_calc_compatible) accept ndarray.
+    """
     np = pytest.importorskip("numpy")
     n = max(1, BINARY_MIN_CELLS - 1)
     rows, cols = rect_shape_for_cell_count(n)
     small = np.arange(n, dtype=np.float64).reshape(rows, cols)
     wire = child_pack_result(small, force="auto")
-    assert isinstance(wire, list)
-    assert len(wire) == rows
+    # Not a split_grid (too small), and not auto-converted to list; ndarray is left as-is.
+    assert not is_split_grid(wire)
+    assert isinstance(wire, np.ndarray)
+    assert wire.shape[0] == rows
+    # Also tolerate if some future change decides to list-ify small; the key is "no split envelope".
+
 
 
 def test_child_pack_numpy_scalar_types() -> None:
@@ -606,7 +616,7 @@ def test_is_numeric_coercible_and_is_numeric_grid() -> None:
 def test_pickle5_roundtrip_numeric_4x4() -> None:
     """Production path: split_grid envelope survives Pickle5 unchanged."""
     wire = pickle5_roundtrip(host_pack_data(NUMERIC_4X4, force="always"))
-    np = pytest.importorskip("numpy")
+    pytest.importorskip("numpy")
     arr = child_unpack_data(wire)
     assert arr.shape == (4, 4)
     assert arr[0, 0] == pytest.approx(0.0)
@@ -650,7 +660,7 @@ def test_split_grid_numpy_scalars_in_lists():
 
 def test_split_grid_boolean_roundtrip_fidelity():
     """Verify that boolean columns roundtrip perfectly to True/False in mixed grids under the 'bool' ColumnKind."""
-    np = pytest.importorskip("numpy")
+    pytest.importorskip("numpy")
     
     # 2D mixed grid containing booleans, strings, and None
     grid = [

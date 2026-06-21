@@ -707,6 +707,32 @@ DEFAULT_WRITING_PLAN_GREETING = _("AI: Let's draft your document section-by-sect
 del _
 
 
+# -------------------------------------------------
+# Timezone utilities (pure Python, cross‑platform)
+# -------------------------------------------------
+import datetime as _dt
+from typing import Optional
+
+def get_local_timezone() -> Optional[_dt.tzinfo]:
+    """Return the local timezone as a tzinfo object.
+
+    Uses the standard library only: obtains the current UTC time,
+    converts it to the local timezone and extracts the tzinfo.
+    This works on any platform where the system timezone is set.
+    """
+    # Obtain an aware UTC datetime, then convert to local time.
+    return _dt.datetime.now(_dt.timezone.utc).astimezone().tzinfo
+
+def now_aware() -> _dt.datetime:
+    """Return the current local time as a timezone‑aware datetime.
+
+    The returned datetime has ``tzinfo`` set to the local timezone
+    obtained via :func:`get_local_timezone`. This avoids the common
+    pitfall of naive ``datetime.now()`` values that lack timezone
+    information.
+    """
+    return _dt.datetime.now(get_local_timezone())
+
 def get_greeting_for_document(model):
     """Return a greeting relevant to the document type."""
     from plugin.framework.i18n import _

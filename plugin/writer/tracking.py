@@ -26,6 +26,8 @@ Also includes tools for managing document comments (Annotations) in Writer only.
 
 import datetime
 import logging
+from plugin.framework.constants import now_aware
+
 from typing import Any
 
 from plugin.calc.base import ToolCalcSpecialTracking
@@ -306,7 +308,7 @@ class TrackChangesCommentInsert(WriterAgentSpecialTracking):
             annotation.setPropertyValue("Author", str(author))
 
             # Use current system date
-            now = datetime.datetime.now()
+            now = now_aware()
             from com.sun.star.util import Date
 
             dt = Date()

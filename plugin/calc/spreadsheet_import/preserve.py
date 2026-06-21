@@ -6,8 +6,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from plugin.calc.address_utils import format_address, parse_address, parse_range_string
 from plugin.calc.spreadsheet_import.extract import extract_py_cells
 from plugin.calc.spreadsheet_import.ingest import ingest_sheet
@@ -85,7 +83,6 @@ def apply_output_to_sheet(target_sheet, output: OutputSheetModel) -> None:
     """Write *output* onto *target_sheet* (bulk array write + number formats)."""
     (start_col, start_row), (end_col, end_row) = parse_range_string(output.used_range)
 
-    has_formulas = False
     formula_rows: list[tuple[str, ...]] = []
     format_cells: list[tuple[int, int, int]] = []
 
@@ -96,7 +93,6 @@ def apply_output_to_sheet(target_sheet, output: OutputSheetModel) -> None:
             oc = output.cells[addr]
             if oc.formula:
                 row_data.append(oc.formula)
-                has_formulas = True
             elif oc.value is None or oc.value == "":
                 row_data.append("")
             else:
@@ -105,24 +101,23 @@ def apply_output_to_sheet(target_sheet, output: OutputSheetModel) -> None:
                 format_cells.append((col, row, oc.number_format))
         formula_rows.append(tuple(row_data))
 
-    cell_range = target_sheet.getCellRangeByPosition(start_col, start_row, end_col, end_row)
-
-    if has_formulas:
-        cell_range.setFormulaArray(tuple(formula_rows))
-    else:
-        data_rows: list[tuple[Any, ...]] = []
-        for formula_row in formula_rows:
-            data_row: list[Any] = []
-            for text in formula_row:
-                if text == "":
-                    data_row.append("")
-                else:
-                    try:
-                        data_row.append(float(text))
-                    except ValueError:
-                        data_row.append(text)
-            data_rows.append(tuple(data_row))
-        cell_range.setDataArray(tuple(data_rows))
+    # Write explicitly per-cell. Constants must be native numeric values (not text)
+    # because vectorized PY formulas on the same output block will reference them as data.
+    # Using setValue for numbers + setFormula for the generated PY cells guarantees
+    # correct types independent of bulk array quirks with mixed formula/value rows.
+    for r, row_entries in enumerate(formula_rows):
+        for c, entry in enumerate(row_entries):
+            cell = target_sheet.getCellByPosition(start_col + c, start_row + r)
+            if isinstance(entry, str) and entry and (entry.startswith("=") or entry.startswith("{")):
+                cell.setFormula(entry)
+            elif entry == "" or entry is None:
+                cell.setString("")
+            else:
+                try:
+                    val = float(entry) if isinstance(entry, str) else entry
+                    cell.setValue(val)
+                except Exception:
+                    cell.setString(str(entry))
 
     for col, row, fmt_id in format_cells:
         target_sheet.getCellByPosition(col, row).setPropertyValue("NumberFormat", fmt_id)

@@ -119,6 +119,58 @@ def _get_lang_from_context(context: dict[str, Any] | None) -> str | None:
 # Core high-quality analyses
 # ---------------------------------------------------------------------------
 
+def _run_nlp_doc(text: str, lang: str | None, context: dict[str, Any] | None) -> "tuple[Any, Any, str | None]":
+    """Load the model and run the spaCy pipeline once. Returns (nlp, doc, resolved_lang).
+
+    Factored out so narrow helpers (entities, key_phrases, readability) each call
+    nlp(text) exactly once without running the full analyze_text stack.
+    """
+    if lang is None:
+        lang = _get_lang_from_context(context)
+    nlp = _load_nlp(lang)
+    doc = nlp(text)
+    return nlp, doc, lang
+
+
+def _extract_meta(nlp: Any, doc: Any, lang: str | None) -> dict[str, Any]:
+    return {
+        "model": nlp.meta.get("name") or getattr(nlp, "path", None) or "unknown",
+        "lang": getattr(doc._, "lang", None) or (lang or "unknown"),
+        "has_textdescriptives": "textdescriptives" in nlp.pipe_names,
+    }
+
+
+def _extract_readability(doc: Any) -> "tuple[dict[str, Any], dict[str, Any]]":
+    """Return (readability_dict, descriptive_stats_dict) from textdescriptives (or basic fallback)."""
+    try:
+        import textdescriptives as td
+
+        td_metrics = cast("Any", td.extract_dict(doc))
+        return td_metrics.get("readability", {}), td_metrics.get("descriptive_stats", {})
+    except Exception:
+        # textdescriptives not available — fall back to basic spaCy stats.
+        return {}, {"n_tokens": len(doc), "n_sents": len(list(doc.sents))}
+
+
+def _extract_entities(doc: Any) -> list[dict[str, Any]]:
+    return [
+        {"text": ent.text, "label": ent.label_, "start_char": ent.start_char, "end_char": ent.end_char}
+        for ent in doc.ents
+    ]
+
+
+def _extract_key_phrases(doc: Any) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    key_phrases = []
+    for chunk in doc.noun_chunks:
+        lemma = " ".join([t.lemma_ if t.lemma_ != "-PRON-" else t.text.lower() for t in chunk])
+        key = lemma.lower().strip()
+        if key and key not in seen and len(key) > 1:
+            seen.add(key)
+            key_phrases.append({"text": chunk.text, "lemma": lemma, "root": chunk.root.text if chunk.root else None})
+    return key_phrases[:25]
+
+
 def analyze_text(text: str, *, lang: str | None = None, context: dict[str, Any] | None = None) -> dict[str, Any]:
     """Run a rich multilingual analysis on a single text using spaCy + textdescriptives.
 
@@ -133,12 +185,7 @@ def analyze_text(text: str, *, lang: str | None = None, context: dict[str, Any] 
     if not text or not text.strip():
         return {"status": "ok", "result": {}, "note": "empty text"}
 
-    if lang is None:
-        lang = _get_lang_from_context(context)
-
-    nlp = _load_nlp(lang)
-
-    doc = nlp(text)
+    nlp, doc, lang = _run_nlp_doc(text, lang, context)
 
     result: dict[str, Any] = {"status": "ok"}
 
@@ -166,34 +213,8 @@ def analyze_text(text: str, *, lang: str | None = None, context: dict[str, Any] 
             "n_sents": len(list(doc.sents)),
         }
 
-    # --- Entities (high quality multilingual NER) ---
-    ents = []
-    for ent in doc.ents:
-        ents.append({
-            "text": ent.text,
-            "label": ent.label_,
-            "start_char": ent.start_char,
-            "end_char": ent.end_char,
-        })
-    result["entities"] = ents
-
-    # --- Key phrases via noun chunks (good across languages with a parser) ---
-    # We lemmatize and deduplicate for usefulness.
-    seen = set()
-    key_phrases = []
-    for chunk in doc.noun_chunks:
-        # Use lemma for canonical form when possible
-        lemma = " ".join([t.lemma_ if t.lemma_ != "-PRON-" else t.text.lower() for t in chunk])
-        key = lemma.lower().strip()
-        if key and key not in seen and len(key) > 1:
-            seen.add(key)
-            key_phrases.append({
-                "text": chunk.text,
-                "lemma": lemma,
-                "root": chunk.root.text if chunk.root else None,
-            })
-    # Limit to a reasonable number for UI / reports
-    result["key_phrases"] = key_phrases[:25]
+    result["entities"] = _extract_entities(doc)
+    result["key_phrases"] = _extract_key_phrases(doc)
 
     # --- Linguistic profile (always useful) ---
     pos_counts: dict[str, int] = {}
@@ -212,12 +233,7 @@ def analyze_text(text: str, *, lang: str | None = None, context: dict[str, Any] 
         "n_sents": len(list(doc.sents)),
     }
 
-    # Meta
-    result["meta"] = {
-        "model": nlp.meta.get("name") or getattr(nlp, "path", None) or "unknown",
-        "lang": getattr(doc._, "lang", None) or (lang or "unknown"),
-        "has_textdescriptives": "textdescriptives" in nlp.pipe_names,
-    }
+    result["meta"] = _extract_meta(nlp, doc, lang)
 
     return {"status": "ok", "result": result}
 
@@ -293,27 +309,27 @@ def run_text_analytics(
     if helper in ("full", "analyze", "all"):
         return analyze_text(str(text), lang=lang, context=context)
 
+    # Narrow helpers: run nlp(text) once and extract only the requested subset,
+    # skipping the unneeded NER / noun-chunk / textdescriptives work.
     if helper in ("readability", "stats", "descriptive"):
-        # Still run full analyze but the caller can pick the subset.
-        # This keeps the implementation simple and high quality.
-        full = analyze_text(str(text), lang=lang, context=context)
-        res = full.get("result", {})
+        nlp, doc, resolved_lang = _run_nlp_doc(str(text), lang, context)
+        rd, ds = _extract_readability(doc)
         return {
             "status": "ok",
             "result": {
-                "readability": res.get("readability", {}),
-                "descriptive_stats": res.get("descriptive_stats", {}),
-                "meta": res.get("meta", {}),
+                "readability": rd,
+                "descriptive_stats": ds,
+                "meta": _extract_meta(nlp, doc, resolved_lang),
             },
         }
 
     if helper in ("entities", "ner"):
-        full = analyze_text(str(text), lang=lang, context=context)
-        return {"status": "ok", "result": {"entities": full.get("result", {}).get("entities", [])} }
+        nlp, doc, resolved_lang = _run_nlp_doc(str(text), lang, context)
+        return {"status": "ok", "result": {"entities": _extract_entities(doc), "meta": _extract_meta(nlp, doc, resolved_lang)}}
 
     if helper in ("key_phrases", "keyphrases", "chunks"):
-        full = analyze_text(str(text), lang=lang, context=context)
-        return {"status": "ok", "result": {"key_phrases": full.get("result", {}).get("key_phrases", [])} }
+        nlp, doc, resolved_lang = _run_nlp_doc(str(text), lang, context)
+        return {"status": "ok", "result": {"key_phrases": _extract_key_phrases(doc), "meta": _extract_meta(nlp, doc, resolved_lang)}}
 
     # Default to full high-quality analysis
     return analyze_text(str(text), lang=lang, context=context)

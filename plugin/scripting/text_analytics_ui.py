@@ -19,7 +19,7 @@ from plugin.doc.document_helpers import get_string_without_tracked_deletions, is
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_active_document
 from plugin.scripting.client import run_text_analytics
-from plugin.scripting.text_analytics import get_doc_language
+from plugin.scripting.text_analytics import get_doc_language, _result_to_html_table
 from plugin.writer.format import insert_content_at_position
 
 log = logging.getLogger(__name__)
@@ -108,10 +108,11 @@ class TextAnalyticsDialog:
             def disposing(self, Source):
                 pass
 
-        dlg.getControl("BtnReadDoc").addActionListener(_Btn(lambda d: owner._compute(d, "readability", "whole")))
-        dlg.getControl("BtnReadSel").addActionListener(_Btn(lambda d: owner._compute(d, "readability", "selection")))
-        dlg.getControl("BtnEntities").addActionListener(_Btn(lambda d: owner._compute(d, "entities", "whole")))
-        dlg.getControl("BtnPhrases").addActionListener(_Btn(lambda d: owner._compute(d, "key_phrases", "whole")))
+        chk = dlg.getControl("ChkScope")
+        scope = "whole" if (chk.State == 1) else "selection"
+        dlg.getControl("BtnRead").addActionListener(_Btn(lambda d: owner._compute(d, "readability", scope)))
+        dlg.getControl("BtnEntities").addActionListener(_Btn(lambda d: owner._compute(d, "entities", scope)))
+        dlg.getControl("BtnPhrases").addActionListener(_Btn(lambda d: owner._compute(d, "key_phrases", scope)))
         dlg.getControl("BtnCheck").addActionListener(_Btn(lambda d: owner._compute(d, "diagnostics", "whole")))
 
         dlg.getControl("BtnInsert").addActionListener(_Btn(lambda d: owner._insert_report(d)))
@@ -267,7 +268,7 @@ class TextAnalyticsDialog:
 
         # Build a compact, useful HTML table from whatever we have.
         data = (self._last_result or {}).get("result") or {}
-        html = self._result_to_html_table(data)
+        html = _result_to_html_table(data)
         if not html:
             msgbox(ctx, _("Text Analytics"), _("Nothing useful to insert from the last result."))
             return
@@ -297,33 +298,4 @@ class TextAnalyticsDialog:
         if res_ctrl is not None:
             res_ctrl.getModel().Text = (res_ctrl.getModel().Text or "") + "\n\n" + _("Inserted after selection/caret.")
 
-    def _result_to_html_table(self, data: dict[str, Any]) -> str:
-        """Turn the structured result into a simple bordered table (or two)."""
-        rows: list[str] = []
-
-        # Readability + stats if present
-        rd = data.get("readability") or {}
-        ds = data.get("descriptive_stats") or {}
-        for k, v in {**rd, **ds}.items():
-            if isinstance(v, (int, float, str)):
-                val = f"{v:.3f}" if isinstance(v, float) else str(v)
-                rows.append(f"<tr><td>{k}</td><td>{val}</td></tr>")
-
-        # Entities (compact)
-        ents = data.get("entities") or []
-        if ents:
-            labels: dict[str, int] = {}
-            for e in ents:
-                labels[e.get("label", "?")] = labels.get(e.get("label", "?"), 0) + 1
-            for lab, cnt in sorted(labels.items(), key=lambda x: -x[1])[:12]:
-                rows.append(f"<tr><td>entity:{lab}</td><td>{cnt}</td></tr>")
-
-        # Key phrases (top few)
-        kps = data.get("key_phrases") or []
-        if kps:
-            top = ", ".join(kp.get("lemma") or kp.get("text") for kp in kps[:8])
-            rows.append(f"<tr><td>key_phrases</td><td>{top}</td></tr>")
-
-        if not rows:
-            return ""
-        return '<table border="1" style="border-collapse:collapse"><tbody>' + "".join(rows) + "</tbody></table>"
+    
