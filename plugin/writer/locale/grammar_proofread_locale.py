@@ -157,7 +157,7 @@ def normalize_reason(reason: str) -> str:
         return ""
     s = reason.lower().strip()
     # Strip non-alphanumeric characters (keeping word contents)
-    s = re.sub(r"[^a-z0-9\s]", "", s)
+    s = GRAMMAR_NORMALIZE_REASON_RE.sub("", s)
     return " ".join(s.split())
 
 
@@ -491,6 +491,7 @@ def word_before_period_is_abbrev(word: str) -> int:
 GRAMMAR_WHITESPACE_SENTENCE_LOCALE_PREFIXES: tuple[str, ...] = ("th", "lo", "km")
 
 GRAMMAR_WHITESPACE_RUN_RE = re.compile(r"\s+")
+GRAMMAR_NORMALIZE_REASON_RE = re.compile(r"[^a-z0-9\s]")
 
 
 def is_whitespace_sentence_locale(locale_key: str) -> bool:

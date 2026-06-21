@@ -210,7 +210,7 @@ def ensure_writeragent_proofreader_configured(ctx: Any) -> None:
     from plugin.framework.logging import init_logging
 
     init_logging(ctx)
-    log.info("[grammar] ensure_proofreader_selection: entry")
+    log.debug("[grammar] ensure_proofreader_selection: entry")
     from plugin.framework.config import is_grammar_enabled
 
     enabled = is_grammar_enabled(ctx)
@@ -451,7 +451,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             grammar_obs("do_proofreading_cache_partial_hit", doc_id=aDocumentIdentifier, grammar_bcp47=loc_key, cached_count=cached_ct, uncached_count=len(uncached_spans), errors_returned=len(combined_errors), miss_reason=miss_reason)
 
             self._enqueue_misses(aDocumentIdentifier, aText, loc_key, uncached_spans)
-            log.info("[grammar] doProofreading: async miss returning partial or empty errors; sentence cache fills in background")
+            log.debug("[grammar] doProofreading: async miss returning partial or empty errors; sentence cache fills in background")
             return a_res
 
         except Exception as e:
@@ -483,7 +483,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                     with p._lock:
                         p._ignored_rules.add(norm_reason)
                     p._persist_to_udprops()
-                    log.info("[grammar] ignoreRule added: '%s' (normalized: '%s') to doc_id=%s", reason, norm_reason, doc_id)
+                    log.debug("[grammar] ignoreRule added: '%s' (normalized: '%s') to doc_id=%s", reason, norm_reason, doc_id)
             elif p:
                 # Fallback for legacy identifier
                 from .grammar_proofread_locale import normalize_reason
@@ -510,7 +510,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                 with p._lock:
                     p._ignored_rules.clear()
                 p._persist_to_udprops()
-                log.info("[grammar] resetIgnoreRules cleared all ignored rules for doc_id=%s", doc_id)
+                log.debug("[grammar] resetIgnoreRules cleared all ignored rules for doc_id=%s", doc_id)
         except Exception as e:
             log.warning("[grammar] resetIgnoreRules: %s", e, exc_info=True)
 
@@ -525,8 +525,6 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
 
 
 try:
-    import unohelper
-
     g_ImplementationHelper = unohelper.ImplementationHelper()
     g_ImplementationHelper.addImplementation(WriterAgentAiGrammarProofreader, IMPLEMENTATION_NAME, (SERVICE_NAME,))
 except (ImportError, AttributeError):

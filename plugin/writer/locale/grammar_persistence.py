@@ -31,7 +31,6 @@ from plugin.framework.uno_listeners import BaseDocumentEventListener
 
 _HAVE_UNO_DOC_EVENTS = False
 try:
-    import unohelper as _unohelper_impl  # noqa: F401
     from com.sun.star.document import XDocumentEventListener as _XDocumentEventListener_impl  # noqa: F401
     _HAVE_UNO_DOC_EVENTS = True
 except ImportError:
@@ -247,7 +246,7 @@ class DocumentPersistence(GrammarPersistence):
             
             version = data.get("version", 1)
             if version < GRAMMAR_CACHE_VERSION:
-                log.info("[grammar] DocumentPersistence: ignoring old-version cache (v=%s < %s) on doc_id=%s", version, GRAMMAR_CACHE_VERSION, self._doc_id[:32] if self._doc_id else "")
+                log.debug("[grammar] DocumentPersistence: ignoring old-version cache (v=%s < %s) on doc_id=%s", version, GRAMMAR_CACHE_VERSION, self._doc_id[:32] if self._doc_id else "")
                 return
 
             with self._lock:

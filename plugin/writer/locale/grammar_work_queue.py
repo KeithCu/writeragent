@@ -294,11 +294,15 @@ def filter_stale_and_group(
     ``(doc_id, locale)`` to the non-stale items in that group.
     """
     groups: dict[tuple[str, str], list[GrammarWorkItem]] = defaultdict(list)
+    stale_count = 0
     for item in survivors:
         if is_stale_fn(item):
             grammar_obs("queue_stale_skip", doc_id=item.doc_id, locale=item.grammar_bcp47, seq=item.enqueue_seq, inflight_key=item.inflight_key)
+            stale_count += 1
             continue
         groups[(item.doc_id, item.grammar_bcp47)].append(item)
+    if stale_count > 0:
+        log.debug("[grammar] sentences_stale_skipped=%s", stale_count)
     return dict(groups)
 
 
@@ -532,6 +536,7 @@ def _run_grammar_check(
     """Grammar LLM, then cache results or requeue on batch mismatch."""
     try:
         results, elapsed_ms = call_grammar_llm(chunk, bcp47, ec)
+        log.debug("[grammar] sentences_llm_requested=%s llm_request_duration_ms=%s", len(chunk), elapsed_ms)
         completion = grammar_worker_phases.decide_grammar_completion(len(chunk), len(results), bcp47, original_bcp47)
         if completion.requeue_all:
             if len(results) == 0:
@@ -838,6 +843,7 @@ class GrammarWorkQueue:
             self._latest_seq, out_of_order, superseded_prev_seq = record_enqueue_latest(self._latest_seq, item)
             if out_of_order:
                 log.error("[grammar] queue enqueue: out-of-order seq detected for key=%s: incoming seq=%s < latest seq=%s; stale detection may be unreliable", item.inflight_key, item.enqueue_seq, superseded_prev_seq)
+        log.debug("[grammar] sentences_queued=1 doc_id=%s locale=%s seq=%s", item.doc_id[:16] if item.doc_id else "", item.grammar_bcp47, item.enqueue_seq)
         grammar_obs("queue_enqueue", doc_id=item.doc_id, locale=item.grammar_bcp47, seq=item.enqueue_seq, inflight_key=item.inflight_key, slice_len=len(item.text), partial_sentence=item.partial_sentence, preview=slice_preview_debug(item.text))  # fmt: skip
 
         # Normal append.  (Historical Layer 1 "tail-replace" under _q.mutex was
@@ -888,6 +894,7 @@ class GrammarWorkQueue:
             # used by unit tests and any external caller).
             survivors = deduplicate_grammar_batch(batch)
             grammar_obs("queue_drain_survivors", survivor_count=len(survivors), seqs=tuple(x.enqueue_seq for x in survivors))
+            log.debug("[grammar] sentences_deduped=%s batch_size=%s", len(batch) - len(survivors), len(batch))
 
             groups = filter_stale_and_group(survivors, self._is_stale)
 

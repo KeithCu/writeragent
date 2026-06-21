@@ -186,7 +186,6 @@ The native grammar checker pairs **sentence-bound work units** with **sentence-l
 #### Foreground path (`doProofreading`) and UI hooks
 
 - **`doProofreading`** (async return path): On a **full cache miss**, WriterAgent returns with empty `aErrors` and enqueues a work item. On a **partial cache hit** (some sentences cached, some not), it **returns the cached errors immediately** (better than empty — squiggles appear for already-checked sentences) and enqueues for the remaining uncached sentences. On a **full cache hit** all errors are returned directly, no enqueue needed. It **does not** wait inside `doProofreading` or pump `processEventsToIdle()` for results. That keeps **menus and chrome responsive** while grammar runs.
-- **`doc.grammar_proofreader_wait_timeout_ms`**: No longer used by the proofreader return path (reserved for possible future options or removed from UI in a later cleanup).
 - **Sidebar status**: the proofreader emits `grammar:status` for meaningful phases (`start`, `request`, `complete`, `failed`, etc.). Skipped work is not reported to the status bar.
 
 #### Worker thread, quiet period, and batching
@@ -589,7 +588,6 @@ Below is the list of open technical debt items. All major foundational TD tasks 
 | **TD5** | Error handling fragility | Nested try/except "log and continue" patterns in the hot `doProofreading` path and worker (C1). Some errors are swallowed that should at least increment a diagnostic counter. | `ai_grammar_proofreader.py`, `grammar_work_queue.py`, `grammar_proofread_locale.py` | Low | Medium | Implement the tiered error handling table from Appendix B. Introduce a small set of `_safe_*` helpers with clear contracts. |
 | **TD8** | Small helper refactoring & import graph cohesion | Relocate small helper utilities to appropriate files to minimize cross-imports and establish clear conceptual boundaries. | `grammar_proofread_locale.py`, `grammar_proofread_cache.py`, `grammar_proofread_text.py` | Low | Medium | **Open** — Relocate candidates identified in the opportunities subsection below to their natural home modules. |
 | **TD9** | Observability & diagnostics debt | `grammar_obs` is useful but under-used in some paths. Batch stats, supersede counts, and LLM durations are only partially instrumented (see C10). | `grammar_obs.py`, `grammar_work_queue.py`, `grammar_worker_llm.py`, `grammar_proofread_cache.py`, `ai_grammar_proofreader.py` | Low | Medium | **Partial (2026-05)** — Canonical `grammar_obs` is active. Remaining: full C10 batch counters / p50–p95 logging. |
-| **TD10** | Dead / legacy config surface | References to removed keys (e.g. `doc.grammar_proofreader_wait_timeout_ms`) still linger in some places (C13). | Config schemas, UI bindings, any remaining call sites | Very Low | Low | Mechanical removal pass + test that the keys no longer appear in generated settings. |
 
 ### Identified Opportunities – Small Pure Helpers (TD8 Relocation Candidates)
 
@@ -618,21 +616,6 @@ For any TD item that touches runtime behavior:
 
 These are longer-horizon ideas that treat the grammar checker less as an independent "linguistic service" and more as a specialized, always-on consumer of the rest of the WriterAgent machinery (cancellation/prioritization, memory, style guidance, document research, and the main agent loop). They accept higher complexity in exchange for consistency and leverage.
 
-### G1. First-class SendCancellation / Priority participation
-
-**Problem today:** Grammar work runs on its own daemon thread + queue with a simple "pause during active agent session" heuristic. Heavy scrolling or background checks can still contend with an active chat/research session for the LLM (even with `llm_request_lane`).
-
-**Idea:** Make `GrammarWorkItem` and the work queue participate in the `SendCancellation` / `agent_session` system more deeply.
-
-- When a main-chat send is active, the grammar worker can be told to de-prioritize (or temporarily suspend) work for the *current foreground document*.
-- Use the same `SendCancellation` scope (or a lightweight derived "background priority token") so that a user hitting Stop in chat also drains/supersedes in-flight grammar requests for that document.
-- This reuses the existing registration + hook machinery in `queue_executor.py` instead of growing a second cancellation system.
-
-**Benefits:** Consistent "user is busy, back off" behavior across chat and grammar. Fewer surprising LLM calls when the user is in the middle of a big research task.
-
-**Cost / Risk:** Adds another cross-cutting concern to the already subtle cancellation paths. Needs careful testing that grammar still makes forward progress when no chat is active.
-
-**Related existing work:** `SendCancellation`, `agent_session`, `bind_send_stop_checker`, the pause-during-agent flag, and `llm_request_lane`.
 
 ### G2. Structural / document-context hints to the LLM
 

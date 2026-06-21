@@ -36,54 +36,57 @@ def _format_list_to_table(data: list, *, headers: list | None = None) -> str:
     if not data:
         return ""
 
+    parts = []
+
     # Explicit headers (e.g. from dataframe payload) take precedence for order and 1-col cases.
     if headers:
-        html = '<table border="1"><thead><tr>'
+        parts.append('<table border="1"><thead><tr>')
         for h in headers:
-            html += f"<th>{h}</th>"
-        html += "</tr></thead><tbody>"
+            parts.append(f"<th>{h}</th>")
+        parts.append("</tr></thead><tbody>")
         # data may be list of lists (2d) or flat list (1-col series-like)
         if data and isinstance(data[0], (list, tuple)):
             for row in data:
-                html += "<tr>"
+                parts.append("<tr>")
                 for cell in row:
-                    html += f"<td>{cell}</td>"
-                html += "</tr>"
+                    parts.append(f"<td>{cell}</td>")
+                parts.append("</tr>")
         else:
             for v in data:
-                html += f"<tr><td>{v}</td></tr>"
-        html += "</tbody></table>"
-        return html
+                parts.append(f"<tr><td>{v}</td></tr>")
+        parts.append("</tbody></table>")
+        return "".join(parts)
 
     # Handle list of dicts (e.g. pandas records) -- legacy path
     if isinstance(data[0], dict):
         keys = list(data[0].keys())
-        html = '<table border="1"><thead><tr>'
+        parts.append('<table border="1"><thead><tr>')
         for key in keys:
-            html += f"<th>{key}</th>"
-        html += "</tr></thead><tbody>"
+            parts.append(f"<th>{key}</th>")
+        parts.append("</tr></thead><tbody>")
         for row in data:
-            html += "<tr>"
+            parts.append("<tr>")
             for key in keys:
                 val = row.get(key, "")
-                html += f"<td>{val}</td>"
-            html += "</tr>"
-        html += "</tbody></table>"
-        return html
+                parts.append(f"<td>{val}</td>")
+            parts.append("</tr>")
+        parts.append("</tbody></table>")
+        return "".join(parts)
 
     # Handle list of lists (table)
     if isinstance(data[0], (list, tuple)):
-        html = '<table border="1">'
+        parts.append('<table border="1">')
         for row in data:
-            html += "<tr>"
+            parts.append("<tr>")
             for cell in row:
-                html += f"<td>{cell}</td>"
-            html += "</tr>"
-        html += "</table>"
-        return html
+                parts.append(f"<td>{cell}</td>")
+            parts.append("</tr>")
+        parts.append("</table>")
+        return "".join(parts)
 
     # Fallback: list of primitives
     return "<br>".join(str(x) for x in data)
+
 
 
 def format_result_for_writer(result: Any) -> str:
