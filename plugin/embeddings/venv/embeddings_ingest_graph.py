@@ -264,19 +264,25 @@ def embed_and_upsert_batches(state: IngestState) -> dict[str, Any]:
             active_time = time.time()
             vacuum_needed = False
 
+            expired_models = []
             for row in other_models:
                 other_model = row["embedding_model"]
                 other_time = float(row["updated_at"])
                 if active_time - other_time > EXPIRY_TIME_S:
+                    expired_models.append(other_model)
+
+            if expired_models:
+                for other_model in expired_models:
                     other_slug = model_slug(other_model)
                     conn.execute(f"DROP TABLE IF EXISTS vec_chunks_{other_slug}")
-                    conn.execute(
-                        "DELETE FROM model_metadata WHERE embedding_model = ?",
-                        (other_model,),
-                    )
-                    conn.commit()
-                    vacuum_needed = True
                     log.info("Dropped expired embeddings table vec_chunks_%s", other_slug)
+
+                conn.executemany(
+                    "DELETE FROM model_metadata WHERE embedding_model = ?",
+                    [(m,) for m in expired_models],
+                )
+                conn.commit()
+                vacuum_needed = True
 
             if vacuum_needed:
                 try:
