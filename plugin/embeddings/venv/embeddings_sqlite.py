@@ -560,12 +560,15 @@ def load_embeddings_for_candidates(
     if not ids:
         return
     by_id: dict[int, Any] = {}
-    for chunk_id in ids:
-        row = conn.execute(
-            f"SELECT chunk_id, embedding FROM {tbl_name} WHERE chunk_id = ?",
-            (int(chunk_id),),
-        ).fetchone()
-        if row is not None:
+    # SQLite has a limit on parameters in IN clause (typically 999),
+    # chunk the ids array to be safe
+    chunk_size = 900
+    for i in range(0, len(ids), chunk_size):
+        batch_ids = ids[i : i + chunk_size]
+        placeholders = ",".join("?" * len(batch_ids))
+        query = f"SELECT chunk_id, embedding FROM {tbl_name} WHERE chunk_id IN ({placeholders})"
+        cursor = conn.execute(query, tuple(int(x) for x in batch_ids))
+        for row in cursor.fetchall():
             by_id[int(row["chunk_id"])] = row["embedding"]
     for cand in candidates:
         cid = cand.get("chunk_id")
