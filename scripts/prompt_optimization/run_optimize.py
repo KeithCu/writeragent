@@ -9,7 +9,7 @@ Override model or endpoint via env or CLI.
 Usage:
   cd scripts/prompt_optimization
   pip install dspy-ai
-  export OPENROUTER_API_KEY="your-key"   # or OPENAI_API_KEY
+  export OPENROUTER_API_KEY="<your_api_key_here>"   # or OPENAI_API_KEY
   python run_optimize.py
   python run_optimize.py --model google/gemini-3.1-flash-lite-preview
   python run_optimize.py --model qwen/qwen3-coder-next --api-base https://openrouter.ai/api/v1
