@@ -19,14 +19,22 @@ _TIMEOUT_FALLBACK_MAX = 600
 # Spawn + auto-import prime in PythonWorkerManager._ensure_warmed — not charged against user timeout.
 WARM_WORKER_TIMEOUT_SEC = 30
 
-# Trusted vision helpers (model load / first download) — not charged against user script timeout.
+# Single long budget for trusted helpers known to take a long time
+# (OCR/layout via vision resolver, spaCy text analytics, SymPy symbolic,
+# embeddings, and any future additions in the LONG_TRUSTED_PREFIXES list).
+# These bypass the (often small) user-configured python_exec_timeout.
+LONG_TRUSTED_WORKER_TIMEOUT_SEC = 300
+
+# Vision-specific execution budgets (used by the vision resolver in client.py).
+# The general long trusted list (spaCy, SymPy, vision, etc.) uses LONG_TRUSTED_WORKER_TIMEOUT_SEC.
 VISION_WORKER_TIMEOUT_SEC = 120
-
-# Trusted embeddings RPC (sentence-transformers load, corpus ingest/search) — not user script timeout.
-EMBEDDINGS_WORKER_TIMEOUT_SEC = 120
-
-# Docling layout + OCR cold start can exceed the Paddle-only budget.
 DOCLING_WORKER_TIMEOUT_SEC = 300
+
+
+def long_trusted_worker_timeout_sec(_ctx: Any | None = None) -> int:
+    """Single long budget for the list of known long-running trusted helpers."""
+    del _ctx
+    return LONG_TRUSTED_WORKER_TIMEOUT_SEC
 
 # Settings → Python Test: host subprocess import probe (Docling cold import can exceed 5s).
 VISION_PROBE_TIMEOUT_SEC = 30
@@ -129,9 +137,9 @@ def configured_python_exec_timeout(ctx: Any) -> int:
 
 
 def embeddings_worker_timeout_sec(_ctx: Any | None = None) -> int:
-    """Wall-clock budget for trusted embeddings RPC in the venv worker (not user script timeout)."""
+    """Wall-clock budget for trusted embeddings RPC (uses the single long trusted budget)."""
     del _ctx
-    return EMBEDDINGS_WORKER_TIMEOUT_SEC
+    return long_trusted_worker_timeout_sec()
 
 
 # --- python_max_data_cells ---

@@ -11,7 +11,7 @@ from typing import Any
 from plugin.framework.errors import ToolExecutionError
 from plugin.scripting.config_limits import (
     configured_python_exec_timeout,
-    DOCLING_WORKER_TIMEOUT_SEC,
+    long_trusted_worker_timeout_sec,
     VISION_WORKER_TIMEOUT_SEC,
 )
 from plugin.vision.vision_common import resolve_engine
@@ -156,7 +156,7 @@ def run_symbolic(
     context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Execute a trusted symbolic helper in the user venv."""
-    timeout_sec = configured_python_exec_timeout(ctx)
+    timeout_sec = _resolve_trusted_timeout(ctx, _SYMBOLIC_SESSION_PREFIX)
     payload = {"spec": spec, "data": data, "context": context or {}}
     return _run_trusted_helper(
         ctx,
@@ -229,6 +229,22 @@ def run_optimize(
     )
 
 
+# --- Long-running trusted helpers (use the single long budget instead of user python_exec_timeout) ---
+# Vision is handled in its own resolver (also sources from the long budget for heavy paths).
+
+_LONG_TRUSTED_PREFIXES = frozenset({
+    "writeragent:text",
+    "writeragent:symbolic",
+})
+
+
+def _resolve_trusted_timeout(ctx: Any, session_id: str) -> int:
+    """Return the long budget for known slow calls, otherwise the user's standard timeout."""
+    if session_id in _LONG_TRUSTED_PREFIXES:
+        return long_trusted_worker_timeout_sec(ctx)
+    return configured_python_exec_timeout(ctx)
+
+
 # --- Vision ---
 
 _VISION_SESSION_PREFIX = "writeragent:vision"
@@ -239,14 +255,16 @@ result = _run(data["spec"], data.get("image"), data.get("context") or {})
 
 
 def _resolve_vision_timeout_sec(ctx: Any, spec: dict[str, Any] | str) -> int:
+    """Vision uses the long budget, with some engine-specific tuning + user override."""
+    long_budget = long_trusted_worker_timeout_sec(ctx)
     if isinstance(spec, str):
-        return DOCLING_WORKER_TIMEOUT_SEC
+        return long_budget
     if not isinstance(spec, dict):
-        return DOCLING_WORKER_TIMEOUT_SEC
+        return long_budget
     raw_params = spec.get("params")
     params: dict[str, Any] = raw_params if isinstance(raw_params, dict) else {}
     if resolve_engine(params) == "paddle":
-        return VISION_WORKER_TIMEOUT_SEC
+        return VISION_WORKER_TIMEOUT_SEC  # slightly lighter than full Docling
     if ctx is not None:
         try:
             from plugin.framework.config import get_config_int
@@ -256,7 +274,7 @@ def _resolve_vision_timeout_sec(ctx: Any, spec: dict[str, Any] | str) -> int:
                 return int(custom)
         except Exception:
             pass
-    return DOCLING_WORKER_TIMEOUT_SEC
+    return long_budget  # Docling default path uses the long trusted budget
 
 
 def run_vision(
@@ -353,7 +371,7 @@ def run_text_analytics(
     The heavy lifting (spaCy model load + processing) happens in the warm worker.
     Requires `spacy` + `textdescriptives` (and suitable models) in the configured venv.
     """
-    timeout_sec = configured_python_exec_timeout(ctx)
+    timeout_sec = _resolve_trusted_timeout(ctx, _TEXT_SESSION_PREFIX)
     payload = {"spec": spec, "text": text, "context": context or {}}
     return _run_trusted_helper(
         ctx,

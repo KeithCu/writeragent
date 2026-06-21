@@ -76,7 +76,7 @@ Users can ask the AI to run Monte Carlo simulations, statistics, or other librar
 |---------|-------------|---------|
 | `scripting.python_venv_path` | Absolute path to an existing venv directory | `~/.writeragent_venv` |
 | `scripting.python_session_mode` | **`isolated`** (default) or **`shared`** (Shared kernel for `=PYTHON()` cells) | `isolated` |
-| `scripting.python_exec_timeout` | Wall-clock limit (seconds) for Run Python Script, `=PYTHON()`, and `run_venv_python_script` (Vision Helpers use a separate internal budget — see [Image Recognition](image-recognition.md)) | `10` (default; range 1–600) |
+| `scripting.python_exec_timeout` | Wall-clock limit (seconds) for Run Python Script, `=PYTHON()`, and `run_venv_python_script`. Trusted long-running helpers (OCR, spaCy, SymPy, embeddings...) use a single internal long budget instead (see `LONG_TRUSTED_WORKER_TIMEOUT_SEC` + list in client.py). | `10` (default; range 1–600) |
 
 Module implementation: `plugin/scripting/` (no top-level `python/` package — avoids clashing with the stdlib name).
 
@@ -118,7 +118,9 @@ Both venv paths assign JSON-serializable output to **`result`**. NumPy arrays an
 | Writer / Draw chat, `domain=python` | No | Never — use document tools for content |
 | `=PYTHON(code, range)` | 2nd arg is the range | Yes |
 
-Wall-clock limit comes from **Settings → Python** (`scripting.python_exec_timeout`, default **10s**, max **600s**). It is not exposed on the LLM tool schema. That limit applies to **user code execution** only: the first request after worker spawn (or after a crash) runs an internal warm step (spawn + auto-imports) under a separate ~30s host budget (`WARM_WORKER_TIMEOUT_SEC` in [`config_limits.py`](plugin/scripting/config_limits.py)), not charged against your configured value. **Vision Helpers** use a separate `VISION_WORKER_TIMEOUT_SEC` budget (PaddleOCR load / model download) — see [Image Recognition](image-recognition.md).
+Wall-clock limit comes from **Settings → Python** (`scripting.python_exec_timeout`, default **10s**, max **600s**). It is not exposed on the LLM tool schema. That limit applies to **user code execution** only: the first request after worker spawn (or after a crash) runs an internal warm step (spawn + auto-imports) under a separate ~30s host budget (`WARM_WORKER_TIMEOUT_SEC` in [`config_limits.py`](plugin/scripting/config_limits.py)), not charged against your configured value.
+
+Trusted helpers that involve model loading or known long work (Vision/OCR, text analytics with spaCy, symbolic math with SymPy, embeddings, etc.) use a single internal long budget (`LONG_TRUSTED_WORKER_TIMEOUT_SEC`) instead of the user script timeout. See the list in [`client.py`](../plugin/scripting/client.py) and [Image Recognition](image-recognition.md).
 
 ### Two-phase LLM workflow
 
@@ -209,7 +211,7 @@ Host↔venv plumbing (module map, worker protocol, `python_max_data_cells`, benc
 | **Subprocess isolation** | Separate interpreter, no shared memory with LO | ABI crashes, segfaults in C extensions, UNO corruption |
 | **Environment scrubbing** | Strip secret-like env vars from child | Credential exfiltration via generated code |
 | **User-provided venv** | Explicit opt-in | User controls installed packages |
-| **Timeout** | Wall clock per user-code execute (`scripting.python_exec_timeout`, default 10s, max 600s); cold spawn + auto-import warm uses separate ~30s internal limit | Runaway computation |
+| **Timeout** | Standard: user `scripting.python_exec_timeout` for scripts + quick helpers. Long trusted ops (OCR, spaCy text analytics, SymPy, embeddings, ...) use one internal `LONG_TRUSTED...` budget. Warm uses ~30s. | Runaway computation |
 
 WriterAgent removed upstream’s `find_spec` import pre-check at executor init (see comment in vendored `local_python_executor.py`); missing packages fail when code imports them.
 

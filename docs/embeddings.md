@@ -277,7 +277,7 @@ Embeddings use **`WORKER_POOL_EMBEDDINGS`** — a second warm venv child isolate
 | `WORKER_POOL_DEFAULT` | Calc, chat `run_venv_python_script` |
 | `WORKER_POOL_EMBEDDINGS` | Folder maintain, `search_nearby_files`, Search dialog |
 
-Same `scripting.python_venv_path`; timeout from `embeddings_worker_timeout_sec` (120 s).
+Same `scripting.python_venv_path`; uses the single internal long trusted budget (via `embeddings_worker_timeout_sec` which delegates to `LONG_TRUSTED_WORKER_TIMEOUT_SEC`).
 
 ### Background indexer {#background-folder-indexer}
 

@@ -122,7 +122,7 @@ Mirror [**Analysis Helpers**](calc-analysis-tools.md#1b-run-python-script--analy
 6. OCR output is written as a multi-cell report starting one row below the image's anchor cell
 ```
 
-First Docling/Paddle model download uses a **dedicated vision worker timeout** (`DOCLING_WORKER_TIMEOUT_SEC` = 300s for Docling default, `VISION_WORKER_TIMEOUT_SEC` = 120s for `engine=paddle`; not Settings script timeout); subsequent runs reuse the warm worker.
+First Docling/Paddle model download uses the long trusted worker budget (Docling path full long, paddle slightly lower at the vision-specific value); not the user `scripting.python_exec_timeout`. Subsequent runs reuse the warm worker.
 
 ### 2.4 Applying results (host egress)
 
@@ -149,7 +149,7 @@ Docling pipeline defaults live in a **separate modeless dialog**, not on the cro
 | Related Settings key | Role |
 |---------------------|------|
 | `scripting.python_venv_path` | Must point at venv with Docling (+ optional Paddle fallback; + Ultralytics when using detection helpers) |
-| `scripting.python_exec_timeout` | User script limit only — **not** applied to Vision Helpers (see `vision.worker_timeout_sec`, `DOCLING_WORKER_TIMEOUT_SEC`, `VISION_WORKER_TIMEOUT_SEC`) |
+| `scripting.python_exec_timeout` | User script limit only — Vision (and other long trusted helpers like spaCy/SymPy) use the single internal long trusted budget (see `LONG_TRUSTED_WORKER_TIMEOUT_SEC` and the list in scripting/client.py). `vision.worker_timeout_sec` still allows per-vision override. |
 
 At OCR run time, [`merge_vision_params`](../plugin/vision/vision_common.py) merges persisted `vision.*` defaults with template `params` (template wins on conflict). Host RPC timeout honors `vision.worker_timeout_sec` when set ([`vision_client.py`](../plugin/framework/client/vision_client.py)).
 
@@ -699,7 +699,7 @@ User-visible strings (gettext-ready). Host may raise [`ToolExecutionError`](../p
 | Success (Writer/Calc) | Insert **`html`** at text cursor or cell below anchor; status — *Inserted formatted HTML* |
 | HTML looks like plain body text | Check log for `insert_vision_result:`; redeploy extension; confirm `css-inline` in venv. Headings need post-inline augment (see [§10 HTML pipeline](#html-insert-pipeline-and-expectations)) |
 | Success (Calc) | Multi-cell report below anchor; status — *Wrote N rows* |
-| Timeout | Docling uses `DOCLING_WORKER_TIMEOUT_SEC` (300s); Paddle uses `VISION_WORKER_TIMEOUT_SEC` (120s); user `python_exec_timeout` unchanged |
+| Timeout | Docling/Paddle use the long trusted budget (with paddle slightly lower); user `python_exec_timeout` unchanged. See scripting client resolver. |
 
 **UX note:** User clicks the **image** (graphic selected for export). **Text cursor** position sets insert location — they may differ.
 
@@ -720,7 +720,7 @@ User-visible strings (gettext-ready). Host may raise [`ToolExecutionError`](../p
 pip install docling rapidocr-paddle numpy pillow
 ```
 
-**First run:** Docling downloads layout + OCR models to user cache under `DOCLING_WORKER_TIMEOUT_SEC` (300s default). Paddle-only (`engine=paddle`) uses `VISION_WORKER_TIMEOUT_SEC` (120s). Neither uses `scripting.python_exec_timeout`.
+**First run:** Uses the single long trusted budget (vision resolver chooses appropriate value for engine + optional `vision.worker_timeout_sec` override). Does not use the user `scripting.python_exec_timeout`.
 
 **Self-check (shipped):** [`run_venv_self_check`](../plugin/scripting/venv_worker.py) merges a **host subprocess** probe for vision packages (not the sandboxed warm-worker diagnostic — `docling`/`paddleocr` are intentionally absent from the LLM/venv AST whitelist per §15):
 
