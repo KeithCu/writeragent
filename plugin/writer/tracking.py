@@ -24,7 +24,6 @@ track_changes_reject_all, and track_changes_show.
 Also includes tools for managing document comments (Annotations) in Writer only.
 """
 
-import datetime
 import logging
 from plugin.framework.constants import now_aware
 

@@ -5,14 +5,14 @@
   dlg:closeable="true" dlg:moveable="true" dlg:title="Text Analytics">
  <dlg:bulletinboard>
   <!-- Row 1 Buttons -->
-  <dlg:checkbox dlg:id="ChkScope" dlg:left="8" dlg:top="8" dlg:width="120" dlg:height="16" dlg:value="Whole Document" dlg:state="1" dlg:tabstop="true"/>
-    <dlg:button dlg:id="BtnRead" dlg:left="140" dlg:top="8" dlg:width="108" dlg:height="16" dlg:value="Readability" dlg:tabstop="true"/>
-  
-  <dlg:button dlg:id="BtnCheck"   dlg:left="232" dlg:top="8" dlg:width="120" dlg:height="16" dlg:value="Check Venv" dlg:tabstop="true"/>
+  <dlg:checkbox dlg:id="ChkScope" dlg:left="8" dlg:top="8" dlg:width="100" dlg:height="16" dlg:value="Whole Document" dlg:state="1" dlg:tabstop="true"/>
+  <dlg:button dlg:id="BtnRead" dlg:left="120" dlg:top="8" dlg:width="108" dlg:height="16" dlg:value="Readability" dlg:tabstop="true"/>
+  <dlg:button dlg:id="BtnCheck" dlg:left="232" dlg:top="8" dlg:width="108" dlg:height="16" dlg:value="Check Venv" dlg:tabstop="true"/>
 
   <!-- Row 2 Buttons -->
   <dlg:button dlg:id="BtnEntities" dlg:left="8" dlg:top="28" dlg:width="108" dlg:height="16" dlg:value="Entities" dlg:tabstop="true"/>
   <dlg:button dlg:id="BtnPhrases"  dlg:left="120" dlg:top="28" dlg:width="108" dlg:height="16" dlg:value="Key Phrases" dlg:tabstop="true"/>
+  <dlg:button dlg:id="BtnTopics"   dlg:left="232" dlg:top="28" dlg:width="108" dlg:height="16" dlg:value="Topics" dlg:tabstop="true"/>
 
   <dlg:text dlg:id="ResultsLbl" dlg:left="8" dlg:top="48" dlg:width="60" dlg:height="10" dlg:value="Results:" dlg:align="left" dlg:multiline="false"/>
   <dlg:textfield dlg:id="ResultsEdit" dlg:left="8" dlg:top="60" dlg:width="344" dlg:height="148" dlg:tabstop="true" dlg:readonly="true" dlg:multiline="true" dlg:vscroll="true"/>

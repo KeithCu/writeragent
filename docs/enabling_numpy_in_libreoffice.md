@@ -382,7 +382,7 @@ The implementation should follow the [Domain helper pattern](#domain-helper-patt
 | 1 | **Visualization & Plotting** | **Shipped** (Phase A–C) | `plot_data`, `[Viz] quick_plot` |
 | 2 | **Time Series & Forecasting** | Partial building blocks in analysis | `forecast_time_series` |
 | 3 | **Symbolic Mathematics** | **Shipped** (SymPy only; Sage deferred) | `symbolic_math`, `[Math] solve_equation` |
-| 4 | **Text / Document Analytics** | Outline/tree tools only | `readability_scores`, `[Text Analysis] …` |
+| 4 | **Text / Document Analytics** | spaCy features shipped; `topics` (NMF) added | readability, entities, key_phrases, **topics** (section-aware) |
 | 5 | **Optimization & OR** | Partial (scipy, `monte_carlo`) | `optimize_portfolio` |
 | 6 | **Geospatial** | Not started | `[Geo] map_data` |
 | 7 | **Audio / Signal Processing** | Recording shipped; no librosa analysis | Spectrogram via Viz egress |
@@ -589,7 +589,7 @@ Units     | kilometer / hour
 
 ### 4. Text / Document Analytics {#text-analytics}
 
-**Status:** High-quality spaCy implementation (multilingual via textdescriptives + spaCy pipelines). Exposed via modeless dialog (Writer), Run Python Script templates (Writer), direct imports, and Settings Python self-check. No stdlib fallback.
+**Status:** High-quality spaCy implementation (multilingual via textdescriptives + spaCy pipelines) plus `topics` (NMF) using scikit-learn. Exposed via modeless dialog (Writer), Run Python Script templates (Writer), direct imports, and Settings Python self-check. No stdlib fallback.
 
 **Goal:** Readability, topic structure, key phrases, sentiment by section, and cross-document comparison for reports and long-form Writer content.
 
@@ -604,19 +604,28 @@ Units     | kilometer / hour
 - Key phrases (noun chunks)
 - Linguistic profile
 
+**Fancier: Topics**
+
+`topics` helper (added in 2026) performs lightweight topic modeling with TF-IDF + NMF from scikit-learn. It is especially useful on whole documents because the host extracts logical sections (using the heading tree) and passes a list of section texts. The result includes:
+
+- Top terms per topic
+- (When sections are provided) dominant topic + strength per section
+
+This gives writers an at-a-glance "map" of the major themes and where they appear — exactly the "topic structure" goal.
+
 **Module:** `plugin/scripting/text_analytics.py` (real spaCy + textdescriptives implementation; runs inside the user venv).
 
-**UI (minimal):** WriterAgent → **Text Analytics...** opens a modeless dialog with a few buttons (Readability doc/sel, Entities, Insert report). All work is done with real spaCy pipelines in your configured Python venv (Settings → Python).
+**UI (minimal):** WriterAgent → **Text Analytics...** opens a modeless dialog with buttons for Readability (doc/sel), Entities, Key Phrases, **Topics**, Check Venv, and "Insert report here". All work is done with real spaCy pipelines (or sklearn for topics) in your configured Python venv (Settings → Python).
 
-**Run Python Script (Writer):** "Text Analytics Helpers" section with built-in templates for `full`, `readability`, `entities`, and `key_phrases`. Select text or run on the whole document; results insert as a compact HTML table after the caret/selection. Scripts use the header `# writeragent:text helper=...` and call `from writeragent.scripting.text_analytics import run_text_analytics`.
+**Run Python Script (Writer):** "Text Analytics Helpers" section with built-in templates for `full`, `readability`, `entities`, `key_phrases`, and `topics`. Select text or run on the whole document (topics prefers whole-doc section extraction); results insert as a compact HTML table after the caret/selection. Scripts use the header `# writeragent:text helper=...` and call `from writeragent.scripting.text_analytics import run_text_analytics`.
 
-**Settings → Python Test:** Reports a "Text / NLP Libraries" group (spacy, textdescriptives). Install hint: `uv pip install spacy textdescriptives && python -m spacy download xx_sent_ud_sm`.
+**Settings → Python Test:** Reports a "Text / NLP Libraries" group (spacy, textdescriptives). For topics also install scikit-learn (usually already present if you use the Data Analysis / EDA stack). Install hint: `uv pip install spacy textdescriptives scikit-learn && python -m spacy download xx_sent_ud_sm`.
 
-**Requirements in the venv:** `spacy` + `textdescriptives` + at least one model (`xx_sent_ud_sm` recommended for multilingual, or language-specific models for best accuracy). The document's `CharLocale` (if present) is passed to prefer a better model.
+**Requirements in the venv:** `spacy` + `textdescriptives` + at least one model for the spaCy features. `scikit-learn` for the `topics` helper. The document's `CharLocale` (if present) is passed to prefer a better model for spaCy.
 
 **Direct use:** From any `run_venv_python_script` or Run Python Script you can `from writeragent.scripting.text_analytics import analyze_text, run_text_analytics`.
 
-**No LLM tool surface** for this helper yet; access via the dialog or by writing/running scripts.
+**No LLM tool surface** for this helper yet; access via the dialog or by writing/running scripts. The LLM can still reach it via the `python` domain / `run_venv_python_script` or by invoking the trusted helper directly.
 
 ---
 

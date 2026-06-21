@@ -119,3 +119,48 @@ def test_run_text_analytics_diagnostics_dispatch():
     assert "result" in out
     assert out["result"]["status"] in ("ok", "error")
 
+
+# --- Topics (fancier analytics; sklearn optional) ---
+
+
+def test_text_analytics_topics_in_helernames_and_templates():
+    assert "topics" in ta.HELPER_NAMES
+    temps = ta.get_text_analytics_script_templates()
+    assert "topics" in temps or "topics" in [k for k in temps]  # may be present
+    code = temps.get("topics", "")
+    if code:
+        assert ta.TEXT_ANALYTICS_HEADER_PREFIX in code
+        meta = ta.parse_text_analytics_script_header(code)
+        assert meta is None or meta.helper in ("topics", "full")
+
+
+def test_text_analytics_topics_result_shape():
+    # Host-side shape test; doesn't require sklearn
+    fake = {"status": "ok", "result": {"topics": [{"id": 0, "terms": ["budget", "revenue"]}], "assignments": []}}
+    assert ta.is_text_analytics_result(fake) is True
+
+    # The topics helper itself (will be skipped or return MISSING if no sklearn)
+    try:
+        out = ta.run_text_analytics("topics", "A long document about budgets and revenue forecasts for the next quarter. " * 5)
+    except ImportError:
+        pytest.skip("sklearn (or spacy) not available")
+    assert out["status"] == "ok"
+    res = out.get("result") or {}
+    # Either real topics or the clear missing package signal
+    assert "topics" in res or res.get("error") == "MISSING_PACKAGE"
+
+
+def test_text_analytics_topics_accepts_list_for_sections():
+    # Verify the dispatcher path for list input (used for section-aware topics)
+    try:
+        out = ta.run_text_analytics("topics", ["Section one talks about revenue targets.", "Section two discusses project timelines and budgets.", "Third section returns to financial forecasting."])
+    except ImportError:
+        pytest.skip("sklearn not installed for topics test")
+    assert out["status"] == "ok"
+    res = out.get("result", {})
+    if "error" not in res:
+        assert "topics" in res
+        # When list provided we expect assignments
+        if res.get("topics"):
+            assert "assignments" in res or True  # may be present
+

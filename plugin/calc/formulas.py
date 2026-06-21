@@ -29,7 +29,6 @@ Provides built-in Calc function discovery and arbitrary formula pre-evaluation t
 > `finally` block before returning.
 """
 
-import datetime
 from plugin.framework.constants import now_aware
 import logging
 from typing import Any, cast
@@ -171,7 +170,6 @@ class EvaluateFormula(ToolCalcErrorBase):
         except Exception as e:
             raise ToolExecutionError(f"Failed to get active sheet: {str(e)}") from e
 
-        from plugin.framework.constants import now_aware
         temp_sheet_name = f"__wa_eval_copy_{int(now_aware().timestamp())}_0__"
 
         # Ensure name uniqueness

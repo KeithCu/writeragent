@@ -9,6 +9,7 @@ The dialog extracts text on the host and ships it to the warm worker via the cli
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from typing import Any
 
 import unohelper
@@ -32,6 +33,7 @@ class TextAnalyticsDialog:
       - Readability (doc) / (sel)   → textdescriptives readability + stats
       - Entities                    → spaCy NER (multilingual)
       - Key Phrases                 → noun chunks
+      - Topics                      → NMF topic model (uses sections for structure)
       - Insert report here          → appends a clean table after the caret/selection
     """
 
@@ -113,6 +115,7 @@ class TextAnalyticsDialog:
         dlg.getControl("BtnRead").addActionListener(_Btn(lambda d: owner._compute(d, "readability", scope)))
         dlg.getControl("BtnEntities").addActionListener(_Btn(lambda d: owner._compute(d, "entities", scope)))
         dlg.getControl("BtnPhrases").addActionListener(_Btn(lambda d: owner._compute(d, "key_phrases", scope)))
+        dlg.getControl("BtnTopics").addActionListener(_Btn(lambda d: owner._compute(d, "topics", "whole")))  # topics work best on whole-doc sections
         dlg.getControl("BtnCheck").addActionListener(_Btn(lambda d: owner._compute(d, "diagnostics", "whole")))
 
         dlg.getControl("BtnInsert").addActionListener(_Btn(lambda d: owner._insert_report(d)))
@@ -158,8 +161,20 @@ class TextAnalyticsDialog:
             res_ctrl.getModel().Text = _("Open a Writer document to analyze.")
             return
 
-        raw = self._get_text(doc, scope)
-        if not raw or len(raw.strip()) < 20:
+        raw: str | list[str] = self._get_text(doc, scope)
+        # Topics benefit enormously from section structure (heading + body groups).
+        # When the user clicks Topics we force whole-doc section extraction on the host
+        # before shipping the list to the trusted worker.
+        if helper == "topics":
+            try:
+                from plugin.scripting.text_analytics import _get_writer_sections
+                secs = _get_writer_sections(doc)
+                if secs:
+                    raw = secs  # list[str] is supported by the topics helper
+            except Exception:
+                pass  # fall back to flat text
+
+        if not raw or (isinstance(raw, str) and len(raw.strip()) < 20) or (isinstance(raw, list) and len(raw) == 0):
             res_ctrl.getModel().Text = _("Not enough text in the chosen scope.")
             return
 
@@ -249,6 +264,30 @@ class TextAnalyticsDialog:
                 lines.append(f"  {kp.get('text')} (lemma: {kp.get('lemma')})")
             if len(kps) > 30:
                 lines.append(f"  ... and {len(kps)-30} more")
+            return "\n".join(lines)
+
+        if helper == "topics":
+            tops = data.get("topics") or []
+            if not tops:
+                err = data.get("error") or data.get("note")
+                if err:
+                    return f"Topics: {err}\n\n(For topic modeling install scikit-learn from the analysis stack.)"
+                return "No topics found."
+            lines.append(f"Topics ({len(tops)}):")
+            for t in tops:
+                tid = t.get("id")
+                terms = ", ".join(t.get("terms", [])[:6])
+                lines.append(f"  Topic {tid}: {terms}")
+            assigns = data.get("assignments") or []
+            if assigns:
+                lines.append(f"\nSection assignments ({len(assigns)}):")
+                # Show a compact summary
+                cnt = Counter(a.get("dominant_topic") for a in assigns)
+                for tid, c in sorted(cnt.items()):
+                    lines.append(f"  Topic {tid}: {c} section(s)")
+            meta = data.get("meta") or {}
+            if meta:
+                lines.append(f"\nMeta: {meta}")
             return "\n".join(lines)
 
         # Fallback pretty print

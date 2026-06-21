@@ -16,7 +16,6 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Writer comment / annotation tools."""
 
-import datetime
 from plugin.framework.constants import now_aware
 import logging
 import uno
