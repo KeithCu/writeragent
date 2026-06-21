@@ -61,19 +61,47 @@ def _load_nlp(lang: str | None = None) -> Any:
         elif lang == "es":
             candidates.extend(["es_core_news_sm", "es_core_news_md", "es_core_news_lg"])
         elif lang == "it":
-            candidates.extend(["it_core_news_sm"])
+            candidates.extend(["it_core_news_sm", "it_core_news_md", "it_core_news_lg"])
         elif lang == "pt":
-            candidates.extend(["pt_core_news_sm"])
+            candidates.extend(["pt_core_news_sm", "pt_core_news_md", "pt_core_news_lg"])
         elif lang == "ru":
-            candidates.extend(["ru_core_news_sm"])
+            candidates.extend(["ru_core_news_sm", "ru_core_news_md", "ru_core_news_lg"])
         elif lang == "zh":
-            candidates.extend(["zh_core_web_sm"])
+            candidates.extend(["zh_core_web_sm", "zh_core_web_md", "zh_core_web_lg"])
         elif lang == "ja":
-            candidates.extend(["ja_core_news_sm"])
+            candidates.extend(["ja_core_news_sm", "ja_core_news_md", "ja_core_news_lg"])
         elif lang == "nl":
-            candidates.extend(["nl_core_news_sm"])
+            candidates.extend(["nl_core_news_sm", "nl_core_news_md", "nl_core_news_lg"])
+        elif lang == "ko":
+            candidates.extend(["ko_core_news_sm", "ko_core_news_md", "ko_core_news_lg"])
+        elif lang == "pl":
+            candidates.extend(["pl_core_news_sm", "pl_core_news_md", "pl_core_news_lg"])
+        elif lang == "ca":
+            candidates.extend(["ca_core_news_sm", "ca_core_news_md", "ca_core_news_lg"])
+        elif lang == "da":
+            candidates.extend(["da_core_news_sm", "da_core_news_md", "da_core_news_lg"])
+        elif lang == "el":
+            candidates.extend(["el_core_news_sm", "el_core_news_md", "el_core_news_lg"])
+        elif lang == "fi":
+            candidates.extend(["fi_core_news_sm", "fi_core_news_md", "fi_core_news_lg"])
+        elif lang == "hr":
+            candidates.extend(["hr_core_news_sm", "hr_core_news_md", "hr_core_news_lg"])
+        elif lang == "lt":
+            candidates.extend(["lt_core_news_sm", "lt_core_news_md", "lt_core_news_lg"])
+        elif lang == "mk":
+            candidates.extend(["mk_core_news_sm"])
+        elif lang == "nb":
+            candidates.extend(["nb_core_news_sm", "nb_core_news_md", "nb_core_news_lg"])
+        elif lang == "ro":
+            candidates.extend(["ro_core_news_sm", "ro_core_news_md", "ro_core_news_lg"])
+        elif lang == "sl":
+            candidates.extend(["sl_core_news_sm", "sl_core_news_md", "sl_core_news_lg"])
+        elif lang == "sv":
+            candidates.extend(["sv_core_news_sm", "sv_core_news_md", "sv_core_news_lg"])
+        elif lang == "uk":
+            candidates.extend(["uk_core_news_sm", "uk_core_news_md", "uk_core_news_lg"])
         # Add more as needed; the multilingual fallback will catch the rest.
-
+ 
         # Also try the xx multilingual for the language if a specific one exists
         candidates.append("xx_sent_ud_sm")
 
@@ -320,15 +348,25 @@ def _extract_sentiment(text: str | list[str], params: dict[str, Any] | None = No
 
     try:
         from transformers import pipeline
-        # device=-1 forces CPU for broad compatibility in user venvs.
-        # The model is loaded once per warm worker invocation.
-        clf = pipeline("sentiment-analysis", model=model, device=-1)
     except Exception as exc:
         return {
             "overall": {"score": 0.0, "label": "neutral"},
             "error": "MISSING_PACKAGE",
             "install_hint": "transformers (with CPU torch) for multilingual sentiment",
             "install": "uv pip install transformers torch --index-url https://download.pytorch.org/whl/cpu",
+            "detail": f"Could not import transformers: {str(exc)}",
+        }
+
+    try:
+        # Let device fall back to default behavior.
+        # The model is loaded once per warm worker invocation.
+        clf = pipeline("sentiment-analysis", model=model)
+    except Exception as exc:
+        return {
+            "overall": {"score": 0.0, "label": "neutral"},
+            "error": "SENTIMENT_MODEL_LOAD_FAILED",
+            "install_hint": f"Failed to load model '{model}'. This may be a download, cache, network, compatibility, or missing tokenizer library issue (e.g. sentencepiece). Not just the base package.",
+            "install": "uv pip install transformers torch sentencepiece  (and ensure network access for first model download)",
             "detail": str(exc),
         }
 
@@ -450,12 +488,60 @@ def analyze_text(text: str, *, lang: str | None = None, context: dict[str, Any] 
     return {"status": "ok", "result": result}
 
 
-def check_diagnostics() -> dict[str, Any]:
-    """Perform self-diagnostics of the spaCy + textdescriptives + transformers (for sentiment) installation.
+def check_diagnostics(lang: str | None = None) -> dict[str, Any]:
+    """Perform self-diagnostics of the packages needed by Text Analytics features.
 
-    Updated to cover the new multilingual sentiment implementation (transformers + XLM-RoBERTa model)
-    in addition to the original spaCy features.
+    This runs *inside the worker* using whatever python the extension resolved
+    (based on Settings → Python → python_venv_path, or falling back to LO's python).
+
+    Reports on:
+      - spaCy + models (for entities, key phrases, basic stats, language)
+      - textdescriptives (for real Readability scores)
+      - transformers + torch (for the Sentiment feature using a good multilingual model)
+
+    The output includes the python executable being used and the exact install command.
     """
+    # Always capture the python the worker is actually using.
+    import sys
+    python_exe = getattr(sys, "executable", "unknown")
+
+    lang = (lang or "").lower().strip()[:2] or None
+    recommended_model = "xx_sent_ud_sm"
+    if lang:
+        lang_model_map = {
+            "en": "en_core_web_sm",
+            "de": "de_core_news_sm",
+            "es": "es_core_news_sm",
+            "fr": "fr_core_news_sm",
+            "it": "it_core_news_sm",
+            "pt": "pt_core_news_sm",
+            "ru": "ru_core_news_sm",
+            "zh": "zh_core_web_sm",
+            "ja": "ja_core_news_sm",
+            "nl": "nl_core_news_sm",
+            "ko": "ko_core_news_sm",
+            "pl": "pl_core_news_sm",
+            "ca": "ca_core_news_sm",
+            "da": "da_core_news_sm",
+            "el": "el_core_news_sm",
+            "fi": "fi_core_news_sm",
+            "hr": "hr_core_news_sm",
+            "lt": "lt_core_news_sm",
+            "mk": "mk_core_news_sm",
+            "nb": "nb_core_news_sm",
+            "ro": "ro_core_news_sm",
+            "sl": "sl_core_news_sm",
+            "sv": "sv_core_news_sm",
+            "uk": "uk_core_news_sm",
+        }
+        recommended_model = lang_model_map.get(lang, "xx_sent_ud_sm")
+
+    # Full command needed for everything the dialog supports.
+    text_analytics_install = (
+        "uv pip install spacy textdescriptives transformers torch && "
+        f"python -m spacy download {recommended_model}"
+    )
+
     try:
         import spacy
         has_td = False
@@ -477,28 +563,42 @@ def check_diagnostics() -> dict[str, Any]:
                 except Exception:
                     pass
 
-        # New: check for transformers (used by sentiment)
+        # Transformers + torch (for Sentiment)
         has_transformers = False
         transformers_version = None
+        has_torch = False
+        torch_version = None
         try:
             import transformers
             has_transformers = True
             transformers_version = getattr(transformers, "__version__", "unknown")
+            try:
+                import torch
+                has_torch = True
+                torch_version = str(getattr(torch, "__version__", "unknown"))
+            except ImportError:
+                pass
         except ImportError:
             pass
 
         return {
             "status": "ok",
+            "python_used_by_worker": python_exe,
             "spacy_version": getattr(spacy, "__version__", "unknown"),
             "has_textdescriptives": has_td,
             "models": models,
             "has_transformers": has_transformers,
             "transformers_version": transformers_version,
+            "has_torch": has_torch,
+            "torch_version": torch_version,
+            "text_analytics_install": text_analytics_install,
         }
     except Exception as e:
         return {
             "status": "error",
+            "python_used_by_worker": python_exe,
             "message": str(e),
+            "text_analytics_install": text_analytics_install,
         }
 
 
@@ -522,7 +622,8 @@ def run_text_analytics(
         params = {}
 
     if helper in ("diagnostics", "check"):
-        return {"status": "ok", "result": check_diagnostics()}
+        lang = params.get("lang") or (context or {}).get("lang")
+        return {"status": "ok", "result": check_diagnostics(lang=lang)}
 
     # Preserve original list form for section-aware helpers (topics, sentiment).
     # Only join for helpers that expect a single string.

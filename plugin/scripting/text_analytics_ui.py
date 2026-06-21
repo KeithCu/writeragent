@@ -34,7 +34,8 @@ class TextAnalyticsDialog:
       - Entities                    → spaCy NER (multilingual)
       - Key Phrases                 → noun chunks
       - Topics                      → NMF topic model (uses sections for structure)
-      - Sentiment                   → lexicon-based sentiment by section (whole doc)
+      - Sentiment                   → multilingual transformers sentiment by section (whole doc)
+      - Check Venv                    → reports status of spacy, textdescriptives, transformers (for new features)
       - Insert report here          → appends a clean table after the caret/selection
     """
 
@@ -111,11 +112,9 @@ class TextAnalyticsDialog:
             def disposing(self, Source):
                 pass
 
-        chk = dlg.getControl("ChkScope")
-        scope = "whole" if (chk.State == 1) else "selection"
-        dlg.getControl("BtnRead").addActionListener(_Btn(lambda d: owner._compute(d, "readability", scope)))
-        dlg.getControl("BtnEntities").addActionListener(_Btn(lambda d: owner._compute(d, "entities", scope)))
-        dlg.getControl("BtnPhrases").addActionListener(_Btn(lambda d: owner._compute(d, "key_phrases", scope)))
+        dlg.getControl("BtnRead").addActionListener(_Btn(lambda d: owner._compute(d, "readability", "whole" if (d.getControl("ChkScope").State == 1) else "selection")))
+        dlg.getControl("BtnEntities").addActionListener(_Btn(lambda d: owner._compute(d, "entities", "whole" if (d.getControl("ChkScope").State == 1) else "selection")))
+        dlg.getControl("BtnPhrases").addActionListener(_Btn(lambda d: owner._compute(d, "key_phrases", "whole" if (d.getControl("ChkScope").State == 1) else "selection")))
         dlg.getControl("BtnTopics").addActionListener(_Btn(lambda d: owner._compute(d, "topics", "whole")))  # topics work best on whole-doc sections
         dlg.getControl("BtnSentiment").addActionListener(_Btn(lambda d: owner._compute(d, "sentiment", "whole")))  # sentiment works best on whole-doc sections
         dlg.getControl("BtnCheck").addActionListener(_Btn(lambda d: owner._compute(d, "diagnostics", "whole")))
@@ -144,14 +143,34 @@ class TextAnalyticsDialog:
 
         if helper in ("diagnostics", "check"):
             res_ctrl.getModel().Text = _("Checking spaCy / textdescriptives / transformers installation...")
+            doc = get_active_document(ctx)
+            doc_lang = get_doc_language(doc) if doc else None
             try:
                 result = run_text_analytics(
                     ctx,
                     spec={"helper": helper},
+                    context={"lang": doc_lang} if doc_lang else None
                 )
             except Exception as e:
                 log.exception("Text analytics worker call failed")
-                res_ctrl.getModel().Text = _("Error: %s\n\n(Make sure spaCy is installed in your Python venv.)") % e
+                # Show everything right here. No redirect to Settings.
+                err_msg = str(e)
+                install = (
+                    "uv pip install spacy textdescriptives transformers torch "
+                    "--index-url https://download.pytorch.org/whl/cpu && "
+                    "python -m spacy download xx_sent_ud_sm"
+                )
+                res_ctrl.getModel().Text = _(
+                    "Error from the Text Analytics worker:\n{err}\n\n"
+                    "The features in this dialog require these packages in the python it is using:\n"
+                    "  • spacy + a model          (entities, key phrases, basic stats)\n"
+                    "  • textdescriptives         (real Readability scores)\n"
+                    "  • transformers + torch     (Sentiment using the multilingual model)\n\n"
+                    "Install them with:\n"
+                    "  {install}\n\n"
+                    "The worker reported the module as missing. Verify the packages are installed "
+                    "in the exact python executable the worker resolved for your configured venv."
+                ).format(err=err_msg, install=install)
                 return
 
             self._last_result = result
@@ -179,7 +198,7 @@ class TextAnalyticsDialog:
             res_ctrl.getModel().Text = _("Not enough text in the chosen scope.")
             return
 
-        res_ctrl.getModel().Text = _("Analyzing with spaCy...")
+        res_ctrl.getModel().Text = _("Analyzing...")
 
         try:
             lang = get_doc_language(doc)
@@ -195,7 +214,7 @@ class TextAnalyticsDialog:
             )
         except Exception as e:
             log.exception("Text analytics worker call failed")
-            res_ctrl.getModel().Text = _("Error: %s\n\n(Make sure transformers + torch (CPU) and a model are installed in your Python venv for sentiment.)") % e
+            res_ctrl.getModel().Text = _("Error: %s\n\nRequired packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc.") % e
             return
 
         self._last_result = result
@@ -210,9 +229,16 @@ class TextAnalyticsDialog:
 
         if helper in ("diagnostics", "check"):
             if data.get("status") == "error":
-                return f"Diagnostics Error:\n{data.get('message')}"
+                install = data.get("text_analytics_install", "")
+                py = data.get("python_used_by_worker", "unknown")
+                msg = f"Diagnostics Error (worker python: {py}):\n{data.get('message')}"
+                if install:
+                    msg += f"\n\nFull requirements for Text Analytics features:\n  {install}"
+                return msg
             
-            lines.append("Text Analytics Diagnostics:")
+            lines.append("Text Analytics Diagnostics (inside the actual worker python):")
+            py = data.get("python_used_by_worker", "unknown")
+            lines.append(f"  Python executable used: {py}")
             lines.append(f"  spaCy version: {data.get('spacy_version', 'N/A')}")
             lines.append(f"  textdescriptives: {'Installed' if data.get('has_textdescriptives') else 'Missing'}")
             
@@ -222,12 +248,25 @@ class TextAnalyticsDialog:
                 for m in models:
                     lines.append(f"    - {m}")
             else:
-                lines.append("  No models detected/loaded. Install one using e.g. 'python -m spacy download xx_sent_ud_sm'")
+                lines.append("  No models detected/loaded.")
             
-            # New: report on transformers (for the multilingual sentiment feature)
+            # New multilingual Sentiment (transformers)
             lines.append(f"  transformers: {'Installed' if data.get('has_transformers') else 'Missing'}")
             if data.get('has_transformers'):
                 lines.append(f"  transformers version: {data.get('transformers_version', 'N/A')}")
+            lines.append(f"  torch: {'Installed' if data.get('has_torch') else 'Missing'}")
+            if data.get('has_torch'):
+                lines.append(f"  torch version: {data.get('torch_version', 'N/A')}")
+            
+            install = data.get("text_analytics_install")
+            if install:
+                lines.append("\nPackages needed for everything this dialog supports")
+                lines.append("(Readability with real scores, Entities, Key Phrases, Topics, Sentiment, etc.):")
+                lines.append(f"  {install}")
+            
+            # Self-contained instructions, no mention of other dialogs.
+            lines.append("\nInstall the packages listed above into the Python the worker is using.")
+            lines.append("Click Check Venv again after installing.")
             
             return "\n".join(lines)
 
@@ -301,17 +340,50 @@ class TextAnalyticsDialog:
             if not sent or "score" not in sent:
                 err = data.get("error") or data.get("note")
                 if err:
-                    return f"Sentiment: {err}"
+                    hint = data.get("install_hint", "")
+                    install = data.get("install", "")
+                    detail = data.get("detail", "")
+                    msg = f"Sentiment error: {err}"
+                    if "MISSING_PACKAGE" in str(err):
+                        msg = "Sentiment: MISSING_PACKAGE (the transformers package or its dependencies could not be imported)"
+                    elif "MODEL_LOAD_FAILED" in str(err) or "LOAD_FAILED" in str(err):
+                        msg = "Sentiment: model load failed (package is present, but loading the model/tokenizer failed)"
+                    if hint:
+                        msg += f"\n\n{hint}"
+                    if install:
+                        msg += f"\n\nSuggested install: {install}"
+                    if detail:
+                        msg += f"\n\nReal error details from the worker process:\n{detail}"
+                    return msg
+                return "No sentiment data."
+        if helper == "sentiment":
+            sent = data.get("sentiment") or {}
+            if not sent or "score" not in sent:
+                err = data.get("error") or data.get("note")
+                if err:
+                    hint = data.get("install_hint", "")
+                    install = data.get("install", "")
+                    detail = data.get("detail", "")
+                    msg = f"Sentiment error: {err}"
+                    if "MISSING_PACKAGE" in str(err):
+                        msg = "Sentiment: MISSING_PACKAGE (the transformers package or its dependencies could not be imported)"
+                    elif "MODEL_LOAD_FAILED" in str(err) or "LOAD_FAILED" in str(err):
+                        msg = "Sentiment: model load failed (package is present, but loading the model/tokenizer failed)"
+                    if hint:
+                        msg += f"\n\n{hint}"
+                    if install:
+                        msg += f"\n\nSuggested install: {install}"
+                    if detail:
+                        msg += f"\n\nReal error details from the worker process:\n{detail}"
+                    return msg
                 return "No sentiment data."
             lines.append(f"Sentiment: {sent.get('label')} (score: {sent.get('score')})")
             per = data.get("per_section") or []
             if per:
                 lines.append(f"\nBy section ({len(per)}):")
-                for p in per[:6]:
+                for p in per:
                     idx = p.get("section_index")
                     lines.append(f"  [{idx}] {p.get('label')} ({p.get('score')})")
-                if len(per) > 6:
-                    lines.append(f"  ... and {len(per)-6} more")
             return "\n".join(lines)
 
         # Fallback pretty print
