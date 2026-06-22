@@ -293,3 +293,36 @@ class TestTypingIntegration:
             res = pr.doProofreading("test-doc", edited_text, mock_locale_fixture, 0, len(edited_text), ())
         assert len(enqueued_items) == 1
         assert len(res.aErrors) == 2
+
+    def test_partial_cache_hit_returns_cached_errors_and_enqueues_uncached(
+        self, mock_config_fixture, mock_locale_fixture, mock_queue_fixture
+    ) -> None:
+        """Characterization: partial miss returns cached squiggles immediately and enqueues only misses."""
+        pr = _make_proofreader()
+        s1, s2, s3 = "Alpha sentence.", "Beta sentence.", "Gamma sentence."
+        paragraph = f"{s1} {s2} {s3}"
+        gc.cache_put_sentence("en-US", s1, [{"n_error_start": 0, "n_error_length": 1, "rule_identifier": "r1"}], ctx=pr.ctx, doc_id="test-doc")
+        gc.cache_put_sentence("en-US", s3, [{"n_error_start": 0, "n_error_length": 1, "rule_identifier": "r3"}], ctx=pr.ctx, doc_id="test-doc")
+
+        enqueued_items: list[Any] = []
+        mock_queue_fixture.enqueue.side_effect = lambda item: enqueued_items.append(item)
+
+        with patch("plugin.writer.locale.grammar_proofread_text.split_into_sentences") as mock_split:
+            off2 = len(s1) + 1
+            off3 = off2 + len(s2) + 1
+            mock_split.return_value = [(0, s1), (off2, s2), (off3, s3)]
+            res = pr.doProofreading("test-doc", paragraph, mock_locale_fixture, 0, len(paragraph), ())
+
+        assert len(res.aErrors) == 2
+        assert len(enqueued_items) == 1
+        assert enqueued_items[0].text == s2
+
+    def test_do_proofreading_exception_returns_empty_result(
+        self, mock_config_fixture, mock_locale_fixture, mock_queue_fixture
+    ) -> None:
+        """Characterization: unexpected errors in span resolution return an empty result, not a crash."""
+        pr = _make_proofreader()
+        with patch.object(pr, "_resolve_work_spans", side_effect=RuntimeError("span resolution failed")):
+            res = pr.doProofreading("test-doc", "Hello.", mock_locale_fixture, 0, 6, ())
+        assert res.aErrors == ()
+        mock_queue_fixture.enqueue.assert_not_called()

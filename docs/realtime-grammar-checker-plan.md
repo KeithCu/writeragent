@@ -11,7 +11,7 @@
 | **Concepts and behavior** | UNO proofreader API basics, product boundaries, sentence vs paragraph scheduling |
 | **Shipped implementation reference** | Module map, settings keys, runtime/cache/queue behavior, tests |
 | **Open backlog** | Remaining work items |
-| **Appendices** | [Dialogue / BreakIterator split limitation](#appendix-e-dialogue-splits), doc-maintenance pointers |
+| **Appendices** | [Dialogue / BreakIterator split limitation](#appendix-e-dialogue-splits) |
 
 ### At a glance
 
@@ -195,6 +195,20 @@ The native grammar checker pairs **sentence-bound work units** with **sentence-l
 - **Paragraph batching (chunked)**: Grouped sentences from the same paragraph/context are sent to the LLM in batches. Chunks respect **`doc.grammar_proofreader_batch_sentences`** (hard-capped by **`GRAMMAR_BATCH_MAX_SENTENCES = 8`**). This reduces latency and token overhead during full-paragraph checks or document loads when set to values greater than 1.
 - **Empty LLM content (single sentence)**: Some reasoning models (e.g. Inception Mercury via OpenRouter) may return `content: null` with `finish_reason: stop` instead of `{"errors": []}`. Grammar does **not** retry those calls; a single-sentence empty body is treated as **no issues**, cached as a clean row, and logged at DEBUG only. Batch mode still treats a wholly empty/unparseable response as a failure (no cache). Tradeoff: a true provider outage on one sentence could skip flagging until the text changes and invalidates cache.
 
+<a id="language-detection-shipped"></a>
+
+#### Language detection (shipped)
+
+Settings key **`doc.grammar_proofreader_detect_language`** (Doc tab: **Off** / **AI (LLM)** / **Local (langdetect)**). When not **Off**, the worker compares each complete sentence’s detected language to the document `CharLocale`; on mismatch it updates paragraph locale and re-queues grammar in the detected language ([`detect_languages_for_chunk`](../plugin/writer/locale/grammar_worker_llm.py), [`grammar_work_queue.py`](../plugin/writer/locale/grammar_work_queue.py)).
+
+| Mode | Implementation |
+|------|----------------|
+| **Off** | No detection; grammar uses document locale only. |
+| **AI (LLM)** | Batch or single-sentence API call via `language_detect_llm_sync`; shares `grammar_llm_request_gate` with grammar HTTP. |
+| **Local (langdetect)** | Vendored [langdetect](../plugin/contrib/langdetect/) in-process (`_detect_languages_via_langdetect`); grammar-registry profile subset only (no venv, no extra API). Refresh profiles with `make langdetect-contrib` / [`scripts/update_langdetect_contrib.py`](../scripts/update_langdetect_contrib.py). |
+
+Shared behavior for **LLM** and **langdetect** modes: in-memory language LRU (`get_cached_language` / `put_cached_language`); skip detection for incomplete sentences; optional persisted-grammar heuristic to avoid re-detecting known-good text; `normalize_detected_bcp47` maps detector output to grammar-registry tags. Regression: [`test_grammar_worker_llm.py`](../tests/writer/locale/test_grammar_worker_llm.py), [`test_langdetect_profiles.py`](../tests/writer/locale/test_langdetect_profiles.py).
+
 #### Tail enqueue, dedup keys, stale detection, diagnostics
 
 - **Same-key newest wins + stale suppression**: Drain-time **`deduplicate_grammar_batch`** keeps, for each **`inflight_key`**, only the item with the highest **`enqueue_seq`** (Layer 2 drain dict + Layer 3 `_latest_seq` guards; see [`grammar_work_queue.py`](../plugin/writer/locale/grammar_work_queue.py) module docstring).
@@ -231,7 +245,7 @@ The native grammar checker pairs **sentence-bound work units** with **sentence-l
 - **In-memory LRU (L1)**: Global `grammar_registry.sentence_cache`, keyed by locale + sentence fingerprint. `MAX_CACHE_SIZE` is **2048**. Shared across open documents in-session ([`test_cross_document_l1_cache_hit`](../tests/writer/locale/test_grammar_proofread_cache.py)).
 - **Document persistence (L2)**: Per-`.odt` user property `WriterAgentGrammarCache` via [`DocumentPersistence`](../plugin/writer/locale/grammar_persistence.py). `cache_get_sentence` checks L1, then L2, and promotes L2 hits into L1. `cache_put_sentence` always writes L1; writes L2 when `doc_id` is set.
 - **Normalization**: Uses `_normalize_for_sentence_cache` so trailing whitespace and redundant punctuation share keys. Errors are clipped to the canonical length.
-- **Incomplete-prefix compaction**: On **`cache_put_sentence`**, when the normalized text is still **incomplete**, the cache walks the sentence `OrderedDict` newest-first (bounded scan per locale) and evicts strict-prefix incomplete predecessors so incremental typing does not fill the LRU with `"The"`, `"The qu"`, … stubs. Details and regression tests: [`grammar_proofread_cache.py`](../plugin/writer/locale/grammar_proofread_cache.py), [`test_sentence_cache_incomplete_prefix_compaction`](../tests/writer/locale/test_grammar_proofread_cache.py). Document-embedded mode (`doc_id` set) skips this compaction scan but still warms the global LRU. For the historical cross-sentence queue dedup bug, see [Appendix A](#appendix-a-cross-sentence-prefix-dedup).
+- **Incomplete-prefix compaction**: On **`cache_put_sentence`**, when the normalized text is still **incomplete**, the cache walks the sentence `OrderedDict` newest-first (bounded scan per locale) and evicts strict-prefix incomplete predecessors so incremental typing does not fill the LRU with `"The"`, `"The qu"`, … stubs. Details and regression tests: [`grammar_proofread_cache.py`](../plugin/writer/locale/grammar_proofread_cache.py), [`test_sentence_cache_incomplete_prefix_compaction`](../tests/writer/locale/test_grammar_proofread_cache.py). Document-embedded mode (`doc_id` set) skips this compaction scan but still warms the global LRU.
 - **Memory warm-up**: Persistence hits promoted to L1 via `_populate_memory_cache_only`.
 - **Document-embedded persistence**: Loads on first grammar call; saves on **`OnPrepareSave`** / **`OnSave`** / **`OnSaveAs`** / **`OnSaveTo`** via `set_document_property` in [`plugin/doc/document_helpers.py`](../plugin/doc/document_helpers.py). Registry cleanup on `OnUnload` / dispose.
 
@@ -286,7 +300,7 @@ Two tables: **product / hardening** (user-visible or systemic improvements) and 
 | P11 | Observability | Cache hit rate, supersede counts, p50/p95 schedule→`cache_put` behind a verbose flag. |
 | P13 | LanguageTool-class local checking | Research roadmap: [docs/languagetool-local-parity-phased-plan.md](languagetool-local-parity-phased-plan.md). |
 | P14 | Parallel grammar worker | Shrink extra workers when user lowers `doc.grammar_proofreader_max_in_flight` without restart; optional distinct-document-only scheduling. |
-| P15 | Queue priority / visibility | Prefer currently edited or visible ranges over scroll-induced backlog (related to **C5**). |
+| P15 | Queue priority / visibility | Prefer currently edited or visible ranges over scroll-induced backlog (see **C5**). |
 | P17 | Configurable LLM max tokens | Expose the hardcoded **3072** max output tokens as `doc.grammar_proofreader_max_tokens` so users can tune for different endpoints or models. |
 | P18 | Configurable max chars | Move `GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS` (8192) to a config key `doc.grammar_proofreader_max_chars`; allows tuning for very long sentences without code changes. |
 | P19 | Batch size validation | Enforce `1 <= doc.grammar_proofreader_batch_sentences <= 8` at config read time; log **WARNING** if out of range and clamp to bounds. |
@@ -298,25 +312,21 @@ Two tables: **product / hardening** (user-visible or systemic improvements) and 
 
 | ID | Task | Notes |
 |----|------|--------|
-| C1 | Tiered error handling in `doProofreading` | Reduce nested try/except that only log-and-continue; extract `_safe_*` helpers so failures are visible in tests. |
+| C1 | Tiered error handling in `doProofreading` / worker | Reduce nested try/except that only log-and-continue; extract `_safe_*` helpers per [Appendix B](#appendix-b-debt-work-notes). Characterization tests first; no user-visible behavior change. |
 | C2 | Optional `unohelper` consolidation | Top-level import serves `unohelper.Base`; registration block imports again for `ImplementationHelper` — optional single pattern for clarity. |
+| C5 | Queue priority / visibility heuristic | Prefer currently edited or visible ranges over scroll-induced backlog when draining the grammar queue. Product-facing UX in **P15**; no implementation yet. |
 | C6 | Regex audit | Most patterns are compiled; audit [`grammar_proofread_text.py`](../plugin/writer/locale/grammar_proofread_text.py) for any remaining compile-per-call hot paths. |
-| C7 | Logging discipline | Structured events, avoid duplicate levels, DEBUG vs INFO boundaries ([Appendix B](#appendix-b-structural-notes)). |
+| C7 | Logging discipline | Structured events, avoid duplicate levels, DEBUG vs INFO boundaries. |
 | C8 | ProofreadingResult helpers / hints | Optional `@dataclass`-style helpers or richer type hints for UNO structs where stubs help. |
 
 ---
 
 ## Appendices
 
-### Appendix A: Cross-sentence prefix dedup
+<a id="appendix-b-debt-work-notes"></a>
+### Appendix B: Debt-work notes
 
-Cross-key **text-prefix** dedup was removed: different sentences in one paragraph can share a string prefix (e.g. `No.` vs `No problem today.`), which dropped valid work. **Current:** `deduplicate_grammar_batch` keeps highest `enqueue_seq` per `inflight_key` only. Regression: [`test_two_sentences_string_prefix_collision_both_survive`](../tests/writer/locale/test_grammar_work_queue.py).
-
-### Appendix B: Structural notes
-
-Ideas from earlier cleanup planning — not scheduled as separate tickets:
-
-**Error handling tiers**
+**Error handling tiers** (for **C1**):
 
 | Level | Action | Example |
 |-------|--------|---------|
@@ -324,10 +334,7 @@ Ideas from earlier cleanup planning — not scheduled as separate tickets:
 | **Recoverable** | Log ERROR + return empty/default | Config read fails, locale not supported |
 | **Diagnostic** | Log INFO/DEBUG + continue | Cache miss, queue deduplication |
 
-**Testing**
-
-- Prefer injectable helpers over patching `time.sleep` at module scope where sleeps exist.
-- Prefer pure functions for dedup/stale logic (already partly true).
+**Refactor rules:** characterization tests before behavior-touching cleanup; small PRs; full `tests/writer/locale/` pytest + UNO grammar tests must pass; persistence round-trip if cache format changes.
 
 ### Appendix C: Documentation maintenance
 
@@ -362,39 +369,13 @@ Ideas from earlier cleanup planning — not scheduled as separate tickets:
 
 **Status:** Documented limitation + backlog **P25**; no code change required for users who hit this rarely.
 
-### Appendix F: Language detection — future ideas
+### Appendix F: Language detection — optional enhancements
 
-Shipped behavior: `doc.grammar_proofreader_detect_language` (`off` / `llm` / `langdetect`); incomplete-sentence guard; lang-detect LRU; CharLocale updates on mismatch. See **Language Detection** in [At a glance](#at-a-glance) and worker code in [`grammar_worker_llm.py`](../plugin/writer/locale/grammar_worker_llm.py).
+**Local (langdetect)** and **AI (LLM)** detection are shipped (see [Language detection (shipped)](#language-detection-shipped) and **At a glance**). Possible follow-ups:
 
-**Future:**
-- **Character-Level Heuristics:** Before calling the LLM, we could run a fast regex-based detector for non-Latin scripts (e.g., Japanese, Korean, Arabic). If detected, we can bypass the LLM and instantly apply the matching locale if the document supports it.
-- **Persistent Language Cache:** The current LRU is transient (in-memory). We could persist the language map to the `WriterAgentGrammarCache` user-defined property. However, since the primary use case is immediate feedback during typing sessions, the transient in-memory cache is highly effective without bloating the `.odt` file.
-- **Model Downgrading:** Language detection requires virtually zero "reasoning." In the future, we could configure the HTTP request to route detection tasks to a significantly cheaper/faster model (e.g., `gemini-flash-8b`) while keeping the heavy grammar evaluation on the primary intelligent model.
-
----
-
-## Technical Debt Reduction Plan (Safe, Incremental Cleanup)
-
-**Goal**: Reduce long-term maintenance burden, improve testability and reasoning, and lower the risk of future subtle bugs — **without changing observable behavior** for users or breaking existing tests.
-
-### Guiding Principles for Grammar Debt Work
-
-- **Characterization first**: Before any behavioral change, add or strengthen tests that would fail if the refactoring regressed the current (correct) behavior.
-- **Small, reviewable steps**: Prefer many tiny PRs over large ones. Each step must pass the full grammar test suite (`python -m plugin.testing_runner` for native + relevant pytest files).
-- **No user-visible changes**: Squiggle behavior, cache semantics, persistence format, performance characteristics, and error messages must remain identical unless a bug is being fixed as part of the cleanup.
-
-### Prioritized Technical Debt Items (TDx)
-
-| ID  | Area | Debt Description | Primary Files | Suggested Approach |
-|-----|------|------------------|---------------|---------------------|
-| **TD5** | Error handling fragility | Nested try/except "log and continue" in `doProofreading` and the worker (C1). | `ai_grammar_proofreader.py`, `grammar_work_queue.py` | Tiered handling per Appendix B; `_safe_*` helpers with characterization tests. |
-
-### Verification Requirements (Mandatory)
-
-For any TD item that touches runtime behavior:
-1. All grammar tests (`tests/writer/locale/` pytest + `testing_runner` UNO) must pass before and after.
-2. Add at least one regression test for the bug class being cleaned up.
-3. If persistence or cache format changes, verify round-trips with old documents.
+- **Character-level heuristics:** Fast script detection before LLM or langdetect (Japanese, Korean, Arabic, …).
+- **Persistent language cache:** Persist lang map in `WriterAgentGrammarCache` (trade-off vs `.odt` size).
+- **Model downgrading:** Route **LLM** detection to a cheaper/faster model than grammar evaluation (langdetect mode already avoids API cost).
 
 ---
 
@@ -447,4 +428,4 @@ When the LLM is called for grammar, inject a compact "House style notes for this
 
 ---
 
-**When to pursue these:** After backlog items around quote-aware splitting (P25) and queue/worker hardening (TD5) are under control.
+**When to pursue these:** After **P25** (quote-aware splitting) and **C1** (error-handling cleanup) are under control.

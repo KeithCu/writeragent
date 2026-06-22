@@ -412,9 +412,8 @@ def _process_grammar_results(
     ec: GrammarWorkerContext,
 ) -> None:
     """Normalize LLM errors, write sentence cache, emit done status."""
-    from .grammar_persistence import get_persistence
+    from .grammar_ignore_rules import doc_ignored_rules, is_rule_ignored
     from .grammar_proofread_cache import ignored_rules_snapshot
-    from .grammar_proofread_locale import normalize_reason
 
     total_issues = 0
     chars_checked = 0
@@ -426,19 +425,13 @@ def _process_grammar_results(
             continue
         if idx < len(results):
             errors = results[idx]
-            p = get_persistence(ec.ctx, item.doc_id)
-            ignored = set(p._ignored_rules) if p else set()
+            ignored = doc_ignored_rules(ec.ctx, item.doc_id)
             global_ignored = ignored_rules_snapshot()
             norm_errors = grammar_proofread_text.normalize_errors_for_text(text, 0, len(text), errors, ec.ctx, bcp47)
 
             filtered_errors = []
             for e in norm_errors:
-                rule_ident = e.rule_identifier
-                if rule_ident.startswith("wa_g_rule||"):
-                    reason = rule_ident[11:]
-                    if normalize_reason(reason) in ignored or rule_ident in global_ignored:
-                        continue
-                elif rule_ident in ignored or rule_ident in global_ignored:
+                if is_rule_ignored(e.rule_identifier, ignored, global_ignored):
                     continue
                 filtered_errors.append(e)
 

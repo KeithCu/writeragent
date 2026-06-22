@@ -136,27 +136,16 @@ def _proofreading_markup_type() -> int:
 
 
 def _cached_errors_to_uno_tuple(cached: tuple[dict[str, Any], ...], ctx: Any, doc_id: str) -> tuple[Any, ...]:
-    from plugin.writer.locale.grammar_persistence import get_persistence
+    from plugin.writer.locale.grammar_ignore_rules import doc_ignored_rules, is_rule_ignored
     from plugin.writer.locale.grammar_proofread_cache import ignored_rules_snapshot
-    from plugin.writer.locale.grammar_proofread_locale import normalize_reason
 
-    p = get_persistence(ctx, doc_id)
-    ignored_reasons = set(p._ignored_rules) if p else set()
+    doc_ignored = doc_ignored_rules(ctx, doc_id)
     global_ignored = ignored_rules_snapshot()
 
     norms = []
     for d in cached:
         rule_ident = str(d.get("rule_identifier", ""))
-        
-        # If it's one of our robust encoded rule identifiers, decode it!
-        if rule_ident.startswith("wa_g_rule||"):
-            reason = rule_ident[11:]
-            norm_reason = normalize_reason(reason)
-            if norm_reason in ignored_reasons or rule_ident in global_ignored:
-                continue
-
-        # Fallback/Legacy rule_identifier check
-        elif rule_ident in ignored_reasons or rule_ident in global_ignored:
+        if is_rule_ignored(rule_ident, doc_ignored, global_ignored):
             continue
 
         norms.append(

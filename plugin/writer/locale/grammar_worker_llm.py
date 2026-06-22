@@ -57,18 +57,9 @@ def persisted_grammar_skip_lang_detect(ctx: Any, doc_id: str, text: str) -> bool
 
 def get_active_ignored_reasons(ctx: Any, doc_id: str) -> set[str]:
     """Document + global ignored grammar rules, normalized for prompt filtering."""
-    from .grammar_persistence import get_persistence
-    from .grammar_proofread_cache import ignored_rules_snapshot
-    from .grammar_proofread_locale import normalize_reason
+    from .grammar_ignore_rules import collect_ignored_reasons
 
-    p = get_persistence(ctx, doc_id)
-    ignored_reasons = set(p._ignored_rules) if p else set()
-    for r in ignored_rules_snapshot():
-        if r.startswith("wa_g_rule||"):
-            ignored_reasons.add(normalize_reason(r[11:]))
-        else:
-            ignored_reasons.add(normalize_reason(r))
-    return ignored_reasons
+    return collect_ignored_reasons(ctx, doc_id)
 
 
 def build_grammar_system_prompt(

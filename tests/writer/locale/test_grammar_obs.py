@@ -46,10 +46,13 @@ def test_grammar_obs_no_op_when_debug_disabled(caplog: pytest.LogCaptureFixture)
     assert not any("[grammar] obs" in r.message for r in caplog.records)
 
 
-def test_grammar_obs_logs_when_debug_enabled(caplog: pytest.LogCaptureFixture) -> None:
-    caplog.set_level(logging.DEBUG, logger="writeragent.grammar")
-    go.grammar_obs("test_event", counter=2)
-    assert any("obs test_event" in r.message and "counter=2" in r.message for r in caplog.records)
+def test_grammar_obs_logs_when_debug_enabled() -> None:
+    with patch.object(go.log, "isEnabledFor", return_value=True), patch.object(go.log, "debug") as mock_debug:
+        go.grammar_obs("test_event", counter=2)
+    mock_debug.assert_called_once()
+    assert mock_debug.call_args[0][0] == "[grammar] obs %s %s"
+    assert mock_debug.call_args[0][1] == "test_event"
+    assert "counter=2" in mock_debug.call_args[0][2]
 
 
 def test_filter_stale_and_group_emits_batch_stats_for_stale_skips() -> None:
@@ -66,3 +69,27 @@ def test_filter_stale_and_group_no_batch_stats_when_nothing_stale() -> None:
     with patch("plugin.writer.locale.grammar_work_queue.grammar_obs") as mock_obs:
         filter_stale_and_group(items, lambda _: False)
     assert not any(call.args and call.args[0] == "batch_stats" for call in mock_obs.call_args_list)
+
+
+def test_emit_grammar_status_emits_event_bus_payload() -> None:
+    with patch("plugin.writer.locale.grammar_obs.event_bus.global_event_bus") as mock_bus:
+        go.emit_grammar_status("start", "Hello world.", result="queued", preview_source="Hello world.")
+    mock_bus.emit.assert_called_once_with(
+        "grammar:status",
+        phase="start",
+        preview="Hello worl\u2026",
+        length=12,
+        result="queued",
+        elapsed_ms=None,
+    )
+
+
+def test_emit_grammar_status_swallows_event_bus_failure() -> None:
+    with (
+        patch("plugin.writer.locale.grammar_obs.event_bus.global_event_bus") as mock_bus,
+        patch.object(go.log, "debug") as mock_debug,
+    ):
+        mock_bus.emit.side_effect = RuntimeError("bus unavailable")
+        go.emit_grammar_status("failed", "Hi.")
+    mock_debug.assert_called_once()
+    assert "status emit failed" in mock_debug.call_args[0][0]

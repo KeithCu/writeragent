@@ -6,11 +6,49 @@ import json
 import unittest
 from unittest.mock import MagicMock, patch
 
+from plugin.writer.locale.grammar_ignore_rules import (
+    WA_G_RULE_PREFIX,
+    collect_ignored_reasons,
+    doc_ignored_rules,
+    is_rule_ignored,
+)
 from plugin.writer.locale.grammar_proofread_locale import normalize_reason
 from plugin.writer.locale.grammar_persistence import DocumentPersistence
 from plugin.writer.locale.ai_grammar_proofreader import _cached_errors_to_uno_tuple, WriterAgentAiGrammarProofreader
 
 class TestGrammarIgnoreRules(unittest.TestCase):
+    def test_is_rule_ignored_wa_g_rule_doc_match(self) -> None:
+        rule = f"{WA_G_RULE_PREFIX}Avoid passive voice."
+        self.assertTrue(is_rule_ignored(rule, {"avoid passive voice"}, set()))
+
+    def test_is_rule_ignored_wa_g_rule_global_match(self) -> None:
+        rule = f"{WA_G_RULE_PREFIX}Avoid passive voice."
+        self.assertTrue(is_rule_ignored(rule, set(), {rule}))
+
+    def test_is_rule_ignored_legacy_doc_match(self) -> None:
+        self.assertTrue(is_rule_ignored("legacy-rule-id", {"legacy-rule-id"}, set()))
+
+    def test_is_rule_ignored_not_ignored(self) -> None:
+        rule = f"{WA_G_RULE_PREFIX}Use 'an' instead of 'a'."
+        self.assertFalse(is_rule_ignored(rule, {"avoid passive voice"}, set()))
+
+    def test_collect_ignored_reasons_merges_doc_and_global(self) -> None:
+        ctx = MagicMock()
+        dp = MagicMock()
+        dp._ignored_rules = {"avoid passive voice"}
+        global_rule = f"{WA_G_RULE_PREFIX}Use 'an' instead of 'a'."
+        with (
+            patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp),
+            patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value={global_rule}),
+        ):
+            reasons = collect_ignored_reasons(ctx, "doc-x")
+        self.assertIn("avoid passive voice", reasons)
+        self.assertIn(normalize_reason(global_rule[len(WA_G_RULE_PREFIX) :]), reasons)
+
+    def test_doc_ignored_rules_empty_when_no_persistence(self) -> None:
+        with patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=None):
+            self.assertEqual(doc_ignored_rules(MagicMock(), "missing"), set())
+
     def test_normalize_reason(self) -> None:
         # Test basic lowercase and whitespace collapse
         self.assertEqual(normalize_reason("Avoid passive voice."), "avoid passive voice")
@@ -109,18 +147,8 @@ class TestGrammarIgnoreRules(unittest.TestCase):
         ignored = {"avoid passive voice"}
         with patch("plugin.writer.locale.grammar_proofread_text.get_break_iterator_and_locale", return_value=(FakeBI(), "en-US")):
             norm_errors = normalize_errors_for_text(full_text, 0, len(full_text), items)
-        
-        # Filter them just like grammar_work_queue does
-        from plugin.writer.locale.grammar_proofread_locale import normalize_reason
-        filtered_errors = []
-        for e in norm_errors:
-            rule_ident = e.rule_identifier
-            if rule_ident.startswith("wa_g_rule||"):
-                reason = rule_ident[11:]
-                if normalize_reason(reason) in ignored:
-                    continue
-            filtered_errors.append(e)
-        
+
+        filtered_errors = [e for e in norm_errors if not is_rule_ignored(e.rule_identifier, ignored, set())]
         # The passive voice error should be skipped/thrown away
         self.assertEqual(len(filtered_errors), 1)
         self.assertEqual(filtered_errors[0].rule_identifier, "wa_g_rule||Use 'an' instead of 'a'.")
