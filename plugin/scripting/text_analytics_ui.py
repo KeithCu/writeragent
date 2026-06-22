@@ -58,7 +58,8 @@ class TextAnalyticsDialog:
         try:
             if self._dlg is not None:
                 self._dlg.dispose()
-        except Exception:  # nosec B110 - best effort
+        # Best-effort dispose; failure is non-fatal.
+        except Exception:  # nosec B110
             pass
         self._dlg = None
 
@@ -419,8 +420,9 @@ class TextAnalyticsDialog:
                 end = sel.getByIndex(0).getEnd()
                 vc.gotoRange(end, False)
             controller.select(vc)
+        # Best-effort cursor positioning; failure is non-fatal.
         except Exception:
-            pass  # nosec B110 - best effort cursor positioning, non-fatal
+            pass  # nosec B110
 
         try:
             insert_content_at_position(doc, ctx, html, "selection")

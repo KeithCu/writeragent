@@ -52,5 +52,6 @@ def read_frame(stream: BinaryIO, *, deadline: float, read_exact: Callable[[Binar
 def parse_frame(frame_bytes: bytes) -> dict[str, Any]:
     if not frame_bytes:
         return {}
-    data = pickle.loads(frame_bytes)  # nosec B301 — trusted worker child
+    # Trusted IPC from our own worker child process.
+    data = pickle.loads(frame_bytes)  # nosec B301
     return data if isinstance(data, dict) else {}

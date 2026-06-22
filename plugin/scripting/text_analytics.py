@@ -125,7 +125,7 @@ def _load_nlp(lang: str | None = None) -> Any:
                         nlp.add_pipe(comp)
             except Exception:
                 # textdescriptives not installed — we can still do entities + chunks.
-                pass  # nosec B110 - best-effort optional enhancement
+                pass  # nosec B110
 
             return nlp
         except Exception as e:
