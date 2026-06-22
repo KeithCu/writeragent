@@ -171,7 +171,13 @@ def focus_preserved(ctx):
 
 
 def process_events_to_idle(ctx, rounds: int = 1) -> None:
-    """Drain the UI event queue *rounds* times; no-op when toolkit is unavailable."""
+    """Drain the UI event queue *rounds* times; no-op when toolkit is unavailable or headless."""
+    try:
+        desktop = get_desktop(ctx)
+        if desktop and desktop.getActiveFrame() is None:
+            return
+    except Exception:
+        pass
     for _ in range(max(1, rounds)):
         try:
             tk = get_toolkit(ctx)

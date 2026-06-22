@@ -165,14 +165,14 @@ def _axis_title_shape_string(shape, value: str | None) -> str | None:
 
 def _process_events(ctx=None):
     """Give LO a moment to process UI events and update object names/states."""
+    import os
+    if os.environ.get("WRITERAGENT_TESTING") == "1":
+        return
     try:
-        from plugin.framework.uno_context import get_toolkit, get_ctx
+        from plugin.framework.uno_context import process_events_to_idle, get_ctx
         uctx = ctx or get_ctx()
-        if not uctx:
-            return
-        tk = get_toolkit(uctx)
-        if tk and hasattr(tk, "processEventsToIdle"):
-            tk.processEventsToIdle()
+        if uctx:
+            process_events_to_idle(uctx)
     except Exception:
         # Avoid letting UI event processing crash the tool
         pass
@@ -715,14 +715,20 @@ class UpsertChart(ToolCalcChartBase):
             if not chart_doc:
                 return self._tool_error("Cannot access chart content.")
 
-            # If chart_type is provided, update the diagram first
-            chart_type = kwargs.get("chart_type")
-            if chart_type:
-                service = CHART_SERVICE_MAP.get(chart_type)
-                if service:
-                    chart_doc.setDiagram(chart_doc.createInstance(service))
+            try:
+                # If chart_type is provided, update the diagram first
+                chart_type = kwargs.get("chart_type")
+                if chart_type:
+                    service = CHART_SERVICE_MAP.get(chart_type)
+                    if service:
+                        chart_doc.setDiagram(chart_doc.createInstance(service))
 
-            _apply_chart_styling(chart_doc, **kwargs)
+                _apply_chart_styling(chart_doc, **kwargs)
+            except Exception as e:
+                msg = f"{type(e).__name__}: {str(e)}"
+                logger.error("Chart edit error: %s", msg)
+                raise ToolExecutionError(f"Tool execution failed: {msg}") from e
+
             return {"status": "ok", "chart_name": chart_name, "message": "Chart updated."}
 
         return self._tool_error(f"Unsupported action: '{action}'")
