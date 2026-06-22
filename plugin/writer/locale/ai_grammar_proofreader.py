@@ -64,14 +64,18 @@ from plugin.writer.locale.grammar_proofread_locale import (
     looks_complete_sentence,
     normalize_uno_locale_to_bcp47,
 )
-from plugin.writer.locale.grammar_proofread_text import NormalizedProofError, candidate_sentence_spans_for_proofreading, filter_sentence_spans_for_thresholds
+from plugin.writer.locale.grammar_proofread_text import (
+    NormalizedProofError,
+    candidate_sentence_spans_for_proofreading,
+    filter_sentence_spans_for_thresholds,
+    slice_preview_debug,
+)
 from plugin.writer.locale.grammar_work_queue import (
     GrammarWorkItem,
     emit_grammar_status,
     grammar_obs,
     grammar_queue,
     next_enqueue_seq,
-    slice_preview_debug,
 )
 
 # --- Testing seam (TD2) -------------------------------------------------

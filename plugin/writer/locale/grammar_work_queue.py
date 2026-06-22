@@ -95,7 +95,8 @@ from . import (
     grammar_persistence,
     grammar_worker_phases,
 )
-from .grammar_obs import emit_grammar_status, grammar_obs, slice_preview_debug
+from .grammar_obs import emit_grammar_status, grammar_obs
+from .grammar_proofread_text import slice_preview_debug
 from .grammar_worker_llm import call_grammar_llm, detect_languages_for_chunk
 
 from plugin.framework import queue_executor, config
@@ -302,7 +303,7 @@ def filter_stale_and_group(
             continue
         groups[(item.doc_id, item.grammar_bcp47)].append(item)
     if stale_count > 0:
-        log.debug("[grammar] sentences_stale_skipped=%s", stale_count)
+        grammar_obs("batch_stats", sentences_stale_skipped=stale_count, survivor_count=sum(len(v) for v in groups.values()))
     return dict(groups)
 
 
@@ -536,7 +537,12 @@ def _run_grammar_check(
     """Grammar LLM, then cache results or requeue on batch mismatch."""
     try:
         results, elapsed_ms = call_grammar_llm(chunk, bcp47, ec)
-        log.debug("[grammar] sentences_llm_requested=%s llm_request_duration_ms=%s", len(chunk), elapsed_ms)
+        grammar_obs(
+            "batch_stats",
+            sentences_llm_requested=len(chunk),
+            llm_request_duration_ms=elapsed_ms,
+            bcp47=bcp47,
+        )
         completion = grammar_worker_phases.decide_grammar_completion(len(chunk), len(results), bcp47, original_bcp47)
         if completion.requeue_all:
             if len(results) == 0:
@@ -811,13 +817,6 @@ class GrammarWorkQueue:
                 length_hint=pending.length_hint,
             )
 
-    @staticmethod
-    def _slice_preview(item: GrammarWorkItem, max_len: int = 48) -> str:
-        compact = " ".join(item.text.split())
-        if len(compact) <= max_len:
-            return compact
-        return f"{compact[:max_len]}\u2026"
-
     def _is_stale(self, item: GrammarWorkItem) -> bool:
         with self._seq_lock:
             return is_stale(self._latest_seq, item)
@@ -843,8 +842,17 @@ class GrammarWorkQueue:
             self._latest_seq, out_of_order, superseded_prev_seq = record_enqueue_latest(self._latest_seq, item)
             if out_of_order:
                 log.error("[grammar] queue enqueue: out-of-order seq detected for key=%s: incoming seq=%s < latest seq=%s; stale detection may be unreliable", item.inflight_key, item.enqueue_seq, superseded_prev_seq)
-        log.debug("[grammar] sentences_queued=1 doc_id=%s locale=%s seq=%s", item.doc_id[:16] if item.doc_id else "", item.grammar_bcp47, item.enqueue_seq)
-        grammar_obs("queue_enqueue", doc_id=item.doc_id, locale=item.grammar_bcp47, seq=item.enqueue_seq, inflight_key=item.inflight_key, slice_len=len(item.text), partial_sentence=item.partial_sentence, preview=slice_preview_debug(item.text))  # fmt: skip
+        grammar_obs(
+            "queue_enqueue",
+            sentences_queued=1,
+            doc_id=item.doc_id,
+            locale=item.grammar_bcp47,
+            seq=item.enqueue_seq,
+            inflight_key=item.inflight_key,
+            slice_len=len(item.text),
+            partial_sentence=item.partial_sentence,
+            preview=slice_preview_debug(item.text),
+        )  # fmt: skip
 
         # Normal append.  (Historical Layer 1 "tail-replace" under _q.mutex was
         # removed in the TD4 simplification pass because it was ineffective
@@ -893,8 +901,14 @@ class GrammarWorkQueue:
             # is the single source of truth for the dedup contract and is also
             # used by unit tests and any external caller).
             survivors = deduplicate_grammar_batch(batch)
-            grammar_obs("queue_drain_survivors", survivor_count=len(survivors), seqs=tuple(x.enqueue_seq for x in survivors))
-            log.debug("[grammar] sentences_deduped=%s batch_size=%s", len(batch) - len(survivors), len(batch))
+            deduped_count = len(batch) - len(survivors)
+            grammar_obs(
+                "queue_drain_survivors",
+                survivor_count=len(survivors),
+                seqs=tuple(x.enqueue_seq for x in survivors),
+            )
+            if deduped_count > 0:
+                grammar_obs("batch_stats", sentences_deduped=deduped_count, batch_size=len(batch))
 
             groups = filter_stale_and_group(survivors, self._is_stale)
 

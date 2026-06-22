@@ -10,8 +10,8 @@
 |--------|------------------------|
 | **Concepts and behavior** | UNO proofreader API basics, product boundaries, sentence vs paragraph scheduling |
 | **Shipped implementation reference** | Module map, settings keys, runtime/cache/queue behavior, tests |
-| **Completed milestones** vs **Open backlog** | What is done vs what remains (single source for work items) |
-| **Appendices** | Historical bug write-ups, [dialogue / BreakIterator split limitation](#appendix-e-dialogue-splits), doc-maintenance pointers |
+| **Open backlog** | Remaining work items |
+| **Appendices** | [Dialogue / BreakIterator split limitation](#appendix-e-dialogue-splits), doc-maintenance pointers |
 
 ### At a glance
 
@@ -19,7 +19,7 @@
 - **Batching** groups sentences from the same paragraph into chunked LLM requests; batch size is capped (`doc.grammar_proofreader_batch_sentences`, max 8).
 - **Concurrent requests** (`doc.grammar_proofreader_max_in_flight`, 1–8, default **1**): up to N background drain workers and matching grammar HTTP slots; **1** keeps prior global `llm_request_lane` behavior with chat; **>1** allows parallel grammar API calls (e.g. OpenRouter).
 - **Language Detection** (`doc.grammar_proofreader_detect_language`: **Off** / **AI (LLM)** / **Local (langdetect)**) compares sentence language to document `CharLocale`. LLM mode uses a lightweight API call; Local mode uses vendored [langdetect](../plugin/contrib/langdetect/) in-process (grammar-registry profile subset, no venv). Mismatches trigger locale update and re-check.
-- **Cache** is **document-embedded**: results live inside the `.odt` as user-defined property `WriterAgentGrammarCache`, so they travel with the file across machines and collaborators. The global SQLite cache was removed since we save directly with the document.
+- **Cache** is **document-embedded** (`.odt` user property `WriterAgentGrammarCache`) plus a **global in-memory LRU** (2048 entries) shared across open documents for copy-paste hits. The old profile SQLite cache was removed.
 - **Sidebar chat** is separate: use it for explanations, rewrites, and editorial comment tools—not as a second linguistic pipeline.
 
 ---
@@ -197,18 +197,17 @@ The native grammar checker pairs **sentence-bound work units** with **sentence-l
 
 #### Tail enqueue, dedup keys, stale detection, diagnostics
 
-- **(Historical) Enqueue-time tail-replace (Layer 1)**: Removed in the TD4 simplification follow-up. The old O(1) in-place replace under `self._q.mutex` + direct deque mutation was ineffective during real typing bursts (the worker drains so quickly the queue is usually empty on the next enqueue). All same-key collapse now happens in the Layer 2 drain dict + canonical `deduplicate_grammar_batch` + Layer 3 `_latest_seq` guards. The mental model and rationale are in the module docstring of `grammar_work_queue.py`.
-- **Same-key newest wins + stale suppression**: Drain-time **`deduplicate_grammar_batch`** keeps, for each **`inflight_key`**, only the item with the highest **`enqueue_seq`**.
+- **Same-key newest wins + stale suppression**: Drain-time **`deduplicate_grammar_batch`** keeps, for each **`inflight_key`**, only the item with the highest **`enqueue_seq`** (Layer 2 drain dict + Layer 3 `_latest_seq` guards; see [`grammar_work_queue.py`](../plugin/writer/locale/grammar_work_queue.py) module docstring).
 - **`inflight_key` logic (stable key)**:
     - **Complete**: `{doc_id}|{locale}|{hash(sent_text)}`. Ensures uniqueness across paragraphs and stability if the sentence is not being edited.
     - **Incomplete**: `{doc_id}|{locale}|INCOMPLETE_WRITER_AGENT_INTERNAL_STRING`. Ensures all partial drafts for the active typing spot supersede each other, preventing typing floods.
 - **Stale guard**: `GrammarWorkQueue` performs a **pre-execute stale check** against `_latest_seq` and skips any survivor older than the latest known sequence for that key. After each LLM response returns, **`cache_put_sentence` is skipped** if a newer enqueue superseded this item during the HTTP call (`inflight_superseded`).
-- **Queue diagnostics**: Explicit queue logs for enqueue, drain batch size, dedup survivors, stale-skip, and execute; each includes `doc_id`, `inflight_key`, `enqueue_seq`, slice length, and a compact text preview to diagnose intermittent ordering issues. Out-of-order sequence detection in `enqueue` logs at ERROR level if an incoming item has a lower sequence than the latest recorded for that key.
+- **Queue diagnostics**: DEBUG `grammar_obs` events (`queue_enqueue`, `queue_drain_batch`, `batch_stats` with `sentences_queued` / `sentences_deduped` / `sentences_stale_skipped` / `sentences_llm_requested` / `llm_request_duration_ms`). Out-of-order `enqueue_seq` logs at ERROR.
 
 #### Sentence gating and pinned text
 
 - **Sentence-level gating**: grammar checks run when the slice looks like a complete sentence (terminal punctuation heuristic with multilingual marks such as `. ! ? … ؟ 。 ！ ？ ।`) **or** when partial text reaches `GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS` (15 non-space chars). Short incomplete fragments are skipped before cache/worker scheduling.
-- **Pinned sentence text on enqueue**: Each [`GrammarWorkItem`](../plugin/writer/locale/grammar_work_queue.py) carries **`proofread_sentence_text`** — the exact sentence segment chosen during `doProofreading`. The worker uses it for LLM + cache and **does not** call `split_into_sentences` again on the slice, avoiding BreakIterator disagreements between substring vs full-buffer splits.
+- **Pinned sentence text on enqueue**: Each [`GrammarWorkItem`](../plugin/writer/locale/grammar_work_queue.py) carries **`text`** — the exact sentence segment chosen during `doProofreading`. The worker uses it for LLM + cache and **does not** call `split_into_sentences` again on the slice, avoiding BreakIterator disagreements between substring vs full-buffer splits.
 
 #### Sentence splitting and abbreviation handling
 
@@ -229,91 +228,25 @@ The native grammar checker pairs **sentence-bound work units** with **sentence-l
 
 #### Sentence cache
 
-- **In-memory LRU**: Keyed by sentence fingerprint (locale + text hash). `MAX_CACHE_SIZE` is **2048**.
-- **Persistent storage**: We removed the global SQLite and JSON sharding cache backends because we now save grammar check results directly inside the document.
+- **In-memory LRU (L1)**: Global `grammar_registry.sentence_cache`, keyed by locale + sentence fingerprint. `MAX_CACHE_SIZE` is **2048**. Shared across open documents in-session ([`test_cross_document_l1_cache_hit`](../tests/writer/locale/test_grammar_proofread_cache.py)).
+- **Document persistence (L2)**: Per-`.odt` user property `WriterAgentGrammarCache` via [`DocumentPersistence`](../plugin/writer/locale/grammar_persistence.py). `cache_get_sentence` checks L1, then L2, and promotes L2 hits into L1. `cache_put_sentence` always writes L1; writes L2 when `doc_id` is set.
 - **Normalization**: Uses `_normalize_for_sentence_cache` so trailing whitespace and redundant punctuation share keys. Errors are clipped to the canonical length.
-- **Incomplete-prefix compaction**: On **`cache_put_sentence`**, when the normalized text is still **incomplete**, the cache walks the sentence `OrderedDict` newest-first (bounded scan per locale) and evicts strict-prefix incomplete predecessors so incremental typing does not fill the LRU with `"The"`, `"The qu"`, … stubs. Details and regression tests: [`grammar_proofread_cache.py`](../plugin/writer/locale/grammar_proofread_cache.py), [`test_sentence_cache_incomplete_prefix_compaction`](../plugin/tests/writer/locale/test_grammar_proofread_engine.py). For the historical cross-sentence queue dedup bug, see [Appendix A](#appendix-a-cross-sentence-prefix-dedup).
-- **Memory warm-up**: `cache_get_sentence` promotes persistence hits to the memory LRU cache via `_populate_memory_cache_only`. This ensures subsequent re-traversals of the same sentence are handled in memory without repeated disk I/O.
-- **UI responsiveness**: Persistence writes in `cache_put_sentence` are performed outside the global `_CACHE_LOCK`, ensuring slow disk I/O does not block the foreground proofreading pass.
-- **Document-embedded persistence**: [`DocumentPersistence`](../plugin/writer/locale/grammar_persistence.py) keeps an in-memory map per document id, loads from user-defined property **`WriterAgentGrammarCache`** on first grammar call, and writes JSON back on **`OnPrepareSave`** / **`OnSave`** / **`OnSaveAs`** / **`OnSaveTo`** via `set_document_property` in [`plugin/doc/document_helpers.py`](../plugin/doc/document_helpers.py). A single **`XDocumentEventListener`** handles document events and broadcaster `disposing` (registered on `addDocumentEventListener` and `addEventListener`). Registry cleanup runs on `OnUnload` / dispose, removing the per-document entry from the module-level map so the wrapper and its memory cache become unreachable. [`grammar_proofread_cache.py`](../plugin/writer/locale/grammar_proofread_cache.py) manages this mode actively using **`doc_id`** on `cache_get_sentence` / `cache_put_sentence`.
+- **Incomplete-prefix compaction**: On **`cache_put_sentence`**, when the normalized text is still **incomplete**, the cache walks the sentence `OrderedDict` newest-first (bounded scan per locale) and evicts strict-prefix incomplete predecessors so incremental typing does not fill the LRU with `"The"`, `"The qu"`, … stubs. Details and regression tests: [`grammar_proofread_cache.py`](../plugin/writer/locale/grammar_proofread_cache.py), [`test_sentence_cache_incomplete_prefix_compaction`](../tests/writer/locale/test_grammar_proofread_cache.py). Document-embedded mode (`doc_id` set) skips this compaction scan but still warms the global LRU. For the historical cross-sentence queue dedup bug, see [Appendix A](#appendix-a-cross-sentence-prefix-dedup).
+- **Memory warm-up**: Persistence hits promoted to L1 via `_populate_memory_cache_only`.
+- **Document-embedded persistence**: Loads on first grammar call; saves on **`OnPrepareSave`** / **`OnSave`** / **`OnSaveAs`** / **`OnSaveTo`** via `set_document_property` in [`plugin/doc/document_helpers.py`](../plugin/doc/document_helpers.py). Registry cleanup on `OnUnload` / dispose.
 
 > [!NOTE]
 > <a id="document-embedded-cache-default"></a>
-> **Document-embedded cache — design notes (shipped default)**
+> **Document-embedded cache (v2)**
 >
-> Grammar results travel with the `.odt` as a user-defined string property (`WriterAgentGrammarCache`). The global SQLite/profile-JSON cache was removed as we now save directly with the document.
+> Grammar results travel with the `.odt` as `WriterAgentGrammarCache` (v2: concatenated `good` fingerprints + `bad` error map, 24-hex keys, compact error fields). Serialized JSON capped at **900 KB**; over that, save is skipped with a warning.
 >
-> **Why default to embedded:**
->
-> - **Stays with the document.** Open the same `.odt` on a new machine (or hand it to a collaborator with WriterAgent) and the squiggles appear immediately without re-triggering LLM calls.
-> - **No global cache ceiling.** Each file manages its own size — no shared 5000-entry pruning, no `writeragent_grammar.db` growing across unrelated projects.
-> - **Isolation.** Work on document A never evicts entries for document B.
-> - **Treats reviewed grammar as document state**, not as a hidden machine-local optimization: the AI's verdict on each sentence is recorded next to the prose it judged.
->
-> **Trade-offs (vs global disk cache):**
->
-> - **No cross-document reuse.** Boilerplate phrases that repeat across files are re-checked the first time per file (still cached within each file).
-> - **Privacy / file-share footprint.** The user-property contains sentence fingerprints and full LLM error payloads (suggestions, comments). If the document is shared, this metadata travels with it. Hashes are SHA-256 of normalized sentences, so the raw sentence text is not directly recoverable from the cache itself, but error payloads quote the wrong fragments by string. Users sharing a sensitive draft can clear the property by stripping user-defined properties before sending.
-> - **Save-cycle pruning is by `_session_accessed`.** Only sentences the proofreader actually looked at during the current session are persisted on save. Writer's open-time proofreading pass touches visible paragraphs, but sections that were never scrolled into view can disappear from the cache after a save. (See **Size and pruning** below — listed in the backlog as P22 "full-doc retention on save".)
->
-> **On-disk format (`WriterAgentGrammarCache`):**
->
-> ```jsonc
-> {
->   "<sha256-hex fingerprint of normalized sentence>": [
->     {
->       "n_error_start": 4,
->       "n_error_length": 3,
->       "suggestions": ["..."],
->       "short_comment": "...",
->       "full_comment": "...",
->       "rule_identifier": "..."
->     }
->   ],
->   "<another fingerprint>": []   // clean sentence (reviewed, no errors)
-> }
-> ```
->
-> Clean sentences are stored as the fingerprint mapped to an empty array — they're how the engine remembers "I've already checked this one and there's nothing to flag," and they're the bulk of a typical document's payload. The serialized JSON is currently capped at **900 KB**; over that, the save is skipped with a warning.
->
-> **Size budget today.** Each fingerprint is a full SHA-256 hex (64 chars). A clean entry is ~70 bytes; a sentence with one short error is ~250–350 bytes. A 5000-sentence all-clean document fits comfortably (~350 KB); long novels with many errors approach the cap.
->
-> **Size-optimization options (deferred, P21 in the backlog):**
->
-> | Lever | Approx. savings | Notes |
-> |-------|-----------------|-------|
-> | Truncate fingerprint to 16-hex (64-bit) or 22-char URL-safe base64 (128-bit) | -50 to -75% on keys | 64-bit hash collision probability ≈ 10⁻¹² at 5000 sentences; needs a payload-version bump (`{"v":2,...}`) and migration of any in-the-wild caches. Cache-only data, so old caches can simply be discarded. |
-> | Shorten error-dict keys (`n_error_start` → `s`, `n_error_length` → `l`, `suggestions` → `g`, `short_comment` → `c`, `full_comment` → `f`, `rule_identifier` → `r`) | -30 to -50 bytes per error | Mechanical; same version bump covers it. |
-> | Split clean-set from dirty-map: `{"v":2, "clean":"hash1hash2…", "dirty":{...}}` | Removes `[]` + comma + quoted-key overhead on the (typical majority) clean sentences | Concatenating fixed-width fingerprints is significantly cheaper than per-key JSON entries. |
-> | Drop `short_comment` if always derivable from `full_comment` | Modest | Audit usage first — Writer UI distinguishes them in the proofreading dialog. |
-> | gzip + base64 the whole payload into the property | Often 3–4× | Adds CPU per save/load and makes the saved property opaque to other tools that might want to inspect it. Reasonable last resort once smaller fixes are in. |
->
-> The first three are nearly free wins and additive; the last two are only worth doing if real-world documents start hitting the 900 KB cap.
->
-> **Decision (2025):**
-> - **Fingerprint size: 96-bit (24 hex characters)**. Collision probability at 5,000 sentences is ~1 in 10²¹ — effectively **never** in practice. This is the chosen balance: excellent safety margin with **62.5% size reduction** from 64-bit. 80-bit (20 chars) offers ~68.75% savings with ~1 in 10¹⁶ collision probability, which is still astronomically unlikely but was rejected because a hash mismatch could cause a sentence to incorrectly show or hide errors. 96-bit pushes the risk to "practically never" for any realistic document size.
-> - **Split clean/dirty storage: yes**. Clean sentences (the majority) are stored as a single concatenated string of fingerprints under a `"good"` or `"clean"` key, eliminating per-key JSON overhead. For a 5,000-sentence all-clean document, this reduces the payload from ~355 KB to ~120 KB (24 chars × 5000 = 120,000 bytes for the concatenated fingerprints, vs ~70 bytes × 5000 = ~350,000 bytes for the original per-key format plus commas). That's a **~66% reduction** for the clean set alone. Dirty sentences remain in a map under a `"bad"` or `"dirty"` key with compact error-dict keys.
-> - **Compact error keys: yes**. Use `s`, `l`, `g`, `c`, `f`, `r` for the six error fields, saving ~43 bytes per error.
->
-> **v2 payload example:**
-> ```json
-> {
->   "v": 2,
->   "good": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8...",
->   "bad": {
->     "a1b2c3d4e5f6a7b8c9d0e1": [{"s":4,"l":3,"g":["fix"],"c":"Err","f":"Detail","r":"wa_1"}]
->   }
-> }
-> ```
->
-> **Implementation reuse.** The architecture already keyed all sentence cache lookups on `fingerprint_for_text` (in [`grammar_proofread_locale.py`](../plugin/writer/locale/grammar_proofread_locale.py)), so adding `DocumentPersistence` didn't require core refactoring — it's just another `GrammarPersistence` backend.
->
-> **Why not `setattr` on the UNO model wrapper?** State is held in a module-level `_doc_persistence_instances: dict[doc_id, DocumentPersistence]`, with `OnUnload` / dispose dropping the entry so the object (and its in-memory cache) becomes unreachable. Hanging it on the PyUNO `XModel` wrapper via Python `setattr` is rejected: wrapper identity is not stable across threads/call paths, it creates ref cycles with the model, and it's harder to unit-test.
+> **Trade-offs:** Cross-file reuse is session-only via L1 (not on disk). Shared `.odt` files carry sentence fingerprints and error payloads — strip user-defined properties before sharing sensitive drafts. Save writes only `_session_accessed` sentences (see backlog **P22**). Regression: [`test_grammar_persistence.py`](../tests/writer/locale/test_grammar_persistence.py).
 
 
 #### LLM wire format and parser
 
-- **LLM**: [`LlmClient.chat_completion_sync`](../plugin/framework/client/llm_client.py) with `response_format={"type":"json_object"}` on the OpenAI-compatible path (Together, OpenRouter, etc.; see docstring on `make_chat_request`), a system prompt (**`GRAMMAR_SYSTEM_PROMPT_TEMPLATE`** in [`grammar_proofread_locale.py`](../plugin/writer/locale/grammar_proofread_locale.py)) requiring a single JSON object `{"errors":[{"wrong","correct","type","reason"},...]}` (schema description in English) plus the **document language** (BCP-47 and English name from the registry), and user message the **checked sentence text** for that worker item (one sentence per request in normal prose). The prompt explicitly asks for errors in the order they appear. For threshold-allowed partial slices, the prompt adds a conservative note that input may be partial. Parser: [`parse_grammar_json`](../plugin/writer/locale/grammar_proofread_locale.py) uses `safe_json_loads` then `json_repair` (with logging) when needed.
+- **LLM**: [`LlmClient.chat_completion_sync`](../plugin/framework/client/llm_client.py) with `response_format={"type":"json_object"}` on the OpenAI-compatible path (Together, OpenRouter, etc.; see docstring on `make_chat_request`), a system prompt (**`GRAMMAR_SYSTEM_PROMPT_TEMPLATE`** in [`grammar_proofread_locale.py`](../plugin/writer/locale/grammar_proofread_locale.py)) requiring a single JSON object `{"errors":[{"wrong","correct","type","reason"},...]}` (schema description in English) plus the **document language** (BCP-47 and English name from the registry), and user message the **checked sentence text** for that worker item (one sentence per request in normal prose). The prompt explicitly asks for errors in the order they appear. For threshold-allowed partial slices, the prompt adds a conservative note that input may be partial. Parser: [`parse_grammar_json`](../plugin/writer/locale/grammar_proofread_json.py) uses `safe_json_loads` then `json_repair` (with logging) when needed.
 
 #### Offsets, whitespace, and markup
 
@@ -323,25 +256,7 @@ The native grammar checker pairs **sentence-bound work units** with **sentence-l
 
 ### Why `enqueue_seq` exists (queue FIFO is not enough)
 
-**Terminology.** The shipped code uses a **global integer counter** (`next_enqueue_seq()` / `_ENQUEUE_SEQ` in [`grammar_work_queue.py`](../plugin/writer/locale/grammar_work_queue.py)), incremented when a cache miss enqueues work; each [`GrammarWorkItem`](../plugin/writer/locale/grammar_work_queue.py) stores it as **`enqueue_seq`**. This is **not** the same as `time.monotonic()` — that clock is used elsewhere only for **elapsed milliseconds** on LLM requests (status/diagnostics), not for ordering queue items.
-
-**Why not rely only on "everything goes through `queue.Queue`"?** A FIFO queue orders **`get()` dequeue order** among objects that are actually retrieved in sequence. The grammar worker deliberately does **more** than strict FIFO:
-
-1. **Tail replace-in-place** — For the same `inflight_key`, a newer item can **overwrite** the last slot of the internal deque without establishing a simple FIFO relationship to items already consumed in an **earlier** batch. Queue position alone does not record "this snapshot superseded that one" across batches.
-
-2. **Batch drain + `deduplicate_grammar_batch`** — The worker collects multiple `get()` results into one batch, then for each **`inflight_key`** keeps only the highest **`enqueue_seq`**.
-
-3. **`_latest_seq` / pre-execute stale skip** — Before calling the LLM, the worker asks whether a **newer** enqueue has already been recorded for that `inflight_key`. **Post-LLM**: re-check before `cache_put_sentence`; if superseded during the HTTP call, skip the cache write.
-
-So **`enqueue_seq` is a generation stamp for supersede/dedup semantics**, not a substitute for the queue. Something must play that role whenever work is merged, replaced, or skipped outside pure FIFO.
-
-**Alternatives (same role, different representation):**
-
-| Approach | Notes |
-|----------|-------|
-| **Per-`inflight_key` counter** | Bump only when enqueueing for that document+locale key. Same semantics as today's global counter for same-key comparisons; avoids mixing sequence space across unrelated documents (clearer for logs and reasoning). |
-| **Enqueue-time monotonic value** | e.g. `time.monotonic()` at enqueue as the order key. Requires discipline if two enqueues share an identical timestamp resolution; still needs to be stored on each `GrammarWorkItem` and mirrored (like `_latest_seq`) for stale checks. |
-| **Post-LLM staleness guard** | **Shipped:** `inflight_superseded(inflight_key, enqueue_seq)` after `chat_completion_sync` returns and before `cache_put_sentence`. |
+Global monotonic counter (`next_enqueue_seq()` in [`grammar_work_queue.py`](../plugin/writer/locale/grammar_work_queue.py)); each [`GrammarWorkItem`](../plugin/writer/locale/grammar_work_queue.py) stores **`enqueue_seq`** as a generation stamp for supersede/dedup — not a queue position. Used by: batch drain + `deduplicate_grammar_batch` (highest seq per `inflight_key`), pre-execute stale skip, and post-LLM `inflight_superseded` before `cache_put_sentence`.
 
 ### Risks (still relevant)
 
@@ -351,13 +266,6 @@ So **`enqueue_seq` is a generation stamp for supersede/dedup semantics**, not a 
 | UI freeze | `doProofreading` does **not** wait on the main thread for LLM results (avoids dead menus while grammar runs). HTTP/LLM runs on a background worker; underlines update on a **later** proofreading pass when the sentence cache is ready. |
 | Stale underlines | Sentence cache (locale + sentence text fingerprint) plus work queue with same-key supersede, pre-execute stale skip, and post-LLM cache-write guard. **Cache hit** → immediate errors; **miss** → empty return once, queue workers fill cache for the next pass. See **Open backlog** for evolving this. |
 | Concurrent chat agent | Optional guard (`doc.grammar_proofreader_pause_during_agent`) skips grammar while chat/agent runs. With **`doc.grammar_proofreader_max_in_flight` = 1**, grammar HTTP shares global `llm_request_lane` with chat. With **>1**, grammar requests can overlap chat unless pause is enabled—raise concurrency only when the endpoint tolerates it. |
-
----
-
-## Optional repository reference: `GrammarChecker.py`
-
-The standalone [`GrammarChecker.py`](../GrammarChecker.py) (repo root) was used historically as a prompt/threading reference. It is **not** bundled as WriterAgent product code. The shipped proofreader does **not** call it.
-
 
 ---
 
@@ -377,7 +285,7 @@ Two tables: **product / hardening** (user-visible or systemic improvements) and 
 | P8 | Prompt and schema hardening | Few-shot edge cases (quotes, lists, track changes); stricter JSON recovery. |
 | P11 | Observability | Cache hit rate, supersede counts, p50/p95 schedule→`cache_put` behind a verbose flag. |
 | P13 | LanguageTool-class local checking | Research roadmap: [docs/languagetool-local-parity-phased-plan.md](languagetool-local-parity-phased-plan.md). |
-| P14 | Parallel grammar worker | **Partial (shipped):** `doc.grammar_proofreader_max_in_flight` (1–8) + multi drain threads + `grammar_llm_request_gate`. Remaining: shrink extra workers when user lowers N without restart; optional distinct-document-only scheduling. |
+| P14 | Parallel grammar worker | Shrink extra workers when user lowers `doc.grammar_proofreader_max_in_flight` without restart; optional distinct-document-only scheduling. |
 | P15 | Queue priority / visibility | Prefer currently edited or visible ranges over scroll-induced backlog (related to **C5**). |
 | P17 | Configurable LLM max tokens | Expose the hardcoded **3072** max output tokens as `doc.grammar_proofreader_max_tokens` so users can tune for different endpoints or models. |
 | P18 | Configurable max chars | Move `GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS` (8192) to a config key `doc.grammar_proofreader_max_chars`; allows tuning for very long sentences without code changes. |
@@ -385,7 +293,6 @@ Two tables: **product / hardening** (user-visible or systemic improvements) and 
 | P22 | Embedded cache: full-document retention on save | Today `_persist_to_udprops` only writes sentences in `_session_accessed` (touched this session). Document sections that were never scrolled into view can drop after a save. Either persist `_memory_cache` in full when small enough, or always re-include previously persisted fingerprints we haven't explicitly invalidated. Trade-off vs cap and edit-detection cost. |
 | P24 | Regional locale opt-out | Allow specific locales (e.g., `en-AU`, `pt-PT`) to opt-out of normalization to the "base" language if regional grammar nuances are significant. |
 | P25 | Quote-aware sentence merge (optional) | Reduce false "missing quote" on dialogue split at `!`/`?` inside quotes. Requires capped post-`split_into_sentences` merge, i18n-safe quote rules, UNO + unit tests. See [Dialogue / BreakIterator limitation](#dialogue-breakiterator-limitation) and [Appendix E](#appendix-e-dialogue-splits). |
-| P26 | Hybrid L1/L2 Cache (Cross-document sharing) | Implement a Tier 1 (Global Memory LRU) + Tier 2 (Document-embedded) hybrid. Allows copy-pasted sentences to hit the cache across different documents in the same session without global disk accumulation. See [Appendix G](#appendix-g-cross-document-memory-sharing). |
 
 ### Code health and maintainability
 
@@ -396,7 +303,6 @@ Two tables: **product / hardening** (user-visible or systemic improvements) and 
 | C6 | Regex audit | Most patterns are compiled; audit [`grammar_proofread_text.py`](../plugin/writer/locale/grammar_proofread_text.py) for any remaining compile-per-call hot paths. |
 | C7 | Logging discipline | Structured events, avoid duplicate levels, DEBUG vs INFO boundaries ([Appendix B](#appendix-b-structural-notes)). |
 | C8 | ProofreadingResult helpers / hints | Optional `@dataclass`-style helpers or richer type hints for UNO structs where stubs help. |
-| C10 | Batch diagnostics logging | Add structured **DEBUG** logs for batch stats: `sentences_queued`, `sentences_deduped`, `sentences_stale_skipped`, `sentences_llm_requested`, `llm_request_duration_ms` to help diagnose performance and correctness issues. |
 
 ---
 
@@ -404,19 +310,7 @@ Two tables: **product / hardening** (user-visible or systemic improvements) and 
 
 ### Appendix A: Cross-sentence prefix dedup
 
-**Problem:** An older implementation added a *second* dedup step that grouped queue items by `(doc_id, locale)` and dropped items whose **slice text** was in a **string prefix** relation with another item (newest `enqueue_seq` wins). That matches typing inside **one** sentence, but `inflight_key` is already scoped per sentence. **Different sentences** in the same paragraph can still have texts where one is a prefix of the other (e.g. first sentence `No.` and a later sentence `No problem today.`). Cross-key prefix logic **dropped the shorter sentence's work** and skipped a valid LLM check.
-
-**Fix shipped:** `deduplicate_grammar_batch` only keeps, for each **`inflight_key`**, the item with the highest **`enqueue_seq`**. No text-prefix pass across distinct keys. Same-sentence typing is covered by the same `inflight_key` plus enqueue tail-replace.
-
-**Other approaches** (if redesigning — avoid regressions):
-
-| Approach | Notes |
-|----------|-------|
-| Prefix-newest-wins **only for the same `inflight_key`** | Narrow the old idea to the typing timeline only; often equivalent to one survivor per key after the main dedup. |
-| **Span-aware** prefix rules | Drop prefix-related items only when `n_start`/`n_end` ranges overlap (same physical sentence), not when offsets differ. |
-| **No cross-key text comparison** | Rely on `inflight_key` + tail-replace only (**current**). |
-
-**Regression test:** [`test_two_sentences_string_prefix_collision_both_survive`](../plugin/tests/writer/locale/test_grammar_work_queue.py). Implementation notes are in **comments directly above** `deduplicate_grammar_batch` in [`grammar_work_queue.py`](../plugin/writer/locale/grammar_work_queue.py).
+Cross-key **text-prefix** dedup was removed: different sentences in one paragraph can share a string prefix (e.g. `No.` vs `No problem today.`), which dropped valid work. **Current:** `deduplicate_grammar_batch` keeps highest `enqueue_seq` per `inflight_key` only. Regression: [`test_two_sentences_string_prefix_collision_both_survive`](../tests/writer/locale/test_grammar_work_queue.py).
 
 ### Appendix B: Structural notes
 
@@ -435,30 +329,6 @@ Ideas from earlier cleanup planning — not scheduled as separate tickets:
 - Prefer injectable helpers over patching `time.sleep` at module scope where sleeps exist.
 - Prefer pure functions for dedup/stale logic (already partly true).
 
-### Appendix D: `DocumentPersistence` save fix
-
-When document-embedded persistence was first wired up, no JSON ever landed in the saved `.odt`. The log on each Ctrl+S showed:
-
-```
-set_document_property error: Add property failed: Property name or handle already used.
-[grammar] DocumentPersistence: save user property failed: Add property failed: Property name or handle already used.
-```
-
-Two latent bugs combined:
-
-1. **Listener callback name typo.** `_GrammarDocumentEventListener` defined `documentEvent(self, Event)`. The UNO `XDocumentEventListener` IDL method is **`documentEventOccured`** (note the spelling). LibreOffice happily registered the listener but never dispatched any event to our handler, so `_persist_to_udprops` was simply never called. Fixed by renaming the method and consolidating broadcaster `disposing` into the same class (the interface inherits from `lang.XEventListener`).
-
-2. **Wrong existence check in `set_document_property`.** The old code used `hasattr(props, "hasByName")` to decide between `addProperty` and `setPropertyValue`. But `UserDefinedProperties` is a `com.sun.star.beans.PropertyBag` that implements `XPropertyContainer` + `XPropertySet` — **not** `XNameAccess`. `hasByName` does not exist on it, so `exists` was always `False` and the code always took the `addProperty` branch. First save created the property fine; every save after that raised `Property name or handle already used`, the exception bubbled up, and `_persist_to_udprops` logged the warning above. The XModel's `WriterAgentGrammarCache` was never updated, so what LibreOffice wrote to disk was stale.
-
-   Fixed by checking existence via **`XPropertySet.getPropertySetInfo().hasPropertyByName(name)`** (the actual `XPropertySet` API on `UserDefinedProperties`), with `hasByName` kept only as a secondary path for objects that happen to expose it. `get_document_property` was updated symmetrically, which also silences the `Get property value fallback failed: WriterAgentGrammarCache` warning on first open.
-
-**Regression tests:**
-
-- [`test_document_event_listener_has_correct_uno_method_names`](../plugin/tests/writer/locale/test_grammar_persistence.py) — pins the method name and signature.
-- [`test_set_document_property_updates_existing_without_readding`](../plugin/tests/writer/test_document_helpers.py) — second save updates via `setPropertyValue`, no `addProperty` call.
-- [`test_set_document_property_creates_missing_property`](../plugin/tests/writer/test_document_helpers.py) — first save still uses `addProperty`.
-- [`test_get_document_property_returns_default_when_missing_without_warning`](../plugin/tests/writer/test_document_helpers.py) — first load returns default quietly.
-
 ### Appendix C: Documentation maintenance
 
 - Keep [`AGENTS.md`](../AGENTS.md) in sync when behavior or config keys change (per project rules).
@@ -475,7 +345,7 @@ Two latent bugs combined:
 1. **Primary split:** [`split_into_sentences`](../plugin/writer/locale/grammar_proofread_text.py) uses `com.sun.star.i18n.BreakIterator.endOfSentence`. For common English locales, **`!` and `?` end a sentence** the same way `.` does, including when they appear inside an opening `"` …
 2. **No `!`/`?` analogue to the abbrev heuristic:** The loop that extends past a false `.` boundary only runs when the boundary character is **`.`** and the preceding token matches `word_before_period_is_abbrev`. There is **no** parallel path for “this `!` is mid-utterance inside dialogue.”
 3. **Completeness gating still passes:** [`looks_complete_sentence`](../plugin/writer/locale/grammar_proofread_locale.py) treats the last non-closer character as the sentence terminal; `"Fire!` ends in `!`, so the chunk counts as **complete** and is not filtered as an incomplete short fragment.
-4. **Pinned text to the LLM:** [`WriterAgentAiGrammarProofreader`](../plugin/writer/locale/ai_grammar_proofreader.py) enqueues [`GrammarWorkItem`](../plugin/writer/locale/grammar_work_queue.py) with `proofread_sentence_text` set to that segment. The worker does **not** re-split, so the model genuinely receives a **truncated quoted string**.
+4. **Pinned text to the LLM:** [`WriterAgentAiGrammarProofreader`](../plugin/writer/locale/ai_grammar_proofreader.py) enqueues [`GrammarWorkItem`](../plugin/writer/locale/grammar_work_queue.py) with **`text`** set to that segment. The worker does **not** re-split, so the model genuinely receives a **truncated quoted string**.
 
 **Why this is a hardening problem, not “fix the prompt only”:** Prompt tweaks might reduce false positives but do not fix **wrong work units**, **cache granularity**, or **offset** semantics if we ever map errors back across merged spans.
 
@@ -488,84 +358,18 @@ Two latent bugs combined:
 | **Trigger only on `!`/`?` boundaries** | Avoids touching the common `.` + abbrev path | Misses edge cases like period-inside-dialogue when BI still splits early. |
 | **Prompt-only “ignore incomplete quote”** | Cheap | Leaves bad segmentation and weak cache behavior unchanged. |
 
-**Regression surface:** Any change should add coverage in [`plugin/tests/writer/locale/test_grammar_proofread_text_uno.py`](../plugin/tests/writer/locale/test_grammar_proofread_text_uno.py) (real `BreakIterator`) and focused unit tests for merge helpers without UNO.
+**Regression surface:** Any change should add coverage in [`tests/writer/locale/test_grammar_proofread_text_uno.py`](../tests/writer/locale/test_grammar_proofread_text_uno.py) (real `BreakIterator`) and focused unit tests for merge helpers without UNO.
 
 **Status:** Documented limitation + backlog **P25**; no code change required for users who hit this rarely.
 
-### Appendix F: Real-time Language Detection Architecture
+### Appendix F: Language detection — future ideas
 
-**Problem:** Users often type in multiple languages (e.g., mixing English and French sentences in the same document) without actively updating the LibreOffice language property. When the grammar checker runs, it applies rules for the wrong language. LibreOffice's built-in automatic language detection is often flaky or relies on rigid dictionaries.
+Shipped behavior: `doc.grammar_proofreader_detect_language` (`off` / `llm` / `langdetect`); incomplete-sentence guard; lang-detect LRU; CharLocale updates on mismatch. See **Language Detection** in [At a glance](#at-a-glance) and worker code in [`grammar_worker_llm.py`](../plugin/writer/locale/grammar_worker_llm.py).
 
-**Implementation (Current):**
-- **Settings:** `doc.grammar_proofreader_detect_language` select — `off`, `llm`, or `langdetect` (legacy boolean `true`/`false` maps to `llm`/`off`).
-- **LLM path:** Isolated prompt (`LANGUAGE_DETECT_SYSTEM_PROMPT`) before grammar checking; uses `grammar_llm_request_gate`.
-- **Local path:** [`plugin/contrib/langdetect/`](../plugin/contrib/langdetect/) (stripped profiles from `GRAMMAR_REGISTRY_LOCALE_TAGS`; refresh via `make langdetect-contrib`).
-- **Incomplete Sentence Guard:** If the user hasn't finished typing the sentence (`looks_complete_sentence` fails), language detection and grammar checking are bypassed entirely to prevent jumping the gun on a half-written word.
-- **Boundary Preservation:** The pipeline respects LibreOffice's paragraph segmentation constraints (`n_suggested_behind_end`). By returning control when a language changes, we allow LibreOffice to naturally iterate over the newly-detected language chunks.
-- **LRU Deduplication:** To prevent redundant LLM calls when a paragraph bounces between locale invalidation updates, we maintain an in-memory `OrderedDict` (`_lang_detect_cache`) bounded to 1,000 sentences. If the text string was recently evaluated for a language, the LLM request is skipped.
-
-**Future Ideas & Cache Alternatives:**
+**Future:**
 - **Character-Level Heuristics:** Before calling the LLM, we could run a fast regex-based detector for non-Latin scripts (e.g., Japanese, Korean, Arabic). If detected, we can bypass the LLM and instantly apply the matching locale if the document supports it.
 - **Persistent Language Cache:** The current LRU is transient (in-memory). We could persist the language map to the `WriterAgentGrammarCache` user-defined property. However, since the primary use case is immediate feedback during typing sessions, the transient in-memory cache is highly effective without bloating the `.odt` file.
 - **Model Downgrading:** Language detection requires virtually zero "reasoning." In the future, we could configure the HTTP request to route detection tasks to a significantly cheaper/faster model (e.g., `gemini-flash-8b`) while keeping the heavy grammar evaluation on the primary intelligent model.
-
-<a id="appendix-g-cross-document-memory-sharing"></a>
-
-### Appendix G: Cross-document Memory Sharing (Hybrid L1/L2 Cache)
-
-**Goal:** Allow grammar results to be shared across documents in memory (to support copy-paste hits) while keeping persistence document-specific and ensuring memory is reclaimed when documents close.
-
-**Current Limitation:** By default, `grammar_proofread_cache.py` bypasses the global `_SENTENCE_CACHE` LRU and talks directly to the document's `DocumentPersistence`. This prevents Doc B from seeing results cached for Doc A, even if the same sentence is copied over.
-
-**Proposed Design (Hybrid Tiered Cache):**
-
-1.  **Tier 1 (Global In-Memory LRU):** Continue using `_SENTENCE_CACHE` (default 2048 entries). This cache is global to the Python process and shared by all documents. It is **transient** (never saved to a global disk DB).
-2.  **Tier 2 (Per-Document Persistence):** Continue using `DocumentPersistence`. This is document-specific and persists to the `.odt` file.
-
-**Modified Logic Flow:**
-
--   **`cache_get_sentence`**:
-    1.  **Global Hit?** Check `_SENTENCE_CACHE` first. If found, return results immediately. This handles the copy-paste scenario.
-    2.  **Document Hit?** If not in `_SENTENCE_CACHE` and `doc_id` is provided, check `DocumentPersistence`.
-    3.  **Promotion:** If found in `DocumentPersistence`, "warm up" the global `_SENTENCE_CACHE` with these results so they are available for other documents.
--   **`cache_put_sentence`**:
-    1.  **Global Put:** Always store results in `_SENTENCE_CACHE`.
-    2.  **Document Put:** If `doc_id` is provided, also store in `DocumentPersistence`.
-
-**Lifecycle & Accumulation:**
--   **Reclamation:** When a document closes, its `DocumentPersistence` (Tier 2) is cleared and removed from the map. The global `_SENTENCE_CACHE` (Tier 1) remains, but its size is capped (2048 entries), so it won't grow indefinitely even with many documents.
--   **No Global Disk Bloat:** The only thing saved to disk is the document itself. The cross-document sharing happens entirely in the transient Tier 1 memory layer.
--   **Copy-Paste Experience:** User copies a checked paragraph from Doc A to Doc B. Doc B calls `doProofreading`. `cache_get_sentence` hits the global Tier 1 cache. Squiggles appear instantly in Doc B without a new LLM call.
-
-**Implementation Pointers:**
--   Modify `cache_get_sentence` in `grammar_proofread_cache.py` to let it fall through the global cache check first.
--   Modify `cache_put_sentence` to always perform the global `_populate_memory_cache_only` step, then conditionally call `p.put` on the document persistence.
-
-### Comparison of Implementation Alternatives
-
-| Approach | Lifecycle Management | Cross-doc Sharing | Complexity | Notes |
-|----------|----------------------|-------------------|------------|-------|
-| **Hybrid L1/L2 (Proposed)** | L2 is cleared on `OnUnload`. L1 manages itself via global LRU (2048). | Immediate via L1. | Low | Clean separation. `DocumentPersistence` remains the source of truth for a file's state. |
-| **Tagged Global Cache** | Global map entries tagged with `set(doc_ids)`. On close, remove `doc_id` from all tags. | Built-in. | Medium | Requires reverse indices to find which sentences belong to a doc for save/cleanup. |
-| **Ref-Counted Global Cache** | Entries dropped when count hits 0. | Built-in. | Low | Simple for memory, but doesn't help with the "Save" operation (which sentences belong to this doc?). |
-
-#### Deep Dive: Tagged Global Cache
-
-One alternative is to move to a **single global cache** where every entry is tagged with the IDs of documents that "own" or have requested it.
-
-- **Mechanism**: A map of `fingerprint -> {errors, doc_ids: set()}`.
-- **Lifecycle**: When a document closes, the system iterates the cache and removes that `doc_id` from all sets. If a set becomes empty, the entry is either deleted or marked as "orphan" for the global LRU to evict.
-- **Save Operation**: Requires a "forward index" (`doc_id -> set(fingerprints)`) to efficiently know which sentences to write to the document's user-defined properties on save.
-
-**Pros:**
-- **Zero Memory Redundancy**: A sentence is stored exactly once in memory regardless of how many documents use it.
-- **Strict Reclamation**: Can precisely drop sentences that are no longer in use by any open document.
-
-**Cons:**
-- **Higher Implementation Surface**: Managing double-indices (fingerprint-to-docs and doc-to-fingerprints) adds complexity and potential for sync bugs.
-- **Scanning Overhead**: Scans on document close/save scale with the size of the global cache (though negligible at `MAX_CACHE_SIZE=2048`).
-
-**Conclusion:** The **Hybrid L1/L2** approach is preferred because it leverages existing `DocumentPersistence` logic. It treats the document state as primary and the global memory as a "volatile optimizer." The memory redundancy (storing a sentence in both the global LRU and the document's active map) is minimal (a few hundred KB) compared to the architectural simplicity.
 
 ---
 
@@ -581,34 +385,16 @@ One alternative is to move to a **single global cache** where every entry is tag
 
 ### Prioritized Technical Debt Items (TDx)
 
-Below is the list of open technical debt items. All major foundational TD tasks (including bootstrap centralization, testability seams, registry singleton migration, queue simplification, and listener base classes) have been successfully **completed** and shipped.
-
-| ID  | Area | Debt Description | Primary Files | Risk | Payoff | Status / Suggested Approach |
-|-----|------|------------------|---------------|------|--------|-----------------------------|
-| **TD5** | Error handling fragility | Nested try/except "log and continue" patterns in the hot `doProofreading` path and worker (C1). Some errors are swallowed that should at least increment a diagnostic counter. | `ai_grammar_proofreader.py`, `grammar_work_queue.py`, `grammar_proofread_locale.py` | Low | Medium | Implement the tiered error handling table from Appendix B. Introduce a small set of `_safe_*` helpers with clear contracts. |
-| **TD8** | Small helper refactoring & import graph cohesion | Relocate small helper utilities to appropriate files to minimize cross-imports and establish clear conceptual boundaries. | `grammar_proofread_locale.py`, `grammar_proofread_cache.py`, `grammar_proofread_text.py` | Low | Medium | **Open** — Relocate candidates identified in the opportunities subsection below to their natural home modules. |
-| **TD9** | Observability & diagnostics debt | `grammar_obs` is useful but under-used in some paths. Batch stats, supersede counts, and LLM durations are only partially instrumented (see C10). | `grammar_obs.py`, `grammar_work_queue.py`, `grammar_worker_llm.py`, `grammar_proofread_cache.py`, `ai_grammar_proofreader.py` | Low | Medium | **Partial (2026-05)** — Canonical `grammar_obs` is active. Remaining: full C10 batch counters / p50–p95 logging. |
-
-### Identified Opportunities – Small Pure Helpers (TD8 Relocation Candidates)
-
-These pure helpers are prime candidates for relocation to improve conceptual ownership and streamline the import graph:
-
-1. **`slice_preview_debug`** (currently in `grammar_obs.py`):
-   - Creates compact text previews for logging/observability.
-   - Used by: `ai_grammar_proofreader.py` (exposed via the TD2 testing seam) and internally in `grammar_work_queue.py`.
-   - **Suggested new home:** `grammar_proofread_text.py` (alongside other text/slice utilities).
+| ID  | Area | Debt Description | Primary Files | Suggested Approach |
+|-----|------|------------------|---------------|---------------------|
+| **TD5** | Error handling fragility | Nested try/except "log and continue" in `doProofreading` and the worker (C1). | `ai_grammar_proofreader.py`, `grammar_work_queue.py` | Tiered handling per Appendix B; `_safe_*` helpers with characterization tests. |
 
 ### Verification Requirements (Mandatory)
 
 For any TD item that touches runtime behavior:
-1. All existing grammar tests (pytest under `tests/writer/locale/` + native tests via `testing_runner`) must pass before and after.
-2. Add at least one new regression-style test that would have caught the class of bug being cleaned up.
-3. If the change affects persistence or cache format, verify round-trips with old documents.
-4. Update this plan document with "Completed" status.
-
----
-
-**Status of this plan**: Shipped & Current — All major pipeline simplifications have been completed.
+1. All grammar tests (`tests/writer/locale/` pytest + `testing_runner` UNO) must pass before and after.
+2. Add at least one regression test for the bug class being cleaned up.
+3. If persistence or cache format changes, verify round-trips with old documents.
 
 ---
 
@@ -661,4 +447,4 @@ When the LLM is called for grammar, inject a compact "House style notes for this
 
 ---
 
-**When to pursue these:** After the current backlog items around cache size, batch diagnostics, and quote-aware splitting are under control. These directions increase coupling between grammar and the rest of the platform; they are most valuable once the grammar engine itself feels solid and low-drama.
+**When to pursue these:** After backlog items around quote-aware splitting (P25) and queue/worker hardening (TD5) are under control.

@@ -12,6 +12,17 @@ from typing import Any, Iterable, Sequence
 
 log = logging.getLogger("writeragent.grammar")
 
+
+def slice_preview_debug(text: str, max_len: int = 72) -> str:
+    """Compact one-line preview for DEBUG logs (avoid dumping huge paragraphs)."""
+    if not text:
+        return ""
+    compact = " ".join(text.split())
+    if len(compact) <= max_len:
+        return compact
+    return f"{compact[:max_len]}\u2026"
+
+
 from .grammar_obs import grammar_obs
 
 from .grammar_proofread_locale import (

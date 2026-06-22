@@ -143,7 +143,7 @@ def test_partial_threshold_counts_nonspace_chars() -> None:
     assert api["count_nonspace_chars"]("too short") < api["GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS"]
     assert api["count_nonspace_chars"]("this is long enough") >= api["GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS"]
 
-def test_run_llm_skips_split_when_proofread_sentence_text_set() -> None:
+def test_run_llm_skips_split_when_item_text_set() -> None:
     def _get_config_bool(_ctx: object, key: str) -> bool:
         if key == "doc.grammar_proofreader_enabled": return True
         if key == "doc.grammar_proofreader_pause_during_agent": return False

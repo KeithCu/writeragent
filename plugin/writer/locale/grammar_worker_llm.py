@@ -11,7 +11,8 @@ import time
 from typing import Any
 
 from . import grammar_proofread_cache, grammar_proofread_json, grammar_proofread_locale, grammar_persistence
-from .grammar_obs import emit_grammar_status, grammar_obs, slice_preview_debug
+from .grammar_obs import emit_grammar_status, grammar_obs
+from .grammar_proofread_text import slice_preview_debug
 
 from plugin.framework import queue_executor
 

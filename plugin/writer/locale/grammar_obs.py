@@ -22,16 +22,6 @@ def grammar_obs(event: str, **fields: Any) -> None:
     log.debug("[grammar] obs %s %s", event, kv)
 
 
-def slice_preview_debug(text: str, max_len: int = 72) -> str:
-    """Compact one-line preview for DEBUG logs (avoid dumping huge paragraphs)."""
-    if not text:
-        return ""
-    compact = " ".join(text.split())
-    if len(compact) <= max_len:
-        return compact
-    return f"{compact[:max_len]}…"
-
-
 def emit_grammar_status(
     phase: str,
     text: str,
@@ -42,6 +32,8 @@ def emit_grammar_status(
     length_hint: int | None = None,
 ) -> None:
     """Emit ``grammar:status``. Pass ``preview_source`` for a sentence snippet (sidebar, clipped to a few chars)."""
+    from .grammar_proofread_text import slice_preview_debug
+
     try:
         if preview_source is not None:
             raw = preview_source.strip() or "(empty)"

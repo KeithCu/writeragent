@@ -210,3 +210,29 @@ def test_document_mode_populates_memory_cache() -> None:
         assert got is not None
         assert len(gc._SENTENCE_CACHE) == 1
         mock_gp.assert_called_once_with(ctx, "uid-1")
+
+
+def test_cross_document_l1_cache_hit() -> None:
+    """Doc B hits Tier-1 global LRU after Doc A checked the same sentence (copy-paste scenario)."""
+    from unittest.mock import MagicMock
+
+    errors = [{"n_error_start": 0, "n_error_length": 5, "rule_identifier": "wa_test"}]
+    mock_p_a = MagicMock()
+    mock_p_b = MagicMock()
+    mock_p_b.get.return_value = None
+    ctx = MagicMock()
+
+    def _get_persistence(_ctx: object, doc_id: str, **kwargs: object) -> MagicMock | None:
+        if doc_id == "doc-a":
+            return mock_p_a
+        if doc_id == "doc-b":
+            return mock_p_b
+        return None
+
+    with patch("plugin.writer.locale.grammar_proofread_cache.get_persistence", side_effect=_get_persistence):
+        gc.cache_put_sentence("en-US", "Same sentence here.", errors, ctx=ctx, doc_id="doc-a")
+        mock_p_a.put.assert_called_once()
+        got = gc.cache_get_sentence("en-US", "Same sentence here.", ctx=ctx, doc_id="doc-b")
+        assert got is not None
+        assert len(got) == 1
+        mock_p_b.get.assert_not_called()
