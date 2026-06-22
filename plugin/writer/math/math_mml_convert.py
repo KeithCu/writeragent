@@ -169,11 +169,13 @@ def insert_writer_math_formula(model: Any, cursor: Any, starmath: str, *, displa
     """Insert a Writer formula object at *cursor* and leave the cursor after it.
 
     *display_block*: surround the object with paragraph breaks so it occupies
-    its own paragraph (display-style math).
+    its own paragraph (display-style math) and center the formula paragraph.
     """
     text = model.getText()
     if display_block:
         text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+        cursor.goRight(1, False)
+        cursor.setPropertyValue("ParaAdjust", 3)  # 3 = Center alignment
 
     embed = model.createInstance("com.sun.star.text.TextEmbeddedObject")
     embed.CLSID = MATH_CLSID
@@ -185,3 +187,6 @@ def insert_writer_math_formula(model: Any, cursor: Any, starmath: str, *, displa
 
     if display_block:
         text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+        cursor.goRight(1, False)
+        cursor.setPropertyValue("ParaAdjust", 0)  # 0 = Left / Standard alignment
+

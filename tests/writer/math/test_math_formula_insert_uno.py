@@ -181,3 +181,32 @@ def test_replace_full_document_mixed_mathml_and_tex() -> None:
     assert _embed_count(_test_doc) >= 2
     body = _test_doc.getText().getString()
     assert "A" in body and "B" in body and "C" in body
+
+
+@native_test
+def test_insert_formula_display_block_centered() -> None:
+    assert _test_doc is not None
+    text = _test_doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    cur.gotoEnd(False)
+
+    text.insertString(cur, "Before", False)
+    insert_writer_math_formula(
+        _test_doc, cur, "x = y", display_block=True
+    )
+    text.insertString(cur, "After", False)
+
+    paragraphs = []
+    enum = text.createEnumeration()
+    while enum.hasMoreElements():
+        p = enum.nextElement()
+        if p.supportsService("com.sun.star.text.Paragraph"):
+            paragraphs.append(p)
+
+    assert len(paragraphs) == 3, f"Expected 3 paragraphs, got {len(paragraphs)}"
+    assert paragraphs[0].getString() == "Before"
+    assert paragraphs[2].getString() == "After"
+    assert paragraphs[1].getPropertyValue("ParaAdjust") == 3  # Center
+    assert paragraphs[2].getPropertyValue("ParaAdjust") == 0  # Left / Standard
+
