@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-17 17:50-0400\n"
+"POT-Creation-Date: 2026-06-22 15:38-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: English (US) <LL@li.org>\n"
@@ -19,21 +19,21 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 
 #: plugin/notebook/notebook_runner.py
@@ -46,11 +46,11 @@ msgstr "Notebook run is only supported in LibreOffice Writer."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 
 #: plugin/notebook/notebook_runner.py
 msgid "Could not find notebook cell for this control."
@@ -97,182 +97,6 @@ msgstr ""
 #: plugin/notebook/writer_importer.py
 msgid "Run code cell"
 msgstr "Run code cell"
-
-#: plugin/contrib/aihordeclient/__init__.py plugin/chatbot/panel.py
-msgid "Starting..."
-msgstr "Starting..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Updating model requirements..."
-msgstr "Updating model requirements..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Updating Models..."
-msgstr "Updating Models..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Register at "
-msgstr "Register at "
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "You have {} kudos"
-msgstr "You have {} kudos"
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "«{}» is not a valid API KEY, double check it or create a new one"
-msgstr "«{}» is not a valid API KEY, double check it or create a new one"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"At this moment we can not process your request, please try again later.  If "
-"this is happening for a long period of time, please let us know via Discord"
-msgstr ""
-"At this moment we can not process your request, please try again later.  If "
-"this is happening for a long period of time, please let us know via Discord"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Problem requesting kudos"
-msgstr "Problem requesting kudos"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"The Horde is in maintenance mode, please try again later, if you have tried "
-"and the service does not respond for hours, please contact via Discord"
-msgstr ""
-"The Horde is in maintenance mode, please try again later, if you have tried "
-"and the service does not respond for hours, please contact via Discord"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"You have made too many requests, please wait for them to finish, and try "
-"again later"
-msgstr ""
-"You have made too many requests, please wait for them to finish, and try "
-"again later"
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid ""
-"Seems that «{}» has problems, double check it, create a new one or join "
-"Discord to ask for help"
-msgstr ""
-"Seems that «{}» has problems, double check it, create a new one or join "
-"Discord to ask for help"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "We hit an error, still: "
-msgstr "We hit an error, still: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "No longer valid, please try again.  Your request took too long"
-msgstr "No longer valid, please try again.  Your request took too long"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Contacting the Horde..."
-msgstr "Contacting the Horde..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Horde Contacted"
-msgstr "Horde Contacted"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"When trying to ask for the image, the Horde was too slow, try again later"
-msgstr ""
-"When trying to ask for the image, the Horde was too slow, try again later"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "to learn to earn kudos. Detail:"
-msgstr "to learn to earn kudos. Detail:"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Service failed: "
-msgstr "Service failed: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Downloading generated image..."
-msgstr "Downloading generated image..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "You are first in the queue"
-msgstr "You are first in the queue"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Queue position: "
-msgstr "Queue position: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Generating..."
-msgstr "Generating..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Get a free API Key at "
-msgstr "Get a free API Key at "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "."
-msgstr "."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "This model takes more time than your current configuration."
-msgstr "This model takes more time than your current configuration."
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
-msgstr ""
-"Please try another model. {0} would take more time than you configured."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Please try again later."
-msgstr "Please try again later."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "There are no workers available with these settings."
-msgstr "There are no workers available with these settings."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Probably your image will take one additional minute."
-msgstr "Probably your image will take one additional minute."
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "Probably your image will take {} additional minutes."
-msgstr "Probably your image will take {} additional minutes."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Fetching images..."
-msgstr "Fetching images..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid " is censored, try changing the prompt wording"
-msgstr " is censored, try changing the prompt wording"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Downloading result..."
-msgstr "Downloading result..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Downloading image"
-msgstr "Downloading image"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"You may need to reduce your settings or choose another model, or you may "
-"have been censored. Horde message"
-msgstr ""
-"You may need to reduce your settings or choose another model, or you may "
-"have been censored. Horde message"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid " generated by "
-msgstr " generated by "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid " with "
-msgstr " with "
 
 #: plugin/embeddings/search_ui.py
 msgid "Cache Status: No active document"
@@ -412,7 +236,8 @@ msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
 msgstr "Request Timed Out. Try increasing 'Request Timeout' in Settings."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 
@@ -444,9 +269,11 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 
 #: plugin/framework/constants.py
 msgid ""
@@ -466,21 +293,23 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest "
-"approaches, and help you build an approved spec in your document when you're "
-"ready."
+"AI: Let's explore and design your idea together. I'll ask questions, suggest"
+" approaches, and help you build an approved spec in your document when "
+"you're ready."
 msgstr ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest "
-"approaches, and help you build an approved spec in your document when you're "
-"ready."
+"AI: Let's explore and design your idea together. I'll ask questions, suggest"
+" approaches, and help you build an approved spec in your document when "
+"you're ready."
 
 #: plugin/framework/constants.py
 msgid ""
 "AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your approval."
+"writing plan outline, and then implement it incrementally with your "
+"approval."
 msgstr ""
 "AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your approval."
+"writing plan outline, and then implement it incrementally with your "
+"approval."
 
 #: plugin/framework/client/errors.py
 #, python-brace-format
@@ -508,6 +337,10 @@ msgstr ""
 #: plugin/calc/python_function.py
 msgid "Image inserted"
 msgstr "Image inserted"
+
+#: plugin/calc/python_function.py
+msgid "Images inserted"
+msgstr "Images inserted"
 
 #: plugin/calc/python_editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
@@ -593,13 +426,13 @@ msgid ""
 "Cannot import webview (pywebview) with the Python from Settings → Python:\n"
 "%(exe)s\n"
 "\n"
-"In that venv run: pip install pywebview\n"
+"In that venv run: uv pip install pywebview\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
 "Cannot import webview (pywebview) with the Python from Settings → Python:\n"
 "%(exe)s\n"
 "\n"
-"In that venv run: pip install pywebview\n"
+"In that venv run: uv pip install pywebview\n"
 "(import name is webview, package name is pywebview)."
 
 #: plugin/calc/python_editor.py
@@ -1043,6 +876,10 @@ msgid "Send"
 msgstr "Send"
 
 #: plugin/chatbot/panel.py
+msgid "Starting..."
+msgstr "Starting..."
+
+#: plugin/chatbot/panel.py
 msgid "Getting document..."
 msgstr "Getting document..."
 
@@ -1186,7 +1023,8 @@ msgstr "[Agent backend '{0}' not found.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Agent backend '{0}' is not available. Check Settings (path, install).]"
 
@@ -1352,12 +1190,20 @@ msgid "Units Helpers"
 msgstr "Units Helpers"
 
 #: plugin/scripting/document_scripts.py
+msgid "Text Analytics Helpers"
+msgstr "Text Analytics Helpers"
+
+#: plugin/scripting/document_scripts.py
 msgid "Quant Helpers"
 msgstr "Quant Helpers"
 
 #: plugin/scripting/document_scripts.py
 msgid "Optimize Helpers"
 msgstr "Optimize Helpers"
+
+#: plugin/scripting/document_scripts.py
+msgid "SQL Helpers"
+msgstr "SQL Helpers"
 
 #: plugin/scripting/document_scripts.py
 msgid "My Scripts"
@@ -1518,7 +1364,8 @@ msgid "Could not talk to the Python editor."
 msgstr "Could not talk to the Python editor."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "Vision probe timed out (Docling import can take 10–30s on first check)."
 
@@ -1555,6 +1402,10 @@ msgid "Data Engineering Libraries"
 msgstr "Data Engineering Libraries"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Text / NLP Libraries"
+msgstr "Text / NLP Libraries"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries"
 msgstr "Vision Libraries"
 
@@ -1589,6 +1440,91 @@ msgstr "Resolving venv Python..."
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using"
 msgstr "Using"
+
+#: plugin/scripting/text_analytics_ui.py plugin/xdl_strings.py
+msgid "Text Analytics"
+msgstr "Text Analytics"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Could not load the analytics dialog."
+msgstr "Could not load the analytics dialog."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Checking spaCy / textdescriptives / transformers installation..."
+msgstr "Checking spaCy / textdescriptives / transformers installation..."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-brace-format
+msgid ""
+"Error from the Text Analytics worker:\n"
+"{err}\n"
+"\n"
+"The features in this dialog require these packages in the python it is using:\n"
+"  • spacy + a model          (entities, key phrases, basic stats)\n"
+"  • textdescriptives         (real Readability scores)\n"
+"  • transformers + torch     (Sentiment using the multilingual model)\n"
+"\n"
+"Install them with:\n"
+"  {install}\n"
+"\n"
+"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
+msgstr ""
+"Error from the Text Analytics worker:\n"
+"{err}\n"
+"\n"
+"The features in this dialog require these packages in the python it is using:\n"
+"  • spacy + a model          (entities, key phrases, basic stats)\n"
+"  • textdescriptives         (real Readability scores)\n"
+"  • transformers + torch     (Sentiment using the multilingual model)\n"
+"\n"
+"Install them with:\n"
+"  {install}\n"
+"\n"
+"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Open a Writer document to analyze."
+msgstr "Open a Writer document to analyze."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Not enough text in the chosen scope."
+msgstr "Not enough text in the chosen scope."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Analyzing..."
+msgstr "Analyzing..."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-format
+msgid ""
+"Error: %s\n"
+"\n"
+"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
+msgstr ""
+"Error: %s\n"
+"\n"
+"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "No Writer document to insert into."
+msgstr "No Writer document to insert into."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Run an analysis first."
+msgstr "Run an analysis first."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Nothing useful to insert from the last result."
+msgstr "Nothing useful to insert from the last result."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-format
+msgid "Insert failed: %s"
+msgstr "Insert failed: %s"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Inserted after selection/caret."
+msgstr "Inserted after selection/caret."
 
 #: plugin/scripting/symbolic.py
 msgid "Symbolic helper failed."
@@ -1786,6 +1722,19 @@ msgid "Units helpers require a Writer or Calc document."
 msgstr "Units helpers require a Writer or Calc document."
 
 #: plugin/scripting/python_runner.py
+msgid "Text analytics helpers require a Writer document."
+msgstr "Text analytics helpers require a Writer document."
+
+#: plugin/scripting/python_runner.py
+msgid "Text analytics helper failed."
+msgstr "Text analytics helper failed."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Text analytics '{helper}' completed. (took {time})"
+msgstr "Text analytics '{helper}' completed. (took {time})"
+
+#: plugin/scripting/python_runner.py
 msgid ""
 "Quant helper requires a data range. Select cells or enter a range in the "
 "Data field."
@@ -1839,11 +1788,11 @@ msgstr "Analysis '{helper}' completed. Wrote {rows} rows. (took {time})"
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -1994,6 +1943,10 @@ msgid "Search Nearby Files..."
 msgstr "Search Nearby Files..."
 
 #: plugin/main.py
+msgid "Text Analytics..."
+msgstr "Text Analytics..."
+
+#: plugin/main.py
 msgid "Convert Sheet to Python..."
 msgstr "Convert Sheet to Python..."
 
@@ -2004,14 +1957,6 @@ msgstr "Dispatch Error"
 #: plugin/xdl_strings.py
 msgid "-1"
 msgstr "-1"
-
-#: plugin/xdl_strings.py
-msgid "7.5"
-msgstr "7.5"
-
-#: plugin/xdl_strings.py
-msgid "AI Horde API Key:"
-msgstr "AI Horde API Key:"
 
 #: plugin/xdl_strings.py
 msgid "AI Model:"
@@ -2032,10 +1977,6 @@ msgstr "Additional Instructions (History):"
 #: plugin/xdl_strings.py
 msgid "Additional Instructions:"
 msgstr "Additional Instructions:"
-
-#: plugin/xdl_strings.py
-msgid "Allow NSFW"
-msgstr "Allow NSFW"
 
 #: plugin/xdl_strings.py
 msgid "Ask / instruct:"
@@ -2066,10 +2007,6 @@ msgid "Base:"
 msgstr "Base:"
 
 #: plugin/xdl_strings.py
-msgid "CFG Scale:"
-msgstr "CFG Scale:"
-
-#: plugin/xdl_strings.py
 msgid "Cache Status: Checking..."
 msgstr "Cache Status: Checking..."
 
@@ -2086,12 +2023,12 @@ msgid "Categories:"
 msgstr "Categories:"
 
 #: plugin/xdl_strings.py
-msgid "Censor NSFW"
-msgstr "Censor NSFW"
-
-#: plugin/xdl_strings.py
 msgid "Chat (Testing):"
 msgstr "Chat (Testing):"
+
+#: plugin/xdl_strings.py
+msgid "Check Venv"
+msgstr "Check Venv"
 
 #: plugin/xdl_strings.py
 msgid "Clear"
@@ -2146,6 +2083,10 @@ msgstr ""
 "Assign the result to the 'result' variable."
 
 #: plugin/xdl_strings.py
+msgid "Entities"
+msgstr "Entities"
+
+#: plugin/xdl_strings.py
 msgid "General"
 msgstr "General"
 
@@ -2174,12 +2115,16 @@ msgid "Insert LaTeX Math"
 msgstr "Insert LaTeX Math"
 
 #: plugin/xdl_strings.py
-msgid "Max Tokens:"
-msgstr "Max Tokens:"
+msgid "Insert report here"
+msgstr "Insert report here"
 
 #: plugin/xdl_strings.py
-msgid "Max Wait (s):"
-msgstr "Max Wait (s):"
+msgid "Key Phrases"
+msgstr "Key Phrases"
+
+#: plugin/xdl_strings.py
+msgid "Max Tokens:"
+msgstr "Max Tokens:"
 
 #: plugin/xdl_strings.py
 msgid "Message"
@@ -2226,6 +2171,10 @@ msgid "Python Test"
 msgstr "Python Test"
 
 #: plugin/xdl_strings.py
+msgid "Readability"
+msgstr "Readability"
+
+#: plugin/xdl_strings.py
 msgid "Rebuild"
 msgstr "Rebuild"
 
@@ -2270,6 +2219,10 @@ msgid "Selection"
 msgstr "Selection"
 
 #: plugin/xdl_strings.py
+msgid "Sentiment"
+msgstr "Sentiment"
+
+#: plugin/xdl_strings.py
 msgid "Server Status"
 msgstr "Server Status"
 
@@ -2302,8 +2255,8 @@ msgid "Timeout (s):"
 msgstr "Timeout (s):"
 
 #: plugin/xdl_strings.py
-msgid "Use AI Horde for Image Generation"
-msgstr "Use AI Horde for Image Generation"
+msgid "Topics"
+msgstr "Topics"
 
 #: plugin/xdl_strings.py
 msgid "Vectorize columns when safe"
@@ -2312,6 +2265,10 @@ msgstr "Vectorize columns when safe"
 #: plugin/xdl_strings.py
 msgid "Verify recalc (oracle diff)"
 msgstr "Verify recalc (oracle diff)"
+
+#: plugin/xdl_strings.py
+msgid "Whole Document"
+msgstr "Whole Document"
 
 #: plugin/xdl_strings.py
 msgid "Writer"
@@ -2346,11 +2303,11 @@ msgid "Path / URL"
 msgstr "Path / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 
 msgid "Extra arguments"
 msgstr "Extra arguments"
@@ -2408,7 +2365,8 @@ msgid "Edit extra tokens"
 msgstr "Edit extra tokens"
 
 msgid "Extra tokens beyond original text length. 0 = same length as original."
-msgstr "Extra tokens beyond original text length. 0 = same length as original."
+msgstr ""
+"Extra tokens beyond original text length. 0 = same length as original."
 
 msgid "Web Research Cache"
 msgstr "Web Research Cache"
@@ -2472,15 +2430,15 @@ msgstr "Humanizer skill (natural prose)"
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
-"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
-"dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
 msgstr ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
-"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
-"dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
 
 msgid "Doc"
 msgstr "Doc"
@@ -2490,12 +2448,12 @@ msgstr "Enable AI grammar checker (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 
 msgid "Model (optional)"
 msgstr "Model (optional)"
@@ -2611,9 +2569,6 @@ msgstr "LlamaIndex"
 msgid "Zvec (experimental)"
 msgstr "Zvec (experimental)"
 
-msgid "ChromaDB"
-msgstr "ChromaDB"
-
 msgid "LanceDB (experimental)"
 msgstr "LanceDB (experimental)"
 
@@ -2621,7 +2576,8 @@ msgid "Embedding Model"
 msgstr "Embedding Model"
 
 msgid "HuggingFace model ID for local provider, or endpoint-specific model ID"
-msgstr "HuggingFace model ID for local provider, or endpoint-specific model ID"
+msgstr ""
+"HuggingFace model ID for local provider, or endpoint-specific model ID"
 
 msgid "Enable cross-file rerank"
 msgstr "Enable cross-file rerank"
@@ -2637,11 +2593,11 @@ msgid "Rerank model"
 msgstr "Rerank model"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
-"is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
 msgstr ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
-"is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
 
 msgid "cross-encoder/ms-marco-MiniLM-L-6-v2"
 msgstr "cross-encoder/ms-marco-MiniLM-L-6-v2"
@@ -2659,11 +2615,11 @@ msgid "Enable MCP Server"
 msgstr "Enable MCP Server"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 
 msgid "MCP Port"
 msgstr "MCP Port"
@@ -2702,11 +2658,11 @@ msgid "Max Calc data cells"
 msgstr "Max Calc data cells"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 
 msgid "Python session mode"
 msgstr "Python session mode"
@@ -2723,6 +2679,16 @@ msgstr "Isolated (default)"
 
 msgid "Shared kernel"
 msgstr "Shared kernel"
+
+msgid "Python auto spill in Calc"
+msgstr "Python auto spill in Calc"
+
+msgid ""
+"Automatically spill multi-cell array/DataFrame results from =PYTHON() into "
+"adjacent cells."
+msgstr ""
+"Automatically spill multi-cell array/DataFrame results from =PYTHON() into "
+"adjacent cells."
 
 msgid "Vision / OCR"
 msgstr "Vision / OCR"

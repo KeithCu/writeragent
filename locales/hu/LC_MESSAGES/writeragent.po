@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-17 17:50-0400\n"
+"POT-Creation-Date: 2026-06-22 15:38-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Hungarian <LL@li.org>\n"
@@ -19,8 +19,8 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
 "A dokumentumkutatási olvasások speciális feladatdelegálást igényelnek "
 "(USE_SUB_AGENT). Engedélyezze ezt a konfigurációban."
@@ -28,8 +28,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Az eszközhívás átváltva erre: „{0}”. Speciális eszközkészlet módban van. A "
@@ -46,11 +46,11 @@ msgstr "A jegyzetfüzet futtatása csak a LibreOffice Writerben támogatott."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
-"Ez a dokumentum nem tartalmaz importált jegyzetfüzetet. Először használja az "
-"Eszközök → Jupyter-jegyzetfüzet importálása… menüpontot."
+"Ez a dokumentum nem tartalmaz importált jegyzetfüzetet. Először használja az"
+" Eszközök → Jupyter-jegyzetfüzet importálása… menüpontot."
 
 #: plugin/notebook/notebook_runner.py
 msgid "Could not find notebook cell for this control."
@@ -97,184 +97,6 @@ msgstr ""
 #: plugin/notebook/writer_importer.py
 msgid "Run code cell"
 msgstr "Kódcella futtatása"
-
-#: plugin/contrib/aihordeclient/__init__.py plugin/chatbot/panel.py
-msgid "Starting..."
-msgstr "Indítás..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Updating model requirements..."
-msgstr "Modellkövetelmények frissítése..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Updating Models..."
-msgstr "Modellek frissítése..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Register at "
-msgstr "Regisztráció itt: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "You have {} kudos"
-msgstr "{} kudo pontod van"
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "«{}» is not a valid API KEY, double check it or create a new one"
-msgstr ""
-"A(z) «{}» nem érvényes API-kulcs, ellenőrizd újra, vagy hozz létre egy újat"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"At this moment we can not process your request, please try again later.  If "
-"this is happening for a long period of time, please let us know via Discord"
-msgstr ""
-"Jelenleg nem tudjuk feldolgozni a kérésedet, kérjük, próbáld meg később. Ha "
-"ez hosszabb ideig fennáll, kérjük, jelezd nekünk a Discordon"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Problem requesting kudos"
-msgstr "Hiba a kudo pontok lekérésekor"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"The Horde is in maintenance mode, please try again later, if you have tried "
-"and the service does not respond for hours, please contact via Discord"
-msgstr ""
-"A Horde karbantartás alatt áll, kérjük, próbáld meg később. Ha már "
-"próbálkoztál, és a szolgáltatás órák óta nem válaszol, kérjük, vedd fel "
-"velünk a kapcsolatot a Discordon"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"You have made too many requests, please wait for them to finish, and try "
-"again later"
-msgstr ""
-"Túl sok kérést indítottál, kérjük, várd meg, amíg befejeződnek, majd próbáld "
-"meg újra később"
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid ""
-"Seems that «{}» has problems, double check it, create a new one or join "
-"Discord to ask for help"
-msgstr ""
-"Úgy tűnik, a(z) «{}» problémás, ellenőrizze újra, hozzon létre egy újat, "
-"vagy csatlakozzon a Discordhoz segítségért"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "We hit an error, still: "
-msgstr "Hiba történt, mégpedig: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "No longer valid, please try again.  Your request took too long"
-msgstr "Már nem érvényes, kérjük, próbálja újra. A kérése túl sokáig tartott"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Contacting the Horde..."
-msgstr "Kapcsolatfelvétel a Hordával..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Horde Contacted"
-msgstr "Horda elérve"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"When trying to ask for the image, the Horde was too slow, try again later"
-msgstr "A kép kérésekor a Horda túl lassú volt, próbálja meg később"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "to learn to earn kudos. Detail:"
-msgstr "hogy megtanuljon kudost szerezni. Részletek:"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Service failed: "
-msgstr "Szolgáltatási hiba: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Downloading generated image..."
-msgstr "Generált kép letöltése..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "You are first in the queue"
-msgstr "Ön az első a sorban"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Queue position: "
-msgstr "Sorban állási pozíció: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Generating..."
-msgstr "Generálás..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Get a free API Key at "
-msgstr "Igényeljen ingyenes API-kulcsot itt: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "."
-msgstr "."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "This model takes more time than your current configuration."
-msgstr "Ez a modell több időt vesz igénybe, mint a jelenlegi beállítás."
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
-msgstr ""
-"Kérjük, próbáljon meg egy másik modellt. A(z) {0} több időt venne igénybe, "
-"mint amennyit beállított."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Please try again later."
-msgstr "Kérjük, próbálja meg később."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "There are no workers available with these settings."
-msgstr "Ezekkel a beállításokkal jelenleg nem érhető el munkavégző."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Probably your image will take one additional minute."
-msgstr "A kép generálása valószínűleg egy további percet vesz igénybe."
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "Probably your image will take {} additional minutes."
-msgstr "A kép generálása valószínűleg {} további percet vesz igénybe."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Fetching images..."
-msgstr "Képek lekérése..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid " is censored, try changing the prompt wording"
-msgstr " cenzúrázva, próbálja meg módosítani a prompt megfogalmazását"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Downloading result..."
-msgstr "Eredmény letöltése..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Downloading image"
-msgstr "Kép letöltése"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"You may need to reduce your settings or choose another model, or you may "
-"have been censored. Horde message"
-msgstr ""
-"Lehet, hogy csökkentenie kell a beállításokat, másik modellt kell "
-"választania, vagy cenzúrázták. Horde üzenet"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid " generated by "
-msgstr " létrehozta: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid " with "
-msgstr " ezzel: "
 
 #: plugin/embeddings/search_ui.py
 msgid "Cache Status: No active document"
@@ -400,7 +222,8 @@ msgstr ""
 
 #: plugin/framework/errors.py
 msgid "Endpoint not found (404). Check your URL and Model name."
-msgstr "A végpont nem található (404). Ellenőrizze az URL-t és a modell nevét."
+msgstr ""
+"A végpont nem található (404). Ellenőrizze az URL-t és a modell nevét."
 
 #: plugin/framework/errors.py
 #, python-brace-format
@@ -415,11 +238,12 @@ msgstr "HTTP-hiba {0}: {1}"
 #: plugin/framework/errors.py
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
 msgstr ""
-"A kérés időtúllépést szenvedett. Próbálja meg növelni a „Kérés időtúllépése” "
-"(Request Timeout) értékét a Beállításokban."
+"A kérés időtúllépést szenvedett. Próbálja meg növelni a „Kérés időtúllépése”"
+" (Request Timeout) értékét a Beállításokban."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "A kapcsolat elutasítva. Fut a helyi MI-kiszolgálója (Ollama/LM Studio)?"
 
@@ -446,15 +270,16 @@ msgid ""
 "AI: I can edit or translate your document instantly with professional "
 "formatting and color. Try me!"
 msgstr ""
-"AI: Azonnal szerkeszthetem vagy lefordíthatom a dokumentumát professzionális "
-"formázással és színekkel. Próbáljon ki!"
+"AI: Azonnal szerkeszthetem vagy lefordíthatom a dokumentumát professzionális"
+" formázással és színekkel. Próbáljon ki!"
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
-"AI: Segíthetek képletekkel, adatelemzéssel és színes diagramokkal. Próbáljon "
-"ki!"
+"AI: Segíthetek képletekkel, adatelemzéssel és színes diagramokkal. Próbáljon"
+" ki!"
 
 #: plugin/framework/constants.py
 msgid ""
@@ -475,9 +300,9 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest "
-"approaches, and help you build an approved spec in your document when you're "
-"ready."
+"AI: Let's explore and design your idea together. I'll ask questions, suggest"
+" approaches, and help you build an approved spec in your document when "
+"you're ready."
 msgstr ""
 "AI: Fedezzük fel és tervezzük meg együtt az ötletét. Kérdéseket teszek fel, "
 "megközelítéseket javaslok, és segítek egy jóváhagyott specifikációt "
@@ -486,7 +311,8 @@ msgstr ""
 #: plugin/framework/constants.py
 msgid ""
 "AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your approval."
+"writing plan outline, and then implement it incrementally with your "
+"approval."
 msgstr ""
 "MI: Írjuk meg a dokumentumát szakaszról szakaszra. Segítek egy írási terv "
 "vázlatának elkészítésében, majd az Ön jóváhagyásával fokozatosan "
@@ -518,6 +344,10 @@ msgstr ""
 #: plugin/calc/python_function.py
 msgid "Image inserted"
 msgstr "Kép beszúrva"
+
+#: plugin/calc/python_function.py
+msgid "Images inserted"
+msgstr "Beillesztett képek"
 
 #: plugin/calc/python_editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
@@ -581,7 +411,8 @@ msgstr "A Python-szerkesztő váratlanul leállt."
 
 #: plugin/calc/python_editor.py
 msgid "Select a cell in a Calc spreadsheet to edit Python."
-msgstr "Válasszon ki egy cellát egy Calc-táblázatban a Python szerkesztéséhez."
+msgstr ""
+"Válasszon ki egy cellát egy Calc-táblázatban a Python szerkesztéséhez."
 
 #: plugin/calc/python_editor.py
 msgid ""
@@ -590,8 +421,8 @@ msgid ""
 "(or =PYTHON(...)) with quoted code."
 msgstr ""
 "Ez a PYTHON-képlet olyan formát használ, amelyet a szerkesztő nem tud "
-"biztonságosan átírni (pl. más cellában lévő kód). Szerkessze a képletsávban, "
-"vagy használjon =PY(\"kód\"; tartomány) (vagy =PYTHON(...)) formátumot "
+"biztonságosan átírni (pl. más cellában lévő kód). Szerkessze a képletsávban,"
+" vagy használjon =PY(\"kód\"; tartomány) (vagy =PYTHON(...)) formátumot "
 "idézőjeles kóddal."
 
 #: plugin/calc/python_editor.py
@@ -604,15 +435,13 @@ msgid ""
 "Cannot import webview (pywebview) with the Python from Settings → Python:\n"
 "%(exe)s\n"
 "\n"
-"In that venv run: pip install pywebview\n"
+"In that venv run: uv pip install pywebview\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"Nem sikerült importálni a webview (pywebview) modult a Beállítások → Python "
-"útvonalon megadott Pythonnal:\n"
+"A webview (pywebview) nem importálható a Beállítások → Python alatt megadott Pythonnal:\n"
 "%(exe)s\n"
 "\n"
-"Futtassa a következő parancsot az adott virtuális környezetben: pip install "
-"pywebview\n"
+"Futtassa ebben a virtuális környezetben: uv pip install pywebview\n"
 "(az importnév webview, a csomagnév pywebview)."
 
 #: plugin/calc/python_editor.py
@@ -1056,6 +885,10 @@ msgid "Send"
 msgstr "Küldés"
 
 #: plugin/chatbot/panel.py
+msgid "Starting..."
+msgstr "Indítás..."
+
+#: plugin/chatbot/panel.py
 msgid "Getting document..."
 msgstr "Dokumentum lekérése…"
 
@@ -1082,8 +915,8 @@ msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
 "this!]"
 msgstr ""
-"[Belső hiba: Nem sikerült azonosítani a dokumentumtípust ehhez: {0}. Kérjük, "
-"jelentse ezt!]"
+"[Belső hiba: Nem sikerült azonosítani a dokumentumtípust ehhez: {0}. Kérjük,"
+" jelentse ezt!]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -1162,8 +995,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Nem található szerkesztő (telepítse a Kate-et vagy a Geditet, vagy állítsa "
-"be az EDITOR környezeti változót). Útvonal:\n"
+"Nem található szerkesztő (telepítse a Kate-et vagy a Geditet, vagy állítsa be az EDITOR környezeti változót). Útvonal:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -1200,7 +1032,8 @@ msgstr "[A(z) „{0}” ügynök-háttérprogram nem található.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[A(z) „{0}” ügynök-háttérprogram nem érhető el. Ellenőrizze a beállításokat "
 "(elérési út, telepítés).]"
@@ -1259,8 +1092,8 @@ msgid ""
 "A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
 "check for updates and install the latest extension."
 msgstr ""
-"A WriterAgent újabb verziója (%s) érhető el. A frissítések ellenőrzéséhez és "
-"a legújabb bővítmény telepítéséhez használja az Eszközök → Bővítménykezelő "
+"A WriterAgent újabb verziója (%s) érhető el. A frissítések ellenőrzéséhez és"
+" a legújabb bővítmény telepítéséhez használja az Eszközök → Bővítménykezelő "
 "menüpontot."
 
 #: plugin/chatbot/librarian.py
@@ -1324,7 +1157,8 @@ msgstr "Szélesség:"
 #, python-brace-format
 msgid "Document scripts are too large to store in the document ({0} bytes)."
 msgstr ""
-"A dokumentum-szkriptek túl nagyok a dokumentumban való tároláshoz ({0} bájt)."
+"A dokumentum-szkriptek túl nagyok a dokumentumban való tároláshoz ({0} "
+"bájt)."
 
 #: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
 #: plugin/scripting/editor_host.py
@@ -1369,12 +1203,20 @@ msgid "Units Helpers"
 msgstr "Mértékegység-segédek"
 
 #: plugin/scripting/document_scripts.py
+msgid "Text Analytics Helpers"
+msgstr "Szövegelemzési segédek"
+
+#: plugin/scripting/document_scripts.py
 msgid "Quant Helpers"
 msgstr "Mennyiségi segédek"
 
 #: plugin/scripting/document_scripts.py
 msgid "Optimize Helpers"
 msgstr "Optimalizálási segédek"
+
+#: plugin/scripting/document_scripts.py
+msgid "SQL Helpers"
+msgstr "SQL-segédek"
 
 #: plugin/scripting/document_scripts.py
 msgid "My Scripts"
@@ -1537,7 +1379,8 @@ msgid "Could not talk to the Python editor."
 msgstr "Nem sikerült kommunikálni a Python-szerkesztővel."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "A vizuális szonda időtúllépést jelzett (a Docling importálása az első "
 "ellenőrzéskor 10–30 másodpercet is igénybe vehet)."
@@ -1575,6 +1418,10 @@ msgid "Data Engineering Libraries"
 msgstr "Adatmérnöki könyvtárak"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Text / NLP Libraries"
+msgstr "Szöveg / NLP könyvtárak"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries"
 msgstr "Látáskönyvtárak"
 
@@ -1597,7 +1444,8 @@ msgstr "Vision Libraries: betöltés (az első futtatás eltarthat egy ideig)...
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vector Search Libraries: loading (first run may take a while)..."
 msgstr ""
-"Vektorkeresési könyvtárak: betöltés (az első futtatás eltarthat egy ideig)..."
+"Vektorkeresési könyvtárak: betöltés (az első futtatás eltarthat egy "
+"ideig)..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using LibreOffice process Python..."
@@ -1610,6 +1458,92 @@ msgstr "venv Python feloldása..."
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using"
 msgstr "Használat:"
+
+#: plugin/scripting/text_analytics_ui.py plugin/xdl_strings.py
+msgid "Text Analytics"
+msgstr "Szövegelemzés"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Could not load the analytics dialog."
+msgstr "A szövegelemzési párbeszédablak nem tölthető be."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Checking spaCy / textdescriptives / transformers installation..."
+msgstr ""
+"A spaCy / textdescriptives / transformers telepítésének ellenőrzése..."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-brace-format
+msgid ""
+"Error from the Text Analytics worker:\n"
+"{err}\n"
+"\n"
+"The features in this dialog require these packages in the python it is using:\n"
+"  • spacy + a model          (entities, key phrases, basic stats)\n"
+"  • textdescriptives         (real Readability scores)\n"
+"  • transformers + torch     (Sentiment using the multilingual model)\n"
+"\n"
+"Install them with:\n"
+"  {install}\n"
+"\n"
+"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
+msgstr ""
+"Hiba a szövegelemzési munkafolyamatból:\n"
+"{err}\n"
+"\n"
+"Az ebben a párbeszédablakban található funkciókhoz a használt Pythonban az alábbi csomagok szükségesek:\n"
+"  • spacy + modell          (entitások, kulcskifejezések, alapvető statisztikák)\n"
+"  • textdescriptives         (valós olvashatósági pontszámok)\n"
+"  • transformers + torch     (hangulatelemzés többnyelvű modellel)\n"
+"\n"
+"Telepítse őket ezzel:\n"
+"  {install}\n"
+"\n"
+"A munkafolyamat szerint a modul hiányzik. Ellenőrizze, hogy a csomagok pontosan abban a Python-futtatható állományban vannak-e telepítve, amelyet a munkafolyamat a konfigurált virtuális környezethez feloldott."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Open a Writer document to analyze."
+msgstr "Nyisson meg egy Writer-dokumentumot az elemzéshez."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Not enough text in the chosen scope."
+msgstr "Nincs elég szöveg a kijelölt tartományban."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Analyzing..."
+msgstr "Elemzés..."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-format
+msgid ""
+"Error: %s\n"
+"\n"
+"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
+msgstr ""
+"Hiba: %s\n"
+"\n"
+"A konfigurált virtuális környezetből (Beállítások → Python) hiányozhatnak a szükséges csomagok. Kattintson a „Venv ellenőrzése” gombra ebben a párbeszédablakban, vagy használja a teljes tesztet a Beállítások → Python menüpontban a spacy, textdescriptives, transformers, torch stb. részleteiért."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "No Writer document to insert into."
+msgstr "Nincs Writer-dokumentum, amelybe be lehetne szúrni."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Run an analysis first."
+msgstr "Először futtasson egy elemzést."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Nothing useful to insert from the last result."
+msgstr "Az utolsó eredményből nincs hasznos tartalom a beszúráshoz."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-format
+msgid "Insert failed: %s"
+msgstr "A beszúrás sikertelen: %s"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Inserted after selection/caret."
+msgstr "Beszúrva a kijelölés/kurzor után."
 
 #: plugin/scripting/symbolic.py
 msgid "Symbolic helper failed."
@@ -1824,6 +1758,20 @@ msgid "Units helpers require a Writer or Calc document."
 msgstr "Az egységsegítők Writer vagy Calc dokumentumot igényelnek."
 
 #: plugin/scripting/python_runner.py
+msgid "Text analytics helpers require a Writer document."
+msgstr ""
+"A szövegelemzési segédeszközök használatához Writer-dokumentum szükséges."
+
+#: plugin/scripting/python_runner.py
+msgid "Text analytics helper failed."
+msgstr "A szövegelemzési segédeszköz sikertelen."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Text analytics '{helper}' completed. (took {time})"
+msgstr "A(z) „{helper}” szövegelemzés befejeződött. (időtartam: {time})"
+
+#: plugin/scripting/python_runner.py
 msgid ""
 "Quant helper requires a data range. Select cells or enter a range in the "
 "Data field."
@@ -1882,8 +1830,8 @@ msgstr ""
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "A szkript sikeresen lefutott, de nem adott vissza eredményt és nem generált "
 "kimenetet. ({time} alatt)"
@@ -2042,6 +1990,10 @@ msgid "Search Nearby Files..."
 msgstr "Keresés a közeli fájlokban..."
 
 #: plugin/main.py
+msgid "Text Analytics..."
+msgstr "Szövegelemzés..."
+
+#: plugin/main.py
 msgid "Convert Sheet to Python..."
 msgstr "Munkalap konvertálása Pythonra..."
 
@@ -2052,14 +2004,6 @@ msgstr "Küldési hiba"
 #: plugin/xdl_strings.py
 msgid "-1"
 msgstr "-1"
-
-#: plugin/xdl_strings.py
-msgid "7.5"
-msgstr "7.5"
-
-#: plugin/xdl_strings.py
-msgid "AI Horde API Key:"
-msgstr "AI Horde API-kulcs:"
 
 #: plugin/xdl_strings.py
 msgid "AI Model:"
@@ -2080,10 +2024,6 @@ msgstr "További utasítások (előzmények):"
 #: plugin/xdl_strings.py
 msgid "Additional Instructions:"
 msgstr "További utasítások:"
-
-#: plugin/xdl_strings.py
-msgid "Allow NSFW"
-msgstr "NSFW engedélyezése"
 
 #: plugin/xdl_strings.py
 msgid "Ask / instruct:"
@@ -2114,10 +2054,6 @@ msgid "Base:"
 msgstr "Alap:"
 
 #: plugin/xdl_strings.py
-msgid "CFG Scale:"
-msgstr "CFG-skála:"
-
-#: plugin/xdl_strings.py
 msgid "Cache Status: Checking..."
 msgstr "Gyorsítótár állapota: Ellenőrzés..."
 
@@ -2134,12 +2070,12 @@ msgid "Categories:"
 msgstr "Kategóriák:"
 
 #: plugin/xdl_strings.py
-msgid "Censor NSFW"
-msgstr "NSFW szűrése"
-
-#: plugin/xdl_strings.py
 msgid "Chat (Testing):"
 msgstr "Csevegés (tesztelés):"
+
+#: plugin/xdl_strings.py
+msgid "Check Venv"
+msgstr "Virtuális környezet ellenőrzése"
 
 #: plugin/xdl_strings.py
 msgid "Clear"
@@ -2190,9 +2126,12 @@ msgid ""
 "Enter Python code to execute in the user virtual environment.\n"
 "Assign the result to the 'result' variable."
 msgstr ""
-"Adja meg a végrehajtandó Python-kódot a felhasználói virtuális "
-"környezetben.\n"
+"Adja meg a végrehajtandó Python-kódot a felhasználói virtuális környezetben.\n"
 "A végeredményt rendelje a „result” változóhoz."
+
+#: plugin/xdl_strings.py
+msgid "Entities"
+msgstr "Entitások"
 
 #: plugin/xdl_strings.py
 msgid "General"
@@ -2223,12 +2162,16 @@ msgid "Insert LaTeX Math"
 msgstr "LaTeX-képlet beszúrása"
 
 #: plugin/xdl_strings.py
-msgid "Max Tokens:"
-msgstr "Max. token:"
+msgid "Insert report here"
+msgstr "Jelentés beszúrása ide"
 
 #: plugin/xdl_strings.py
-msgid "Max Wait (s):"
-msgstr "Maximális várakozási idő (mp):"
+msgid "Key Phrases"
+msgstr "Kulcskifejezések"
+
+#: plugin/xdl_strings.py
+msgid "Max Tokens:"
+msgstr "Max. token:"
 
 #: plugin/xdl_strings.py
 msgid "Message"
@@ -2275,6 +2218,10 @@ msgid "Python Test"
 msgstr "Python-teszt"
 
 #: plugin/xdl_strings.py
+msgid "Readability"
+msgstr "Olvashatóság"
+
+#: plugin/xdl_strings.py
 msgid "Rebuild"
 msgstr "Újraépítés"
 
@@ -2319,6 +2266,10 @@ msgid "Selection"
 msgstr "Kijelölés"
 
 #: plugin/xdl_strings.py
+msgid "Sentiment"
+msgstr "Hangulatelemzés"
+
+#: plugin/xdl_strings.py
 msgid "Server Status"
 msgstr "Kiszolgáló állapota"
 
@@ -2351,8 +2302,8 @@ msgid "Timeout (s):"
 msgstr "Időtúllépés (mp):"
 
 #: plugin/xdl_strings.py
-msgid "Use AI Horde for Image Generation"
-msgstr "AI Horde használata képgeneráláshoz"
+msgid "Topics"
+msgstr "Témák"
 
 #: plugin/xdl_strings.py
 msgid "Vectorize columns when safe"
@@ -2361,6 +2312,10 @@ msgstr "Oszlopok vektorizálása, ha biztonságos"
 #: plugin/xdl_strings.py
 msgid "Verify recalc (oracle diff)"
 msgstr "Újraszámítás ellenőrzése (oracle diff)"
+
+#: plugin/xdl_strings.py
+msgid "Whole Document"
+msgstr "Teljes dokumentum"
 
 #: plugin/xdl_strings.py
 msgid "Writer"
@@ -2395,11 +2350,11 @@ msgid "Path / URL"
 msgstr "Útvonal / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Útvonal a háttér CLI-hez (pl. aider) vagy ACP szerver URL (pl. http://"
-"localhost:8000 a Hermeshez). Üres = alapértelmezett próbálkozás."
+"Útvonal a háttér CLI-hez (pl. aider) vagy ACP szerver URL (pl. "
+"http://localhost:8000 a Hermeshez). Üres = alapértelmezett próbálkozás."
 
 msgid "Extra arguments"
 msgstr "Extra argumentumok"
@@ -2470,8 +2425,8 @@ msgid ""
 "Cache completed web research reports by normalized query (uses web cache "
 "database)."
 msgstr ""
-"Befejezett webes kutatási jelentések gyorsítótárazása normalizált lekérdezés "
-"alapján (webes gyorsítótár-adatbázist használ)."
+"Befejezett webes kutatási jelentések gyorsítótárazása normalizált lekérdezés"
+" alapján (webes gyorsítótár-adatbázist használ)."
 
 msgid "Prompt for Web Research"
 msgstr "Webes kutatás kérése"
@@ -2526,16 +2481,16 @@ msgstr "Humanizáló készség (természetes próza)"
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
-"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
-"dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
 msgstr ""
 "Ha engedélyezve van, útmutatást szúr be a rendszerszintű utasításba, hogy a "
 "modell által generált vagy módosított dokumentumszöveg természetesebb és "
 "emberibb hangzású legyen (eltávolítja az AI-ra jellemző sablonos mintákat). "
-"A szabályokat a LibreOffice-profiljában szerkesztheti a writeragent/skills/"
-"humanizer/SKILL.md fájlban (a fájl az első használatkor automatikusan "
-"létrejön). Egy külön Készségek lap később hozzáadható."
+"A szabályokat a LibreOffice-profiljában szerkesztheti a "
+"writeragent/skills/humanizer/SKILL.md fájlban (a fájl az első használatkor "
+"automatikusan létrejön). Egy külön Készségek lap később hozzáadható."
 
 msgid "Doc"
 msgstr "Dokumentum"
@@ -2545,8 +2500,8 @@ msgstr "AI-nyelvhelyesség-ellenőrző engedélyezése (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "Ha be van kapcsolva, a WriterAgent regisztrálja az AI-nyelvhelyesség-"
 "ellenőrzőjét a nyelvi eszközöknél; az ellenőrzött szöveg az Ön API-ját "
@@ -2593,8 +2548,8 @@ msgid ""
 "requests; use with care alongside sidebar chat."
 msgstr ""
 "Maximális egyidejű háttérbeli nyelvtani API-hívások száma (1-8). Az 1 "
-"megfelel a korábbi viselkedésnek. Növelje az OpenRouter vagy más, párhuzamos "
-"kéréseket engedélyező szolgáltatók esetén; használja körültekintően az "
+"megfelel a korábbi viselkedésnek. Növelje az OpenRouter vagy más, párhuzamos"
+" kéréseket engedélyező szolgáltatók esetén; használja körültekintően az "
 "oldalsávos csevegés mellett."
 
 msgid "Sentence language detection"
@@ -2673,9 +2628,6 @@ msgstr "LlamaIndex"
 msgid "Zvec (experimental)"
 msgstr "Zvec (kísérleti)"
 
-msgid "ChromaDB"
-msgstr "ChromaDB"
-
 msgid "LanceDB (experimental)"
 msgstr "LanceDB (kísérleti)"
 
@@ -2701,8 +2653,8 @@ msgid "Rerank model"
 msgstr "Újrarangsoroló modell"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
-"is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
 msgstr ""
 "Csak akkor használatos, ha az újrarangsorolás engedélyezve van. Az angol "
 "MiniLM gyors; a bge-reranker-v2-m3 többnyelvű és kb. 2,3 GB-ot tölt le."
@@ -2723,8 +2675,8 @@ msgid "Enable MCP Server"
 msgstr "MCP-kiszolgáló engedélyezése"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
 "Csak localhost, nincs hitelesítés. A kliensek a http://localhost:<port>/mcp "
 "címet használják (streamelhető HTTP)."
@@ -2744,10 +2696,10 @@ msgid ""
 "stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
-"Ha be van állítva, az eszközöket az adott venv-ben futtatja (bin/python vagy "
-"Scripts/python.exe). Ha üres, a run_venv_python_script az aktuális folyamat "
-"sys.executable-jét használja (alapvető stdlib); használjon venv-et a numpy/"
-"pandas és a Vision Helpers (paddleocr, paddlepaddle) számára."
+"Ha be van állítva, az eszközöket az adott venv-ben futtatja (bin/python vagy"
+" Scripts/python.exe). Ha üres, a run_venv_python_script az aktuális folyamat"
+" sys.executable-jét használja (alapvető stdlib); használjon venv-et a "
+"numpy/pandas és a Vision Helpers (paddleocr, paddlepaddle) számára."
 
 msgid "Test"
 msgstr "Teszt"
@@ -2766,8 +2718,8 @@ msgid "Max Calc data cells"
 msgstr "Maximális Calc-adatcellák"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
 "A =PYTHON() adatok vagy a Run Python Script data/data_range maximális "
 "cellaszáma. A nagyobb értékek több RAM-ot és időt igényelnek; az UNO-"
@@ -2780,14 +2732,24 @@ msgid ""
 "Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace "
 "per workbook (variables carry between cells)."
 msgstr ""
-"Elszigetelt: minden =PYTHON() cella külön névtérrel rendelkezik. Megosztott: "
-"munkafüzetenként egy névtér (a változók átvihetők a cellák között)."
+"Elszigetelt: minden =PYTHON() cella külön névtérrel rendelkezik. Megosztott:"
+" munkafüzetenként egy névtér (a változók átvihetők a cellák között)."
 
 msgid "Isolated (default)"
 msgstr "Elszigetelt (alapértelmezett)"
 
 msgid "Shared kernel"
 msgstr "Megosztott kernel"
+
+msgid "Python auto spill in Calc"
+msgstr "Python automatikus kifejtés a Calcban"
+
+msgid ""
+"Automatically spill multi-cell array/DataFrame results from =PYTHON() into "
+"adjacent cells."
+msgstr ""
+"A =PYTHON() függvény többcellás tömb-/DataFrame-eredményeinek automatikus "
+"kifejtése a szomszédos cellákba."
 
 msgid "Vision / OCR"
 msgstr "Látásmód / OCR"

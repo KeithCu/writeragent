@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-17 17:50-0400\n"
+"POT-Creation-Date: 2026-06-22 15:38-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Chinese (Traditional) <LL@li.org>\n"
@@ -19,19 +19,19 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr "文件研究讀取需要專門的任務委派 (USE_SUB_AGENT)。請在設定中啟用此功能。"
 
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
-"工具呼叫已切換至 '{0}'。您現在處於專用工具集模式。完成後，您必須呼叫 "
-"'specialized_workflow_finished' 以恢復完整的 API 集。"
+"工具呼叫已切換至 '{0}'。您現在處於專用工具集模式。完成後，您必須呼叫 'specialized_workflow_finished' 以恢復完整的"
+" API 集。"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
@@ -43,10 +43,9 @@ msgstr "Notebook 執行僅支援於 LibreOffice Writer。"
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
-msgstr ""
-"此文件未匯入任何 Notebook。請先使用「工具」→「匯入 Jupyter Notebook…」。"
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
+msgstr "此文件未匯入任何 Notebook。請先使用「工具」→「匯入 Jupyter Notebook…」。"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Could not find notebook cell for this control."
@@ -93,174 +92,6 @@ msgstr ""
 #: plugin/notebook/writer_importer.py
 msgid "Run code cell"
 msgstr "執行程式碼儲存格"
-
-#: plugin/contrib/aihordeclient/__init__.py plugin/chatbot/panel.py
-msgid "Starting..."
-msgstr "正在啟動…"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Updating model requirements..."
-msgstr "正在更新模型需求…"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Updating Models..."
-msgstr "正在更新模型…"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Register at "
-msgstr "註冊於 "
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "You have {} kudos"
-msgstr "您有 {} kudos"
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "«{}» is not a valid API KEY, double check it or create a new one"
-msgstr "「{}」不是有效的 API 金鑰，請再次確認或建立新的"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"At this moment we can not process your request, please try again later.  If "
-"this is happening for a long period of time, please let us know via Discord"
-msgstr ""
-"目前我們無法處理您的請求，請稍後再試。如果這情況持續很長時間，請透過 Discord "
-"告知我們"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Problem requesting kudos"
-msgstr "請求 kudos 時發生問題"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"The Horde is in maintenance mode, please try again later, if you have tried "
-"and the service does not respond for hours, please contact via Discord"
-msgstr ""
-"Horde 目前處於維護模式，請稍後再試，如果您已嘗試且服務數小時無回應，請透過 "
-"Discord 聯絡我們"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"You have made too many requests, please wait for them to finish, and try "
-"again later"
-msgstr "您發出了太多請求，請等待它們完成後再試"
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid ""
-"Seems that «{}» has problems, double check it, create a new one or join "
-"Discord to ask for help"
-msgstr "似乎「{}」有問題，請再檢查一次、建立一個新的，或加入 Discord 求助"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "We hit an error, still: "
-msgstr "我們遇到了錯誤，仍然： "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "No longer valid, please try again.  Your request took too long"
-msgstr "不再有效，請再試一次。您的請求耗時過長"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Contacting the Horde..."
-msgstr "正在連線至 Horde..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Horde Contacted"
-msgstr "Horde 已連線"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"When trying to ask for the image, the Horde was too slow, try again later"
-msgstr "嘗試請求圖像時，Horde 反應太慢，請稍後再試"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "to learn to earn kudos. Detail:"
-msgstr "學習賺取 kudos。詳情："
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Service failed: "
-msgstr "服務失敗： "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Downloading generated image..."
-msgstr "正在下載生成的圖像..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "You are first in the queue"
-msgstr "您是佇列中的第一位"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Queue position: "
-msgstr "佇列位置： "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Generating..."
-msgstr "正在產生中…"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Get a free API Key at "
-msgstr "在此取得免費 API 金鑰 "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "."
-msgstr "。"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "This model takes more time than your current configuration."
-msgstr "此模型比您目前的設定需要更多時間。"
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
-msgstr "請嘗試其他模型。{0} 會比您設定的時間更長。"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Please try again later."
-msgstr "請稍後再試。"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "There are no workers available with these settings."
-msgstr "這些設定下沒有可用的工作處理器。"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Probably your image will take one additional minute."
-msgstr "您的圖像可能還需額外 1 分鐘。"
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "Probably your image will take {} additional minutes."
-msgstr "您的圖像可能還需額外 {} 分鐘。"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Fetching images..."
-msgstr "正在擷取圖片…"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid " is censored, try changing the prompt wording"
-msgstr " 已被審查，請試著改變提示詞"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Downloading result..."
-msgstr "正在下載結果…"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Downloading image"
-msgstr "正在下載圖片"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"You may need to reduce your settings or choose another model, or you may "
-"have been censored. Horde message"
-msgstr "您可能需要降低設定或選擇另一個模型，或者您可能已被審查。Horde 訊息"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid " generated by "
-msgstr " 由…生成 "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid " with "
-msgstr " 使用 "
 
 #: plugin/embeddings/search_ui.py
 msgid "Cache Status: No active document"
@@ -397,7 +228,8 @@ msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
 msgstr "請求逾時。請嘗試在設定中增加「請求逾時」。"
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr "連線被拒絕。您的本地 AI 伺服器 (Ollama/LM Studio) 是否正在執行？"
 
 #: plugin/framework/errors.py
@@ -426,40 +258,35 @@ msgstr "AI：我可以立即編輯或翻譯您的文件，使用專業格式和�
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr "AI：我可以幫助您處理公式、資料分析和彩色圖表。試試我吧！"
 
 #: plugin/framework/constants.py
 msgid ""
 "AI: I can help you create and edit polished, colorful shapes in Draw and "
 "Impress. Try me!"
-msgstr ""
-"AI：我可以幫助您在 Draw 和 Impress 中建立和編輯精緻、多彩的圖形。試試我吧！"
+msgstr "AI：我可以幫助您在 Draw 和 Impress 中建立和編輯精緻、多彩的圖形。試試我吧！"
 
 #: plugin/framework/constants.py
 msgid ""
 "AI: I can do web research to answer any question, or summarize a web page, "
 "without seeing or changing your document. Let's chat."
-msgstr ""
-"AI：我可以進行網路研究來回答任何問題，或摘要網頁，而不會看到或變更您的文件。"
-"來聊聊吧。"
+msgstr "AI：我可以進行網路研究來回答任何問題，或摘要網頁，而不會看到或變更您的文件。來聊聊吧。"
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest "
-"approaches, and help you build an approved spec in your document when you're "
-"ready."
-msgstr ""
-"AI：讓我們一起探索並設計您的想法。我會提出問題、建議方法，並在您準備好時協助"
-"您在文件中建立核准的規格。"
+"AI: Let's explore and design your idea together. I'll ask questions, suggest"
+" approaches, and help you build an approved spec in your document when "
+"you're ready."
+msgstr "AI：讓我們一起探索並設計您的想法。我會提出問題、建議方法，並在您準備好時協助您在文件中建立核准的規格。"
 
 #: plugin/framework/constants.py
 msgid ""
 "AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your approval."
-msgstr ""
-"AI：讓我們逐節起草您的文件。我將協助您建立寫作計畫大綱，並在您的核准下逐步執"
-"行。"
+"writing plan outline, and then implement it incrementally with your "
+"approval."
+msgstr "AI：讓我們逐節起草您的文件。我將協助您建立寫作計畫大綱，並在您的核准下逐步執行。"
 
 #: plugin/framework/client/errors.py
 #, python-brace-format
@@ -484,6 +311,10 @@ msgstr "模型正在重複相同的區塊（無限迴圈）。請重試或使用
 
 #: plugin/calc/python_function.py
 msgid "Image inserted"
+msgstr "已插入影像"
+
+#: plugin/calc/python_function.py
+msgid "Images inserted"
 msgstr "已插入影像"
 
 #: plugin/calc/python_editor_context_menu.py plugin/main.py
@@ -525,8 +356,8 @@ msgid ""
 "Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
 "A1:B10) or =PYTHON(...)."
 msgstr ""
-"無法保留此儲存格的 PYTHON 公式引數（例如資料範圍）。請在 Calc 中編輯公式，或"
-"使用引號括住的程式碼字串，例如 =PY(\"code\"; A1:B10) 或 =PYTHON(...)。"
+"無法保留此儲存格的 PYTHON 公式引數（例如資料範圍）。請在 Calc 中編輯公式，或使用引號括住的程式碼字串，例如 =PY(\"code\"; "
+"A1:B10) 或 =PYTHON(...)。"
 
 #: plugin/calc/python_editor.py
 msgid "Python cell editor"
@@ -555,9 +386,8 @@ msgid ""
 "in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
 "(or =PYTHON(...)) with quoted code."
 msgstr ""
-"此 PYTHON 公式使用的格式編輯器無法安全地重寫（例如位於其他儲存格中的程式"
-"碼）。請在公式列中編輯它，或使用 =PY(\"code\"; range)（或 =PYTHON(...)）並搭"
-"配引號括住的程式碼。"
+"此 PYTHON 公式使用的格式編輯器無法安全地重寫（例如位於其他儲存格中的程式碼）。請在公式列中編輯它，或使用 =PY(\"code\"; "
+"range)（或 =PYTHON(...)）並搭配引號括住的程式碼。"
 
 #: plugin/calc/python_editor.py
 msgid "No Python interpreter available for the editor."
@@ -569,13 +399,13 @@ msgid ""
 "Cannot import webview (pywebview) with the Python from Settings → Python:\n"
 "%(exe)s\n"
 "\n"
-"In that venv run: pip install pywebview\n"
+"In that venv run: uv pip install pywebview\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"無法從「設定」→「Python」中的 Python 匯入 webview (pywebview)：\n"
+"無法使用「設定 → Python」中的 Python 匯入 webview (pywebview)：\n"
 "%(exe)s\n"
 "\n"
-"請在該虛擬環境 (venv) 中執行：pip install pywebview\n"
+"請在該虛擬環境 (venv) 中執行：uv pip install pywebview\n"
 "（匯入名稱為 webview，套件名稱為 pywebview）。"
 
 #: plugin/calc/python_editor.py
@@ -1019,6 +849,10 @@ msgid "Send"
 msgstr "傳送"
 
 #: plugin/chatbot/panel.py
+msgid "Starting..."
+msgstr "正在啟動…"
+
+#: plugin/chatbot/panel.py
 msgid "Getting document..."
 msgstr "正在取得文件…"
 
@@ -1067,8 +901,7 @@ msgstr "此搜尋查詢 '%s' 將會傳送至搜尋引擎。"
 msgid ""
 "Research cache hit (fuzzy, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
 "%(matched)s)"
-msgstr ""
-"研究快取命中 (模糊，%(pct)s%% 符合：%(lang_bit)s%(cache_key)s → %(matched)s)"
+msgstr "研究快取命中 (模糊，%(pct)s%% 符合：%(lang_bit)s%(cache_key)s → %(matched)s)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1149,7 +982,8 @@ msgstr "[找不到代理後端 '{0}'。]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr "[代理後端 '{0}' 不可用。請檢查設定（路徑、安裝）。]"
 
 #: plugin/chatbot/send_handlers.py
@@ -1205,9 +1039,7 @@ msgstr "有可用更新"
 msgid ""
 "A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
 "check for updates and install the latest extension."
-msgstr ""
-"有更新的 WriterAgent (%s) 可用。請使用 工具 → 延伸模組管理員 檢查更新並安裝最"
-"新延伸模組。"
+msgstr "有更新的 WriterAgent (%s) 可用。請使用 工具 → 延伸模組管理員 檢查更新並安裝最新延伸模組。"
 
 #: plugin/chatbot/librarian.py
 msgid "Switching to document mode..."
@@ -1312,12 +1144,20 @@ msgid "Units Helpers"
 msgstr "單位輔助程式"
 
 #: plugin/scripting/document_scripts.py
+msgid "Text Analytics Helpers"
+msgstr "文字分析輔助工具"
+
+#: plugin/scripting/document_scripts.py
 msgid "Quant Helpers"
 msgstr "量化輔助工具"
 
 #: plugin/scripting/document_scripts.py
 msgid "Optimize Helpers"
 msgstr "最佳化輔助工具"
+
+#: plugin/scripting/document_scripts.py
+msgid "SQL Helpers"
+msgstr "SQL 輔助工具"
 
 #: plugin/scripting/document_scripts.py
 msgid "My Scripts"
@@ -1477,7 +1317,8 @@ msgid "Could not talk to the Python editor."
 msgstr "無法與 Python 編輯器通訊。"
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr "視覺探測逾時（首次檢查時，Docling 匯入可能需要 10–30 秒）。"
 
 #: plugin/scripting/venv_diagnostics.py
@@ -1488,8 +1329,7 @@ msgstr "視覺探測失敗（請參閱 writeragent_debug.log）。"
 msgid ""
 "Vector Search probe timed out (sentence-transformers import can take 10–30s "
 "on first check)."
-msgstr ""
-"向量搜尋探測逾時 (首次檢查時，匯入 sentence-transformers 可能需要 10–30 秒)。"
+msgstr "向量搜尋探測逾時 (首次檢查時，匯入 sentence-transformers 可能需要 10–30 秒)。"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vector Search probe failed (see writeragent_debug.log)."
@@ -1510,6 +1350,10 @@ msgstr "量化金融函式庫"
 #: plugin/scripting/venv_diagnostics.py
 msgid "Data Engineering Libraries"
 msgstr "資料工程函式庫"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text / NLP Libraries"
+msgstr "文字 / NLP 函式庫"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries"
@@ -1546,6 +1390,91 @@ msgstr "正在解析 venv Python..."
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using"
 msgstr "正在使用"
+
+#: plugin/scripting/text_analytics_ui.py plugin/xdl_strings.py
+msgid "Text Analytics"
+msgstr "文字分析"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Could not load the analytics dialog."
+msgstr "無法載入分析對話框。"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Checking spaCy / textdescriptives / transformers installation..."
+msgstr "正在檢查 spaCy / textdescriptives / transformers 安裝狀態..."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-brace-format
+msgid ""
+"Error from the Text Analytics worker:\n"
+"{err}\n"
+"\n"
+"The features in this dialog require these packages in the python it is using:\n"
+"  • spacy + a model          (entities, key phrases, basic stats)\n"
+"  • textdescriptives         (real Readability scores)\n"
+"  • transformers + torch     (Sentiment using the multilingual model)\n"
+"\n"
+"Install them with:\n"
+"  {install}\n"
+"\n"
+"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
+msgstr ""
+"來自文字分析工作程序的錯誤：\n"
+"{err}\n"
+"\n"
+"此對話框中的功能需要其所使用的 Python 環境中安裝以下套件：\n"
+"  • spacy + 模型          （實體、關鍵詞、基本統計）\n"
+"  • textdescriptives         （實際可讀性分數）\n"
+"  • transformers + torch     （使用多語言模型進行情感分析）\n"
+"\n"
+"請使用以下指令安裝：\n"
+"  {install}\n"
+"\n"
+"工作程序回報模組遺失。請確認套件已安裝在工作程序為您設定的虛擬環境 (venv) 所解析的確切 Python 執行檔中。"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Open a Writer document to analyze."
+msgstr "請開啟一份 Writer 文件以進行分析。"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Not enough text in the chosen scope."
+msgstr "所選範圍內的文字不足。"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Analyzing..."
+msgstr "分析中..."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-format
+msgid ""
+"Error: %s\n"
+"\n"
+"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
+msgstr ""
+"錯誤：%s\n"
+"\n"
+"您設定的虛擬環境（設定 → Python）中可能缺少必要的套件。請點擊此對話框中的「檢查虛擬環境 (Check Venv)」，或使用「設定 → Python」中的完整測試功能，以取得關於 spacy、textdescriptives、transformers、torch 等套件的詳細資訊。"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "No Writer document to insert into."
+msgstr "沒有可供插入的 Writer 文件。"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Run an analysis first."
+msgstr "請先執行分析。"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Nothing useful to insert from the last result."
+msgstr "上次的結果中沒有可插入的實用內容。"
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-format
+msgid "Insert failed: %s"
+msgstr "插入失敗：%s"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Inserted after selection/caret."
+msgstr "已插入至選取範圍/游標之後。"
 
 #: plugin/scripting/symbolic.py
 msgid "Symbolic helper failed."
@@ -1585,16 +1514,14 @@ msgid ""
 "Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
 "Writer document with an imported Jupyter notebook and try again."
 msgstr ""
-"「重設筆記本的 Python 工作階段」適用於 LibreOffice Writer。請開啟一個已匯入 "
-"Jupyter 筆記本的 Writer 文件後再試一次。"
+"「重設筆記本的 Python 工作階段」適用於 LibreOffice Writer。請開啟一個已匯入 Jupyter 筆記本的 Writer "
+"文件後再試一次。"
 
 #: plugin/scripting/session_manager.py
 msgid ""
 "This Writer document has no imported notebook registry. Use Tools → Import "
 "Jupyter Notebook… first."
-msgstr ""
-"此 Writer 文件沒有已匯入的筆記本登錄。請先使用「工具」→「匯入 Jupyter 筆記"
-"本…」。"
+msgstr "此 Writer 文件沒有已匯入的筆記本登錄。請先使用「工具」→「匯入 Jupyter 筆記本…」。"
 
 #: plugin/scripting/session_manager.py
 msgid "Could not resolve notebook Python session."
@@ -1612,9 +1539,7 @@ msgstr "無法重設 Python 工作階段。"
 msgid ""
 "Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
 "try again."
-msgstr ""
-"「重設 Python 工作階段」適用於 Calc 試算表。請開啟一個 Calc 活頁簿後再試一"
-"次。"
+msgstr "「重設 Python 工作階段」適用於 Calc 試算表。請開啟一個 Calc 活頁簿後再試一次。"
 
 #: plugin/scripting/session_manager.py
 msgid "Python session reset for this workbook."
@@ -1624,9 +1549,7 @@ msgstr "已為此活頁簿重設 Python 工作階段。"
 msgid ""
 "Initialization script and any in-memory init state were reset for this "
 "workbook. Cell variables were already isolated per cell."
-msgstr ""
-"此活頁簿的初始化指令碼與任何記憶體中的初始化狀態皆已重設。儲存格變數已針對每"
-"個儲存格進行隔離。"
+msgstr "此活頁簿的初始化指令碼與任何記憶體中的初始化狀態皆已重設。儲存格變數已針對每個儲存格進行隔離。"
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1634,17 +1557,15 @@ msgid ""
 "variables). There is no shared cell session to reset. Add an initialization "
 "script if you need to clear expensive one-time workbook setup."
 msgstr ""
-"Python 工作階段模式為「隔離」（每個 =PYTHON() 儲存格使用各自的變數）。沒有可"
-"重設的共用儲存格工作階段。若需要清除昂貴的一次性活頁簿設定，請新增初始化指令"
-"碼。"
+"Python 工作階段模式為「隔離」（每個 =PYTHON() "
+"儲存格使用各自的變數）。沒有可重設的共用儲存格工作階段。若需要清除昂貴的一次性活頁簿設定，請新增初始化指令碼。"
 
 #: plugin/scripting/session_manager.py
 msgid ""
 "This Writer document has no imported notebook registry. Use Tools → Import "
 "Jupyter Notebook… to enable notebook Python session reset."
 msgstr ""
-"此 Writer 文件沒有匯入的筆記本登錄檔。請使用「工具」→「匯入 Jupyter 筆記本…」"
-"來啟用筆記本 Python 工作階段重設功能。"
+"此 Writer 文件沒有匯入的筆記本登錄檔。請使用「工具」→「匯入 Jupyter 筆記本…」來啟用筆記本 Python 工作階段重設功能。"
 
 #: plugin/scripting/units.py plugin/scripting/python_runner.py
 msgid "Units helper failed."
@@ -1709,9 +1630,7 @@ msgstr "無法插入結果：{error}（耗時 {time}）"
 msgid ""
 "Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
 "tables). (took {time})"
-msgstr ""
-"Vision '{helper}' 已完成。已插入 HTML（{blocks} 個區塊，{tables} 個表格）。"
-"（耗時 {time}）"
+msgstr "Vision '{helper}' 已完成。已插入 HTML（{blocks} 個區塊，{tables} 個表格）。（耗時 {time}）"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -1739,6 +1658,19 @@ msgstr "Math 輔助程式失敗。"
 #: plugin/scripting/python_runner.py
 msgid "Units helpers require a Writer or Calc document."
 msgstr "單位輔助程式需要 Writer 或 Calc 文件。"
+
+#: plugin/scripting/python_runner.py
+msgid "Text analytics helpers require a Writer document."
+msgstr "文字分析輔助工具需要 Writer 文件。"
+
+#: plugin/scripting/python_runner.py
+msgid "Text analytics helper failed."
+msgstr "文字分析輔助工具失敗。"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Text analytics '{helper}' completed. (took {time})"
+msgstr "文字分析「{helper}」已完成。（耗時 {time}）"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -1788,8 +1720,8 @@ msgstr "分析 '{helper}' 已完成。已寫入 {rows} 列。(耗時 {time})"
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr "指令碼執行成功，但未傳回結果且未產生任何輸出。（耗時 {time}）"
 
 #: plugin/scripting/python_runner.py
@@ -1823,8 +1755,7 @@ msgstr "選取資料範圍或輸入 A1 位址 (將作為資料注入)。"
 msgid ""
 "Image '{name}' not found. Use list_images or leave image_name empty and "
 "select the graphic."
-msgstr ""
-"找不到影像 '{name}'。請使用 list_images 或將 image_name 留空並選取該圖形。"
+msgstr "找不到影像 '{name}'。請使用 list_images 或將 image_name 留空並選取該圖形。"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -1940,6 +1871,10 @@ msgid "Search Nearby Files..."
 msgstr "搜尋鄰近檔案..."
 
 #: plugin/main.py
+msgid "Text Analytics..."
+msgstr "文字分析..."
+
+#: plugin/main.py
 msgid "Convert Sheet to Python..."
 msgstr "將工作表轉換為 Python..."
 
@@ -1950,14 +1885,6 @@ msgstr "調度錯誤"
 #: plugin/xdl_strings.py
 msgid "-1"
 msgstr "-1"
-
-#: plugin/xdl_strings.py
-msgid "7.5"
-msgstr "7.5"
-
-#: plugin/xdl_strings.py
-msgid "AI Horde API Key:"
-msgstr "AI Horde API 金鑰："
 
 #: plugin/xdl_strings.py
 msgid "AI Model:"
@@ -1978,10 +1905,6 @@ msgstr "額外指示 (歷史)："
 #: plugin/xdl_strings.py
 msgid "Additional Instructions:"
 msgstr "額外指示："
-
-#: plugin/xdl_strings.py
-msgid "Allow NSFW"
-msgstr "允許 NSFW"
 
 #: plugin/xdl_strings.py
 msgid "Ask / instruct:"
@@ -2012,10 +1935,6 @@ msgid "Base:"
 msgstr "基礎："
 
 #: plugin/xdl_strings.py
-msgid "CFG Scale:"
-msgstr "CFG 尺度："
-
-#: plugin/xdl_strings.py
 msgid "Cache Status: Checking..."
 msgstr "快取狀態：檢查中..."
 
@@ -2032,12 +1951,12 @@ msgid "Categories:"
 msgstr "類別："
 
 #: plugin/xdl_strings.py
-msgid "Censor NSFW"
-msgstr "審查 NSFW"
-
-#: plugin/xdl_strings.py
 msgid "Chat (Testing):"
 msgstr "聊天 (測試)："
+
+#: plugin/xdl_strings.py
+msgid "Check Venv"
+msgstr "檢查虛擬環境 (Venv)"
 
 #: plugin/xdl_strings.py
 msgid "Clear"
@@ -2092,6 +2011,10 @@ msgstr ""
 "將結果指派給 'result' 變數。"
 
 #: plugin/xdl_strings.py
+msgid "Entities"
+msgstr "實體"
+
+#: plugin/xdl_strings.py
 msgid "General"
 msgstr "一般"
 
@@ -2120,12 +2043,16 @@ msgid "Insert LaTeX Math"
 msgstr "插入 LaTeX 數學式"
 
 #: plugin/xdl_strings.py
-msgid "Max Tokens:"
-msgstr "最大 Token 數："
+msgid "Insert report here"
+msgstr "在此插入報告"
 
 #: plugin/xdl_strings.py
-msgid "Max Wait (s):"
-msgstr "最大等待時間 (秒)："
+msgid "Key Phrases"
+msgstr "關鍵詞組"
+
+#: plugin/xdl_strings.py
+msgid "Max Tokens:"
+msgstr "最大 Token 數："
 
 #: plugin/xdl_strings.py
 msgid "Message"
@@ -2172,6 +2099,10 @@ msgid "Python Test"
 msgstr "Python 測試"
 
 #: plugin/xdl_strings.py
+msgid "Readability"
+msgstr "可讀性"
+
+#: plugin/xdl_strings.py
 msgid "Rebuild"
 msgstr "重建"
 
@@ -2216,6 +2147,10 @@ msgid "Selection"
 msgstr "選取範圍"
 
 #: plugin/xdl_strings.py
+msgid "Sentiment"
+msgstr "情感分析"
+
+#: plugin/xdl_strings.py
 msgid "Server Status"
 msgstr "伺服器狀態"
 
@@ -2248,8 +2183,8 @@ msgid "Timeout (s):"
 msgstr "逾時 (秒)："
 
 #: plugin/xdl_strings.py
-msgid "Use AI Horde for Image Generation"
-msgstr "使用 AI Horde 進行影像生成"
+msgid "Topics"
+msgstr "主題"
 
 #: plugin/xdl_strings.py
 msgid "Vectorize columns when safe"
@@ -2258,6 +2193,10 @@ msgstr "在安全時向量化欄位"
 #: plugin/xdl_strings.py
 msgid "Verify recalc (oracle diff)"
 msgstr "驗證重新計算 (Oracle 差異)"
+
+#: plugin/xdl_strings.py
+msgid "Whole Document"
+msgstr "整份文件"
 
 #: plugin/xdl_strings.py
 msgid "Writer"
@@ -2292,11 +2231,11 @@ msgid "Path / URL"
 msgstr "路徑 / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"後端 CLI 路徑（例如 aider）或 ACP 伺服器 URL（例如 Hermes 的 http://"
-"localhost:8000）。留空 = 嘗試預設值。"
+"後端 CLI 路徑（例如 aider）或 ACP 伺服器 URL（例如 Hermes 的 http://localhost:8000）。留空 = "
+"嘗試預設值。"
 
 msgid "Extra arguments"
 msgstr "額外引數"
@@ -2412,14 +2351,12 @@ msgstr "擬人化技能（自然散文）"
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
-"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
-"dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
 msgstr ""
-"啟用後，將引導指令注入系統提示詞，使模型生成或修訂的文件內容聽起來更自然、更"
-"像人類（移除 AI 冗贅模式）。請在您的 LibreOffice 設定檔中的 writeragent/"
-"skills/humanizer/SKILL.md 編輯規則（該檔案會在首次使用時自動建立）。未來可新"
-"增專屬的「技能」頁籤。"
+"啟用後，將引導指令注入系統提示詞，使模型生成或修訂的文件內容聽起來更自然、更像人類（移除 AI 冗贅模式）。請在您的 LibreOffice 設定檔中的"
+" writeragent/skills/humanizer/SKILL.md 編輯規則（該檔案會在首次使用時自動建立）。未來可新增專屬的「技能」頁籤。"
 
 msgid "Doc"
 msgstr "文件"
@@ -2429,11 +2366,11 @@ msgstr "啟用 AI 文法檢查器 (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
-"啟用時，WriterAgent 會將其 AI 文法校對器註冊至 Linguistic；檢查的文字會使用您"
-"的 API (工具 → 選項 → AI)。在您暫停輸入後不久，會出現底線。預設關閉。"
+"啟用時，WriterAgent 會將其 AI 文法校對器註冊至 Linguistic；檢查的文字會使用您的 API (工具 → 選項 → "
+"AI)。在您暫停輸入後不久，會出現底線。預設關閉。"
 
 msgid "Model (optional)"
 msgstr "模型 (選填)"
@@ -2447,9 +2384,7 @@ msgstr "聊天/代理運行時暫停語法檢查"
 msgid ""
 "When on, AI grammar skips background requests while sidebar chat or agent "
 "runs, to avoid concurrent API calls."
-msgstr ""
-"啟用時，AI 語法檢查會在側邊欄聊天或代理運行期間跳過背景請求，以避免並發 API "
-"呼叫。"
+msgstr "啟用時，AI 語法檢查會在側邊欄聊天或代理運行期間跳過背景請求，以避免並發 API 呼叫。"
 
 msgid "Batch sentences"
 msgstr "批次句子"
@@ -2459,8 +2394,7 @@ msgid ""
 "reliable; higher values are faster and cheaper but may hit token limits or "
 "cause model errors."
 msgstr ""
-"每次 LLM 請求發送的語句數量 (1-8)。1 (預設值) 最為穩定；較高的數值速度較快且"
-"成本較低，但可能會達到 Token 上限或導致模型錯誤。"
+"每次 LLM 請求發送的語句數量 (1-8)。1 (預設值) 最為穩定；較高的數值速度較快且成本較低，但可能會達到 Token 上限或導致模型錯誤。"
 
 msgid "Concurrent requests"
 msgstr "並行請求"
@@ -2470,8 +2404,8 @@ msgid ""
 "behavior. Raise for OpenRouter or other providers that allow parallel "
 "requests; use with care alongside sidebar chat."
 msgstr ""
-"背景語法 API 的最大同時呼叫數 (1-8)。1 為先前行為。若使用 OpenRouter 或其他允"
-"許平行請求的提供者可調高此數值；與側邊欄聊天功能同時使用時請謹慎調整。"
+"背景語法 API 的最大同時呼叫數 (1-8)。1 為先前行為。若使用 OpenRouter "
+"或其他允許平行請求的提供者可調高此數值；與側邊欄聊天功能同時使用時請謹慎調整。"
 
 msgid "Sentence language detection"
 msgstr "句子語言偵測"
@@ -2481,9 +2415,8 @@ msgid ""
 "uses your grammar/chat API; Local uses bundled langdetect (no API call, no "
 "venv). Mismatches update CharLocale and re-check grammar."
 msgstr ""
-"根據文件語言驗證每個完整句子的語言。AI 使用您的語法/聊天 API；Local 使用內建"
-"的 langdetect（無 API 呼叫，無需虛擬環境）。若不匹配，將更新字元語言設定 "
-"(CharLocale) 並重新檢查語法。"
+"根據文件語言驗證每個完整句子的語言。AI 使用您的語法/聊天 API；Local 使用內建的 langdetect（無 API "
+"呼叫，無需虛擬環境）。若不匹配，將更新字元語言設定 (CharLocale) 並重新檢查語法。"
 
 msgid "Off"
 msgstr "關閉"
@@ -2501,8 +2434,7 @@ msgid ""
 "When on, Enter in the sidebar query runs the same action as Send; "
 "Shift+Enter inserts a newline. When off, Enter inserts a newline."
 msgstr ""
-"開啟時，在側邊欄查詢中按下 Enter 鍵會執行與「發送」相同的動作；Shift+Enter 則"
-"會插入換行符號。關閉時，Enter 鍵僅插入換行符號。"
+"開啟時，在側邊欄查詢中按下 Enter 鍵會執行與「發送」相同的動作；Shift+Enter 則會插入換行符號。關閉時，Enter 鍵僅插入換行符號。"
 
 msgid "Agent edit review"
 msgstr "Agent 編輯審閱"
@@ -2512,8 +2444,8 @@ msgid ""
 "Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
 "review."
 msgstr ""
-"關閉 = 直接編輯。記錄 = 您自行接受/拒絕的追蹤修訂。等待 = "
-"apply_document_content 會封鎖（在聊天/MCP 工作執行緒上），直到您審閱為止。"
+"關閉 = 直接編輯。記錄 = 您自行接受/拒絕的追蹤修訂。等待 = apply_document_content 會封鎖（在聊天/MCP "
+"工作執行緒上），直到您審閱為止。"
 
 msgid "Record (track changes)"
 msgstr "記錄（追蹤修訂）"
@@ -2534,8 +2466,8 @@ msgid ""
 "Indexed semantic + keyword search for document_research (corpus.db). "
 "Requires embeddings venv — see Python Test."
 msgstr ""
-"用於 document_research (corpus.db) 的索引語意 + 關鍵字搜尋。需要 embeddings "
-"venv — 請參閱 Python 測試。"
+"用於 document_research (corpus.db) 的索引語意 + 關鍵字搜尋。需要 embeddings venv — 請參閱 "
+"Python 測試。"
 
 msgid "Embeddings + FTS"
 msgstr "嵌入 + FTS"
@@ -2545,9 +2477,6 @@ msgstr "LlamaIndex"
 
 msgid "Zvec (experimental)"
 msgstr "Zvec（實驗性）"
-
-msgid "ChromaDB"
-msgstr "ChromaDB"
 
 msgid "LanceDB (experimental)"
 msgstr "LanceDB (實驗性)"
@@ -2564,18 +2493,15 @@ msgstr "啟用跨檔案重新排序 (rerank)"
 msgid ""
 "Second-stage cross-encoder after hybrid retrieve (Embeddings + FTS and "
 "LlamaIndex). Off by default."
-msgstr ""
-"在混合檢索（嵌入 + FTS 與 LlamaIndex）後的第二階段交叉編碼器。預設為關閉。"
+msgstr "在混合檢索（嵌入 + FTS 與 LlamaIndex）後的第二階段交叉編碼器。預設為關閉。"
 
 msgid "Rerank model"
 msgstr "重新排序模型"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
-"is multilingual and downloads ~2.3 GB."
-msgstr ""
-"僅在啟用重新排序時使用。英文 MiniLM 速度較快；bge-reranker-v2-m3 支援多語言，"
-"下載大小約 2.3 GB。"
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
+msgstr "僅在啟用重新排序時使用。英文 MiniLM 速度較快；bge-reranker-v2-m3 支援多語言，下載大小約 2.3 GB。"
 
 msgid "cross-encoder/ms-marco-MiniLM-L-6-v2"
 msgstr "cross-encoder/ms-marco-MiniLM-L-6-v2"
@@ -2593,10 +2519,9 @@ msgid "Enable MCP Server"
 msgstr "啟用 MCP 伺服器"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
-msgstr ""
-"僅限本機，無需驗證。用戶端使用 http://localhost:<port>/mcp (可串流 HTTP)。"
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
+msgstr "僅限本機，無需驗證。用戶端使用 http://localhost:<port>/mcp (可串流 HTTP)。"
 
 msgid "MCP Port"
 msgstr "MCP 連接埠"
@@ -2613,10 +2538,9 @@ msgid ""
 "stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
-"若已設定，將在該虛擬環境 (venv) 中執行工具 (bin/python 或 Scripts/"
-"python.exe)。若留空，run_venv_python_script 將使用此處理序的 sys.executable "
-"(基礎標準函式庫)；請針對 numpy/pandas 與視覺輔助程式 (paddleocr, "
-"paddlepaddle) 使用虛擬環境。"
+"若已設定，將在該虛擬環境 (venv) 中執行工具 (bin/python 或 "
+"Scripts/python.exe)。若留空，run_venv_python_script 將使用此處理序的 sys.executable "
+"(基礎標準函式庫)；請針對 numpy/pandas 與視覺輔助程式 (paddleocr, paddlepaddle) 使用虛擬環境。"
 
 msgid "Test"
 msgstr "測試"
@@ -2627,18 +2551,17 @@ msgstr "Python 指令碼逾時（秒）"
 msgid ""
 "Wall-clock limit for Run Python Script, =PYTHON(), and "
 "run_venv_python_script."
-msgstr ""
-"執行 Python 指令碼、=PYTHON() 及 run_venv_python_script 的實際執行時間限制。"
+msgstr "執行 Python 指令碼、=PYTHON() 及 run_venv_python_script 的實際執行時間限制。"
 
 msgid "Max Calc data cells"
 msgstr "Calc 資料儲存格上限"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
-"=PYTHON() 資料或執行 Python 指令碼資料/資料範圍 (data/data_range) 的最大儲存"
-"格數。較大的數值會消耗更多記憶體與時間；UNO 範圍讀取仍是主要的效能瓶頸。"
+"=PYTHON() 資料或執行 Python 指令碼資料/資料範圍 (data/data_range) "
+"的最大儲存格數。較大的數值會消耗更多記憶體與時間；UNO 範圍讀取仍是主要的效能瓶頸。"
 
 msgid "Python session mode"
 msgstr "Python 工作階段模式"
@@ -2646,15 +2569,21 @@ msgstr "Python 工作階段模式"
 msgid ""
 "Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace "
 "per workbook (variables carry between cells)."
-msgstr ""
-"隔離模式：每個 =PYTHON() 儲存格皆擁有獨立的命名空間。共用模式：每個活頁簿共用"
-"一個命名空間（變數可在儲存格間傳遞）。"
+msgstr "隔離模式：每個 =PYTHON() 儲存格皆擁有獨立的命名空間。共用模式：每個活頁簿共用一個命名空間（變數可在儲存格間傳遞）。"
 
 msgid "Isolated (default)"
 msgstr "隔離模式（預設）"
 
 msgid "Shared kernel"
 msgstr "共用核心"
+
+msgid "Python auto spill in Calc"
+msgstr "Calc 中的 Python 自動溢出"
+
+msgid ""
+"Automatically spill multi-cell array/DataFrame results from =PYTHON() into "
+"adjacent cells."
+msgstr "自動將 =PYTHON() 的多儲存格陣列/資料框結果溢出至相鄰儲存格。"
 
 msgid "Vision / OCR"
 msgstr "視覺 / OCR"
@@ -2717,8 +2646,8 @@ msgid ""
 "html = Docling HTML import (default). structured = bbox column layout in "
 "Writer; native Calc cells for extract_structure tables."
 msgstr ""
-"html = Docling HTML 匯入（預設）。structured = Writer 中的 bbox 欄位配置；用"
-"於 extract_structure 表格的原生 Calc 儲存格。"
+"html = Docling HTML 匯入（預設）。structured = Writer 中的 bbox 欄位配置；用於 "
+"extract_structure 表格的原生 Calc 儲存格。"
 
 msgid "Standard HTML"
 msgstr "標準 HTML"

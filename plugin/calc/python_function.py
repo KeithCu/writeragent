@@ -120,13 +120,37 @@ def to_calc_compatible(val: Any) -> float | str | bool | tuple:
     return str(val)
 
 
+def _get_calc_doc(ctx: Any) -> Any | None:
+    try:
+        from plugin.framework.uno_context import get_desktop
+        desktop = get_desktop(ctx)
+        doc = desktop.getCurrentComponent()
+        if doc is not None and hasattr(doc, "getSheets"):
+            return doc
+        comps = desktop.getComponents()
+        if comps:
+            enum = comps.createEnumeration()
+            while enum and enum.hasMoreElements():
+                elem = enum.nextElement()
+                model = None
+                if hasattr(elem, "getURL") and callable(getattr(elem, "getURL")):
+                    model = elem
+                elif hasattr(elem, "getController") and elem.getController():
+                    model = elem.getController().getModel()
+                if model and hasattr(model, "getSheets"):
+                    return model
+    except Exception:
+        pass
+    return None
+
+
 def session_key(ctx: Any, code: str) -> tuple:
     doc_url = ""
     sheet_name = ""
     try:
-        smgr = ctx.ServiceManager
-        desktop = smgr.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
-        doc = desktop.getCurrentComponent()
+        if not (hasattr(ctx, "ServiceManager") or hasattr(ctx, "getServiceManager")):
+            return (doc_url, sheet_name, code)
+        doc = _get_calc_doc(ctx)
         if doc is not None:
             doc_url = getattr(doc, "getURL", lambda: "")() or ""
             ctrl = getattr(doc, "getCurrentController", lambda: None)()
@@ -136,6 +160,7 @@ def session_key(ctx: Any, code: str) -> tuple:
                     sheet_name = sheet.getName()
     except Exception:
         pass
+
     return (doc_url, sheet_name, code)
 
 
@@ -226,9 +251,9 @@ def locate_formula_cell(ctx: Any, sheet: Any, code_str: str) -> tuple[int, int] 
     """Find the row and column coordinates of the cell containing the Python formula."""
     # 1. Fast-path: check active selection and adjacent cells (above, left)
     try:
-        smgr = ctx.ServiceManager
-        desktop = smgr.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
-        doc = desktop.getCurrentComponent()
+        if not (hasattr(ctx, "ServiceManager") or hasattr(ctx, "getServiceManager")):
+            return None
+        doc = _get_calc_doc(ctx)
         if doc is not None:
             ctrl = doc.getCurrentController()
             if ctrl is not None:
@@ -279,9 +304,9 @@ def perform_deferred_spill(
 ) -> None:
     """Clear old spilled cells and write new values deferred (collision check is done synchronously)."""
     try:
-        smgr = ctx.ServiceManager
-        desktop = smgr.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
-        doc = desktop.getCurrentComponent()
+        if not (hasattr(ctx, "ServiceManager") or hasattr(ctx, "getServiceManager")):
+            return
+        doc = _get_calc_doc(ctx)
         if doc is None:
             return
         
@@ -363,16 +388,18 @@ def finalize_python_return(
         from plugin.framework.config import get_config_bool
         if get_config_bool(ctx, "scripting.python_auto_spill"):
             try:
-                smgr = ctx.ServiceManager
-                desktop = smgr.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
-                doc = desktop.getCurrentComponent()
+                doc = None
+                if not (hasattr(ctx, "ServiceManager") or hasattr(ctx, "getServiceManager")):
+                    is_matrix = True
+                else:
+                    doc = _get_calc_doc(ctx)
                 if doc is not None:
                     ctrl = doc.getCurrentController()
                     if ctrl is not None:
-                        selection = ctrl.getSelection()
-                        if selection is not None and hasattr(selection, "getRangeAddress"):
-                            addr = selection.getRangeAddress()
-                            is_matrix = (addr.EndColumn - addr.StartColumn > 0) or (addr.EndRow - addr.StartRow > 0)
+                         selection = ctrl.getSelection()
+                         if selection is not None and hasattr(selection, "getRangeAddress"):
+                             addr = selection.getRangeAddress()
+                             is_matrix = (addr.EndColumn - addr.StartColumn > 0) or (addr.EndRow - addr.StartRow > 0)
             except Exception:
                 pass
         else:
@@ -388,9 +415,9 @@ def finalize_python_return(
 
             # Get document and sheet to locate formula cell
             try:
-                smgr = ctx.ServiceManager
-                desktop = smgr.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
-                doc = desktop.getCurrentComponent()
+                if not (hasattr(ctx, "ServiceManager") or hasattr(ctx, "getServiceManager")):
+                    return to_calc_compatible(grid_to_spill[0][0])
+                doc = _get_calc_doc(ctx)
                 if doc is not None:
                     doc_url = getattr(doc, "getURL", lambda: "")() or ""
                     ctrl = doc.getCurrentController()

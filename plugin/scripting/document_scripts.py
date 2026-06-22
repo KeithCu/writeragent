@@ -200,6 +200,21 @@ def get_calc_document_from_ctx(ctx: Any) -> Any | None:
         log.debug("document_scripts: could not resolve active Calc document", exc_info=True)
         return None
     if doc is None or not is_calc(doc):
+        try:
+            comps = desktop.getComponents()
+            if comps:
+                enum = comps.createEnumeration()
+                while enum and enum.hasMoreElements():
+                    elem = enum.nextElement()
+                    model = None
+                    if hasattr(elem, "getURL") and callable(getattr(elem, "getURL")):
+                        model = elem
+                    elif hasattr(elem, "getController") and elem.getController():
+                        model = elem.getController().getModel()
+                    if model and is_calc(model):
+                        return model
+        except Exception:
+            pass
         return None
     return doc
 

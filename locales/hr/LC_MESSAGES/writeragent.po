@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-17 17:50-0400\n"
+"POT-Creation-Date: 2026-06-22 15:38-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Croatian <LL@li.org>\n"
@@ -19,8 +19,8 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
 "Čitanje istraživanja dokumenata zahtijeva delegiranje specijaliziranih "
 "zadataka (USE_SUB_AGENT). Omogućite ovo u konfiguraciji."
@@ -28,8 +28,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Poziv alata prebačen na '{0}'. Nalazite se u načinu rada specijaliziranog "
@@ -46,8 +46,8 @@ msgstr "Pokretanje bilježnice podržano je samo u LibreOffice Writeru."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
 "Ovaj dokument nema uvezenu bilježnicu. Prvo upotrijebite Alati → Uvezi "
 "Jupyter bilježnicu…"
@@ -97,184 +97,6 @@ msgstr ""
 #: plugin/notebook/writer_importer.py
 msgid "Run code cell"
 msgstr "Pokreni ćeliju s kodom"
-
-#: plugin/contrib/aihordeclient/__init__.py plugin/chatbot/panel.py
-msgid "Starting..."
-msgstr "Pokretanje..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Updating model requirements..."
-msgstr "Ažuriranje zahtjeva modela..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Updating Models..."
-msgstr "Ažuriranje modela..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Register at "
-msgstr "Registrirajte se na "
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "You have {} kudos"
-msgstr "Imate {} bodova"
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "«{}» is not a valid API KEY, double check it or create a new one"
-msgstr "«{}» nije valjan API KLJUČ, provjerite ga ili stvorite novi"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"At this moment we can not process your request, please try again later.  If "
-"this is happening for a long period of time, please let us know via Discord"
-msgstr ""
-"Trenutačno ne možemo obraditi vaš zahtjev, pokušajte ponovno kasnije. Ako se "
-"ovo događa dulje vrijeme, javite nam se putem Discorda"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Problem requesting kudos"
-msgstr "Problem pri dohvaćanju bodova"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"The Horde is in maintenance mode, please try again later, if you have tried "
-"and the service does not respond for hours, please contact via Discord"
-msgstr ""
-"Horde je u načinu održavanja, pokušajte ponovno kasnije. Ako ste pokušali i "
-"usluga ne odgovara satima, kontaktirajte nas putem Discorda"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"You have made too many requests, please wait for them to finish, and try "
-"again later"
-msgstr ""
-"Napravili ste previše zahtjeva, pričekajte da se dovrše i pokušajte ponovno "
-"kasnije"
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid ""
-"Seems that «{}» has problems, double check it, create a new one or join "
-"Discord to ask for help"
-msgstr ""
-"Čini se da «{}» ima problema, provjerite ga, stvorite novi ili se pridružite "
-"Discordu kako biste zatražili pomoć"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "We hit an error, still: "
-msgstr "Došlo je do pogreške, ipak: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "No longer valid, please try again.  Your request took too long"
-msgstr "Više nije važeće, pokušajte ponovno. Vaš zahtjev je predugo trajao"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Contacting the Horde..."
-msgstr "Kontaktiranje Horde..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Horde Contacted"
-msgstr "Horda kontaktirana"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"When trying to ask for the image, the Horde was too slow, try again later"
-msgstr ""
-"Pri pokušaju dohvaćanja slike, Horda je bila prespora, pokušajte ponovno "
-"kasnije"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "to learn to earn kudos. Detail:"
-msgstr "kako biste naučili zarađivati bodove. Detalji:"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Service failed: "
-msgstr "Usluga nije uspjela: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Downloading generated image..."
-msgstr "Preuzimanje generirane slike..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "You are first in the queue"
-msgstr "Vi ste prvi u redu"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Queue position: "
-msgstr "Pozicija u redu čekanja: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Generating..."
-msgstr "Generiranje..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Get a free API Key at "
-msgstr "Nabavite besplatni API ključ na "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "."
-msgstr "."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "This model takes more time than your current configuration."
-msgstr "Ovaj model zahtijeva više vremena od vaše trenutne konfiguracije."
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
-msgstr ""
-"Pokušajte s drugim modelom. {0} bi zahtijevao više vremena nego što ste "
-"konfigurirali."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Please try again later."
-msgstr "Molimo pokušajte ponovo kasnije."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "There are no workers available with these settings."
-msgstr "Nema dostupnih radnika s ovim postavkama."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Probably your image will take one additional minute."
-msgstr "Vjerojatno će vašoj slici trebati jedna dodatna minuta."
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "Probably your image will take {} additional minutes."
-msgstr "Vjerojatno će vašoj slici trebati {} dodatnih minuta."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Fetching images..."
-msgstr "Dohvaćanje slika..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid " is censored, try changing the prompt wording"
-msgstr " je cenzurirano, pokušajte promijeniti tekst upita"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Downloading result..."
-msgstr "Preuzimanje rezultata..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Downloading image"
-msgstr "Preuzimanje slike"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"You may need to reduce your settings or choose another model, or you may "
-"have been censored. Horde message"
-msgstr ""
-"Možda trebate smanjiti postavke ili odabrati drugi model, ili ste možda "
-"cenzurirani. Poruka Horde"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid " generated by "
-msgstr " generirano pomoću "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid " with "
-msgstr " s "
 
 #: plugin/embeddings/search_ui.py
 msgid "Cache Status: No active document"
@@ -419,7 +241,8 @@ msgstr ""
 "postavkama."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr "Veza odbijena. Radi li vaš lokalni AI poslužitelj (Ollama/LM Studio)?"
 
 #: plugin/framework/errors.py
@@ -450,7 +273,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "AI: Mogu vam pomoći s formulama, analizom podataka i šarenim grafikonima. "
 "Isprobajte me!"
@@ -473,9 +297,9 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest "
-"approaches, and help you build an approved spec in your document when you're "
-"ready."
+"AI: Let's explore and design your idea together. I'll ask questions, suggest"
+" approaches, and help you build an approved spec in your document when "
+"you're ready."
 msgstr ""
 "AI: Istražimo i osmislimo vašu ideju zajedno. Postavljat ću pitanja, "
 "predlagati pristupe i pomoći vam da izradite odobrenu specifikaciju u vašem "
@@ -484,10 +308,11 @@ msgstr ""
 #: plugin/framework/constants.py
 msgid ""
 "AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your approval."
+"writing plan outline, and then implement it incrementally with your "
+"approval."
 msgstr ""
-"AI: Izradimo vaš dokument odjeljak po odjeljak. Pomoći ću vam stvoriti nacrt "
-"plana pisanja, a zatim ga postupno provoditi uz vaše odobrenje."
+"AI: Izradimo vaš dokument odjeljak po odjeljak. Pomoći ću vam stvoriti nacrt"
+" plana pisanja, a zatim ga postupno provoditi uz vaše odobrenje."
 
 #: plugin/framework/client/errors.py
 #, python-brace-format
@@ -515,6 +340,10 @@ msgstr ""
 #: plugin/calc/python_function.py
 msgid "Image inserted"
 msgstr "Slika umetnuta"
+
+#: plugin/calc/python_function.py
+msgid "Images inserted"
+msgstr "Umetnute slike"
 
 #: plugin/calc/python_editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
@@ -600,13 +429,13 @@ msgid ""
 "Cannot import webview (pywebview) with the Python from Settings → Python:\n"
 "%(exe)s\n"
 "\n"
-"In that venv run: pip install pywebview\n"
+"In that venv run: uv pip install pywebview\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
 "Nije moguće uvesti webview (pywebview) s Pythonom iz Postavke → Python:\n"
 "%(exe)s\n"
 "\n"
-"U tom venv-u pokrenite: pip install pywebview\n"
+"U tom venv-u pokrenite: uv pip install pywebview\n"
 "(naziv za uvoz je webview, naziv paketa je pywebview)."
 
 #: plugin/calc/python_editor.py
@@ -1050,6 +879,10 @@ msgid "Send"
 msgstr "Pošalji"
 
 #: plugin/chatbot/panel.py
+msgid "Starting..."
+msgstr "Pokretanje..."
+
+#: plugin/chatbot/panel.py
 msgid "Getting document..."
 msgstr "Dohvaćanje dokumenta..."
 
@@ -1076,8 +909,8 @@ msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
 "this!]"
 msgstr ""
-"[Interna pogreška: Nije moguće identificirati vrstu dokumenta za {0}. Molimo "
-"prijavite ovo!]"
+"[Interna pogreška: Nije moguće identificirati vrstu dokumenta za {0}. Molimo"
+" prijavite ovo!]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -1156,8 +989,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Nije pronađen uređivač (instalirajte Kate ili Gedit ili postavite EDITOR). "
-"Putanja:\n"
+"Nije pronađen uređivač (instalirajte Kate ili Gedit ili postavite EDITOR). Putanja:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -1194,7 +1026,8 @@ msgstr "[Pozadinski agent '{0}' nije pronađen.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Pozadinski agent '{0}' nije dostupan. Provjerite postavke (putanja, "
 "instalacija).]"
@@ -1361,12 +1194,20 @@ msgid "Units Helpers"
 msgstr "Pomoćni alati za jedinice"
 
 #: plugin/scripting/document_scripts.py
+msgid "Text Analytics Helpers"
+msgstr "Pomoćnici za analizu teksta"
+
+#: plugin/scripting/document_scripts.py
 msgid "Quant Helpers"
 msgstr "Pomoćnici za kvantitativnu analizu"
 
 #: plugin/scripting/document_scripts.py
 msgid "Optimize Helpers"
 msgstr "Pomoćnici za optimizaciju"
+
+#: plugin/scripting/document_scripts.py
+msgid "SQL Helpers"
+msgstr "SQL pomoćnici"
 
 #: plugin/scripting/document_scripts.py
 msgid "My Scripts"
@@ -1461,7 +1302,8 @@ msgstr "Skripta uspješno izvršena."
 msgid ""
 "Script executed successfully, but returned no result and produced no output."
 msgstr ""
-"Skripta je uspješno izvršena, ali nije vratila rezultat niti proizvela izlaz."
+"Skripta je uspješno izvršena, ali nije vratila rezultat niti proizvela "
+"izlaz."
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Success"
@@ -1528,7 +1370,8 @@ msgid "Could not talk to the Python editor."
 msgstr "Nije bilo moguće komunicirati s Python uređivačem."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "Vremensko ograničenje vizualne sonde isteklo (uvoz Doclinga može potrajati "
 "10–30 s pri prvoj provjeri)."
@@ -1568,6 +1411,10 @@ msgid "Data Engineering Libraries"
 msgstr "Biblioteke za inženjering podataka"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Text / NLP Libraries"
+msgstr "Biblioteke za tekst / NLP"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries"
 msgstr "Biblioteke za vid"
 
@@ -1604,6 +1451,91 @@ msgstr "Razrješavanje venv Pythona..."
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using"
 msgstr "Korištenje"
+
+#: plugin/scripting/text_analytics_ui.py plugin/xdl_strings.py
+msgid "Text Analytics"
+msgstr "Analiza teksta"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Could not load the analytics dialog."
+msgstr "Nije bilo moguće učitati dijaloški okvir za analizu."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Checking spaCy / textdescriptives / transformers installation..."
+msgstr "Provjera instalacije spaCy / textdescriptives / transformers..."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-brace-format
+msgid ""
+"Error from the Text Analytics worker:\n"
+"{err}\n"
+"\n"
+"The features in this dialog require these packages in the python it is using:\n"
+"  • spacy + a model          (entities, key phrases, basic stats)\n"
+"  • textdescriptives         (real Readability scores)\n"
+"  • transformers + torch     (Sentiment using the multilingual model)\n"
+"\n"
+"Install them with:\n"
+"  {install}\n"
+"\n"
+"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
+msgstr ""
+"Pogreška radnog procesa za analizu teksta:\n"
+"{err}\n"
+"\n"
+"Značajke u ovom dijaloškom okviru zahtijevaju sljedeće pakete u Pythonu koji se koristi:\n"
+"  • spacy + model          (entiteti, ključne fraze, osnovna statistika)\n"
+"  • textdescriptives         (stvarne ocjene čitljivosti)\n"
+"  • transformers + torch     (analiza sentimenta pomoću višejezičnog modela)\n"
+"\n"
+"Instalirajte ih pomoću:\n"
+"  {install}\n"
+"\n"
+"Radni proces je prijavio da modul nedostaje. Provjerite jesu li paketi instalirani u točnoj Python izvršnoj datoteci koju je radni proces razriješio za vaš konfigurirani venv."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Open a Writer document to analyze."
+msgstr "Otvorite Writer dokument za analizu."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Not enough text in the chosen scope."
+msgstr "Nema dovoljno teksta u odabranom opsegu."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Analyzing..."
+msgstr "Analiziram..."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-format
+msgid ""
+"Error: %s\n"
+"\n"
+"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
+msgstr ""
+"Pogreška: %s\n"
+"\n"
+"Možda nedostaju potrebni paketi u vašem konfiguriranom venv-u (Postavke → Python). Kliknite Provjeri Venv u ovom dijaloškom okviru ili koristite puni Test u Postavke → Python za pojedinosti o spacy, textdescriptives, transformers, torch itd."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "No Writer document to insert into."
+msgstr "Nema Writer dokumenta u koji bi se umetnulo."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Run an analysis first."
+msgstr "Prvo pokrenite analizu."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Nothing useful to insert from the last result."
+msgstr "Ništa korisno za umetanje iz zadnjeg rezultata."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-format
+msgid "Insert failed: %s"
+msgstr "Umetanje nije uspjelo: %s"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Inserted after selection/caret."
+msgstr "Umetnuto nakon odabira/pokazivača."
 
 #: plugin/scripting/symbolic.py
 msgid "Symbolic helper failed."
@@ -1685,8 +1617,8 @@ msgid ""
 "workbook. Cell variables were already isolated per cell."
 msgstr ""
 "Inicijalizacijska skripta i bilo koje stanje inicijalizacije u memoriji "
-"resetirani su za ovu radnu knjigu. Varijable ćelija već su bile izolirane po "
-"ćeliji."
+"resetirani su za ovu radnu knjigu. Varijable ćelija već su bile izolirane po"
+" ćeliji."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1806,6 +1738,19 @@ msgid "Units helpers require a Writer or Calc document."
 msgstr "Pomoćnici za jedinice zahtijevaju Writer ili Calc dokument."
 
 #: plugin/scripting/python_runner.py
+msgid "Text analytics helpers require a Writer document."
+msgstr "Pomoćnici za analizu teksta zahtijevaju Writer dokument."
+
+#: plugin/scripting/python_runner.py
+msgid "Text analytics helper failed."
+msgstr "Pomoćnik za analizu teksta nije uspio."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Text analytics '{helper}' completed. (took {time})"
+msgstr "Analiza teksta '{helper}' dovršena. (trajala {time})"
+
+#: plugin/scripting/python_runner.py
 msgid ""
 "Quant helper requires a data range. Select cells or enter a range in the "
 "Data field."
@@ -1820,7 +1765,8 @@ msgstr "Quant nije uspio."
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid "Quant '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr "Količina '{helper}' dovršena. Zapisano {rows} redaka. (trajalo {time})"
+msgstr ""
+"Količina '{helper}' dovršena. Zapisano {rows} redaka. (trajalo {time})"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -1860,8 +1806,8 @@ msgstr "Analiza '{helper}' dovršena. Zapisano {rows} redaka. (trajalo {time})"
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "Skripta je uspješno izvršena, ali nije vratila rezultat niti proizvela "
 "izlaz. (trajalo {time})"
@@ -1890,7 +1836,8 @@ msgstr "Pokreni"
 
 #: plugin/scripting/python_runner.py
 msgid "Select data range or enter A1 address (injected as data)."
-msgstr "Odaberite raspon podataka ili unesite A1 adresu (umetnuto kao podaci)."
+msgstr ""
+"Odaberite raspon podataka ili unesite A1 adresu (umetnuto kao podaci)."
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -1898,8 +1845,8 @@ msgid ""
 "Image '{name}' not found. Use list_images or leave image_name empty and "
 "select the graphic."
 msgstr ""
-"Slika '{name}' nije pronađena. Koristite list_images ili ostavite image_name "
-"praznim i odaberite grafiku."
+"Slika '{name}' nije pronađena. Koristite list_images ili ostavite image_name"
+" praznim i odaberite grafiku."
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -2017,6 +1964,10 @@ msgid "Search Nearby Files..."
 msgstr "Pretraži obližnje datoteke..."
 
 #: plugin/main.py
+msgid "Text Analytics..."
+msgstr "Analiza teksta..."
+
+#: plugin/main.py
 msgid "Convert Sheet to Python..."
 msgstr "Pretvori list u Python..."
 
@@ -2027,14 +1978,6 @@ msgstr "Pogreška slanja"
 #: plugin/xdl_strings.py
 msgid "-1"
 msgstr "-1"
-
-#: plugin/xdl_strings.py
-msgid "7.5"
-msgstr "7.5"
-
-#: plugin/xdl_strings.py
-msgid "AI Horde API Key:"
-msgstr "AI Horde API ključ:"
 
 #: plugin/xdl_strings.py
 msgid "AI Model:"
@@ -2055,10 +1998,6 @@ msgstr "Dodatne upute (povijest):"
 #: plugin/xdl_strings.py
 msgid "Additional Instructions:"
 msgstr "Dodatne upute:"
-
-#: plugin/xdl_strings.py
-msgid "Allow NSFW"
-msgstr "Dopusti NSFW"
 
 #: plugin/xdl_strings.py
 msgid "Ask / instruct:"
@@ -2089,10 +2028,6 @@ msgid "Base:"
 msgstr "Osnova:"
 
 #: plugin/xdl_strings.py
-msgid "CFG Scale:"
-msgstr "CFG skala:"
-
-#: plugin/xdl_strings.py
 msgid "Cache Status: Checking..."
 msgstr "Status predmemorije: Provjera..."
 
@@ -2109,12 +2044,12 @@ msgid "Categories:"
 msgstr "Kategorije:"
 
 #: plugin/xdl_strings.py
-msgid "Censor NSFW"
-msgstr "Cenzuriraj NSFW"
-
-#: plugin/xdl_strings.py
 msgid "Chat (Testing):"
 msgstr "Razgovor (testiranje):"
+
+#: plugin/xdl_strings.py
+msgid "Check Venv"
+msgstr "Provjeri Venv"
 
 #: plugin/xdl_strings.py
 msgid "Clear"
@@ -2169,6 +2104,10 @@ msgstr ""
 "Dodijelite rezultat varijabli 'result'."
 
 #: plugin/xdl_strings.py
+msgid "Entities"
+msgstr "Entiteti"
+
+#: plugin/xdl_strings.py
 msgid "General"
 msgstr "Općenito"
 
@@ -2197,12 +2136,16 @@ msgid "Insert LaTeX Math"
 msgstr "Umetni LaTeX matematiku"
 
 #: plugin/xdl_strings.py
-msgid "Max Tokens:"
-msgstr "Maks. tokena:"
+msgid "Insert report here"
+msgstr "Umetni izvještaj ovdje"
 
 #: plugin/xdl_strings.py
-msgid "Max Wait (s):"
-msgstr "Maks. čekanje (s):"
+msgid "Key Phrases"
+msgstr "Ključne fraze"
+
+#: plugin/xdl_strings.py
+msgid "Max Tokens:"
+msgstr "Maks. tokena:"
 
 #: plugin/xdl_strings.py
 msgid "Message"
@@ -2249,6 +2192,10 @@ msgid "Python Test"
 msgstr "Python test"
 
 #: plugin/xdl_strings.py
+msgid "Readability"
+msgstr "Čitljivost"
+
+#: plugin/xdl_strings.py
 msgid "Rebuild"
 msgstr "Ponovna izgradnja"
 
@@ -2293,6 +2240,10 @@ msgid "Selection"
 msgstr "Odabir"
 
 #: plugin/xdl_strings.py
+msgid "Sentiment"
+msgstr "Osjećaji"
+
+#: plugin/xdl_strings.py
 msgid "Server Status"
 msgstr "Status poslužitelja"
 
@@ -2325,8 +2276,8 @@ msgid "Timeout (s):"
 msgstr "Vremensko ograničenje (s):"
 
 #: plugin/xdl_strings.py
-msgid "Use AI Horde for Image Generation"
-msgstr "Koristi AI Horde za generiranje slika"
+msgid "Topics"
+msgstr "Teme"
 
 #: plugin/xdl_strings.py
 msgid "Vectorize columns when safe"
@@ -2335,6 +2286,10 @@ msgstr "Vektoriziraj stupce kada je sigurno"
 #: plugin/xdl_strings.py
 msgid "Verify recalc (oracle diff)"
 msgstr "Provjeri ponovni izračun (oracle diff)"
+
+#: plugin/xdl_strings.py
+msgid "Whole Document"
+msgstr "Cijeli dokument"
 
 #: plugin/xdl_strings.py
 msgid "Writer"
@@ -2369,11 +2324,11 @@ msgid "Path / URL"
 msgstr "Putanja / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Putanja do backend CLI-ja (npr. aider) ili URL ACP poslužitelja (npr. http://"
-"localhost:8000 za Hermes). Prazno = pokušaj zadano."
+"Putanja do backend CLI-ja (npr. aider) ili URL ACP poslužitelja (npr. "
+"http://localhost:8000 za Hermes). Prazno = pokušaj zadano."
 
 msgid "Extra arguments"
 msgstr "Dodatni argumenti"
@@ -2490,7 +2445,8 @@ msgid "Rich Text Control Sidebar"
 msgstr "Bočna traka kontrole za obogaćeni tekst"
 
 msgid "Formatted chat via RichTextControl. Requires restart."
-msgstr "Formatirani chat putem RichTextControla. Zahtijeva ponovno pokretanje."
+msgstr ""
+"Formatirani chat putem RichTextControla. Zahtijeva ponovno pokretanje."
 
 msgid "Humanizer skill (natural prose)"
 msgstr "Vještina humanizacije (prirodna proza)"
@@ -2498,15 +2454,15 @@ msgstr "Vještina humanizacije (prirodna proza)"
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
-"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
-"dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
 msgstr ""
 "Kada je omogućeno, ubacuje smjernice u sistemski upit tako da model čini "
 "generirani ili revidirani tekst dokumenta prirodnijim i ljudskijim (uklanja "
-"uzorke AI smeća). Uredite pravila u svom LibreOffice profilu pod writeragent/"
-"skills/humanizer/SKILL.md (datoteka se automatski stvara pri prvoj "
-"upotrebi). Namjenska kartica Vještine može se dodati kasnije."
+"uzorke AI smeća). Uredite pravila u svom LibreOffice profilu pod "
+"writeragent/skills/humanizer/SKILL.md (datoteka se automatski stvara pri "
+"prvoj upotrebi). Namjenska kartica Vještine može se dodati kasnije."
 
 msgid "Doc"
 msgstr "Dokument"
@@ -2516,8 +2472,8 @@ msgstr "Omogući AI provjeru gramatike (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "Kada je uključeno, WriterAgent registrira svoj AI provjerivač gramatike u "
 "Linguistic; provjereni tekst koristi vaš API (Alati → Opcije → AI). "
@@ -2537,8 +2493,8 @@ msgid ""
 "When on, AI grammar skips background requests while sidebar chat or agent "
 "runs, to avoid concurrent API calls."
 msgstr ""
-"Kada je uključeno, AI gramatika preskače pozadinske zahtjeve dok bočna traka "
-"chata ili agent radi, kako bi se izbjegli istovremeni API pozivi."
+"Kada je uključeno, AI gramatika preskače pozadinske zahtjeve dok bočna traka"
+" chata ili agent radi, kako bi se izbjegli istovremeni API pozivi."
 
 msgid "Batch sentences"
 msgstr "Skupna obrada rečenica"
@@ -2549,8 +2505,8 @@ msgid ""
 "cause model errors."
 msgstr ""
 "Broj rečenica za slanje po LLM zahtjevu (1-8). 1 (zadano) je najpouzdanije; "
-"veće vrijednosti su brže i jeftinije, ali mogu doseći ograničenja tokena ili "
-"uzrokovati pogreške modela."
+"veće vrijednosti su brže i jeftinije, ali mogu doseći ograničenja tokena ili"
+" uzrokovati pogreške modela."
 
 msgid "Concurrent requests"
 msgstr "Istodobni zahtjevi"
@@ -2641,9 +2597,6 @@ msgstr "LlamaIndex"
 msgid "Zvec (experimental)"
 msgstr "Zvec (eksperimentalno)"
 
-msgid "ChromaDB"
-msgstr "ChromaDB"
-
 msgid "LanceDB (experimental)"
 msgstr "LanceDB (eksperimentalno)"
 
@@ -2652,8 +2605,8 @@ msgstr "Model za ugradnju"
 
 msgid "HuggingFace model ID for local provider, or endpoint-specific model ID"
 msgstr ""
-"HuggingFace ID modela za lokalnog pružatelja usluga ili ID modela specifičan "
-"za krajnju točku"
+"HuggingFace ID modela za lokalnog pružatelja usluga ili ID modela specifičan"
+" za krajnju točku"
 
 msgid "Enable cross-file rerank"
 msgstr "Omogući ponovno rangiranje između datoteka"
@@ -2669,8 +2622,8 @@ msgid "Rerank model"
 msgstr "Model za ponovno rangiranje"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
-"is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
 msgstr ""
 "Koristi se samo kada je omogućeno ponovno rangiranje. Engleski MiniLM je "
 "brz; bge-reranker-v2-m3 je višejezičan i preuzima ~2,3 GB."
@@ -2691,11 +2644,11 @@ msgid "Enable MCP Server"
 msgstr "Omogući MCP poslužitelj"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Samo localhost, bez provjere autentičnosti. Klijenti koriste http://"
-"localhost:<port>/mcp (streamable HTTP)."
+"Samo localhost, bez provjere autentičnosti. Klijenti koriste "
+"http://localhost:<port>/mcp (streamable HTTP)."
 
 msgid "MCP Port"
 msgstr "MCP priključak"
@@ -2712,10 +2665,10 @@ msgid ""
 "stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
-"Ako je postavljeno, pokreće alate u tom venv-u (bin/python ili Scripts/"
-"python.exe). Ako je prazno, run_venv_python_script koristi sys.executable "
-"ovog procesa (osnovni stdlib); koristite venv za numpy/pandas i pomoćnike za "
-"viziju (paddleocr, paddlepaddle)."
+"Ako je postavljeno, pokreće alate u tom venv-u (bin/python ili "
+"Scripts/python.exe). Ako je prazno, run_venv_python_script koristi "
+"sys.executable ovog procesa (osnovni stdlib); koristite venv za numpy/pandas"
+" i pomoćnike za viziju (paddleocr, paddlepaddle)."
 
 msgid "Test"
 msgstr "Test"
@@ -2734,8 +2687,8 @@ msgid "Max Calc data cells"
 msgstr "Maks. broj ćelija podataka u Calc-u"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
 "Maksimalan broj ćelija u =PYTHON() podacima ili podacima/data_range-u "
 "funkcije Run Python Script. Veće vrijednosti troše više RAM-a i vremena; "
@@ -2756,6 +2709,16 @@ msgstr "Izolirano (zadano)"
 
 msgid "Shared kernel"
 msgstr "Dijeljena jezgra"
+
+msgid "Python auto spill in Calc"
+msgstr "Automatsko prelijevanje Python rezultata u Calc"
+
+msgid ""
+"Automatically spill multi-cell array/DataFrame results from =PYTHON() into "
+"adjacent cells."
+msgstr ""
+"Automatski prelijte rezultate polja/DataFrame-a iz =PYTHON() u susjedne "
+"ćelije."
 
 msgid "Vision / OCR"
 msgstr "Vizija / OCR"

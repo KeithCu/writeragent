@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-17 17:50-0400\n"
+"POT-Creation-Date: 2026-06-22 15:38-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Catalan <LL@li.org>\n"
@@ -19,8 +19,8 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
 "Les lectures de recerca de documents requereixen una delegació de tasques "
 "especialitzada (USE_SUB_AGENT). Habiliteu-ho a la configuració."
@@ -28,8 +28,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "La crida a l'eina ha canviat a «{0}». Esteu en un mode d'eines "
@@ -46,11 +46,11 @@ msgstr "L'execució de quaderns només s'admet al LibreOffice Writer."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
-"Aquest document no té cap quadern importat. Utilitzeu primer Eines → Importa "
-"el quadern Jupyter…."
+"Aquest document no té cap quadern importat. Utilitzeu primer Eines → Importa"
+" el quadern Jupyter…."
 
 #: plugin/notebook/notebook_runner.py
 msgid "Could not find notebook cell for this control."
@@ -97,183 +97,6 @@ msgstr ""
 #: plugin/notebook/writer_importer.py
 msgid "Run code cell"
 msgstr "Executa la cel·la de codi"
-
-#: plugin/contrib/aihordeclient/__init__.py plugin/chatbot/panel.py
-msgid "Starting..."
-msgstr "S'està iniciant..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Updating model requirements..."
-msgstr "S'estan actualitzant els requisits del model..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Updating Models..."
-msgstr "S'estan actualitzant els models..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Register at "
-msgstr "Registreu-vos a "
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "You have {} kudos"
-msgstr "Teniu {} kudos"
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "«{}» is not a valid API KEY, double check it or create a new one"
-msgstr "«{}» no és una clau API vàlida, comproveu-la o creeu-ne una de nova"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"At this moment we can not process your request, please try again later.  If "
-"this is happening for a long period of time, please let us know via Discord"
-msgstr ""
-"En aquest moment no podem processar la vostra sol·licitud, torneu-ho a "
-"provar més tard. Si això passa durant un període llarg de temps, feu-nos-ho "
-"saber a través de Discord"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Problem requesting kudos"
-msgstr "Problema en sol·licitar kudos"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"The Horde is in maintenance mode, please try again later, if you have tried "
-"and the service does not respond for hours, please contact via Discord"
-msgstr ""
-"L'Horde està en mode de manteniment, torneu-ho a provar més tard; si ho heu "
-"provat i el servei no respon durant hores, contacteu-nos a través de Discord"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"You have made too many requests, please wait for them to finish, and try "
-"again later"
-msgstr ""
-"Heu fet massa sol·licituds, espereu que acabin i torneu-ho a provar més tard"
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid ""
-"Seems that «{}» has problems, double check it, create a new one or join "
-"Discord to ask for help"
-msgstr ""
-"Sembla que «{}» té problemes, comproveu-ho, creeu-ne un de nou o uniu-vos a "
-"Discord per demanar ajuda"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "We hit an error, still: "
-msgstr "Hem trobat un error, encara: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "No longer valid, please try again.  Your request took too long"
-msgstr ""
-"Ja no és vàlid, torneu-ho a provar. La vostra sol·licitud ha trigat massa"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Contacting the Horde..."
-msgstr "Contactant amb l'Horda..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Horde Contacted"
-msgstr "Horda contactada"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"When trying to ask for the image, the Horde was too slow, try again later"
-msgstr ""
-"En intentar demanar la imatge, l'Horda ha estat massa lenta, torneu-ho a "
-"provar més tard"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "to learn to earn kudos. Detail:"
-msgstr "per aprendre a guanyar kudos. Detall:"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Service failed: "
-msgstr "El servei ha fallat: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Downloading generated image..."
-msgstr "S'està baixant la imatge generada..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "You are first in the queue"
-msgstr "Sou el primer a la cua"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Queue position: "
-msgstr "Posició a la cua: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Generating..."
-msgstr "S'està generant..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Get a free API Key at "
-msgstr "Obteniu una clau d'API gratuïta a "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "."
-msgstr "."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "This model takes more time than your current configuration."
-msgstr "Aquest model requereix més temps que la vostra configuració actual."
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
-msgstr "Proveu un altre model. {0} trigaria més temps del que heu configurat."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Please try again later."
-msgstr "Torneu-ho a provar més tard."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "There are no workers available with these settings."
-msgstr "No hi ha treballadors disponibles amb aquesta configuració."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Probably your image will take one additional minute."
-msgstr "Probablement la vostra imatge trigarà un minut addicional."
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "Probably your image will take {} additional minutes."
-msgstr "Probablement la vostra imatge trigarà {} minuts addicionals."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Fetching images..."
-msgstr "S'estan recuperant les imatges..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid " is censored, try changing the prompt wording"
-msgstr " està censurat, proveu de canviar la redacció de l'indicador"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Downloading result..."
-msgstr "S'està baixant el resultat..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Downloading image"
-msgstr "S'està baixant la imatge"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"You may need to reduce your settings or choose another model, or you may "
-"have been censored. Horde message"
-msgstr ""
-"Potser cal que reduïu la configuració o trieu un altre model, o potser heu "
-"estat censurat. Missatge de l'Horde"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid " generated by "
-msgstr " generat per "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid " with "
-msgstr " amb "
 
 #: plugin/embeddings/search_ui.py
 msgid "Cache Status: No active document"
@@ -355,8 +178,8 @@ msgstr "Error: "
 msgid ""
 "Folder index is building in the background. Please retry search shortly."
 msgstr ""
-"L'índex de la carpeta s'està creant en segon pla. Torneu a intentar la cerca "
-"d'aquí a una estona."
+"L'índex de la carpeta s'està creant en segon pla. Torneu a intentar la cerca"
+" d'aquí a una estona."
 
 #: plugin/embeddings/search_ui.py
 msgid "No matches found."
@@ -419,7 +242,8 @@ msgstr ""
 "d'espera de la sol·licitud» a la configuració."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Connexió refusada. El vostre servidor d'IA local (Ollama/LM Studio) està en "
 "marxa?"
@@ -452,7 +276,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "IA: Puc ajudar-vos amb fórmules, anàlisi de dades i gràfics acolorits. "
 "Proveu-me!"
@@ -475,9 +300,9 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest "
-"approaches, and help you build an approved spec in your document when you're "
-"ready."
+"AI: Let's explore and design your idea together. I'll ask questions, suggest"
+" approaches, and help you build an approved spec in your document when "
+"you're ready."
 msgstr ""
 "IA: Explorem i dissenyem la vostra idea junts. Us faré preguntes, us "
 "suggeriré enfocaments i us ajudaré a crear una especificació aprovada al "
@@ -486,10 +311,11 @@ msgstr ""
 #: plugin/framework/constants.py
 msgid ""
 "AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your approval."
+"writing plan outline, and then implement it incrementally with your "
+"approval."
 msgstr ""
-"IA: Redactem el teu document secció per secció. T'ajudaré a crear un esquema "
-"del pla d'escriptura i, després, l'implementarem de manera incremental amb "
+"IA: Redactem el teu document secció per secció. T'ajudaré a crear un esquema"
+" del pla d'escriptura i, després, l'implementarem de manera incremental amb "
 "la teva aprovació."
 
 #: plugin/framework/client/errors.py
@@ -518,6 +344,10 @@ msgstr ""
 #: plugin/calc/python_function.py
 msgid "Image inserted"
 msgstr "Imatge inserida"
+
+#: plugin/calc/python_function.py
+msgid "Images inserted"
+msgstr "Imatges inserides"
 
 #: plugin/calc/python_editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
@@ -558,8 +388,8 @@ msgid ""
 "Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
 "A1:B10) or =PYTHON(...)."
 msgstr ""
-"No s'han pogut preservar els arguments de la fórmula PYTHON d'aquesta cel·la "
-"(p. ex., intervals de dades). Editeu la fórmula al Calc o utilitzeu una "
+"No s'han pogut preservar els arguments de la fórmula PYTHON d'aquesta cel·la"
+" (p. ex., intervals de dades). Editeu la fórmula al Calc o utilitzeu una "
 "cadena de codi entre cometes com ara =PY(\"codi\"; A1:B10) o =PYTHON(...)."
 
 #: plugin/calc/python_editor.py
@@ -590,8 +420,8 @@ msgid ""
 "in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
 "(or =PYTHON(...)) with quoted code."
 msgstr ""
-"Aquesta fórmula PYTHON utilitza un format que l'editor no pot reescriure amb "
-"seguretat (p. ex., codi en una altra cel·la). Editeu-la a la barra de "
+"Aquesta fórmula PYTHON utilitza un format que l'editor no pot reescriure amb"
+" seguretat (p. ex., codi en una altra cel·la). Editeu-la a la barra de "
 "fórmules o utilitzeu =PY(\"codi\"; interval) (o =PYTHON(...)) amb el codi "
 "entre cometes."
 
@@ -605,14 +435,13 @@ msgid ""
 "Cannot import webview (pywebview) with the Python from Settings → Python:\n"
 "%(exe)s\n"
 "\n"
-"In that venv run: pip install pywebview\n"
+"In that venv run: uv pip install pywebview\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"No es pot importar webview (pywebview) amb el Python de Paràmetres → "
-"Python:\n"
+"No es pot importar la vista web (pywebview) amb el Python de Paràmetres → Python:\n"
 "%(exe)s\n"
 "\n"
-"En aquest venv executeu: pip install pywebview\n"
+"En aquest entorn virtual (venv), executeu: uv pip install pywebview\n"
 "(el nom d'importació és webview, el nom del paquet és pywebview)."
 
 #: plugin/calc/python_editor.py
@@ -1056,6 +885,10 @@ msgid "Send"
 msgstr "Envia"
 
 #: plugin/chatbot/panel.py
+msgid "Starting..."
+msgstr "S'està iniciant..."
+
+#: plugin/chatbot/panel.py
 msgid "Getting document..."
 msgstr "S'està obtenint el document..."
 
@@ -1064,8 +897,8 @@ msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[No s'ha trobat cap document de LibreOffice compatible (Writer, Calc o Draw) "
-"a la finestra activa.]"
+"[No s'ha trobat cap document de LibreOffice compatible (Writer, Calc o Draw)"
+" a la finestra activa.]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -1162,8 +995,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"No s'ha trobat cap editor (instal·leu Kate o Gedit, o definiu EDITOR). "
-"Camí:\n"
+"No s'ha trobat cap editor (instal·leu Kate o Gedit, o definiu EDITOR). Camí:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -1200,7 +1032,8 @@ msgstr "[No s'ha trobat el rerefons de l'agent '{0}'.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[El rerefons de l'agent '{0}' no està disponible. Comproveu la configuració "
 "(camí, instal·lació).]"
@@ -1259,8 +1092,8 @@ msgid ""
 "A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
 "check for updates and install the latest extension."
 msgstr ""
-"Hi ha una versió més nova del WriterAgent (%s) disponible. Utilitzeu Eines → "
-"Gestor d'extensions per cercar actualitzacions i instal·lar l'extensió més "
+"Hi ha una versió més nova del WriterAgent (%s) disponible. Utilitzeu Eines →"
+" Gestor d'extensions per cercar actualitzacions i instal·lar l'extensió més "
 "recent."
 
 #: plugin/chatbot/librarian.py
@@ -1370,12 +1203,20 @@ msgid "Units Helpers"
 msgstr "Assistents d'unitats"
 
 #: plugin/scripting/document_scripts.py
+msgid "Text Analytics Helpers"
+msgstr "Assistents d'anàlisi de text"
+
+#: plugin/scripting/document_scripts.py
 msgid "Quant Helpers"
 msgstr "Assistents quantitatius"
 
 #: plugin/scripting/document_scripts.py
 msgid "Optimize Helpers"
 msgstr "Assistents d'optimització"
+
+#: plugin/scripting/document_scripts.py
+msgid "SQL Helpers"
+msgstr "Assistents SQL"
 
 #: plugin/scripting/document_scripts.py
 msgid "My Scripts"
@@ -1539,10 +1380,11 @@ msgid "Could not talk to the Python editor."
 msgstr "No s'ha pogut comunicar amb l'editor de Python."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
-"La sonda de visió ha excedit el temps d'espera (la importació de Docling pot "
-"trigar entre 10 i 30 segons en la primera comprovació)."
+"La sonda de visió ha excedit el temps d'espera (la importació de Docling pot"
+" trigar entre 10 i 30 segons en la primera comprovació)."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vision probe failed (see writeragent_debug.log)."
@@ -1576,6 +1418,10 @@ msgstr "Biblioteques de finances quantitatives"
 #: plugin/scripting/venv_diagnostics.py
 msgid "Data Engineering Libraries"
 msgstr "Biblioteques d'enginyeria de dades"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text / NLP Libraries"
+msgstr "Biblioteques de text / NLP"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries"
@@ -1617,6 +1463,93 @@ msgstr "S'està resolent el Python del venv..."
 msgid "Using"
 msgstr "S'està utilitzant"
 
+#: plugin/scripting/text_analytics_ui.py plugin/xdl_strings.py
+msgid "Text Analytics"
+msgstr "Anàlisi de text"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Could not load the analytics dialog."
+msgstr "No s'ha pogut carregar el diàleg d'anàlisi."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Checking spaCy / textdescriptives / transformers installation..."
+msgstr ""
+"S'està comprovant la instal·lació de spaCy / textdescriptives / "
+"transformers..."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-brace-format
+msgid ""
+"Error from the Text Analytics worker:\n"
+"{err}\n"
+"\n"
+"The features in this dialog require these packages in the python it is using:\n"
+"  • spacy + a model          (entities, key phrases, basic stats)\n"
+"  • textdescriptives         (real Readability scores)\n"
+"  • transformers + torch     (Sentiment using the multilingual model)\n"
+"\n"
+"Install them with:\n"
+"  {install}\n"
+"\n"
+"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
+msgstr ""
+"Error del treballador d'anàlisi de text:\n"
+"{err}\n"
+"\n"
+"Les funcions d'aquest diàleg requereixen aquests paquets en el Python que s'està utilitzant:\n"
+"  • spacy + un model          (entitats, frases clau, estadístiques bàsiques)\n"
+"  • textdescriptives         (puntuacions de llegibilitat reals)\n"
+"  • transformers + torch     (sentiment utilitzant el model multilingüe)\n"
+"\n"
+"Instal·leu-los amb:\n"
+"  {install}\n"
+"\n"
+"El treballador ha informat que falta el mòdul. Verifiqueu que els paquets estiguin instal·lats en l'executable de Python exacte que el treballador ha resolt per al vostre entorn virtual configurat."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Open a Writer document to analyze."
+msgstr "Obriu un document del Writer per analitzar-lo."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Not enough text in the chosen scope."
+msgstr "No hi ha prou text en l'àmbit seleccionat."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Analyzing..."
+msgstr "S'està analitzant..."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-format
+msgid ""
+"Error: %s\n"
+"\n"
+"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
+msgstr ""
+"Error: %s\n"
+"\n"
+"És possible que faltin paquets necessaris en el vostre entorn virtual (venv) configurat (Configuració → Python). Feu clic a «Comprova el venv» en aquest diàleg o utilitzeu la prova completa a Configuració → Python per obtenir detalls sobre spacy, textdescriptives, transformers, torch, etc."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "No Writer document to insert into."
+msgstr "No hi ha cap document del Writer on inserir-ho."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Run an analysis first."
+msgstr "Executeu primer una anàlisi."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Nothing useful to insert from the last result."
+msgstr "No hi ha res útil per inserir del darrer resultat."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-format
+msgid "Insert failed: %s"
+msgstr "Ha fallat la inserció: %s"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Inserted after selection/caret."
+msgstr "Inserit després de la selecció/cursor."
+
 #: plugin/scripting/symbolic.py
 msgid "Symbolic helper failed."
 msgstr "L'assistent simbòlic ha fallat."
@@ -1648,7 +1581,8 @@ msgstr "L'assistent de visualització ha fallat."
 
 #: plugin/scripting/viz.py
 msgid "Viz helper returned no image payload."
-msgstr "L'assistent de visualització no ha retornat cap càrrega útil d'imatge."
+msgstr ""
+"L'assistent de visualització no ha retornat cap càrrega útil d'imatge."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1664,8 +1598,8 @@ msgid ""
 "This Writer document has no imported notebook registry. Use Tools → Import "
 "Jupyter Notebook… first."
 msgstr ""
-"Aquest document del Writer no té cap registre de quadern importat. Utilitzeu "
-"primer Eines → Importa el quadern Jupyter…."
+"Aquest document del Writer no té cap registre de quadern importat. Utilitzeu"
+" primer Eines → Importa el quadern Jupyter…."
 
 #: plugin/scripting/session_manager.py
 msgid "Could not resolve notebook Python session."
@@ -1716,8 +1650,8 @@ msgid ""
 "This Writer document has no imported notebook registry. Use Tools → Import "
 "Jupyter Notebook… to enable notebook Python session reset."
 msgstr ""
-"Aquest document del Writer no té cap registre de quadern importat. Utilitzeu "
-"Eines → Importa el quadern Jupyter… per habilitar el restabliment de la "
+"Aquest document del Writer no té cap registre de quadern importat. Utilitzeu"
+" Eines → Importa el quadern Jupyter… per habilitar el restabliment de la "
 "sessió de Python del quadern."
 
 #: plugin/scripting/units.py plugin/scripting/python_runner.py
@@ -1786,13 +1720,14 @@ msgid ""
 "Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
 "tables). (took {time})"
 msgstr ""
-"Vision '{helper}' completat. HTML inserit ({blocks} blocs, {tables} taules). "
-"(ha trigat {time})"
+"Vision '{helper}' completat. HTML inserit ({blocks} blocs, {tables} taules)."
+" (ha trigat {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
-msgstr "Vision '{helper}' completat. HTML formatat inserit. (ha trigat {time})"
+msgstr ""
+"Vision '{helper}' completat. HTML formatat inserit. (ha trigat {time})"
 
 #: plugin/scripting/python_runner.py
 msgid "Viz helpers require a Writer or Calc document."
@@ -1817,6 +1752,19 @@ msgstr "L'ajudant de Math ha fallat."
 #: plugin/scripting/python_runner.py
 msgid "Units helpers require a Writer or Calc document."
 msgstr "Els ajudants d'unitats requereixen un document de Writer o Calc."
+
+#: plugin/scripting/python_runner.py
+msgid "Text analytics helpers require a Writer document."
+msgstr "Els ajudants d'anàlisi de text requereixen un document del Writer."
+
+#: plugin/scripting/python_runner.py
+msgid "Text analytics helper failed."
+msgstr "L'ajudant d'anàlisi de text ha fallat."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Text analytics '{helper}' completed. (took {time})"
+msgstr "Anàlisi de text «{helper}» completada. (ha trigat {time})"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -1852,8 +1800,8 @@ msgstr "L'optimització ha fallat."
 #, python-brace-format
 msgid "Optimize '{helper}' completed. Wrote {rows} rows. (took {time})"
 msgstr ""
-"Optimització de '{helper}' completada. S'han escrit {rows} files. (ha trigat "
-"{time})"
+"Optimització de '{helper}' completada. S'han escrit {rows} files. (ha trigat"
+" {time})"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -1876,8 +1824,8 @@ msgstr ""
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "L'script s'ha executat correctament, però no ha retornat cap resultat ni ha "
 "produït cap sortida. (ha trigat {time})"
@@ -1886,7 +1834,8 @@ msgstr ""
 #, python-brace-format
 msgid "Unsupported document type for result insertion. (took {time})"
 msgstr ""
-"Tipus de document no admès per a la inserció del resultat. (ha trigat {time})"
+"Tipus de document no admès per a la inserció del resultat. (ha trigat "
+"{time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -1917,8 +1866,8 @@ msgid ""
 "Image '{name}' not found. Use list_images or leave image_name empty and "
 "select the graphic."
 msgstr ""
-"No s'ha trobat la imatge '{name}'. Utilitzeu list_images o deixeu image_name "
-"buit i seleccioneu el gràfic."
+"No s'ha trobat la imatge '{name}'. Utilitzeu list_images o deixeu image_name"
+" buit i seleccioneu el gràfic."
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -2036,6 +1985,10 @@ msgid "Search Nearby Files..."
 msgstr "Cerca fitxers propers..."
 
 #: plugin/main.py
+msgid "Text Analytics..."
+msgstr "Anàlisi de text..."
+
+#: plugin/main.py
 msgid "Convert Sheet to Python..."
 msgstr "Converteix el full a Python..."
 
@@ -2046,14 +1999,6 @@ msgstr "Error de tramesa"
 #: plugin/xdl_strings.py
 msgid "-1"
 msgstr "-1"
-
-#: plugin/xdl_strings.py
-msgid "7.5"
-msgstr "7.5"
-
-#: plugin/xdl_strings.py
-msgid "AI Horde API Key:"
-msgstr "Clau d'API d'AI Horde:"
 
 #: plugin/xdl_strings.py
 msgid "AI Model:"
@@ -2074,10 +2019,6 @@ msgstr "Instruccions addicionals (historial):"
 #: plugin/xdl_strings.py
 msgid "Additional Instructions:"
 msgstr "Instruccions addicionals:"
-
-#: plugin/xdl_strings.py
-msgid "Allow NSFW"
-msgstr "Permet contingut NSFW"
 
 #: plugin/xdl_strings.py
 msgid "Ask / instruct:"
@@ -2108,10 +2049,6 @@ msgid "Base:"
 msgstr "Base:"
 
 #: plugin/xdl_strings.py
-msgid "CFG Scale:"
-msgstr "Escala CFG:"
-
-#: plugin/xdl_strings.py
 msgid "Cache Status: Checking..."
 msgstr "Estat de la memòria cau: S'està comprovant..."
 
@@ -2128,12 +2065,12 @@ msgid "Categories:"
 msgstr "Categories:"
 
 #: plugin/xdl_strings.py
-msgid "Censor NSFW"
-msgstr "Censura contingut explícit"
-
-#: plugin/xdl_strings.py
 msgid "Chat (Testing):"
 msgstr "Xat (prova):"
+
+#: plugin/xdl_strings.py
+msgid "Check Venv"
+msgstr "Comprova l'entorn virtual (Venv)"
 
 #: plugin/xdl_strings.py
 msgid "Clear"
@@ -2190,6 +2127,10 @@ msgstr ""
 "Assigneu el resultat a la variable 'result'."
 
 #: plugin/xdl_strings.py
+msgid "Entities"
+msgstr "Entitats"
+
+#: plugin/xdl_strings.py
 msgid "General"
 msgstr "General"
 
@@ -2218,12 +2159,16 @@ msgid "Insert LaTeX Math"
 msgstr "Insereix matemàtiques LaTeX"
 
 #: plugin/xdl_strings.py
-msgid "Max Tokens:"
-msgstr "Màxim de testimonis:"
+msgid "Insert report here"
+msgstr "Insereix l'informe aquí"
 
 #: plugin/xdl_strings.py
-msgid "Max Wait (s):"
-msgstr "Temps d'espera màxim (s):"
+msgid "Key Phrases"
+msgstr "Frases clau"
+
+#: plugin/xdl_strings.py
+msgid "Max Tokens:"
+msgstr "Màxim de testimonis:"
 
 #: plugin/xdl_strings.py
 msgid "Message"
@@ -2270,6 +2215,10 @@ msgid "Python Test"
 msgstr "Prova de Python"
 
 #: plugin/xdl_strings.py
+msgid "Readability"
+msgstr "Llegibilitat"
+
+#: plugin/xdl_strings.py
 msgid "Rebuild"
 msgstr "Reconstrueix"
 
@@ -2314,6 +2263,10 @@ msgid "Selection"
 msgstr "Selecció"
 
 #: plugin/xdl_strings.py
+msgid "Sentiment"
+msgstr "Sentiment"
+
+#: plugin/xdl_strings.py
 msgid "Server Status"
 msgstr "Estat del servidor"
 
@@ -2346,8 +2299,8 @@ msgid "Timeout (s):"
 msgstr "Temps d'espera (s):"
 
 #: plugin/xdl_strings.py
-msgid "Use AI Horde for Image Generation"
-msgstr "Utilitza AI Horde per a la generació d'imatges"
+msgid "Topics"
+msgstr "Temes"
 
 #: plugin/xdl_strings.py
 msgid "Vectorize columns when safe"
@@ -2356,6 +2309,10 @@ msgstr "Vectoritza columnes quan sigui segur"
 #: plugin/xdl_strings.py
 msgid "Verify recalc (oracle diff)"
 msgstr "Verifica el recàlcul (diferència d'oracle)"
+
+#: plugin/xdl_strings.py
+msgid "Whole Document"
+msgstr "Document sencer"
 
 #: plugin/xdl_strings.py
 msgid "Writer"
@@ -2390,11 +2347,11 @@ msgid "Path / URL"
 msgstr "Camí / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Camí al CLI del backend (p. ex. aider) o URL del servidor ACP (p. ex. http://"
-"localhost:8000 per a Hermes). Buit = provar el predeterminat."
+"Camí al CLI del backend (p. ex. aider) o URL del servidor ACP (p. ex. "
+"http://localhost:8000 per a Hermes). Buit = provar el predeterminat."
 
 msgid "Extra arguments"
 msgstr "Arguments addicionals"
@@ -2521,9 +2478,9 @@ msgstr "Habilitat d'humanització (prosa natural)"
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
-"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
-"dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
 msgstr ""
 "Quan s'habilita, injecta orientacions al missatge del sistema perquè el "
 "model faci que el text del document generat o revisat soni més natural i "
@@ -2540,12 +2497,12 @@ msgstr "Activa el corrector gramatical d'IA (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "Quan està activat, WriterAgent registra el seu corrector gramatical d'IA a "
-"Linguistic; el text comprovat utilitza la vostra API (Eines → Opcions → IA). "
-"Els subratllats apareixen poc després de deixar d'escriure. Desactivat per "
+"Linguistic; el text comprovat utilitza la vostra API (Eines → Opcions → IA)."
+" Els subratllats apareixen poc després de deixar d'escriure. Desactivat per "
 "defecte."
 
 msgid "Model (optional)"
@@ -2575,7 +2532,8 @@ msgid ""
 msgstr ""
 "Nombre de frases a enviar per cada sol·licitud a l'LLM (1-8). 1 "
 "(predeterminat) és el més fiable; valors més alts són més ràpids i "
-"econòmics, però poden arribar als límits de tokens o causar errors del model."
+"econòmics, però poden arribar als límits de tokens o causar errors del "
+"model."
 
 msgid "Concurrent requests"
 msgstr "Peticions simultànies"
@@ -2632,8 +2590,8 @@ msgid ""
 "review."
 msgstr ""
 "Off = edicions directes. Record = canvis seguits que accepteu/rebutgeu "
-"vosaltres mateixos. Wait = apply_document_content es bloqueja (al fil de xat/"
-"treballador MCP) fins que reviseu."
+"vosaltres mateixos. Wait = apply_document_content es bloqueja (al fil de "
+"xat/treballador MCP) fins que reviseu."
 
 msgid "Record (track changes)"
 msgstr "Record (seguiment de canvis)"
@@ -2667,9 +2625,6 @@ msgstr "LlamaIndex"
 msgid "Zvec (experimental)"
 msgstr "Zvec (experimental)"
 
-msgid "ChromaDB"
-msgstr "ChromaDB"
-
 msgid "LanceDB (experimental)"
 msgstr "LanceDB (experimental)"
 
@@ -2695,8 +2650,8 @@ msgid "Rerank model"
 msgstr "Model de reordenació"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
-"is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
 msgstr ""
 "S'utilitza només quan la reordenació està activada. El MiniLM anglès és "
 "ràpid; bge-reranker-v2-m3 és multilingüe i descarrega ~2,3 GB."
@@ -2717,11 +2672,11 @@ msgid "Enable MCP Server"
 msgstr "Activa el servidor MCP"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Només localhost, sense autenticació. Els clients utilitzen http://localhost:"
-"<port>/mcp (HTTP transmissible)."
+"Només localhost, sense autenticació. Els clients utilitzen "
+"http://localhost:<port>/mcp (HTTP transmissible)."
 
 msgid "MCP Port"
 msgstr "Port MCP"
@@ -2738,10 +2693,10 @@ msgid ""
 "stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
-"Si s'estableix, executa les eines en aquest venv (bin/python o Scripts/"
-"python.exe). Si està buit, run_venv_python_script utilitza el sys.executable "
-"d'aquest procés (stdlib bàsic); utilitzeu un venv per a numpy/pandas i els "
-"ajudants de visió (paddleocr, paddlepaddle)."
+"Si s'estableix, executa les eines en aquest venv (bin/python o "
+"Scripts/python.exe). Si està buit, run_venv_python_script utilitza el "
+"sys.executable d'aquest procés (stdlib bàsic); utilitzeu un venv per a "
+"numpy/pandas i els ajudants de visió (paddleocr, paddlepaddle)."
 
 msgid "Test"
 msgstr "Prova"
@@ -2760,8 +2715,8 @@ msgid "Max Calc data cells"
 msgstr "Màxim de cel·les de dades del Calc"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
 "Nombre màxim de cel·les en dades de =PYTHON() o dades/interval_de_dades de "
 "l'Execució de script de Python. Els valors més grans utilitzen més memòria "
@@ -2774,14 +2729,24 @@ msgid ""
 "Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace "
 "per workbook (variables carry between cells)."
 msgstr ""
-"Isolat: cada cel·la =PYTHON() obté un espai de noms nou. Compartit: un espai "
-"de noms per llibre de treball (les variables es mantenen entre cel·les)."
+"Isolat: cada cel·la =PYTHON() obté un espai de noms nou. Compartit: un espai"
+" de noms per llibre de treball (les variables es mantenen entre cel·les)."
 
 msgid "Isolated (default)"
 msgstr "Isolat (predeterminat)"
 
 msgid "Shared kernel"
 msgstr "Kernel compartit"
+
+msgid "Python auto spill in Calc"
+msgstr "Python auto spill in Calc"
+
+msgid ""
+"Automatically spill multi-cell array/DataFrame results from =PYTHON() into "
+"adjacent cells."
+msgstr ""
+"Aboca automàticament els resultats de matrius/DataFrame de =PYTHON() a les "
+"cel·les adjacents."
 
 msgid "Vision / OCR"
 msgstr "Visió / OCR"
@@ -2791,15 +2756,16 @@ msgstr "Escala de la imatge"
 
 msgid "Upscale before OCR/layout. Try 2.0 for small screenshots."
 msgstr ""
-"Escala abans de l'OCR/disseny. Proveu 2.0 per a captures de pantalla petites."
+"Escala abans de l'OCR/disseny. Proveu 2.0 per a captures de pantalla "
+"petites."
 
 msgid "Worker timeout (seconds)"
 msgstr "Temps d'espera del procés (segons)"
 
 msgid "Host subprocess limit for Vision Helpers (first model download)."
 msgstr ""
-"Límit de subprocessos amfitrió per als ajudants de visió (primera descàrrega "
-"del model)."
+"Límit de subprocessos amfitrió per als ajudants de visió (primera descàrrega"
+" del model)."
 
 msgid "Docling artifacts path"
 msgstr "Camí dels artefactes de Docling"

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-17 17:50-0400\n"
+"POT-Creation-Date: 2026-06-22 15:38-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Finnish <LL@li.org>\n"
@@ -19,17 +19,17 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
-"Asiakirjatutkimus vaatii erikoistuneen tehtävän delegoinnin (USE_SUB_AGENT). "
-"Ota tämä käyttöön asetuksista."
+"Asiakirjatutkimus vaatii erikoistuneen tehtävän delegoinnin (USE_SUB_AGENT)."
+" Ota tämä käyttöön asetuksista."
 
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Työkalukutsu vaihdettu tilaan '{0}'. Olet erikoistyökalutilassa. Sinun on "
@@ -46,8 +46,8 @@ msgstr "Muistikirjan suoritus on tuettu vain LibreOffice Writerissa."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
 "Tässä asiakirjassa ei ole tuotua muistikirjaa. Käytä ensin Työkalut → Tuo "
 "Jupyter-muistikirja…"
@@ -97,181 +97,6 @@ msgstr ""
 #: plugin/notebook/writer_importer.py
 msgid "Run code cell"
 msgstr "Suorita koodisolu"
-
-#: plugin/contrib/aihordeclient/__init__.py plugin/chatbot/panel.py
-msgid "Starting..."
-msgstr "Käynnistetään..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Updating model requirements..."
-msgstr "Päivitetään mallivaatimuksia..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Updating Models..."
-msgstr "Päivitetään malleja..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Register at "
-msgstr "Rekisteröidy osoitteessa "
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "You have {} kudos"
-msgstr "Sinulla on {} pistettä"
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "«{}» is not a valid API KEY, double check it or create a new one"
-msgstr "«{}» ei ole kelvollinen API-avain, tarkista se tai luo uusi"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"At this moment we can not process your request, please try again later.  If "
-"this is happening for a long period of time, please let us know via Discord"
-msgstr ""
-"Pyyntöäsi ei voida tällä hetkellä käsitellä, yritä myöhemmin uudelleen. Jos "
-"ongelma jatkuu pitkään, ota meihin yhteyttä Discordissa"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Problem requesting kudos"
-msgstr "Virhe pisteiden pyytämisessä"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"The Horde is in maintenance mode, please try again later, if you have tried "
-"and the service does not respond for hours, please contact via Discord"
-msgstr ""
-"Horde on huoltotilassa, yritä myöhemmin uudelleen. Jos palvelu ei vastaa "
-"tuntikausiin, ota yhteyttä Discordissa"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"You have made too many requests, please wait for them to finish, and try "
-"again later"
-msgstr ""
-"Olet tehnyt liian monta pyyntöä, odota niiden valmistumista ja yritä "
-"myöhemmin uudelleen"
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid ""
-"Seems that «{}» has problems, double check it, create a new one or join "
-"Discord to ask for help"
-msgstr ""
-"Näyttää siltä, että «{}» sisältää virheitä. Tarkista se, luo uusi tai liity "
-"Discordiin kysyäksesi apua"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "We hit an error, still: "
-msgstr "Kohtasimme virheen, silti: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "No longer valid, please try again.  Your request took too long"
-msgstr "Ei enää voimassa, yritä uudelleen. Pyyntösi kesti liian kauan"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Contacting the Horde..."
-msgstr "Otetaan yhteyttä laumaan..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Horde Contacted"
-msgstr "Laumaan otettu yhteys"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"When trying to ask for the image, the Horde was too slow, try again later"
-msgstr ""
-"Lauma oli liian hidas kuvapyyntöä käsiteltäessä, yritä myöhemmin uudelleen"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "to learn to earn kudos. Detail:"
-msgstr "oppiaksesi ansaitsemaan kunniaa. Yksityiskohdat:"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Service failed: "
-msgstr "Palvelu epäonnistui: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Downloading generated image..."
-msgstr "Ladataan luotua kuvaa..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "You are first in the queue"
-msgstr "Olet jonon ensimmäisenä"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Queue position: "
-msgstr "Jonon paikka: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Generating..."
-msgstr "Luodaan..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Get a free API Key at "
-msgstr "Hae ilmainen API-avain osoitteesta "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "."
-msgstr "."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "This model takes more time than your current configuration."
-msgstr "Tämä malli vie enemmän aikaa kuin nykyinen asetuksesi."
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
-msgstr "Kokeile toista mallia. {0} vie enemmän aikaa kuin olet määrittänyt."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Please try again later."
-msgstr "Yritä myöhemmin uudelleen."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "There are no workers available with these settings."
-msgstr "Näillä asetuksilla ei ole vapaita työntekijöitä."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Probably your image will take one additional minute."
-msgstr "Kuvasi luominen kestää todennäköisesti yhden minuutin lisää."
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "Probably your image will take {} additional minutes."
-msgstr "Kuvasi luominen kestää todennäköisesti {} minuuttia lisää."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Fetching images..."
-msgstr "Haetaan kuvia..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid " is censored, try changing the prompt wording"
-msgstr " on sensuroitu, kokeile muuttaa kehotteen sanamuotoa"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Downloading result..."
-msgstr "Ladataan tulosta..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Downloading image"
-msgstr "Ladataan kuvaa"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"You may need to reduce your settings or choose another model, or you may "
-"have been censored. Horde message"
-msgstr ""
-"Asetuksia on ehkä pienennettävä tai valittava toinen malli, tai sisältö on "
-"saatettu sensuroida. Horde-viesti"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid " generated by "
-msgstr " luonut "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid " with "
-msgstr " käyttäen "
 
 #: plugin/embeddings/search_ui.py
 msgid "Cache Status: No active document"
@@ -415,7 +240,8 @@ msgstr ""
 "asetuksista."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Yhteys evätty. Onko paikallinen tekoälypalvelimesi (Ollama/LM Studio) "
 "käynnissä?"
@@ -448,7 +274,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "AI: Voin auttaa sinua kaavojen, data-analyysin ja värikkäiden kaavioiden "
 "kanssa. Kokeile minua!"
@@ -471,9 +298,9 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest "
-"approaches, and help you build an approved spec in your document when you're "
-"ready."
+"AI: Let's explore and design your idea together. I'll ask questions, suggest"
+" approaches, and help you build an approved spec in your document when "
+"you're ready."
 msgstr ""
 "AI: Tutkitaan ja suunnitellaan ideaasi yhdessä. Esitän kysymyksiä, ehdotan "
 "lähestymistapoja ja autan sinua laatimaan hyväksytyn määrittelyn "
@@ -482,7 +309,8 @@ msgstr ""
 #: plugin/framework/constants.py
 msgid ""
 "AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your approval."
+"writing plan outline, and then implement it incrementally with your "
+"approval."
 msgstr ""
 "AI: Luonnostellaan asiakirjasi osio kerrallaan. Autan sinua luomaan "
 "kirjoitussuunnitelman ja toteuttamaan sen vaiheittain hyväksyntäsi "
@@ -514,6 +342,10 @@ msgstr ""
 #: plugin/calc/python_function.py
 msgid "Image inserted"
 msgstr "Kuva lisätty"
+
+#: plugin/calc/python_function.py
+msgid "Images inserted"
+msgstr "Kuvat lisätty"
 
 #: plugin/calc/python_editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
@@ -600,14 +432,13 @@ msgid ""
 "Cannot import webview (pywebview) with the Python from Settings → Python:\n"
 "%(exe)s\n"
 "\n"
-"In that venv run: pip install pywebview\n"
+"In that venv run: uv pip install pywebview\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"Webview-kirjastoa (pywebview) ei voitu tuoda asetuksista valitulla "
-"Pythonilla: \n"
+"Webview-moduulia (pywebview) ei voitu tuoda Pythonilla asetuksista → Python:\n"
 "%(exe)s\n"
 "\n"
-"Suorita kyseisessä virtuaaliympäristössä: pip install pywebview\n"
+"Suorita kyseisessä virtuaaliympäristössä: uv pip install pywebview\n"
 "(tuontinimi on webview, paketin nimi on pywebview)."
 
 #: plugin/calc/python_editor.py
@@ -1051,6 +882,10 @@ msgid "Send"
 msgstr "Lähetä"
 
 #: plugin/chatbot/panel.py
+msgid "Starting..."
+msgstr "Käynnistetään..."
+
+#: plugin/chatbot/panel.py
 msgid "Getting document..."
 msgstr "Haetaan asiakirjaa..."
 
@@ -1155,8 +990,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Editoria ei löytynyt (asenna Kate tai Gedit, tai määritä EDITOR-"
-"ympäristömuuttuja). Polku:\n"
+"Editoria ei löytynyt (asenna Kate tai Gedit, tai määritä EDITOR-ympäristömuuttuja). Polku:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -1193,7 +1027,8 @@ msgstr "[Agent-taustajärjestelmää '{0}' ei löytynyt.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Agent-taustajärjestelmä '{0}' ei ole käytettävissä. Tarkista asetukset "
 "(polku, asennus).]"
@@ -1362,12 +1197,20 @@ msgid "Units Helpers"
 msgstr "Yksikköapulaiset"
 
 #: plugin/scripting/document_scripts.py
+msgid "Text Analytics Helpers"
+msgstr "Tekstianalyysin apuvälineet"
+
+#: plugin/scripting/document_scripts.py
 msgid "Quant Helpers"
 msgstr "Kvanttiapulaiset"
 
 #: plugin/scripting/document_scripts.py
 msgid "Optimize Helpers"
 msgstr "Optimointiapulaiset"
+
+#: plugin/scripting/document_scripts.py
+msgid "SQL Helpers"
+msgstr "SQL-apuvälineet"
 
 #: plugin/scripting/document_scripts.py
 msgid "My Scripts"
@@ -1529,7 +1372,8 @@ msgid "Could not talk to the Python editor."
 msgstr "Yhteyden muodostaminen Python-editoriin epäonnistui."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "Vision-koettimen aikakatkaisu (Docling-tuonti voi kestää 10–30 s "
 "ensimmäisellä tarkistuskerralla)."
@@ -1567,6 +1411,10 @@ msgid "Data Engineering Libraries"
 msgstr "Data Engineering -kirjastot"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Text / NLP Libraries"
+msgstr "Teksti- / NLP-kirjastot"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries"
 msgstr "Näkökirjastot"
 
@@ -1602,6 +1450,91 @@ msgstr "Selvitetään venv-Pythonia..."
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using"
 msgstr "Käytetään"
+
+#: plugin/scripting/text_analytics_ui.py plugin/xdl_strings.py
+msgid "Text Analytics"
+msgstr "Tekstianalyysi"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Could not load the analytics dialog."
+msgstr "Analyysivalintaikkunaa ei voitu ladata."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Checking spaCy / textdescriptives / transformers installation..."
+msgstr "Tarkistetaan spaCy / textdescriptives / transformers -asennusta..."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-brace-format
+msgid ""
+"Error from the Text Analytics worker:\n"
+"{err}\n"
+"\n"
+"The features in this dialog require these packages in the python it is using:\n"
+"  • spacy + a model          (entities, key phrases, basic stats)\n"
+"  • textdescriptives         (real Readability scores)\n"
+"  • transformers + torch     (Sentiment using the multilingual model)\n"
+"\n"
+"Install them with:\n"
+"  {install}\n"
+"\n"
+"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
+msgstr ""
+"Virhe tekstianalyysin taustaprosessista:\n"
+"{err}\n"
+"\n"
+"Tämän valintaikkunan toiminnot vaativat seuraavat paketit käytössä olevassa Python-ympäristössä:\n"
+"  • spacy + malli            (entiteetit, avainlauseet, perustilastot)\n"
+"  • textdescriptives         (luettavuusindeksit)\n"
+"  • transformers + torch     (sentimenttianalyysi monikielisellä mallilla)\n"
+"\n"
+"Asenna ne komennolla:\n"
+"  {install}\n"
+"\n"
+"Taustaprosessi ilmoitti moduulin puuttuvan. Varmista, että paketit on asennettu samaan Python-suoritustiedostoon, jonka määritetty virtuaaliympäristö on tunnistanut."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Open a Writer document to analyze."
+msgstr "Avaa Writer-asiakirja analysointia varten."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Not enough text in the chosen scope."
+msgstr "Valitulla alueella ei ole riittävästi tekstiä."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Analyzing..."
+msgstr "Analysoidaan..."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-format
+msgid ""
+"Error: %s\n"
+"\n"
+"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
+msgstr ""
+"Virhe: %s\n"
+"\n"
+"Tarvittavat paketit saattavat puuttua määritetystä virtuaaliympäristöstä (Asetukset → Python). Napsauta tässä valintaikkunassa Tarkista virtuaaliympäristö tai käytä Asetukset → Python -kohdan täyttä testiä saadaksesi lisätietoja kirjastoista spacy, textdescriptives, transformers, torch jne."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "No Writer document to insert into."
+msgstr "Ei Writer-asiakirjaa, johon lisätä."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Run an analysis first."
+msgstr "Suorita analyysi ensin."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Nothing useful to insert from the last result."
+msgstr "Viimeisimmästä tuloksesta ei löytynyt mitään hyödyllistä lisättävää."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-format
+msgid "Insert failed: %s"
+msgstr "Lisääminen epäonnistui: %s"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Inserted after selection/caret."
+msgstr "Lisätty valinnan/kohdistimen jälkeen."
 
 #: plugin/scripting/symbolic.py
 msgid "Symbolic helper failed."
@@ -1700,9 +1633,9 @@ msgid ""
 "This Writer document has no imported notebook registry. Use Tools → Import "
 "Jupyter Notebook… to enable notebook Python session reset."
 msgstr ""
-"Tässä Writer-asiakirjassa ei ole tuotua Jupyter-muistikirjarekisteriä. Käytä "
-"Työkalut → Tuo Jupyter-muistikirja… ottaaksesi muistikirjan Python-istunnon "
-"nollauksen käyttöön."
+"Tässä Writer-asiakirjassa ei ole tuotua Jupyter-muistikirjarekisteriä. Käytä"
+" Työkalut → Tuo Jupyter-muistikirja… ottaaksesi muistikirjan Python-istunnon"
+" nollauksen käyttöön."
 
 #: plugin/scripting/units.py plugin/scripting/python_runner.py
 msgid "Units helper failed."
@@ -1803,6 +1736,19 @@ msgid "Units helpers require a Writer or Calc document."
 msgstr "Yksikköapulaiset vaativat Writer- tai Calc-asiakirjan."
 
 #: plugin/scripting/python_runner.py
+msgid "Text analytics helpers require a Writer document."
+msgstr "Tekstianalyysin apuvälineet vaativat Writer-asiakirjan."
+
+#: plugin/scripting/python_runner.py
+msgid "Text analytics helper failed."
+msgstr "Tekstianalyysin apuväline epäonnistui."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Text analytics '{helper}' completed. (took {time})"
+msgstr "Tekstianalyysi '{helper}' valmis. (kesti {time})"
+
+#: plugin/scripting/python_runner.py
 msgid ""
 "Quant helper requires a data range. Select cells or enter a range in the "
 "Data field."
@@ -1858,8 +1804,8 @@ msgstr ""
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "Skripti suoritettiin onnistuneesti, mutta se ei palauttanut tulosta eikä "
 "tuottanut tulostetta. (kesti {time})"
@@ -2013,6 +1959,10 @@ msgid "Search Nearby Files..."
 msgstr "Etsi läheisistä tiedostoista..."
 
 #: plugin/main.py
+msgid "Text Analytics..."
+msgstr "Tekstianalyysi..."
+
+#: plugin/main.py
 msgid "Convert Sheet to Python..."
 msgstr "Muunna laskentataulukko Pythoniksi..."
 
@@ -2023,14 +1973,6 @@ msgstr "Lähetysvirhe"
 #: plugin/xdl_strings.py
 msgid "-1"
 msgstr "-1"
-
-#: plugin/xdl_strings.py
-msgid "7.5"
-msgstr "7.5"
-
-#: plugin/xdl_strings.py
-msgid "AI Horde API Key:"
-msgstr "AI Horde -sovellusavain:"
 
 #: plugin/xdl_strings.py
 msgid "AI Model:"
@@ -2051,10 +1993,6 @@ msgstr "Lisäohjeet (historia):"
 #: plugin/xdl_strings.py
 msgid "Additional Instructions:"
 msgstr "Lisäohjeet:"
-
-#: plugin/xdl_strings.py
-msgid "Allow NSFW"
-msgstr "Salli NSFW"
 
 #: plugin/xdl_strings.py
 msgid "Ask / instruct:"
@@ -2085,10 +2023,6 @@ msgid "Base:"
 msgstr "Perusta:"
 
 #: plugin/xdl_strings.py
-msgid "CFG Scale:"
-msgstr "CFG-asteikko:"
-
-#: plugin/xdl_strings.py
 msgid "Cache Status: Checking..."
 msgstr "Välimuistin tila: Tarkistetaan..."
 
@@ -2105,12 +2039,12 @@ msgid "Categories:"
 msgstr "Luokat:"
 
 #: plugin/xdl_strings.py
-msgid "Censor NSFW"
-msgstr "Sensuroi NSFW"
-
-#: plugin/xdl_strings.py
 msgid "Chat (Testing):"
 msgstr "Chat (testaus):"
+
+#: plugin/xdl_strings.py
+msgid "Check Venv"
+msgstr "Tarkista virtuaaliympäristö"
 
 #: plugin/xdl_strings.py
 msgid "Clear"
@@ -2165,6 +2099,10 @@ msgstr ""
 "Sijoita tulos 'result'-muuttujaan."
 
 #: plugin/xdl_strings.py
+msgid "Entities"
+msgstr "Entiteetit"
+
+#: plugin/xdl_strings.py
 msgid "General"
 msgstr "Yleiset"
 
@@ -2193,12 +2131,16 @@ msgid "Insert LaTeX Math"
 msgstr "Lisää LaTeX-yhtälö"
 
 #: plugin/xdl_strings.py
-msgid "Max Tokens:"
-msgstr "Enimmäismerkit:"
+msgid "Insert report here"
+msgstr "Lisää raportti tähän"
 
 #: plugin/xdl_strings.py
-msgid "Max Wait (s):"
-msgstr "Enimmäisodotusaika (s):"
+msgid "Key Phrases"
+msgstr "Avainlauseet"
+
+#: plugin/xdl_strings.py
+msgid "Max Tokens:"
+msgstr "Enimmäismerkit:"
 
 #: plugin/xdl_strings.py
 msgid "Message"
@@ -2245,6 +2187,10 @@ msgid "Python Test"
 msgstr "Python-testi"
 
 #: plugin/xdl_strings.py
+msgid "Readability"
+msgstr "Luettavuus"
+
+#: plugin/xdl_strings.py
 msgid "Rebuild"
 msgstr "Rakenna uudelleen"
 
@@ -2289,6 +2235,10 @@ msgid "Selection"
 msgstr "Valinta"
 
 #: plugin/xdl_strings.py
+msgid "Sentiment"
+msgstr "Mieliala"
+
+#: plugin/xdl_strings.py
 msgid "Server Status"
 msgstr "Palvelimen tila"
 
@@ -2321,8 +2271,8 @@ msgid "Timeout (s):"
 msgstr "Aikakatkaisu (s):"
 
 #: plugin/xdl_strings.py
-msgid "Use AI Horde for Image Generation"
-msgstr "Käytä AI Horde -palvelua kuvien luomiseen"
+msgid "Topics"
+msgstr "Aiheet"
 
 #: plugin/xdl_strings.py
 msgid "Vectorize columns when safe"
@@ -2331,6 +2281,10 @@ msgstr "Vektoroi sarakkeet, kun se on turvallista"
 #: plugin/xdl_strings.py
 msgid "Verify recalc (oracle diff)"
 msgstr "Vahvista uudelleenlaskenta (oraakkeliero)"
+
+#: plugin/xdl_strings.py
+msgid "Whole Document"
+msgstr "Koko asiakirja"
 
 #: plugin/xdl_strings.py
 msgid "Writer"
@@ -2365,8 +2319,8 @@ msgid "Path / URL"
 msgstr "Polku / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
 "Taustajärjestelmän CLI-polku (esim. aider) tai ACP-palvelimen URL-osoite "
 "(esim. http://localhost:8000 Hermesille). Tyhjä = kokeile oletusta."
@@ -2456,8 +2410,8 @@ msgid ""
 "Select the browser backend to use for webpage visits during research (Off "
 "uses static HTTP requests)."
 msgstr ""
-"Valitse selaintausta, jota käytetään verkkosivukäynneillä tutkimuksen aikana "
-"(Pois käytöstä käyttää staattisia HTTP-pyyntöjä)."
+"Valitse selaintausta, jota käytetään verkkosivukäynneillä tutkimuksen aikana"
+" (Pois käytöstä käyttää staattisia HTTP-pyyntöjä)."
 
 msgid "Off (Static HTTP)"
 msgstr "Pois (staattinen HTTP)"
@@ -2497,9 +2451,9 @@ msgstr "Humanisointitaito (luonnollinen proosa)"
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
-"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
-"dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
 msgstr ""
 "Kun käytössä, lisää ohjeistuksen järjestelmäkehotteeseen, jotta malli "
 "tuottaa tai muokkaa asiakirjatekstiä luonnollisemman ja inhimillisemmän "
@@ -2516,12 +2470,12 @@ msgstr "Ota käyttöön tekoälypohjainen kieliopin tarkistus (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "Kun tämä on päällä, WriterAgent rekisteröi tekoälypohjaisen kieliopin "
-"tarkistimensa Linguistic-palveluun; tarkistettu teksti käyttää API-avaintasi "
-"(Työkalut → Asetukset → AI). Alleviivaus ilmestyy pian kirjoitustauon "
+"tarkistimensa Linguistic-palveluun; tarkistettu teksti käyttää API-avaintasi"
+" (Työkalut → Asetukset → AI). Alleviivaus ilmestyy pian kirjoitustauon "
 "jälkeen. Oletuksena pois päältä."
 
 msgid "Model (optional)"
@@ -2538,8 +2492,8 @@ msgid ""
 "runs, to avoid concurrent API calls."
 msgstr ""
 "Kun tämä on päällä, tekoälypohjainen kieliopin tarkistus ohittaa "
-"taustapyynnöt, kun sivupalkin chat tai agentti on käynnissä, jotta vältetään "
-"samanaikaiset API-kutsut."
+"taustapyynnöt, kun sivupalkin chat tai agentti on käynnissä, jotta vältetään"
+" samanaikaiset API-kutsut."
 
 msgid "Batch sentences"
 msgstr "Erälauseet"
@@ -2607,9 +2561,9 @@ msgid ""
 "Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
 "review."
 msgstr ""
-"Off = suorat muokkaukset. Record = seurattavat muutokset, jotka hyväksyt/"
-"hylkäät itse. Wait = apply_document_content estää (chat/MCP-työsäikeessä), "
-"kunnes tarkistat."
+"Off = suorat muokkaukset. Record = seurattavat muutokset, jotka "
+"hyväksyt/hylkäät itse. Wait = apply_document_content estää (chat/MCP-"
+"työsäikeessä), kunnes tarkistat."
 
 msgid "Record (track changes)"
 msgstr "Tallenna (muutosten seuranta)"
@@ -2630,8 +2584,8 @@ msgid ""
 "Indexed semantic + keyword search for document_research (corpus.db). "
 "Requires embeddings venv — see Python Test."
 msgstr ""
-"Indeksoitu semanttinen ja avainsanahaku dokumenttitutkimukselle (corpus.db). "
-"Vaatii embeddings-virtuaaliympäristön – katso Python-testi."
+"Indeksoitu semanttinen ja avainsanahaku dokumenttitutkimukselle (corpus.db)."
+" Vaatii embeddings-virtuaaliympäristön – katso Python-testi."
 
 msgid "Embeddings + FTS"
 msgstr "Embeddings + FTS"
@@ -2642,9 +2596,6 @@ msgstr "LlamaIndex"
 msgid "Zvec (experimental)"
 msgstr "Zvec (kokeellinen)"
 
-msgid "ChromaDB"
-msgstr "ChromaDB"
-
 msgid "LanceDB (experimental)"
 msgstr "LanceDB (kokeellinen)"
 
@@ -2653,8 +2604,8 @@ msgstr "Upotusmalli"
 
 msgid "HuggingFace model ID for local provider, or endpoint-specific model ID"
 msgstr ""
-"HuggingFace-mallitunniste paikalliselle palveluntarjoajalle tai päätepisteen "
-"mukainen mallitunniste"
+"HuggingFace-mallitunniste paikalliselle palveluntarjoajalle tai päätepisteen"
+" mukainen mallitunniste"
 
 msgid "Enable cross-file rerank"
 msgstr "Ota käyttöön tiedostojen välinen uudelleenjärjestys"
@@ -2670,11 +2621,11 @@ msgid "Rerank model"
 msgstr "Uudelleenjärjestysmalli"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
-"is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
 msgstr ""
-"Käytetään vain, kun uudelleenjärjestys on käytössä. Englanninkielinen MiniLM "
-"on nopea; bge-reranker-v2-m3 on monikielinen ja lataa noin 2,3 Gt."
+"Käytetään vain, kun uudelleenjärjestys on käytössä. Englanninkielinen MiniLM"
+" on nopea; bge-reranker-v2-m3 on monikielinen ja lataa noin 2,3 Gt."
 
 msgid "cross-encoder/ms-marco-MiniLM-L-6-v2"
 msgstr "cross-encoder/ms-marco-MiniLM-L-6-v2"
@@ -2692,11 +2643,11 @@ msgid "Enable MCP Server"
 msgstr "Ota MCP-palvelin käyttöön"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Vain localhost, ei todennusta. Asiakasohjelmat käyttävät osoitetta http://"
-"localhost:<port>/mcp (suoratoistettava HTTP)."
+"Vain localhost, ei todennusta. Asiakasohjelmat käyttävät osoitetta "
+"http://localhost:<port>/mcp (suoratoistettava HTTP)."
 
 msgid "MCP Port"
 msgstr "MCP-portti"
@@ -2735,8 +2686,8 @@ msgid "Max Calc data cells"
 msgstr "Calc-datasolujen enimmäismäärä"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
 "=PYTHON()-datan tai Run Python Script -datan/data_range-alueen solujen "
 "enimmäismäärä. Suuremmat arvot kuluttavat enemmän RAM-muistia ja aikaa; UNO-"
@@ -2757,6 +2708,16 @@ msgstr "Eristetty (oletus)"
 
 msgid "Shared kernel"
 msgstr "Jaettu ydin"
+
+msgid "Python auto spill in Calc"
+msgstr "Python-autotäyttö Calcissa"
+
+msgid ""
+"Automatically spill multi-cell array/DataFrame results from =PYTHON() into "
+"adjacent cells."
+msgstr ""
+"Täytä monisoluiset taulukko-/DataFrame-tulokset =PYTHON()-funktiosta "
+"automaattisesti viereisiin soluihin."
 
 msgid "Vision / OCR"
 msgstr "Vision / OCR"
@@ -2779,7 +2740,8 @@ msgid "Docling artifacts path"
 msgstr "Docling-artefaktien polku"
 
 msgid "Optional folder from docling-tools models download (offline use)."
-msgstr "Valinnainen kansio docling-tools-mallien lataamiseen (offline-käyttö)."
+msgstr ""
+"Valinnainen kansio docling-tools-mallien lataamiseen (offline-käyttö)."
 
 msgid "OCR confidence threshold"
 msgstr "OCR-luottamusraja"

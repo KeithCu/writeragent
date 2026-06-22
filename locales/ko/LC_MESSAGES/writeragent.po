@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-17 17:50-0400\n"
+"POT-Creation-Date: 2026-06-22 15:38-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Korean <LL@li.org>\n"
@@ -19,22 +19,19 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
-msgstr ""
-"문서 조사 읽기에는 전문적인 작업 위임(USE_SUB_AGENT)이 필요합니다. 구성에서 "
-"이 기능을 활성화하십시오."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
+msgstr "문서 조사 읽기에는 전문적인 작업 위임(USE_SUB_AGENT)이 필요합니다. 구성에서 이 기능을 활성화하십시오."
 
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
-"도구 호출이 '{0}'(으)로 전환되었습니다. 현재 특수 도구 모드입니다. 전체 API "
-"세트를 복원하려면 작업 완료 후 'specialized_workflow_finished'를 호출해야 합"
-"니다."
+"도구 호출이 '{0}'(으)로 전환되었습니다. 현재 특수 도구 모드입니다. 전체 API 세트를 복원하려면 작업 완료 후 "
+"'specialized_workflow_finished'를 호출해야 합니다."
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
@@ -46,11 +43,9 @@ msgstr "노트북 실행은 LibreOffice Writer에서만 지원됩니다."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
-msgstr ""
-"이 문서에는 가져온 노트북이 없습니다. 먼저 도구 → Jupyter 노트북 가져오기…를 "
-"사용하십시오."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
+msgstr "이 문서에는 가져온 노트북이 없습니다. 먼저 도구 → Jupyter 노트북 가져오기…를 사용하십시오."
 
 #: plugin/notebook/notebook_runner.py
 msgid "Could not find notebook cell for this control."
@@ -97,186 +92,6 @@ msgstr ""
 #: plugin/notebook/writer_importer.py
 msgid "Run code cell"
 msgstr "코드 셀 실행"
-
-#: plugin/contrib/aihordeclient/__init__.py plugin/chatbot/panel.py
-msgid "Starting..."
-msgstr "시작 중..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Updating model requirements..."
-msgstr "모델 요구 사항 업데이트 중..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Updating Models..."
-msgstr "모델 업데이트 중..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Register at "
-msgstr "등록: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "You have {} kudos"
-msgstr "현재 {} 쿠도(kudos)를 보유하고 있습니다"
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "«{}» is not a valid API KEY, double check it or create a new one"
-msgstr "«{}»은(는) 유효한 API 키가 아닙니다. 다시 확인하거나 새로 생성하세요"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"At this moment we can not process your request, please try again later.  If "
-"this is happening for a long period of time, please let us know via Discord"
-msgstr ""
-"현재 요청을 처리할 수 없습니다. 나중에 다시 시도해 주세요. 이 문제가 지속되"
-"면 Discord를 통해 알려주시기 바랍니다"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Problem requesting kudos"
-msgstr "쿠도 요청 문제"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"The Horde is in maintenance mode, please try again later, if you have tried "
-"and the service does not respond for hours, please contact via Discord"
-msgstr ""
-"Horde가 유지보수 모드입니다. 나중에 다시 시도해 주세요. 서비스가 몇 시간 동"
-"안 응답하지 않으면 Discord를 통해 문의해 주세요"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"You have made too many requests, please wait for them to finish, and try "
-"again later"
-msgstr ""
-"너무 많은 요청을 보냈습니다. 요청이 완료될 때까지 기다린 후 나중에 다시 시도"
-"해 주세요"
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid ""
-"Seems that «{}» has problems, double check it, create a new one or join "
-"Discord to ask for help"
-msgstr ""
-"«{}»에 문제가 있는 것 같습니다. 다시 확인하거나, 새로 만들거나, Discord에 참"
-"여하여 도움을 요청하세요."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "We hit an error, still: "
-msgstr "오류가 발생했습니다: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "No longer valid, please try again.  Your request took too long"
-msgstr ""
-"더 이상 유효하지 않습니다. 다시 시도해 주세요. 요청 시간이 너무 오래 걸렸습니"
-"다."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Contacting the Horde..."
-msgstr "Horde에 연결 중..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Horde Contacted"
-msgstr "Horde 연결됨"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"When trying to ask for the image, the Horde was too slow, try again later"
-msgstr ""
-"이미지를 요청하는 동안 Horde의 응답이 너무 느렸습니다. 나중에 다시 시도하세"
-"요."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "to learn to earn kudos. Detail:"
-msgstr "kudos를 얻는 방법을 알아보세요. 세부 정보:"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Service failed: "
-msgstr "서비스 실패: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Downloading generated image..."
-msgstr "생성된 이미지를 다운로드하는 중..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "You are first in the queue"
-msgstr "대기열의 첫 번째 순서입니다"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Queue position: "
-msgstr "대기 순번: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Generating..."
-msgstr "생성 중..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Get a free API Key at "
-msgstr "무료 API 키 발급: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "."
-msgstr "."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "This model takes more time than your current configuration."
-msgstr "이 모델은 현재 설정보다 더 많은 시간이 소요됩니다."
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
-msgstr ""
-"다른 모델을 시도해 주세요. {0}은(는) 설정한 시간보다 더 많은 시간이 소요됩니"
-"다."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Please try again later."
-msgstr "나중에 다시 시도해 주세요."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "There are no workers available with these settings."
-msgstr "해당 설정으로 사용 가능한 작업자가 없습니다."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Probably your image will take one additional minute."
-msgstr "이미지 생성에 약 1분 정도 더 소요될 수 있습니다."
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "Probably your image will take {} additional minutes."
-msgstr "이미지 생성에 약 {}분 정도 더 소요될 수 있습니다."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Fetching images..."
-msgstr "이미지를 가져오는 중..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid " is censored, try changing the prompt wording"
-msgstr " 검열되었습니다. 프롬프트 문구를 변경해 보세요"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Downloading result..."
-msgstr "결과를 다운로드하는 중..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Downloading image"
-msgstr "이미지 다운로드 중"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"You may need to reduce your settings or choose another model, or you may "
-"have been censored. Horde message"
-msgstr ""
-"설정을 줄이거나 다른 모델을 선택해야 할 수 있습니다. 또는 검열되었을 수 있습"
-"니다. Horde 메시지"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid " generated by "
-msgstr " 생성자: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid " with "
-msgstr " 사용 도구: "
 
 #: plugin/embeddings/search_ui.py
 msgid "Cache Status: No active document"
@@ -346,9 +161,7 @@ msgstr "활성 문서를 찾을 수 없습니다."
 msgid ""
 "Cross-file search is disabled. Enable Embeddings + FTS in Settings → "
 "Embeddings."
-msgstr ""
-"파일 간 검색이 비활성화되었습니다. 설정 → 임베딩에서 임베딩 + FTS를 활성화하"
-"십시오."
+msgstr "파일 간 검색이 비활성화되었습니다. 설정 → 임베딩에서 임베딩 + FTS를 활성화하십시오."
 
 #: plugin/embeddings/search_ui.py
 msgid "Error: "
@@ -394,8 +207,7 @@ msgstr "유효하지 않은 API 키입니다. 설정을 확인하십시오."
 
 #: plugin/framework/errors.py
 msgid "API access Forbidden. Your key may lack permissions for this model."
-msgstr ""
-"API 접근이 거부되었습니다. 키에 해당 모델에 대한 권한이 없을 수 있습니다."
+msgstr "API 접근이 거부되었습니다. 키에 해당 모델에 대한 권한이 없을 수 있습니다."
 
 #: plugin/framework/errors.py
 msgid "Endpoint not found (404). Check your URL and Model name."
@@ -416,7 +228,8 @@ msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
 msgstr "요청 시간이 초과되었습니다. 설정에서 '요청 시간 제한'을 늘려보세요."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr "연결이 거부되었습니다. 로컬 AI 서버(Ollama/LM Studio)가 실행 중인가요?"
 
 #: plugin/framework/errors.py
@@ -441,49 +254,43 @@ msgstr "{resource_type}을(를) 찾을 수 없음: {identifier}"
 msgid ""
 "AI: I can edit or translate your document instantly with professional "
 "formatting and color. Try me!"
-msgstr ""
-"AI: 전문적인 서식과 색상을 사용하여 문서를 즉시 편집하거나 번역할 수 있습니"
-"다. 저를 사용해 보세요!"
+msgstr "AI: 전문적인 서식과 색상을 사용하여 문서를 즉시 편집하거나 번역할 수 있습니다. 저를 사용해 보세요!"
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
-msgstr ""
-"AI: 수식, 데이터 분석 및 다채로운 차트 작성을 도와드릴 수 있습니다. 저를 사용"
-"해 보세요!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
+msgstr "AI: 수식, 데이터 분석 및 다채로운 차트 작성을 도와드릴 수 있습니다. 저를 사용해 보세요!"
 
 #: plugin/framework/constants.py
 msgid ""
 "AI: I can help you create and edit polished, colorful shapes in Draw and "
 "Impress. Try me!"
-msgstr ""
-"AI: Draw 및 Impress에서 세련되고 다채로운 도형을 만들고 편집하도록 도와드릴 "
-"수 있습니다. 저를 사용해 보세요!"
+msgstr "AI: Draw 및 Impress에서 세련되고 다채로운 도형을 만들고 편집하도록 도와드릴 수 있습니다. 저를 사용해 보세요!"
 
 #: plugin/framework/constants.py
 msgid ""
 "AI: I can do web research to answer any question, or summarize a web page, "
 "without seeing or changing your document. Let's chat."
 msgstr ""
-"AI: 문서를 보거나 변경하지 않고도 웹 검색을 통해 질문에 답하거나 웹 페이지를 "
-"요약할 수 있습니다. 대화를 시작해 보세요."
+"AI: 문서를 보거나 변경하지 않고도 웹 검색을 통해 질문에 답하거나 웹 페이지를 요약할 수 있습니다. 대화를 시작해 보세요."
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest "
-"approaches, and help you build an approved spec in your document when you're "
-"ready."
+"AI: Let's explore and design your idea together. I'll ask questions, suggest"
+" approaches, and help you build an approved spec in your document when "
+"you're ready."
 msgstr ""
-"AI: 아이디어를 함께 탐색하고 설계해 봅시다. 질문을 던지고 접근 방식을 제안하"
-"며, 준비가 되면 문서에 승인된 사양을 작성하도록 도와드리겠습니다."
+"AI: 아이디어를 함께 탐색하고 설계해 봅시다. 질문을 던지고 접근 방식을 제안하며, 준비가 되면 문서에 승인된 사양을 작성하도록 "
+"도와드리겠습니다."
 
 #: plugin/framework/constants.py
 msgid ""
 "AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your approval."
+"writing plan outline, and then implement it incrementally with your "
+"approval."
 msgstr ""
-"AI: 문서를 섹션별로 작성해 보겠습니다. 작성 계획 개요를 만들고, 귀하의 승인"
-"을 받아 단계적으로 구현하도록 도와드리겠습니다."
+"AI: 문서를 섹션별로 작성해 보겠습니다. 작성 계획 개요를 만들고, 귀하의 승인을 받아 단계적으로 구현하도록 도와드리겠습니다."
 
 #: plugin/framework/client/errors.py
 #, python-brace-format
@@ -504,12 +311,14 @@ msgstr "스트림이 finish_reason=error로 종료되었습니다."
 msgid ""
 "The model is repeating the same chunk (infinite loop). Try again or use a "
 "different model."
-msgstr ""
-"모델이 동일한 청크를 반복하고 있습니다(무한 루프). 다시 시도하거나 다른 모델"
-"을 사용하세요."
+msgstr "모델이 동일한 청크를 반복하고 있습니다(무한 루프). 다시 시도하거나 다른 모델을 사용하세요."
 
 #: plugin/calc/python_function.py
 msgid "Image inserted"
+msgstr "이미지 삽입됨"
+
+#: plugin/calc/python_function.py
+msgid "Images inserted"
 msgstr "이미지 삽입됨"
 
 #: plugin/calc/python_editor_context_menu.py plugin/main.py
@@ -551,9 +360,8 @@ msgid ""
 "Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
 "A1:B10) or =PYTHON(...)."
 msgstr ""
-"이 셀의 PYTHON 수식 인수(예: 데이터 범위)를 유지할 수 없습니다. Calc에서 수식"
-"을 편집하거나 =PY(\"code\"; A1:B10) 또는 =PYTHON(...)과 같은 따옴표로 묶인 코"
-"드 문자열을 사용하십시오."
+"이 셀의 PYTHON 수식 인수(예: 데이터 범위)를 유지할 수 없습니다. Calc에서 수식을 편집하거나 =PY(\"code\"; "
+"A1:B10) 또는 =PYTHON(...)과 같은 따옴표로 묶인 코드 문자열을 사용하십시오."
 
 #: plugin/calc/python_editor.py
 msgid "Python cell editor"
@@ -582,9 +390,8 @@ msgid ""
 "in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
 "(or =PYTHON(...)) with quoted code."
 msgstr ""
-"이 PYTHON 수식은 편집기가 안전하게 다시 작성할 수 없는 형식(예: 다른 셀의 코"
-"드)을 사용합니다. 수식 입력줄에서 편집하거나 따옴표로 묶인 코드가 포함된 "
-"=PY(\"code\"; range) 또는 =PYTHON(...)을 사용하십시오."
+"이 PYTHON 수식은 편집기가 안전하게 다시 작성할 수 없는 형식(예: 다른 셀의 코드)을 사용합니다. 수식 입력줄에서 편집하거나 "
+"따옴표로 묶인 코드가 포함된 =PY(\"code\"; range) 또는 =PYTHON(...)을 사용하십시오."
 
 #: plugin/calc/python_editor.py
 msgid "No Python interpreter available for the editor."
@@ -596,14 +403,13 @@ msgid ""
 "Cannot import webview (pywebview) with the Python from Settings → Python:\n"
 "%(exe)s\n"
 "\n"
-"In that venv run: pip install pywebview\n"
+"In that venv run: uv pip install pywebview\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"설정 → Python에서 지정한 Python으로 webview(pywebview)를 가져올 수 없습니"
-"다: \n"
+"설정 → Python에서 지정한 Python으로 웹뷰(pywebview)를 가져올 수 없습니다:\n"
 "%(exe)s\n"
 "\n"
-"해당 가상 환경(venv)에서 다음을 실행하십시오: pip install pywebview\n"
+"해당 가상 환경(venv)에서 다음을 실행하세요: uv pip install pywebview\n"
 "(가져오기 이름은 webview, 패키지 이름은 pywebview입니다)."
 
 #: plugin/calc/python_editor.py
@@ -1047,6 +853,10 @@ msgid "Send"
 msgstr "보내기"
 
 #: plugin/chatbot/panel.py
+msgid "Starting..."
+msgstr "시작 중..."
+
+#: plugin/chatbot/panel.py
 msgid "Getting document..."
 msgstr "문서 가져오는 중..."
 
@@ -1054,36 +864,28 @@ msgstr "문서 가져오는 중..."
 msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
-msgstr ""
-"[활성 창에서 호환되는 LibreOffice 문서(Writer, Calc 또는 Draw)를 찾을 수 없습"
-"니다.]"
+msgstr "[활성 창에서 호환되는 LibreOffice 문서(Writer, Calc 또는 Draw)를 찾을 수 없습니다.]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
 msgid ""
 "[Internal Error: Document type changed from {0} to {1}! Please file an "
 "error.]"
-msgstr ""
-"[내부 오류: 문서 유형이 {0}에서 {1}(으)로 변경되었습니다! 오류를 보고해 주세"
-"요.]"
+msgstr "[내부 오류: 문서 유형이 {0}에서 {1}(으)로 변경되었습니다! 오류를 보고해 주세요.]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
 msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
 "this!]"
-msgstr ""
-"[내부 오류: {0}에 대한 문서 유형을 식별할 수 없습니다. 이 문제를 보고해 주세"
-"요!]"
+msgstr "[내부 오류: {0}에 대한 문서 유형을 식별할 수 없습니다. 이 문제를 보고해 주세요!]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
 msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
 "Settings.]"
-msgstr ""
-"[모델 {0}은(는) 기본 오디오를 지원하지 않습니다. 설정에서 STT 모델을 선택하세"
-"요.]"
+msgstr "[모델 {0}은(는) 기본 오디오를 지원하지 않습니다. 설정에서 STT 모델을 선택하세요.]"
 
 #: plugin/chatbot/settings_dialog.py
 msgid "Invalid Setting"
@@ -1104,8 +906,7 @@ msgid ""
 "Research cache hit (fuzzy, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
 "%(matched)s)"
 msgstr ""
-"연구 캐시 적중 (유사 일치, %(pct)s%% 일치: %(lang_bit)s%(cache_key)s → "
-"%(matched)s)"
+"연구 캐시 적중 (유사 일치, %(pct)s%% 일치: %(lang_bit)s%(cache_key)s → %(matched)s)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1153,8 +954,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"편집기를 찾을 수 없습니다(Kate 또는 Gedit을 설치하거나 EDITOR 환경 변수를 설"
-"정하십시오). 경로:\n"
+"편집기를 찾을 수 없습니다(Kate 또는 Gedit을 설치하거나 EDITOR 환경 변수를 설정하십시오). 경로:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -1191,10 +991,9 @@ msgstr "[에이전트 백엔드 '{0}'을(를) 찾을 수 없습니다.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
-msgstr ""
-"[에이전트 백엔드 '{0}'을(를) 사용할 수 없습니다. 설정(경로, 설치)을 확인하십"
-"시오.]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgstr "[에이전트 백엔드 '{0}'을(를) 사용할 수 없습니다. 설정(경로, 설치)을 확인하십시오.]"
 
 #: plugin/chatbot/send_handlers.py
 msgid "Perfect! I'm switching you to the main assistant now."
@@ -1250,8 +1049,8 @@ msgid ""
 "A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
 "check for updates and install the latest extension."
 msgstr ""
-"더 새로운 WriterAgent(%s) 버전을 사용할 수 있습니다. 도구 → 확장 기능 관리자"
-"를 사용하여 업데이트를 확인하고 최신 확장 기능을 설치하십시오."
+"더 새로운 WriterAgent(%s) 버전을 사용할 수 있습니다. 도구 → 확장 기능 관리자를 사용하여 업데이트를 확인하고 최신 확장 "
+"기능을 설치하십시오."
 
 #: plugin/chatbot/librarian.py
 msgid "Switching to document mode..."
@@ -1324,9 +1123,7 @@ msgstr "저장할 문서가 열려 있지 않습니다."
 msgid ""
 "Document is read-only or properties cannot be written. Script saved to your "
 "personal library instead."
-msgstr ""
-"문서가 읽기 전용이거나 속성을 쓸 수 없습니다. 대신 개인 라이브러리에 스크립트"
-"가 저장되었습니다."
+msgstr "문서가 읽기 전용이거나 속성을 쓸 수 없습니다. 대신 개인 라이브러리에 스크립트가 저장되었습니다."
 
 #: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
 msgid "Script name cannot be empty."
@@ -1358,12 +1155,20 @@ msgid "Units Helpers"
 msgstr "단위 도우미"
 
 #: plugin/scripting/document_scripts.py
+msgid "Text Analytics Helpers"
+msgstr "텍스트 분석 도우미"
+
+#: plugin/scripting/document_scripts.py
 msgid "Quant Helpers"
 msgstr "수량 도우미"
 
 #: plugin/scripting/document_scripts.py
 msgid "Optimize Helpers"
 msgstr "최적화 도우미"
+
+#: plugin/scripting/document_scripts.py
+msgid "SQL Helpers"
+msgstr "SQL 도우미"
 
 #: plugin/scripting/document_scripts.py
 msgid "My Scripts"
@@ -1403,8 +1208,7 @@ msgstr "문서에 첨부"
 #: plugin/scripting/python_runner_ui.py
 #, python-brace-format
 msgid "A script named '{0}' already exists in this document. Overwrite?"
-msgstr ""
-"'{0}'이라는 이름의 스크립트가 이 문서에 이미 존재합니다. 덮어쓰시겠습니까?"
+msgstr "'{0}'이라는 이름의 스크립트가 이 문서에 이미 존재합니다. 덮어쓰시겠습니까?"
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Attach Script"
@@ -1524,10 +1328,9 @@ msgid "Could not talk to the Python editor."
 msgstr "Python 편집기와 통신할 수 없습니다."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
-msgstr ""
-"비전 프로브 시간 초과 (첫 확인 시 Docling 가져오기에 10~30초가 소요될 수 있습"
-"니다)."
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
+msgstr "비전 프로브 시간 초과 (첫 확인 시 Docling 가져오기에 10~30초가 소요될 수 있습니다)."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vision probe failed (see writeragent_debug.log)."
@@ -1538,8 +1341,7 @@ msgid ""
 "Vector Search probe timed out (sentence-transformers import can take 10–30s "
 "on first check)."
 msgstr ""
-"벡터 검색 프로브 시간 초과 (sentence-transformers 가져오기는 첫 확인 시 10~30"
-"초가 소요될 수 있음)."
+"벡터 검색 프로브 시간 초과 (sentence-transformers 가져오기는 첫 확인 시 10~30초가 소요될 수 있음)."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vector Search probe failed (see writeragent_debug.log)."
@@ -1562,6 +1364,10 @@ msgid "Data Engineering Libraries"
 msgstr "데이터 엔지니어링 라이브러리"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Text / NLP Libraries"
+msgstr "텍스트 / NLP 라이브러리"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries"
 msgstr "비전 라이브러리"
 
@@ -1579,13 +1385,11 @@ msgstr "Python 버전 읽는 중..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries: loading (first run may take a while)..."
-msgstr ""
-"Vision 라이브러리: 로드 중 (첫 실행 시 시간이 다소 걸릴 수 있습니다)..."
+msgstr "Vision 라이브러리: 로드 중 (첫 실행 시 시간이 다소 걸릴 수 있습니다)..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vector Search Libraries: loading (first run may take a while)..."
-msgstr ""
-"벡터 검색 라이브러리: 로드 중 (첫 실행 시 시간이 다소 소요될 수 있음)..."
+msgstr "벡터 검색 라이브러리: 로드 중 (첫 실행 시 시간이 다소 소요될 수 있음)..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using LibreOffice process Python..."
@@ -1598,6 +1402,91 @@ msgstr "venv Python 확인 중..."
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using"
 msgstr "사용 중"
+
+#: plugin/scripting/text_analytics_ui.py plugin/xdl_strings.py
+msgid "Text Analytics"
+msgstr "텍스트 분석"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Could not load the analytics dialog."
+msgstr "분석 대화 상자를 불러올 수 없습니다."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Checking spaCy / textdescriptives / transformers installation..."
+msgstr "spaCy / textdescriptives / transformers 설치 확인 중..."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-brace-format
+msgid ""
+"Error from the Text Analytics worker:\n"
+"{err}\n"
+"\n"
+"The features in this dialog require these packages in the python it is using:\n"
+"  • spacy + a model          (entities, key phrases, basic stats)\n"
+"  • textdescriptives         (real Readability scores)\n"
+"  • transformers + torch     (Sentiment using the multilingual model)\n"
+"\n"
+"Install them with:\n"
+"  {install}\n"
+"\n"
+"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
+msgstr ""
+"텍스트 분석 작업자 오류:\n"
+"{err}\n"
+"\n"
+"이 대화 상자의 기능을 사용하려면 현재 사용 중인 Python에 다음 패키지가 필요합니다:\n"
+"  • spacy + 모델          (개체명, 핵심 구, 기본 통계)\n"
+"  • textdescriptives         (실제 가독성 점수)\n"
+"  • transformers + torch     (다국어 모델을 사용한 감성 분석)\n"
+"\n"
+"다음 명령어로 설치하세요:\n"
+"  {install}\n"
+"\n"
+"작업자가 모듈을 찾을 수 없다고 보고했습니다. 구성된 가상 환경(venv)에 대해 작업자가 확인한 정확한 Python 실행 파일에 패키지가 설치되어 있는지 확인하십시오."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Open a Writer document to analyze."
+msgstr "분석할 Writer 문서를 여십시오."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Not enough text in the chosen scope."
+msgstr "선택한 범위에 텍스트가 충분하지 않습니다."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Analyzing..."
+msgstr "분석 중..."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-format
+msgid ""
+"Error: %s\n"
+"\n"
+"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
+msgstr ""
+"오류: %s\n"
+"\n"
+"구성된 가상 환경(설정 → Python)에 필요한 패키지가 누락되었을 수 있습니다. 이 대화 상자에서 '가상 환경 확인(Check Venv)'을 클릭하거나 설정 → Python에서 전체 테스트를 실행하여 spacy, textdescriptives, transformers, torch 등에 대한 자세한 내용을 확인하십시오."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "No Writer document to insert into."
+msgstr "삽입할 Writer 문서가 없습니다."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Run an analysis first."
+msgstr "먼저 분석을 실행하십시오."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Nothing useful to insert from the last result."
+msgstr "마지막 결과에서 삽입할 유용한 내용이 없습니다."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-format
+msgid "Insert failed: %s"
+msgstr "삽입 실패: %s"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Inserted after selection/caret."
+msgstr "선택 영역/캐럿 뒤에 삽입되었습니다."
 
 #: plugin/scripting/symbolic.py
 msgid "Symbolic helper failed."
@@ -1637,16 +1526,14 @@ msgid ""
 "Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
 "Writer document with an imported Jupyter notebook and try again."
 msgstr ""
-"노트북용 Python 세션 재설정은 LibreOffice Writer에 적용됩니다. Jupyter 노트북"
-"을 가져온 Writer 문서를 열고 다시 시도하십시오."
+"노트북용 Python 세션 재설정은 LibreOffice Writer에 적용됩니다. Jupyter 노트북을 가져온 Writer 문서를 "
+"열고 다시 시도하십시오."
 
 #: plugin/scripting/session_manager.py
 msgid ""
 "This Writer document has no imported notebook registry. Use Tools → Import "
 "Jupyter Notebook… first."
-msgstr ""
-"이 Writer 문서에는 가져온 노트북 레지스트리가 없습니다. 먼저 도구 → Jupyter "
-"노트북 가져오기…를 사용하십시오."
+msgstr "이 Writer 문서에는 가져온 노트북 레지스트리가 없습니다. 먼저 도구 → Jupyter 노트북 가져오기…를 사용하십시오."
 
 #: plugin/scripting/session_manager.py
 msgid "Could not resolve notebook Python session."
@@ -1664,9 +1551,7 @@ msgstr "Python 세션을 재설정할 수 없습니다."
 msgid ""
 "Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
 "try again."
-msgstr ""
-"Python 세션 재설정은 Calc 스프레드시트에 적용됩니다. Calc 통합 문서를 열고 다"
-"시 시도하십시오."
+msgstr "Python 세션 재설정은 Calc 스프레드시트에 적용됩니다. Calc 통합 문서를 열고 다시 시도하십시오."
 
 #: plugin/scripting/session_manager.py
 msgid "Python session reset for this workbook."
@@ -1677,8 +1562,7 @@ msgid ""
 "Initialization script and any in-memory init state were reset for this "
 "workbook. Cell variables were already isolated per cell."
 msgstr ""
-"이 통합 문서에 대한 초기화 스크립트 및 모든 메모리 내 초기화 상태가 재설정되"
-"었습니다. 셀 변수는 이미 셀별로 격리되어 있습니다."
+"이 통합 문서에 대한 초기화 스크립트 및 모든 메모리 내 초기화 상태가 재설정되었습니다. 셀 변수는 이미 셀별로 격리되어 있습니다."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1686,17 +1570,16 @@ msgid ""
 "variables). There is no shared cell session to reset. Add an initialization "
 "script if you need to clear expensive one-time workbook setup."
 msgstr ""
-"Python 세션 모드가 격리됨(각 =PYTHON() 셀이 자체 변수를 사용)으로 설정되어 있"
-"습니다. 재설정할 공유 셀 세션이 없습니다. 비용이 많이 드는 일회성 통합 문서 "
-"설정이 필요한 경우 초기화 스크립트를 추가하십시오."
+"Python 세션 모드가 격리됨(각 =PYTHON() 셀이 자체 변수를 사용)으로 설정되어 있습니다. 재설정할 공유 셀 세션이 없습니다."
+" 비용이 많이 드는 일회성 통합 문서 설정이 필요한 경우 초기화 스크립트를 추가하십시오."
 
 #: plugin/scripting/session_manager.py
 msgid ""
 "This Writer document has no imported notebook registry. Use Tools → Import "
 "Jupyter Notebook… to enable notebook Python session reset."
 msgstr ""
-"이 Writer 문서에는 가져온 노트북 레지스트리가 없습니다. 노트북 Python 세션 재"
-"설정을 활성화하려면 도구 → Jupyter 노트북 가져오기…를 사용하십시오."
+"이 Writer 문서에는 가져온 노트북 레지스트리가 없습니다. 노트북 Python 세션 재설정을 활성화하려면 도구 → Jupyter "
+"노트북 가져오기…를 사용하십시오."
 
 #: plugin/scripting/units.py plugin/scripting/python_runner.py
 msgid "Units helper failed."
@@ -1721,8 +1604,7 @@ msgstr "정보"
 
 #: plugin/scripting/python_runner.py
 msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
-msgstr ""
-"Draw/Impress에 대한 결과 삽입은 아직 지원되지 않습니다. PR을 환영합니다!"
+msgstr "Draw/Impress에 대한 결과 삽입은 아직 지원되지 않습니다. PR을 환영합니다!"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -1763,8 +1645,7 @@ msgid ""
 "Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
 "tables). (took {time})"
 msgstr ""
-"Vision '{helper}' 완료됨. HTML 삽입됨 (블록 {blocks}개, 표 {tables}개). "
-"({time} 소요)"
+"Vision '{helper}' 완료됨. HTML 삽입됨 (블록 {blocks}개, 표 {tables}개). ({time} 소요)"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -1779,9 +1660,7 @@ msgstr "Viz 도우미는 Writer 또는 Calc 문서가 필요합니다."
 msgid ""
 "Viz helper requires a data range. Select cells or enter a range in the Data "
 "field."
-msgstr ""
-"Viz 도우미는 데이터 범위가 필요합니다. 셀을 선택하거나 데이터 필드에 범위를 "
-"입력하십시오."
+msgstr "Viz 도우미는 데이터 범위가 필요합니다. 셀을 선택하거나 데이터 필드에 범위를 입력하십시오."
 
 #: plugin/scripting/python_runner.py
 msgid "Math helpers require a Writer or Calc document."
@@ -1796,12 +1675,23 @@ msgid "Units helpers require a Writer or Calc document."
 msgstr "단위 도우미는 Writer 또는 Calc 문서가 필요합니다."
 
 #: plugin/scripting/python_runner.py
+msgid "Text analytics helpers require a Writer document."
+msgstr "텍스트 분석 도우미는 Writer 문서가 필요합니다."
+
+#: plugin/scripting/python_runner.py
+msgid "Text analytics helper failed."
+msgstr "텍스트 분석 도우미가 실패했습니다."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Text analytics '{helper}' completed. (took {time})"
+msgstr "텍스트 분석 '{helper}' 완료. ({time} 소요)"
+
+#: plugin/scripting/python_runner.py
 msgid ""
 "Quant helper requires a data range. Select cells or enter a range in the "
 "Data field."
-msgstr ""
-"Quant 도우미는 데이터 범위가 필요합니다. 셀을 선택하거나 데이터 필드에 범위"
-"를 입력하십시오."
+msgstr "Quant 도우미는 데이터 범위가 필요합니다. 셀을 선택하거나 데이터 필드에 범위를 입력하십시오."
 
 #: plugin/scripting/python_runner.py
 msgid "Quant failed."
@@ -1810,17 +1700,13 @@ msgstr "Quant 실패."
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid "Quant '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr ""
-"'{helper}' 수량 작업이 완료되었습니다. {rows}개의 행을 작성했습니다. (소요 시"
-"간: {time})"
+msgstr "'{helper}' 수량 작업이 완료되었습니다. {rows}개의 행을 작성했습니다. (소요 시간: {time})"
 
 #: plugin/scripting/python_runner.py
 msgid ""
 "Optimization helper requires a data range. Select cells or enter a range in "
 "the Data field."
-msgstr ""
-"최적화 도우미에는 데이터 범위가 필요합니다. 셀을 선택하거나 데이터 필드에 범"
-"위를 입력하십시오."
+msgstr "최적화 도우미에는 데이터 범위가 필요합니다. 셀을 선택하거나 데이터 필드에 범위를 입력하십시오."
 
 #: plugin/scripting/python_runner.py
 msgid "Optimization failed."
@@ -1829,17 +1715,13 @@ msgstr "최적화에 실패했습니다."
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid "Optimize '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr ""
-"'{helper}' 최적화가 완료되었습니다. {rows}개의 행을 작성했습니다. (소요 시"
-"간: {time})"
+msgstr "'{helper}' 최적화가 완료되었습니다. {rows}개의 행을 작성했습니다. (소요 시간: {time})"
 
 #: plugin/scripting/python_runner.py
 msgid ""
 "Analysis helper requires a data range. Select cells or enter a range in the "
 "Data field."
-msgstr ""
-"분석 도우미에는 데이터 범위가 필요합니다. 셀을 선택하거나 데이터 필드에 범위"
-"를 입력하십시오."
+msgstr "분석 도우미에는 데이터 범위가 필요합니다. 셀을 선택하거나 데이터 필드에 범위를 입력하십시오."
 
 #: plugin/scripting/python_runner.py
 msgid "Analysis failed."
@@ -1848,17 +1730,14 @@ msgstr "분석에 실패했습니다."
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid "Analysis '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr ""
-"'{helper}' 분석이 완료되었습니다. {rows}행을 작성했습니다. (소요 시간: "
-"{time})"
+msgstr "'{helper}' 분석이 완료되었습니다. {rows}행을 작성했습니다. (소요 시간: {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
-msgstr ""
-"스크립트가 성공적으로 실행되었으나 결과나 출력이 없습니다. ({time} 소요)"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
+msgstr "스크립트가 성공적으로 실행되었으나 결과나 출력이 없습니다. ({time} 소요)"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -1892,8 +1771,7 @@ msgid ""
 "Image '{name}' not found. Use list_images or leave image_name empty and "
 "select the graphic."
 msgstr ""
-"이미지 '{name}'을(를) 찾을 수 없습니다. list_images를 사용하거나 image_name"
-"을 비워두고 그래픽을 선택하십시오."
+"이미지 '{name}'을(를) 찾을 수 없습니다. list_images를 사용하거나 image_name을 비워두고 그래픽을 선택하십시오."
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -2009,6 +1887,10 @@ msgid "Search Nearby Files..."
 msgstr "주변 파일 검색..."
 
 #: plugin/main.py
+msgid "Text Analytics..."
+msgstr "텍스트 분석..."
+
+#: plugin/main.py
 msgid "Convert Sheet to Python..."
 msgstr "시트를 Python으로 변환..."
 
@@ -2019,14 +1901,6 @@ msgstr "디스패치 오류"
 #: plugin/xdl_strings.py
 msgid "-1"
 msgstr "-1"
-
-#: plugin/xdl_strings.py
-msgid "7.5"
-msgstr "7.5"
-
-#: plugin/xdl_strings.py
-msgid "AI Horde API Key:"
-msgstr "AI Horde API 키:"
 
 #: plugin/xdl_strings.py
 msgid "AI Model:"
@@ -2047,10 +1921,6 @@ msgstr "추가 지침 (기록):"
 #: plugin/xdl_strings.py
 msgid "Additional Instructions:"
 msgstr "추가 지침:"
-
-#: plugin/xdl_strings.py
-msgid "Allow NSFW"
-msgstr "NSFW 허용"
 
 #: plugin/xdl_strings.py
 msgid "Ask / instruct:"
@@ -2081,10 +1951,6 @@ msgid "Base:"
 msgstr "기본:"
 
 #: plugin/xdl_strings.py
-msgid "CFG Scale:"
-msgstr "CFG 스케일:"
-
-#: plugin/xdl_strings.py
 msgid "Cache Status: Checking..."
 msgstr "캐시 상태: 확인 중..."
 
@@ -2101,12 +1967,12 @@ msgid "Categories:"
 msgstr "범주:"
 
 #: plugin/xdl_strings.py
-msgid "Censor NSFW"
-msgstr "NSFW 검열"
-
-#: plugin/xdl_strings.py
 msgid "Chat (Testing):"
 msgstr "채팅 (테스트):"
+
+#: plugin/xdl_strings.py
+msgid "Check Venv"
+msgstr "가상 환경 확인"
 
 #: plugin/xdl_strings.py
 msgid "Clear"
@@ -2161,6 +2027,10 @@ msgstr ""
 "결과를 'result' 변수에 할당하세요."
 
 #: plugin/xdl_strings.py
+msgid "Entities"
+msgstr "개체"
+
+#: plugin/xdl_strings.py
 msgid "General"
 msgstr "일반"
 
@@ -2189,12 +2059,16 @@ msgid "Insert LaTeX Math"
 msgstr "LaTeX 수식 삽입"
 
 #: plugin/xdl_strings.py
-msgid "Max Tokens:"
-msgstr "최대 토큰:"
+msgid "Insert report here"
+msgstr "여기에 보고서 삽입"
 
 #: plugin/xdl_strings.py
-msgid "Max Wait (s):"
-msgstr "최대 대기 시간(초):"
+msgid "Key Phrases"
+msgstr "핵심 문구"
+
+#: plugin/xdl_strings.py
+msgid "Max Tokens:"
+msgstr "최대 토큰:"
 
 #: plugin/xdl_strings.py
 msgid "Message"
@@ -2241,6 +2115,10 @@ msgid "Python Test"
 msgstr "Python 테스트"
 
 #: plugin/xdl_strings.py
+msgid "Readability"
+msgstr "가독성"
+
+#: plugin/xdl_strings.py
 msgid "Rebuild"
 msgstr "다시 빌드"
 
@@ -2285,6 +2163,10 @@ msgid "Selection"
 msgstr "선택 영역"
 
 #: plugin/xdl_strings.py
+msgid "Sentiment"
+msgstr "감성"
+
+#: plugin/xdl_strings.py
 msgid "Server Status"
 msgstr "서버 상태"
 
@@ -2317,8 +2199,8 @@ msgid "Timeout (s):"
 msgstr "시간 제한 (초):"
 
 #: plugin/xdl_strings.py
-msgid "Use AI Horde for Image Generation"
-msgstr "이미지 생성에 AI Horde 사용"
+msgid "Topics"
+msgstr "주제"
 
 #: plugin/xdl_strings.py
 msgid "Vectorize columns when safe"
@@ -2327,6 +2209,10 @@ msgstr "안전한 경우 열 벡터화"
 #: plugin/xdl_strings.py
 msgid "Verify recalc (oracle diff)"
 msgstr "재계산 확인 (오라클 비교)"
+
+#: plugin/xdl_strings.py
+msgid "Whole Document"
+msgstr "전체 문서"
 
 #: plugin/xdl_strings.py
 msgid "Writer"
@@ -2361,11 +2247,11 @@ msgid "Path / URL"
 msgstr "경로 / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"백엔드 CLI(예: aider) 경로 또는 ACP 서버 URL(예: Hermes의 경우 http://"
-"localhost:8000). 비워두면 기본값을 시도합니다."
+"백엔드 CLI(예: aider) 경로 또는 ACP 서버 URL(예: Hermes의 경우 http://localhost:8000). "
+"비워두면 기본값을 시도합니다."
 
 msgid "Extra arguments"
 msgstr "추가 인수"
@@ -2379,9 +2265,7 @@ msgstr "ACP 에이전트 이름"
 msgid ""
 "Agent name on the ACP server (e.g. hermes). Empty = auto-discover first "
 "agent."
-msgstr ""
-"ACP 서버의 에이전트 이름(예: hermes). 비워두면 첫 번째 에이전트를 자동 검색합"
-"니다."
+msgstr "ACP 서버의 에이전트 이름(예: hermes). 비워두면 첫 번째 에이전트를 자동 검색합니다."
 
 msgid "Calc spreadsheet tools"
 msgstr "Calc 스프레드시트 도구"
@@ -2423,8 +2307,7 @@ msgid "Edit extra tokens"
 msgstr "추가 토큰 편집"
 
 msgid "Extra tokens beyond original text length. 0 = same length as original."
-msgstr ""
-"원본 텍스트 길이 외 추가 토큰입니다. 0은 원본과 동일한 길이를 의미합니다."
+msgstr "원본 텍스트 길이 외 추가 토큰입니다. 0은 원본과 동일한 길이를 의미합니다."
 
 msgid "Web Research Cache"
 msgstr "웹 리서치 캐시"
@@ -2432,9 +2315,7 @@ msgstr "웹 리서치 캐시"
 msgid ""
 "Cache completed web research reports by normalized query (uses web cache "
 "database)."
-msgstr ""
-"정규화된 쿼리별로 완료된 웹 조사 보고서를 캐시합니다 (웹 캐시 데이터베이스 사"
-"용)."
+msgstr "정규화된 쿼리별로 완료된 웹 조사 보고서를 캐시합니다 (웹 캐시 데이터베이스 사용)."
 
 msgid "Prompt for Web Research"
 msgstr "웹 조사 프롬프트"
@@ -2448,9 +2329,7 @@ msgstr "웹 리서치 브라우저"
 msgid ""
 "Select the browser backend to use for webpage visits during research (Off "
 "uses static HTTP requests)."
-msgstr ""
-"리서치 중 웹 페이지 방문에 사용할 브라우저 백엔드를 선택하십시오(끄기는 정적 "
-"HTTP 요청을 사용합니다)."
+msgstr "리서치 중 웹 페이지 방문에 사용할 브라우저 백엔드를 선택하십시오(끄기는 정적 HTTP 요청을 사용합니다)."
 
 msgid "Off (Static HTTP)"
 msgstr "끄기 (정적 HTTP)"
@@ -2488,15 +2367,13 @@ msgstr "휴머나이저 기술 (자연스러운 문체)"
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
-"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
-"dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
 msgstr ""
-"활성화 시, 모델이 생성하거나 수정한 문서 텍스트가 더 자연스럽고 인간답게 들리"
-"도록 시스템 프롬프트에 지침을 주입합니다 (AI 특유의 부자연스러운 패턴 제거). "
-"LibreOffice 프로필의 writeragent/skills/humanizer/SKILL.md에서 규칙을 편집하"
-"십시오 (파일은 처음 사용할 때 자동으로 생성됩니다). 전용 기술(Skills) 탭은 나"
-"중에 추가될 수 있습니다."
+"활성화 시, 모델이 생성하거나 수정한 문서 텍스트가 더 자연스럽고 인간답게 들리도록 시스템 프롬프트에 지침을 주입합니다 (AI 특유의 "
+"부자연스러운 패턴 제거). LibreOffice 프로필의 writeragent/skills/humanizer/SKILL.md에서 규칙을 "
+"편집하십시오 (파일은 처음 사용할 때 자동으로 생성됩니다). 전용 기술(Skills) 탭은 나중에 추가될 수 있습니다."
 
 msgid "Doc"
 msgstr "문서"
@@ -2506,12 +2383,11 @@ msgstr "AI 문법 검사기 활성화 (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
-"이 기능을 켜면 WriterAgent가 AI 문법 교정기를 Linguistic에 등록합니다. 검사"
-"된 텍스트는 사용자의 API(도구 → 옵션 → AI)를 사용합니다. 입력 후 잠시 멈추면 "
-"밑줄이 나타납니다. 기본값은 꺼짐입니다."
+"이 기능을 켜면 WriterAgent가 AI 문법 교정기를 Linguistic에 등록합니다. 검사된 텍스트는 사용자의 API(도구 → "
+"옵션 → AI)를 사용합니다. 입력 후 잠시 멈추면 밑줄이 나타납니다. 기본값은 꺼짐입니다."
 
 msgid "Model (optional)"
 msgstr "모델 (선택 사항)"
@@ -2526,8 +2402,7 @@ msgid ""
 "When on, AI grammar skips background requests while sidebar chat or agent "
 "runs, to avoid concurrent API calls."
 msgstr ""
-"이 기능을 켜면 사이드바 채팅이나 에이전트가 실행되는 동안 AI 문법 검사가 백그"
-"라운드 요청을 건너뛰어 동시 API 호출을 방지합니다."
+"이 기능을 켜면 사이드바 채팅이나 에이전트가 실행되는 동안 AI 문법 검사가 백그라운드 요청을 건너뛰어 동시 API 호출을 방지합니다."
 
 msgid "Batch sentences"
 msgstr "문장 일괄 처리"
@@ -2537,9 +2412,8 @@ msgid ""
 "reliable; higher values are faster and cheaper but may hit token limits or "
 "cause model errors."
 msgstr ""
-"LLM 요청당 보낼 문장 수(1-8). 1(기본값)이 가장 안정적이며, 값이 클수록 속도"
-"가 빠르고 비용이 절감되지만 토큰 제한에 도달하거나 모델 오류가 발생할 수 있습"
-"니다."
+"LLM 요청당 보낼 문장 수(1-8). 1(기본값)이 가장 안정적이며, 값이 클수록 속도가 빠르고 비용이 절감되지만 토큰 제한에 "
+"도달하거나 모델 오류가 발생할 수 있습니다."
 
 msgid "Concurrent requests"
 msgstr "동시 요청"
@@ -2549,9 +2423,8 @@ msgid ""
 "behavior. Raise for OpenRouter or other providers that allow parallel "
 "requests; use with care alongside sidebar chat."
 msgstr ""
-"최대 동시 백그라운드 문법 API 호출 수(1-8). 1은 이전 동작과 동일합니다. "
-"OpenRouter 또는 병렬 요청을 허용하는 다른 공급자를 사용하는 경우 이 값을 높이"
-"십시오. 사이드바 채팅과 함께 사용할 때는 주의하십시오."
+"최대 동시 백그라운드 문법 API 호출 수(1-8). 1은 이전 동작과 동일합니다. OpenRouter 또는 병렬 요청을 허용하는 다른 "
+"공급자를 사용하는 경우 이 값을 높이십시오. 사이드바 채팅과 함께 사용할 때는 주의하십시오."
 
 msgid "Sentence language detection"
 msgstr "문장 언어 감지"
@@ -2561,10 +2434,9 @@ msgid ""
 "uses your grammar/chat API; Local uses bundled langdetect (no API call, no "
 "venv). Mismatches update CharLocale and re-check grammar."
 msgstr ""
-"문서 언어 설정에 따라 각 문장의 언어를 확인합니다. AI는 사용자의 문법/채팅 "
-"API를 사용하며, Local은 번들된 langdetect를 사용합니다(API 호출 없음, venv 필"
-"요 없음). 언어가 일치하지 않으면 CharLocale을 업데이트하고 문법을 다시 확인합"
-"니다."
+"문서 언어 설정에 따라 각 문장의 언어를 확인합니다. AI는 사용자의 문법/채팅 API를 사용하며, Local은 번들된 "
+"langdetect를 사용합니다(API 호출 없음, venv 필요 없음). 언어가 일치하지 않으면 CharLocale을 업데이트하고 "
+"문법을 다시 확인합니다."
 
 msgid "Off"
 msgstr "끄기"
@@ -2582,9 +2454,8 @@ msgid ""
 "When on, Enter in the sidebar query runs the same action as Send; "
 "Shift+Enter inserts a newline. When off, Enter inserts a newline."
 msgstr ""
-"이 옵션을 켜면 사이드바 쿼리에서 Enter 키를 누를 때 전송과 동일한 작업이 실행"
-"되며, Shift+Enter 키로 줄 바꿈을 삽입합니다. 끄면 Enter 키로 줄 바꿈이 삽입됩"
-"니다."
+"이 옵션을 켜면 사이드바 쿼리에서 Enter 키를 누를 때 전송과 동일한 작업이 실행되며, Shift+Enter 키로 줄 바꿈을 "
+"삽입합니다. 끄면 Enter 키로 줄 바꿈이 삽입됩니다."
 
 msgid "Agent edit review"
 msgstr "에이전트 편집 검토"
@@ -2594,8 +2465,8 @@ msgid ""
 "Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
 "review."
 msgstr ""
-"끄기 = 직접 편집. 기록 = 직접 수락/거부하는 변경 내용 추적. 대기 = 검토할 때"
-"까지 apply_document_content 차단(채팅/MCP 작업자 스레드에서)."
+"끄기 = 직접 편집. 기록 = 직접 수락/거부하는 변경 내용 추적. 대기 = 검토할 때까지 apply_document_content "
+"차단(채팅/MCP 작업자 스레드에서)."
 
 msgid "Record (track changes)"
 msgstr "기록 (변경 내용 추적)"
@@ -2616,8 +2487,8 @@ msgid ""
 "Indexed semantic + keyword search for document_research (corpus.db). "
 "Requires embeddings venv — see Python Test."
 msgstr ""
-"document_research(corpus.db)를 위한 인덱싱된 의미론적 + 키워드 검색. 임베딩 "
-"venv 필요 — Python 테스트 참조."
+"document_research(corpus.db)를 위한 인덱싱된 의미론적 + 키워드 검색. 임베딩 venv 필요 — Python "
+"테스트 참조."
 
 msgid "Embeddings + FTS"
 msgstr "임베딩 + FTS"
@@ -2627,9 +2498,6 @@ msgstr "LlamaIndex"
 
 msgid "Zvec (experimental)"
 msgstr "Zvec (실험적)"
-
-msgid "ChromaDB"
-msgstr "ChromaDB"
 
 msgid "LanceDB (experimental)"
 msgstr "LanceDB (실험적)"
@@ -2646,19 +2514,17 @@ msgstr "교차 파일 리랭크(rerank) 활성화"
 msgid ""
 "Second-stage cross-encoder after hybrid retrieve (Embeddings + FTS and "
 "LlamaIndex). Off by default."
-msgstr ""
-"하이브리드 검색(임베딩 + FTS 및 LlamaIndex) 후 2단계 교차 인코더를 사용합니"
-"다. 기본값은 꺼짐입니다."
+msgstr "하이브리드 검색(임베딩 + FTS 및 LlamaIndex) 후 2단계 교차 인코더를 사용합니다. 기본값은 꺼짐입니다."
 
 msgid "Rerank model"
 msgstr "리랭크 모델"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
-"is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
 msgstr ""
-"리랭크가 활성화된 경우에만 사용됩니다. 영어 MiniLM은 빠르며, bge-reranker-v2-"
-"m3는 다국어를 지원하고 약 2.3GB를 다운로드합니다."
+"리랭크가 활성화된 경우에만 사용됩니다. 영어 MiniLM은 빠르며, bge-reranker-v2-m3는 다국어를 지원하고 약 2.3GB를"
+" 다운로드합니다."
 
 msgid "cross-encoder/ms-marco-MiniLM-L-6-v2"
 msgstr "cross-encoder/ms-marco-MiniLM-L-6-v2"
@@ -2676,11 +2542,10 @@ msgid "Enable MCP Server"
 msgstr "MCP 서버 활성화"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"로컬호스트 전용, 인증 없음. 클라이언트는 http://localhost:<port>/mcp (스트리"
-"밍 가능한 HTTP)를 사용합니다."
+"로컬호스트 전용, 인증 없음. 클라이언트는 http://localhost:<port>/mcp (스트리밍 가능한 HTTP)를 사용합니다."
 
 msgid "MCP Port"
 msgstr "MCP 포트"
@@ -2697,10 +2562,9 @@ msgid ""
 "stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
-"설정 시 해당 가상 환경(venv)에서 도구를 실행합니다(bin/python 또는 Scripts/"
-"python.exe). 비어 있으면 run_venv_python_script는 현재 프로세스의 "
-"sys.executable(기본 표준 라이브러리)을 사용합니다. numpy/pandas 및 비전 도우"
-"미(paddleocr, paddlepaddle)를 사용하려면 가상 환경을 사용하십시오."
+"설정 시 해당 가상 환경(venv)에서 도구를 실행합니다(bin/python 또는 Scripts/python.exe). 비어 있으면 "
+"run_venv_python_script는 현재 프로세스의 sys.executable(기본 표준 라이브러리)을 사용합니다. "
+"numpy/pandas 및 비전 도우미(paddleocr, paddlepaddle)를 사용하려면 가상 환경을 사용하십시오."
 
 msgid "Test"
 msgstr "테스트"
@@ -2711,20 +2575,17 @@ msgstr "Python 스크립트 제한 시간(초)"
 msgid ""
 "Wall-clock limit for Run Python Script, =PYTHON(), and "
 "run_venv_python_script."
-msgstr ""
-"Python 스크립트 실행, =PYTHON() 및 run_venv_python_script에 대한 실제 시간 제"
-"한입니다."
+msgstr "Python 스크립트 실행, =PYTHON() 및 run_venv_python_script에 대한 실제 시간 제한입니다."
 
 msgid "Max Calc data cells"
 msgstr "최대 Calc 데이터 셀"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
-"=PYTHON() 데이터 또는 Python 스크립트 실행 데이터/데이터_범위의 최대 셀 수입"
-"니다. 값이 클수록 더 많은 RAM과 시간이 소요되며, UNO 범위 읽기가 여전히 주된 "
-"작업입니다."
+"=PYTHON() 데이터 또는 Python 스크립트 실행 데이터/데이터_범위의 최대 셀 수입니다. 값이 클수록 더 많은 RAM과 시간이 "
+"소요되며, UNO 범위 읽기가 여전히 주된 작업입니다."
 
 msgid "Python session mode"
 msgstr "Python 세션 모드"
@@ -2733,14 +2594,22 @@ msgid ""
 "Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace "
 "per workbook (variables carry between cells)."
 msgstr ""
-"격리됨: 각 =PYTHON() 셀은 독립된 네임스페이스를 가집니다. 공유됨: 통합 문서"
-"당 하나의 네임스페이스를 공유합니다(변수가 셀 간에 유지됨)."
+"격리됨: 각 =PYTHON() 셀은 독립된 네임스페이스를 가집니다. 공유됨: 통합 문서당 하나의 네임스페이스를 공유합니다(변수가 셀 간에"
+" 유지됨)."
 
 msgid "Isolated (default)"
 msgstr "격리됨 (기본값)"
 
 msgid "Shared kernel"
 msgstr "공유 커널"
+
+msgid "Python auto spill in Calc"
+msgstr "Calc에서 Python 자동 스필(spill)"
+
+msgid ""
+"Automatically spill multi-cell array/DataFrame results from =PYTHON() into "
+"adjacent cells."
+msgstr "=PYTHON()의 다중 셀 배열/데이터프레임 결과를 인접한 셀로 자동으로 스필합니다."
 
 msgid "Vision / OCR"
 msgstr "비전 / OCR"
@@ -2749,8 +2618,7 @@ msgid "Image scale"
 msgstr "이미지 배율"
 
 msgid "Upscale before OCR/layout. Try 2.0 for small screenshots."
-msgstr ""
-"OCR/레이아웃 전 업스케일링합니다. 작은 스크린샷에는 2.0을 시도하십시오."
+msgstr "OCR/레이아웃 전 업스케일링합니다. 작은 스크린샷에는 2.0을 시도하십시오."
 
 msgid "Worker timeout (seconds)"
 msgstr "작업자 시간 제한 (초)"
@@ -2795,8 +2663,7 @@ msgid "Keep orphan text clusters"
 msgstr "고아 텍스트 클러스터 유지"
 
 msgid "Group unassigned text into clusters for messy layouts."
-msgstr ""
-"정돈되지 않은 레이아웃을 위해 할당되지 않은 텍스트를 클러스터로 그룹화합니다."
+msgstr "정돈되지 않은 레이아웃을 위해 할당되지 않은 텍스트를 클러스터로 그룹화합니다."
 
 msgid "Document insert mode"
 msgstr "문서 삽입 모드"
@@ -2805,8 +2672,8 @@ msgid ""
 "html = Docling HTML import (default). structured = bbox column layout in "
 "Writer; native Calc cells for extract_structure tables."
 msgstr ""
-"html = Docling HTML 가져오기(기본값). structured = Writer의 bbox 열 레이아"
-"웃; 구조 추출 테이블의 경우 기본 Calc 셀 사용."
+"html = Docling HTML 가져오기(기본값). structured = Writer의 bbox 열 레이아웃; 구조 추출 테이블의 "
+"경우 기본 Calc 셀 사용."
 
 msgid "Standard HTML"
 msgstr "표준 HTML"
@@ -2827,9 +2694,7 @@ msgid "Extract formulas (LaTeX)"
 msgstr "수식 추출 (LaTeX)"
 
 msgid "Opt-in. Downloads extra VLM models on first use; slower."
-msgstr ""
-"옵트인. 처음 사용할 때 추가 VLM 모델을 다운로드합니다. 속도가 느릴 수 있습니"
-"다."
+msgstr "옵트인. 처음 사용할 때 추가 VLM 모델을 다운로드합니다. 속도가 느릴 수 있습니다."
 
 msgid "Code block enrichment"
 msgstr "코드 블록 강화"

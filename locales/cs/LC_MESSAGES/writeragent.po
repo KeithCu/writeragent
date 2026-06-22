@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-17 17:50-0400\n"
+"POT-Creation-Date: 2026-06-22 15:38-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Czech <LL@li.org>\n"
@@ -19,8 +19,8 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
 "Čtení dokumentů pro výzkum vyžaduje specializovanou delegaci úkolů "
 "(USE_SUB_AGENT). Povolte toto v konfiguraci."
@@ -28,8 +28,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Volání nástroje přepnuto na '{0}'. Jste ve speciálním režimu sady nástrojů. "
@@ -42,12 +42,13 @@ msgstr "Spuštění buňky selhalo."
 
 #: plugin/notebook/notebook_runner.py
 msgid "Notebook run is only supported in LibreOffice Writer."
-msgstr "Spuštění poznámkového bloku je podporováno pouze v LibreOffice Writer."
+msgstr ""
+"Spuštění poznámkového bloku je podporováno pouze v LibreOffice Writer."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
 "Tento dokument neobsahuje žádný importovaný poznámkový blok. Nejprve "
 "použijte Nástroje → Importovat Jupyter Notebook…"
@@ -97,183 +98,6 @@ msgstr ""
 #: plugin/notebook/writer_importer.py
 msgid "Run code cell"
 msgstr "Spustit buňku kódu"
-
-#: plugin/contrib/aihordeclient/__init__.py plugin/chatbot/panel.py
-msgid "Starting..."
-msgstr "Spouští se..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Updating model requirements..."
-msgstr "Aktualizují se požadavky modelu..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Updating Models..."
-msgstr "Aktualizují se modely..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Register at "
-msgstr "Zaregistrujte se na "
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "You have {} kudos"
-msgstr "Máte {} kudos"
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "«{}» is not a valid API KEY, double check it or create a new one"
-msgstr "„{}“ není platný klíč API, zkontrolujte jej nebo vytvořte nový"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"At this moment we can not process your request, please try again later.  If "
-"this is happening for a long period of time, please let us know via Discord"
-msgstr ""
-"V tuto chvíli nemůžeme váš požadavek zpracovat, zkuste to prosím později. "
-"Pokud se to děje delší dobu, dejte nám prosím vědět přes Discord"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Problem requesting kudos"
-msgstr "Problém při žádosti o kudos"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"The Horde is in maintenance mode, please try again later, if you have tried "
-"and the service does not respond for hours, please contact via Discord"
-msgstr ""
-"Horda je v režimu údržby, zkuste to prosím později. Pokud jste to zkoušeli a "
-"služba neodpovídá celé hodiny, kontaktujte nás prosím přes Discord"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"You have made too many requests, please wait for them to finish, and try "
-"again later"
-msgstr ""
-"Odeslali jste příliš mnoho požadavků, počkejte prosím na jejich dokončení a "
-"zkuste to znovu později"
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid ""
-"Seems that «{}» has problems, double check it, create a new one or join "
-"Discord to ask for help"
-msgstr ""
-"Zdá se, že «{}» má problémy, zkontrolujte jej, vytvořte nový nebo se "
-"připojte k Discordu a požádejte o pomoc"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "We hit an error, still: "
-msgstr "Narazili jsme na chybu, stále: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "No longer valid, please try again.  Your request took too long"
-msgstr ""
-"Již není platné, zkuste to prosím znovu. Váš požadavek trval příliš dlouho"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Contacting the Horde..."
-msgstr "Kontaktuji Hordu..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Horde Contacted"
-msgstr "Horda kontaktována"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"When trying to ask for the image, the Horde was too slow, try again later"
-msgstr ""
-"Při pokusu o vyžádání obrázku byla Horda příliš pomalá, zkuste to později"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "to learn to earn kudos. Detail:"
-msgstr "abyste se naučili získávat kudos. Podrobnosti:"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Service failed: "
-msgstr "Služba selhala: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Downloading generated image..."
-msgstr "Stahuji vygenerovaný obrázek..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "You are first in the queue"
-msgstr "Jste první ve frontě"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Queue position: "
-msgstr "Pozice ve frontě: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Generating..."
-msgstr "Generuji..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Get a free API Key at "
-msgstr "Získejte bezplatný API klíč na "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "."
-msgstr "."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "This model takes more time than your current configuration."
-msgstr "Tento model vyžaduje více času, než je vaše aktuální nastavení."
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
-msgstr ""
-"Zkuste prosím jiný model. {0} by vyžadoval více času, než máte nastaveno."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Please try again later."
-msgstr "Zkuste to prosím později."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "There are no workers available with these settings."
-msgstr "Při tomto nastavení nejsou k dispozici žádní pracovníci."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Probably your image will take one additional minute."
-msgstr "Váš obrázek bude pravděpodobně trvat o jednu minutu déle."
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "Probably your image will take {} additional minutes."
-msgstr "Váš obrázek bude pravděpodobně trvat o {} minut déle."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Fetching images..."
-msgstr "Stahování obrázků..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid " is censored, try changing the prompt wording"
-msgstr " je cenzurováno, zkuste změnit znění zadání"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Downloading result..."
-msgstr "Stahování výsledku..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Downloading image"
-msgstr "Stahování obrázku"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"You may need to reduce your settings or choose another model, or you may "
-"have been censored. Horde message"
-msgstr ""
-"Možná bude nutné snížit nastavení nebo zvolit jiný model, případně jste byli "
-"cenzurováni. Zpráva Horde"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid " generated by "
-msgstr " vygenerováno pomocí "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid " with "
-msgstr " s "
 
 #: plugin/embeddings/search_ui.py
 msgid "Cache Status: No active document"
@@ -417,9 +241,11 @@ msgstr ""
 "Nastavení."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
-"Připojení bylo odmítnuto. Je váš místní AI server (Ollama/LM Studio) spuštěn?"
+"Připojení bylo odmítnuto. Je váš místní AI server (Ollama/LM Studio) "
+"spuštěn?"
 
 #: plugin/framework/errors.py
 msgid "DNS Error. Could not resolve the endpoint URL."
@@ -449,7 +275,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "AI: Mohu vám pomoci se vzorci, analýzou dat a barevnými grafy. Vyzkoušejte "
 "mě!"
@@ -473,9 +300,9 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest "
-"approaches, and help you build an approved spec in your document when you're "
-"ready."
+"AI: Let's explore and design your idea together. I'll ask questions, suggest"
+" approaches, and help you build an approved spec in your document when "
+"you're ready."
 msgstr ""
 "AI: Pojďme společně prozkoumat a navrhnout váš nápad. Budu klást otázky, "
 "navrhovat přístupy a pomohu vám vytvořit schválenou specifikaci ve vašem "
@@ -484,7 +311,8 @@ msgstr ""
 #: plugin/framework/constants.py
 msgid ""
 "AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your approval."
+"writing plan outline, and then implement it incrementally with your "
+"approval."
 msgstr ""
 "AI: Pojďme vytvořit váš dokument po částech. Pomohu vám vytvořit osnovu "
 "plánu psaní a poté ji s vaším schválením postupně realizovat."
@@ -515,6 +343,10 @@ msgstr ""
 #: plugin/calc/python_function.py
 msgid "Image inserted"
 msgstr "Obrázek vložen"
+
+#: plugin/calc/python_function.py
+msgid "Images inserted"
+msgstr "Vložené obrázky"
 
 #: plugin/calc/python_editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
@@ -601,13 +433,13 @@ msgid ""
 "Cannot import webview (pywebview) with the Python from Settings → Python:\n"
 "%(exe)s\n"
 "\n"
-"In that venv run: pip install pywebview\n"
+"In that venv run: uv pip install pywebview\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"Nelze importovat webview (pywebview) pomocí Pythonu z Nastavení → Python: \n"
+"Nelze importovat webview (pywebview) pomocí Pythonu z Nastavení → Python:\n"
 "%(exe)s\n"
 "\n"
-"V tomto virtuálním prostředí (venv) spusťte: pip install pywebview\n"
+"V tomto virtuálním prostředí (venv) spusťte: uv pip install pywebview\n"
 "(název pro import je webview, název balíčku je pywebview)."
 
 #: plugin/calc/python_editor.py
@@ -1051,6 +883,10 @@ msgid "Send"
 msgstr "Odeslat"
 
 #: plugin/chatbot/panel.py
+msgid "Starting..."
+msgstr "Spouští se..."
+
+#: plugin/chatbot/panel.py
 msgid "Getting document..."
 msgstr "Získávám dokument..."
 
@@ -1156,8 +992,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Editor nebyl nalezen (nainstalujte Kate nebo Gedit, případně nastavte "
-"proměnnou EDITOR). Cesta:\n"
+"Editor nebyl nalezen (nainstalujte Kate nebo Gedit, případně nastavte proměnnou EDITOR). Cesta:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -1194,7 +1029,8 @@ msgstr "[Backend agenta „{0}“ nebyl nalezen.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Backend agenta „{0}“ není dostupný. Zkontrolujte nastavení (cesta, "
 "instalace).]"
@@ -1362,12 +1198,20 @@ msgid "Units Helpers"
 msgstr "Pomocné jednotky"
 
 #: plugin/scripting/document_scripts.py
+msgid "Text Analytics Helpers"
+msgstr "Pomocníci pro analýzu textu"
+
+#: plugin/scripting/document_scripts.py
 msgid "Quant Helpers"
 msgstr "Kvantitativní pomocníci"
 
 #: plugin/scripting/document_scripts.py
 msgid "Optimize Helpers"
 msgstr "Optimalizační pomocníci"
+
+#: plugin/scripting/document_scripts.py
+msgid "SQL Helpers"
+msgstr "Pomocníci pro SQL"
 
 #: plugin/scripting/document_scripts.py
 msgid "My Scripts"
@@ -1530,7 +1374,8 @@ msgid "Could not talk to the Python editor."
 msgstr "Nepodařilo se komunikovat s editorem Pythonu."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "Časový limit vizuální sondy vypršel (import Docling může při první kontrole "
 "trvat 10–30 s)."
@@ -1566,6 +1411,10 @@ msgstr "Knihovny pro kvantitativní finance"
 #: plugin/scripting/venv_diagnostics.py
 msgid "Data Engineering Libraries"
 msgstr "Knihovny datového inženýrství"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text / NLP Libraries"
+msgstr "Knihovny pro text / NLP"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries"
@@ -1605,6 +1454,91 @@ msgstr "Zjišťování Pythonu ve virtuálním prostředí (venv)..."
 msgid "Using"
 msgstr "Používá se"
 
+#: plugin/scripting/text_analytics_ui.py plugin/xdl_strings.py
+msgid "Text Analytics"
+msgstr "Analýza textu"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Could not load the analytics dialog."
+msgstr "Dialogové okno analýzy se nepodařilo načíst."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Checking spaCy / textdescriptives / transformers installation..."
+msgstr "Kontrola instalace spaCy / textdescriptives / transformers..."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-brace-format
+msgid ""
+"Error from the Text Analytics worker:\n"
+"{err}\n"
+"\n"
+"The features in this dialog require these packages in the python it is using:\n"
+"  • spacy + a model          (entities, key phrases, basic stats)\n"
+"  • textdescriptives         (real Readability scores)\n"
+"  • transformers + torch     (Sentiment using the multilingual model)\n"
+"\n"
+"Install them with:\n"
+"  {install}\n"
+"\n"
+"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
+msgstr ""
+"Chyba z procesu analýzy textu:\n"
+"{err}\n"
+"\n"
+"Funkce v tomto dialogu vyžadují tyto balíčky v používaném Pythonu:\n"
+"  • spacy + model          (entity, klíčové fráze, základní statistiky)\n"
+"  • textdescriptives         (skutečné skóre čitelnosti)\n"
+"  • transformers + torch     (analýza sentimentu pomocí vícejazyčného modelu)\n"
+"\n"
+"Nainstalujte je pomocí:\n"
+"  {install}\n"
+"\n"
+"Proces nahlásil chybějící modul. Ověřte, zda jsou balíčky nainstalovány v přesném spustitelném souboru Pythonu, který byl vyřešen pro vaše nakonfigurované virtuální prostředí (venv)."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Open a Writer document to analyze."
+msgstr "Pro analýzu otevřete dokument Writeru."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Not enough text in the chosen scope."
+msgstr "Ve zvoleném rozsahu není dostatek textu."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Analyzing..."
+msgstr "Analyzuji..."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-format
+msgid ""
+"Error: %s\n"
+"\n"
+"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
+msgstr ""
+"Chyba: %s\n"
+"\n"
+"Ve vašem nakonfigurovaném virtuálním prostředí (Nastavení → Python) mohou chybět požadované balíčky. Klikněte na „Zkontrolovat venv“ v tomto dialogu nebo použijte úplný test v Nastavení → Python pro podrobnosti o spacy, textdescriptives, transformers, torch atd."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "No Writer document to insert into."
+msgstr "Žádný dokument Writeru pro vložení."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Run an analysis first."
+msgstr "Nejprve spusťte analýzu."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Nothing useful to insert from the last result."
+msgstr "Z posledního výsledku nelze vložit nic užitečného."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-format
+msgid "Insert failed: %s"
+msgstr "Vložení selhalo: %s"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Inserted after selection/caret."
+msgstr "Vloženo za výběr/kurzor."
+
 #: plugin/scripting/symbolic.py
 msgid "Symbolic helper failed."
 msgstr "Symbolický pomocník selhal."
@@ -1643,9 +1577,9 @@ msgid ""
 "Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
 "Writer document with an imported Jupyter notebook and try again."
 msgstr ""
-"Reset relace Pythonu pro poznámkové bloky se vztahuje na LibreOffice Writer. "
-"Otevřete dokument Writeru s importovaným poznámkovým blokem Jupyter a zkuste "
-"to znovu."
+"Reset relace Pythonu pro poznámkové bloky se vztahuje na LibreOffice Writer."
+" Otevřete dokument Writeru s importovaným poznámkovým blokem Jupyter a "
+"zkuste to znovu."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1693,8 +1627,8 @@ msgid ""
 "variables). There is no shared cell session to reset. Add an initialization "
 "script if you need to clear expensive one-time workbook setup."
 msgstr ""
-"Režim relace Pythonu je Izolovaný (každá buňka =PYTHON() používá své vlastní "
-"proměnné). Neexistuje žádná sdílená relace buněk, kterou by bylo možné "
+"Režim relace Pythonu je Izolovaný (každá buňka =PYTHON() používá své vlastní"
+" proměnné). Neexistuje žádná sdílená relace buněk, kterou by bylo možné "
 "resetovat. Pokud potřebujete vymazat náročné jednorázové nastavení sešitu, "
 "přidejte inicializační skript."
 
@@ -1703,8 +1637,8 @@ msgid ""
 "This Writer document has no imported notebook registry. Use Tools → Import "
 "Jupyter Notebook… to enable notebook Python session reset."
 msgstr ""
-"Tento dokument Writeru nemá importovaný registr poznámkového bloku. Použijte "
-"Nástroje → Importovat Jupyter Notebook… pro povolení resetování relace "
+"Tento dokument Writeru nemá importovaný registr poznámkového bloku. Použijte"
+" Nástroje → Importovat Jupyter Notebook… pro povolení resetování relace "
 "Pythonu v poznámkovém bloku."
 
 #: plugin/scripting/units.py plugin/scripting/python_runner.py
@@ -1731,8 +1665,8 @@ msgstr "Informace"
 #: plugin/scripting/python_runner.py
 msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
 msgstr ""
-"Vkládání výsledků do aplikací Draw/Impress zatím není podporováno. Příspěvky "
-"(PR) jsou vítány!"
+"Vkládání výsledků do aplikací Draw/Impress zatím není podporováno. Příspěvky"
+" (PR) jsou vítány!"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -1780,7 +1714,8 @@ msgstr ""
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
-msgstr "Vision '{helper}' dokončeno. Vloženo formátované HTML. (trvalo {time})"
+msgstr ""
+"Vision '{helper}' dokončeno. Vloženo formátované HTML. (trvalo {time})"
 
 #: plugin/scripting/python_runner.py
 msgid "Viz helpers require a Writer or Calc document."
@@ -1807,6 +1742,19 @@ msgid "Units helpers require a Writer or Calc document."
 msgstr "Pomocníci pro jednotky vyžadují dokument Writer nebo Calc."
 
 #: plugin/scripting/python_runner.py
+msgid "Text analytics helpers require a Writer document."
+msgstr "Pomocníci pro analýzu textu vyžadují dokument Writeru."
+
+#: plugin/scripting/python_runner.py
+msgid "Text analytics helper failed."
+msgstr "Pomocník pro analýzu textu selhal."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Text analytics '{helper}' completed. (took {time})"
+msgstr "Textová analýza „{helper}“ dokončena. (trvala {time})"
+
+#: plugin/scripting/python_runner.py
 msgid ""
 "Quant helper requires a data range. Select cells or enter a range in the "
 "Data field."
@@ -1828,8 +1776,8 @@ msgid ""
 "Optimization helper requires a data range. Select cells or enter a range in "
 "the Data field."
 msgstr ""
-"Pomocník pro optimalizaci vyžaduje datový rozsah. Vyberte buňky nebo zadejte "
-"rozsah do pole Data."
+"Pomocník pro optimalizaci vyžaduje datový rozsah. Vyberte buňky nebo zadejte"
+" rozsah do pole Data."
 
 #: plugin/scripting/python_runner.py
 msgid "Optimization failed."
@@ -1861,11 +1809,11 @@ msgstr "Analýza „{helper}“ dokončena. Zapsáno {rows} řádků. (trvalo {t
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
-"Skript byl úspěšně proveden, ale nevrátil žádný výsledek ani výstup. (trvalo "
-"{time})"
+"Skript byl úspěšně proveden, ale nevrátil žádný výsledek ani výstup. (trvalo"
+" {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -2018,6 +1966,10 @@ msgid "Search Nearby Files..."
 msgstr "Prohledat okolní soubory..."
 
 #: plugin/main.py
+msgid "Text Analytics..."
+msgstr "Textová analýza…"
+
+#: plugin/main.py
 msgid "Convert Sheet to Python..."
 msgstr "Převést list na Python..."
 
@@ -2028,14 +1980,6 @@ msgstr "Chyba odeslání"
 #: plugin/xdl_strings.py
 msgid "-1"
 msgstr "-1"
-
-#: plugin/xdl_strings.py
-msgid "7.5"
-msgstr "7.5"
-
-#: plugin/xdl_strings.py
-msgid "AI Horde API Key:"
-msgstr "Klíč API AI Horde:"
 
 #: plugin/xdl_strings.py
 msgid "AI Model:"
@@ -2056,10 +2000,6 @@ msgstr "Další pokyny (historie):"
 #: plugin/xdl_strings.py
 msgid "Additional Instructions:"
 msgstr "Další pokyny:"
-
-#: plugin/xdl_strings.py
-msgid "Allow NSFW"
-msgstr "Povolit NSFW"
 
 #: plugin/xdl_strings.py
 msgid "Ask / instruct:"
@@ -2090,10 +2030,6 @@ msgid "Base:"
 msgstr "Základ:"
 
 #: plugin/xdl_strings.py
-msgid "CFG Scale:"
-msgstr "Měřítko CFG:"
-
-#: plugin/xdl_strings.py
 msgid "Cache Status: Checking..."
 msgstr "Stav mezipaměti: Kontroluji..."
 
@@ -2110,12 +2046,12 @@ msgid "Categories:"
 msgstr "Kategorie:"
 
 #: plugin/xdl_strings.py
-msgid "Censor NSFW"
-msgstr "Cenzurovat NSFW"
-
-#: plugin/xdl_strings.py
 msgid "Chat (Testing):"
 msgstr "Chat (testování):"
+
+#: plugin/xdl_strings.py
+msgid "Check Venv"
+msgstr "Kontrola virtuálního prostředí"
 
 #: plugin/xdl_strings.py
 msgid "Clear"
@@ -2166,9 +2102,12 @@ msgid ""
 "Enter Python code to execute in the user virtual environment.\n"
 "Assign the result to the 'result' variable."
 msgstr ""
-"Zadejte kód v Pythonu, který se má spustit v uživatelském virtuálním "
-"prostředí.\n"
+"Zadejte kód v Pythonu, který se má spustit v uživatelském virtuálním prostředí.\n"
 "Výsledek přiřaďte do proměnné 'result'."
+
+#: plugin/xdl_strings.py
+msgid "Entities"
+msgstr "Entity"
 
 #: plugin/xdl_strings.py
 msgid "General"
@@ -2199,12 +2138,16 @@ msgid "Insert LaTeX Math"
 msgstr "Vložit LaTeX matematiku"
 
 #: plugin/xdl_strings.py
-msgid "Max Tokens:"
-msgstr "Maximální počet tokenů:"
+msgid "Insert report here"
+msgstr "Vložit zprávu sem"
 
 #: plugin/xdl_strings.py
-msgid "Max Wait (s):"
-msgstr "Maximální čekání (s):"
+msgid "Key Phrases"
+msgstr "Klíčové fráze"
+
+#: plugin/xdl_strings.py
+msgid "Max Tokens:"
+msgstr "Maximální počet tokenů:"
 
 #: plugin/xdl_strings.py
 msgid "Message"
@@ -2251,6 +2194,10 @@ msgid "Python Test"
 msgstr "Test Pythonu"
 
 #: plugin/xdl_strings.py
+msgid "Readability"
+msgstr "Čitelnost"
+
+#: plugin/xdl_strings.py
 msgid "Rebuild"
 msgstr "Znovu sestavit"
 
@@ -2295,6 +2242,10 @@ msgid "Selection"
 msgstr "Výběr"
 
 #: plugin/xdl_strings.py
+msgid "Sentiment"
+msgstr "Sentiment"
+
+#: plugin/xdl_strings.py
 msgid "Server Status"
 msgstr "Stav serveru"
 
@@ -2327,8 +2278,8 @@ msgid "Timeout (s):"
 msgstr "Časový limit (s):"
 
 #: plugin/xdl_strings.py
-msgid "Use AI Horde for Image Generation"
-msgstr "Použít AI Horde pro generování obrázků"
+msgid "Topics"
+msgstr "Témata"
 
 #: plugin/xdl_strings.py
 msgid "Vectorize columns when safe"
@@ -2337,6 +2288,10 @@ msgstr "Vektorizovat sloupce, je-li to bezpečné"
 #: plugin/xdl_strings.py
 msgid "Verify recalc (oracle diff)"
 msgstr "Ověřit přepočet (rozdíl oracle)"
+
+#: plugin/xdl_strings.py
+msgid "Whole Document"
+msgstr "Celý dokument"
 
 #: plugin/xdl_strings.py
 msgid "Writer"
@@ -2371,11 +2326,11 @@ msgid "Path / URL"
 msgstr "Cesta / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Cesta k backendovému CLI (např. aider) nebo URL serveru ACP (např. http://"
-"localhost:8000 pro Hermes). Prázdné = zkusit výchozí."
+"Cesta k backendovému CLI (např. aider) nebo URL serveru ACP (např. "
+"http://localhost:8000 pro Hermes). Prázdné = zkusit výchozí."
 
 msgid "Extra arguments"
 msgstr "Další argumenty"
@@ -2444,8 +2399,8 @@ msgid ""
 "Cache completed web research reports by normalized query (uses web cache "
 "database)."
 msgstr ""
-"Ukládat dokončené zprávy z průzkumu webu do mezipaměti podle normalizovaného "
-"dotazu (používá databázi webové mezipaměti)."
+"Ukládat dokončené zprávy z průzkumu webu do mezipaměti podle normalizovaného"
+" dotazu (používá databázi webové mezipaměti)."
 
 msgid "Prompt for Web Research"
 msgstr "Dotázat se na vyhledávání na webu"
@@ -2460,8 +2415,8 @@ msgid ""
 "Select the browser backend to use for webpage visits during research (Off "
 "uses static HTTP requests)."
 msgstr ""
-"Vyberte backend prohlížeče, který se má použít pro návštěvy webových stránek "
-"během průzkumu (Vypnuto používá statické požadavky HTTP)."
+"Vyberte backend prohlížeče, který se má použít pro návštěvy webových stránek"
+" během průzkumu (Vypnuto používá statické požadavky HTTP)."
 
 msgid "Off (Static HTTP)"
 msgstr "Vypnuto (statické HTTP)"
@@ -2501,9 +2456,9 @@ msgstr "Dovednost polidštění (přirozený text)"
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
-"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
-"dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
 msgstr ""
 "Je-li povoleno, vloží do systémového promptu pokyny, aby model generoval "
 "nebo upravoval text dokumentu tak, aby zněl přirozeněji a lidštěji "
@@ -2520,8 +2475,8 @@ msgstr "Povolit kontrolu gramatiky AI (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "Je-li zapnuto, WriterAgent zaregistruje svou kontrolu gramatiky AI v "
 "nástroji Lingvistika; kontrolovaný text využívá vaše API (Nástroje → "
@@ -2541,9 +2496,9 @@ msgid ""
 "When on, AI grammar skips background requests while sidebar chat or agent "
 "runs, to avoid concurrent API calls."
 msgstr ""
-"Je-li zapnuto, kontrola gramatiky AI přeskakuje požadavky na pozadí, zatímco "
-"běží chat v postranním panelu nebo agent, aby se předešlo souběžným voláním "
-"API."
+"Je-li zapnuto, kontrola gramatiky AI přeskakuje požadavky na pozadí, zatímco"
+" běží chat v postranním panelu nebo agent, aby se předešlo souběžným voláním"
+" API."
 
 msgid "Batch sentences"
 msgstr "Dávkové věty"
@@ -2554,8 +2509,8 @@ msgid ""
 "cause model errors."
 msgstr ""
 "Počet vět odesílaných v jednom požadavku na LLM (1–8). 1 (výchozí) je "
-"nejspolehlivější; vyšší hodnoty jsou rychlejší a levnější, ale mohou narazit "
-"na limity tokenů nebo způsobit chyby modelu."
+"nejspolehlivější; vyšší hodnoty jsou rychlejší a levnější, ale mohou narazit"
+" na limity tokenů nebo způsobit chyby modelu."
 
 msgid "Concurrent requests"
 msgstr "Souběžné požadavky"
@@ -2565,10 +2520,10 @@ msgid ""
 "behavior. Raise for OpenRouter or other providers that allow parallel "
 "requests; use with care alongside sidebar chat."
 msgstr ""
-"Maximální počet souběžných volání API pro kontrolu gramatiky na pozadí (1–"
-"8). Hodnota 1 odpovídá předchozímu chování. Zvyšte pro OpenRouter nebo jiné "
-"poskytovatele, kteří umožňují paralelní požadavky; používejte opatrně při "
-"současném využívání chatu v postranním panelu."
+"Maximální počet souběžných volání API pro kontrolu gramatiky na pozadí "
+"(1–8). Hodnota 1 odpovídá předchozímu chování. Zvyšte pro OpenRouter nebo "
+"jiné poskytovatele, kteří umožňují paralelní požadavky; používejte opatrně "
+"při současném využívání chatu v postranním panelu."
 
 msgid "Sentence language detection"
 msgstr "Detekce jazyka věty"
@@ -2578,9 +2533,10 @@ msgid ""
 "uses your grammar/chat API; Local uses bundled langdetect (no API call, no "
 "venv). Mismatches update CharLocale and re-check grammar."
 msgstr ""
-"Ověřit jazyk každé celé věty podle národního prostředí dokumentu. AI využívá "
-"vaše API pro gramatiku/chat; Místní využívá přibalený langdetect (bez volání "
-"API, bez venv). Neshody aktualizují CharLocale a znovu zkontrolují gramatiku."
+"Ověřit jazyk každé celé věty podle národního prostředí dokumentu. AI využívá"
+" vaše API pro gramatiku/chat; Místní využívá přibalený langdetect (bez "
+"volání API, bez venv). Neshody aktualizují CharLocale a znovu zkontrolují "
+"gramatiku."
 
 msgid "Off"
 msgstr "Vypnuto"
@@ -2610,9 +2566,9 @@ msgid ""
 "Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
 "review."
 msgstr ""
-"Vypnuto = přímé úpravy. Záznam = sledované změny, které sami přijmete/"
-"odmítnete. Čekat = apply_document_content blokuje (ve vlákně chatu/MCP), "
-"dokud neprovedete revizi."
+"Vypnuto = přímé úpravy. Záznam = sledované změny, které sami "
+"přijmete/odmítnete. Čekat = apply_document_content blokuje (ve vlákně "
+"chatu/MCP), dokud neprovedete revizi."
 
 msgid "Record (track changes)"
 msgstr "Záznam (sledovat změny)"
@@ -2645,9 +2601,6 @@ msgstr "LlamaIndex"
 msgid "Zvec (experimental)"
 msgstr "Zvec (experimentální)"
 
-msgid "ChromaDB"
-msgstr "ChromaDB"
-
 msgid "LanceDB (experimental)"
 msgstr "LanceDB (experimentální)"
 
@@ -2673,11 +2626,11 @@ msgid "Rerank model"
 msgstr "Model pro rerank"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
-"is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
 msgstr ""
-"Použito pouze při povoleném reranku. Anglický MiniLM je rychlý; bge-reranker-"
-"v2-m3 je vícejazyčný a stahuje přibližně 2,3 GB."
+"Použito pouze při povoleném reranku. Anglický MiniLM je rychlý; bge-"
+"reranker-v2-m3 je vícejazyčný a stahuje přibližně 2,3 GB."
 
 msgid "cross-encoder/ms-marco-MiniLM-L-6-v2"
 msgstr "cross-encoder/ms-marco-MiniLM-L-6-v2"
@@ -2695,11 +2648,11 @@ msgid "Enable MCP Server"
 msgstr "Povolit server MCP"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Pouze localhost, bez ověřování. Klienti používají http://localhost:<port>/"
-"mcp (streamovatelné HTTP)."
+"Pouze localhost, bez ověřování. Klienti používají "
+"http://localhost:<port>/mcp (streamovatelné HTTP)."
 
 msgid "MCP Port"
 msgstr "Port MCP"
@@ -2716,10 +2669,10 @@ msgid ""
 "stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
-"Pokud je nastaveno, spustí nástroje v daném venv (bin/python nebo Scripts/"
-"python.exe). Pokud je prázdné, run_venv_python_script použije sys.executable "
-"tohoto procesu (základní stdlib); pro numpy/pandas a pomocníky vize "
-"(paddleocr, paddlepaddle) použijte venv."
+"Pokud je nastaveno, spustí nástroje v daném venv (bin/python nebo "
+"Scripts/python.exe). Pokud je prázdné, run_venv_python_script použije "
+"sys.executable tohoto procesu (základní stdlib); pro numpy/pandas a "
+"pomocníky vize (paddleocr, paddlepaddle) použijte venv."
 
 msgid "Test"
 msgstr "Test"
@@ -2737,8 +2690,8 @@ msgid "Max Calc data cells"
 msgstr "Maximální počet datových buněk v Calc"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
 "Maximální počet buněk v datech =PYTHON() nebo v datech/oblasti dat skriptu "
 "Run Python Script. Vyšší hodnoty spotřebovávají více paměti RAM a času; "
@@ -2759,6 +2712,16 @@ msgstr "Izolovaný (výchozí)"
 
 msgid "Shared kernel"
 msgstr "Sdílené jádro"
+
+msgid "Python auto spill in Calc"
+msgstr "Automatické přetečení Pythonu v Calcu"
+
+msgid ""
+"Automatically spill multi-cell array/DataFrame results from =PYTHON() into "
+"adjacent cells."
+msgstr ""
+"Automaticky přelít výsledky polí/DataFrame z funkce =PYTHON() do sousedních "
+"buněk."
 
 msgid "Vision / OCR"
 msgstr "Vize / OCR"

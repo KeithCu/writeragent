@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-17 17:50-0400\n"
+"POT-Creation-Date: 2026-06-22 15:38-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Turkish <LL@li.org>\n"
@@ -19,8 +19,8 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
 "Belge araştırması okumaları özel görev delegasyonu (USE_SUB_AGENT) "
 "gerektirir. Bunu yapılandırmadan etkinleştirin."
@@ -28,12 +28,12 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
-"Araç çağrısı '{0}' olarak değiştirildi. Özel bir araç seti modundasınız. Tam "
-"API setini geri yüklemek için işiniz bittiğinde "
+"Araç çağrısı '{0}' olarak değiştirildi. Özel bir araç seti modundasınız. Tam"
+" API setini geri yüklemek için işiniz bittiğinde "
 "'specialized_workflow_finished' komutunu çağırmalısınız."
 
 #: plugin/notebook/notebook_runner.py
@@ -46,8 +46,8 @@ msgstr "Not defteri çalıştırma yalnızca LibreOffice Writer'da desteklenir."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
 "Bu belgede içe aktarılmış bir not defteri yok. Önce Araçlar → Jupyter Not "
 "Defterini İçe Aktar… seçeneğini kullanın."
@@ -98,185 +98,6 @@ msgstr ""
 #: plugin/notebook/writer_importer.py
 msgid "Run code cell"
 msgstr "Kod hücresini çalıştır"
-
-#: plugin/contrib/aihordeclient/__init__.py plugin/chatbot/panel.py
-msgid "Starting..."
-msgstr "Başlatılıyor..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Updating model requirements..."
-msgstr "Model gereksinimleri güncelleniyor..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Updating Models..."
-msgstr "Modeller Güncelleniyor..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Register at "
-msgstr "Şuradan kaydolun: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "You have {} kudos"
-msgstr "{} kudo'nuz var"
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "«{}» is not a valid API KEY, double check it or create a new one"
-msgstr ""
-"«{}» geçerli bir API ANAHTARI değil, lütfen tekrar kontrol edin veya yeni "
-"bir tane oluşturun"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"At this moment we can not process your request, please try again later.  If "
-"this is happening for a long period of time, please let us know via Discord"
-msgstr ""
-"Şu anda isteğinizi işleme alamıyoruz, lütfen daha sonra tekrar deneyin. Eğer "
-"bu durum uzun süredir devam ediyorsa, lütfen Discord üzerinden bize bildirin"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Problem requesting kudos"
-msgstr "Kudo isteği sırasında sorun oluştu"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"The Horde is in maintenance mode, please try again later, if you have tried "
-"and the service does not respond for hours, please contact via Discord"
-msgstr ""
-"Horde bakım modunda, lütfen daha sonra tekrar deneyin; eğer denediyseniz ve "
-"servis saatlerdir yanıt vermiyorsa, lütfen Discord üzerinden iletişime geçin"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"You have made too many requests, please wait for them to finish, and try "
-"again later"
-msgstr ""
-"Çok fazla istekte bulundunuz, lütfen tamamlanmalarını bekleyin ve daha sonra "
-"tekrar deneyin"
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid ""
-"Seems that «{}» has problems, double check it, create a new one or join "
-"Discord to ask for help"
-msgstr ""
-"Görünüşe göre «{}» ile ilgili sorunlar var, tekrar kontrol edin, yenisini "
-"oluşturun veya yardım istemek için Discord'a katılın"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "We hit an error, still: "
-msgstr "Bir hatayla karşılaştık, yine de: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "No longer valid, please try again.  Your request took too long"
-msgstr "Artık geçerli değil, lütfen tekrar deneyin. İsteğiniz çok uzun sürdü"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Contacting the Horde..."
-msgstr "Horde ile iletişime geçiliyor..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Horde Contacted"
-msgstr "Horde ile iletişime geçildi"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"When trying to ask for the image, the Horde was too slow, try again later"
-msgstr ""
-"Görsel istenmeye çalışılırken Horde çok yavaştı, daha sonra tekrar deneyin"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "to learn to earn kudos. Detail:"
-msgstr "kudos kazanmayı öğrenmek için. Ayrıntı:"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Service failed: "
-msgstr "Hizmet başarısız oldu: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Downloading generated image..."
-msgstr "Oluşturulan görsel indiriliyor..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "You are first in the queue"
-msgstr "Sırada ilk sıradasınız"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Queue position: "
-msgstr "Sıra konumu: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Generating..."
-msgstr "Oluşturuluyor..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Get a free API Key at "
-msgstr "Ücretsiz bir API Anahtarı alın: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "."
-msgstr "."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "This model takes more time than your current configuration."
-msgstr "Bu model, mevcut yapılandırmanızdan daha fazla zaman alıyor."
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
-msgstr ""
-"Lütfen başka bir model deneyin. {0} yapılandırdığınızdan daha fazla zaman "
-"alacaktır."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Please try again later."
-msgstr "Lütfen daha sonra tekrar deneyin."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "There are no workers available with these settings."
-msgstr "Bu ayarlarla uygun çalışan bulunmuyor."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Probably your image will take one additional minute."
-msgstr "Görseliniz muhtemelen bir dakika daha sürecek."
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "Probably your image will take {} additional minutes."
-msgstr "Görseliniz muhtemelen {} dakika daha sürecek."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Fetching images..."
-msgstr "Görseller getiriliyor..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid " is censored, try changing the prompt wording"
-msgstr " sansürlendi, istem ifadesini değiştirmeyi deneyin"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Downloading result..."
-msgstr "Sonuç indiriliyor..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Downloading image"
-msgstr "Görsel indiriliyor"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"You may need to reduce your settings or choose another model, or you may "
-"have been censored. Horde message"
-msgstr ""
-"Ayarlarınızı düşürmeniz veya başka bir model seçmeniz gerekebilir ya da "
-"sansürlenmiş olabilirsiniz. Horde mesajı"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid " generated by "
-msgstr " oluşturan: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid " with "
-msgstr " ile "
 
 #: plugin/embeddings/search_ui.py
 msgid "Cache Status: No active document"
@@ -421,10 +242,11 @@ msgstr ""
 "artırmayı deneyin."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
-"Bağlantı Reddedildi. Yerel yapay zeka sunucunuz (Ollama/LM Studio) çalışıyor "
-"mu?"
+"Bağlantı Reddedildi. Yerel yapay zeka sunucunuz (Ollama/LM Studio) çalışıyor"
+" mu?"
 
 #: plugin/framework/errors.py
 msgid "DNS Error. Could not resolve the endpoint URL."
@@ -454,7 +276,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "YZ: Formüller, veri analizi ve renkli grafikler konusunda size yardımcı "
 "olabilirim. Beni deneyin!"
@@ -478,9 +301,9 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest "
-"approaches, and help you build an approved spec in your document when you're "
-"ready."
+"AI: Let's explore and design your idea together. I'll ask questions, suggest"
+" approaches, and help you build an approved spec in your document when "
+"you're ready."
 msgstr ""
 "YZ: Fikrinizi birlikte keşfedelim ve tasarlayalım. Size sorular soracağım, "
 "yaklaşımlar önereceğim ve hazır olduğunuzda belgenizde onaylanmış bir "
@@ -489,7 +312,8 @@ msgstr ""
 #: plugin/framework/constants.py
 msgid ""
 "AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your approval."
+"writing plan outline, and then implement it incrementally with your "
+"approval."
 msgstr ""
 "YZ: Belgenizi bölüm bölüm taslak haline getirelim. Bir yazma planı taslağı "
 "oluşturmanıza yardımcı olacağım ve ardından onayınızla bunu aşamalı olarak "
@@ -521,6 +345,10 @@ msgstr ""
 #: plugin/calc/python_function.py
 msgid "Image inserted"
 msgstr "Görüntü eklendi"
+
+#: plugin/calc/python_function.py
+msgid "Images inserted"
+msgstr "Görseller eklendi"
 
 #: plugin/calc/python_editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
@@ -593,8 +421,8 @@ msgid ""
 "(or =PYTHON(...)) with quoted code."
 msgstr ""
 "Bu PYTHON formülü, düzenleyicinin güvenli bir şekilde yeniden yazamayacağı "
-"bir biçim kullanıyor (ör. başka bir hücredeki kod). Formülü formül çubuğunda "
-"düzenleyin veya tırnak içinde kod ile =PY(\"kod\"; aralık) (ya da "
+"bir biçim kullanıyor (ör. başka bir hücredeki kod). Formülü formül çubuğunda"
+" düzenleyin veya tırnak içinde kod ile =PY(\"kod\"; aralık) (ya da "
 "=PYTHON(...)) kullanın."
 
 #: plugin/calc/python_editor.py
@@ -607,14 +435,13 @@ msgid ""
 "Cannot import webview (pywebview) with the Python from Settings → Python:\n"
 "%(exe)s\n"
 "\n"
-"In that venv run: pip install pywebview\n"
+"In that venv run: uv pip install pywebview\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"Ayarlar → Python kısmındaki Python ile webview (pywebview) içe "
-"aktarılamıyor:\n"
+"Ayarlar → Python kısmındaki Python ile webview (pywebview) içe aktarılamıyor:\n"
 "%(exe)s\n"
 "\n"
-"Bu sanal ortamda (venv) şunu çalıştırın: pip install pywebview\n"
+"Bu sanal ortamda (venv) şunu çalıştırın: uv pip install pywebview\n"
 "(içe aktarma adı webview, paket adı pywebview'dir)."
 
 #: plugin/calc/python_editor.py
@@ -1058,6 +885,10 @@ msgid "Send"
 msgstr "Gönder"
 
 #: plugin/chatbot/panel.py
+msgid "Starting..."
+msgstr "Başlatılıyor..."
+
+#: plugin/chatbot/panel.py
 msgid "Getting document..."
 msgstr "Belge alınıyor..."
 
@@ -1163,8 +994,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Düzenleyici bulunamadı (Kate veya Gedit kurun ya da EDITOR değişkenini "
-"ayarlayın). Yol:\n"
+"Düzenleyici bulunamadı (Kate veya Gedit kurun ya da EDITOR değişkenini ayarlayın). Yol:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -1201,7 +1031,8 @@ msgstr "['{0}' aracı arka ucu bulunamadı.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "['{0}' aracı arka ucu kullanılamıyor. Ayarları kontrol edin (yol, kurulum).]"
 
@@ -1367,12 +1198,20 @@ msgid "Units Helpers"
 msgstr "Birim Yardımcıları"
 
 #: plugin/scripting/document_scripts.py
+msgid "Text Analytics Helpers"
+msgstr "Metin Analizi Yardımcıları"
+
+#: plugin/scripting/document_scripts.py
 msgid "Quant Helpers"
 msgstr "Nicel Yardımcılar"
 
 #: plugin/scripting/document_scripts.py
 msgid "Optimize Helpers"
 msgstr "İyileştirme Yardımcıları"
+
+#: plugin/scripting/document_scripts.py
+msgid "SQL Helpers"
+msgstr "SQL Yardımcıları"
 
 #: plugin/scripting/document_scripts.py
 msgid "My Scripts"
@@ -1533,7 +1372,8 @@ msgid "Could not talk to the Python editor."
 msgstr "Python düzenleyicisi ile iletişim kurulamadı."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "Görüntüleme probu zaman aşımına uğradı (Docling içe aktarımı ilk kontrolde "
 "10–30 saniye sürebilir)."
@@ -1554,7 +1394,8 @@ msgstr ""
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vector Search probe failed (see writeragent_debug.log)."
 msgstr ""
-"Vektör Arama denemesi başarısız oldu (writeragent_debug.log dosyasına bakın)."
+"Vektör Arama denemesi başarısız oldu (writeragent_debug.log dosyasına "
+"bakın)."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Visualization Libraries"
@@ -1571,6 +1412,10 @@ msgstr "Nicel Finans Kütüphaneleri"
 #: plugin/scripting/venv_diagnostics.py
 msgid "Data Engineering Libraries"
 msgstr "Veri Mühendisliği Kütüphaneleri"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text / NLP Libraries"
+msgstr "Metin / NLP Kütüphaneleri"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries"
@@ -1609,6 +1454,91 @@ msgstr "venv Python çözümleniyor..."
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using"
 msgstr "Kullanılıyor"
+
+#: plugin/scripting/text_analytics_ui.py plugin/xdl_strings.py
+msgid "Text Analytics"
+msgstr "Metin Analizi"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Could not load the analytics dialog."
+msgstr "Analiz iletişim kutusu yüklenemedi."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Checking spaCy / textdescriptives / transformers installation..."
+msgstr "spaCy / textdescriptives / transformers kurulumu kontrol ediliyor..."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-brace-format
+msgid ""
+"Error from the Text Analytics worker:\n"
+"{err}\n"
+"\n"
+"The features in this dialog require these packages in the python it is using:\n"
+"  • spacy + a model          (entities, key phrases, basic stats)\n"
+"  • textdescriptives         (real Readability scores)\n"
+"  • transformers + torch     (Sentiment using the multilingual model)\n"
+"\n"
+"Install them with:\n"
+"  {install}\n"
+"\n"
+"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
+msgstr ""
+"Metin Analizi çalışanından hata:\n"
+"{err}\n"
+"\n"
+"Bu iletişim kutusundaki özellikler, kullanılan Python içinde şu paketleri gerektirir:\n"
+"  • spacy + bir model          (varlıklar, anahtar ifadeler, temel istatistikler)\n"
+"  • textdescriptives         (gerçek Okunabilirlik puanları)\n"
+"  • transformers + torch     (çok dilli model kullanılarak Duygu Analizi)\n"
+"\n"
+"Bunları şu komutla yükleyin:\n"
+"  {install}\n"
+"\n"
+"Çalışan, modülün eksik olduğunu bildirdi. Paketlerin, yapılandırılmış sanal ortamınız (venv) için çözümlenen tam Python yürütülebilir dosyasında yüklü olduğunu doğrulayın."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Open a Writer document to analyze."
+msgstr "Analiz etmek için bir Writer belgesi açın."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Not enough text in the chosen scope."
+msgstr "Seçilen kapsamda yeterli metin yok."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Analyzing..."
+msgstr "Analiz ediliyor..."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-format
+msgid ""
+"Error: %s\n"
+"\n"
+"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
+msgstr ""
+"Hata: %s\n"
+"\n"
+"Yapılandırılmış sanal ortamınızda (Ayarlar → Python) gerekli paketler eksik olabilir. Bu iletişim kutusundaki Sanal Ortamı Denetle düğmesine tıklayın veya spacy, textdescriptives, transformers, torch vb. hakkında ayrıntılar için Ayarlar → Python bölümündeki tam Test özelliğini kullanın."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "No Writer document to insert into."
+msgstr "İçine eklenecek bir Writer belgesi yok."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Run an analysis first."
+msgstr "Önce bir analiz çalıştırın."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Nothing useful to insert from the last result."
+msgstr "Sonuçtan eklenecek yararlı bir içerik yok."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-format
+msgid "Insert failed: %s"
+msgstr "Ekleme başarısız: %s"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Inserted after selection/caret."
+msgstr "Seçimden/imleçten sonrasına eklendi."
 
 #: plugin/scripting/symbolic.py
 msgid "Symbolic helper failed."
@@ -1649,8 +1579,8 @@ msgid ""
 "Writer document with an imported Jupyter notebook and try again."
 msgstr ""
 "Not defterleri için Python Oturumunu Sıfırla işlemi LibreOffice Writer için "
-"geçerlidir. İçe aktarılmış bir Jupyter not defteri içeren bir Writer belgesi "
-"açın ve tekrar deneyin."
+"geçerlidir. İçe aktarılmış bir Jupyter not defteri içeren bir Writer belgesi"
+" açın ve tekrar deneyin."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1812,6 +1742,19 @@ msgid "Units helpers require a Writer or Calc document."
 msgstr "Birim yardımcıları bir Writer veya Calc belgesi gerektirir."
 
 #: plugin/scripting/python_runner.py
+msgid "Text analytics helpers require a Writer document."
+msgstr "Metin analizi yardımcıları bir Writer belgesi gerektirir."
+
+#: plugin/scripting/python_runner.py
+msgid "Text analytics helper failed."
+msgstr "Metin analizi yardımcısı başarısız oldu."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Text analytics '{helper}' completed. (took {time})"
+msgstr "Metin analizi '{helper}' tamamlandı. ({time} sürdü)"
+
+#: plugin/scripting/python_runner.py
 msgid ""
 "Quant helper requires a data range. Select cells or enter a range in the "
 "Data field."
@@ -1866,8 +1809,8 @@ msgstr "'{helper}' analizi tamamlandı. {rows} satır yazıldı. ({time} sürdü
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "Betik başarıyla çalıştırıldı, ancak sonuç döndürmedi ve çıktı üretmedi. "
 "({time} sürdü)"
@@ -1904,8 +1847,8 @@ msgid ""
 "Image '{name}' not found. Use list_images or leave image_name empty and "
 "select the graphic."
 msgstr ""
-"'{name}' görüntüsü bulunamadı. list_images komutunu kullanın veya image_name "
-"kısmını boş bırakıp grafiği seçin."
+"'{name}' görüntüsü bulunamadı. list_images komutunu kullanın veya image_name"
+" kısmını boş bırakıp grafiği seçin."
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -2023,6 +1966,10 @@ msgid "Search Nearby Files..."
 msgstr "Yakındaki Dosyaları Ara..."
 
 #: plugin/main.py
+msgid "Text Analytics..."
+msgstr "Metin Analizi..."
+
+#: plugin/main.py
 msgid "Convert Sheet to Python..."
 msgstr "Sayfayı Python'a Dönüştür..."
 
@@ -2033,14 +1980,6 @@ msgstr "Gönderim Hatası"
 #: plugin/xdl_strings.py
 msgid "-1"
 msgstr "-1"
-
-#: plugin/xdl_strings.py
-msgid "7.5"
-msgstr "7.5"
-
-#: plugin/xdl_strings.py
-msgid "AI Horde API Key:"
-msgstr "AI Horde API Anahtarı:"
 
 #: plugin/xdl_strings.py
 msgid "AI Model:"
@@ -2061,10 +2000,6 @@ msgstr "Ek Talimatlar (Geçmiş):"
 #: plugin/xdl_strings.py
 msgid "Additional Instructions:"
 msgstr "Ek Talimatlar:"
-
-#: plugin/xdl_strings.py
-msgid "Allow NSFW"
-msgstr "NSFW'ye İzin Ver"
 
 #: plugin/xdl_strings.py
 msgid "Ask / instruct:"
@@ -2095,10 +2030,6 @@ msgid "Base:"
 msgstr "Temel:"
 
 #: plugin/xdl_strings.py
-msgid "CFG Scale:"
-msgstr "CFG Ölçeği:"
-
-#: plugin/xdl_strings.py
 msgid "Cache Status: Checking..."
 msgstr "Önbellek Durumu: Denetleniyor..."
 
@@ -2115,12 +2046,12 @@ msgid "Categories:"
 msgstr "Kategoriler:"
 
 #: plugin/xdl_strings.py
-msgid "Censor NSFW"
-msgstr "Müstehcen İçeriği Sansürle"
-
-#: plugin/xdl_strings.py
 msgid "Chat (Testing):"
 msgstr "Sohbet (Test):"
+
+#: plugin/xdl_strings.py
+msgid "Check Venv"
+msgstr "Sanal Ortamı Denetle"
 
 #: plugin/xdl_strings.py
 msgid "Clear"
@@ -2176,6 +2107,10 @@ msgstr ""
 "Sonucu 'result' değişkenine atayın."
 
 #: plugin/xdl_strings.py
+msgid "Entities"
+msgstr "Varlıklar"
+
+#: plugin/xdl_strings.py
 msgid "General"
 msgstr "Genel"
 
@@ -2204,12 +2139,16 @@ msgid "Insert LaTeX Math"
 msgstr "LaTeX Matematiği Ekle"
 
 #: plugin/xdl_strings.py
-msgid "Max Tokens:"
-msgstr "Maksimum Jeton:"
+msgid "Insert report here"
+msgstr "Raporu buraya ekle"
 
 #: plugin/xdl_strings.py
-msgid "Max Wait (s):"
-msgstr "Maksimum Bekleme (sn):"
+msgid "Key Phrases"
+msgstr "Anahtar İfadeler"
+
+#: plugin/xdl_strings.py
+msgid "Max Tokens:"
+msgstr "Maksimum Jeton:"
 
 #: plugin/xdl_strings.py
 msgid "Message"
@@ -2256,6 +2195,10 @@ msgid "Python Test"
 msgstr "Python Testi"
 
 #: plugin/xdl_strings.py
+msgid "Readability"
+msgstr "Okunabilirlik"
+
+#: plugin/xdl_strings.py
 msgid "Rebuild"
 msgstr "Yeniden Oluştur"
 
@@ -2300,6 +2243,10 @@ msgid "Selection"
 msgstr "Seçim"
 
 #: plugin/xdl_strings.py
+msgid "Sentiment"
+msgstr "Duygu Analizi"
+
+#: plugin/xdl_strings.py
 msgid "Server Status"
 msgstr "Sunucu Durumu"
 
@@ -2332,8 +2279,8 @@ msgid "Timeout (s):"
 msgstr "Zaman Aşımı (sn):"
 
 #: plugin/xdl_strings.py
-msgid "Use AI Horde for Image Generation"
-msgstr "Görsel Oluşturma için AI Horde Kullan"
+msgid "Topics"
+msgstr "Konular"
 
 #: plugin/xdl_strings.py
 msgid "Vectorize columns when safe"
@@ -2342,6 +2289,10 @@ msgstr "Güvenli olduğunda sütunları vektörleştir"
 #: plugin/xdl_strings.py
 msgid "Verify recalc (oracle diff)"
 msgstr "Yeniden hesaplamayı doğrula (oracle farkı)"
+
+#: plugin/xdl_strings.py
+msgid "Whole Document"
+msgstr "Tüm Belge"
 
 #: plugin/xdl_strings.py
 msgid "Writer"
@@ -2376,11 +2327,11 @@ msgid "Path / URL"
 msgstr "Yol / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Arka uç CLI yolu (ör. aider) veya ACP sunucu URL'si (ör. Hermes için http://"
-"localhost:8000). Boş = varsayılanı dene."
+"Arka uç CLI yolu (ör. aider) veya ACP sunucu URL'si (ör. Hermes için "
+"http://localhost:8000). Boş = varsayılanı dene."
 
 msgid "Extra arguments"
 msgstr "Ek argümanlar"
@@ -2497,8 +2448,8 @@ msgstr "Zengin Metin Denetimi Kenar Çubuğu"
 
 msgid "Formatted chat via RichTextControl. Requires restart."
 msgstr ""
-"Zengin metin denetimi (RichTextControl) ile biçimlendirilmiş sohbet. Yeniden "
-"başlatma gerektirir."
+"Zengin metin denetimi (RichTextControl) ile biçimlendirilmiş sohbet. Yeniden"
+" başlatma gerektirir."
 
 msgid "Humanizer skill (natural prose)"
 msgstr "İnsanileştirme yeteneği (doğal düzyazı)"
@@ -2506,9 +2457,9 @@ msgstr "İnsanileştirme yeteneği (doğal düzyazı)"
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
-"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
-"dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
 msgstr ""
 "Etkinleştirildiğinde, modelin oluşturulan veya gözden geçirilen belge "
 "metnini daha doğal ve insansı kılması için sistem istemine rehberlik ekler "
@@ -2525,8 +2476,8 @@ msgstr "Yapay zeka dil bilgisi denetleyicisini etkinleştir (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "Açık olduğunda, WriterAgent yapay zeka dil bilgisi denetleyicisini "
 "Linguistic ile kaydeder; denetlenen metin API'nizi kullanır (Araçlar → "
@@ -2585,8 +2536,8 @@ msgid ""
 msgstr ""
 "Her tam cümleyi belge yerel ayarına göre doğrulayın. AI, dil bilgisi/sohbet "
 "API'nizi kullanır; Yerel ise paketlenmiş langdetect kullanır (API çağrısı "
-"yok, sanal ortam yok). Uyuşmazlıklar CharLocale'i günceller ve dil bilgisini "
-"yeniden kontrol eder."
+"yok, sanal ortam yok). Uyuşmazlıklar CharLocale'i günceller ve dil bilgisini"
+" yeniden kontrol eder."
 
 msgid "Off"
 msgstr "Kapalı"
@@ -2616,8 +2567,8 @@ msgid ""
 "Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
 "review."
 msgstr ""
-"Kapalı = doğrudan düzenlemeler. Kayıt = kendinizin kabul edeceği/reddedeceği "
-"izlenen değişiklikler. Bekle = inceleyene kadar apply_document_content'i "
+"Kapalı = doğrudan düzenlemeler. Kayıt = kendinizin kabul edeceği/reddedeceği"
+" izlenen değişiklikler. Bekle = inceleyene kadar apply_document_content'i "
 "(sohbet/MCP işçi iş parçacığında) engeller."
 
 msgid "Record (track changes)"
@@ -2651,9 +2602,6 @@ msgstr "LlamaIndex"
 msgid "Zvec (experimental)"
 msgstr "Zvec (deneysel)"
 
-msgid "ChromaDB"
-msgstr "ChromaDB"
-
 msgid "LanceDB (experimental)"
 msgstr "LanceDB (deneysel)"
 
@@ -2679,8 +2627,8 @@ msgid "Rerank model"
 msgstr "Yeniden sıralama modeli"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
-"is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
 msgstr ""
 "Yalnızca yeniden sıralama etkinleştirildiğinde kullanılır. İngilizce MiniLM "
 "hızlıdır; bge-reranker-v2-m3 çok dillidir ve yaklaşık 2,3 GB indirir."
@@ -2701,11 +2649,11 @@ msgid "Enable MCP Server"
 msgstr "MCP Sunucusunu Etkinleştir"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Yalnızca localhost, kimlik doğrulaması yok. İstemciler http://localhost:"
-"<port>/mcp (akış destekli HTTP) adresini kullanır."
+"Yalnızca localhost, kimlik doğrulaması yok. İstemciler "
+"http://localhost:<port>/mcp (akış destekli HTTP) adresini kullanır."
 
 msgid "MCP Port"
 msgstr "MCP Bağlantı Noktası"
@@ -2744,8 +2692,8 @@ msgid "Max Calc data cells"
 msgstr "Maksimum Calc veri hücresi"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
 "=PYTHON() verisindeki veya Python Betiği Çalıştır verisi/veri_aralığındaki "
 "maksimum hücre sayısı. Daha büyük değerler daha fazla bellek ve zaman "
@@ -2766,6 +2714,16 @@ msgstr "Yalıtılmış (varsayılan)"
 
 msgid "Shared kernel"
 msgstr "Paylaşılan çekirdek"
+
+msgid "Python auto spill in Calc"
+msgstr "Calc'te Python otomatik taşması"
+
+msgid ""
+"Automatically spill multi-cell array/DataFrame results from =PYTHON() into "
+"adjacent cells."
+msgstr ""
+"=PYTHON() işlevinden gelen çok hücreli dizi/DataFrame sonuçlarını bitişik "
+"hücrelere otomatik olarak taşır."
 
 msgid "Vision / OCR"
 msgstr "Vizyon / OCR"

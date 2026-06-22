@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-17 17:50-0400\n"
+"POT-Creation-Date: 2026-06-22 15:38-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Latvian <LL@li.org>\n"
@@ -19,8 +19,8 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
 "Dokumentu izpētes lasījumiem ir nepieciešama specializēta uzdevumu "
 "deleģēšana (USE_SUB_AGENT). Iespējojiet to konfigurācijā."
@@ -28,8 +28,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Rīka izsaukums pārslēgts uz '{0}'. Jūs atrodaties specializētā rīkkopas "
@@ -47,11 +47,11 @@ msgstr ""
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
-"Šajā dokumentā nav importētas piezīmju grāmatiņas. Vispirms izmantojiet Rīki "
-"→ Importēt Jupyter piezīmju grāmatiņu…"
+"Šajā dokumentā nav importētas piezīmju grāmatiņas. Vispirms izmantojiet Rīki"
+" → Importēt Jupyter piezīmju grāmatiņu…"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Could not find notebook cell for this control."
@@ -99,186 +99,6 @@ msgstr ""
 #: plugin/notebook/writer_importer.py
 msgid "Run code cell"
 msgstr "Izpildīt koda šūnu"
-
-#: plugin/contrib/aihordeclient/__init__.py plugin/chatbot/panel.py
-msgid "Starting..."
-msgstr "Notiek palaišana..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Updating model requirements..."
-msgstr "Atjaunina modeļa prasības..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Updating Models..."
-msgstr "Atjaunina modeļus..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Register at "
-msgstr "Reģistrēties vietnē "
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "You have {} kudos"
-msgstr "Jums ir {} kudos"
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "«{}» is not a valid API KEY, double check it or create a new one"
-msgstr "«{}» nav derīga API ATSLĒGA, pārbaudiet to vai izveidojiet jaunu"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"At this moment we can not process your request, please try again later.  If "
-"this is happening for a long period of time, please let us know via Discord"
-msgstr ""
-"Šobrīd mēs nevaram apstrādāt jūsu pieprasījumu, lūdzu, mēģiniet vēlreiz "
-"vēlāk. Ja tas notiek ilgāku laiku, lūdzu, dariet mums to zināmu Discord"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Problem requesting kudos"
-msgstr "Problēma pieprasot kudos"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"The Horde is in maintenance mode, please try again later, if you have tried "
-"and the service does not respond for hours, please contact via Discord"
-msgstr ""
-"Horde ir uzturēšanas režīmā, lūdzu, mēģiniet vēlreiz vēlāk; ja esat "
-"mēģinājis un pakalpojums neatbild stundām ilgi, lūdzu, sazinieties, "
-"izmantojot Discord"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"You have made too many requests, please wait for them to finish, and try "
-"again later"
-msgstr ""
-"Esat veicis pārāk daudz pieprasījumu, lūdzu, uzgaidiet, līdz tie tiks "
-"pabeigti, un mēģiniet vēlreiz vēlāk"
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid ""
-"Seems that «{}» has problems, double check it, create a new one or join "
-"Discord to ask for help"
-msgstr ""
-"Šķiet, ka «{}» ir problēmas, pārbaudiet to vēlreiz, izveidojiet jaunu vai "
-"pievienojieties Discord, lai lūgtu palīdzību"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "We hit an error, still: "
-msgstr "Radās kļūda, joprojām: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "No longer valid, please try again.  Your request took too long"
-msgstr ""
-"Vairs nav derīgs, lūdzu, mēģiniet vēlreiz. Jūsu pieprasījums aizņēma pārāk "
-"daudz laika"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Contacting the Horde..."
-msgstr "Sazināšanās ar «Horde»..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Horde Contacted"
-msgstr "«Horde» sazvanīta"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"When trying to ask for the image, the Horde was too slow, try again later"
-msgstr ""
-"Mēģinot pieprasīt attēlu, «Horde» bija pārāk lēna, mēģiniet vēlreiz vēlāk"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "to learn to earn kudos. Detail:"
-msgstr "lai iemācītos nopelnīt «kudos». Sīkāk:"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Service failed: "
-msgstr "Pakalpojuma kļūda: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Downloading generated image..."
-msgstr "Notiek ģenerētā attēla lejupielāde..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "You are first in the queue"
-msgstr "Jūs esat pirmais rindā"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Queue position: "
-msgstr "Rindas pozīcija: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Generating..."
-msgstr "Ģenerē..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Get a free API Key at "
-msgstr "Saņemiet bezmaksas API atslēgu vietnē "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "."
-msgstr "."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "This model takes more time than your current configuration."
-msgstr "Šis modelis prasa vairāk laika nekā jūsu pašreizējā konfigurācija."
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
-msgstr ""
-"Lūdzu, izmēģiniet citu modeli. {0} prasītu vairāk laika, nekā esat "
-"konfigurējis."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Please try again later."
-msgstr "Lūdzu, mēģiniet vēlreiz vēlāk."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "There are no workers available with these settings."
-msgstr "Ar šiem iestatījumiem nav pieejami darbinieki."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Probably your image will take one additional minute."
-msgstr "Iespējams, jūsu attēla izveide prasīs vēl vienu minūti."
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "Probably your image will take {} additional minutes."
-msgstr "Iespējams, jūsu attēla izveide prasīs {} papildu minūtes."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Fetching images..."
-msgstr "Notiek attēlu ielāde..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid " is censored, try changing the prompt wording"
-msgstr " ir cenzēts, mēģiniet mainīt uzvednes formulējumu"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Downloading result..."
-msgstr "Notiek rezultāta lejupielāde..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Downloading image"
-msgstr "Notiek attēla lejupielāde"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"You may need to reduce your settings or choose another model, or you may "
-"have been censored. Horde message"
-msgstr ""
-"Iespējams, jums jāsamazina iestatījumi vai jāizvēlas cits modelis, vai arī "
-"esat ticis cenzēts. Horde ziņojums"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid " generated by "
-msgstr " ģenerēja "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid " with "
-msgstr " ar "
 
 #: plugin/embeddings/search_ui.py
 msgid "Cache Status: No active document"
@@ -401,7 +221,8 @@ msgstr "API piekļuve liegta. Jūsu atslēgai var trūkt atļauju šim modelim."
 
 #: plugin/framework/errors.py
 msgid "Endpoint not found (404). Check your URL and Model name."
-msgstr "Galapunkts nav atrasts (404). Pārbaudiet savu URL un modeļa nosaukumu."
+msgstr ""
+"Galapunkts nav atrasts (404). Pārbaudiet savu URL un modeļa nosaukumu."
 
 #: plugin/framework/errors.py
 #, python-brace-format
@@ -419,7 +240,8 @@ msgstr ""
 "Pieprasījuma noildze. Mēģiniet palielināt \"Request Timeout\" iestatījumos."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Savienojums atteikts. Vai jūsu lokālais AI serveris (Ollama/LM Studio) "
 "darbojas?"
@@ -452,7 +274,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "AI: Es varu palīdzēt ar formulām, datu analīzi un krāsainām diagrammām. "
 "Izmēģiniet mani!"
@@ -475,18 +298,19 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest "
-"approaches, and help you build an approved spec in your document when you're "
-"ready."
+"AI: Let's explore and design your idea together. I'll ask questions, suggest"
+" approaches, and help you build an approved spec in your document when "
+"you're ready."
 msgstr ""
-"AI: Izpētīsim un izstrādāsim jūsu ideju kopā. Es uzdošu jautājumus, ieteikšu "
-"pieejas un palīdzēšu jums izveidot apstiprinātu specifikāciju jūsu "
+"AI: Izpētīsim un izstrādāsim jūsu ideju kopā. Es uzdošu jautājumus, ieteikšu"
+" pieejas un palīdzēšu jums izveidot apstiprinātu specifikāciju jūsu "
 "dokumentā, kad būsiet gatavs."
 
 #: plugin/framework/constants.py
 msgid ""
 "AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your approval."
+"writing plan outline, and then implement it incrementally with your "
+"approval."
 msgstr ""
 "AI: Sastādīsim jūsu dokumentu pa daļām. Es palīdzēšu izveidot rakstīšanas "
 "plāna uzmetumu un pēc tam pakāpeniski to īstenot ar jūsu apstiprinājumu."
@@ -517,6 +341,10 @@ msgstr ""
 #: plugin/calc/python_function.py
 msgid "Image inserted"
 msgstr "Attēls ievietots"
+
+#: plugin/calc/python_function.py
+msgid "Images inserted"
+msgstr "Ievietotie attēli"
 
 #: plugin/calc/python_editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
@@ -602,13 +430,13 @@ msgid ""
 "Cannot import webview (pywebview) with the Python from Settings → Python:\n"
 "%(exe)s\n"
 "\n"
-"In that venv run: pip install pywebview\n"
+"In that venv run: uv pip install pywebview\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"Nevar importēt webview (pywebview) ar Python no Iestatījumi → Python:\n"
+"Nevar importēt webview (pywebview), izmantojot Python no Iestatījumi → Python:\n"
 "%(exe)s\n"
 "\n"
-"Šajā venv vidē izpildiet: pip install pywebview\n"
+"Šajā venv vidē izpildiet: uv pip install pywebview\n"
 "(importēšanas nosaukums ir webview, pakotnes nosaukums ir pywebview)."
 
 #: plugin/calc/python_editor.py
@@ -1052,6 +880,10 @@ msgid "Send"
 msgstr "Sūtīt"
 
 #: plugin/chatbot/panel.py
+msgid "Starting..."
+msgstr "Notiek palaišana..."
+
+#: plugin/chatbot/panel.py
 msgid "Getting document..."
 msgstr "Iegūst dokumentu..."
 
@@ -1078,8 +910,8 @@ msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
 "this!]"
 msgstr ""
-"[Iekšēja kļūda: nevarēja identificēt dokumenta tipu {0}. Lūdzu, ziņojiet par "
-"to!]"
+"[Iekšēja kļūda: nevarēja identificēt dokumenta tipu {0}. Lūdzu, ziņojiet par"
+" to!]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -1158,8 +990,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Redaktors nav atrasts (instalējiet Kate vai Gedit, vai iestatiet EDITOR). "
-"Ceļš:\n"
+"Redaktors nav atrasts (instalējiet Kate vai Gedit, vai iestatiet EDITOR). Ceļš:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -1196,7 +1027,8 @@ msgstr "[Aģenta aizmugursistēma '{0}' nav atrasta.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Aģenta aizmugursistēma '{0}' nav pieejama. Pārbaudiet iestatījumus (ceļu, "
 "instalāciju).]"
@@ -1365,12 +1197,20 @@ msgid "Units Helpers"
 msgstr "Mērvienību palīgi"
 
 #: plugin/scripting/document_scripts.py
+msgid "Text Analytics Helpers"
+msgstr "Teksta analīzes palīgrīki"
+
+#: plugin/scripting/document_scripts.py
 msgid "Quant Helpers"
 msgstr "Kvantitatīvie palīgi"
 
 #: plugin/scripting/document_scripts.py
 msgid "Optimize Helpers"
 msgstr "Optimizācijas palīgi"
+
+#: plugin/scripting/document_scripts.py
+msgid "SQL Helpers"
+msgstr "SQL palīgrīki"
 
 #: plugin/scripting/document_scripts.py
 msgid "My Scripts"
@@ -1532,10 +1372,11 @@ msgid "Could not talk to the Python editor."
 msgstr "Neizdevās sazināties ar Python redaktoru."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
-"Redzes zondes noildze (Docling importēšana pirmajā pārbaudē var aizņemt 10–"
-"30 s)."
+"Redzes zondes noildze (Docling importēšana pirmajā pārbaudē var aizņemt "
+"10–30 s)."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vision probe failed (see writeragent_debug.log)."
@@ -1546,8 +1387,8 @@ msgid ""
 "Vector Search probe timed out (sentence-transformers import can take 10–30s "
 "on first check)."
 msgstr ""
-"Vektoru meklēšanas zondes noildze (sentence-transformers importēšana pirmajā "
-"pārbaudē var aizņemt 10–30 s)."
+"Vektoru meklēšanas zondes noildze (sentence-transformers importēšana pirmajā"
+" pārbaudē var aizņemt 10–30 s)."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vector Search probe failed (see writeragent_debug.log)."
@@ -1570,6 +1411,10 @@ msgid "Data Engineering Libraries"
 msgstr "Datu inženierijas bibliotēkas"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Text / NLP Libraries"
+msgstr "Teksta / NLP bibliotēkas"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries"
 msgstr "Vīzijas bibliotēkas"
 
@@ -1587,7 +1432,8 @@ msgstr "Nolasa Python versiju..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries: loading (first run may take a while)..."
-msgstr "Vision bibliotēkas: ielādē (pirmā palaišana var aizņemt kādu laiku)..."
+msgstr ""
+"Vision bibliotēkas: ielādē (pirmā palaišana var aizņemt kādu laiku)..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vector Search Libraries: loading (first run may take a while)..."
@@ -1606,6 +1452,91 @@ msgstr "Atrisina venv Python..."
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using"
 msgstr "Izmanto"
+
+#: plugin/scripting/text_analytics_ui.py plugin/xdl_strings.py
+msgid "Text Analytics"
+msgstr "Teksta analīze"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Could not load the analytics dialog."
+msgstr "Neizdevās ielādēt analīzes dialoglodziņu."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Checking spaCy / textdescriptives / transformers installation..."
+msgstr "Pārbauda spaCy / textdescriptives / transformers instalāciju..."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-brace-format
+msgid ""
+"Error from the Text Analytics worker:\n"
+"{err}\n"
+"\n"
+"The features in this dialog require these packages in the python it is using:\n"
+"  • spacy + a model          (entities, key phrases, basic stats)\n"
+"  • textdescriptives         (real Readability scores)\n"
+"  • transformers + torch     (Sentiment using the multilingual model)\n"
+"\n"
+"Install them with:\n"
+"  {install}\n"
+"\n"
+"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
+msgstr ""
+"Kļūda no teksta analīzes procesa:\n"
+"{err}\n"
+"\n"
+"Šī dialoglodziņa funkcijām ir nepieciešamas šādas pakotnes izmantotajā Python vidē:\n"
+"  • spacy + modelis          (entītijas, atslēgfrāzes, pamata statistika)\n"
+"  • textdescriptives         (lasāmības rādītāji)\n"
+"  • transformers + torch     (noskaņojuma analīze, izmantojot daudzvalodu modeli)\n"
+"\n"
+"Instalējiet tās ar:\n"
+"  {install}\n"
+"\n"
+"Procesā tika ziņots par trūkstošu moduli. Pārliecinieties, vai pakotnes ir instalētas tieši tajā Python izpildāmajā failā, kuru procesors izmanto jūsu konfigurētajai venv videi."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Open a Writer document to analyze."
+msgstr "Atveriet Writer dokumentu, lai veiktu analīzi."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Not enough text in the chosen scope."
+msgstr "Izvēlētajā apgabalā nav pietiekami daudz teksta."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Analyzing..."
+msgstr "Analizē..."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-format
+msgid ""
+"Error: %s\n"
+"\n"
+"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
+msgstr ""
+"Kļūda: %s\n"
+"\n"
+"Iespējams, konfigurētajā virtuālajā vidē (venv) trūkst nepieciešamo pakotņu (Iestatījumi → Python). Noklikšķiniet uz \"Pārbaudīt venv\" šajā dialoglodziņā vai izmantojiet pilno testu sadaļā Iestatījumi → Python, lai iegūtu sīkāku informāciju par spacy, textdescriptives, transformers, torch u.c."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "No Writer document to insert into."
+msgstr "Nav Writer dokumenta, kurā ievietot."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Run an analysis first."
+msgstr "Vispirms palaidiet analīzi."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Nothing useful to insert from the last result."
+msgstr "No pēdējā rezultāta nav nekā noderīga, ko ievietot."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-format
+msgid "Insert failed: %s"
+msgstr "Ievietošana neizdevās: %s"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Inserted after selection/caret."
+msgstr "Ievietots pēc atlases/kursora."
 
 #: plugin/scripting/symbolic.py
 msgid "Symbolic helper failed."
@@ -1645,8 +1576,8 @@ msgid ""
 "Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
 "Writer document with an imported Jupyter notebook and try again."
 msgstr ""
-"Python sesijas atiestatīšana piezīmjdatoriem attiecas uz LibreOffice Writer. "
-"Atveriet Writer dokumentu ar importētu Jupyter piezīmjdatoru un mēģiniet "
+"Python sesijas atiestatīšana piezīmjdatoriem attiecas uz LibreOffice Writer."
+" Atveriet Writer dokumentu ar importētu Jupyter piezīmjdatoru un mēģiniet "
 "vēlreiz."
 
 #: plugin/scripting/session_manager.py
@@ -1783,7 +1714,8 @@ msgstr ""
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
-msgstr "Vision '{helper}' pabeigts. Ievietots formatēts HTML. (aizņēma {time})"
+msgstr ""
+"Vision '{helper}' pabeigts. Ievietots formatēts HTML. (aizņēma {time})"
 
 #: plugin/scripting/python_runner.py
 msgid "Viz helpers require a Writer or Calc document."
@@ -1810,6 +1742,19 @@ msgid "Units helpers require a Writer or Calc document."
 msgstr "Mērvienību palīgrīkiem nepieciešams Writer vai Calc dokuments."
 
 #: plugin/scripting/python_runner.py
+msgid "Text analytics helpers require a Writer document."
+msgstr "Teksta analīzes palīgrīkiem ir nepieciešams Writer dokuments."
+
+#: plugin/scripting/python_runner.py
+msgid "Text analytics helper failed."
+msgstr "Teksta analīzes palīgrīks neizdevās."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Text analytics '{helper}' completed. (took {time})"
+msgstr "Teksta analīze '{helper}' pabeigta. (aizņēma {time})"
+
+#: plugin/scripting/python_runner.py
 msgid ""
 "Quant helper requires a data range. Select cells or enter a range in the "
 "Data field."
@@ -1824,7 +1769,8 @@ msgstr "Quant neizdevās."
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid "Quant '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr "Quant '{helper}' pabeigts. Ierakstītas {rows} rindas. (aizņēma {time})"
+msgstr ""
+"Quant '{helper}' pabeigts. Ierakstītas {rows} rindas. (aizņēma {time})"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -1842,7 +1788,8 @@ msgstr "Optimizācija neizdevās."
 #, python-brace-format
 msgid "Optimize '{helper}' completed. Wrote {rows} rows. (took {time})"
 msgstr ""
-"Optimizācija '{helper}' pabeigta. Ierakstītas {rows} rindas. (aizņēma {time})"
+"Optimizācija '{helper}' pabeigta. Ierakstītas {rows} rindas. (aizņēma "
+"{time})"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -1865,8 +1812,8 @@ msgstr ""
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "Skripts izpildīts veiksmīgi, taču neatgrieza rezultātu un neizvadīja datus. "
 "(aizņēma {time})"
@@ -1895,7 +1842,8 @@ msgstr "Izpildīt"
 
 #: plugin/scripting/python_runner.py
 msgid "Select data range or enter A1 address (injected as data)."
-msgstr "Atlasiet datu apgabalu vai ievadiet A1 adresi (tiks ievadīta kā dati)."
+msgstr ""
+"Atlasiet datu apgabalu vai ievadiet A1 adresi (tiks ievadīta kā dati)."
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -2022,6 +1970,10 @@ msgid "Search Nearby Files..."
 msgstr "Meklēt tuvumā esošos failus..."
 
 #: plugin/main.py
+msgid "Text Analytics..."
+msgstr "Teksta analīze..."
+
+#: plugin/main.py
 msgid "Convert Sheet to Python..."
 msgstr "Konvertēt lapu uz Python..."
 
@@ -2032,14 +1984,6 @@ msgstr "Nosūtīšanas kļūda"
 #: plugin/xdl_strings.py
 msgid "-1"
 msgstr "-1"
-
-#: plugin/xdl_strings.py
-msgid "7.5"
-msgstr "7.5"
-
-#: plugin/xdl_strings.py
-msgid "AI Horde API Key:"
-msgstr "AI Horde API atslēga:"
 
 #: plugin/xdl_strings.py
 msgid "AI Model:"
@@ -2060,10 +2004,6 @@ msgstr "Papildu instrukcijas (vēsture):"
 #: plugin/xdl_strings.py
 msgid "Additional Instructions:"
 msgstr "Papildu instrukcijas:"
-
-#: plugin/xdl_strings.py
-msgid "Allow NSFW"
-msgstr "Atļaut NSFW"
 
 #: plugin/xdl_strings.py
 msgid "Ask / instruct:"
@@ -2094,10 +2034,6 @@ msgid "Base:"
 msgstr "Pamats:"
 
 #: plugin/xdl_strings.py
-msgid "CFG Scale:"
-msgstr "CFG mērogs:"
-
-#: plugin/xdl_strings.py
 msgid "Cache Status: Checking..."
 msgstr "Kešatmiņas statuss: Pārbauda..."
 
@@ -2114,12 +2050,12 @@ msgid "Categories:"
 msgstr "Kategorijas:"
 
 #: plugin/xdl_strings.py
-msgid "Censor NSFW"
-msgstr "Cenzēt NSFW"
-
-#: plugin/xdl_strings.py
 msgid "Chat (Testing):"
 msgstr "Tērzēšana (testēšana):"
+
+#: plugin/xdl_strings.py
+msgid "Check Venv"
+msgstr "Pārbaudīt Venv"
 
 #: plugin/xdl_strings.py
 msgid "Clear"
@@ -2175,6 +2111,10 @@ msgstr ""
 "Piešķiriet rezultātu mainīgajam 'result'."
 
 #: plugin/xdl_strings.py
+msgid "Entities"
+msgstr "Entītijas"
+
+#: plugin/xdl_strings.py
 msgid "General"
 msgstr "Vispārīgi"
 
@@ -2203,12 +2143,16 @@ msgid "Insert LaTeX Math"
 msgstr "Ievietot LaTeX formulu"
 
 #: plugin/xdl_strings.py
-msgid "Max Tokens:"
-msgstr "Maks. žetoni:"
+msgid "Insert report here"
+msgstr "Ievietot atskaiti šeit"
 
 #: plugin/xdl_strings.py
-msgid "Max Wait (s):"
-msgstr "Maksimālais gaidīšanas laiks (s):"
+msgid "Key Phrases"
+msgstr "Atslēgas frāzes"
+
+#: plugin/xdl_strings.py
+msgid "Max Tokens:"
+msgstr "Maks. žetoni:"
 
 #: plugin/xdl_strings.py
 msgid "Message"
@@ -2255,6 +2199,10 @@ msgid "Python Test"
 msgstr "Python tests"
 
 #: plugin/xdl_strings.py
+msgid "Readability"
+msgstr "Lasāmība"
+
+#: plugin/xdl_strings.py
 msgid "Rebuild"
 msgstr "Pārbūvēt"
 
@@ -2299,6 +2247,10 @@ msgid "Selection"
 msgstr "Atlase"
 
 #: plugin/xdl_strings.py
+msgid "Sentiment"
+msgstr "Noskaņojums"
+
+#: plugin/xdl_strings.py
 msgid "Server Status"
 msgstr "Servera statuss"
 
@@ -2331,8 +2283,8 @@ msgid "Timeout (s):"
 msgstr "Noildze (s):"
 
 #: plugin/xdl_strings.py
-msgid "Use AI Horde for Image Generation"
-msgstr "Izmantot AI Horde attēlu ģenerēšanai"
+msgid "Topics"
+msgstr "Tēmas"
 
 #: plugin/xdl_strings.py
 msgid "Vectorize columns when safe"
@@ -2341,6 +2293,10 @@ msgstr "Vektorizēt kolonnas, ja droši"
 #: plugin/xdl_strings.py
 msgid "Verify recalc (oracle diff)"
 msgstr "Pārbaudīt pārrēķinu (oracle diff)"
+
+#: plugin/xdl_strings.py
+msgid "Whole Document"
+msgstr "Viss dokuments"
 
 #: plugin/xdl_strings.py
 msgid "Writer"
@@ -2375,8 +2331,8 @@ msgid "Path / URL"
 msgstr "Ceļš / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
 "Ceļš uz aizmugursistēmas CLI (piem., aider) vai ACP servera URL (piem., "
 "http://localhost:8000 priekš Hermes). Tukšs = mēģināt noklusējuma."
@@ -2506,9 +2462,9 @@ msgstr "Humanizētāja prasme (dabiska proza)"
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
-"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
-"dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
 msgstr ""
 "Ja iespējots, sistēmas uzvednē tiek ievadīti norādījumi, lai modelis "
 "padarītu ģenerēto vai pārskatīto dokumenta tekstu dabiskāku un cilvēcīgāku "
@@ -2525,12 +2481,13 @@ msgstr "Iespējot AI gramatikas pārbaudītāju (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
-"Ja ir ieslēgts, WriterAgent reģistrē savu AI gramatikas korektoru Linguistic "
-"rīkā; pārbaudītais teksts izmanto jūsu API (Rīki → Opcijas → AI). "
-"Pasvītrojumi parādās neilgi pēc rakstīšanas pauzes. Pēc noklusējuma izslēgts."
+"Ja ir ieslēgts, WriterAgent reģistrē savu AI gramatikas korektoru Linguistic"
+" rīkā; pārbaudītais teksts izmanto jūsu API (Rīki → Opcijas → AI). "
+"Pasvītrojumi parādās neilgi pēc rakstīšanas pauzes. Pēc noklusējuma "
+"izslēgts."
 
 msgid "Model (optional)"
 msgstr "Modelis (neobligāti)"
@@ -2546,8 +2503,8 @@ msgid ""
 "runs, to avoid concurrent API calls."
 msgstr ""
 "Ja ir ieslēgts, AI gramatikas pārbaude izlaiž fona pieprasījumus, kamēr "
-"darbojas sānjoslas tērzēšana vai aģents, lai izvairītos no vienlaicīgiem API "
-"izsaukumiem."
+"darbojas sānjoslas tērzēšana vai aģents, lai izvairītos no vienlaicīgiem API"
+" izsaukumiem."
 
 msgid "Batch sentences"
 msgstr "Pakešapstrādes teikumi"
@@ -2558,8 +2515,8 @@ msgid ""
 "cause model errors."
 msgstr ""
 "Vienā LLM pieprasījumā sūtāmo teikumu skaits (1-8). 1 (noklusējums) ir "
-"visuzticamākais; lielākas vērtības ir ātrākas un lētākas, taču var pārsniegt "
-"marķieru (token) limitus vai izraisīt modeļa kļūdas."
+"visuzticamākais; lielākas vērtības ir ātrākas un lētākas, taču var pārsniegt"
+" marķieru (token) limitus vai izraisīt modeļa kļūdas."
 
 msgid "Concurrent requests"
 msgstr "Vienlaicīgi pieprasījumi"
@@ -2584,8 +2541,8 @@ msgid ""
 msgstr ""
 "Pārbaudīt katra pilna teikuma valodu atbilstoši dokumenta lokalizācijai. AI "
 "izmanto jūsu gramatikas/tērzēšanas API; Local izmanto komplektā iekļauto "
-"langdetect (bez API izsaukuma, bez venv). Neatbilstības atjaunina CharLocale "
-"un atkārtoti pārbauda gramatiku."
+"langdetect (bez API izsaukuma, bez venv). Neatbilstības atjaunina CharLocale"
+" un atkārtoti pārbauda gramatiku."
 
 msgid "Off"
 msgstr "Izslēgts"
@@ -2637,8 +2594,8 @@ msgid ""
 "Indexed semantic + keyword search for document_research (corpus.db). "
 "Requires embeddings venv — see Python Test."
 msgstr ""
-"Indeksēta semantiskā un atslēgvārdu meklēšana dokumentu izpētei (corpus.db). "
-"Nepieciešama iegultņu (embeddings) virtuālā vide — skatīt Python testu."
+"Indeksēta semantiskā un atslēgvārdu meklēšana dokumentu izpētei (corpus.db)."
+" Nepieciešama iegultņu (embeddings) virtuālā vide — skatīt Python testu."
 
 msgid "Embeddings + FTS"
 msgstr "Iegultnes + FTS"
@@ -2648,9 +2605,6 @@ msgstr "LlamaIndex"
 
 msgid "Zvec (experimental)"
 msgstr "Zvec (eksperimentāls)"
-
-msgid "ChromaDB"
-msgstr "ChromaDB"
 
 msgid "LanceDB (experimental)"
 msgstr "LanceDB (eksperimentāls)"
@@ -2670,15 +2624,15 @@ msgid ""
 "Second-stage cross-encoder after hybrid retrieve (Embeddings + FTS and "
 "LlamaIndex). Off by default."
 msgstr ""
-"Otrā posma šķērsenkodētājs pēc hibrīdizguves (iegulumi + FTS un LlamaIndex). "
-"Pēc noklusējuma izslēgts."
+"Otrā posma šķērsenkodētājs pēc hibrīdizguves (iegulumi + FTS un LlamaIndex)."
+" Pēc noklusējuma izslēgts."
 
 msgid "Rerank model"
 msgstr "Pārrindošanas modelis"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
-"is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
 msgstr ""
 "Izmanto tikai tad, ja ir iespējota pārrindošana. Angļu valodas MiniLM ir "
 "ātrs; bge-reranker-v2-m3 ir daudzvalodu un lejupielādē ~2,3 GB."
@@ -2699,11 +2653,11 @@ msgid "Enable MCP Server"
 msgstr "Iespējot MCP serveri"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Tikai localhost, bez autentifikācijas. Klienti izmanto http://localhost:"
-"<port>/mcp (straumējams HTTP)."
+"Tikai localhost, bez autentifikācijas. Klienti izmanto "
+"http://localhost:<port>/mcp (straumējams HTTP)."
 
 msgid "MCP Port"
 msgstr "MCP ports"
@@ -2720,8 +2674,8 @@ msgid ""
 "stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
-"Ja iestatīts, palaiž rīkus šajā venv (bin/python vai Scripts/python.exe). Ja "
-"tukšs, run_venv_python_script izmanto šī procesa sys.executable (pamata "
+"Ja iestatīts, palaiž rīkus šajā venv (bin/python vai Scripts/python.exe). Ja"
+" tukšs, run_venv_python_script izmanto šī procesa sys.executable (pamata "
 "stdlib); izmantojiet venv priekš numpy/pandas un Vision Helpers (paddleocr, "
 "paddlepaddle)."
 
@@ -2742,11 +2696,11 @@ msgid "Max Calc data cells"
 msgstr "Maksimālais Calc datu šūnu skaits"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
-"Maksimālais šūnu skaits =PYTHON() datos vai Run Python Script data/"
-"data_range. Lielākas vērtības patērē vairāk RAM un laika; UNO apgabala "
+"Maksimālais šūnu skaits =PYTHON() datos vai Run Python Script "
+"data/data_range. Lielākas vērtības patērē vairāk RAM un laika; UNO apgabala "
 "nolasīšana joprojām ir dominējošā."
 
 msgid "Python session mode"
@@ -2764,6 +2718,16 @@ msgstr "Izolēts (noklusējums)"
 
 msgid "Shared kernel"
 msgstr "Koplietots kodols"
+
+msgid "Python auto spill in Calc"
+msgstr "Python automātiska izvēršana programmā Calc"
+
+msgid ""
+"Automatically spill multi-cell array/DataFrame results from =PYTHON() into "
+"adjacent cells."
+msgstr ""
+"Automātiski izvērst vairāku šūnu masīva/DataFrame rezultātus no =PYTHON() "
+"blakus esošajās šūnās."
 
 msgid "Vision / OCR"
 msgstr "Vīzija / OCR"

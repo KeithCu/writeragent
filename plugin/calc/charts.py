@@ -169,10 +169,17 @@ def _process_events(ctx=None):
     if os.environ.get("WRITERAGENT_TESTING") == "1":
         return
     try:
-        from plugin.framework.uno_context import process_events_to_idle, get_ctx
+        from plugin.framework.uno_context import get_desktop, get_ctx
         uctx = ctx or get_ctx()
-        if uctx:
-            process_events_to_idle(uctx)
+        if not uctx:
+            return
+        # Bypass if running in headless mode (no active frame) to avoid event pump hangs during chart rendering
+        desktop = get_desktop(uctx)
+        if desktop and desktop.getActiveFrame() is None:
+            return
+
+        from plugin.framework.uno_context import process_events_to_idle
+        process_events_to_idle(uctx)
     except Exception:
         # Avoid letting UI event processing crash the tool
         pass

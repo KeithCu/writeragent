@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-17 17:50-0400\n"
+"POT-Creation-Date: 2026-06-22 15:38-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Slovak <LL@li.org>\n"
@@ -19,8 +19,8 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
 "Čítanie výskumu dokumentov vyžaduje špecializovanú delegáciu úloh "
 "(USE_SUB_AGENT). Povoľte túto možnosť v konfigurácii."
@@ -28,13 +28,13 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Volanie nástroja prepnuté na '{0}'. Nachádzate sa v režime špecializovanej "
-"sady nástrojov. Po dokončení musíte zavolať 'specialized_workflow_finished', "
-"aby sa obnovila úplná sada rozhraní API."
+"sady nástrojov. Po dokončení musíte zavolať 'specialized_workflow_finished',"
+" aby sa obnovila úplná sada rozhraní API."
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
@@ -46,15 +46,16 @@ msgstr "Spustenie poznámkového bloku je podporované iba v LibreOffice Writer.
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
-"Tento dokument neobsahuje žiadny importovaný poznámkový blok. Najprv použite "
-"Nástroje → Importovať Jupyter Notebook…"
+"Tento dokument neobsahuje žiadny importovaný poznámkový blok. Najprv použite"
+" Nástroje → Importovať Jupyter Notebook…"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Could not find notebook cell for this control."
-msgstr "Pre tento ovládací prvok sa nepodarilo nájsť bunku poznámkového bloku."
+msgstr ""
+"Pre tento ovládací prvok sa nepodarilo nájsť bunku poznámkového bloku."
 
 #: plugin/notebook/notebook_runner.py plugin/notebook/import_dialog.py
 msgid "Open a Writer document first."
@@ -97,182 +98,6 @@ msgstr ""
 #: plugin/notebook/writer_importer.py
 msgid "Run code cell"
 msgstr "Spustiť bunku kódu"
-
-#: plugin/contrib/aihordeclient/__init__.py plugin/chatbot/panel.py
-msgid "Starting..."
-msgstr "Spúšťanie..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Updating model requirements..."
-msgstr "Aktualizujú sa požiadavky modelu..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Updating Models..."
-msgstr "Aktualizujú sa modely..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Register at "
-msgstr "Zaregistrujte sa na "
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "You have {} kudos"
-msgstr "Máte {} kudos"
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "«{}» is not a valid API KEY, double check it or create a new one"
-msgstr "„{}“ nie je platný kľúč API, skontrolujte ho alebo vytvorte nový"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"At this moment we can not process your request, please try again later.  If "
-"this is happening for a long period of time, please let us know via Discord"
-msgstr ""
-"Momentálne nemôžeme spracovať vašu požiadavku, skúste to prosím neskôr. Ak "
-"sa to deje dlhší čas, dajte nám o tom vedieť cez Discord"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Problem requesting kudos"
-msgstr "Problém pri vyžiadaní kudos"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"The Horde is in maintenance mode, please try again later, if you have tried "
-"and the service does not respond for hours, please contact via Discord"
-msgstr ""
-"Horda je v režime údržby, skúste to prosím neskôr. Ak ste to skúšali a "
-"služba neodpovedá celé hodiny, kontaktujte nás prosím cez Discord"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"You have made too many requests, please wait for them to finish, and try "
-"again later"
-msgstr ""
-"Odoslali ste príliš veľa požiadaviek, počkajte prosím na ich dokončenie a "
-"skúste to znova neskôr"
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid ""
-"Seems that «{}» has problems, double check it, create a new one or join "
-"Discord to ask for help"
-msgstr ""
-"Zdá sa, že «{}» má problémy, skontrolujte ho, vytvorte nový alebo sa "
-"pripojte na Discord a požiadajte o pomoc"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "We hit an error, still: "
-msgstr "Narazili sme na chybu, stále: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "No longer valid, please try again.  Your request took too long"
-msgstr "Už nie je platné, skúste to znova. Vaša požiadavka trvala príliš dlho"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Contacting the Horde..."
-msgstr "Kontaktujem Hordu..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Horde Contacted"
-msgstr "Horda kontaktovaná"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"When trying to ask for the image, the Horde was too slow, try again later"
-msgstr ""
-"Pri pokuse o vyžiadanie obrázka bola Horda príliš pomalá, skúste to znova "
-"neskôr"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "to learn to earn kudos. Detail:"
-msgstr "naučiť sa zarábať kudos. Podrobnosti:"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Service failed: "
-msgstr "Služba zlyhala: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Downloading generated image..."
-msgstr "Sťahujem vygenerovaný obrázok..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "You are first in the queue"
-msgstr "Ste prvý v poradí"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Queue position: "
-msgstr "Pozícia v poradí: "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Generating..."
-msgstr "Generuje sa..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Get a free API Key at "
-msgstr "Získajte bezplatný API kľúč na "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "."
-msgstr "."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "This model takes more time than your current configuration."
-msgstr "Tento model vyžaduje viac času, než je vaša aktuálna konfigurácia."
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
-msgstr "Skúste iný model. {0} by vyžadoval viac času, než ste nastavili."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Please try again later."
-msgstr "Skúste to prosím neskôr."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "There are no workers available with these settings."
-msgstr "S týmito nastaveniami nie sú k dispozícii žiadni pracovníci."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Probably your image will take one additional minute."
-msgstr "Váš obrázok bude pravdepodobne trvať o jednu minútu dlhšie."
-
-#: plugin/contrib/aihordeclient/__init__.py
-#, python-brace-format
-msgid "Probably your image will take {} additional minutes."
-msgstr "Váš obrázok bude pravdepodobne trvať o {} minút dlhšie."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Fetching images..."
-msgstr "Sťahovanie obrázkov..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid " is censored, try changing the prompt wording"
-msgstr " je cenzurovaný, skúste zmeniť znenie zadania"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Downloading result..."
-msgstr "Sťahovanie výsledku..."
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid "Downloading image"
-msgstr "Sťahovanie obrázka"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid ""
-"You may need to reduce your settings or choose another model, or you may "
-"have been censored. Horde message"
-msgstr ""
-"Možno budete musieť znížiť nastavenia alebo zvoliť iný model, prípadne ste "
-"boli cenzurovaní. Správa Horde"
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid " generated by "
-msgstr " vygenerované pomocou "
-
-#: plugin/contrib/aihordeclient/__init__.py
-msgid " with "
-msgstr " s "
 
 #: plugin/embeddings/search_ui.py
 msgid "Cache Status: No active document"
@@ -354,7 +179,8 @@ msgstr "Chyba: "
 msgid ""
 "Folder index is building in the background. Please retry search shortly."
 msgstr ""
-"Index priečinka sa vytvára na pozadí. Skúste vyhľadávanie zopakovať o chvíľu."
+"Index priečinka sa vytvára na pozadí. Skúste vyhľadávanie zopakovať o "
+"chvíľu."
 
 #: plugin/embeddings/search_ui.py
 msgid "No matches found."
@@ -416,7 +242,8 @@ msgstr ""
 "Nastaveniach."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Pripojenie odmietnuté. Je váš lokálny AI server (Ollama/LM Studio) spustený?"
 
@@ -448,7 +275,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "AI: Pomôžem vám so vzorcami, analýzou údajov a farebnými grafmi. Vyskúšajte "
 "ma!"
@@ -472,9 +300,9 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest "
-"approaches, and help you build an approved spec in your document when you're "
-"ready."
+"AI: Let's explore and design your idea together. I'll ask questions, suggest"
+" approaches, and help you build an approved spec in your document when "
+"you're ready."
 msgstr ""
 "AI: Poďme spoločne preskúmať a navrhnúť váš nápad. Budem klásť otázky, "
 "navrhovať prístupy a pomôžem vám vytvoriť schválenú špecifikáciu vo vašom "
@@ -483,7 +311,8 @@ msgstr ""
 #: plugin/framework/constants.py
 msgid ""
 "AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your approval."
+"writing plan outline, and then implement it incrementally with your "
+"approval."
 msgstr ""
 "AI: Poďme vypracovať váš dokument po častiach. Pomôžem vám vytvoriť osnovu "
 "plánu písania a následne ju postupne realizovať s vaším schválením."
@@ -508,12 +337,16 @@ msgid ""
 "The model is repeating the same chunk (infinite loop). Try again or use a "
 "different model."
 msgstr ""
-"Model opakuje rovnaký úsek (nekonečná slučka). Skúste to znova alebo použite "
-"iný model."
+"Model opakuje rovnaký úsek (nekonečná slučka). Skúste to znova alebo použite"
+" iný model."
 
 #: plugin/calc/python_function.py
 msgid "Image inserted"
 msgstr "Obrázok vložený"
+
+#: plugin/calc/python_function.py
+msgid "Images inserted"
+msgstr "Vložené obrázky"
 
 #: plugin/calc/python_editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
@@ -599,15 +432,14 @@ msgid ""
 "Cannot import webview (pywebview) with the Python from Settings → Python:\n"
 "%(exe)s\n"
 "\n"
-"In that venv run: pip install pywebview\n"
+"In that venv run: uv pip install pywebview\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"Nemožno importovať webview (pywebview) pomocou Pythonu z Nastavenia → "
-"Python:\n"
+"Nemožno importovať webview (pywebview) pomocou Pythonu z Nastavenia → Python:\n"
 "%(exe)s\n"
 "\n"
-"V tomto virtuálnom prostredí (venv) spustite: pip install pywebview\n"
-"(názov importu je webview, názov balíka je pywebview)."
+"V tomto virtuálnom prostredí (venv) spustite: uv pip install pywebview\n"
+"(názov pre import je webview, názov balíka je pywebview)."
 
 #: plugin/calc/python_editor.py
 msgid "unknown error"
@@ -1050,6 +882,10 @@ msgid "Send"
 msgstr "Odoslať"
 
 #: plugin/chatbot/panel.py
+msgid "Starting..."
+msgstr "Spúšťanie..."
+
+#: plugin/chatbot/panel.py
 msgid "Getting document..."
 msgstr "Získava sa dokument..."
 
@@ -1156,8 +992,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Nenašiel sa žiadny editor (nainštalujte Kate alebo Gedit, prípadne nastavte "
-"premennú EDITOR). Cesta:\n"
+"Nenašiel sa žiadny editor (nainštalujte Kate alebo Gedit, prípadne nastavte premennú EDITOR). Cesta:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -1194,7 +1029,8 @@ msgstr "[Backend agenta „{0}“ sa nenašiel.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Backend agenta „{0}“ nie je k dispozícii. Skontrolujte nastavenia (cesta, "
 "inštalácia).]"
@@ -1329,8 +1165,8 @@ msgid ""
 "Document is read-only or properties cannot be written. Script saved to your "
 "personal library instead."
 msgstr ""
-"Dokument je len na čítanie alebo vlastnosti nie je možné zapísať. Skript bol "
-"namiesto toho uložený do vašej osobnej knižnice."
+"Dokument je len na čítanie alebo vlastnosti nie je možné zapísať. Skript bol"
+" namiesto toho uložený do vašej osobnej knižnice."
 
 #: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
 msgid "Script name cannot be empty."
@@ -1362,12 +1198,20 @@ msgid "Units Helpers"
 msgstr "Pomocníci jednotiek"
 
 #: plugin/scripting/document_scripts.py
+msgid "Text Analytics Helpers"
+msgstr "Pomocníci pre analýzu textu"
+
+#: plugin/scripting/document_scripts.py
 msgid "Quant Helpers"
 msgstr "Kvantitatívni pomocníci"
 
 #: plugin/scripting/document_scripts.py
 msgid "Optimize Helpers"
 msgstr "Optimalizační pomocníci"
+
+#: plugin/scripting/document_scripts.py
+msgid "SQL Helpers"
+msgstr "Pomocníci pre SQL"
 
 #: plugin/scripting/document_scripts.py
 msgid "My Scripts"
@@ -1529,10 +1373,11 @@ msgid "Could not talk to the Python editor."
 msgstr "Nepodarilo sa komunikovať s editorom Pythonu."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
-"Časový limit vizuálnej sondy vypršal (import Docling môže pri prvej kontrole "
-"trvať 10 – 30 s)."
+"Časový limit vizuálnej sondy vypršal (import Docling môže pri prvej kontrole"
+" trvať 10 – 30 s)."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vision probe failed (see writeragent_debug.log)."
@@ -1565,6 +1410,10 @@ msgstr "Knižnice pre kvantitatívne financie"
 #: plugin/scripting/venv_diagnostics.py
 msgid "Data Engineering Libraries"
 msgstr "Knižnice dátového inžinierstva"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text / NLP Libraries"
+msgstr "Knižnice pre text / NLP"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries"
@@ -1603,6 +1452,91 @@ msgstr "Rozlišuje sa venv Python..."
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using"
 msgstr "Používa sa"
+
+#: plugin/scripting/text_analytics_ui.py plugin/xdl_strings.py
+msgid "Text Analytics"
+msgstr "Analýza textu"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Could not load the analytics dialog."
+msgstr "Nepodarilo sa načítať dialógové okno analýzy."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Checking spaCy / textdescriptives / transformers installation..."
+msgstr "Kontrola inštalácie spaCy / textdescriptives / transformers..."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-brace-format
+msgid ""
+"Error from the Text Analytics worker:\n"
+"{err}\n"
+"\n"
+"The features in this dialog require these packages in the python it is using:\n"
+"  • spacy + a model          (entities, key phrases, basic stats)\n"
+"  • textdescriptives         (real Readability scores)\n"
+"  • transformers + torch     (Sentiment using the multilingual model)\n"
+"\n"
+"Install them with:\n"
+"  {install}\n"
+"\n"
+"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
+msgstr ""
+"Chyba z procesu analýzy textu:\n"
+"{err}\n"
+"\n"
+"Funkcie v tomto dialógovom okne vyžadujú tieto balíky v používanom Pythone:\n"
+"  • spacy + model          (entity, kľúčové frázy, základné štatistiky)\n"
+"  • textdescriptives         (skutočné skóre čitateľnosti)\n"
+"  • transformers + torch     (analýza sentimentu pomocou viacjazyčného modelu)\n"
+"\n"
+"Nainštalujte ich pomocou:\n"
+"  {install}\n"
+"\n"
+"Proces nahlásil chýbajúci modul. Overte, či sú balíky nainštalované v presnom spustiteľnom súbore Pythonu, ktorý proces priradil k vášmu nakonfigurovanému venv."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Open a Writer document to analyze."
+msgstr "Na analýzu otvorte dokument Writer."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Not enough text in the chosen scope."
+msgstr "Vo zvolenom rozsahu nie je dostatok textu."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Analyzing..."
+msgstr "Analyzuje sa..."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-format
+msgid ""
+"Error: %s\n"
+"\n"
+"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
+msgstr ""
+"Chyba: %s\n"
+"\n"
+"Vo vašom nakonfigurovanom venv (Nastavenia → Python) môžu chýbať požadované balíky. Kliknite na Skontrolovať Venv v tomto dialógovom okne alebo použite úplný Test v Nastavenia → Python pre podrobnosti o spacy, textdescriptives, transformers, torch atď."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "No Writer document to insert into."
+msgstr "Žiadny dokument Writer, do ktorého by sa dalo vkladať."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Run an analysis first."
+msgstr "Najprv spustite analýzu."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Nothing useful to insert from the last result."
+msgstr "Z posledného výsledku nie je možné vložiť nič užitočné."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-format
+msgid "Insert failed: %s"
+msgstr "Vloženie zlyhalo: %s"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Inserted after selection/caret."
+msgstr "Vložené za výberom/kurzorom."
 
 #: plugin/scripting/symbolic.py
 msgid "Symbolic helper failed."
@@ -1671,8 +1605,8 @@ msgid ""
 "Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
 "try again."
 msgstr ""
-"Resetovanie relácie Python sa vzťahuje na tabuľky Calc. Otvorte zošit Calc a "
-"skúste to znova."
+"Resetovanie relácie Python sa vzťahuje na tabuľky Calc. Otvorte zošit Calc a"
+" skúste to znova."
 
 #: plugin/scripting/session_manager.py
 msgid "Python session reset for this workbook."
@@ -1702,8 +1636,8 @@ msgid ""
 "This Writer document has no imported notebook registry. Use Tools → Import "
 "Jupyter Notebook… to enable notebook Python session reset."
 msgstr ""
-"Tento dokument Writer nemá importovaný register poznámkových blokov. Použite "
-"Nástroje → Importovať Jupyter Notebook…, aby ste povolili reset relácie "
+"Tento dokument Writer nemá importovaný register poznámkových blokov. Použite"
+" Nástroje → Importovať Jupyter Notebook…, aby ste povolili reset relácie "
 "Pythonu pre poznámkový blok."
 
 #: plugin/scripting/units.py plugin/scripting/python_runner.py
@@ -1777,7 +1711,8 @@ msgstr ""
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
-msgstr "Vision '{helper}' dokončený. Vložené formátované HTML. (trvalo {time})"
+msgstr ""
+"Vision '{helper}' dokončený. Vložené formátované HTML. (trvalo {time})"
 
 #: plugin/scripting/python_runner.py
 msgid "Viz helpers require a Writer or Calc document."
@@ -1804,12 +1739,25 @@ msgid "Units helpers require a Writer or Calc document."
 msgstr "Pomocníci pre jednotky vyžadujú dokument Writer alebo Calc."
 
 #: plugin/scripting/python_runner.py
+msgid "Text analytics helpers require a Writer document."
+msgstr "Pomocníci pre analýzu textu vyžadujú dokument Writer."
+
+#: plugin/scripting/python_runner.py
+msgid "Text analytics helper failed."
+msgstr "Pomocník pre analýzu textu zlyhal."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Text analytics '{helper}' completed. (took {time})"
+msgstr "Analýza textu „{helper}“ dokončená. (trvala {time})"
+
+#: plugin/scripting/python_runner.py
 msgid ""
 "Quant helper requires a data range. Select cells or enter a range in the "
 "Data field."
 msgstr ""
-"Pomocník Quant vyžaduje rozsah údajov. Vyberte bunky alebo zadajte rozsah do "
-"poľa Údaje."
+"Pomocník Quant vyžaduje rozsah údajov. Vyberte bunky alebo zadajte rozsah do"
+" poľa Údaje."
 
 #: plugin/scripting/python_runner.py
 msgid "Quant failed."
@@ -1818,7 +1766,8 @@ msgstr "Quant zlyhal."
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid "Quant '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr "Quant '{helper}' dokončený. Zapísaných {rows} riadkov. (trvalo {time})"
+msgstr ""
+"Quant '{helper}' dokončený. Zapísaných {rows} riadkov. (trvalo {time})"
 
 #: plugin/scripting/python_runner.py
 msgid ""
@@ -1860,8 +1809,8 @@ msgstr ""
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "Skript bol úspešne vykonaný, ale nevrátil žiadny výsledok a nevyprodukoval "
 "žiadny výstup. (trvalo {time})"
@@ -2017,6 +1966,10 @@ msgid "Search Nearby Files..."
 msgstr "Hľadať v blízkych súboroch..."
 
 #: plugin/main.py
+msgid "Text Analytics..."
+msgstr "Analýza textu..."
+
+#: plugin/main.py
 msgid "Convert Sheet to Python..."
 msgstr "Konvertovať hárok na Python..."
 
@@ -2027,14 +1980,6 @@ msgstr "Chyba odoslania"
 #: plugin/xdl_strings.py
 msgid "-1"
 msgstr "-1"
-
-#: plugin/xdl_strings.py
-msgid "7.5"
-msgstr "7.5"
-
-#: plugin/xdl_strings.py
-msgid "AI Horde API Key:"
-msgstr "Kľúč API AI Horde:"
 
 #: plugin/xdl_strings.py
 msgid "AI Model:"
@@ -2055,10 +2000,6 @@ msgstr "Ďalšie pokyny (história):"
 #: plugin/xdl_strings.py
 msgid "Additional Instructions:"
 msgstr "Ďalšie pokyny:"
-
-#: plugin/xdl_strings.py
-msgid "Allow NSFW"
-msgstr "Povoliť NSFW"
 
 #: plugin/xdl_strings.py
 msgid "Ask / instruct:"
@@ -2089,10 +2030,6 @@ msgid "Base:"
 msgstr "Základ:"
 
 #: plugin/xdl_strings.py
-msgid "CFG Scale:"
-msgstr "Mierka CFG:"
-
-#: plugin/xdl_strings.py
 msgid "Cache Status: Checking..."
 msgstr "Stav vyrovnávacej pamäte: Kontroluje sa..."
 
@@ -2109,12 +2046,12 @@ msgid "Categories:"
 msgstr "Kategórie:"
 
 #: plugin/xdl_strings.py
-msgid "Censor NSFW"
-msgstr "Cenzurovať NSFW"
-
-#: plugin/xdl_strings.py
 msgid "Chat (Testing):"
 msgstr "Chat (testovanie):"
+
+#: plugin/xdl_strings.py
+msgid "Check Venv"
+msgstr "Skontrolovať virtuálne prostredie"
 
 #: plugin/xdl_strings.py
 msgid "Clear"
@@ -2165,9 +2102,12 @@ msgid ""
 "Enter Python code to execute in the user virtual environment.\n"
 "Assign the result to the 'result' variable."
 msgstr ""
-"Zadajte kód v jazyku Python, ktorý sa má vykonať v používateľskom virtuálnom "
-"prostredí.\n"
+"Zadajte kód v jazyku Python, ktorý sa má vykonať v používateľskom virtuálnom prostredí.\n"
 "Výsledok priraďte k premennej 'result'."
+
+#: plugin/xdl_strings.py
+msgid "Entities"
+msgstr "Entity"
 
 #: plugin/xdl_strings.py
 msgid "General"
@@ -2198,12 +2138,16 @@ msgid "Insert LaTeX Math"
 msgstr "Vložiť LaTeX matematiku"
 
 #: plugin/xdl_strings.py
-msgid "Max Tokens:"
-msgstr "Maximálny počet tokenov:"
+msgid "Insert report here"
+msgstr "Vložiť správu sem"
 
 #: plugin/xdl_strings.py
-msgid "Max Wait (s):"
-msgstr "Maximálne čakanie (s):"
+msgid "Key Phrases"
+msgstr "Kľúčové frázy"
+
+#: plugin/xdl_strings.py
+msgid "Max Tokens:"
+msgstr "Maximálny počet tokenov:"
 
 #: plugin/xdl_strings.py
 msgid "Message"
@@ -2250,6 +2194,10 @@ msgid "Python Test"
 msgstr "Test Python"
 
 #: plugin/xdl_strings.py
+msgid "Readability"
+msgstr "Čitateľnosť"
+
+#: plugin/xdl_strings.py
 msgid "Rebuild"
 msgstr "Znova zostaviť"
 
@@ -2294,6 +2242,10 @@ msgid "Selection"
 msgstr "Výber"
 
 #: plugin/xdl_strings.py
+msgid "Sentiment"
+msgstr "Sentiment"
+
+#: plugin/xdl_strings.py
 msgid "Server Status"
 msgstr "Stav servera"
 
@@ -2326,8 +2278,8 @@ msgid "Timeout (s):"
 msgstr "Časový limit (s):"
 
 #: plugin/xdl_strings.py
-msgid "Use AI Horde for Image Generation"
-msgstr "Použiť AI Horde na generovanie obrázkov"
+msgid "Topics"
+msgstr "Témy"
 
 #: plugin/xdl_strings.py
 msgid "Vectorize columns when safe"
@@ -2336,6 +2288,10 @@ msgstr "Vektorizovať stĺpce, ak je to bezpečné"
 #: plugin/xdl_strings.py
 msgid "Verify recalc (oracle diff)"
 msgstr "Overiť prepočet (rozdiel oracle)"
+
+#: plugin/xdl_strings.py
+msgid "Whole Document"
+msgstr "Celý dokument"
 
 #: plugin/xdl_strings.py
 msgid "Writer"
@@ -2370,11 +2326,11 @@ msgid "Path / URL"
 msgstr "Cesta / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Cesta k backendovému CLI (napr. aider) alebo URL servera ACP (napr. http://"
-"localhost:8000 pre Hermes). Prázdne = skúsiť predvolené."
+"Cesta k backendovému CLI (napr. aider) alebo URL servera ACP (napr. "
+"http://localhost:8000 pre Hermes). Prázdne = skúsiť predvolené."
 
 msgid "Extra arguments"
 msgstr "Ďalšie argumenty"
@@ -2459,8 +2415,8 @@ msgid ""
 "Select the browser backend to use for webpage visits during research (Off "
 "uses static HTTP requests)."
 msgstr ""
-"Vyberte backend prehliadača, ktorý sa má použiť na návštevy webových stránok "
-"počas prieskumu (Vypnuté používa statické požiadavky HTTP)."
+"Vyberte backend prehliadača, ktorý sa má použiť na návštevy webových stránok"
+" počas prieskumu (Vypnuté používa statické požiadavky HTTP)."
 
 msgid "Off (Static HTTP)"
 msgstr "Vypnuté (statické HTTP)"
@@ -2487,8 +2443,8 @@ msgstr "Platnosť vyrovnávacej pamäte (dni)"
 
 msgid "How many days cache entries should be considered valid."
 msgstr ""
-"Počet dní, počas ktorých sa majú záznamy vo vyrovnávacej pamäti považovať za "
-"platné."
+"Počet dní, počas ktorých sa majú záznamy vo vyrovnávacej pamäti považovať za"
+" platné."
 
 msgid "Rich Text Control Sidebar"
 msgstr "Bočný panel ovládača formátovaného textu"
@@ -2502,9 +2458,9 @@ msgstr "Zručnosť humanizácie (prirodzený text)"
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
-"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
-"dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
 msgstr ""
 "Keď je povolené, vloží usmernenie do systémovej výzvy, aby generovaný alebo "
 "revidovaný text dokumentu znel prirodzenejšie a ľudskejšie (odstraňuje "
@@ -2520,8 +2476,8 @@ msgstr "Povoliť kontrolu gramatiky AI (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "Keď je táto možnosť zapnutá, WriterAgent zaregistruje svoj nástroj na "
 "kontrolu gramatiky AI v rámci jazykových nástrojov; kontrolovaný text "
@@ -2543,8 +2499,8 @@ msgid ""
 "runs, to avoid concurrent API calls."
 msgstr ""
 "Keď je táto možnosť zapnutá, kontrola gramatiky AI preskočí žiadosti na "
-"pozadí, kým beží chat na bočnom paneli alebo agent, aby sa predišlo súbežným "
-"volaniam API."
+"pozadí, kým beží chat na bočnom paneli alebo agent, aby sa predišlo súbežným"
+" volaniam API."
 
 msgid "Batch sentences"
 msgstr "Dávkové vety"
@@ -2579,8 +2535,8 @@ msgid ""
 "uses your grammar/chat API; Local uses bundled langdetect (no API call, no "
 "venv). Mismatches update CharLocale and re-check grammar."
 msgstr ""
-"Overte každú celú vetu podľa jazyka dokumentu. AI používa vaše rozhranie API "
-"pre gramatiku/chat; Lokálne používa pribalený nástroj langdetect (žiadne "
+"Overte každú celú vetu podľa jazyka dokumentu. AI používa vaše rozhranie API"
+" pre gramatiku/chat; Lokálne používa pribalený nástroj langdetect (žiadne "
 "volanie API, žiadne venv). Neshody aktualizujú CharLocale a znova "
 "skontrolujú gramatiku."
 
@@ -2612,9 +2568,9 @@ msgid ""
 "Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
 "review."
 msgstr ""
-"Vypnuté = priame úpravy. Záznam = sledované zmeny, ktoré sami prijmete/"
-"odmietnete. Čakať = apply_document_content blokuje (vo vlákne chatu/MCP), "
-"kým nevykonáte kontrolu."
+"Vypnuté = priame úpravy. Záznam = sledované zmeny, ktoré sami "
+"prijmete/odmietnete. Čakať = apply_document_content blokuje (vo vlákne "
+"chatu/MCP), kým nevykonáte kontrolu."
 
 msgid "Record (track changes)"
 msgstr "Záznam (sledovať zmeny)"
@@ -2647,9 +2603,6 @@ msgstr "LlamaIndex"
 msgid "Zvec (experimental)"
 msgstr "Zvec (experimentálne)"
 
-msgid "ChromaDB"
-msgstr "ChromaDB"
-
 msgid "LanceDB (experimental)"
 msgstr "LanceDB (experimentálne)"
 
@@ -2658,8 +2611,8 @@ msgstr "Vkladací model"
 
 msgid "HuggingFace model ID for local provider, or endpoint-specific model ID"
 msgstr ""
-"ID modelu HuggingFace pre lokálneho poskytovateľa alebo ID modelu špecifické "
-"pre koncový bod"
+"ID modelu HuggingFace pre lokálneho poskytovateľa alebo ID modelu špecifické"
+" pre koncový bod"
 
 msgid "Enable cross-file rerank"
 msgstr "Povoliť rerank naprieč súbormi"
@@ -2675,11 +2628,11 @@ msgid "Rerank model"
 msgstr "Model na rerank"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
-"is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
 msgstr ""
-"Používa sa len vtedy, keď je povolený rerank. Anglický MiniLM je rýchly; bge-"
-"reranker-v2-m3 je viacjazyčný a sťahuje približne 2,3 GB."
+"Používa sa len vtedy, keď je povolený rerank. Anglický MiniLM je rýchly; "
+"bge-reranker-v2-m3 je viacjazyčný a sťahuje približne 2,3 GB."
 
 msgid "cross-encoder/ms-marco-MiniLM-L-6-v2"
 msgstr "cross-encoder/ms-marco-MiniLM-L-6-v2"
@@ -2697,11 +2650,11 @@ msgid "Enable MCP Server"
 msgstr "Povoliť server MCP"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Iba localhost, bez autentifikácie. Klienti používajú http://localhost:<port>/"
-"mcp (streamovateľné HTTP)."
+"Iba localhost, bez autentifikácie. Klienti používajú "
+"http://localhost:<port>/mcp (streamovateľné HTTP)."
 
 msgid "MCP Port"
 msgstr "Port MCP"
@@ -2718,10 +2671,10 @@ msgid ""
 "stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
-"Ak je nastavené, spustí nástroje v danom venv (bin/python alebo Scripts/"
-"python.exe). Ak je prázdne, run_venv_python_script použije sys.executable "
-"tohto procesu (základná stdlib); pre numpy/pandas a pomocníkov vízie "
-"(paddleocr, paddlepaddle) použite venv."
+"Ak je nastavené, spustí nástroje v danom venv (bin/python alebo "
+"Scripts/python.exe). Ak je prázdne, run_venv_python_script použije "
+"sys.executable tohto procesu (základná stdlib); pre numpy/pandas a "
+"pomocníkov vízie (paddleocr, paddlepaddle) použite venv."
 
 msgid "Test"
 msgstr "Test"
@@ -2739,12 +2692,12 @@ msgid "Max Calc data cells"
 msgstr "Maximálny počet buniek údajov v Calc"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
 "Maximálny počet buniek v údajoch =PYTHON() alebo v údajoch/oblasti údajov "
-"funkcie Spustiť skript Python. Vyššie hodnoty spotrebúvajú viac pamäte RAM a "
-"času; čítanie rozsahu UNO je stále dominantné."
+"funkcie Spustiť skript Python. Vyššie hodnoty spotrebúvajú viac pamäte RAM a"
+" času; čítanie rozsahu UNO je stále dominantné."
 
 msgid "Python session mode"
 msgstr "Režim relácie Pythonu"
@@ -2761,6 +2714,16 @@ msgstr "Izolované (predvolené)"
 
 msgid "Shared kernel"
 msgstr "Zdieľané jadro"
+
+msgid "Python auto spill in Calc"
+msgstr "Automatické rozliatie Python v aplikácii Calc"
+
+msgid ""
+"Automatically spill multi-cell array/DataFrame results from =PYTHON() into "
+"adjacent cells."
+msgstr ""
+"Automaticky rozliať výsledky viacbunkového poľa/dátového rámca z funkcie "
+"=PYTHON() do susedných buniek."
 
 msgid "Vision / OCR"
 msgstr "Vízia / OCR"
@@ -2783,7 +2746,8 @@ msgstr "Cesta k artefaktom Docling"
 
 msgid "Optional folder from docling-tools models download (offline use)."
 msgstr ""
-"Voliteľný priečinok na stiahnuté modely docling-tools (pre offline použitie)."
+"Voliteľný priečinok na stiahnuté modely docling-tools (pre offline "
+"použitie)."
 
 msgid "OCR confidence threshold"
 msgstr "Prahová hodnota spoľahlivosti OCR"
@@ -2827,8 +2791,8 @@ msgid ""
 "html = Docling HTML import (default). structured = bbox column layout in "
 "Writer; native Calc cells for extract_structure tables."
 msgstr ""
-"html = import HTML cez Docling (predvolené). structured = rozloženie stĺpcov "
-"s ohraničením (bbox) vo Writeri; natívne bunky Calc pre tabuľky "
+"html = import HTML cez Docling (predvolené). structured = rozloženie stĺpcov"
+" s ohraničením (bbox) vo Writeri; natívne bunky Calc pre tabuľky "
 "extract_structure."
 
 msgid "Standard HTML"
