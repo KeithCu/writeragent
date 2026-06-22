@@ -78,13 +78,12 @@ from plugin.writer.locale.grammar_work_queue import (
     next_enqueue_seq,
 )
 
-# --- Testing seam (TD2) -------------------------------------------------
+# --- Testing seam -------------------------------------------------------
 # Single explicit entry point for unit tests that need to invoke or patch
 # cross-module helpers (run_llm_and_cache lives in the work queue; locale
 # helpers are pure but were historically reached via this module for UNO
 # bootstrap reasons). Production code uses the clean imported names directly;
 # no module-level private aliases or F401 test hacks remain.
-# See docs/realtime-grammar-checker-plan.md (TD2).
 
 
 def _get_testing_api():

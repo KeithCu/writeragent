@@ -44,14 +44,19 @@ def teardown(func):
     return func
 
 
-def _run_suite(ctx: Any, suites: List[Dict[str, Any]], name: str, module, *args) -> None:
+def _run_suite(ctx: Any, suites: List[Dict[str, Any]], name: str, module, *args) -> tuple[int, int]:
     """Run a test module using the decorator-based native runner.
 
     Collects functions marked with @setup, @teardown, and @native_test.
     Executes setup(ctx), then all tests(ctx), then teardown(ctx).
+    Returns (passed, failed) for top-level aggregation.
     """
     passed, failed, suite_log = run_module_suite(ctx, module, name, *args)
-    suites.append({"name": name, "passed": passed, "failed": failed, "log": suite_log})
+    entry: Dict[str, Any] = {"name": name, "log": suite_log}
+    if failed:
+        entry["failed"] = failed
+    suites.append(entry)
+    return passed, failed
 
 
 def run_module_suite(ctx, module, name, doc_model=None):
@@ -97,8 +102,6 @@ def run_module_suite(ctx, module, name, doc_model=None):
 
     try:
         if setup_func:
-            setup_name = getattr(setup_func, "__name__", repr(setup_func))
-            suite_log.append(f"Running setup: {setup_name}")
             import inspect
 
             try:
@@ -112,32 +115,32 @@ def run_module_suite(ctx, module, name, doc_model=None):
                 setup_func()
 
         for test_func in test_funcs:
+            test_line = f"Running test: {test_func.__name__}"
             try:
-                suite_log.append(f"Running test: {test_func.__name__}")
                 # Pass doc_model if test_func accepts arguments, otherwise call normally
                 # (Existing tests assume global _test_doc from setup)
                 test_func()
                 total_passed += 1
-                suite_log.append(f"OK: {test_func.__name__}")
+                suite_log.append(f"{test_line} — OK")
             except ModuleNotFoundError as e:
                 # Some "native" tests attempt to use pytest.skip, but LibreOffice's
                 # Python may not have pytest installed.
                 if getattr(e, "name", None) == "pytest":
-                    suite_log.append(f"SKIP: {test_func.__name__} (pytest not available)")
+                    suite_log.append(f"{test_line} — SKIP (pytest not available)")
                     continue
                 total_failed += 1
-                suite_log.append(f"FAIL: {test_func.__name__} (ModuleNotFoundError: {e})")
+                suite_log.append(f"{test_line} — FAIL (ModuleNotFoundError: {e})")
                 suite_log.append(traceback.format_exc())
             except unittest.SkipTest as e:
                 total_passed += 1
-                suite_log.append(f"OK (skipped): {test_func.__name__} ({e})")
+                suite_log.append(f"{test_line} — OK (skipped) ({e})")
             except AssertionError as e:
                 total_failed += 1
-                suite_log.append(f"FAIL: {test_func.__name__} (AssertionError: {e})")
+                suite_log.append(f"{test_line} — FAIL (AssertionError: {e})")
                 suite_log.append(traceback.format_exc())
             except Exception as e:
                 total_failed += 1
-                suite_log.append(f"FAIL: {test_func.__name__} (Exception: {e})")
+                suite_log.append(f"{test_line} — FAIL ({type(e).__name__}: {e})")
                 suite_log.append(traceback.format_exc())
 
     except Exception as e:
@@ -147,8 +150,6 @@ def run_module_suite(ctx, module, name, doc_model=None):
     finally:
         if teardown_func:
             try:
-                teardown_name = getattr(teardown_func, "__name__", repr(teardown_func))
-                suite_log.append(f"Running teardown: {teardown_name}")
                 import inspect
 
                 try:
@@ -174,13 +175,12 @@ def run_all_tests(ctx: Any) -> str:
     The JSON structure is:
         {
           "total_passed": int,
-          "total_failed": int,
+          "total_failed": int,  # omitted when zero
           "suites": [
             {
               "name": "writer.format_tests",
-              "passed": int,
-              "failed": int,
-              "log": ["OK: ...", "FAIL: ...", ...]
+              "failed": int,  # omitted when zero
+              "log": ["Running test: foo — OK", "Running test: bar — FAIL (...)", ...]
             },
             ...
           ]
@@ -348,7 +348,9 @@ def run_all_tests(ctx: Any) -> str:
                 elif "draw" in module_name or "impress" in module_name:
                     doc_to_pass = draw_doc
 
-                _run_suite(ctx, suites, sys_module_name.replace("plugin.tests.", ""), test_module, doc_to_pass)
+                p, f = _run_suite(ctx, suites, sys_module_name.replace("plugin.tests.", ""), test_module, doc_to_pass)
+                total_passed += p
+                total_failed += f
             except ImportError as e:
                 print(f"Skipping {filename} due to ImportError: {e}")
             except Exception as e:
@@ -362,11 +364,9 @@ def run_all_tests(ctx: Any) -> str:
                         else:
                             sys.modules[k] = v
 
-    for suite in suites:
-        total_passed += int(suite.get("passed", 0) or 0)
-        total_failed += int(suite.get("failed", 0) or 0)
-
-    summary: Dict[str, Any] = {"total_passed": total_passed, "total_failed": total_failed, "suites": suites}
+    summary: Dict[str, Any] = {"total_passed": total_passed, "suites": suites}
+    if total_failed:
+        summary["total_failed"] = total_failed
     return json.dumps(summary, ensure_ascii=False, indent=2)
 
 
@@ -417,7 +417,8 @@ def main() -> int:
     total_passed = int(summary.get("total_passed", 0) or 0)
     total_failed = int(summary.get("total_failed", 0) or 0)
     print(f'"total_passed": {total_passed},', flush=True)
-    print(f'"total_failed": {total_failed},', flush=True)
+    if total_failed:
+        print(f'"total_failed": {total_failed},', flush=True)
 
     return 0 if int(summary.get("total_failed", 0) or 0) == 0 else 1
 
