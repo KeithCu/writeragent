@@ -28,7 +28,9 @@ what to consider doing next.
 | `GET` | `/health` | Liveness |
 | `GET` | `/` | Server info; includes `mcp_endpoint` when MCP is enabled |
 
-**Code:** [`plugin/mcp/mcp_protocol.py`](../plugin/mcp/mcp_protocol.py), [`plugin/mcp/__init__.py`](../plugin/mcp/__init__.py), [`plugin/mcp/server.py`](../plugin/mcp/server.py) (`mcp_endpoint_url`).
+**Code:** [`plugin/mcp/mcp_protocol.py`](../plugin/mcp/mcp_protocol.py), [`plugin/mcp/wire_types.py`](../plugin/mcp/wire_types.py), [`plugin/mcp/__init__.py`](../plugin/mcp/__init__.py), [`plugin/mcp/server.py`](../plugin/mcp/server.py) (`mcp_endpoint_url`).
+
+**Wire types:** MCP JSON-RPC message shapes live in [`plugin/mcp/wire_types.py`](../plugin/mcp/wire_types.py) — stdlib dataclass mirrors of the official [`mcp.types`](https://github.com/modelcontextprotocol/python-sdk) subset (initialize, tools/list, tools/call, progress notification). The official Python SDK and Pydantic are **not** bundled; the HTTP server and routing remain custom. `ProgressNotification` is defined for future long-running tool progress over SSE; today only SSE keepalive is sent.
 
 **Document targeting:** `X-Document-URL` header on MCP requests (see below).
 

@@ -35,11 +35,12 @@ from plugin.framework.errors import WriterAgentException, safe_json_loads
 from plugin.mcp.cors import send_cors_headers
 from plugin.mcp.http_trace import log_mcp_transport_entry, log_unsupported_protocol_version
 from plugin.mcp.mcp_state import MCPState, MCPStateStr, EventKind, MCPEvent, ParseRequestEffect, ResolveDocumentEffect, ExecuteToolEffect, StreamResponseEffect, SendErrorEffect, next_state
+from plugin.mcp import wire_types
 
 log = logging.getLogger("writeragent.mcp.protocol")
 
-# MCP protocol version we advertise
-MCP_PROTOCOL_VERSION = "2025-11-25"
+# Re-export for callers (e.g. tests) — canonical value lives in wire_types.
+MCP_PROTOCOL_VERSION = wire_types.MCP_PROTOCOL_VERSION
 _SUPPORTED_HTTP_PROTOCOL_VERSIONS = frozenset({MCP_PROTOCOL_VERSION, "2024-11-05"})
 
 
@@ -57,7 +58,7 @@ def _validate_http_protocol_version(handler):
     if requested is None or requested in _SUPPORTED_HTTP_PROTOCOL_VERSIONS:
         return None
     log_unsupported_protocol_version(handler, requested)
-    return (400, _jsonrpc_error(None, _INVALID_REQUEST, "Unsupported MCP-Protocol-Version: %s" % requested))
+    return (400, wire_types.jsonrpc_failure(None, wire_types.INVALID_REQUEST, "Unsupported MCP-Protocol-Version: %s" % requested))
 
 
 def _send_mcp_response_headers(handler, *, session_id: str | None = None) -> None:
@@ -140,27 +141,6 @@ class BusyError(WriterAgentException):
     def __init__(self, message, context=None):
         super().__init__(message, code="SERVER_BUSY", context=context)
 
-
-# JSON-RPC helpers
-def _jsonrpc_ok(req_id, result):
-    return {"jsonrpc": "2.0", "id": req_id, "result": result}
-
-
-def _jsonrpc_error(req_id, code, message, data=None):
-    err = {"code": code, "message": message}
-    if data is not None:
-        err["data"] = data
-    return {"jsonrpc": "2.0", "id": req_id, "error": err}
-
-
-# Standard JSON-RPC error codes
-_PARSE_ERROR = -32700
-_INVALID_REQUEST = -32600
-_METHOD_NOT_FOUND = -32601
-_INVALID_PARAMS = -32602
-_INTERNAL_ERROR = -32603
-_SERVER_BUSY = -32000
-_EXECUTION_TIMEOUT = -32001
 
 # Session management
 _mcp_session_id = None
@@ -419,15 +399,18 @@ class MCPProtocolHandler:
 
     def _mcp_initialize(self, params):
         client_version = params.get("protocolVersion", MCP_PROTOCOL_VERSION)
-        return {
-            "protocolVersion": client_version,
-            "capabilities": {"tools": {"listChanged": False}, "resources": {"listChanged": False}, "prompts": {"listChanged": False}},
-            "serverInfo": {"name": "WriterAgent MCP", "version": self.version},
-            "instructions": ("WriterAgent MCP — AI document workspace. WORKFLOW: 1) Use tools to interact with LibreOffice documents. 2) Tools are filtered by document type (writer/calc/draw). 3) All UNO operations run on the main thread for thread safety."),
-        }
+        return wire_types.initialize_result(
+            protocol_version=MCP_PROTOCOL_VERSION,
+            client_protocol_version=client_version,
+            server_version=self.version,
+            instructions=(
+                "WriterAgent MCP — AI document workspace. WORKFLOW: 1) Use tools to interact with LibreOffice documents. "
+                "2) Tools are filtered by document type (writer/calc/draw). 3) All UNO operations run on the main thread for thread safety."
+            ),
+        )
 
     def _mcp_ping(self, params):
-        return {}
+        return wire_types.ping_result()
 
     def _mcp_tools_list(self, params, document_url=None):
         def _get_doc():
@@ -440,19 +423,20 @@ class MCPProtocolHandler:
         doc = self.queue_executor.execute(_get_doc, timeout=10.0)
 
         schemas = self.tool_registry.get_schemas("mcp", doc=doc, exclude_tiers=frozenset({"specialized", "specialized_control"}))
-        return {"tools": schemas}
+        return wire_types.list_tools_result(schemas)
 
     def _mcp_resources_list(self, params):
-        return {"resources": []}
+        return wire_types.empty_resources_result()
 
     def _mcp_prompts_list(self, params):
-        return {"prompts": []}
+        return wire_types.empty_prompts_result()
 
     def _mcp_tools_call(self, params, document_url=None):
         state = MCPState(status=MCPStateStr.IDLE)
 
-        tool_name = params.get("name")
-        arguments = dict(params.get("arguments", {}))
+        call_params = wire_types.CallToolRequestParams.from_params(params)
+        tool_name = call_params.name
+        arguments = dict(call_params.arguments)
         arg_document_url = arguments.pop("document_url", None)
         if arg_document_url:
             document_url = arg_document_url
@@ -504,7 +488,10 @@ class MCPProtocolHandler:
                         snippet = str(effect.result)[:100] if effect.result else ""
                         event_bus.emit("mcp:result", tool=state.tool_name, result_snippet=snippet, args=state.arguments)
 
-                    final_result = {"content": [{"type": "text", "text": json.dumps(effect.result, ensure_ascii=False, default=str)}], "isError": effect.is_error}
+                    final_result = wire_types.call_tool_result(
+                        json.dumps(effect.result, ensure_ascii=False, default=str),
+                        is_error=effect.is_error,
+                    )
 
                 elif isinstance(effect, SendErrorEffect):
                     raise ValueError(effect.message)
@@ -516,24 +503,29 @@ class MCPProtocolHandler:
     def _process_jsonrpc(self, msg, document_url=None):
         """Process a JSON-RPC message.
 
-        Returns (http_status, response_dict) or None for notifications.
+        Returns (http_status, response_dict) or None for notifications (no ``id``).
         """
         if not isinstance(msg, dict) or msg.get("jsonrpc") != "2.0":
-            return (400, _jsonrpc_error(None, _INVALID_REQUEST, "Invalid JSON-RPC 2.0 request"))
+            return (400, wire_types.jsonrpc_failure(None, wire_types.INVALID_REQUEST, "Invalid JSON-RPC 2.0 request"))
 
-        method = msg.get("method", "")
-        params = msg.get("params", {})
-        req_id = msg.get("id")
-
-        if req_id is None:
+        # Notifications must not receive a JSON-RPC response (HTTP 202, empty body).
+        if wire_types.is_jsonrpc_notification(msg):
             return None
+
+        parsed = wire_types.parse_jsonrpc_request(msg)
+        if isinstance(parsed, wire_types.JsonRpcParseError):
+            return (400, wire_types.jsonrpc_failure(None, parsed.code, parsed.message))
+
+        method = parsed.method
+        params = parsed.params
+        req_id = parsed.req_id
 
         handler = {"initialize": self._mcp_initialize, "ping": self._mcp_ping, "tools/list": self._mcp_tools_list, "tools/call": self._mcp_tools_call, "resources/list": self._mcp_resources_list, "prompts/list": self._mcp_prompts_list}.get(method)
 
         log.debug(f"*** MCP INCOMING METHOD: {method} (id={req_id}) ***")
 
         if handler is None:
-            return (400, _jsonrpc_error(req_id, _METHOD_NOT_FOUND, "Unknown method: %s" % method))
+            return (400, wire_types.jsonrpc_failure(req_id, wire_types.METHOD_NOT_FOUND, "Unknown method: %s" % method))
 
         from plugin.framework.errors import WriterAgentException, format_error_payload
 
@@ -545,19 +537,23 @@ class MCPProtocolHandler:
             else:
                 result = handler(params)
             log.debug(f"*** MCP RESULT: {str(result)[:100]} ***")
-            return (200, _jsonrpc_ok(req_id, result))
+            if result is None:
+                return (500, wire_types.jsonrpc_failure(req_id, wire_types.INTERNAL_ERROR, "No result from MCP handler"))
+            return (200, wire_types.jsonrpc_success(req_id, result))
+        except ValueError as e:
+            return (400, wire_types.jsonrpc_failure(req_id, wire_types.INVALID_PARAMS, str(e)))
         except BusyError as e:
             log.warning("MCP %s: busy (%s)", method, e)
-            return (429, _jsonrpc_error(req_id, _SERVER_BUSY, str(e), {"retryable": True}))
+            return (429, wire_types.jsonrpc_failure(req_id, wire_types.SERVER_BUSY, str(e), {"retryable": True}))
         except TimeoutError as e:
             log.error("MCP %s: timeout (%s)", method, e)
-            return (504, _jsonrpc_error(req_id, _EXECUTION_TIMEOUT, str(e)))
+            return (504, wire_types.jsonrpc_failure(req_id, wire_types.EXECUTION_TIMEOUT, str(e)))
         except WriterAgentException as e:
             log.error("MCP %s error: %s", method, e, exc_info=True)
-            return (500, _jsonrpc_error(req_id, _INTERNAL_ERROR, e.message, data=format_error_payload(e)))
+            return (500, wire_types.jsonrpc_failure(req_id, wire_types.INTERNAL_ERROR, e.message, data=format_error_payload(e)))
         except Exception as e:
             log.error("MCP %s error: %s", method, e, exc_info=True)
-            return (500, _jsonrpc_error(req_id, _INTERNAL_ERROR, str(e), data=format_error_payload(e)))
+            return (500, wire_types.jsonrpc_failure(req_id, wire_types.INTERNAL_ERROR, str(e), data=format_error_payload(e)))
 
     # ── Backpressure execution ───────────────────────────────────────
 
