@@ -24,6 +24,7 @@ from plugin.calc.analyzer import SheetAnalyzer
 from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
 from plugin.framework.uno_context import get_active_document as get_active_doc
 from plugin.framework.errors import UnoObjectError, check_disposed, safe_call, safe_uno_call
+from plugin.framework.thread_guard import assert_main_thread, _wrap_uno
 
 
 def normalize_linebreaks(text: str | None) -> str:
@@ -67,6 +68,7 @@ _DOCUMENT_SERVICE_MAP = {DocumentType.WRITER: "com.sun.star.text.TextDocument", 
 @safe_uno_call(default=DocumentType.UNKNOWN)
 def get_document_type(model):
     """Return the DocumentType for the given model."""
+    assert_main_thread("document_helpers.get_document_type")
     if model is None:
         return DocumentType.UNKNOWN
 
@@ -597,6 +599,7 @@ def resolve_document_by_url(ctx, url):
     Returns (doc, doc_type) or (None, None) if not found.
     doc_type is one of 'writer', 'calc', 'draw'.
     """
+    assert_main_thread("document_helpers.resolve_document_by_url")
     if not url or not str(url).strip():
         return (None, None)
     from plugin.framework.uno_context import get_desktop
@@ -627,7 +630,7 @@ def resolve_document_by_url(ctx, url):
                             doc_type = "calc"
                         elif doc_type_enum in (DocumentType.DRAW, DocumentType.IMPRESS):
                             doc_type = "draw"
-                        return (model, doc_type)
+                        return (_wrap_uno(model), doc_type)
             except Exception as e:
                 logging.getLogger(__name__).debug("resolve_document_by_url element error: %s", type(e).__name__)
                 continue
@@ -650,6 +653,7 @@ def get_document_path(model):
 
 def get_full_document_text(model, max_chars=CHAT_DOCUMENT_CONTEXT_MAX_CHARS):
     """Get full document text for Writer or summary for Calc, truncated to max_chars."""
+    assert_main_thread("document_helpers.get_full_document_text")
     try:
         check_disposed(model, "Document Model")
         doc_type = get_document_type(model)
@@ -870,6 +874,7 @@ def get_text_cursor_at_range(model, start_offset, end_offset):
 def get_selection_range(model):
     """Return (start_offset, end_offset) character positions into the document.
     Cursor (no selection) = same start and end. Returns (0, 0) on error or no text range."""
+    assert_main_thread("document_helpers.get_selection_range")
     try:
         check_disposed(model, "Document Model")
         sel_positions = _get_writer_selection_positions(model)
@@ -888,6 +893,7 @@ def get_selection_range(model):
 def get_document_context_for_chat(model, max_context=CHAT_DOCUMENT_CONTEXT_MAX_CHARS, include_end=True, include_selection=True, ctx=None):
     """Build a single context string for chat. Handles Writer and Calc.
     ctx: component context (required for Calc and Draw documents)."""
+    assert_main_thread("document_helpers.get_document_context_for_chat")
     doc_type = get_document_type(model)
 
     if doc_type == DocumentType.CALC:
@@ -948,6 +954,7 @@ def get_document_context_for_chat(model, max_context=CHAT_DOCUMENT_CONTEXT_MAX_C
 
 def get_calc_context_for_chat(model, max_context=8000, ctx=None):
     """Get context summary for a Calc spreadsheet."""
+    assert_main_thread("document_helpers.get_calc_context_for_chat")
     if ctx is None:
         raise ValueError("ctx is required for get_calc_context_for_chat")
     try:
@@ -996,6 +1003,7 @@ def get_calc_context_for_chat(model, max_context=8000, ctx=None):
 
 def get_draw_context_for_chat(model, max_context=8000, ctx=None):
     """Get context summary for a Draw/Impress document. ctx: component context (unused, kept for signature compat)."""
+    assert_main_thread("document_helpers.get_draw_context_for_chat")
     try:
         check_disposed(model, "Document Model")
         from plugin.draw.bridge import DrawBridge
@@ -1122,6 +1130,7 @@ def find_paragraph_for_range(match_range, para_ranges, text_obj=None):
 
 def build_heading_tree(model) -> HeadingTreeNode:
     """Build a hierarchical heading tree. Single pass enumeration."""
+    assert_main_thread("document_helpers.build_heading_tree")
     try:
         check_disposed(model, "Document Model")
         text = safe_call(model.getText, "Get document text")

@@ -14,7 +14,11 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-"""Centralized management for background worker threads and external subprocesses."""
+"""Centralized management for background worker threads and external subprocesses.
+
+Background threads created here are tagged (via thread_guard) so that the
+UNO main-thread runtime guard (Layer A) can name the offending task on violation.
+"""
 
 import logging
 import subprocess
@@ -26,6 +30,10 @@ from typing import Optional, Callable
 from plugin.framework.errors import WorkerPoolError
 
 log = logging.getLogger("writeragent.framework.worker_pool")
+
+# Thread-safety guard (Layer A): tag threads born here so assert_main_thread
+# can name the offending background task in diagnostics.
+from plugin.framework import thread_guard
 
 
 def run_in_background(func, *args, name=None, error_callback=None, daemon=True, **kwargs):
@@ -46,6 +54,10 @@ def run_in_background(func, *args, name=None, error_callback=None, daemon=True, 
         task_id = str(uuid.uuid4())
         task_name = name or getattr(func, "__name__", "anon")
         log.debug(f"Starting task {task_id}: {task_name}")
+
+        # Tag this background thread for the UNO thread-safety guard (Layer A).
+        # This lets violations report the specific worker (e.g. "run_search") instead of a generic thread name.
+        thread_guard.set_background_task(task_name)
 
         try:
             result = func(*args, **kwargs)

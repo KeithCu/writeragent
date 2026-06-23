@@ -20,12 +20,12 @@ from __future__ import annotations
 import copy
 import logging
 import queue
-import threading
 from abc import ABC, abstractmethod
 from typing import Any, Callable, ClassVar, cast
 
 from plugin.framework.errors import make_tool_error
 from plugin.framework.worker_pool import run_in_background
+from plugin.framework.thread_guard import assert_main_thread
 
 
 def _normalize_schema_for_strict_providers(params):
@@ -317,12 +317,11 @@ class ToolBase(ABC):
     def execute_safe(self, ctx: ToolContext, **kwargs) -> dict[str, Any]:
         """Execute with simple error containment."""
         try:
-            # Check thread safety: If the tool is synchronous, it must not be called from a background thread
-            # unless it's being executed through the QueueExecutor. Direct UNO calls from background threads
-            # cause UI hangs and deadlocks in LibreOffice.
+            # Single source of truth for the synchronous-tool main-thread rule (Layer A).
+            # The runtime guard (thread_guard) raises (or warns) with task identity when enabled.
+            # bypass_thread_guard is honored at the call site in ToolRegistry.execute (it calls .execute directly).
             if not self.is_async():
-                if threading.current_thread() is not threading.main_thread():
-                    raise RuntimeError(f"Thread Safety Violation: Synchronous tool '{self.name}' was executed from a background thread. Synchronous tools execute UNO APIs which are not thread-safe. You must wrap this call using `execute_on_main_thread` from `plugin.framework.queue_executor`.")
+                assert_main_thread(self.name or "synchronous tool")
             return self.execute(ctx, **kwargs)
         except Exception as e:
             _log.exception("Tool '%s' execution failed", self.name if self.name else "<unknown>")

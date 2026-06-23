@@ -30,6 +30,8 @@ import logging
 from contextlib import contextmanager
 from typing import Any, cast
 
+from plugin.framework.thread_guard import main_thread_only, _wrap_uno
+
 log = logging.getLogger("writeragent.context")
 
 _fallback_ctx = None
@@ -41,6 +43,7 @@ def set_fallback_ctx(ctx):
     _fallback_ctx = ctx
 
 
+@main_thread_only
 def get_ctx():
     """Return the current valid UNO component context.
 
@@ -53,22 +56,23 @@ def get_ctx():
     # We prefer the explicitly set _fallback_ctx (which holds the remote connection context)
     # to prevent standalone runs from trying to use the local PyUNO context.
     if _fallback_ctx is not None:
-        return _fallback_ctx
+        return _wrap_uno(_fallback_ctx)
     try:
         import uno
 
         if hasattr(uno, "getComponentContext"):
             ctx = uno.getComponentContext()
             if ctx is not None:
-                return ctx
+                return _wrap_uno(ctx)
     except ImportError:
         pass
-    return _fallback_ctx
+    return _wrap_uno(_fallback_ctx)
 
 
 from plugin.framework.errors import check_disposed, safe_call, UnoObjectError
 
 
+@main_thread_only
 def get_desktop(ctx=None):
     """Return the UNO Desktop instance."""
     ctx = ctx or get_ctx()
@@ -76,15 +80,18 @@ def get_desktop(ctx=None):
     ctx_any = cast("Any", ctx)
     smgr = getattr(ctx_any, "ServiceManager", getattr(ctx_any, "getServiceManager", lambda: None)())
     assert smgr is not None
-    return cast("Any", smgr).createInstanceWithContext("com.sun.star.frame.Desktop", ctx_any)
+    desktop = cast("Any", smgr).createInstanceWithContext("com.sun.star.frame.Desktop", ctx_any)
+    return _wrap_uno(desktop)
 
 
+@main_thread_only
 def get_active_document(ctx=None):
     """Return the currently active document model."""
     try:
         desktop = get_desktop(ctx)
         check_disposed(desktop, "Desktop")
-        return safe_call(desktop.getCurrentComponent, "Desktop component resolution")
+        doc = safe_call(desktop.getCurrentComponent, "Desktop component resolution")
+        return _wrap_uno(doc)
     except UnoObjectError:
         log.exception("get_active_document UnoObjectError")
         return None
@@ -93,6 +100,7 @@ def get_active_document(ctx=None):
         return None
 
 
+@main_thread_only
 def get_package_info(ctx=None):
     """Return the PackageInformationProvider singleton."""
     ctx = ctx or get_ctx()
@@ -101,9 +109,11 @@ def get_package_info(ctx=None):
     gvn = getattr(ctx_any, "getValueByName", None)
     if gvn is None:
         return None
-    return gvn("/singletons/com.sun.star.deployment.PackageInformationProvider")
+    pip = gvn("/singletons/com.sun.star.deployment.PackageInformationProvider")
+    return _wrap_uno(pip)
 
 
+@main_thread_only
 def get_extension_url(ctx=None, extension_id="org.extension.writeragent"):
     """Return the base URL of the extension package."""
     try:
@@ -127,6 +137,7 @@ def get_extension_path(ctx=None, extension_id="org.extension.writeragent"):
     return url
 
 
+@main_thread_only
 def get_toolkit(ctx=None):
     """Safely retrieve the com.sun.star.awt.Toolkit service."""
     ctx = ctx or get_ctx()
@@ -139,7 +150,8 @@ def get_toolkit(ctx=None):
         smgr = getattr(ctx_any, "ServiceManager", getattr(ctx_any, "getServiceManager", lambda: None)())
         if smgr is None:
             return None
-        return cast("Any", smgr).createInstanceWithContext("com.sun.star.awt.Toolkit", ctx_any)
+        tk = cast("Any", smgr).createInstanceWithContext("com.sun.star.awt.Toolkit", ctx_any)
+        return _wrap_uno(tk)
     except Exception:
         log.exception("Failed to create toolkit")
         return None
@@ -170,6 +182,7 @@ def focus_preserved(ctx):
                 log.debug("focus_preserved restore: %s", e)
 
 
+@main_thread_only
 def process_events_to_idle(ctx, rounds: int = 1) -> None:
     """Drain the UI event queue *rounds* times; no-op when toolkit is unavailable."""
     for idx in range(max(1, rounds)):
