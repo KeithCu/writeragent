@@ -40,9 +40,26 @@ GUARD_ON = os.environ.get("WRITERAGENT_UNO_THREAD_GUARD") == "1"
 # Thread-local storage for background task identity (set at birth in run_in_background).
 _bg = threading.local()
 
+# Layer B pytest: when set, on_main_thread() treats this thread as the UNO main thread
+# (typically the synthetic pump thread started by tests/framework/thread_safety.py).
+_designated_main_thread: threading.Thread | None = None
+
+
+def set_designated_main_thread(thread: threading.Thread | None) -> None:
+    """Test hook: designate which thread may touch UNO (see docs/uno-thread-safety-enforcement.md Layer B)."""
+    global _designated_main_thread
+    _designated_main_thread = thread
+
+
+def get_designated_main_thread() -> threading.Thread | None:
+    return _designated_main_thread
+
 
 def on_main_thread() -> bool:
-    return threading.current_thread() is threading.main_thread()
+    current = threading.current_thread()
+    if _designated_main_thread is not None:
+        return current is _designated_main_thread
+    return current is threading.main_thread()
 
 
 def set_background_task(name: str) -> None:
@@ -200,6 +217,9 @@ __all__ = [
     "main_thread_only",
     "set_background_task",
     "get_background_task_name",
+    "set_designated_main_thread",
+    "get_designated_main_thread",
+    "on_main_thread",
     "_wrap_uno",
     "_unwrap_uno",
     "GUARD_ON",

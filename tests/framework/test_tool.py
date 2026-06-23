@@ -17,8 +17,11 @@
 """Tests for consolidated plugin.framework.tool."""
 
 import pytest
+import threading
 import time
 import types
+from unittest.mock import MagicMock
+
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry, ToolBaseDummy
 from plugin.framework.service import ServiceRegistry
 from plugin.tests.testing_utils import TestingFactory
@@ -521,3 +524,66 @@ class TestToolIsolation:
         result = registry.execute("test_slow", DummyContext())
         assert result["status"] == "error"
         assert result["code"] == "TOOL_TIMEOUT"
+
+
+class TestToolRegistryMainThreadMarshal:
+    """Sync tools invoked via ToolRegistry.execute run on the logical main thread."""
+
+    def test_sync_tool_marshaled_from_background(self, uno_thread_safety) -> None:
+        threads_seen: list = []
+
+        class DummySync(ToolBase):
+            name = "dummy_sync"
+            description = "x"
+            parameters = {"type": "object", "properties": {}}
+            uno_services = None
+            doc_types = None
+
+            def execute(self, ctx, **kwargs):
+                threads_seen.append(threading.current_thread())
+                return {"status": "ok"}
+
+        reg = ToolRegistry(MagicMock())
+        reg.register(DummySync())
+        ctx = ToolContext(MagicMock(), MagicMock(), "writer", {}, "test")
+
+        worker = threading.Thread(target=lambda: reg.execute("dummy_sync", ctx), name="registry-bg")
+        worker.start()
+        worker.join(timeout=3.0)
+
+        assert len(threads_seen) == 1
+        assert threads_seen[0] is uno_thread_safety.pump.main_thread
+
+    def test_async_tool_stays_on_caller_thread(self, uno_thread_safety) -> None:
+        threads_seen: list = []
+        caller_threads: list = []
+
+        class DummyAsync(ToolBase):
+            name = "dummy_async"
+            description = "x"
+            parameters = {"type": "object", "properties": {}}
+            uno_services = None
+            doc_types = None
+
+            def is_async(self) -> bool:
+                return True
+
+            def execute(self, ctx, **kwargs):
+                threads_seen.append(threading.current_thread())
+                return {"status": "ok"}
+
+        reg = ToolRegistry(MagicMock())
+        reg.register(DummyAsync())
+        ctx = ToolContext(MagicMock(), MagicMock(), "writer", {}, "test")
+
+        def bg():
+            caller_threads.append(threading.current_thread())
+            reg.execute("dummy_async", ctx)
+
+        worker = threading.Thread(target=bg, name="registry-async-bg")
+        worker.start()
+        worker.join(timeout=3.0)
+
+        assert len(threads_seen) == 1
+        assert threads_seen[0] is caller_threads[0]
+        assert threads_seen[0] is not uno_thread_safety.pump.main_thread

@@ -32,6 +32,11 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("writeragent.framework.queue_executor")
 
+# Layer B pytest: when True, execute/post always enqueue even under WRITERAGENT_TESTING=1.
+_force_marshal_mode = False
+# Optional poke handler (tests): runs process_queue on the designated main thread.
+_test_poke_handler: Callable[["QueueExecutor"], None] | None = None
+
 _AGENT_ACTIVE_LOCK = threading.Lock()
 _AGENT_ACTIVE_COUNT = 0
 _LLM_REQUEST_LOCK = threading.Lock()
@@ -39,6 +44,22 @@ _GRAMMAR_INFLIGHT_LOCK = threading.Lock()
 _GRAMMAR_INFLIGHT_CV = threading.Condition(_GRAMMAR_INFLIGHT_LOCK)
 _GRAMMAR_INFLIGHT_COUNT = 0
 _current_send_cancellation: ContextVar["SendCancellation | None"] = ContextVar("current_send_cancellation", default=None)
+
+
+def set_force_marshal_mode(enabled: bool) -> None:
+    """Test hook: force cross-thread marshal via the work queue (Layer B)."""
+    global _force_marshal_mode
+    _force_marshal_mode = enabled
+
+
+def get_force_marshal_mode() -> bool:
+    return _force_marshal_mode
+
+
+def set_test_poke_handler(handler: Callable[["QueueExecutor"], None] | None) -> None:
+    """Test hook: replace AsyncCallback poke with a synthetic main-thread pump."""
+    global _test_poke_handler
+    _test_poke_handler = handler
 
 
 class SendCancelled(Exception):
@@ -256,6 +277,9 @@ class QueueExecutor:
 
     def _poke_main_thread(self):
         """Ask the VCL event loop to call our notify() callback."""
+        if _test_poke_handler is not None:
+            _test_poke_handler(self)
+            return
         if self._async_callback_service is None or self._callback_instance is None:
             return
         try:
@@ -303,6 +327,22 @@ class QueueExecutor:
 
         return item.result
 
+    def _is_logical_main_thread(self) -> bool:
+        """True when the caller may run UNO work inline (real or designated main thread)."""
+        from plugin.framework.thread_guard import on_main_thread
+
+        return on_main_thread()
+
+    def _should_run_inline(self) -> bool:
+        """Whether to skip the queue and call *fn* on the caller's thread."""
+        if _force_marshal_mode:
+            return False
+        import os
+
+        if os.environ.get("WRITERAGENT_TESTING") == "1":
+            return True
+        return False
+
     def execute(self, fn: Callable, *args, timeout: float = 30.0, **kwargs) -> Any:
         """Execute function on main thread (blocking).
 
@@ -311,17 +351,16 @@ class QueueExecutor:
         Raises TimeoutError if the main thread doesn't process the item in time.
         Re-raises any exception thrown by *fn*.
         """
-        # Already on main thread — call directly to avoid deadlock
-        if threading.current_thread() is threading.main_thread():
+        # Already on logical main thread — call directly to avoid deadlock
+        if self._is_logical_main_thread():
             return fn(*args, **kwargs)
 
-        import os
-        if os.environ.get("WRITERAGENT_TESTING") == "1":
+        if self._should_run_inline():
             return fn(*args, **kwargs)
 
-        svc = self._get_async_callback()
+        svc = None if _force_marshal_mode else self._get_async_callback()
 
-        if svc is None:
+        if svc is None and not _force_marshal_mode:
             # Fallback: call directly (not thread-safe).
             return fn(*args, **kwargs)
 
@@ -334,13 +373,12 @@ class QueueExecutor:
         Unlike execute, does not block or return a result.
         Used for UI updates from background threads.
         """
-        import os
-        if os.environ.get("WRITERAGENT_TESTING") == "1":
+        if self._should_run_inline():
             fn(*args, **kwargs)
             return
 
-        svc = self._get_async_callback()
-        if svc is None:
+        svc = None if _force_marshal_mode else self._get_async_callback()
+        if svc is None and not _force_marshal_mode:
             fn(*args, **kwargs)
             return
 

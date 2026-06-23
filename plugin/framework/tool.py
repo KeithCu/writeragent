@@ -26,6 +26,7 @@ from typing import Any, Callable, ClassVar, cast
 from plugin.framework.errors import make_tool_error
 from plugin.framework.worker_pool import run_in_background
 from plugin.framework.thread_guard import assert_main_thread
+from plugin.framework.queue_executor import execute_on_main_thread
 
 
 def _normalize_schema_for_strict_providers(params):
@@ -317,8 +318,8 @@ class ToolBase(ABC):
     def execute_safe(self, ctx: ToolContext, **kwargs) -> dict[str, Any]:
         """Execute with simple error containment."""
         try:
-            # Single source of truth for the synchronous-tool main-thread rule (Layer A).
-            # The runtime guard (thread_guard) raises (or warns) with task identity when enabled.
+            # Defense in depth: ToolRegistry.execute marshals sync tools to the main thread;
+            # this assert still catches direct execute_safe calls from background workers.
             # bypass_thread_guard is honored at the call site in ToolRegistry.execute (it calls .execute directly).
             if not self.is_async():
                 assert_main_thread(self.name or "synchronous tool")
@@ -654,16 +655,14 @@ class ToolRegistry:
     def _execute_with_timeout(self, func, timeout, tool_name="<unknown>", run_threaded=True, **kwargs):
         """Run *func* with an optional wall-clock timeout.
 
-        If ``run_threaded`` is False (e.g. the tool is synchronous and its
-        ``execute_safe`` main-thread guard would fire in a background thread),
-        the timeout is ignored and the function runs inline. A warning is
-        logged so misconfigured tools are visible.
+        If ``run_threaded`` is False, the timeout is ignored and the function runs inline.
+        Sync tools are marshaled to the main thread by ``ToolRegistry.execute`` before this runs.
         """
         if timeout <= 0:
             return func(**kwargs)
 
         if not run_threaded:
-            log.warning("Tool '%s' declares timeout=%s but is synchronous; timeout is ignored (would trip the main-thread guard). Set is_async() to True to enable timeout enforcement.", tool_name, timeout)
+            log.warning("Tool '%s' declares timeout=%s but is synchronous; timeout is ignored. Set is_async() to True to enable timeout enforcement.", tool_name, timeout)
             return func(**kwargs)
 
         result_queue: queue.Queue = queue.Queue()
@@ -760,12 +759,27 @@ class ToolRegistry:
                 bus.emit("tool:executing", name=tool_name, caller=ctx.caller)
 
             # Execution with simple isolation and timeout.
-            # Threaded timeout is only safe when either the guard is bypassed
-            # or the tool is explicitly async (otherwise execute_safe's
-            # main-thread check would fail in the worker thread).
+            # Async tools (and bypass_thread_guard eval paths) run on the caller's thread.
+            # Sync tools are marshaled to the LO main thread so MCP long-running and any
+            # other worker-thread caller cannot touch UNO off-thread.
             runner = tool.execute if bypass_thread_guard else tool.execute_safe
             run_threaded = bypass_thread_guard or bool(tool.is_async())
-            result = self._execute_with_timeout(runner, timeout=self._get_tool_timeout(tool), tool_name=tool_name, run_threaded=run_threaded, ctx=ctx, **kwargs)
+            timeout = self._get_tool_timeout(tool)
+
+            def _invoke() -> Any:
+                return self._execute_with_timeout(
+                    runner,
+                    timeout=timeout,
+                    tool_name=tool_name,
+                    run_threaded=run_threaded,
+                    ctx=ctx,
+                    **kwargs,
+                )
+
+            if bypass_thread_guard or tool.is_async():
+                result = _invoke()
+            else:
+                result = execute_on_main_thread(_invoke)
 
             # Ensure any returned dict with status='error' includes full context details
             if isinstance(result, dict) and result.get("status") == "error":
