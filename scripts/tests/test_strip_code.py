@@ -134,3 +134,48 @@ def test_strip_grammar_obs_module_unchanged(tmp_path: Path) -> None:
     stripped = test_file.read_text(encoding="utf-8")
     assert "def grammar_obs" in stripped
     assert "log.debug" in stripped
+
+
+def test_strip_main_thread_only_decorators(tmp_path: Path) -> None:
+    """decorators with main_thread_only are stripped successfully."""
+    from scripts.strip_code import strip_main_thread_only_decorators
+    test_file = tmp_path / "mock_context.py"
+    original_code = (
+        "from plugin.framework.thread_guard import main_thread_only\n"
+        "\n"
+        "@main_thread_only\n"
+        "def get_desktop():\n"
+        "    return 'desktop'\n"
+        "\n"
+        "@decorator_to_keep\n"
+        "@main_thread_only\n"
+        "async def get_active_document():\n"
+        "    return 'doc'\n"
+    )
+    test_file.write_text(original_code, encoding="utf-8")
+
+    strip_main_thread_only_decorators(str(tmp_path), dry_run=False)
+
+    stripped = test_file.read_text(encoding="utf-8")
+    ast.parse(stripped)
+    assert "@main_thread_only" not in stripped
+    assert "@decorator_to_keep" in stripped
+    assert "def get_desktop():" in stripped
+    assert "async def get_active_document():" in stripped
+
+
+def test_replace_thread_guard_implementation(tmp_path: Path) -> None:
+    """thread_guard.py is overwritten with minimal no-op stubs."""
+    import os
+    from scripts.strip_code import replace_thread_guard_implementation
+    os.makedirs(tmp_path / "plugin" / "framework", exist_ok=True)
+    tg_file = tmp_path / "plugin" / "framework" / "thread_guard.py"
+    tg_file.write_text("def assert_main_thread(what):\n    raise RuntimeError('heavy guard')\n", encoding="utf-8")
+
+    replace_thread_guard_implementation(str(tmp_path), dry_run=False)
+
+    stubbed = tg_file.read_text(encoding="utf-8")
+    assert "GUARD_ON = False" in stubbed
+    assert "def assert_main_thread(what: str) -> None:" in stubbed
+    assert "raise RuntimeError" not in stubbed
+
