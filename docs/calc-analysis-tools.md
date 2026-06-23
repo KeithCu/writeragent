@@ -16,7 +16,7 @@ See [calc-specialized-toolsets.md](calc-specialized-toolsets.md) for delegation 
 - Available in analysis domain chat or Run Python Script → SQL Helpers.
 Full plan and status: [duckdb-calc-dev-plan.md](duckdb-calc-dev-plan.md).
 
-**Threading:** The analysis sub-agent runs on a background worker. Tools marked `is_async` (including `analyze_data`) still marshal Calc range reads through `execute_on_main_thread` inside the tool body; only the venv IPC runs on the worker.
+**Threading:** The analysis sub-agent runs on a background worker. Tools marked `is_async` (including `analyze_data`) marshal every Calc UNO touch through `execute_on_main_thread` inside the tool body — primary analysis reads, optional sheet writes, **`auto_plot` viz data reads**, and chart insert — while only the venv IPC runs on the worker.
 
 ---
 

@@ -477,19 +477,26 @@ class AnalyzeDataTool(ToolCalcAnalysisBase):
 
         if result.get("status") == "ok" and ctx.doc_type == "calc":
             auto_plot = bool(kwargs.get("auto_plot", False))
-            from plugin.calc.viz_auto_plot import run_auto_plot_after_analysis
+            from plugin.calc.viz_auto_plot import run_auto_plot_after_analysis, should_auto_plot
             from plugin.scripting.viz import insert_viz_result_into_doc
 
-            plot_result = run_auto_plot_after_analysis(
-                ctx.ctx,
-                ctx.doc,
-                analysis_helper=helper,
-                analysis_result=result,
-                analysis_params=params,
-                data_range=dr,
-                auto_plot=auto_plot,
-                task_hint=task_hint,
-            )
+            plot_result = None
+            if should_auto_plot(helper=helper, auto_plot=auto_plot, task_hint=task_hint):
+
+                def _auto_plot() -> dict[str, Any] | None:
+                    return run_auto_plot_after_analysis(
+                        ctx.ctx,
+                        ctx.doc,
+                        analysis_helper=helper,
+                        analysis_result=result,
+                        analysis_params=params,
+                        data_range=dr,
+                        auto_plot=auto_plot,
+                        task_hint=task_hint,
+                    )
+
+                # Sub-agent worker thread: viz data reads use CalcBridge — marshal like plot_data.
+                plot_result = execute_on_main_thread(_auto_plot)
             if plot_result is not None:
                 result = dict(result)
                 result["plot"] = plot_result

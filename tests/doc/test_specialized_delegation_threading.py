@@ -10,7 +10,8 @@ import threading
 from typing import ClassVar
 from unittest.mock import MagicMock, patch
 
-from plugin.calc.base import ToolCalcAnalysisBase
+from plugin.calc.base import ToolCalcAnalysisBase, ToolCalcSheetBase
+from plugin.calc.sheets import ListSheets
 from plugin.calc.specialized import DelegateToSpecializedCalc
 from plugin.chatbot.smol_agent import SmolToolAdapter
 from plugin.contrib.smolagents.memory import FinalAnswerStep
@@ -318,3 +319,60 @@ def test_writer_footnotes_list_runs_uno_only_on_main_thread():
 def test_writer_specialized_domain_base_requires_core_read_tools():
     """Writer specialized bases declare get_document_content for sub-agent read helpers."""
     assert "get_document_content" in (ToolWriterFootnoteBase.required_core_tools or frozenset())
+
+
+def test_calc_sync_tool_marshals_via_smol_adapter():
+    """Sync Calc specialized tools must cross execute_on_main_thread via SmolToolAdapter."""
+    tool = ListSheets()
+    tctx = MagicMock()
+    tctx.doc_type = "calc"
+    adapter = SmolToolAdapter(tool, tctx, safe=True, main_thread_sync=True, inputs_style="specialized")
+
+    with patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_main:
+        mock_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
+        result = adapter.forward()
+
+    assert result["status"] == "ok"
+    mock_main.assert_called_once()
+
+
+def test_calc_list_sheets_runs_uno_only_on_main_thread():
+    """Regression: list_sheets touches doc UNO; sub-agent worker must marshal before execute."""
+    session = start_uno_thread_safety_session()
+    try:
+        raw_sheet = MagicMock()
+        raw_sheet.getName.return_value = "Sheet1"
+        raw_sheets = MagicMock()
+        raw_sheets.getCount.return_value = 1
+        raw_sheets.getByIndex.return_value = raw_sheet
+        raw_doc = MagicMock()
+        raw_doc.supportsService.return_value = True
+        raw_doc.getSheets.return_value = raw_sheets
+        doc = session.make_mock(raw_doc, name="calc-doc")
+
+        tool = ListSheets()
+        tctx = ToolContext(doc=doc, ctx=MagicMock(), doc_type="calc", services=MagicMock(), caller="test")
+        adapter = SmolToolAdapter(tool, tctx, safe=True, main_thread_sync=True, inputs_style="specialized")
+        err: AssertionError | None = None
+        result: dict | None = None
+
+        def worker():
+            nonlocal err, result
+            try:
+                result = adapter.forward()
+            except AssertionError as e:
+                err = e
+
+        t = run_in_background(worker, name="spec-list-sheets", daemon=False)
+        t.join(timeout=3.0)
+        assert err is None, f"direct UNO from worker: {err}"
+        assert result is not None and result.get("status") == "ok"
+        assert result.get("result") == ["Sheet1"]
+    finally:
+        session.close()
+
+
+def test_calc_specialized_domain_base_requires_core_read_tools():
+    """Calc specialized bases declare sheet read helpers for sub-agent discovery."""
+    assert "get_sheet_summary" in (ToolCalcSheetBase.required_core_tools or frozenset())
+    assert "read_cell_range" in (ToolCalcSheetBase.required_core_tools or frozenset())

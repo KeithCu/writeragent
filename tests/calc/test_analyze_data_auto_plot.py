@@ -82,3 +82,53 @@ def test_analyze_data_auto_plot_inserts_chart(
     assert result.get("plot", {}).get("helper") == "plot_data"
     mock_auto_plot.assert_called_once()
     mock_insert.assert_called_once()
+
+
+@patch("plugin.scripting.viz.insert_viz_result_into_doc")
+@patch("plugin.calc.viz_auto_plot.run_auto_plot_after_analysis")
+@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.calc.analysis_runner.run_trusted_analysis")
+def test_analyze_data_auto_plot_marshals_viz_read(
+    mock_run_analysis,
+    mock_main_thread,
+    mock_auto_plot,
+    mock_insert,
+    calc_ctx,
+):
+    """Regression: auto_plot viz data reads must run via execute_on_main_thread, not on the worker."""
+    inside_marshal = {"flag": False}
+
+    def mock_execute_on_main(fn, *args, **kwargs):
+        inside_marshal["flag"] = True
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            inside_marshal["flag"] = False
+
+    mock_main_thread.side_effect = mock_execute_on_main
+    mock_run_analysis.return_value = {"status": "ok", "helper": "run_regression", "metrics": {}}
+
+    def _auto_plot_side_effect(*_args, **_kwargs):
+        assert inside_marshal["flag"], "run_auto_plot_after_analysis must run inside execute_on_main_thread"
+        return {
+            "status": "ok",
+            "helper": "plot_data",
+            "title": "Regression plot",
+            "image": {"__wa_payload__": "image", "format": "png", "data": b"x"},
+        }
+
+    mock_auto_plot.side_effect = _auto_plot_side_effect
+
+    tool = AnalyzeDataTool()
+    result = tool.execute(
+        calc_ctx,
+        helper="run_regression",
+        data_range="Sheet1.A1:C20",
+        params={"target": "y", "features": ["x"]},
+        auto_plot=True,
+    )
+
+    assert result["status"] == "ok"
+    assert result.get("image_inserted") is True
+    mock_auto_plot.assert_called_once()
+    assert mock_main_thread.call_count >= 2
