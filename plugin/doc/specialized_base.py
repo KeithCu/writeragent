@@ -26,6 +26,7 @@ from plugin.chatbot.smol_agent import build_toolcalling_agent, SmolAgentExecutor
 from plugin.chatbot.smol_examples import get_examples_block
 from plugin.doc.document_research import get_document_research_workflow_hint
 from plugin.doc.specialized_shapes_context import format_shapes_canvas_context
+from plugin.framework import queue_executor
 
 log = logging.getLogger("writeragent.specialized")
 
@@ -144,7 +145,8 @@ class DelegateToSpecializedBase(ToolBase):
             try:
                 from plugin.embeddings.embeddings_indexer import enqueue_folder_index
 
-                enqueue_folder_index(ctx.ctx, ctx.services, ctx.doc)
+                # Sub-agent runs on a worker thread; resolve_index_context reads the active doc path via UNO.
+                queue_executor.execute_on_main_thread(lambda: enqueue_folder_index(ctx.ctx, ctx.services, ctx.doc))
             except Exception:
                 log.debug("embeddings index wakeup failed", exc_info=True)
 
@@ -156,11 +158,17 @@ class DelegateToSpecializedBase(ToolBase):
         # (e.g. ``RunVenvPythonScript`` with ``specialized_cross_cutting``) are included;
         # ``isinstance(..., _special_base_class)`` alone misses Calc-registered tools on Writer delegate.
         registry = ctx.services.get("tools")
-        domain_tools = registry.get_tools(doc=getattr(ctx, "doc", None), active_domain=domain, exclude_tiers=())
-        if domain == "document_research":
-            from plugin.doc.document_research import filter_document_research_discovery_tools
 
-            domain_tools = filter_document_research_discovery_tools(domain_tools, ctx.ctx)
+        def _fetch_domain_tools():
+            tools = registry.get_tools(doc=getattr(ctx, "doc", None), active_domain=domain, exclude_tiers=())
+            if domain == "document_research":
+                from plugin.doc.document_research import filter_document_research_discovery_tools
+
+                tools = filter_document_research_discovery_tools(tools, ctx.ctx)
+            return tools
+
+        # get_tools(doc=...) calls doc.supportsService — must not run on the sub-agent worker.
+        domain_tools = queue_executor.execute_on_main_thread(_fetch_domain_tools)
 
         if not domain_tools:
             return self._tool_error(f"No specialized tools found for domain '{domain}'. Ensure the tools are implemented and registered.")
@@ -172,7 +180,11 @@ class DelegateToSpecializedBase(ToolBase):
             footnotes_hint = " For footnotes_insert: if the task quotes or names the document anchor (e.g. a sentence), pass that exact string as insert_after_text so the note is placed after that text; the task executor cannot move the view cursor."
         shapes_canvas = ""
         if domain == "shapes":
-            canvas = format_shapes_canvas_context(getattr(ctx, "doc", None))
+            try:
+                canvas = queue_executor.execute_on_main_thread(lambda: format_shapes_canvas_context(getattr(ctx, "doc", None)))
+            except Exception as e:
+                log.warning("Failed to get shapes canvas for sub-agent: %s", e)
+                canvas = ""
             if canvas:
                 shapes_canvas = canvas
 
@@ -186,14 +198,13 @@ class DelegateToSpecializedBase(ToolBase):
         calc_ctx = ""
         if self._agent_label == "Calc" and getattr(ctx, "doc", None):
             from plugin.doc.document_helpers import get_calc_context_for_chat
-            from plugin.framework.queue_executor import execute_on_main_thread
 
             def _fetch_calc_context() -> str:
                 return "\n\n[SPREADSHEET CONTEXT]\n" + get_calc_context_for_chat(ctx.doc, ctx=ctx.ctx)
 
             try:
                 # Sub-agent runs on a worker thread; UNO reads must go through the main thread.
-                calc_ctx = execute_on_main_thread(_fetch_calc_context)
+                calc_ctx = queue_executor.execute_on_main_thread(_fetch_calc_context)
             except Exception as e:
                 log.warning("Failed to get Calc context for sub-agent: %s", e)
 
@@ -202,7 +213,8 @@ class DelegateToSpecializedBase(ToolBase):
         if domain == "document_research":
             try:
                 from plugin.doc.document_research import get_open_documents
-                open_docs = get_open_documents(ctx.ctx, ctx.doc)
+
+                open_docs = queue_executor.execute_on_main_thread(lambda: get_open_documents(ctx.ctx, ctx.doc))
                 if open_docs:
                     lines = []
                     for d in open_docs:

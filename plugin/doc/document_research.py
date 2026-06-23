@@ -596,10 +596,12 @@ def close_document_research_document(model: Any, *, opened_for_document_research
 
 def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str, Any]]:
     """Retrieve all open documents from the desktop context with metadata."""
+    from plugin.framework.thread_guard import assert_main_thread
     from plugin.framework.uno_context import get_desktop
     from plugin.doc.document_helpers import get_document_type, DocumentType
     import os
 
+    assert_main_thread("document_research.get_open_documents")
     desktop = get_desktop(uno_ctx)
     comps = desktop.getComponents()
     if not comps:

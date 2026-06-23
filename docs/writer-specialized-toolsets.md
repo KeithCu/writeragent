@@ -239,6 +239,7 @@ flowchart LR
   - `registry.get_tools(filter_doc_type=False, exclude_tiers=())` — **all** tiers, no doc filter (needed so specialized tools are discoverable server-side).
   - Filter to `ToolWriterSpecialBase` with matching `specialized_domain`, plus `specialized_workflow_finished`.
 - Depending on the `USE_SUB_AGENT` toggle, it either uses `ToolCallingAgent` + `WriterAgentSmolModel` to execute the task autonomously, or calls `ctx.set_active_domain_callback(domain)` to switch the context for the main model.
+- **Sub-agent UNO threading (USE_SUB_AGENT=True):** the gateway runs on a background worker (`is_async()`). Before the smol loop starts, UNO scaffolding (`ToolRegistry.get_tools(doc=…)`, shapes canvas context, document-research open-doc list, embeddings index wakeup) is marshalled via `execute_on_main_thread` in [`plugin/doc/specialized_base.py`](../../plugin/doc/specialized_base.py). Sync domain tools are wrapped with `SmolToolAdapter(..., main_thread_sync=True)` so each tool call marshals to the main thread; async tools must marshal UNO internally (e.g. `generate_image`, `delegate_read_document`). See [docs/uno-thread-safety-enforcement.md](../uno-thread-safety-enforcement.md).
 
 ### 3.3 System prompt guidance
 

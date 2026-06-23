@@ -46,12 +46,18 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
         read_only_target=True,
     )
 
-    domain_tools = registry.get_tools(doc=opened_model, doc_type=doc_type, names=list(allowlist), exclude_tiers=())
+    from plugin.framework import queue_executor
+
+    def _fetch_inner_tools():
+        domain_tools = registry.get_tools(doc=opened_model, doc_type=doc_type, names=list(allowlist), exclude_tiers=())
+        finish_tools = registry.get_tools(names=["specialized_workflow_finished"], exclude_tiers=())
+        return domain_tools, finish_tools
+
+    domain_tools, finish_tools = queue_executor.execute_on_main_thread(_fetch_inner_tools)
     missing = allowlist - {t.name for t in domain_tools if t.name}
     if missing:
         log.warning("Inner document_research agent missing tools: %s", sorted(missing))
 
-    finish_tools = registry.get_tools(names=["specialized_workflow_finished"], exclude_tiers=())
     tools_by_name = {t.name: t for t in domain_tools + finish_tools if t.name}
     ordered = [tools_by_name[n] for n in allowlist if n in tools_by_name]
     for t in finish_tools:

@@ -12,6 +12,8 @@
 import logging
 from typing import Any
 
+from plugin.framework.thread_guard import assert_main_thread
+
 log = logging.getLogger("writeragent.specialized_shapes_context")
 
 
@@ -163,6 +165,7 @@ def _format_calc_canvas(doc: Any) -> str:
 
 def format_shapes_canvas_context(doc: Any) -> str:
     """Human-readable canvas line for shapes specialized sub-agent instructions."""
+    assert_main_thread("specialized_shapes_context.format_shapes_canvas_context")
     if doc is None:
         return ""
     try:
