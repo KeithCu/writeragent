@@ -1,8 +1,10 @@
 import queue
-from unittest.mock import MagicMock
-import pytest
-import queue
+import threading
 import time
+from unittest.mock import MagicMock, patch
+
+import pytest
+
 from plugin.framework.async_stream import StreamQueueKind, run_stream_drain_loop, BatchingStreamQueue
 from plugin.framework.worker_pool import run_in_background
 
@@ -748,3 +750,73 @@ def test_batching_stream_queue_timer_emission(monkeypatch):
     item = raw.get_nowait()
     assert item == (StreamQueueKind.CHUNK, "delayed")
     assert raw.empty()
+
+
+def test_pump_ui_idle_unblocks_execute_on_main_thread_when_poke_noop():
+    """Regression: async tools marshal UNO while drain loop runs; poke alone must not deadlock."""
+    from plugin.framework import queue_executor as qe
+
+    toolkit = DummyToolkit()
+    result_holder: list[str] = []
+    done = threading.Event()
+
+    def worker():
+        try:
+            result_holder.append(qe.execute_on_main_thread(lambda: "marshaled"))
+        finally:
+            done.set()
+
+    with patch.object(qe.default_executor, "_get_async_callback", return_value=MagicMock()):
+        with patch.object(qe.default_executor, "_poke_main_thread", lambda: None):
+            qe.set_force_marshal_mode(True)
+            try:
+                t = run_in_background(worker, name="marshal-worker", daemon=False)
+                deadline = time.time() + 3.0
+                while not done.is_set() and time.time() < deadline:
+                    qe.pump_ui_idle(toolkit, max_queue_items=4)
+                t.join(timeout=1.0)
+                assert done.is_set(), "worker blocked on execute_on_main_thread without pump_ui_idle"
+                assert result_holder == ["marshaled"]
+            finally:
+                qe.set_force_marshal_mode(False)
+                while not qe.default_executor._work_queue.empty():
+                    qe.default_executor.process_queue()
+
+
+def test_run_stream_drain_loop_idle_unblocks_marshaled_worker():
+    """Regression: web_research-style hang when main waits in drain loop for async tool."""
+    from plugin.framework import queue_executor as qe
+
+    stream_q: queue.Queue = queue.Queue()
+    marshal_done = threading.Event()
+
+    def worker():
+        qe.execute_on_main_thread(lambda: marshal_done.set())
+        stream_q.put((StreamQueueKind.STREAM_DONE, None))
+
+    with patch.object(qe.default_executor, "_get_async_callback", return_value=MagicMock()):
+        with patch.object(qe.default_executor, "_poke_main_thread", lambda: None):
+            qe.set_force_marshal_mode(True)
+            try:
+                run_in_background(worker, name="tool-async-marshal", daemon=False)
+                job_done = [False]
+
+                def stream_done(_item):
+                    job_done[0] = True
+                    return True
+
+                run_stream_drain_loop(
+                    stream_q,
+                    DummyToolkit(),
+                    job_done,
+                    lambda _t, _th: None,
+                    on_stream_done=stream_done,
+                    on_stopped=lambda: None,
+                    on_error=lambda _e: None,
+                )
+                assert marshal_done.is_set()
+                assert job_done[0]
+            finally:
+                qe.set_force_marshal_mode(False)
+                while not qe.default_executor._work_queue.empty():
+                    qe.default_executor.process_queue()

@@ -343,8 +343,12 @@ def test_execute_on_main_thread_no_service():
         t.start()
         t.join()
         with patch('threading.current_thread') as mock_thread, patch('threading.main_thread') as mock_main:
-            mock_thread.return_value = 'Thread-1'
-            mock_main.return_value = 'Thread-2'
+            mock_cur = MagicMock()
+            mock_cur.name = 'Thread-1'
+            mock_main_cur = MagicMock()
+            mock_main_cur.name = 'Thread-2'
+            mock_thread.return_value = mock_cur
+            mock_main.return_value = mock_main_cur
             res = mt.execute_on_main_thread((lambda x: (x * 2)), 5)
             assert (res == 10)
 
@@ -361,8 +365,12 @@ def test_post_to_main_thread_no_service():
 
 def test_execute_on_main_thread_success():
     with patch('threading.current_thread') as mock_thread, patch('threading.main_thread') as mock_main, patch.object(default_executor, '_get_async_callback') as mock_get, patch.object(default_executor, '_poke_main_thread') as mock_poke:
-        mock_thread.return_value = 'Thread-1'
-        mock_main.return_value = 'Thread-2'
+        mock_cur = MagicMock()
+        mock_cur.name = 'Thread-1'
+        mock_main_cur = MagicMock()
+        mock_main_cur.name = 'Thread-2'
+        mock_thread.return_value = mock_cur
+        mock_main.return_value = mock_main_cur
         mock_get.return_value = MagicMock()
 
         def mock_vcl():
@@ -370,6 +378,40 @@ def test_execute_on_main_thread_success():
         mock_poke.side_effect = mock_vcl
         res = mt.execute_on_main_thread((lambda x: (x * 2)), 5)
         assert (res == 10)
+
+def test_execute_background_task_on_logical_main_enqueues():
+    """worker_pool tags bg threads; inline marshal on logical main must not run UNO there."""
+    default_executor._async_callback_service = MagicMock()
+    default_executor._callback_instance = MagicMock()
+    default_executor._initialized = True
+    ran_on: list[str] = []
+
+    def fn() -> str:
+        ran_on.append(threading.current_thread().name)
+        return "ok"
+
+    def mock_vcl() -> None:
+        default_executor.process_queue()
+
+    with (
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.framework.thread_guard.get_background_task_name", return_value="tool-async-test"),
+        patch.object(default_executor, "_poke_main_thread", side_effect=mock_vcl),
+    ):
+        res = default_executor.execute(fn)
+    assert res == "ok"
+    assert ran_on == ["MainThread"]
+
+def test_execute_refuses_fallback_during_agent_session():
+    default_executor._async_callback_service = None
+    default_executor._initialized = True
+    with (
+        patch.object(default_executor, "_get_async_callback", return_value=None),
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+        lc.agent_session(),
+        pytest.raises(RuntimeError, match="AsyncCallback unavailable during agent session"),
+    ):
+        default_executor.execute(lambda: 1)
 
 def test_get_async_callback_already_init_with_lock():
     default_executor._initialized = False

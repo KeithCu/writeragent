@@ -310,7 +310,7 @@ trace," which is the bulk of the user's pain.
 - UNO sources to decorate / proxy: [`plugin/framework/uno_context.py`](../plugin/framework/uno_context.py),
   [`plugin/doc/document_helpers.py`](../plugin/doc/document_helpers.py).
 - Background birthplace to tag / constrain: [`plugin/framework/worker_pool.py`](../plugin/framework/worker_pool.py).
-- Marshalling boundary (the only legal recoloring): [`plugin/framework/queue_executor.py`](../plugin/framework/queue_executor.py) (`set_force_marshal_mode`, `set_test_poke_handler` for Layer B pytest). **Sync tools** are also marshaled centrally in [`ToolRegistry.execute`](../plugin/framework/tool.py) via `execute_on_main_thread` (async tools and `bypass_thread_guard` stay on the caller thread).
+- Marshalling boundary (the only legal recoloring): [`plugin/framework/queue_executor.py`](../plugin/framework/queue_executor.py) (`set_force_marshal_mode`, `set_test_poke_handler` for Layer B pytest; **`pump_ui_idle`** co-drains the work queue from [`run_stream_drain_loop`](../plugin/framework/async_stream.py) so async tools do not deadlock). **Sync tools** are also marshaled centrally in [`ToolRegistry.execute`](../plugin/framework/tool.py) via `execute_on_main_thread` (async tools and `bypass_thread_guard` stay on the caller thread).
 - Layer B pytest: [`tests/framework/thread_safety.py`](../tests/framework/thread_safety.py), fixture in [`tests/framework/conftest.py`](../tests/framework/conftest.py), tests in [`tests/framework/test_thread_affinity.py`](../tests/framework/test_thread_affinity.py).
 - Linter: new `scripts/uno_thread_lint.py`, wired into `check` / `test` in the
   [`Makefile`](../Makefile).

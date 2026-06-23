@@ -146,6 +146,30 @@ def is_agent_active() -> bool:
         return _AGENT_ACTIVE_COUNT > 0
 
 
+def _marshal_thread_tag(executor: "QueueExecutor | None" = None) -> str:
+    """One-line thread context for marshal/deadlock diagnosis (writeragent_debug.log)."""
+    from plugin.framework.thread_guard import get_background_task_name, on_main_thread
+
+    cur = threading.current_thread()
+    main = threading.main_thread()
+    cur_name = getattr(cur, "name", repr(cur))
+    cur_ident = getattr(cur, "ident", "?")
+    py_main = cur is main
+    ex = executor or default_executor
+    try:
+        qdepth = ex._work_queue.qsize()
+    except Exception:
+        qdepth = -1
+    return (
+        "thread=%r ident=%s py_main=%s logical_main=%s bg_task=%r agent_active=%s queue_depth=%s"
+        % (cur_name, cur_ident, py_main, on_main_thread(), get_background_task_name(), is_agent_active(), qdepth)
+    )
+
+
+def _fn_label(fn: Callable) -> str:
+    return getattr(fn, "__qualname__", None) or getattr(fn, "__name__", None) or repr(fn)
+
+
 @contextmanager
 def llm_request_lane() -> Generator[None, None, None]:
     """Serialize LLM requests when callers choose to opt in."""
@@ -257,6 +281,9 @@ class QueueExecutor:
         except queue.Empty:
             return
 
+        fn_label = _fn_label(item.fn)
+        log.debug("process_queue start fn=%s %s", fn_label, _marshal_thread_tag(self))
+
         if item.cancelled:
             log.debug("QueueExecutor: skipping cancelled item %s (%s)", item.id, getattr(item.fn, "__name__", "<fn>"))
             if item.blocking and item.event and not item.event.is_set():
@@ -270,6 +297,7 @@ class QueueExecutor:
             finally:
                 if item.blocking and item.event:
                     item.event.set()
+                log.debug("process_queue done fn=%s %s", fn_label, _marshal_thread_tag(self))
 
         # Re-poke if more items waiting
         if not self._work_queue.empty():
@@ -281,12 +309,13 @@ class QueueExecutor:
             _test_poke_handler(self)
             return
         if self._async_callback_service is None or self._callback_instance is None:
+            log.debug("poke skipped (no AsyncCallback) %s", _marshal_thread_tag(self))
             return
         try:
             # PyUNO rejects uno.Any for addCallback userData on Linux; None is accepted on supported LO builds.
             self._async_callback_service.addCallback(self._callback_instance, None)
         except Exception as e:
-            log.warning("_poke_main_thread addCallback failed: %s", e)
+            log.warning("_poke_main_thread addCallback failed: %s %s", e, _marshal_thread_tag(self))
 
     def cancel_pending_work(self) -> None:
         """Mark queued main-thread work as cancelled and wake blocking waiters."""
@@ -351,19 +380,49 @@ class QueueExecutor:
         Raises TimeoutError if the main thread doesn't process the item in time.
         Re-raises any exception thrown by *fn*.
         """
-        # Already on logical main thread — call directly to avoid deadlock
-        if self._is_logical_main_thread():
+        from plugin.framework.thread_guard import get_background_task_name
+
+        fn_label = _fn_label(fn)
+        tag = _marshal_thread_tag(self)
+        bg_task = get_background_task_name()
+
+        # Already on logical main thread — call directly to avoid deadlock.
+        # Tagged worker_pool threads must never inline UNO even if on_main_thread() lies.
+        if self._is_logical_main_thread() and not bg_task:
+            log.debug("marshal route=inline_logical_main fn=%s %s", fn_label, tag)
             return fn(*args, **kwargs)
 
-        if self._should_run_inline():
+        if bg_task and self._is_logical_main_thread():
+            log.debug(
+                "marshal route=force_enqueue (background task %r on logical main) fn=%s %s",
+                bg_task,
+                fn_label,
+                tag,
+            )
+
+        if self._should_run_inline() and not bg_task:
+            log.debug("marshal route=inline_testing fn=%s %s", fn_label, tag)
             return fn(*args, **kwargs)
 
         svc = None if _force_marshal_mode else self._get_async_callback()
 
         if svc is None and not _force_marshal_mode:
+            if is_agent_active():
+                msg = "marshal refused: AsyncCallback unavailable during agent session (fn=%s)" % fn_label
+                try:
+                    raise RuntimeError(msg)
+                except RuntimeError:
+                    log.exception("%s %s", msg, tag)
+                    raise
             # Fallback: call directly (not thread-safe).
+            log.warning(
+                "marshal route=fallback_no_async (UNO on caller thread) fn=%s %s",
+                fn_label,
+                tag,
+            )
             return fn(*args, **kwargs)
 
+        log.debug("marshal route=enqueue fn=%s %s", fn_label, tag)
         item = self._enqueue_work(fn, args, kwargs, blocking=True)
         return self._wait_for_result(item, timeout)
 
@@ -398,3 +457,28 @@ def execute_on_main_thread(fn, *args, timeout=30.0, **kwargs):
 def post_to_main_thread(fn, *args, **kwargs):
     """Legacy helper: Use default_executor.post instead."""
     return default_executor.post(fn, *args, **kwargs)
+
+
+def pump_main_thread_work_queue(*, max_items: int = 1, executor: QueueExecutor | None = None) -> None:
+    """Process queued UNO work on the LO main thread (call from idle/drain loops).
+
+    Async tools enqueue via :func:`execute_on_main_thread` while the chat drain loop
+    waits for them; this must run on the same thread as ``run_stream_drain_loop`` so
+    workers are not blocked on AsyncCallback alone.
+    """
+    ex = executor or default_executor
+    processed = 0
+    for _ in range(max_items):
+        if ex._work_queue.empty():
+            break
+        ex.process_queue()
+        processed += 1
+    if processed:
+        log.debug("pump_main_thread_work_queue processed=%d %s", processed, _marshal_thread_tag(ex))
+
+
+def pump_ui_idle(toolkit: Any, *, max_queue_items: int = 1, executor: QueueExecutor | None = None) -> None:
+    """Idle tick for main-thread wait loops: drain QueueExecutor then pump VCL events."""
+    pump_main_thread_work_queue(max_items=max_queue_items, executor=executor)
+    if toolkit is not None and hasattr(toolkit, "processEventsToIdle"):
+        toolkit.processEventsToIdle()

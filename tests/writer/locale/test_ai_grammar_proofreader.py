@@ -326,3 +326,21 @@ class TestTypingIntegration:
             res = pr.doProofreading("test-doc", "Hello.", mock_locale_fixture, 0, 6, ())
         assert res.aErrors == ()
         mock_queue_fixture.enqueue.assert_not_called()
+
+    def test_do_proofreading_marshals_persistence_bind_off_main_thread(
+        self, mock_config_fixture, mock_locale_fixture, mock_queue_fixture
+    ) -> None:
+        """LO linguistic workers call doProofreading off the UI thread; UNO bind must marshal."""
+        pr = _make_proofreader()
+        with (
+            patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+            patch(
+                "plugin.framework.queue_executor.execute_on_main_thread",
+                side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
+            ) as mock_exec,
+            patch("plugin.writer.locale.ai_grammar_proofreader._ensure_persistence_bound") as mock_bind,
+        ):
+            pr.doProofreading("test-doc", "Hello.", mock_locale_fixture, 0, 6, ())
+        mock_exec.assert_called_once()
+        assert mock_exec.call_args[0][1:] == (pr.ctx, "test-doc")
+        mock_bind.assert_called_once_with(pr.ctx, "test-doc")

@@ -18,7 +18,7 @@
 Unified async stream orchestration for WriterAgent.
 Handles both simple streaming and complex tool-calling loops with thinking/status updates.
 Runs blocking API calls on worker threads and drains logic via a main-thread loop
-to keep the LibreOffice UI responsive (processEventsToIdle).
+to keep the LibreOffice UI responsive (pump_ui_idle: QueueExecutor + VCL).
 """
 
 from __future__ import annotations
@@ -37,6 +37,7 @@ log = logging.getLogger(__name__)
 
 
 from plugin.framework.errors import format_error_payload
+from plugin.framework.queue_executor import _marshal_thread_tag, default_executor, pump_ui_idle
 
 
 class StreamQueueKind(str, Enum):
@@ -394,7 +395,7 @@ def _process_batch(state: _DrainState, items: list[Any], stop_checker: Callable[
 def run_stream_drain_loop(q, toolkit, job_done, apply_chunk_fn, on_stream_done, on_stopped, on_error, on_status_fn=None, ctx=None, show_search_thinking=False, on_approval_required=None, stop_checker=None):
     """
     Main-thread drain loop: batches items from queue, manages thinking/chunk buffers,
-    and dispatches to callbacks. Keeps UI responsive via processEventsToIdle().
+    and dispatches to callbacks. Keeps UI responsive via pump_ui_idle (QueueExecutor + VCL).
     Includes comprehensive error handling to prevent UI thread crashes.
 
     Supported queue items (kind, *args); kind must be :class:`StreamQueueKind`:
@@ -413,6 +414,7 @@ def run_stream_drain_loop(q, toolkit, job_done, apply_chunk_fn, on_stream_done, 
     - (TOOL_RESULT, payload): Agent-backend tool result block; shown as text via apply_chunk_fn.
     """
     state = _DrainState(q=q, apply_chunk_fn=apply_chunk_fn, on_stream_done=on_stream_done, on_stopped=on_stopped, on_error=on_error, on_status_fn=on_status_fn, on_approval_required=on_approval_required, show_search_thinking=show_search_thinking, job_done=job_done)
+    log.debug("run_stream_drain_loop start %s", _marshal_thread_tag())
     try:
         while not job_done[0]:
             if stop_checker and stop_checker():
@@ -431,10 +433,15 @@ def run_stream_drain_loop(q, toolkit, job_done, apply_chunk_fn, on_stream_done, 
                 break
 
             if not items:
-                if ctx:
-                    pass
+                marshal_depth = default_executor._work_queue.qsize()
+                if marshal_depth > 0:
+                    log.warning(
+                        "drain_idle: stream queue empty but marshal queue_depth=%d (worker may be blocked) %s",
+                        marshal_depth,
+                        _marshal_thread_tag(),
+                    )
                 if toolkit:
-                    toolkit.processEventsToIdle()
+                    pump_ui_idle(toolkit)
                 continue
 
             try:
@@ -449,10 +456,10 @@ def run_stream_drain_loop(q, toolkit, job_done, apply_chunk_fn, on_stream_done, 
                     pass
 
             if toolkit:
-                toolkit.processEventsToIdle()
+                pump_ui_idle(toolkit)
 
         if toolkit:
-            toolkit.processEventsToIdle()
+            pump_ui_idle(toolkit)
 
     except Exception as e:
         error_payload = format_error_payload(e)
@@ -647,9 +654,7 @@ def run_blocking_in_thread(ctx, func, *args, **kwargs):
             if kind == BlockingPumpKind.ERROR:
                 raise data
         except queue.Empty:
-            # Pulse MCP if enabled (similar to drain loop)
-            # MCP pulse removed
-            toolkit.processEventsToIdle()
+            pump_ui_idle(toolkit)
 
 
 # ── Streaming Delta Accumulation (OpenAI-Compatible) ───────────────

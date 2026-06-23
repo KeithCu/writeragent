@@ -163,12 +163,12 @@ class TestGrammarIgnoreRules(unittest.TestCase):
         dp._ignored_rules = set()
 
         with (
-            patch("plugin.framework.uno_context.get_active_document", return_value=model),
+            patch("plugin.writer.locale.ai_grammar_proofreader._ensure_persistence_bound"),
             patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp) as mock_get,
         ):
             # Ignore a rule
             pr.ignoreRule("wa_g_rule||Avoid passive voice.", None)
-            mock_get.assert_called_with(ctx, "2", model=model)
+            mock_get.assert_called_with(ctx, "2")
             self.assertIn("avoid passive voice", dp._ignored_rules)
             self.assertTrue(dp._persist_to_udprops.called)
             

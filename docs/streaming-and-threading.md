@@ -265,7 +265,7 @@ LibreOffice’s UI (VCL) is single-threaded. To keep the UI responsive during lo
 2. **Main Thread (Consumer):**
    - Runs a single `while True` event loop in `_start_tool_calling_async`.
    - Blocks briefly on `q.get(timeout=0.1)`.
-   - If the queue is empty, it calls `toolkit.processEventsToIdle()` to pump LibreOffice UI events, keeping the application perfectly responsive.
+   - If the queue is empty, it calls `pump_ui_idle(toolkit)` — draining one or more [`QueueExecutor`](../plugin/framework/queue_executor.py) work items (UNO marshaled from async tools) **then** `processEventsToIdle()` for VCL repaint/input. AsyncCallback alone is not enough while this loop is running; see [`pump_ui_idle`](../plugin/framework/queue_executor.py).
    - If an item is received, it dispatches based on the message type (e.g., appending text, updating status, executing tools).
 
 This flat architecture avoids nested callbacks and makes state transitions explicit.
@@ -538,11 +538,11 @@ Inside [panel.py](file:///home/keithcu/Desktop/Python/writeragent/plugin/chat_pa
        if kind == "event":
            self.on_append_response(item)
 
-       # Vital step: Tells LibreOffice to repaint and process user clicks
-       toolkit.processEventsToIdle()
+       # Vital step: marshal queued UNO work, then repaint / process user clicks
+       pump_ui_idle(toolkit)
    ```
 
-Because we are doing `q.get(timeout=0.1)` followed by `toolkit.processEventsToIdle()`, the loop yields control back to the UI 10 times a second. **The UI stays smooth and responsive**, and when a chunk of text or a tool execution request arrives from the worker, it is safely executed natively on the Main Thread.
+Because we are doing `q.get(timeout=0.1)` followed by `pump_ui_idle(toolkit)`, the loop yields control back to the UI ~10 times a second **and** runs `execute_on_main_thread` callbacks posted by async tools (e.g. web research locale detection). **The UI stays smooth and responsive**, and when a chunk of text or a tool execution request arrives from the worker, sync tool paths still run natively on the main thread.
 
 ### The `next_tool` Queuing System
 The final piece of the puzzle handles slow external tools (like Web Research or Image Generation).

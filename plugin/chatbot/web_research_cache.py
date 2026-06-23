@@ -93,7 +93,9 @@ def resolve_research_locale(ctx: Any, doc: Any = None) -> tuple[str, str]:
     Query text is not language-detected; document CharLocale first, then LO UI locale.
     UNO reads are marshalled to the main thread because callers include async web_research.
     """
-    from plugin.framework.queue_executor import SendCancelled
+    from plugin.framework.queue_executor import SendCancelled, _marshal_thread_tag
+
+    log.debug("resolve_research_locale start doc=%s %s", doc is not None, _marshal_thread_tag())
 
     if doc is not None:
         try:

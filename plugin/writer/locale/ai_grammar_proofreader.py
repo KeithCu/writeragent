@@ -78,6 +78,70 @@ from plugin.writer.locale.grammar_work_queue import (
     next_enqueue_seq,
 )
 
+
+def _run_on_main_thread(fn, *args, **kwargs):
+    """Run *fn* on the LO UI thread (XProofreader hooks run on linguistic workers)."""
+    from plugin.framework.queue_executor import execute_on_main_thread
+    from plugin.framework.thread_guard import on_main_thread
+
+    if on_main_thread():
+        return fn(*args, **kwargs)
+    return execute_on_main_thread(fn, *args, **kwargs)
+
+
+def _ensure_persistence_bound(ctx: Any, doc_id: str | None) -> None:
+    """Bind ``DocumentPersistence`` to the Writer model (loads udprops when available)."""
+    if not doc_id:
+        return
+    from plugin.framework.uno_context import get_active_document
+    from plugin.writer.locale.grammar_persistence import get_document_model_for_id, get_persistence
+
+    model = get_document_model_for_id(ctx, doc_id)
+    if model is None:
+        model = get_active_document(ctx)
+    get_persistence(ctx, doc_id, model=model)
+
+
+def _ignore_rule_on_main(ctx: Any, doc_id: str | None, rule_identifier: str) -> None:
+    _ensure_persistence_bound(ctx, doc_id)
+    ignore_rule_add(str(rule_identifier))
+    from plugin.writer.locale.grammar_persistence import get_persistence
+
+    p = get_persistence(ctx, doc_id) if doc_id else None
+    if not p:
+        return
+    if rule_identifier.startswith("wa_g_rule||"):
+        reason = rule_identifier[11:]
+        from .grammar_proofread_locale import normalize_reason
+
+        norm_reason = normalize_reason(reason)
+        with p._lock:
+            p._ignored_rules.add(norm_reason)
+        p._persist_to_udprops()
+        log.debug("[grammar] ignoreRule added: '%s' (normalized: '%s') to doc_id=%s", reason, norm_reason, doc_id)
+    else:
+        from .grammar_proofread_locale import normalize_reason
+
+        norm_reason = normalize_reason(rule_identifier)
+        with p._lock:
+            p._ignored_rules.add(norm_reason)
+        p._persist_to_udprops()
+
+
+def _reset_ignore_rules_on_main(ctx: Any, doc_id: str | None) -> None:
+    _ensure_persistence_bound(ctx, doc_id)
+    ignore_rules_clear()
+    from plugin.writer.locale.grammar_persistence import get_persistence
+
+    p = get_persistence(ctx, doc_id) if doc_id else None
+    if not p:
+        return
+    with p._lock:
+        p._ignored_rules.clear()
+    p._persist_to_udprops()
+    log.debug("[grammar] resetIgnoreRules cleared all ignored rules for doc_id=%s", doc_id)
+
+
 # --- Testing seam -------------------------------------------------------
 # Single explicit entry point for unit tests that need to invoke or patch
 # cross-module helpers (run_llm_and_cache lives in the work queue; locale
@@ -394,10 +458,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
 
     def doProofreading(self, aDocumentIdentifier: str, aText: str, aLocale: Any, nStartOfSentencePosition: int, nSuggestedBehindEndOfSentencePosition: int, aProperties: Any) -> Any:
         self._last_doc_id = aDocumentIdentifier
-        from plugin.framework.uno_context import get_active_document
-        from plugin.writer.locale.grammar_persistence import get_persistence
-
-        get_persistence(self.ctx, aDocumentIdentifier, model=get_active_document(self.ctx))
+        _run_on_main_thread(_ensure_persistence_bound, self.ctx, aDocumentIdentifier)
         if uno_mod is None:
             log.warning("[grammar] doProofreading: uno_mod is None (import failed)")
             raise RuntimeError("uno not available")
@@ -457,52 +518,15 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
     def ignoreRule(self, aRuleIdentifier: str, aLocale: Any) -> None:
         try:
             del aLocale
-            # Call legacy global fallback
-            ignore_rule_add(str(aRuleIdentifier))
-
-            from plugin.framework.uno_context import get_active_document
-            from plugin.writer.locale.grammar_persistence import get_persistence
-
             doc_id = getattr(self, "_last_doc_id", None)
-            model = get_active_document(self.ctx)
-            p = get_persistence(self.ctx, doc_id, model=model) if doc_id else None
-
-            if aRuleIdentifier.startswith("wa_g_rule||"):
-                reason = aRuleIdentifier[11:]
-                from .grammar_proofread_locale import normalize_reason
-                norm_reason = normalize_reason(reason)
-                if p:
-                    with p._lock:
-                        p._ignored_rules.add(norm_reason)
-                    p._persist_to_udprops()
-                    log.debug("[grammar] ignoreRule added: '%s' (normalized: '%s') to doc_id=%s", reason, norm_reason, doc_id)
-            elif p:
-                # Fallback for legacy identifier
-                from .grammar_proofread_locale import normalize_reason
-                norm_reason = normalize_reason(aRuleIdentifier)
-                with p._lock:
-                    p._ignored_rules.add(norm_reason)
-                p._persist_to_udprops()
+            _run_on_main_thread(_ignore_rule_on_main, self.ctx, doc_id, aRuleIdentifier)
         except Exception as e:
             log.warning("[grammar] ignoreRule: %s", e, exc_info=True)
 
     def resetIgnoreRules(self) -> None:
         try:
-            # Call legacy global fallback
-            ignore_rules_clear()
-
-            from plugin.framework.uno_context import get_active_document
-            from plugin.writer.locale.grammar_persistence import get_persistence
-
             doc_id = getattr(self, "_last_doc_id", None)
-            model = get_active_document(self.ctx)
-            p = get_persistence(self.ctx, doc_id, model=model) if doc_id else None
-
-            if p:
-                with p._lock:
-                    p._ignored_rules.clear()
-                p._persist_to_udprops()
-                log.debug("[grammar] resetIgnoreRules cleared all ignored rules for doc_id=%s", doc_id)
+            _run_on_main_thread(_reset_ignore_rules_on_main, self.ctx, doc_id)
         except Exception as e:
             log.warning("[grammar] resetIgnoreRules: %s", e, exc_info=True)
 
