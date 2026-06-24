@@ -225,7 +225,7 @@ def test_notify_dedupes_per_thread(monkeypatch):
     tg._violation_ui_threads.clear()
 
 
-def test_assert_logs_and_notifies_when_guard_on(monkeypatch, caplog):
+def test_assert_logs_and_notifies_when_guard_on(monkeypatch):
     fake_bg = MagicMock()
     fake_bg.name = "worker-notify"
     monkeypatch.setattr(threading, "current_thread", lambda: fake_bg)
@@ -241,10 +241,13 @@ def test_assert_logs_and_notifies_when_guard_on(monkeypatch, caplog):
 
     try:
         with patch("plugin.framework.queue_executor.post_to_main_thread", fake_post):
-            with pytest.raises(RuntimeError):
-                tg.assert_main_thread("test.site")
+            with patch.object(tg.log, "error") as mock_error:
+                with pytest.raises(RuntimeError):
+                    tg.assert_main_thread("test.site")
+                mock_error.assert_called_once()
+                assert "UNO thread violation" in mock_error.call_args[0][0]
+                assert mock_error.call_args[1].get("stack_info") is True
         assert len(posts) == 1
-        assert any("UNO thread violation" in r.message for r in caplog.records)
     finally:
         tg.GUARD_ON = was
         tg._violation_ui_threads.clear()

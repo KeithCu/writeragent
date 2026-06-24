@@ -123,10 +123,10 @@ class DelegateToSpecializedBase(ToolBase):
             return tool.execute(ctx, query=task)
 
         if domain == "vision":
-            from plugin.vision.vision_availability import vision_ocr_available
+            from plugin.vision.vision_availability import vision_venv_configured
             from plugin.vision.vision_tools import ExtractTextFromImage
 
-            if not vision_ocr_available(ctx.ctx):
+            if not vision_venv_configured(ctx.ctx):
                 return self._tool_error(
                     _(
                         "Local OCR requires Settings → Python venv with Docling or PaddleOCR "

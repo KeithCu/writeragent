@@ -197,6 +197,12 @@ class ToolCallingMixin:
             log.debug("_do_send: loading %s schema..." % doc_type_str)
             active_domain = getattr(self.session, "active_specialized_domain", None) if hasattr(self, "session") else None
             python_tool_domain = getattr(self.session, "python_tool_domain", None) if hasattr(self, "session") else None
+            from plugin.framework.queue_executor import pump_ui_idle
+            from plugin.framework.uno_context import get_toolkit
+
+            toolkit = get_toolkit(self.ctx)
+            if toolkit:
+                pump_ui_idle(toolkit, max_queue_items=4)
             active_tools = get_tools().get_schemas("openai", doc=model, active_domain=active_domain, ctx=self.ctx)
 
             def execute_fn(name, args, doc, ctx, status_callback=None, append_thinking_callback=None, stop_checker=None):

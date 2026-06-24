@@ -18,6 +18,8 @@ from plugin.vision.vision_availability import (
     filter_vision_specialized_tools,
     invalidate_vision_availability_cache,
     vision_ocr_available,
+    vision_packages_probe_ready,
+    vision_venv_configured,
 )
 from plugin.vision.vision_tools import ExtractTextFromImage
 
@@ -61,7 +63,7 @@ def test_extract_text_not_in_default_core_list(writer_doc):
     assert "extract_text_from_image" not in names
 
 
-@patch("plugin.vision.vision_availability.vision_ocr_available", return_value=True)
+@patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True)
 def test_extract_text_in_vision_domain(_mock_avail, writer_doc, calc_doc):
     registry = _registry_with_vision_tool()
     uno_ctx = MagicMock()
@@ -73,7 +75,7 @@ def test_extract_text_in_vision_domain(_mock_avail, writer_doc, calc_doc):
         assert "extract_text_from_image" in names
 
 
-@patch("plugin.vision.vision_availability.vision_ocr_available", return_value=False)
+@patch("plugin.vision.vision_availability.vision_venv_configured", return_value=False)
 def test_extract_text_hidden_when_vision_unavailable(_mock_avail, writer_doc):
     registry = _registry_with_vision_tool()
     uno_ctx = MagicMock()
@@ -84,7 +86,7 @@ def test_extract_text_hidden_when_vision_unavailable(_mock_avail, writer_doc):
     assert "extract_text_from_image" not in names
 
 
-@patch("plugin.vision.vision_availability.vision_ocr_available", return_value=True)
+@patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True)
 def test_delegate_writer_gateway_includes_vision(_mock_avail):
     from plugin.writer.specialized_base import DelegateToSpecializedWriter
 
@@ -93,7 +95,7 @@ def test_delegate_writer_gateway_includes_vision(_mock_avail):
     assert "vision" in domains
 
 
-@patch("plugin.vision.vision_availability.vision_ocr_available", return_value=False)
+@patch("plugin.vision.vision_availability.vision_venv_configured", return_value=False)
 def test_delegate_schema_hides_vision_when_unavailable(_mock_avail):
     schema = {
         "type": "function",
@@ -113,33 +115,51 @@ def test_delegate_schema_hides_vision_when_unavailable(_mock_avail):
     assert "images" in enum
 
 
-@patch("plugin.vision.vision_availability._probe_ready", return_value=True)
 @patch("plugin.vision.vision_availability._resolve_vision_python_exe", return_value="/venv/bin/python")
 @patch("plugin.framework.config.get_config_str", return_value="/home/user/venv")
-def test_vision_ocr_available_true_when_probe_ready(_cfg, _exe, _probe):
+def test_vision_venv_configured_true_when_python_resolves(_cfg, _exe):
     invalidate_vision_availability_cache()
+    assert vision_venv_configured(MagicMock()) is True
     assert vision_ocr_available(MagicMock()) is True
 
 
 @patch("plugin.framework.config.get_config_str", return_value="")
-def test_vision_ocr_available_false_without_venv_path(_cfg):
+def test_vision_venv_configured_false_without_venv_path(_cfg):
     invalidate_vision_availability_cache()
+    assert vision_venv_configured(MagicMock()) is False
     assert vision_ocr_available(MagicMock()) is False
+
+
+@patch("plugin.vision.vision_availability._probe_ready", return_value=True)
+@patch("plugin.vision.vision_availability._resolve_vision_python_exe", return_value="/venv/bin/python")
+@patch("plugin.framework.config.get_config_str", return_value="/home/user/venv")
+def test_vision_packages_probe_ready_true_when_probe_ready(_cfg, _exe, _probe):
+    invalidate_vision_availability_cache()
+    assert vision_packages_probe_ready(MagicMock()) is True
 
 
 @patch("plugin.vision.vision_availability._probe_ready", return_value=False)
 @patch("plugin.vision.vision_availability._resolve_vision_python_exe", return_value="/venv/bin/python")
 @patch("plugin.framework.config.get_config_str", return_value="/home/user/venv")
-def test_vision_ocr_available_false_when_probe_fails(_cfg, _exe, _probe):
+def test_vision_packages_probe_ready_false_when_probe_fails(_cfg, _exe, _probe):
     invalidate_vision_availability_cache()
-    assert vision_ocr_available(MagicMock()) is False
+    assert vision_packages_probe_ready(MagicMock()) is False
+
+
+@patch("plugin.vision.vision_availability._probe_ready", return_value=True)
+@patch("plugin.vision.vision_availability._resolve_vision_python_exe", return_value="/venv/bin/python")
+@patch("plugin.framework.config.get_config_str", return_value="/home/user/venv")
+def test_vision_venv_configured_true_even_when_probe_would_fail(_cfg, _exe, _probe):
+    """Send/schema gate must not subprocess-probe; venv path alone is enough."""
+    invalidate_vision_availability_cache()
+    assert vision_venv_configured(MagicMock()) is True
 
 
 def test_filter_vision_specialized_tools_removes_tool():
     tool = ExtractTextFromImage()
     other = MagicMock()
     other.name = "specialized_workflow_finished"
-    with patch("plugin.vision.vision_availability.vision_ocr_available", return_value=False):
+    with patch("plugin.vision.vision_availability.vision_venv_configured", return_value=False):
         filtered = filter_vision_specialized_tools([tool, other], MagicMock())
     assert tool not in filtered
     assert other in filtered
@@ -210,7 +230,7 @@ def test_extract_text_rejects_unsupported_doc(tool_ctx):
     assert "Writer or Calc" in result.get("message", "")
 
 
-@patch("plugin.vision.vision_availability.vision_ocr_available", return_value=False)
+@patch("plugin.vision.vision_availability.vision_venv_configured", return_value=False)
 def test_get_vision_core_directive_empty_when_unavailable(_mock_avail):
     from plugin.framework.constants import get_vision_core_directive
 
@@ -219,7 +239,7 @@ def test_get_vision_core_directive_empty_when_unavailable(_mock_avail):
 
 @patch("plugin.doc.specialized_base.USE_SUB_AGENT", True)
 @patch("plugin.doc.specialized_base.build_toolcalling_agent")
-@patch("plugin.vision.vision_availability.vision_ocr_available", return_value=True)
+@patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True)
 @patch.object(ExtractTextFromImage, "execute", return_value={"status": "ok", "full_text": "hi"})
 def test_delegate_vision_runs_ocr_directly(mock_execute, _avail, mock_build_agent):
     from plugin.writer.specialized_base import DelegateToSpecializedWriter
@@ -242,7 +262,7 @@ def test_delegate_vision_runs_ocr_directly(mock_execute, _avail, mock_build_agen
 
 @patch("plugin.doc.specialized_base.USE_SUB_AGENT", True)
 @patch("plugin.doc.specialized_base.build_toolcalling_agent")
-@patch("plugin.vision.vision_availability.vision_ocr_available", return_value=False)
+@patch("plugin.vision.vision_availability.vision_venv_configured", return_value=False)
 def test_delegate_vision_unavailable_skips_sub_agent(_avail, mock_build_agent):
     from plugin.writer.specialized_base import DelegateToSpecializedWriter
 
@@ -263,7 +283,7 @@ def test_delegate_vision_no_document_lock():
     assert gateway.requires_document_lock({"domain": "vision"}) is False
 
 
-@patch("plugin.vision.vision_availability.vision_ocr_available", return_value=True)
+@patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True)
 def test_get_vision_core_directive_when_available(_mock_avail, writer_doc):
     from plugin.framework.constants import get_vision_core_directive
 

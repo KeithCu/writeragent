@@ -415,6 +415,7 @@ def run_stream_drain_loop(q, toolkit, job_done, apply_chunk_fn, on_stream_done, 
     """
     state = _DrainState(q=q, apply_chunk_fn=apply_chunk_fn, on_stream_done=on_stream_done, on_stopped=on_stopped, on_error=on_error, on_status_fn=on_status_fn, on_approval_required=on_approval_required, show_search_thinking=show_search_thinking, job_done=job_done)
     log.debug("run_stream_drain_loop start %s", _marshal_thread_tag())
+    first_batch_logged = [False]
     try:
         while not job_done[0]:
             if stop_checker and stop_checker():
@@ -434,15 +435,26 @@ def run_stream_drain_loop(q, toolkit, job_done, apply_chunk_fn, on_stream_done, 
 
             if not items:
                 marshal_depth = default_executor._work_queue.qsize()
-                if marshal_depth > 0:
-                    log.warning(
-                        "drain_idle: stream queue empty but marshal queue_depth=%d (worker may be blocked) %s",
-                        marshal_depth,
-                        _marshal_thread_tag(),
-                    )
                 if toolkit:
                     pump_ui_idle(toolkit)
+                if marshal_depth > 0:
+                    remaining = default_executor._work_queue.qsize()
+                    if remaining > 0:
+                        log.warning(
+                            "drain_idle: marshal queue_depth=%d after pump (worker may be blocked) %s",
+                            remaining,
+                            _marshal_thread_tag(),
+                        )
+                    else:
+                        log.debug(
+                            "drain_idle: stream queue empty, marshal depth %d cleared by pump %s",
+                            marshal_depth,
+                            _marshal_thread_tag(),
+                        )
                 continue
+
+            if not first_batch_logged[0]:
+                first_batch_logged[0] = True
 
             try:
                 _process_batch(state, items, stop_checker)

@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Gate LLM vision/OCR tools on Settings venv + Docling/Paddle/css-inline availability."""
+"""Gate LLM vision/OCR tools on Settings venv configuration (fast) or package probe (diagnostics)."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ _DELEGATE_GATEWAY_NAMES = frozenset(
     }
 )
 
-# Cache probe results keyed by (python_exe, mtime); cleared when venv path changes.
+# Package probe cache (Settings self-check / diagnostics only — not used on Send / get_schemas).
 _probe_cache: dict[tuple[str, float], bool] = {}
 _cached_venv_path: str | None = None
 
@@ -64,14 +64,28 @@ def _probe_ready(python_exe: str) -> bool:
 
     probe, err = _probe_vision_packages(python_exe, timeout=float(VISION_PROBE_TIMEOUT_SEC))
     if err:
-        log.debug("vision_ocr_available: probe note: %s", err)
+        log.debug("vision_packages_probe_ready: probe note: %s", err)
     ready = _ocr_backend_ready(probe) and probe.get("css_inline") == "present"
     _probe_cache[cache_key] = ready
     return ready
 
 
-def vision_ocr_available(ctx: Any) -> bool:
-    """True when Settings venv can run extract_text and insert formatted HTML."""
+def vision_venv_configured(ctx: Any) -> bool:
+    """True when Settings venv path is set and a python executable resolves (no import probe).
+
+    Used for schema/prompt gating on the main-thread Send path. Missing Docling/Paddle
+    packages surface at OCR runtime or via Settings → Python → Test.
+    """
+    if ctx is None:
+        return False
+    return _resolve_vision_python_exe(ctx) is not None
+
+
+def vision_packages_probe_ready(ctx: Any) -> bool:
+    """True when the venv subprocess probe finds Docling or PaddleOCR+Paddle and css-inline.
+
+    For Settings diagnostics only — do not call from get_schemas or chat send setup.
+    """
     global _cached_venv_path
     if ctx is None:
         return False
@@ -87,16 +101,21 @@ def vision_ocr_available(ctx: Any) -> bool:
     return _probe_ready(python_exe)
 
 
+def vision_ocr_available(ctx: Any) -> bool:
+    """Schema/prompt gate: same as :func:`vision_venv_configured` (no subprocess on Send)."""
+    return vision_venv_configured(ctx)
+
+
 def filter_vision_specialized_tools(tools: list[Any], ctx: Any) -> list[Any]:
-    """Omit extract_text_from_image when local OCR stack is not ready."""
-    if vision_ocr_available(ctx):
+    """Omit extract_text_from_image when no Settings venv is configured."""
+    if vision_venv_configured(ctx):
         return tools
     return [t for t in tools if getattr(t, "name", None) != _VISION_TOOL_NAME]
 
 
 def filter_vision_delegate_schemas(schemas: list[dict[str, Any]], ctx: Any) -> list[dict[str, Any]]:
-    """Remove vision from delegate gateway domain enums when OCR is unavailable."""
-    if ctx is None or vision_ocr_available(ctx):
+    """Remove vision from delegate gateway domain enums when no Settings venv is configured."""
+    if ctx is None or vision_venv_configured(ctx):
         return schemas
 
     out: list[dict[str, Any]] = []
@@ -116,4 +135,4 @@ def filter_vision_delegate_schemas(schemas: list[dict[str, Any]], ctx: Any) -> l
 
 def vision_domain_hidden(ctx: Any) -> bool:
     """True when the vision specialized domain must not appear in prompts or schemas."""
-    return not vision_ocr_available(ctx)
+    return not vision_venv_configured(ctx)

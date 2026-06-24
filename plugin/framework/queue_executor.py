@@ -363,16 +363,22 @@ class QueueExecutor:
         return on_main_thread()
 
     def _may_run_marshal_inline(self) -> bool:
-        """True only on Python MainThread without a worker_pool background tag.
+        """True only when the caller is the thread that may run UNO work inline.
 
         Do not use on_main_thread() alone: designated-main test hooks and LO embed quirks
         can mark workers as logical main while the drain loop runs on MainThread.
         """
-        from plugin.framework.thread_guard import get_background_task_name
+        from plugin.framework.thread_guard import get_background_task_name, get_designated_main_thread
 
+        if _force_marshal_mode:
+            return False
         if get_background_task_name():
             return False
-        return threading.current_thread() is threading.main_thread()
+        current = threading.current_thread()
+        designated = get_designated_main_thread()
+        if designated is not None:
+            return current is designated
+        return current is threading.main_thread()
 
     def _should_run_inline(self) -> bool:
         """Whether to skip the queue and call *fn* on the caller's thread."""

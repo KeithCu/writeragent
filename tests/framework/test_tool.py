@@ -20,7 +20,7 @@ import pytest
 import threading
 import time
 import types
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry, ToolBaseDummy
 from plugin.framework.service import ServiceRegistry
@@ -433,6 +433,15 @@ class TestSchemas:
         s = schemas[0]
         assert s["name"] == "fake_tool"
         assert "inputSchema" in s
+
+    @patch("plugin.scripting.venv_diagnostics._probe_vision_packages")
+    def test_get_schemas_openai_does_not_subprocess_probe_vision(self, mock_probe):
+        """Regression: Send path must not import-probe the venv on get_schemas."""
+        reg = _make_registry(FakeTool())
+        ctx = MagicMock()
+        with patch("plugin.vision.vision_availability._resolve_vision_python_exe", return_value="/venv/bin/python"):
+            reg.get_schemas("openai", doc=TestingFactory.create_doc(doc_type="writer"), ctx=ctx)
+        mock_probe.assert_not_called()
 
 class TestExecuteEventsAndInvalidation:
     def test_execute_emits_events(self):

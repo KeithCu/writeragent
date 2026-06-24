@@ -624,9 +624,9 @@ def _get_specialized_domains_str(base_cls, *, agent_label: str | None = None, ct
             if agent_label == "Writer" and domain in WRITER_SIDEBAR_ONLY_DOMAINS:
                 continue
             if domain == "vision" and ctx is not None:
-                from plugin.vision.vision_availability import vision_ocr_available
+                from plugin.vision.vision_availability import vision_venv_configured
 
-                if not vision_ocr_available(ctx):
+                if not vision_venv_configured(ctx):
                     continue
             if desc:
                 parts.append(f"{domain}: {desc}")
@@ -682,9 +682,9 @@ def get_vision_core_directive(model, ctx) -> str:
     if ctx is None:
         return ""
     from plugin.doc.document_helpers import is_calc, is_writer
-    from plugin.vision.vision_availability import vision_ocr_available
+    from plugin.vision.vision_availability import vision_venv_configured
 
-    if not vision_ocr_available(ctx):
+    if not vision_venv_configured(ctx):
         return ""
     if not (is_writer(model) or is_calc(model)):
         return ""
