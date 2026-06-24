@@ -172,29 +172,29 @@ class TestFetchAvailableImageModels(unittest.TestCase):
     def tearDown(self):
         import plugin.framework.client.model_fetcher as cfg
 
-        for k in list(cfg._model_fetch_cache):
-            if '58907' in k or '58908' in k or 'together.xyz' in k:
-                del cfg._model_fetch_cache[k]
+        for k in list(cfg._model_fetch_image_cache):
+            if '58907' in k or '58908' in k or 'together.xyz' in k or 'openrouter.ai' in k:
                 cfg._model_fetch_image_cache.pop(k, None)
+        for k in list(cfg._model_fetch_cache):
+            if '58907' in k or '58908' in k or 'together.xyz' in k or 'openrouter.ai' in k:
+                del cfg._model_fetch_cache[k]
 
-    def test_openrouter_uses_architecture_not_slug_keywords(self):
+    def test_openrouter_queries_dedicated_images_endpoint(self):
         from plugin.framework.client import model_fetcher as cfg
 
         payload = {
             'data': [
-                {
-                    'id': 'google/gemini-2.5-flash-image',
-                    'architecture': {
-                        'output_modalities': ['image', 'text'],
-                        'input_modalities': ['text'],
-                    },
-                },
-                {'id': 'google/gemini-3.1-flash-lite-preview', 'architecture': {'output_modalities': ['text'], 'input_modalities': ['image', 'text']}},
+                {'id': 'google/gemini-2.5-flash-image'},
+                {'id': 'black-forest-labs/flux-schnell'},
             ]
         }
-        with patch('plugin.framework.client.requests.sync_request', return_value=payload):
+        with patch('plugin.framework.client.requests.sync_request', return_value=payload) as mock_sync:
             image_ids = cfg.fetch_available_image_models('https://openrouter.ai/api')
-        self.assertEqual(image_ids, ['google/gemini-2.5-flash-image'])
+            # Verify the correct endpoint URL was requested
+            mock_sync.assert_called_once()
+            self.assertEqual(mock_sync.call_args[0][0], 'https://openrouter.ai/api/v1/images/models')
+        self.assertEqual(image_ids, ['google/gemini-2.5-flash-image', 'black-forest-labs/flux-schnell'])
+
 
     def test_local_endpoint_falls_back_to_keyword_filter(self):
         from plugin.framework.client import model_fetcher as cfg

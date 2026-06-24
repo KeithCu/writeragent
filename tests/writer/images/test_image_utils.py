@@ -284,10 +284,41 @@ class TestImageService(unittest.TestCase):
             patch.object(provider.client, "make_chat_request", side_effect=fake_make_chat_request),
             patch.object(provider.client, "request_with_tools", side_effect=fake_request_with_tools),
         ):
-            provider.generate("a dog", width=512, height=512, image_model="black-forest-labs/flux.2-klein-4b")
+            provider.generate("a dog", width=512, height=512, image_model="multimodal-custom-model")
 
+        self.assertEqual(captured.get("model"), "multimodal-custom-model")
+        self.assertEqual(captured.get("rwt_model"), "multimodal-custom-model")
+
+    def test_openrouter_image_request_dedicated_routing(self):
+        """Image models should route to image_completion on OpenRouter."""
+        mock_ctx = MagicMock()
+        api = {
+            "endpoint": "https://openrouter.ai/api/v1",
+            "api_key": "k",
+            "is_openrouter": True,
+            "model": "default-init-model",
+        }
+        provider = EndpointImageProvider(api, mock_ctx)
+        captured = {}
+
+        def fake_image_completion(prompt, model=None, width=512, height=512, steps=None, source_image=None):
+            captured["prompt"] = prompt
+            captured["model"] = model
+            captured["width"] = width
+            captured["height"] = height
+            return [base64.b64encode(b"fake").decode()]
+
+        with (
+            patch("plugin.framework.client.model_fetcher.is_image_only_model", return_value=True),
+            patch.object(provider.client, "image_completion", side_effect=fake_image_completion)
+        ):
+            provider.generate("a dog", width=1024, height=1024, image_model="black-forest-labs/flux.2-klein-4b")
+
+        self.assertEqual(captured.get("prompt"), "a dog")
         self.assertEqual(captured.get("model"), "black-forest-labs/flux.2-klein-4b")
-        self.assertEqual(captured.get("rwt_model"), "black-forest-labs/flux.2-klein-4b")
+        self.assertEqual(captured.get("width"), 1024)
+        self.assertEqual(captured.get("height"), 1024)
+
 
 if __name__ == '__main__':
     unittest.main()

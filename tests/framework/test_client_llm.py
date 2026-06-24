@@ -673,6 +673,50 @@ def test_ollama_shim_image(client):
         assert shim.parse_image_responses({"data": [{"b64_json": "ghi"}]}) == ["ghi"]
 
 
+def test_openrouter_shim_image(client):
+    client.config["endpoint"] = "https://openrouter.ai/api"
+    with (
+        patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth,
+        patch("plugin.framework.client.llm_client.sync_request") as mock_sync
+    ):
+        mock_auth.return_value = {"provider": "openrouter"}
+        mock_sync.return_value = {"data": [{"b64_json": "xyz"}]}
+
+        # Test image request for OpenRouter
+        client.image_completion("Draw a galaxy", model="bytedance-seed/seedream-4.5", width=1024, height=1024)
+        
+        args, kwargs = mock_sync.call_args
+        assert args[0] == "https://openrouter.ai/api/v1/images"
+        
+        body = json.loads(kwargs["data"])
+        assert body["prompt"] == "Draw a galaxy"
+        assert body["model"] == "bytedance-seed/seedream-4.5"
+        assert body["size"] == "1024x1024"
+        assert body["aspect_ratio"] == "1:1"
+        assert body["n"] == 1
+        assert body["output_format"] == "webp"
+
+
+def test_is_image_only_model(client):
+    from plugin.framework.client.model_fetcher import is_image_only_model, _model_output_modalities
+
+    # Reset cache
+    _model_output_modalities.clear()
+
+    # If cache has modalities
+    _model_output_modalities["flux"] = ["image"]
+    _model_output_modalities["gemini-image"] = ["image", "text"]
+
+    assert is_image_only_model("https://openrouter.ai/api", "flux") is True
+    assert is_image_only_model("https://openrouter.ai/api", "gemini-image") is False
+
+    # Fallback to name heuristic
+    assert is_image_only_model("https://openrouter.ai/api", "nonexistent-flux") is True
+    assert is_image_only_model("https://openrouter.ai/api", "nonexistent-gemini") is False
+
+
+
+
 def test_anthropic_shim(client):
     # Clear the default model so we see the shim's default
     client.config["model"] = ""

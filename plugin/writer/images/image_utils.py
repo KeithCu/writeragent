@@ -43,6 +43,7 @@ class EndpointImageProvider(ImageProvider):
     def __init__(self, api_config, ctx):
         self.client = LlmClient(api_config, ctx)
         self.model = api_config.get("model", "google/gemini-3.1-flash-lite-preview")
+        self.ctx = ctx
 
     def _save_b64(self, b64_data):
         with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
@@ -75,6 +76,29 @@ class EndpointImageProvider(ImageProvider):
         fallback_content = ""
 
         if self.client.config.get("is_openrouter"):
+            # Check if we should use OpenRouter's dedicated Image Generation API
+            use_dedicated = False
+            try:
+                from plugin.framework.client.model_fetcher import is_image_only_model
+                if is_image_only_model(self.client._endpoint(), model, self.ctx):
+                    use_dedicated = True
+            except Exception:
+                pass
+
+            if use_dedicated:
+                valid_steps = steps if (steps is not None and steps > 0) else None
+                try:
+                    b64_list = self.client.image_completion(prompt, model=model, width=width, height=height, steps=valid_steps, source_image=source_image)
+                    paths = []
+                    for b64 in b64_list:
+                        paths.extend(self._save_b64(b64))
+                    if paths:
+                        return paths, ""
+                    return [], "No image data returned from provider"
+                except Exception as e:
+                    logger.error("OpenRouter dedicated image generation error: %s", e)
+                    return [], str(e)
+
             method, path, body, headers = self.client.make_chat_request(messages, max_tokens=1000, model=model)
             body_dict = json.loads(body)
             body_dict["modalities"] = ["image"]

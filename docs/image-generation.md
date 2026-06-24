@@ -8,7 +8,7 @@ Image generation and editing in WriterAgent uses the **same endpoint URL and API
 
 [`plugin/writer/images/image_utils.py`](../plugin/writer/images/image_utils.py):
 
-- **`EndpointImageProvider`**: requests images via `LlmClient` (OpenRouter multimodal chat with `modalities: ["image"]`, or provider shims via `image_completion()`).
+- **`EndpointImageProvider`**: requests images via `LlmClient` (routing dedicated text-to-image models to OpenRouter's dedicated Image API via `POST /api/v1/images`, falling back to standard `modalities: ["image"]` chat completions for multimodal models).
 - **`ImageService`**: merges config defaults (base size, steps) and delegates to `EndpointImageProvider`.
 
 ### Tools and document insertion
@@ -64,6 +64,12 @@ Single `generate_image(prompt, source_image=...)` API:
 | **OpenAI-compatible / Ollama / Together-style** | Same image endpoint as create; optional `source_image` / `image_url` in the request body where the shim supports it. |
 
 Tool usage: pass `source_image='selection'` with an image selected in the document; optional `strength` (default 0.75) controls edit strength.
+
+## Future Work
+
+### OpenRouter Image Generation Enhancements
+- **Support Additional Parameters**: Extend settings UI and model request payload to support OpenRouter image parameters such as `aspect_ratio` (e.g. 16:9, 1:1, etc.), `background` (auto/transparent/opaque), `output_format` (png/webp), and `output_compression`.
+- **Image Model Metadata Checking**: Call `GET https://openrouter.ai/api/v1/images/models` (or filter `/api/v1/models` by `output_modalities=image`) dynamically to discover supported parameters (e.g., specific resolutions, aspect ratios) and populate/validate settings.
 
 ## Related docs
 

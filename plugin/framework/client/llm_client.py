@@ -393,6 +393,40 @@ class OllamaShim(OpenAIShim):
         return []
 
 
+class OpenRouterShim(OpenAIShim):
+    """Shim for OpenRouter specifically (handles dedicated /images endpoint)."""
+
+    def build_image_request(self, prompt, model, width, height, steps=None, source_image=None, image_url=None):
+        endpoint = self.client._endpoint()
+        api_path = self.client._api_path()
+        url = endpoint + api_path + "/images"
+        data = {"prompt": prompt, "model": model, "n": 1, "output_format": "webp"}
+        if width and height:
+            data["size"] = f"{width}x{height}"
+            ratio = width / height
+            if abs(ratio - 1.0) < 0.05:
+                data["aspect_ratio"] = "1:1"
+            elif abs(ratio - (16/9)) < 0.05:
+                data["aspect_ratio"] = "16:9"
+            elif abs(ratio - (4/3)) < 0.05:
+                data["aspect_ratio"] = "4:3"
+            elif abs(ratio - (9/16)) < 0.05:
+                data["aspect_ratio"] = "9:16"
+            elif abs(ratio - (3/4)) < 0.05:
+                data["aspect_ratio"] = "3:4"
+
+        if image_url:
+            data["image_url"] = image_url
+        elif source_image:
+            if source_image.startswith("data:image"):
+                data["image_url"] = source_image
+            else:
+                data["image_url"] = "data:image/png;base64," + source_image
+
+        path = get_url_path_and_query(url)
+        return "POST", path, json.dumps(data).encode("utf-8"), self.client._headers()
+
+
 class LlmClient:
     """LLM API client. Takes config dict from get_api_config(ctx) and UNO ctx."""
 
@@ -430,6 +464,8 @@ class LlmClient:
                 self._shims[provider] = GrokShim(self)
             elif provider == "ollama":
                 self._shims[provider] = OllamaShim(self)
+            elif provider == "openrouter":
+                self._shims[provider] = OpenRouterShim(self)
             else:
                 self._shims[provider] = OpenAIShim(self)
         return self._shims[provider]
@@ -706,7 +742,11 @@ class LlmClient:
         """Generate images using the configured provider. Returns list of base64 strings."""
         method, path, body, headers = self.make_image_request(prompt, model, width, height, steps=steps, source_image=source_image, image_url=image_url)
         endpoint = self._endpoint()
-        url = endpoint + path if path.startswith("/") else path
+        if path.startswith("/"):
+            parsed = urllib.parse.urlparse(endpoint)
+            url = urllib.parse.urlunparse((parsed.scheme, parsed.netloc, path, "", "", ""))
+        else:
+            url = path
 
         # log.debug...
         init_logging(self.ctx)
