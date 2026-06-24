@@ -4,12 +4,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Writer right-click review: accept/reject the agent's tracked changes, as whole units.
 
-Adds four entries to the Writer text context menu (only while the document holds pending AGENT
+Adds two entries to the Writer text context menu (only while the document holds pending AGENT
 changes -- wa-review session tokens): accept/reject the agent change under the cursor as one
-unit (a replace's strikethrough + underline resolve together, no Manage dialog), and
-accept/reject ALL agent changes at once. The user's own tracked changes are never touched.
-The entries dispatch ``org.extension.writeragent:writer.accept_change`` / ``writer.reject_change``
-/ ``writer.review_accept_all`` / ``writer.review_reject_all``, handled in ``main.py``.
+unit (a replace's strikethrough + underline resolve together, no Manage dialog). The user's own
+tracked changes are never touched. Bulk accept/reject ALL agent changes lives on the review
+toolbar (#2), not in this menu. The entries dispatch
+``org.extension.writeragent:writer.accept_change`` / ``writer.reject_change``, handled in ``main.py``.
 
 PyUNO pitfalls this file works around (each silently killed the menu when done wrong):
 - ``queryInterface(InterfaceClass)`` cannot convert an imported interface class to a UNO type;
@@ -35,8 +35,6 @@ log = logging.getLogger(__name__)
 
 _ACCEPT_URL = "org.extension.writeragent:writer.accept_change"
 _REJECT_URL = "org.extension.writeragent:writer.reject_change"
-_ACCEPT_ALL_URL = "org.extension.writeragent:writer.review_accept_all"
-_REJECT_ALL_URL = "org.extension.writeragent:writer.review_reject_all"
 
 _lock = threading.RLock()
 # Registered controllers, deduplicated by UNO object identity: PyUNO hands out a NEW proxy
@@ -91,21 +89,13 @@ def _build_menu(model: Any, event: Any) -> Any:
         reject = container.createInstance("com.sun.star.ui.ActionTrigger")
         reject.setPropertyValue("Text", _("Reject whole change (agent)"))
         reject.setPropertyValue("CommandURL", _REJECT_URL)
-        # Bulk: resolve every agent change at once (token-filtered, so the user's own redlines
-        # are spared). Reachable from a right-click anywhere a change exists.
-        accept_all = container.createInstance("com.sun.star.ui.ActionTrigger")
-        accept_all.setPropertyValue("Text", _("Accept all agent changes"))
-        accept_all.setPropertyValue("CommandURL", _ACCEPT_ALL_URL)
-        reject_all = container.createInstance("com.sun.star.ui.ActionTrigger")
-        reject_all.setPropertyValue("Text", _("Reject all agent changes"))
-        reject_all.setPropertyValue("CommandURL", _REJECT_ALL_URL)
+        # Bulk accept/reject ALL is intentionally NOT here -- it lives on the review toolbar (#2).
+        # The right-click stays focused on the change under the cursor (the punctual action).
 
         count = container.getCount()
         container.insertByIndex(count, separator)
         container.insertByIndex(count + 1, accept)
         container.insertByIndex(count + 2, reject)
-        container.insertByIndex(count + 3, accept_all)
-        container.insertByIndex(count + 4, reject_all)
         log.debug("change_context_menu: added review entries at index %d", count)
         return CONTINUE_MODIFIED
     except Exception:

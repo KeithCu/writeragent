@@ -29,7 +29,7 @@ import time
 import uuid
 from contextlib import contextmanager
 
-from plugin.doc.document_helpers import _normalize_doc_url
+from plugin.doc.document_helpers import _normalize_doc_url, get_runtime_uid
 from plugin.framework.queue_executor import QueueExecutor
 from plugin.framework.errors import WriterAgentException, safe_json_loads
 from plugin.mcp.cors import send_cors_headers
@@ -82,26 +82,32 @@ _doc_gates_guard = threading.Lock()
 
 
 def _resolve_mcp_doc_key(document_url, doc):
-    """Stable per-document key for the mutation gate (resolve on main thread with *doc*).
+    """Stable per-document key for the mutation gate, derived from the RESOLVED document (``doc``).
 
-    Future: after Save As, callers may still use the old URL while doc.getURL() returns
-    the new one — two keys could exist briefly for the same logical document. Re-key or
-    prune gates on save events if that becomes a problem.
+    Keying off the resolved document — not the raw request handle — is what makes addressing the
+    SAME document by its file URL OR by its RuntimeUID map to ONE gate, so two concurrent mutating
+    calls on that document serialize instead of racing. RuntimeUID is preferred because it
+    is stable for the document's whole session (it survives Save As, where the URL changes).
 
-    When no X-Document-URL and the doc has no URL/RuntimeUID (unsaved active doc), falls
-    back to _ACTIVE_DOCUMENT_SENTINEL. Correct for "target the active document" today;
-    would over-serialize if LO ever allowed ambiguous active-doc targeting.
+    Falls back to the normalized request URL only when the document couldn't be resolved, and to
+    _ACTIVE_DOCUMENT_SENTINEL when there is neither — "target the active document" today.
     """
-    doc_key = _normalize_doc_url(document_url) if document_url else ""
-    if not doc_key and doc is not None:
+    if doc is not None:
         try:
-            url_part = _normalize_doc_url(doc.getURL())
-            uid_part = getattr(doc, "RuntimeUID", None)
-            doc_key = url_part or (str(uid_part) if uid_part is not None else "")
+            uid = get_runtime_uid(doc)
+            if uid:
+                return "uid:%s" % uid
+            url = _normalize_doc_url(doc.getURL())
+            if url:
+                return "url:%s" % url
         except Exception:
             log.debug("Could not resolve document key for the mutation gate", exc_info=True)
-            doc_key = ""
-    return doc_key or _ACTIVE_DOCUMENT_SENTINEL
+    # No resolved doc (or one with neither uid nor URL): best-effort key off the raw request URL,
+    # namespaced ("url:") so it can never collide with a resolved "uid:"/"url:" key; else the
+    # active-document sentinel.
+    if document_url:
+        return "url:%s" % _normalize_doc_url(document_url)
+    return _ACTIVE_DOCUMENT_SENTINEL
 
 
 def _get_document_mutation_gate(doc_key):

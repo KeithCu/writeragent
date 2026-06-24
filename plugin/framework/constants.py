@@ -161,6 +161,16 @@ RESEARCH_DELEGATE_TO_DOCUMENT = (
 )
 APPLY_DOCUMENT_CONTENT_TOOL_RESEARCH_HINT = "Required after web_research or document_research delegates return."
 
+# Canonical wording for tools that return a para_index / paragraph_index to the model. Those indexes
+# are internal addressing only; the user never sees them and they shift as the document changes, so
+# the model must refer to a place by quoting its text, not by number. Append to such tool
+# descriptions so the rule is stated uniformly wherever an index is exposed (#1).
+PARAGRAPH_INDEX_DIRECTIVE = (
+    "para_index / paragraph_index values are INTERNAL addressing only — NEVER cite paragraph numbers "
+    "to the user (they don't see them and they shift as the document changes); to point the user at a "
+    "place, quote the first few words of its text instead (e.g. \"the sentence starting 'The Amazon…'\")."
+)
+
 
 def delegation_math_to_python_hint(*, delegate_toolset: str) -> str:
     """Writer/Draw: route computational math to the python specialized sub-agent (fast local venv)."""

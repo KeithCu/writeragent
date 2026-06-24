@@ -222,6 +222,11 @@ def generate_addons_xcu(modules, framework_manifest, output_path):
             _build_menu_entries(submenu, fw_menus, fw_actions, "main", counter,
                                 icon_entries=icon_entries)
 
+    # NOTE: the review fast-travel toolbar's OfficeToolBar node lives in the hand-maintained
+    # extension/Addons.xcu (the file that actually ships -- build_oxt overwrites the generated one
+    # with it), like every other menu/toolbar entry in this project. We deliberately do NOT generate
+    # it here: a second source would only drift from the shipped file.
+
     # Images section — static default icons for menu commands
     if icon_entries:
         images_node = ET.SubElement(addon_ui, "node",
@@ -545,6 +550,7 @@ def generate_manifest_xml(modules, output_path):
         ('application/vnd.sun.star.configuration-data', 'registry/org/openoffice/Office/CalcAddIns.xcu'),
         ('application/vnd.sun.star.configuration-data', 'registry/org/openoffice/Office/UI/Sidebar.xcu'),
         ('application/vnd.sun.star.configuration-data', 'registry/org/openoffice/Office/UI/Factories.xcu'),
+        ('application/vnd.sun.star.configuration-data', 'registry/org/openoffice/Office/UI/WriterWindowState.xcu'),
     ]
 
     # Build XML tree

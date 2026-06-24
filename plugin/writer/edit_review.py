@@ -91,23 +91,126 @@ def edit_review_wait_seconds(ctx: Any) -> int:
     return max(0, get_config_int_safe(ctx, "doc.edit_review_timeout"))
 
 
-def snapshot_redline_ids(doc: Any) -> set:
-    """Set of current RedlineIdentifiers -- snapshot before an edit to find the ones it adds."""
-    ids = set()
+def snapshot_redline_ids(doc: Any) -> tuple[set, bool]:
+    """``(set of current RedlineIdentifiers, reliable)`` -- snapshot BEFORE an edit so the edit's NEW
+    redlines can be found by difference (ids not in this set).
+
+    ``reliable`` is False when the snapshot is INCOMPLETE: the enumeration can't start/finish, stops
+    short of getCount() (yields fewer items than getCount() reports), or a redline's identifier can't
+    be read. A partial BEFORE snapshot is a data-loss hazard -- a pre-existing USER redline missing
+    from it would look "new" after the edit and be stamped with an agent token, after which
+    Accept/Reject All would resolve the user's own change. So callers MUST refuse to tag on an
+    unreliable snapshot.
+
+    On the count/enumeration mismatch (seen < getCount()): this is a DEFENSIVE INVARIANT, not an
+    observed bug. getRedlines() is one flat table and the mismatch has NOT been seen in real
+    LibreOffice (a native test confirms count == enumeration length, even across body and
+    table-cell containers). It is kept as cheap fail-closed insurance only because IF it ever
+    happened the cost would be the silent loss of a user's own redline. The same neutral
+    "fewer items than getCount() reports" framing is used by the sibling scan helpers below."""
+    ids: set = set()
     try:
-        enum = doc.getRedlines().createEnumeration()
-        while enum.hasMoreElements():
-            rl = enum.nextElement()
-            try:
-                ids.add(rl.getPropertyValue("RedlineIdentifier"))
-            except Exception:
-                continue
+        redlines = doc.getRedlines()
+        total = int(redlines.getCount())
+        enum = redlines.createEnumeration()
     except Exception:
-        pass
-    return ids
+        return ids, False  # can't enumerate/count -> can't tell new from pre-existing -> unreliable
+    reliable = True
+    seen = 0
+    while True:
+        try:
+            if not enum.hasMoreElements():
+                break
+            rl = enum.nextElement()
+        except Exception:
+            return ids, False  # can't advance the enumeration -> incomplete -> unreliable
+        seen += 1
+        try:
+            ids.add(rl.getPropertyValue("RedlineIdentifier"))
+        except Exception:
+            reliable = False  # an existing redline we can't identify -> can't exclude it from "new"
+    if seen != total:
+        reliable = False  # enumeration shorter than getCount() -> a pre-existing redline may be unseen
+    return ids, reliable
 
 
-def tag_agent_redlines(doc: Any, before_ids: set, change_index: int = 0) -> str | None:
+def _new_redlines_complete(doc: Any, before_ids: set) -> tuple[list, bool]:
+    """``([redlines whose RedlineIdentifier is NOT in before_ids], reliable)`` -- the redlines an edit
+    just added. ``reliable`` is False when the post-edit scan is INCOMPLETE (enum/count error, a
+    count/enumeration mismatch, or an unreadable identifier), so a caller can refuse to tag a
+    HALF-found change rather than tag only part of a Delete/Insert pair."""
+    out: list = []
+    try:
+        redlines = doc.getRedlines()
+        total = int(redlines.getCount())
+        enum = redlines.createEnumeration()
+    except Exception:
+        return out, False
+    reliable = True
+    seen = 0
+    while True:
+        try:
+            if not enum.hasMoreElements():
+                break
+            rl = enum.nextElement()
+        except Exception:
+            return out, False
+        seen += 1
+        try:
+            rid = rl.getPropertyValue("RedlineIdentifier")
+        except Exception:
+            reliable = False  # can't classify new-vs-pre-existing for this one -> incomplete
+            continue
+        if rid not in before_ids:
+            out.append(rl)
+    if seen != total:
+        reliable = False  # enumeration shorter than getCount() -> a new redline of this change may be unseen
+    return out, reliable
+
+
+def _tag_new_redlines(redlines: list, token: str) -> tuple[bool, int]:
+    """Stamp *token* (RedlineComment) on every redline -- ALL-OR-NOTHING. Returns
+    ``(success, orphans_remaining)`` as TWO separate values so success can never be confused with a
+    count (a single int made "n tagged ok" and "n orphans after a failure" collide
+    when n == len):
+
+      * ``(True, 0)``  -> every redline tagged (success);
+      * ``(False, 0)`` -> a failure that was FULLY reverted (NO redline left carrying the token);
+      * ``(False, n)`` -> a failure where ``n`` redlines still carry the token and could not be
+        cleared. Only reachable if setPropertyValue fails on a redline we just set (a broken UNO
+        state) -- the tag genuinely cannot be removed via the API then.
+
+    Any path through the ``except`` is a FAILURE (``success=False``), even if every redline happened
+    to end up tagged -- the caller must not register a change reached through the error path. On
+    failure the revert sweep includes the redline whose set JUST raised (setPropertyValue can mutate
+    the comment and THEN throw, so it may carry the token though it never entered ``applied``);
+    after attempting to clear each it READS the comment back and counts only those that
+    still carry the token (or can't be read) as orphans."""
+    applied: list = []
+    for rl in redlines:
+        try:
+            rl.setPropertyValue("RedlineComment", token)
+            applied.append(rl)
+        except Exception:
+            log.warning("EditReviewSession: tagging a redline failed; reverting the partial tag set",
+                        exc_info=True)
+            orphans = 0
+            for done in applied + [rl]:  # include the just-failed redline -- its set may have mutated
+                try:
+                    done.setPropertyValue("RedlineComment", "")
+                except Exception:
+                    log.warning("EditReviewSession: reverting a redline tag failed", exc_info=True)
+                try:
+                    if str(done.getPropertyValue("RedlineComment")) == token:
+                        orphans += 1  # still carries our token -> a real orphan we could not remove
+                except Exception:
+                    orphans += 1  # can't confirm it's clean -> count conservatively (fail closed)
+            return False, orphans  # FAILURE -- orphans>0 means tag(s) remain we could not remove
+    return True, 0
+
+
+def tag_agent_redlines(doc: Any, before_ids: set, change_index: int = 0,
+                       before_reliable: bool = False) -> str | None:
     """Stamp a fresh ``wa-review:<session>:<n>`` token on every redline created since
     *before_ids*, marking them as ONE agent change so the inline review UI recognizes them.
 
@@ -115,34 +218,45 @@ def tag_agent_redlines(doc: Any, before_ids: set, change_index: int = 0) -> str 
     streamed extend-selection rewrite, which already collapses to a single tracked change) --
     no anchor/outcome/wait, which the streamed chat path doesn't use. Returns the token, or
     None if nothing new was tagged.
-    """
-    token = "%s%s:%d" % (TOKEN_PREFIX, uuid.uuid4().hex[:8], change_index)
-    tagged = 0
-    try:
-        enum = doc.getRedlines().createEnumeration()
-        while enum.hasMoreElements():
-            rl = enum.nextElement()
-            try:
-                if rl.getPropertyValue("RedlineIdentifier") not in before_ids:
-                    rl.setPropertyValue("RedlineComment", token)
-                    tagged += 1
-            except Exception:
-                continue
-    except Exception:
-        log.debug("tag_agent_redlines: failed", exc_info=True)
+
+    Refuses (returns None) when *before_reliable* is False: a partial BEFORE snapshot could
+    misclassify a pre-existing USER redline as new and stamp it as an agent change, after which
+    Accept/Reject All would resolve the user's own change. The edit still stands;
+    its redlines just stay untagged -> treated as the user's -> never auto-resolved. *before_reliable*
+    defaults to False (fail closed): a caller must explicitly assert a verified-complete snapshot
+    (the boolean returned by ``snapshot_redline_ids``) to enable tagging."""
+    if not before_reliable:
+        log.warning("tag_agent_redlines: pre-edit snapshot unreliable; not tagging (avoids "
+                    "mis-tagging a user redline as an agent change)")
         return None
-    return token if tagged else None
+    # Find the new redlines with a COMPLETE post-edit scan; if it's incomplete we can't be sure we
+    # found the whole change, so refuse rather than tag a fragment.
+    new_redlines, after_ok = _new_redlines_complete(doc, before_ids)
+    if not after_ok:
+        log.warning("tag_agent_redlines: post-edit redline scan incomplete; not tagging (avoids a "
+                    "half-tagged change)")
+        return None
+    if not new_redlines:
+        return None
+    token = "%s%s:%d" % (TOKEN_PREFIX, uuid.uuid4().hex[:8], change_index)
+    success, orphans = _tag_new_redlines(new_redlines, token)  # all-or-nothing (reverts on failure)
+    if not success:
+        # Not a success path -- do NOT register. orphans == 0 -> clean revert; orphans > 0 -> the
+        # revert could not remove every tag, so surface the residual loudly.
+        if orphans:
+            log.warning("tag_agent_redlines: tagging failed and %d orphan tag(s) could not be "
+                        "reverted; not registering this change", orphans)
+        return None
+    # Full success. Streamed edit paths tag their redlines here instead of via record_mutation, so
+    # this is where they must reveal the review fast-travel toolbar (#2) -- otherwise it never appears
+    # for those edits. Best-effort/silent; runs on the edit's (main) thread.
+    try:
+        from plugin.writer.review_toolbar import refresh_review_toolbar
 
-
-def _paragraph_cursor_for_range(text_range: Any) -> Any:
-    """A text cursor expanded to whole paragraphs around *text_range*."""
-    text = text_range.getText()
-    cur = text.createTextCursorByRange(text_range.getStart())
-    cur.gotoStartOfParagraph(False)
-    end = text.createTextCursorByRange(text_range.getEnd())
-    end.gotoEndOfParagraph(True)
-    cur.gotoRange(end.getEnd(), True)
-    return cur
+        refresh_review_toolbar(doc)
+    except Exception:
+        log.debug("tag_agent_redlines: toolbar refresh failed", exc_info=True)
+    return token
 
 
 def _string_skipping_redline(text_range: Any, skip_type: str) -> str:
@@ -290,16 +404,10 @@ class EditReviewSession:
 
     # -- recording ---------------------------------------------------------------------------
 
-    def _redline_idents(self) -> set:
-        idents = set()
-        enum = self.doc.getRedlines().createEnumeration()
-        while enum.hasMoreElements():
-            rl = enum.nextElement()
-            try:
-                idents.add(rl.getPropertyValue("RedlineIdentifier"))
-            except Exception:
-                continue
-        return idents
+    def _redline_idents(self) -> tuple[set, bool]:
+        """``(current RedlineIdentifiers, reliable)`` -- see ``snapshot_redline_ids``. reliable=False
+        means the snapshot is incomplete and must NOT back a new-vs-pre-existing tagging decision."""
+        return snapshot_redline_ids(self.doc)
 
     def record_mutation(self, apply_fn: Callable[[], Any],
                         original_preview: str = "", proposed_preview: str = "") -> Any:
@@ -311,29 +419,44 @@ class EditReviewSession:
         if not self._active:
             return apply_fn()
 
-        before = self._redline_idents()
+        before, before_ok = self._redline_idents()
         result = apply_fn()
+        if not before_ok:
+            # The pre-edit redline snapshot was incomplete, so we can't reliably tell which redlines
+            # are NEW (ours) from pre-existing ones (the user's). Tagging now could stamp a user's
+            # redline as an agent change -> Accept/Reject All would later resolve it. Fail closed:
+            # the edit still applied, but we DON'T tag or register it -- its redlines stay untagged,
+            # so they read as the user's own and are never auto-resolved.
+            log.warning("EditReviewSession: pre-edit redline snapshot unreliable; leaving this edit "
+                        "untagged (not a reviewable agent change) to avoid mis-tagging user redlines")
+            return result
 
-        new_redlines = []
-        enum = self.doc.getRedlines().createEnumeration()
-        while enum.hasMoreElements():
-            rl = enum.nextElement()
-            try:
-                if rl.getPropertyValue("RedlineIdentifier") not in before:
-                    new_redlines.append(rl)
-            except Exception:
-                continue
+        # Find the new redlines with a COMPLETE post-edit scan. If incomplete we can't be sure we
+        # found the whole change (e.g. only one mark of a Delete/Insert pair), so fail closed: leave
+        # the edit untagged rather than register a fragment.
+        new_redlines, after_ok = _new_redlines_complete(self.doc, before)
+        if not after_ok:
+            log.warning("EditReviewSession: post-edit redline scan incomplete; leaving this edit "
+                        "untagged to avoid registering a half-tagged change")
+            return result
         if not new_redlines:
             return result
 
         n = len(self.changes)
         token = self._token(n)
         with self._undo_lock():
-            for rl in new_redlines:
-                try:
-                    rl.setPropertyValue("RedlineComment", token)
-                except Exception:
-                    log.debug("EditReviewSession: could not tag a redline", exc_info=True)
+            # All-or-nothing: register ONLY on full success. On any failure the partial set is
+            # reverted; orphans==0 is a clean revert, orphans>0 means a tag could not be removed
+            # (broken UNO state) -- surface it loudly. Either way leave the edit unregistered.
+            success, orphans = _tag_new_redlines(new_redlines, token)
+        if not success:
+            if orphans:
+                log.warning("EditReviewSession: tagging failed and %d orphan tag(s) could not be "
+                            "reverted; leaving this edit unregistered", orphans)
+            else:
+                log.warning("EditReviewSession: tagging failed and was reverted; leaving this edit "
+                            "untagged (not a reviewable agent change)")
+            return result
 
         # Bounding span across the new redlines -> anchor bookmark + expected end states.
         # Built with cursor.gotoRange(range, expand=True): XTextRangeCompare is unreliable on
@@ -356,14 +479,17 @@ class EditReviewSession:
                 for s, e in ranges:
                     span.gotoRange(s, True)  # expand=True grows the span in either direction
                     span.gotoRange(e, True)
-                para = _paragraph_cursor_for_range(span)
-                accepted_text = _string_skipping_redline(para, "Delete")
-                rejected_text = _string_skipping_redline(para, "Insert")
+                # Scope the captured states AND the anchor bookmark to the CHANGE's own redline
+                # span, not the whole paragraph -- so when several changes share a paragraph each
+                # one's outcome/final_text reflects only itself, and a change deep in a long
+                # paragraph is never truncated out of the preview.
+                accepted_text = _string_skipping_redline(span, "Delete")
+                rejected_text = _string_skipping_redline(span, "Insert")
                 bookmark_name = "%s%s_%d" % (_BOOKMARK_PREFIX, self.session_id, n)
                 bm = self.doc.createInstance("com.sun.star.text.Bookmark")
                 bm.setName(bookmark_name)
                 with self._undo_lock():
-                    para.getText().insertTextContent(para, bm, True)
+                    span.getText().insertTextContent(span, bm, True)
             except Exception:
                 bookmark_name = ""
                 log.debug("EditReviewSession: anchoring failed for change %d", n, exc_info=True)
@@ -371,30 +497,60 @@ class EditReviewSession:
         self.changes.append(ChangeRecord(
             token, bookmark_name, accepted_text, rejected_text,
             original_preview or rejected_text, proposed_preview or accepted_text))
+        # A new pending change exists -> reveal the review fast-travel toolbar (#2). Runs on the
+        # main thread (the edit does), so the LayoutManager call is safe; best-effort/silent.
+        try:
+            from plugin.writer.review_toolbar import refresh_review_toolbar
+
+            refresh_review_toolbar(self.doc)
+        except Exception:
+            log.debug("EditReviewSession: toolbar refresh after record failed", exc_info=True)
         return result
 
     # -- review ------------------------------------------------------------------------------
 
-    def _pending_tokens(self) -> set:
-        """Tokens of this session's changes that still have an unresolved redline."""
-        prefix = self._session_token_prefix()
-        pending = set()
-        try:
-            enum = self.doc.getRedlines().createEnumeration()
-            while enum.hasMoreElements():
-                rl = enum.nextElement()
-                try:
-                    comment = str(rl.getPropertyValue("RedlineComment"))
-                except Exception:
-                    continue
-                if comment.startswith(prefix):
-                    pending.add(comment)
-        except Exception:
-            log.debug("EditReviewSession: pending check failed", exc_info=True)
-        return pending
+    def _pending_tokens(self) -> tuple[set, bool]:
+        """``(tokens of this session's changes that still have an unresolved redline, reliable)``.
 
-    def _paragraph_text_at_anchor(self, record: ChangeRecord) -> str | None:
-        """Current whole-paragraph text at the change's bookmark, or None if the anchor is gone."""
+        ``reliable`` is False when the scan is INCOMPLETE (enum/count error, a count/enumeration
+        mismatch, or an unreadable comment): an under-counted pending set could make ``wait_for_review`` declare
+        the review complete while a change is still open, so the caller must treat unreliable as
+        "not yet complete" rather than done (guard every enumeration)."""
+        prefix = self._session_token_prefix()
+        pending: set = set()
+        try:
+            redlines = self.doc.getRedlines()
+            total = int(redlines.getCount())
+            enum = redlines.createEnumeration()
+        except Exception:
+            log.debug("EditReviewSession: pending check could not enumerate/count", exc_info=True)
+            return pending, False
+        reliable = True
+        seen = 0
+        while True:
+            try:
+                if not enum.hasMoreElements():
+                    break
+                rl = enum.nextElement()
+            except Exception:
+                log.debug("EditReviewSession: pending check could not advance", exc_info=True)
+                return pending, False
+            seen += 1
+            try:
+                comment = str(rl.getPropertyValue("RedlineComment"))
+            except Exception:
+                reliable = False  # an unreadable comment might be one of ours -> can't confirm done
+                continue
+            if comment.startswith(prefix):
+                pending.add(comment)
+        if seen != total:
+            reliable = False  # enumeration shorter than getCount() -> an unresolved change may be in the unseen tail
+        return pending, reliable
+
+    def _change_text_at_anchor(self, record: ChangeRecord) -> str | None:
+        """Current text of the CHANGE's own region (its anchor bookmark span), or None if the anchor
+        is gone. Scoped to the change, not the whole paragraph, so a neighbouring change sharing the
+        paragraph never contaminates this one's reported text."""
         if not record.bookmark:
             return None
         try:
@@ -402,18 +558,28 @@ class EditReviewSession:
             if not bookmarks.hasByName(record.bookmark):
                 return None
             anchor = bookmarks.getByName(record.bookmark).getAnchor()
-            return _paragraph_cursor_for_range(anchor).getString()
+            # Skip tracked DELETIONS so the text reads as the region WOULD after accepting, instead
+            # of gluing struck text to the insertion (e.g. "quickfast"). _outcome is unaffected: a
+            # RESOLVED change has no redlines left, so this equals the raw string there; for a
+            # pending change _outcome short-circuits to "pending" before comparing text.
+            cur = anchor.getText().createTextCursorByRange(anchor)
+            return _string_skipping_redline(cur, "Delete")
         except Exception:
             log.debug("EditReviewSession: anchor read failed for %s", record.bookmark, exc_info=True)
             return None
 
-    def _outcome(self, record: ChangeRecord, pending_tokens: set) -> str:
+    def _outcome(self, record: ChangeRecord, pending_tokens: set, pending_reliable: bool) -> str:
         if record.token in pending_tokens:
             return "pending"
-        current = self._paragraph_text_at_anchor(record)
+        if not pending_reliable:
+            # The pending scan was incomplete, so "not in pending_tokens" does NOT prove this change
+            # is resolved -- it might be unresolved but unseen. Report "pending" rather than guess an
+            # accepted/rejected/modified outcome from the anchor text.
+            return "pending"
+        current = self._change_text_at_anchor(record)
         if current is None:
-            # Anchor paragraph gone: a rejected pure insertion removes the paragraph (and
-            # the bookmark with it); anything else means the user reworked the area.
+            # The anchor bookmark is gone: a rejected pure insertion can take its whole span (and
+            # the bookmark) with it; anything else means the user reworked/removed the area.
             return "rejected" if record.rejected_text == "" else "modified"
         if current == record.accepted_text:
             return "accepted"
@@ -440,7 +606,30 @@ class EditReviewSession:
                 try:
                     manager.unlock()
                 except Exception:
-                    log.debug("EditReviewSession: undo manager unlock failed", exc_info=True)
+                    # A stuck lock can later make a surgical rollback's undo() throw (the manager is
+                    # locked), silently degrading atomicity -- surface it, don't bury at debug.
+                    log.warning("EditReviewSession: undo manager unlock failed; the undo manager may "
+                                "be left locked", exc_info=True)
+
+    def _remove_anchor_bookmarks(self, records) -> None:
+        """Remove the anchor bookmarks of *records*, under the undo lock so the removal stays off the
+        user's undo stack. Best-effort: any failure is logged at debug, never raised. Shared by
+        cleanup() and discard_changes_since()."""
+        try:
+            bookmarks = self.doc.getBookmarks()
+            with self._undo_lock():
+                for record in records:
+                    if not record.bookmark:
+                        continue
+                    try:
+                        if bookmarks.hasByName(record.bookmark):
+                            bm = bookmarks.getByName(record.bookmark)
+                            bm.getAnchor().getText().removeTextContent(bm)
+                    except Exception:
+                        log.debug("EditReviewSession: anchor bookmark removal failed for %s",
+                                  record.bookmark, exc_info=True)
+        except Exception:
+            log.debug("EditReviewSession: anchor bookmark removal failed", exc_info=True)
 
     def cleanup(self) -> None:
         """Remove this session's anchor bookmarks. Safe to call more than once."""
@@ -449,34 +638,47 @@ class EditReviewSession:
         self._cleaned = True
         if not self._active or not self.changes:
             return
-        try:
-            bookmarks = self.doc.getBookmarks()
-            with self._undo_lock():
-                for record in self.changes:
-                    if not record.bookmark:
-                        continue
-                    try:
-                        if bookmarks.hasByName(record.bookmark):
-                            bm = bookmarks.getByName(record.bookmark)
-                            bm.getAnchor().getText().removeTextContent(bm)
-                    except Exception:
-                        log.debug("EditReviewSession: bookmark cleanup failed for %s", record.bookmark, exc_info=True)
-        except Exception:
-            log.debug("EditReviewSession: bookmark cleanup failed", exc_info=True)
+        self._remove_anchor_bookmarks(self.changes)
+
+    def discard_changes_since(self, count: int) -> None:
+        """Drop change records recorded after index *count*, removing their anchor bookmarks.
+
+        Used to roll back a partially-applied batch (a surgical multi-edit that failed mid-apply):
+        the caller undoes the document mutations, then calls this so neither the change
+        list nor the document is left holding records/bookmarks for edits that no longer exist.
+        Best-effort and self-contained: bookmark removal runs under the undo lock (kept off the
+        user's undo stack) and any failure is logged, never raised."""
+        if count < 0 or count >= len(self.changes):
+            return
+        doomed = self.changes[count:]
+        del self.changes[count:]
+        if not self._active:
+            return
+        self._remove_anchor_bookmarks(doomed)
 
     def _review_payload(self, complete: bool, timed_out: bool) -> dict:
-        pending = self._pending_tokens()
+        # Derive BOTH the header and the per-change outcomes from THIS one scan so they can never
+        # disagree. Carry reliability into _outcome (an unreliable scan -> "pending", not a guessed
+        # outcome), AND only report complete when this same scan is reliable and shows nothing pending
+        # (never upgrade a False). Otherwise a transient unreliable/non-empty re-scan here could pair
+        # complete=True with all-"pending" outcomes -- an internally contradictory report.
+        pending, pending_ok = self._pending_tokens()
+        complete = complete and pending_ok and not pending
         return {
             "complete": complete,
             "timed_out": timed_out,
             "changes": [
                 {
                     "id": record.token,
-                    # Three-state outcome (accepted/rejected/modified, or pending on timeout):
+                    # Three-state outcome (accepted/rejected/modified, or pending on timeout/unverified):
                     # a boolean can't express "the user edited this area during review".
-                    "outcome": self._outcome(record, pending),
+                    "outcome": self._outcome(record, pending, pending_ok),
                     "original_preview": _preview(record.original_preview),
                     "proposed_preview": _preview(record.proposed_preview),
+                    # The region's text as it reads NOW (after the user's accept/reject/edit), so the
+                    # agent knows what actually resulted -- not just what it proposed. "" if the
+                    # anchor paragraph is gone (e.g. a rejected pure insertion removed it).
+                    "final_text": _preview(self._change_text_at_anchor(record) or ""),
                 }
                 for record in self.changes
             ],
@@ -506,7 +708,13 @@ class EditReviewSession:
         try:
             deadline = time.monotonic() + max(0.0, timeout)
             timed_out = False
-            while run(self._pending_tokens):
+            while True:
+                pending, reliable = run(self._pending_tokens)
+                # Done ONLY on a reliable, empty scan. An unreliable scan (or remaining tokens) keeps
+                # waiting -- never declare the review complete off a partial read that might have
+                # missed an unresolved change (fail closed).
+                if reliable and not pending:
+                    break
                 if stop_checker is not None and stop_checker():
                     return run(lambda: self._review_payload(complete=False, timed_out=False))
                 if time.monotonic() >= deadline:

@@ -19,6 +19,7 @@ from plugin.testing_runner import native_test, setup, teardown
 from plugin.tests.testing_utils import TestingFactory
 from plugin.doc.document_helpers import WriterStreamedRewriteSession, WriterStreamedAppendSession
 from plugin.writer.content import ApplyDocumentContent
+import plugin.writer.content as _content
 from plugin.writer.edit_review import EditReviewSession, get_agent_edit_review_mode
 from plugin.framework.config import set_config, get_config
 import plugin.writer.format as fmt
@@ -259,6 +260,123 @@ def test_split_authors_insert_vs_delete_uno():
     finally:
         set_config(_ctx, _FLAG, prev)
         _reject_all()
+
+
+# --- split-author coloring is a plain constant (env-overridable, NOT a config key) and CONSISTENT
+# --- across the whole-block AND surgical paths: ON (default) -> two authors/two colors, OFF -> one.
+# --- Tests pin the module constants directly. The whole-block path is forced by pinning the
+# --- diff-threshold constant to 0.0 (any change lands as one block); the surgical path is exercised
+# --- by a small one-word change at the default threshold.
+
+
+@native_test
+def test_split_authors_whole_block_on_two_colors_uno():
+    """The consistency fix: a WHOLE-BLOCK agent edit also authors its Delete distinctly (two colors),
+    not just the surgical path. Before, whole-block was authored as one (one color). Threshold 0.0
+    forces the whole-block path; accept must still reconstruct exactly the new text (atomicity)."""
+    _reset("Old clause body here.")
+    prev = get_config(_ctx, _FLAG)
+    prev_split, prev_thresh = _content._SPLIT_AUTHOR_COLORS, _content._WORD_DIFF_THRESHOLD
+    set_config(_ctx, _FLAG, "record")
+    _content._SPLIT_AUTHOR_COLORS = True
+    _content._WORD_DIFF_THRESHOLD = 0.0  # any change -> ONE whole block (not surgical)
+    try:
+        res = ApplyDocumentContent().execute(
+            _tool_ctx(), target="search", old_content="Old clause body here.", content=["New clause body here."])
+        assert res.get("status") == "ok", res
+        by_type = {r["type"]: r["RedlineAuthor"] for r in _redlines()}
+        assert by_type.get("Insert") == "WriterAgent", "insert authored WriterAgent: %r" % by_type
+        assert by_type.get("Delete") == "WriterAgent (deletions)", \
+            "whole-block deletion must be authored distinctly (two colors): %r" % by_type
+        _accept_all()
+        assert _para_text() == "New clause body here.", \
+            "accept must reconstruct exactly the new text (whole-block atomicity), got %r" % _para_text()
+    finally:
+        set_config(_ctx, _FLAG, prev)
+        _content._SPLIT_AUTHOR_COLORS, _content._WORD_DIFF_THRESHOLD = prev_split, prev_thresh
+        if len(_doc.getRedlines()):
+            _reject_all()
+
+
+@native_test
+def test_split_authors_whole_block_off_one_color_uno():
+    """Toggle OFF: a whole-block edit's Delete and Insert share ONE author (one color), and the edit
+    stays atomic -- accept reconstructs exactly the new text."""
+    _reset("Old clause body here.")
+    prev = get_config(_ctx, _FLAG)
+    prev_split, prev_thresh = _content._SPLIT_AUTHOR_COLORS, _content._WORD_DIFF_THRESHOLD
+    set_config(_ctx, _FLAG, "record")
+    _content._SPLIT_AUTHOR_COLORS = False
+    _content._WORD_DIFF_THRESHOLD = 0.0  # force whole-block
+    try:
+        res = ApplyDocumentContent().execute(
+            _tool_ctx(), target="search", old_content="Old clause body here.", content=["New clause body here."])
+        assert res.get("status") == "ok", res
+        authors = {r["RedlineAuthor"] for r in _redlines()}
+        assert authors == {"WriterAgent"}, "toggle off -> one author / one color, got %r" % authors
+        _accept_all()
+        assert _para_text() == "New clause body here.", \
+            "accept must reconstruct exactly the new text, got %r" % _para_text()
+    finally:
+        set_config(_ctx, _FLAG, prev)
+        _content._SPLIT_AUTHOR_COLORS, _content._WORD_DIFF_THRESHOLD = prev_split, prev_thresh
+        if len(_doc.getRedlines()):
+            _reject_all()
+
+
+@native_test
+def test_html_import_failure_rolls_back_in_review_mode_uno():
+    """Atomicity for the HTML/import path: in record mode replace_full_document does setString('')
+    then imports HTML. If the import throws AFTER the delete, the whole edit is rolled back -- the
+    document keeps its original text with no stranded tracked deletion, and no agent change lands."""
+    _reset("Original body text to keep.")
+    prev = get_config(_ctx, _FLAG)
+    set_config(_ctx, _FLAG, "record")
+    real = fmt._insert_mixed_or_plain_html
+
+    def _boom(*a, **k):
+        raise RuntimeError("simulated HTML import failure")
+
+    fmt._insert_mixed_or_plain_html = _boom
+    try:
+        res = None
+        try:
+            res = ApplyDocumentContent().execute(_tool_ctx(), target="full_document", content=["<p>New body.</p>"])
+        except Exception:
+            res = {"status": "error", "raised": True}
+        assert res.get("status") == "error", "the failed import must surface as an error: %r" % res
+        assert _para_text() == "Original body text to keep.", \
+            "document must be restored (no stranded deletion), got %r" % _para_text()
+        assert _redline_types() == [], \
+            "no tracked change may survive the rolled-back edit, got %r" % _redline_types()
+    finally:
+        fmt._insert_mixed_or_plain_html = real
+        set_config(_ctx, _FLAG, prev)
+        if len(_doc.getRedlines()):
+            _reject_all()
+
+
+@native_test
+def test_split_authors_surgical_off_one_color_uno():
+    """Toggle OFF collapses the SURGICAL path to one author too (consistency both ways)."""
+    _reset("Old clause body here.")
+    prev = get_config(_ctx, _FLAG)
+    prev_split = _content._SPLIT_AUTHOR_COLORS
+    set_config(_ctx, _FLAG, "record")
+    _content._SPLIT_AUTHOR_COLORS = False  # default threshold -> small change takes the surgical path
+    try:
+        res = ApplyDocumentContent().execute(
+            _tool_ctx(), target="search", old_content="Old clause body here.", content=["New clause body here."])
+        assert res.get("status") == "ok", res
+        authors = {r["RedlineAuthor"] for r in _redlines()}
+        assert authors == {"WriterAgent"}, "surgical toggle off -> one author, got %r" % authors
+        _accept_all()
+        assert _para_text() == "New clause body here.", "accept must yield the new text, got %r" % _para_text()
+    finally:
+        set_config(_ctx, _FLAG, prev)
+        _content._SPLIT_AUTHOR_COLORS = prev_split
+        if len(_doc.getRedlines()):
+            _reject_all()
 
 
 # --- the apply_document_content tool end to end (config read + session wiring) -----------

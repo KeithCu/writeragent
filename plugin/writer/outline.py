@@ -45,7 +45,11 @@ class GetDocumentTree(ToolBase):
         'Use content_strategy="heading_only" for a simple outline (headings hierarchy). '
         "Creates _mcp_ bookmarks on headings for stable addressing. "
         "Strategies: heading_only, first_lines (default), full. "
-        "depth=0 for unlimited, depth=1 (default) for top-level only."
+        "depth=0 for unlimited, depth=1 (default) for top-level only. "
+        "IMPORTANT: para_index is an INTERNAL addressing index — NEVER cite paragraph numbers to "
+        "the user (they don't see them and they shift as the document changes). When pointing the "
+        "user to a location or an edit, quote the first few words of its text instead "
+        "(e.g. \"the sentence starting 'The Amazon…'\")."
     )
     parameters = {
         "type": "object",
@@ -64,7 +68,7 @@ class GetDocumentTree(ToolBase):
 class GetHeadingChildren(ToolWriterStructuralBase):
     name = "get_heading_children"
     intent = "navigate"
-    description = "Drill into a heading's children — body paragraphs and sub-headings. Identify the heading by locator (e.g. 'bookmark:_mcp_xxx', 'heading_text:Title'), heading_para_index, or heading_bookmark."
+    description = "Drill into a heading's children — body paragraphs and sub-headings. Identify the heading by locator (e.g. 'bookmark:_mcp_xxx', 'heading_text:Title'), heading_para_index, or heading_bookmark. para_index values are INTERNAL — never cite paragraph numbers to the user; refer to a place by quoting the first words of its text."
     parameters = {
         "type": "object",
         "properties": {

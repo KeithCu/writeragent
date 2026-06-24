@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Names the WriterAgent review fast-travel toolbar (else LibreOffice labels it the generic
+     "Add-On N") and starts it HIDDEN. The toolbar is declared in Addons.xcu under
+     OfficeToolBar / org.extension.writeragent.toolbar, so LO derives the resource URL
+     "private:resource/toolbar/addon_org.extension.writeragent.toolbar". It is shown/hidden at
+     runtime by plugin/writer/review_toolbar.py based on the count of pending agent changes. -->
+<oor:component-data xmlns:oor="http://openoffice.org/2001/registry"
+    xmlns:xs="http://www.w3.org/2001/XMLSchema"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    oor:name="WriterWindowState" oor:package="org.openoffice.Office.UI">
+  <node oor:name="UIElements">
+    <node oor:name="States">
+      <node oor:name="private:resource/toolbar/addon_org.extension.writeragent.toolbar" oor:op="replace">
+        <prop oor:name="UIName" oor:type="xs:string">
+          <value xml:lang="en-US">WriterAgent Review</value>
+        </prop>
+        <prop oor:name="Visible" oor:type="xs:boolean">
+          <value>false</value>
+        </prop>
+      </node>
+    </node>
+  </node>
+</oor:component-data>

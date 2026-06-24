@@ -18,6 +18,7 @@
 
 (Index refresh, field refresh, and bookmark list/cleanup live in specialized domains.)"""
 
+from plugin.framework.constants import PARAGRAPH_INDEX_DIRECTIVE
 from plugin.framework.tool import ToolBase
 
 from .specialized_base import ToolWriterStructuralBase
@@ -60,7 +61,10 @@ class GotoPage(ToolWriterStructuralBase):
 class GetPageObjects(ToolBase):
     name = "get_page_objects"
     intent = "read"
-    description = "Get images, tables, frames, and Draw shapes visible on a specific physical page. Provide page number, locator, or paragraph_index."
+    description = (
+        "Get images, tables, frames, and Draw shapes visible on a specific physical page. Provide "
+        "page number, locator, or paragraph_index. " + PARAGRAPH_INDEX_DIRECTIVE
+    )
     parameters = {
         "type": "object",
         "properties": {"page": {"type": "integer", "description": "1-based page number to analyze"}, "locator": {"type": "string", "description": "Locator to determine page"}, "paragraph_index": {"type": "integer", "description": "Paragraph index to determine page"}},

@@ -59,6 +59,7 @@ def _oor(local):
     """Qualified name in oor: namespace."""
     return "{%s}%s" % (_OOR_NS, local)
 
+
 def _pretty_name(name):
     """Convert dotted or underscored name to title case with spaces."""
     return name.replace(".", " ").replace("_", " ").title()
