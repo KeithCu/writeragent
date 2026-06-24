@@ -16,7 +16,7 @@ The sidebar is a **chat window**: assistant text is stored in session history an
 | Research then write (e.g. web report in the doc) | Delegate research (sub-agent returns **plain text** in `result`), main agent formats HTML and **`apply_document_content`** in the same send |
 | Large edit plus acknowledgment | Tool call(s) + **brief** chat confirmation |
 
-Prompt text lives in [`plugin/framework/constants.py`](../plugin/framework/constants.py): **`SIDEBAR_VS_DOCUMENT`** (routing) and **`WRITER_CORE_DIRECTIVES`** (delegation, including research plain-text → format → `apply_document_content`), composed by **`get_chat_system_prompt_for_document`**. Generic delegate `task` guidance in the specialized block is one short line; per-domain detail is injected on the sub-agent at runtime ([`specialized_base.py`](../plugin/doc/specialized_base.py)). **Sub-agents** (web research, librarian, specialized delegate) use different completion tools (`final_answer`, `reply_to_user`, delegate `task`)—not this routing block.
+Prompt text lives in [`plugin/framework/constants.py`](../plugin/framework/constants.py): blocks are ordered to match runtime assembly in `get_chat_system_prompt_for_document` (see [Chat prompt constants](#chat-prompt-constants) below). Key pieces: **`SIDEBAR_VS_DOCUMENT`** (routing) and **`WRITER_CORE_DIRECTIVES`** (delegation, including research plain-text → format → `apply_document_content`), composed by **`get_chat_system_prompt_for_document`**. Generic delegate `task` guidance in the specialized block is one short line; per-domain detail is injected on the sub-agent at runtime ([`specialized_base.py`](../plugin/doc/specialized_base.py)). **Sub-agents** (web research, librarian, specialized delegate) use different completion tools (`final_answer`, `reply_to_user`, delegate `task`)—not this routing block.
 
 **Menu chat** (non-sidebar entry) has no tool-calling; it is conversational only.
 
@@ -27,6 +27,67 @@ Prompt text lives in [`plugin/framework/constants.py`](../plugin/framework/const
 During a **tool-loop** send, the sidebar can show provider reasoning under `[Thinking]` while tools still run from native `tool_calls` (or content fallback parsers)—reasoning text is never parsed as a tool invocation. Reasoning is **display-only** for that turn: it is not written into session messages for the next API round (only `content` + `tool_calls` are). That matches common OpenAI-compat streaming behavior; provider docs often ask clients to echo reasoning back on later tool-loop turns for quality on reasoning models—a possible future change, not current behavior.
 
 See [streaming-and-threading.md](streaming-and-threading.md) §§3.3–3.4 for implementation paths and notes to revisit.
+
+## Chat prompt constants
+
+Writer main-chat system prompt blocks in [`constants.py`](../plugin/framework/constants.py) are ordered to match runtime assembly in `get_chat_system_prompt_for_document` (persona → chat format → sidebar routing → core directives → tools → translation → usage patterns → `apply_document_content` HTML rules → specialized delegation).
+
+Design notes for prompt authors live in this section so the source file stays scannable.
+
+### `apply_document_content` — JSON array of HTML strings
+
+**Scope:** document tool only (`apply_document_content`). Not sidebar chat (`reply_to_user` / `final_answer`) or web-research `final_answer`.
+
+#### Why a JSON array (not one HTML blob)?
+
+- OpenAI tool schema declares `content` as type `array` ([`plugin/writer/content.py`](../plugin/writer/content.py)). Each element is one heading/paragraph fragment; `execute()` joins with `\n` before Writer HTML import.
+- Long answers: block-sized strings are easier for models to emit than one giant tool argument, and JSON parsers handle quotes per element instead of one nested escape soup.
+- Whether array still wins vs a single string is unsettled; `execute()` already accepts a list or a string that parses as JSON array.
+
+#### Two escaping layers (models often mix these up)
+
+- **JSON/tool-call escaping:** inside a tool argument, literal `"` in HTML must be `\"` in the JSON wire format. Prompt EXAMPLES show valid JSON (hence `\"quotes\"` in strings).
+- **HTML entity escaping:** do NOT send `&lt;p&gt;` instead of `<p>` — the import path expects real tags (`HTML_FRAGMENT_RULES`). Entity soup is wrong for both array elements and sidebar.
+
+#### Array wrapper and sub-agents
+
+- Web research returns plain text (`WEB_RESEARCH_PLAIN_TEXT_FORMAT`); the **main** agent formats HTML for `apply_document_content`.
+- Librarian uses `reply_to_user` with `CHAT_SIDEBAR_HTML_EXAMPLES` (single HTML string).
+- Do not tell sub-agents to wrap answers in `apply_document_content` JSON arrays — that shape is for the main agent's document tool only.
+
+#### Removing the array wrapper?
+
+Possible but non-trivial: tool JSON schema, eval harness, and years of prompt habit. Could widen schema to `string | array` later if single-string documents prove more reliable. Until then: array for documents, single string for sidebar — keep examples separate.
+
+### Math prompt policy (`WRITER_APPLY_DOCUMENT_HTML_RULES`)
+
+Recommend `\(...\)` inline delimiters only. The import path still parses `$`, `$$`, and `\[...\]` ([`html_math_segment.py`](../plugin/writer/math/html_math_segment.py)) for pasted or legacy content — we just do not steer models toward display delimiters.
+
+`display_block` in `insert_writer_math_formula` only wraps the formula in paragraph breaks; the OLE stays `AS_CHARACTER`, so display math is not centered and looks like inline on its own line — no visual win, extra delimiter choice confuses LLMs.
+
+If we implement true block/centered math (e.g. paragraph anchor + alignment), revisit split inline vs display rules here and in [math-tex.md](math-tex.md).
+
+### Sidebar HTML examples (`CHAT_SIDEBAR_HTML_EXAMPLES`)
+
+**Wire format:** web research and librarian finish with a smolagents JSON tool call (`final_answer` / `reply_to_user`). The tool arguments object is JSON on the wire; the *answer* field value should be one HTML string like the Good example — not `["<p>…</p>"]` and not `&lt;entity&gt;` markup.
+
+**Why examples look like plain quoted HTML while document rules show `["…"]` arrays:**
+
+- Document path: `content` parameter is schema-typed array; join happens in `content.py`.
+- Sidebar path: no array join — StarWriter HTML filter imports the string as one fragment.
+- JSON escaping still applies at the tool-call layer (`\"`) but that is not HTML `&lt;` escaping.
+
+Do not copy `WRITER_APPLY_DOCUMENT_HTML_RULES` EXAMPLES into sidebar examples; array-shaped examples train models to wrap `final_answer` in a list, which the sidebar does not unwrap.
+
+### Writer sub-agent assembly order (differs from main chat)
+
+Brainstorming and writing-plan sub-agents (`get_brainstorming_sub_agent_instructions`, `get_writing_sub_agent_instructions`):
+
+1. Mode-specific instructions (`BRAINSTORMING_SUB_AGENT_INSTRUCTIONS` / `WRITING_SUB_AGENT_INSTRUCTIONS`)
+2. `WRITER_APPLY_DOCUMENT_HTML_RULES` (for `save_design_spec` / `write_document_section` array content)
+3. `get_chat_response_format_instructions` (sidebar HTML or plain text)
+
+See also [math-tex.md](math-tex.md) (TeX/MathML import) and [brainstorming-mode.md](brainstorming-mode.md) (sub-agent HTML surfaces).
 
 ---
 

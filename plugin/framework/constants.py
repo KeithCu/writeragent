@@ -124,70 +124,6 @@ def resolve_folder_rerank_model(ctx=None) -> str:
 # (e.g. DuckDuckGo and Wikipedia) that expect a real browser UA.
 BROWSER_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:148.0) Gecko/20100101 Firefox/148.0"
 
-# Shared HTML fragment hygiene (sidebar chat + document apply_document_content fragments).
-# Tag-level rules are the same; the *container* differs — see comments on
-# WRITER_APPLY_DOCUMENT_HTML_RULES vs CHAT_SIDEBAR_HTML_EXAMPLES below.
-HTML_FRAGMENT_RULES = """
-- Use <br> for line breaks within an element; <p> for paragraphs.
-- Raw Unicode (é, ü, ©); straight double quotes ("), not curly/smart quotes or HTML entities. Send <h1> not &lt;h1&gt;. Preserve intentional spacing.
-- Do NOT use Markdown (#, **, ```, etc.)."""
-
-# Document tool only (apply_document_content). Not used for sidebar chat or web-research final_answer.
-#
-# Why a JSON array of strings (not one HTML blob)?
-# - OpenAI tool schema declares content as type "array" (content.py). Each element is one
-#   heading/paragraph fragment; execute() joins with "\\n" before Writer HTML import.
-# - Long answers: block-sized strings are easier for models to emit than one giant tool
-#   argument, and JSON parsers handle quotes per element instead of one nested escape soup.
-# - That was the original intent; whether it still wins vs a single string is unsettled.
-#
-# Two different "escaping" layers (models often mix these up):
-# - JSON/tool-call escaping: inside a tool argument, literal " in HTML must be \\" in the
-#   JSON wire format. Prompt EXAMPLES below show valid JSON (hence \\"quotes\\" in strings).
-# - HTML entity escaping: do NOT send &lt;p&gt; instead of <p> — the import path expects
-#   real tags (HTML_FRAGMENT_RULES). Entity soup is wrong for both array elements and sidebar.
-#
-# Array wrapper and sub-agents: web research returns plain text (WEB_RESEARCH_PLAIN_TEXT_FORMAT);
-# the main agent formats HTML for apply_document_content. Librarian uses reply_to_user with
-# CHAT_SIDEBAR_HTML_EXAMPLES. Do not tell sub-agents to wrap answers in apply_document_content
-# JSON arrays — that shape is for the main agent's apply_document_content tool only.
-#
-# Removing the array wrapper? Possible but non-trivial: tool JSON schema, eval harness, and years
-# of prompt habit. execute() already accepts a list or a string that parses as JSON array; we
-# could widen schema to string | array later if single-string documents prove more reliable.
-# Until then, keep array for documents, single string for sidebar — and keep examples separate.
-#
-# Math prompt policy (``- Math:`` bullet in WRITER_APPLY_DOCUMENT_HTML_RULES below):
-# Recommend \\(...\\) inline delimiters only. The import path still parses $, $$, and
-# \\[...\\] (html_math_segment.py) for pasted or legacy content—we just do not steer models
-# toward display delimiters. display_block in insert_writer_math_formula only wraps the
-# formula in paragraph breaks; the OLE stays AS_CHARACTER, so display math is not centered
-# and looks like inline on its own line—no visual win, extra delimiter choice confuses LLMs.
-# If we implement true block/centered math (e.g. paragraph anchor + alignment), revisit
-# split inline vs display rules and examples here and in docs/math-tex.md.
-WRITER_APPLY_DOCUMENT_HTML_RULES = f"""
-APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL):
-- Parameters: `content` and `target` (required). If target='search', also `old_content` (a **substring** to find/replace; HTML in old_content is matched as plain text).
-- **Whole-document replace:** use target='full_document' with `content` only. **Never** pass the entire document as old_content — that is not supported and will fail search.
-- Targets: 'beginning', 'end', 'selection', 'full_document' (replaces all — preferred for rewrites/translations), or 'search' (substring find/replace only).
-- `content` must be a JSON array of HTML strings (one fragment per heading/paragraph). We wrap in <html>/<body>.
-{HTML_FRAGMENT_RULES}
-- Math: Use LaTeX inline delimiters \\(...\\) for math expressions (e.g. \\(x^2=4\\) or \\(a+b\\)); single variables (like x) can be plain text. No $, $$, \\[, HTML-escaped math, or equation images.
-- Named paragraph styles: get_document_content marks each block's LibreOffice paragraph style as a `data-lo-style` token = the style name with spaces removed (e.g. `Heading 1`->`Heading1`, `Text body`->`Textbody`, `Caption`->`Caption`); use the tokens EXACTLY as returned. It reserves inline style="..." for direct character overrides. PRESERVE and USE it — emit `<p data-lo-style="Heading1">...</p>` to apply a named style, using the tokens exactly as returned (the named style is applied first, then any inline style="" is layered on top as a direct override). Prefer named styles over hardcoded inline formatting; an unknown token falls back to 'Standard'. data-lo-style is applied when you rewrite with target='full_document'; for targeted inserts/replaces (end/beginning/selection/search) the named style is NOT applied (it would restyle adjacent text) — rewrite via full_document for styling, or use apply_style to (re)style existing text. v1 limits: whole-paragraph alignment/colour/margins and table-cell styles do not round-trip; use named styles and span-level inline style for char exceptions (see docs/html_style_model_plan.md).
-
-EXAMPLES:
-- Good: ["<h1>Title</h1>", "<p>Paragraph with <strong>bold</strong> text and \\"quotes\\".</p>"]
-- Good math: ["<p>The identity \\(a^2+b^2=c^2\\) holds.</p>"]
-- Good styles: ["<p data-lo-style=\\"Heading1\\">Section title</p>", "<p data-lo-style=\\"Quotations\\">A quoted clause.</p>"]
-- Bad: <h1>Title</h1><p>Paragraph</p> (must be a list of strings)
-- Bad: ["&lt;h1&gt;Title&lt;/h1&gt;"] (escaped entities)
-- Bad: ["&lt;math&gt;x^2&lt;/math&gt;"] (HTML-escaped math; use LaTeX delimiters)
-- Bad: ["<p><img src=\\"...\\" alt=\\"equation\\"></p>"] (equation images; use LaTeX delimiters)
-- Bad: ["# Title", "Paragraph"] (No Markdown)
-- Bad: ["&ldquo;Smart quotes&rdquo;"] (use straight quotes ")"""
-
-FORMATTING_RULES = WRITER_APPLY_DOCUMENT_HTML_RULES
-
 # Prepended to the first string `system` message in LlmClient for non-release bundles only
 # (``make build`` includes ``plugin/tests``; ``make release`` / ``--no-tests`` does not).
 # See `should_prepend_dev_llm_system_prefix()`.
@@ -209,6 +145,10 @@ def should_prepend_dev_llm_system_prefix() -> bool:
         return False
 
 
+# ---------------------------------------------------------------------------
+# Delegation primitives (inputs to core directives and tool schemas)
+# ---------------------------------------------------------------------------
+
 # Research routing (short); domain bullets use these strings as-is.
 DELEGATION_USER_FILE_DATA_HINT = "to use information that is not in the current document, and may be in (my / our) personal or business documents"
 DELEGATION_PUBLIC_WEB_HINT = "to research public topics"
@@ -228,6 +168,63 @@ def delegation_math_to_python_hint(*, delegate_toolset: str) -> str:
         "For computational or numeric math (exact values, primes, statistics, symbolic algebra, or non-trivial calculation), "
         f'do not answer from memory—use {delegate_toolset}(domain="python") for fast local numeric computation.'
     )
+
+
+# Brief hint for gateway tool JSON schemas (see SPECIALIZED_TASK_RULES in system prompt).
+DELEGATE_SPECIALIZED_TASK_PARAM_HINT = "What the specialized task should accomplish."
+
+# Shared guidance for writing `task` strings when delegating to specialized sub-agents.
+SPECIALIZED_TASK_RULES = (
+    "Pass a clear `task` describing what the specialized task should accomplish."
+)
+
+
+# ---------------------------------------------------------------------------
+# Shared HTML primitives (sidebar + document fragments)
+# ---------------------------------------------------------------------------
+
+# Tag-level rules shared by sidebar chat and apply_document_content fragments.
+# Container differs: single HTML string (sidebar) vs JSON array (document) — docs/chat-sidebar-implementation.md § Chat prompt constants.
+HTML_FRAGMENT_RULES = """
+- Use <br> for line breaks within an element; <p> for paragraphs.
+- Raw Unicode (é, ü, ©); straight double quotes ("), not curly/smart quotes or HTML entities. Send <h1> not &lt;h1&gt;. Preserve intentional spacing.
+- Do NOT use Markdown (#, **, ```, etc.)."""
+
+# Sidebar / sub-agent examples (single HTML string — not apply_document_content's array). See docs/chat-sidebar-implementation.md § Chat prompt constants.
+CHAT_SIDEBAR_HTML_EXAMPLES = """
+CHAT HTML EXAMPLES:
+- Good: "<p>Paragraph with <strong>bold</strong> text.</p>"
+- Bad: "**bold**" (Markdown)
+- Bad: "&lt;p&gt;Paragraph&lt;/p&gt;" (escaped entities)"""
+
+
+# ---------------------------------------------------------------------------
+# Writer chat system prompt (source order = runtime order)
+# ---------------------------------------------------------------------------
+
+WRITER_CHAT_PERSONA = """You are a LibreOffice Writer assistant who produces polished, professional documents with thoughtful use of color and formatting.
+Honor any stated memory preferences for color, etc."""
+
+CHAT_RESPONSE_FORMAT = """CHAT RESPONSE FORMAT: Format your conversational responses as HTML (use <p>, <strong>, <em>, <code>, <ul>, <ol>, <h2>, <pre>, <br>). The sidebar renders HTML natively."""
+
+PLAIN_CHAT_RESPONSE_FORMAT = "CHAT RESPONSE FORMAT: Respond in plain text only. Do NOT use HTML tags or Markdown formatting (no #, **, ```, etc.)."
+
+RICH_CHAT_SIDEBAR_INSTRUCTIONS = f"""{CHAT_RESPONSE_FORMAT}
+{HTML_FRAGMENT_RULES}
+{CHAT_SIDEBAR_HTML_EXAMPLES}"""
+
+
+def get_chat_response_format_instructions(ctx=None) -> str:
+    """Sidebar response format for main chat and sub-agents (web research, librarian).
+
+    When ``rich_text_control_sidebar`` is off, models are not told about HTML — same gate as
+    ``get_chat_system_prompt_for_document``.
+    """
+    from plugin.framework.config import get_config_bool_safe
+
+    if not get_config_bool_safe(ctx, "rich_text_control_sidebar"):
+        return PLAIN_CHAT_RESPONSE_FORMAT
+    return RICH_CHAT_SIDEBAR_INSTRUCTIONS
 
 
 # Main sidebar chat only (Writer DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE). Sub-agents use
@@ -274,6 +271,12 @@ def get_core_directives(model) -> str:
         return WRITER_CORE_DIRECTIVES
 
 
+WRITER_CHAT_TOOLS_SECTION = """TOOLS:
+- apply_document_content: Write HTML to the document (required after research delegates). See APPLY_DOCUMENT_CONTENT AND HTML below.
+- get_document_content: Read document (full/selection/range) as HTML.
+- search_in_document: Find text (use return_offsets for character positions if needed for inspection).
+- apply_style: Apply a paragraph or character style (family='ParagraphStyles' or 'CharacterStyles')."""
+
 TRANSLATION_RULES = "TRANSLATION: get_document_content(scope=full) -> translate -> apply_document_content(target='full_document', content=translated). Do not use old_content or target='search' for whole-document translation. Never refuse."
 
 # Tool-usage workflow patterns (no repeat of apply_document_content targets; see WRITER_APPLY_DOCUMENT_HTML_RULES).
@@ -285,60 +288,31 @@ TOOL_USAGE_PATTERNS = """TOOL USAGE PATTERNS:
 - When asked to review or give feedback or suggestions on a document, use the add_comment method to add your input to specific places in the document. Use for both positive and negative feedback.
 - If the user says "fix this" (or a synonym or equivalent in another language with the same intent), assume they want you to correct spelling and grammar errors in the current sentence only, unless the context makes it clear there is another specific error they want you to fix.
 """
-# Shared Calc instruction blocks
-CALC_WORKFLOW = """WORKFLOW:
-1. Understand what the user wants.
-2. If needed, use get_sheet_summary or read_cell_range to see the current state.
-3. Use the tools to perform the operation. Always use ranges for multiple cells to reduce calls and improve efficiency.
-4. Give a short confirmation; when you changed cells, mention the range or addresses (e.g. "Wrote totals in B5:B8")."""
 
-# Shared venv Python prompt text (run_venv_python_script, =PYTHON(), delegate domain=python).
-PYTHON_VENV_AUTO_IMPORTS_ALIASES = "`numpy` (as `np`), `sympy` (as `sp`), `pandas` (as `pd`), `plugin.scripting.calc_functions` (as `xl`), standard library `math`, `datetime`, `re`, `random`, `statistics`, `collections`, `itertools`, `json`, and `csv`"
+# apply_document_content only — design notes in docs/chat-sidebar-implementation.md § Chat prompt constants and docs/math-tex.md.
+WRITER_APPLY_DOCUMENT_HTML_RULES = f"""
+APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL):
+- Parameters: `content` and `target` (required). If target='search', also `old_content` (a **substring** to find/replace; HTML in old_content is matched as plain text).
+- **Whole-document replace:** use target='full_document' with `content` only. **Never** pass the entire document as old_content — that is not supported and will fail search.
+- Targets: 'beginning', 'end', 'selection', 'full_document' (replaces all — preferred for rewrites/translations), or 'search' (substring find/replace only).
+- `content` must be a JSON array of HTML strings (one fragment per heading/paragraph). We wrap in <html>/<body>.
+{HTML_FRAGMENT_RULES}
+- Math: Use LaTeX inline delimiters \\(...\\) for math expressions (e.g. \\(x^2=4\\) or \\(a+b\\)); single variables (like x) can be plain text. No $, $$, \\[, HTML-escaped math, or equation images.
+- Named paragraph styles: get_document_content marks each block's LibreOffice paragraph style as a `data-lo-style` token = the style name with spaces removed (e.g. `Heading 1`->`Heading1`, `Text body`->`Textbody`, `Caption`->`Caption`); use the tokens EXACTLY as returned. It reserves inline style="..." for direct character overrides. PRESERVE and USE it — emit `<p data-lo-style="Heading1">...</p>` to apply a named style, using the tokens exactly as returned (the named style is applied first, then any inline style="" is layered on top as a direct override). Prefer named styles over hardcoded inline formatting; an unknown token falls back to 'Standard'. data-lo-style is applied when you rewrite with target='full_document'; for targeted inserts/replaces (end/beginning/selection/search) the named style is NOT applied (it would restyle adjacent text) — rewrite via full_document for styling, or use apply_style to (re)style existing text. v1 limits: whole-paragraph alignment/colour/margins and table-cell styles do not round-trip; use named styles and span-level inline style for char exceptions (see docs/html_style_model_plan.md).
 
-# Populated at module end (after full constants init) to avoid import cycles via smolagents.
-_VENV_IMPORT_POLICY_COMPACT = ""
-_VENV_IMPORT_POLICY_FULL = ""
+EXAMPLES:
+- Good: ["<h1>Title</h1>", "<p>Paragraph with <strong>bold</strong> text and \\"quotes\\".</p>"]
+- Good math: ["<p>The identity \\(a^2+b^2=c^2\\) holds.</p>"]
+- Good styles: ["<p data-lo-style=\\"Heading1\\">Section title</p>", "<p data-lo-style=\\"Quotations\\">A quoted clause.</p>"]
+- Bad: <h1>Title</h1><p>Paragraph</p> (must be a list of strings)
+- Bad: ["&lt;h1&gt;Title&lt;/h1&gt;"] (escaped entities)
+- Bad: ["&lt;math&gt;x^2&lt;/math&gt;"] (HTML-escaped math; use LaTeX delimiters)
+- Bad: ["<p><img src=\\"...\\" alt=\\"equation\\"></p>"] (equation images; use LaTeX delimiters)
+- Bad: ["# Title", "Paragraph"] (No Markdown)
+- Bad: ["&ldquo;Smart quotes&rdquo;"] (use straight quotes ")"""
 
-PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE = ""
-
-PYTHON_VENV_AUTO_IMPORTS_PROMPT_LINE = ""
-
-# Default for =PROMPT() when extend_selection_system_prompt is empty (LLM may emit =PYTHON formulas).
-CALC_PYTHON_FORMULA_LLM_HINT = ""
-
-
-def python_specialized_sub_agent_hint(agent_label: str) -> str:
-    """Smol sub-agent instructions suffix for delegate_to_specialized_* (domain=\"python\")."""
-    if agent_label == "Calc":
-        data_hint = " For bulk data use data_range (A1 address string) with run_venv_python_script; the host resolves it out-of-band. Avoid passing large values in the data parameter."
-    else:
-        data_hint = " run_venv_python_script does not inject spreadsheet `data`—use document tools for content."
-    policy = _VENV_IMPORT_POLICY_FULL or _load_venv_import_policy_full()
-    from plugin.scripting.import_policy import format_matplotlib_plot_hint, format_units_helper_hint
-
-    plot_hint = format_matplotlib_plot_hint(agent_label=agent_label)
-    plot_suffix = f" {plot_hint}" if plot_hint else ""
-    units_hint = format_units_helper_hint()
-    return (
-        f" PYTHON (venv): {policy}{data_hint}{plot_suffix}"
-        " Prefer symbolic_math for solve/simplify/integrate/differentiate over raw sp/run_venv_python_script."
-        f" {units_hint}"
-    )
-
-
-def _load_venv_import_policy_full() -> str:
-    from plugin.scripting.import_policy import format_venv_import_policy_for_prompt
-
-    return format_venv_import_policy_for_prompt(compact=False)
-
-
-CALC_FORMULA_SYNTAX = """FORMULA SYNTAX: LibreOffice uses semicolon (;) as the formula argument separator in formulas.
-- Correct: =SUM(A1:A10), =IF(A1>0;B1;C1)
-- Wrong: =SUM(A1,A10), =IF(A1>0,"Yes","No") (no commas in formulas)
-- Write `=PY("result = ..."; A1:A10)` in cells to calculate/run Python (=PYTHON is the same; omit the second argument if no data is needed, e.g. `=PY("result = 2**10")`).
-- Example: `=PY("result = np.sum(data)"; A1:A10)`.
-
-"""
+# Legacy alias for eval harness and older docs — prefer WRITER_APPLY_DOCUMENT_HTML_RULES in new code.
+FORMATTING_RULES = WRITER_APPLY_DOCUMENT_HTML_RULES
 
 MEMORY_GUIDANCE = """MEMORY:
 You have a persistent file-backed memory tool.
@@ -347,18 +321,9 @@ WHEN TO SAVE (do this proactively, don't wait to be asked):
 - You discover something about the environment.
 Prioritize what reduces future user steering."""
 
-# Brief hint for gateway tool JSON schemas (see SPECIALIZED_TASK_RULES in system prompt).
-DELEGATE_SPECIALIZED_TASK_PARAM_HINT = "What the specialized task should accomplish."
-
-# Shared guidance for writing `task` strings when delegating to specialized sub-agents.
-SPECIALIZED_TASK_RULES = (
-    "Pass a clear `task` describing what the specialized task should accomplish."
-)
-
 # Writer sidebar modes — not exposed on delegate_to_specialized_writer_toolset (user picks from dropdown).
 WRITER_SIDEBAR_ONLY_DOMAINS = frozenset({"brainstorming", "writing_plan"})
 
-# Shape catalog size: LibreOffice core maps ~400+ preset names (e.g. svx EnhancedCustomShapeTypeNames.cxx).
 # Single-line blocks: MCP tool descriptions and many clients do not render newlines inside JSON strings.
 WRITER_SPECIALIZED_DELEGATION_TEMPLATE = (
     "SPECIALIZED WRITER (nested tools): The default tool list hides deep Writer features. "
@@ -369,6 +334,44 @@ WRITER_SPECIALIZED_DELEGATION_TEMPLATE = (
     "web_research: public web topics; main agent writes returned report to document (apply_document_content). "
     f"{SPECIALIZED_TASK_RULES}"
 )
+
+CALC_SPECIALIZED_DELEGATION_TEMPLATE = (
+    "SPECIALIZED CALC (nested tools): The default tool list hides advanced Calc features. "
+    "When the user needs those, call delegate_to_specialized_calc_toolset with: domain one of: {domains} "
+    "and a `task` string that fully specifies what the specialized task must do. The task executor has full tool access for that domain. "
+    f"{SPECIALIZED_TASK_RULES}"
+)
+
+DRAW_SPECIALIZED_DELEGATION_TEMPLATE = (
+    "SPECIALIZED DRAW (nested tools): The default tool list hides advanced Draw/Impress features. "
+    "When the user needs those, call delegate_to_specialized_draw_toolset with: domain one of: {domains} "
+    "and a `task` string that fully specifies what the specialized task must do. The task executor has full tool access for that domain. "
+    f"{SPECIALIZED_TASK_RULES}"
+)
+
+
+def _build_writer_chat_system_prompt_template() -> str:
+    """Assemble Writer main-chat system prompt in model-facing order."""
+    return "\n\n".join([
+        WRITER_CHAT_PERSONA,
+        CHAT_RESPONSE_FORMAT,
+        SIDEBAR_VS_DOCUMENT,
+        "{core_directives}",
+        WRITER_CHAT_TOOLS_SECTION,
+        TRANSLATION_RULES,
+        TOOL_USAGE_PATTERNS,
+        WRITER_APPLY_DOCUMENT_HTML_RULES,
+        "{specialized_delegation}",
+        f"# {MEMORY_GUIDANCE}",
+    ])
+
+
+DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE = _build_writer_chat_system_prompt_template()
+
+
+# ---------------------------------------------------------------------------
+# Writer sub-agents (assembly order differs — see docs/chat-sidebar-implementation.md § Chat prompt constants)
+# ---------------------------------------------------------------------------
 
 BRAINSTORMING_SUB_AGENT_INSTRUCTIONS = """BRAINSTORMING MODE:
 You help turn ideas into fully formed designs through collaborative dialogue before any implementation.
@@ -441,55 +444,6 @@ COMPLETION TOOLS:
 - write_document_section: write content for a section to the document.
 - writing_research_web: search the public web for context or information."""
 
-CALC_SPECIALIZED_DELEGATION_TEMPLATE = (
-    "SPECIALIZED CALC (nested tools): The default tool list hides advanced Calc features. "
-    "When the user needs those, call delegate_to_specialized_calc_toolset with: domain one of: {domains} "
-    "and a `task` string that fully specifies what the specialized task must do. The task executor has full tool access for that domain. "
-    f"{SPECIALIZED_TASK_RULES}"
-)
-
-DRAW_SPECIALIZED_DELEGATION_TEMPLATE = (
-    "SPECIALIZED DRAW (nested tools): The default tool list hides advanced Draw/Impress features. "
-    "When the user needs those, call delegate_to_specialized_draw_toolset with: domain one of: {domains} "
-    "and a `task` string that fully specifies what the specialized task must do. The task executor has full tool access for that domain. "
-    f"{SPECIALIZED_TASK_RULES}"
-)
-
-CHAT_RESPONSE_FORMAT = """CHAT RESPONSE FORMAT: Format your conversational responses as HTML (use <p>, <strong>, <em>, <code>, <ul>, <ol>, <h2>, <pre>, <br>). The sidebar renders HTML natively."""
-
-# Sidebar / sub-agent examples (single HTML string — not apply_document_content's array).
-#
-# Wire format: web research and librarian finish with a smolagents JSON tool call
-# (final_answer / reply_to_user). The tool arguments object is JSON on the wire; the *answer*
-# field value should be one HTML string like the Good example — not ["<p>…</p>"] and not
-# &lt;entity&gt; markup. send_handlers takes str(final_ans) and rerenders via rich_text.
-#
-# Why examples look like plain quoted HTML while document rules show ["…"] arrays:
-# - Document path: content parameter is schema-typed array; join happens in content.py.
-# - Sidebar path: no array join — StarWriter HTML filter imports the string as one fragment.
-# - JSON escaping still applies at the tool-call layer (\") but that is not HTML &lt; escaping.
-#
-# Do not copy WRITER_APPLY_DOCUMENT_HTML_RULES EXAMPLES here; array-shaped examples train
-# models to wrap final_answer in a list, which the sidebar does not unwrap.
-CHAT_SIDEBAR_HTML_EXAMPLES = """
-CHAT HTML EXAMPLES:
-- Good: "<p>Paragraph with <strong>bold</strong> text.</p>"
-- Bad: "**bold**" (Markdown)
-- Bad: "&lt;p&gt;Paragraph&lt;/p&gt;" (escaped entities)"""
-
-# Web-research sub-agent only (main chat delegate + web-research checkbox). Facts in plain text;
-# main agent applies HTML, memory colors, and apply_document_content when the user wanted a doc edit.
-WEB_RESEARCH_PLAIN_TEXT_FORMAT = """Research output: plain text only in final_answer.
-- Use clear section headings (plain lines) and bullet lists (- item).
-- Include facts, names, dates, ratings, and sources where relevant.
-- No HTML tags, no Markdown (# or **), no JSON."""
-
-RICH_CHAT_SIDEBAR_INSTRUCTIONS = f"""{CHAT_RESPONSE_FORMAT}
-{HTML_FRAGMENT_RULES}
-{CHAT_SIDEBAR_HTML_EXAMPLES}"""
-
-PLAIN_CHAT_RESPONSE_FORMAT = "CHAT RESPONSE FORMAT: Respond in plain text only. Do NOT use HTML tags or Markdown formatting (no #, **, ```, etc.)."
-
 
 def get_brainstorming_sub_agent_instructions(ctx=None) -> str:
     """Full system instructions for the brainstorming smol sub-agent."""
@@ -511,92 +465,72 @@ def get_writing_sub_agent_instructions(ctx=None) -> str:
     return "\n\n".join(parts)
 
 
-def get_chat_response_format_instructions(ctx=None) -> str:
-    """Sidebar response format for main chat and sub-agents (web research, librarian).
+# Web-research sub-agent only (main chat delegate + web-research checkbox). Facts in plain text;
+# main agent applies HTML, memory colors, and apply_document_content when the user wanted a doc edit.
+WEB_RESEARCH_PLAIN_TEXT_FORMAT = """Research output: plain text only in final_answer.
+- Use clear section headings (plain lines) and bullet lists (- item).
+- Include facts, names, dates, ratings, and sources where relevant.
+- No HTML tags, no Markdown (# or **), no JSON."""
 
-    When ``rich_text_control_sidebar`` is off, models are not told about HTML — same gate as
-    ``get_chat_system_prompt_for_document``.
-    """
-    from plugin.framework.config import get_config_bool_safe
 
-    if not get_config_bool_safe(ctx, "rich_text_control_sidebar"):
-        return PLAIN_CHAT_RESPONSE_FORMAT
-    return RICH_CHAT_SIDEBAR_INSTRUCTIONS
+# ---------------------------------------------------------------------------
+# Calc / Draw chat system prompts
+# ---------------------------------------------------------------------------
 
-DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE = f"""You are a LibreOffice Writer assistant who produces polished, professional documents with thoughtful use of color and formatting.
-Honor any stated memory preferences for color, etc.
+CALC_WORKFLOW = """WORKFLOW:
+1. Understand what the user wants.
+2. If needed, use get_sheet_summary or read_cell_range to see the current state.
+3. Use the tools to perform the operation. Always use ranges for multiple cells to reduce calls and improve efficiency.
+4. Give a short confirmation; when you changed cells, mention the range or addresses (e.g. "Wrote totals in B5:B8")."""
 
-{CHAT_RESPONSE_FORMAT}
+# Shared venv Python prompt text (run_venv_python_script, =PYTHON(), delegate domain=python).
+PYTHON_VENV_AUTO_IMPORTS_ALIASES = "`numpy` (as `np`), `sympy` (as `sp`), `pandas` (as `pd`), `plugin.scripting.calc_functions` (as `xl`), standard library `math`, `datetime`, `re`, `random`, `statistics`, `collections`, `itertools`, `json`, and `csv`"
 
-{SIDEBAR_VS_DOCUMENT}
+# Populated at module end (after full constants init) to avoid import cycles via smolagents.
+_VENV_IMPORT_POLICY_COMPACT = ""
+_VENV_IMPORT_POLICY_FULL = ""
 
-{{core_directives}}
+PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE = ""
 
-TOOLS:
-- apply_document_content: Write HTML to the document (required after research delegates). See APPLY_DOCUMENT_CONTENT AND HTML below.
-- get_document_content: Read document (full/selection/range) as HTML.
-- search_in_document: Find text (use return_offsets for character positions if needed for inspection).
-- apply_style: Apply a paragraph or character style (family='ParagraphStyles' or 'CharacterStyles').
+PYTHON_VENV_AUTO_IMPORTS_PROMPT_LINE = ""
 
-{TRANSLATION_RULES}
+# Default for =PROMPT() when extend_selection_system_prompt is empty (LLM may emit =PYTHON formulas).
+CALC_PYTHON_FORMULA_LLM_HINT = ""
 
-{TOOL_USAGE_PATTERNS}
 
-{FORMATTING_RULES}
+def python_specialized_sub_agent_hint(agent_label: str) -> str:
+    """Smol sub-agent instructions suffix for delegate_to_specialized_* (domain=\"python\")."""
+    if agent_label == "Calc":
+        data_hint = " For bulk data use data_range (A1 address string) with run_venv_python_script; the host resolves it out-of-band. Avoid passing large values in the data parameter."
+    else:
+        data_hint = " run_venv_python_script does not inject spreadsheet `data`—use document tools for content."
+    policy = _VENV_IMPORT_POLICY_FULL or _load_venv_import_policy_full()
+    from plugin.scripting.import_policy import format_matplotlib_plot_hint, format_units_helper_hint
 
-{{specialized_delegation}}
+    plot_hint = format_matplotlib_plot_hint(agent_label=agent_label)
+    plot_suffix = f" {plot_hint}" if plot_hint else ""
+    units_hint = format_units_helper_hint()
+    return (
+        f" PYTHON (venv): {policy}{data_hint}{plot_suffix}"
+        " Prefer symbolic_math for solve/simplify/integrate/differentiate over raw sp/run_venv_python_script."
+        f" {units_hint}"
+    )
 
-# {MEMORY_GUIDANCE}
+
+def _load_venv_import_policy_full() -> str:
+    from plugin.scripting.import_policy import format_venv_import_policy_for_prompt
+
+    return format_venv_import_policy_for_prompt(compact=False)
+
+
+CALC_FORMULA_SYNTAX = """FORMULA SYNTAX: LibreOffice uses semicolon (;) as the formula argument separator in formulas.
+- Correct: =SUM(A1:A10), =IF(A1>0;B1;C1)
+- Wrong: =SUM(A1,A10), =IF(A1>0,"Yes","No") (no commas in formulas)
+- Write `=PY("result = ..."; A1:A10)` in cells to calculate/run Python (=PYTHON is the same; omit the second argument if no data is needed, e.g. `=PY("result = 2**10")`).
+- Example: `=PY("result = np.sum(data)"; A1:A10)`.
+
 """
 
-# We dynamically set this later when calling get_chat_system_prompt_for_document
-DEFAULT_CHAT_SYSTEM_PROMPT = ""
-DEFAULT_CALC_CHAT_SYSTEM_PROMPT = ""
-
-
-def get_writer_eval_chat_system_prompt() -> str:
-    """Writer chat-style system prompt for offline DSPy eval (`scripts/prompt_optimization`).
-
-    Reuses the same HTML / apply_document_content rules as production chat
-    (`FORMATTING_RULES`, `TRANSLATION_RULES`) but describes only tools implemented in the
-    eval harness: ``get_document_content``, ``apply_document_content``, ``find_text``.
-    Omits web research, specialized delegation, memory, and tools not wired in ``tools_lo``.
-    """
-    eval_scope = "[Eval harness] Only get_document_content, apply_document_content, and find_text are registered. Do not use web research, delegate_to_specialized_writer_toolset, search_in_document, apply_style, or add_comment."
-    eval_tool_patterns = """TOOL USAGE PATTERNS (eval harness):
-- Use find_text to locate passages; use apply_document_content (often with old_content) to replace HTML.
-- Re-read with get_document_content after substantive edits if needed."""
-    return f"""{SIDEBAR_VS_DOCUMENT}
-
-{eval_scope}
-
-TOOLS (eval harness):
-- apply_document_content: Insert or replace HTML in the document (parameters and format — see APPLY_DOCUMENT_CONTENT AND HTML below).
-- get_document_content: Read document (full/selection/range) as HTML.
-- find_text: Find text in the document (JSON ranges).
-
-{TRANSLATION_RULES}
-
-{eval_tool_patterns}
-
-{FORMATTING_RULES}
-"""
-
-
-# NOTE: Experimental planning/todo guidance (commented out).
-# When the hermes-style `todo` tool is enabled, you can append guidance like:
-#
-# TASK PLANNING:
-# - For complex requests (3+ steps or multiple tasks), call the `todo` tool
-#   to create a task list before editing the document.
-# - Each item: {id: string, content: string, status: pending|in_progress|completed|cancelled}.
-# - Only ONE item should be in_progress at a time.
-# - Mark items completed immediately when done; cancel tasks that are no longer needed.
-# - For simple, one-off edits, you may skip the todo tool and act directly.
-
-
-# Calc spreadsheet prompt (structure inspired by libre_calc_ai prompt_templates.py:
-# workflow, grouped tools, "do not explain—do the operation", specify addresses).
 # DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE is built in _init_venv_import_policy_strings() (needs import policy).
 DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE = ""
 
@@ -623,10 +557,59 @@ TOOLS:
 {core_directives}"""
 
 
-# We dynamically set these later when calling get_chat_system_prompt_for_document
+# ---------------------------------------------------------------------------
+# Prompt assembly (runtime)
+# ---------------------------------------------------------------------------
+
+# Lazily populated by get_chat_system_prompt_for_document on first use.
 DEFAULT_CHAT_SYSTEM_PROMPT = ""
 DEFAULT_CALC_CHAT_SYSTEM_PROMPT = ""
 DEFAULT_DRAW_CHAT_SYSTEM_PROMPT = ""
+
+
+WRITER_EVAL_TOOLS_SECTION = """TOOLS (eval harness):
+- apply_document_content: Insert or replace HTML in the document (parameters and format — see APPLY_DOCUMENT_CONTENT AND HTML below).
+- get_document_content: Read document (full/selection/range) as HTML.
+- find_text: Find text in the document (JSON ranges)."""
+
+WRITER_EVAL_SCOPE = (
+    "[Eval harness] Only get_document_content, apply_document_content, and find_text are registered. "
+    "Do not use web research, delegate_to_specialized_writer_toolset, search_in_document, apply_style, or add_comment."
+)
+
+WRITER_EVAL_TOOL_USAGE_PATTERNS = """TOOL USAGE PATTERNS (eval harness):
+- Use find_text to locate passages; use apply_document_content (often with old_content) to replace HTML.
+- Re-read with get_document_content after substantive edits if needed."""
+
+
+def get_writer_eval_chat_system_prompt() -> str:
+    """Writer chat-style system prompt for offline DSPy eval (`scripts/prompt_optimization`).
+
+    Reuses the same HTML / apply_document_content rules as production chat
+    (`WRITER_APPLY_DOCUMENT_HTML_RULES`, `TRANSLATION_RULES`) but describes only tools implemented in the
+    eval harness: ``get_document_content``, ``apply_document_content``, ``find_text``.
+    Omits web research, specialized delegation, memory, and tools not wired in ``tools_lo``.
+    """
+    return "\n\n".join([
+        SIDEBAR_VS_DOCUMENT,
+        WRITER_EVAL_SCOPE,
+        WRITER_EVAL_TOOLS_SECTION,
+        TRANSLATION_RULES,
+        WRITER_EVAL_TOOL_USAGE_PATTERNS,
+        WRITER_APPLY_DOCUMENT_HTML_RULES,
+    ])
+
+
+# NOTE: Experimental planning/todo guidance (commented out).
+# When the hermes-style `todo` tool is enabled, you can append guidance like:
+#
+# TASK PLANNING:
+# - For complex requests (3+ steps or multiple tasks), call the `todo` tool
+#   to create a task list before editing the document.
+# - Each item: {id: string, content: string, status: pending|in_progress|completed|cancelled}.
+# - Only ONE item should be in_progress at a time.
+# - Mark items completed immediately when done; cancel tasks that are no longer needed.
+# - For simple, one-off edits, you may skip the todo tool and act directly.
 
 
 def _get_specialized_domains_str(base_cls, *, agent_label: str | None = None, ctx=None) -> str:

@@ -116,6 +116,20 @@ def test_writer_chat_prompt_opens_with_persona_and_color_guidance():
     assert "thoughtful use of color" in prompt
 
 
+def test_writer_chat_prompt_section_order_matches_assembly():
+    """Writer system prompt sections appear in model-facing order (persona → format → tools → HTML rules)."""
+    model = MagicMock()
+    model.supportsService.return_value = False
+    prompt = get_chat_system_prompt_for_document(model)
+    chat_fmt = prompt.index("CHAT RESPONSE FORMAT")
+    tools = prompt.index("TOOLS:")
+    html_rules = prompt.index("APPLY_DOCUMENT_CONTENT AND HTML")
+    sidebar = prompt.index("SIDEBAR CHAT")
+    assert chat_fmt < tools < html_rules
+    assert sidebar < tools
+    assert prompt.index("LibreOffice Writer assistant") < chat_fmt
+
+
 def test_writer_chat_prompt_includes_sidebar_vs_document_routing():
     model = MagicMock()
     model.supportsService.return_value = False
