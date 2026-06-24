@@ -380,41 +380,62 @@ class ToolCallingMixin:
             self._set_status("Error")
             return
 
-        # If there's audio, embed it
-        if self.audio_wav_path:
-            try:
-                with open(self.audio_wav_path, "rb") as f:
-                    wav_data = f.read()
-                b64_audio = base64.b64encode(wav_data).decode("utf-8")
-                audio_msg = {"type": "input_audio", "input_audio": {"data": b64_audio, "format": "wav"}}
+        # Check for vision capability and selected image base64
+        # Note: `model` here is the UNO document object, not the model ID string.
+        # The text model ID is in api_config["text_model"].
+        b64_image = None
+        from plugin.framework.client.model_fetcher import has_native_vision
+        text_model_id = api_config.get("text_model", "")
+        if has_native_vision(self.ctx, text_model_id, client._endpoint()):
+            doc = self._get_document_model() if hasattr(self, "_get_document_model") else None
+            if doc:
+                try:
+                    from plugin.writer.images.image_tools import get_selected_image_base64
+                    b64_image = get_selected_image_base64(doc, self.ctx)
+                except Exception as e:
+                    log.debug("Failed to get selected image base64: %s", e)
 
-                content_list: list[dict[str, Any]] = []
-                if query_text:
-                    content_list.append({"type": "text", "text": query_text})
-                content_list.append(audio_msg)
+        if b64_image or self.audio_wav_path:
+            content_list: list[dict[str, Any]] = []
+            if query_text:
+                content_list.append({"type": "text", "text": query_text})
 
-                self.session.add_user_message(content_list)
+            attachments = []
+            if b64_image:
+                content_list.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/png;base64,{b64_image}"}
+                })
+                attachments.append("Image")
 
-                display_text = query_text + " [Audio Attached]" if query_text else "[Audio Message]"
-                self._append_response(display_text, role="user")
-                # Note: We do NOT delete the audio file yet, in case native call fails and we need STT fallback
-            except (IOError, OSError):
-                log.exception("Audio file error")
-                # Preserve file for debugging
-                log.debug("Audio file preserved at: %s" % self.audio_wav_path)
-                self.session.add_user_message(query_text)
-                self._append_response(query_text, role="user")
-                self.audio_wav_path = None
-            except Exception as e:
+            if self.audio_wav_path:
+                try:
+                    with open(self.audio_wav_path, "rb") as f:
+                        wav_data = f.read()
+                    b64_audio = base64.b64encode(wav_data).decode("utf-8")
+                    audio_msg = {"type": "input_audio", "input_audio": {"data": b64_audio, "format": "wav"}}
+                    content_list.append(audio_msg)
+                    attachments.append("Audio")
+                except (IOError, OSError):
+                    log.exception("Audio file error")
+                    log.debug("Audio file preserved at: %s" % self.audio_wav_path)
+                    self.audio_wav_path = None
+                except Exception as e:
+                    from plugin.framework.errors import NetworkError
+                    if isinstance(e, NetworkError):
+                        log.exception("NetworkError while handling audio message")
+                    else:
+                        log.exception("Unexpected audio error")
+                    self.audio_wav_path = None
 
+            self.session.add_user_message(content_list)
 
-                if isinstance(e, NetworkError):
-                    log.exception("NetworkError while handling audio message")
-                else:
-                    log.exception("Unexpected audio error")
-                self.session.add_user_message(query_text)
-                self._append_response(query_text, role="user")
-                self.audio_wav_path = None
+            attach_str = " & ".join(attachments)
+            if attach_str:
+                display_text = f"{query_text} [{attach_str} Attached]" if query_text else f"[{attach_str} Message]"
+            else:
+                display_text = query_text
+            self._append_response(display_text, role="user")
         else:
             self.session.add_user_message(query_text)
             self._append_response(query_text, role="user")

@@ -93,12 +93,18 @@ class GetPageObjects(ToolBase):
 
         controller = doc.getCurrentController()
         vc = controller.getViewCursor()
-        saved = doc.getText().createTextCursorByRange(vc.getStart())
+        saved = None
+        try:
+            saved = doc.getText().createTextCursorByRange(vc.getStart())
+        except Exception:
+            pass
+
         doc.lockControllers()
         try:
             objects = self._scan_page(ctx, doc, vc, page)
         finally:
-            vc.gotoRange(saved, False)
+            if saved is not None:
+                vc.gotoRange(saved, False)
             doc.unlockControllers()
         return {"status": "ok", "page": page, **objects}
 

@@ -132,6 +132,14 @@ def _is_graphic_object(obj) -> bool:
             )
     except Exception:
         pass
+    # GraphicURL is present on any graphic object even when "Graphic" property
+    # is not accessible via hasattr (e.g. pyuno TextGraphicObject).
+    try:
+        if hasattr(obj, "getPropertyValue"):
+            obj.getPropertyValue("GraphicURL")
+            return True
+    except Exception:
+        pass
     return False
 
 
@@ -598,24 +606,20 @@ def get_selected_image_base64(model, ctx=None):
     """
     try:
         import base64
-
-        selection = model.CurrentController.Selection
-        if not selection:
+        # Use _selection_graphic_object which handles pyuno TextGraphicObject
+        # correctly via supportsService / GraphicURL checks.
+        obj = _selection_graphic_object(model)
+        if obj is None:
+            logger.debug("get_selected_image_base64: no graphic in selection")
             return None
-
-        # For Writer, Selection is often a TextRange or an IndexAccess of objects
-        if hasattr(selection, "getCount") and selection.getCount() > 0:
-            obj = selection.getByIndex(0)
-        else:
-            obj = selection
-
         png_bytes = export_graphic_object_to_bytes(ctx, obj)
         if png_bytes is None:
             return None
         return base64.b64encode(png_bytes).decode("utf-8")
     except Exception as e:
-        logger.error(f"Failed to get selected image: {e}")
+        logger.error("Failed to get selected image: %s", e)
         return None
+
 
 
 def add_image_to_gallery(ctx, img_path, title):

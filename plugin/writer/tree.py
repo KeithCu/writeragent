@@ -298,14 +298,20 @@ class TreeService(ServiceBase):
             try:
                 controller = doc.getCurrentController()
                 vc = controller.getViewCursor()
-                saved = doc.getText().createTextCursorByRange(vc.getStart())
+                saved = None
+                try:
+                    saved = doc.getText().createTextCursorByRange(vc.getStart())
+                except Exception:
+                    pass
+
                 doc.lockControllers()
                 try:
                     vc.jumpToPage(page_num)
                     vc.jumpToStartOfPage()
                     anchor = vc.getStart()
                 finally:
-                    vc.gotoRange(saved, False)
+                    if saved is not None:
+                        vc.gotoRange(saved, False)
                     doc.unlockControllers()
                 para_ranges = self._doc_svc.get_paragraph_ranges(doc)
                 text_obj = doc.getText()

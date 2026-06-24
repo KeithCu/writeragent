@@ -45,6 +45,137 @@ LLM_MIN_REQUEST_INTERVAL_SEC = 0.05
 # tokens (not ``<tool_call>`` etc.).
 _CHAT_TEMPLATE_CONTROL_TOKEN_RE = re.compile(r"<\|[a-zA-Z0-9_]+\|>")
 
+_DATA_URI_IMAGE_RE = re.compile(r'data:image/([a-zA-Z+.-]+);base64,([a-zA-Z0-9+/=\s]+)')
+
+
+def extract_and_strip_images_from_message(message: dict[str, Any], strip_structured_image_blocks: bool = True) -> list[dict[str, Any]]:
+    """Scan message content, extract base64 images, and replace them with markers.
+
+    Returns a list of extracted image dicts:
+        [{"mime_type": "image/png", "data": "<base64>"}]
+    """
+    extracted_images: list[dict[str, Any]] = []
+    content = message.get("content")
+    if not content:
+        return extracted_images
+
+    if isinstance(content, str):
+        # Scan for inline data:image URIs
+        def repl(match):
+            ext = match.group(1)
+            b64 = "".join(match.group(2).split())  # strip whitespace/newlines
+            mime_type = f"image/{ext}"
+            extracted_images.append({"mime_type": mime_type, "data": b64})
+            return "[Image Ref]"
+
+        new_content_str = _DATA_URI_IMAGE_RE.sub(repl, content)
+        message["content"] = new_content_str
+
+    elif isinstance(content, list):
+        new_content_list: list[Any] = []
+        for part in content:
+            if not isinstance(part, dict):
+                new_content_list.append(part)
+                continue
+
+            p_type = part.get("type")
+            if p_type == "text":
+                text = part.get("text", "")
+                def repl(match):
+                    ext = match.group(1)
+                    b64 = "".join(match.group(2).split())
+                    mime_type = f"image/{ext}"
+                    extracted_images.append({"mime_type": mime_type, "data": b64})
+                    return "[Image Ref]"
+                new_text = _DATA_URI_IMAGE_RE.sub(repl, text)
+                part["text"] = new_text
+                new_content_list.append(part)
+            elif p_type == "image_url":
+                if strip_structured_image_blocks:
+                    url_val = part.get("image_url", {}).get("url", "")
+                    if url_val.startswith("data:"):
+                        match = _DATA_URI_IMAGE_RE.search(url_val)
+                        if match:
+                            ext = match.group(1)
+                            b64 = "".join(match.group(2).split())
+                            mime_type = f"image/{ext}"
+                            extracted_images.append({"mime_type": mime_type, "data": b64})
+                    # Replace the image_url block with a text part so it is stripped from text/HTML
+                    new_content_list.append({"type": "text", "text": "[Image Ref]"})
+                else:
+                    new_content_list.append(part)
+            else:
+                new_content_list.append(part)
+        message["content"] = new_content_list
+
+    return extracted_images
+
+
+def normalize_multimodal_messages(messages: list[dict[str, Any]], provider: str) -> None:
+    """Normalize multimodal messages containing base64 images according to provider rules.
+
+    1. Extract all base64 images from every message using `extract_and_strip_images_from_message`.
+    2. Re-attach them:
+       - To the same message if the role is 'user'.
+       - To the same message if the role is 'tool' and the provider is 'anthropic'.
+       - Otherwise, move them to the nearest preceding 'user' message in the history.
+    """
+    all_extracted = []
+    for idx, m in enumerate(messages):
+        role = m.get("role")
+        keep_in_place = (role == "user") or (role == "tool" and provider == "anthropic")
+        imgs = extract_and_strip_images_from_message(m, strip_structured_image_blocks=not keep_in_place)
+        all_extracted.append((idx, m, imgs))
+
+    for idx, m, imgs in all_extracted:
+        if not imgs:
+            continue
+
+        role = m.get("role")
+        keep_in_place = (role == "user") or (role == "tool" and provider == "anthropic")
+
+        target_message = None
+        if keep_in_place:
+            target_message = m
+        else:
+            try:
+                curr_idx = messages.index(m)
+            except ValueError:
+                curr_idx = idx
+
+            for prev_idx in range(curr_idx - 1, -1, -1):
+                if messages[prev_idx].get("role") == "user":
+                    target_message = messages[prev_idx]
+                    break
+
+            if target_message is None:
+                target_message = {"role": "user", "content": "[Image attached by tool/system]"}
+                insert_idx = 0
+                for i in range(len(messages)):
+                    if messages[i].get("role") != "system":
+                        insert_idx = i
+                        break
+                messages.insert(insert_idx, target_message)
+
+        # Attach images to target_message
+        target_dict = cast(dict[str, Any], target_message)
+        content = target_dict.get("content")
+        new_content: list[Any] = []
+        if isinstance(content, str):
+            if content:
+                new_content.append({"type": "text", "text": content})
+        elif isinstance(content, list):
+            new_content.extend(content)
+
+        for img in imgs:
+            new_content.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:{img['mime_type']};base64,{img['data']}"
+                }
+            })
+        target_dict["content"] = new_content
+
 
 def strip_leaked_chat_template_control_tokens(content: str | None) -> str:
     """Remove ``<|name|>`` chat-template tokens that models sometimes emit in plain text."""
@@ -483,7 +614,7 @@ class LlmClient:
 
                 coalesced_any = True
             else:
-                coalesced_messages.append(dict(m) if isinstance(m, dict) else m)
+                coalesced_messages.append(copy.deepcopy(m) if isinstance(m, dict) else m)
 
         if coalesced_any:
             log.error("make_chat_request: Coalesced multiple consecutive system messages.")
@@ -532,6 +663,9 @@ class LlmClient:
 
         if prepend_dev_build_system_prefix:
             _prepend_dev_build_system_prefix_to_messages(messages)
+
+        # Normalize multimodal messages based on the resolved provider
+        normalize_multimodal_messages(messages, self._get_provider())
 
         # 2. Flatten system message back to string if it only contains text (for max compatibility)
         for m in messages:

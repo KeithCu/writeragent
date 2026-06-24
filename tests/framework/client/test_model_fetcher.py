@@ -251,3 +251,68 @@ class TestFetchAvailableImageModels(unittest.TestCase):
         with patch('plugin.framework.client.requests.sync_request', return_value=payload):
             image_ids = cfg.fetch_available_image_models('https://api.together.xyz')
         self.assertEqual(image_ids, ['google/flash-image-2.5'])
+
+
+class TestHasNativeVision(unittest.TestCase):
+    def setUp(self):
+        import plugin.framework.client.model_fetcher as mf
+        mf._model_fetch_vision_cache.clear()
+        mf._ollama_capabilities_cache.clear()
+
+    def test_static_default_model_has_vision(self):
+        from plugin.framework.client.model_fetcher import has_native_vision
+        ctx = MagicMock()
+        with patch('plugin.framework.client.model_fetcher.get_config', return_value={}):
+            self.assertTrue(has_native_vision(ctx, 'google/gemini-3.1-flash-lite-preview', 'https://openrouter.ai/api'))
+
+    def test_config_cache_has_vision(self):
+        from plugin.framework.client.model_fetcher import has_native_vision, set_native_vision_support
+        ctx = MagicMock()
+        cache_dict = {}
+
+        def mock_get_config(c, key):
+            if key == "vision_support_map":
+                return cache_dict
+            return {}
+
+        def mock_set_config(c, key, val):
+            if key == "vision_support_map":
+                cache_dict.update(val)
+
+        with patch('plugin.framework.client.model_fetcher.get_config', side_effect=mock_get_config), \
+             patch('plugin.framework.client.model_fetcher.set_config', side_effect=mock_set_config):
+            set_native_vision_support(ctx, 'my-custom-model', 'http://localhost:11434', True)
+            self.assertTrue(has_native_vision(ctx, 'my-custom-model', 'http://localhost:11434'))
+
+            set_native_vision_support(ctx, 'my-custom-model', 'http://localhost:11434', False)
+            self.assertFalse(has_native_vision(ctx, 'my-custom-model', 'http://localhost:11434'))
+
+    def test_openrouter_dynamic_modality_detection(self):
+        from plugin.framework.client.model_fetcher import has_native_vision, _model_fetch_vision_cache
+        ctx = MagicMock()
+        with patch('plugin.framework.client.model_fetcher.get_api_key_for_endpoint', return_value=''), \
+             patch('plugin.framework.client.model_fetcher.get_config', return_value={}):
+            
+            url = 'https://openrouter.ai/api/v1/models'
+            from plugin.framework.client.model_fetcher import _model_fetch_cache_key
+            ck = _model_fetch_cache_key(url, ctx, 'https://openrouter.ai/api')
+            _model_fetch_vision_cache[ck] = ['custom-openrouter-vision-model']
+
+            self.assertTrue(has_native_vision(ctx, 'custom-openrouter-vision-model', 'https://openrouter.ai/api'))
+            self.assertFalse(has_native_vision(ctx, 'some-other-model', 'https://openrouter.ai/api'))
+
+    def test_ollama_api_show_capabilities(self):
+        from plugin.framework.client.model_fetcher import has_native_vision
+        ctx = MagicMock()
+        
+        with patch('plugin.framework.client.requests.sync_request') as mock_sync, \
+             patch('plugin.framework.client.model_fetcher.get_config', return_value={}):
+            mock_sync.return_value = {"capabilities": ["vision"]}
+            self.assertTrue(has_native_vision(ctx, 'llava', 'http://localhost:11434'))
+            mock_sync.assert_called_once()
+
+    def test_name_heuristics_removed(self):
+        from plugin.framework.client.model_fetcher import has_native_vision
+        ctx = MagicMock()
+        with patch('plugin.framework.client.model_fetcher.get_config', return_value={}):
+            self.assertFalse(has_native_vision(ctx, 'unknown-vision-model', 'https://api.openai.com/v1'))

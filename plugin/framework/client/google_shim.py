@@ -56,6 +56,20 @@ class GoogleShim(BaseProviderShim):
                     for part in content:
                         if part.get("type") == "text":
                             parts.append({"text": part.get("text", "")})
+                        elif part.get("type") == "image_url":
+                            url_val = part.get("image_url", {}).get("url", "")
+                            if url_val.startswith("data:"):
+                                try:
+                                    header, b64_data = url_val.split(",", 1)
+                                    mime_type = header.split(";")[0].split(":")[1]
+                                    parts.append({
+                                        "inlineData": {
+                                            "mimeType": mime_type,
+                                            "data": "".join(b64_data.split())
+                                        }
+                                    })
+                                except Exception as e:
+                                    log.error("Failed to parse base64 image in GoogleShim: %s", e)
 
             tool_calls = m.get("tool_calls")
             if tool_calls:

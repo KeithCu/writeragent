@@ -20,7 +20,7 @@ def get_api_version_suffix(url, is_openwebui=False):
 
 def normalize_endpoint_url(url, is_openwebui=False):
     """Clean up endpoint URL: strip whitespace, trailing slashes, and domain-specific version suffixes."""
-    if not url:
+    if not url or not isinstance(url, str):
         return ""
     url = url.strip()
     # Remove trailing /

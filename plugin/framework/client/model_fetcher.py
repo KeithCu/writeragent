@@ -7,6 +7,7 @@
 Logic for fetching available models from LLM endpoints.
 """
 import urllib.parse
+import json
 import ipaddress
 import logging
 from typing import Any
@@ -58,6 +59,8 @@ ENDPOINT_PRESETS = [
 # (same host, different keys must not share cache). Value is model id list or None after failure.
 _model_fetch_cache: dict[str, list[str] | None] = {}
 _model_fetch_image_cache: dict[str, list[str] | None] = {}
+_model_fetch_vision_cache: dict[str, list[str] | None] = {}
+_ollama_capabilities_cache: dict[str, list[str]] = {}
 
 # /v1/models response shapes (GET {endpoint}/v1/models):
 # - Together (api.together.xyz): top-level JSON array [{id, type, ...}, ...]; image rows use type="image".
@@ -99,8 +102,24 @@ def _image_output_model_ids_from_v1_entries(entries: list[Any]) -> list[str]:
     return out
 
 
-def _parse_v1_models_response(data: Any) -> tuple[list[str], list[str]] | None:
-    """Return (all_ids, image_output_ids) from a /v1/models JSON body."""
+def _vision_input_model_ids_from_v1_entries(entries: list[Any]) -> list[str]:
+    """Collect model IDs that accept image input (vision-capable models)."""
+    out: list[str] = []
+    for m in entries:
+        if not isinstance(m, dict):
+            continue
+        mid = m.get("id")
+        if not mid:
+            continue
+        arch = m.get("architecture") or {}
+        input_mods = m.get("input_modalities") or arch.get("input_modalities") or []
+        if isinstance(input_mods, list) and "image" in input_mods:
+            out.append(str(mid))
+    return out
+
+
+def _parse_v1_models_response(data: Any) -> tuple[list[str], list[str], list[str]] | None:
+    """Return (all_ids, image_output_ids, vision_input_ids) from a /v1/models JSON body."""
     entries = _v1_models_entries_from_body(data)
     if entries is None:
         return None
@@ -111,12 +130,14 @@ def _parse_v1_models_response(data: Any) -> tuple[list[str], list[str]] | None:
             if mid:
                 models.append(str(mid))
     image_models = _image_output_model_ids_from_v1_entries(entries)
-    return models, image_models
+    vision_models = _vision_input_model_ids_from_v1_entries(entries)
+    return models, image_models, vision_models
 
 
-def _store_model_fetch_caches(cache_key: str, models: list[str] | None, image_models: list[str] | None) -> None:
+def _store_model_fetch_caches(cache_key: str, models: list[str] | None, image_models: list[str] | None, vision_models: list[str] | None = None) -> None:
     _model_fetch_cache[cache_key] = models
     _model_fetch_image_cache[cache_key] = image_models if models is not None else None
+    _model_fetch_vision_cache[cache_key] = vision_models if models is not None else None
 
 
 def _model_fetch_cache_key(url: str, ctx: Any, base: str, api_key_override: str | None = None) -> str:
@@ -196,7 +217,7 @@ def fetch_available_models(endpoint, ctx=None, api_key_override: str | None = No
             req_headers = build_auth_headers(resolve_auth_for_config(mini))
         except AuthError as e:
             log.debug("fetch_available_models skipping %s: %s", url, e)
-            _store_model_fetch_caches(cache_key, None, None)
+            _store_model_fetch_caches(cache_key, None, None, None)
             return None
 
     try:
@@ -204,8 +225,8 @@ def fetch_available_models(endpoint, ctx=None, api_key_override: str | None = No
         data = sync_request(url, parse_json=True, headers=req_headers if req_headers else None)
         parsed = _parse_v1_models_response(data)
         if parsed is not None:
-            models, image_models = parsed
-            _store_model_fetch_caches(cache_key, models, image_models)
+            models, image_models, vision_models = parsed
+            _store_model_fetch_caches(cache_key, models, image_models, vision_models)
             return models
     except (ValueError, TypeError, IOError) as e:
         log.warning("fetch_available_models network/parse error for %s: %s", url, e)
@@ -214,7 +235,7 @@ def fetch_available_models(endpoint, ctx=None, api_key_override: str | None = No
             log.warning("fetch_available_models NetworkError for %s: %s", url, e)
         else:
             log.warning("fetch_available_models unexpected error for %s: %s", url, type(e).__name__)
-    _store_model_fetch_caches(cache_key, None, None)
+    _store_model_fetch_caches(cache_key, None, None, None)
     return None
 
 
@@ -430,4 +451,115 @@ def set_image_model(ctx, val, update_lru=True):
         from plugin.chatbot.config_ui_helpers import update_lru_history
 
         update_lru_history(ctx, val_str, "image_model_lru", get_current_endpoint(ctx))
+
+
+def has_native_vision(ctx, model_id, endpoint) -> bool:
+    """Check if the model supports native multimodal vision input.
+
+    Priority order:
+    1. Persistent User Config Cache ("vision_support_map")
+    2. Static default models list (ModelCapability.VISION)
+    3. Dynamic provider metadata:
+       - OpenRouter/Together: check input_modalities vision cache.
+       - Ollama: query POST /api/show for capabilities list.
+    4. Keyword heuristics as a last resort.
+    """
+    if not model_id:
+        return False
+    model_id_str = str(model_id).strip()
+    endpoint_str = normalize_endpoint_url(endpoint or "")
+
+    # 1. Persistent User Config Cache check
+    try:
+        cache = get_config(ctx, "vision_support_map")
+        if isinstance(cache, dict):
+            key = f"{endpoint_str}@{model_id_str.lower()}"
+            if key in cache:
+                return as_bool(cache[key])
+    except Exception as e:
+        log.debug("has_native_vision config cache read exception: %s", e)
+
+    # 2. Static Default Models check
+    caps = get_model_capability(ctx, model_id_str, endpoint_str)
+    log.debug("has_native_vision: model=%r endpoint_str=%r caps=%r vision=%s", model_id_str, endpoint_str, caps, bool(caps & ModelCapability.VISION))
+    if caps & ModelCapability.VISION:
+        return True
+
+    provider = get_provider_from_endpoint(endpoint_str)
+
+    # 3. Dynamic provider metadata
+    # 3a. OpenRouter / Together (v1/models cache check)
+    if provider in ("openrouter", "together"):
+        is_owu = get_config_bool_safe(ctx, "is_openwebui") if ctx else False
+        suffix = get_api_version_suffix(endpoint_str, is_openwebui=is_owu)
+        url = f"{endpoint_str}{suffix}/models"
+        cache_key = _model_fetch_cache_key(url, ctx, endpoint_str)
+        vision_list = _model_fetch_vision_cache.get(cache_key)
+        if vision_list is not None:
+            if provider == "openrouter":
+                from plugin.framework.openrouter_model_id import openrouter_model_ids_equivalent
+                if any(openrouter_model_ids_equivalent(v_id, model_id_str) for v_id in vision_list):
+                    return True
+            else:
+                if model_id_str in vision_list:
+                    return True
+
+    # 3b. Ollama (query POST /api/show)
+    if provider == "ollama":
+        try:
+            res = query_ollama_model_capabilities(endpoint_str, model_id_str, ctx)
+            if res is not None:
+                return res
+        except Exception as e:
+            log.debug("Ollama /api/show capability query failed: %s", e)
+
+    return False
+
+
+def set_native_vision_support(ctx, model_id, endpoint, supported):
+    """Save the vision support status for a model+endpoint pair to config."""
+    model_id_str = str(model_id).strip().lower()
+    endpoint_str = normalize_endpoint_url(endpoint or "")
+    key = f"{endpoint_str}@{model_id_str}"
+
+    cache = get_config(ctx, "vision_support_map")
+    if not isinstance(cache, dict):
+        cache = {}
+
+    cache[key] = bool(supported)
+    set_config(ctx, "vision_support_map", cache)
+
+
+def query_ollama_model_capabilities(endpoint: str, model_id: str, ctx: Any = None) -> bool | None:
+    """Query POST /api/show to check if an Ollama model supports vision."""
+    endpoint = normalize_endpoint_url(endpoint)
+    cache_key = f"{endpoint}@{model_id}"
+    if cache_key in _ollama_capabilities_cache:
+        return "vision" in _ollama_capabilities_cache[cache_key]
+
+    url = f"{endpoint}/api/show"
+    req_body = {"model": model_id}
+    try:
+        from plugin.framework.client.requests import sync_request
+        headers = {"Content-Type": "application/json"}
+        res = sync_request(url, data=json.dumps(req_body).encode("utf-8"), headers=headers, parse_json=True)
+        if isinstance(res, dict):
+            caps = res.get("capabilities") or []
+            if not isinstance(caps, list):
+                caps = []
+
+            # fallback: look inside model_info
+            model_info = res.get("model_info") or {}
+            if isinstance(model_info, dict):
+                for k in model_info.keys():
+                    if "vision" in k or "projector" in k:
+                        if "vision" not in caps:
+                            caps.append("vision")
+                        break
+
+            _ollama_capabilities_cache[cache_key] = caps
+            return "vision" in caps
+    except Exception as e:
+        log.debug("query_ollama_model_capabilities failed: %s", e)
+    return None
 
