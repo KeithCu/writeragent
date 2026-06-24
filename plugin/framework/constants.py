@@ -707,8 +707,9 @@ def get_vision_core_directive(model, ctx) -> str:
         return ""
     delegate = "delegate_to_specialized_calc_toolset" if is_calc(model) else "delegate_to_specialized_writer_toolset"
     return (
-        f"When the user wants OCR or text from an embedded image, {delegate}(domain=\"vision\"). "
-        "Embedded images are not visible in chat — do not invent text; use extract_text_from_image."
+        f"When the user wants OCR or text from an embedded image, {delegate}(domain=\"vision\", task=\"\"). "
+        "That runs local OCR on the selected graphic and inserts the recognized text into the document "
+        "(no sub-agent; task is ignored). You must use this call to perform OCR."
     )
 
 

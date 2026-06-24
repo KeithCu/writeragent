@@ -99,7 +99,7 @@ class DelegateToSpecializedBase(ToolBase):
     # Domains whose work is read-only -> a long-running delegation to them must NOT
     # take the per-document mutation lock (it would needlessly serialize research on
     # the same doc). The gateway itself is is_mutation=True for the mutating domains.
-    _READ_ONLY_DOMAINS = frozenset({"document_research", "web_research"})
+    _READ_ONLY_DOMAINS = frozenset({"document_research", "web_research", "vision"})
 
     def requires_document_lock(self, arguments=None):
         domain = _field_from_tool_arguments(arguments, "domain")
@@ -124,6 +124,7 @@ class DelegateToSpecializedBase(ToolBase):
 
         if domain == "vision":
             from plugin.vision.vision_availability import vision_ocr_available
+            from plugin.vision.vision_tools import ExtractTextFromImage
 
             if not vision_ocr_available(ctx.ctx):
                 return self._tool_error(
@@ -133,6 +134,12 @@ class DelegateToSpecializedBase(ToolBase):
                     ),
                     code="VISION_UNAVAILABLE",
                 )
+
+            if USE_SUB_AGENT:
+                if status_callback:
+                    status_callback(_("Running local OCR on selected image..."))
+                # Gateway shortcut: no sub-agent parses task — always insert OCR at cursor/cell.
+                return ExtractTextFromImage().execute(ctx, insert_into_document=True)
 
         if domain == "document_research" and not USE_SUB_AGENT:
             return self._tool_error(

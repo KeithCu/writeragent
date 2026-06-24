@@ -838,7 +838,7 @@ Checklist for implementers / QA:
 | Piece | Location |
 |-------|----------|
 | Tool | [`ExtractTextFromImage`](../plugin/vision/vision_tools.py) — `extract_text_from_image` |
-| Domain | `delegate_to_specialized_writer_toolset` / `delegate_to_specialized_calc_toolset` with `domain="vision"` |
+| Domain | `delegate_to_specialized_writer_toolset` / `delegate_to_specialized_calc_toolset` with `domain="vision"` — **gateway shortcut** (runs OCR directly, no Smol sub-agent; same pattern as `web_research`; always inserts into document) |
 | Backend | [`run_trusted_vision`](../plugin/vision/vision_runner.py) → [`run_vision`](../plugin/scripting/client.py) |
 | Insert | [`insert_vision_result`](../plugin/vision/vision_egress.py) when `insert_into_document=true` (default) |
 | Gating | [`vision_ocr_available`](../plugin/vision/vision_availability.py) — requires Settings venv path + Docling **or** PaddleOCR+Paddle + `css-inline`; domain/tool hidden when false |
@@ -849,7 +849,7 @@ Checklist for implementers / QA:
 | `insert_into_document` | Default `true` — insert HTML at Writer cursor or Calc cell below anchor |
 | `params` | Optional vision overrides (`engine`, `lang`, …) merged with `vision.*` settings |
 
-**Prompt rule:** Embedded document images are **not** in chat context. Models must not invent OCR text; use `domain=vision` when the venv stack is available.
+**Prompt rule:** You must use `domain=vision` delegation (empty `task`) to perform OCR when the venv stack is available — runs on the selected graphic and inserts into the document (no nested sub-agent).
 
 **Multimodal chat models:** Native vision APIs do not receive embedded doc images today — local `vision` remains authoritative for OCR + document insert. Optional future: attach exported graphic bytes to chat for semantic Q&A ([§18.2](#182-multimodal-llm-vision-optional-after-tool)).
 
