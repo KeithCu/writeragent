@@ -1,6 +1,6 @@
 # Image Recognition — Design (Local OCR & Detection)
 
-**Status:** **Phase 1 + Phase 1b (Calc) + Phase 2 + Phase 3 shipped** — Run Python Script **Vision Helpers** (`[Vision] extract_text`, `[Vision] extract_structure`) on **Writer and Calc**; export by **selection** or **`image_name`** in template params; **Docling HTML** insert at Writer cursor or Calc cell (via LO HTML import — not plain text); Settings → Python **Test** reports PaddleOCR/Ultralytics and install/timeout hints. Draw/Impress egress → **Phase 1b.2** (deferred). LLM/chat integration (`analyze_image`) is **explicitly later**.
+**Status:** **Phase 1 + Phase 1b (Calc) + Phase 2 + Phase 3 + Phase 6 partial (LLM `extract_text`) shipped** — Run Python Script **Vision Helpers** (`[Vision] extract_text`, `[Vision] extract_structure`) on **Writer and Calc**; chat **`domain=vision`** + **`extract_text_from_image`** when Settings → Python venv has Docling/Paddle + css-inline (gated — hidden when stack missing). Draw/Impress egress → **Phase 1b.2** (deferred). Full **`analyze_image`** multi-helper / multimodal chat image parts → later.
 
 WriterAgent documents (Writer, Calc, Draw/Impress) embed raster images: scans, screenshots, chart photos, slide exports, logos. **LibreOffice handles graphics I/O** (export, insert, replace, dimensions). **Recognition** (OCR, layout, object detection) runs in the user's venv via the same trusted-module pattern as [`analysis.py`](../plugin/scripting/analysis.py) and [`embeddings_index.py`](../plugin/scripting/embeddings_index.py).
 
@@ -167,9 +167,9 @@ Schema source: [`plugin/vision/module.yaml`](../plugin/vision/module.yaml); runt
 
 Only after Vision Helpers work end-to-end:
 
-- **`analyze_image` LLM tool** ([§18](#18-llm-access-deferred))
+- **LLM OCR (partial — shipped):** `delegate_to_specialized_*_toolset(domain="vision")` + [`extract_text_from_image`](../plugin/vision/vision_tools.py) when venv stack is ready ([§18](#18-llm-access))
+- **`analyze_image` multi-helper tool** (remaining Phase 6)
 - Chat sidebar sending crops to multimodal models
-- Specialized sub-agent delegation for image tasks
 
 The agent must not become the only way to run OCR.
 
@@ -192,7 +192,8 @@ Mirror [analysis-sub-agent.md § Current Code State](analysis-sub-agent.md). **R
 | Monaco built-in guards | [`scripts_manager.js`](../plugin/contrib/scripting/assets/editor/scripts_manager.js) — Attach/Save/Delete disabled for `origin === "vision"` |
 | Analysis trusted stack (reference) | [`analysis.py`](../plugin/scripting/analysis.py), [`analysis_client.py`](../plugin/framework/client/analysis_client.py), [`analysis_runner.py`](../plugin/calc/analysis_runner.py) |
 | Calc analysis egress | [`analysis_egress.py`](../plugin/calc/analysis_egress.py) — `is_analysis_result`, `insert_analysis_result_into_calc` |
-| Tests | [`test_vision*.py`](../tests/scripting/), [`test_python_runner_vision.py`](../tests/scripting/test_python_runner_vision.py), [`test_vision_egress.py`](../tests/calc/test_vision_egress.py), [`test_vision_html_insert_uno.py`](../tests/writer/test_vision_html_insert_uno.py), [`test_document_scripts.py`](../tests/scripting/test_document_scripts.py) (vision section tests) |
+| **Vision LLM tools (partial)** | [`vision_tools.py`](../plugin/vision/vision_tools.py) (`extract_text_from_image`), [`vision_availability.py`](../plugin/vision/vision_availability.py) (venv gating), [`ToolWriterVisionBase` / `ToolCalcVisionBase`](../plugin/writer/specialized_base.py) |
+| Tests | [`test_vision*.py`](../tests/scripting/), [`test_vision_tools.py`](../tests/vision/test_vision_tools.py), [`test_python_runner_vision.py`](../tests/scripting/test_python_runner_vision.py), [`test_vision_egress.py`](../tests/calc/test_vision_egress.py), [`test_vision_html_insert_uno.py`](../tests/writer/test_vision_html_insert_uno.py), [`test_document_scripts.py`](../tests/scripting/test_document_scripts.py) (vision section tests) |
 
 ### Gaps (post–Phase 3)
 
@@ -201,7 +202,8 @@ Mirror [analysis-sub-agent.md § Current Code State](analysis-sub-agent.md). **R
 | Draw/Impress Vision Helpers + text-box egress | **Phase 1b.2** (deferred) |
 | Monaco **Image:** toolbar field | Optional; `image_name` in params works today |
 | Context menu / **Recognize Image…** shortcut | Optional (§2.6) |
-| `analyze_image` LLM tool | **Phase 6** (§18) |
+| `analyze_image` multi-helper LLM tool | **Phase 6** remainder (§18) |
+| Multimodal chat image parts | **Phase 6** remainder (§18.2) |
 
 ---
 
@@ -768,9 +770,9 @@ Phases prioritize **user exposition**; LLM integration is last.
 | **4** | `detect_objects`, `recognize_pipeline`, Ultralytics helpers + templates | **Yes** |
 | **4v** | **Visual/layout HTML** — colored panels, columns, bbox-driven layout HTML (see [§21](#21-visuallayout-html-fidelity-deferred-dev-plan)) | **Yes** (planned) |
 | **5** | Per-folder vision cache; `perceptual_hash`; optional context menu | Partial |
-| **6** | **`analyze_image` LLM tool**; chat delegation; optional multimodal hybrid | Agent-only |
+| **6** | **`extract_text_from_image`** via `domain=vision` (gated on venv); **`analyze_image`** multi-helper; optional multimodal hybrid | **Partial — shipped** (`extract_text` only) |
 
-**Explicitly not before Phase 6:** chat tool registration, sidebar vision payloads, `delegate_to_specialized_*` for recognition.
+**Explicitly not before Phase 6 remainder:** full `analyze_image` helper surface, sidebar multimodal image payloads.
 
 ---
 
@@ -827,11 +829,31 @@ Checklist for implementers / QA:
 
 ---
 
-## 18. LLM access (deferred)
+## 18. LLM access
 
-**Priority:** Low until [§17](#17-phase-1-acceptance-criteria) passes. The LLM must call the **same** `run_vision` helpers — no parallel CV stack.
+**Phase 6 partial (shipped):** local OCR in chat via specialized domain **`vision`** — same `run_trusted_vision` / `extract_text` stack as manual Vision Helpers.
 
-### 18.1 Planned tool: `analyze_image`
+### 18.1 Shipped: `extract_text_from_image`
+
+| Piece | Location |
+|-------|----------|
+| Tool | [`ExtractTextFromImage`](../plugin/vision/vision_tools.py) — `extract_text_from_image` |
+| Domain | `delegate_to_specialized_writer_toolset` / `delegate_to_specialized_calc_toolset` with `domain="vision"` |
+| Backend | [`run_trusted_vision`](../plugin/vision/vision_runner.py) → [`run_vision`](../plugin/scripting/client.py) |
+| Insert | [`insert_vision_result`](../plugin/vision/vision_egress.py) when `insert_into_document=true` (default) |
+| Gating | [`vision_ocr_available`](../plugin/vision/vision_availability.py) — requires Settings venv path + Docling **or** PaddleOCR+Paddle + `css-inline`; domain/tool hidden when false |
+
+| Argument | Role |
+|----------|------|
+| `image_name` | Optional graphic name (`list_images`); empty = **selected graphic** |
+| `insert_into_document` | Default `true` — insert HTML at Writer cursor or Calc cell below anchor |
+| `params` | Optional vision overrides (`engine`, `lang`, …) merged with `vision.*` settings |
+
+**Prompt rule:** Embedded document images are **not** in chat context. Models must not invent OCR text; use `domain=vision` when the venv stack is available.
+
+**Multimodal chat models:** Native vision APIs do not receive embedded doc images today — local `vision` remains authoritative for OCR + document insert. Optional future: attach exported graphic bytes to chat for semantic Q&A ([§18.2](#182-multimodal-llm-vision-optional-after-tool)).
+
+### 18.2 Planned: `analyze_image` (multi-helper)
 
 | Argument | Role |
 |----------|------|
@@ -839,9 +861,9 @@ Checklist for implementers / QA:
 | `params` | Helper-specific (`roi`, `lang`, …) |
 | `source` | `selection` \| graphic from `list_images` \| path from `list_nearby_image_files` |
 
-Host: resolve `source` → bytes → `vision_client.run_vision` → apply via **same egress** as manual path ([§2.4](#24-applying-results-host-egress)).
+Host: resolve `source` → bytes → `run_vision` → apply via **same egress** as manual path ([§2.4](#24-applying-results-host-egress)).
 
-### 18.2 Multimodal LLM vision (optional, after tool)
+### 18.3 Multimodal LLM vision (optional, after tool)
 
 For semantics (“explain this diagram”), not raw OCR — hybrid with local OCR first. Chat today sends text `[DOCUMENT CONTENT]` only; see [image-generation.md](image-generation.md) for remote **generation**.
 

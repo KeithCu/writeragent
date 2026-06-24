@@ -705,6 +705,12 @@ def _on_config_changed(**kwargs: Any) -> None:
     if key == "scripting.python_venv_path":
         log.info("editor_host: scripting.python_venv_path changed, terminating background Monaco process")
         terminate_persistent_editor()
+        try:
+            from plugin.vision.vision_availability import invalidate_vision_availability_cache
+
+            invalidate_vision_availability_cache()
+        except Exception:
+            log.debug("vision availability cache invalidation failed", exc_info=True)
 
 
 global_event_bus.subscribe("config:changed", _on_config_changed)

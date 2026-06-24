@@ -470,7 +470,7 @@ def test_refresh_active_tools_for_session():
         panel._refresh_active_tools_for_session()
 
         fake_registry.get_schemas.assert_called_once_with(
-            "openai", doc=panel._active_model, active_domain="tables"
+            "openai", doc=panel._active_model, active_domain="tables", ctx=panel.ctx
         )
         assert panel._active_tools == [{"function": {"name": "fresh"}}]
     finally:

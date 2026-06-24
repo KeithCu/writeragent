@@ -122,6 +122,18 @@ class DelegateToSpecializedBase(ToolBase):
             tool = WebResearchTool()
             return tool.execute(ctx, query=task)
 
+        if domain == "vision":
+            from plugin.vision.vision_availability import vision_ocr_available
+
+            if not vision_ocr_available(ctx.ctx):
+                return self._tool_error(
+                    _(
+                        "Local OCR requires Settings → Python venv with Docling or PaddleOCR "
+                        "(Settings → Python → Test for install hints)."
+                    ),
+                    code="VISION_UNAVAILABLE",
+                )
+
         if domain == "document_research" and not USE_SUB_AGENT:
             return self._tool_error(
                 _("Document research reads require specialized task delegation (USE_SUB_AGENT). Enable this in configuration."),
@@ -160,7 +172,12 @@ class DelegateToSpecializedBase(ToolBase):
         registry = ctx.services.get("tools")
 
         def _fetch_domain_tools():
-            tools = registry.get_tools(doc=getattr(ctx, "doc", None), active_domain=domain, exclude_tiers=())
+            tools = registry.get_tools(
+                doc=getattr(ctx, "doc", None),
+                active_domain=domain,
+                exclude_tiers=(),
+                ctx=ctx.ctx,
+            )
             if domain == "document_research":
                 from plugin.doc.document_research import filter_document_research_discovery_tools
 

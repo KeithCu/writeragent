@@ -523,7 +523,7 @@ class ToolRegistry:
 
     # ── Lookup & Schema Generation ────────────────────────────────────
 
-    def get_tools(self, doc=None, doc_type=None, tier=None, intent=None, names=None, filter_doc_type=True, exclude_tiers=_UNSET_EXCLUDE_TIERS, active_domain=None):
+    def get_tools(self, doc=None, doc_type=None, tier=None, intent=None, names=None, filter_doc_type=True, exclude_tiers=_UNSET_EXCLUDE_TIERS, active_domain=None, **kwargs):
         """Return a list of ToolBase instances matching the given criteria.
 
         Args:
@@ -619,6 +619,11 @@ class ToolRegistry:
             tools = [t for t in tools if t.intent == intent]
         if names:
             tools = [t for t in tools if t.name in names]
+        ctx = kwargs.get("ctx")
+        if ctx is not None:
+            from plugin.vision.vision_availability import filter_vision_specialized_tools
+
+            tools = filter_vision_specialized_tools(list(tools), ctx)
         return list(tools)
 
     def get_schemas(self, protocol="openai", active_domain=None, **kwargs):
@@ -632,7 +637,13 @@ class ToolRegistry:
         tools = self.get_tools(active_domain=active_domain, **kwargs)
         doc_type = kwargs.get("doc_type") or _doc_type_str_from_doc(kwargs.get("doc"))
         if protocol == "openai":
-            return [to_openai_schema(t, doc_type=doc_type) for t in tools]
+            schemas = [to_openai_schema(t, doc_type=doc_type) for t in tools]
+            ctx = kwargs.get("ctx")
+            if ctx is not None:
+                from plugin.vision.vision_availability import filter_vision_delegate_schemas
+
+                schemas = filter_vision_delegate_schemas(schemas, ctx)
+            return schemas
         elif protocol == "mcp":
             return [to_mcp_schema(t, doc_type=doc_type) for t in tools]
         else:

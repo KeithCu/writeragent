@@ -197,7 +197,7 @@ class ToolCallingMixin:
             log.debug("_do_send: loading %s schema..." % doc_type_str)
             active_domain = getattr(self.session, "active_specialized_domain", None) if hasattr(self, "session") else None
             python_tool_domain = getattr(self.session, "python_tool_domain", None) if hasattr(self, "session") else None
-            active_tools = get_tools().get_schemas("openai", doc=model, active_domain=active_domain)
+            active_tools = get_tools().get_schemas("openai", doc=model, active_domain=active_domain, ctx=self.ctx)
 
             def execute_fn(name, args, doc, ctx, status_callback=None, append_thinking_callback=None, stop_checker=None):
                 from plugin.main import get_tools as _get_tools
@@ -434,7 +434,12 @@ class ToolCallingMixin:
             from plugin.main import get_tools
 
             active_domain = getattr(self.session, "active_specialized_domain", None) if hasattr(self, "session") and self.session else None
-            self._active_tools = get_tools().get_schemas("openai", doc=self._active_model, active_domain=active_domain)
+            self._active_tools = get_tools().get_schemas(
+                "openai",
+                doc=self._active_model,
+                active_domain=active_domain,
+                ctx=getattr(self, "ctx", None),
+            )
         except Exception as e:
             log.warning("Failed to refresh active tools: %s", e)
 

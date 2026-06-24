@@ -629,7 +629,7 @@ DEFAULT_CALC_CHAT_SYSTEM_PROMPT = ""
 DEFAULT_DRAW_CHAT_SYSTEM_PROMPT = ""
 
 
-def _get_specialized_domains_str(base_cls, *, agent_label: str | None = None) -> str:
+def _get_specialized_domains_str(base_cls, *, agent_label: str | None = None, ctx=None) -> str:
     """Build a compact domain list for delegation hints and MCP schemas."""
     parts = []
     for cls in base_cls.__subclasses__():
@@ -640,6 +640,11 @@ def _get_specialized_domains_str(base_cls, *, agent_label: str | None = None) ->
                 continue
             if agent_label == "Writer" and domain in WRITER_SIDEBAR_ONLY_DOMAINS:
                 continue
+            if domain == "vision" and ctx is not None:
+                from plugin.vision.vision_availability import vision_ocr_available
+
+                if not vision_ocr_available(ctx):
+                    continue
             if desc:
                 parts.append(f"{domain}: {desc}")
             else:
@@ -655,26 +660,26 @@ def _specialized_delegation_template_for_label(agent_label: str) -> str:
     return WRITER_SPECIALIZED_DELEGATION_TEMPLATE
 
 
-def get_specialized_delegation_for_model(model) -> str:
+def get_specialized_delegation_for_model(model, ctx=None) -> str:
     """Specialized-delegation block for chat system prompt (same text as MCP delegate tool hint)."""
     from plugin.doc.document_helpers import is_calc, is_draw
 
     if is_calc(model):
         from plugin.calc.base import ToolCalcSpecialBase
 
-        return get_specialized_delegation_tool_hint(ToolCalcSpecialBase, "Calc")
+        return get_specialized_delegation_tool_hint(ToolCalcSpecialBase, "Calc", ctx=ctx)
     if is_draw(model):
         from plugin.draw.base import ToolDrawSpecialBase
 
-        return get_specialized_delegation_tool_hint(ToolDrawSpecialBase, "Draw")
+        return get_specialized_delegation_tool_hint(ToolDrawSpecialBase, "Draw", ctx=ctx)
     from plugin.writer.specialized_base import ToolWriterSpecialBase
 
-    return get_specialized_delegation_tool_hint(ToolWriterSpecialBase, "Writer")
+    return get_specialized_delegation_tool_hint(ToolWriterSpecialBase, "Writer", ctx=ctx)
 
 
-def format_specialized_domains_description(special_base_class, *, agent_label: str | None = None) -> str:
+def format_specialized_domains_description(special_base_class, *, agent_label: str | None = None, ctx=None) -> str:
     """Domain enum help for MCP/OpenAPI (more compact than the full delegation hint)."""
-    domains = _get_specialized_domains_str(special_base_class, agent_label=agent_label)
+    domains = _get_specialized_domains_str(special_base_class, agent_label=agent_label, ctx=ctx)
     if not domains:
         return "The specialized domain to activate."
     # Compact form for the enum property description to reduce bloat in MCP schema
@@ -682,11 +687,29 @@ def format_specialized_domains_description(special_base_class, *, agent_label: s
     return f"domain one of: {compact}"
 
 
-def get_specialized_delegation_tool_hint(special_base_class, agent_label: str) -> str:
+def get_specialized_delegation_tool_hint(special_base_class, agent_label: str, *, ctx=None) -> str:
     """Full specialized-delegation guidance (sidebar system prompt and MCP ``tools/list``)."""
-    domains_str = _get_specialized_domains_str(special_base_class, agent_label=agent_label)
+    domains_str = _get_specialized_domains_str(special_base_class, agent_label=agent_label, ctx=ctx)
     template = _specialized_delegation_template_for_label(agent_label)
     return template.format(domains=domains_str)
+
+
+def get_vision_core_directive(model, ctx) -> str:
+    """OCR delegation hint when local vision stack is configured (Writer/Calc only)."""
+    if ctx is None:
+        return ""
+    from plugin.doc.document_helpers import is_calc, is_writer
+    from plugin.vision.vision_availability import vision_ocr_available
+
+    if not vision_ocr_available(ctx):
+        return ""
+    if not (is_writer(model) or is_calc(model)):
+        return ""
+    delegate = "delegate_to_specialized_calc_toolset" if is_calc(model) else "delegate_to_specialized_writer_toolset"
+    return (
+        f"When the user wants OCR or text from an embedded image, {delegate}(domain=\"vision\"). "
+        "Embedded images are not visible in chat — do not invent text; use extract_text_from_image."
+    )
 
 
 # Dummy gettext function for string extraction tools (xgettext)
@@ -751,7 +774,7 @@ def get_chat_system_prompt_for_document(model, additional_instructions="", ctx=N
     Callers must pass the document that is being chatted about."""
     from plugin.doc.document_helpers import is_calc, is_draw
 
-    delegation = get_specialized_delegation_for_model(model)
+    delegation = get_specialized_delegation_for_model(model, ctx=ctx)
 
     if is_calc(model):
         base = DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE.replace("{specialized_delegation}", delegation)
@@ -777,6 +800,10 @@ def get_chat_system_prompt_for_document(model, additional_instructions="", ctx=N
             DEFAULT_CHAT_SYSTEM_PROMPT = base
 
     base = base.replace(CHAT_RESPONSE_FORMAT, get_chat_response_format_instructions(ctx))
+
+    vision_directive = get_vision_core_directive(model, ctx)
+    if vision_directive:
+        base += "\n\n" + vision_directive
 
     if ctx:
         try:

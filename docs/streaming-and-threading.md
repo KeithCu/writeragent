@@ -266,6 +266,7 @@ LibreOffice’s UI (VCL) is single-threaded. To keep the UI responsive during lo
    - Runs a single `while True` event loop in `_start_tool_calling_async`.
    - Blocks briefly on `q.get(timeout=0.1)`.
    - If the queue is empty, it calls `pump_ui_idle(toolkit)` — draining one or more [`QueueExecutor`](../plugin/framework/queue_executor.py) work items (UNO marshaled from async tools) **then** `processEventsToIdle()` for VCL repaint/input. AsyncCallback alone is not enough while this loop is running; see [`pump_ui_idle`](../plugin/framework/queue_executor.py).
+   - **Marshal invariants:** [`QueueExecutor.execute`](../plugin/framework/queue_executor.py) inlines UNO only on Python `MainThread` without a `worker_pool` background tag (`bg_task`); it never relies on `on_main_thread()` alone. During an active agent session (`agent_session()`), missing AsyncCallback raises instead of the legacy off-thread fallback. Tool and marshal callbacks must not call `processEventsToIdle()` — the drain loop owns VCL pumping via [`pump_ui_idle`](../plugin/framework/queue_executor.py).
    - If an item is received, it dispatches based on the message type (e.g., appending text, updating status, executing tools).
 
 This flat architecture avoids nested callbacks and makes state transitions explicit.

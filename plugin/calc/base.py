@@ -49,6 +49,15 @@ class ToolCalcImageBase(ToolCalcSpecialBase):
     intent = "media"
 
 
+class ToolCalcVisionBase(ToolCalcSpecialBase):
+    specialized_domain = "vision"
+    specialized_domain_description: ClassVar[str | None] = (
+        "Local OCR on embedded sheet graphics (Docling/Paddle via Settings → Python venv); extract_text_from_image."
+    )
+    intent = "media"
+    required_core_tools: ClassVar[frozenset[str] | None] = frozenset()
+
+
 class ToolCalcWebResearchBase(ToolCalcSpecialBase):
     specialized_domain = "web_research"
     specialized_domain_description: ClassVar[str | None] = DELEGATION_PUBLIC_WEB_HINT
