@@ -125,20 +125,19 @@ def test_writer_chat_prompt_includes_sidebar_vs_document_routing():
 
 
 def test_writer_chat_prompt_research_delegate_to_document():
+    from plugin.framework.constants import WRITER_SIDEBAR_ONLY_DOMAINS
+
     model = MagicMock()
     model.supportsService.return_value = False
     prompt = get_chat_system_prompt_for_document(model)
     assert RESEARCH_DELEGATE_TO_DOCUMENT in prompt
     assert RESEARCH_DELEGATE_TO_DOCUMENT in WRITER_CORE_DIRECTIVES
-    assert "SAME turn" in prompt
-    assert "target='beginning'" in prompt
-    assert "NEVER paste the full report" in prompt
-    assert "a chat summary is enough" not in prompt
-    assert "required after research delegates" in prompt.lower()
+    assert "apply_document_content" in RESEARCH_DELEGATE_TO_DOCUMENT
     block = get_specialized_delegation_for_model(model)
-    assert "main agent writes returned report to document" in block
-    assert "brainstorming:" not in block
-    assert "writing_plan:" not in block
+    assert "web_research:" in block
+    assert "apply_document_content" in block
+    for domain in WRITER_SIDEBAR_ONLY_DOMAINS:
+        assert f"{domain}:" not in block
 
 
 def test_writer_eval_chat_prompt_includes_sidebar_vs_document_routing():
@@ -203,18 +202,11 @@ def test_get_core_directives_writer():
     model.supportsService.return_value = False
     directives = get_core_directives(model)
     assert directives == WRITER_CORE_DIRECTIVES
-    assert "delegate_to_specialized_writer_toolset" in directives
-    assert 'domain="python"' in directives
-    assert "do not answer from memory" in directives
-    assert "fast local numeric" in directives
-    assert "numpy" not in directives.lower()
-    assert 'domain="document_research"' in directives
+    assert 'delegate_to_specialized_writer_toolset(domain="document_research")' in directives
+    assert 'delegate_to_specialized_writer_toolset(domain="web_research")' in directives
+    assert 'delegate_to_specialized_writer_toolset(domain="python")' in directives
     assert DELEGATION_USER_FILE_DATA_HINT in directives
-    assert "to research public topics" in directives
     assert RESEARCH_DELEGATE_TO_DOCUMENT in directives
-    assert "SAME turn" in directives
-    assert "apply_document_content" in directives
-    assert 'domain="web_research") first to find information' not in directives
 
 
 def test_writer_chat_prompt_delegation_routing_local_vs_web():

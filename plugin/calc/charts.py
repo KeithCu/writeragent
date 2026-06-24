@@ -816,7 +816,7 @@ class UpsertChart(ToolCalcChartBase):
                 pass
 
             # CRITICAL: Match proven working pattern from plugin/writer/math/math_mml_convert.py
-            chart_obj.CLSID = CHART_CLSID.upper()
+            chart_obj.CLSID = CHART_CLSID_DRAW_OLE.upper()
             from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
             chart_obj.AnchorType = AS_CHARACTER
             
@@ -929,6 +929,21 @@ class UpsertChart(ToolCalcChartBase):
             _apply_chart_styling(chart_doc, **kwargs)
         else:
             logger.error("Could not obtain chart model after retries. Chart might be empty/invisible.")
+
+        # Force a refresh of the chart model using direct UNO calls on the chart document itself.
+        if chart_doc:
+            try:
+                # 1. Notify views of model changes (com.sun.star.util.XModifiable)
+                if hasattr(chart_doc, "setModified"):
+                    chart_doc.setModified(True)
+                    logger.debug("Called chart_doc.setModified(True) to notify view listeners.")
+                
+                # 2. Trigger layout/calculations update (com.sun.star.util.XRefreshable)
+                if hasattr(chart_doc, "refresh"):
+                    chart_doc.refresh()
+                    logger.debug("Called chart_doc.refresh() to update chart document.")
+            except Exception as e:
+                logger.debug("Failed direct chart_doc model update: %s", e)
 
         _process_events()
         return {"status": "ok", "message": f"Chart '{name}' inserted in Writer.", "chart_name": name}

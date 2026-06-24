@@ -215,8 +215,7 @@ DELEGATION_PUBLIC_WEB_HINT = "to research public topics"
 
 # Main agent only: after research delegates return plain text, write HTML to the document (not sidebar).
 RESEARCH_DELEGATE_TO_DOCUMENT = (
-    "After web_research or document_research returns plain text in `result`: in the SAME turn, "
-    "MUST call apply_document_content with HTML (per APPLY_DOCUMENT_CONTENT rules). "
+    "After doing web_research or document_research,you MUST call apply_document_content to insert the received research into the document so the user can see and edit it (per APPLY_DOCUMENT_CONTENT rules). "
     "Default: write the full report to the open document (empty doc → target='beginning'). "
     "Sidebar: brief confirmation only — NEVER paste the full report in chat unless the user explicitly asked chat-only."
 )

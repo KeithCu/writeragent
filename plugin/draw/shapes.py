@@ -235,10 +235,7 @@ def _try_writer_invalidate_and_pump(doc) -> None:
         if win is None:
             return
         win.invalidate(0)
-        tk = win.getToolkit()
-        if tk is not None:
-            tk.processEventsToIdle()
-        log.debug("create_shape writer_invalidate: invalidate(0) + processEventsToIdle")
+        log.debug("create_shape writer_invalidate: invalidate(0)")
     except Exception as ex:
         log.debug("create_shape writer_invalidate: %s", ex)
 

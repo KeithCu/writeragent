@@ -402,16 +402,50 @@ def test_execute_background_task_on_logical_main_enqueues():
     assert res == "ok"
     assert ran_on == ["MainThread"]
 
+def test_execute_logical_main_without_py_main_enqueues():
+    """on_main_thread() alone must not inline UNO when caller is not Python MainThread."""
+    default_executor._async_callback_service = MagicMock()
+    default_executor._callback_instance = MagicMock()
+    default_executor._initialized = True
+    poke_called: list[bool] = []
+    res_holder: list[str] = []
+
+    def mock_vcl() -> None:
+        poke_called.append(True)
+        default_executor.process_queue()
+
+    def run_on_worker() -> None:
+        with (
+            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.thread_guard.get_background_task_name", return_value=None),
+            patch.object(default_executor, "_poke_main_thread", side_effect=mock_vcl),
+        ):
+            res_holder.append(default_executor.execute(lambda: "ok"))
+
+    t = threading.Thread(target=run_on_worker)
+    t.start()
+    t.join()
+    assert res_holder == ["ok"]
+    assert poke_called
+
 def test_execute_refuses_fallback_during_agent_session():
     default_executor._async_callback_service = None
     default_executor._initialized = True
-    with (
-        patch.object(default_executor, "_get_async_callback", return_value=None),
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
-        lc.agent_session(),
-        pytest.raises(RuntimeError, match="AsyncCallback unavailable during agent session"),
-    ):
-        default_executor.execute(lambda: 1)
+    res_holder: list[int] = []
+
+    def run_on_worker() -> None:
+        with (
+            patch.object(default_executor, "_get_async_callback", return_value=None),
+            patch("plugin.framework.thread_guard.get_background_task_name", return_value=None),
+            lc.agent_session(),
+            pytest.raises(RuntimeError, match="AsyncCallback unavailable during agent session"),
+        ):
+            default_executor.execute(lambda: res_holder.append(1))
+
+    t = threading.Thread(target=run_on_worker)
+    t.start()
+    t.join()
+    assert res_holder == []
 
 def test_get_async_callback_already_init_with_lock():
     default_executor._initialized = False

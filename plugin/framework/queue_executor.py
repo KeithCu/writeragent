@@ -362,6 +362,18 @@ class QueueExecutor:
 
         return on_main_thread()
 
+    def _may_run_marshal_inline(self) -> bool:
+        """True only on Python MainThread without a worker_pool background tag.
+
+        Do not use on_main_thread() alone: designated-main test hooks and LO embed quirks
+        can mark workers as logical main while the drain loop runs on MainThread.
+        """
+        from plugin.framework.thread_guard import get_background_task_name
+
+        if get_background_task_name():
+            return False
+        return threading.current_thread() is threading.main_thread()
+
     def _should_run_inline(self) -> bool:
         """Whether to skip the queue and call *fn* on the caller's thread."""
         if _force_marshal_mode:
@@ -386,16 +398,20 @@ class QueueExecutor:
         tag = _marshal_thread_tag(self)
         bg_task = get_background_task_name()
 
-        # Already on logical main thread — call directly to avoid deadlock.
-        # Tagged worker_pool threads must never inline UNO even if on_main_thread() lies.
-        if self._is_logical_main_thread() and not bg_task:
+        if self._may_run_marshal_inline():
             log.debug("marshal route=inline_logical_main fn=%s %s", fn_label, tag)
             return fn(*args, **kwargs)
 
-        if bg_task and self._is_logical_main_thread():
+        if bg_task:
             log.debug(
-                "marshal route=force_enqueue (background task %r on logical main) fn=%s %s",
+                "marshal route=force_enqueue (background task %r) fn=%s %s",
                 bg_task,
+                fn_label,
+                tag,
+            )
+        elif self._is_logical_main_thread():
+            log.debug(
+                "marshal route=force_enqueue (logical main but not Python MainThread) fn=%s %s",
                 fn_label,
                 tag,
             )
