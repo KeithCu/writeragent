@@ -135,6 +135,12 @@ Cost: a few decorators, one module. Payoff: any decorated function called from a
 worker aborts at the call site with a stack trace when `WRITERAGENT_UNO_THREAD_GUARD=1`.
 **Default-off so release builds pay nothing**; the developer (and CI) run with it on.
 
+When the guard is on, violations also **log at ERROR** and post a **modal error
+message box** on the LibreOffice main thread (via `post_to_main_thread` → `msgbox`),
+deduped to once per background thread so the viral proxy cannot spam dialogs. UI is
+skipped under `WRITERAGENT_TESTING=1` so pytest and the native test runner stay
+headless.
+
 ### A2. Tag background threads at their one birthplace (≈1 hour)
 
 In `run_in_background`, set a thread-local marker (and a clear thread name). The

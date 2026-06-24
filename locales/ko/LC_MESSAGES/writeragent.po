@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-22 15:38-0400\n"
+"POT-Creation-Date: 2026-06-24 13:51-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Korean <LL@li.org>\n"
@@ -16,6 +16,18 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+
+#: plugin/doc/specialized_base.py
+msgid ""
+"Local OCR requires Settings → Python venv with Docling or PaddleOCR "
+"(Settings → Python → Test for install hints)."
+msgstr ""
+"로컬 OCR을 사용하려면 설정 → Python venv(Docling 또는 PaddleOCR 포함)가 필요"
+"합니다(설정 → Python → 설치 힌트 테스트 참조)."
+
+#: plugin/doc/specialized_base.py
+msgid "Running local OCR on selected image..."
+msgstr "선택한 이미지에서 로컬 OCR을 실행 중입니다..."
 
 #: plugin/doc/specialized_base.py
 msgid ""
@@ -1846,6 +1858,18 @@ msgstr ""
 #, python-brace-format
 msgid "Image '{name}' could not be exported."
 msgstr "이미지 '{name}'을(를) 내보낼 수 없습니다."
+
+#: plugin/vision/vision_tools.py
+msgid "Vision OCR requires a Writer or Calc document."
+msgstr "Vision OCR은 Writer 또는 Calc 문서가 필요합니다."
+
+#: plugin/vision/vision_tools.py
+msgid "OCR complete."
+msgstr "OCR 완료."
+
+#: plugin/vision/vision_tools.py
+msgid "OCR complete (text returned only; not inserted)."
+msgstr "OCR 완료(텍스트만 반환됨, 삽입되지 않음)."
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"

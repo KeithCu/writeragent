@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-22 15:38-0400\n"
+"POT-Creation-Date: 2026-06-24 13:51-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Chinese (Simplified) <LL@li.org>\n"
@@ -16,6 +16,18 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+
+#: plugin/doc/specialized_base.py
+msgid ""
+"Local OCR requires Settings → Python venv with Docling or PaddleOCR "
+"(Settings → Python → Test for install hints)."
+msgstr ""
+"本地 OCR 需要设置 → Python venv（包含 Docling 或 PaddleOCR）（设置 → Python "
+"→ 测试以获取安装提示）。"
+
+#: plugin/doc/specialized_base.py
+msgid "Running local OCR on selected image..."
+msgstr "正在对所选图像运行本地 OCR..."
 
 #: plugin/doc/specialized_base.py
 msgid ""
@@ -1783,6 +1795,18 @@ msgstr ""
 #, python-brace-format
 msgid "Image '{name}' could not be exported."
 msgstr "无法导出图像 '{name}'。"
+
+#: plugin/vision/vision_tools.py
+msgid "Vision OCR requires a Writer or Calc document."
+msgstr "视觉 OCR 需要 Writer 或 Calc 文档。"
+
+#: plugin/vision/vision_tools.py
+msgid "OCR complete."
+msgstr "OCR 已完成。"
+
+#: plugin/vision/vision_tools.py
+msgid "OCR complete (text returned only; not inserted)."
+msgstr "OCR 已完成（仅返回文本；未插入）。"
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"

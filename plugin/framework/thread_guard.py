@@ -74,6 +74,40 @@ def get_background_task_name() -> str | None:
     return getattr(_bg, "task_name", None)
 
 
+# At most one modal alert per background thread (proxy can fire on every UNO access).
+_violation_ui_threads: set[int] = set()
+_violation_ui_lock = threading.Lock()
+
+
+def _notify_thread_violation(msg: str) -> None:
+    """Log and post a main-thread message box for guard-on violations (dev only)."""
+    log.error(msg, stack_info=True)
+    if os.environ.get("WRITERAGENT_TESTING") == "1":
+        return
+    tid = threading.get_ident()
+    with _violation_ui_lock:
+        if tid in _violation_ui_threads:
+            return
+        _violation_ui_threads.add(tid)
+
+    def _show_popup() -> None:
+        try:
+            from plugin.framework.uno_context import get_ctx
+            from plugin.chatbot.dialogs import msgbox
+            from plugin.framework.i18n import _
+
+            msgbox(get_ctx(), _("UNO Thread Violation"), msg, box_type=3)
+        except Exception:
+            log.exception("Failed to show thread violation message box")
+
+    try:
+        from plugin.framework.queue_executor import post_to_main_thread
+
+        post_to_main_thread(_show_popup)
+    except Exception:
+        log.exception("Failed to post thread violation UI")
+
+
 def assert_main_thread(what: str) -> None:
     """Raise (if guard on) or log warning+stack (if guard off) when off the main thread."""
     if on_main_thread():
@@ -81,6 +115,7 @@ def assert_main_thread(what: str) -> None:
     task = get_background_task_name() or threading.current_thread().name
     msg = "UNO thread violation: %r touched UNO from background task %r; marshal via execute_on_main_thread()." % (what, task)
     if GUARD_ON:
+        _notify_thread_violation(msg)
         raise RuntimeError(msg)
     log.warning(msg, stack_info=True)
 

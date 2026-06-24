@@ -55,8 +55,12 @@ EXTENSION_ID = "org.extension.writeragent"
 # ── Simple message box ──────────────────────────────────────────────
 
 
-def msgbox(ctx, title, message):
-    """Show an info message box."""
+def msgbox(ctx, title, message, *, box_type=1):
+    """Show a message box.
+
+    Args:
+        box_type: LO message box type (1=INFO, 2=WARNING, 3=ERROR, 4=QUERY).
+    """
     if not ctx:
         log.info("MSGBOX (no ctx) - %s: %s", title, message)
         return
@@ -69,7 +73,7 @@ def msgbox(ctx, title, message):
         window = frame.getContainerWindow()
         smgr = ctx.getServiceManager()
         toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
-        box = toolkit.createMessageBox(window, 1, 1, _(title), _(message))  # INFOBOX, OK button
+        box = toolkit.createMessageBox(window, box_type, 1, _(title), _(message))  # OK button
         log.debug("msgbox execute start title=%s", title)
         try:
             box.execute()

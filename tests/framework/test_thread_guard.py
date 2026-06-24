@@ -45,15 +45,19 @@ def test_assert_raises_when_guard_on_from_bg(monkeypatch):
     was = tg.GUARD_ON
     tg.GUARD_ON = True
     tg.set_background_task("run_search")
+    tg._violation_ui_threads.clear()
     try:
-        with pytest.raises(RuntimeError) as exc:
-            tg.assert_main_thread("uno_context.get_desktop")
-        msg = str(exc.value)
+        with patch.object(tg, "_notify_thread_violation") as notify:
+            with pytest.raises(RuntimeError) as exc_info:
+                tg.assert_main_thread("uno_context.get_desktop")
+            notify.assert_called_once()
+        msg = str(exc_info.value)
         assert "UNO thread violation" in msg
         assert "run_search" in msg or "worker-foo" in msg
     finally:
         tg.GUARD_ON = was
         tg.set_background_task(None)
+        tg._violation_ui_threads.clear()
 
 
 def test_assert_logs_warning_when_guard_off_from_bg(monkeypatch):
@@ -190,3 +194,57 @@ def test_bypass_thread_guard_still_works_via_registry(monkeypatch):
 
     assert out == {"status": "ok"}
     assert calls == ["execute"]
+
+
+def test_notify_skipped_under_writeragent_testing(monkeypatch):
+    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+    tg._violation_ui_threads.clear()
+    posts = []
+
+    def fake_post(fn, *args, **kwargs):
+        posts.append(fn)
+
+    with patch("plugin.framework.queue_executor.post_to_main_thread", fake_post):
+        tg._notify_thread_violation("test violation")
+    assert posts == []
+    tg._violation_ui_threads.clear()
+
+
+def test_notify_dedupes_per_thread(monkeypatch):
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    tg._violation_ui_threads.clear()
+    posts = []
+
+    def fake_post(fn, *args, **kwargs):
+        posts.append(fn)
+
+    with patch("plugin.framework.queue_executor.post_to_main_thread", fake_post):
+        tg._notify_thread_violation("first")
+        tg._notify_thread_violation("second")
+    assert len(posts) == 1
+    tg._violation_ui_threads.clear()
+
+
+def test_assert_logs_and_notifies_when_guard_on(monkeypatch, caplog):
+    fake_bg = MagicMock()
+    fake_bg.name = "worker-notify"
+    monkeypatch.setattr(threading, "current_thread", lambda: fake_bg)
+    monkeypatch.setattr(tg, "on_main_thread", lambda: False)
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    was = tg.GUARD_ON
+    tg.GUARD_ON = True
+    tg._violation_ui_threads.clear()
+    posts = []
+
+    def fake_post(fn, *args, **kwargs):
+        posts.append(fn)
+
+    try:
+        with patch("plugin.framework.queue_executor.post_to_main_thread", fake_post):
+            with pytest.raises(RuntimeError):
+                tg.assert_main_thread("test.site")
+        assert len(posts) == 1
+        assert any("UNO thread violation" in r.message for r in caplog.records)
+    finally:
+        tg.GUARD_ON = was
+        tg._violation_ui_threads.clear()

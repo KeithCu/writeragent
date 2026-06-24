@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-22 15:38-0400\n"
+"POT-Creation-Date: 2026-06-24 13:51-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Hindi <LL@li.org>\n"
@@ -16,6 +16,18 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+
+#: plugin/doc/specialized_base.py
+msgid ""
+"Local OCR requires Settings → Python venv with Docling or PaddleOCR "
+"(Settings → Python → Test for install hints)."
+msgstr ""
+"स्थानीय OCR के लिए Settings → Python venv (Docling या PaddleOCR के साथ) की "
+"आवश्यकता है (Settings → Python → Test पर इंस्टॉलेशन संकेत देखें)।"
+
+#: plugin/doc/specialized_base.py
+msgid "Running local OCR on selected image..."
+msgstr "चयनित छवि पर स्थानीय OCR चलाया जा रहा है..."
 
 #: plugin/doc/specialized_base.py
 msgid ""
@@ -1824,6 +1836,18 @@ msgstr ""
 #, python-brace-format
 msgid "Image '{name}' could not be exported."
 msgstr "इमेज '{name}' को एक्सपोर्ट नहीं किया जा सका।"
+
+#: plugin/vision/vision_tools.py
+msgid "Vision OCR requires a Writer or Calc document."
+msgstr "Vision OCR के लिए Writer या Calc दस्तावेज़ की आवश्यकता है।"
+
+#: plugin/vision/vision_tools.py
+msgid "OCR complete."
+msgstr "OCR पूर्ण हुआ।"
+
+#: plugin/vision/vision_tools.py
+msgid "OCR complete (text returned only; not inserted)."
+msgstr "OCR पूर्ण हुआ (केवल टेक्स्ट प्राप्त हुआ; सम्मिलित नहीं किया गया)।"
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"

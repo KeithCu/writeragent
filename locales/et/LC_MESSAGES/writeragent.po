@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-22 15:38-0400\n"
+"POT-Creation-Date: 2026-06-24 13:51-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Estonian <LL@li.org>\n"
@@ -16,6 +16,18 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+
+#: plugin/doc/specialized_base.py
+msgid ""
+"Local OCR requires Settings → Python venv with Docling or PaddleOCR "
+"(Settings → Python → Test for install hints)."
+msgstr ""
+"Kohalik OCR nõuab sätteid → Python venv koos Doclingi või PaddleOCR-iga "
+"(Sätted → Python → Testi installimisjuhiste saamiseks)."
+
+#: plugin/doc/specialized_base.py
+msgid "Running local OCR on selected image..."
+msgstr "Käivitan kohaliku OCR-i valitud pildil..."
 
 #: plugin/doc/specialized_base.py
 msgid ""
@@ -1846,6 +1858,18 @@ msgstr ""
 #, python-brace-format
 msgid "Image '{name}' could not be exported."
 msgstr "Pilti '{name}' ei saanud eksportida."
+
+#: plugin/vision/vision_tools.py
+msgid "Vision OCR requires a Writer or Calc document."
+msgstr "Vision OCR nõuab Writeri või Calci dokumenti."
+
+#: plugin/vision/vision_tools.py
+msgid "OCR complete."
+msgstr "OCR on lõpetatud."
+
+#: plugin/vision/vision_tools.py
+msgid "OCR complete (text returned only; not inserted)."
+msgstr "OCR on lõpetatud (tagastati ainult tekst; ei lisatud)."
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
