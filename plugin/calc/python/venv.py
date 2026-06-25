@@ -66,6 +66,28 @@ _PARAMETERS_NON_CALC = {
     "required": ["code"],
 }
 
+# Superset advertised when the target app is unknown (e.g. MCP discovery with no document
+# open), so a caller heading for Calc still sees data_range. data_range/data are Calc-only.
+_PARAMETERS_NEUTRAL = {
+    "type": "object",
+    "properties": {
+        "code": {
+            "type": "string",
+            "description": "Python / Numpy source. Set `result` to the return value (NumPy ndarray, Pandas DataFrame, list, dict, or scalar).",
+        },
+        "data_range": {
+            "type": "string",
+            "description": "(Calc only) Optional A1 range (e.g. B1:B10); values are injected as variable `data`.",
+        },
+        "data": {
+            "type": "array",
+            "items": {"type": "array", "items": {}},
+            "description": "(Calc only) Optional 2D array of cell values as `data` (prefer data_range for bulk data).",
+        },
+    },
+    "required": ["code"],
+}
+
 _DESCRIPTION_CALC = (
     "Run Python code. Set `result` to a return value (NumPy ndarray, Pandas DataFrame, list, dict, or scalar). "
     + PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE
@@ -86,12 +108,23 @@ _DESCRIPTION_DRAW = (
     + "Use document tools to read or change the slide/page; this tool does not inject spreadsheet `data`."
 )
 
+# Used when the target app is unknown (e.g. discovery with no document open): covers both
+# the Calc data_range path and the Writer/Draw no-injection path, to match the superset schema.
+_DESCRIPTION_NEUTRAL = (
+    "Run Python code in the configured venv. Set `result` to a return value (NumPy ndarray, Pandas DataFrame, list, dict, or scalar). "
+    + PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE
+    + "In Calc, optional data_range (e.g. 'Sheet1.B1:B10') injects cell values as `data`; "
+    "in Writer or Draw/Impress use document tools to read or change content (no spreadsheet `data` injection)."
+)
+
 
 def _venv_tool_description(doc_type: str | None) -> str:
     if doc_type == "calc":
         base = _DESCRIPTION_CALC
     elif doc_type in ("draw", "impress"):
         base = _DESCRIPTION_DRAW
+    elif doc_type is None:
+        base = _DESCRIPTION_NEUTRAL
     else:
         base = _DESCRIPTION_WRITER
     hint = format_matplotlib_plot_hint(doc_type=doc_type)
@@ -142,6 +175,10 @@ class RunVenvPythonScript(ToolCalcPythonBase):
     def get_parameters(self, doc_type: str | None = None) -> dict | None:
         if doc_type == "calc":
             return _PARAMETERS_CALC
+        if doc_type is None:
+            # App unknown (e.g. discovery with no document) -> advertise the superset so a
+            # caller targeting Calc still sees data_range (marked Calc-only).
+            return _PARAMETERS_NEUTRAL
         return _PARAMETERS_NON_CALC
 
     def get_description(self, doc_type: str | None = None) -> str:

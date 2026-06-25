@@ -244,6 +244,9 @@ class ToolBase(ABC):
     long_running: bool = False
     is_final_answer_tool: bool = False
     doc_types: list[str] | None = None
+    # When False, the MCP executor runs the tool even with no document open (e.g. the
+    # find_tools discovery meta-tool); the default requires an open document.
+    requires_document: bool = True
     required_core_tools: ClassVar[frozenset[str] | None] = None
 
     def detects_mutation(self):

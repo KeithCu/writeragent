@@ -19,6 +19,20 @@ config:
     widget: number
     label: MCP Port
     public: true
+  tool_exposure_mode:
+    type: string
+    default: delegate
+    widget: select
+    label: MCP Tool Exposure
+    helper: "How specialized tools are surfaced to MCP clients. delegate=reached via the delegate gateway (today's behavior); direct_flat=all MCP-reachable specialized tools listed directly, excluding sidebar-only flows (best for clients with their own tool-search); direct_discovery=small core list plus a find_tools search tool that reveals the rest on demand (best for any client)."
+    public: true
+    options:
+      - value: delegate
+        label: Delegate (default)
+      - value: direct_flat
+        label: Direct — list all tools
+      - value: direct_discovery
+        label: Direct — discovery (find_tools)
   cors_allow_private_origins:
     type: boolean
     default: true

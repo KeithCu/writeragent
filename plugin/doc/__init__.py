@@ -19,6 +19,7 @@ class CommonModule(ModuleBase):
             document_research_grep_tool,
             document_research_specialized,
             document_research_tools,
+            find_tools_tool,
             print_doc,
             undo,
         )
@@ -32,6 +33,7 @@ class CommonModule(ModuleBase):
             document_research_grep_tool,
             document_research_fts_tool,
             document_research_specialized,
+            find_tools_tool,
             print_doc,
             undo,
         )
