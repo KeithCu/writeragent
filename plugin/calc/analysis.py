@@ -28,8 +28,6 @@ from plugin.scripting.analysis import HELPER_NAMES
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
-
-if TYPE_CHECKING:
     from com.sun.star.table import CellAddress
 
 try:

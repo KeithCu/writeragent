@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Unit tests for the Layer A UNO thread-safety guard (thread_guard.py)."""
 
+import importlib
 import threading
 from unittest.mock import patch, MagicMock
 
@@ -11,6 +12,30 @@ import pytest
 
 # Import after possible env setup in specific tests; we mutate the module flags for isolation.
 import plugin.framework.thread_guard as tg
+
+
+def _reload_thread_guard():
+    """Re-read GUARD_ON from the environment (see tests/conftest.py setdefault)."""
+    importlib.reload(tg)
+
+
+def test_guard_on_by_default_when_env_unset(monkeypatch):
+    monkeypatch.delenv("WRITERAGENT_UNO_THREAD_GUARD", raising=False)
+    try:
+        _reload_thread_guard()
+        assert tg.GUARD_ON is True
+    finally:
+        monkeypatch.setenv("WRITERAGENT_UNO_THREAD_GUARD", "0")
+        _reload_thread_guard()
+
+
+def test_guard_off_when_env_zero(monkeypatch):
+    monkeypatch.setenv("WRITERAGENT_UNO_THREAD_GUARD", "0")
+    try:
+        _reload_thread_guard()
+        assert tg.GUARD_ON is False
+    finally:
+        _reload_thread_guard()
 
 
 def _make_pyuno_like():
@@ -204,7 +229,7 @@ def test_notify_skipped_under_writeragent_testing(monkeypatch):
     def fake_post(fn, *args, **kwargs):
         posts.append(fn)
 
-    with patch("plugin.framework.queue_executor.post_to_main_thread", fake_post):
+    with patch("plugin.framework.queue_executor.execute_on_main_thread", fake_post):
         tg._notify_thread_violation("test violation")
     assert posts == []
     tg._violation_ui_threads.clear()
@@ -218,7 +243,7 @@ def test_notify_dedupes_per_thread(monkeypatch):
     def fake_post(fn, *args, **kwargs):
         posts.append(fn)
 
-    with patch("plugin.framework.queue_executor.post_to_main_thread", fake_post):
+    with patch("plugin.framework.queue_executor.execute_on_main_thread", fake_post):
         tg._notify_thread_violation("first")
         tg._notify_thread_violation("second")
     assert len(posts) == 1
@@ -240,7 +265,7 @@ def test_assert_logs_and_notifies_when_guard_on(monkeypatch):
         posts.append(fn)
 
     try:
-        with patch("plugin.framework.queue_executor.post_to_main_thread", fake_post):
+        with patch("plugin.framework.queue_executor.execute_on_main_thread", fake_post):
             with patch.object(tg.log, "error") as mock_error:
                 with pytest.raises(RuntimeError):
                     tg.assert_main_thread("test.site")

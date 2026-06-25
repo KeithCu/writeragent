@@ -101,7 +101,7 @@ Extract the existing tool-boundary check into a tiny shared helper, e.g. in
 import os, threading, logging
 log = logging.getLogger("writeragent.threadguard")
 
-GUARD_ON = os.environ.get("WRITERAGENT_UNO_THREAD_GUARD") == "1"
+GUARD_ON = os.environ.get("WRITERAGENT_UNO_THREAD_GUARD", "1") == "1"
 
 def on_main_thread() -> bool:
     return threading.current_thread() is threading.main_thread()
@@ -132,8 +132,9 @@ Then:
   inline check (single source of truth; keep `bypass_thread_guard`).
 
 Cost: a few decorators, one module. Payoff: any decorated function called from a
-worker aborts at the call site with a stack trace when `WRITERAGENT_UNO_THREAD_GUARD=1`.
-**Default-off so release builds pay nothing**; the developer (and CI) run with it on.
+worker aborts at the call site with a stack trace in non-release builds (guard on
+by default). **Release OXT bundles replace this module with a no-op stub** so
+production pays nothing. Opt out in dev: `WRITERAGENT_UNO_THREAD_GUARD=0`.
 
 When the guard is on, violations also **log at ERROR** and post a **modal error
 message box** on the LibreOffice main thread (via `post_to_main_thread` → `msgbox`),
@@ -162,7 +163,8 @@ wrap the few UNO *sources* in a debug-only proxy that:
 PyUNO objects are identifiable at runtime (e.g. `type(obj).__module__` is `pyuno`,
 or presence of `__pyunostruct__` / `XInterface` query support); the proxy only
 wraps those and passes plain Python values through untouched. Install it **only**
-when `WRITERAGENT_UNO_THREAD_GUARD=1` so production is byte-for-byte unchanged.
+when the guard is active (on by default in non-release bundles; release stubs
+disable it entirely).
 
 This converts "any UNO call anywhere off the main thread" into an immediate,
 located exception, with **zero per-call-site annotation**. It is the closest thing
@@ -190,8 +192,9 @@ The aim: a `run_in_background` worker that forgets to marshal a UNO call should
 
 ### B1. Run the real UNO suite with the guard on (low effort, high value)
 
-**Status:** Done. `make lo-test-threadguard` runs the full native suite with
-`WRITERAGENT_UNO_THREAD_GUARD=1`. `WRITERAGENT_TESTING=1` (set by
+**Status:** Done. `make lo-test-threadguard` runs the full native suite with the
+Layer A guard active (on by default in non-release bundles; the Makefile target
+still sets `WRITERAGENT_UNO_THREAD_GUARD=1` explicitly for clarity). `WRITERAGENT_TESTING=1` (set by
 [`plugin/testing_runner.py`](../plugin/testing_runner.py)) only short-circuits
 `QueueExecutor` inline execution — it does **not** disable the Layer A guard.
 
@@ -302,7 +305,7 @@ trace," which is the bulk of the user's pain.
 ## Tradeoffs summary
 
 - **Runtime guard (A):** cheapest, most general (A3 needs no annotations), but only
-  catches paths that actually execute. Default-off ⇒ zero release cost. Best ROI.
+  catches paths that actually execute. On by default in dev; release stub ⇒ zero release cost. Best ROI.
 - **Test-time (B):** deterministic and automatable. B1 reuses real PyUNO (`make lo-test-threadguard`); B2 uses the `uno_thread_safety` fixture and synthetic pump (no LO required).
 - **Static (C):** the only layer that catches a bug **before** it runs, but it is
   the most work, needs annotation discipline, and a custom linter to maintain.

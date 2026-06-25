@@ -363,6 +363,20 @@ def test_post_to_main_thread_no_service():
         mt.post_to_main_thread(fn)
         assert called
 
+
+def test_post_to_main_thread_drops_when_no_async_from_background():
+    with patch.object(default_executor, "_get_async_callback", return_value=None), patch(
+        "plugin.framework.thread_guard.get_background_task_name", return_value="worker-test"
+    ):
+        called = False
+
+        def fn():
+            nonlocal called
+            called = True
+
+        post_to_main_thread(fn)
+        assert not called
+
 def test_execute_on_main_thread_success():
     with patch('threading.current_thread') as mock_thread, patch('threading.main_thread') as mock_main, patch.object(default_executor, '_get_async_callback') as mock_get, patch.object(default_executor, '_poke_main_thread') as mock_poke:
         mock_cur = MagicMock()
@@ -438,7 +452,7 @@ def test_execute_refuses_fallback_during_agent_session():
             patch.object(default_executor, "_get_async_callback", return_value=None),
             patch("plugin.framework.thread_guard.get_background_task_name", return_value=None),
             lc.agent_session(),
-            pytest.raises(RuntimeError, match="AsyncCallback unavailable during agent session"),
+            pytest.raises(RuntimeError, match="AsyncCallback unavailable from background thread"),
         ):
             default_executor.execute(lambda: res_holder.append(1))
 
@@ -446,6 +460,24 @@ def test_execute_refuses_fallback_during_agent_session():
     t.start()
     t.join()
     assert res_holder == []
+
+
+def test_execute_refuses_fallback_when_background_task_tagged():
+    res_holder: list[int] = []
+
+    def run_on_worker() -> None:
+        with (
+            patch.object(default_executor, "_get_async_callback", return_value=None),
+            patch("plugin.framework.thread_guard.get_background_task_name", return_value="worker-test"),
+            pytest.raises(RuntimeError, match="AsyncCallback unavailable from background thread"),
+        ):
+            default_executor.execute(lambda: res_holder.append(1))
+
+    t = threading.Thread(target=run_on_worker)
+    t.start()
+    t.join()
+    assert res_holder == []
+
 
 def test_get_async_callback_already_init_with_lock():
     default_executor._initialized = False

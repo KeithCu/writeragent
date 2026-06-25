@@ -15,7 +15,10 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Runtime guard for UNO main-thread affinity (Layer A).
 
-Activated only when WRITERAGENT_UNO_THREAD_GUARD=1 (default off).
+On by default in non-release bundles (dev-deploy, ``make build``). Release OXT
+bundles replace this module with a no-op stub. Opt out in dev:
+``WRITERAGENT_UNO_THREAD_GUARD=0``.
+
 When active:
 - Calls to guarded UNO sources from a background thread raise immediately
   with a stack trace naming the offending call and (if tagged) the worker task.
@@ -35,7 +38,10 @@ from typing import Any
 
 log = logging.getLogger("writeragent.threadguard")
 
-GUARD_ON = os.environ.get("WRITERAGENT_UNO_THREAD_GUARD") == "1"
+# Non-release bundles ship this full module with guard on by default.
+# Release bundles replace this file with a stub (GUARD_ON = False).
+# Opt out in dev: WRITERAGENT_UNO_THREAD_GUARD=0
+GUARD_ON = os.environ.get("WRITERAGENT_UNO_THREAD_GUARD", "1") == "1"
 
 # Thread-local storage for background task identity (set at birth in run_in_background).
 _bg = threading.local()
@@ -101,11 +107,13 @@ def _notify_thread_violation(msg: str) -> None:
             log.exception("Failed to show thread violation message box")
 
     try:
-        from plugin.framework.queue_executor import post_to_main_thread
+        from plugin.framework.queue_executor import execute_on_main_thread
 
-        post_to_main_thread(_show_popup)
+        # Blocking marshal: post_to_main_thread can inline on the worker when
+        # AsyncCallback is missing, which re-triggers the guard inside msgbox.
+        execute_on_main_thread(_show_popup, timeout=5.0)
     except Exception:
-        log.exception("Failed to post thread violation UI")
+        log.exception("Failed to show thread violation message box on main thread")
 
 
 def assert_main_thread(what: str) -> None:

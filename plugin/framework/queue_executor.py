@@ -429,8 +429,8 @@ class QueueExecutor:
         svc = None if _force_marshal_mode else self._get_async_callback()
 
         if svc is None and not _force_marshal_mode:
-            if is_agent_active():
-                msg = "marshal refused: AsyncCallback unavailable during agent session (fn=%s)" % fn_label
+            if is_agent_active() or bg_task:
+                msg = "marshal refused: AsyncCallback unavailable from background thread (fn=%s)" % fn_label
                 try:
                     raise RuntimeError(msg)
                 except RuntimeError:
@@ -454,15 +454,36 @@ class QueueExecutor:
         Unlike execute, does not block or return a result.
         Used for UI updates from background threads.
         """
+        from plugin.framework.thread_guard import get_background_task_name
+
+        fn_label = _fn_label(fn)
+        tag = _marshal_thread_tag(self)
+        bg_task = get_background_task_name()
+
         if self._should_run_inline():
+            log.debug("marshal route=post_inline_testing fn=%s %s", fn_label, tag)
             fn(*args, **kwargs)
             return
 
         svc = None if _force_marshal_mode else self._get_async_callback()
         if svc is None and not _force_marshal_mode:
+            if bg_task:
+                log.warning(
+                    "marshal route=post_dropped (AsyncCallback unavailable, background task %r) fn=%s %s",
+                    bg_task,
+                    fn_label,
+                    tag,
+                )
+                return
+            log.warning(
+                "marshal route=post_fallback_no_async (UNO on caller thread) fn=%s %s",
+                fn_label,
+                tag,
+            )
             fn(*args, **kwargs)
             return
 
+        log.debug("marshal route=post_enqueue fn=%s %s", fn_label, tag)
         self._enqueue_work(fn, args, kwargs, blocking=False)
 
 

@@ -1,3 +1,8 @@
+import os
+
+# Layer A thread guard defaults on in non-release bundles; keep headless pytest stable.
+os.environ.setdefault("WRITERAGENT_UNO_THREAD_GUARD", "0")
+
 import sys
 import types
 from unittest.mock import MagicMock, patch
