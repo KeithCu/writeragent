@@ -169,7 +169,7 @@ config:
 
   rich_text_control_sidebar:
     type: boolean
-    default: false
+    default: true
     widget: checkbox
     label: Rich Text Control Sidebar
     helper: "Formatted chat via RichTextControl. Requires restart."
