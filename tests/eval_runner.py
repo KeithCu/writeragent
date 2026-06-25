@@ -38,7 +38,7 @@ class EvalRunner:
         fetch_openrouter_pricing(ctx)
         
         # Build API config for this specific run
-        self.api_config = get_api_config(ctx)
+        self.api_config = get_api_config()
         if model_name:
             self.api_config["model"] = model_name
         

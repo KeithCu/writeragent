@@ -59,7 +59,7 @@ class SearchNearbyFiles(ToolBase):
         from plugin.framework.constants import folder_search_enabled
         from plugin.framework.queue_executor import execute_on_main_thread
 
-        if not folder_search_enabled(ctx.ctx):
+        if not folder_search_enabled():
             return self._tool_error(
                 "Cross-file search is disabled. Enable Embeddings + FTS in Settings → Embeddings.",
                 code="FOLDER_SEARCH_DISABLED",
@@ -104,7 +104,7 @@ class SearchNearbyFiles(ToolBase):
                 return {"status": "error", "message": resolve_err}
 
             # Mode-aware empty check for zvec/lancedb side-by-side stores
-            mode = str(get_config(ctx.ctx, "embeddings.folder_search_mode") or "none").strip().lower()
+            mode = str(get_config("embeddings.folder_search_mode") or "none").strip().lower()
             looks_empty = False
             if mode == "zvec":
                 zpath = zvec_collection_path(listing_root, create_parent=False)
@@ -136,7 +136,7 @@ class SearchNearbyFiles(ToolBase):
                     return {"status": "error", "message": err}
                 allowed_urls = {str(c.get("url") or "") for c in candidates if c.get("url")}
 
-            model = get_embedding_model(ctx.ctx)
+            model = get_embedding_model()
             # For zvec/lancedb, pass corresponding collection path in the db_path slot
             search_path: str
             if mode == "zvec":

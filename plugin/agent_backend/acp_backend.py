@@ -63,13 +63,13 @@ class ACPBackend(AgentBackend):
         try:
             from plugin.framework.config import get_config
 
-            path = str(get_config(self._ctx, "agent_backend.path") or "").strip()
+            path = str(get_config("agent_backend.path") or "").strip()
             if path and os.path.isfile(path):
                 self._binary_path = path
             else:
                 self._binary_path = self._find_binary()
 
-            args_str = str(get_config(self._ctx, "agent_backend.args") or "").strip()
+            args_str = str(get_config("agent_backend.args") or "").strip()
             self._extra_args = args_str.split() if args_str else []
         except Exception:
             self._binary_path = self._find_binary()

@@ -108,7 +108,7 @@ def test_run_python_monaco_on_save_persists_and_executes():
                         assert load["show_data_binding"] is False
 
                         response = captured["on_save"]("result = 2", False, None, "run")
-                        mock_set.assert_called_with(ctx, "saved_python_scripts", {"Prime Numbers": "result = 2"})
+                        mock_set.assert_called_with("saved_python_scripts", {"Prime Numbers": "result = 2"})
                         assert response == {"type": "saved", "ok": True, "status_ok_text": "done"}
 
                         save_response = captured["on_save"]("result = 3", False, None, "save")
@@ -194,8 +194,8 @@ def test_show_python_input_dialog_run_button_keeps_dialog_open():
 
                             dlg.endDialog.assert_not_called()
                             dlg.setVisible.assert_not_called()
-                            mock_set.assert_any_call(ctx, "last_python_script_name_writer", "Sample")
-                            mock_set.assert_any_call(ctx, "saved_python_scripts", {"Sample": "result = 42"})
+                            mock_set.assert_any_call("last_python_script_name_writer", "Sample")
+                            mock_set.assert_any_call("saved_python_scripts", {"Sample": "result = 42"})
                             mock_execute.assert_called_once_with(ctx, None, "result = 42")
 
 
@@ -261,7 +261,7 @@ def test_show_python_input_dialog_save_button():
 
                         ui.show_python_input_dialog(ctx, "print('hello')", "last_python_script_writer")
 
-                        mock_set.assert_any_call(ctx, "saved_python_scripts", {"Sample": "print('hello world')"})
+                        mock_set.assert_any_call("saved_python_scripts", {"Sample": "print('hello world')"})
 
 
 def test_persistent_editor_dispatches_script_actions():
@@ -278,7 +278,7 @@ def test_persistent_editor_dispatches_script_actions():
             with patch("plugin.framework.config.set_config") as mock_set:
                 with patch("plugin.scripting.document_scripts.get_active_document_for_scripts", return_value=None):
                     pe._dispatch_incoming({"type": "request_scripts"})
-                    mock_get.assert_any_call(pe.ctx, "saved_python_scripts")
+                    mock_get.assert_any_call("saved_python_scripts")
                     sent = pe.send.call_args[0][0]
                     assert sent["type"] == "scripts_list"
                     assert sent["sections"][0]["scripts"] == {"MyScript": "print(123)"}
@@ -286,13 +286,13 @@ def test_persistent_editor_dispatches_script_actions():
                     assert sent["selected_script_name"] == "MyScript"
 
                 pe._dispatch_incoming({"type": "select_script", "name": "MyScript"})
-                mock_set.assert_called_with(pe.ctx, "last_python_script_name_writer", "MyScript")
+                mock_set.assert_called_with("last_python_script_name_writer", "MyScript")
 
                 pe._dispatch_incoming({"type": "save_script", "name": "NewScript", "code": "x = 1", "origin": SCRIPT_ORIGIN_USER})
-                mock_set.assert_called_with(pe.ctx, "saved_python_scripts", {"MyScript": "print(123)", "NewScript": "x = 1"})
+                mock_set.assert_called_with("saved_python_scripts", {"MyScript": "print(123)", "NewScript": "x = 1"})
 
                 pe._dispatch_incoming({"type": "delete_script", "name": "MyScript", "origin": SCRIPT_ORIGIN_USER})
-                mock_set.assert_called_with(pe.ctx, "saved_python_scripts", {"NewScript": "x = 1"})
+                mock_set.assert_called_with("saved_python_scripts", {"NewScript": "x = 1"})
 
     with patch("plugin.scripting.document_scripts.get_active_document_for_scripts", return_value=doc):
         with patch("plugin.scripting.document_scripts.save_document_script", return_value=None) as mock_save_doc:
@@ -368,7 +368,7 @@ def test_show_python_input_dialog_save_as_button():
                             ui.show_python_input_dialog(ctx, "print('hello')", "last_python_script_writer")
 
                             mock_input.assert_called_once()
-                            mock_set.assert_any_call(ctx, "saved_python_scripts", {"scriptk": "print('hello world')"})
+                            mock_set.assert_any_call("saved_python_scripts", {"scriptk": "print('hello world')"})
 
 
 def test_show_python_input_dialog_modeless_uses_set_visible():
@@ -419,7 +419,7 @@ def test_monaco_editor_available_respects_force_internal():
         exe, ok = monaco_editor_available(ctx)
         assert exe is None
         assert ok is False
-        mock_get.assert_called_with(ctx, "scripting.force_internal_script_editor")
+        mock_get.assert_called_with("scripting.force_internal_script_editor")
  
     with patch("plugin.framework.config.get_config", return_value=False):
         with patch("plugin.scripting.editor_host.resolve_editor_python", return_value=("/fake/python", None)):

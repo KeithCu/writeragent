@@ -71,7 +71,7 @@ class _DummyDocResearchTool(ToolBase):
 @patch("plugin.doc.specialized_base.USE_SUB_AGENT", True)
 @patch(
     "plugin.chatbot.smol_agent.get_config_int",
-    side_effect=lambda _ctx, key: 25 if key == "chatbot.max_tool_rounds" else 1024,
+    side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True, return_value={"model": "test/model"})
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
@@ -124,7 +124,7 @@ def test_calc_delegate_marshals_spreadsheet_context_to_main_thread(
 @patch("plugin.doc.specialized_base.USE_SUB_AGENT", True)
 @patch(
     "plugin.chatbot.smol_agent.get_config_int",
-    side_effect=lambda _ctx, key: 25 if key == "chatbot.max_tool_rounds" else 1024,
+    side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True, return_value={"model": "test/model"})
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
@@ -174,7 +174,7 @@ def test_writer_delegate_marshals_shapes_canvas_to_main_thread(
 @patch("plugin.doc.specialized_base.USE_SUB_AGENT", True)
 @patch(
     "plugin.chatbot.smol_agent.get_config_int",
-    side_effect=lambda _ctx, key: 25 if key == "chatbot.max_tool_rounds" else 1024,
+    side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True, return_value={"model": "test/model"})
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
@@ -218,7 +218,7 @@ def test_writer_delegate_marshals_get_tools_to_main_thread(
 @patch("plugin.doc.specialized_base.USE_SUB_AGENT", True)
 @patch(
     "plugin.chatbot.smol_agent.get_config_int",
-    side_effect=lambda _ctx, key: 25 if key == "chatbot.max_tool_rounds" else 1024,
+    side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True, return_value={"model": "test/model"})
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")

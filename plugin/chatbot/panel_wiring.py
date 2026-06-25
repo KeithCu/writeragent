@@ -117,7 +117,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
 
     # 1. Config, Models, and UI
     try:
-        extra_instructions = get_config(self.ctx, "additional_instructions")
+        extra_instructions = get_config("additional_instructions")
 
         self._wire_model_selectors(controls["model_selector"], controls["image_model_selector"])
 
@@ -267,7 +267,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
     # 7. Rich Text Control Sidebar (RichTextControl; embedded Writer path removed)
     from plugin.framework.config import get_config_bool_safe
 
-    rich_sidebar_enabled = get_config_bool_safe(self.ctx, "rich_text_control_sidebar")
+    rich_sidebar_enabled = get_config_bool_safe("rich_text_control_sidebar")
     log.info("[RICH-CONTROL] config rich_text_control_sidebar=%s", rich_sidebar_enabled)
     if rich_sidebar_enabled:
         try:

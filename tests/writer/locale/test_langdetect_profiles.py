@@ -48,9 +48,9 @@ def test_get_grammar_detect_language_mode_legacy_bool() -> None:
     from plugin.framework import config
 
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(config, "get_config", lambda _ctx, _key: True)
+        mp.setattr(config, "get_config", lambda _key: True)
         assert get_grammar_detect_language_mode(object()) == "llm"
-        mp.setattr(config, "get_config", lambda _ctx, _key: False)
+        mp.setattr(config, "get_config", lambda _key: False)
         assert get_grammar_detect_language_mode(object()) == "off"
 
 
@@ -58,9 +58,9 @@ def test_get_grammar_detect_language_mode_strings() -> None:
     from plugin.framework import config
 
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(config, "get_config", lambda _ctx, _key: "langdetect")
+        mp.setattr(config, "get_config", lambda _key: "langdetect")
         assert get_grammar_detect_language_mode(object()) == "langdetect"
-        mp.setattr(config, "get_config", lambda _ctx, _key: "off")
+        mp.setattr(config, "get_config", lambda _key: "off")
         assert get_grammar_detect_language_mode(object()) == "off"
 
 

@@ -70,7 +70,7 @@ def grammar_max_in_flight(ctx: Any) -> int:
     """Clamp ``doc.grammar_proofreader_max_in_flight`` to [1, GRAMMAR_MAX_IN_FLIGHT]."""
     from plugin.framework import config
 
-    n = config.get_config_int_safe(ctx, "doc.grammar_proofreader_max_in_flight")
+    n = config.get_config_int_safe("doc.grammar_proofreader_max_in_flight")
     return max(1, min(GRAMMAR_MAX_IN_FLIGHT, n))
 
 
@@ -235,7 +235,7 @@ def get_grammar_detect_language_mode(ctx: Any) -> GrammarDetectLanguageMode:
     """Read ``doc.grammar_proofreader_detect_language`` (off / llm / langdetect; legacy bool → llm/off)."""
     from plugin.framework.config import get_config
 
-    raw = get_config(ctx, "doc.grammar_proofreader_detect_language")
+    raw = get_config("doc.grammar_proofreader_detect_language")
     if isinstance(raw, bool):
         return "llm" if raw else "off"
     if isinstance(raw, str):

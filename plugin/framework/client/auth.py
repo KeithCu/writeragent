@@ -120,7 +120,7 @@ def resolve_auth_for_config(api_config: Dict[str, Any]) -> Dict[str, Any]:
     If Hermes evolves its provider registry or detection heuristics, check
     that file when updating this helper so fixes can be ported across.
 
-    The config is expected to come from plugin.framework.config.get_api_config(ctx)
+    The config is expected to come from plugin.framework.config.get_api_config()
     and must contain at least:
       - endpoint: str
       - api_key: str (may be empty)

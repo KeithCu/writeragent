@@ -2,7 +2,7 @@ import json
 import os
 import tempfile
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from plugin.framework.config import (
     CONFIG_BACKUP_SUFFIX,
@@ -29,10 +29,10 @@ class TestConfigSync(unittest.TestCase):
         self.ctx = MagicMock()
         self.config_data = {}
 
-        def mock_get_config(ctx, key):
+        def mock_get_config(key):
             return self.config_data.get(key, '')
 
-        def mock_set_config(ctx, key, value):
+        def mock_set_config(key, value):
             self.config_data[key] = value
         self.get_patcher = patch('plugin.framework.config.get_config', side_effect=mock_get_config)
         self.set_patcher = patch('plugin.framework.config.set_config', side_effect=mock_set_config)
@@ -52,33 +52,33 @@ class TestConfigSync(unittest.TestCase):
     def test_set_image_model_endpoint(self):
         self.config_data['image_model'] = ''
         with patch('plugin.chatbot.config_ui_helpers.update_lru_history') as mock_lru, patch.object(global_event_bus, 'emit') as mock_emit:
-            set_image_model(self.ctx, 'new-endpoint-model')
+            set_image_model('new-endpoint-model')
             self.assertEqual(self.config_data.get('image_model'), 'new-endpoint-model')
-            mock_lru.assert_called_once_with(self.ctx, 'new-endpoint-model', 'image_model_lru', '')
+            mock_lru.assert_called_once_with('new-endpoint-model', 'image_model_lru', '')
             mock_emit.assert_not_called()
 
     def test_set_image_model_skips_when_unchanged(self):
         self.config_data['image_model'] = 'same-model'
         self.mock_set.reset_mock()
-        set_image_model(self.ctx, 'same-model')
+        set_image_model('same-model')
         self.mock_set.assert_not_called()
 
     def test_get_image_model(self):
         self.config_data['image_model'] = 'end-1'
-        self.assertEqual(get_image_model(self.ctx), 'end-1')
+        self.assertEqual(get_image_model(), 'end-1')
 
     def test_get_api_key_for_endpoint_missing(self):
-        self.assertEqual(get_api_key_for_endpoint(self.ctx, 'http://localhost:11434'), '')
+        self.assertEqual(get_api_key_for_endpoint('http://localhost:11434'), '')
 
     def test_get_api_key_for_endpoint_existing(self):
         self.config_data['api_keys_by_endpoint'] = {'http://localhost:11434': 'test-key-123'}
-        self.assertEqual(get_api_key_for_endpoint(self.ctx, 'http://localhost:11434'), 'test-key-123')
-        self.assertEqual(get_api_key_for_endpoint(self.ctx, 'http://localhost:11434/'), 'test-key-123')
+        self.assertEqual(get_api_key_for_endpoint('http://localhost:11434'), 'test-key-123')
+        self.assertEqual(get_api_key_for_endpoint('http://localhost:11434/'), 'test-key-123')
 
     def test_set_api_key_for_endpoint(self):
-        set_api_key_for_endpoint(self.ctx, 'http://localhost:11434', 'new-key')
+        set_api_key_for_endpoint('http://localhost:11434', 'new-key')
         self.assertEqual(self.config_data.get('api_keys_by_endpoint', {}).get('http://localhost:11434'), 'new-key')
-        set_api_key_for_endpoint(self.ctx, 'http://localhost:11434/', 'updated-key')
+        set_api_key_for_endpoint('http://localhost:11434/', 'updated-key')
         self.assertEqual(self.config_data.get('api_keys_by_endpoint', {}).get('http://localhost:11434'), 'updated-key')
 
     def test_event_bus_listener_and_emit(self):
@@ -109,7 +109,7 @@ class TestConfigSyncFileIO(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.config_path = os.path.join(self.temp_dir.name, 'writeragent.json')
 
-        def mock_config_path(ctx):
+        def mock_config_path():
             return self.config_path
         self.path_patcher = patch('plugin.framework.config._config_path', side_effect=mock_config_path)
         self.path_patcher.start()
@@ -134,29 +134,29 @@ class TestConfigSyncFileIO(unittest.TestCase):
         return self.config_path + CONFIG_BACKUP_SUFFIX
 
     def test_set_api_key_file_io(self):
-        set_api_key_for_endpoint(self.ctx, 'http://api.openai.com', 'sk-1234')
+        set_api_key_for_endpoint('http://api.openai.com', 'sk-1234')
         self.assertTrue(os.path.exists(self.config_path))
         with open(self.config_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
         self.assertIn('api_keys_by_endpoint', data)
         self.assertEqual(data['api_keys_by_endpoint'].get('http://api.openai.com'), 'sk-1234')
-        self.assertEqual(get_api_key_for_endpoint(self.ctx, 'http://api.openai.com'), 'sk-1234')
+        self.assertEqual(get_api_key_for_endpoint('http://api.openai.com'), 'sk-1234')
 
     def test_get_api_key_file_io_missing_file(self):
         if os.path.exists(self.config_path):
             os.remove(self.config_path)
-        self.assertEqual(get_api_key_for_endpoint(self.ctx, 'http://api.missing.com'), '')
+        self.assertEqual(get_api_key_for_endpoint('http://api.missing.com'), '')
 
     def test_corrupt_config_file_io(self):
         corrupt = '{ invalid json '
         with open(self.config_path, 'w', encoding='utf-8') as f:
             f.write(corrupt)
         self._reset_config_cache()
-        self.assertEqual(get_api_key_for_endpoint(self.ctx, 'http://api.openai.com'), '')
+        self.assertEqual(get_api_key_for_endpoint('http://api.openai.com'), '')
         with open(self._backup_path(), 'r', encoding='utf-8') as f:
             self.assertEqual(f.read(), corrupt)
-        set_api_key_for_endpoint(self.ctx, 'http://api.openai.com', 'sk-recovered')
-        self.assertEqual(get_api_key_for_endpoint(self.ctx, 'http://api.openai.com'), 'sk-recovered')
+        set_api_key_for_endpoint('http://api.openai.com', 'sk-recovered')
+        self.assertEqual(get_api_key_for_endpoint('http://api.openai.com'), 'sk-recovered')
         with open(self.config_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
         self.assertEqual(data['api_keys_by_endpoint']['http://api.openai.com'], 'sk-recovered')
@@ -168,7 +168,7 @@ class TestConfigSyncFileIO(unittest.TestCase):
         with open(self.config_path, 'w', encoding='utf-8') as f:
             f.write(broken)
         self._reset_config_cache()
-        self.assertEqual(get_config(self.ctx, 'text_model'), 'gpt')
+        self.assertEqual(get_config('text_model'), 'gpt')
         with open(self._backup_path(), 'r', encoding='utf-8') as f:
             self.assertEqual(f.read(), broken)
         with open(self.config_path, 'r', encoding='utf-8') as f:
@@ -180,7 +180,7 @@ class TestConfigSyncFileIO(unittest.TestCase):
         with open(self.config_path, 'w', encoding='utf-8') as f:
             f.write(corrupt)
         self._reset_config_cache()
-        self.assertEqual(get_config(self.ctx, 'calc_prompt_max_tokens'), 70)
+        self.assertEqual(get_config('calc_prompt_max_tokens'), 70)
         self.assertTrue(os.path.exists(self._backup_path()))
         with open(self.config_path, 'r', encoding='utf-8') as f:
             self.assertEqual(f.read(), corrupt)
@@ -189,7 +189,7 @@ class TestConfigSyncFileIO(unittest.TestCase):
         with open(self.config_path, 'w', encoding='utf-8') as f:
             json.dump({'text_model': 'gpt'}, f)
         self._reset_config_cache()
-        set_config(self.ctx, 'text_model', 'other')
+        set_config('text_model', 'other')
         self.assertFalse(os.path.exists(self._backup_path()))
         with open(self.config_path, 'r', encoding='utf-8') as f:
             self.assertEqual(json.load(f)['text_model'], 'other')
@@ -198,31 +198,31 @@ class TestConfigSyncFileIO(unittest.TestCase):
         if os.path.exists(self.config_path):
             os.remove(self.config_path)
         from plugin.framework.errors import ConfigError
-        self.assertEqual(get_config(self.ctx, 'calc_prompt_max_tokens'), 70)
-        self.assertEqual(get_config(self.ctx, 'prompt_lru'), [])
-        self.assertEqual(get_config(self.ctx, 'endpoint'), 'http://localhost:11434')
-        self.assertEqual(get_config(self.ctx, 'model_lru@http://localhost:11434'), [])
-        self.assertEqual(get_config_int(self.ctx, 'extension_update_check_epoch'), 0)
+        self.assertEqual(get_config('calc_prompt_max_tokens'), 70)
+        self.assertEqual(get_config('prompt_lru'), [])
+        self.assertEqual(get_config('endpoint'), 'http://localhost:11434')
+        self.assertEqual(get_config('model_lru@http://localhost:11434'), [])
+        self.assertEqual(get_config_int('extension_update_check_epoch'), 0)
         # Module-yaml keys (no WriterAgentConfig dataclass field; defaults from MODULES schema)
-        self.assertEqual(get_config_int(self.ctx, 'web_cache_max_mb'), 50)
-        self.assertEqual(get_config_int(self.ctx, 'web_cache_validity_days'), 30)
-        self.assertEqual(get_config_int(self.ctx, 'extend_selection_max_tokens'), 1000)
-        self.assertEqual(get_config_bool(self.ctx, 'chatbot.show_search_thinking'), False)
-        self.assertEqual(get_config_bool(self.ctx, 'web_research_cache_enabled'), False)
-        self.assertEqual(get_config(self.ctx, 'embeddings.folder_search_mode'), 'none')
-        self.assertEqual(get_config_int(self.ctx, 'web_research_cache_jaccard_percent'), 60)
-        self.assertEqual(get_config_int(self.ctx, 'web_research_cache_min_overlap'), 8)
-        self.assertEqual(get_config(self.ctx, 'log_level'), 'DEBUG')
+        self.assertEqual(get_config_int('web_cache_max_mb'), 50)
+        self.assertEqual(get_config_int('web_cache_validity_days'), 30)
+        self.assertEqual(get_config_int('extend_selection_max_tokens'), 1000)
+        self.assertEqual(get_config_bool('chatbot.show_search_thinking'), False)
+        self.assertEqual(get_config_bool('web_research_cache_enabled'), False)
+        self.assertEqual(get_config('embeddings.folder_search_mode'), 'none')
+        self.assertEqual(get_config_int('web_research_cache_jaccard_percent'), 60)
+        self.assertEqual(get_config_int('web_research_cache_min_overlap'), 8)
+        self.assertEqual(get_config('log_level'), 'DEBUG')
         with self.assertRaises(ConfigError) as err_ctx:
-            get_config(self.ctx, 'unknown_key')
+            get_config('unknown_key')
         self.assertEqual(err_ctx.exception.details.get('key'), 'unknown_key')
         self.assertIn('unknown_key', str(err_ctx.exception))
         with self.assertRaises(ConfigError):
-            get_config(self.ctx, 'some_new_lru')
+            get_config('some_new_lru')
         with self.assertRaises(ConfigError):
-            get_config(self.ctx, 'custom_by_endpoint')
+            get_config('custom_by_endpoint')
         with self.assertRaises(ConfigError):
-            get_config(self.ctx, 'some_custom_map')
+            get_config('some_custom_map')
 
     def test_set_config_skips_identical_value(self):
         import plugin.framework.config as cfg
@@ -232,11 +232,11 @@ class TestConfigSyncFileIO(unittest.TestCase):
         with open(self.config_path, 'w', encoding='utf-8') as f:
             json.dump({'text_model': 'gpt'}, f)
         with patch.object(global_event_bus, 'emit') as mock_emit:
-            set_config(self.ctx, 'text_model', 'gpt')
+            set_config('text_model', 'gpt')
             mock_emit.assert_not_called()
         with patch.object(global_event_bus, 'emit') as mock_emit:
-            set_config(self.ctx, 'text_model', 'other')
-            mock_emit.assert_called_once_with('config:changed', ctx=self.ctx)
+            set_config('text_model', 'other')
+            mock_emit.assert_called_once()  # ctx from _emit_config_changed_ctx
         with open(self.config_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
         self.assertEqual(data.get('text_model'), 'other')

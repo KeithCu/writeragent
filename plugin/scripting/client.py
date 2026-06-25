@@ -269,7 +269,7 @@ def _resolve_vision_timeout_sec(ctx: Any, spec: dict[str, Any] | str) -> int:
         try:
             from plugin.framework.config import get_config_int
 
-            custom = get_config_int(ctx, "vision.worker_timeout_sec")
+            custom = get_config_int("vision.worker_timeout_sec")
             if custom > 0:
                 return int(custom)
         except Exception:
@@ -376,7 +376,7 @@ def run_text_analytics(
     # (e.g. for a different multilingual model or future engine). For now only "transformers" is supported.
     try:
         from plugin.framework.config import get_config_dict
-        cfg = get_config_dict(ctx) or {}
+        cfg = get_config_dict() or {}
         model = cfg.get("text_analytics_sentiment_model")
         if model:
             if isinstance(spec, dict):

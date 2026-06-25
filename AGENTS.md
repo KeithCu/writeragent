@@ -149,6 +149,7 @@ UNO helpers are split: [`uno_context.py`](plugin/framework/uno_context.py), [`do
 
 ### Config
 
+- **`init_config(ctx)`** resolves `writeragent.json` once at bootstrap ([`bootstrap()`](plugin/main.py), [`MainBootstrapJob`](plugin/main.py)); path is cached. Config I/O (`get_config`, `set_config`, typed getters, `get_api_config`, etc.) does **not** take `ctx`—use [`get_ctx()`](plugin/framework/uno_context.py) only for UNO operations.
 - Paths: Linux `~/.config/libreoffice/{4,24}/user/writeragent.json`; macOS `~/Library/Application Support/LibreOffice/4/user/`; Windows `%APPDATA%\LibreOffice\4\user\`.
 - **Invalid JSON:** broken `writeragent.json` is copied to `writeragent.json.bak` when possible before load/repair; small typos (trailing commas, etc.) are auto-repaired on read via `json_repair`. If repair fails, reads use defaults and writes proceed from an empty dict (restore from `.bak` manually if needed).
 - **`set_config`:** skips write and `config:changed` when unchanged. Unknown keys via `get_config` / `get_config_int` → **`CONFIG_KEY_NOT_FOUND`** with `details["key"]`.

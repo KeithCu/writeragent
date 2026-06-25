@@ -111,7 +111,7 @@ def _filter_models_for_provider(models: list[str], provider: str | None) -> list
 def _effective_api_key(ctx, endpoint: str, api_key_override: str | None) -> str:
     if api_key_override is not None:
         return str(api_key_override).strip()
-    return str(get_api_key_for_endpoint(ctx, endpoint) or "").strip()
+    return str(get_api_key_for_endpoint(endpoint) or "").strip()
 
 
 _MODEL_COMBO_PLACEHOLDER_MSGIDS = (
@@ -182,7 +182,7 @@ _PLAIN_LRU_KEYS: frozenset[str] = frozenset({"prompt_lru", "image_base_size_lru"
 def _populate_plain_combobox_with_lru(ctx, ctrl, current_val, lru_key, endpoint) -> str:
     """Populate combobox from LRU only; no model fetch or text_model fallback."""
     scoped_key = f"{lru_key}@{endpoint}" if endpoint else lru_key
-    lru = get_config(ctx, scoped_key)
+    lru = get_config(scoped_key)
     if not isinstance(lru, list):
         lru = []
     curr_val_str = str(current_val or "").strip()
@@ -248,7 +248,7 @@ def populate_combobox_with_lru(
     auth_blocked = bool(provider and provider_requires_api_key(provider) and not effective_key and remote_models is None)
 
     scoped_key = f"{lru_key}@{endpoint}" if endpoint else lru_key
-    lru = get_config(ctx, scoped_key)
+    lru = get_config(scoped_key)
     if not isinstance(lru, list):
         lru = []
 
@@ -269,7 +269,7 @@ def populate_combobox_with_lru(
         elif skip_remote_fetch:
             fetched_models = None
         elif endpoint and (not provider or provider not in massive_providers):
-            fetched_models = fetch_available_models(endpoint, ctx, api_key_override=api_key_override)
+            fetched_models = fetch_available_models(endpoint, api_key_override=api_key_override)
             fetch_succeeded = fetched_models is not None
 
         if fetched_models is not None:
@@ -296,7 +296,7 @@ def populate_combobox_with_lru(
         if not curr_val_str:
             from plugin.framework.client.model_fetcher import get_text_model
 
-            curr_val_str = _sanitize_model_combobox_value(str(get_text_model(ctx) or ""))
+            curr_val_str = _sanitize_model_combobox_value(str(get_text_model() or ""))
     elif not auth_blocked and not curr_val_str and req_cap == "audio":
         if provider:
             from plugin.framework.default_models import get_provider_defaults
@@ -305,7 +305,7 @@ def populate_combobox_with_lru(
         if not curr_val_str:
             from plugin.framework.client.model_fetcher import get_stt_model
 
-            curr_val_str = _sanitize_model_combobox_value(str(get_stt_model(ctx) or ""))
+            curr_val_str = _sanitize_model_combobox_value(str(get_stt_model() or ""))
 
     is_incompatible = _is_incompatible_model_for_provider(curr_val_str, provider)
     if auth_blocked:
@@ -340,7 +340,7 @@ def populate_combobox_with_lru(
         ctrl.setText("")
     return display_val if display_val else ""
 
-def update_lru_history(ctx, val, lru_key, endpoint, max_items=None):
+def update_lru_history(val, lru_key, endpoint, max_items=None):
     """Helper to update an LRU list in config. Scoped to endpoint."""
     if max_items is None:
         from plugin.framework.config import LRU_MAX_ITEMS
@@ -350,7 +350,7 @@ def update_lru_history(ctx, val, lru_key, endpoint, max_items=None):
         return
 
     scoped_key = f"{lru_key}@{endpoint}" if endpoint else lru_key
-    lru = get_config(ctx, scoped_key)
+    lru = get_config(scoped_key)
     if not isinstance(lru, list):
         lru = []
     lru = list(lru)
@@ -358,10 +358,10 @@ def update_lru_history(ctx, val, lru_key, endpoint, max_items=None):
         lru.remove(val_str)
     lru.insert(0, val_str)
     new_lru = lru[:max_items]
-    old = get_config(ctx, scoped_key)
+    old = get_config(scoped_key)
     if isinstance(old, list) and old == new_lru:
         return
-    set_config(ctx, scoped_key, new_lru)
+    set_config(scoped_key, new_lru)
 
 
 def sync_sidebar_text_model(ctx, ctrl) -> str | None:
@@ -377,9 +377,9 @@ def sync_sidebar_text_model(ctx, ctrl) -> str | None:
         return None
     from plugin.framework.client.model_fetcher import get_text_model
 
-    if txt != get_text_model(ctx):
-        set_config(ctx, "text_model", txt)
-    update_lru_history(ctx, txt, "model_lru", get_current_endpoint(ctx))
+    if txt != get_text_model():
+        set_config("text_model", txt)
+    update_lru_history(txt, "model_lru", get_current_endpoint())
     return txt
 
 
@@ -410,7 +410,7 @@ def populate_endpoint_selector(ctx, ctrl, current_endpoint):
     current_url = normalize_endpoint_url(current_endpoint or "")
 
     preset_labels = [label for label, _ in ENDPOINT_PRESETS]
-    lru = get_config(ctx, "endpoint_lru")
+    lru = get_config("endpoint_lru")
     if not isinstance(lru, list):
         lru = []
 
@@ -444,7 +444,7 @@ def get_endpoint_options(services):
         preset_urls.add(url_norm)
         options.append({"value": url_norm, "label": label})
 
-    lru = get_config(ctx, "endpoint_lru")
+    lru = get_config("endpoint_lru")
     if not isinstance(lru, list):
         lru = []
     for url in lru:
@@ -457,9 +457,9 @@ def get_endpoint_options(services):
 def get_text_model_options(services):
     """Options provider for the simple text model combobox in Tools → Options."""
     ctx = get_ctx()
-    endpoint = get_current_endpoint(ctx)
+    endpoint = get_current_endpoint()
     scoped_key = f"model_lru@{endpoint}" if endpoint else "model_lru"
-    lru = get_config(ctx, scoped_key)
+    lru = get_config(scoped_key)
     if not isinstance(lru, list):
         lru = []
     options = [{"value": "", "label": "(none)"}]
@@ -473,9 +473,9 @@ def get_text_model_options(services):
 def get_image_model_options(services):
     """Options provider for the simple image model combobox in Tools → Options."""
     ctx = get_ctx()
-    endpoint = get_current_endpoint(ctx)
+    endpoint = get_current_endpoint()
     scoped_key = f"image_model_lru@{endpoint}" if endpoint else "image_model_lru"
-    lru = get_config(ctx, scoped_key)
+    lru = get_config(scoped_key)
     if not isinstance(lru, list):
         lru = []
     options = [{"value": "", "label": "(none)"}]
@@ -498,8 +498,8 @@ def populate_image_model_selector(
     """Adaptive population of image model selector (ComboBox) for endpoint generation."""
     if not ctrl:
         return ""
-    current_image_model = get_image_model(ctx)
-    endpoint = override_endpoint if override_endpoint is not None else get_current_endpoint(ctx)
+    current_image_model = get_image_model()
+    endpoint = override_endpoint if override_endpoint is not None else get_current_endpoint()
     return populate_combobox_with_lru(
         ctx,
         ctrl,

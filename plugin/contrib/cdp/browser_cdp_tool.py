@@ -229,7 +229,7 @@ def _resolve_cdp_endpoint(ctx: Any = None) -> str:
         browser_type = "chrome"
         if ctx is not None:
             try:
-                cfg_val = get_config(getattr(ctx, "ctx", ctx), "chatbot.web_research_browser")
+                cfg_val = get_config("chatbot.web_research_browser")
                 if cfg_val in ["chrome", "firefox"]:
                     browser_type = cfg_val
             except Exception:

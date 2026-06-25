@@ -39,10 +39,10 @@ def do_calc_extend_edit(ctx, model, input_box_fn, is_edit):
     col_range = range(area.StartColumn, area.EndColumn + 1)
     row_range = range(area.StartRow, area.EndRow + 1)
 
-    extend_sys = get_config_str(ctx, "extend_selection_system_prompt")
-    extend_max = get_config_int(ctx, "extend_selection_max_tokens")
-    edit_sys = get_config_str(ctx, "edit_selection_system_prompt")
-    edit_max = get_config_int(ctx, "edit_selection_max_new_tokens")
+    extend_sys = get_config_str("extend_selection_system_prompt")
+    extend_max = get_config_int("extend_selection_max_tokens")
+    edit_sys = get_config_str("edit_selection_system_prompt")
+    edit_max = get_config_int("edit_selection_max_new_tokens")
 
     tasks = []
     cell_range = sheet.getCellRangeByPosition(area.StartColumn, area.StartRow, area.EndColumn, area.EndRow)
@@ -73,7 +73,7 @@ def do_calc_extend_edit(ctx, model, input_box_fn, is_edit):
     if not tasks:
         return
 
-    api_config = get_api_config(ctx)
+    api_config = get_api_config()
     ok, err_msg = validate_api_config(api_config)
     if not ok:
         title = _("WriterAgent: Edit Selection (Calc)") if is_edit else _("WriterAgent: Extend Selection (Calc)")

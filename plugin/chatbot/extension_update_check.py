@@ -81,7 +81,7 @@ def run_extension_update_check(ctx: Any) -> None:
         now = time.time()
         from plugin.framework.config import get_config_int
 
-        raw_last = get_config_int(ctx, CONFIG_KEY_EXTENSION_UPDATE_CHECK_EPOCH)
+        raw_last = get_config_int(CONFIG_KEY_EXTENSION_UPDATE_CHECK_EPOCH)
         if raw_last is not None and raw_last != "":
             try:
                 last_ts = float(str(raw_last))
@@ -127,5 +127,5 @@ def run_extension_update_check(ctx: Any) -> None:
         log.warning("extension update check failed: %s", e, exc_info=True)
     finally:
         if attempted:
-            set_config(ctx, CONFIG_KEY_EXTENSION_UPDATE_CHECK_EPOCH, time.time())
+            set_config(CONFIG_KEY_EXTENSION_UPDATE_CHECK_EPOCH, time.time())
             log.info("extension update check: recorded %s in config (attempt finished)", CONFIG_KEY_EXTENSION_UPDATE_CHECK_EPOCH)

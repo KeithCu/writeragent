@@ -41,7 +41,7 @@ def invalidate_vision_availability_cache() -> None:
 
 
 def _resolve_vision_python_exe(ctx: Any) -> str | None:
-    venv_dir = get_config_str(ctx, "scripting.python_venv_path").strip()
+    venv_dir = get_config_str("scripting.python_venv_path").strip()
     if not venv_dir:
         return None
     return resolve_venv_python(venv_dir)
@@ -90,7 +90,7 @@ def vision_packages_probe_ready(ctx: Any) -> bool:
     if ctx is None:
         return False
 
-    venv_dir = get_config_str(ctx, "scripting.python_venv_path").strip()
+    venv_dir = get_config_str("scripting.python_venv_path").strip()
     if venv_dir != _cached_venv_path:
         invalidate_vision_availability_cache()
         _cached_venv_path = venv_dir

@@ -556,12 +556,12 @@ def mock_ctx(registry):
     return ctx
 
 
-def _mock_get_config_int_for_sub_agent(ctx, key):
+def _mock_get_config_int_for_sub_agent(key):
     if key == "chat_max_tokens":
         return 2048
     if key == "chat_max_tool_rounds":
         return 25
-    return _real_get_config_int(ctx, key)
+    return _real_get_config_int(key)
 
 
 @patch(

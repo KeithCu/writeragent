@@ -16,7 +16,7 @@ def _resolve_uno_ctx(ctx):
 
 class MemoryStore:
     def __init__(self, ctx):
-        self.config_dir = user_config_dir(_resolve_uno_ctx(ctx))
+        self.config_dir = user_config_dir()
         if self.config_dir is None:
             raise ConfigError("UNO context is required to resolve memory store path")
         self.memory_dir = os.path.join(self.config_dir, "memories")

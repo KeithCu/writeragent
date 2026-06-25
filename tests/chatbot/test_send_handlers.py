@@ -53,7 +53,7 @@ def test_get_mcp_url_uses_schema_keys_only():
     panel = DummyChatbotPanel()
     with patch("plugin.chatbot.send_handlers.get_config_int_safe", return_value=8765) as mock_port:
         url = panel._get_mcp_url()  # type: ignore
-    mock_port.assert_called_once_with(panel.ctx, "mcp.mcp_port")
+    mock_port.assert_called_once_with("mcp.mcp_port")
     assert url == "http://localhost:8765/mcp"
 
 
@@ -332,7 +332,7 @@ def test_web_research_tool():
                 from plugin.writer.specialized_base import DelegateToSpecializedWriter
                 tool = DelegateToSpecializedWriter()
                 with patch("plugin.framework.config.get_config", return_value="false"):
-                    def _cfg_int(ctx, key):
+                    def _cfg_int(key):
                         if key == "web_cache_max_mb":
                             return 0  # disable SQLite cache (avoids db path issues in tests)
                         if key == "chat_max_tokens":
@@ -365,7 +365,7 @@ def test_web_research_tool_stop():
                 from plugin.writer.specialized_base import DelegateToSpecializedWriter
                 tool = DelegateToSpecializedWriter()
                 with patch("plugin.framework.config.get_config", return_value="false"):
-                    def _cfg_int_stop(ctx, key):
+                    def _cfg_int_stop(key):
                         if key == "web_cache_max_mb":
                             return 0
                         if key == "chat_max_tokens":

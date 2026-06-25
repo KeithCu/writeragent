@@ -21,16 +21,16 @@ def setup_grammar_proof_tests(ctx: Any) -> None:
     global _test_ctx, _saved_enabled
     _test_ctx = ctx
     try:
-        _saved_enabled = get_config_bool(ctx, "doc.grammar_proofreader_enabled")
+        _saved_enabled = get_config_bool("doc.grammar_proofreader_enabled")
     except Exception:
         _saved_enabled = False
-    set_config(ctx, "doc.grammar_proofreader_enabled", True)
+    set_config("doc.grammar_proofreader_enabled", True)
 
 @teardown
 def teardown_grammar_proof_tests(ctx: Any) -> None:
     global _test_ctx, _saved_enabled
     if _saved_enabled is not None:
-        set_config(ctx, "doc.grammar_proofreader_enabled", _saved_enabled)
+        set_config("doc.grammar_proofreader_enabled", _saved_enabled)
     gc.cache_clear()
     gc.clear_sentence_cache()
     gc.ignore_rules_clear()

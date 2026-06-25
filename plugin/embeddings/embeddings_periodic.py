@@ -21,7 +21,7 @@ def schedule_periodic_embeddings_indexer_once(ctx: Any) -> None:
     from plugin.framework.constants import folder_search_enabled
     from plugin.framework.worker_pool import run_in_background
 
-    if not folder_search_enabled(ctx):
+    if not folder_search_enabled():
         return
     global _scheduled
     with _schedule_lock:
@@ -43,7 +43,7 @@ def run_periodic_embeddings_indexer(ctx: Any) -> None:
     log.info("embeddings periodic indexer: started (interval=%ss)", EMBEDDINGS_INDEX_INTERVAL_S)
     while True:
         time.sleep(EMBEDDINGS_INDEX_INTERVAL_S)
-        if not folder_search_enabled(ctx):
+        if not folder_search_enabled():
             continue
         model = get_active_document(ctx)
         if model is None:

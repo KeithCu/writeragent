@@ -58,11 +58,11 @@ class MCPACPProxy(AgentBackend):
         try:
             from plugin.framework.config import get_config, get_config_int_safe
 
-            path = str(get_config(self._ctx, "agent_backend.path") or "").strip()
+            path = str(get_config("agent_backend.path") or "").strip()
             if path and path.startswith("http"):
                 self._mcp_url = path
             else:
-                mcp_port = get_config_int_safe(self._ctx, "mcp.mcp_port")
+                mcp_port = get_config_int_safe("mcp.mcp_port")
                 # MCP binds localhost only; mcp.host / mcp.use_ssl are not in module.yaml.
                 self._mcp_url = mcp_endpoint_url("localhost", mcp_port, False)
         except Exception as e:

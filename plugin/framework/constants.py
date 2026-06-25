@@ -81,11 +81,11 @@ USE_SUB_AGENT = True
 _FOLDER_SEARCH_MODE_KEY = "embeddings.folder_search_mode"
 
 
-def folder_search_enabled(ctx=None) -> bool:
+def folder_search_enabled() -> bool:
     """True when cross-file corpus index (FTS + embeddings) is enabled."""
     from plugin.framework.config import get_config
 
-    val = str(get_config(ctx, _FOLDER_SEARCH_MODE_KEY) or "none").strip().lower()
+    val = str(get_config(_FOLDER_SEARCH_MODE_KEY) or "none").strip().lower()
     return val in ("hybrid", "llama_index", "zvec", "lancedb")
 
 
@@ -103,18 +103,18 @@ FOLDER_RERANK_MODEL_CHOICES = frozenset({
 DEFAULT_FOLDER_RERANK_MODEL = FOLDER_RERANK_MODEL_ENGLISH_SMALL
 
 
-def folder_rerank_enabled(ctx=None) -> bool:
+def folder_rerank_enabled() -> bool:
     """True when LlamaIndex cross-encoder rerank is enabled in Settings."""
     from plugin.framework.config import get_config_bool
 
-    return get_config_bool(ctx, FOLDER_RERANK_ENABLED_KEY)
+    return get_config_bool(FOLDER_RERANK_ENABLED_KEY)
 
 
-def resolve_folder_rerank_model(ctx=None) -> str:
+def resolve_folder_rerank_model() -> str:
     """Resolve Settings rerank model id; unknown values fall back to English MiniLM."""
     from plugin.framework.config import get_config
 
-    model = str(get_config(ctx, FOLDER_RERANK_MODEL_KEY) or DEFAULT_FOLDER_RERANK_MODEL).strip()
+    model = str(get_config(FOLDER_RERANK_MODEL_KEY) or DEFAULT_FOLDER_RERANK_MODEL).strip()
     if model in FOLDER_RERANK_MODEL_CHOICES:
         return model
     return DEFAULT_FOLDER_RERANK_MODEL
@@ -232,7 +232,7 @@ def get_chat_response_format_instructions(ctx=None) -> str:
     """
     from plugin.framework.config import get_config_bool_safe
 
-    if not get_config_bool_safe(ctx, "rich_text_control_sidebar"):
+    if not get_config_bool_safe("rich_text_control_sidebar"):
         return PLAIN_CHAT_RESPONSE_FORMAT
     return RICH_CHAT_SIDEBAR_INSTRUCTIONS
 
@@ -822,7 +822,7 @@ def get_chat_system_prompt_for_document(model, additional_instructions="", ctx=N
             from plugin.chatbot.skills import SkillStore
             from plugin.framework.config import get_config_bool_safe
 
-            if get_config_bool_safe(ctx, "chatbot.humanizer_enabled"):
+            if get_config_bool_safe("chatbot.humanizer_enabled"):
                 hstore = SkillStore(ctx)
                 hguidance = hstore.get_humanizer_guidance()
                 if hguidance:

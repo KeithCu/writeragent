@@ -74,7 +74,7 @@ def resolve_editor_python(uno_ctx: Any) -> tuple[str | None, str]:
     """Return (venv python executable, error message). Monaco requires a user venv."""
     from plugin.framework.config import get_config_str
 
-    venv_dir = get_config_str(uno_ctx, "scripting.python_venv_path").strip()
+    venv_dir = get_config_str("scripting.python_venv_path").strip()
     if not venv_dir:
         return (
             None,
@@ -401,11 +401,11 @@ class PersistentEditor:
     def _save_user_script(self, name: str, code: str) -> None:
         from plugin.framework.config import get_config, set_config
 
-        scripts = get_config(self.ctx, "saved_python_scripts")
+        scripts = get_config("saved_python_scripts")
         if not isinstance(scripts, dict):
             scripts = {}
         scripts[name] = code
-        set_config(self.ctx, "saved_python_scripts", scripts)
+        set_config("saved_python_scripts", scripts)
 
     def _dispatch_incoming(self, msg: dict[str, Any]) -> None:
         kind = message_type(msg)
@@ -425,7 +425,7 @@ class PersistentEditor:
 
                 doc = self._resolve_run_script_doc()
                 name_config_key = resolve_run_script_name_config_key(doc)
-                set_config(self.ctx, name_config_key, name)
+                set_config(name_config_key, name)
 
             self.executor.execute(_handle_select)
             return
@@ -495,7 +495,7 @@ class PersistentEditor:
                 if not name:
                     self._send_scripts_list(status_error_text=_("Script name cannot be empty."))
                     return
-                scripts = get_config(self.ctx, "saved_python_scripts")
+                scripts = get_config("saved_python_scripts")
                 if not isinstance(scripts, dict):
                     scripts = {}
                 if name in scripts and not overwrite:
@@ -531,11 +531,11 @@ class PersistentEditor:
                     return
                 from plugin.framework.config import get_config, set_config
 
-                scripts = get_config(self.ctx, "saved_python_scripts")
+                scripts = get_config("saved_python_scripts")
                 if not isinstance(scripts, dict):
                     scripts = {}
                 scripts.pop(name, None)
-                set_config(self.ctx, "saved_python_scripts", scripts)
+                set_config("saved_python_scripts", scripts)
                 log.info("editor_host: delete_script '%s' (user)", name)
                 self._send_scripts_list(status_ok_text=_("Deleted script '{0}'.").format(name))
             self.executor.execute(_handle_delete)
@@ -722,7 +722,7 @@ global_event_bus.subscribe("config:changed", _on_config_changed)
 def monaco_editor_available(ctx: Any) -> tuple[str | None, bool]:
     """Return (venv python exe, True) when Monaco can launch, else (exe or None, False)."""
     from plugin.framework.config import get_config
-    if get_config(ctx, "scripting.force_internal_script_editor"):
+    if get_config("scripting.force_internal_script_editor"):
         log.debug("monaco_editor_available: bypassed by scripting.force_internal_script_editor")
         return None, False
 

@@ -344,7 +344,7 @@ def test_cache_hit_does_not_stream_chat_append_callback():
         db_file = os.path.join(td, "writeragent_web_cache.db")
         _web_cache_set(db_file, "research", "caching unique", "Cached Answer Content", 50 * 1024 * 1024)
 
-        def _cfg_int(_c, key):
+        def _cfg_int(key):
             if key == "web_cache_validity_days":
                 return 30
             if key == "web_research_cache_jaccard_percent":
@@ -475,7 +475,7 @@ def test_web_research_agent_instructions_include_response_format():
         with patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_exec:
             mock_exec.return_value.execute_safe.return_value = "answer"
             with patch("plugin.framework.config.get_config", return_value="false"):
-                def _cfg_int(c, key):
+                def _cfg_int(key):
                     if key == "web_cache_max_mb":
                         return 0
                     if key == "chat_max_tokens":
@@ -543,7 +543,7 @@ def test_web_research_agent_instructions_include_minimal_tool_use_advice():
         with patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_exec:
             mock_exec.return_value.execute_safe.return_value = "answer"
             with patch("plugin.framework.config.get_config", return_value="false"):
-                def _cfg_int(c, key):
+                def _cfg_int(key):
                     if key == "web_cache_max_mb":
                         return 0
                     if key == "chat_max_tokens":
@@ -566,7 +566,7 @@ def test_web_research_agent_instructions_include_minimal_tool_use_advice():
         with patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_exec:
             mock_exec.return_value.execute_safe.return_value = "answer"
             with patch("plugin.framework.config.get_config", return_value="false"):
-                def _cfg_int_low(c, key):
+                def _cfg_int_low(key):
                     if key == "web_cache_max_mb":
                         return 0
                     if key == "chat_max_tokens":
@@ -603,7 +603,7 @@ def test_web_research_caching_logic(tmp_path):
     db_file = str(tmp_path / "writeragent_web_cache.db")
 
     # Set up config patches
-    def _cfg_int(_c, key):
+    def _cfg_int(key):
         if key == "web_cache_validity_days":
             return 30
         if key == "web_research_cache_jaccard_percent":
@@ -652,7 +652,7 @@ def test_web_research_caching_write(tmp_path):
     from plugin.contrib.smolagents.default_tools import _web_cache_set
     _web_cache_set(db_file, "research", "dummy", "val", 1024 * 1024)
 
-    def _cfg_int(_c, key):
+    def _cfg_int(key):
         if key == "web_cache_validity_days":
             return 30
         if key == "web_research_cache_jaccard_percent":
@@ -701,7 +701,7 @@ def test_web_research_caching_disabled_bypasses_cache(tmp_path):
     db_file = str(tmp_path / "writeragent_web_cache.db")
     _web_cache_set(db_file, "research", "caching unique", "Cached Answer Content", 50 * 1024 * 1024)
 
-    def _cfg_int(_c, key):
+    def _cfg_int(key):
         if key == "web_cache_validity_days":
             return 30
         if key == "web_research_cache_jaccard_percent":

@@ -91,8 +91,8 @@ def test_insert_latex_math_dialog_success() -> None:
         insert_latex_math_dialog(_test_ctx)
 
         # Verify configuration was saved
-        saved_latex = get_config(_test_ctx, "last_latex_input")
-        saved_display = get_config(_test_ctx, "last_latex_display_block")
+        saved_latex = get_config("last_latex_input")
+        saved_display = get_config("last_latex_display_block")
 
         assert saved_latex == latex_input
         assert saved_display is True
@@ -169,6 +169,6 @@ def test_insert_latex_math_dialog_monaco_success() -> None:
 
         # Verify the on_save closure attempted to persist via set_config (mocked to prevent
         # writing the test example "E = m c^2" into the real user profile's writeragent.json).
-        mock_set_config.assert_any_call(_test_ctx, "last_latex_input", latex_input)
-        mock_set_config.assert_any_call(_test_ctx, "last_latex_display_block", True)
+        mock_set_config.assert_any_call("last_latex_input", latex_input)
+        mock_set_config.assert_any_call("last_latex_display_block", True)
 

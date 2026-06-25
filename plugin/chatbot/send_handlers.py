@@ -124,7 +124,7 @@ class SendHandlersMixin:
         if not self.client:
 
 
-            api_config = get_api_config(self.ctx)
+            api_config = get_api_config()
             self.client = LlmClient(api_config, self.ctx)
 
         cl = self.client
@@ -238,7 +238,7 @@ class SendHandlersMixin:
                 try:
 
 
-                    update_lru_history(self.ctx, base_size_val, "image_base_size_lru", "")
+                    update_lru_history(base_size_val, "image_base_size_lru", "")
                 except Exception as elru:
 
 
@@ -315,7 +315,7 @@ class SendHandlersMixin:
 
 
 
-        backend_id = normalize_backend_id(get_config(self.ctx, "agent_backend.backend_id"))
+        backend_id = normalize_backend_id(get_config("agent_backend.backend_id"))
         adapter = get_backend(backend_id, ctx=self.ctx)
         if not adapter:
 
@@ -347,7 +347,7 @@ class SendHandlersMixin:
 
                 # Check if MCP is enabled; if so, tell the agent about it.
                 mcp_instructions = ""
-                if mcp_url and as_bool(get_config(self.ctx, "mcp.mcp_enabled")):
+                if mcp_url and as_bool(get_config("mcp.mcp_enabled")):
                     mcp_instructions = (
                         f"\n\n[MCP SERVER AVAILABLE]\nA Model Context Protocol (MCP) server is running at: {mcp_url}\nYou can discover and use all LibreOffice tools (Writer, Calc, Draw) via this server.\nTarget the current document by passing the 'X-Document-URL' header: {document_url}\n"
                     )
@@ -356,7 +356,7 @@ class SendHandlersMixin:
                 lean_system_prompt = f"{core_dirs}\n\nYou are currently interacting with a LibreOffice document.\n{mcp_instructions}\nPlease proceed with the user's request."
 
                 # Add optional instructions from settings
-                extra = str(get_config(self.ctx, "additional_instructions") or "").strip()
+                extra = str(get_config("additional_instructions") or "").strip()
                 if extra:
                     lean_system_prompt += "\n\n" + extra
 
@@ -385,7 +385,7 @@ class SendHandlersMixin:
 
             # Option to auto-approve web research or other tools from external agents
             try:
-                prompt_for_research = as_bool(get_config(self.ctx, "chatbot.prompt_for_web_research"))
+                prompt_for_research = as_bool(get_config("chatbot.prompt_for_web_research"))
             except Exception:
                 prompt_for_research = True
 
@@ -499,7 +499,7 @@ class SendHandlersMixin:
         try:
 
 
-            show_thinking = as_bool(get_config(self.ctx, "chatbot.show_search_thinking"))
+            show_thinking = as_bool(get_config("chatbot.show_search_thinking"))
         except (ValueError, TypeError) as e:
             log.debug("Failed to read 'chatbot.show_search_thinking' from config: %s", e)
             show_thinking = False
@@ -722,7 +722,7 @@ class SendHandlersMixin:
         try:
             from plugin.mcp.server import mcp_endpoint_url
 
-            port = get_config_int_safe(self.ctx, "mcp.mcp_port")
+            port = get_config_int_safe("mcp.mcp_port")
             # MCP binds localhost only (mcp/module.yaml); host/ssl are not user settings.
             return mcp_endpoint_url("localhost", port, False)
         except (ValueError, TypeError) as e:

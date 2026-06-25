@@ -33,9 +33,9 @@ class EmbeddingBatch:
     indices: list[int]
 
 
-def get_embedding_model(ctx: Any) -> str:
+def get_embedding_model() -> str:
     """Return configured local embedding model id (HuggingFace sentence-transformers name)."""
-    val = str(get_config(ctx, "embedding_model") or "").strip()
+    val = str(get_config("embedding_model") or "").strip()
     return val or DEFAULT_EMBEDDING_MODEL
 
 
@@ -73,7 +73,7 @@ def embed_texts(ctx: Any, texts: list[str], *, model: str | None = None) -> Embe
 
     Empty strings are skipped on the worker side; see ``EmbeddingBatch.indices`` for alignment.
     """
-    provider = str(get_config(ctx, "embedding_provider") or "local").strip().lower() or "local"
+    provider = str(get_config("embedding_provider") or "local").strip().lower() or "local"
     if provider != "local":
         raise ConfigError(
             f"Embedding provider {provider!r} is not implemented yet. Use embedding_provider=local with a configured Python venv.",
@@ -81,7 +81,7 @@ def embed_texts(ctx: Any, texts: list[str], *, model: str | None = None) -> Embe
             details={"provider": provider},
         )
 
-    model_name = (model or get_embedding_model(ctx)).strip()
+    model_name = (model or get_embedding_model()).strip()
     if not model_name:
         raise ConfigError("No embedding model configured.", code="EMBEDDING_MODEL_MISSING")
 

@@ -269,7 +269,7 @@ def ensure_writeragent_proofreader_configured(ctx: Any) -> None:
     log.debug("[grammar] ensure_proofreader_selection: entry")
     from plugin.framework.config import is_grammar_enabled
 
-    enabled = is_grammar_enabled(ctx)
+    enabled = is_grammar_enabled()
     if not enabled:
         log.info("[grammar] ensure_proofreader_selection: Doc-tab AI grammar off (enable on Doc tab to use the checker)")
         return
@@ -395,7 +395,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         """Return BCP47 locale if grammar checking is enabled and locale is supported, else None."""
         from plugin.framework.config import is_grammar_enabled
 
-        enabled = is_grammar_enabled(self.ctx)
+        enabled = is_grammar_enabled()
 
         loc_raw = _locale_key(a_locale)
         grammar_bcp47 = normalize_uno_locale_to_bcp47(a_locale)

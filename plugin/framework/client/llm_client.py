@@ -428,7 +428,7 @@ class OpenRouterShim(OpenAIShim):
 
 
 class LlmClient:
-    """LLM API client. Takes config dict from get_api_config(ctx) and UNO ctx."""
+    """LLM API client. Takes config dict from get_api_config() and UNO ctx."""
 
     def __init__(self, config, ctx, cancellation_scope=None):
         self.config = config
@@ -775,7 +775,7 @@ class LlmClient:
         model_name = model or self.config.get("stt_model") or "whisper-1"
 
         # 1. Check if the STT model itself supports native audio
-        if has_native_audio(self.ctx, model_name, self._endpoint()):
+        if has_native_audio(model_name, self._endpoint()):
             log.debug("Using multimodal chat for transcription fallback (model: %s, level=logging.WARNING)" % model_name)
             try:
                 with open(wav_path, "rb") as f:

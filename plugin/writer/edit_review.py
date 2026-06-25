@@ -65,7 +65,7 @@ def get_agent_edit_review_mode(ctx: Any) -> str:
     """Read ``doc.agent_edit_review_mode`` (off / record / wait); unknown values → off."""
     from plugin.framework.config import get_config
 
-    raw = get_config(ctx, "doc.agent_edit_review_mode")
+    raw = get_config("doc.agent_edit_review_mode")
     if isinstance(raw, str):
         mode = raw.strip().lower()
         if mode in _AGENT_EDIT_REVIEW_MODES:
@@ -88,7 +88,7 @@ def edit_review_wait_seconds(ctx: Any) -> int:
 
     if get_agent_edit_review_mode(ctx) != "wait":
         return 0
-    return max(0, get_config_int_safe(ctx, "doc.edit_review_timeout"))
+    return max(0, get_config_int_safe("doc.edit_review_timeout"))
 
 
 class _RedlineScanAbort(Exception):

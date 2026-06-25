@@ -36,16 +36,16 @@ def do_extend_selection(ctx, model, input_box_fn):
     if len(original_text) == 0:
         return
 
-    extra_instructions = get_config_str(ctx, "additional_instructions")
+    extra_instructions = get_config_str("additional_instructions")
     system_prompt = extra_instructions
-    current_endpoint = get_current_endpoint(ctx)
-    update_lru_history(ctx, system_prompt, "prompt_lru", "")
+    current_endpoint = get_current_endpoint()
+    update_lru_history(system_prompt, "prompt_lru", "")
     prompt = original_text
-    max_tokens = get_config_int(ctx, "extend_selection_max_tokens")
-    model_val = get_text_model(ctx)
-    update_lru_history(ctx, model_val, "model_lru", current_endpoint)
+    max_tokens = get_config_int("extend_selection_max_tokens")
+    model_val = get_text_model()
+    update_lru_history(model_val, "model_lru", current_endpoint)
 
-    api_config = get_api_config(ctx)
+    api_config = get_api_config()
     ok, err_msg = validate_api_config(api_config)
     if not ok:
         msgbox(ctx, _("WriterAgent: Extend Selection"), _(err_msg))
@@ -87,17 +87,17 @@ def do_edit_selection(ctx, model, input_box_fn):
         if not user_input:
             return
         if extra_instructions:
-            set_config(ctx, "additional_instructions", extra_instructions)
-            update_lru_history(ctx, extra_instructions, "prompt_lru", "")
+            set_config("additional_instructions", extra_instructions)
+            update_lru_history(extra_instructions, "prompt_lru", "")
     except Exception as e:
         msgbox(ctx, _("WriterAgent: Edit Selection"), _(format_error_message(e)))
         return
 
     prompt = build_writer_rewrite_prompt(original_text, user_input)
     system_prompt = extra_instructions or ""
-    max_tokens = len(original_text) + get_config_int(ctx, "edit_selection_max_new_tokens")
+    max_tokens = len(original_text) + get_config_int("edit_selection_max_new_tokens")
 
-    api_config = get_api_config(ctx)
+    api_config = get_api_config()
     ok, err_msg = validate_api_config(api_config)
     if not ok:
         msgbox(ctx, _("WriterAgent: Edit Selection"), _(err_msg))

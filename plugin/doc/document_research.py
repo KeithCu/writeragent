@@ -125,7 +125,7 @@ def get_document_research_workflow_hint(ctx=None) -> str:
         "or topic with search_in_document — do not rely on para_index or character offsets as exact LO coordinates.\n"
         "If search_nearby_files returns status indexing, retry after the background index finishes.\n"
     )
-    if folder_search_enabled(ctx):
+    if folder_search_enabled():
         return common + index_hint
     return common + grep_hint
 
@@ -135,7 +135,7 @@ def filter_document_research_discovery_tools(tools: list[ToolBase], ctx) -> list
     from plugin.framework.constants import folder_search_enabled
 
     hidden: set[str] = {"search_embeddings"}
-    if folder_search_enabled(ctx):
+    if folder_search_enabled():
         hidden.add("grep_nearby_files")
     else:
         hidden.add("search_nearby_files")

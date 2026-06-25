@@ -40,7 +40,7 @@ log = logging.getLogger(__name__)
 def get_settings_field_specs(ctx):
     """Return field specs for Settings dialog (single source for dialog and apply keys)."""
     log.debug("get_settings_field_specs entry")
-    current_endpoint = get_current_endpoint(ctx)
+    current_endpoint = get_current_endpoint()
     
     field_specs = []
     field_specs.extend(_get_core_field_specs(ctx, current_endpoint))
@@ -52,29 +52,29 @@ def get_settings_field_specs(ctx):
 
 def _get_core_field_specs(ctx, current_endpoint):
     return [
-        {"name": "endpoint", "value": get_config_str(ctx, "endpoint")},
-        {"name": "request_timeout", "value": str(get_config_int(ctx, "request_timeout")), "type": "int"},
-        {"name": "text_model", "value": str(get_config(ctx, "text_model") or get_config(ctx, "model") or "")},
-        {"name": "api_key", "value": str(get_api_key_for_endpoint(ctx, current_endpoint))},
-        {"name": "temperature", "value": str(get_config_float(ctx, "temperature")), "type": "float"},
-        {"name": "chat_max_tokens", "value": str(get_config_int(ctx, "chat_max_tokens")), "type": "int"},
-        {"name": "additional_instructions", "value": get_config_str(ctx, "additional_instructions")},
-        {"name": "stt_model", "value": str(get_config(ctx, "stt_model") or "")},
+        {"name": "endpoint", "value": get_config_str("endpoint")},
+        {"name": "request_timeout", "value": str(get_config_int("request_timeout")), "type": "int"},
+        {"name": "text_model", "value": str(get_config("text_model") or get_config("model") or "")},
+        {"name": "api_key", "value": str(get_api_key_for_endpoint(current_endpoint))},
+        {"name": "temperature", "value": str(get_config_float("temperature")), "type": "float"},
+        {"name": "chat_max_tokens", "value": str(get_config_int("chat_max_tokens")), "type": "int"},
+        {"name": "additional_instructions", "value": get_config_str("additional_instructions")},
+        {"name": "stt_model", "value": str(get_config("stt_model") or "")},
         # Text analytics sentiment (JSON overridable; for now only transformers engine with multilingual model).
-        {"name": "text_analytics_sentiment_model", "value": str(get_config(ctx, "text_analytics_sentiment_model") or "")},
-        {"name": "text_analytics_sentiment_engine", "value": str(get_config(ctx, "text_analytics_sentiment_engine") or "")},
+        {"name": "text_analytics_sentiment_model", "value": str(get_config("text_analytics_sentiment_model") or "")},
+        {"name": "text_analytics_sentiment_engine", "value": str(get_config("text_analytics_sentiment_engine") or "")},
     ]
 
 
 def _get_image_field_specs(ctx):
     return [
-        {"name": "image_model", "value": str(get_image_model(ctx))},
-        {"name": "image_base_size", "value": str(get_config_int(ctx, "image_base_size")), "type": "int"},
-        {"name": "image_default_aspect", "value": get_config_str(ctx, "image_default_aspect")},
-        {"name": "image_steps", "value": str(get_config_int(ctx, "image_steps")), "type": "int"},
-        {"name": "image_auto_gallery", "value": "true" if get_config_bool(ctx, "image_auto_gallery") else "false", "type": "bool"},
-        {"name": "image_insert_frame", "value": "true" if get_config_bool(ctx, "image_insert_frame") else "false", "type": "bool"},
-        {"name": "seed", "value": get_config_str(ctx, "seed")},
+        {"name": "image_model", "value": str(get_image_model())},
+        {"name": "image_base_size", "value": str(get_config_int("image_base_size")), "type": "int"},
+        {"name": "image_default_aspect", "value": get_config_str("image_default_aspect")},
+        {"name": "image_steps", "value": str(get_config_int("image_steps")), "type": "int"},
+        {"name": "image_auto_gallery", "value": "true" if get_config_bool("image_auto_gallery") else "false", "type": "bool"},
+        {"name": "image_insert_frame", "value": "true" if get_config_bool("image_insert_frame") else "false", "type": "bool"},
+        {"name": "seed", "value": get_config_str("seed")},
     ]
 
 
@@ -108,7 +108,7 @@ def _get_module_field_specs(ctx):
                 ctrl_id = f"{prefix}__{field_name}"
                 config_key = f"{m_name}.{field_name}"
 
-                val = get_config(ctx, config_key)
+                val = get_config(config_key)
                 opts = schema.get("options", [])
 
                 # For select/combo with value/label options, use label for display so dropdown shows correctly
@@ -154,12 +154,12 @@ def apply_settings_result(ctx, result):
     int_field_names = {f["name"] for f in field_specs if f.get("type") == "int"}
 
     # Resolve endpoint first
-    effective_endpoint = endpoint_from_selector_text(result.get("endpoint", "")) if "endpoint" in result else get_current_endpoint(ctx)
+    effective_endpoint = endpoint_from_selector_text(result.get("endpoint", "")) if "endpoint" in result else get_current_endpoint()
     if "endpoint" in result and effective_endpoint:
-        set_config(ctx, "endpoint", effective_endpoint)
-        update_lru_history(ctx, effective_endpoint, "endpoint_lru", "")
+        set_config("endpoint", effective_endpoint)
+        update_lru_history(effective_endpoint, "endpoint_lru", "")
     
-    current_endpoint = effective_endpoint or get_current_endpoint(ctx)
+    current_endpoint = effective_endpoint or get_current_endpoint()
 
     # Apply most keys directly
     _apply_skip = ("endpoint", "api_key")
@@ -201,11 +201,11 @@ def apply_settings_result(ctx, result):
             except (ValueError, TypeError):
                 pass
 
-        set_config(ctx, save_key, val)
+        set_config(save_key, val)
         _update_lru_for_key(ctx, key, val, current_endpoint)
 
     if "api_key" in result:
-        set_api_key_for_endpoint(ctx, current_endpoint, result["api_key"])
+        set_api_key_for_endpoint(current_endpoint, result["api_key"])
 
     global_event_bus.emit("config:changed", ctx=ctx)
 
@@ -217,15 +217,15 @@ def _update_lru_for_key(ctx, key, val, current_endpoint):
         return
         
     if key == "text_model":
-        update_lru_history(ctx, val, "model_lru", current_endpoint)
+        update_lru_history(val, "model_lru", current_endpoint)
     elif key == "stt_model":
-        update_lru_history(ctx, val, "audio_model_lru", current_endpoint)
+        update_lru_history(val, "audio_model_lru", current_endpoint)
     elif key == "image_model":
-        set_image_model(ctx, val)
+        set_image_model(val)
     elif key == "additional_instructions":
-        update_lru_history(ctx, val, "prompt_lru", "")
+        update_lru_history(val, "prompt_lru", "")
     elif key == "image_base_size":
-        update_lru_history(ctx, str(val), "image_base_size_lru", "")
+        update_lru_history(str(val), "image_base_size_lru", "")
 
 
 def _call_options_provider(ctx, provider_path):

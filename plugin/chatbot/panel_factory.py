@@ -424,24 +424,24 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         prompt_selector = get_optional("prompt_selector")
         image_model_selector = get_optional("image_model_selector")
 
-        current_model = get_text_model(self.ctx)
-        extra_instructions = get_config(self.ctx, "additional_instructions")
+        current_model = get_text_model()
+        extra_instructions = get_config("additional_instructions")
 
-        current_endpoint = get_current_endpoint(self.ctx)
+        current_endpoint = get_current_endpoint()
 
         if model_selector:
             set_val = populate_combobox_with_lru(self.ctx, model_selector, current_model, "model_lru", current_endpoint)
             if set_val != current_model:
-                set_config(self.ctx, "text_model", set_val)
+                set_config("text_model", set_val)
         if prompt_selector:
             populate_combobox_with_lru(self.ctx, prompt_selector, extra_instructions, "prompt_lru", "")
 
         # Refresh visual (image) model via shared helper; persist correction if strict replaced value
         if image_model_selector:
-            current_image = get_image_model(self.ctx)
+            current_image = get_image_model()
             set_image_val = populate_image_model_selector(self.ctx, image_model_selector)
             if set_image_val != current_image:
-                set_image_model(self.ctx, set_image_val, update_lru=False)
+                set_image_model(set_image_val, update_lru=False)
         chat_mode_selector = get_optional("chat_mode_selector")
         if chat_mode_selector:
             try:
@@ -467,7 +467,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             if not root or not hasattr(root, "getControl"):
                 return
 
-            backend_id = normalize_backend_id(get_config(self.ctx, "agent_backend.backend_id"))
+            backend_id = normalize_backend_id(get_config("agent_backend.backend_id"))
             is_external = bool(backend_id and backend_id != "builtin")
 
             ctrl = get_optional_control(root, "backend_indicator")
@@ -510,19 +510,19 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         """Initializes model selectors and their sync listeners."""
         from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru, populate_image_model_selector
 
-        current_model = get_text_model(self.ctx)
-        current_endpoint = get_current_endpoint(self.ctx)
+        current_model = get_text_model()
+        current_endpoint = get_current_endpoint()
 
         if model_selector:
             set_model_val = populate_combobox_with_lru(self.ctx, model_selector, current_model, "model_lru", current_endpoint)
             if set_model_val != current_model:
-                set_config(self.ctx, "text_model", set_model_val)
+                set_config("text_model", set_model_val)
 
         if image_model_selector:
-            current_image = get_image_model(self.ctx)
+            current_image = get_image_model()
             set_image_val = populate_image_model_selector(self.ctx, image_model_selector)
             if set_image_val != current_image:
-                set_image_model(self.ctx, set_image_val, update_lru=False)
+                set_image_model(set_image_val, update_lru=False)
 
         if model_selector:
 
@@ -559,9 +559,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     txt = image_model_selector.getText()
                     if not txt:
                         return
-                    if txt == str(get_config(self.ctx, "image_model") or "").strip():
+                    if txt == str(get_config("image_model") or "").strip():
                         return
-                    set_image_model(self.ctx, txt, update_lru=False)
+                    set_image_model(txt, update_lru=False)
 
             image_model_selector.addItemListener(ImageModelSyncListener(self.ctx))
 
@@ -593,12 +593,12 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
         if aspect_ratio_selector:
             aspect_ratio_selector.addItems(("Square", "Landscape (16:9)", "Portrait (9:16)", "Landscape (3:2)", "Portrait (2:3)"), 0)
-            aspect_ratio_selector.setText(get_config(self.ctx, "image_default_aspect") or "Square")
+            aspect_ratio_selector.setText(get_config("image_default_aspect") or "Square")
 
         if base_size_input:
             from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru
 
-            populate_combobox_with_lru(self.ctx, base_size_input, str(get_config(self.ctx, "image_base_size")), "image_base_size_lru", "")
+            populate_combobox_with_lru(self.ctx, base_size_input, str(get_config("image_base_size")), "image_base_size_lru", "")
 
         def update_base_size_label(aspect_str):
 

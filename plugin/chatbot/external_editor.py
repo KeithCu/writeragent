@@ -15,7 +15,7 @@ import shutil
 import subprocess
 import sys
 
-from plugin.framework.config import _config_path
+from plugin.framework.config import init_config, _config_path
 from plugin.chatbot.dialogs import msgbox
 from plugin.framework.i18n import _
 
@@ -76,7 +76,8 @@ def _popen_detached(argv: list[str]) -> None:
 def open_writeragent_json_in_editor(ctx) -> None:
     """Open ``writeragent.json`` in an external editor (best-effort by OS)."""
     try:
-        path = _config_path(ctx)
+        init_config(ctx)
+        path = _config_path()
     except Exception as e:
         msgbox(ctx, _("Error"), str(e))
         return

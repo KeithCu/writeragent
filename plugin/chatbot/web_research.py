@@ -207,18 +207,18 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
         unique_key = _get_unique_words_key(query_str, snowball_lang=stem_lang)
 
         from plugin.framework.config import get_config_bool_safe, get_config_int, user_config_dir, get_config_int_safe
-        cache_enabled = get_config_bool_safe(ctx.ctx, "web_research_cache_enabled")
-        udir = user_config_dir(ctx.ctx)
+        cache_enabled = get_config_bool_safe("web_research_cache_enabled")
+        udir = user_config_dir()
         cache_path = os.path.join(udir, "writeragent_web_cache.db") if udir else None
-        cache_max_age_days = get_config_int(ctx.ctx, "web_cache_validity_days")
+        cache_max_age_days = get_config_int("web_cache_validity_days")
 
         if cache_enabled and cache_path and os.path.exists(cache_path) and unique_key:
             try:
                 from plugin.chatbot.web_research_cache import lookup_research_cache
                 from plugin.framework.i18n import _
 
-                jaccard_percent = get_config_int(ctx.ctx, "web_research_cache_jaccard_percent")
-                min_overlap = get_config_int(ctx.ctx, "web_research_cache_min_overlap")
+                jaccard_percent = get_config_int("web_research_cache_jaccard_percent")
+                min_overlap = get_config_int("web_research_cache_min_overlap")
                 hit = lookup_research_cache(
                     cache_path,
                     unique_key,
@@ -263,19 +263,19 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
         if status_callback:
             status_callback("Sub-agent starting web search: " + str(query or ""))
 
-        config = get_api_config(ctx.ctx)
-        max_tokens = get_config_int(ctx.ctx, "chat_max_tokens")
-        max_steps = get_config_int(ctx.ctx, "chatbot.max_tool_rounds")
+        config = get_api_config()
+        max_tokens = get_config_int("chat_max_tokens")
+        max_steps = get_config_int("chatbot.max_tool_rounds")
 
-        udir = user_config_dir(ctx.ctx)
-        raw_mb = get_config_int(ctx.ctx, "web_cache_max_mb")
+        udir = user_config_dir()
+        raw_mb = get_config_int("web_cache_max_mb")
         cache_max_mb = 0 if raw_mb <= 0 else max(1, min(500, raw_mb))
         cache_path = os.path.join(udir, "writeragent_web_cache.db") if (udir and cache_max_mb > 0) else None
 
         from plugin.framework.config import get_config
         browser_type = "off"
         try:
-            val = get_config(ctx.ctx, "chatbot.web_research_browser")
+            val = get_config("chatbot.web_research_browser")
             if isinstance(val, str):
                 browser_type = val
         except Exception:
@@ -341,7 +341,7 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
         try:
             from plugin.framework.config import get_config, as_bool
 
-            prompt_for_web_research = as_bool(get_config(ctx.ctx, "chatbot.prompt_for_web_research"))
+            prompt_for_web_research = as_bool(get_config("chatbot.prompt_for_web_research"))
         except (ValueError, TypeError):
             pass
 
@@ -402,7 +402,7 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
             if isinstance(final_ans, dict) and "status" in final_ans:
                 if final_ans.get("status") == "ok" and cache_enabled and cache_path and unique_key:
                     try:
-                        raw_mb = get_config_int_safe(ctx.ctx, "web_cache_max_mb")
+                        raw_mb = get_config_int_safe("web_cache_max_mb")
                         cache_max_mb = 0 if raw_mb <= 0 else max(1, min(500, raw_mb))
                         cache_fields = _write_research_cache(ctx, cache_path, unique_key, str(final_ans.get("result", "")), cache_max_mb, cache_max_age_days, stem_lang)
                     except Exception as e:
@@ -414,7 +414,7 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
             result_str = str(final_ans)
             if cache_enabled and cache_path and unique_key:
                 try:
-                    raw_mb = get_config_int_safe(ctx.ctx, "web_cache_max_mb")
+                    raw_mb = get_config_int_safe("web_cache_max_mb")
                     cache_max_mb = 0 if raw_mb <= 0 else max(1, min(500, raw_mb))
                     cache_fields = _write_research_cache(ctx, cache_path, unique_key, result_str, cache_max_mb, cache_max_age_days, stem_lang)
                 except Exception as e:

@@ -79,7 +79,7 @@ class TestChatModelLogic(unittest.TestCase):
     def test_do_send_updates_model(self, mock_llm, mock_get_endpoint, mock_get_config, mock_set_image, mock_sync):
         mock_sync.return_value = "new-model-xyz"
         mock_get_endpoint.return_value = "http://x"
-        mock_get_config.side_effect = lambda ctx, key, default=None: 0.7 if key == "temperature" else default
+        mock_get_config.side_effect = lambda key, default=None: 0.7 if key == "temperature" else default
 
         set_control_text(self.query_control, "Hello AI")
         self.model_selector.getText.return_value = "new-model-xyz"
@@ -104,7 +104,7 @@ class TestChatModelLogic(unittest.TestCase):
         set_control_text(self.query_control, "Hello AI")
         self.model_selector.getText.return_value = "new-model-xyz"
         self.image_model_selector.getText.return_value = "new-image-model-xyz"
-        mock_get_config.side_effect = lambda ctx, key, default=None: 0.7 if key == "temperature" else default
+        mock_get_config.side_effect = lambda key, default=None: 0.7 if key == "temperature" else default
         mock_get_current_endpoint.return_value = "http://x"
 
         doc_mock = MagicMock(spec=["getText", "supportsService"])

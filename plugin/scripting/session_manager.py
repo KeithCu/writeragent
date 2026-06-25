@@ -29,7 +29,7 @@ _SESSION_MODE_KEY = "scripting.python_session_mode"
 
 def python_session_mode(ctx: Any) -> str:
     """Return ``isolated`` or ``shared`` from config (default ``isolated``)."""
-    mode = (get_config_str(ctx, _SESSION_MODE_KEY) or "isolated").strip().lower()
+    mode = (get_config_str(_SESSION_MODE_KEY) or "isolated").strip().lower()
     if mode == "shared":
         return "shared"
     return "isolated"

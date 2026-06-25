@@ -299,9 +299,9 @@ class SmolAgentExecutor:
 def build_toolcalling_agent(ctx: ToolContext, tools: Sequence[SmolTool], *, instructions: str, final_answer_tool_name: str, examples_block: str, status_callback: object | None = None) -> ToolCallingAgent:
     """Shared construction for smolagents runs (same config as main chat: model, max_tokens, max_steps)."""
     uno_ctx = ctx.ctx
-    config = get_api_config(uno_ctx)
-    max_tokens = get_config_int(uno_ctx, "chat_max_tokens")
-    max_steps = get_config_int(uno_ctx, "chatbot.max_tool_rounds")
+    config = get_api_config()
+    max_tokens = get_config_int("chat_max_tokens")
+    max_steps = get_config_int("chatbot.max_tool_rounds")
 
     stop_checker = getattr(ctx, "stop_checker", None)
     cancel_scope = getattr(ctx, "send_cancellation", None)

@@ -53,7 +53,7 @@ class SearchEmbeddings(ToolBase):
         from plugin.framework.constants import folder_search_enabled
         from plugin.framework.queue_executor import execute_on_main_thread
 
-        if not folder_search_enabled(ctx.ctx):
+        if not folder_search_enabled():
             return self._tool_error(
                 "Cross-file search is disabled. Enable Embeddings + FTS in Settings → Embeddings.",
                 code="FOLDER_SEARCH_DISABLED",
@@ -90,7 +90,7 @@ class SearchEmbeddings(ToolBase):
                 return {"status": "error", "message": resolve_err}
 
             # Mode-aware empty check so zvec/lancedb work side-by-side without sqlite corpus
-            mode = str(get_config(ctx.ctx, "embeddings.folder_search_mode") or "none").strip().lower()
+            mode = str(get_config("embeddings.folder_search_mode") or "none").strip().lower()
             looks_empty = False
             if mode == "zvec":
                 zpath = zvec_collection_path(listing_root, create_parent=False)
@@ -111,7 +111,7 @@ class SearchEmbeddings(ToolBase):
                     "message": "Folder index is building in the background. Retry search_embeddings shortly.",
                 }
 
-            model = get_embedding_model(ctx.ctx)
+            model = get_embedding_model()
             # For zvec/lancedb mode, pass the corresponding collection path string in the 'db_path' slot;
             # the backend in the venv treats the path as its collection root.
             search_path: str

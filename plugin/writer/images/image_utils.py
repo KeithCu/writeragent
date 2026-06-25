@@ -80,7 +80,7 @@ class EndpointImageProvider(ImageProvider):
             use_dedicated = False
             try:
                 from plugin.framework.client.model_fetcher import is_image_only_model
-                if is_image_only_model(self.client._endpoint(), model, self.ctx):
+                if is_image_only_model(self.client._endpoint(), model):
                     use_dedicated = True
             except Exception:
                 pass
@@ -170,9 +170,9 @@ class ImageService:
         from plugin.framework.config import get_api_config
         from plugin.framework.client.model_fetcher import get_image_model
 
-        api_config = get_api_config(self.ctx).copy()
+        api_config = get_api_config().copy()
         cfg = self.config or {}
-        api_config["model"] = (cfg.get("image_model") or "").strip() or get_image_model(self.ctx)
+        api_config["model"] = (cfg.get("image_model") or "").strip() or get_image_model()
         return EndpointImageProvider(api_config, self.ctx)
 
     def generate_image(self, prompt, provider_name=None, status_callback=None, **kwargs):
@@ -181,8 +181,8 @@ class ImageService:
             raise ValueError(f"Unknown provider: {provider_name}")
 
         # Merge configuration defaults with kwargs
-        base_size = get_config_int(self.ctx, "image_base_size")
-        steps = get_config_int(self.ctx, "image_steps")
+        base_size = get_config_int("image_base_size")
+        steps = get_config_int("image_steps")
 
         from typing import Any
 

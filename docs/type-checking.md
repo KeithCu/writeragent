@@ -62,7 +62,7 @@ All three tools share **`types-unopy`**, **`make fix-uno`**, and the same **`plu
 
 ### Config and JSON-shaped values
 
-- **`reportArgumentType`** on **`int(...)`**: **`get_config(ctx, key)`** is effectively **JSON-shaped** (**`Any`** / wide unions). Pyright rejects **`int(get_config(...))`** when the inferred type includes non-numeric shapes. **Fix**: use **`get_config_int` / `get_config_str`** with an explicit **`-> int`** (or **`str`**) helper signature (**`config.py`**, call sites such as **`prompt_function.py`** for `=PROMPT()`).
+- **`reportArgumentType`** on **`int(...)`**: **`get_config(key)`** is effectively **JSON-shaped** (**`Any`** / wide unions). Pyright rejects **`int(get_config(...))`** when the inferred type includes non-numeric shapes. **Fix**: use **`get_config_int` / `get_config_str`** with an explicit **`-> int`** (or **`str`**) helper signature (**`config.py`**, call sites such as **`prompt_function.py`** for `=PROMPT()`).
 
 ### `dict` payload widening
 
@@ -80,7 +80,7 @@ All three tools share **`types-unopy`**, **`make fix-uno`**, and the same **`plu
 ### Optional modules and guards
 
 - **`sqlite3`** may be typed as optional; Pyright wants **`assert sqlite3 is not None`** on paths that use it after **`HAS_SQLITE`**.
-- **`user_config_dir(ctx)`** as **`str | None`**: filesystem stores should **`raise ConfigError`** rather than joining on **`None`** (**`MemoryStore`**, **`SkillsStore`**).
+- **`user_config_dir()`** as **`str | None`**: filesystem stores should **`raise ConfigError`** rather than joining on **`None`** (**`MemoryStore`**, **`SkillsStore`**).
 
 ### smolagents and FSM helpers
 

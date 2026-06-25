@@ -566,10 +566,10 @@ def _run_grammar_check(
 
 def _worker_batch_gates(ctx: Any, items: list[GrammarWorkItem]) -> bool:
     """Return False when the batch should not run (grammar off or agent pause)."""
-    if not config.is_grammar_enabled(ctx):
+    if not config.is_grammar_enabled():
         grammar_obs("worker_batch_skip", reason="grammar_disabled", item_count=len(items))
         return False
-    pause_during_agent = config.get_config_bool_safe(ctx, "doc.grammar_proofreader_pause_during_agent")
+    pause_during_agent = config.get_config_bool_safe("doc.grammar_proofreader_pause_during_agent")
     if pause_during_agent and queue_executor.is_agent_active():
         grammar_obs("worker_batch_skip", reason="pause_during_agent", item_count=len(items))
         return False
@@ -700,13 +700,13 @@ def run_llm_and_cache_batch(
         max_tok = grammar_proofread_locale.GRAMMAR_PROOFREAD_MAX_RESPONSE_TOKENS
         max_chars = grammar_proofread_locale.GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS
         try:
-            model = model_fetcher.get_grammar_model(ctx)
+            model = model_fetcher.get_grammar_model()
         except Exception as e:
             log.warning("[grammar] worker: model resolution: %s", e, exc_info=True)
             model = ""
 
-        client = llm_client.LlmClient(config.get_api_config(ctx), ctx)
-        batch_size = config.get_config_int_safe(ctx, "doc.grammar_proofreader_batch_sentences")
+        client = llm_client.LlmClient(config.get_api_config(), ctx)
+        batch_size = config.get_config_int_safe("doc.grammar_proofreader_batch_sentences")
         batch_size = max(1, min(grammar_proofread_locale.GRAMMAR_BATCH_MAX_SENTENCES, batch_size))
         detect_lang_mode = grammar_proofread_locale.get_grammar_detect_language_mode(ctx)
         detect_lang_enabled = detect_lang_mode != "off"

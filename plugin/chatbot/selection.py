@@ -98,7 +98,7 @@ def _extend_writer(services, ctx, doc):
         log.exception("Extend selection failed")
         msgbox(ctx, _("WriterAgent: Extend Selection"), str(e))
 
-    api_config = get_api_config(ctx)
+    api_config = get_api_config()
     client = LlmClient(api_config, ctx)
     run_stream_async(ctx, client, messages, tools=None, apply_chunk_fn=apply_chunk, on_done_fn=on_done, on_error_fn=on_error, max_tokens=max_tokens)
 
@@ -140,7 +140,7 @@ def _extend_calc(services, ctx, doc):
         msgbox(ctx, "WriterAgent", "No cells with content selected")
         return
 
-    api_config = get_api_config(ctx)
+    api_config = get_api_config()
     client = LlmClient(api_config, ctx)
 
     # Process cells sequentially via callback chain
@@ -232,8 +232,8 @@ def _edit_writer(services, ctx, doc):
     if not user_input:
         return
     if extra_instructions:
-        set_config(ctx, "additional_instructions", extra_instructions)
-        update_lru_history(ctx, extra_instructions, "prompt_lru", "")
+        set_config("additional_instructions", extra_instructions)
+        update_lru_history(extra_instructions, "prompt_lru", "")
 
     config = services.config.proxy_for("chatbot")
     system_prompt = extra_instructions or config.get("system_prompt") or ""
@@ -273,7 +273,7 @@ def _edit_writer(services, ctx, doc):
         log.exception("Edit selection failed")
         msgbox(ctx, _("WriterAgent: Edit Selection"), str(e))
 
-    api_config = get_api_config(ctx)
+    api_config = get_api_config()
     client = LlmClient(api_config, ctx)
     run_stream_async(ctx, client, messages, tools=None, apply_chunk_fn=apply_chunk, on_done_fn=on_done, on_error_fn=on_error, max_tokens=max_tokens)
 
@@ -298,8 +298,8 @@ def _edit_calc(services, ctx, doc):
     if not user_input:
         return
     if extra_instructions:
-        set_config(ctx, "additional_instructions", extra_instructions)
-        update_lru_history(ctx, extra_instructions, "prompt_lru", "")
+        set_config("additional_instructions", extra_instructions)
+        update_lru_history(extra_instructions, "prompt_lru", "")
 
     config = services.config.proxy_for("chatbot")
     system_prompt = extra_instructions or config.get("system_prompt") or ""
@@ -334,7 +334,7 @@ def _edit_calc(services, ctx, doc):
     if not tasks:
         return
 
-    api_config = get_api_config(ctx)
+    api_config = get_api_config()
     client = LlmClient(api_config, ctx)
 
     # Process cells sequentially

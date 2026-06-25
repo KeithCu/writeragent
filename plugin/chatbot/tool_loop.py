@@ -249,7 +249,7 @@ class ToolCallingMixin:
                     chat_append_cb = _sub_agent_chat_append
 
                     try:
-                        if needs_web_research_ui and get_config_bool(ctx, "chatbot.prompt_for_web_research"):
+                        if needs_web_research_ui and get_config_bool("chatbot.prompt_for_web_research"):
 
                             def _web_approval(query_for_engine, tool_name, args):
                                 q = getattr(self, "_active_q", None)
@@ -322,7 +322,7 @@ class ToolCallingMixin:
             return
 
         # base_prompt will be set after reading the document context
-        extra_instructions = get_config_str(self.ctx, "additional_instructions")
+        extra_instructions = get_config_str("additional_instructions")
 
         synced_model = sync_sidebar_text_model(self.ctx, self.model_selector)
         if synced_model:
@@ -330,16 +330,16 @@ class ToolCallingMixin:
         if self.image_model_selector:
             selected_image_model = self.image_model_selector.getText()
             if selected_image_model:
-                set_image_model(self.ctx, selected_image_model)
+                set_image_model(selected_image_model)
                 log.debug("_do_send: image model updated to %s" % selected_image_model)
 
         max_context = CHAT_DOCUMENT_CONTEXT_MAX_CHARS
-        max_tokens = get_config_int(self.ctx, "chat_max_tokens")
+        max_tokens = get_config_int("chat_max_tokens")
         log.debug("_do_send: config loaded: max_tokens=%d, max_context=%d" % (max_tokens, max_context))
 
         use_tools = True
 
-        api_config = get_api_config(self.ctx)
+        api_config = get_api_config()
         ok, err_msg = validate_api_config(api_config)
         if not ok:
             self._append_response("\n[%s]\n" % err_msg)
@@ -386,7 +386,7 @@ class ToolCallingMixin:
         b64_image = None
         from plugin.framework.client.model_fetcher import has_native_vision
         text_model_id = api_config.get("text_model", "")
-        if has_native_vision(self.ctx, text_model_id, client._endpoint()):
+        if has_native_vision(text_model_id, client._endpoint()):
             doc = self._get_document_model() if hasattr(self, "_get_document_model") else None
             if doc:
                 try:
@@ -593,7 +593,7 @@ class ToolCallingMixin:
                 if doc:
                     max_ctx = CHAT_DOCUMENT_CONTEXT_MAX_CHARS
                     doc_text = get_document_context_for_chat(doc, max_ctx, include_end=True, include_selection=True, ctx=self.ctx)
-                    extra_instructions = get_config_str(self.ctx, "additional_instructions")
+                    extra_instructions = get_config_str("additional_instructions")
                     base_prompt = get_chat_system_prompt_for_document(doc, extra_instructions, ctx=self.ctx)
                     self.session.set_system_context(base_prompt, doc_text)
             except Exception:
@@ -633,9 +633,9 @@ class ToolCallingMixin:
                 update_activity_state("exhausted_rounds")
 
         elif effect.__class__.__name__ == "CleanupAudioEffect":
-            current_model = get_text_model(self.ctx)
-            current_endpoint = get_current_endpoint(self.ctx)
-            set_native_audio_support(self.ctx, current_model, current_endpoint, supported=True)
+            current_model = get_text_model()
+            current_endpoint = get_current_endpoint()
+            set_native_audio_support(current_model, current_endpoint, supported=True)
             
 
             try:
@@ -733,15 +733,15 @@ class ToolCallingMixin:
         return "400" in msg and ("input validation" in msg or "bad request" in msg)
 
     def _handle_stream_error(self: ToolLoopHost, e: Any) -> None:
-        current_model = get_text_model(self.ctx)
-        current_endpoint = get_current_endpoint(self.ctx)
+        current_model = get_text_model()
+        current_endpoint = get_current_endpoint()
 
         # If native audio failed, cache it and try STT fallback
         if self.audio_wav_path and (is_audio_unsupported_error(e) or self._is_400_input_validation(e)):
             log.warning("Model %s failed native audio, caching and falling back to STT" % current_model)
-            set_native_audio_support(self.ctx, current_model, current_endpoint, supported=False)
+            set_native_audio_support(current_model, current_endpoint, supported=False)
 
-            stt_model = get_stt_model(self.ctx)
+            stt_model = get_stt_model()
             if stt_model:
                 if self.session.messages and self.session.messages[-1]["role"] == "user":
                     self.session.messages.pop()
@@ -786,7 +786,7 @@ class ToolCallingMixin:
         on message type, keeping the UI responsive via processEventsToIdle().
         """
         if max_tool_rounds is None:
-            max_tool_rounds = get_config_int(self.ctx, "chatbot.max_tool_rounds")
+            max_tool_rounds = get_config_int("chatbot.max_tool_rounds")
         log.info("=== Tool-calling loop START (max %d rounds) ===" % max_tool_rounds)
         self._append_response("\nAI: ")
         self._record_assistant_start = True
@@ -822,7 +822,7 @@ class ToolCallingMixin:
 
             # Read config once for web research thinking display
             try:
-                show_search_thinking = as_bool(get_config(self.ctx, "chatbot.show_search_thinking"))
+                show_search_thinking = as_bool(get_config("chatbot.show_search_thinking"))
             except (ValueError, TypeError) as e:
                 log.debug("Failed to read 'chatbot.show_search_thinking' from config: %s", e)
                 show_search_thinking = False

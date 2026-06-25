@@ -195,19 +195,19 @@ def test_folder_search_rerank_options_llama_index_enabled(ctx):
             "plugin.framework.constants.resolve_folder_rerank_model",
             return_value=FOLDER_RERANK_MODEL_MULTILINGUAL,
         ):
-            opts = embeddings_service._folder_search_rerank_options(ctx, "llama_index")
+            opts = embeddings_service._folder_search_rerank_options("llama_index")
     assert opts == {"use_mmr": True, "rerank_model": FOLDER_RERANK_MODEL_MULTILINGUAL}
 
 
 def test_folder_search_rerank_options_llama_index_disabled(ctx):
     with patch("plugin.framework.constants.folder_rerank_enabled", return_value=False):
-        opts = embeddings_service._folder_search_rerank_options(ctx, "llama_index")
+        opts = embeddings_service._folder_search_rerank_options("llama_index")
     assert opts == {"use_mmr": False}
 
 
 def test_folder_search_rerank_options_hybrid_backend_disabled(ctx):
     with patch("plugin.framework.constants.folder_rerank_enabled", return_value=False):
-        opts = embeddings_service._folder_search_rerank_options(ctx, "hybrid")
+        opts = embeddings_service._folder_search_rerank_options("hybrid")
     assert opts == {"use_mmr": False}
 
 
@@ -219,7 +219,7 @@ def test_folder_search_rerank_options_hybrid_backend_enabled(ctx):
             "plugin.framework.constants.resolve_folder_rerank_model",
             return_value=FOLDER_RERANK_MODEL_ENGLISH_SMALL,
         ):
-            opts = embeddings_service._folder_search_rerank_options(ctx, "hybrid")
+            opts = embeddings_service._folder_search_rerank_options("hybrid")
     assert opts == {"use_mmr": True, "rerank_model": FOLDER_RERANK_MODEL_ENGLISH_SMALL}
 
 
@@ -231,7 +231,7 @@ def test_folder_search_rerank_options_lancedb_enabled(ctx):
             "plugin.framework.constants.resolve_folder_rerank_model",
             return_value=FOLDER_RERANK_MODEL_ENGLISH_SMALL,
         ):
-            opts = embeddings_service._folder_search_rerank_options(ctx, "lancedb")
+            opts = embeddings_service._folder_search_rerank_options("lancedb")
     assert opts == {"use_mmr": True, "rerank_model": FOLDER_RERANK_MODEL_ENGLISH_SMALL}
 
 

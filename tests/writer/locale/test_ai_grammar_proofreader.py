@@ -84,7 +84,7 @@ from plugin.writer.locale.grammar_work_queue import GrammarWorkQueue
 # =============================================================================
 
 def test_worker_skips_when_agent_active_and_pause_enabled() -> None:
-    def _get_config_bool(_ctx, key: str) -> bool:
+    def _get_config_bool(key: str) -> bool:
         if key == "doc.grammar_proofreader_enabled":
             return True
         if key == "doc.grammar_proofreader_pause_during_agent":
@@ -144,7 +144,7 @@ def test_partial_threshold_counts_nonspace_chars() -> None:
     assert api["count_nonspace_chars"]("this is long enough") >= api["GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS"]
 
 def test_run_llm_skips_split_when_item_text_set() -> None:
-    def _get_config_bool(_ctx: object, key: str) -> bool:
+    def _get_config_bool(key: str) -> bool:
         if key == "doc.grammar_proofreader_enabled": return True
         if key == "doc.grammar_proofreader_pause_during_agent": return False
         raise AssertionError(f"unexpected key: {key}")
@@ -169,7 +169,7 @@ def test_run_llm_skips_split_when_item_text_set() -> None:
         api["run_llm_and_cache"](None, "Hello.", 1, "d|en", "en-US")
 
 def test_partial_sentence_adds_prompt_note() -> None:
-    def _get_config_bool(_ctx, key: str) -> bool:
+    def _get_config_bool(key: str) -> bool:
         if key == "doc.grammar_proofreader_enabled": return True
         if key == "doc.grammar_proofreader_pause_during_agent": return False
         raise AssertionError(f"unexpected key: {key}")
@@ -209,7 +209,7 @@ def mock_config_fixture():
         patch("plugin.framework.logging.init_logging"),
         patch.object(proofreader, "uno_mod", uno_mod),
     ):
-        mock_get_bool.side_effect = lambda ctx, key: {
+        mock_get_bool.side_effect = lambda key: {
             "doc.grammar_proofreader_enabled": True,
             "doc.grammar_proofreader_pause_during_agent": False,
         }.get(key, False)

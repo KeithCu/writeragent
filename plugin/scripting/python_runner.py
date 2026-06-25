@@ -1107,15 +1107,15 @@ def _run_python_monaco(
         # Save the edited code back to the currently selected script
         from plugin.scripting.python_runner import resolve_run_script_name_config_key
         name_config_key = resolve_run_script_name_config_key(doc)
-        last_name = get_config_str(ctx, name_config_key)
+        last_name = get_config_str(name_config_key)
         if last_name:
             from plugin.framework.config import get_config
-            saved_scripts = get_config(ctx, "saved_python_scripts")
+            saved_scripts = get_config("saved_python_scripts")
             if not isinstance(saved_scripts, dict):
                 saved_scripts = {}
             if last_name in saved_scripts:
                 saved_scripts[last_name] = code
-                set_config(ctx, "saved_python_scripts", saved_scripts)
+                set_config("saved_python_scripts", saved_scripts)
             else:
                 from plugin.scripting.document_scripts import save_document_script, get_document_scripts
                 doc_scripts = get_document_scripts(doc)
@@ -1171,7 +1171,7 @@ def run_python_dialog(uno_ctx: Any = None) -> None:
     from plugin.scripting.python_runner import resolve_run_script_name_config_key
 
     name_config_key = resolve_run_script_name_config_key(doc)
-    saved_scripts = get_config(uno_ctx, "saved_python_scripts")
+    saved_scripts = get_config("saved_python_scripts")
     if not isinstance(saved_scripts, dict):
         saved_scripts = {}
     last_name, initial_code, _merged_scripts = resolve_run_script_selection(uno_ctx, doc, saved_scripts)

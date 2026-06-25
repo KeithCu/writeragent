@@ -43,7 +43,7 @@ def test_resolve_python_exec_timeout_clamp_and_fallback():
 def test_configured_python_exec_timeout(mock_get):
     ctx = MagicMock()
     assert configured_python_exec_timeout(ctx) == 10
-    mock_get.assert_called_once_with(ctx, "scripting.python_exec_timeout")
+    mock_get.assert_called_once_with("scripting.python_exec_timeout")
 
 
 @patch("plugin.framework.config.get_config_int", return_value=9999)
@@ -87,7 +87,7 @@ def test_max_data_cells_schema_limits_from_manifest():
 def test_configured_python_max_data_cells(mock_get):
     ctx = MagicMock()
     assert configured_python_max_data_cells(ctx) == 250_000
-    mock_get.assert_called_once_with(ctx, "scripting.python_max_data_cells")
+    mock_get.assert_called_once_with("scripting.python_max_data_cells")
 
 
 @patch("plugin.framework.config.get_config_int", return_value=9_999_999)

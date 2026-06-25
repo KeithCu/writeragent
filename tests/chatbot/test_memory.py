@@ -47,8 +47,7 @@ class TestMemory(unittest.TestCase):
         with patch("plugin.chatbot.memory.user_config_dir", return_value=self.tmp_dir) as mock_cfg:
             MemoryStore(tctx)
 
-        self.assertEqual(mock_cfg.call_count, 1)
-        self.assertIs(mock_cfg.call_args[0][0], inner_ctx)
+        mock_cfg.assert_called_once_with()
 
     def test_memory_store_accepts_raw_ctx(self):
         raw_ctx = object()
@@ -56,8 +55,7 @@ class TestMemory(unittest.TestCase):
         with patch("plugin.chatbot.memory.user_config_dir", return_value=self.tmp_dir) as mock_cfg:
             MemoryStore(raw_ctx)
 
-        self.assertEqual(mock_cfg.call_count, 1)
-        self.assertIs(mock_cfg.call_args[0][0], raw_ctx)
+        mock_cfg.assert_called_once_with()
 
     def test_memory_tool_execute_with_tool_context_like(self):
         inner_ctx = object()

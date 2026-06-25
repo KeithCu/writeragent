@@ -655,7 +655,7 @@ def resolve_run_script_selection(
     from plugin.scripting.python_runner import resolve_run_script_name_config_key
 
     name_config_key = resolve_run_script_name_config_key(doc)
-    last_name = get_config_str(ctx, name_config_key)
+    last_name = get_config_str(name_config_key)
     names, merged_scripts, _unused_origin_map = build_xdl_script_picker_state(ctx, doc, saved_scripts)
     if not last_name or last_name not in merged_scripts:
         if names:
@@ -676,7 +676,7 @@ def build_scripts_list_message(
 ) -> dict[str, Any]:
     from plugin.framework.config import get_config
 
-    user_scripts = get_config(ctx, "saved_python_scripts")
+    user_scripts = get_config("saved_python_scripts")
     if not isinstance(user_scripts, dict):
         user_scripts = {}
 

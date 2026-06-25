@@ -49,8 +49,8 @@ class VibeBackend(ACPBackend):
         env = {}
         try:
             # Forward API key to Vibe if available
-            endpoint = str(get_config(self._ctx, "ai.endpoint") or "")
-            key = get_api_key_for_endpoint(self._ctx, endpoint)
+            endpoint = str(get_config("ai.endpoint") or "")
+            key = get_api_key_for_endpoint(endpoint)
             if key:
                 env["MISTRAL_API_KEY"] = key
                 log.info("Using MISTRAL_API_KEY from general settings")

@@ -99,15 +99,15 @@ def init_logging(ctx):
         _debug_log_path = None
         _enable_agent_log = False
         try:
-            udir = config.user_config_dir(ctx)
+            udir = config.user_config_dir()
             if udir:
                 _debug_log_path = os.path.join(udir, DEBUG_LOG_FILENAME)
-                _enable_agent_log = config.get_config_bool(ctx, "enable_agent_log")
+                _enable_agent_log = config.get_config_bool("enable_agent_log")
         except (OSError, ImportError, ValueError, ConfigError):
             pass
 
         try:
-            level_str = config.get_config_str(ctx, "log_level")
+            level_str = config.get_config_str("log_level")
             numeric_level = getattr(logging, level_str.upper(), logging.WARNING)
             global _log_level_numeric
             _log_level_numeric = numeric_level

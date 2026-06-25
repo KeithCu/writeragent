@@ -486,7 +486,7 @@ def _resolve_worker_python(
     pool: str = WORKER_POOL_DEFAULT,
 ) -> tuple[str | None, dict[str, Any] | None]:
     """Return (exe, error_response) for the configured venv / LO interpreter."""
-    venv_dir = get_config_str(uno_ctx, "scripting.python_venv_path").strip()
+    venv_dir = get_config_str("scripting.python_venv_path").strip()
 
     if pool == WORKER_POOL_EMBEDDINGS:
         if not venv_dir:
@@ -630,7 +630,7 @@ def warm_venv_worker(uno_ctx: Any, pool: str = WORKER_POOL_DEFAULT) -> None:
     if pool == WORKER_POOL_EMBEDDINGS:
         try:
             from plugin.framework.client.embedding_client import get_embedding_model
-            model = get_embedding_model(uno_ctx)
+            model = get_embedding_model()
             if model:
                 code = (
                     f"from plugin.embeddings.venv.embeddings_index import _get_embedder\n"

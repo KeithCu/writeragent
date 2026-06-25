@@ -8,10 +8,10 @@ class TestConfigUiHelpers(unittest.TestCase):
         self.ctx = MagicMock()
         self.config_data = {}
 
-        def mock_get_config(ctx, key):
+        def mock_get_config(key):
             return self.config_data.get(key, '')
 
-        def mock_set_config(ctx, key, value):
+        def mock_set_config(key, value):
             self.config_data[key] = value
 
         self.get_patcher = patch('plugin.chatbot.config_ui_helpers.get_config', side_effect=mock_get_config)
@@ -24,20 +24,20 @@ class TestConfigUiHelpers(unittest.TestCase):
         self.set_patcher.stop()
 
     def test_update_lru_history_scoping(self):
-        update_lru_history(self.ctx, 'item1', 'model_lru', 'http://localhost')
+        update_lru_history('item1', 'model_lru', 'http://localhost')
         self.assertEqual(self.config_data.get('model_lru@http://localhost'), ['item1'])
-        update_lru_history(self.ctx, 'item2', 'prompt_lru', '')
+        update_lru_history('item2', 'prompt_lru', '')
         self.assertEqual(self.config_data.get('prompt_lru'), ['item2'])
         for i in range(5):
-            update_lru_history(self.ctx, f'item{i}', 'test_lru', 'ep', max_items=3)
+            update_lru_history(f'item{i}', 'test_lru', 'ep', max_items=3)
         self.assertEqual(self.config_data.get('test_lru@ep'), ['item4', 'item3', 'item2'])
-        update_lru_history(self.ctx, 'item2', 'test_lru', 'ep', max_items=3)
+        update_lru_history('item2', 'test_lru', 'ep', max_items=3)
         self.assertEqual(self.config_data.get('test_lru@ep'), ['item2', 'item4', 'item3'])
 
     def test_update_lru_history_skips_when_list_unchanged(self):
         self.config_data['prompt_lru'] = ['first', 'second']
         self.mock_set.reset_mock()
-        update_lru_history(self.ctx, 'first', 'prompt_lru', '')
+        update_lru_history('first', 'prompt_lru', '')
         self.mock_set.assert_not_called()
 
 
@@ -49,12 +49,12 @@ class TestSyncSidebarTextModel(unittest.TestCase):
         self.config_data = {}
         self.endpoint = 'https://openrouter.ai/api'
 
-        def mock_get_config(ctx, key, default=None):
+        def mock_get_config(key, default=None):
             if key in self.config_data:
                 return self.config_data[key]
             return default if default is not None else ''
 
-        def mock_set_config(ctx, key, value):
+        def mock_set_config(key, value):
             self.config_data[key] = value
 
         self.get_patcher = patch('plugin.chatbot.config_ui_helpers.get_config', side_effect=mock_get_config)
@@ -121,23 +121,23 @@ class TestSyncSidebarTextModel(unittest.TestCase):
         ctrl = MagicMock()
         ctrl.getText.return_value = 'anthropic/claude-3.7-sonnet'
 
-        def shared_get_config(ctx, key, default=None):
+        def shared_get_config(key, default=None):
             if key in self.config_data:
                 return self.config_data[key]
             return default if default is not None else ''
 
-        def shared_set_config(ctx, key, value):
+        def shared_set_config(key, value):
             self.config_data[key] = value
 
         with patch('plugin.framework.config.get_config', side_effect=shared_get_config), \
              patch('plugin.framework.config.set_config', side_effect=shared_set_config), \
              patch('plugin.framework.client.model_fetcher.get_text_model') as mock_get_text_model:
-            mock_get_text_model.side_effect = lambda ctx: str(self.config_data.get('text_model') or '')
+            mock_get_text_model.side_effect = lambda: str(self.config_data.get('text_model') or '')
             sync_sidebar_text_model(self.ctx, ctrl)
 
             from plugin.framework.config import get_api_config
 
-            self.assertEqual(get_api_config(self.ctx)['model'], 'anthropic/claude-3.7-sonnet')
+            self.assertEqual(get_api_config()['model'], 'anthropic/claude-3.7-sonnet')
 
 
 class TestPopulateComboboxWithLruFetchOptions(unittest.TestCase):
@@ -147,10 +147,10 @@ class TestPopulateComboboxWithLruFetchOptions(unittest.TestCase):
         self.ctx = MagicMock()
         self.config_data = {}
 
-        def mock_get_config(ctx, key):
+        def mock_get_config(key):
             return self.config_data.get(key, '')
 
-        def mock_set_config(ctx, key, value):
+        def mock_set_config(key, value):
             self.config_data[key] = value
 
         self.get_patcher = patch('plugin.chatbot.config_ui_helpers.get_config', side_effect=mock_get_config)

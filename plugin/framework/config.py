@@ -205,32 +205,63 @@ def _is_lru_list_config_key(key: str) -> bool:
 _resolved_config_path = None
 
 
-def _config_path(ctx):
-    """Return the absolute path to writeragent.json."""
-    global _resolved_config_path
-    if _resolved_config_path is not None:
-        return _resolved_config_path
-    if ctx is None:
-        raise ConfigError("UNO context is required to resolve config path")
+def _resolve_config_path_from_ctx(ctx) -> str:
+    """Resolve writeragent.json path from a UNO component context."""
     try:
         sm = safe_call(ctx.getServiceManager, "Get ServiceManager")
         path_settings = safe_call(sm.createInstanceWithContext, "Create PathSettings", "com.sun.star.util.PathSettings", ctx)
         user_config_path = getattr(path_settings, "UserConfig", "")
         if uno and user_config_path and str(user_config_path).startswith("file://"):
             user_config_path = str(uno.fileUrlToSystemPath(user_config_path))
-        _resolved_config_path = os.path.join(user_config_path, CONFIG_FILENAME)
-        return _resolved_config_path
+        return os.path.join(user_config_path, CONFIG_FILENAME)
     except Exception as e:
         raise ConfigError(f"Failed to resolve config path: {e}", "CONFIG_PATH_ERROR") from e
 
 
-
-def user_config_dir(ctx):
-    """Return LibreOffice user config directory."""
+def init_config(ctx=None):
+    """Resolve and cache writeragent.json path. Idempotent; call once at bootstrap."""
+    global _resolved_config_path
+    if _resolved_config_path is not None:
+        return _resolved_config_path
     if ctx is None:
-        raise ConfigError("UNO context is required to resolve config dir")
+        from plugin.framework.uno_context import get_ctx
+
+        ctx = get_ctx()
+    if ctx is None:
+        raise ConfigError("UNO context is required to resolve config path")
+    _resolved_config_path = _resolve_config_path_from_ctx(ctx)
+    return _resolved_config_path
+
+
+def reset_config_for_tests():
+    """Clear cached config path and in-memory dict (pytest isolation)."""
+    global _resolved_config_path
+    _resolved_config_path = None
+    _invalidate_config_cache()
+
+
+def _config_path():
+    """Return the absolute path to writeragent.json."""
+    if _resolved_config_path is not None:
+        return _resolved_config_path
+    return init_config()
+
+
+def _emit_config_changed_ctx():
+    """Return UNO ctx for config:changed listeners when on the main thread."""
     try:
-        p = _config_path(ctx)
+        from plugin.framework.thread_guard import on_main_thread
+        from plugin.framework.uno_context import get_ctx
+
+        return get_ctx() if on_main_thread() else None
+    except Exception:
+        return None
+
+
+def user_config_dir():
+    """Return LibreOffice user config directory."""
+    try:
+        p = _config_path()
         return os.path.dirname(p) if p else None
     except Exception as e:
         raise ConfigError(f"Failed to resolve config dir: {e}", "CONFIG_DIR_ERROR") from e
@@ -351,14 +382,14 @@ def _load_config_dict(
     return {}
 
 
-def is_grammar_enabled(ctx):
+def is_grammar_enabled():
     """True if the AI grammar checker is enabled on the Doc tab."""
-    return get_config_bool_safe(ctx, "doc.grammar_proofreader_enabled")
+    return get_config_bool_safe("doc.grammar_proofreader_enabled")
 
 
-def get_current_endpoint(ctx):
+def get_current_endpoint():
     """Return the current endpoint URL from config, normalized (stripped)."""
-    return str(get_config(ctx, "endpoint") or "").strip()
+    return str(get_config("endpoint") or "").strip()
 
 
 # --- Config Cache ---
@@ -603,9 +634,9 @@ class WriterAgentConfig:
 # --- Core config I/O ---
 
 
-def get_config(ctx, key):
+def get_config(key):
     """Get a config value by key. JSON overrides; when key is missing, use schema default then central fallback."""
-    config_data = _get_validated_config_dict(ctx)
+    config_data = _get_validated_config_dict()
     if not isinstance(config_data, dict):
         config_data = {}
 
@@ -619,10 +650,10 @@ def get_config(ctx, key):
     return _resolve_default(key)
 
 
-def get_config_int(ctx, key) -> int:
+def get_config_int(key) -> int:
     """Get a config value as int. All requested keys MUST be in the schema (WriterAgentConfig or MODULES).
     Throws ConfigError if the key is missing or invalid."""
-    v = get_config(ctx, key)
+    v = get_config(key)
     # Empty string or None from JSON/UI: use schema default (same as missing key).
     if v == "" or v is None:
         v = _resolve_default(key)
@@ -635,10 +666,10 @@ def get_config_int(ctx, key) -> int:
         raise ConfigError(f"Config key {key!r} has non-integer value: {v!r}", "CONFIG_TYPE_ERROR") from e
 
 
-def get_config_str(ctx, key) -> str:
+def get_config_str(key) -> str:
     """Get a config value as str. ALL requested keys MUST be in the schema.
     Throws ConfigError if key is not found."""
-    v = get_config(ctx, key)
+    v = get_config(key)
     if v is None:
         return ""
     if isinstance(v, str):
@@ -646,17 +677,17 @@ def get_config_str(ctx, key) -> str:
     return str(v)
 
 
-def get_config_bool(ctx, key) -> bool:
+def get_config_bool(key) -> bool:
     """Get a config value as bool. ALL requested keys MUST be in the schema.
     Throws ConfigError if key is not found."""
-    v = get_config(ctx, key)
+    v = get_config(key)
     return as_bool(v)
 
 
-def get_config_bool_safe(ctx: Any, key: str) -> bool:
+def get_config_bool_safe(key: str) -> bool:
     """Safely read a boolean config value, returning schema default on failure."""
     try:
-        return get_config_bool(ctx, key)
+        return get_config_bool(key)
     except Exception:
         try:
             return as_bool(_resolve_default(key))
@@ -664,10 +695,10 @@ def get_config_bool_safe(ctx: Any, key: str) -> bool:
             return False
 
 
-def get_config_int_safe(ctx: Any, key: str) -> int:
+def get_config_int_safe(key: str) -> int:
     """Safely read an integer config value, returning schema default on failure."""
     try:
-        return get_config_int(ctx, key)
+        return get_config_int(key)
     except Exception:
         try:
             return parse_int_robust(_resolve_default(key))
@@ -675,25 +706,25 @@ def get_config_int_safe(ctx: Any, key: str) -> int:
             return 0
 
 
-def get_config_float(ctx, key) -> float:
+def get_config_float(key) -> float:
     """Get a config value as float. ALL requested keys MUST be in the schema.
     Throws ConfigError if key is not found."""
-    v = get_config(ctx, key)
+    v = get_config(key)
     try:
         return parse_float_robust(v)
     except ValueError as e:
         raise ConfigError(f"Config key {key!r} has non-float value: {v!r}", "CONFIG_TYPE_ERROR") from e
 
 
-def get_config_dict(ctx):
+def get_config_dict():
     """Return the full config as a dict. Returns {} if missing or on error."""
-    return _get_validated_config_dict(ctx)
+    return _get_validated_config_dict()
 
 
-def set_config(ctx, key, value):
+def set_config(key, value):
     """Set a config key to value. Creates file if needed."""
     try:
-        config_file_path = _config_path(ctx)
+        config_file_path = _config_path()
     except ConfigError:
         return
 
@@ -711,17 +742,17 @@ def set_config(ctx, key, value):
 
         _invalidate_config_cache()
 
-        global_event_bus.emit("config:changed", ctx=ctx)
+        global_event_bus.emit("config:changed", ctx=_emit_config_changed_ctx())
 
     except OSError as e:
         log.error("Error writing to %s: %s", config_file_path, e)
         raise ConfigError(f"Failed to save config: {e}", "CONFIG_SAVE_ERROR") from e
 
 
-def remove_config(ctx, key):
+def remove_config(key):
     """Remove a config key."""
     try:
-        config_file_path = _config_path(ctx)
+        config_file_path = _config_path()
     except ConfigError:
         return
 
@@ -740,7 +771,7 @@ def remove_config(ctx, key):
 
         _invalidate_config_cache()
 
-        global_event_bus.emit("config:changed", ctx=ctx)
+        global_event_bus.emit("config:changed", ctx=_emit_config_changed_ctx())
 
     except OSError as e:
         log.error("Error writing to %s: %s", config_file_path, e)
@@ -848,11 +879,11 @@ def _build_validated_config_export(data: Dict[str, Any], config: "WriterAgentCon
     return out
 
 
-def _get_validated_config_dict(ctx):
+def _get_validated_config_dict():
     """Return the full validated config as a dict, using an in-memory cache
     keyed off the file modification time."""
     try:
-        config_file_path = _config_path(ctx)
+        config_file_path = _config_path()
     except ConfigError:
         return {}
 
@@ -906,34 +937,34 @@ def _get_validated_config_dict(ctx):
 # --- Per-endpoint API keys ---
 
 
-def get_api_key_for_endpoint(ctx, endpoint):
+def get_api_key_for_endpoint(endpoint):
     """Return API key for the given endpoint."""
-    data = get_config(ctx, "api_keys_by_endpoint")
+    data = get_config("api_keys_by_endpoint")
     if not isinstance(data, dict):
         data = {}
     normalized = normalize_endpoint_url(endpoint or "")
     return data.get(normalized) or ""
 
 
-def set_api_key_for_endpoint(ctx, endpoint, key):
+def set_api_key_for_endpoint(endpoint, key):
     """Store API key for the given endpoint in api_keys_by_endpoint."""
-    data = get_config(ctx, "api_keys_by_endpoint")
+    data = get_config("api_keys_by_endpoint")
     if not isinstance(data, dict):
         data = {}
     normalized = normalize_endpoint_url(endpoint or "")
     data[normalized] = str(key)
-    set_config(ctx, "api_keys_by_endpoint", data)
+    set_config("api_keys_by_endpoint", data)
 
 
 # --- Bundled API config ---
 
 
-def get_api_config(ctx):
-    """Build API config dict from ctx for LlmClient. Pass to LlmClient(config, ctx)."""
+def get_api_config():
+    """Build API config dict for LlmClient. Pass to LlmClient(config, ctx)."""
     from plugin.framework.client.model_fetcher import get_text_model
 
-    endpoint = str(get_config(ctx, "endpoint") or "").rstrip("/")
-    is_openwebui = as_bool(get_config(ctx, "is_openwebui")) or "open-webui" in endpoint.lower() or "openwebui" in endpoint.lower()
+    endpoint = str(get_config("endpoint") or "").rstrip("/")
+    is_openwebui = as_bool(get_config("is_openwebui")) or "open-webui" in endpoint.lower() or "openwebui" in endpoint.lower()
 
     # Local import to avoid circular import during early UNO registration
     # (config → client/provider_detection → client/__init__ → llm_client → logging → config)
@@ -942,26 +973,26 @@ def get_api_config(ctx):
     # Use the consolidated detection helper (2026 provider heuristic cleanup)
     # so the OpenRouter decision is identical everywhere (auth, model fetcher,
     # error messages, LLM client, etc.).
-    is_openrouter = is_openrouter_endpoint(endpoint, explicit_is_openrouter=as_bool(get_config(ctx, "is_openrouter")))
-    api_key = get_api_key_for_endpoint(ctx, endpoint)
+    is_openrouter = is_openrouter_endpoint(endpoint, explicit_is_openrouter=as_bool(get_config("is_openrouter")))
+    api_key = get_api_key_for_endpoint(endpoint)
 
     api_config = {
         "endpoint": endpoint,
         "api_key": api_key,
-        "model": get_text_model(ctx),
+        "model": get_text_model(),
         "is_openwebui": is_openwebui,
         "is_openrouter": is_openrouter,
-        "seed": get_config_str(ctx, "seed"),
-        "request_timeout": get_config_int(ctx, "request_timeout"),
-        "chat_max_tool_rounds": get_config_int(ctx, "chatbot.max_tool_rounds"),
+        "seed": get_config_str("seed"),
+        "request_timeout": get_config_int("request_timeout"),
+        "chat_max_tool_rounds": get_config_int("chatbot.max_tool_rounds"),
     }
 
-    temp = get_config_float(ctx, "temperature")
+    temp = get_config_float("temperature")
     if temp >= 0:
         api_config["temperature"] = temp
 
     if is_openrouter:
-        ore = get_config(ctx, "openrouter_chat_extra")
+        ore = get_config("openrouter_chat_extra")
         if isinstance(ore, dict) and ore:
             api_config["openrouter_chat_extra"] = ore
 

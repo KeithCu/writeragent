@@ -36,7 +36,7 @@ log = logging.getLogger(__name__)
 
 def _get_db_path():
     ctx = get_ctx()
-    config_dir = user_config_dir(ctx)
+    config_dir = user_config_dir()
     if config_dir:
         try:
             if not os.path.exists(config_dir):

@@ -130,7 +130,7 @@ def configured_python_exec_timeout(ctx: Any) -> int:
     from plugin.framework.config import get_config_int
 
     try:
-        val = get_config_int(ctx, _TIMEOUT_CONFIG_KEY)
+        val = get_config_int(_TIMEOUT_CONFIG_KEY)
     except Exception:
         val = python_exec_timeout_default()
     return _clamp_timeout(val)
@@ -167,4 +167,4 @@ def configured_python_max_data_cells(ctx: Any) -> int:
     """Read Settings value for scripting.python_max_data_cells and clamp to schema bounds."""
     from plugin.framework.config import get_config_int
 
-    return _clamp_max_data_cells(get_config_int(ctx, _DATA_CELLS_CONFIG_KEY))
+    return _clamp_max_data_cells(get_config_int(_DATA_CELLS_CONFIG_KEY))

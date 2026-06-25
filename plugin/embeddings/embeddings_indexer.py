@@ -50,7 +50,7 @@ def _clear_enqueue(folder_key: str) -> None:
 
 def _resolve_search_mode(ctx: Any) -> str:
     """Map Settings cross-file search mode to venv maintain/search backend."""
-    mode = str(get_config(ctx, "embeddings.folder_search_mode") or "none").strip().lower()
+    mode = str(get_config("embeddings.folder_search_mode") or "none").strip().lower()
     if mode in ("hybrid", "llama_index", "zvec", "lancedb", "fts", "embeddings"):
         return mode
     return "hybrid"
@@ -58,7 +58,7 @@ def _resolve_search_mode(ctx: Any) -> str:
 
 def _index_worker(ctx: Any, folder_key: str, listing_root: str) -> None:
     try:
-        model = get_embedding_model(ctx)
+        model = get_embedding_model()
         maintain_folder_index_rpc(
             ctx,
             listing_root,
@@ -75,7 +75,7 @@ def _index_worker(ctx: Any, folder_key: str, listing_root: str) -> None:
 def enqueue_folder_index(ctx: Any, services: Any, model: Any) -> None:
     """Schedule background corpus maintenance for the active document folder."""
     del services  # venv maintain does not use UNO services
-    if not folder_search_enabled(ctx):
+    if not folder_search_enabled():
         return
     resolved = resolve_index_context(ctx, model)
     folder_key, _db, _meta, listing_root = resolved[0], resolved[1], resolved[2], resolved[3]

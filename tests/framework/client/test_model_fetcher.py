@@ -58,7 +58,7 @@ class TestFetchAvailableModelsCache(unittest.TestCase):
         with patch('plugin.framework.client.model_fetcher.get_api_key_for_endpoint', return_value='secret-token'):
             with patch('plugin.framework.client.requests.sync_request') as mock_sync:
                 mock_sync.return_value = {'data': [{'id': 'm1'}]}
-                r = cfg.fetch_available_models(endpoint, ctx)
+                r = cfg.fetch_available_models(endpoint)
                 self.assertEqual(r, ['m1'])
                 mock_sync.assert_called_once()
                 (_args, kwargs) = mock_sync.call_args
@@ -72,9 +72,9 @@ class TestFetchAvailableModelsCache(unittest.TestCase):
         url = 'http://127.0.0.1:58906/v1/models'
         base = 'http://127.0.0.1:58906'
         with patch.object(cfg, 'get_api_key_for_endpoint', return_value='saved'):
-            k_saved = cfg._model_fetch_cache_key(url, ctx, base, None)
-            k_a = cfg._model_fetch_cache_key(url, ctx, base, 'typed-a')
-            k_b = cfg._model_fetch_cache_key(url, ctx, base, 'typed-b')
+            k_saved = cfg._model_fetch_cache_key(url, base, None)
+            k_a = cfg._model_fetch_cache_key(url, base, 'typed-a')
+            k_b = cfg._model_fetch_cache_key(url, base, 'typed-b')
         self.assertEqual(k_saved, f'{url}\x1fsaved')
         self.assertEqual(k_a, f'{url}\x1ftyped-a')
         self.assertEqual(k_b, f'{url}\x1ftyped-b')
@@ -91,7 +91,7 @@ class TestFetchAvailableModelsCache(unittest.TestCase):
             with open(config_path, 'w', encoding='utf-8') as f:
                 json.dump({'api_keys_by_endpoint': {norm: 'from-config-only'}}, f)
 
-            def mock_config_path(c):
+            def mock_config_path():
                 return config_path
             with patch('plugin.framework.config._config_path', side_effect=mock_config_path):
                 import plugin.framework.config as real_config
@@ -104,7 +104,7 @@ class TestFetchAvailableModelsCache(unittest.TestCase):
                         cfg._model_fetch_image_cache.pop(k, None)
                 with patch('plugin.framework.client.requests.sync_request') as mock_sync:
                     mock_sync.return_value = {'data': [{'id': 'm1'}]}
-                    r = cfg.fetch_available_models(endpoint, ctx, api_key_override='from-override')
+                    r = cfg.fetch_available_models(endpoint, api_key_override='from-override')
                     self.assertEqual(r, ['m1'])
                     mock_sync.assert_called_once()
                     (_args, kwargs) = mock_sync.call_args
@@ -123,7 +123,7 @@ class TestFetchAvailableModelsCache(unittest.TestCase):
             with open(config_path, 'w', encoding='utf-8') as f:
                 json.dump({'api_keys_by_endpoint': {norm: 'key-a'}}, f)
 
-            def mock_config_path(c):
+            def mock_config_path():
                 return config_path
             with patch('plugin.framework.config._config_path', side_effect=mock_config_path):
                 import plugin.framework.config as real_config
@@ -136,8 +136,8 @@ class TestFetchAvailableModelsCache(unittest.TestCase):
                         cfg._model_fetch_image_cache.pop(k, None)
                 with patch('plugin.framework.client.requests.sync_request') as mock_sync:
                     mock_sync.return_value = {'data': [{'id': 'x'}]}
-                    cfg.fetch_available_models(endpoint, ctx)
-                    cfg.fetch_available_models(endpoint, ctx, api_key_override='key-b')
+                    cfg.fetch_available_models(endpoint)
+                    cfg.fetch_available_models(endpoint, api_key_override='key-b')
                     self.assertEqual(mock_sync.call_count, 2)
 
 
@@ -146,7 +146,7 @@ class TestGetModelCapabilityOpenRouter(unittest.TestCase):
         from plugin.framework.client.model_fetcher import get_model_capability
         from plugin.framework.constants import ModelCapability
 
-        caps = get_model_capability(MagicMock(), 'openai/gpt-oss-120b:nitro', 'https://openrouter.ai/api')
+        caps = get_model_capability('openai/gpt-oss-120b:nitro', 'https://openrouter.ai/api')
         self.assertTrue(isinstance(caps, int) and (caps & ModelCapability.TOOLS))
 
 
@@ -156,7 +156,7 @@ class TestHasNativeAudio(unittest.TestCase):
 
         ctx = MagicMock()
         with patch('plugin.framework.client.model_fetcher.get_config', return_value={}):
-            result = has_native_audio(ctx, 'mistralai/voxtral-mini-transcribe', 'https://openrouter.ai/api')
+            result = has_native_audio('mistralai/voxtral-mini-transcribe', 'https://openrouter.ai/api')
         self.assertIsNot(result, True)
 
     def test_chat_and_audio_model_is_native_audio(self):
@@ -164,7 +164,7 @@ class TestHasNativeAudio(unittest.TestCase):
 
         ctx = MagicMock()
         with patch('plugin.framework.client.model_fetcher.get_config', return_value={}):
-            result = has_native_audio(ctx, 'google/gemini-3.1-flash-lite-preview', 'https://openrouter.ai/api')
+            result = has_native_audio('google/gemini-3.1-flash-lite-preview', 'https://openrouter.ai/api')
         self.assertTrue(result)
 
 
@@ -263,29 +263,29 @@ class TestHasNativeVision(unittest.TestCase):
         from plugin.framework.client.model_fetcher import has_native_vision
         ctx = MagicMock()
         with patch('plugin.framework.client.model_fetcher.get_config', return_value={}):
-            self.assertTrue(has_native_vision(ctx, 'google/gemini-3.1-flash-lite-preview', 'https://openrouter.ai/api'))
+            self.assertTrue(has_native_vision('google/gemini-3.1-flash-lite-preview', 'https://openrouter.ai/api'))
 
     def test_config_cache_has_vision(self):
         from plugin.framework.client.model_fetcher import has_native_vision, set_native_vision_support
         ctx = MagicMock()
         cache_dict = {}
 
-        def mock_get_config(c, key):
+        def mock_get_config(key):
             if key == "vision_support_map":
                 return cache_dict
             return {}
 
-        def mock_set_config(c, key, val):
+        def mock_set_config(key, val):
             if key == "vision_support_map":
                 cache_dict.update(val)
 
         with patch('plugin.framework.client.model_fetcher.get_config', side_effect=mock_get_config), \
              patch('plugin.framework.client.model_fetcher.set_config', side_effect=mock_set_config):
-            set_native_vision_support(ctx, 'my-custom-model', 'http://localhost:11434', True)
-            self.assertTrue(has_native_vision(ctx, 'my-custom-model', 'http://localhost:11434'))
+            set_native_vision_support('my-custom-model', 'http://localhost:11434', True)
+            self.assertTrue(has_native_vision('my-custom-model', 'http://localhost:11434'))
 
-            set_native_vision_support(ctx, 'my-custom-model', 'http://localhost:11434', False)
-            self.assertFalse(has_native_vision(ctx, 'my-custom-model', 'http://localhost:11434'))
+            set_native_vision_support('my-custom-model', 'http://localhost:11434', False)
+            self.assertFalse(has_native_vision('my-custom-model', 'http://localhost:11434'))
 
     def test_openrouter_dynamic_modality_detection(self):
         from plugin.framework.client.model_fetcher import has_native_vision, _model_fetch_vision_cache
@@ -295,11 +295,11 @@ class TestHasNativeVision(unittest.TestCase):
             
             url = 'https://openrouter.ai/api/v1/models'
             from plugin.framework.client.model_fetcher import _model_fetch_cache_key
-            ck = _model_fetch_cache_key(url, ctx, 'https://openrouter.ai/api')
+            ck = _model_fetch_cache_key(url, 'https://openrouter.ai/api')
             _model_fetch_vision_cache[ck] = ['custom-openrouter-vision-model']
 
-            self.assertTrue(has_native_vision(ctx, 'custom-openrouter-vision-model', 'https://openrouter.ai/api'))
-            self.assertFalse(has_native_vision(ctx, 'some-other-model', 'https://openrouter.ai/api'))
+            self.assertTrue(has_native_vision('custom-openrouter-vision-model', 'https://openrouter.ai/api'))
+            self.assertFalse(has_native_vision('some-other-model', 'https://openrouter.ai/api'))
 
     def test_ollama_api_show_capabilities(self):
         from plugin.framework.client.model_fetcher import has_native_vision
@@ -308,11 +308,11 @@ class TestHasNativeVision(unittest.TestCase):
         with patch('plugin.framework.client.requests.sync_request') as mock_sync, \
              patch('plugin.framework.client.model_fetcher.get_config', return_value={}):
             mock_sync.return_value = {"capabilities": ["vision"]}
-            self.assertTrue(has_native_vision(ctx, 'llava', 'http://localhost:11434'))
+            self.assertTrue(has_native_vision('llava', 'http://localhost:11434'))
             mock_sync.assert_called_once()
 
     def test_name_heuristics_removed(self):
         from plugin.framework.client.model_fetcher import has_native_vision
         ctx = MagicMock()
         with patch('plugin.framework.client.model_fetcher.get_config', return_value={}):
-            self.assertFalse(has_native_vision(ctx, 'unknown-vision-model', 'https://api.openai.com/v1'))
+            self.assertFalse(has_native_vision('unknown-vision-model', 'https://api.openai.com/v1'))

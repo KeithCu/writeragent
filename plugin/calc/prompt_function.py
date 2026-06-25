@@ -35,26 +35,26 @@ def execute_prompt_addin(
         if system_prompt is not None:
             resolved_system = str(system_prompt)
         else:
-            resolved_system = get_config_str(ctx, "extend_selection_system_prompt")
+            resolved_system = get_config_str("extend_selection_system_prompt")
             if not str(resolved_system).strip():
                 from plugin.framework.constants import CALC_PYTHON_FORMULA_LLM_HINT
 
                 resolved_system = CALC_PYTHON_FORMULA_LLM_HINT
-        model_name = model if model is not None else (get_config(ctx, "text_model") or get_config(ctx, "model") or "")
+        model_name = model if model is not None else (get_config("text_model") or get_config("model") or "")
         if max_tokens is not None:
             try:
                 resolved_max = int(max_tokens)
             except (TypeError, ValueError):
                 resolved_max = 70
         else:
-            resolved_max = get_config_int(ctx, "calc_prompt_max_tokens")
+            resolved_max = get_config_int("calc_prompt_max_tokens")
 
         messages: list[dict[str, str]] = []
         if resolved_system:
             messages.append({"role": "system", "content": resolved_system})
         messages.append({"role": "user", "content": message})
 
-        config = get_api_config(ctx)
+        config = get_api_config()
         if model is not None:
             config = dict(config, model=str(model_name))
 

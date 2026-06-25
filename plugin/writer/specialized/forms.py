@@ -289,7 +289,7 @@ class GenerateForm(ToolWriterFormBase):
         from plugin.framework.client.llm_client import LlmClient
 
         description = kwargs.get("description")
-        config = get_api_config(ctx.ctx)
+        config = get_api_config()
         client = LlmClient(config, ctx.ctx)
 
         # System instructions inspired by OnlyOfficeAI

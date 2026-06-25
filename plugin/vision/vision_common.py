@@ -54,7 +54,7 @@ def merge_vision_params(ctx: Any, template_params: dict[str, Any] | None) -> dic
             from plugin.framework.config import get_config
 
             for key in VISION_CONFIG_KEYS:
-                val = get_config(ctx, f"vision.{key}")
+                val = get_config(f"vision.{key}")
                 if val is not None and val != "":
                     merged[key] = val
         except Exception:

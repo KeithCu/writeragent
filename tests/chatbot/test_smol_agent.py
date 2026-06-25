@@ -426,7 +426,7 @@ def test_build_toolcalling_agent_wires_max_tokens_and_steps(
 ):
     mock_get_api.return_value = {"model": "test/model"}
 
-    def _int(_ctx, key: str) -> int:
+    def _int(key: str) -> int:
         if key == "chat_max_tokens":
             return 512
         if key == "chatbot.max_tool_rounds":

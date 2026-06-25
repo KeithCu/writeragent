@@ -85,12 +85,12 @@ class GenerateImage(ToolWriterImageBase):
         prompt = args.get("prompt", "")
 
         status_callback = getattr(ctx, "status_callback", None)
-        mt_timeout = float(get_config_int(ctx.ctx, "request_timeout"))
+        mt_timeout = float(get_config_int("request_timeout"))
         provider = args.get("provider") or "endpoint"
         if provider == "aihorde":
             provider = "endpoint"
-        add_to_gallery = get_config_bool(ctx.ctx, "image_auto_gallery")
-        add_frame = get_config_bool(ctx.ctx, "image_insert_frame")
+        add_to_gallery = get_config_bool("image_auto_gallery")
+        add_frame = get_config_bool("image_insert_frame")
 
         source_image = args.get("source_image")
         if isinstance(source_image, str):
@@ -118,13 +118,13 @@ class GenerateImage(ToolWriterImageBase):
                 return self._tool_error("Could not read selected image.", code="SELECTION_READ_ERROR")
             source_b64, edit_width, edit_height = (str(payload[0]), int(payload[1]), int(payload[2]))
 
-        base_size = args.get("base_size", get_config_int(ctx.ctx, "image_base_size"))
+        base_size = args.get("base_size", get_config_int("image_base_size"))
         try:
             base_size = int(base_size)
         except (ValueError, TypeError):
             base_size = 512
 
-        aspect = args.get("aspect_ratio", get_config_str(ctx.ctx, "image_default_aspect"))
+        aspect = args.get("aspect_ratio", get_config_str("image_default_aspect"))
         if aspect in ("landscape_16_9", "16:9"):
             w, h = int(base_size * 16 / 9), base_size
         elif aspect in ("portrait_9_16", "9:16"):
@@ -167,10 +167,10 @@ class GenerateImage(ToolWriterImageBase):
         msg = execute_on_main_thread(_insert_or_replace, timeout=mt_timeout)
 
         if provider in ("endpoint", "openrouter"):
-            image_model_used = str(args.get("image_model") or get_image_model(ctx.ctx) or "").strip()
+            image_model_used = str(args.get("image_model") or get_image_model() or "").strip()
             if image_model_used:
-                endpoint = get_config_str(ctx.ctx, "endpoint").strip()
-                update_lru_history(ctx.ctx, image_model_used, "image_model_lru", endpoint)
+                endpoint = get_config_str("endpoint").strip()
+                update_lru_history(image_model_used, "image_model_lru", endpoint)
 
         return {"status": "ok", "message": msg}
 

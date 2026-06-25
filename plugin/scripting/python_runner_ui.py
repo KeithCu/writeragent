@@ -33,7 +33,7 @@ log = logging.getLogger("writeragent.scripting")
 
 def native_run_script_modeless_enabled(ctx: Any) -> bool:
     """When True, the plain-text Run Python Script dialog floats (document stays editable)."""
-    return bool(get_config(ctx, "scripting.native_run_script_modeless"))
+    return bool(get_config("scripting.native_run_script_modeless"))
 
 
 class NativePythonScriptDialog:
@@ -106,7 +106,7 @@ class NativePythonScriptDialog:
         select_ctrl = self._select_ctrl
         if select_ctrl is None:
             return
-        saved = get_config(self._ctx, "saved_python_scripts")
+        saved = get_config("saved_python_scripts")
         if not isinstance(saved, dict):
             saved = {}
         names, merged, origin_map = build_xdl_script_picker_state(self._ctx, self._doc, saved)
@@ -121,7 +121,7 @@ class NativePythonScriptDialog:
         else:
             from plugin.scripting.python_runner import resolve_run_script_name_config_key
             name_config_key = resolve_run_script_name_config_key(self._doc)
-            last_name = get_config_str(self._ctx, name_config_key)
+            last_name = get_config_str(name_config_key)
             if last_name and last_name in names:
                 selected_name = last_name
         if not selected_name and names:
@@ -133,7 +133,7 @@ class NativePythonScriptDialog:
                     select_ctrl.selectItemPos(idx, True)
                     from plugin.scripting.python_runner import resolve_run_script_name_config_key
                     name_config_key = resolve_run_script_name_config_key(self._doc)
-                    set_config(self._ctx, name_config_key, selected_name)
+                    set_config(name_config_key, selected_name)
                     if self._dlg is not None:
                         try:
                             code_ctrl = self._dlg.getControl("CodeEdit")
@@ -159,7 +159,7 @@ class NativePythonScriptDialog:
             select_ctrl = dlg.getControl("ScriptSelect")
             self._select_ctrl = select_ctrl
 
-            saved_scripts = get_config(ctx, "saved_python_scripts")
+            saved_scripts = get_config("saved_python_scripts")
             if not isinstance(saved_scripts, dict):
                 saved_scripts = {}
             doc = self._doc
@@ -230,19 +230,19 @@ class NativePythonScriptDialog:
                     return _("No document is open to save scripts.")
                 err = save_document_script(self._doc, real_name, t)
                 if err:
-                    user_scripts = get_config(self._ctx, "saved_python_scripts")
+                    user_scripts = get_config("saved_python_scripts")
                     if not isinstance(user_scripts, dict):
                         user_scripts = {}
                     user_scripts[real_name] = t
-                    set_config(self._ctx, "saved_python_scripts", user_scripts)
+                    set_config("saved_python_scripts", user_scripts)
                     return _("%s Saved to My Scripts instead.") % err
                 return _("Script '%s' saved to this document.") % real_name
             else:
-                user_scripts = get_config(self._ctx, "saved_python_scripts")
+                user_scripts = get_config("saved_python_scripts")
                 if not isinstance(user_scripts, dict):
                     user_scripts = {}
                 user_scripts[real_name] = t
-                set_config(self._ctx, "saved_python_scripts", user_scripts)
+                set_config("saved_python_scripts", user_scripts)
                 return _("Script '%s' saved successfully.") % real_name
         return None
 
@@ -262,7 +262,7 @@ class NativePythonScriptDialog:
                         # Save the selected name to config
                         from plugin.scripting.python_runner import resolve_run_script_name_config_key
                         name_config_key = resolve_run_script_name_config_key(owner._doc)
-                        set_config(ctx, name_config_key, name)
+                        set_config(name_config_key, name)
                         t = owner._current_scripts.get(name, "")
                         code_ctrl.setText(t)
                 except Exception:
@@ -379,22 +379,22 @@ class NativePythonScriptDialog:
 
                         err = save_document_script(doc, name, t)
                         if err:
-                            user_scripts = get_config(ctx, "saved_python_scripts")
+                            user_scripts = get_config("saved_python_scripts")
                             if not isinstance(user_scripts, dict):
                                 user_scripts = {}
                             user_scripts[name] = t
-                            set_config(ctx, "saved_python_scripts", user_scripts)
+                            set_config("saved_python_scripts", user_scripts)
                             lbl.getModel().Label = _("%s Saved to My Scripts instead.") % err
                         else:
                             lbl.getModel().Label = _("Script '%s' saved to this document.") % name
                         owner._refresh_script_dropdown(document_script_display_name(name))
                         return
 
-                    user_scripts = get_config(ctx, "saved_python_scripts")
+                    user_scripts = get_config("saved_python_scripts")
                     if not isinstance(user_scripts, dict):
                         user_scripts = {}
                     user_scripts[name] = t
-                    set_config(ctx, "saved_python_scripts", user_scripts)
+                    set_config("saved_python_scripts", user_scripts)
                     owner._refresh_script_dropdown(name)
                     lbl.getModel().Label = _("Script '%s' saved successfully.") % name
                 except Exception:
@@ -426,11 +426,11 @@ class NativePythonScriptDialog:
                                 return
                             delete_document_script(doc, real_name)
                         else:
-                            user_scripts = get_config(ctx, "saved_python_scripts")
+                            user_scripts = get_config("saved_python_scripts")
                             if not isinstance(user_scripts, dict):
                                 user_scripts = {}
                             user_scripts.pop(real_name, None)
-                            set_config(ctx, "saved_python_scripts", user_scripts)
+                            set_config("saved_python_scripts", user_scripts)
                         owner._refresh_script_dropdown()
                         lbl.getModel().Label = _("Script '%s' deleted.") % real_name
                 except Exception:

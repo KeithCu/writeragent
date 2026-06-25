@@ -62,13 +62,13 @@ def input_box(ctx, message, title="", default="", x=None, y=None):
             dlg.getModel().Title = title
 
         prompt_ctrl = dlg.getControl("prompt_selector")
-        current_prompt = get_config_str(ctx, "additional_instructions")
+        current_prompt = get_config_str("additional_instructions")
         populate_combobox_with_lru(ctx, prompt_ctrl, current_prompt, "prompt_lru", "")
 
         model_selector = get_optional(dlg, "model_selector")
         if model_selector:
-            current_endpoint = get_current_endpoint(ctx)
-            current_model = get_text_model(ctx)
+            current_endpoint = get_current_endpoint()
+            current_model = get_text_model()
             populate_combobox_with_lru(ctx, model_selector, current_model, "model_lru", current_endpoint)
 
         dlg.getControl("edit").setFocus()
@@ -80,8 +80,8 @@ def input_box(ctx, message, title="", default="", x=None, y=None):
             if model_selector:
                 chosen = model_selector.getText()
                 if chosen:
-                    set_config(ctx, "text_model", chosen)
-                    update_lru_history(ctx, chosen, "model_lru", get_current_endpoint(ctx))
+                    set_config("text_model", chosen)
+                    update_lru_history(chosen, "model_lru", get_current_endpoint())
             return ret_text, ret_prompt
         need_dispose = False
         return "", ""
@@ -116,7 +116,7 @@ class SettingsDialog:
                 return {}
                 
             field_specs = get_settings_field_specs(self._ctx)
-            current_endpoint = get_current_endpoint(self._ctx)
+            current_endpoint = get_current_endpoint()
 
             self._setup_tabs()
             self._populate_fields(field_specs, current_endpoint)
@@ -228,7 +228,7 @@ class SettingsDialog:
         provider = get_provider_from_endpoint(endpoint)
         if provider not in {"openrouter", "together"}:
             return
-        if not str(get_api_key_for_endpoint(self._ctx, endpoint) or "").strip():
+        if not str(get_api_key_for_endpoint(endpoint) or "").strip():
             return
         listener._schedule_debounced_models_fetch()
 
@@ -560,14 +560,14 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         api_key_ov = self._live_api_key()
         populate_kw = {"api_key_override": api_key_ov, "skip_remote_fetch": skip_fetch}
         resolved_provider = self.get_provider_from_endpoint(resolved)
-        saved_provider = self.get_provider_from_endpoint(get_current_endpoint(self._ctx))
+        saved_provider = self.get_provider_from_endpoint(get_current_endpoint())
         same_provider = bool(resolved_provider and resolved_provider == saved_provider)
 
         text_ctrl = get_optional(self._dlg, "text_model")
         if text_ctrl:
             current = self._sanitize_model_combobox_value(str(text_ctrl.getText() or ""))
             if not current:
-                current = get_text_model(self._ctx) if same_provider else ""
+                current = get_text_model() if same_provider else ""
             self.populate_combobox_with_lru(
                 self._ctx,
                 text_ctrl,
@@ -583,7 +583,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
             stt_val = self._sanitize_model_combobox_value(str(stt_ctrl.getText() or ""))
             if not stt_val:
                 if same_provider:
-                    stt_val = str(get_config(self._ctx, "stt_model") or get_stt_model(self._ctx) or "")
+                    stt_val = str(get_config("stt_model") or get_stt_model() or "")
                 else:
                     stt_val = ""
             stt_remote = None if resolved_provider in {"openrouter", "together"} else models
@@ -600,13 +600,13 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         image_ctrl = get_optional(self._dlg, "image_model")
         if image_ctrl:
             image_models = (
-                self.fetch_available_image_models(resolved, self._ctx, api_key_override=api_key_ov)
+                self.fetch_available_image_models(resolved, api_key_override=api_key_ov)
                 if models is not None
                 else None
             )
             image_val = self._sanitize_model_combobox_value(str(image_ctrl.getText() or ""))
             if not image_val:
-                image_val = str(self.get_image_model(self._ctx) or "")
+                image_val = str(self.get_image_model() or "")
             self.populate_combobox_with_lru(
                 self._ctx,
                 image_ctrl,
@@ -628,7 +628,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         if not resolved: return
         ak_ctrl = get_optional(self._dlg, "api_key")
         if ak_ctrl:
-            set_control_text(ak_ctrl, self.get_api_key_for_endpoint(self._ctx, resolved))
+            set_control_text(ak_ctrl, self.get_api_key_for_endpoint(resolved))
 
     def _bg_fetch(self, gen, resolved):
         if self._closed or gen != self._debounce_gen: return
@@ -638,7 +638,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
 
         models = None
         if resolved and self.endpoint_url_suitable_for_v1_models_fetch(resolved):
-            models = self.fetch_available_models(resolved, self._ctx, api_key_override=key_ov)
+            models = self.fetch_available_models(resolved, api_key_override=key_ov)
 
         def apply_ui():
             if self._closed or gen != self._debounce_gen: return
@@ -707,11 +707,11 @@ class EvalDashboard:
     def _populate(self):
         assert self._dlg is not None
         endpoint_ctrl = self._dlg.getControl("endpoint")
-        set_control_text(endpoint_ctrl, get_config_str(self._ctx, "endpoint"))
+        set_control_text(endpoint_ctrl, get_config_str("endpoint"))
 
         model_ctrl = self._dlg.getControl("models")
-        current_model = str(get_config(self._ctx, "text_model") or get_config(self._ctx, "model") or "")
-        current_endpoint = get_config_str(self._ctx, "endpoint").strip()
+        current_model = str(get_config("text_model") or get_config("model") or "")
+        current_endpoint = get_config_str("endpoint").strip()
         populate_combobox_with_lru(self._ctx, model_ctrl, current_model, "model_lru", current_endpoint)
 
         self._dlg.getControl("btn_run").addActionListener(EvalRunListener(self._ctx, self._dlg))

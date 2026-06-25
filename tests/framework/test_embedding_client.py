@@ -30,7 +30,7 @@ def config_data():
 
 
 def _mock_get_config(config_data):
-    def _get(_ctx, key):
+    def _get(key):
         return config_data.get(key, "")
 
     return _get
@@ -38,12 +38,12 @@ def _mock_get_config(config_data):
 
 def test_get_embedding_model_default(ctx):
     with patch("plugin.framework.client.embedding_client.get_config", return_value=""):
-        assert get_embedding_model(ctx) == DEFAULT_EMBEDDING_MODEL
+        assert get_embedding_model() == DEFAULT_EMBEDDING_MODEL
 
 
 def test_get_embedding_model_override(ctx):
     with patch("plugin.framework.client.embedding_client.get_config", return_value="BAAI/bge-small-en-v1.5"):
-        assert get_embedding_model(ctx) == "BAAI/bge-small-en-v1.5"
+        assert get_embedding_model() == "BAAI/bge-small-en-v1.5"
 
 
 def test_embed_texts_happy_path(ctx, config_data):
@@ -111,7 +111,7 @@ def test_embed_texts_worker_error(ctx, config_data):
 
 
 def test_embed_texts_unsupported_provider(ctx):
-    with patch("plugin.framework.client.embedding_client.get_config", side_effect=lambda _c, k: "openrouter" if k == "embedding_provider" else ""):
+    with patch("plugin.framework.client.embedding_client.get_config", side_effect=lambda k: "openrouter" if k == "embedding_provider" else ""):
         with pytest.raises(ConfigError, match="not implemented"):
             embed_texts(ctx, ["hello"])
 

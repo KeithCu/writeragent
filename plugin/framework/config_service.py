@@ -25,6 +25,7 @@ from plugin.framework.config import (
     set_api_key_for_endpoint,
     _load_config_dict,
     _write_config_file,
+    _emit_config_changed_ctx,
     AI_SIMPLE_FIELDS,
 )
 from plugin.framework.client.model_fetcher import set_image_model
@@ -110,7 +111,6 @@ class ConfigService(ServiceBase):
     def get(self, key, default=None, caller_module=None):
         """Get a config value, fallback to defaults."""
         self._check_read_access(key, caller_module)
-        from plugin.framework.thread_guard import on_main_thread
 
         # Simple mapping: ai.<field> keys from the AI Options page should read
         # from the corresponding top-level settings so Tools → Options and the
@@ -120,17 +120,15 @@ class ConfigService(ServiceBase):
 
             # Internal mappings for missing AI_SIMPLE_FIELDS mapping if needed
             if field == "api_key":
-                ctx = get_ctx() if on_main_thread() else None
-                endpoint = get_current_endpoint(ctx)
+                endpoint = get_current_endpoint()
                 from plugin.framework.config import get_api_key_for_endpoint
-                return str(get_api_key_for_endpoint(ctx, endpoint) or "")
+                return str(get_api_key_for_endpoint(endpoint) or "")
 
             if field in AI_SIMPLE_FIELDS:
-                ctx = get_ctx() if on_main_thread() else None
                 if field == "endpoint":
-                    return str(get_config(ctx, "endpoint") or "").strip()
+                    return str(get_config("endpoint") or "").strip()
 
-                return get_config(ctx, field)
+                return get_config(field)
 
         # Test fallback
         if self._config_path and os.path.exists(self._config_path):
@@ -148,9 +146,8 @@ class ConfigService(ServiceBase):
             except ConfigError as e:
                 log.debug("ConfigService.get ConfigError: %s", e)
 
-        ctx = get_ctx() if on_main_thread() else None
         try:
-            val = get_config(ctx, key)
+            val = get_config(key)
             if val is not None and val != "":
                 return val
         except ConfigError:
@@ -172,30 +169,28 @@ class ConfigService(ServiceBase):
 
             # Internal mappings for keys missing from AI_SIMPLE_FIELDS if they map to methods
             if field == "api_key":
-                ctx = get_ctx()
-                endpoint = get_current_endpoint(ctx)
-                set_api_key_for_endpoint(ctx, endpoint, value or "")
+                endpoint = get_current_endpoint()
+                set_api_key_for_endpoint(endpoint, value or "")
                 if value != old_value:
                     bus = self._events or global_event_bus
-                    bus.emit("config:changed", key=key, value=value, old_value=old_value, ctx=ctx)
+                    bus.emit("config:changed", key=key, value=value, old_value=old_value, ctx=_emit_config_changed_ctx())
                 return
 
             if field in AI_SIMPLE_FIELDS:
-                ctx = get_ctx()
                 if field == "endpoint":
                     from plugin.chatbot.config_ui_helpers import endpoint_from_selector_text
                     resolved = endpoint_from_selector_text(str(value))
                     if resolved:
-                        set_config(ctx, "endpoint", resolved)
+                        set_config("endpoint", resolved)
                 elif field == "image_model":
-                    set_image_model(ctx, value or "", update_lru=True)
+                    set_image_model(value or "", update_lru=True)
                 else:
                     # Direct 1:1 mapping to top-level key.
-                    set_config(ctx, field, value)
+                    set_config(field, value)
 
                 if value != old_value:
                     bus = self._events or global_event_bus
-                    bus.emit("config:changed", key=key, value=value, old_value=old_value, ctx=ctx)
+                    bus.emit("config:changed", key=key, value=value, old_value=old_value, ctx=_emit_config_changed_ctx())
                 return
 
         # Test fallback
@@ -212,8 +207,8 @@ class ConfigService(ServiceBase):
 
             ctx = None  # No UNO context in file-based test mode
         else:
-            ctx = get_ctx()
-            set_config(ctx, key, value)
+            set_config(key, value)
+            ctx = _emit_config_changed_ctx()
 
         if value != old_value:
             bus = self._events or global_event_bus
@@ -248,12 +243,11 @@ class ConfigService(ServiceBase):
             except (OSError, json.JSONDecodeError) as e:
                 log.warning("ConfigService.remove config file error for key %s: %s", key, e)
         else:
-            remove_config(get_ctx(), key)
+            remove_config(key)
 
     def get_dict(self):
         """Return all config."""
         # This is a simplification for now
-        ctx = get_ctx()
         if self._config_path and os.path.exists(self._config_path):
             try:
                 with open(self._config_path, "r", encoding="utf-8") as f:
@@ -264,7 +258,7 @@ class ConfigService(ServiceBase):
             except (OSError, json.JSONDecodeError) as e:
                 log.debug("ConfigService.get_dict config file read error: %s", e)
                 return {}
-        return get_config_dict(ctx)
+        return get_config_dict()
 
     def _check_read_access(self, key, caller_module):
         if caller_module is None or "." not in key:

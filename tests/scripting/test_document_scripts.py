@@ -197,7 +197,7 @@ def test_build_scripts_list_message_includes_sample_code():
     ) as mock_key:
         msg = build_scripts_list_message(ctx, session_doc=doc, session_doc_url=None)
     mock_key.assert_called_once_with(doc)
-    mock_get_str.assert_called_once_with(ctx, "last_python_script_name_writer")
+    mock_get_str.assert_called_once_with("last_python_script_name_writer")
     assert msg["sample_code"] == "print('scratchpad')"
     assert msg["selected_script_name"] == "Prime"
 

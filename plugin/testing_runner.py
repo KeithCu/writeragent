@@ -199,21 +199,21 @@ def run_all_tests(ctx: Any) -> str:
 
     _review_mode_override: Dict[str, Any] = {}
 
-    def test_get_config(c, key):
+    def test_get_config(key):
         if key == "doc.agent_edit_review_mode":
             return _review_mode_override.get(key, "off")
-        return original_get_config(c, key)
+        return original_get_config(key)
 
-    def test_set_config(c, key, value):
+    def test_set_config(key, value):
         if key == "doc.agent_edit_review_mode":
             _review_mode_override[key] = value
             from plugin.framework.event_bus import global_event_bus
-            global_event_bus.emit("config:changed", ctx=c)
+            global_event_bus.emit("config:changed", ctx=ctx)
             return
-        original_set_config(c, key, value)
+        original_set_config(key, value)
 
-    def test_get_config_dict(c):
-        base = original_get_config_dict(c)
+    def test_get_config_dict():
+        base = original_get_config_dict()
         merged = dict(base)
         merged["doc.agent_edit_review_mode"] = _review_mode_override.get("doc.agent_edit_review_mode", "off")
         return merged
@@ -265,6 +265,9 @@ def run_all_tests(ctx: Any) -> str:
         from plugin.framework.uno_context import set_fallback_ctx
 
         set_fallback_ctx(ctx)
+        from plugin.framework.config import init_config
+
+        init_config(ctx)
         from plugin.main import bootstrap
 
         bootstrap(ctx=ctx)

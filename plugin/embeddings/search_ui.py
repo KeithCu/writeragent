@@ -189,7 +189,7 @@ class SearchDialog:
                     return _("Cache Status: Folder not resolved")
 
                 # Mode-aware for zvec/lancedb side-by-side store
-                mode = _folder_search_mode(ctx)
+                mode = _folder_search_mode()
                 if mode == "zvec":
                     zpath = zvec_collection_path(listing_root, create_parent=False) if listing_root else None
                     if not zpath or not zvec_collection_looks_populated(zpath):
@@ -263,7 +263,7 @@ class SearchDialog:
                     self._update_results_ui(results_ctrl, btn_search, _("No active document found."))
                     return
 
-                if not folder_search_enabled(ctx):
+                if not folder_search_enabled():
                     self._update_results_ui(
                         results_ctrl,
                         btn_search,
@@ -288,7 +288,7 @@ class SearchDialog:
                     self._update_results_ui(results_ctrl, btn_search, _("Error: ") + str(listing_root))
                     return
 
-                mode = _folder_search_mode(ctx)
+                mode = _folder_search_mode()
                 if mode == "zvec":
                     zpath = zvec_collection_path(listing_root, create_parent=False) if listing_root else None
                     if not zpath or not zvec_collection_looks_populated(zpath):
@@ -322,7 +322,7 @@ class SearchDialog:
                         return
                     search_path = str(db_path)
 
-                model = get_embedding_model(ctx)
+                model = get_embedding_model()
                 result = hybrid_search(
                     ctx,
                     search_path,
@@ -385,7 +385,7 @@ class SearchDialog:
                 # Clear local cache files to force a full cold index rebuild
                 clear_folder_cache(listing_root)
 
-                model = get_embedding_model(ctx)
+                model = get_embedding_model()
 
                 hb_data: dict[str, dict[str, Any]] = {}
 
@@ -429,7 +429,7 @@ class SearchDialog:
                         listing_root,
                         model=model,
                         mode="cold",
-                        search_mode=_folder_search_mode(ctx),
+                        search_mode=_folder_search_mode(),
                         heartbeat_fn=heartbeat_fn,
                     )
                     self._update_rebuild_ui(btn_rebuild, results_ctrl, _("Cache rebuild completed successfully."))

@@ -109,8 +109,8 @@ def insert_latex_math_dialog(ctx: Any) -> None:
             msgbox(ctx, _("Error"), _("This command is only available in Writer documents."))
             return
 
-        last_latex = get_config_str(ctx, "last_latex_input")
-        last_display = bool(get_config(ctx, "last_latex_display_block"))
+        last_latex = get_config_str("last_latex_input")
+        last_display = bool(get_config("last_latex_display_block"))
 
         # Check if Monaco editor is available
         exe, available = monaco_editor_available(ctx)
@@ -130,8 +130,8 @@ def insert_latex_math_dialog(ctx: Any) -> None:
                     return {"type": "error", "message": error_msg}
 
                 # Save settings
-                set_config(ctx, "last_latex_input", code)
-                set_config(ctx, "last_latex_display_block", display_block)
+                set_config("last_latex_input", code)
+                set_config("last_latex_display_block", display_block)
 
                 # Insert into document
                 controller = doc.getCurrentController()
@@ -174,8 +174,8 @@ def insert_latex_math_dialog(ctx: Any) -> None:
             return  # Empty, do nothing
 
         # Save settings
-        set_config(ctx, "last_latex_input", latex)
-        set_config(ctx, "last_latex_display_block", display_block)
+        set_config("last_latex_input", latex)
+        set_config("last_latex_display_block", display_block)
 
         # Convert to StarMath
         conv_res = convert_latex_to_starmath(ctx, latex, display_block=display_block)

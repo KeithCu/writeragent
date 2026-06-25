@@ -167,6 +167,10 @@ def bootstrap(ctx=None):
 
             ctx = get_ctx()
 
+        from plugin.framework.config import init_config
+
+        init_config(ctx)
+
         # 2. Service Container
         from plugin.framework.service import ServiceRegistry
 
@@ -793,7 +797,7 @@ def _start_mcp_server(ctx):
     """Ensure HTTP/MCP server is loaded. Start happens natively in module lifecycle."""
     from plugin.framework.config import get_config_bool
 
-    if not get_config_bool(ctx, "mcp_enabled"):
+    if not get_config_bool("mcp_enabled"):
         return
     # Note: _get_http_module relies on bootstrap already having run.
     _get_http_module(ctx)
@@ -829,6 +833,12 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
 
     def execute(self, Arguments):
         """Called by the Jobs framework on OnStartApp."""
+        try:
+            from plugin.framework.config import init_config
+
+            init_config(self.ctx)
+        except Exception:
+            pass
         try:
             init_logging(self.ctx)
         except Exception:

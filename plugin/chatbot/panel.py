@@ -274,7 +274,7 @@ class QueryKeyListener(BaseKeyListener):
         try:
             from plugin.framework.config import get_config_bool
 
-            if not get_config_bool(self.send_listener.ctx, _DOC_CHAT_ENTER_SENDS):
+            if not get_config_bool(_DOC_CHAT_ENTER_SENDS):
                 return
         except Exception:
             pass
@@ -727,7 +727,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             if not getattr(self, "_rich_plain_fallback_warned", False):
                 from plugin.framework.config import get_config_bool_safe
 
-                if get_config_bool_safe(self.ctx, "rich_text_control_sidebar"):
+                if get_config_bool_safe("rich_text_control_sidebar"):
                     log.warning(
                         "[RICH-CONTROL] _append_response plain fallback while rich_text_control_sidebar enabled",
                     )
@@ -1029,11 +1029,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             from plugin.framework.config import get_current_endpoint
             from plugin.framework.client.model_fetcher import get_text_model, has_native_audio, get_stt_model
 
-            current_model = get_text_model(self.ctx)
-            current_endpoint = get_current_endpoint(self.ctx)
+            current_model = get_text_model()
+            current_endpoint = get_current_endpoint()
 
-            if has_native_audio(self.ctx, current_model, current_endpoint) is False:
-                stt_model = get_stt_model(self.ctx)
+            if has_native_audio(current_model, current_endpoint) is False:
+                stt_model = get_stt_model()
                 if stt_model:
                     log.warning("_do_send: model %s has no native audio, using stt fallback %s" % (current_model, stt_model))
                     try:
@@ -1097,7 +1097,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             from plugin.framework.config import get_config
             from plugin.agent_backend.registry import normalize_backend_id
 
-            agent_backend_id = normalize_backend_id(get_config(self.ctx, "agent_backend.backend_id"))
+            agent_backend_id = normalize_backend_id(get_config("agent_backend.backend_id"))
             if agent_backend_id and agent_backend_id != "builtin":
                 log.info("_do_send: using agent backend %s" % agent_backend_id)
                 self._do_send_via_agent_backend(query_text, model, doc_type_str.lower())

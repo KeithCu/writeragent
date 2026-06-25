@@ -79,7 +79,7 @@ def test_get_chat_system_prompt_allows_html_when_rich_text_control_sidebar():
     from plugin.framework.constants import CHAT_RESPONSE_FORMAT, RICH_CHAT_SIDEBAR_INSTRUCTIONS
 
     with patch("plugin.framework.config.get_config_bool_safe") as mock_bool:
-        mock_bool.side_effect = lambda ctx, key: key == "rich_text_control_sidebar"
+        mock_bool.side_effect = lambda key: key == "rich_text_control_sidebar"
         prompt = get_chat_system_prompt_for_document(model, ctx=MagicMock())
         assert RICH_CHAT_SIDEBAR_INSTRUCTIONS in prompt
         assert CHAT_RESPONSE_FORMAT in prompt

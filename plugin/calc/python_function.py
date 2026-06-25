@@ -392,7 +392,7 @@ def finalize_python_return(
     is_matrix = False
     if isinstance(result, (list, tuple)) and index_arg is None and len(result) > 0:
         from plugin.framework.config import get_config_bool
-        if get_config_bool(ctx, "scripting.python_auto_spill"):
+        if get_config_bool("scripting.python_auto_spill"):
             try:
                 doc = None
                 if not (hasattr(ctx, "ServiceManager") or hasattr(ctx, "getServiceManager")):

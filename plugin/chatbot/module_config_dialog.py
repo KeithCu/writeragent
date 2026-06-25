@@ -81,7 +81,7 @@ def get_module_config_field_specs(ctx: Any, module_name: str) -> list[dict[str, 
             continue
 
         config_key = f"{module_name}.{field_name}"
-        val = get_config(ctx, config_key)
+        val = get_config(config_key)
         opts = schema.get("options", [])
 
         if isinstance(opts, list) and opts and isinstance(opts[0], dict):
@@ -147,7 +147,7 @@ def apply_module_config_result(ctx: Any, module_name: str, result: dict[str, Any
                         val = opt.get("value", lbl)
                         break
 
-        set_config(ctx, save_key, val)
+        set_config(save_key, val)
 
     global_event_bus.emit("config:changed", ctx=ctx)
 

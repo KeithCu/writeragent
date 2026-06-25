@@ -50,7 +50,7 @@ class TestPythonRunnerConfig(unittest.TestCase):
         
         run_python_dialog()
         mock_name_key.assert_called_with(mock_doc)
-        mock_get_str.assert_called_with(mock_ctx_val, "last_python_script_name_writer")
+        mock_get_str.assert_called_with("last_python_script_name_writer")
         mock_show.assert_called()
         mock_set.assert_not_called()
         mock_execute.assert_not_called()
@@ -62,7 +62,7 @@ class TestPythonRunnerConfig(unittest.TestCase):
         mock_name_key.return_value = "last_python_script_name_calc"
         
         run_python_dialog()
-        mock_get_str.assert_called_with(mock_ctx_val, "last_python_script_name_calc")
+        mock_get_str.assert_called_with("last_python_script_name_calc")
         mock_set.assert_not_called()
         mock_execute.assert_not_called()
 
@@ -73,7 +73,7 @@ class TestPythonRunnerConfig(unittest.TestCase):
         mock_name_key.return_value = "last_python_script_name_draw"
         
         run_python_dialog()
-        mock_get_str.assert_called_with(mock_ctx_val, "last_python_script_name_draw")
+        mock_get_str.assert_called_with("last_python_script_name_draw")
         mock_set.assert_not_called()
         mock_execute.assert_not_called()
 

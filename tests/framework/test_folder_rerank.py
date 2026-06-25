@@ -21,41 +21,41 @@ setup_uno_mocks()
 def test_folder_rerank_enabled_defaults_false():
     ctx = MagicMock()
     with patch("plugin.framework.config.get_config_bool", return_value=False):
-        assert folder_rerank_enabled(ctx) is False
+        assert folder_rerank_enabled() is False
 
 
 def test_folder_rerank_enabled_reads_config():
     ctx = MagicMock()
     with patch("plugin.framework.config.get_config_bool", return_value=True) as mock_bool:
-        assert folder_rerank_enabled(ctx) is True
-    mock_bool.assert_called_once_with(ctx, "embeddings.folder_rerank_enabled")
+        assert folder_rerank_enabled() is True
+    mock_bool.assert_called_once_with("embeddings.folder_rerank_enabled")
 
 
 def test_resolve_folder_rerank_model_defaults_english_small():
     ctx = MagicMock()
-    with patch("plugin.framework.config.get_config", side_effect=lambda _ctx, key: None):
-        assert resolve_folder_rerank_model(ctx) == FOLDER_RERANK_MODEL_ENGLISH_SMALL
+    with patch("plugin.framework.config.get_config", side_effect=lambda key: None):
+        assert resolve_folder_rerank_model() == FOLDER_RERANK_MODEL_ENGLISH_SMALL
 
 
 def test_resolve_folder_rerank_model_multilingual_id():
     ctx = MagicMock()
 
-    def _cfg(_ctx, key):
+    def _cfg(key):
         if key == "embeddings.folder_rerank_model":
             return FOLDER_RERANK_MODEL_MULTILINGUAL
         return None
 
     with patch("plugin.framework.config.get_config", side_effect=_cfg):
-        assert resolve_folder_rerank_model(ctx) == FOLDER_RERANK_MODEL_MULTILINGUAL
+        assert resolve_folder_rerank_model() == FOLDER_RERANK_MODEL_MULTILINGUAL
 
 
 def test_resolve_folder_rerank_model_unknown_falls_back_to_default():
     ctx = MagicMock()
 
-    def _cfg(_ctx, key):
+    def _cfg(key):
         if key == "embeddings.folder_rerank_model":
             return "english_small"
         return None
 
     with patch("plugin.framework.config.get_config", side_effect=_cfg):
-        assert resolve_folder_rerank_model(ctx) == FOLDER_RERANK_MODEL_ENGLISH_SMALL
+        assert resolve_folder_rerank_model() == FOLDER_RERANK_MODEL_ENGLISH_SMALL

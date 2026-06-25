@@ -54,7 +54,7 @@ class SkillStore:
     """
 
     def __init__(self, ctx: Any):
-        self.config_dir = user_config_dir(_resolve_uno_ctx(ctx))
+        self.config_dir = user_config_dir()
         if self.config_dir is None:
             raise ConfigError("UNO context is required to resolve skill store path")
         self.skills_dir = os.path.join(self.config_dir, "skills")
@@ -161,7 +161,7 @@ class HumanizerTool(ToolBase):
         # get_config_bool_safe falls back to the schema default (true) or False on error.
         enabled = False
         try:
-            enabled = get_config_bool_safe(ctx, "chatbot.humanizer_enabled")
+            enabled = get_config_bool_safe("chatbot.humanizer_enabled")
         except Exception:
             enabled = False
         if not enabled:
@@ -192,7 +192,7 @@ Return ONLY the rewritten text (no quotes, no explanations, no prefix like "Here
             from plugin.framework.config import get_api_config
             from plugin.framework.client.llm_client import LlmClient
 
-            api_cfg = get_api_config(ctx)
+            api_cfg = get_api_config()
             client = LlmClient(api_cfg, ctx=ctx)  # re-uses pacing, redaction, shims, etc.
 
             # Small, cheap call focused on rewrite quality.
