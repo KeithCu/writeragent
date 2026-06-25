@@ -61,21 +61,22 @@ def _get_interceptor() -> Any:
     if _interceptor is not None:
         return _interceptor
 
-    from com.sun.star.ui import ActionTriggerSeparatorType, ContextMenuInterceptorAction, XContextMenuInterceptor
+    from com.sun.star.ui import ActionTriggerSeparatorType, XContextMenuInterceptor
+    from com.sun.star.ui.ContextMenuInterceptorAction import IGNORED, CONTINUE_MODIFIED
 
     class _CalcCellContextMenuInterceptor(unohelper.Base, XContextMenuInterceptor):  # type: ignore[misc, valid-type]
         def notifyContextMenuExecute(self, aEvent):  # noqa: N802 — UNO API
             try:
                 if not _is_calc_spreadsheet(aEvent.SourceWindow):
-                    return ContextMenuInterceptorAction.IGNORED
+                    return IGNORED
                 container = aEvent.ActionTriggerContainer
                 if not _looks_like_cell_context_menu(container):
-                    return ContextMenuInterceptorAction.IGNORED
+                    return IGNORED
 
                 import uno
                 factory = cast("Any", container).queryInterface(uno.getTypeByName("com.sun.star.lang.XMultiServiceFactory"))
                 if factory is None:
-                    return ContextMenuInterceptorAction.IGNORED
+                    return IGNORED
                 separator = factory.createInstance("com.sun.star.ui.ActionTriggerSeparator")
                 separator.setPropertyValue("SeparatorType", ActionTriggerSeparatorType.LINE)
 
@@ -88,10 +89,10 @@ def _get_interceptor() -> Any:
                 count = container.getCount()
                 container.insertByIndex(count, separator)
                 container.insertByIndex(count + 1, entry)
-                return ContextMenuInterceptorAction.CONTINUE_MODIFIED
+                return CONTINUE_MODIFIED
             except Exception:
                 log.exception("Calc cell context menu interceptor failed")
-                return ContextMenuInterceptorAction.IGNORED
+                return IGNORED
 
     _interceptor = _CalcCellContextMenuInterceptor()
     return _interceptor
