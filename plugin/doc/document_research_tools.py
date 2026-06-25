@@ -64,7 +64,8 @@ class ListOpenDocuments(ToolBase):
     name = "list_open_documents"
     description = (
         "List all currently open documents in LibreOffice. "
-        "Returns the path, name, URL, document type (writer, calc, draw), and if it is the currently active document."
+        "Returns the path, name, URL, a stable id (uid), document type (writer, calc, draw), and if it is the currently active document. "
+        "Pass a document's url OR uid as the document_url argument on any tool to target that document; the uid also works for unsaved/untitled documents that have no URL yet."
     )
     tier = "mcp"
     is_mutation = False

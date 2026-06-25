@@ -31,7 +31,13 @@ class SearchInDocument(ToolBase):
     """Search for text in a document with paragraph context."""
 
     name = "search_in_document"
-    description = "Search for text in the document using LibreOffice native search. Returns matches with surrounding paragraph text for context."
+    description = (
+        "Search for text in the document using LibreOffice native search. Returns matches with "
+        "surrounding paragraph text for context. IMPORTANT: each match's paragraph_index is an "
+        "INTERNAL addressing index — NEVER cite paragraph numbers to the user (they don't see them "
+        "and they shift as the document changes). When pointing the user to a match or an edit, "
+        "quote the first few words of its text instead (e.g. \"the sentence starting 'The Amazon…'\")."
+    )
     parameters = {
         "type": "object",
         "properties": {

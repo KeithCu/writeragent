@@ -598,7 +598,7 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
     """Retrieve all open documents from the desktop context with metadata."""
     from plugin.framework.thread_guard import assert_main_thread
     from plugin.framework.uno_context import get_desktop
-    from plugin.doc.document_helpers import get_document_type, DocumentType
+    from plugin.doc.document_helpers import get_document_type, DocumentType, get_runtime_uid
     import os
 
     assert_main_thread("document_research.get_open_documents")
@@ -617,6 +617,8 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
             continue
         url = model.getURL()
         if not url:
+            # An untitled doc has no URL, so its uid is the ONLY handle a caller can target it by.
+            # Never drop it on a type-lookup failure -- list it with doc_type "unknown" instead.
             try:
                 doc_type_enum = get_document_type(model)
                 doc_type = "writer"
@@ -624,15 +626,17 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
                     doc_type = "calc"
                 elif doc_type_enum in (DocumentType.DRAW, DocumentType.IMPRESS):
                     doc_type = "draw"
-                docs.append({
-                    "name": "Untitled",
-                    "url": "",
-                    "path": "",
-                    "doc_type": doc_type,
-                    "is_active": (active_model is not None and model == active_model)
-                })
             except Exception:
-                pass
+                doc_type = "unknown"
+                log.debug("get_open_documents: doc type lookup failed for an untitled doc", exc_info=True)
+            docs.append({
+                "name": "Untitled",
+                "url": "",
+                "uid": get_runtime_uid(model),
+                "path": "",
+                "doc_type": doc_type,
+                "is_active": (active_model is not None and model == active_model)
+            })
             continue
         
         path = _system_path_from_url(str(url)) or ""
@@ -653,6 +657,7 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
         docs.append({
             "name": name,
             "url": str(url),
+            "uid": get_runtime_uid(model),
             "path": path,
             "doc_type": doc_type_guess,
             "is_active": (active_model is not None and model == active_model)

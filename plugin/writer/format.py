@@ -1200,7 +1200,8 @@ def _content_has_block_markup(content):
     return any(p in lower for p in _BLOCK_MARKUP_PATTERNS)
 
 
-def replace_preserving_format(model, target_range, new_text, ctx=None):
+def replace_preserving_format(model, target_range, new_text, ctx=None,
+                              in_undo_context=False, split_author=True):
     """Replace text in *target_range* with *new_text* character by
     character, preserving per-character formatting (bold, italic,
     font, color, etc.).
@@ -1208,6 +1209,15 @@ def replace_preserving_format(model, target_range, new_text, ctx=None):
     Cursors are created on ``target_range.getText()`` (the cell, frame, or body
     ``XText`` that owns the range), not ``model.getText()``. The range must lie
     entirely within that text object.
+
+    When recording tracked changes, *split_author* selects the rendering:
+    ``True`` (default) authors the deletion and insertion separately so
+    LibreOffice's by-author coloring shows removed vs new text in two distinct
+    colors; ``False`` records the whole replace as a single atomic op authored
+    once (one color). The split-author two-step is only safe inside an open undo
+    context (``in_undo_context``) that can roll back a half-applied edit, so it is
+    used only when BOTH ``split_author`` and ``in_undo_context`` hold; otherwise
+    the atomic single-op path keeps the edit all-or-nothing.
     """
     # Use the range's OWN text object, not the document body. When target_range
     # lives inside a table cell, model.getText() (the body) is the wrong XText and
@@ -1223,11 +1233,36 @@ def replace_preserving_format(model, target_range, new_text, ctx=None):
     # When recording, replace the whole range in one shot so the edit is a single tracked
     # Delete + Insert the user can accept (-> new text) or reject (-> old text) cleanly.
     if _is_recording_changes(model):
+        if new_text == old_text:
+            return  # no-op: don't record a spurious tracked Delete+Insert (keeps the change count honest)
         cursor = text.createTextCursorByRange(target_range)
+        if not (split_author and in_undo_context):
+            # Single atomic path. Taken when split-author coloring is OFF, OR when the caller has NOT
+            # opened an undo context around this edit -- in which case a delete-then-insert could NOT be
+            # rolled back if the insert failed. Use the SINGLE atomic setString (one UNO action: it
+            # records the whole tracked replace -- Delete+Insert, or Delete-only when new_text is "" --
+            # or changes nothing; never a partial deletion). Whether an undo manager merely EXISTS is
+            # irrelevant -- only an actually-open rollback context makes the two-step safe.
+            # Trade-off on this path: the deletion and insertion share one author (one color).
+            cursor.setString(new_text)
+            return
+        # split_author AND in_undo_context: the caller GUARANTEES this runs inside an open undo context
+        # that will roll back a failed delete+insert, so use the two-step that preserves split-author
+        # deletion coloring. The restore on insert-failure is a best-effort extra net (the caller's
+        # context rollback also cleans up).
+        original = cursor.getString()
         with deletion_author():  # author the deletion distinctly (split by-author coloring)
             cursor.setString("")
         if new_text:
-            text.insertString(cursor, new_text, False)
+            try:
+                text.insertString(cursor, new_text, False)
+            except Exception:
+                try:
+                    text.insertString(cursor, original, False)
+                except Exception:
+                    log.warning("replace_preserving_format: insert failed AND restore failed; "
+                                "range may be left partial", exc_info=True)
+                raise
         return
 
     old_len = len(old_text)

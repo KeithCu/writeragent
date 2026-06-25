@@ -321,6 +321,16 @@ def _register_core_handlers():
 
     register_action_handler("textanalytics", "open_dialog", _open_text_analytics)
 
+    def _refresh_review_toolbar(model):
+        """Re-evaluate the review toolbar's visibility (hide once nothing is left to review).
+        Also a catch-up point if changes were resolved via LibreOffice's native UI."""
+        try:
+            from plugin.writer.review_toolbar import refresh_review_toolbar
+
+            refresh_review_toolbar(model)
+        except Exception:
+            logging.getLogger("writeragent.main").debug("review toolbar refresh failed", exc_info=True)
+
     def _resolve_change_at_cursor(accept):
         from plugin.framework.uno_context import get_active_document
         from plugin.writer.inline_review import resolve_change_at_cursor, show_review_message
@@ -332,6 +342,7 @@ def _register_core_handlers():
             logging.getLogger("writeragent.main").debug("inline review: accept=%s -> ok=%s msg=%s", accept, ok, msg)
             if not ok:
                 show_review_message(c, msg)
+            _refresh_review_toolbar(model)
         else:
             logging.getLogger("writeragent.main").debug("inline review: no current component")
 
@@ -348,9 +359,27 @@ def _register_core_handlers():
             n, msg = resolve_all_with_feedback(model, c, accept)
             logging.getLogger("writeragent.main").debug("inline review: resolve-all accept=%s -> %d changes", accept, n)
             show_review_message(c, msg)
+            _refresh_review_toolbar(model)
 
     register_action_handler("writer", "review_accept_all", lambda: _resolve_all_agent(True))
     register_action_handler("writer", "review_reject_all", lambda: _resolve_all_agent(False))
+
+    def _goto_adjacent_change(forward):
+        """Fast-travel (#2): move the cursor to the next/previous pending agent change, in document
+        order, cycling. Drives the review toolbar's Next/Previous buttons (and any shortcut)."""
+        from plugin.framework.uno_context import get_active_document
+        from plugin.writer.inline_review import goto_adjacent_agent_change
+
+        c = get_ctx()
+        model = get_active_document(c)
+        if model is None:
+            return
+        token = goto_adjacent_agent_change(model, forward)
+        logging.getLogger("writeragent.main").debug("review nav: forward=%s -> token=%s", forward, token)
+        _refresh_review_toolbar(model)
+
+    register_action_handler("writer", "review_next", lambda: _goto_adjacent_change(True))
+    register_action_handler("writer", "review_prev", lambda: _goto_adjacent_change(False))
 
     try:
         from plugin.writer.change_context_menu import install_writer_change_context_menu
@@ -359,6 +388,13 @@ def _register_core_handlers():
     except Exception:
         # WARNING, not debug: a silent install failure looks identical to "menu ignored".
         log.warning("Writer change context menu install failed", exc_info=True)
+
+    try:
+        from plugin.writer.review_toolbar import install_review_toolbar
+
+        install_review_toolbar(get_ctx())
+    except Exception:
+        log.warning("Review toolbar visibility install failed", exc_info=True)
 
 
 
@@ -570,17 +606,29 @@ def notify_menu_update():
 
     Called by modules when state changes (e.g. server start/stop).
     """
+    # Snapshot the listeners under the lock, then fire OUTSIDE it. _fire_status_event ->
+    # listener.statusChanged is a UNO call to a UI control that marshals to the main thread, so
+    # holding _status_lock across it deadlocks: the main thread, while rebinding a toolbar
+    # controller (addStatusListener), waits for the same lock this background thread holds. (This is
+    # what froze LibreOffice on the toolbar's Accept all.) addStatusListener already fires outside
+    # the lock; this makes notify_menu_update consistent.
     with _status_lock:
-        alive = []
-        for listener, url in _status_listeners:
-            command = url.Path
-            text = get_menu_text(command)
-            try:
-                _fire_status_event(listener, url, text)
-                alive.append((listener, url))
-            except Exception as e:
-                log.warning("notify_menu_update: failed to fire status event for %s: %s", command, e)
-        _status_listeners[:] = alive
+        snapshot = list(_status_listeners)
+    failed = []
+    for listener, url in snapshot:
+        command = url.Path
+        text = get_menu_text(command)
+        try:
+            _fire_status_event(listener, url, text)
+        except Exception as e:
+            failed.append((listener, url))
+            log.warning("notify_menu_update: failed to fire status event for %s: %s", command, e)
+    if failed:
+        with _status_lock:
+            _status_listeners[:] = [
+                (lstnr, u) for (lstnr, u) in _status_listeners
+                if not any(lstnr is fl and u.Complete == fu.Complete for (fl, fu) in failed)
+            ]
     # Update icons in a background thread (avoids blocking UI)
     from plugin.framework.worker_pool import run_in_background
 

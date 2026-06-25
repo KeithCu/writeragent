@@ -251,6 +251,83 @@
         </node>
       </node>
     </node>
+    <node oor:name="OfficeToolBar">
+      <node oor:name="org.extension.writeragent.toolbar" oor:op="replace">
+        <node oor:name="t1" oor:op="replace">
+          <prop oor:name="URL">
+            <value>org.extension.writeragent:writer.review_prev</value>
+          </prop>
+          <prop oor:name="Title">
+            <value xml:lang="en-US">◀ Prev</value>
+          </prop>
+          <prop oor:name="Context" oor:type="xs:string">
+            <value>com.sun.star.text.TextDocument</value>
+          </prop>
+          <prop oor:name="Target" oor:type="xs:string">
+            <value>_self</value>
+          </prop>
+          <prop oor:name="ImageIdentifier" oor:type="xs:string">
+            <value />
+          </prop>
+        </node>
+        <node oor:name="t2" oor:op="replace">
+          <prop oor:name="URL">
+            <value>org.extension.writeragent:writer.review_next</value>
+          </prop>
+          <prop oor:name="Title">
+            <value xml:lang="en-US">Next ▶</value>
+          </prop>
+          <prop oor:name="Context" oor:type="xs:string">
+            <value>com.sun.star.text.TextDocument</value>
+          </prop>
+          <prop oor:name="Target" oor:type="xs:string">
+            <value>_self</value>
+          </prop>
+          <prop oor:name="ImageIdentifier" oor:type="xs:string">
+            <value />
+          </prop>
+        </node>
+        <node oor:name="sep1" oor:op="replace">
+          <prop oor:name="URL">
+            <value>private:separator</value>
+          </prop>
+        </node>
+        <node oor:name="t3" oor:op="replace">
+          <prop oor:name="URL">
+            <value>org.extension.writeragent:writer.review_accept_all</value>
+          </prop>
+          <prop oor:name="Title">
+            <value xml:lang="en-US">Accept all</value>
+          </prop>
+          <prop oor:name="Context" oor:type="xs:string">
+            <value>com.sun.star.text.TextDocument</value>
+          </prop>
+          <prop oor:name="Target" oor:type="xs:string">
+            <value>_self</value>
+          </prop>
+          <prop oor:name="ImageIdentifier" oor:type="xs:string">
+            <value />
+          </prop>
+        </node>
+        <node oor:name="t4" oor:op="replace">
+          <prop oor:name="URL">
+            <value>org.extension.writeragent:writer.review_reject_all</value>
+          </prop>
+          <prop oor:name="Title">
+            <value xml:lang="en-US">Reject all</value>
+          </prop>
+          <prop oor:name="Context" oor:type="xs:string">
+            <value>com.sun.star.text.TextDocument</value>
+          </prop>
+          <prop oor:name="Target" oor:type="xs:string">
+            <value>_self</value>
+          </prop>
+          <prop oor:name="ImageIdentifier" oor:type="xs:string">
+            <value />
+          </prop>
+        </node>
+      </node>
+    </node>
   </node>
 </oor:component-data>
 

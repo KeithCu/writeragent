@@ -119,6 +119,9 @@ table = _create_mock_module("com.sun.star.table")
 
 lang = _create_mock_module("com.sun.star.lang")
 
+util = _create_mock_module("com.sun.star.util")
+setattr(util, "XModifyListener", MockBase)  # review_toolbar._ReviewModifyListener subclasses it
+
 
 class MockXEventListener:
     pass

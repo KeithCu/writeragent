@@ -4,3 +4,13 @@ requires: [document, config, format, events]
 provides_services: [writer_bookmarks, writer_tree, writer_proximity, writer_index]
 
 config: {}
+
+# Review fast-travel (#2): two actions to jump between the agent's pending tracked changes. Handlers
+# live in main.py (writer.review_prev / writer.review_next -> inline_review.goto_adjacent_agent_change).
+# The toolbar that exposes them is defined in the hand-maintained extension/Addons.xcu (the file that
+# actually ships), like every other toolbar/menu in this project.
+actions:
+  review_prev:
+    title: "◀ Prev"
+  review_next:
+    title: "Next ▶"

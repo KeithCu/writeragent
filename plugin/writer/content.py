@@ -16,14 +16,16 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Writer content tools — read, apply, find, and paragraph operations."""
 
+import itertools
 import logging
+import os
 import threading
 
 from plugin.framework.tool import ToolBase, ToolBaseDummy
 from plugin.framework.constants import APPLY_DOCUMENT_CONTENT_TOOL_RESEARCH_HINT
 from plugin.doc.document_helpers import normalize_linebreaks, get_string_without_tracked_deletions
 from plugin.writer.edit_review import EditReviewSession, edit_review_wait_seconds, review_recording_enabled, get_agent_edit_review_mode
-from plugin.framework.errors import safe_json_loads
+from plugin.framework.errors import safe_json_loads, ToolExecutionError
 import re as re_mod
 
 
@@ -326,6 +328,409 @@ def _all_start_indices(haystack, needle):
 def _find_all_ranges(doc, search_string):
     """All occurrences as TextRanges in document order (NBSP-aware native search with chaining)."""
     return _find_chained_range(doc, search_string, all_matches=True)
+
+
+# Agent-edit tuning knobs. These have sensible fixed defaults and are NOT settings-UI options (no
+# demonstrated need to tune them per document), so they are plain named constants -- not config keys.
+# A power user can still override any of them ONCE at startup via an environment variable: a named
+# constant with an escape hatch, read at import time.
+
+def _env_num(name, default, cast, ok):
+    """Read tuning knob *name* from the environment, *cast* it, and return it only if *ok(v)*;
+    otherwise the fixed *default*. Never raises -- a bad env value must never break an edit."""
+    try:
+        v = cast(os.environ[name])
+        return v if ok(v) else default
+    except (KeyError, ValueError, TypeError):
+        return default
+
+
+# Changed-word fraction at/under which a tracked replace is split into surgical sub-edits instead of
+# one whole-block Delete+Insert. > threshold -> one block change (today's behaviour); <= threshold ->
+# per-changed-run redlines. See plugin/writer/word_diff_split.py.
+_WORD_DIFF_THRESHOLD = _env_num(
+    "WRITERAGENT_AGENT_EDIT_DIFF_THRESHOLD", 0.6, float, lambda v: 0.0 <= v <= 1.0)
+
+# Max per-changed-run sub-edits before a surgical split falls back to ONE whole block. Bounds the
+# cost of recording a very scattered edit (each sub-edit re-enumerates redlines).
+_MAX_SURGICAL_RUNS = _env_num(
+    "WRITERAGENT_AGENT_EDIT_MAX_SURGICAL_RUNS", 40, int, lambda v: v >= 1)
+
+# Whether an agent edit's deletion and insertion are authored separately so LibreOffice's by-author
+# coloring renders removed vs new text in two distinct colors (on), or as one author / one color
+# (off). Off via the env var = any falsey token ("0", "false", "no", "off", "").
+_SPLIT_AUTHOR_COLORS = os.environ.get(
+    "WRITERAGENT_AGENT_EDIT_SPLIT_AUTHOR_COLORS", "1").strip().lower() not in ("0", "false", "no", "off", "")
+
+
+# goRight takes a C++ short (max 32767); chunk like the rest of the codebase (format.py, ops.py,
+# document_helpers.py) so a surgical sub-edit deep in a LONG block (the splitter's target case)
+# never overflows the count.
+_GO_RIGHT_CHUNK = 8192
+
+
+def _go_right(cursor, n, expand):
+    """Move (expand=False) or extend (expand=True) the cursor right by *n* chars, in chunks of
+    _GO_RIGHT_CHUNK (UNO caps the count at a C++ short). Returns True only if the FULL *n* was
+    consumed; False if goRight stopped early (end of text / an unexpected stop), so the caller can
+    refuse to edit at a wrong offset instead of silently landing short."""
+    while n > 0:
+        step = n if n < _GO_RIGHT_CHUNK else _GO_RIGHT_CHUNK
+        if not cursor.goRight(step, expand):
+            return False
+        n -= step
+    return True
+
+
+# Portion types whose presence keeps getString() char offsets aligned with the live cursor's
+# goRight stops, so surgical sub-edits still land correctly. "SoftPageBreak" is an automatic
+# (layout-only) page break: it contributes 0 chars to getString() and is not a goRight stop --
+# verified that navigating by getString offsets across one lands exactly right. Without it, any
+# paragraph that happens to straddle a page boundary was needlessly forced to whole-block. Real
+# content portions (fields, footnotes, ruby, redline marks, bookmarks, ...) DO shift offsets and
+# must keep returning False.
+_OFFSET_SAFE_PORTION_TYPES = frozenset({"Text", "SoftPageBreak"})
+
+
+def _block_safe_for_surgical(found):
+    """True only when *found* is a SINGLE paragraph whose portions are all offset-safe (plain text
+    or an automatic page break) and which has no tracked changes -- the case where getString() char
+    offsets line up with the live cursor's goRight stops. A multi-paragraph block, a struck
+    (tracked-deletion) run, or a real content portion (field/footnote/etc.) makes them diverge, so
+    the surgical sub-edits would land in the wrong place. Best-effort: any doubt -> False, and the
+    caller falls back to the whole-block replace (which handles every case).
+    """
+    from plugin.writer.edit_review import _string_skipping_redline
+    try:
+        # A tracked DELETION leaves struck text in getString() (the diff baseline) that the agent's
+        # old_content never matched -> the split would be computed against the wrong text.
+        if found.getString() != _string_skipping_redline(found, "Delete"):
+            return False
+        paras = found.createEnumeration()
+        seen = 0
+        while paras.hasMoreElements():
+            para = paras.nextElement()
+            seen += 1
+            if seen > 1 or not para.supportsService("com.sun.star.text.Paragraph"):
+                return False  # multi-paragraph or a table/other node
+            portions = para.createEnumeration()
+            while portions.hasMoreElements():
+                if str(portions.nextElement().TextPortionType) not in _OFFSET_SAFE_PORTION_TYPES:
+                    return False  # field / footnote / ruby / redline mark -> offsets diverge
+        return seen == 1
+    except Exception:
+        log.debug("content: _block_safe_for_surgical check failed; treating as unsafe", exc_info=True)
+        return False
+
+
+# Base title for the grouped undo action wrapping a surgical batch. Each batch gets a UNIQUE title
+# (base + a monotonic counter, see _next_surgical_undo_title) which both (a) collapses the batch into
+# ONE Ctrl+Z and (b) identifies OUR context on the undo stack before rolling it back on a mid-apply
+# failure. Uniqueness is load-bearing across the all_matches loop: an earlier match leaves its
+# COMPLETED context titled on top of the stack, so a later match whose EMPTY context is discarded on
+# leave must NOT mistake that earlier title for its own and undo a prior good edit (atomicity).
+_SURGICAL_UNDO_TITLE = "WriterAgent surgical edit"
+_surgical_batch_counter = itertools.count(1)
+
+
+def _next_surgical_undo_title() -> str:
+    """A process-unique grouped-undo title for one surgical batch (base + a monotonic counter)."""
+    return "%s#%d" % (_SURGICAL_UNDO_TITLE, next(_surgical_batch_counter))
+
+
+# Base title for the grouped-undo action wrapping a whole HTML/import edit (replace_full_document,
+# replace_single_range_with_content, selection insert). Shares the surgical counter so EVERY
+# WriterAgent context gets a globally-unique title -- load-bearing for the rollback identity check in
+# _close_surgical_context (it undoes a failed batch only when ITS unique title is on top of the stack).
+_AGENT_EDIT_UNDO_TITLE = "WriterAgent edit"
+
+
+def _next_agent_edit_undo_title() -> str:
+    """A process-unique grouped-undo title for one HTML/import edit (shares the monotonic counter)."""
+    return "%s#%d" % (_AGENT_EDIT_UNDO_TITLE, next(_surgical_batch_counter))
+
+
+def _close_surgical_context(undo_mgr, session, changes_before, applied_ok, undo_title):
+    """Close the surgical undo context -- pairing the earlier enterUndoContext exactly once -- and,
+    on failure, roll the partial batch back.
+
+    leaveUndoContext is ALWAYS attempted: the XUndoManager contract requires every enter to be matched
+    by a leave, and skipping it would leave the context open so later edits nest inside our group and
+    the undo stack drifts. A leave failure is logged at WARNING (it can leave the stack inconsistent),
+    not swallowed at debug. On the SUCCESS path nothing else is needed -- the edits are valid; the
+    worst a failed leave does is leave the grouping open, surfaced loudly rather than by undoing
+    good changes.
+
+    On the FAILURE path we additionally roll back: only if the leave succeeded AND the top of the undo
+    stack is THIS batch's unique ``undo_title`` do we undo it -- reverting even a half-applied
+    delete+insert -- then drop the partial change records + anchor bookmarks. The per-batch-unique
+    title is essential: when our context was empty (first sub-edit failed before mutating) it is
+    discarded on leave, exposing whatever was on top before -- which in an all_matches loop is an
+    EARLIER successful surgical batch; a constant title would match it and undo that good edit, so we
+    match the unique title and skip undo when it is not ours. Records are KEPT (not orphaned) when
+    undo() itself fails. Best-effort throughout; never masks the caller's original error."""
+    left = False
+    try:
+        undo_mgr.leaveUndoContext()
+        left = True
+    except Exception:
+        log.warning("content: leaveUndoContext failed; the undo stack may be inconsistent", exc_info=True)
+
+    if applied_ok:
+        return  # success: edits stand; a failed leave was already surfaced above
+
+    undone = False
+    if left:
+        try:
+            titles = undo_mgr.getAllUndoActionTitles()  # newest-first per XUndoManager
+            if titles and titles[0] == undo_title:
+                undo_mgr.undo()
+                undone = True
+        except Exception:
+            log.warning("content: undo of partial surgical batch failed; document may be partially "
+                        "edited", exc_info=True)
+    # Trim records when the document mutations were reverted, or when nothing was applied at all
+    # (empty context -> changes unchanged). Keep them when undo() demonstrably failed (or couldn't
+    # run because the context wouldn't close) so a live partial edit keeps a reviewable record.
+    kept = len(session.changes) - changes_before
+    if undone or kept == 0:
+        try:
+            session.discard_changes_since(changes_before)
+        except Exception:
+            log.debug("content: discarding partial surgical change records failed", exc_info=True)
+    else:
+        log.warning("content: surgical rollback could not undo a partial batch; keeping %d change "
+                    "record(s) so the partial edit stays reviewable", kept)
+
+
+def _apply_in_undo_context(doc, session, run):
+    """Run *run(in_undo_context)* -- which must perform exactly ONE session.record_mutation -- inside a
+    fresh grouped-undo context when one can be opened, so a split-author delete+insert stays atomic:
+    on failure the whole context is undone (reverting even a half-applied edit) and the partial record
+    dropped.
+
+    Mirrors the surgical batch's context handling: opens a PROCESS-UNIQUE context (so an earlier
+    batch's completed title on the undo stack is never mistaken for ours when rolling back) only when
+    the undo manager is usable and UNLOCKED (a locked manager silently ignores enterUndoContext, so we
+    would hold no real context and no rollback), calls ``run(True)``, and ALWAYS pairs
+    the enter with exactly one leave via _close_surgical_context. Without a usable, unlocked manager it
+    falls back to ``run(False)`` -- the single atomic setString, itself all-or-nothing (so the only
+    cost of the fallback is that the edit renders in one color instead of two)."""
+    undo_mgr = None
+    undo_title = _next_surgical_undo_title()
+    try:
+        mgr = doc.getUndoManager()
+        if mgr.isLocked():
+            raise RuntimeError("undo manager is locked; enterUndoContext would be a no-op")
+        mgr.enterUndoContext(undo_title)
+        undo_mgr = mgr
+    except Exception:
+        undo_mgr = None
+    if undo_mgr is None:
+        log.debug("content: no usable/unlocked undo manager; split-author whole-block edit falls back "
+                  "to the single atomic op (one color)")
+        run(False)
+        return
+
+    changes_before = len(session.changes)
+    applied_ok = False
+    try:
+        run(True)
+        applied_ok = True
+    finally:
+        # ALWAYS pair the enterUndoContext with exactly one leave (XUndoManager contract); on failure
+        # this also rolls the partial edit back. The original exception (if any) propagates after.
+        _close_surgical_context(undo_mgr, session, changes_before, applied_ok, undo_title)
+
+
+def _record_html_atomically(session, doc, mutate, track_reviewable, **record_kwargs):
+    """Record an HTML/import mutation that DELETES before it inserts -- replace_full_document,
+    replace_single_range_with_content, and the selection branch of insert_content_at_position all do
+    setString("") and THEN run a separate HTML import that can throw -- so it is ATOMIC: the delete
+    and the import either both land or neither does.
+
+    record_mutation() opens no undo context, so a throwing import would otherwise strand a bare
+    deletion (a half-applied edit) and register no reviewable change. Unlike the plain-text path there
+    is no atomic single-op variant of an HTML import, so when recording a reviewable change we wrap the
+    whole mutation in ONE grouped undo context and, on failure, undo it (reverting the partial
+    deletion) before re-raising. If no usable/unlocked undo manager is available we REFUSE before
+    mutating (fail closed) rather than risk a partial edit. When NOT recording (no review contract) the
+    mutation runs directly, exactly as before."""
+    if not track_reviewable:
+        return session.record_mutation(mutate, **record_kwargs)
+
+    undo_title = _next_agent_edit_undo_title()
+    try:
+        mgr = doc.getUndoManager()
+        if mgr.isLocked():
+            raise RuntimeError("undo manager is locked; enterUndoContext would be a no-op")
+        mgr.enterUndoContext(undo_title)
+    except Exception:
+        # No rollback available -> we cannot guarantee all-or-nothing, and an HTML import has no atomic
+        # single-op fallback. Refuse BEFORE any mutation so the document is never left half-edited.
+        raise ToolExecutionError(
+            "Cannot apply this content edit atomically in review mode (no usable undo context); "
+            "refusing rather than risk a half-applied edit.")
+
+    changes_before = len(session.changes)
+    applied_ok = False
+    try:
+        result = session.record_mutation(mutate, **record_kwargs)
+        applied_ok = True
+        return result
+    finally:
+        # Pair the enter with exactly one leave; on failure undo the partial edit and drop its record.
+        _close_surgical_context(mgr, session, changes_before, applied_ok, undo_title)
+
+
+def _record_preserve_replace(session, doc, found, new_text, uno_ctx, split):
+    """Record a format-preserving replace as ONE reviewable change, or -- when *split* (review
+    recording is on) and only PART of the block changed -- as several SURGICAL sub-changes,
+    each its own tracked Delete+Insert with its own accept/reject outcome.
+
+    Splitting keeps a one- or two-word tweak in a long paragraph from rendering (and having to be
+    accepted) as a whole-paragraph delete+insert. The agent still issues a single edit; it simply
+    gets one outcome per sub-change. A large change (> threshold of words changed) stays a single
+    clean block edit, matching today's behaviour.
+    """
+    from . import format as format_support
+
+    # Split-author coloring (deletion authored distinctly from insertion -> two by-author colors) is
+    # applied CONSISTENTLY to both the whole-block and surgical paths, so an agent edit looks the same
+    # however it lands. It is meaningful only when recording tracked changes, so it is scoped to
+    # *split* (review recording on) -- the non-review path is left exactly as before. Default on;
+    # override with WRITERAGENT_AGENT_EDIT_SPLIT_AUTHOR_COLORS.
+    split_author = split and _SPLIT_AUTHOR_COLORS
+
+    def _bound(s):  # this path is plain text (use_preserve); just cap the preview length
+        s = s or ""
+        return s if len(s) <= 300 else s[:299] + "…"
+
+    def _whole():
+        # The split-author two-step (delete authored distinctly, then insert) needs an open undo
+        # context to stay atomic, so when it's on we wrap the single record_mutation in one
+        # (_apply_in_undo_context; it falls back to the atomic single-op if no usable manager). When
+        # split-author is off, in_undo_context=False uses the single atomic setString directly (one UNO
+        # action, never a partial deletion) -- today's behaviour.
+        original = found.getString()
+
+        def _run(in_undo_context):
+            session.record_mutation(
+                lambda: format_support.replace_preserving_format(
+                    doc, found, new_text, uno_ctx,
+                    in_undo_context=in_undo_context, split_author=split_author),
+                original_preview=_bound(original), proposed_preview=_bound(new_text))
+
+        if split_author:
+            _apply_in_undo_context(doc, session, _run)
+        else:
+            _run(False)
+
+    if not split:
+        _whole()
+        return
+
+    from plugin.writer.word_diff_split import split_change
+
+    result = split_change(found.getString(), new_text, _WORD_DIFF_THRESHOLD)
+    if not result.is_surgical:
+        _whole()                       # big change -> single clean block (today's behaviour)
+        return
+    if not result.sub_edits:
+        return                         # old == new: nothing changed, record nothing
+    if len(result.sub_edits) > _MAX_SURGICAL_RUNS:
+        _whole()                       # too many scattered runs -> one block (bounded cost)
+        return
+    if not _block_safe_for_surgical(found):
+        _whole()                       # not plain single-paragraph text -> offsets unsafe; whole-block
+        return
+
+    text = found.getText()
+    anchor = found.getStart()
+
+    def _select(se):
+        """A fresh cursor selecting old[se.old_start:se.old_end] within the block, navigating from
+        the block start by char offset. Returns None if the cursor cannot be positioned EXACTLY
+        (goRight stopped early), so the caller never edits the wrong span."""
+        sub = text.createTextCursorByRange(anchor)
+        if se.old_start and not _go_right(sub, se.old_start, False):
+            return None
+        if se.old_end > se.old_start and not _go_right(sub, se.old_end - se.old_start, True):
+            return None
+        return sub
+
+    # Pre-flight: every sub-edit must select EXACTLY its expected old_text on the still-pristine
+    # block before we mutate anything. _block_safe_for_surgical already vets the block, but if an
+    # offset still doesn't line up (a stop it didn't catch), abort surgical and fall back to the
+    # whole-block replace -- never silently edit the wrong characters.
+    for se in result.sub_edits:
+        sub = _select(se)
+        if sub is None or sub.getString() != se.old_text:
+            log.debug("content: surgical pre-flight offset mismatch; falling back to whole-block")
+            _whole()
+            return
+
+    # Validated. Apply right-to-left so each sub-edit's char offsets into the ORIGINAL block stay
+    # valid (the text to its left is still pristine when we reach it). goRight is chunked.
+    #
+    # Atomicity: a sub-edit replace DELETES the old text before inserting the new, and the
+    # post-edit redline enumeration can also raise -- so a sub-edit CAN fail mid-apply, after earlier
+    # ones already landed. The pre-flight makes that rare, not impossible. To keep the batch
+    # all-or-nothing we group every sub-edit in ONE document undo context: on any failure we undo the
+    # whole context (reverting even a half-applied delete+insert) and drop the partial change records
+    # plus their anchor bookmarks, then re-raise so the tool reports an honest failure instead of a
+    # silently half-rewritten paragraph. Without a usable undo manager we can't group a multi-edit
+    # batch, so we fall back to the whole-block replace -- which is itself atomic (it passes
+    # in_undo_context=False, so format uses the single atomic setString, never a partial deletion).
+    undo_mgr = None
+    undo_title = _next_surgical_undo_title()
+    try:
+        mgr = doc.getUndoManager()
+        # A LOCKED undo manager silently IGNORES enterUndoContext (and would not record the
+        # mutations), so we'd hold no real context and have no rollback. Detect it and fall back
+        # rather than apply a multi-edit batch we cannot undo.
+        if mgr.isLocked():
+            raise RuntimeError("undo manager is locked; enterUndoContext would be a no-op")
+        mgr.enterUndoContext(undo_title)
+        undo_mgr = mgr
+    except Exception:
+        undo_mgr = None
+    if undo_mgr is None:
+        log.debug("content: no usable/unlocked undo manager; surgical edit falls back to whole-block "
+                  "for atomicity")
+        _whole()
+        return
+
+    changes_before = len(session.changes)
+    applied_ok = False
+    try:
+        for se in sorted(result.sub_edits, key=lambda e: e.old_start, reverse=True):
+            def apply_se(se=se):
+                sub = _select(se)
+                # Pre-flight proved these offsets on the pristine block and right-to-left order keeps
+                # the left pristine, so this should always match. If it ever doesn't, fail LOUD rather
+                # than corrupt the doc or ship a silent partial edit (tripwire).
+                if sub is None or sub.getString() != se.old_text:
+                    raise RuntimeError(
+                        "surgical sub-edit offset drifted at apply time; aborting to avoid corruption")
+                # in_undo_context=True: this runs inside the undo context opened below, so the
+                # split-author delete+insert is safe -- a failed insert is rolled back by the context
+                # (the explicit flag, NOT a guess from the manager state). split_author
+                # is threaded through so the surgical path honours the same coloring choice as the
+                # whole-block path (off -> the atomic single-op, still inside this context).
+                format_support.replace_preserving_format(doc, sub, se.new_text, uno_ctx,
+                                                         in_undo_context=True,
+                                                         split_author=split_author)
+
+            session.record_mutation(
+                apply_se,
+                original_preview=_bound(se.old_text),
+                proposed_preview=_bound(se.new_text))
+        applied_ok = True
+    finally:
+        # ALWAYS pair the enterUndoContext with exactly one leave (XUndoManager contract); on failure
+        # this also rolls the partial batch back. The original exception (if any) propagates after.
+        _close_surgical_context(undo_mgr, session, changes_before, applied_ok, undo_title)
 
 
 # ------------------------------------------------------------------
@@ -660,9 +1065,11 @@ class ApplyDocumentContent(ToolBase):
 
         if target == "full_document":
             with session:
-                session.record_mutation(
+                # Delete-then-import: make it atomic so a failed import can't strand a cleared document.
+                _record_html_atomically(
+                    session, ctx.doc,
                     lambda: format_support.replace_full_document(ctx.doc, ctx.ctx, content, config_svc=config_svc),
-                    proposed_preview=_plain_preview(content))
+                    track_reviewable, proposed_preview=_plain_preview(content))
             return {"status": "ok", "message": "Replaced entire document."}, session
         if target == "end":
             with session:
@@ -672,9 +1079,11 @@ class ApplyDocumentContent(ToolBase):
             return {"status": "ok", "message": "Inserted content at end."}, session
         if target == "selection":
             with session:
-                session.record_mutation(
+                # Selection insert clears the selection first, then imports -> atomic (full_document above).
+                _record_html_atomically(
+                    session, ctx.doc,
                     lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, "selection", config_svc=config_svc),
-                    proposed_preview=_plain_preview(content))
+                    track_reviewable, proposed_preview=_plain_preview(content))
             return {"status": "ok", "message": "Inserted content at selection."}, session
         if target == "beginning":
             with session:
@@ -712,13 +1121,12 @@ class ApplyDocumentContent(ToolBase):
                 for found in reversed(ranges):
                     original = found.getString()
                     if use_preserve:
-                        session.record_mutation(
-                            lambda f=found: format_support.replace_preserving_format(doc, f, raw_content, ctx.ctx),
-                            original_preview=original, proposed_preview=_plain_preview(raw_content))
+                        _record_preserve_replace(session, doc, found, raw_content, ctx.ctx, track_reviewable)
                     else:
-                        session.record_mutation(
+                        _record_html_atomically(
+                            session, doc,
                             lambda f=found: format_support.replace_single_range_with_content(doc, f, content, ctx.ctx, config_svc),
-                            original_preview=original, proposed_preview=_plain_preview(content))
+                            track_reviewable, original_preview=original, proposed_preview=_plain_preview(content))
                     count += 1
             if count == 0:
                 return {"status": "error",
@@ -735,13 +1143,12 @@ class ApplyDocumentContent(ToolBase):
         original = found.getString()
         with session:
             if use_preserve:
-                session.record_mutation(
-                    lambda: format_support.replace_preserving_format(doc, found, raw_content, ctx.ctx),
-                    original_preview=original, proposed_preview=_plain_preview(raw_content))
+                _record_preserve_replace(session, doc, found, raw_content, ctx.ctx, track_reviewable)
             else:
-                session.record_mutation(
+                _record_html_atomically(
+                    session, doc,
                     lambda: format_support.replace_single_range_with_content(doc, found, content, ctx.ctx, config_svc),
-                    original_preview=original, proposed_preview=_plain_preview(content))
+                    track_reviewable, original_preview=original, proposed_preview=_plain_preview(content))
         msg = "Replaced 1 occurrence (by old_content)."
         if use_preserve:
             msg += " (formatting preserved)"

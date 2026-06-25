@@ -121,7 +121,7 @@ def to_mcp_schema(tool, *, doc_type: str | None = None):
     if "document_url" not in input_schema["properties"]:
         input_schema["properties"]["document_url"] = {
             "type": "string",
-            "description": "Optional URL of the target document. If not provided, the active document is used."
+            "description": "Optional URL or RuntimeUID of the target document (both come from list_open_documents). If not provided, the active document is used. A RuntimeUID also targets unsaved/untitled documents that have no file URL yet."
         }
     desc = tool.get_description(doc_type)
 

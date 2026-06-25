@@ -37,9 +37,11 @@ def test_list_open_documents_execute():
     mock_doc1 = MagicMock()
     mock_doc1.getURL.return_value = "file:///home/user/document.odt"
     mock_doc1.getController.return_value = None
+    mock_doc1.RuntimeUID = "uid-saved-1"
     mock_doc2 = MagicMock()
     mock_doc2.getURL.return_value = ""  # Untitled document
     mock_doc2.getController.return_value = None
+    mock_doc2.RuntimeUID = "uid-untitled-2"
 
     mock_components = [mock_doc1, mock_doc2]
 
@@ -75,7 +77,37 @@ def test_list_open_documents_execute():
         assert docs[0]["url"] == "file:///home/user/document.odt"
         assert docs[0]["doc_type"] == "writer"
         assert not docs[0]["is_active"]
+        # The stable RuntimeUID is exposed so a caller can target the doc by uid.
+        assert docs[0]["uid"] == "uid-saved-1"
 
         assert docs[1]["name"] == "Untitled"
         assert docs[1]["url"] == ""
         assert docs[1]["doc_type"] == "calc"
+        # An unsaved doc has no URL but still exposes a uid for targeting.
+        assert docs[1]["uid"] == "uid-untitled-2"
+
+
+def test_get_open_documents_lists_untitled_even_when_type_lookup_fails():
+    """D5: an untitled doc (no URL) must never be dropped from the listing on a type-lookup error --
+    its uid is the only handle a caller can target it by. It's listed with doc_type 'unknown'."""
+    from plugin.doc.document_research import get_open_documents
+
+    untitled = MagicMock()
+    untitled.getURL.return_value = ""
+    untitled.getController.return_value = None
+    untitled.RuntimeUID = "uid-untitled-x"
+
+    desktop = MagicMock()
+    enum = MagicMock()
+    elems = [untitled]
+    enum.hasMoreElements.side_effect = lambda: len(elems) > 0
+    enum.nextElement.side_effect = lambda: elems.pop(0)
+    desktop.getComponents.return_value.createEnumeration.return_value = enum
+
+    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop), \
+         patch("plugin.doc.document_helpers.get_document_type", side_effect=RuntimeError("boom")):
+        docs = get_open_documents(MagicMock(), active_model=None)
+
+    assert len(docs) == 1
+    assert docs[0]["url"] == "" and docs[0]["uid"] == "uid-untitled-x"
+    assert docs[0]["doc_type"] == "unknown"
