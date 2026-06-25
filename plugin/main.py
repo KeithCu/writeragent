@@ -265,7 +265,7 @@ def _register_core_handlers():
     register_action_handler("scripting", "run_python_dialog", _run_python)
 
     def _edit_python_cell():
-        from plugin.calc.python_editor import open_python_cell_editor
+        from plugin.calc.python.editor import open_python_cell_editor
         open_python_cell_editor(get_ctx())
 
     register_action_handler("scripting", "edit_python_cell", _edit_python_cell)
@@ -286,7 +286,7 @@ def _register_core_handlers():
 
 
     try:
-        from plugin.calc.python_editor_context_menu import install_calc_cell_context_menu
+        from plugin.calc.python.editor_context_menu import install_calc_cell_context_menu
         from plugin.notebook.notebook_controls import install_notebook_run_button_wiring
 
         install_calc_cell_context_menu(get_ctx())

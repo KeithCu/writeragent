@@ -8,12 +8,12 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from plugin.calc.python_editor import (
+from plugin.calc.python.editor import (
     _apply_cell_save,
     build_editor_formula_save,
     editor_load_save_as_plain,
 )
-from plugin.calc.python_formula_edit import parse_python_formula
+from plugin.calc.python.formula_edit import parse_python_formula
 
 
 def test_editor_load_save_as_plain_python_formula():

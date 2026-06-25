@@ -63,7 +63,7 @@ Authoritative detail: [enabling_numpy §6 — Session modes and recalc semantics
 | Item | Detail | Touch |
 |------|--------|-------|
 | **Sheet-level Python cell list** | `list_python_cells` IPC: host enumerates all `=PYTHON()` cells grouped by sheet; Monaco sidebar or picker | [`editor_host.py`](../plugin/scripting/editor_host.py), [`editor_ipc.py`](../plugin/scripting/editor_ipc.py), JS |
-| **Formula bar / toolbar polish** | Optional Calc input-line button; double-click cell → editor (if not already sufficient via menu) | [`python_editor.py`](../plugin/calc/python_editor.py), [`Addons.xcu`](../extension/Addons.xcu) |
+| **Formula bar / toolbar polish** | Optional Calc input-line button; double-click cell → editor (if not already sufficient via menu) | [`python_editor.py`](../plugin/calc/python/editor.py), [`Addons.xcu`](../extension/Addons.xcu) |
 
 **Delegated to [Monaco dev plan](python-monaco-editor-dev-plan.md#8-next-development-plan-detailed):** 2B syntax validate, 2C range picker, 2D Jedi, 2E theme sync, 2F Flatpak spawn — do not duplicate here.
 
@@ -84,7 +84,7 @@ Authoritative detail: [enabling_numpy §6 — Session modes and recalc semantics
 
 **Depends on:** Phase 1 (shipped).
 
-**Touch:** [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py), [`worker_harness.py`](../plugin/scripting/worker_harness.py), [`python_function.py`](../plugin/calc/python_function.py); new `plugin/calc/python_object_inspector.py`.
+**Touch:** [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py), [`worker_harness.py`](../plugin/scripting/worker_harness.py), [`python_function.py`](../plugin/calc/python/function.py); new `plugin/calc/python_object_inspector.py`.
 
 ---
 
@@ -99,7 +99,7 @@ Authoritative detail: [enabling_numpy §6 — Session modes and recalc semantics
 - Filters: errors / print output / all Python cells
 - **Cell-level traceback snippet** in the cell string until pane ships (truncate worker trace to N lines)
 
-**Touch:** [`python_function.py`](../plugin/calc/python_function.py), new `plugin/calc/python_diagnostics.py`, [`worker_harness.py`](../plugin/scripting/worker_harness.py).
+**Touch:** [`python_function.py`](../plugin/calc/python/function.py), new `plugin/calc/python_diagnostics.py`, [`worker_harness.py`](../plugin/scripting/worker_harness.py).
 
 ---
 
@@ -113,7 +113,7 @@ Authoritative detail: [enabling_numpy §6 — Session modes and recalc semantics
 - **`=PROMPT()` Python mode:** formalize NL → pasteable `=PYTHON("…")` template
 - **Python domain prompts:** stronger multi-step analysis (clean → stats → chart) — tool loop already retries on error
 
-**Touch:** [`venv_python.py`](../plugin/calc/venv_python.py), [`prompt_function.py`](../plugin/calc/prompt_function.py).
+**Touch:** [`venv_python.py`](../plugin/calc/python/venv.py), [`prompt_function.py`](../plugin/calc/prompt_function.py).
 
 ---
 

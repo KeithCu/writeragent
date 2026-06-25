@@ -711,7 +711,7 @@ def test_is_specialized_domain_tool_helper():
 
 
 def test_cross_cutting_venv_python_matches_python_domain():
-    from plugin.calc.venv_python import RunVenvPythonScript
+    from plugin.calc.python.venv import RunVenvPythonScript
 
     r = RunVenvPythonScript()
     assert _is_specialized_domain_tool(r, "python") is True
@@ -719,7 +719,7 @@ def test_cross_cutting_venv_python_matches_python_domain():
 
 
 def test_run_venv_python_script_in_schemas_for_writer_when_domain_python(registry):
-    from plugin.calc.venv_python import RunVenvPythonScript
+    from plugin.calc.python.venv import RunVenvPythonScript
 
     registry.register(RunVenvPythonScript())
     mock_writer = MagicMock()
@@ -853,7 +853,7 @@ def test_draw_specialized_delegation_sub_agent(
 @patch("plugin.doc.specialized_base.SmolAgentExecutor")
 def test_writer_delegate_python_includes_cross_cutting_venv_tool(mock_executor_cls, mock_build, registry):
     """Writer delegate must pick up Calc-registered ``run_venv_python_script`` (specialized_cross_cutting)."""
-    from plugin.calc.venv_python import RunVenvPythonScript
+    from plugin.calc.python.venv import RunVenvPythonScript
     from plugin.writer.specialized_base import DelegateToSpecializedWriter
 
     registry.register(RunVenvPythonScript())

@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from plugin.calc.python_formula_edit import rebuild_python_formula_with_data
+from plugin.calc.python.formula_edit import rebuild_python_formula_with_data
 from plugin.calc.spreadsheet_import.extract import extract_py_cells
 from plugin.calc.spreadsheet_import.models import (
     ConversionReport,

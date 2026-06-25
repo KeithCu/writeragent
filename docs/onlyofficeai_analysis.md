@@ -167,7 +167,7 @@ OnlyOffice uses **`StartAction` / `EndAction`** and **`GroupActions`** so multi-
 | OnlyOffice | Behavior worth noting | WriterAgent gap / bridge |
 |------------|------------------------|---------------------------|
 | `highlightDuplicates` | Range → **LLM** → highlight | No dedicated tool; prefer **deterministic** duplicate detection + style/CF |
-| `highlightAnomalies` | AI outliers → highlight | Same; or stats via [`execute_python_script`](plugin/calc/python_executor.py) when enabled |
+| `highlightAnomalies` | AI outliers → highlight | Same; or stats via [`execute_python_script`](plugin/calc/python/executor.py) when enabled |
 | `summarizeData` | CSV-ish export → LLM prose → adjacent cell | Composable today; thin tool candidate (§2.1) |
 | `insertPivotTable` | Api + LLM parses NL → field indices | WriterAgent: [`plugin/calc/pivot.py`](plugin/calc/pivot.py) (`DataPilot`); OO useful for **prompts/errors** only |
 | `setAutoFilter` | Rich Excel-like criteria | **Gap** — major candidate (§2.1) |

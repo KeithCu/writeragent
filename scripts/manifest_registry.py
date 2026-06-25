@@ -535,7 +535,7 @@ def generate_manifest_xml(modules, output_path):
         ('application/vnd.sun.star.uno-typelibrary;type=RDB', 'XPythonFunction.rdb'),
         ('application/vnd.sun.star.uno-typelibrary;type=RDB', 'XPromptFunction.rdb'),
         ('application/vnd.sun.star.uno-component;type=Python', 'plugin/main.py'),
-        ('application/vnd.sun.star.uno-component;type=Python', 'plugin/calc/python_addin.py'),
+        ('application/vnd.sun.star.uno-component;type=Python', 'plugin/calc/python/addin.py'),
         ('application/vnd.sun.star.uno-component;type=Python', 'plugin/calc/prompt_addin.py'),
         ('application/vnd.sun.star.uno-component;type=Python', 'plugin/chatbot/panel_factory.py'),
         ('application/vnd.sun.star.uno-component;type=Python', 'plugin/writer/locale/ai_grammar_proofreader.py'),

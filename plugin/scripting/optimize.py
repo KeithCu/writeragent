@@ -19,8 +19,8 @@ from plugin.calc.address_utils import index_to_column
 from plugin.scripting._lazy_venv import make_getattr
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.manipulator import CellManipulator
-from plugin.calc.python_function import to_calc_compatible
-from plugin.calc.venv_python import _resolve_python_data
+from plugin.calc.python.function import to_calc_compatible
+from plugin.calc.python.venv import _resolve_python_data
 from plugin.doc.document_helpers import is_calc
 from plugin.framework.errors import ToolExecutionError
 from plugin.scripting.client import run_optimize as client_run_optimize

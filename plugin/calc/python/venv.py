@@ -193,7 +193,7 @@ class RunVenvPythonScript(ToolCalcPythonBase):
                     out["image_path"] = img_paths
 
                 if ctx.doc_type == "calc":
-                    from plugin.calc.python_image_egress import insert_image_result_on_sheet
+                    from plugin.calc.python.image_egress import insert_image_result_on_sheet
                     from plugin.framework.queue_executor import execute_on_main_thread
 
                     for img in images:

@@ -17,7 +17,7 @@ from typing import Any
 
 from plugin.calc.analysis_runner import calc_tool_context
 from plugin.scripting._lazy_venv import make_getattr
-from plugin.calc.venv_python import _resolve_python_data
+from plugin.calc.python.venv import _resolve_python_data
 from plugin.doc.document_helpers import is_calc, is_draw, is_writer
 from plugin.scripting.client import run_viz as client_run_viz
 from plugin.scripting.image_payload import write_image_payload_to_temp
@@ -228,7 +228,7 @@ def insert_image_payload_for_doc(
 ) -> None:
     """Insert an image envelope into Calc, Writer, or Draw/Impress."""
     if is_calc(doc):
-        from plugin.calc.python_image_egress import insert_image_result_on_sheet
+        from plugin.calc.python.image_egress import insert_image_result_on_sheet
 
         insert_image_result_on_sheet(ctx, payload)
         return

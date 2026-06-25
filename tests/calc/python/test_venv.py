@@ -8,14 +8,14 @@
 
 from unittest.mock import MagicMock, patch
 
-from plugin.calc.venv_python import RunVenvPythonScript, _resolve_python_data
+from plugin.calc.python.venv import RunVenvPythonScript, _resolve_python_data
 from plugin.framework.tool import ToolContext
 
 
 def test_resolve_python_data_prefers_data_range():
     ctx = MagicMock()
     ctx.doc = MagicMock()
-    with patch("plugin.calc.venv_python.CalcBridge") as bridge_cls, patch("plugin.calc.venv_python.CellInspector") as insp_cls:
+    with patch("plugin.calc.python.venv.CalcBridge") as bridge_cls, patch("plugin.calc.python.venv.CellInspector") as insp_cls:
         insp = insp_cls.return_value
         insp.read_range.return_value = [[{"value": 1}, {"value": 2}]]
         py_data, err = _resolve_python_data(ctx, data_range="A1:B1", data=[[99]])
@@ -31,12 +31,12 @@ def test_resolve_python_data_uses_data_param():
     assert py_data == [1, 2]
 
 
-@patch("plugin.calc.venv_python.run_code_in_user_venv")
+@patch("plugin.calc.python.venv.run_code_in_user_venv")
 def test_execute_passes_data(mock_run):
     mock_run.return_value = {"status": "ok", "result": 1}
     tool = RunVenvPythonScript()
     ctx = ToolContext(doc=MagicMock(), ctx=MagicMock(), doc_type="calc", services=MagicMock())
-    with patch("plugin.calc.venv_python.resolve_python_data_on_main_thread", return_value=([10], None)):
+    with patch("plugin.calc.python.venv.resolve_python_data_on_main_thread", return_value=([10], None)):
         out = tool.execute(ctx, code="result = sum(data)")
     assert out["status"] == "ok"
     mock_run.assert_called_once()
@@ -44,7 +44,7 @@ def test_execute_passes_data(mock_run):
 
 
 @patch("plugin.framework.queue_executor.execute_on_main_thread")
-@patch("plugin.calc.venv_python.run_code_in_user_venv")
+@patch("plugin.calc.python.venv.run_code_in_user_venv")
 def test_run_venv_python_resolves_calc_data_on_main_thread(mock_run, mock_main_thread):
     mock_run.return_value = {"status": "ok", "result": 1}
     call_order: list[str] = []
@@ -57,7 +57,7 @@ def test_run_venv_python_resolves_calc_data_on_main_thread(mock_run, mock_main_t
 
     tool = RunVenvPythonScript()
     ctx = ToolContext(doc=MagicMock(), ctx=MagicMock(), doc_type="calc", services=MagicMock())
-    with patch("plugin.calc.venv_python._resolve_python_data", return_value=([42], None)) as mock_resolve:
+    with patch("plugin.calc.python.venv._resolve_python_data", return_value=([42], None)) as mock_resolve:
         out = tool.execute(ctx, code="result = data[0]", data_range="A1")
 
     assert out["status"] == "ok"
@@ -65,12 +65,12 @@ def test_run_venv_python_resolves_calc_data_on_main_thread(mock_run, mock_main_t
     mock_resolve.assert_called_once()
 
 
-@patch("plugin.calc.venv_python.run_code_in_user_venv")
+@patch("plugin.calc.python.venv.run_code_in_user_venv")
 def test_execute_writer_ignores_data(mock_run):
     mock_run.return_value = {"status": "ok", "result": 0}
     tool = RunVenvPythonScript()
     ctx = ToolContext(doc=MagicMock(), ctx=MagicMock(), doc_type="writer", services=MagicMock())
-    with patch("plugin.calc.venv_python._resolve_python_data") as mock_resolve:
+    with patch("plugin.calc.python.venv._resolve_python_data") as mock_resolve:
         out = tool.execute(ctx, code="result = 1", data=[[1, 2]], data_range="A1:A2")
     assert out["status"] == "ok"
     mock_resolve.assert_not_called()

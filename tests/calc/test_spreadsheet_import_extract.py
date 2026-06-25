@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from plugin.calc.python_formula_edit import parse_python_formula
+from plugin.calc.python.formula_edit import parse_python_formula
 from plugin.calc.spreadsheet_import.extract import (
     canonicalize_py_formula_for_parse,
     extract_py_cells,

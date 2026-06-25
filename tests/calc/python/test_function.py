@@ -8,8 +8,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import plugin.calc.python_function as python_function
-from plugin.calc.python_function import finalize_python_return, to_calc_compatible
+import plugin.calc.python.function as python_function
+from plugin.calc.python.function import finalize_python_return, to_calc_compatible
 
 
 def test_to_calc_compatible_none_becomes_empty_nan_becomes_error() -> None:

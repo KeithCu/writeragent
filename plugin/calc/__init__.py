@@ -39,4 +39,5 @@ class CalcModule(ModuleBase):
         from . import specialized as specialized  # noqa: F401
 
         services.tools.auto_discover_package(__name__)
+        services.tools.auto_discover_package(f"{__name__}.python")
         services.tools.auto_discover_package(f"{__name__}.spreadsheet_import")

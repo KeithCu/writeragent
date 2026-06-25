@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from plugin.calc.python_formula_edit import normalize_formula_string
+from plugin.calc.python.formula_edit import normalize_formula_string
 
 
 def normalize_lo_formula_for_parse(formula: str) -> str:

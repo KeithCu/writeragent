@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from plugin.calc.python_editor_context_menu import _looks_like_cell_context_menu
+from plugin.calc.python.editor_context_menu import _looks_like_cell_context_menu
 
 
 def test_looks_like_cell_context_menu_matches_cut():

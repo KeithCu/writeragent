@@ -44,7 +44,7 @@ We explicitly deferred that. It can be added later without breaking the current 
   - `host_unpack_split_grid`: buffer NaN values are kept as `float('nan')` (int/bool uniform columns emit NaN for NaN slots; float columns pass the value through). Strings map is unchanged.
   - `_cell_for_json` / `grid_from_nested_list`: only `None` normalizes to `None`; `nan` passes through. This affects small grids and list results below `BINARY_MIN_CELLS`.
   - `grid_from_nested_list` docstring updated; no longer claims "JSON path".
-- [`plugin/calc/python_function.py`](plugin/calc/python_function.py):
+- [`plugin/calc/python/function.py`](plugin/calc/python/function.py):
   - `to_calc_compatible`: `isnan(val)` now returns the raw float (Calc shows error). `None` still becomes `""`.
 - No changes to `child_pack_*`, Cython, or the split_grid envelope.
 
@@ -63,7 +63,7 @@ We explicitly deferred that. It can be added later without breaking the current 
 ## Tests (to be expanded)
 
 - `tests/scripting/test_payload_codec.py` and `test_serialization_ab.py`: parity now expects preserved `nan` (not coerced to `None`) on unpack for both split_grid and small list paths.
-- `tests/calc/test_python_function*.py` (or equivalent): scalar NaN and matrix NaN slots become error values; `None` remains empty.
+- `tests/calc/python/test_function*.py` (or equivalent): scalar NaN and matrix NaN slots become error values; `None` remains empty.
 - Worker round-trips continue to work.
 
 Run `make test` (and the LO-native suite via `plugin/testing_runner.py` when a soffice is present).

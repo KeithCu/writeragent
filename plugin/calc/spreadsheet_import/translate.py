@@ -20,7 +20,7 @@ from plugin.contrib.calc_formula_parser import (
     RangeNode,
     parse_formula,
 )
-from plugin.calc.python_formula_edit import sanitize_inline_py_code
+from plugin.calc.python.formula_edit import sanitize_inline_py_code
 from plugin.calc.spreadsheet_import.models import TranslationResult
 from plugin.calc.spreadsheet_import.preprocess import normalize_lo_formula_for_parse
 from plugin.calc.address_utils import parse_address, parse_range_string

@@ -91,7 +91,7 @@ class ToolDrawSlideMastersBase(ToolDrawSpecialBase):
 
 
 class ToolDrawPythonBase(ToolDrawSpecialBase):
-    """Marker for Draw/Impress delegation prompt listing (domain=python); see plugin/calc/venv_python.py."""
+    """Marker for Draw/Impress delegation prompt listing (domain=python); see plugin/calc/python/venv.py."""
 
     specialized_domain: ClassVar[str | None] = "python"
     specialized_domain_description: ClassVar[str | None] = (

@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 from plugin.calc.address_utils import format_address
-from plugin.calc.python_formula_edit import normalize_formula_string
+from plugin.calc.python.formula_edit import normalize_formula_string
 from plugin.calc.spreadsheet_import.extract import is_py_formula_text
 from plugin.calc.spreadsheet_import.graph import (
     attach_graph_to_model,

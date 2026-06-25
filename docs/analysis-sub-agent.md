@@ -32,7 +32,7 @@ This is the focused evolution of the high-level analysis ideas previously sketch
 - `plugin/calc/analyzer.py`: `SheetAnalyzer.get_sheet_summary()` — structural (used range, row/col counts, headers, chart_count, annotations, merges, shapes). Not numeric analysis.
 - `plugin/calc/calc_addin_data.py` + `inspector.py`: Solid data extraction and shaping for Python (`read_range` → values, `pack_calc_data_for_wire`, NaN handling, size limits).
 - Python execution (the current "escape hatch" for real numpy work):
-  - `plugin/calc/venv_python.py`: `RunVenvPythonScript` (`run_venv_python_script`, domain="python", `ToolCalcPythonBase`). Supports `code`, `data_range` (injected as `data`), or direct `data`. Uses `run_code_in_user_venv` + payload codec. Works cross-app via `specialized_cross_cutting`.
+  - `plugin/calc/python/venv.py`: `RunVenvPythonScript` (`run_venv_python_script`, domain="python", `ToolCalcPythonBase`). Supports `code`, `data_range` (injected as `data`), or direct `data`. Uses `run_code_in_user_venv` + payload codec. Works cross-app via `specialized_cross_cutting`.
   - Full scientific stack is already available in the user venv (as per `sandbox.py`, `enabling_numpy_in_libreoffice.md`).
 - Delegation & sub-agents:
   - `plugin/calc/specialized.py`: `DelegateToSpecializedCalc` (gateway, `delegate_to_specialized_calc_toolset`).

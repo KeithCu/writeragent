@@ -426,8 +426,8 @@ def execute_and_insert_result(
     """Run *code* in the user venv and insert the result into *doc* when possible."""
     from plugin.calc.analysis_egress import insert_analysis_result_into_calc, is_analysis_result
     from plugin.calc.analysis_runner import calc_selection_to_a1, calc_tool_context, run_trusted_analysis
-    from plugin.calc.python_formula_edit import parse_data_binding_text
-    from plugin.calc.venv_python import _resolve_python_data
+    from plugin.calc.python.formula_edit import parse_data_binding_text
+    from plugin.calc.python.venv import _resolve_python_data
     from plugin.framework.errors import ToolExecutionError
     from plugin.scripting.analysis import parse_analysis_script_header
     from plugin.vision.vision_egress import insert_vision_result, is_vision_result

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 
-from plugin.calc.python_formula_edit import (
+from plugin.calc.python.formula_edit import (
     format_data_binding_display,
     parse_data_binding_text,
     normalize_formula_string,
@@ -44,7 +44,7 @@ def py_formula_semantics(formula: str) -> tuple[str, list[str]] | None:
 
 def is_py_formula_text(formula: str) -> bool:
     """True when *formula* is PY/PYTHON, including LO fully qualified add-in form."""
-    from plugin.calc.python_formula_edit import cell_looks_python_like
+    from plugin.calc.python.formula_edit import cell_looks_python_like
 
     return cell_looks_python_like(canonicalize_py_formula_for_parse(formula))
 

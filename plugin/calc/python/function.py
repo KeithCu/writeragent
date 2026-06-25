@@ -21,13 +21,13 @@ from plugin.calc.calc_addin_data import (
     pack_calc_multi_data_for_wire,
     split_python_addin_data_args,
 )
-from plugin.calc.python_image_egress import insert_image_result_on_sheet
+from plugin.calc.python.image_egress import insert_image_result_on_sheet
 from plugin.framework.errors import format_error_payload
 from plugin.framework.i18n import _
 from plugin.scripting.config_limits import configured_python_max_data_cells
 from plugin.scripting.payload_codec import is_dataframe_payload, is_split_grid, find_image_payloads
 # Optional: reset worker init/cell sessions on workbook close (see python_workbook_lifecycle.py).
-# from plugin.calc.python_workbook_lifecycle import ensure_calc_workbook_unload_resets_python
+# from plugin.calc.python.workbook_lifecycle import ensure_calc_workbook_unload_resets_python
 from plugin.scripting.document_scripts import build_python_eval_init_kwargs, get_calc_document_from_ctx
 from plugin.scripting.session_manager import workbook_session_id
 from plugin.scripting.venv_worker import run_code_in_user_venv

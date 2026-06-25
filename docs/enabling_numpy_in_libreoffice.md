@@ -103,10 +103,10 @@ python -m spacy download xx_sent_ud_sm
 
 | Entry | Module | Notes |
 |-------|--------|-------|
-| Chat tool **`run_venv_python_script`** | [`plugin/calc/venv_python.py`](plugin/calc/venv_python.py) | Specialized domain `python`; Writer/Calc/Draw when delegated |
-| Calc **`=PYTHON(code, data?)`** | [`plugin/calc/python_addin.py`](plugin/calc/python_addin.py) / [`plugin/calc/python_function.py`](plugin/calc/python_function.py) | Same runner as the chat tool |
+| Chat tool **`run_venv_python_script`** | [`plugin/calc/python/venv.py`](plugin/calc/python/venv.py) | Specialized domain `python`; Writer/Calc/Draw when delegated |
+| Calc **`=PYTHON(code, data?)`** | [`plugin/calc/python/addin.py`](plugin/calc/python/addin.py) / [`plugin/calc/python/function.py`](plugin/calc/python/function.py) | Same runner as the chat tool |
 | Shared runner | [`plugin/scripting/venv_worker.py`](plugin/scripting/venv_worker.py) | Only entry for venv subprocess execution |
-| In-process **`execute_python_script`** | [`plugin/calc/python_executor.py`](plugin/calc/python_executor.py) | LO embedded Python, stdlib sandbox, `lp()` / `set_range` helpers; **not** used by `=PYTHON()` |
+| In-process **`execute_python_script`** | [`plugin/calc/python/executor.py`](plugin/calc/python/executor.py) | LO embedded Python, stdlib sandbox, `lp()` / `set_range` helpers; **not** used by `=PYTHON()` |
 
 Both venv paths assign JSON-serializable output to **`result`**. NumPy arrays and pandas objects are serialized in the worker. There is **no UNO API inside the child process** today.
 
@@ -153,7 +153,7 @@ WriterAgent ships a **Monaco-based code editor** (pywebview child in the configu
 
 | Feature | Status | Entry |
 |---------|--------|-------|
-| **Edit Python in Cell…** (Calc menubar + cell context menu) | **Shipped** | [`python_editor.py`](plugin/calc/python_editor.py) — dual save (`=PYTHON("…")` or plain text for `=PYTHON($A$1; …)`), editable **Data:** range textbox |
+| **Edit Python in Cell…** (Calc menubar + cell context menu) | **Shipped** | [`python_editor.py`](plugin/calc/python/editor.py) — dual save (`=PYTHON("…")` or plain text for `=PYTHON($A$1; …)`), editable **Data:** range textbox |
 | **Run Python Script…** (Writer/Calc/Draw) | **Shipped** | [`python_runner.py`](plugin/scripting/python_runner.py) + [`editor_host.py`](plugin/scripting/editor_host.py) — **Run** / **Save** / script picker |
 | **Document-attached scripts** (`WriterAgentDocumentPythonScripts`) | **Shipped** | [`document_scripts.py`](plugin/scripting/document_scripts.py) — **This Document** vs **My Scripts** in picker |
 | **Edit Initialization Script…** (Calc) | **Shipped** | [`init_script_editor.py`](plugin/calc/init_script_editor.py) — workbook startup script in document properties |
@@ -229,11 +229,11 @@ Prompt text is generated from [`plugin/scripting/import_policy.py`](../plugin/sc
 | **Always blocked** | `os`, `sys`, `subprocess`, `socket`, `pathlib`, `shutil`, `io`, `multiprocessing`, `pty`, `builtins` |
 | **Common not-whitelisted** | `requests`, `urllib`, `http`, `httpx`, `ssl`, `pickle`, `sqlite3`, `logging`, `importlib`, `ctypes`, `threading`, … |
 
-**In-process** [`execute_python_script`](../plugin/calc/python_executor.py) uses a smaller stdlib-only sandbox in LibreOffice’s embedded Python (no NumPy/pandas).
+**In-process** [`execute_python_script`](../plugin/calc/python/executor.py) uses a smaller stdlib-only sandbox in LibreOffice’s embedded Python (no NumPy/pandas).
 
 ### Trusted extension code in the venv {#trusted-extension-code-in-the-venv}
 
-The **AST sandbox** (`LocalPythonExecutor` + `VENV_AUTHORIZED_IMPORTS`) applies only to **user-submitted Python source** — LLM [`run_venv_python_script`](../plugin/calc/venv_python.py), Calc **`=PYTHON()`**, Monaco “Run script”, and similar. It is **not** a blanket restriction on everything that runs inside the warm venv child process.
+The **AST sandbox** (`LocalPythonExecutor` + `VENV_AUTHORIZED_IMPORTS`) applies only to **user-submitted Python source** — LLM [`run_venv_python_script`](../plugin/calc/python/venv.py), Calc **`=PYTHON()`**, Monaco “Run script”, and similar. It is **not** a blanket restriction on everything that runs inside the warm venv child process.
 
 **WriterAgent extension code** can use the full venv interpreter (including `open()`, `sqlite3`, `sqlite_vec.load()`, and other modules blocked for LLM scripts) when implemented as **shipped, reviewed modules** under `plugin/scripting/`, invoked from the **LibreOffice host** — not from LLM-generated strings.
 
@@ -408,13 +408,13 @@ No `viz.py` yet. Matplotlib figures from user/LLM code are captured in the venv 
 |-----------|--------|----------|
 | Figure → bytes | [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) | `_figure_to_image_payload()` (SVG default); `_capture_open_figures_payload()` merges multiple open figures vertically; `serialize_result()` for returned `Figure`; `Agg` backend; figure cleanup |
 | Wire format | [`payload_codec.py`](../plugin/scripting/payload_codec.py), [`image_payload.py`](../plugin/scripting/image_payload.py) | `PAYLOAD_IMAGE`, `is_image_payload()`; shared temp-file helper |
-| Calc `=PYTHON()` | [`python_function.py`](../plugin/calc/python_function.py), [`python_image_egress.py`](../plugin/calc/python_image_egress.py) | `insert_image_result_on_sheet()` → `GraphicObjectShape` anchored to active cell |
-| Chat / LLM | [`venv_python.py`](../plugin/calc/venv_python.py) | **Calc:** auto-insert on active sheet + `image_path`. **Writer/Draw:** `image_path` → `insert_image` |
+| Calc `=PYTHON()` | [`python_function.py`](../plugin/calc/python/function.py), [`python_image_egress.py`](../plugin/calc/python/image_egress.py) | `insert_image_result_on_sheet()` → `GraphicObjectShape` anchored to active cell |
+| Chat / LLM | [`venv_python.py`](../plugin/calc/python/venv.py) | **Calc:** auto-insert on active sheet + `image_path`. **Writer/Draw:** `image_path` → `insert_image` |
 | Writer notebook | [`notebook_runner.py`](../plugin/notebook/notebook_runner.py) | Inline image insert (SVG + PNG) on notebook cell run |
 | LLM prompts | [`import_policy.py`](../plugin/scripting/import_policy.py) | App-specific `format_matplotlib_plot_hint()` (Calc / Writer / Draw); not in global import policy |
 | LLM sandbox | [`sandbox.py`](../plugin/scripting/sandbox.py) | `matplotlib`, `seaborn` whitelisted |
 | Settings Test | [`venv_worker.py`](../plugin/scripting/venv_worker.py) | `matplotlib` under **Scientific Libraries**; **Visualization Libraries** group (`matplotlib`, `seaborn`) when Viz helpers are used |
-| Tests | [`test_matplotlib_output.py`](../tests/scripting/test_matplotlib_output.py), [`test_python_function.py`](../tests/calc/test_python_function.py), [`test_venv_python_image.py`](../tests/calc/test_venv_python_image.py), [`test_python_runner_viz.py`](../tests/scripting/test_python_runner_viz.py), [`test_viz.py`](../tests/scripting/test_viz.py), [`test_plot_data.py`](../tests/calc/test_plot_data.py) | Codec, sandbox e2e, multi-figure merge, Calc chat insert, RPS fast path, trusted helpers |
+| Tests | [`test_matplotlib_output.py`](../tests/scripting/test_matplotlib_output.py), [`test_python_function.py`](../tests/calc/python/test_function.py), [`test_venv_python_image.py`](../tests/calc/python/test_venv_image.py), [`test_python_runner_viz.py`](../tests/scripting/test_python_runner_viz.py), [`test_viz.py`](../tests/scripting/test_viz.py), [`test_plot_data.py`](../tests/calc/test_plot_data.py) | Codec, sandbox e2e, multi-figure merge, Calc chat insert, RPS fast path, trusted helpers |
 
 **Works today:**
 
@@ -439,7 +439,7 @@ run_venv_python_script(code="… plt.plot(…) …")
 
 #### Phase B — Run Python Script + Writer image egress (shipped)
 
-[`python_runner.py`](../plugin/scripting/python_runner.py) `execute_and_insert_result()` checks `is_viz_result()` / `is_image_payload()` after venv execution and inserts plots via [`viz_egress.py`](../plugin/scripting/viz_egress.py) (Calc → [`insert_image_result_on_sheet`](../plugin/calc/python_image_egress.py); Writer → [`insert_image_at_locator`](../plugin/writer/images/image_tools.py)). Viz header fast path mirrors Analysis/Vision. Tests: [`test_python_runner_viz.py`](../tests/scripting/test_python_runner_viz.py).
+[`python_runner.py`](../plugin/scripting/python_runner.py) `execute_and_insert_result()` checks `is_viz_result()` / `is_image_payload()` after venv execution and inserts plots via [`viz_egress.py`](../plugin/scripting/viz_egress.py) (Calc → [`insert_image_result_on_sheet`](../plugin/calc/python/image_egress.py); Writer → [`insert_image_at_locator`](../plugin/writer/images/image_tools.py)). Viz header fast path mirrors Analysis/Vision. Tests: [`test_python_runner_viz.py`](../tests/scripting/test_python_runner_viz.py).
 
 #### Phase C — Trusted Viz helpers (shipped)
 
@@ -727,7 +727,7 @@ Tool: `run_venv_python_script` with `specialized_domain = "python"`. Registered 
 
 ### Tool schema (reference)
 
-See [`plugin/calc/venv_python.py`](plugin/calc/venv_python.py) — parameters `code`, optional `data` / `data_range` (Calc); `long_running` / async execution.
+See [`plugin/calc/python/venv.py`](plugin/calc/python/venv.py) — parameters `code`, optional `data` / `data_range` (Calc); `long_running` / async execution.
 
 ---
 
@@ -785,7 +785,7 @@ This is a main reason to keep **`=PYTHON(code, data)`** instead of Excel's `xl()
 t
 | Rule | Meaning |
 |------|---------|
-| **One namespace per workbook** | The `calc:…` session lives until **Reset Python Session**, worker crash/restart, init-script hash change + re-seed, or (optional, not wired by default) document unload via [`python_workbook_lifecycle.py`](../plugin/calc/python_workbook_lifecycle.py). |
+| **One namespace per workbook** | The `calc:…` session lives until **Reset Python Session**, worker crash/restart, init-script hash change + re-seed, or (optional, not wired by default) document unload via [`python_workbook_lifecycle.py`](../plugin/calc/python/workbook_lifecycle.py). |
 | **Any cell can clobber any name** | True shared mutable globals — cell B1 can overwrite a name from A1. |
 | **Order via `data`, not layout** | `result = x + 1` with **no** second arg has **no** ordering guarantee. Pass upstream cells/ranges as **`data`**. Init script always runs before any cell. |
 | **Runs any time** | Partial recalc, matrix spill, manual F9 — treat every cell as **restartable**. |
@@ -821,7 +821,7 @@ Deliberate accumulation (running totals, etc.) is fine — treat it as a choice,
 
 **Not reset automatically:** F9, Ctrl+Shift+F9, or editing one cell does **not** clear the shared kernel.
 
-**Related:** [`WorkerResultSession`](../plugin/calc/python_function.py) is a **separate** thread-local cache for matrix list results within one recalc pass — it does not hold cross-cell Python globals. See [Matrix Formula Optimization](#matrix-formula-optimization-fast-path).
+**Related:** [`WorkerResultSession`](../plugin/calc/python/function.py) is a **separate** thread-local cache for matrix list results within one recalc pass — it does not hold cross-cell Python globals. See [Matrix Formula Optimization](#matrix-formula-optimization-fast-path).
 
 **Implementation:** [`session_manager.py`](../plugin/scripting/session_manager.py), [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) (`_SESSION_EXECUTORS`).
 
@@ -1031,7 +1031,7 @@ When `code` is a **string literal inside the formula**, LibreOffice Calc parses 
 
 #### Why `float(np.sum(data))` in the formula string is a bad idea
 
-Early test fixtures wrapped results in `float(...)` so compare formulas could use `ABS(oracle - python)`. That cast is **redundant**: [`to_calc_compatible`](../plugin/calc/python_function.py) already coerces NumPy scalars and Python `int` to Calc `double` on return. Runtime never required `float()` in the script.
+Early test fixtures wrapped results in `float(...)` so compare formulas could use `ABS(oracle - python)`. That cast is **redundant**: [`to_calc_compatible`](../plugin/calc/python/function.py) already coerces NumPy scalars and Python `int` to Calc `double` on return. Runtime never required `float()` in the script.
 
 The real problem is **Calc’s formula lexer**, not type coercion:
 
@@ -1329,7 +1329,7 @@ Distilled from a survey of Google Sheets, Excel, Quadratic, Mito, Neptyne, and L
 
 #### Spreadsheet → Python import (bulk formula conversion)
 
-Convert an open Calc sheet so **constants stay the same** and **formula cells become `=PY()`** (venv-backed), targeting ~90% automated coverage on typical business sheets. Full PM/dev plan: [calc-spreadsheet-to-python-import.md](calc-spreadsheet-to-python-import.md). **Touch:** new `plugin/calc/spreadsheet_import/`; reuse [`inspector.py`](../plugin/calc/inspector.py), [`python_formula_edit.py`](../plugin/calc/python_formula_edit.py).
+Convert an open Calc sheet so **constants stay the same** and **formula cells become `=PY()`** (venv-backed), targeting ~90% automated coverage on typical business sheets. Full PM/dev plan: [calc-spreadsheet-to-python-import.md](calc-spreadsheet-to-python-import.md). **Touch:** new `plugin/calc/spreadsheet_import/`; reuse [`inspector.py`](../plugin/calc/inspector.py), [`python_formula_edit.py`](../plugin/calc/python/formula_edit.py).
 
 #### Range alignment for multi-range NumPy
 
@@ -1379,14 +1379,14 @@ LRU eviction of large inactive DataFrames in long-lived workbook sessions — di
 | Pickle5 + Split-Grid serialization | [numpy-serialization.md](numpy-serialization.md) |
 | AST sandbox per request | [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) + vendored [`local_python_executor.py`](../plugin/contrib/smolagents/local_python_executor.py) |
 | Parse + static validation hot cache | [`sandbox_cache.py`](../plugin/scripting/sandbox_cache.py) — [`tests/scripting/test_sandbox_cache.py`](../tests/scripting/test_sandbox_cache.py) |
-| `run_venv_python_script` / `=PYTHON()` | [`venv_python.py`](../plugin/calc/venv_python.py), [`python_function.py`](../plugin/calc/python_function.py) |
+| `run_venv_python_script` / `=PYTHON()` | [`venv_python.py`](../plugin/calc/python/venv.py), [`python_function.py`](../plugin/calc/python/function.py) |
 | Shared kernel (`python_session_mode`) | [`session_manager.py`](../plugin/scripting/session_manager.py), [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) — [`tests/scripting/test_session_persistence.py`](../tests/scripting/test_session_persistence.py) |
 | Calc init scripts | [`document_scripts.py`](../plugin/scripting/document_scripts.py), [`init_script_editor.py`](../plugin/calc/init_script_editor.py) — [`tests/scripting/test_init_scripts.py`](../tests/scripting/test_init_scripts.py) |
 | Embeddings encode (Phase A) | [`embedding_client.py`](../plugin/framework/client/embedding_client.py), [`embeddings_index.py`](../plugin/embeddings/venv/embeddings_index.py) — see [embeddings.md § Phase B](embeddings.md#phase-b) |
 | Matplotlib + Viz helpers (Phase A–C) | [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py), [`viz.py`](../plugin/scripting/viz.py), [`viz_egress.py`](../plugin/scripting/viz_egress.py), [`python_runner.py`](../plugin/scripting/python_runner.py) — [Visualization §1](#visualization) |
 | Symbolic Math (SymPy) | [`symbolic.py`](../plugin/scripting/symbolic.py), [`symbolic_egress.py`](../plugin/scripting/symbolic_egress.py), [`symbolic_math`](../plugin/calc/symbolic_math.py) — [Symbolic Math §3](#symbolic-math) |
 | Run Python Script UI split | [`python_runner_ui.py`](../plugin/scripting/python_runner_ui.py) (native dialog); execution in [`python_runner.py`](../plugin/scripting/python_runner.py) |
-| Monaco editor (Calc cell + Run Python Script) | [`python_editor.py`](../plugin/calc/python_editor.py), [`editor_host.py`](../plugin/scripting/editor_host.py) — [§3 Monaco](#monaco-editor--run-python-script) |
+| Monaco editor (Calc cell + Run Python Script) | [`python_editor.py`](../plugin/calc/python/editor.py), [`editor_host.py`](../plugin/scripting/editor_host.py) — [§3 Monaco](#monaco-editor--run-python-script) |
 | Document-attached scripts | [`document_scripts.py`](../plugin/scripting/document_scripts.py) — [`tests/scripting/test_document_scripts.py`](../tests/scripting/test_document_scripts.py) |
 | Multi-range varargs (`=PYTHON(code; A1; B1)`) | [§9](#9-multi-range-support-varargs) |
 

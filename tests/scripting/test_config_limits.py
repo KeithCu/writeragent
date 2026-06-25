@@ -53,7 +53,7 @@ def test_configured_python_exec_timeout_clamps_legacy_high(mock_get):
 
 
 def test_run_venv_python_script_schema_has_no_timeout_sec():
-    from plugin.calc.venv_python import RunVenvPythonScript
+    from plugin.calc.python.venv import RunVenvPythonScript
     from plugin.framework.tool import ToolRegistry
 
     registry = ToolRegistry(services={})

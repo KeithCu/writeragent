@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from plugin.calc.python_formula_edit import inline_py_code_has_lexer_collisions
+from plugin.calc.python.formula_edit import inline_py_code_has_lexer_collisions
 from plugin.calc.spreadsheet_import.emit import emit_py_formula
 from plugin.calc.spreadsheet_import.extract import py_formula_semantics
 from plugin.calc.spreadsheet_import.translate import translate_formula

@@ -208,7 +208,7 @@ Cross-file reads use **two** ephemeral sub-agent runs (outer, then one or more i
 
 ## Registration (doc module)
 
-Document research is **cross-app**: active Writer may read a Calc `.ods` budget. Register on [`plugin/doc/`](../plugin/doc/) with **`specialized_cross_cutting = True`** (same pattern as [`RunVenvPythonScript`](../plugin/calc/venv_python.py)) so **Writer, Calc, and Draw** delegate gateways all expose `domain="document_research"`.
+Document research is **cross-app**: active Writer may read a Calc `.ods` budget. Register on [`plugin/doc/`](../plugin/doc/) with **`specialized_cross_cutting = True`** (same pattern as [`RunVenvPythonScript`](../plugin/calc/python/venv.py)) so **Writer, Calc, and Draw** delegate gateways all expose `domain="document_research"`.
 
 | Component | `tier` | `specialized_domain` | Notes |
 | --------- | ------ | -------------------- | ----- |

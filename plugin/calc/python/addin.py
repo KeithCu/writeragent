@@ -12,7 +12,7 @@ import sys
 # --- Minimal stdlib-only bootstrap (MUST be before any "from plugin..." import) ---
 # unopkg writeRegistryInfo loads this file before the extension root is on sys.path.
 _this = os.path.abspath(__file__)
-for __ in range(3):  # plugin/calc/python_addin.py → plugin/calc/ → plugin/ → extension root
+for __ in range(4):  # plugin/calc/python/addin.py → plugin/calc/python/ → plugin/calc/ → plugin/ → extension root
     _this = os.path.dirname(_this)
 if _this not in sys.path:
     sys.path.insert(0, _this)
@@ -22,13 +22,13 @@ from typing import Any
 
 from plugin.framework.uno_bootstrap import ensure_plugin_on_path
 
-ensure_plugin_on_path(__file__, levels_up=3, also_add_plugin_dir=True)
+ensure_plugin_on_path(__file__, levels_up=4, also_add_plugin_dir=True)
 
 import uno  # noqa: E402
 import unohelper  # noqa: E402
 
 from plugin.calc.addin_common import CalcFunctionSpec, SingleFunctionAddInBase  # noqa: E402
-from plugin.calc.python_function import execute_python_addin  # noqa: E402
+from plugin.calc.python.function import execute_python_addin  # noqa: E402
 
 log = logging.getLogger(__name__)
 

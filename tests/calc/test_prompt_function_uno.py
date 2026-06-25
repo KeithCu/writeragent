@@ -30,7 +30,7 @@ def test_prompt_addin_metadata():
 
 # @native_test
 # def test_python_addin_metadata():
-#     from plugin.calc.python_addin import PythonFunction
+#     from plugin.calc.python.addin import PythonFunction
 #
 #     func = PythonFunction(_ctx)
 #     assert func.getProgrammaticFunctionName("PY") == "py"
@@ -48,8 +48,8 @@ def test_prompt_addin_metadata():
 
 @native_test
 def test_python_addin_execution():
-    from plugin.calc.python_addin import PythonFunction
-    from plugin.calc.python_function import MATRIX_SCALAR_SESSIONS
+    from plugin.calc.python.addin import PythonFunction
+    from plugin.calc.python.function import MATRIX_SCALAR_SESSIONS
     import unittest.mock
 
     if hasattr(MATRIX_SCALAR_SESSIONS, "sessions"):
@@ -58,7 +58,7 @@ def test_python_addin_execution():
     func = PythonFunction(_ctx)
 
     try:
-        with unittest.mock.patch("plugin.calc.python_function.run_code_in_user_venv") as mock_run:
+        with unittest.mock.patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
             mock_run.reset_mock()
             mock_run.return_value = {"status": "ok", "result": 42}
             res = func.py("result = 21 * 2")

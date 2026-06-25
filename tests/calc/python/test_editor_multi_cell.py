@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from plugin.calc import python_editor as pe
+import plugin.calc.python.editor as pe
 
 
 def test_open_second_cell_reuses_running_editor_and_sends_load():
@@ -32,7 +32,7 @@ def test_open_second_cell_reuses_running_editor_and_sends_load():
             with patch.object(pe, "_load_cell_editor_code", return_value=("print(2)", None, None)):
                 with patch.object(pe, "resolve_editor_python", return_value=("/venv/bin/python", None)):
                     with patch.object(pe, "probe_webview_import", return_value=(True, "")):
-                        with patch("plugin.calc.python_editor_context_menu.install_calc_cell_context_menu"):
+                        with patch("plugin.calc.python.editor_context_menu.install_calc_cell_context_menu"):
                             with patch.object(pe, "launch_monaco_editor", side_effect=fake_launch):
                                 pe.open_python_cell_editor(ctx)
 

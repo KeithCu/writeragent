@@ -36,7 +36,7 @@ from plugin.calc.bridge import CalcBridge
 from plugin.calc.manipulator import CellManipulator
 from plugin.calc.inspector import CellInspector
 
-logger = logging.getLogger("writeragent.calc.python_executor")
+logger = logging.getLogger("writeragent.calc.python.executor")
 
 
 class PythonExecutor:

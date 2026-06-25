@@ -20,7 +20,7 @@
 import pytest
 import unittest.mock
 from unittest.mock import MagicMock
-from plugin.calc.python_executor import PythonExecutor, ExecutePythonScript
+from plugin.calc.python.executor import PythonExecutor, ExecutePythonScript
 
 def test_arithmetic():
     executor = PythonExecutor("test_url")
@@ -130,14 +130,14 @@ def test_native_helpers():
     manipulator.write_formula_range.assert_called_with('C1', 123)
 
 def test_target_range_tool():
-    from plugin.calc.python_executor import ExecutePythonScript
+    from plugin.calc.python.executor import ExecutePythonScript
     tool = ExecutePythonScript()
     
     ctx = MagicMock()
     ctx.doc.getURL.return_value = "file:///test.ods"
     
     # We will need to patch CellManipulator to verify the write
-    with unittest.mock.patch('plugin.calc.python_executor.CellManipulator') as MockManip:
+    with unittest.mock.patch('plugin.calc.python.executor.CellManipulator') as MockManip:
         inst = MockManip.return_value
         inst.write_formula_range.return_value = "Success"
         
@@ -147,13 +147,13 @@ def test_target_range_tool():
         inst.write_formula_range.assert_called_with("D1", 30)
 
 def test_data_range_injection():
-    from plugin.calc.python_executor import ExecutePythonScript
+    from plugin.calc.python.executor import ExecutePythonScript
     tool = ExecutePythonScript()
     
     ctx = MagicMock()
     ctx.doc.getURL.return_value = "file:///test.ods"
     
-    with unittest.mock.patch('plugin.calc.python_executor.CellInspector') as MockInspector:
+    with unittest.mock.patch('plugin.calc.python.executor.CellInspector') as MockInspector:
         inst = MockInspector.return_value
         inst.read_range.return_value = [[{"value": 10}, {"value": 20}, {"value": 30}]]
         

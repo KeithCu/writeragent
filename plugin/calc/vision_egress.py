@@ -11,7 +11,7 @@ from typing import Any
 from plugin.calc.address_utils import index_to_column
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.manipulator import CellManipulator
-from plugin.calc.python_function import to_calc_compatible
+from plugin.calc.python.function import to_calc_compatible
 from plugin.calc.rich_html import insert_cell_html_rich
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.i18n import _

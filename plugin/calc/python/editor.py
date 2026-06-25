@@ -10,7 +10,7 @@ import logging
 from typing import Any
 
 from plugin.calc.bridge import CalcBridge
-from plugin.calc.python_formula_edit import (
+from plugin.calc.python.formula_edit import (
     PythonFormulaParts,
     build_new_python_formula,
     cell_looks_python_like,
@@ -262,7 +262,7 @@ def open_python_cell_editor(ctx: Any) -> None:
     """Launch Monaco editor for the active Calc cell (creates or edits ``=PYTHON()``)."""
     log.info("python_editor: open_python_cell_editor")
     try:
-        from plugin.calc.python_editor_context_menu import install_calc_cell_context_menu
+        from plugin.calc.python.editor_context_menu import install_calc_cell_context_menu
 
         install_calc_cell_context_menu(ctx)
         _open_python_cell_editor_impl(ctx)

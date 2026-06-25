@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from plugin.calc.python_formula_edit import (
+from plugin.calc.python.formula_edit import (
     build_data_suffix,
     build_new_python_formula,
     format_data_binding_display,

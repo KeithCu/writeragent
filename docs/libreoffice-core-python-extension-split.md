@@ -19,7 +19,7 @@ For user-facing behavior of `=PYTHON()` (matrix formulas, `data` ranges, timeout
 | Stability | Suitable to ship with LibreOffice core | Third-party / frequent releases |
 | Scope | `=PYTHON(code, data?)` + venv settings | Chat, `=PROMPT()`, specialized tools, grammar, etc. |
 
-WriterAgent registers **`=PYTHON()`** and **`=PROMPT()`** as **separate UNO components** ([`python_addin.py`](../plugin/calc/python_addin.py), [`prompt_addin.py`](../plugin/calc/prompt_addin.py)). A core split should ship only the Python add-in and **not** register a second competing `PYTHON` implementation.
+WriterAgent registers **`=PYTHON()`** and **`=PROMPT()`** as **separate UNO components** ([`python_addin.py`](../plugin/calc/python/addin.py), [`prompt_addin.py`](../plugin/calc/prompt_addin.py)). A core split should ship only the Python add-in and **not** register a second competing `PYTHON` implementation.
 
 ---
 
@@ -51,7 +51,7 @@ flowchart TB
   PWM -.->|stdin/stdout JSON| WH
 ```
 
-**Recalc constraint:** `=PYTHON()` runs **synchronously** during Calc recalc. The implementation deliberately avoids UI event pumping on this path (see comments in [`python_function.py`](../plugin/calc/python_function.py)) so the formula engine is not re-entered.
+**Recalc constraint:** `=PYTHON()` runs **synchronously** during Calc recalc. The implementation deliberately avoids UI event pumping on this path (see comments in [`python_function.py`](../plugin/calc/python/function.py)) so the formula engine is not re-entered.
 
 **Config keys** (today, from [`plugin/scripting/module.yaml`](../plugin/scripting/module.yaml)):
 
@@ -82,7 +82,7 @@ This closure **does not** call the LLM, chat panel, or MCP.
 
 ### 2. As-shipped module closure — WriterAgent (split complete)
 
-- **`=PYTHON()`**: register [`python_addin.py`](../plugin/calc/python_addin.py) only → loads [`python_function.py`](../plugin/calc/python_function.py) (no `LlmClient`).
+- **`=PYTHON()`**: register [`python_addin.py`](../plugin/calc/python/addin.py) only → loads [`python_function.py`](../plugin/calc/python/function.py) (no `LlmClient`).
 - **`=PROMPT()`**: register [`prompt_addin.py`](../plugin/calc/prompt_addin.py) → loads [`prompt_function.py`](../plugin/calc/prompt_function.py) (LLM stack).
 
 A core “Python-only” OXT must **not** register `prompt_addin.py` / `prompt_function.py`. See [Recommended refactors](#recommended-refactors-for-libreoffice-maintainers) below for IDL/manifest flavors.
@@ -128,8 +128,8 @@ Same rule: **entire file** must ship if any symbol from it is imported.
 
 | File | Role |
 |------|------|
-| [`plugin/calc/python_addin.py`](../plugin/calc/python_addin.py) | UNO add-in: `python()` |
-| [`plugin/calc/python_function.py`](../plugin/calc/python_function.py) | `execute_python_addin`, matrix session, `to_calc_compatible`, `finalize_python_return` |
+| [`plugin/calc/python/addin.py`](../plugin/calc/python/addin.py) | UNO add-in: `python()` |
+| [`plugin/calc/python/function.py`](../plugin/calc/python/function.py) | `execute_python_addin`, matrix session, `to_calc_compatible`, `finalize_python_return` |
 | [`plugin/calc/prompt_addin.py`](../plugin/calc/prompt_addin.py) | UNO add-in: `prompt()` (WriterAgent only) |
 | [`plugin/calc/prompt_function.py`](../plugin/calc/prompt_function.py) | `execute_prompt_addin` (WriterAgent only) |
 | [`plugin/calc/calc_addin_data.py`](../plugin/calc/calc_addin_data.py) | Range → `data`, size limits, `pack_calc_data_for_wire` |
@@ -178,7 +178,7 @@ Same rule: **entire file** must ship if any symbol from it is imported.
 | [`extension/idl/XPromptFunction.idl`](../extension/idl/XPromptFunction.idl) | Today declares `prompt` and `python`. Core build should drop `prompt` or use a new interface name |
 | [`extension/XPromptFunction.rdb`](../extension/XPromptFunction.rdb) | Built from IDL — [`scripts/rebuild_xprompt_rdb.sh`](../scripts/rebuild_xprompt_rdb.sh) |
 | [`extension/registry/org/openoffice/Office/CalcAddIns.xcu`](../extension/registry/org/openoffice/Office/CalcAddIns.xcu) | Registers add-in; core build keeps `python` node, removes `prompt` |
-| [`extension/META-INF/manifest.xml`](../extension/META-INF/manifest.xml) | Core subset: RDB + `plugin/calc/python_addin.py` UNO entry + CalcAddIns (`python` only; no `main.py`, sidebar, grammar) |
+| [`extension/META-INF/manifest.xml`](../extension/META-INF/manifest.xml) | Core subset: RDB + `plugin/calc/python/addin.py` UNO entry + CalcAddIns (`python` only; no `main.py`, sidebar, grammar) |
 | `description.xml` | Extension metadata (new extension identifier if not WriterAgent) |
 
 **Implementation name today:** `org.extension.writeragent.PromptFunction`  
@@ -206,7 +206,7 @@ These are part of WriterAgent but **not** in the runtime closure for the Calc fo
 |------|----------|
 | LLM / chat | `plugin/framework/client/llm_client.py`, `plugin/chatbot/*`, `=PROMPT()` in `prompt_function.py` |
 | Settings UI for manual runs | [`plugin/scripting/python_runner.py`](../plugin/scripting/python_runner.py) — pulls chatbot dialogs, Calc bridge, Writer format |
-| Chat tools | [`plugin/calc/venv_python.py`](../plugin/calc/venv_python.py), [`plugin/calc/python_executor.py`](../plugin/calc/python_executor.py) (in-process stdlib sandbox) |
+| Chat tools | [`plugin/calc/python/venv.py`](../plugin/calc/python/venv.py), [`plugin/calc/python/executor.py`](../plugin/calc/python/executor.py) (in-process stdlib sandbox) |
 | AI / MCP / grammar | Entire trees under `plugin/mcp/`, `plugin/writer/locale/`, etc. |
 
 Optional for core UX: **gettext locales** under `locales/` (only if `i18n._()` should translate errors in the core extension).
@@ -217,7 +217,7 @@ Optional for core UX: **gettext locales** under `locales/` (only if `i18n._()` s
 
 **Implementation checklist (phased tasks, acceptance criteria):** [`docs/ROADMAP.md`](ROADMAP.md) — section **Core extension split**.
 
-1. **Split the add-in implementation** — e.g. `plugin/calc/python_addin.py` implementing only `python()` and shared helpers, with **zero** imports from `llm_client` or `async_stream`.
+1. **Split the add-in implementation** — e.g. `plugin/calc/python/addin.py` implementing only `python()` and shared helpers, with **zero** imports from `llm_client` or `async_stream`.
 2. **Slim configuration** — small `python_config.py` with two keys instead of full `WriterAgentConfig` + entire `config.py` (large dataclass of AI settings).
 3. **Narrow IDL** — interface with only `python(in string code, in any data)`.
 4. **Separate extension id** — avoid `org.extension.writeragent.*` if WriterAgent remains a distinct OXT.
@@ -256,7 +256,7 @@ Optional for core UX: **gettext locales** under `locales/` (only if `i18n._()` s
 |-----------|---------|
 | WriterAgent (KeithCu / John Balis modifications) | GPL-3.0+ |
 | Vendored `plugin/contrib/smolagents/` (Hugging Face) | Apache-2.0 — retain notices in core OXT |
-| In-process Calc sandbox lineage | Apache-2.0 note in [`plugin/calc/python_executor.py`](../plugin/calc/python_executor.py) (LibrePythonista-derived; **not** used by `=PYTHON()`, which uses the venv path) |
+| In-process Calc sandbox lineage | Apache-2.0 note in [`plugin/calc/python/executor.py`](../plugin/calc/python/executor.py) (LibrePythonista-derived; **not** used by `=PYTHON()`, which uses the venv path) |
 
 ---
 
@@ -266,7 +266,7 @@ Optional for core UX: **gettext locales** under `locales/` (only if `i18n._()` s
 `config.py`, `constants.py`, `errors.py`, `json_utils.py`, `i18n.py`, `event_bus.py`, `service.py`, `url_utils.py`, `client/errors.py`, `client/__init__.py`, `framework/__init__.py`, `_manifest.py` (generated)
 
 **Calc + scripting + contrib (22 paths):**  
-`calc/python_addin.py`, `calc/python_function.py`, `calc/calc_addin_data.py`, `calc/addin_common.py`,  
+`calc/python/addin.py`, `calc/python/function.py`, `calc/calc_addin_data.py`, `calc/addin_common.py`,  
 `scripting/run_venv_code.py`, `python_worker_manager.py`, `worker_harness.py`, `venv_sandbox.py`, `payload_codec.py`, `subprocess_env.py`, `timeout_limits.py`, `venv_probe.py`, `module.yaml`, `scripting/__init__.py`,  
 `contrib/smolagents/local_python_executor.py`, `tools.py`, `utils.py`, `agent_types.py`, `tool_validation.py`, `_function_type_hints_utils.py`, `contrib/smolagents/__init__.py`, `contrib/__init__.py`,  
 `plugin/__init__.py`
@@ -379,10 +379,10 @@ Calc has **four** related paths. The main doc covers **`=PYTHON()`**. This appen
 
 | Surface | Entry | Uses venv subprocess? | Inserts into sheet? |
 |---------|--------|----------------------|---------------------|
-| **`=PYTHON()`** | [`python_function.py`](../plugin/calc/python_function.py) | Yes | **Cell formula return** (scalar/matrix session), not `write_formula_range` |
+| **`=PYTHON()`** | [`python_function.py`](../plugin/calc/python/function.py) | Yes | **Cell formula return** (scalar/matrix session), not `write_formula_range` |
 | **Menu Run Python Script…** | [`python_runner.py`](../plugin/scripting/python_runner.py) | Yes | Yes — [Appendix A](#appendix-a--menu-run-python-script-inserts-into-the-document) |
-| **Chat `run_venv_python_script`** | [`venv_python.py`](../plugin/calc/venv_python.py) | Yes | **No** — returns JSON; LLM uses Calc write tools separately |
-| **Chat `execute_python_script`** | [`python_executor.py`](../plugin/calc/python_executor.py) | **No** (LO embedded Python) | **Optional** — `target_range` → `write_formula_range` |
+| **Chat `run_venv_python_script`** | [`venv_python.py`](../plugin/calc/python/venv.py) | Yes | **No** — returns JSON; LLM uses Calc write tools separately |
+| **Chat `execute_python_script`** | [`python_executor.py`](../plugin/calc/python/executor.py) | **No** (LO embedded Python) | **Optional** — `target_range` → `write_formula_range` |
 
 ```mermaid
 flowchart TB
@@ -402,7 +402,7 @@ flowchart TB
 
 ### B.1 — Chat tool `run_venv_python_script` (venv, no direct insert)
 
-- **File:** [`plugin/calc/venv_python.py`](../plugin/calc/venv_python.py)
+- **File:** [`plugin/calc/python/venv.py`](../plugin/calc/python/venv.py)
 - **Base:** [`plugin/calc/base.py`](../plugin/calc/base.py) → [`plugin/framework/tool.py`](../plugin/framework/tool.py)
 - **Execution:** same [`run_code_in_user_venv`](../plugin/scripting/run_venv_code.py) as `=PYTHON()`
 - **Calc-only extras:** optional `data_range` / `data` via [`CellInspector`](../plugin/calc/inspector.py) + [`calc_addin_data`](../plugin/calc/calc_addin_data.py) (already in core list)
@@ -413,7 +413,7 @@ flowchart TB
 
 | File | Role |
 |------|------|
-| `plugin/calc/venv_python.py` | Tool implementation |
+| `plugin/calc/python/venv.py` | Tool implementation |
 | `plugin/calc/base.py` | `ToolCalcPythonBase` |
 | `plugin/calc/inspector.py` | `read_range` for `data_range` |
 | `plugin/framework/tool.py` | `ToolBase`, registry, `ToolContext` |
@@ -421,12 +421,12 @@ flowchart TB
 
 WriterAgent chat stack (`plugin/chatbot/*`, tool loop, LLM) is **not** required for the tool implementation itself but is required for the feature as shipped today.
 
-**Tests:** [`tests/calc/test_venv_python.py`](../tests/calc/test_venv_python.py), [`tests/chatbot/test_tool_loop.py`](../tests/chatbot/test_tool_loop.py) (schema / delegation)
+**Tests:** [`tests/calc/python/test_venv.py`](../tests/calc/python/test_venv.py), [`tests/chatbot/test_tool_loop.py`](../tests/chatbot/test_tool_loop.py) (schema / delegation)
 
 ### B.2 — Chat tool `execute_python_script` (in-process, optional sheet write)
 
-- **File:** [`plugin/calc/python_executor.py`](../plugin/calc/python_executor.py)
-- **Sandbox:** [`LocalPythonExecutor`](../plugin/contrib/smolagents/local_python_executor.py) in **LibreOffice’s embedded interpreter** — stdlib-focused [`CALC_AUTHORIZED_IMPORTS`](../plugin/calc/python_executor.py), helpers `lp` / `set_range` injected per call
+- **File:** [`plugin/calc/python/executor.py`](../plugin/calc/python/executor.py)
+- **Sandbox:** [`LocalPythonExecutor`](../plugin/contrib/smolagents/local_python_executor.py) in **LibreOffice’s embedded interpreter** — stdlib-focused [`CALC_AUTHORIZED_IMPORTS`](../plugin/calc/python/executor.py), helpers `lp` / `set_range` injected per call
 - **Not** used by `=PYTHON()` or the menu venv path
 - **Insertion:** if `target_range` is set, result is written with [`CellManipulator.write_formula_range`](../plugin/calc/manipulator.py)
 - **Registered services:** Calc + Writer text documents (implementation still uses [`CalcBridge`](../plugin/calc/bridge.py); Writer-as-spreadsheet scenarios depend on bridge behavior)
@@ -435,14 +435,14 @@ WriterAgent chat stack (`plugin/chatbot/*`, tool loop, LLM) is **not** required 
 
 | File | Role |
 |------|------|
-| `plugin/calc/python_executor.py` | `PythonExecutor`, `ExecutePythonScript` |
+| `plugin/calc/python/executor.py` | `PythonExecutor`, `ExecutePythonScript` |
 | `plugin/calc/bridge.py`, `manipulator.py`, `inspector.py`, `address_utils.py`, `calc/__init__.py` | Document helpers + writes |
 | `plugin/framework/tool.py` | `ToolBaseDummy` |
 | `plugin/contrib/smolagents/local_python_executor.py` (+ same smolagents subset as core list: `tools.py`, `utils.py`, `agent_types.py`, `tool_validation.py`, `_function_type_hints_utils.py`) | In-process sandbox |
 
 **Does not ship:** `python_worker_manager.py`, `worker_harness.py`, `run_venv_code.py`, `venv_probe.py`, `subprocess_env.py` (venv subprocess path).
 
-**Tests:** [`tests/calc/test_calc_python_executor.py`](../tests/calc/test_calc_python_executor.py)
+**Tests:** [`tests/calc/python/test_executor.py`](../tests/calc/python/test_executor.py)
 
 ### B.3 — What a Calc-only “core Python” bundle might include
 
@@ -457,7 +457,7 @@ WriterAgent chat stack (`plugin/chatbot/*`, tool loop, LLM) is **not** required 
 
 ## Appendix C — Writer chat tool (venv, no menu insert)
 
-Writer does **not** have a separate “insert Python result” tool. [`run_venv_python_script`](../plugin/calc/venv_python.py) is registered with `uno_services` including `TextDocument` but on Writer it **ignores** `data_range` / `data` and only returns serialized `result`. The model inserts content via normal Writer tools (e.g. HTML apply / selection edits), not via `python_runner`.
+Writer does **not** have a separate “insert Python result” tool. [`run_venv_python_script`](../plugin/calc/python/venv.py) is registered with `uno_services` including `TextDocument` but on Writer it **ignores** `data_range` / `data` and only returns serialized `result`. The model inserts content via normal Writer tools (e.g. HTML apply / selection edits), not via `python_runner`.
 
 For **menu-driven insert into Writer**, use [Appendix A](#appendix-a--menu-run-python-script-inserts-into-the-document) (`format.py` HTML path).
 

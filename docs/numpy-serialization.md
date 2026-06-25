@@ -58,7 +58,7 @@ LibreOffice's embedded Python and the user's venv are **different interpreters**
 | `PythonWorkerManager` | One subprocess per resolved venv `python`; respawns on crash/timeout; auto-warms before first timed execute |
 | `worker_harness.py` | Read loop; delegates to `venv_sandbox.run_sandboxed_code` |
 | `venv_sandbox.py` | **Isolated (default):** new `LocalPythonExecutor` per request. **Shared kernel:** one executor per `calc:…` session id; inject `data`; serialize `result` |
-| **Code hot cache** | [`sandbox_cache.py`](../plugin/scripting/sandbox_cache.py): SHA-256 keyed LRU (default 4096) caches **parsed AST** + **static** sandbox policy per unchanged source + import allowlist. Skips re-parse and re-validation on recalc; **does not** cache execution `result` or variables. Separate from host [Worker Result Session](#matrix-formula-result-session-ipc-reduction). Also used by in-process [`execute_python_script`](../plugin/calc/python_executor.py). |
+| **Code hot cache** | [`sandbox_cache.py`](../plugin/scripting/sandbox_cache.py): SHA-256 keyed LRU (default 4096) caches **parsed AST** + **static** sandbox policy per unchanged source + import allowlist. Skips re-parse and re-validation on recalc; **does not** cache execution `result` or variables. Separate from host [Worker Result Session](#matrix-formula-result-session-ipc-reduction). Also used by in-process [`execute_python_script`](../plugin/calc/python/executor.py). |
 
 **Reset:** `reset_session` / **WriterAgent → Reset Python Session** drops the shared executor (and paired `:init` session). Shared-kernel **Calc semantics** (recalc, idempotent cells): [core §6 — Session modes](enabling_numpy_in_libreoffice.md#session-modes-and-recalc-semantics); shortcuts: [§6 Keyboard shortcuts](enabling_numpy_in_libreoffice.md#keyboard-shortcuts-and-recalc).
 
@@ -143,7 +143,7 @@ plugin/scripting/
 └── payload_codec.py          # split_grid / multi_data pack/unpack
 ```
 
-Calc ingress/egress entry points: [`calc_addin_data.py`](../plugin/calc/calc_addin_data.py), [`python_function.py`](../plugin/calc/python_function.py), [`venv_python.py`](../plugin/calc/venv_python.py).
+Calc ingress/egress entry points: [`calc_addin_data.py`](../plugin/calc/calc_addin_data.py), [`python_function.py`](../plugin/calc/python/function.py), [`venv_python.py`](../plugin/calc/python/venv.py).
 
 | Key | Shipped | Role |
 |-----|---------|------|
@@ -297,7 +297,7 @@ Use this when designing new serialization or bool tests ([`tests/calc/serializat
 | Number 1 / 0 | `1` / `0` | 1 / 0 |
 | Text `"TRUE"` / `"1"` | looks like true / one | text is **not** a number; `SUM` skips or NumPy sums strings fail |
 
-**`=PYTHON()` egress:** Python `True` / `False` from the worker are mapped to UNO booleans in [`to_calc_compatible`](../plugin/calc/python_function.py). A one-cell formula `=PYTHON("True")` should display a **logical** TRUE, not the text `"True"`.
+**`=PYTHON()` egress:** Python `True` / `False` from the worker are mapped to UNO booleans in [`to_calc_compatible`](../plugin/calc/python/function.py). A one-cell formula `=PYTHON("True")` should display a **logical** TRUE, not the text `"True"`.
 
 **`=PYTHON()` ingress (second argument = range):** What Python sees as `data` depends on how the cell is stored:
 
@@ -494,8 +494,8 @@ The implementation was simplified in May 2026 to unify the 1D and 2D packing pat
 | [`plugin/scripting/payload_codec.py`](../plugin/scripting/payload_codec.py) | Single source: unified pack/unpack, threshold, `describe_wire_value` for logs |
 | [`plugin/calc/calc_addin_data.py`](../plugin/calc/calc_addin_data.py) | `pack_calc_data_for_wire()` after range read; `count_cells()` understands split_grid envelopes |
 | [`plugin/scripting/venv_worker.py`](../plugin/scripting/venv_worker.py) | `_normalize_response`: `host_unpack_data` on worker `result` (all callers); respects `column_kinds` |
-| [`plugin/calc/python_function.py`](../plugin/calc/python_function.py) | `=PYTHON()` ingress pack + matrix/session flattening (result already unpacked) |
-| [`plugin/calc/venv_python.py`](../plugin/calc/venv_python.py) | Chat tool ingress pack |
+| [`plugin/calc/python/function.py`](../plugin/calc/python/function.py) | `=PYTHON()` ingress pack + matrix/session flattening (result already unpacked) |
+| [`plugin/calc/python/venv.py`](../plugin/calc/python/venv.py) | Chat tool ingress pack |
 | [`plugin/scripting/venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) | `child_unpack_data` before inject; `child_pack_result` in `serialize_result` |
 | [`tests/scripting/test_payload_codec.py`](../tests/scripting/test_payload_codec.py) | Unit tests (threshold, round-trip, mixed text → lists) |
 | [`tests/scripting/test_venv_worker.py`](../tests/scripting/test_venv_worker.py) | Harness integration with split_grid payloads |
@@ -530,7 +530,7 @@ Calc UNO range
 | Child unpack | [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) | `frombuffer` + `reshape` → ndarray | **Instant** (C-speed) |
 | Return | [`serialize_result`](../plugin/scripting/venv_sandbox.py) | `child_pack_result` for ndarray/list; DataFrame/Series use rectangular `dataframe` envelope (columns + split_grid data) | Large ndarray/DF egress as binary buffer |
 | Host decode | [`venv_worker.py`](../plugin/scripting/venv_worker.py) | `_normalize_response` → `host_unpack_data` on `result` | Nested lists for LLM, smol observations, Calc matrix/session |
-| Calc return | [`python_function.py`](../plugin/calc/python_function.py) | `finalize_python_return` / session flattening | Per-cell scalars for legacy add-in bridge |
+| Calc return | [`python_function.py`](../plugin/calc/python/function.py) | `finalize_python_return` / session flattening | Per-cell scalars for legacy add-in bridge |
 
 **Pickle Protocol 5:** Standardized as the exclusive production serialization protocol on the worker path. Opaque msgpack, mmap, and shared memory remain deferred. [`SafeSerializer`](../plugin/contrib/smolagents/serialization.py) (`__type__: ndarray`) is **not** on the worker path — only [`payload_codec.py`](../plugin/scripting/payload_codec.py).
 
@@ -540,7 +540,7 @@ Calc UNO range
 
 Calc add-ins return **one scalar per evaluation**. A 1,000-row matrix formula would otherwise cause 1,000 IPC crossings and serialization pack taxes.
 
-WriterAgent implements a **Worker Result Session** cache ([`_WorkerResultSession`](../plugin/calc/python_function.py)):
+WriterAgent implements a **Worker Result Session** cache ([`_WorkerResultSession`](../plugin/calc/python/function.py)):
 
 1. **First cell** in the range runs the full worker; the serialized list is cached on the **LibreOffice host**.
 2. **Remaining cells** with the same `code` + `data` signature bypass the worker and read by index from the host cache.
@@ -559,9 +559,9 @@ Multiple ranges use a `multi_data` envelope (`__wa_payload__`: `"multi_data"`, `
 | Layer | Module |
 |-------|--------|
 | Arg split / convert | [`calc_addin_data.py`](../plugin/calc/calc_addin_data.py) — `split_python_addin_data_args`, `calc_addin_args_to_python` |
-| Add-in execution | [`python_function.py`](../plugin/calc/python_function.py) |
+| Add-in execution | [`python_function.py`](../plugin/calc/python/function.py) |
 | Wire codec | [`payload_codec.py`](../plugin/scripting/payload_codec.py) — `host_pack_multi_data`, `child_unpack_data` |
-| Tests | [`test_calc_addin_data.py`](../tests/calc/test_calc_addin_data.py), [`test_python_function_multi.py`](../tests/calc/test_python_function_multi.py), [`serialization_ab_support.py`](../tests/scripting/serialization_ab_support.py) |
+| Tests | [`test_calc_addin_data.py`](../tests/calc/test_calc_addin_data.py), [`test_python_function_multi.py`](../tests/calc/python/test_function_multi.py), [`serialization_ab_support.py`](../tests/scripting/serialization_ab_support.py) |
 
 **Future work:** Hypothesis/CrossHair fuzz for list-of-grids (`serialization_ab_support.py` TODOs); live Calc UNO multi-range suite; chat tool multi `data_range` parity with formula varargs.
 
@@ -678,7 +678,7 @@ Often beats another codec — product, prompts, and formula patterns:
 | Area | Action |
 |------|--------|
 | **Chat / LLM** | Prompts + tool behavior: return scalars/summaries (`result = float(np.mean(...))`), two-phase “compute in venv → `write_formula_range`”, not 10⁵-element lists in `result`. |
-| **`=PYTHON()` matrix** | Prefer **`ROW()-1`** index form — one worker run + [`_WorkerResultSession`](../plugin/calc/python_function.py); avoid N recalcs each resending the same `data`. |
+| **`=PYTHON()` matrix** | Prefer **`ROW()-1`** index form — one worker run + [`_WorkerResultSession`](../plugin/calc/python/function.py); avoid N recalcs each resending the same `data`. |
 | **Ranges** | Tighter sheet ranges; strip `None` in script; no `collapse` on host yet (LibrePythonista gap) but same intent. |
 
 See [core two-phase workflow](enabling_numpy_in_libreoffice.md#two-phase-llm-workflow).

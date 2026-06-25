@@ -120,7 +120,7 @@ class ToolWriterShapeBase(ToolWriterSpecialBase):
 
 
 class ToolWriterPythonBase(ToolWriterSpecialBase):
-    """Marker for Writer delegation prompt listing (domain=python); see plugin/calc/venv_python.py."""
+    """Marker for Writer delegation prompt listing (domain=python); see plugin/calc/python/venv.py."""
 
     specialized_domain: ClassVar[str | None] = "python"
     specialized_domain_description: ClassVar[str | None] = (
