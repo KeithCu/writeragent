@@ -381,6 +381,7 @@ def test_calc_specialized_domain_base_requires_core_read_tools():
 def test_calc_shapes_domain_tools():
     from plugin.calc.shapes import UpsertShape, DeleteShape, ConnectShapes, GroupShapes, GetDrawSummary
     from plugin.calc.base import ToolCalcShapeBase
+    from plugin.framework.tool import ToolRegistry
     
     assert issubclass(UpsertShape, ToolCalcShapeBase)
     assert issubclass(DeleteShape, ToolCalcShapeBase)
@@ -389,4 +390,24 @@ def test_calc_shapes_domain_tools():
     assert issubclass(GetDrawSummary, ToolCalcShapeBase)
     
     assert "com.sun.star.sheet.SpreadsheetDocument" in UpsertShape.uno_services
+
+    services = MagicMock()
+    reg = ToolRegistry(services)
+    reg.register(UpsertShape())
+    reg.register(DeleteShape())
+    reg.register(ConnectShapes())
+    reg.register(GroupShapes())
+    reg.register(GetDrawSummary())
+    
+    doc = MagicMock()
+    doc.supportsService.return_value = True
+    
+    tools = reg.get_tools(doc=doc, active_domain="shapes", exclude_tiers=())
+    names = {t.name for t in tools}
+    assert "upsert_shape" in names
+    assert "delete_shape" in names
+    assert "shapes_connect" in names
+    assert "shapes_group" in names
+    assert "get_draw_summary" in names
+
 
