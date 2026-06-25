@@ -21,16 +21,16 @@ log = logging.getLogger("writeragent.review_toolbar")
 TOOLBAR_RESOURCE_URL = "private:resource/toolbar/addon_org.extension.writeragent.toolbar"
 
 _doc_listener = None
-_modify_listeners = {}  # document RuntimeUID -> its _ReviewModifyListener (so it can be removed on close)
-_docked_uids = set()    # RuntimeUIDs whose toolbar has already been docked once (don't re-dock)
+_modify_listeners: dict[str, Any] = {}  # RuntimeUID -> _ReviewModifyListener (removed on close)
+_docked_uids: set[str] = set()    # RuntimeUIDs whose toolbar has already been docked once (don't re-dock)
 
 
 def _runtime_uid(model: Any):
     """The document's RuntimeUID, or None if it can't be read."""
-    try:
-        return model.getRuntimeUID()
-    except Exception:
-        return None
+    from plugin.doc.document_helpers import get_runtime_uid
+
+    uid = get_runtime_uid(model)
+    return uid if uid else None
 
 
 class _ReviewModifyListener(unohelper.Base, XModifyListener):
@@ -42,16 +42,16 @@ class _ReviewModifyListener(unohelper.Base, XModifyListener):
     def __init__(self, uid):
         self._uid = uid  # so disposing() can drop the registry entry without re-reading the model
 
-    def modified(self, event):  # noqa: N803 -- UNO signature
+    def modified(self, aEvent) -> None:  # noqa: N802, N803 -- UNO signature
         try:
-            model = event.Source
+            model = aEvent.Source
             lm = _layout_manager(model)
             if lm is not None and lm.isElementVisible(TOOLBAR_RESOURCE_URL):
                 refresh_review_toolbar(model)
         except Exception:
             log.debug("review_toolbar: modify handler failed", exc_info=True)
 
-    def disposing(self, event):  # noqa: N803
+    def disposing(self, Source) -> None:  # noqa: N802, N803 -- UNO signature
         # The document we're attached to is being disposed. Drop our registry entry HERE too -- not
         # only via the OnUnload doc event -- so a crash / force-close, or a failed event-listener
         # install, can't leak the entry and block a later document that reuses this RuntimeUID.

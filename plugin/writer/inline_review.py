@@ -120,21 +120,20 @@ def _agent_redlines(model: Any) -> list:
     short list, but it must NOT back a success/safety decision. The data-safety paths use the
     reliability-aware ``_agent_change_tokens`` (post-resolve verification) and
     ``_all_redlines_are_agent`` (global-dispatch guard), which fail CLOSED on an incomplete scan."""
-    from plugin.writer.edit_review import TOKEN_PREFIX
+    from plugin.writer.edit_review import TOKEN_PREFIX, _scan_redlines
 
-    out = []
-    try:
-        enum = model.getRedlines().createEnumeration()
-        while enum.hasMoreElements():
-            rl = enum.nextElement()
-            try:
-                comment = str(rl.getPropertyValue("RedlineComment"))
-            except Exception:
-                continue
-            if comment.startswith(TOKEN_PREFIX):
-                out.append((comment, rl))
-    except Exception:
-        log.debug("inline_review: agent redline scan failed", exc_info=True)
+    out: list = []
+
+    def on_item(rl: Any) -> bool:
+        try:
+            comment = str(rl.getPropertyValue("RedlineComment"))
+        except Exception:
+            return True  # unreadable -> skip (best-effort display scan)
+        if comment.startswith(TOKEN_PREFIX):
+            out.append((comment, rl))
+        return True
+
+    _scan_redlines(model, on_item)  # reliable flag ignored -- display-only helper
     return out
 
 
@@ -157,34 +156,20 @@ def _agent_change_tokens(model: Any) -> tuple[set, bool]:
     (a native test confirms count equals enumeration length across body and table-cell containers).
     It is kept as cheap fail-closed insurance: if it ever did happen, the cost would be silent loss
     of a user's own redline, so it is worth a count comparison to guard against."""
-    from plugin.writer.edit_review import TOKEN_PREFIX
+    from plugin.writer.edit_review import TOKEN_PREFIX, _scan_redlines
 
     out: set = set()
-    try:
-        redlines = model.getRedlines()
-        total = int(redlines.getCount())
-        enum = redlines.createEnumeration()
-    except Exception:
-        return out, False  # can't enumerate / count -> unreliable snapshot
-    reliable = True
-    seen = 0
-    while True:
-        try:
-            if not enum.hasMoreElements():
-                break
-            rl = enum.nextElement()
-        except Exception:
-            return out, False  # can't advance the enumeration -> unreliable
-        seen += 1
+
+    def on_item(rl: Any) -> bool:
         try:
             comment = str(rl.getPropertyValue("RedlineComment"))
         except Exception:
-            reliable = False  # can't classify this redline -> token snapshot incomplete
-            continue
+            return False
         if comment.startswith(TOKEN_PREFIX):
             out.add(comment)
-    if seen != total:
-        reliable = False  # enumeration shorter than getCount() -> snapshot incomplete
+        return True
+
+    reliable = _scan_redlines(model, on_item)[0]
     return out, reliable
 
 
@@ -202,33 +187,28 @@ def _all_redlines_are_agent(model: Any) -> bool:
     early stop -- ``hasMoreElements()`` going False with redlines still in the tail, i.e. the
     enumeration yields fewer items than getCount() reports -- also fails closed instead of
     green-lighting a whole-document accept."""
-    from plugin.writer.edit_review import TOKEN_PREFIX
+    from plugin.writer.edit_review import TOKEN_PREFIX, _scan_redlines
 
     try:
-        redlines = model.getRedlines()
-        total = int(redlines.getCount())
-    except Exception:
-        return False  # can't establish the true count -> can't prove completeness -> fail closed
-    if total <= 0:
-        return False  # nothing to resolve via the global path
-    try:
-        enum = redlines.createEnumeration()
+        if int(model.getRedlines().getCount()) <= 0:
+            return False
     except Exception:
         return False
-    seen = 0
-    while True:
+    all_agent = True
+
+    def on_item(rl: Any) -> bool:
+        nonlocal all_agent
         try:
-            if not enum.hasMoreElements():
-                break
-            rl = enum.nextElement()
             comment = str(rl.getPropertyValue("RedlineComment"))
         except Exception:
-            return False  # couldn't advance/read a redline -> can't prove all are agent -> fail closed
+            all_agent = False
+            return False
         if not comment.startswith(TOKEN_PREFIX):
-            return False  # a user (non-agent) redline is present
-        seen += 1
-    # An enumeration shorter than getCount() leaves seen < total; only a COMPLETE all-agent scan passes.
-    return seen == total
+            all_agent = False
+        return True
+
+    reliable = _scan_redlines(model, on_item)[0]
+    return all_agent and reliable
 
 
 def _foreign_redline_ids(model: Any) -> tuple[set, bool]:
@@ -238,37 +218,24 @@ def _foreign_redline_ids(model: Any) -> tuple[set, bool]:
     scan yields fewer items than the collection's own ``getCount()`` reports -- so
     a caller can tell "couldn't verify" apart from "no user redlines" and fail CLOSED instead of
     claiming success without proving the user's changes survived."""
-    from plugin.writer.edit_review import TOKEN_PREFIX
+    from plugin.writer.edit_review import TOKEN_PREFIX, _scan_redlines
 
     out: set = set()
-    try:
-        redlines = model.getRedlines()
-        total = int(redlines.getCount())
-        enum = redlines.createEnumeration()
-    except Exception:
-        return out, False  # can't enumerate / count -> unreliable snapshot
-    reliable = True
-    seen = 0
-    while True:
-        try:
-            if not enum.hasMoreElements():
-                break
-            rl = enum.nextElement()
-        except Exception:
-            return out, False  # can't advance the enumeration -> unreliable
-        seen += 1
+
+    def on_item(rl: Any) -> bool:
         try:
             ours = str(rl.getPropertyValue("RedlineComment")).startswith(TOKEN_PREFIX)
         except Exception:
-            ours = False  # unclassifiable -> count as foreign so its loss is still detected
+            ours = False
         if ours:
-            continue
+            return True
         try:
             out.add(rl.getPropertyValue("RedlineIdentifier"))
         except Exception:
-            reliable = False  # a foreign redline we can't track -> snapshot incomplete
-    if seen != total:
-        reliable = False  # enumeration shorter than getCount() -> snapshot incomplete
+            return False
+        return True
+
+    reliable = _scan_redlines(model, on_item)[0]
     return out, reliable
 
 
@@ -311,36 +278,29 @@ def _change_bounds(model: Any, token: str):
     conflict the document is left partially resolved. So any enumeration/count error, count/enumeration
     mismatch (enumeration yields fewer items than getCount() reports), unreadable comment, or a target
     mark with unreadable / None bounds -> (None, None)."""
-    try:
-        redlines = model.getRedlines()
-        total = int(redlines.getCount())
-        enum = redlines.createEnumeration()
-    except Exception:
-        return None, None
-    ranges = []
-    seen = 0
-    while True:
+    from plugin.writer.edit_review import _RedlineScanAbort, _scan_redlines
+
+    ranges: list = []
+
+    def on_item(rl: Any) -> bool:
         try:
-            if not enum.hasMoreElements():
-                break
-            rl = enum.nextElement()
             comment = str(rl.getPropertyValue("RedlineComment"))
         except Exception:
-            return None, None  # can't advance/read a redline -> might miss a target mark -> fail closed
-        seen += 1
+            raise _RedlineScanAbort()
         if comment != token:
-            continue
+            return True
         try:
             s = rl.getPropertyValue("RedlineStart")
             e = rl.getPropertyValue("RedlineEnd")
         except Exception:
-            return None, None  # a TARGET mark we can't read -> incomplete span -> fail closed
+            raise _RedlineScanAbort()
         if s is None or e is None:
-            return None, None  # a TARGET mark with no bounds -> incomplete span -> fail closed
+            raise _RedlineScanAbort()
         ranges.append((s, e))
-    if seen != total:
-        return None, None  # enumeration shorter than getCount() -> a target mark may be in the tail
-    if not ranges:
+        return True
+
+    reliable = _scan_redlines(model, on_item)[0]
+    if not reliable or not ranges:
         return None, None
     try:
         text = ranges[0][0].getText()
@@ -398,6 +358,10 @@ def goto_adjacent_agent_change(model: Any, forward: bool = True) -> str | None:
     for c in changes:
         left, right = _change_bounds(model, c["token"])
         if left is None or right is None:
+            # KNOWN GAP: changes listed by agent_changes() but with unreadable bounds are skipped
+            # from the Prev/Next cycle. The toolbar counter (pending_agent_change_count) can still
+            # count them, so the user may see N pending changes but only M are reachable via
+            # fast-travel. A future fix could log here and/or fall back to paragraph-level goto.
             continue
         try:
             t = left.getText()
@@ -526,8 +490,7 @@ def _span_has_redline(model: Any, text: Any, span: Any, consider) -> bool:
     The scan is also cross-checked against the collection's ``getCount()``: a count/enumeration
     mismatch (the enumeration yielding fewer items than getCount() reports) could hide an overlapping
     user/sibling redline in the unscanned tail, so a short scan returns True (unsafe) instead of a
-    false "no overlap".
-    """
+    false "no overlap". Same ``seen != total`` invariant as ``edit_review._scan_redlines``."""
     try:
         redlines = model.getRedlines()
         total = int(redlines.getCount())
@@ -536,7 +499,7 @@ def _span_has_redline(model: Any, text: Any, span: Any, consider) -> bool:
         log.debug("inline_review: cannot enumerate/count redlines; treating span as unsafe", exc_info=True)
         return True
     seen = 0
-    while True:
+    while seen < total:
         try:
             if not enum.hasMoreElements():
                 break
@@ -665,9 +628,11 @@ def resolve_agent_change(model: Any, ctx: Any, token: str, accept: bool,
             if removed == {token} and tokens_ok and foreign_safe:
                 return True   # exactly the target -- no sibling change, no user redline touched
             if removed or not tokens_ok or not foreign_safe:
-                # Touched more than the target (a sibling and/or a user redline), or we couldn't
-                # reliably verify which changes remain / that the user's redlines survived. The guards
-                # above should make this unreachable; if it happens, never report success.
+                # POST-DISPATCH FAILURE: dispatch already ran above, so the document may be partially
+                # resolved even though we return False. Pre-dispatch guards make this rare; we do not
+                # attempt undo() here (LibreOffice undo grouping is not reliably tied to one dispatch).
+                # Callers should surface a user message when appropriate; a future improvement could
+                # try undo or report "some changes may have been partially resolved".
                 log.warning("inline_review: exact resolve of %s affected extra changes %s (token-"
                             "snapshot reliable=%s, user-redlines provably-safe=%s); not claiming "
                             "success", token, removed - {token}, tokens_ok, foreign_safe)

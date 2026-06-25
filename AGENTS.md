@@ -121,7 +121,7 @@ UNO helpers are split: [`uno_context.py`](plugin/framework/uno_context.py), [`do
 - **Stop / cancellation:** each Send has a [`SendCancellation`](../plugin/framework/queue_executor.py) scope (`agent_session()`). Stop must use **`resolve_stop_checker()`** / **`scope.is_cancelled`**, not `lambda: self.stop_requested` alone—after the drain loop exits, `panel._send_cancellation` is cleared while the web-research worker may still run; the first fix only stopped the UI thread. Worker-thread `LlmClient` needs **`cancellation_scope`** (contextvars do not propagate to new threads). See [docs/streaming-and-threading.md](docs/streaming-and-threading.md) § Stop / cancellation.
 - **Stop** on main chat path: assistant may get `"No response."` for strict role alternation (e.g. Mistral); UI still shows stopped.
 - **Reasoning:** [`plugin/main.py`](plugin/main.py) sends `reasoning: { effort: 'minimal' }`; UI shows `[Thinking] …` before the answer.
-- **Web research / toggles:** in [`panel_factory.py`](plugin/chatbot/panel_factory.py), **never** `for _ in …` in path loops (**`_` shadows gettext**). Item listeners for research/direct image: **override `on_item_state_changed` on the class**, not nested in `__init__`, or toggles never fire ([`BaseItemListener`](plugin/chatbot/listeners.py)).
+- **Web research / toggles:** in [`panel_factory.py`](plugin/chatbot/panel_factory.py), **never** `for _ in …` in path loops (bare **`_`** shadows gettext — see **Python** naming below). Item listeners for research/direct image: **override `on_item_state_changed` on the class**, not nested in `__init__`, or toggles never fire ([`BaseItemListener`](plugin/chatbot/listeners.py)).
 - **Librarian mode:** starts when `USER.md` is empty; [`SendButtonListener`](plugin/chatbot/panel.py) keeps `_in_librarian_mode` until [`send_handlers.py`](plugin/chatbot/send_handlers.py) sees `switch_mode` / `switch_to_document_mode`. **`USER.md`** is storage only—not the handoff signal alone.
 - **`upsert_memory` visibility:** main chat via [`tool_loop_state.py`](plugin/chatbot/tool_loop_state.py); librarian uses [`librarian.py`](plugin/chatbot/librarian.py) + `chat_append_callback` so updates show even when search-thinking is off.
 
@@ -133,7 +133,7 @@ UNO helpers are split: [`uno_context.py`](plugin/framework/uno_context.py), [`do
 - **AppFont** for geometry; explicit layout—no flex. **TabListener** must subclass **`unohelper.Base`** + **`XActionListener`**—see pattern in [`plugin/chatbot/dialogs.py`](plugin/chatbot/dialogs.py).
 - **ListBox/ComboBox:** set **`StringItemList`**, not only `.Text`.
 - **`translate_dialog`:** [`dialogs.py`](plugin/chatbot/dialogs.py). Chat sidebar does **not** re-translate on every `config:changed`—only at wiring/load.
-- **`dialog_views`**: do not pass saved config through gettext (empty string → PO garbage). **`_(msg)`** requires `str` ([`plugin/framework/i18n.py`](plugin/framework/i18n.py)).
+- **`dialog_views`**: do not pass saved config through gettext (empty string → PO garbage). **`_(msg)`** requires `str` ([`plugin/framework/i18n.py`](plugin/framework/i18n.py)). UI code often imports **`_`** from that module — never reuse **`_`** as a throwaway variable in the same file (see **Python** naming below).
 - **`dialog_views.input_box`**: if `execute()` is false (ESC/close), **do not** `dispose()` the dialog again—**double dispose can segfault** LibreOffice.
 
 ### Tools / Writer / Calc
@@ -170,7 +170,7 @@ UNO helpers are split: [`uno_context.py`](plugin/framework/uno_context.py), [`do
 - **`WriterAgentDialogs`** folder name matches `dialog.xlb` library name.
 - **`is_writer(model)`** — Writer has draw pages; do not use **`getDrawPages`** alone as the Writer test.
 - **No env API keys** in production; no **`tempfile.mktemp()`**.
-- **Python:** do not shadow **`logging`** or module **`log`** inside functions.
+- **Python:** do not shadow **`logging`**, module **`log`**, or gettext **`_`**. Many UI modules import **`_`** from [`plugin/framework/i18n.py`](plugin/framework/i18n.py); do **not** bind bare **`_`** as a variable (`for _ in …`, `a, _, _ = fn()`, `except Exception as _:`). Use a named discard (`unused`, `idx`) or index/slice what you need (`result[0]`) instead. Private helpers named `_foo` are fine — the rule is the bare **`_`** name only.
 
 ### Tests and debug menus
 
@@ -190,6 +190,7 @@ UNO helpers are split: [`uno_context.py`](plugin/framework/uno_context.py), [`do
 | Writer specialized tool tiers | [docs/writer-specialized-toolsets.md](docs/writer-specialized-toolsets.md) |
 | Styles / LLM styling | [docs/llm-styles.md](docs/llm-styles.md) |
 | Writer API references | [docs/bookmarks-api-reference.md](docs/bookmarks-api-reference.md), [docs/footnotes-api-reference.md](docs/footnotes-api-reference.md), [docs/page-api-reference.md](docs/page-api-reference.md), [docs/writer-tracking-api-reference.md](docs/writer-tracking-api-reference.md) |
+| Reviewable agent edits (surgical redlines, toolbar) | [docs/reviewable-agent-edits.md](docs/reviewable-agent-edits.md) |
 | LO-DOM & Semantic Tree | [docs/lo-dom-semantic-tree.md](docs/lo-dom-semantic-tree.md) |
 | Draw/Impress specialized | [docs/draw-impress-specialized-toolsets.md](docs/draw-impress-specialized-toolsets.md), [docs/shape_support.md](docs/shape_support.md) |
 | Calc specialized | [docs/calc-specialized-toolsets.md](docs/calc-specialized-toolsets.md) |

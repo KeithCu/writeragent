@@ -371,8 +371,9 @@ The MCP server is **implemented and opt-in** (default off). Summary:
 - **Document targeting** (two supported paths):
   - **Preferred (modern clients):** `document_url` parameter passed **directly in the tool call `arguments`** (e.g. in `tools/call` JSON-RPC). The server pops it from args and uses it for resolution. This works cleanly for multi-document workflows without header management and is the recommended path for Cursor, Hermes, custom agents, etc.
   - **Fallback / legacy:** `X-Document-URL` HTTP header on requests (still supported for compatibility and simple "active doc" cases).
-  - Discovery: Call the MCP-only `list_open_documents` tool to get current open docs + their exact `document_url` values.
-  - See implementation in `plugin/mcp/mcp_protocol.py` (`_mcp_tools_call` pops `document_url` from arguments before falling back to header).
+  - **RuntimeUID:** `document_url` may be a document file URL **or** the document's **RuntimeUID** (string). RuntimeUID is stable for the open session and works for **unsaved/untitled** documents that have no file URL yet. Discovery: call `list_open_documents` — each entry includes `document_url` (may be empty) and `uid` (RuntimeUID when available). Prefer `uid` for untitled docs.
+  - **Mutation gate keys:** resolved documents map to `uid:{RuntimeUID}` when available, else `url:{normalized URL}`. Targeting the same document by URL or UID shares one gate so concurrent mutating calls serialize. Unresolved handles use `url:{request}`; stale URLs after Save As do not auto-rekey (clients should refresh from `list_open_documents`).
+  - See implementation in `plugin/mcp/mcp_protocol.py` (`_resolve_mcp_doc_key`, `_mcp_tools_call` pops `document_url` from arguments before falling back to header).
   - Full client guidance + examples live in the companion meta repos:
     - Cursor users: https://github.com/KeithCu/cursor-libreoffice (includes rules for MCP usage).
     - General agents / Hermes: https://github.com/KeithCu/libreoffice-skill (SKILL.md with targeting best practices).

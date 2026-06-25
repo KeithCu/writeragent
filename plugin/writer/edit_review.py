@@ -91,6 +91,53 @@ def edit_review_wait_seconds(ctx: Any) -> int:
     return max(0, get_config_int_safe(ctx, "doc.edit_review_timeout"))
 
 
+class _RedlineScanAbort(Exception):
+    """Stop ``_scan_redlines`` immediately (enumeration can't continue safely)."""
+
+
+def _scan_redlines(doc: Any, on_item: Callable[[Any], bool]) -> tuple[bool, int, int]:
+    """Fail-closed redline enumeration shell shared by ``edit_review`` and ``inline_review``.
+
+    Calls ``on_item(rl)`` for each redline. Return True when the item was classified; False when it
+    could not be (marks the scan unreliable but continues). Raise ``_RedlineScanAbort`` to abort
+    immediately (returns ``reliable=False``).
+
+    Also marks unreliable when ``seen != total`` (defensive invariant -- see ``snapshot_redline_ids``
+    docstring; the mismatch has not been observed in real LibreOffice but fail-closed insurance is
+    cheap).
+
+    Returns ``(reliable, seen, total)``.
+    """
+    try:
+        redlines = doc.getRedlines()
+        total = int(redlines.getCount())
+        enum = redlines.createEnumeration()
+    except Exception:
+        return False, 0, 0
+    if total < 0:
+        return False, 0, total
+    reliable = True
+    seen = 0
+    # Cap iterations at getCount(), not hasMoreElements() alone: auto-mocked UNO enumerations
+    # (pytest MagicMock) return a truthy hasMoreElements forever and would hang otherwise.
+    while seen < total:
+        try:
+            if not enum.hasMoreElements():
+                break
+            rl = enum.nextElement()
+        except Exception:
+            return False, seen, total
+        seen += 1
+        try:
+            if not on_item(rl):
+                reliable = False
+        except _RedlineScanAbort:
+            return False, seen, total
+    if seen != total:
+        reliable = False
+    return reliable, seen, total
+
+
 def snapshot_redline_ids(doc: Any) -> tuple[set, bool]:
     """``(set of current RedlineIdentifiers, reliable)`` -- snapshot BEFORE an edit so the edit's NEW
     redlines can be found by difference (ids not in this set).
@@ -107,30 +154,17 @@ def snapshot_redline_ids(doc: Any) -> tuple[set, bool]:
     LibreOffice (a native test confirms count == enumeration length, even across body and
     table-cell containers). It is kept as cheap fail-closed insurance only because IF it ever
     happened the cost would be the silent loss of a user's own redline. The same neutral
-    "fewer items than getCount() reports" framing is used by the sibling scan helpers below."""
+    "fewer items than getCount() reports" framing is shared via ``_scan_redlines`` below."""
     ids: set = set()
-    try:
-        redlines = doc.getRedlines()
-        total = int(redlines.getCount())
-        enum = redlines.createEnumeration()
-    except Exception:
-        return ids, False  # can't enumerate/count -> can't tell new from pre-existing -> unreliable
-    reliable = True
-    seen = 0
-    while True:
-        try:
-            if not enum.hasMoreElements():
-                break
-            rl = enum.nextElement()
-        except Exception:
-            return ids, False  # can't advance the enumeration -> incomplete -> unreliable
-        seen += 1
+
+    def on_item(rl: Any) -> bool:
         try:
             ids.add(rl.getPropertyValue("RedlineIdentifier"))
         except Exception:
-            reliable = False  # an existing redline we can't identify -> can't exclude it from "new"
-    if seen != total:
-        reliable = False  # enumeration shorter than getCount() -> a pre-existing redline may be unseen
+            return False  # can't identify -> can't exclude from "new"
+        return True
+
+    reliable = _scan_redlines(doc, on_item)[0]
     return ids, reliable
 
 
@@ -140,31 +174,17 @@ def _new_redlines_complete(doc: Any, before_ids: set) -> tuple[list, bool]:
     count/enumeration mismatch, or an unreadable identifier), so a caller can refuse to tag a
     HALF-found change rather than tag only part of a Delete/Insert pair."""
     out: list = []
-    try:
-        redlines = doc.getRedlines()
-        total = int(redlines.getCount())
-        enum = redlines.createEnumeration()
-    except Exception:
-        return out, False
-    reliable = True
-    seen = 0
-    while True:
-        try:
-            if not enum.hasMoreElements():
-                break
-            rl = enum.nextElement()
-        except Exception:
-            return out, False
-        seen += 1
+
+    def on_item(rl: Any) -> bool:
         try:
             rid = rl.getPropertyValue("RedlineIdentifier")
         except Exception:
-            reliable = False  # can't classify new-vs-pre-existing for this one -> incomplete
-            continue
+            return False
         if rid not in before_ids:
             out.append(rl)
-    if seen != total:
-        reliable = False  # enumeration shorter than getCount() -> a new redline of this change may be unseen
+        return True
+
+    reliable = _scan_redlines(doc, on_item)[0]
     return out, reliable
 
 
@@ -518,33 +538,19 @@ class EditReviewSession:
         "not yet complete" rather than done (guard every enumeration)."""
         prefix = self._session_token_prefix()
         pending: set = set()
-        try:
-            redlines = self.doc.getRedlines()
-            total = int(redlines.getCount())
-            enum = redlines.createEnumeration()
-        except Exception:
-            log.debug("EditReviewSession: pending check could not enumerate/count", exc_info=True)
-            return pending, False
-        reliable = True
-        seen = 0
-        while True:
-            try:
-                if not enum.hasMoreElements():
-                    break
-                rl = enum.nextElement()
-            except Exception:
-                log.debug("EditReviewSession: pending check could not advance", exc_info=True)
-                return pending, False
-            seen += 1
+
+        def on_item(rl: Any) -> bool:
             try:
                 comment = str(rl.getPropertyValue("RedlineComment"))
             except Exception:
-                reliable = False  # an unreadable comment might be one of ours -> can't confirm done
-                continue
+                return False
             if comment.startswith(prefix):
                 pending.add(comment)
-        if seen != total:
-            reliable = False  # enumeration shorter than getCount() -> an unresolved change may be in the unseen tail
+            return True
+
+        reliable = _scan_redlines(self.doc, on_item)[0]
+        if not reliable:
+            log.debug("EditReviewSession: pending check enumeration incomplete", exc_info=False)
         return pending, reliable
 
     def _change_text_at_anchor(self, record: ChangeRecord) -> str | None:

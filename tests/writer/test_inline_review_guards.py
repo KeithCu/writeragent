@@ -485,3 +485,18 @@ def test_resolve_does_not_dispatch_when_before_foreign_snapshot_unreliable():
         result = resolve_agent_change(model, MagicMock(), "T", True)
     assert result is False
     dispatch.assert_not_called()
+
+
+def test_agent_redlines_does_not_hang_on_mock_enumeration():
+    # Bootstrap paths (get_tools -> install_review_toolbar) hit pending_agent_change_count on open
+    # documents. MagicMock.hasMoreElements() stays truthy forever unless iteration is capped by
+    # getCount() -- an uncapped while-hasMoreElements loop hung pytest (see test_calc_analyze_data).
+    from plugin.writer.inline_review import agent_changes, pending_agent_change_count
+
+    doc = MagicMock()
+    doc.getRedlines.return_value.getCount.return_value = 0
+    enum = MagicMock()
+    enum.hasMoreElements.return_value = True
+    doc.getRedlines.return_value.createEnumeration.return_value = enum
+    assert agent_changes(doc) == []
+    assert pending_agent_change_count(doc) == 0

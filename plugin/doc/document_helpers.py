@@ -601,12 +601,28 @@ def get_runtime_uid(model):
     Unlike the document URL, ``RuntimeUID`` exists even for unsaved/untitled
     documents, so it can address a document that has no file on disk yet.
     Returns "" if unavailable.
+
+    Tries ``getRuntimeUID()``, attribute access, and ``getPropertyValue("RuntimeUID")`` in turn
+    because LibreOffice builds expose the id through different UNO surfaces. Only plain ``str`` /
+    ``int`` values are accepted so auto-mocked UNO attributes (e.g. ``MagicMock.RuntimeUID``)
+    cannot masquerade as a real uid.
     """
-    try:
-        uid = getattr(model, "RuntimeUID", None)
-        return str(uid) if uid else ""
-    except Exception:
-        return ""
+    for accessor in (
+        lambda m: m.getRuntimeUID() if callable(getattr(m, "getRuntimeUID", None)) else None,
+        lambda m: getattr(m, "RuntimeUID", None),
+        lambda m: m.getPropertyValue("RuntimeUID"),
+    ):
+        try:
+            raw = accessor(model)
+            if isinstance(raw, bool):
+                continue
+            if isinstance(raw, int):
+                return str(raw)
+            if isinstance(raw, str) and raw:
+                return raw
+        except Exception:
+            continue
+    return ""
 
 
 def resolve_document_by_url(ctx, url):
