@@ -253,6 +253,8 @@ def _resolve(token, token_sets, refuse_sibling=True, prefer_exact=True, foreign_
 
     # Use counters so successive calls inside one resolve (before + after) get successive pairs
     # from the supplied lists. Tests drive token and foreign views in parallel.
+    from plugin.writer.inline_review import _RedlineSnapshot
+
     state = {"ti": 0, "fi": 0}
     def _combined(model):
         ti = min(state["ti"], len(token_side) - 1)
@@ -261,7 +263,7 @@ def _resolve(token, token_sets, refuse_sibling=True, prefer_exact=True, foreign_
         state["ti"] += 1
         frn, frn_ok = foreign_side[fi]
         state["fi"] += 1
-        return (set(toks), set(frn), bool(tok_ok), bool(frn_ok))
+        return _RedlineSnapshot(set(toks), set(frn), bool(tok_ok), bool(frn_ok))
 
     foreign_patch = (patch("plugin.writer.inline_review._foreign_redline_ids", side_effect=foreign_side)
                      if foreign_sets is not None

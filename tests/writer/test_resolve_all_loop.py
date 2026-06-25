@@ -29,9 +29,11 @@ def _run_loop(tokens, blocked):
             state["tokens"].remove(token)
         return True
 
+    from plugin.writer.inline_review import _RedlineSnapshot
+
     def fake_combined(model):
         toks, ok = fake_tokens(model)
-        return (toks, set(), ok, True)
+        return _RedlineSnapshot(toks, set(), ok, True)
 
     with patch("plugin.writer.inline_review._agent_change_tokens", side_effect=fake_tokens), \
          patch("plugin.writer.inline_review._agent_and_foreign_redline_snapshot", side_effect=fake_combined), \
@@ -84,8 +86,10 @@ def test_feedback_message_partial_vs_all_vs_none():
 def test_resolve_all_aborts_when_before_snapshot_unreliable():
     # The redline snapshot can't be enumerated reliably -> resolve-all refuses entirely with the
     # sentinel (never a partial count derived from a truncated scan).
-    from plugin.writer.inline_review import _RESOLVE_ALL_UNRELIABLE
-    with patch("plugin.writer.inline_review._agent_change_tokens", return_value=(set(), False)):
+    from plugin.writer.inline_review import _RESOLVE_ALL_UNRELIABLE, _RedlineSnapshot
+    with patch("plugin.writer.inline_review._agent_change_tokens", return_value=(set(), False)), \
+         patch("plugin.writer.inline_review._agent_and_foreign_redline_snapshot",
+               return_value=_RedlineSnapshot(set(), set(), False, True)):
         n = resolve_all_agent_changes(MagicMock(), MagicMock(), True)
     assert n == _RESOLVE_ALL_UNRELIABLE
 
@@ -102,9 +106,11 @@ def test_resolve_all_aborts_when_snapshot_unreliable_mid_loop():
             return {"A", "B"}, True        # entry snapshot: reliable
         return {"A", "B"}, False           # every later read: unreliable
 
+    from plugin.writer.inline_review import _RedlineSnapshot
+
     def _c_fake(m):
         t, o = flaky_tokens(m)
-        return (t, set(), o, True)
+        return _RedlineSnapshot(t, set(), o, True)
     with patch("plugin.writer.inline_review._agent_change_tokens", side_effect=flaky_tokens), \
          patch("plugin.writer.inline_review._agent_and_foreign_redline_snapshot", side_effect=_c_fake), \
          patch("plugin.writer.inline_review.resolve_agent_change", return_value=True), \
@@ -131,9 +137,11 @@ def test_resolve_all_global_unconfirmed_after_dispatch():
         n = min(i["n"], len(seq)-1)
         i["n"] += 1
         return seq[n]
+    from plugin.writer.inline_review import _RedlineSnapshot
+
     def _next_c(m):
         t, o = _next_tok(m)
-        return (t, set(), o, True)
+        return _RedlineSnapshot(t, set(), o, True)
     with patch("plugin.writer.inline_review._agent_change_tokens", side_effect=_next_tok), \
          patch("plugin.writer.inline_review._agent_and_foreign_redline_snapshot", side_effect=_next_c), \
          patch("plugin.writer.inline_review._all_redlines_are_agent", return_value=True):
@@ -151,9 +159,11 @@ def test_resolve_all_unconfirmed_when_unreliable_after_a_resolve():
         # 1: entry (reliable); 2: loop-top pass 1 (reliable) -> resolve runs; 3: after-resolve (unreliable)
         return ({"A", "B"}, True) if calls["n"] <= 2 else ({"A", "B"}, False)
 
+    from plugin.writer.inline_review import _RedlineSnapshot
+
     def _c_fake(m):
         t, o = flaky_tokens(m)
-        return (t, set(), o, True)
+        return _RedlineSnapshot(t, set(), o, True)
     with patch("plugin.writer.inline_review._agent_change_tokens", side_effect=flaky_tokens), \
          patch("plugin.writer.inline_review._agent_and_foreign_redline_snapshot", side_effect=_c_fake), \
          patch("plugin.writer.inline_review.resolve_agent_change", return_value=True), \

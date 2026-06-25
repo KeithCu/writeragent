@@ -25,9 +25,23 @@ This is the model layer; the right-click context menu in ``change_context_menu.p
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, NamedTuple
 
 log = logging.getLogger(__name__)
+
+
+class _RedlineSnapshot(NamedTuple):
+    """Result of one pass over the document's redlines.
+
+    Used for fail-closed safety decisions when accepting/rejecting agent changes.
+    The two reliability flags are independent so that tests can simulate partial
+    failures (e.g. could read all agent tokens but not foreign identifiers).
+    """
+
+    agent_tokens: set[str]
+    foreign_ids: set[str]
+    tokens_reliable: bool
+    foreign_reliable: bool
 
 # Shown when a conservative resolve refuses because the change shares a paragraph with the
 # user's own tracked change (or another agent change). Surfaced via show_review_message() so a
@@ -138,18 +152,13 @@ def _agent_redlines(model: Any) -> list:
     return out
 
 
-def _agent_and_foreign_redline_snapshot(model: Any) -> tuple[set, set, bool, bool]:
-    """(agent_tokens, foreign_ids, tokens_reliable, foreign_reliable) from a SINGLE redline pass.
+def _agent_and_foreign_redline_snapshot(model: Any) -> _RedlineSnapshot:
+    """Single redline enumeration for agent review safety decisions.
 
-    This is the implementation backing the three public-ish snapshot helpers below. One
-    enumeration replaces what used to be separate token + foreign scans at the resolve hot paths.
-    The two reliability flags are computed independently following the exact "return False from
-    on_item" rules of the original helpers so that pre-existing patches and edge-case tests
-    (unreadable comment on a foreign vs. on an agent, ID failure only on foreign, etc.) continue
-    to behave identically.
+    One pass over getRedlines() produces both the agent token view and the foreign
+    (user redline) id view, plus independent reliability flags.
 
-    See the individual wrapper docstrings for the fail-closed guarantees.
-    (Refactor per plan to reduce duplication around _agent_change_tokens etc.)
+    This replaces what used to be multiple separate full-table enumerations.
     """
     from plugin.writer.edit_review import TOKEN_PREFIX, _scan_redlines
 
@@ -179,7 +188,9 @@ def _agent_and_foreign_redline_snapshot(model: Any) -> tuple[set, set, bool, boo
         return True
 
     scan_rel = _scan_redlines(model, on_item)[0]
-    return agents, foreign, (t_rel and scan_rel), (f_rel and scan_rel)
+    return _RedlineSnapshot(
+        agents, foreign, (t_rel and scan_rel), (f_rel and scan_rel)
+    )
 
 
 def _reliable_agent_tokens(model: Any) -> set | None:
@@ -211,8 +222,8 @@ def _agent_change_tokens(model: Any) -> tuple[set, bool]:
     (a native test confirms count equals enumeration length across body and table-cell containers).
     It is kept as cheap fail-closed insurance: if it ever did happen, the cost would be silent loss
     of a user's own redline, so it is worth a count comparison to guard against."""
-    agents, unused_foreign, t_rel, unused_foreign_rel = _agent_and_foreign_redline_snapshot(model)
-    return agents, t_rel
+    snap = _agent_and_foreign_redline_snapshot(model)
+    return snap.agent_tokens, snap.tokens_reliable
 
 
 def _all_redlines_are_agent(model: Any) -> bool:
@@ -233,9 +244,9 @@ def _all_redlines_are_agent(model: Any) -> bool:
             return False
     except Exception:
         return False
-    unused_agents, foreign, unused_tokens_rel, f_rel = _agent_and_foreign_redline_snapshot(model)
+    snap = _agent_and_foreign_redline_snapshot(model)
     # Reliable + zero foreigns => every redline we saw carried an agent token.
-    return f_rel and len(foreign) == 0
+    return snap.foreign_reliable and len(snap.foreign_ids) == 0
 
 
 def _foreign_redline_ids(model: Any) -> tuple[set, bool]:
@@ -245,8 +256,8 @@ def _foreign_redline_ids(model: Any) -> tuple[set, bool]:
     scan yields fewer items than the collection's own ``getCount()`` reports -- so
     a caller can tell "couldn't verify" apart from "no user redlines" and fail CLOSED instead of
     claiming success without proving the user's changes survived."""
-    unused_agents, foreign, unused_tokens_rel, f_rel = _agent_and_foreign_redline_snapshot(model)
-    return foreign, f_rel
+    snap = _agent_and_foreign_redline_snapshot(model)
+    return snap.foreign_ids, snap.foreign_reliable
 
 
 def agent_changes(model: Any) -> list[dict]:
@@ -599,13 +610,10 @@ def resolve_agent_change(model: Any, ctx: Any, token: str, accept: bool,
     -- change shares those paragraphs. ``resolve_all`` passes ``refuse_sibling_agent=False`` and
     ``prefer_exact=False`` (resolving sibling agent changes together is the point there).
     """
-    # One combined snapshot for the pre-dispatch verification (addresses repeated full scans).
-    before_tokens, before_foreign, before_tokens_ok, before_ok = _agent_and_foreign_redline_snapshot(model)
-    if token not in before_tokens:
+    before = _agent_and_foreign_redline_snapshot(model)
+    if token not in before.agent_tokens:
         return False
-    # (Example light use of the convenience wrapper; the full 4-tuple above is still required
-    # for the paired foreign_ok check on the same snapshot epoch.)
-    if not before_tokens_ok or not before_ok:
+    if not before.tokens_reliable or not before.foreign_reliable:
         # The PRE-dispatch redline snapshot is incomplete (enumeration error or a count/enumeration
         # mismatch): we can neither prove the span is clear of collateral nor verify the outcome. Refuse BEFORE
         # any dispatch -- never mutate first and discover the damage afterwards.
@@ -632,11 +640,14 @@ def resolve_agent_change(model: Any, ctx: Any, token: str, accept: bool,
             view_cursor.gotoRange(left, False)
             view_cursor.gotoRange(right, True)
             _dispatch_resolve(ctx, controller, accept)
-            # Post-dispatch: use combined (one scan) for both views.
-            after_tokens, after_foreign, after_tokens_ok, after_ok = _agent_and_foreign_redline_snapshot(model)
-            removed = before_tokens - after_tokens
-            tokens_ok = before_tokens_ok and after_tokens_ok
-            foreign_safe = before_ok and after_ok and not (before_foreign - after_foreign)
+            after = _agent_and_foreign_redline_snapshot(model)
+            removed = before.agent_tokens - after.agent_tokens
+            tokens_ok = before.tokens_reliable and after.tokens_reliable
+            foreign_safe = (
+                before.foreign_reliable
+                and after.foreign_reliable
+                and not (before.foreign_ids - after.foreign_ids)
+            )
             # "Provably exactly the target": token snapshots complete + only target vanished +
             # user's own redlines provably untouched (foreign_safe). The pre-dispatch span guards
             # already make collateral vanishing rare; we still require the full checks for the
@@ -680,16 +691,16 @@ def resolve_agent_change(model: Any, ctx: Any, token: str, accept: bool,
     # The paragraph path may resolve sibling AGENT changes together (resolve_all), but it must still
     # never touch the USER's own redlines. Refuse to claim success if one disappeared OR if we
     # couldn't reliably verify they survived (unreliable snapshot -> fail closed).
-    after_tokens, after_foreign, after_tokens_ok, after_ok = _agent_and_foreign_redline_snapshot(model)
-    if not after_tokens_ok:
+    after = _agent_and_foreign_redline_snapshot(model)
+    if not after.tokens_reliable:
         log.warning("inline_review: resolve of %s -- could not reliably verify which agent changes "
                     "remain; not claiming success", token)
         return False
-    if not (before_ok and after_ok) or (before_foreign - after_foreign):
+    if not (before.foreign_reliable and after.foreign_reliable) or (before.foreign_ids - after.foreign_ids):
         log.warning("inline_review: resolve of %s -- a user redline was lost or could not be "
                     "verified intact; not claiming success", token)
         return False
-    return token not in after_tokens
+    return token not in after.agent_tokens
 
 
 # Sentinels (negative so they never collide with a real resolved-count):
@@ -709,8 +720,9 @@ def resolve_all_agent_changes(model: Any, ctx: Any, accept: bool) -> int:
     mismatch can never leave changes pending while reporting completion.
 
     (Internally powered by the one-pass _agent_and_foreign_redline_snapshot.)"""
-    before_tokens, ok = _agent_change_tokens(model)
-    if not ok:
+    before = _agent_and_foreign_redline_snapshot(model)
+    before_tokens = before.agent_tokens
+    if not before.tokens_reliable:
         log.warning("inline_review: resolve-all aborted -- the redline snapshot is unreliable")
         return _RESOLVE_ALL_UNRELIABLE  # nothing dispatched yet
     if not before_tokens:
@@ -729,10 +741,10 @@ def resolve_all_agent_changes(model: Any, ctx: Any, accept: bool) -> int:
             dispatcher.executeDispatch(controller.getFrame(), command, "", 0, ())
             # Confirm completion against a RELIABLE token snapshot. The dispatch ALREADY mutated, so
             # an unreliable after-scan is UNCONFIRMED (changes may have resolved), never "nothing".
-            after_tokens, after_ok = _agent_change_tokens(model)
-            if not after_ok:
+            after = _agent_and_foreign_redline_snapshot(model)
+            if not after.tokens_reliable:
                 return _RESOLVE_ALL_UNCONFIRMED
-            return max(0, len(before_tokens) - len(after_tokens))  # a dispatch only removes tokens
+            return max(0, len(before_tokens) - len(after.agent_tokens))  # a dispatch only removes tokens
         except Exception:
             log.exception("inline_review: resolve-all global dispatch failed")
             return _RESOLVE_ALL_UNCONFIRMED  # the global dispatch may have partially applied
@@ -749,8 +761,9 @@ def resolve_all_agent_changes(model: Any, ctx: Any, accept: bool) -> int:
     # whole operation -- UNCONFIRMED once we've dispatched (changes may already be resolved), else
     # UNRELIABLE -- rather than terminate early and silently leave changes pending.
     while True:
-        cur_tokens, ok = _agent_change_tokens(model)
-        if not ok:
+        cur = _agent_and_foreign_redline_snapshot(model)
+        cur_tokens = cur.agent_tokens
+        if not cur.tokens_reliable:
             log.warning("inline_review: resolve-all aborted mid-pass -- the redline snapshot is unreliable")
             return _RESOLVE_ALL_UNCONFIRMED if dispatched else _RESOLVE_ALL_UNRELIABLE
         pending = sorted(t for t in cur_tokens if t not in skip)  # sorted -> deterministic order
@@ -763,22 +776,20 @@ def resolve_all_agent_changes(model: Any, ctx: Any, accept: bool) -> int:
         # "resolve this change" keeps refuse_sibling_agent=True so it stays truthful.
         resolved = resolve_agent_change(model, ctx, token, accept, refuse_sibling_agent=False, prefer_exact=False)
         dispatched = True  # resolve_agent_change may mutate even when it ultimately returns False
-        # Use the combined snapshot at the post-dispatch epoch (even though we only need the agent
-        # view here; keeps the "one enum per logical before/after" discipline).
-        after_tokens, unused_foreign, after_ok, unused_foreign_rel = _agent_and_foreign_redline_snapshot(model)
-        if not after_ok:
+        after = _agent_and_foreign_redline_snapshot(model)
+        if not after.tokens_reliable:
             return _RESOLVE_ALL_UNCONFIRMED
-        if not resolved or len(after_tokens) >= before_count:
+        if not resolved or len(after.agent_tokens) >= before_count:
             # Refused (a user redline shares its paragraph), failed, or cleared nothing: skip it so
             # the rest still resolve and a stuck change can't spin the loop -- the user handles the
             # skipped one via the native review UI.
             log.debug("inline_review: skipping %s in resolve-all (foreign redline or no change)", token)
             skip.add(token)
-    final_tokens, unused_foreign, final_ok, unused_foreign_rel = _agent_and_foreign_redline_snapshot(model)
-    if not final_ok:
+    final = _agent_and_foreign_redline_snapshot(model)
+    if not final.tokens_reliable:
         return _RESOLVE_ALL_UNCONFIRMED if dispatched else _RESOLVE_ALL_UNRELIABLE
     # Count by how many agent tokens actually disappeared, NOT +1 per pass: one paragraph-wide
     # dispatch can clear several sibling agent changes at once (common now that the word-level diff
     # splits an edit into several), so +1 would undercount and make resolve_all_with_feedback report
     # "N of M" wrong.
-    return max(0, len(before_tokens) - len(final_tokens))  # tokens only leave; never report negative
+    return max(0, len(before_tokens) - len(final.agent_tokens))  # tokens only leave; never report negative
