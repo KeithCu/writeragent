@@ -554,9 +554,9 @@ class WriterAgentConfig:
         # Normalize localized strings back to internal keys (e.g. image_default_aspect, agent_backend.*)
         # Dotted module keys live in _extra_config; flat keys are dataclass attributes.
         try:
-            from plugin.chatbot.settings_dialog import get_settings_field_specs
+            from plugin.chatbot.settings_dialog import get_settings_option_specs
 
-            specs = get_settings_field_specs(None)
+            specs = get_settings_option_specs()
             for spec in specs:
                 if "options" not in spec:
                     continue

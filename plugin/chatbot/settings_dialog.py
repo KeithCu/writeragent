@@ -50,6 +50,38 @@ def get_settings_field_specs(ctx):
     return field_specs
 
 
+def get_settings_option_specs():
+    """Return name + options only (from MODULES schema). No get_config — safe during WriterAgentConfig.validate()."""
+    specs: list[dict] = []
+    try:
+        from plugin._manifest import MODULES
+
+        for m in MODULES:
+            m_name = str(m.get("name", ""))
+            if m_name in ("main", "ai"):
+                continue
+            if m.get("settings_tab") is False or m.get("config_dialog"):
+                continue
+            m_config = m.get("config", {})
+            if not isinstance(m_config, dict):
+                continue
+            for field_name, schema in m_config.items():
+                if not isinstance(schema, dict):
+                    continue
+                if schema.get("internal") or schema.get("widget") == "list_detail":
+                    continue
+                if schema.get("settings_persist") is False:
+                    continue
+                opts = schema.get("options")
+                if not opts:
+                    continue
+                prefix = m_name.replace(".", "_")
+                specs.append({"name": f"{prefix}__{field_name}", "options": opts})
+    except ImportError:
+        pass
+    return specs
+
+
 def _get_core_field_specs(ctx, current_endpoint):
     return [
         {"name": "endpoint", "value": get_config_str("endpoint")},

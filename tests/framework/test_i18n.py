@@ -59,7 +59,7 @@ class TestI18n(unittest.TestCase):
 
     def test_config_validate_maps_translated_label_to_canonical_in_extra_config(self):
         """Saved UI label (wrong) in dotted key is normalized to schema value via _()."""
-        def fake_specs(ctx):
+        def fake_specs():
             return [
                 {
                     "name": "agent_backend__backend_id",
@@ -75,14 +75,14 @@ class TestI18n(unittest.TestCase):
                 return "GERMAN_HERMES"
             return msg
 
-        with patch("plugin.chatbot.settings_dialog.get_settings_field_specs", fake_specs):
+        with patch("plugin.chatbot.settings_dialog.get_settings_option_specs", fake_specs):
             with patch("plugin.framework.config._", side_effect=_fake):
                 cfg.validate()
         self.assertEqual(cfg._extra_config["agent_backend.backend_id"], "hermes")
 
     def test_config_validate_maps_translated_label_top_level_field(self):
         """Combo field stored on dataclass (no dots) still normalizes via options."""
-        def fake_specs(ctx):
+        def fake_specs():
             return [
                 {
                     "name": "image_default_aspect",
@@ -99,14 +99,14 @@ class TestI18n(unittest.TestCase):
                 return "SQ_LABEL"
             return msg
 
-        with patch("plugin.chatbot.settings_dialog.get_settings_field_specs", fake_specs):
+        with patch("plugin.chatbot.settings_dialog.get_settings_option_specs", fake_specs):
             with patch("plugin.framework.config._", side_effect=_fake):
                 cfg.validate()
         self.assertEqual(cfg.image_default_aspect, "Square")
 
     def test_config_validate_normalization_noop_when_already_canonical(self):
         """When stored value already matches canonical option value, leave unchanged."""
-        def fake_specs(ctx):
+        def fake_specs():
             return [
                 {
                     "name": "image_default_aspect",
@@ -117,7 +117,7 @@ class TestI18n(unittest.TestCase):
         cfg = WriterAgentConfig.from_dict(
             {"endpoint": "http://127.0.0.1:11434", "image_default_aspect": "Square"}
         )
-        with patch("plugin.chatbot.settings_dialog.get_settings_field_specs", fake_specs):
+        with patch("plugin.chatbot.settings_dialog.get_settings_option_specs", fake_specs):
             cfg.validate()
         self.assertEqual(cfg.image_default_aspect, "Square")
 

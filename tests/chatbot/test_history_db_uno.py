@@ -47,7 +47,7 @@ def _setup_history_db_redirect(ctx):
 
     _ORIGINAL_USER_CONFIG_DIR = getattr(hdb, "user_config_dir", None)
     _HISTORY_DB_TMPDIR = tempfile.mkdtemp(prefix="writeragent_history_test_")
-    hdb.user_config_dir = lambda _ctx: _HISTORY_DB_TMPDIR
+    hdb.user_config_dir = lambda: _HISTORY_DB_TMPDIR
 
 
 @teardown
