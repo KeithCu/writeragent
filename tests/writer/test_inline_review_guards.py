@@ -233,21 +233,42 @@ def test_other_agent_fails_closed_on_error():
 # --------------------------------------------------------- resolve targets exactly the change
 
 def _resolve(token, token_sets, refuse_sibling=True, prefer_exact=True, foreign_sets=None):
-    """Run resolve_agent_change with the geometry helpers stubbed, driving _agent_change_tokens
-    through *token_sets* and _foreign_redline_ids through *foreign_sets*.
+    """Run resolve_agent_change with the geometry helpers stubbed, driving the snapshots
+    (now via the combined _agent_and_foreign... plus the named wrappers for compatibility).
 
-    Each _agent_change_tokens result is an ``(tokens, reliable)`` tuple; a bare set entry in
-    *token_sets* is treated as ``(set, True)`` (reliable snapshot) so existing cases stay terse.
-    Each _foreign_redline_ids result is an ``(ids, reliable)`` tuple. Default foreign: always
-    ``(empty, reliable)`` -- the user has no redlines and verification succeeds."""
+    token_sets still supplies the agent token view; foreign_sets supplies the foreign view.
+    We patch both the legacy names (for any wrapper calls) and the combined (4-tuple) that the
+    hot paths now call directly. A bare set is treated as (set, True)."""
     import contextlib
     model = MagicMock()
     token_side = [t if isinstance(t, tuple) else (set(t), True) for t in token_sets]
-    foreign_patch = (patch("plugin.writer.inline_review._foreign_redline_ids", side_effect=foreign_sets)
+    def _mk_foreign(fs):
+        if fs is None:
+            return (set(), True)
+        return fs if isinstance(fs, tuple) else (set(fs), True)
+    if foreign_sets is not None:
+        foreign_side = [_mk_foreign(fs) for fs in foreign_sets]
+    else:
+        foreign_side = [(set(), True)]
+
+    # Use counters so successive calls inside one resolve (before + after) get successive pairs
+    # from the supplied lists. Tests drive token and foreign views in parallel.
+    state = {"ti": 0, "fi": 0}
+    def _combined(model):
+        ti = min(state["ti"], len(token_side) - 1)
+        fi = min(state["fi"], len(foreign_side) - 1)
+        toks, tok_ok = token_side[ti]
+        state["ti"] += 1
+        frn, frn_ok = foreign_side[fi]
+        state["fi"] += 1
+        return (set(toks), set(frn), bool(tok_ok), bool(frn_ok))
+
+    foreign_patch = (patch("plugin.writer.inline_review._foreign_redline_ids", side_effect=foreign_side)
                      if foreign_sets is not None
                      else patch("plugin.writer.inline_review._foreign_redline_ids", return_value=(set(), True)))
     with contextlib.ExitStack() as stack:
         stack.enter_context(patch("plugin.writer.inline_review._agent_change_tokens", side_effect=token_side))
+        stack.enter_context(patch("plugin.writer.inline_review._agent_and_foreign_redline_snapshot", side_effect=_combined))
         stack.enter_context(patch("plugin.writer.inline_review._change_bounds", return_value=(MagicMock(), MagicMock())))
         stack.enter_context(patch("plugin.writer.inline_review._foreign_redline_in_span", return_value=False))
         stack.enter_context(patch("plugin.writer.inline_review._other_agent_redline_in_span", return_value=False))
@@ -389,7 +410,7 @@ def test_agent_change_tokens_unreliable_on_silent_truncation():
 
 def test_agent_change_tokens_unreliable_on_count_error():
     model = FakeModel(FakeRedlines([_agent_rl()], raise_count=True))
-    _, reliable = _agent_change_tokens(model)
+    unused_tokens, reliable = _agent_change_tokens(model)
     assert reliable is False
 
 
@@ -403,13 +424,13 @@ def test_foreign_redline_ids_unreliable_on_silent_truncation():
     # getCount() says 3 but only 2 redlines enumerated -> a user redline may sit in the unscanned
     # tail; we must not later read "no user redline lost" off this incomplete set -> reliable False.
     model = FakeModel(FakeRedlines([_agent_rl(), _user_rl()], count=3))
-    _, reliable = _foreign_redline_ids(model)
+    unused_ids, reliable = _foreign_redline_ids(model)
     assert reliable is False
 
 
 def test_foreign_redline_ids_unreliable_on_count_error():
     model = FakeModel(FakeRedlines([_user_rl()], raise_count=True))
-    _, reliable = _foreign_redline_ids(model)
+    unused_ids, reliable = _foreign_redline_ids(model)
     assert reliable is False
 
 

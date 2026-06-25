@@ -29,7 +29,12 @@ def _run_loop(tokens, blocked):
             state["tokens"].remove(token)
         return True
 
+    def fake_combined(model):
+        toks, ok = fake_tokens(model)
+        return (toks, set(), ok, True)
+
     with patch("plugin.writer.inline_review._agent_change_tokens", side_effect=fake_tokens), \
+         patch("plugin.writer.inline_review._agent_and_foreign_redline_snapshot", side_effect=fake_combined), \
          patch("plugin.writer.inline_review.resolve_agent_change", side_effect=fake_resolve), \
          patch("plugin.writer.inline_review._all_redlines_are_agent", return_value=False):  # -> loop path
         n = resolve_all_agent_changes(MagicMock(), MagicMock(), True)
@@ -97,7 +102,11 @@ def test_resolve_all_aborts_when_snapshot_unreliable_mid_loop():
             return {"A", "B"}, True        # entry snapshot: reliable
         return {"A", "B"}, False           # every later read: unreliable
 
+    def _c_fake(m):
+        t, o = flaky_tokens(m)
+        return (t, set(), o, True)
     with patch("plugin.writer.inline_review._agent_change_tokens", side_effect=flaky_tokens), \
+         patch("plugin.writer.inline_review._agent_and_foreign_redline_snapshot", side_effect=_c_fake), \
          patch("plugin.writer.inline_review.resolve_agent_change", return_value=True), \
          patch("plugin.writer.inline_review._all_redlines_are_agent", return_value=False):
         n = resolve_all_agent_changes(MagicMock(), MagicMock(), True)
@@ -116,8 +125,17 @@ def test_resolve_all_global_unconfirmed_after_dispatch():
     # Global fast path: the dispatch ALREADY ran, then the after-scan is unreliable -> UNCONFIRMED
     # (changes may have resolved), never "nothing changed".
     from plugin.writer.inline_review import _RESOLVE_ALL_UNCONFIRMED
-    with patch("plugin.writer.inline_review._agent_change_tokens",
-               side_effect=[({"A", "B"}, True), (set(), False)]), \
+    seq = [({"A", "B"}, True), (set(), False)]
+    i = {"n": 0}
+    def _next_tok(m):
+        n = min(i["n"], len(seq)-1)
+        i["n"] += 1
+        return seq[n]
+    def _next_c(m):
+        t, o = _next_tok(m)
+        return (t, set(), o, True)
+    with patch("plugin.writer.inline_review._agent_change_tokens", side_effect=_next_tok), \
+         patch("plugin.writer.inline_review._agent_and_foreign_redline_snapshot", side_effect=_next_c), \
          patch("plugin.writer.inline_review._all_redlines_are_agent", return_value=True):
         n = resolve_all_agent_changes(MagicMock(), MagicMock(), True)
     assert n == _RESOLVE_ALL_UNCONFIRMED
@@ -133,7 +151,11 @@ def test_resolve_all_unconfirmed_when_unreliable_after_a_resolve():
         # 1: entry (reliable); 2: loop-top pass 1 (reliable) -> resolve runs; 3: after-resolve (unreliable)
         return ({"A", "B"}, True) if calls["n"] <= 2 else ({"A", "B"}, False)
 
+    def _c_fake(m):
+        t, o = flaky_tokens(m)
+        return (t, set(), o, True)
     with patch("plugin.writer.inline_review._agent_change_tokens", side_effect=flaky_tokens), \
+         patch("plugin.writer.inline_review._agent_and_foreign_redline_snapshot", side_effect=_c_fake), \
          patch("plugin.writer.inline_review.resolve_agent_change", return_value=True), \
          patch("plugin.writer.inline_review._all_redlines_are_agent", return_value=False):
         n = resolve_all_agent_changes(MagicMock(), MagicMock(), True)

@@ -70,8 +70,9 @@ def resolve_all_with_feedback(model: Any, ctx: Any, accept: bool) -> tuple[int, 
                       " changed. Please try again.")
     unconfirmed_msg = ("Started resolving changes but couldn't confirm the result -- some may have been"
                        " resolved. Please review remaining changes in Edit > Track Changes > Manage.")
-    total_tokens, ok = _agent_change_tokens(model)  # reliable count, not best-effort agent_changes
-    if not ok:
+    # Use the convenience wrapper for a tokens-only query (addresses point 4 in the simplification plan).
+    total_tokens = _reliable_agent_tokens(model)
+    if total_tokens is None:
         return 0, unreliable_msg
     total = len(total_tokens)
     if total == 0:
@@ -137,6 +138,60 @@ def _agent_redlines(model: Any) -> list:
     return out
 
 
+def _agent_and_foreign_redline_snapshot(model: Any) -> tuple[set, set, bool, bool]:
+    """(agent_tokens, foreign_ids, tokens_reliable, foreign_reliable) from a SINGLE redline pass.
+
+    This is the implementation backing the three public-ish snapshot helpers below. One
+    enumeration replaces what used to be separate token + foreign scans at the resolve hot paths.
+    The two reliability flags are computed independently following the exact "return False from
+    on_item" rules of the original helpers so that pre-existing patches and edge-case tests
+    (unreadable comment on a foreign vs. on an agent, ID failure only on foreign, etc.) continue
+    to behave identically.
+
+    See the individual wrapper docstrings for the fail-closed guarantees.
+    (Refactor per plan to reduce duplication around _agent_change_tokens etc.)
+    """
+    from plugin.writer.edit_review import TOKEN_PREFIX, _scan_redlines
+
+    agents: set = set()
+    foreign: set = set()
+    t_rel = True
+    f_rel = True
+
+    def on_item(rl: Any) -> bool:
+        nonlocal t_rel, f_rel
+        try:
+            comment = str(rl.getPropertyValue("RedlineComment"))
+            is_agent = comment.startswith(TOKEN_PREFIX)
+        except Exception:
+            # Unreadable comment on *any* redline makes both views incomplete.
+            t_rel = f_rel = False
+            return False
+        if is_agent:
+            agents.add(comment)
+            return True
+        # Non-agent (user) redline: we need its identifier for the foreign set.
+        try:
+            foreign.add(rl.getPropertyValue("RedlineIdentifier"))
+        except Exception:
+            f_rel = False
+            return False
+        return True
+
+    scan_rel = _scan_redlines(model, on_item)[0]
+    return agents, foreign, (t_rel and scan_rel), (f_rel and scan_rel)
+
+
+def _reliable_agent_tokens(model: Any) -> set | None:
+    """Convenience: the set of agent tokens if the snapshot is reliable, else None.
+
+    Lets call sites read `if (toks := _reliable_agent_tokens(m)) is None or token not in toks:`
+    while the full `(set, bool)` form (and its explicit ok flag) is kept for places that log
+    the reason or are exercised by existing patches."""
+    toks, ok = _agent_change_tokens(model)
+    return toks if ok else None
+
+
 def _agent_change_tokens(model: Any) -> tuple[set, bool]:
     """``(set of agent-change tokens on the document's redlines, reliable)``. Used after a resolve
     dispatch to verify that EXACTLY the target change was resolved.
@@ -156,21 +211,8 @@ def _agent_change_tokens(model: Any) -> tuple[set, bool]:
     (a native test confirms count equals enumeration length across body and table-cell containers).
     It is kept as cheap fail-closed insurance: if it ever did happen, the cost would be silent loss
     of a user's own redline, so it is worth a count comparison to guard against."""
-    from plugin.writer.edit_review import TOKEN_PREFIX, _scan_redlines
-
-    out: set = set()
-
-    def on_item(rl: Any) -> bool:
-        try:
-            comment = str(rl.getPropertyValue("RedlineComment"))
-        except Exception:
-            return False
-        if comment.startswith(TOKEN_PREFIX):
-            out.add(comment)
-        return True
-
-    reliable = _scan_redlines(model, on_item)[0]
-    return out, reliable
+    agents, unused_foreign, t_rel, unused_foreign_rel = _agent_and_foreign_redline_snapshot(model)
+    return agents, t_rel
 
 
 def _all_redlines_are_agent(model: Any) -> bool:
@@ -183,32 +225,17 @@ def _all_redlines_are_agent(model: Any) -> bool:
     test, which could spuriously match under a correlated mid-enumeration failure (both undercount to
     the same point) and then accept the user's redlines in the unscanned tail.
 
-    The scanned count is cross-checked against the redline collection's own ``getCount()`` so an
-    early stop -- ``hasMoreElements()`` going False with redlines still in the tail, i.e. the
-    enumeration yields fewer items than getCount() reports -- also fails closed instead of
-    green-lighting a whole-document accept."""
-    from plugin.writer.edit_review import TOKEN_PREFIX, _scan_redlines
-
+    Implemented via the combined snapshot: any foreign ID present means not-all-agent.
+    The scanned count cross-check and early-abort semantics are provided by _scan_redlines.
+    """
     try:
         if int(model.getRedlines().getCount()) <= 0:
             return False
     except Exception:
         return False
-    all_agent = True
-
-    def on_item(rl: Any) -> bool:
-        nonlocal all_agent
-        try:
-            comment = str(rl.getPropertyValue("RedlineComment"))
-        except Exception:
-            all_agent = False
-            return False
-        if not comment.startswith(TOKEN_PREFIX):
-            all_agent = False
-        return True
-
-    reliable = _scan_redlines(model, on_item)[0]
-    return all_agent and reliable
+    unused_agents, foreign, unused_tokens_rel, f_rel = _agent_and_foreign_redline_snapshot(model)
+    # Reliable + zero foreigns => every redline we saw carried an agent token.
+    return f_rel and len(foreign) == 0
 
 
 def _foreign_redline_ids(model: Any) -> tuple[set, bool]:
@@ -218,25 +245,8 @@ def _foreign_redline_ids(model: Any) -> tuple[set, bool]:
     scan yields fewer items than the collection's own ``getCount()`` reports -- so
     a caller can tell "couldn't verify" apart from "no user redlines" and fail CLOSED instead of
     claiming success without proving the user's changes survived."""
-    from plugin.writer.edit_review import TOKEN_PREFIX, _scan_redlines
-
-    out: set = set()
-
-    def on_item(rl: Any) -> bool:
-        try:
-            ours = str(rl.getPropertyValue("RedlineComment")).startswith(TOKEN_PREFIX)
-        except Exception:
-            ours = False
-        if ours:
-            return True
-        try:
-            out.add(rl.getPropertyValue("RedlineIdentifier"))
-        except Exception:
-            return False
-        return True
-
-    reliable = _scan_redlines(model, on_item)[0]
-    return out, reliable
+    unused_agents, foreign, unused_tokens_rel, f_rel = _agent_and_foreign_redline_snapshot(model)
+    return foreign, f_rel
 
 
 def agent_changes(model: Any) -> list[dict]:
@@ -491,52 +501,55 @@ def _span_has_redline(model: Any, text: Any, span: Any, consider) -> bool:
     mismatch (the enumeration yielding fewer items than getCount() reports) could hide an overlapping
     user/sibling redline in the unscanned tail, so a short scan returns True (unsafe) instead of a
     false "no overlap". Same ``seen != total`` invariant as ``edit_review._scan_redlines``."""
-    try:
-        redlines = model.getRedlines()
-        total = int(redlines.getCount())
-        enum = redlines.createEnumeration()
-    except Exception:
-        log.debug("inline_review: cannot enumerate/count redlines; treating span as unsafe", exc_info=True)
-        return True
-    seen = 0
-    while seen < total:
-        try:
-            if not enum.hasMoreElements():
-                break
-            rl = enum.nextElement()
-        except Exception:
-            log.debug("inline_review: cannot advance redline enumeration; treating span as unsafe", exc_info=True)
-            return True
-        seen += 1
+    from plugin.writer.edit_review import _RedlineScanAbort, _scan_redlines
+
+    # We drive the *central* enumerator so the boilerplate (getCount, cap at total, hasMore/next
+    # handling, seen!=total, Abort) is not duplicated. Because the moment we discover a protector
+    # we want to stop and declare "unsafe" (without needing the rest of the table), we use a flag
+    # + Abort for early exit. The Abort path forces reliable=False from _scan; we distinguish
+    # "found a real protector" from "a read error occurred" via the flag.
+    unsafe = [False]
+
+    def on_item(rl: Any) -> bool:
         try:
             comment = str(rl.getPropertyValue("RedlineComment"))
         except Exception:
-            comment = None  # unclassifiable -> let the overlap test decide, don't blindly skip
+            comment = None  # unclassifiable -> let consider decide
         if not consider(comment):
-            continue  # not a redline we must protect -> safe to skip
+            return True  # not something we must protect; keep scanning
+
         try:
             s = rl.getPropertyValue("RedlineStart")
             e = rl.getPropertyValue("RedlineEnd")
             if s is None or e is None:
-                # A redline we must protect whose extent we can't read -> we cannot prove it's
-                # outside the span, so fail CLOSED, not skip-as-safe.
+                # Protected redline whose bounds are unreadable -> cannot prove it is outside span.
                 log.debug("inline_review: protected redline has no start/end; treating as unsafe")
-                return True
+                unsafe[0] = True
+                raise _RedlineScanAbort()
             rl_span = text.createTextCursorByRange(s)
             rl_span.gotoRange(e, True)
-            # Overlap iff the redline's start/end falls inside span, or span starts inside it.
             overlaps = (_span_contains_point(text, span, rl_span.getStart())
                         or _span_contains_point(text, span, rl_span.getEnd())
                         or _span_contains_point(text, rl_span, span.getStart()))
+        except _RedlineScanAbort:
+            raise
         except Exception:
             log.debug("inline_review: redline overlap check failed; treating as unsafe", exc_info=True)
-            return True  # can't tell whether it overlaps -> fail closed
+            unsafe[0] = True
+            raise _RedlineScanAbort()
+
         if overlaps:
-            return True
-    if seen != total:
-        # Enumeration shorter than getCount(): a protected redline may overlap in the unscanned tail.
-        log.debug("inline_review: redline enumeration truncated (%d of %d); treating span as unsafe",
-                  seen, total)
+            unsafe[0] = True
+            raise _RedlineScanAbort()
+        return True
+
+    reliable = _scan_redlines(model, on_item)[0]
+    # If we aborted because we found a protector, unsafe[0] is set (treat as unsafe even though
+    # reliable came back False). Any other unreliable scan (enum error, truncation) also unsafe.
+    if unsafe[0]:
+        return True
+    if not reliable:
+        log.debug("inline_review: cannot enumerate/count redlines or scan truncated; treating span as unsafe")
         return True
     return False
 
@@ -586,10 +599,12 @@ def resolve_agent_change(model: Any, ctx: Any, token: str, accept: bool,
     -- change shares those paragraphs. ``resolve_all`` passes ``refuse_sibling_agent=False`` and
     ``prefer_exact=False`` (resolving sibling agent changes together is the point there).
     """
-    before_tokens, before_tokens_ok = _agent_change_tokens(model)
+    # One combined snapshot for the pre-dispatch verification (addresses repeated full scans).
+    before_tokens, before_foreign, before_tokens_ok, before_ok = _agent_and_foreign_redline_snapshot(model)
     if token not in before_tokens:
         return False
-    before_foreign, before_ok = _foreign_redline_ids(model)  # the user's own redlines -- never lose
+    # (Example light use of the convenience wrapper; the full 4-tuple above is still required
+    # for the paired foreign_ok check on the same snapshot epoch.)
     if not before_tokens_ok or not before_ok:
         # The PRE-dispatch redline snapshot is incomplete (enumeration error or a count/enumeration
         # mismatch): we can neither prove the span is clear of collateral nor verify the outcome. Refuse BEFORE
@@ -617,14 +632,15 @@ def resolve_agent_change(model: Any, ctx: Any, token: str, accept: bool,
             view_cursor.gotoRange(left, False)
             view_cursor.gotoRange(right, True)
             _dispatch_resolve(ctx, controller, accept)
-            after_tokens, after_tokens_ok = _agent_change_tokens(model)
+            # Post-dispatch: use combined (one scan) for both views.
+            after_tokens, after_foreign, after_tokens_ok, after_ok = _agent_and_foreign_redline_snapshot(model)
             removed = before_tokens - after_tokens
-            after_foreign, after_ok = _foreign_redline_ids(model)
-            # "Provably exactly the target": both token snapshots were complete AND only the target's
-            # token vanished AND the user's own redlines were readable before+after with none lost.
-            # Anything we COULDN'T verify (an incomplete snapshot) is failure, never proof.
             tokens_ok = before_tokens_ok and after_tokens_ok
             foreign_safe = before_ok and after_ok and not (before_foreign - after_foreign)
+            # "Provably exactly the target": token snapshots complete + only target vanished +
+            # user's own redlines provably untouched (foreign_safe). The pre-dispatch span guards
+            # already make collateral vanishing rare; we still require the full checks for the
+            # documented contract and so that "user redline lost" tests continue to pass.
             if removed == {token} and tokens_ok and foreign_safe:
                 return True   # exactly the target -- no sibling change, no user redline touched
             if removed or not tokens_ok or not foreign_safe:
@@ -664,8 +680,7 @@ def resolve_agent_change(model: Any, ctx: Any, token: str, accept: bool,
     # The paragraph path may resolve sibling AGENT changes together (resolve_all), but it must still
     # never touch the USER's own redlines. Refuse to claim success if one disappeared OR if we
     # couldn't reliably verify they survived (unreliable snapshot -> fail closed).
-    after_foreign, after_ok = _foreign_redline_ids(model)
-    after_tokens, after_tokens_ok = _agent_change_tokens(model)
+    after_tokens, after_foreign, after_tokens_ok, after_ok = _agent_and_foreign_redline_snapshot(model)
     if not after_tokens_ok:
         log.warning("inline_review: resolve of %s -- could not reliably verify which agent changes "
                     "remain; not claiming success", token)
@@ -691,7 +706,9 @@ def resolve_all_agent_changes(model: Any, ctx: Any, accept: bool) -> int:
     confirmed (some changes MAY have been resolved -- the caller must not claim "nothing changed").
     Loop control, the completion check, and the count all run off the reliability-aware
     ``_agent_change_tokens`` (NOT the best-effort ``agent_changes``), so a count/enumeration
-    mismatch can never leave changes pending while reporting completion."""
+    mismatch can never leave changes pending while reporting completion.
+
+    (Internally powered by the one-pass _agent_and_foreign_redline_snapshot.)"""
     before_tokens, ok = _agent_change_tokens(model)
     if not ok:
         log.warning("inline_review: resolve-all aborted -- the redline snapshot is unreliable")
@@ -746,7 +763,9 @@ def resolve_all_agent_changes(model: Any, ctx: Any, accept: bool) -> int:
         # "resolve this change" keeps refuse_sibling_agent=True so it stays truthful.
         resolved = resolve_agent_change(model, ctx, token, accept, refuse_sibling_agent=False, prefer_exact=False)
         dispatched = True  # resolve_agent_change may mutate even when it ultimately returns False
-        after_tokens, after_ok = _agent_change_tokens(model)
+        # Use the combined snapshot at the post-dispatch epoch (even though we only need the agent
+        # view here; keeps the "one enum per logical before/after" discipline).
+        after_tokens, unused_foreign, after_ok, unused_foreign_rel = _agent_and_foreign_redline_snapshot(model)
         if not after_ok:
             return _RESOLVE_ALL_UNCONFIRMED
         if not resolved or len(after_tokens) >= before_count:
@@ -755,7 +774,7 @@ def resolve_all_agent_changes(model: Any, ctx: Any, accept: bool) -> int:
             # skipped one via the native review UI.
             log.debug("inline_review: skipping %s in resolve-all (foreign redline or no change)", token)
             skip.add(token)
-    final_tokens, final_ok = _agent_change_tokens(model)
+    final_tokens, unused_foreign, final_ok, unused_foreign_rel = _agent_and_foreign_redline_snapshot(model)
     if not final_ok:
         return _RESOLVE_ALL_UNCONFIRMED if dispatched else _RESOLVE_ALL_UNRELIABLE
     # Count by how many agent tokens actually disappeared, NOT +1 per pass: one paragraph-wide

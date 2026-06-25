@@ -46,17 +46,40 @@ chat worker or MCP HTTP thread). The main thread never block-waits so the user c
 
 * `record_mutation()` snapshots the document's redline identifiers, runs the edit, and tags every
   **new** redline's `RedlineComment` with a per-change token `wa-review:<session>:<n>`.
+* Tagging is **fail-closed**: if the pre- or post-edit redline scan is incomplete, the edit still
+  applies but its redlines are **not** tagged — they stay untagged (treated as the user's own) so
+  Accept/Reject All never touches a misclassified user redline.
 * Completion is *"no redline carrying this session's token remains"* — **not** "zero redlines in
   the document" — so the user's own pre-existing redlines never block or confuse it.
-* Each change is anchored with a `wa_review_<session>_<n>` bookmark spanning the affected range, so
-  it survives positions shifting as other changes are resolved. Bookmarks are always removed when
-  the review finishes (success, timeout, or error) — including when the edit raises part-way
-  through a multi-match replace.
+* Each change is anchored with a `wa_review_<session>_<n>` bookmark spanning the **change's own
+  redline span** (not the whole paragraph), so several changes in one paragraph each get a correct
+  outcome and `final_text` preview.
 * Tracking is forced on for the duration even if the user didn't have it on, and their prior
   `RecordChanges` state is restored afterward. Markup is forced **visible** (`ShowChanges = True`)
   so a reviewable change is never left invisible.
 * Insertions are authored `WriterAgent` and deletions `WriterAgent (deletions)`, so LibreOffice's
   by-author coloring renders new vs removed text in two distinct colors.
+
+### Surgical word-level edits
+
+Small edits in long paragraphs use **surgical** tracked changes instead of one whole-block redline
+([`plugin/writer/word_diff_split.py`](../plugin/writer/word_diff_split.py), integrated in
+[`plugin/writer/content.py`](../plugin/writer/content.py)):
+
+* A word-level diff splits the replace into several tight Delete+Insert pairs — one reviewable
+  change per sub-edit — when the changed-word fraction is below a threshold (default **0.6**).
+* Pre-flight offset checks and right-to-left apply avoid UNO position drift; grouped undo context
+  rolls back on failure.
+* HTML/import paths use atomic delete-then-import so review mode never leaves a bare deletion
+  stranded mid-import.
+
+Optional environment overrides (no Settings UI):
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `WRITERAGENT_AGENT_EDIT_DIFF_THRESHOLD` | `0.6` | Max changed-word fraction (0–1) before falling back to whole-block replace |
+| `WRITERAGENT_AGENT_EDIT_MAX_SURGICAL_RUNS` | `40` | Cap on sub-edits per replace |
+| `WRITERAGENT_AGENT_EDIT_SPLIT_AUTHOR_COLORS` | on | Set `0`/`false`/`off` to disable split insert/delete authors on whole-block edits |
 
 ## Outcomes
 
@@ -67,10 +90,12 @@ After review (or timeout) each change reports one of:
 | `accepted` | The anchored text now matches the proposed form. |
 | `rejected` | The anchored text now matches the original form. |
 | `modified` | The user edited the area during review — the agent must not assume either text survived. |
-| `pending` | Still unresolved at timeout (`complete: false`). |
+| `pending` | Still unresolved at timeout (`complete: false`), or the pending scan was unreliable. |
+
+Each change entry also includes `final_text` (preview of the anchored region after review).
 
 A tracked change disappears on **both** accept and reject, so the outcome is derived by comparing
-the anchored paragraph against the pre-computed accept-form and reject-form, not by reading the
+the anchored region against the pre-computed accept-form and reject-form, not by reading the
 redline afterward.
 
 ## Tool response shape
@@ -86,7 +111,7 @@ returns this schema:
     "timed_out": false,
     "changes": [
       { "id": "wa-review:ab12cd34:0", "outcome": "accepted",
-        "original_preview": "…", "proposed_preview": "…" }
+        "original_preview": "…", "proposed_preview": "…", "final_text": "…" }
     ]
   }
 }
@@ -120,33 +145,48 @@ wait that round.
 ## Inline review UI
 
 Reviewing through *Edit ▸ Track Changes ▸ Manage* is heavy, and the native UI exposes a replace's
-Delete and Insert as two independent rows. On top of the native redlines, a small inline surface
-(`plugin/writer/inline_review.py`, wired by `change_context_menu.py` / `review_click_popup.py`)
-resolves a whole agent change at the cursor as one unit (the Delete+Insert pair together), via
-left-click popup or right-click menu, plus accept/reject-all.
+Delete and Insert as two independent rows. WriterAgent adds:
 
-It is strictly token-scoped — only `wa-review` changes are listed.
+1. **Inline resolve** — [`plugin/writer/inline_review.py`](../plugin/writer/inline_review.py),
+   wired by [`change_context_menu.py`](../plugin/writer/change_context_menu.py) /
+   [`review_click_popup.py`](../plugin/writer/review_click_popup.py): left-click popup, right-click
+   menu, accept/reject-all.
+2. **Review toolbar** — [`plugin/writer/review_toolbar.py`](../plugin/writer/review_toolbar.py):
+   **WriterAgent Review** toolbar (◀ Prev, Next ▶, Accept all, Reject all) appears while pending
+   agent changes exist; hidden when the count drops to zero. Menu actions `review_prev` /
+   `review_next` call `goto_adjacent_agent_change`.
+
+It is strictly token-scoped — only `wa-review` changes are listed or resolved.
+
+### Exact-bounds resolve (modern LibreOffice)
+
+On LibreOffice **≥ 25.04**, selecting a change's **exact** Delete+Insert bounds and dispatching
+`.uno:AcceptTrackedChange` / `.uno:RejectTrackedChange` resolves **only that change**. Several
+agent changes in the same paragraph can be accepted/rejected individually. Pre-dispatch overlap
+checks refuse when a **user** redline or another **agent** change overlaps the exact span.
+
+On older builds where exact-bounds dispatch is a no-op, inline resolve falls back to a
+paragraph-wide selection (which resolves every redline in range) and refuses when foreign or
+sibling changes share those paragraphs.
+
+All safety scans are **fail-closed**: incomplete redline enumeration never backs a success claim;
+resolve-all returns user-facing messages when verification fails.
 
 ### Limitations
 
 * **Style changes are not reviewable.** `apply_style`, `update_style`, `create_style` and
   `import_styles` apply directly and return `style_unreviewed: true`; the agent is prompted to tell
   the user it changed a style (styles don't produce redlines).
-* **Inline resolve refuses on a shared paragraph.** `.uno:Accept/RejectTrackedChange` resolves
-  every redline in the selection, and the selection is widened to whole paragraphs (the dispatch
-  won't fire on an exact-bounds selection). So when one of the **user's own** tracked changes or
-  another agent change shares a paragraph with the selected agent change, the inline single-change
-  resolve refuses rather than touch more than the requested change. Accept/reject-all can still
-  resolve all agent changes when no user redlines are present; otherwise shared paragraphs are left
-  for the native *Manage* dialog.
 * **Extend selection** records only the appended continuation as a single tracked **insertion**
   (the original is never struck); it streams live with tracking off, then collapses to one redline
-  at the end.
-* **Split insert/delete authors** apply on the `apply_document_content` / `format.py` path only.
-  Streamed extend/edit collapse via `setString` under a single INSERT author — both redlines may
-  show as `WriterAgent` instead of `WriterAgent (deletions)` for deletions.
+  at the end. Streamed collapse may show both marks under the INSERT author instead of split
+  insert/delete colors.
 * **`ShowChanges` is forced on** during review and is not restored afterward; the user must toggle
   display back manually if they had it off.
+* **Toolbar fast-travel** skips changes whose bounds cannot be read (`_change_bounds` fails); the
+  pending counter may still include them.
+* **Second window, same document:** toolbar visibility is per-window; a rare stale toolbar can appear
+  in a secondary window (documented in `review_toolbar.py`).
 
 ## Ways to improve
 
@@ -171,33 +211,26 @@ with that (as in **Current scope** above).
 collapse to one redline but do not use `deletion_author()` on the delete half of a rewrite. Match
 the `format.py` split-author pattern so by-author coloring distinguishes insertions and deletions.
 
-### Inline review and menu handlers
+### Inline review polish
 
-* **Document targeting:** resolved to use `get_active_document(c)` via `main.py` which is more robust when multiple windows are open.
-* **Foreign redline detection** in [`inline_review.py`](../plugin/writer/inline_review.py) fails
-  open on enumeration errors so the common case is never blocked; consider fail-closed if touching
-  a user redline via paragraph-wide dispatch becomes a reported bug.
-* **Context menu lifecycle:** [`change_context_menu.py`](../plugin/writer/change_context_menu.py)
-  and [`review_click_popup.py`](../plugin/writer/review_click_popup.py) passively clean up strong
-  references to disposed document controllers/interceptors/handlers during new registrations,
-  preventing reference/memory leaks over long sessions.
+* **Post-dispatch verification failure:** exact-bounds resolve may return failure after the
+  document has already changed; consider user messaging or undo recovery.
+* **Toolbar navigation:** include changes with unreadable bounds (paragraph-level fallback).
 * **Click popup:** left-click inside every agent change opens the popup; right-click-only may be
   less noisy if users find it intrusive.
 
 ### Review session behavior
 
 * Restore the user's prior **`ShowChanges`** after `EditReviewSession` / streamed session cleanup, or document permanently forcing markup visible as intentional.
+* Refuse change registration when anchor bookmark creation fails (mirror tagging fail-closed).
 
 ### Tests
 
 * Add an end-to-end UNO test: `apply_document_content` on a **background thread** with
   mode **wait**, user accepts/rejects, tool returns a `review` payload with outcomes.
-  Session-level `wait_for_review` is covered; the full tool + marshalling path is not.
 * Cover `edit_review_timeout: 0` with mode **wait** (immediate return with pending changes).
-* Context menu / click-popup registration is hard to UNO-test; manual checklist is fine.
 
 ### Release hygiene
 
-* Run **`make extract-strings`** for new `_()` strings in the context menu and click popup
+* Run **`make extract-strings`** for new `_()` strings in the review toolbar and context menu
   ([`locales/writeragent.pot`](../locales/writeragent.pot)).
-* Optional: link this doc from the AGENTS.md deep-dive index.
