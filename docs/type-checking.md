@@ -1,6 +1,6 @@
 # Static type checking (`ty`)
 
-WriterAgent uses [Astral’s `ty`](https://docs.astral.sh/ty/) on the `plugin/` tree. This document covers **what changed in the code** (especially UNO and extension patterns), **where** it landed, and the **minimum tooling** needed to run the checker. Quick-reference annotation rules live in [§21 of `AGENTS.md`](../AGENTS.md#21-static-type-checking-ty).
+WriterAgent uses [Astral’s `ty`](https://docs.astral.sh/ty/) on the `plugin/` tree. This document covers **what changed in the code** (especially UNO and extension patterns), **where** it landed, and the **minimum tooling** needed to run the checker. Quick-reference annotation rules are in [Other recurring fixes](#other-recurring-fixes-non-uno) below.
 
 ---
 
@@ -145,9 +145,12 @@ Prefer **specific** ignore codes (`attr-defined`, `override`, `unresolved-import
 
 ## Other recurring fixes (non-UNO)
 
+- **`Protocol`** for mixin hosts (e.g. tool-loop mixins).
+- **`TYPE_CHECKING`** + **`ruff`** `TC` rules for imports used only in hints.
 - **Explicit generics**: `list[str]`, `dict[str, Any]`, `str | None` instead of untyped collections.
 - **Narrowing**: `if x is not None` before use; avoid forcing the checker to assume values are defined.
-- **`cast(Iterable, …)`** for generators that `ty` does not infer as iterable (see §21).
+- **`cast(Any, …)`** / **`cast(Iterable, …)`** where stubs are thin or generators are not inferred as iterable.
+- **UNO interface overrides:** match stub parameter names exactly (e.g. `actionPerformed(self, rEvent)`) or **`ty`/pyright** report `invalid-method-override`.
 - **Registry / service construction**: dynamic class registration may need small ignores where instantiation is reflection-like ([`plugin/framework/service_registry.py`](../plugin/framework/service_registry.py)).
 
 ---
@@ -225,5 +228,5 @@ def actionPerformed(self, rEvent: ActionEvent) -> None:  # type: ignore[override
 
 1. **`make fix-uno`** when `import uno` fails in the venv.
 2. **`make ty`** or **`make check`** before quick iterations; **`make test`** (or **`make release`** before shipping) for **`ty` + mypy + pyright** plus pytest and LO tests.
-3. When adding features, follow §21 in `AGENTS.md`, the UNO patterns above, and—if you use Pyright—the **Pyright vs `ty` and mypy** section for strictness that may not show up in **`make ty`**.
+3. When adding features, follow the UNO patterns above, [Other recurring fixes](#other-recurring-fixes-non-uno), and—if you use Pyright—the **Pyright vs `ty` and mypy** section for strictness that may not show up in **`make ty`**.
 

@@ -14,9 +14,13 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""
-LLM API client for WriterAgent.
-Takes a config dict (from plugin.framework.config.get_api_config) and UNO ctx.
+"""LLM API client for WriterAgent.
+
+Wire behavior lives here: request pacing (``LLM_MIN_REQUEST_INTERVAL_SEC``),
+leaked chat-template token stripping, dev/release system prefix, date prefix on
+first system message, Anthropic/Gemini shims, OpenRouter merge
+(``merge_openrouter_chat_extra``), logging redaction, local HTTPS retry.
+Takes a config dict from ``get_api_config`` and UNO ``ctx``.
 """
 
 import logging

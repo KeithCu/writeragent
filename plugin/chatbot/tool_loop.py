@@ -347,6 +347,9 @@ class ToolCallingMixin:
             self._set_status("Error")
             return
 
+        # contextvars (SendCancellation) do not propagate to worker threads — LlmClient
+        # picks up resolve_stop_checker() via get_current_send_cancellation when created on
+        # the UI thread; spawned workers pass stop_checker= explicitly (_spawn_llm_worker).
         if not self.client:
             self.client = LlmClient(api_config, self.ctx)
         else:

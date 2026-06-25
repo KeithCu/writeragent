@@ -15,9 +15,17 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""
-Configuration logic for WriterAgent.
-Reads/writes writeragent.json in LibreOffice's user config directory.
+"""Configuration logic for WriterAgent.
+
+``init_config(ctx)`` runs once at bootstrap (``MainBootstrapJob`` / ``bootstrap()``);
+the config path is cached. All other I/O — ``get_config``, ``set_config``, typed
+getters, ``get_api_config`` — does **not** take ``ctx``; use ``get_ctx()`` only for
+UNO operations.
+
+``writeragent.json`` lives under the LibreOffice user profile (Linux:
+``~/.config/libreoffice/{4,24}/user/``; macOS: ``~/Library/Application Support/LibreOffice/4/user/``;
+Windows: ``%APPDATA%\\LibreOffice\\4\\user\\``). Broken JSON is copied to
+``.bak`` when possible; ``json_repair`` fixes small typos on read.
 """
 import dataclasses
 import json

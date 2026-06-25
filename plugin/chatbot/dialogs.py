@@ -19,6 +19,17 @@
 Provides helpers for message boxes, clipboard operations, rich dialogs
 (with buttons, live updates, etc.), and XDL dialog loading.
 
+XDL loading rules (sidebar / extension dialogs):
+- Use ``DialogProvider2`` + extension ``base_url`` from
+  ``PackageInformationProvider`` (see ``load_writeragent_dialog`` /
+  ``_load_xdl``). **Never** ``vnd.sun.star.script:…?location=application``
+  with sidebar components — that path deadlocks.
+- Multi-page dialogs: ``dlg:page`` on controls + ``dlg.getModel().Step``;
+  ``tabpagecontainer`` / ``tabpage`` fail silently.
+- ListBox/ComboBox: set ``StringItemList``, not only ``.Text``.
+- Tab listeners: subclass ``unohelper.Base`` + ``XActionListener`` (see
+  ``TabListener`` in this module). Use AppFont for geometry; explicit layout.
+
 Usage from modules::
 
     from plugin.chatbot.dialogs import msgbox, msgbox_with_copy, copy_to_clipboard

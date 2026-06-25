@@ -54,7 +54,7 @@ If you find ways to lower technical debt, while adding a feature, put that in yo
 
 - **Chat:** Sidebar + menu chat (Writer/Calc deck; Draw per code paths)—multi-turn, tools, history (SQLite when available, else JSON under `writeragent_history.db.d/`).
 - **Extend / Edit selection:** Writer uses `get_string_without_tracked_deletions()` for prompts; undo/session details in [`plugin/doc/document_helpers.py`](plugin/doc/document_helpers.py).
-- **Settings:** `writeragent.json` under the LibreOffice user profile—see **Config** in [Tips](#tips-and-sharp-edges); keys and validation in [`plugin/framework/config.py`](plugin/framework/config.py).
+- **Settings:** `writeragent.json` under the LibreOffice user profile—see [`plugin/framework/config.py`](plugin/framework/config.py) module doc.
 - **Memory (experimental):** [`plugin/chatbot/memory.py`](plugin/chatbot/memory.py); `MEMORY_GUIDANCE` in [`plugin/framework/constants.py`](plugin/framework/constants.py)—full notes [docs/hermes-agent-patterns.md](docs/hermes-agent-patterns.md).
 - **Calc:** `=PROMPT()` — [`plugin/calc/prompt_addin.py`](plugin/calc/prompt_addin.py) / [`plugin/calc/prompt_function.py`](plugin/calc/prompt_function.py); `=PYTHON()` — [`plugin/calc/python/addin.py`](plugin/calc/python/addin.py) / [`plugin/calc/python/function.py`](plugin/calc/python/function.py).
 - **Eval / benchmarks:** `make run_eval` / [`scripts/benchmark.py`](scripts/benchmark.py) → [`scripts/prompt_optimization/`](scripts/prompt_optimization/) (`eval_auth.py` for CLI credentials; judge via `LlmClient`). Setup: `uv sync`, `make eval-deps`. [`scripts/prompt_optimization/README.md`](scripts/prompt_optimization/README.md), [`docs/eval-dev-plan.md`](docs/eval-dev-plan.md).
@@ -87,11 +87,7 @@ Restart LibreOffice after **`make deploy`** (or use `make deploy writer/calc/dra
 
 ## HTTP / LLM (summary)
 
-All wire behavior—dev/release system prefix, date prefix on first system message, leaked `<|…|>` token stripping, logging/redaction, **50ms minimum between sends** on an `LlmClient` instance, Anthropic/Gemini shims, local HTTPS retry—is implemented in [`plugin/framework/client/llm_client.py`](plugin/framework/client/llm_client.py). Read that file when changing requests.
-
-Persistent connections: [`plugin/ai/service.py`](plugin/ai/service.py). Per-endpoint auth and headers: [`plugin/framework/client/auth.py`](plugin/framework/client/auth.py).
-
-Fallback parsing when the API returns text without `tool_calls`: `get_parser_for_model` → [`plugin/contrib/tool_call_parsers/`](plugin/contrib/tool_call_parsers/). **Smolagents** post-processing goes through [`WriterAgentSmolModel`](plugin/chatbot/smol_agent.py) only (wire details in [docs/smol-main-chat-tool-architecture.md](docs/smol-main-chat-tool-architecture.md)). Hermes: leading `/` messages on ACP skip `[DOCUMENT CONTENT]` wrapping; spawn `hermes acp`—use full path to `hermes` if `PATH` in LibreOffice is narrow.
+All wire behavior is in [`plugin/framework/client/llm_client.py`](plugin/framework/client/llm_client.py) (see module doc and inline constants). Persistent connections: [`plugin/ai/service.py`](plugin/ai/service.py). Auth/headers: [`plugin/framework/client/auth.py`](plugin/framework/client/auth.py). Smolagents HTTP goes through [`WriterAgentSmolModel`](plugin/chatbot/smol_agent.py) only — [docs/smol-main-chat-tool-architecture.md](docs/smol-main-chat-tool-architecture.md). Other quirks: [docs/llm-hacks.md](docs/llm-hacks.md).
 
 ---
 
@@ -112,71 +108,18 @@ UNO helpers are split: [`uno_context.py`](plugin/framework/uno_context.py), [`do
 
 ## Tips and sharp edges
 
-### Sidebar / chat / streaming
+Area-specific rules live in module docstrings and topic docs — open those when you edit the area. The [Deep dives](#deep-dives-link-index) table is the index.
 
-- **Main chat: sidebar reply vs document edit:** The sidebar is a chat UI, not the document. The **main** agent (Writer sidebar tool loop, not sub-agents) must choose **(a)** a normal **assistant message** in chat history (`CHAT RESPONSE FORMAT` / `get_chat_response_format_instructions`) or **(b)** **`apply_document_content`** for text that belongs in the LO document—or both (brief confirmation in chat after an edit). Prompt source of truth: **`SIDEBAR_VS_DOCUMENT`** + **`WRITER_CORE_DIRECTIVES`** in [`constants.py`](plugin/framework/constants.py), assembled by **`get_chat_system_prompt_for_document`** (Writer prompt blocks in that file follow the same assembly order; design notes: [docs/chat-sidebar-implementation.md](docs/chat-sidebar-implementation.md) § Chat prompt constants). Sub-agents differ: web research / librarian / specialized delegates finish via smol tools (`final_answer`, `reply_to_user`, delegate `task`)—do not paste main-chat document-insert rules into those prompts. Details: [docs/chat-sidebar-implementation.md](docs/chat-sidebar-implementation.md) § Main chat: sidebar reply vs document edit.
-- Resolve document with **`frame.getController().getModel()`** first (same window as sidebar), then desktop fallback—sidebar query focus breaks desktop-only resolution ([`SendButtonListener._get_document_model`](plugin/chatbot/panel.py), tests in [`tests/test_send_button_listener_document_model.py`](tests/test_send_button_listener_document_model.py)).
-- **`setVisible(True)`** after `createContainerWindow()` for the panel.
-- **Menu chat:** no tool-calling; same doc-detection idea as sidebar.
-- **Stop / cancellation:** each Send has a [`SendCancellation`](../plugin/framework/queue_executor.py) scope (`agent_session()`). Stop must use **`resolve_stop_checker()`** / **`scope.is_cancelled`**, not `lambda: self.stop_requested` alone—after the drain loop exits, `panel._send_cancellation` is cleared while the web-research worker may still run; the first fix only stopped the UI thread. Worker-thread `LlmClient` needs **`cancellation_scope`** (contextvars do not propagate to new threads). See [docs/streaming-and-threading.md](docs/streaming-and-threading.md) § Stop / cancellation.
-- **Stop** on main chat path: assistant may get `"No response."` for strict role alternation (e.g. Mistral); UI still shows stopped.
-- **Reasoning:** [`plugin/main.py`](plugin/main.py) sends `reasoning: { effort: 'minimal' }`; UI shows `[Thinking] …` before the answer.
-- **Web research / toggles:** in [`panel_factory.py`](plugin/chatbot/panel_factory.py), **never** `for _ in …` in path loops (bare **`_`** shadows gettext — see **Python** naming below). Item listeners for research/direct image: **override `on_item_state_changed` on the class**, not nested in `__init__`, or toggles never fire ([`BaseItemListener`](plugin/chatbot/listeners.py)).
-- **Librarian mode:** starts when `USER.md` is empty; [`SendButtonListener`](plugin/chatbot/panel.py) keeps `_in_librarian_mode` until [`send_handlers.py`](plugin/chatbot/send_handlers.py) sees `switch_mode` / `switch_to_document_mode`. **`USER.md`** is storage only—not the handoff signal alone.
-- **`upsert_memory` visibility:** main chat via [`tool_loop_state.py`](plugin/chatbot/tool_loop_state.py); librarian uses [`librarian.py`](plugin/chatbot/librarian.py) + `chat_append_callback` so updates show even when search-thinking is off.
+- **Sidebar / chat / streaming:** Resolve document **frame-only** via `frame.getController().getModel()` ([`panel.py`](plugin/chatbot/panel.py)); stop/cancellation must use **`resolve_stop_checker()`**, not the panel flag alone. Prompt routing, modes, librarian, reasoning: [docs/chat-sidebar-implementation.md](docs/chat-sidebar-implementation.md). Streaming, stop scope, worker threads: [docs/streaming-and-threading.md](docs/streaming-and-threading.md).
+- **Dialogs (XDL):** Load via `DialogProvider` + extension `base_url` — see module doc in [`plugin/chatbot/dialogs.py`](plugin/chatbot/dialogs.py). Settings UI: [`plugin/chatbot/dialog_views.py`](plugin/chatbot/dialog_views.py).
+- **Tools / Writer / Calc:** Resolve tools in tests via `plugin.main.get_tools().get("tool_name")`. Math/HTML import: [docs/math-tex.md](docs/math-tex.md). Grammar pipeline: [docs/realtime-grammar-checker-plan.md](docs/realtime-grammar-checker-plan.md). Calc specialized: [docs/calc-specialized-toolsets.md](docs/calc-specialized-toolsets.md). Python venv sandbox: [docs/enabling_numpy_in_libreoffice.md](docs/enabling_numpy_in_libreoffice.md).
+- **Config:** `init_config(ctx)` once at bootstrap; all other I/O has no `ctx` — see module doc in [`plugin/framework/config.py`](plugin/framework/config.py).
+- **Logging / MCP:** Logs in `writeragent_debug.log` beside `writeragent.json`. Use **`log.exception("Context")`** in unexpected `except` blocks. MCP drains on main thread — [docs/mcp-protocol.md](docs/mcp-protocol.md). Images: [docs/image-generation.md](docs/image-generation.md). No env API keys in production; no **`tempfile.mktemp()`**.
+- **Tests / debug menus:** UNO tests via [`plugin/testing_runner.py`](plugin/testing_runner.py); debug menu suites run on the UI thread — [docs/test_architecture_analysis.md](docs/test_architecture_analysis.md).
 
-### Dialogs (XDL)
+### Global Python
 
-- **`DialogProvider`**: package **`base_url` + XDL path** only—never `vnd.sun.star.script:…?location=application` with sidebar components (**deadlock**).
-- Load: `DialogProvider.createDialog(base_url + "/WriterAgentDialogs/…")`; `base_url` from **`PackageInformationProvider` + `self.ctx`**.
-- Multi-page: **`dlg:page`** on controls + `dlg.getModel().Step`; **not** `tabpagecontainer` / `tabpage` (silent failure).
-- **AppFont** for geometry; explicit layout—no flex. **TabListener** must subclass **`unohelper.Base`** + **`XActionListener`**—see pattern in [`plugin/chatbot/dialogs.py`](plugin/chatbot/dialogs.py).
-- **ListBox/ComboBox:** set **`StringItemList`**, not only `.Text`.
-- **`translate_dialog`:** [`dialogs.py`](plugin/chatbot/dialogs.py). Chat sidebar does **not** re-translate on every `config:changed`—only at wiring/load.
-- **`dialog_views`**: do not pass saved config through gettext (empty string → PO garbage). **`_(msg)`** requires `str` ([`plugin/framework/i18n.py`](plugin/framework/i18n.py)). UI code often imports **`_`** from that module — never reuse **`_`** as a throwaway variable in the same file (see **Python** naming below).
-- **`dialog_views.input_box`**: if `execute()` is false (ESC/close), **do not** `dispose()` the dialog again—**double dispose can segfault** LibreOffice.
-
-### Tools / Writer / Calc
-
-- **Specialized tools in tests:** `plugin.main.get_tools().get("tool_name")`—not fragile internal imports; see [`tool.py`](plugin/framework/tool.py).
-- **In-place specialized mode:** `USE_SUB_AGENT` / `active_domain` / [`ToolCallingMixin._refresh_active_tools_for_session`](plugin/chatbot/tool_loop.py)—[`plugin/framework/constants.py`](plugin/framework/constants.py).
-- **HTML / content:** [`format_support.py`](plugin/writer/format_support.py)—prefer **plain-text** `apply_document_content` to preserve character formatting; **`safe_json_loads`** repair/LaTeX clash recovery in [`plugin/framework/errors.py`](plugin/framework/errors.py). Math segments: [`html_math_segment.py`](plugin/writer/math/html_math_segment.py), [`math_formula_insert.py`](plugin/writer/math_formula_insert.py). **Math (apply_document_content):** prompts recommend inline `\\(...\\)` only (display delimiters are not centered in Writer today); parser still accepts `$...$`, `$$...$$`, `\\[...\\]` for pasted content. No HTML-escaped math or equation images. Prompt: `WRITER_APPLY_DOCUMENT_HTML_RULES` in [`constants.py`](plugin/framework/constants.py); design: [docs/math-tex.md](docs/math-tex.md).
-- **Outline API:** `get_document_tree` (includes document `stats`: characters, words, paragraphs, pages, headings), `get_heading_children` in [`outline.py`](plugin/writer/outline.py)—legacy names like `get_document_outline` / `get_document_stats` are not exposed.
-- **Grammar proofreader:** [`plugin/writer/locale/ai_grammar_proofreader.py`](plugin/writer/locale/ai_grammar_proofreader.py), [`grammar_proofread_locale.py`](plugin/writer/locale/grammar_proofread_locale.py) (`GRAMMAR_REGISTRY_LOCALE_TAGS`, UNO `Locale` bridging, Unicode terminals, abbrev/Thai chunking, `looks_complete_sentence`, worker caps/prompt), [`grammar_proofread_json.py`](plugin/writer/locale/grammar_proofread_json.py) (`parse_grammar_json`), [`grammar_proofread_text.py`](plugin/writer/locale/grammar_proofread_text.py) (BreakIterator split, offsets, sentence scheduling, `slice_preview_debug`), [`grammar_proofread_cache.py`](plugin/writer/locale/grammar_proofread_cache.py) (LRU; document-embedded mode uses `get_persistence(ctx, doc_id)`), [`grammar_persistence.py`](plugin/writer/locale/grammar_persistence.py) (`DocumentPersistence` in-file storage), [`grammar_ignore_rules.py`](plugin/writer/locale/grammar_ignore_rules.py) (doc/global ignore matching), [`grammar_obs.py`](plugin/writer/locale/grammar_obs.py) (DEBUG obs + sidebar `grammar:status`), [`grammar_worker_llm.py`](plugin/writer/locale/grammar_worker_llm.py) (sync grammar/lang-detect LLM + parse), [`grammar_worker_phases.py`](plugin/writer/locale/grammar_worker_phases.py) (pure lang/grammar completion decisions), [`grammar_work_queue.py`](plugin/writer/locale/grammar_work_queue.py) (`GrammarWorkItem`, batch dedup, enqueue supersede / stale helpers, sequential worker + queue). Service **`__init__(self, ctx, *args)`** required—LibreOffice uses `createInstanceWithArgumentsAndContext`. Keep top-level imports minimal. XCU/locale parity: [`grammar_proofread_locale.py`](plugin/writer/locale/grammar_proofread_locale.py), [`tests/writer/locale/test_grammar_linguistic_xcu.py`](tests/writer/locale/test_grammar_linguistic_xcu.py). Queue/cache semantics: [`docs/realtime-grammar-checker-plan.md`](docs/realtime-grammar-checker-plan.md).
-- **Calc JSON schemas (Gemini/OpenRouter):** no union types—use **`"type": "array"` + `items`**; normalize a single string to a one-element list in execute.
-- **Calc specialized** (pivot, conditional formatting, filters, forms, …): [`docs/calc-specialized-toolsets.md`](docs/calc-specialized-toolsets.md)—future pivot ideas also at top of [`plugin/calc/pivot.py`](plugin/calc/pivot.py).
-- **Python venv sandbox (`run_venv_python_script`, `=PYTHON()`):** LLM prompts start with a **sandbox context prefix** (powerful Python sandbox, many packages assumed, **no networking** / host escape) **before** module lists—see [`import_policy.py`](plugin/scripting/import_policy.py). Whitelist lives in [`sandbox.py`](plugin/scripting/sandbox.py); `np`/`pd`/`sp`/`math` are auto-imported—do not probe imports at runtime. Full tables: [docs/enabling_numpy_in_libreoffice.md](docs/enabling_numpy_in_libreoffice.md). Separate stdlib-only **in-process** sandbox: [`execute_python_script`](plugin/calc/python/executor.py).
-
-### Config
-
-- **`init_config(ctx)`** resolves `writeragent.json` once at bootstrap ([`bootstrap()`](plugin/main.py), [`MainBootstrapJob`](plugin/main.py)); path is cached. Config I/O (`get_config`, `set_config`, typed getters, `get_api_config`, etc.) does **not** take `ctx`—use [`get_ctx()`](plugin/framework/uno_context.py) only for UNO operations.
-- Paths: Linux `~/.config/libreoffice/{4,24}/user/writeragent.json`; macOS `~/Library/Application Support/LibreOffice/4/user/`; Windows `%APPDATA%\LibreOffice\4\user\`.
-- **Invalid JSON:** broken `writeragent.json` is copied to `writeragent.json.bak` when possible before load/repair; small typos (trailing commas, etc.) are auto-repaired on read via `json_repair`. If repair fails, reads use defaults and writes proceed from an empty dict (restore from `.bak` manually if needed).
-- **`set_config`:** skips write and `config:changed` when unchanged. Unknown keys via `get_config` / `get_config_int` → **`CONFIG_KEY_NOT_FOUND`** with `details["key"]`.
-- **OpenRouter merge:** optional `openrouter_chat_extra` — [`merge_openrouter_chat_extra`](plugin/framework/client/llm_client.py); blocked keys include `messages`, `tools`, `tool_choice`, `stream`.
-- **OpenRouter model suffixes:** dynamic ids like `:nitro` / `:floor` are valid on any model slug (API wire id unchanged); catalog/capability lookup uses the base slug via [`openrouter_model_id.py`](plugin/framework/openrouter_model_id.py). Static suffixes (`:free`, `:extended`, `:thinking`) are separate catalog rows.
-- **Settings model dropdowns:** image generation uses the chat endpoint and `image_model`; hosted providers gate combobox contents on API key — show `(Enter API Key to load models)` until a key is present. Placeholder strings are not model ids; endpoint switches sanitize combobox text via `_sanitize_model_combobox_value` in [`config_ui_helpers.py`](plugin/chatbot/config_ui_helpers.py).
-- **Settings UI:** **`core`** must stay skipped in auto-generated tabs ([`manifest_registry.py`](scripts/manifest_registry.py) + [`dialog_views.py`](plugin/chatbot/dialog_views.py) agree) or Settings crashes (`btn_tab_core`).
-- Defaults and provider tables: [`plugin/framework/default_models.py`](plugin/framework/default_models.py). **`chat_max_tool_rounds`:** empty string → fallback 25 with debug log.
-- **Chat-related keys:** `chat_max_tokens`, `additional_instructions` (see [`plugin/framework/config.py`](plugin/framework/config.py), [`plugin/framework/constants.py`](plugin/framework/constants.py)). Document excerpt size for chat is fixed internally as `CHAT_DOCUMENT_CONTEXT_MAX_CHARS` (8000 characters) in [`constants.py`](plugin/framework/constants.py)—not a Settings key.
-
-### Logging / MCP / misc
-
-- Logs: single file `writeragent_debug.log` in the same directory as `writeragent.json` (no logging if that dir is unavailable). Agent traces (`agent_log`) use the same file when `enable_agent_log` is set. **`redact_sensitive_payload_for_log`** on HTTP debug ([`plugin/framework/logging.py`](plugin/framework/logging.py)).
-- **Error Logging:** use **`log.exception("Context")`** in `except` blocks for unexpected errors to ensure stacktraces are captured. Avoid f-strings that only embed `str(e)`.
-- **MCP:** HTTP threads → main-thread [`drain_mcp_queue`](plugin/mcp/mcp_protocol.py); **`X-Document-URL`** for targeting—[`document_helpers.py`](plugin/doc/document_helpers.py). Start/stop from [`plugin/main.py`](plugin/main.py) bootstrap / [`McpModule`](plugin/mcp/__init__.py)—localhost, no auth.
-- **Images:** endpoint uses **`get_image_model`** (not chat model); [`image_utils.py`](plugin/writer/image_utils.py), [`image_tools.py`](plugin/writer/image_tools.py); [docs/image-generation.md](docs/image-generation.md).
-- **Outline / navigation helpers:** ignore stale **DocumentCache** mentions in comments—cache class is not active.
-- **Settings ↔ XDL:** `MainJob._get_settings_field_specs()` in [`plugin/main.py`](plugin/main.py) must match control names.
-- **`WriterAgentDialogs`** folder name matches `dialog.xlb` library name.
-- **`is_writer(model)`** — Writer has draw pages; do not use **`getDrawPages`** alone as the Writer test.
-- **No env API keys** in production; no **`tempfile.mktemp()`**.
-- **Python:** do not shadow **`logging`**, module **`log`**, or gettext **`_`**. Many UI modules import **`_`** from [`plugin/framework/i18n.py`](plugin/framework/i18n.py); do **not** bind bare **`_`** as a variable (`for _ in …`, `a, _, _ = fn()`, `except Exception as _:`). Use a named discard (`unused`, `idx`) or index/slice what you need (`result[0]`) instead. Private helpers named `_foo` are fine — the rule is the bare **`_`** name only.
-
-### Tests and debug menus
-
-- **`$(LO_PYTHON) -m plugin.testing_runner`:** [`plugin/testing_runner.py`](plugin/testing_runner.py) snapshots [`NATIVE_TEST_SYS_MODULE_SNAPSHOT_KEYS`](tests/testing_utils.py) between UNO modules. Real PyUNO loaded → **`setup_uno_mocks()`** must not replace **`uno`** with **`MagicMock`**.
-- **Debug menu suites** ([`plugin/main.py`](plugin/main.py) `_run_test_suite`): run **`run_module_suite` on the UI thread**—do not wrap in **`run_blocking_in_thread`** (UNO tools need main thread).
+Do not shadow **`logging`**, module **`log`**, or gettext **`_`**. UI modules import **`_`** from [`plugin/framework/i18n.py`](plugin/framework/i18n.py); do **not** bind bare **`_`** as a variable (`for _ in …`, `a, _, _ = fn()`, `except Exception as _:`). Use a named discard (`unused`, `idx`) instead. Private helpers named `_foo` are fine.
 
 ---
 
@@ -213,9 +156,7 @@ UNO helpers are split: [`uno_context.py`](plugin/framework/uno_context.py), [`do
 
 ## Static type checking (ty)
 
-Primary workflows and checker scope: [`docs/type-checking.md`](docs/type-checking.md). **`make check`** → **`ty`** only; **`make build`** → **`ty`** + **`ruff`**; **`make typecheck`** → **`ty`** + **mypy** + **pyright**; **`make test`** adds **bandit** then pytest (see [Build](#build-and-quality-commands)). **`types-unopy`** (dev); **`make fix-uno`** links UNO into `.venv`.
-
-**Common fixes:** `Protocol` for mixin hosts; `TYPE_CHECKING` + **`ruff`** `TC` rules for imports used only in hints; `cast(Any, …)` / `cast(Iterable, …)` where stubs are thin; explicit `None` checks. **UNO interface overrides:** match stub parameter names exactly (e.g. `actionPerformed(self, rEvent)`) or **`ty`/pyright** report `invalid-method-override`.
+See [docs/type-checking.md](docs/type-checking.md) for checker scope, UNO patterns, and annotation fixes. **`make check`** → **`ty`** only; full matrix in [Build](#build-and-quality-commands).
 
 ---
 

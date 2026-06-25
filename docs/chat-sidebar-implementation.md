@@ -1,5 +1,7 @@
 # Chat with Document: Sidebar Panel Implementation Guide
 
+**Entry point:** [AGENTS.md](../AGENTS.md) points here for sidebar/chat work. Area-specific rules also live in module docstrings under `plugin/chatbot/`.
+
 **Goal:** Move "Chat with Document" from a menu item to a sidebar panel (or right-dockable toolbar) so users can have it persistently visible on the right side of Writer.
 
 **Current state:** The sidebar panel is **working**. "Chat with Document" appears in the WriterAgent deck in Writer's sidebar with Response area, Ask field, and Send button. The menu item can remain as fallback.

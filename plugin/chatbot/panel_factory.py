@@ -411,7 +411,10 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             log.error("_render_session_history error [greeting=%s]: %s", greeting, e)
 
     def _refresh_controls_from_config(self):
-        """Reload model and prompt selectors from config (e.g. after user changes Settings)."""
+        """Reload model and prompt selectors from config (e.g. after user changes Settings).
+
+        Does not re-run ``translate_dialog`` — sidebar strings are translated once at wire/load.
+        """
         root = self.m_panelRootWindow
         if not root or not hasattr(root, "getControl"):
             return
@@ -691,6 +694,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         if not chat_mode_selector or not hasattr(chat_mode_selector, "addItemListener"):
             return
 
+        # Item listeners must override on_item_state_changed on the class (not nested in
+        # __init__) or LibreOffice never dispatches toggle/mode changes.
         class ChatModeListener(BaseItemListener):
             def __init__(self, panel, ctx, selector, include_brainstorming_flag, apply_target):
                 self.panel = panel

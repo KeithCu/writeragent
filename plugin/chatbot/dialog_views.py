@@ -83,6 +83,7 @@ def input_box(ctx, message, title="", default="", x=None, y=None):
                     set_config("text_model", chosen)
                     update_lru_history(chosen, "model_lru", get_current_endpoint())
             return ret_text, ret_prompt
+        # ESC/close: execute() returned false — skip dispose in finally (double dispose segfaults LO).
         need_dispose = False
         return "", ""
     except Exception as e:

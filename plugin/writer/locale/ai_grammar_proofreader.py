@@ -2,7 +2,13 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Linguistic2 grammar checker (Lightproof-style): XProofreader backed by LLM + cache."""
+"""Linguistic2 grammar checker (Lightproof-style): XProofreader backed by LLM + cache.
+
+Architecture and module map: ``docs/realtime-grammar-checker-plan.md``.
+UNO service ``__init__(self, ctx, *args)`` is required (LibreOffice uses
+``createInstanceWithArgumentsAndContext``). Keep top-level imports minimal —
+see stdlib-only bootstrap above before ``plugin.*`` imports.
+"""
 
 from __future__ import annotations
 

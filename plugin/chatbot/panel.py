@@ -431,7 +431,13 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             self._stop_requested_fallback = False
 
     def resolve_stop_checker(self):
-        """Stable stop predicate for worker threads (survives clearing ``_send_cancellation``)."""
+        """Stable stop predicate for worker threads (survives clearing ``_send_cancellation``).
+
+        ``StartSendEffect`` clears ``_send_cancellation`` when the drain loop exits while
+        web-research / tool workers may still run — pass this checker (not
+        ``lambda: self.stop_requested`` alone) into ``LlmClient`` and stream drains.
+        See ``docs/streaming-and-threading.md`` § Stop / cancellation.
+        """
         from plugin.framework.queue_executor import bind_send_stop_checker
 
         return bind_send_stop_checker(getattr(self, "_send_cancellation", None), lambda: self._stop_requested_fallback)
@@ -903,6 +909,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 try:
                     from plugin.framework.queue_executor import agent_session
 
+                    # Scope is cleared in finally; workers use resolve_stop_checker().
                     with agent_session() as cancel_scope:
                         self._send_cancellation = cancel_scope
                         try:
