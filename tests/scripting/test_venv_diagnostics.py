@@ -15,9 +15,15 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.scripting.config_limits import VECTOR_SEARCH_PROBE_TIMEOUT_SEC, VISION_PROBE_TIMEOUT_SEC
+from plugin.scripting.config_limits import (
+    SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC,
+    VECTOR_SEARCH_PROBE_TIMEOUT_SEC,
+    VISION_PROBE_TIMEOUT_SEC,
+)
 from plugin.scripting.venv_diagnostics import (
+    _build_probe_display,
     _format_self_check_success,
+    _probe_nlp_packages,
     _probe_vector_search_packages,
     _probe_vision_packages,
     probe_venv_path,
@@ -38,7 +44,7 @@ def test_probe_venv_path_blank_uses_process_python():
     assert "LibreOffice process Python" in msg
     assert "/fake/lo/python" in msg
     mock_res.assert_called_once()
-    mock_check.assert_called_once_with("/fake/lo/python", timeout=10.0)
+    mock_check.assert_called_once_with("/fake/lo/python", timeout=None)
 
 
 def test_probe_venv_path_blank_fails_when_no_process_interpreter():
@@ -118,12 +124,29 @@ def test_format_self_check_success_with_data_engineering_group():
         "sci": [],
         "eda": [],
         "ui": [],
-        "data_eng": ["pint", "duckdb"],
     }
     msg = _format_self_check_success(data)
     assert "Data Engineering Libraries" in msg
     assert "Data Engineering Libraries: pint" in msg
-    assert "duckdb" in msg  # newly probed under the group (present/absent shown)
+    assert "duckdb" in msg
+
+
+def test_build_probe_display_includes_nlp_when_keys_present():
+    data = {
+        "v": "3.12.0",
+        "p": {"spacy": "present", "textdescriptives": None, "transformers": None},
+        "sci": [],
+        "eda": [],
+        "ui": [],
+        "viz": [],
+        "cas": [],
+        "quant": [],
+        "data_eng": [],
+        "nlp": ["spacy", "textdescriptives", "transformers"],
+    }
+    msg = _build_probe_display(data, completed_groups=8)
+    assert "Text / NLP Libraries" in msg
+    assert "spacy" in msg
 
 
 def test_format_self_check_success_with_vision_group():
@@ -283,11 +306,13 @@ def test_run_venv_self_check_includes_vision():
     }
     with (
         patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
+        patch("plugin.scripting.venv_diagnostics._probe_nlp_packages", return_value=({}, None)),
         patch("plugin.scripting.venv_diagnostics._probe_vision_packages", return_value=(vision_probes, None)),
         patch("plugin.scripting.venv_diagnostics._probe_vector_search_packages", return_value=({}, None)),
     ):
         ok, msg = run_venv_self_check("/x/python", timeout=1.0)
     assert ok is True
+    assert "Text / NLP Libraries" in msg
     assert "Vision Libraries" in msg
     assert "Vector Search Libraries" in msg
     assert "pip install" not in msg
@@ -318,6 +343,7 @@ def test_run_venv_self_check_includes_vector_search():
     }
     with (
         patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
+        patch("plugin.scripting.venv_diagnostics._probe_nlp_packages", return_value=({}, None)),
         patch("plugin.scripting.venv_diagnostics._probe_vision_packages", return_value=({}, None)),
         patch(
             "plugin.scripting.venv_diagnostics._probe_vector_search_packages",
@@ -339,6 +365,7 @@ def test_run_venv_self_check_uses_vision_probe_timeout():
     }
     with (
         patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
+        patch("plugin.scripting.venv_diagnostics._probe_nlp_packages", return_value=({}, None)),
         patch("plugin.scripting.venv_diagnostics._probe_vision_packages", return_value=({}, None)) as mock_vision_probe,
         patch("plugin.scripting.venv_diagnostics._probe_vector_search_packages", return_value=({}, None)),
     ):
@@ -354,6 +381,7 @@ def test_run_venv_self_check_uses_vector_search_probe_timeout():
     }
     with (
         patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
+        patch("plugin.scripting.venv_diagnostics._probe_nlp_packages", return_value=({}, None)),
         patch("plugin.scripting.venv_diagnostics._probe_vision_packages", return_value=({}, None)),
         patch("plugin.scripting.venv_diagnostics._probe_vector_search_packages", return_value=({}, None)) as mock_probe,
     ):
@@ -377,6 +405,7 @@ def test_probe_vision_packages_timeout_reports_failure():
     timeout_hint = "Vision probe timed out (Docling import can take 10–30s on first check)."
     with (
         patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
+        patch("plugin.scripting.venv_diagnostics._probe_nlp_packages", return_value=({}, None)),
         patch("plugin.scripting.venv_diagnostics._probe_vision_packages", return_value=({}, timeout_hint)),
         patch("plugin.scripting.venv_diagnostics._probe_vector_search_packages", return_value=({}, None)),
     ):
@@ -466,3 +495,70 @@ def test_format_self_check_success_no_analysis_hint_when_complete():
     assert "Helpers" not in msg
 
 
+def test_run_venv_self_check_default_uses_import_probe_timeout():
+    mock_mgr = MagicMock()
+    mock_mgr.execute.return_value = {
+        "status": "ok",
+        "result": {"v": "3.12.0", "p": {}, "sci": [], "eda": [], "ui": []},
+    }
+    with (
+        patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
+        patch("plugin.scripting.venv_diagnostics._probe_nlp_packages", return_value=({}, None)),
+        patch("plugin.scripting.venv_diagnostics._probe_vision_packages", return_value=({}, None)),
+        patch("plugin.scripting.venv_diagnostics._probe_vector_search_packages", return_value=({}, None)),
+    ):
+        run_venv_self_check("/x/python")
+    mock_mgr.execute.assert_called_once()
+    assert mock_mgr.execute.call_args.kwargs["timeout_sec"] == SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC
+
+
+def test_run_venv_self_check_batch_path_reports_duckdb():
+    mock_mgr = MagicMock()
+    mock_mgr.execute.return_value = {
+        "status": "ok",
+        "result": {
+            "v": "3.12.0",
+            "p": {"pint": "present", "duckdb": None},
+            "sci": [],
+            "eda": [],
+            "ui": [],
+            "data_eng": ["pint", "duckdb"],
+        },
+    }
+    with (
+        patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
+        patch("plugin.scripting.venv_diagnostics._probe_nlp_packages", return_value=({}, None)),
+        patch("plugin.scripting.venv_diagnostics._probe_vision_packages", return_value=({}, None)),
+        patch("plugin.scripting.venv_diagnostics._probe_vector_search_packages", return_value=({}, None)),
+    ):
+        ok, msg = run_venv_self_check("/x/python")
+    assert ok is True
+    assert "Data Engineering Libraries: pint" in msg
+    assert "duckdb" in msg
+
+
+def test_probe_nlp_packages_subprocess_timeout():
+    with patch(
+        "plugin.scripting.venv_diagnostics.subprocess.run",
+        side_effect=subprocess.TimeoutExpired(cmd=["python"], timeout=30),
+    ):
+        probes, hint = _probe_nlp_packages("/x/python", timeout=30.0)
+    assert probes == {}
+    assert hint is not None
+    assert "timed out" in hint.lower()
+
+
+def test_run_venv_self_check_uses_nlp_probe_timeout():
+    mock_mgr = MagicMock()
+    mock_mgr.execute.return_value = {
+        "status": "ok",
+        "result": {"v": "3.12.0", "p": {}, "sci": [], "eda": [], "ui": []},
+    }
+    with (
+        patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
+        patch("plugin.scripting.venv_diagnostics._probe_nlp_packages", return_value=({}, None)) as mock_nlp_probe,
+        patch("plugin.scripting.venv_diagnostics._probe_vision_packages", return_value=({}, None)),
+        patch("plugin.scripting.venv_diagnostics._probe_vector_search_packages", return_value=({}, None)),
+    ):
+        run_venv_self_check("/x/python", timeout=1.0)
+    mock_nlp_probe.assert_called_once_with("/x/python", timeout=float(SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC))

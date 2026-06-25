@@ -36,6 +36,9 @@ def long_trusted_worker_timeout_sec(_ctx: Any | None = None) -> int:
     del _ctx
     return LONG_TRUSTED_WORKER_TIMEOUT_SEC
 
+# Settings → Python Test: per-package sandbox import probe (independent of scripting.python_exec_timeout).
+SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC = 30
+
 # Settings → Python Test: host subprocess import probe (Docling cold import can exceed 5s).
 VISION_PROBE_TIMEOUT_SEC = 30
 

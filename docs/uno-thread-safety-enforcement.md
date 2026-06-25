@@ -136,8 +136,10 @@ worker aborts at the call site with a stack trace in non-release builds (guard o
 by default). **Release OXT bundles replace this module with a no-op stub** so
 production pays nothing. Opt out in dev: `WRITERAGENT_UNO_THREAD_GUARD=0`.
 
-When the guard is on, violations also **log at ERROR** and post a **modal error
-message box** on the LibreOffice main thread (via `post_to_main_thread` → `msgbox`),
+When the guard is on, violations also **log at ERROR** and show a **modal error
+message box** on the LibreOffice main thread (via blocking `execute_on_main_thread`
+→ `msgbox`; `post_to_main_thread` must not inline on workers when AsyncCallback
+is missing),
 deduped to once per background thread so the viral proxy cannot spam dialogs. UI is
 skipped under `WRITERAGENT_TESTING=1` so pytest and the native test runner stay
 headless.

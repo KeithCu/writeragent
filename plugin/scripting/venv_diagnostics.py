@@ -16,7 +16,11 @@ import subprocess
 from typing import Any, Callable, Optional, Tuple
 
 from plugin.framework.i18n import _
-from plugin.scripting.config_limits import VECTOR_SEARCH_PROBE_TIMEOUT_SEC, VISION_PROBE_TIMEOUT_SEC
+from plugin.scripting.config_limits import (
+    SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC,
+    VECTOR_SEARCH_PROBE_TIMEOUT_SEC,
+    VISION_PROBE_TIMEOUT_SEC,
+)
 from plugin.scripting.sandbox import resolve_libreoffice_python, resolve_venv_python, scrub_subprocess_env
 
 log = logging.getLogger(__name__)
@@ -33,8 +37,7 @@ cas = ['sympy']
 viz = ['matplotlib', 'seaborn']
 ui = ['webview', 'jedi', 'PyQt6', 'PyQt6.QtWebEngineWidgets', 'qtpy']
 quant = ['yfinance', 'pandas_ta', 'quantstats', 'pypfopt']
-data_eng = ['pint']
-nlp = ['spacy', 'textdescriptives', 'transformers']
+data_eng = ['pint', 'duckdb']
 res['sci'] = sci
 res['eda'] = eda
 res['cas'] = cas
@@ -42,7 +45,6 @@ res['viz'] = viz
 res['ui'] = ui
 res['quant'] = quant
 res['data_eng'] = data_eng
-res['nlp'] = nlp
 
 # Check for Cython accelerator
 try:
@@ -173,22 +175,10 @@ except ImportError:
     res['p']['pint'] = None
 
 try:
-    import spacy
-    res['p']['spacy'] = 'present'
+    import duckdb
+    res['p']['duckdb'] = 'present'
 except ImportError:
-    res['p']['spacy'] = None
-
-try:
-    import textdescriptives
-    res['p']['textdescriptives'] = 'present'
-except ImportError:
-    res['p']['textdescriptives'] = None
-
-try:
-    import transformers
-    res['p']['transformers'] = 'present'
-except ImportError:
-    res['p']['transformers'] = None
+    res['p']['duckdb'] = None
 
 result = res
 """
@@ -211,6 +201,31 @@ _VISION_PADDLE_FALLBACK_CMD = "uv pip install paddleocr paddlepaddle numpy"
 _VIZ_INSTALL_CMD = "uv pip install matplotlib seaborn"
 _SYMBOLIC_INSTALL_CMD = "uv pip install sympy"
 _TEXT_ANALYTICS_INSTALL_CMD = "uv pip install spacy textdescriptives transformers torch --index-url https://download.pytorch.org/whl/cpu && python -m spacy download xx_sent_ud_sm"
+_NLP_PACKAGE_KEYS = ("spacy", "textdescriptives", "transformers")
+_NLP_PROBE_SCRIPT = """
+import json
+out = {}
+try:
+    import spacy  # noqa: F401
+    out["spacy"] = "present"
+except Exception:
+    out["spacy"] = None
+try:
+    import textdescriptives  # noqa: F401
+    out["textdescriptives"] = "present"
+except Exception:
+    out["textdescriptives"] = None
+try:
+    import transformers  # noqa: F401
+    out["transformers"] = "present"
+except Exception:
+    out["transformers"] = None
+print(json.dumps(out))
+"""
+_NLP_PROBE_TIMEOUT_HINT = _(
+    "Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s on first check)."
+)
+_NLP_PROBE_FAILED_HINT = _("Text/NLP probe failed (see writeragent_debug.log).")
 _VISION_PROBE_SCRIPT = """
 import json
 out = {}
@@ -354,6 +369,38 @@ _VECTOR_SEARCH_PROBE_TIMEOUT_HINT = _(
 _VECTOR_SEARCH_PROBE_FAILED_HINT = _("Vector Search probe failed (see writeragent_debug.log).")
 
 
+def _probe_nlp_packages(
+    python_exe: str,
+    timeout: float = SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC,
+) -> Tuple[dict[str, Any], Optional[str]]:
+    """Import-check Text/NLP stack in the real venv interpreter (not the sandboxed warm worker)."""
+    try:
+        proc = subprocess.run(
+            [python_exe, "-c", _NLP_PROBE_SCRIPT],
+            capture_output=True,
+            text=True,
+            timeout=max(1.0, timeout),
+            env=scrub_subprocess_env(dict(os.environ)),
+        )
+    except subprocess.TimeoutExpired:
+        return {}, _NLP_PROBE_TIMEOUT_HINT
+    except OSError as exc:
+        log.warning("Text/NLP package probe could not run: %s", exc)
+        return {}, _NLP_PROBE_FAILED_HINT
+    if proc.returncode != 0:
+        stderr = (proc.stderr or "").strip()[:200]
+        log.warning("Text/NLP package probe exit %s: %s", proc.returncode, stderr)
+        return {}, _NLP_PROBE_FAILED_HINT
+    try:
+        parsed = json.loads((proc.stdout or "").strip() or "{}")
+    except json.JSONDecodeError:
+        log.warning("Text/NLP package probe returned invalid JSON: %r", (proc.stdout or "")[:200])
+        return {}, _NLP_PROBE_FAILED_HINT
+    if not isinstance(parsed, dict):
+        return {}, _NLP_PROBE_FAILED_HINT
+    return parsed, None
+
+
 def _probe_vector_search_packages(
     python_exe: str,
     timeout: float = VECTOR_SEARCH_PROBE_TIMEOUT_SEC,
@@ -418,7 +465,7 @@ def _probe_vision_packages(
     return parsed, None
 
 
-_SELF_CHECK_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
+_SANDBOX_SELF_CHECK_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Scientific Libraries", ("numpy", "pandas", "scipy", "sklearn", "matplotlib", "sympy")),
     ("Data Analysis / EDA Libraries", ("data_profiling", "statsmodels", "pandas_montecarlo")),
     ("UI / Monaco Libraries", ("webview", "jedi", "PyQt6", "PyQt6.QtWebEngineWidgets", "qtpy")),
@@ -426,10 +473,13 @@ _SELF_CHECK_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Computer Algebra", ("sympy",)),
     ("Quantitative Finance Libraries", ("yfinance", "pandas_ta", "quantstats", "pypfopt")),
     ("Data Engineering Libraries", ("pint", "duckdb")),
-    ("Text / NLP Libraries", ("spacy", "textdescriptives", "transformers")),
 )
 
-_ALLOWED_PROBE_MODULES = frozenset(pkg for _title, pkgs in _SELF_CHECK_GROUPS for pkg in pkgs)
+# Display order includes NLP (probed via subprocess, not the sandbox worker loop).
+_SELF_CHECK_SANDBOX_GROUP_COUNT = len(_SANDBOX_SELF_CHECK_GROUPS)
+_SELF_CHECK_DISPLAY_GROUP_COUNT = _SELF_CHECK_SANDBOX_GROUP_COUNT + 1  # + Text / NLP
+
+_ALLOWED_PROBE_MODULES = frozenset(pkg for _title, pkgs in _SANDBOX_SELF_CHECK_GROUPS for pkg in pkgs)
 
 _VERSION_PROBE_SCRIPT = """
 import platform
@@ -515,6 +565,10 @@ def _build_probe_display(
             continue
         if idx < completed_groups:
             msg_lines.extend(_format_group_lines(title, keys, packages))
+            if title == _("Text / NLP Libraries"):
+                nlp_failure = data.get("nlp_probe_failure")
+                if nlp_failure:
+                    msg_lines.append(f"  {nlp_failure}")
         elif idx == completed_groups and partial_group_keys and partial_group_title:
             msg_lines.extend(_format_group_lines(partial_group_title, partial_group_keys, packages))
         elif include_vision and title == _("Vision Libraries"):
@@ -528,6 +582,12 @@ def _build_probe_display(
             if vector_search_failure:
                 msg_lines.append(f"  {vector_search_failure}")
 
+    probe_warnings = data.get("probe_warnings")
+    if isinstance(probe_warnings, list):
+        for warning in probe_warnings:
+            if warning:
+                msg_lines.append(f"\nWarning: {warning}")
+
     return "\n".join(msg_lines)
 
 
@@ -535,10 +595,11 @@ def _format_self_check_success(data: dict[str, Any]) -> str:
     data = dict(data)
     data.setdefault("vector_search", list(_VECTOR_SEARCH_PACKAGE_KEYS))
     data.setdefault("vision", list(_VISION_PACKAGE_KEYS))
-    data.setdefault("nlp", ("spacy", "textdescriptives", "transformers"))
+    data.setdefault("nlp", list(_NLP_PACKAGE_KEYS))
+    data.setdefault("data_eng", list(_SANDBOX_SELF_CHECK_GROUPS[6][1]))
     return _build_probe_display(
         data,
-        completed_groups=len(_SELF_CHECK_GROUPS),
+        completed_groups=_SELF_CHECK_DISPLAY_GROUP_COUNT,
         include_vector_search=True,
         include_vision=True,
     )
@@ -547,15 +608,15 @@ def _format_self_check_success(data: dict[str, Any]) -> str:
 def run_venv_self_check_with_progress(
     python_exe: str,
     on_display: Callable[[str], None],
-    timeout: float = 10.0,
+    timeout: float | None = None,
     on_status: Callable[[str], None] | None = None,
     extra_lines_after_header: tuple[str, ...] | None = None,
 ) -> Tuple[bool, str]:
     """Like :func:`run_venv_self_check` but refreshes the legacy grouped view through *on_display*."""
     from plugin.scripting.venv_worker import PythonWorkerManager
 
-    timeout_sec = max(1, int(timeout))
-    per_pkg_timeout = max(3, min(30, timeout_sec))
+    del timeout  # Per-import probes use SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC, not scripting.python_exec_timeout.
+    per_pkg_timeout = SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC
 
     def _status(text: str) -> None:
         if on_status is not None:
@@ -581,6 +642,11 @@ def run_venv_self_check_with_progress(
                 include_vision=include_vision,
             )
         )
+
+    def _record_probe_warning(data: dict[str, Any], pkg: str, message: str) -> None:
+        warnings = data.setdefault("probe_warnings", [])
+        if isinstance(warnings, list):
+            warnings.append(f"{pkg}: {message}")
 
     _status(_("Starting Python worker..."))
     try:
@@ -608,17 +674,18 @@ def run_venv_self_check_with_progress(
         "v": version_data.get("v", "unknown"),
         "arch": version_data.get("arch", ""),
         "p": {},
-        "sci": list(_SELF_CHECK_GROUPS[0][1]),
-        "eda": list(_SELF_CHECK_GROUPS[1][1]),
-        "ui": list(_SELF_CHECK_GROUPS[2][1]),
-        "viz": list(_SELF_CHECK_GROUPS[3][1]),
-        "cas": list(_SELF_CHECK_GROUPS[4][1]),
-        "quant": list(_SELF_CHECK_GROUPS[5][1]),
-        "data_eng": list(_SELF_CHECK_GROUPS[6][1]),
+        "sci": list(_SANDBOX_SELF_CHECK_GROUPS[0][1]),
+        "eda": list(_SANDBOX_SELF_CHECK_GROUPS[1][1]),
+        "ui": list(_SANDBOX_SELF_CHECK_GROUPS[2][1]),
+        "viz": list(_SANDBOX_SELF_CHECK_GROUPS[3][1]),
+        "cas": list(_SANDBOX_SELF_CHECK_GROUPS[4][1]),
+        "quant": list(_SANDBOX_SELF_CHECK_GROUPS[5][1]),
+        "data_eng": list(_SANDBOX_SELF_CHECK_GROUPS[6][1]),
+        "nlp": list(_NLP_PACKAGE_KEYS),
     }
     _refresh(data)
 
-    for group_index, (group_title, packages) in enumerate(_SELF_CHECK_GROUPS):
+    for group_index, (group_title, packages) in enumerate(_SANDBOX_SELF_CHECK_GROUPS):
         checked: list[str] = []
         for pkg in packages:
             _status(f"{group_title}: {pkg}")
@@ -628,7 +695,17 @@ def run_venv_self_check_with_progress(
                 return False, f"Could not run Python: {e}"
             if pkg_resp.get("status") != "ok":
                 msg = str(pkg_resp.get("message", "Unknown error"))
-                return False, msg
+                log.warning("Package probe failed for %s: %s", pkg, msg)
+                _record_probe_warning(data, pkg, msg)
+                data["p"][pkg] = None
+                checked.append(pkg)
+                _refresh(
+                    data,
+                    completed_groups=group_index,
+                    partial_group_keys=tuple(checked),
+                    partial_group_title=group_title,
+                )
+                continue
             present = pkg_resp.get("result") == "present"
             data["p"][pkg] = "present" if present else None
             checked.append(pkg)
@@ -639,6 +716,18 @@ def run_venv_self_check_with_progress(
                 partial_group_title=group_title,
             )
         _refresh(data, completed_groups=group_index + 1)
+
+    _status(_("Text / NLP Libraries: loading (first run may take a while)..."))
+    nlp_probes, nlp_failure = _probe_nlp_packages(
+        python_exe,
+        timeout=float(SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC),
+    )
+    packages = data.setdefault("p", {})
+    if isinstance(packages, dict) and nlp_probes:
+        packages.update(nlp_probes)
+    if nlp_failure:
+        data["nlp_probe_failure"] = nlp_failure
+    _refresh(data, completed_groups=_SELF_CHECK_DISPLAY_GROUP_COUNT)
 
     _status(_("Vision Libraries: loading (first run may take a while)..."))
     vision_probes, vision_failure = _probe_vision_packages(
@@ -651,7 +740,7 @@ def run_venv_self_check_with_progress(
     data["vision"] = list(_VISION_PACKAGE_KEYS)
     if vision_failure:
         data["vision_probe_failure"] = vision_failure
-    _refresh(data, completed_groups=len(_SELF_CHECK_GROUPS), include_vision=True)
+    _refresh(data, completed_groups=_SELF_CHECK_DISPLAY_GROUP_COUNT, include_vision=True)
 
     _status(_("Vector Search Libraries: loading (first run may take a while)..."))
     vector_search_probes, vector_search_failure = _probe_vector_search_packages(
@@ -666,7 +755,7 @@ def run_venv_self_check_with_progress(
         data["vector_search_probe_failure"] = vector_search_failure
     _refresh(
         data,
-        completed_groups=len(_SELF_CHECK_GROUPS),
+        completed_groups=_SELF_CHECK_DISPLAY_GROUP_COUNT,
         include_vector_search=True,
         include_vision=True,
     )
@@ -674,7 +763,7 @@ def run_venv_self_check_with_progress(
     try:
         final_msg = _build_probe_display(
             data,
-            completed_groups=len(_SELF_CHECK_GROUPS),
+            completed_groups=_SELF_CHECK_DISPLAY_GROUP_COUNT,
             include_vector_search=True,
             include_vision=True,
             extra_lines_after_header=extra_lines_after_header,
@@ -685,11 +774,11 @@ def run_venv_self_check_with_progress(
         return False, f"Failed to parse diagnostic output: {e}\nRaw output: {data!r}"
 
 
-def run_venv_self_check(python_exe: str, timeout: float = 10.0) -> Tuple[bool, str]:
+def run_venv_self_check(python_exe: str, timeout: float | None = None) -> Tuple[bool, str]:
     """Run a diagnostic script via the warm worker; return (success, user-facing message)."""
     from plugin.scripting.venv_worker import PythonWorkerManager
 
-    timeout_sec = max(1, int(timeout))
+    timeout_sec = SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC if timeout is None else max(1, int(timeout))
     try:
         manager = PythonWorkerManager.get(python_exe, scrub_subprocess_env(dict(os.environ)))
         response = manager.execute(_DIAGNOSTIC_SCRIPT, timeout_sec=timeout_sec)
@@ -705,6 +794,17 @@ def run_venv_self_check(python_exe: str, timeout: float = 10.0) -> Tuple[bool, s
     data = response.get("result")
     if not isinstance(data, dict):
         return False, f"Unexpected output from test run: {data!r}"
+
+    nlp_probes, nlp_failure = _probe_nlp_packages(
+        python_exe,
+        timeout=float(SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC),
+    )
+    packages = data.setdefault("p", {})
+    if isinstance(packages, dict) and nlp_probes:
+        packages.update(nlp_probes)
+    data["nlp"] = list(_NLP_PACKAGE_KEYS)
+    if nlp_failure:
+        data["nlp_probe_failure"] = nlp_failure
 
     vision_probes, vision_failure = _probe_vision_packages(
         python_exe,
@@ -734,7 +834,7 @@ def run_venv_self_check(python_exe: str, timeout: float = 10.0) -> Tuple[bool, s
         return False, f"Failed to parse diagnostic output: {e}\nRaw output: {data!r}"
 
 
-def probe_venv_path(venv_dir: str, timeout: float = 10.0) -> Tuple[bool, str]:
+def probe_venv_path(venv_dir: str, timeout: float | None = None) -> Tuple[bool, str]:
     """Resolve *venv_dir* and run a self-check; single entry for UI and tests."""
     if not venv_dir or not str(venv_dir).strip():
         exe = resolve_libreoffice_python()
@@ -761,7 +861,7 @@ def probe_venv_path(venv_dir: str, timeout: float = 10.0) -> Tuple[bool, str]:
 def probe_venv_path_with_progress(
     venv_dir: str,
     on_display: Callable[[str], None],
-    timeout: float = 10.0,
+    timeout: float | None = None,
     on_status: Callable[[str], None] | None = None,
     extra_lines_after_header: tuple[str, ...] | None = None,
 ) -> Tuple[bool, str]:
