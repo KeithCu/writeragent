@@ -373,7 +373,9 @@ In both direct modes the specialized tools are invoked **by name** — which alr
 
 The direct modes **add** direct access; they don't remove delegation. The `delegate_to_specialized_*` gateway stays listed in every mode (it is core-tier), so a client can still delegate if it prefers — this is intentional, the direct modes are additive.
 
-`find_tools(query, domain?)` (advertised only in `direct_discovery`) ranks the hidden catalog with a pure-Python lexical ranker (BM25-lite + substring bonus; no venv/embeddings) and returns ready-to-call schemas plus per-domain usage guidance. It is document-optional (discovery works with no document open; with no document the per-domain guidance is app-neutral) and is rejected by name in the other modes.
+`find_tools(domain?)` (advertised only in `direct_discovery`) returns the same specialized domain catalog as the delegate gateway, then lists every tool schema in a chosen domain. Workflow: `find_tools()` → pick a domain → `find_tools(domain=…)` → `tools/call` by name. It is document-optional (with no document the catalog merges all apps) and is rejected by name in the other modes.
+
+> **Vision tools:** The delegate gateway omits the `vision` domain when the vision venv is not configured ([`vision_venv_configured`](plugin/vision/vision_availability.py)). MCP `tools/list` and `find_tools` do not pass `ctx` into registry filtering, so `direct_flat` may still advertise vision specialized tools when the venv is missing; `tools/call` will fail at runtime. Configure the vision venv or use `delegate` mode if you rely on OCR tools.
 
 > Note: with **no document open** and no `X-Document-URL`, `direct_flat` can't filter by document type, so it lists the **broad** tool catalog (core + specialized, all apps); once a document is active or targeted the list narrows to that app's tools. An `X-Document-URL` that doesn't resolve keeps the normal filtered list (and `tools/call` returns `DOCUMENT_NOT_FOUND`). `delegate` and `direct_discovery` keep the normal document-filtered list (in `direct_discovery`, `find_tools` covers the full no-document catalog on demand).
 

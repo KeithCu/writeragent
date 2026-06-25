@@ -622,27 +622,76 @@ def get_writer_eval_chat_system_prompt() -> str:
 # - For simple, one-off edits, you may skip the todo tool and act directly.
 
 
-def _get_specialized_domains_str(base_cls, *, agent_label: str | None = None, ctx=None) -> str:
-    """Build a compact domain list for delegation hints and MCP schemas."""
-    parts = []
+def _catalog_entries_from_base(base_cls, *, agent_label: str | None = None, ctx=None) -> list[dict[str, str]]:
+    """Build ``[{domain, description}, …]`` for one specialized base class (delegate/MCP catalog)."""
+    entries: list[dict[str, str]] = []
     for cls in base_cls.__subclasses__():
         domain = getattr(cls, "specialized_domain", None)
         desc = getattr(cls, "specialized_domain_description", None)
-        if domain:
-            if agent_label == "Calc" and domain == "python":
-                continue
-            if agent_label == "Writer" and domain in WRITER_SIDEBAR_ONLY_DOMAINS:
-                continue
-            if domain == "vision" and ctx is not None:
-                from plugin.vision.vision_availability import vision_venv_configured
+        if not domain:
+            continue
+        if agent_label == "Calc" and domain == "python":
+            continue
+        if agent_label == "Writer" and domain in WRITER_SIDEBAR_ONLY_DOMAINS:
+            continue
+        if domain == "vision" and ctx is not None:
+            from plugin.vision.vision_availability import vision_venv_configured
 
-                if not vision_venv_configured(ctx):
-                    continue
-            if desc:
-                parts.append(f"{domain}: {desc}")
-            else:
-                parts.append(domain)
-    return "; ".join(sorted(parts))
+            if not vision_venv_configured(ctx):
+                continue
+        entries.append({"domain": str(domain), "description": str(desc or "")})
+    return entries
+
+
+def get_specialized_domain_catalog(*, agent_label: str | None, ctx=None) -> list[dict[str, str]]:
+    """Full specialized domain catalog — same entries as sidebar/delegate domain hints.
+
+    ``agent_label`` is ``Writer`` / ``Calc`` / ``Draw`` for one app, or ``None`` to merge
+    all three (e.g. MCP ``find_tools`` with no document open).
+    """
+    if agent_label == "Calc":
+        from plugin.calc.base import ToolCalcSpecialBase
+
+        entries = _catalog_entries_from_base(ToolCalcSpecialBase, agent_label="Calc", ctx=ctx)
+    elif agent_label == "Draw":
+        from plugin.draw.base import ToolDrawSpecialBase
+
+        entries = _catalog_entries_from_base(ToolDrawSpecialBase, agent_label="Draw", ctx=ctx)
+    elif agent_label == "Writer":
+        from plugin.writer.specialized_base import ToolWriterSpecialBase
+
+        entries = _catalog_entries_from_base(ToolWriterSpecialBase, agent_label="Writer", ctx=ctx)
+    else:
+        from plugin.calc.base import ToolCalcSpecialBase
+        from plugin.draw.base import ToolDrawSpecialBase
+        from plugin.writer.specialized_base import ToolWriterSpecialBase
+
+        seen: dict[str, str] = {}
+        for base, label in (
+            (ToolWriterSpecialBase, "Writer"),
+            (ToolCalcSpecialBase, "Calc"),
+            (ToolDrawSpecialBase, "Draw"),
+        ):
+            for entry in _catalog_entries_from_base(base, agent_label=label, ctx=ctx):
+                dom = entry["domain"]
+                desc = entry["description"]
+                if dom not in seen or len(desc) > len(seen[dom]):
+                    seen[dom] = desc
+        return [{"domain": dom, "description": seen[dom]} for dom in sorted(seen)]
+    entries.sort(key=lambda e: e["domain"])
+    return entries
+
+
+def _get_specialized_domains_str(base_cls, *, agent_label: str | None = None, ctx=None) -> str:
+    """Build a compact domain list for delegation hints and MCP schemas."""
+    parts = []
+    for entry in sorted(_catalog_entries_from_base(base_cls, agent_label=agent_label, ctx=ctx),
+                        key=lambda e: e["domain"]):
+        if entry["description"]:
+            parts.append(f"{entry['domain']}: {entry['description']}")
+        else:
+            parts.append(entry["domain"])
+    return "; ".join(parts)
 
 
 def _specialized_delegation_template_for_label(agent_label: str) -> str:

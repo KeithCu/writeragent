@@ -427,14 +427,32 @@ class MCPProtocolHandler:
 
     def _mcp_initialize(self, params):
         client_version = params.get("protocolVersion", MCP_PROTOCOL_VERSION)
+        base = (
+            "WriterAgent MCP — AI document workspace. WORKFLOW: 1) Use tools to interact with LibreOffice documents. "
+            "2) Tools are filtered by document type (writer/calc/draw). 3) All UNO operations run on the main thread for thread safety."
+        )
+        mode = self._tool_exposure_mode()
+        if mode == "direct_flat":
+            mode_hint = (
+                " Specialized tools are listed directly in tools/list; call them by name. "
+                "No WriterAgent LLM endpoint is required."
+            )
+        elif mode == "direct_discovery":
+            mode_hint = (
+                " Call find_tools with no arguments for the full specialized domain catalog, "
+                "then find_tools(domain=…) for tool schemas in that area; call tools by name. "
+                "No WriterAgent LLM endpoint is required."
+            )
+        else:
+            mode_hint = (
+                " For specialized capabilities, call delegate_to_specialized_*_toolset with domain and task "
+                "(requires a WriterAgent chat endpoint for the inner agent)."
+            )
         return wire_types.initialize_result(
             protocol_version=MCP_PROTOCOL_VERSION,
             client_protocol_version=client_version,
             server_version=self.version,
-            instructions=(
-                "WriterAgent MCP — AI document workspace. WORKFLOW: 1) Use tools to interact with LibreOffice documents. "
-                "2) Tools are filtered by document type (writer/calc/draw). 3) All UNO operations run on the main thread for thread safety."
-            ),
+            instructions=base + mode_hint,
         )
 
     def _mcp_ping(self, params):
@@ -458,6 +476,11 @@ class MCPProtocolHandler:
         doc = self.queue_executor.execute(_get_doc, timeout=10.0)
 
         mode = self._tool_exposure_mode()
+        # Direct modes (direct_flat / direct_discovery) intentionally skip the delegate
+        # sub-agent so MCP hosts work without a WriterAgent LLM endpoint configured.
+        # The host model orchestrates specialized tools itself. Future enhancement:
+        # optional live context injection (Calc snapshot, shapes canvas, open-docs list)
+        # like specialized_base.py does for delegated runs.
         # direct_flat advertises the specialized tools directly (control tools stay hidden --
         # they only make sense inside an active delegated domain). Every other mode keeps
         # today's core-only list (specialized tools are still callable by name -- via the
