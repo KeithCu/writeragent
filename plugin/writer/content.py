@@ -864,9 +864,11 @@ class ApplyDocumentContent(ToolBase):
         """Config read without a tool context, for long_running/is_async (called by the
         MCP/chat shells before execute). False whenever the context isn't available."""
         try:
+            from plugin.framework.thread_guard import on_main_thread
             from plugin.framework.uno_context import get_ctx
 
-            return self._review_wait_seconds(get_ctx()) > 0
+            ctx = get_ctx() if on_main_thread() else None
+            return self._review_wait_seconds(ctx) > 0
         except Exception:
             return False
 

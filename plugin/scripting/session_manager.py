@@ -86,6 +86,12 @@ def calc_init_session_id(doc: Any) -> str:
 
 def workbook_session_id(ctx: Any) -> str | None:
     """Return ``calc:…`` session id when shared mode and active doc is Calc, else ``None``."""
+    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.queue_executor import execute_on_main_thread
+
+    if not on_main_thread():
+        return execute_on_main_thread(workbook_session_id, ctx)
+
     if python_session_mode(ctx) != "shared":
         return None
     doc = _calc_document(ctx)

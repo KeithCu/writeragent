@@ -285,6 +285,12 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
     def _on_config_changed(self, **kwargs):
         """Event bus listener for config changes."""
+        from plugin.framework.thread_guard import on_main_thread
+        from plugin.framework.queue_executor import post_to_main_thread
+
+        if not on_main_thread():
+            post_to_main_thread(self._refresh_controls_from_config)
+            return
         self._refresh_controls_from_config()
 
     def getRealInterface(self) -> XInterface:  # pyright: ignore[reportIncompatibleMethodOverride]

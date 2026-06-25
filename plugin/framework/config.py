@@ -202,8 +202,14 @@ def _is_lru_list_config_key(key: str) -> bool:
     return False
 
 
+_resolved_config_path = None
+
+
 def _config_path(ctx):
     """Return the absolute path to writeragent.json."""
+    global _resolved_config_path
+    if _resolved_config_path is not None:
+        return _resolved_config_path
     if ctx is None:
         raise ConfigError("UNO context is required to resolve config path")
     try:
@@ -212,9 +218,11 @@ def _config_path(ctx):
         user_config_path = getattr(path_settings, "UserConfig", "")
         if uno and user_config_path and str(user_config_path).startswith("file://"):
             user_config_path = str(uno.fileUrlToSystemPath(user_config_path))
-        return os.path.join(user_config_path, CONFIG_FILENAME)
+        _resolved_config_path = os.path.join(user_config_path, CONFIG_FILENAME)
+        return _resolved_config_path
     except Exception as e:
         raise ConfigError(f"Failed to resolve config path: {e}", "CONFIG_PATH_ERROR") from e
+
 
 
 def user_config_dir(ctx):

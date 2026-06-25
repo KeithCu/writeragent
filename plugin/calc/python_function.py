@@ -145,6 +145,12 @@ def _get_calc_doc(ctx: Any) -> Any | None:
 
 
 def session_key(ctx: Any, code: str) -> tuple:
+    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.queue_executor import execute_on_main_thread
+
+    if not on_main_thread():
+        return execute_on_main_thread(session_key, ctx, code)
+
     doc_url = ""
     sheet_name = ""
     try:
@@ -516,6 +522,19 @@ def _code_uses_indexed_multi_data(code: str) -> bool:
     return "data[" in (code or "")
 
 
+def get_python_init_kwargs(ctx: Any) -> dict[str, Any]:
+    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.queue_executor import execute_on_main_thread
+
+    if not on_main_thread():
+        return execute_on_main_thread(get_python_init_kwargs, ctx)
+
+    doc = get_calc_document_from_ctx(ctx)
+    if doc is not None:
+        return build_python_eval_init_kwargs(doc)
+    return {}
+
+
 def execute_python_addin(
     ctx: Any,
     code: str,
@@ -574,11 +593,7 @@ def execute_python_addin(
             res = {"status": "ok", "result": cached.raw}
         else:
             session_id = workbook_session_id(ctx)
-            init_kwargs: dict[str, Any] = {}
-            doc = get_calc_document_from_ctx(ctx)
-            if doc is not None:
-                # ensure_calc_workbook_unload_resets_python(ctx, doc)
-                init_kwargs = build_python_eval_init_kwargs(doc)
+            init_kwargs = get_python_init_kwargs(ctx)
             res = run_code_in_user_venv(
                 ctx,
                 code,

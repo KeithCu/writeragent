@@ -110,6 +110,7 @@ class ConfigService(ServiceBase):
     def get(self, key, default=None, caller_module=None):
         """Get a config value, fallback to defaults."""
         self._check_read_access(key, caller_module)
+        from plugin.framework.thread_guard import on_main_thread
 
         # Simple mapping: ai.<field> keys from the AI Options page should read
         # from the corresponding top-level settings so Tools → Options and the
@@ -119,13 +120,13 @@ class ConfigService(ServiceBase):
 
             # Internal mappings for missing AI_SIMPLE_FIELDS mapping if needed
             if field == "api_key":
-                ctx = get_ctx()
+                ctx = get_ctx() if on_main_thread() else None
                 endpoint = get_current_endpoint(ctx)
                 from plugin.framework.config import get_api_key_for_endpoint
                 return str(get_api_key_for_endpoint(ctx, endpoint) or "")
 
             if field in AI_SIMPLE_FIELDS:
-                ctx = get_ctx()
+                ctx = get_ctx() if on_main_thread() else None
                 if field == "endpoint":
                     return str(get_config(ctx, "endpoint") or "").strip()
 
@@ -147,7 +148,7 @@ class ConfigService(ServiceBase):
             except ConfigError as e:
                 log.debug("ConfigService.get ConfigError: %s", e)
 
-        ctx = get_ctx()
+        ctx = get_ctx() if on_main_thread() else None
         try:
             val = get_config(ctx, key)
             if val is not None and val != "":
