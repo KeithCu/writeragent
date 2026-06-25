@@ -88,6 +88,10 @@ _violation_ui_lock = threading.Lock()
 def _notify_thread_violation(msg: str) -> None:
     """Log and post a main-thread message box for guard-on violations (dev only)."""
     log.error(msg, stack_info=True)
+    # Capture full stack trace for display
+    import traceback
+    stack_trace = "".join(traceback.format_stack())
+    full_msg = f"{msg}\n\nStack trace:\n{stack_trace}"
     if os.environ.get("WRITERAGENT_TESTING") == "1":
         return
     tid = threading.get_ident()
@@ -102,7 +106,7 @@ def _notify_thread_violation(msg: str) -> None:
             from plugin.chatbot.dialogs import msgbox
             from plugin.framework.i18n import _
 
-            msgbox(get_ctx(), _("UNO Thread Violation"), msg, box_type=3)
+            msgbox(get_ctx(), _("UNO Thread Violation"), full_msg, box_type=3)
         except Exception:
             log.exception("Failed to show thread violation message box")
 
