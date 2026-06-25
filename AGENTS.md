@@ -112,7 +112,7 @@ Area-specific rules live in module docstrings and topic docs — open those when
 
 - **Sidebar / chat / streaming:** Resolve document **frame-only** via `frame.getController().getModel()` ([`panel.py`](plugin/chatbot/panel.py)); stop/cancellation must use **`resolve_stop_checker()`**, not the panel flag alone. Prompt routing, modes, librarian, reasoning: [docs/chat-sidebar-implementation.md](docs/chat-sidebar-implementation.md). Streaming, stop scope, worker threads: [docs/streaming-and-threading.md](docs/streaming-and-threading.md).
 - **Dialogs (XDL):** Load via `DialogProvider` + extension `base_url` — see module doc in [`plugin/chatbot/dialogs.py`](plugin/chatbot/dialogs.py). Settings UI: [`plugin/chatbot/dialog_views.py`](plugin/chatbot/dialog_views.py).
-- **Tools / Writer / Calc:** Resolve tools in tests via `plugin.main.get_tools().get("tool_name")`. Math/HTML import: [docs/math-tex.md](docs/math-tex.md). Grammar pipeline: [docs/realtime-grammar-checker-plan.md](docs/realtime-grammar-checker-plan.md). Calc specialized: [docs/calc-specialized-toolsets.md](docs/calc-specialized-toolsets.md). Python venv sandbox: [docs/enabling_numpy_in_libreoffice.md](docs/enabling_numpy_in_libreoffice.md).
+- **Tools / Writer / Calc:** Resolve tools in tests via `plugin.main.get_tools().get("tool_name")`. Math/HTML import: [docs/math-tex.md](docs/math-tex.md). Grammar pipeline: [docs/realtime-grammar-checker-plan.md](docs/realtime-grammar-checker-plan.md). Calc specialized: [docs/calc-specialized-toolsets.md](docs/calc-specialized-toolsets.md). Python venv sandbox: [docs/enabling_numpy_in_libreoffice.md](docs/enabling_numpy_in_libreoffice.md); domain helpers: [docs/numpy-domains.md](docs/numpy-domains.md).
 - **Config:** `init_config(ctx)` once at bootstrap; all other I/O has no `ctx` — see module doc in [`plugin/framework/config.py`](plugin/framework/config.py).
 - **Logging / MCP:** Logs in `writeragent_debug.log` beside `writeragent.json`. Use **`log.exception("Context")`** in unexpected `except` blocks. MCP drains on main thread — [docs/mcp-protocol.md](docs/mcp-protocol.md). Images: [docs/image-generation.md](docs/image-generation.md). No env API keys in production; no **`tempfile.mktemp()`**.
 - **Tests / debug menus:** UNO tests via [`plugin/testing_runner.py`](plugin/testing_runner.py); debug menu suites run on the UI thread — [docs/test_architecture_analysis.md](docs/test_architecture_analysis.md).
@@ -140,6 +140,8 @@ Do not shadow **`logging`**, module **`log`**, or gettext **`_`**. UI modules im
 | Calc specialized | [docs/calc-specialized-toolsets.md](docs/calc-specialized-toolsets.md) |
 | Calc filters / formatting | [docs/calc-conditional-formatting.md](docs/calc-conditional-formatting.md), [docs/calc-sheet-filter.md](docs/calc-sheet-filter.md) |
 | Embeddings / folder FTS | [docs/embeddings.md](docs/embeddings.md) |
+| NumPy / Python venv bridge | [docs/enabling_numpy_in_libreoffice.md](docs/enabling_numpy_in_libreoffice.md), [docs/numpy-serialization.md](docs/numpy-serialization.md) |
+| NumPy domain helpers (Viz, Symbolic, Units, Text, …) | [docs/numpy-domains.md](docs/numpy-domains.md) |
 | Agent Search / Web | [docs/agent-search.md](docs/agent-search.md) |
 | MCP protocol | [docs/mcp-protocol.md](docs/mcp-protocol.md) |
 | Localization / translations / `make extract-strings` | [docs/localization.md](docs/localization.md), [locales/README.md](locales/README.md) |

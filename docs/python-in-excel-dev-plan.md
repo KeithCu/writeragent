@@ -67,7 +67,7 @@ Authoritative detail: [enabling_numpy §6 — Session modes and recalc semantics
 
 **Delegated to [Monaco dev plan](python-monaco-editor-dev-plan.md#8-next-development-plan-detailed):** 2B syntax validate, 2C range picker, 2D Jedi, 2E theme sync, 2F Flatpak spawn — do not duplicate here.
 
-**Phase 2 polish (optional, low priority):** plot anchor/z-order, replace-existing-chart, UNO e2e for `=PYTHON()` image insert — see [Visualization](enabling_numpy_in_libreoffice.md#visualization).
+**Phase 2 polish (optional, low priority):** plot anchor/z-order, replace-existing-chart, UNO e2e for `=PYTHON()` image insert — see [Visualization](numpy-domains.md#visualization).
 
 ---
 

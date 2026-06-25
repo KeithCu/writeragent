@@ -8,7 +8,7 @@ WriterAgent documents (Writer, Calc, Draw/Impress) embed raster images: scans, s
 
 **Phase 1 scope (Writer):** insert OCR **`html`** at the text cursor via [`insert_content_at_position`](../plugin/writer/format.py) (StarWriter HTML filter). **Phase 1b (Calc):** same HTML via [`insert_cell_html_rich`](../plugin/calc/rich_html.py) into the cell below the graphic anchor ([`plugin/calc/vision_egress.py`](../plugin/calc/vision_egress.py)). Draw/Impress → **Phase 1b.2**.
 
-**Related:** [Scientific Python / venv bridge](enabling_numpy_in_libreoffice.md) · [Analysis helpers UX (template)](calc-analysis-tools.md) · [Analysis sub-agent (dev-plan style)](analysis-sub-agent.md) · [Image generation (remote)](image-generation.md) · [LO-DOM for vector Draw content](lo-dom-semantic-tree.md) · [Embeddings index (text, not vision)](embeddings.md)
+**Related:** [Scientific Python / venv bridge](enabling_numpy_in_libreoffice.md) · [NumPy domain helpers](numpy-domains.md) · [Analysis helpers UX (template)](calc-analysis-tools.md) · [Analysis sub-agent (dev-plan style)](analysis-sub-agent.md) · [Image generation (remote)](image-generation.md) · [LO-DOM for vector Draw content](lo-dom-semantic-tree.md) · [Embeddings index (text, not vision)](embeddings.md)
 
 ---
 
@@ -717,6 +717,8 @@ User-visible strings (gettext-ready). Host may raise [`ToolExecutionError`](../p
 ---
 
 ## 13. Install, models, and self-check
+
+Venv package requirements for Vision Helpers are also summarized in the [domain package groups table](numpy-domains.md#planned-domain-package-groups). Trusted-code pattern (host stub → venv module): [enabling_numpy_in_libreoffice.md §5](enabling_numpy_in_libreoffice.md#trusted-extension-code-in-the-venv).
 
 ```bash
 pip install docling rapidocr-paddle numpy pillow

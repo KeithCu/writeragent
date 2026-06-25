@@ -2,7 +2,7 @@
 
 > **Status (2026-06):** **Shipped** — unified **`corpus.db`** + sqlite-vec (schema v3) with **hybrid FTS + semantic search** (RRF fusion). Default embedding model: **`paraphrase-multilingual-MiniLM-L12-v2`**. Cross-file search is **off by default**; enable **Embeddings + FTS** in **Settings → Vector Search**.
 
-**Related:** [enabling_numpy_in_libreoffice.md](enabling_numpy_in_libreoffice.md) · [multi-document-dev-plan.md](multi-document-dev-plan.md) · [cython-extension.md](cython-extension.md)
+**Related:** [enabling_numpy_in_libreoffice.md](enabling_numpy_in_libreoffice.md) · [numpy-domains.md](numpy-domains.md) · [multi-document-dev-plan.md](multi-document-dev-plan.md) · [cython-extension.md](cython-extension.md)
 
 ---
 
@@ -462,7 +462,18 @@ python scripts/dump_embeddings_cache.py --limit 20 --doc-url file:///path/to/doc
 .venv/bin/python scripts/index_embeddings_folder.py ~/Desktop/Writing
 ```
 
-### Venv diagnostics
+### Venv diagnostics {#embeddings-venv-packages}
+
+Per-folder semantic search runs in the user venv via trusted RPC modules. Settings → Python **Test** reports these under **Embeddings Libraries**:
+
+| Package | Install | Used by |
+|---------|---------|---------|
+| [sentence-transformers](https://www.sbert.net/) (`sentence_transformers`) + **numpy** | `uv pip install sentence-transformers numpy sqlite-vec langgraph langchain-core langchain-text-splitters envwrap odfpy pandas openpyxl xlrd python-docx` | Encode queries and corpus chunks; Office sibling extract |
+| [sqlite-vec](https://github.com/asg017/sqlite-vec) (`sqlite_vec`) | (same line) | vec0 KNN in unified `corpus.db` |
+| [LangGraph](https://github.com/langchain-ai/langgraph) + [langchain-core](https://github.com/langchain-ai/langchain) + [langchain-text-splitters](https://github.com/langchain-ai/langchain) | (same line) | Ingest/search graphs in trusted venv modules |
+| [envwrap](https://pypi.org/project/envwrap/) | (same line) | Transitive dependency for `sentence-transformers` / Hugging Face stack on some Python versions |
+
+Canonical install constant: `EMBEDDINGS_VENV_PIP_INSTALL` in [`embeddings_index.py`](../plugin/embeddings/venv/embeddings_index.py).
 
 Settings → **Python Test** and [`venv_diagnostics.py`](../plugin/scripting/venv_diagnostics.py) report `sqlite_vec`, `llama_index`, `zvec`, `lancedb` availability in the configured venv.
 
