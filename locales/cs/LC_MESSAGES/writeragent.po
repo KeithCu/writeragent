@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-24 13:51-0400\n"
+"POT-Creation-Date: 2026-06-25 08:30-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Czech <LL@li.org>\n"
@@ -274,6 +274,10 @@ msgstr "Poskytovatel AI nahlásil chybu. Zkuste to znovu."
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} nebyl nalezen: {identifier}"
 
+#: plugin/framework/thread_guard.py
+msgid "UNO Thread Violation"
+msgstr "Porušení vlákna UNO"
+
 #: plugin/framework/constants.py
 msgid ""
 "AI: I can edit or translate your document instantly with professional "
@@ -329,7 +333,7 @@ msgstr ""
 msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "Chyba HTTP {0} od poskytovatele AI: {1}"
 
-#: plugin/framework/client/errors.py plugin/calc/python_function.py
+#: plugin/framework/client/errors.py plugin/calc/python/function.py
 #: plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
@@ -347,17 +351,81 @@ msgstr ""
 "Model opakuje stejný úsek (nekonečná smyčka). Zkuste to znovu nebo použijte "
 "jiný model."
 
-#: plugin/calc/python_function.py
+#: plugin/calc/python/editor_context_menu.py plugin/main.py
+msgid "Edit Python in Cell..."
+msgstr "Upravit Python v buňce..."
+
+#: plugin/calc/python/editor.py
+msgid ""
+"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
+"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10) or =PYTHON(...)."
+msgstr ""
+"Nepodařilo se zachovat argumenty vzorce PYTHON této buňky (např. rozsahy "
+"dat). Upravte vzorec v aplikaci Calc nebo použijte citovaný řetězec kódu, "
+"jako je =PY(\"kód\"; A1:B10) nebo =PYTHON(...)."
+
+#: plugin/calc/python/editor.py
+msgid "Python cell editor"
+msgstr "Editor buněk Python"
+
+#: plugin/calc/python/editor.py
+msgid "Save as plain text"
+msgstr "Uložit jako prostý text"
+
+#: plugin/calc/python/editor.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Save"
+msgstr "Uložit"
+
+#: plugin/calc/python/editor.py
+msgid "The Python editor failed unexpectedly."
+msgstr "Editor Pythonu neočekávaně selhal."
+
+#: plugin/calc/python/editor.py
+msgid "Select a cell in a Calc spreadsheet to edit Python."
+msgstr "Pro úpravu Pythonu vyberte buňku v tabulkovém dokumentu Calc."
+
+#: plugin/calc/python/editor.py
+msgid ""
+"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
+"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
+"(or =PYTHON(...)) with quoted code."
+msgstr ""
+"Tento vzorec PYTHON používá formu, kterou editor nemůže bezpečně přepsat "
+"(např. kód v jiné buňce). Upravte jej v řádku vzorců nebo použijte "
+"=PY(\"kód\"; rozsah) (nebo =PYTHON(...)) s citovaným kódem."
+
+#: plugin/calc/python/editor.py
+msgid "No Python interpreter available for the editor."
+msgstr "Pro editor není k dispozici žádný interpret Pythonu."
+
+#: plugin/calc/python/editor.py
+#, python-format
+msgid ""
+"Cannot import webview (pywebview) with the Python from Settings → Python:\n"
+"%(exe)s\n"
+"\n"
+"In that venv run: uv pip install pywebview\n"
+"(import name is webview, package name is pywebview)."
+msgstr ""
+"Nelze importovat webview (pywebview) pomocí Pythonu z Nastavení → Python:\n"
+"%(exe)s\n"
+"\n"
+"V tomto virtuálním prostředí (venv) spusťte: uv pip install pywebview\n"
+"(název pro import je webview, název balíčku je pywebview)."
+
+#: plugin/calc/python/editor.py
+msgid "unknown error"
+msgstr "neznámá chyba"
+
+#: plugin/calc/python/function.py
 msgid "Image inserted"
 msgstr "Obrázek vložen"
 
-#: plugin/calc/python_function.py
+#: plugin/calc/python/function.py
 msgid "Images inserted"
 msgstr "Vložené obrázky"
-
-#: plugin/calc/python_editor_context_menu.py plugin/main.py
-msgid "Edit Python in Cell..."
-msgstr "Upravit Python v buňce..."
 
 #: plugin/calc/editselection.py plugin/writer/editselection.py
 msgid "Please enter edit instructions!"
@@ -389,70 +457,6 @@ msgid "No structured tables or text blocks to insert."
 msgstr ""
 "Nebyly nalezeny žádné strukturované tabulky ani textové bloky k vložení."
 
-#: plugin/calc/python_editor.py
-msgid ""
-"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10) or =PYTHON(...)."
-msgstr ""
-"Nepodařilo se zachovat argumenty vzorce PYTHON této buňky (např. rozsahy "
-"dat). Upravte vzorec v aplikaci Calc nebo použijte citovaný řetězec kódu, "
-"jako je =PY(\"kód\"; A1:B10) nebo =PYTHON(...)."
-
-#: plugin/calc/python_editor.py
-msgid "Python cell editor"
-msgstr "Editor buněk Python"
-
-#: plugin/calc/python_editor.py
-msgid "Save as plain text"
-msgstr "Uložit jako prostý text"
-
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
-#: plugin/xdl_strings.py
-msgid "Save"
-msgstr "Uložit"
-
-#: plugin/calc/python_editor.py
-msgid "The Python editor failed unexpectedly."
-msgstr "Editor Pythonu neočekávaně selhal."
-
-#: plugin/calc/python_editor.py
-msgid "Select a cell in a Calc spreadsheet to edit Python."
-msgstr "Pro úpravu Pythonu vyberte buňku v tabulkovém dokumentu Calc."
-
-#: plugin/calc/python_editor.py
-msgid ""
-"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
-"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
-"(or =PYTHON(...)) with quoted code."
-msgstr ""
-"Tento vzorec PYTHON používá formu, kterou editor nemůže bezpečně přepsat "
-"(např. kód v jiné buňce). Upravte jej v řádku vzorců nebo použijte "
-"=PY(\"kód\"; rozsah) (nebo =PYTHON(...)) s citovaným kódem."
-
-#: plugin/calc/python_editor.py
-msgid "No Python interpreter available for the editor."
-msgstr "Pro editor není k dispozici žádný interpret Pythonu."
-
-#: plugin/calc/python_editor.py
-#, python-format
-msgid ""
-"Cannot import webview (pywebview) with the Python from Settings → Python:\n"
-"%(exe)s\n"
-"\n"
-"In that venv run: uv pip install pywebview\n"
-"(import name is webview, package name is pywebview)."
-msgstr ""
-"Nelze importovat webview (pywebview) pomocí Pythonu z Nastavení → Python:\n"
-"%(exe)s\n"
-"\n"
-"V tomto virtuálním prostředí (venv) spusťte: uv pip install pywebview\n"
-"(název pro import je webview, název balíčku je pywebview)."
-
-#: plugin/calc/python_editor.py
-msgid "unknown error"
-msgstr "neznámá chyba"
-
 #: plugin/writer/change_context_menu.py
 msgid "Accept whole change (agent)"
 msgstr "Přijmout celou změnu (agent)"
@@ -460,14 +464,6 @@ msgstr "Přijmout celou změnu (agent)"
 #: plugin/writer/change_context_menu.py
 msgid "Reject whole change (agent)"
 msgstr "Odmítnout celou změnu (agent)"
-
-#: plugin/writer/change_context_menu.py
-msgid "Accept all agent changes"
-msgstr "Přijmout všechny změny agenta"
-
-#: plugin/writer/change_context_menu.py
-msgid "Reject all agent changes"
-msgstr "Odmítnout všechny změny agenta"
 
 #: plugin/writer/review_click_popup.py
 msgid "Accept this change"
@@ -1381,6 +1377,18 @@ msgid "Could not talk to the Python editor."
 msgstr "Nepodařilo se komunikovat s editorem Pythonu."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid ""
+"Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
+"on first check)."
+msgstr ""
+"Časový limit sondy Text/NLP vypršel (studený import spaCy nebo transformers "
+"může při první kontrole trvat 10–30 s)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text/NLP probe failed (see writeragent_debug.log)."
+msgstr "Sonda Text/NLP selhala (viz writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "Časový limit vizuální sondy vypršel (import Docling může při první kontrole "
@@ -1437,6 +1445,10 @@ msgstr "Spouští se pracovní proces Pythonu..."
 #: plugin/scripting/venv_diagnostics.py
 msgid "Reading Python version..."
 msgstr "Čte se verze Pythonu..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text / NLP Libraries: loading (first run may take a while)..."
+msgstr "Knihovny Text / NLP: načítání (první spuštění může chvíli trvat)..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries: loading (first run may take a while)..."

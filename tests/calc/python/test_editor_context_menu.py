@@ -27,3 +27,22 @@ def test_looks_like_cell_context_menu_rejects_other_menus():
     container.getCount.return_value = 1
     container.getByIndex.return_value = first
     assert _looks_like_cell_context_menu(container) is False
+
+
+def test_register_frame_uses_uno_type_by_name():
+    from plugin.calc.python.editor_context_menu import _register_frame
+    from unittest.mock import patch, MagicMock
+
+    frame = MagicMock()
+    controller = MagicMock()
+    frame.getController.return_value = controller
+    
+    with patch("uno.getTypeByName") as mock_get_type:
+        mock_type = MagicMock()
+        mock_get_type.return_value = mock_type
+        
+        _register_frame(frame)
+        
+        mock_get_type.assert_any_call("com.sun.star.ui.XContextMenuInterception")
+        controller.queryInterface.assert_called_with(mock_type)
+

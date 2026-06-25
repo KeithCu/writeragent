@@ -148,26 +148,28 @@ def session_key(ctx: Any, code: str) -> tuple:
     from plugin.framework.thread_guard import on_main_thread
     from plugin.framework.queue_executor import execute_on_main_thread
 
+    def _session_key_impl() -> tuple:
+        doc_url = ""
+        sheet_name = ""
+        try:
+            if not (hasattr(ctx, "ServiceManager") or hasattr(ctx, "getServiceManager")):
+                return (doc_url, sheet_name, code)
+            doc = _get_calc_doc(ctx)
+            if doc is not None:
+                doc_url = getattr(doc, "getURL", lambda: "")() or ""
+                ctrl = getattr(doc, "getCurrentController", lambda: None)()
+                if ctrl is not None:
+                    sheet = ctrl.getActiveSheet()
+                    if sheet is not None:
+                        sheet_name = sheet.getName()
+        except Exception:
+            pass
+        return (doc_url, sheet_name, code)
+
     if not on_main_thread():
-        return execute_on_main_thread(session_key, ctx, code)
+        return execute_on_main_thread(_session_key_impl)
 
-    doc_url = ""
-    sheet_name = ""
-    try:
-        if not (hasattr(ctx, "ServiceManager") or hasattr(ctx, "getServiceManager")):
-            return (doc_url, sheet_name, code)
-        doc = _get_calc_doc(ctx)
-        if doc is not None:
-            doc_url = getattr(doc, "getURL", lambda: "")() or ""
-            ctrl = getattr(doc, "getCurrentController", lambda: None)()
-            if ctrl is not None:
-                sheet = ctrl.getActiveSheet()
-                if sheet is not None:
-                    sheet_name = sheet.getName()
-    except Exception:
-        pass
-
-    return (doc_url, sheet_name, code)
+    return _session_key_impl()
 
 
 class WorkerResultSession:
@@ -526,13 +528,16 @@ def get_python_init_kwargs(ctx: Any) -> dict[str, Any]:
     from plugin.framework.thread_guard import on_main_thread
     from plugin.framework.queue_executor import execute_on_main_thread
 
-    if not on_main_thread():
-        return execute_on_main_thread(get_python_init_kwargs, ctx)
+    def _get_python_init_kwargs_impl() -> dict[str, Any]:
+        doc = get_calc_document_from_ctx(ctx)
+        if doc is not None:
+            return build_python_eval_init_kwargs(doc)
+        return {}
 
-    doc = get_calc_document_from_ctx(ctx)
-    if doc is not None:
-        return build_python_eval_init_kwargs(doc)
-    return {}
+    if not on_main_thread():
+        return execute_on_main_thread(_get_python_init_kwargs_impl)
+
+    return _get_python_init_kwargs_impl()
 
 
 def execute_python_addin(

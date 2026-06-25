@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-24 13:51-0400\n"
+"POT-Creation-Date: 2026-06-25 08:30-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Korean <LL@li.org>\n"
@@ -269,6 +269,10 @@ msgstr "AI 공급자가 오류를 보고했습니다. 다시 시도하세요."
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type}을(를) 찾을 수 없음: {identifier}"
 
+#: plugin/framework/thread_guard.py
+msgid "UNO Thread Violation"
+msgstr "UNO 스레드 위반"
+
 #: plugin/framework/constants.py
 msgid ""
 "AI: I can edit or translate your document instantly with professional "
@@ -322,7 +326,7 @@ msgstr ""
 msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "AI 공급자로부터 HTTP 오류 {0} 발생: {1}"
 
-#: plugin/framework/client/errors.py plugin/calc/python_function.py
+#: plugin/framework/client/errors.py plugin/calc/python/function.py
 #: plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
@@ -340,17 +344,81 @@ msgstr ""
 "모델이 동일한 청크를 반복하고 있습니다(무한 루프). 다시 시도하거나 다른 모델"
 "을 사용하세요."
 
-#: plugin/calc/python_function.py
+#: plugin/calc/python/editor_context_menu.py plugin/main.py
+msgid "Edit Python in Cell..."
+msgstr "셀에서 Python 편집..."
+
+#: plugin/calc/python/editor.py
+msgid ""
+"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
+"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10) or =PYTHON(...)."
+msgstr ""
+"이 셀의 PYTHON 수식 인수(예: 데이터 범위)를 유지할 수 없습니다. Calc에서 수식"
+"을 편집하거나 =PY(\"code\"; A1:B10) 또는 =PYTHON(...)과 같은 따옴표로 묶인 코"
+"드 문자열을 사용하십시오."
+
+#: plugin/calc/python/editor.py
+msgid "Python cell editor"
+msgstr "Python 셀 편집기"
+
+#: plugin/calc/python/editor.py
+msgid "Save as plain text"
+msgstr "일반 텍스트로 저장"
+
+#: plugin/calc/python/editor.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Save"
+msgstr "저장"
+
+#: plugin/calc/python/editor.py
+msgid "The Python editor failed unexpectedly."
+msgstr "Python 편집기가 예기치 않게 실패했습니다."
+
+#: plugin/calc/python/editor.py
+msgid "Select a cell in a Calc spreadsheet to edit Python."
+msgstr "Python을 편집하려면 Calc 스프레드시트에서 셀을 선택하십시오."
+
+#: plugin/calc/python/editor.py
+msgid ""
+"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
+"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
+"(or =PYTHON(...)) with quoted code."
+msgstr ""
+"이 PYTHON 수식은 편집기가 안전하게 다시 작성할 수 없는 형식(예: 다른 셀의 코"
+"드)을 사용합니다. 수식 입력줄에서 편집하거나 따옴표로 묶인 코드가 포함된 "
+"=PY(\"code\"; range) 또는 =PYTHON(...)을 사용하십시오."
+
+#: plugin/calc/python/editor.py
+msgid "No Python interpreter available for the editor."
+msgstr "편집기에 사용할 수 있는 Python 인터프리터가 없습니다."
+
+#: plugin/calc/python/editor.py
+#, python-format
+msgid ""
+"Cannot import webview (pywebview) with the Python from Settings → Python:\n"
+"%(exe)s\n"
+"\n"
+"In that venv run: uv pip install pywebview\n"
+"(import name is webview, package name is pywebview)."
+msgstr ""
+"설정 → Python에서 지정한 Python으로 웹뷰(pywebview)를 가져올 수 없습니다:\n"
+"%(exe)s\n"
+"\n"
+"해당 가상 환경(venv)에서 다음을 실행하세요: uv pip install pywebview\n"
+"(가져오기 이름은 webview, 패키지 이름은 pywebview입니다)."
+
+#: plugin/calc/python/editor.py
+msgid "unknown error"
+msgstr "알 수 없는 오류"
+
+#: plugin/calc/python/function.py
 msgid "Image inserted"
 msgstr "이미지 삽입됨"
 
-#: plugin/calc/python_function.py
+#: plugin/calc/python/function.py
 msgid "Images inserted"
 msgstr "이미지 삽입됨"
-
-#: plugin/calc/python_editor_context_menu.py plugin/main.py
-msgid "Edit Python in Cell..."
-msgstr "셀에서 Python 편집..."
 
 #: plugin/calc/editselection.py plugin/writer/editselection.py
 msgid "Please enter edit instructions!"
@@ -381,70 +449,6 @@ msgstr "이미지를 셀에 고정하고 선택한 후 다시 실행하십시오
 msgid "No structured tables or text blocks to insert."
 msgstr "삽입할 구조화된 표나 텍스트 블록이 없습니다."
 
-#: plugin/calc/python_editor.py
-msgid ""
-"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10) or =PYTHON(...)."
-msgstr ""
-"이 셀의 PYTHON 수식 인수(예: 데이터 범위)를 유지할 수 없습니다. Calc에서 수식"
-"을 편집하거나 =PY(\"code\"; A1:B10) 또는 =PYTHON(...)과 같은 따옴표로 묶인 코"
-"드 문자열을 사용하십시오."
-
-#: plugin/calc/python_editor.py
-msgid "Python cell editor"
-msgstr "Python 셀 편집기"
-
-#: plugin/calc/python_editor.py
-msgid "Save as plain text"
-msgstr "일반 텍스트로 저장"
-
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
-#: plugin/xdl_strings.py
-msgid "Save"
-msgstr "저장"
-
-#: plugin/calc/python_editor.py
-msgid "The Python editor failed unexpectedly."
-msgstr "Python 편집기가 예기치 않게 실패했습니다."
-
-#: plugin/calc/python_editor.py
-msgid "Select a cell in a Calc spreadsheet to edit Python."
-msgstr "Python을 편집하려면 Calc 스프레드시트에서 셀을 선택하십시오."
-
-#: plugin/calc/python_editor.py
-msgid ""
-"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
-"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
-"(or =PYTHON(...)) with quoted code."
-msgstr ""
-"이 PYTHON 수식은 편집기가 안전하게 다시 작성할 수 없는 형식(예: 다른 셀의 코"
-"드)을 사용합니다. 수식 입력줄에서 편집하거나 따옴표로 묶인 코드가 포함된 "
-"=PY(\"code\"; range) 또는 =PYTHON(...)을 사용하십시오."
-
-#: plugin/calc/python_editor.py
-msgid "No Python interpreter available for the editor."
-msgstr "편집기에 사용할 수 있는 Python 인터프리터가 없습니다."
-
-#: plugin/calc/python_editor.py
-#, python-format
-msgid ""
-"Cannot import webview (pywebview) with the Python from Settings → Python:\n"
-"%(exe)s\n"
-"\n"
-"In that venv run: uv pip install pywebview\n"
-"(import name is webview, package name is pywebview)."
-msgstr ""
-"설정 → Python에서 지정한 Python으로 웹뷰(pywebview)를 가져올 수 없습니다:\n"
-"%(exe)s\n"
-"\n"
-"해당 가상 환경(venv)에서 다음을 실행하세요: uv pip install pywebview\n"
-"(가져오기 이름은 webview, 패키지 이름은 pywebview입니다)."
-
-#: plugin/calc/python_editor.py
-msgid "unknown error"
-msgstr "알 수 없는 오류"
-
 #: plugin/writer/change_context_menu.py
 msgid "Accept whole change (agent)"
 msgstr "전체 변경 내용 수락 (에이전트)"
@@ -452,14 +456,6 @@ msgstr "전체 변경 내용 수락 (에이전트)"
 #: plugin/writer/change_context_menu.py
 msgid "Reject whole change (agent)"
 msgstr "전체 변경 내용 거부 (에이전트)"
-
-#: plugin/writer/change_context_menu.py
-msgid "Accept all agent changes"
-msgstr "모든 에이전트 변경 내용 수락"
-
-#: plugin/writer/change_context_menu.py
-msgid "Reject all agent changes"
-msgstr "모든 에이전트 변경 내용 거부"
 
 #: plugin/writer/review_click_popup.py
 msgid "Accept this change"
@@ -1371,6 +1367,18 @@ msgid "Could not talk to the Python editor."
 msgstr "Python 편집기와 통신할 수 없습니다."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid ""
+"Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
+"on first check)."
+msgstr ""
+"텍스트/NLP 프로브 시간 초과 (spaCy 또는 transformers 초기 가져오기에 10~30초"
+"가 소요될 수 있습니다)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text/NLP probe failed (see writeragent_debug.log)."
+msgstr "텍스트/NLP 프로브 실패 (writeragent_debug.log 참조)."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "비전 프로브 시간 초과 (첫 확인 시 Docling 가져오기에 10~30초가 소요될 수 있습"
@@ -1427,6 +1435,12 @@ msgstr "Python 워커 시작 중..."
 #: plugin/scripting/venv_diagnostics.py
 msgid "Reading Python version..."
 msgstr "Python 버전 읽는 중..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text / NLP Libraries: loading (first run may take a while)..."
+msgstr ""
+"텍스트 / NLP 라이브러리: 로딩 중 (첫 실행 시 시간이 다소 소요될 수 있습니"
+"다)..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries: loading (first run may take a while)..."

@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-24 13:51-0400\n"
+"POT-Creation-Date: 2026-06-25 08:30-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Japanese <LL@li.org>\n"
@@ -276,6 +276,10 @@ msgstr "AI プロバイダーがエラーを報告しました。もう一度や
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} が見つかりません: {identifier}"
 
+#: plugin/framework/thread_guard.py
+msgid "UNO Thread Violation"
+msgstr "UNO スレッド違反"
+
 #: plugin/framework/constants.py
 msgid ""
 "AI: I can edit or translate your document instantly with professional "
@@ -330,7 +334,7 @@ msgstr ""
 msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "AIプロバイダーからの HTTP エラー {0}: {1}"
 
-#: plugin/framework/client/errors.py plugin/calc/python_function.py
+#: plugin/framework/client/errors.py plugin/calc/python/function.py
 #: plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
@@ -348,17 +352,83 @@ msgstr ""
 "モデルが同じチャンクを繰り返しています（無限ループ）。もう一度お試しいただく"
 "か、別のモデルをご使用ください。"
 
-#: plugin/calc/python_function.py
+#: plugin/calc/python/editor_context_menu.py plugin/main.py
+msgid "Edit Python in Cell..."
+msgstr "セル内のPythonを編集..."
+
+#: plugin/calc/python/editor.py
+msgid ""
+"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
+"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10) or =PYTHON(...)."
+msgstr ""
+"このセルのPYTHON数式引数（データ範囲など）を保持できませんでした。Calcで数式"
+"を編集するか、=PY(\"code\"; A1:B10) や =PYTHON(...) のように引用符で囲まれた"
+"コード文字列を使用してください。"
+
+#: plugin/calc/python/editor.py
+msgid "Python cell editor"
+msgstr "Python セルエディター"
+
+#: plugin/calc/python/editor.py
+msgid "Save as plain text"
+msgstr "プレーンテキストとして保存"
+
+#: plugin/calc/python/editor.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Save"
+msgstr "保存"
+
+#: plugin/calc/python/editor.py
+msgid "The Python editor failed unexpectedly."
+msgstr "Pythonエディターが予期せず終了しました。"
+
+#: plugin/calc/python/editor.py
+msgid "Select a cell in a Calc spreadsheet to edit Python."
+msgstr "Pythonを編集するには、Calcスプレッドシートのセルを選択してください。"
+
+#: plugin/calc/python/editor.py
+msgid ""
+"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
+"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
+"(or =PYTHON(...)) with quoted code."
+msgstr ""
+"このPYTHON数式は、エディタで安全に書き換えられない形式（別のセルにあるコード"
+"など）を使用しています。数式バーで編集するか、引用符で囲まれたコードを含む "
+"=PY(\"code\"; range) または =PYTHON(...) を使用してください。"
+
+#: plugin/calc/python/editor.py
+msgid "No Python interpreter available for the editor."
+msgstr "エディタで使用可能なPythonインタプリタがありません。"
+
+#: plugin/calc/python/editor.py
+#, python-format
+msgid ""
+"Cannot import webview (pywebview) with the Python from Settings → Python:\n"
+"%(exe)s\n"
+"\n"
+"In that venv run: uv pip install pywebview\n"
+"(import name is webview, package name is pywebview)."
+msgstr ""
+"設定 → Python で指定されたPython環境から webview (pywebview) をインポートでき"
+"ません:\n"
+"%(exe)s\n"
+"\n"
+"この仮想環境で以下を実行してください:\n"
+"uv pip install pywebview\n"
+"(インポート名は webview、パッケージ名は pywebview です)。"
+
+#: plugin/calc/python/editor.py
+msgid "unknown error"
+msgstr "不明なエラー"
+
+#: plugin/calc/python/function.py
 msgid "Image inserted"
 msgstr "画像が挿入されました"
 
-#: plugin/calc/python_function.py
+#: plugin/calc/python/function.py
 msgid "Images inserted"
 msgstr "挿入された画像"
-
-#: plugin/calc/python_editor_context_menu.py plugin/main.py
-msgid "Edit Python in Cell..."
-msgstr "セル内のPythonを編集..."
 
 #: plugin/calc/editselection.py plugin/writer/editselection.py
 msgid "Please enter edit instructions!"
@@ -389,72 +459,6 @@ msgstr "画像をセルにアンカーし、選択してから、もう一度実
 msgid "No structured tables or text blocks to insert."
 msgstr "挿入可能な構造化テーブルやテキストブロックがありません。"
 
-#: plugin/calc/python_editor.py
-msgid ""
-"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10) or =PYTHON(...)."
-msgstr ""
-"このセルのPYTHON数式引数（データ範囲など）を保持できませんでした。Calcで数式"
-"を編集するか、=PY(\"code\"; A1:B10) や =PYTHON(...) のように引用符で囲まれた"
-"コード文字列を使用してください。"
-
-#: plugin/calc/python_editor.py
-msgid "Python cell editor"
-msgstr "Python セルエディター"
-
-#: plugin/calc/python_editor.py
-msgid "Save as plain text"
-msgstr "プレーンテキストとして保存"
-
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
-#: plugin/xdl_strings.py
-msgid "Save"
-msgstr "保存"
-
-#: plugin/calc/python_editor.py
-msgid "The Python editor failed unexpectedly."
-msgstr "Pythonエディターが予期せず終了しました。"
-
-#: plugin/calc/python_editor.py
-msgid "Select a cell in a Calc spreadsheet to edit Python."
-msgstr "Pythonを編集するには、Calcスプレッドシートのセルを選択してください。"
-
-#: plugin/calc/python_editor.py
-msgid ""
-"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
-"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
-"(or =PYTHON(...)) with quoted code."
-msgstr ""
-"このPYTHON数式は、エディタで安全に書き換えられない形式（別のセルにあるコード"
-"など）を使用しています。数式バーで編集するか、引用符で囲まれたコードを含む "
-"=PY(\"code\"; range) または =PYTHON(...) を使用してください。"
-
-#: plugin/calc/python_editor.py
-msgid "No Python interpreter available for the editor."
-msgstr "エディタで使用可能なPythonインタプリタがありません。"
-
-#: plugin/calc/python_editor.py
-#, python-format
-msgid ""
-"Cannot import webview (pywebview) with the Python from Settings → Python:\n"
-"%(exe)s\n"
-"\n"
-"In that venv run: uv pip install pywebview\n"
-"(import name is webview, package name is pywebview)."
-msgstr ""
-"設定 → Python で指定されたPython環境から webview (pywebview) をインポートでき"
-"ません:\n"
-"%(exe)s\n"
-"\n"
-"この仮想環境で以下を実行してください:\n"
-"uv pip install pywebview\n"
-"(インポート名は webview、パッケージ名は pywebview です)。"
-
-#: plugin/calc/python_editor.py
-msgid "unknown error"
-msgstr "不明なエラー"
-
 #: plugin/writer/change_context_menu.py
 msgid "Accept whole change (agent)"
 msgstr "変更全体を承諾 (エージェント)"
@@ -462,14 +466,6 @@ msgstr "変更全体を承諾 (エージェント)"
 #: plugin/writer/change_context_menu.py
 msgid "Reject whole change (agent)"
 msgstr "変更全体を拒否 (エージェント)"
-
-#: plugin/writer/change_context_menu.py
-msgid "Accept all agent changes"
-msgstr "すべてのエージェントの変更を承諾"
-
-#: plugin/writer/change_context_menu.py
-msgid "Reject all agent changes"
-msgstr "すべてのエージェントの変更を拒否"
 
 #: plugin/writer/review_click_popup.py
 msgid "Accept this change"
@@ -1384,6 +1380,20 @@ msgid "Could not talk to the Python editor."
 msgstr "Pythonエディターと通信できませんでした。"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid ""
+"Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
+"on first check)."
+msgstr ""
+"テキスト/NLPプローブがタイムアウトしました (spaCyまたはtransformersの初回イン"
+"ポートには10〜30秒かかる場合があります)。"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text/NLP probe failed (see writeragent_debug.log)."
+msgstr ""
+"テキスト/NLPプローブが失敗しました (writeragent_debug.logを参照してくださ"
+"い)。"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "ビジョン・プローブがタイムアウトしました (初回チェック時は Docling のインポー"
@@ -1443,6 +1453,12 @@ msgstr "Python ワーカーを起動中..."
 #: plugin/scripting/venv_diagnostics.py
 msgid "Reading Python version..."
 msgstr "Python バージョンを読み込み中..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text / NLP Libraries: loading (first run may take a while)..."
+msgstr ""
+"テキスト / NLPライブラリ: 読み込み中 (初回実行時は時間がかかることがありま"
+"す)..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries: loading (first run may take a while)..."

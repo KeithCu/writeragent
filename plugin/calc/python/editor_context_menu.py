@@ -72,9 +72,8 @@ def _get_interceptor() -> Any:
                 if not _looks_like_cell_context_menu(container):
                     return ContextMenuInterceptorAction.IGNORED
 
-                from com.sun.star.lang import XMultiServiceFactory
-
-                factory = cast("Any", container).queryInterface(XMultiServiceFactory)
+                import uno
+                factory = cast("Any", container).queryInterface(uno.getTypeByName("com.sun.star.lang.XMultiServiceFactory"))
                 if factory is None:
                     return ContextMenuInterceptorAction.IGNORED
                 separator = factory.createInstance("com.sun.star.ui.ActionTriggerSeparator")
@@ -109,9 +108,8 @@ def _register_frame(frame: Any) -> None:
         controller = frame.getController()
         if controller is None:
             return
-        from com.sun.star.ui import XContextMenuInterception
-
-        interception = controller.queryInterface(XContextMenuInterception)
+        import uno
+        interception = controller.queryInterface(uno.getTypeByName("com.sun.star.ui.XContextMenuInterception"))
         if interception is None:
             return
         interception.registerContextMenuInterceptor(_get_interceptor())

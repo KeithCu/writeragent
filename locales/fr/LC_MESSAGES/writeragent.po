@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-24 13:51-0400\n"
+"POT-Creation-Date: 2026-06-25 08:30-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: French <LL@li.org>\n"
@@ -279,6 +279,10 @@ msgstr "Le fournisseur d'IA a signalé une erreur. Réessayez."
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} non trouvé : {identifier}"
 
+#: plugin/framework/thread_guard.py
+msgid "UNO Thread Violation"
+msgstr "Violation de thread UNO"
+
 #: plugin/framework/constants.py
 msgid ""
 "AI: I can edit or translate your document instantly with professional "
@@ -335,7 +339,7 @@ msgstr ""
 msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "Erreur HTTP {0} du fournisseur d'IA : {1}"
 
-#: plugin/framework/client/errors.py plugin/calc/python_function.py
+#: plugin/framework/client/errors.py plugin/calc/python/function.py
 #: plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
@@ -353,17 +357,85 @@ msgstr ""
 "Le modèle répète le même bloc (boucle infinie). Réessayez ou utilisez un "
 "autre modèle."
 
-#: plugin/calc/python_function.py
+#: plugin/calc/python/editor_context_menu.py plugin/main.py
+msgid "Edit Python in Cell..."
+msgstr "Modifier Python dans la cellule..."
+
+#: plugin/calc/python/editor.py
+msgid ""
+"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
+"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10) or =PYTHON(...)."
+msgstr ""
+"Impossible de préserver les arguments de la formule PYTHON de cette cellule "
+"(par ex. plages de données). Modifiez la formule dans Calc, ou utilisez une "
+"chaîne de code entre guillemets comme =PY(\"code\"; A1:B10) ou =PYTHON(...)."
+
+#: plugin/calc/python/editor.py
+msgid "Python cell editor"
+msgstr "Éditeur de cellules Python"
+
+#: plugin/calc/python/editor.py
+msgid "Save as plain text"
+msgstr "Enregistrer en tant que texte brut"
+
+#: plugin/calc/python/editor.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Save"
+msgstr "Enregistrer"
+
+#: plugin/calc/python/editor.py
+msgid "The Python editor failed unexpectedly."
+msgstr "L'éditeur Python a échoué de manière inattendue."
+
+#: plugin/calc/python/editor.py
+msgid "Select a cell in a Calc spreadsheet to edit Python."
+msgstr ""
+"Sélectionnez une cellule dans une feuille de calcul Calc pour modifier "
+"Python."
+
+#: plugin/calc/python/editor.py
+msgid ""
+"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
+"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
+"(or =PYTHON(...)) with quoted code."
+msgstr ""
+"Cette formule PYTHON utilise une forme que l'éditeur ne peut pas réécrire en "
+"toute sécurité (par ex. code dans une autre cellule). Modifiez-la dans la "
+"barre de formule, ou utilisez =PY(\"code\"; plage) (ou =PYTHON(...)) avec du "
+"code entre guillemets."
+
+#: plugin/calc/python/editor.py
+msgid "No Python interpreter available for the editor."
+msgstr "Aucun interpréteur Python disponible pour l'éditeur."
+
+#: plugin/calc/python/editor.py
+#, python-format
+msgid ""
+"Cannot import webview (pywebview) with the Python from Settings → Python:\n"
+"%(exe)s\n"
+"\n"
+"In that venv run: uv pip install pywebview\n"
+"(import name is webview, package name is pywebview)."
+msgstr ""
+"Impossible d'importer webview (pywebview) avec le Python défini dans "
+"Paramètres → Python :\n"
+"%(exe)s\n"
+"\n"
+"Dans ce venv, exécutez : uv pip install pywebview\n"
+"(le nom d'importation est webview, le nom du paquet est pywebview)."
+
+#: plugin/calc/python/editor.py
+msgid "unknown error"
+msgstr "erreur inconnue"
+
+#: plugin/calc/python/function.py
 msgid "Image inserted"
 msgstr "Image insérée"
 
-#: plugin/calc/python_function.py
+#: plugin/calc/python/function.py
 msgid "Images inserted"
 msgstr "Images insérées"
-
-#: plugin/calc/python_editor_context_menu.py plugin/main.py
-msgid "Edit Python in Cell..."
-msgstr "Modifier Python dans la cellule..."
 
 #: plugin/calc/editselection.py plugin/writer/editselection.py
 msgid "Please enter edit instructions!"
@@ -395,74 +467,6 @@ msgstr ""
 msgid "No structured tables or text blocks to insert."
 msgstr "Aucun tableau structuré ou bloc de texte à insérer."
 
-#: plugin/calc/python_editor.py
-msgid ""
-"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10) or =PYTHON(...)."
-msgstr ""
-"Impossible de préserver les arguments de la formule PYTHON de cette cellule "
-"(par ex. plages de données). Modifiez la formule dans Calc, ou utilisez une "
-"chaîne de code entre guillemets comme =PY(\"code\"; A1:B10) ou =PYTHON(...)."
-
-#: plugin/calc/python_editor.py
-msgid "Python cell editor"
-msgstr "Éditeur de cellules Python"
-
-#: plugin/calc/python_editor.py
-msgid "Save as plain text"
-msgstr "Enregistrer en tant que texte brut"
-
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
-#: plugin/xdl_strings.py
-msgid "Save"
-msgstr "Enregistrer"
-
-#: plugin/calc/python_editor.py
-msgid "The Python editor failed unexpectedly."
-msgstr "L'éditeur Python a échoué de manière inattendue."
-
-#: plugin/calc/python_editor.py
-msgid "Select a cell in a Calc spreadsheet to edit Python."
-msgstr ""
-"Sélectionnez une cellule dans une feuille de calcul Calc pour modifier "
-"Python."
-
-#: plugin/calc/python_editor.py
-msgid ""
-"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
-"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
-"(or =PYTHON(...)) with quoted code."
-msgstr ""
-"Cette formule PYTHON utilise une forme que l'éditeur ne peut pas réécrire en "
-"toute sécurité (par ex. code dans une autre cellule). Modifiez-la dans la "
-"barre de formule, ou utilisez =PY(\"code\"; plage) (ou =PYTHON(...)) avec du "
-"code entre guillemets."
-
-#: plugin/calc/python_editor.py
-msgid "No Python interpreter available for the editor."
-msgstr "Aucun interpréteur Python disponible pour l'éditeur."
-
-#: plugin/calc/python_editor.py
-#, python-format
-msgid ""
-"Cannot import webview (pywebview) with the Python from Settings → Python:\n"
-"%(exe)s\n"
-"\n"
-"In that venv run: uv pip install pywebview\n"
-"(import name is webview, package name is pywebview)."
-msgstr ""
-"Impossible d'importer webview (pywebview) avec le Python défini dans "
-"Paramètres → Python :\n"
-"%(exe)s\n"
-"\n"
-"Dans ce venv, exécutez : uv pip install pywebview\n"
-"(le nom d'importation est webview, le nom du paquet est pywebview)."
-
-#: plugin/calc/python_editor.py
-msgid "unknown error"
-msgstr "erreur inconnue"
-
 #: plugin/writer/change_context_menu.py
 msgid "Accept whole change (agent)"
 msgstr "Accepter toute la modification (agent)"
@@ -470,14 +474,6 @@ msgstr "Accepter toute la modification (agent)"
 #: plugin/writer/change_context_menu.py
 msgid "Reject whole change (agent)"
 msgstr "Rejeter toute la modification (agent)"
-
-#: plugin/writer/change_context_menu.py
-msgid "Accept all agent changes"
-msgstr "Accepter toutes les modifications de l'agent"
-
-#: plugin/writer/change_context_menu.py
-msgid "Reject all agent changes"
-msgstr "Rejeter toutes les modifications de l'agent"
 
 #: plugin/writer/review_click_popup.py
 msgid "Accept this change"
@@ -1394,6 +1390,19 @@ msgid "Could not talk to the Python editor."
 msgstr "Impossible de communiquer avec l'éditeur Python."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid ""
+"Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
+"on first check)."
+msgstr ""
+"Délai d'attente dépassé pour la sonde Texte/NLP (l'importation à froid de "
+"spaCy ou transformers peut prendre 10 à 30 secondes lors de la première "
+"vérification)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text/NLP probe failed (see writeragent_debug.log)."
+msgstr "Échec de la sonde Texte/NLP (voir writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "Délai d'attente de la sonde de vision dépassé (l'importation de Docling peut "
@@ -1451,6 +1460,12 @@ msgstr "Démarrage du processus Python..."
 #: plugin/scripting/venv_diagnostics.py
 msgid "Reading Python version..."
 msgstr "Lecture de la version de Python..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text / NLP Libraries: loading (first run may take a while)..."
+msgstr ""
+"Bibliothèques Texte / NLP : chargement en cours (la première exécution peut "
+"prendre un certain temps)..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries: loading (first run may take a while)..."

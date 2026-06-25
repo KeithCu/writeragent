@@ -103,6 +103,11 @@ class ToolCalcChartBase(ToolCalcSpecialBase):
     intent = "edit"
 
 
+class ToolCalcShapeBase(ToolCalcSpecialBase):
+    specialized_domain: ClassVar[str | None] = "shapes"
+    specialized_domain_description: ClassVar[str | None] = "Create and edit drawing shapes, connectors, and groups."
+
+
 class ToolCalcRangeBase(ToolCalcSpecialBase):
     specialized_domain = "ranges"
     specialized_domain_description: ClassVar[str | None] = "Bulk operations on cell ranges (sort, advanced find/replace)."

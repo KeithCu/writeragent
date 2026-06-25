@@ -312,3 +312,35 @@ def test_load_and_save_spill_registry(monkeypatch: pytest.MonkeyPatch) -> None:
     assert data["Sheet1:1,1"] == [[2, 1], [3, 1], [4, 1]]
 
 
+def test_session_key_and_init_kwargs_recursion_off_main_thread(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Set WRITERAGENT_TESTING to 1 to force inline execution in queue_executor
+    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+    
+    # Mock on_main_thread to return False
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    
+    # Mock _get_calc_doc to return a mock document
+    sheet = MagicMock()
+    sheet.getName.return_value = "SheetTest"
+    controller = MagicMock()
+    controller.getActiveSheet.return_value = sheet
+    doc = MagicMock()
+    doc.getCurrentController.return_value = controller
+    doc.getURL.return_value = "file:///fake_recursion.ods"
+    
+    monkeypatch.setattr("plugin.calc.python.function._get_calc_doc", lambda ctx: doc)
+    
+    # Mock get_calc_document_from_ctx
+    monkeypatch.setattr("plugin.calc.python.function.get_calc_document_from_ctx", lambda ctx: doc)
+    monkeypatch.setattr("plugin.calc.python.function.build_python_eval_init_kwargs", lambda doc: {"dummy": True})
+
+    ctx = MagicMock()
+    # Ensure it doesn't cause recursion error
+    key = python_function.session_key(ctx, "print('hello')")
+    assert key == ("file:///fake_recursion.ods", "SheetTest", "print('hello')")
+    
+    kwargs = python_function.get_python_init_kwargs(ctx)
+    assert kwargs == {"dummy": True}
+
+
+

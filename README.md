@@ -39,7 +39,7 @@ A LibreOffice extension (Python + UNO) that adds generative AI editing to Writer
 
 ## Local-First & Flexible
 
-Unlike proprietary office suites that lock you into a single cloud provider and send all your data to their servers, WriterAgent is local-first. You can run fast, private models locally (via Ollama, LM Studio, or local servers) ensuring your documents never leave your machine. If you choose to use cloud APIs, you can switch between providers (e.g., OpenRouter, Together.AI) in less than 2 seconds, maintaining full control over your data.
+Unlike proprietary office suites that lock you into a single cloud provider and send all your data to their servers, WriterAgent is local-first. You can run fast, private models locally (via Ollama, LM Studio, or local servers) ensuring your documents never leave your machine. If you choose to use cloud APIs, you can switch between providers (e.g., OpenRouter, Together.AI) in 2 seconds, maintaining full control over your data.
 
 ---
 
@@ -74,13 +74,12 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 - **Advanced Features**: [Conditional Formatting](docs/calc-conditional-formatting.md) and [Sheet Filtering (AutoFilter)](docs/calc-sheet-filter.md).
 - **Spreadsheet → Python conversion:** Run **WriterAgent → Convert Sheet to Python…** on an open Calc sheet (or selection) to rewrite spreadsheet formulas as `=PY()` / `=PYTHON()` while **constants, text, dates, and formats stay unchanged**. A deterministic translator covers **235+ Calc functions**—aggregates, logic, lookups (`VLOOKUP`, `XLOOKUP`), dates, financial, statistical, database, and array helpers—emitting NumPy/pandas/`xl.*` Python with precedent ranges wired as explicit `data` arguments so Calc’s recalc graph stays correct. Optional **column vectorization** collapses repeated fill-down patterns; output defaults to a **new sheet** with an optional **verify recalc** pass and a **conversion report** for any formulas left as Calc (e.g. `INDIRECT`, array formulas). Details: [Calc Spreadsheet → Python Import](docs/calc-spreadsheet-to-python-import.md).
 
-
 ### 🌐 Multi-modal & Research
 
 - **Web Research**: Powered by a vendored **smolagents** loop. [Web Research Loop](docs/agent-search.md) & [Search Integration](docs/search-engine-integration.md).
 - **Audio & Voice**: Integrated cross-platform voice recording. [Audio Architecture](docs/audio-architecture.md).
 - **Image Generation**: Generate or edit (Img2Img) images. [Image Generation Guide](docs/image-generation.md).
-- **Local OCR (Writer & Calc)**: Extract text and layout from embedded images offline via **Docling** — no cloud vision API required. **Vision Helpers** — `extract_text` (Writer: inserts at cursor; Calc: sheet report below the image). **Packages:** `docling`, `rapidocr-paddle`, `numpy`, `pillow`, `onnxruntime` (required for default RapidOCR), and optional `paddleocr`, `paddlepaddle` fallback. Settings: **WriterAgent → Vision OCR Settings…** for pipeline defaults; **Settings → Python** for venv path and **Test**. [Image recognition design](docs/image-recognition.md).
+- **Local OCR (Writer & Calc)**: Extract text and layout from embedded images offline via **Docling** — no cloud vision API required. **Run Python Script → Vision Helpers** — `extract_text` (Writer: inserts at cursor; Calc: sheet report below the image). **Packages:** `docling`, `rapidocr-paddle`, `numpy`, `pillow`, `onnxruntime` (required for default RapidOCR), and optional `paddleocr`, `paddlepaddle` fallback. Settings: **WriterAgent → Vision OCR Settings…** for pipeline defaults; **Settings → Python** for venv path and **Test**. [Image recognition design](docs/image-recognition.md).
 
 ### 🧠 The Intelligence Core (LO-DOM)
 
@@ -89,7 +88,7 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 - **34 Locales**: Automated AI-driven translation and review pipeline. [Localization Pipeline](docs/localization.md).
 - **Multilingual Grammar & language detection**: When the AI grammar checker is on, optional **sentence language detection** can verify each complete sentence against the document locale, **auto-switch** the paragraph language when you typed in the wrong one, and **re-run grammar checking** in the correct language—no extra menu or API for the default **Local (langdetect)** mode (bundled in the extension). Use **AI (LLM)** instead if you prefer your chat model for detection. Configure **Settings → Doc → Sentence language detection** (`Off` / `AI (LLM)` / `Local (langdetect)`).
 - **Cross-Document Research**: Say **my** or **our** in the sidebar (e.g. *“pull Q4 from our budget spreadsheet”*) to read other files in the same folder as your saved document; edits stay on the active doc.
-- **Optional folder search cache** (off by default; enable **Embeddings + FTS** in **Settings → Vector Search**) builds beside your documents in `writeragent_embeddings/` (supports both ODF and OOXML formats, and old binary (DOC) formats: one **`corpus.db`** (FTS5 + sqlite-vec). Experimental backends: [Zvec](https://github.com/alibaba/zvec) and [LanceDB](https://github.com/lancedb/lancedb). Default model is **`paraphrase-multilingual-MiniLM-L12-v2`** for multilingual support. LLMS use **`search_nearby_files`** — keyword (BM25/NEAR) and semantic hits merged with **Reciprocal Rank Fusion** (RRF). [Multi-document plan](docs/multi-document-dev-plan.md) · [Embeddings & hybrid search](docs/embeddings.md). **Venv packages:** `sentence-transformers numpy sqlite-vec langgraph langchain-core langchain-text-splitters envwrap odfpy`.
+- **Optional folder search cache** (off by default; enable **Embeddings + FTS** in **Settings → Vector Search**) builds beside your documents in `writeragent_embeddings/` (supports both ODF and OOXML formats, and old binary (DOC) formats: one `**corpus.db`** (FTS5 + sqlite-vec). Experimental backends: [Zvec](https://github.com/alibaba/zvec) and [LanceDB](https://github.com/lancedb/lancedb). Default model is `**paraphrase-multilingual-MiniLM-L12-v2**` for multilingual support. LLMS use `**search_nearby_files**` — keyword (BM25/NEAR) and semantic hits merged with **Reciprocal Rank Fusion** (RRF). [Multi-document plan](docs/multi-document-dev-plan.md) · [Embeddings & hybrid search](docs/embeddings.md). **Venv packages:** `sentence-transformers numpy sqlite-vec langgraph langchain-core langchain-text-splitters envwrap odfpy`.
 
 ### 🐍 Local Python Execution
 
@@ -102,7 +101,6 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 - **Document-Attached Scripts**: Save and manage Python scripts directly inside document custom properties rather than just in your personal user-profile library. This ensures your custom scripts travel with the document when shared. Access this in the script run dialog under "This Document" to attach, save, or run document-backed scripts.
 - **Safety & Isolation**: Code runs safely in a separate process and is evaluated by a [custom AST-based executor](plugin/contrib/smolagents/local_python_executor.py) (adapted from [Hugging Face smolagents](https://github.com/huggingface/smolagents)) that acts as a secure sandbox which blocks dangerous modules (like `os`, `subprocess`, or `sys`) and functions (like `eval` or `exec`), ensuring that the AI can only perform safe, mathematical, and data-processing tasks. 
 - **High performance**: Compact pickle Protocol 5 + Split-grid [binary blob serialization for numbers](docs/numpy-serialization.md), 50x faster and 60% smaller than standard JSON lists.
-
 
 ### 🎨 Showcase
 
@@ -123,7 +121,6 @@ Private, local web searches and fact-checking with citable sources. No data leav
 
 Powered by [Hugging Face smolagents](https://github.com/huggingface/smolagents) (vendored and adapted to have zero dependencies, per [this discussion](https://github.com/huggingface/smolagents/issues/1999)). Now you can ask the AI a question and it will search the web and give you the answer—with all requests running directly from your computer. It uses DuckDuckGo for privacy and executes the entire search-and-browse loop locally, ensuring your research stays private.
 
-
 It's better than a standard Google search box because it understands natural language and can synthesize information from multiple pages.
 
 - **Ask a question**: "What is the current version of Python and when was it released?"
@@ -138,7 +135,6 @@ It's better than a standard Google search box because it understands natural lan
 - **Formatting Preservation**: Maintains styles, tables, and images during edits.
 
 WriterAgent is "format-aware." Unlike simpler plugins that strip away your hard work, our engine is designed to respect your document's visual integrity.
-
 
 - **Format Preservation**: When fixing typos or rephrasing, WriterAgent uses a "surgical" replacement method. It preserves your existing bold, italics, highlights, and font sizes—even if the AI sends back plain text.
 - **HTML-First Architecture**: For complex elements like tables, nested lists, and colored layouts, we use a robust HTML import layer. This ensures that what the AI "sees" and what it "writes" matches the professional standards of LibreOffice.
@@ -179,10 +175,11 @@ Use the URL from **MCP Server Status** (includes the `/mcp` path). Enable **MCP 
 By default, MCP uses LibreOffice's **active document** (whichever window has focus). That is fine with a single file open, but it is unreliable when several documents are open or focus changes while an external client (Cursor, a script, etc.) is running.
 
 To target a specific open document, you can either:
-- **`document_url` parameter (New in v0.8.15)**: Pass the `document_url` optional parameter directly in the tool call arguments (now dynamically supported on all tools). This is the cleanest and most standard way in MCP.
-- **`X-Document-URL` header**: Send the HTTP header on **each** MCP request (`tools/list`, `tools/call`, …). The value must be the exact LibreOffice URL of an already-open document (usually `file:///…` for saved files).
 
-To discover all currently open document URLs, names, and types, you can call the MCP-only tool **`list_open_documents`** (in `v0.8.15`).
+- `**document_url` parameter**: Pass the `document_url` optional parameter directly in the tool call arguments (now dynamically supported on all tools). This is the cleanest and most standard way in MCP.
+- `**X-Document-URL` header**: Send the HTTP header on **each** MCP request (`tools/list`, `tools/call`, …). The value must be the exact LibreOffice URL of an already-open document (usually `file:///…` for saved files).
+
+To discover all currently open document URLs, names, and types, you can call the MCP-only tool `**list_open_documents`**.
 
 Targeting is per-request: one call can edit a Writer doc and the next can target a Calc sheet.
 
@@ -193,11 +190,12 @@ curl -X POST http://localhost:8765/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_document_content","arguments":{"document_url":"file:///home/user/report.odt"}}}'
 ```
 
-MCP server config JSON typically sets only the endpoint URL; your client or wrapper must attach `document_url` or the `X-Document-URL` header per call. See [docs/mcp-protocol.md](docs/mcp-protocol.md) (*Document Targeting*) and [`scripts/mcp_live_smoke.py`](scripts/mcp_live_smoke.py) (`--document-url`).
+MCP server config JSON typically sets only the endpoint URL; your client or wrapper must attach `document_url` or the `X-Document-URL` header per call. See [docs/mcp-protocol.md](docs/mcp-protocol.md) (*Document Targeting*) and `[scripts/mcp_live_smoke.py](scripts/mcp_live_smoke.py)` (`--document-url`).
 
 **Meta / integration helpers (recommended for Cursor and agent users):**
-- Cursor users: Install the dedicated Cursor plugin for rules + skills when working with LibreOffice/WriterAgent: https://github.com/KeithCu/cursor-libreoffice
-- Agent frameworks (Hermes, custom MCP clients, etc.): Use the ready-made skill definition: https://github.com/KeithCu/libreoffice-skill (includes setup guidance and best practices for `document_url` + multi-doc targeting).
+
+- Cursor users: Install the dedicated Cursor plugin for rules + skills when working with LibreOffice/WriterAgent: [https://github.com/KeithCu/cursor-libreoffice](https://github.com/KeithCu/cursor-libreoffice)
+- Agent frameworks (Hermes, custom MCP clients, etc.): Use the ready-made skill definition: [https://github.com/KeithCu/libreoffice-skill](https://github.com/KeithCu/libreoffice-skill) (includes setup guidance and best practices for `document_url` + multi-doc targeting).
 
 ---
 
@@ -207,7 +205,6 @@ MCP server config JSON typically sets only the endpoint URL; your client or wrap
 - **Cloud**: OpenRouter, Together.AI, or any OpenAI-compatible API.
 
 You can plug in **external agent backends** so that Chat with Document uses an external process (e.g., Hermes or others) instead of the built-in LLM.
-
 
 - **[Hermes ACP Integration](https://github.com/NousResearch/hermes-agent)**: Spawns Hermes locally as a subprocess using the Agent Communication Protocol (ACP) via stdio.
 - **Grok Build (ACP)**: Spawns xAI's [Grok Build CLI](https://zed.dev/acp/agent/grok-build) WriterAgent uses the CLI's cached login. Note, an endpoint in Settings is required for the nested tool-calling.
@@ -221,7 +218,6 @@ You can plug in **external agent backends** so that Chat with Document uses an e
 *Figure 1: Unified state machine architecture for AI tool interactions.*
 
 WriterAgent is engineered for professional-grade reliability, moving beyond simple script-based plugins. [WriterAgent Architecture Overview](docs/writeragent-architecture.md) & [Sidebar Implementation Guide](docs/chat-sidebar-implementation.md).
-
 
 - **Finite State Machine (FSM)**: All complex AI interactions are managed by a pure FSM. This architecture breaks down the extension's behavior into small, isolated, and testable units of logic. See [Formal Verification](docs/formal_verification.md).
 - **JSON Repair**: Uses a multi-stage parsing pipeline (inspired by **Hermes**) and **json-repair** to handle model syntax errors or Python-style literals. [LLM Hacks & Workarounds](docs/llm-hacks.md).
@@ -244,8 +240,7 @@ The primary focus is deep **LibreOffice Fidelity**—systematically closing the 
 The application-specific roadmap is focused on closing the remaining gaps in the LibreOffice API surface:
 
 - **🖋️ Writer**: This is expanding from text and style management into complex document automation, including **Mail Merge** (CSV/DB/Sheets), **Bibliographies**, and **Watermark** support. We are also evolving our **Sections** tools from read-only navigation to a full lifecycle suite (multi-column layouts, conditional visibility, and password protection).
-- **📊 Calc**: Beyond cell and sheet manipulation, this is targeting advanced data modeling. This includes **Macros & VBA compatibility**, **Scenarios (what-if analysis)**, and **External Data** integration (SQL/Web queries). We are also working toward interactive controls like **Table Slicers**, comprehensive **Sheet Protection**, and [**Python/NumPy**](docs/enabling_numpy_in_libreoffice.md) support.
-
+- **📊 Calc**: Beyond cell and sheet manipulation, this is targeting advanced data modeling. This includes **Macros & VBA compatibility**, **Scenarios (what-if analysis)**, and **External Data** integration (SQL/Web queries). We are also working toward interactive controls like **Table Slicers**, comprehensive **Sheet Protection**, and **[Python/NumPy](docs/enabling_numpy_in_libreoffice.md)** support.
 - **🎨 Draw & Impress**: This is moving toward full presentation mastery by adding support for **Slide Animations**, **Layer Management**, and **Slide Show Controls**. High-priority multimedia support, including **Audio/Video insertion** and **3D Shape** manipulation, will round out the creative suite.
 
 **Cross-document reads (shipped):** Sidebar chat can already discover and read sibling Writer, Calc, and Draw files in the same folder as your saved document (see [multi-document plan](docs/multi-document-dev-plan.md)). Still ahead: configurable extra directories, `@` mention UI, headless opens, and broader directory-wide synthesis.

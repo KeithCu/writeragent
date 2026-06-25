@@ -276,3 +276,16 @@ def test_assert_logs_and_notifies_when_guard_on(monkeypatch):
     finally:
         tg.GUARD_ON = was
         tg._violation_ui_threads.clear()
+
+
+def test_proxy_bool():
+    # Target that does not define len or bool (defaults to truthy)
+    class DummyTarget:
+        pass
+    
+    dummy = DummyTarget()
+    prox = tg._UnoThreadGuardProxy(dummy)
+    with patch.object(tg, "assert_main_thread") as am:
+        assert bool(prox) is True
+        am.assert_called_with("UNO bool")
+

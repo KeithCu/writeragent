@@ -223,6 +223,10 @@ class _UnoThreadGuardProxy:
         # Yield wrapped items lazily
         return (_wrap_uno(x) for x in it)
 
+    def __bool__(self) -> bool:
+        assert_main_thread("UNO bool")
+        return bool(self._target)
+
     def __len__(self) -> int:  # type: ignore[override]
         assert_main_thread("UNO len")
         return len(self._target)  # type: ignore[arg-type]

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-24 13:51-0400\n"
+"POT-Creation-Date: 2026-06-25 08:30-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Indonesian <LL@li.org>\n"
@@ -275,6 +275,10 @@ msgstr "Penyedia AI melaporkan kesalahan. Coba lagi."
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} tidak ditemukan: {identifier}"
 
+#: plugin/framework/thread_guard.py
+msgid "UNO Thread Violation"
+msgstr "Pelanggaran Thread UNO"
+
 #: plugin/framework/constants.py
 msgid ""
 "AI: I can edit or translate your document instantly with professional "
@@ -331,7 +335,7 @@ msgstr ""
 msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "Kesalahan HTTP {0} dari Penyedia AI: {1}"
 
-#: plugin/framework/client/errors.py plugin/calc/python_function.py
+#: plugin/framework/client/errors.py plugin/calc/python/function.py
 #: plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
@@ -349,17 +353,83 @@ msgstr ""
 "Model mengulang potongan yang sama (perulangan tak terbatas). Coba lagi atau "
 "gunakan model yang berbeda."
 
-#: plugin/calc/python_function.py
+#: plugin/calc/python/editor_context_menu.py plugin/main.py
+msgid "Edit Python in Cell..."
+msgstr "Edit Python di Sel..."
+
+#: plugin/calc/python/editor.py
+msgid ""
+"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
+"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10) or =PYTHON(...)."
+msgstr ""
+"Tidak dapat mempertahankan argumen rumus PYTHON sel ini (misalnya rentang "
+"data). Edit rumus di Calc, atau gunakan string kode dalam tanda kutip "
+"seperti =PY(\"kode\"; A1:B10) atau =PYTHON(...)."
+
+#: plugin/calc/python/editor.py
+msgid "Python cell editor"
+msgstr "Penyunting sel Python"
+
+#: plugin/calc/python/editor.py
+msgid "Save as plain text"
+msgstr "Simpan sebagai teks biasa"
+
+#: plugin/calc/python/editor.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Save"
+msgstr "Simpan"
+
+#: plugin/calc/python/editor.py
+msgid "The Python editor failed unexpectedly."
+msgstr "Editor Python gagal secara tidak terduga."
+
+#: plugin/calc/python/editor.py
+msgid "Select a cell in a Calc spreadsheet to edit Python."
+msgstr "Pilih sel di lembar kerja Calc untuk mengedit Python."
+
+#: plugin/calc/python/editor.py
+msgid ""
+"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
+"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
+"(or =PYTHON(...)) with quoted code."
+msgstr ""
+"Rumus PYTHON ini menggunakan bentuk yang tidak dapat ditulis ulang dengan "
+"aman oleh editor (misalnya kode di sel lain). Edit di bilah rumus, atau "
+"gunakan =PY(\"kode\"; rentang) (atau =PYTHON(...)) dengan kode dalam tanda "
+"kutip."
+
+#: plugin/calc/python/editor.py
+msgid "No Python interpreter available for the editor."
+msgstr "Tidak ada interpreter Python yang tersedia untuk editor."
+
+#: plugin/calc/python/editor.py
+#, python-format
+msgid ""
+"Cannot import webview (pywebview) with the Python from Settings → Python:\n"
+"%(exe)s\n"
+"\n"
+"In that venv run: uv pip install pywebview\n"
+"(import name is webview, package name is pywebview)."
+msgstr ""
+"Tidak dapat mengimpor webview (pywebview) dengan Python dari Pengaturan → "
+"Python:\n"
+"%(exe)s\n"
+"\n"
+"Di venv tersebut jalankan: uv pip install pywebview\n"
+"(nama impor adalah webview, nama paket adalah pywebview)."
+
+#: plugin/calc/python/editor.py
+msgid "unknown error"
+msgstr "kesalahan tidak dikenal"
+
+#: plugin/calc/python/function.py
 msgid "Image inserted"
 msgstr "Gambar disisipkan"
 
-#: plugin/calc/python_function.py
+#: plugin/calc/python/function.py
 msgid "Images inserted"
 msgstr "Gambar disisipkan"
-
-#: plugin/calc/python_editor_context_menu.py plugin/main.py
-msgid "Edit Python in Cell..."
-msgstr "Edit Python di Sel..."
 
 #: plugin/calc/editselection.py plugin/writer/editselection.py
 msgid "Please enter edit instructions!"
@@ -390,72 +460,6 @@ msgstr "Jangkar gambar ke sel, pilih gambar tersebut, lalu Jalankan lagi."
 msgid "No structured tables or text blocks to insert."
 msgstr "Tidak ada tabel atau blok teks terstruktur untuk disisipkan."
 
-#: plugin/calc/python_editor.py
-msgid ""
-"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10) or =PYTHON(...)."
-msgstr ""
-"Tidak dapat mempertahankan argumen rumus PYTHON sel ini (misalnya rentang "
-"data). Edit rumus di Calc, atau gunakan string kode dalam tanda kutip "
-"seperti =PY(\"kode\"; A1:B10) atau =PYTHON(...)."
-
-#: plugin/calc/python_editor.py
-msgid "Python cell editor"
-msgstr "Penyunting sel Python"
-
-#: plugin/calc/python_editor.py
-msgid "Save as plain text"
-msgstr "Simpan sebagai teks biasa"
-
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
-#: plugin/xdl_strings.py
-msgid "Save"
-msgstr "Simpan"
-
-#: plugin/calc/python_editor.py
-msgid "The Python editor failed unexpectedly."
-msgstr "Editor Python gagal secara tidak terduga."
-
-#: plugin/calc/python_editor.py
-msgid "Select a cell in a Calc spreadsheet to edit Python."
-msgstr "Pilih sel di lembar kerja Calc untuk mengedit Python."
-
-#: plugin/calc/python_editor.py
-msgid ""
-"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
-"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
-"(or =PYTHON(...)) with quoted code."
-msgstr ""
-"Rumus PYTHON ini menggunakan bentuk yang tidak dapat ditulis ulang dengan "
-"aman oleh editor (misalnya kode di sel lain). Edit di bilah rumus, atau "
-"gunakan =PY(\"kode\"; rentang) (atau =PYTHON(...)) dengan kode dalam tanda "
-"kutip."
-
-#: plugin/calc/python_editor.py
-msgid "No Python interpreter available for the editor."
-msgstr "Tidak ada interpreter Python yang tersedia untuk editor."
-
-#: plugin/calc/python_editor.py
-#, python-format
-msgid ""
-"Cannot import webview (pywebview) with the Python from Settings → Python:\n"
-"%(exe)s\n"
-"\n"
-"In that venv run: uv pip install pywebview\n"
-"(import name is webview, package name is pywebview)."
-msgstr ""
-"Tidak dapat mengimpor webview (pywebview) dengan Python dari Pengaturan → "
-"Python:\n"
-"%(exe)s\n"
-"\n"
-"Di venv tersebut jalankan: uv pip install pywebview\n"
-"(nama impor adalah webview, nama paket adalah pywebview)."
-
-#: plugin/calc/python_editor.py
-msgid "unknown error"
-msgstr "kesalahan tidak dikenal"
-
 #: plugin/writer/change_context_menu.py
 msgid "Accept whole change (agent)"
 msgstr "Terima seluruh perubahan (agen)"
@@ -463,14 +467,6 @@ msgstr "Terima seluruh perubahan (agen)"
 #: plugin/writer/change_context_menu.py
 msgid "Reject whole change (agent)"
 msgstr "Tolak seluruh perubahan (agen)"
-
-#: plugin/writer/change_context_menu.py
-msgid "Accept all agent changes"
-msgstr "Terima semua perubahan agen"
-
-#: plugin/writer/change_context_menu.py
-msgid "Reject all agent changes"
-msgstr "Tolak semua perubahan agen"
 
 #: plugin/writer/review_click_popup.py
 msgid "Accept this change"
@@ -1379,6 +1375,18 @@ msgid "Could not talk to the Python editor."
 msgstr "Tidak dapat berkomunikasi dengan editor Python."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid ""
+"Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
+"on first check)."
+msgstr ""
+"Probe Teks/NLP kehabisan waktu (impor awal spaCy atau transformers bisa "
+"memakan waktu 10–30 detik pada pemeriksaan pertama)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text/NLP probe failed (see writeragent_debug.log)."
+msgstr "Probe Teks/NLP gagal (lihat writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "Probe visi kehabisan waktu (impor Docling bisa memakan waktu 10–30 detik "
@@ -1435,6 +1443,11 @@ msgstr "Memulai pekerja Python..."
 #: plugin/scripting/venv_diagnostics.py
 msgid "Reading Python version..."
 msgstr "Membaca versi Python..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text / NLP Libraries: loading (first run may take a while)..."
+msgstr ""
+"Pustaka Teks / NLP: memuat (penggunaan pertama mungkin memakan waktu)..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries: loading (first run may take a while)..."

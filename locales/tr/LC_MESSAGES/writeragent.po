@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-24 13:51-0400\n"
+"POT-Creation-Date: 2026-06-25 08:30-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Turkish <LL@li.org>\n"
@@ -277,6 +277,10 @@ msgstr "Yapay zeka sağlayıcısı bir hata bildirdi. Tekrar deneyin."
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} bulunamadı: {identifier}"
 
+#: plugin/framework/thread_guard.py
+msgid "UNO Thread Violation"
+msgstr "UNO İş Parçacığı İhlali"
+
 #: plugin/framework/constants.py
 msgid ""
 "AI: I can edit or translate your document instantly with professional "
@@ -333,7 +337,7 @@ msgstr ""
 msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "Yapay Zeka Sağlayıcısından HTTP Hatası {0}: {1}"
 
-#: plugin/framework/client/errors.py plugin/calc/python_function.py
+#: plugin/framework/client/errors.py plugin/calc/python/function.py
 #: plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
@@ -351,17 +355,83 @@ msgstr ""
 "Model aynı parçayı tekrarlıyor (sonsuz döngü). Tekrar deneyin veya farklı "
 "bir model kullanın."
 
-#: plugin/calc/python_function.py
+#: plugin/calc/python/editor_context_menu.py plugin/main.py
+msgid "Edit Python in Cell..."
+msgstr "Hücredeki Python'u Düzenle..."
+
+#: plugin/calc/python/editor.py
+msgid ""
+"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
+"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10) or =PYTHON(...)."
+msgstr ""
+"Bu hücrenin PYTHON formül bağımsız değişkenleri (ör. veri aralıkları) "
+"korunamadı. Formülü Calc içinde düzenleyin veya =PY(\"kod\"; A1:B10) ya da "
+"=PYTHON(...) gibi tırnak içinde bir kod dizisi kullanın."
+
+#: plugin/calc/python/editor.py
+msgid "Python cell editor"
+msgstr "Python hücre düzenleyici"
+
+#: plugin/calc/python/editor.py
+msgid "Save as plain text"
+msgstr "Düz metin olarak kaydet"
+
+#: plugin/calc/python/editor.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Save"
+msgstr "Kaydet"
+
+#: plugin/calc/python/editor.py
+msgid "The Python editor failed unexpectedly."
+msgstr "Python düzenleyicisi beklenmedik bir şekilde başarısız oldu."
+
+#: plugin/calc/python/editor.py
+msgid "Select a cell in a Calc spreadsheet to edit Python."
+msgstr "Python'u düzenlemek için bir Calc hesap tablosunda bir hücre seçin."
+
+#: plugin/calc/python/editor.py
+msgid ""
+"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
+"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
+"(or =PYTHON(...)) with quoted code."
+msgstr ""
+"Bu PYTHON formülü, düzenleyicinin güvenli bir şekilde yeniden yazamayacağı "
+"bir biçim kullanıyor (ör. başka bir hücredeki kod). Formülü formül çubuğunda "
+"düzenleyin veya tırnak içinde kod ile =PY(\"kod\"; aralık) (ya da "
+"=PYTHON(...)) kullanın."
+
+#: plugin/calc/python/editor.py
+msgid "No Python interpreter available for the editor."
+msgstr "Düzenleyici için kullanılabilir Python yorumlayıcısı yok."
+
+#: plugin/calc/python/editor.py
+#, python-format
+msgid ""
+"Cannot import webview (pywebview) with the Python from Settings → Python:\n"
+"%(exe)s\n"
+"\n"
+"In that venv run: uv pip install pywebview\n"
+"(import name is webview, package name is pywebview)."
+msgstr ""
+"Ayarlar → Python kısmındaki Python ile webview (pywebview) içe "
+"aktarılamıyor:\n"
+"%(exe)s\n"
+"\n"
+"Bu sanal ortamda (venv) şunu çalıştırın: uv pip install pywebview\n"
+"(içe aktarma adı webview, paket adı pywebview'dir)."
+
+#: plugin/calc/python/editor.py
+msgid "unknown error"
+msgstr "bilinmeyen hata"
+
+#: plugin/calc/python/function.py
 msgid "Image inserted"
 msgstr "Görüntü eklendi"
 
-#: plugin/calc/python_function.py
+#: plugin/calc/python/function.py
 msgid "Images inserted"
 msgstr "Görseller eklendi"
-
-#: plugin/calc/python_editor_context_menu.py plugin/main.py
-msgid "Edit Python in Cell..."
-msgstr "Hücredeki Python'u Düzenle..."
 
 #: plugin/calc/editselection.py plugin/writer/editselection.py
 msgid "Please enter edit instructions!"
@@ -392,72 +462,6 @@ msgstr "Resmi bir hücreye sabitleyin, seçin ve ardından tekrar Çalıştırı
 msgid "No structured tables or text blocks to insert."
 msgstr "Eklenecek yapılandırılmış tablo veya metin bloğu yok."
 
-#: plugin/calc/python_editor.py
-msgid ""
-"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10) or =PYTHON(...)."
-msgstr ""
-"Bu hücrenin PYTHON formül bağımsız değişkenleri (ör. veri aralıkları) "
-"korunamadı. Formülü Calc içinde düzenleyin veya =PY(\"kod\"; A1:B10) ya da "
-"=PYTHON(...) gibi tırnak içinde bir kod dizisi kullanın."
-
-#: plugin/calc/python_editor.py
-msgid "Python cell editor"
-msgstr "Python hücre düzenleyici"
-
-#: plugin/calc/python_editor.py
-msgid "Save as plain text"
-msgstr "Düz metin olarak kaydet"
-
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
-#: plugin/xdl_strings.py
-msgid "Save"
-msgstr "Kaydet"
-
-#: plugin/calc/python_editor.py
-msgid "The Python editor failed unexpectedly."
-msgstr "Python düzenleyicisi beklenmedik bir şekilde başarısız oldu."
-
-#: plugin/calc/python_editor.py
-msgid "Select a cell in a Calc spreadsheet to edit Python."
-msgstr "Python'u düzenlemek için bir Calc hesap tablosunda bir hücre seçin."
-
-#: plugin/calc/python_editor.py
-msgid ""
-"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
-"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
-"(or =PYTHON(...)) with quoted code."
-msgstr ""
-"Bu PYTHON formülü, düzenleyicinin güvenli bir şekilde yeniden yazamayacağı "
-"bir biçim kullanıyor (ör. başka bir hücredeki kod). Formülü formül çubuğunda "
-"düzenleyin veya tırnak içinde kod ile =PY(\"kod\"; aralık) (ya da "
-"=PYTHON(...)) kullanın."
-
-#: plugin/calc/python_editor.py
-msgid "No Python interpreter available for the editor."
-msgstr "Düzenleyici için kullanılabilir Python yorumlayıcısı yok."
-
-#: plugin/calc/python_editor.py
-#, python-format
-msgid ""
-"Cannot import webview (pywebview) with the Python from Settings → Python:\n"
-"%(exe)s\n"
-"\n"
-"In that venv run: uv pip install pywebview\n"
-"(import name is webview, package name is pywebview)."
-msgstr ""
-"Ayarlar → Python kısmındaki Python ile webview (pywebview) içe "
-"aktarılamıyor:\n"
-"%(exe)s\n"
-"\n"
-"Bu sanal ortamda (venv) şunu çalıştırın: uv pip install pywebview\n"
-"(içe aktarma adı webview, paket adı pywebview'dir)."
-
-#: plugin/calc/python_editor.py
-msgid "unknown error"
-msgstr "bilinmeyen hata"
-
 #: plugin/writer/change_context_menu.py
 msgid "Accept whole change (agent)"
 msgstr "Tüm değişikliği kabul et (aracı)"
@@ -465,14 +469,6 @@ msgstr "Tüm değişikliği kabul et (aracı)"
 #: plugin/writer/change_context_menu.py
 msgid "Reject whole change (agent)"
 msgstr "Tüm değişikliği reddet (aracı)"
-
-#: plugin/writer/change_context_menu.py
-msgid "Accept all agent changes"
-msgstr "Tüm aracı değişikliklerini kabul et"
-
-#: plugin/writer/change_context_menu.py
-msgid "Reject all agent changes"
-msgstr "Tüm aracı değişikliklerini reddet"
 
 #: plugin/writer/review_click_popup.py
 msgid "Accept this change"
@@ -1382,6 +1378,19 @@ msgid "Could not talk to the Python editor."
 msgstr "Python düzenleyicisi ile iletişim kurulamadı."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid ""
+"Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
+"on first check)."
+msgstr ""
+"Metin/NLP denetimi zaman aşımına uğradı (spaCy veya transformers soğuk içe "
+"aktarımı ilk denetimde 10–30 saniye sürebilir)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text/NLP probe failed (see writeragent_debug.log)."
+msgstr ""
+"Metin/NLP denetimi başarısız oldu (writeragent_debug.log dosyasına bakın)."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "Görüntüleme probu zaman aşımına uğradı (Docling içe aktarımı ilk kontrolde "
@@ -1440,6 +1449,11 @@ msgstr "Python çalışanı başlatılıyor..."
 #: plugin/scripting/venv_diagnostics.py
 msgid "Reading Python version..."
 msgstr "Python sürümü okunuyor..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text / NLP Libraries: loading (first run may take a while)..."
+msgstr ""
+"Metin / NLP Kitaplıkları: yükleniyor (ilk çalıştırma biraz zaman alabilir)..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries: loading (first run may take a while)..."

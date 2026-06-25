@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-24 13:51-0400\n"
+"POT-Creation-Date: 2026-06-25 08:30-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Croatian <LL@li.org>\n"
@@ -274,6 +274,10 @@ msgstr "AI pružatelj usluge prijavio je pogrešku. Pokušajte ponovno."
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} nije pronađen: {identifier}"
 
+#: plugin/framework/thread_guard.py
+msgid "UNO Thread Violation"
+msgstr "Kršenje UNO niti"
+
 #: plugin/framework/constants.py
 msgid ""
 "AI: I can edit or translate your document instantly with professional "
@@ -328,7 +332,7 @@ msgstr ""
 msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "HTTP pogreška {0} od AI pružatelja: {1}"
 
-#: plugin/framework/client/errors.py plugin/calc/python_function.py
+#: plugin/framework/client/errors.py plugin/calc/python/function.py
 #: plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
@@ -346,17 +350,81 @@ msgstr ""
 "Model ponavlja isti isječak (beskonačna petlja). Pokušajte ponovno ili "
 "koristite drugi model."
 
-#: plugin/calc/python_function.py
+#: plugin/calc/python/editor_context_menu.py plugin/main.py
+msgid "Edit Python in Cell..."
+msgstr "Uredi Python u ćeliji..."
+
+#: plugin/calc/python/editor.py
+msgid ""
+"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
+"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10) or =PYTHON(...)."
+msgstr ""
+"Nije bilo moguće sačuvati argumente PYTHON formule ove ćelije (npr. rasponi "
+"podataka). Uredite formulu u Calc-u ili koristite citirani niz koda kao što "
+"je =PY(\"code\"; A1:B10) ili =PYTHON(...)."
+
+#: plugin/calc/python/editor.py
+msgid "Python cell editor"
+msgstr "Python uređivač ćelija"
+
+#: plugin/calc/python/editor.py
+msgid "Save as plain text"
+msgstr "Spremi kao običan tekst"
+
+#: plugin/calc/python/editor.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Save"
+msgstr "Spremi"
+
+#: plugin/calc/python/editor.py
+msgid "The Python editor failed unexpectedly."
+msgstr "Python uređivač je neočekivano prestao s radom."
+
+#: plugin/calc/python/editor.py
+msgid "Select a cell in a Calc spreadsheet to edit Python."
+msgstr "Odaberite ćeliju u Calc proračunskoj tablici za uređivanje Pythona."
+
+#: plugin/calc/python/editor.py
+msgid ""
+"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
+"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
+"(or =PYTHON(...)) with quoted code."
+msgstr ""
+"Ova PYTHON formula koristi oblik koji uređivač ne može sigurno prepisati "
+"(npr. kod u drugoj ćeliji). Uredite je u traci formule ili koristite "
+"=PY(\"code\"; range) (ili =PYTHON(...)) s citiranim kodom."
+
+#: plugin/calc/python/editor.py
+msgid "No Python interpreter available for the editor."
+msgstr "Nijedan Python tumač nije dostupan za uređivač."
+
+#: plugin/calc/python/editor.py
+#, python-format
+msgid ""
+"Cannot import webview (pywebview) with the Python from Settings → Python:\n"
+"%(exe)s\n"
+"\n"
+"In that venv run: uv pip install pywebview\n"
+"(import name is webview, package name is pywebview)."
+msgstr ""
+"Nije moguće uvesti webview (pywebview) s Pythonom iz Postavke → Python:\n"
+"%(exe)s\n"
+"\n"
+"U tom venv-u pokrenite: uv pip install pywebview\n"
+"(naziv za uvoz je webview, naziv paketa je pywebview)."
+
+#: plugin/calc/python/editor.py
+msgid "unknown error"
+msgstr "nepoznata pogreška"
+
+#: plugin/calc/python/function.py
 msgid "Image inserted"
 msgstr "Slika umetnuta"
 
-#: plugin/calc/python_function.py
+#: plugin/calc/python/function.py
 msgid "Images inserted"
 msgstr "Umetnute slike"
-
-#: plugin/calc/python_editor_context_menu.py plugin/main.py
-msgid "Edit Python in Cell..."
-msgstr "Uredi Python u ćeliji..."
 
 #: plugin/calc/editselection.py plugin/writer/editselection.py
 msgid "Please enter edit instructions!"
@@ -387,70 +455,6 @@ msgstr "Sidrite sliku na ćeliju, odaberite je, a zatim ponovno pokrenite."
 msgid "No structured tables or text blocks to insert."
 msgstr "Nema strukturiranih tablica ili blokova teksta za umetanje."
 
-#: plugin/calc/python_editor.py
-msgid ""
-"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10) or =PYTHON(...)."
-msgstr ""
-"Nije bilo moguće sačuvati argumente PYTHON formule ove ćelije (npr. rasponi "
-"podataka). Uredite formulu u Calc-u ili koristite citirani niz koda kao što "
-"je =PY(\"code\"; A1:B10) ili =PYTHON(...)."
-
-#: plugin/calc/python_editor.py
-msgid "Python cell editor"
-msgstr "Python uređivač ćelija"
-
-#: plugin/calc/python_editor.py
-msgid "Save as plain text"
-msgstr "Spremi kao običan tekst"
-
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
-#: plugin/xdl_strings.py
-msgid "Save"
-msgstr "Spremi"
-
-#: plugin/calc/python_editor.py
-msgid "The Python editor failed unexpectedly."
-msgstr "Python uređivač je neočekivano prestao s radom."
-
-#: plugin/calc/python_editor.py
-msgid "Select a cell in a Calc spreadsheet to edit Python."
-msgstr "Odaberite ćeliju u Calc proračunskoj tablici za uređivanje Pythona."
-
-#: plugin/calc/python_editor.py
-msgid ""
-"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
-"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
-"(or =PYTHON(...)) with quoted code."
-msgstr ""
-"Ova PYTHON formula koristi oblik koji uređivač ne može sigurno prepisati "
-"(npr. kod u drugoj ćeliji). Uredite je u traci formule ili koristite "
-"=PY(\"code\"; range) (ili =PYTHON(...)) s citiranim kodom."
-
-#: plugin/calc/python_editor.py
-msgid "No Python interpreter available for the editor."
-msgstr "Nijedan Python tumač nije dostupan za uređivač."
-
-#: plugin/calc/python_editor.py
-#, python-format
-msgid ""
-"Cannot import webview (pywebview) with the Python from Settings → Python:\n"
-"%(exe)s\n"
-"\n"
-"In that venv run: uv pip install pywebview\n"
-"(import name is webview, package name is pywebview)."
-msgstr ""
-"Nije moguće uvesti webview (pywebview) s Pythonom iz Postavke → Python:\n"
-"%(exe)s\n"
-"\n"
-"U tom venv-u pokrenite: uv pip install pywebview\n"
-"(naziv za uvoz je webview, naziv paketa je pywebview)."
-
-#: plugin/calc/python_editor.py
-msgid "unknown error"
-msgstr "nepoznata pogreška"
-
 #: plugin/writer/change_context_menu.py
 msgid "Accept whole change (agent)"
 msgstr "Prihvati cijelu promjenu (agent)"
@@ -458,14 +462,6 @@ msgstr "Prihvati cijelu promjenu (agent)"
 #: plugin/writer/change_context_menu.py
 msgid "Reject whole change (agent)"
 msgstr "Odbij cijelu promjenu (agent)"
-
-#: plugin/writer/change_context_menu.py
-msgid "Accept all agent changes"
-msgstr "Prihvati sve promjene agenta"
-
-#: plugin/writer/change_context_menu.py
-msgid "Reject all agent changes"
-msgstr "Odbij sve promjene agenta"
 
 #: plugin/writer/review_click_popup.py
 msgid "Accept this change"
@@ -1378,6 +1374,18 @@ msgid "Could not talk to the Python editor."
 msgstr "Nije bilo moguće komunicirati s Python uređivačem."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid ""
+"Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
+"on first check)."
+msgstr ""
+"Provjera teksta/NLP-a je istekla (hladno učitavanje spaCy ili transformers "
+"biblioteka može potrajati 10–30 sekundi pri prvoj provjeri)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text/NLP probe failed (see writeragent_debug.log)."
+msgstr "Provjera teksta/NLP-a nije uspjela (pogledajte writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "Vremensko ograničenje vizualne sonde isteklo (uvoz Doclinga može potrajati "
@@ -1436,6 +1444,10 @@ msgstr "Pokretanje Python radnika..."
 #: plugin/scripting/venv_diagnostics.py
 msgid "Reading Python version..."
 msgstr "Čitanje verzije Pythona..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text / NLP Libraries: loading (first run may take a while)..."
+msgstr "Tekst / NLP biblioteke: učitavanje (prvo pokretanje može potrajati)..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries: loading (first run may take a while)..."

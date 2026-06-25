@@ -45,7 +45,8 @@ def run_periodic_embeddings_indexer(ctx: Any) -> None:
         time.sleep(EMBEDDINGS_INDEX_INTERVAL_S)
         if not folder_search_enabled():
             continue
-        model = get_active_document(ctx)
+        from plugin.framework.queue_executor import execute_on_main_thread
+        model = execute_on_main_thread(get_active_document, ctx)
         if model is None:
             continue
         try:

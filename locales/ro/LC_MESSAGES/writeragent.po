@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-24 13:51-0400\n"
+"POT-Creation-Date: 2026-06-25 08:30-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Romanian <LL@li.org>\n"
@@ -274,6 +274,10 @@ msgstr "Furnizorul AI a raportat o eroare. Încercați din nou."
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} nu a fost găsit: {identifier}"
 
+#: plugin/framework/thread_guard.py
+msgid "UNO Thread Violation"
+msgstr "Încălcare a firului de execuție UNO"
+
 #: plugin/framework/constants.py
 msgid ""
 "AI: I can edit or translate your document instantly with professional "
@@ -330,7 +334,7 @@ msgstr ""
 msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "Eroare HTTP {0} de la furnizorul AI: {1}"
 
-#: plugin/framework/client/errors.py plugin/calc/python_function.py
+#: plugin/framework/client/errors.py plugin/calc/python/function.py
 #: plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
@@ -348,17 +352,82 @@ msgstr ""
 "Modelul repetă același fragment (buclă infinită). Încercați din nou sau "
 "folosiți un alt model."
 
-#: plugin/calc/python_function.py
+#: plugin/calc/python/editor_context_menu.py plugin/main.py
+msgid "Edit Python in Cell..."
+msgstr "Editează Python în celulă..."
+
+#: plugin/calc/python/editor.py
+msgid ""
+"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
+"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10) or =PYTHON(...)."
+msgstr ""
+"Nu s-au putut păstra argumentele formulei PYTHON ale acestei celule (de ex. "
+"intervale de date). Editați formula în Calc sau utilizați un șir de cod "
+"între ghilimele, cum ar fi =PY(\"cod\"; A1:B10) sau =PYTHON(...)."
+
+#: plugin/calc/python/editor.py
+msgid "Python cell editor"
+msgstr "Editor de celule Python"
+
+#: plugin/calc/python/editor.py
+msgid "Save as plain text"
+msgstr "Salvează ca text simplu"
+
+#: plugin/calc/python/editor.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Save"
+msgstr "Salvare"
+
+#: plugin/calc/python/editor.py
+msgid "The Python editor failed unexpectedly."
+msgstr "Editorul Python a eșuat în mod neașteptat."
+
+#: plugin/calc/python/editor.py
+msgid "Select a cell in a Calc spreadsheet to edit Python."
+msgstr "Selectați o celulă dintr-o foaie de calcul Calc pentru a edita Python."
+
+#: plugin/calc/python/editor.py
+msgid ""
+"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
+"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
+"(or =PYTHON(...)) with quoted code."
+msgstr ""
+"Această formulă PYTHON utilizează o formă pe care editorul nu o poate "
+"rescrie în siguranță (de ex. cod în altă celulă). Editați-o în bara de "
+"formule sau utilizați =PY(\"cod\"; interval) (sau =PYTHON(...)) cu codul "
+"între ghilimele."
+
+#: plugin/calc/python/editor.py
+msgid "No Python interpreter available for the editor."
+msgstr "Niciun interpretor Python disponibil pentru editor."
+
+#: plugin/calc/python/editor.py
+#, python-format
+msgid ""
+"Cannot import webview (pywebview) with the Python from Settings → Python:\n"
+"%(exe)s\n"
+"\n"
+"In that venv run: uv pip install pywebview\n"
+"(import name is webview, package name is pywebview)."
+msgstr ""
+"Nu se poate importa webview (pywebview) cu Python din Setări → Python:\n"
+"%(exe)s\n"
+"\n"
+"În acel venv rulați: uv pip install pywebview\n"
+"(numele de import este webview, numele pachetului este pywebview)."
+
+#: plugin/calc/python/editor.py
+msgid "unknown error"
+msgstr "eroare necunoscută"
+
+#: plugin/calc/python/function.py
 msgid "Image inserted"
 msgstr "Imagine inserată"
 
-#: plugin/calc/python_function.py
+#: plugin/calc/python/function.py
 msgid "Images inserted"
 msgstr "Imagini inserate"
-
-#: plugin/calc/python_editor_context_menu.py plugin/main.py
-msgid "Edit Python in Cell..."
-msgstr "Editează Python în celulă..."
 
 #: plugin/calc/editselection.py plugin/writer/editselection.py
 msgid "Please enter edit instructions!"
@@ -389,71 +458,6 @@ msgstr "Ancorați imaginea la o celulă, selectați-o, apoi rulați din nou."
 msgid "No structured tables or text blocks to insert."
 msgstr "Nu există tabele structurate sau blocuri de text de inserat."
 
-#: plugin/calc/python_editor.py
-msgid ""
-"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10) or =PYTHON(...)."
-msgstr ""
-"Nu s-au putut păstra argumentele formulei PYTHON ale acestei celule (de ex. "
-"intervale de date). Editați formula în Calc sau utilizați un șir de cod "
-"între ghilimele, cum ar fi =PY(\"cod\"; A1:B10) sau =PYTHON(...)."
-
-#: plugin/calc/python_editor.py
-msgid "Python cell editor"
-msgstr "Editor de celule Python"
-
-#: plugin/calc/python_editor.py
-msgid "Save as plain text"
-msgstr "Salvează ca text simplu"
-
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
-#: plugin/xdl_strings.py
-msgid "Save"
-msgstr "Salvare"
-
-#: plugin/calc/python_editor.py
-msgid "The Python editor failed unexpectedly."
-msgstr "Editorul Python a eșuat în mod neașteptat."
-
-#: plugin/calc/python_editor.py
-msgid "Select a cell in a Calc spreadsheet to edit Python."
-msgstr "Selectați o celulă dintr-o foaie de calcul Calc pentru a edita Python."
-
-#: plugin/calc/python_editor.py
-msgid ""
-"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
-"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
-"(or =PYTHON(...)) with quoted code."
-msgstr ""
-"Această formulă PYTHON utilizează o formă pe care editorul nu o poate "
-"rescrie în siguranță (de ex. cod în altă celulă). Editați-o în bara de "
-"formule sau utilizați =PY(\"cod\"; interval) (sau =PYTHON(...)) cu codul "
-"între ghilimele."
-
-#: plugin/calc/python_editor.py
-msgid "No Python interpreter available for the editor."
-msgstr "Niciun interpretor Python disponibil pentru editor."
-
-#: plugin/calc/python_editor.py
-#, python-format
-msgid ""
-"Cannot import webview (pywebview) with the Python from Settings → Python:\n"
-"%(exe)s\n"
-"\n"
-"In that venv run: uv pip install pywebview\n"
-"(import name is webview, package name is pywebview)."
-msgstr ""
-"Nu se poate importa webview (pywebview) cu Python din Setări → Python:\n"
-"%(exe)s\n"
-"\n"
-"În acel venv rulați: uv pip install pywebview\n"
-"(numele de import este webview, numele pachetului este pywebview)."
-
-#: plugin/calc/python_editor.py
-msgid "unknown error"
-msgstr "eroare necunoscută"
-
 #: plugin/writer/change_context_menu.py
 msgid "Accept whole change (agent)"
 msgstr "Acceptă întreaga modificare (agent)"
@@ -461,14 +465,6 @@ msgstr "Acceptă întreaga modificare (agent)"
 #: plugin/writer/change_context_menu.py
 msgid "Reject whole change (agent)"
 msgstr "Respinge întreaga modificare (agent)"
-
-#: plugin/writer/change_context_menu.py
-msgid "Accept all agent changes"
-msgstr "Acceptă toate modificările agentului"
-
-#: plugin/writer/change_context_menu.py
-msgid "Reject all agent changes"
-msgstr "Respinge toate modificările agentului"
 
 #: plugin/writer/review_click_popup.py
 msgid "Accept this change"
@@ -1383,6 +1379,18 @@ msgid "Could not talk to the Python editor."
 msgstr "Nu s-a putut comunica cu editorul Python."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid ""
+"Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
+"on first check)."
+msgstr ""
+"Sondarea Text/NLP a expirat (importul inițial spaCy sau transformers poate "
+"dura 10–30s la prima verificare)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text/NLP probe failed (see writeragent_debug.log)."
+msgstr "Sondarea Text/NLP a eșuat (consultați writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "Sonda de vizualizare a expirat (importul Docling poate dura 10–30s la prima "
@@ -1440,6 +1448,11 @@ msgstr "Se pornește worker-ul Python..."
 #: plugin/scripting/venv_diagnostics.py
 msgid "Reading Python version..."
 msgstr "Se citește versiunea Python..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text / NLP Libraries: loading (first run may take a while)..."
+msgstr ""
+"Biblioteci Text / NLP: se încarcă (prima rulare poate dura ceva timp)..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries: loading (first run may take a while)..."

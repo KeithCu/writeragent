@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-24 13:51-0400\n"
+"POT-Creation-Date: 2026-06-25 08:30-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Chinese (Traditional) <LL@li.org>\n"
@@ -262,6 +262,10 @@ msgstr "AI 提供者報告錯誤。請再試一次。"
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} 未找到：{identifier}"
 
+#: plugin/framework/thread_guard.py
+msgid "UNO Thread Violation"
+msgstr "UNO 執行緒違規"
+
 #: plugin/framework/constants.py
 msgid ""
 "AI: I can edit or translate your document instantly with professional "
@@ -310,7 +314,7 @@ msgstr ""
 msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "來自 AI 提供者的 HTTP 錯誤 {0}：{1}"
 
-#: plugin/framework/client/errors.py plugin/calc/python_function.py
+#: plugin/framework/client/errors.py plugin/calc/python/function.py
 #: plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
@@ -326,17 +330,80 @@ msgid ""
 "different model."
 msgstr "模型正在重複相同的區塊（無限迴圈）。請重試或使用不同的模型。"
 
-#: plugin/calc/python_function.py
+#: plugin/calc/python/editor_context_menu.py plugin/main.py
+msgid "Edit Python in Cell..."
+msgstr "編輯儲存格中的 Python..."
+
+#: plugin/calc/python/editor.py
+msgid ""
+"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
+"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10) or =PYTHON(...)."
+msgstr ""
+"無法保留此儲存格的 PYTHON 公式引數（例如資料範圍）。請在 Calc 中編輯公式，或"
+"使用引號括住的程式碼字串，例如 =PY(\"code\"; A1:B10) 或 =PYTHON(...)。"
+
+#: plugin/calc/python/editor.py
+msgid "Python cell editor"
+msgstr "Python 儲存格編輯器"
+
+#: plugin/calc/python/editor.py
+msgid "Save as plain text"
+msgstr "另存為純文字"
+
+#: plugin/calc/python/editor.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Save"
+msgstr "儲存"
+
+#: plugin/calc/python/editor.py
+msgid "The Python editor failed unexpectedly."
+msgstr "Python 編輯器發生非預期的失敗。"
+
+#: plugin/calc/python/editor.py
+msgid "Select a cell in a Calc spreadsheet to edit Python."
+msgstr "請選取 Calc 試算表中的儲存格以編輯 Python。"
+
+#: plugin/calc/python/editor.py
+msgid ""
+"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
+"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
+"(or =PYTHON(...)) with quoted code."
+msgstr ""
+"此 PYTHON 公式使用的格式編輯器無法安全地重寫（例如位於其他儲存格中的程式"
+"碼）。請在公式列中編輯它，或使用 =PY(\"code\"; range)（或 =PYTHON(...)）並搭"
+"配引號括住的程式碼。"
+
+#: plugin/calc/python/editor.py
+msgid "No Python interpreter available for the editor."
+msgstr "編輯器沒有可用的 Python 直譯器。"
+
+#: plugin/calc/python/editor.py
+#, python-format
+msgid ""
+"Cannot import webview (pywebview) with the Python from Settings → Python:\n"
+"%(exe)s\n"
+"\n"
+"In that venv run: uv pip install pywebview\n"
+"(import name is webview, package name is pywebview)."
+msgstr ""
+"無法使用「設定 → Python」中的 Python 匯入 webview (pywebview)：\n"
+"%(exe)s\n"
+"\n"
+"請在該虛擬環境 (venv) 中執行：uv pip install pywebview\n"
+"（匯入名稱為 webview，套件名稱為 pywebview）。"
+
+#: plugin/calc/python/editor.py
+msgid "unknown error"
+msgstr "未知的錯誤"
+
+#: plugin/calc/python/function.py
 msgid "Image inserted"
 msgstr "已插入影像"
 
-#: plugin/calc/python_function.py
+#: plugin/calc/python/function.py
 msgid "Images inserted"
 msgstr "已插入影像"
-
-#: plugin/calc/python_editor_context_menu.py plugin/main.py
-msgid "Edit Python in Cell..."
-msgstr "編輯儲存格中的 Python..."
 
 #: plugin/calc/editselection.py plugin/writer/editselection.py
 msgid "Please enter edit instructions!"
@@ -367,69 +434,6 @@ msgstr "請將圖片錨定至儲存格，選取它，然後再次執行。"
 msgid "No structured tables or text blocks to insert."
 msgstr "沒有可插入的結構化表格或文字區塊。"
 
-#: plugin/calc/python_editor.py
-msgid ""
-"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10) or =PYTHON(...)."
-msgstr ""
-"無法保留此儲存格的 PYTHON 公式引數（例如資料範圍）。請在 Calc 中編輯公式，或"
-"使用引號括住的程式碼字串，例如 =PY(\"code\"; A1:B10) 或 =PYTHON(...)。"
-
-#: plugin/calc/python_editor.py
-msgid "Python cell editor"
-msgstr "Python 儲存格編輯器"
-
-#: plugin/calc/python_editor.py
-msgid "Save as plain text"
-msgstr "另存為純文字"
-
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
-#: plugin/xdl_strings.py
-msgid "Save"
-msgstr "儲存"
-
-#: plugin/calc/python_editor.py
-msgid "The Python editor failed unexpectedly."
-msgstr "Python 編輯器發生非預期的失敗。"
-
-#: plugin/calc/python_editor.py
-msgid "Select a cell in a Calc spreadsheet to edit Python."
-msgstr "請選取 Calc 試算表中的儲存格以編輯 Python。"
-
-#: plugin/calc/python_editor.py
-msgid ""
-"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
-"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
-"(or =PYTHON(...)) with quoted code."
-msgstr ""
-"此 PYTHON 公式使用的格式編輯器無法安全地重寫（例如位於其他儲存格中的程式"
-"碼）。請在公式列中編輯它，或使用 =PY(\"code\"; range)（或 =PYTHON(...)）並搭"
-"配引號括住的程式碼。"
-
-#: plugin/calc/python_editor.py
-msgid "No Python interpreter available for the editor."
-msgstr "編輯器沒有可用的 Python 直譯器。"
-
-#: plugin/calc/python_editor.py
-#, python-format
-msgid ""
-"Cannot import webview (pywebview) with the Python from Settings → Python:\n"
-"%(exe)s\n"
-"\n"
-"In that venv run: uv pip install pywebview\n"
-"(import name is webview, package name is pywebview)."
-msgstr ""
-"無法使用「設定 → Python」中的 Python 匯入 webview (pywebview)：\n"
-"%(exe)s\n"
-"\n"
-"請在該虛擬環境 (venv) 中執行：uv pip install pywebview\n"
-"（匯入名稱為 webview，套件名稱為 pywebview）。"
-
-#: plugin/calc/python_editor.py
-msgid "unknown error"
-msgstr "未知的錯誤"
-
 #: plugin/writer/change_context_menu.py
 msgid "Accept whole change (agent)"
 msgstr "接受所有變更 (代理)"
@@ -437,14 +441,6 @@ msgstr "接受所有變更 (代理)"
 #: plugin/writer/change_context_menu.py
 msgid "Reject whole change (agent)"
 msgstr "拒絕所有變更 (代理)"
-
-#: plugin/writer/change_context_menu.py
-msgid "Accept all agent changes"
-msgstr "接受所有代理變更"
-
-#: plugin/writer/change_context_menu.py
-msgid "Reject all agent changes"
-msgstr "拒絕所有代理變更"
 
 #: plugin/writer/review_click_popup.py
 msgid "Accept this change"
@@ -1337,6 +1333,18 @@ msgid "Could not talk to the Python editor."
 msgstr "無法與 Python 編輯器通訊。"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid ""
+"Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
+"on first check)."
+msgstr ""
+"文字/NLP 探測逾時（spaCy 或 transformers 的冷啟動匯入在首次檢查時可能需要 10–"
+"30 秒）。"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text/NLP probe failed (see writeragent_debug.log)."
+msgstr "文字/NLP 探測失敗（請參閱 writeragent_debug.log）。"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr "視覺探測逾時（首次檢查時，Docling 匯入可能需要 10–30 秒）。"
 
@@ -1390,6 +1398,10 @@ msgstr "正在啟動 Python 背景程式..."
 #: plugin/scripting/venv_diagnostics.py
 msgid "Reading Python version..."
 msgstr "正在讀取 Python 版本..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text / NLP Libraries: loading (first run may take a while)..."
+msgstr "文字 / NLP 函式庫：載入中（首次執行可能需要一些時間）..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries: loading (first run may take a while)..."

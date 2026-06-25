@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-24 13:51-0400\n"
+"POT-Creation-Date: 2026-06-25 08:30-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Estonian <LL@li.org>\n"
@@ -272,6 +272,10 @@ msgstr "AI-teenuse pakkuja teatas tõrkest. Proovige uuesti."
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} ei leitud: {identifier}"
 
+#: plugin/framework/thread_guard.py
+msgid "UNO Thread Violation"
+msgstr "UNO-lõime rikkumine"
+
 #: plugin/framework/constants.py
 msgid ""
 "AI: I can edit or translate your document instantly with professional "
@@ -326,7 +330,7 @@ msgstr ""
 msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "HTTP-tõrge {0} AI-teenuse pakkujalt: {1}"
 
-#: plugin/framework/client/errors.py plugin/calc/python_function.py
+#: plugin/framework/client/errors.py plugin/calc/python/function.py
 #: plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
@@ -344,17 +348,82 @@ msgstr ""
 "Mudel kordab sama osa (lõputu tsükkel). Proovige uuesti või kasutage teist "
 "mudelit."
 
-#: plugin/calc/python_function.py
+#: plugin/calc/python/editor_context_menu.py plugin/main.py
+msgid "Edit Python in Cell..."
+msgstr "Redigeeri Pythonit lahtris..."
+
+#: plugin/calc/python/editor.py
+msgid ""
+"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
+"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10) or =PYTHON(...)."
+msgstr ""
+"Selle lahtri PYTHON-valemi argumente (nt andmevahemikke) ei saanud "
+"säilitada. Muutke valemit Calcis või kasutage jutumärkides koodistringi, "
+"näiteks =PY(\"kood\"; A1:B10) või =PYTHON(...)."
+
+#: plugin/calc/python/editor.py
+msgid "Python cell editor"
+msgstr "Python-lahtriredaktor"
+
+#: plugin/calc/python/editor.py
+msgid "Save as plain text"
+msgstr "Salvesta lihttekstina"
+
+#: plugin/calc/python/editor.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Save"
+msgstr "Salvesta"
+
+#: plugin/calc/python/editor.py
+msgid "The Python editor failed unexpectedly."
+msgstr "Pythoni redaktor tõrkus ootamatult."
+
+#: plugin/calc/python/editor.py
+msgid "Select a cell in a Calc spreadsheet to edit Python."
+msgstr "Pythoni redigeerimiseks vali Calci arvutustabelist lahter."
+
+#: plugin/calc/python/editor.py
+msgid ""
+"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
+"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
+"(or =PYTHON(...)) with quoted code."
+msgstr ""
+"See PYTHON-valem kasutab vormi, mida redaktor ei saa ohutult ümber kirjutada "
+"(nt kood teises lahtris). Muutke seda valemiribal või kasutage jutumärkides "
+"koodiga =PY(\"kood\"; vahemik) (või =PYTHON(...))."
+
+#: plugin/calc/python/editor.py
+msgid "No Python interpreter available for the editor."
+msgstr "Redaktori jaoks pole Pythoni interpretaatorit saadaval."
+
+#: plugin/calc/python/editor.py
+#, python-format
+msgid ""
+"Cannot import webview (pywebview) with the Python from Settings → Python:\n"
+"%(exe)s\n"
+"\n"
+"In that venv run: uv pip install pywebview\n"
+"(import name is webview, package name is pywebview)."
+msgstr ""
+"Veebivaate (pywebview) importimine Pythoniga sätetest → Python pole "
+"võimalik:\n"
+"%(exe)s\n"
+"\n"
+"Käivita selles virtuaalkeskkonnas: uv pip install pywebview\n"
+"(impordinimi on webview, paketi nimi on pywebview)."
+
+#: plugin/calc/python/editor.py
+msgid "unknown error"
+msgstr "tundmatu viga"
+
+#: plugin/calc/python/function.py
 msgid "Image inserted"
 msgstr "Pilt sisestatud"
 
-#: plugin/calc/python_function.py
+#: plugin/calc/python/function.py
 msgid "Images inserted"
 msgstr "Pildid lisatud"
-
-#: plugin/calc/python_editor_context_menu.py plugin/main.py
-msgid "Edit Python in Cell..."
-msgstr "Redigeeri Pythonit lahtris..."
 
 #: plugin/calc/editselection.py plugin/writer/editselection.py
 msgid "Please enter edit instructions!"
@@ -385,71 +454,6 @@ msgstr "Ankurdage pilt lahtrisse, valige see ja käivitage uuesti."
 msgid "No structured tables or text blocks to insert."
 msgstr "Ühtegi struktureeritud tabelit või tekstiplokki pole võimalik lisada."
 
-#: plugin/calc/python_editor.py
-msgid ""
-"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10) or =PYTHON(...)."
-msgstr ""
-"Selle lahtri PYTHON-valemi argumente (nt andmevahemikke) ei saanud "
-"säilitada. Muutke valemit Calcis või kasutage jutumärkides koodistringi, "
-"näiteks =PY(\"kood\"; A1:B10) või =PYTHON(...)."
-
-#: plugin/calc/python_editor.py
-msgid "Python cell editor"
-msgstr "Python-lahtriredaktor"
-
-#: plugin/calc/python_editor.py
-msgid "Save as plain text"
-msgstr "Salvesta lihttekstina"
-
-#: plugin/calc/python_editor.py plugin/scripting/python_runner.py
-#: plugin/xdl_strings.py
-msgid "Save"
-msgstr "Salvesta"
-
-#: plugin/calc/python_editor.py
-msgid "The Python editor failed unexpectedly."
-msgstr "Pythoni redaktor tõrkus ootamatult."
-
-#: plugin/calc/python_editor.py
-msgid "Select a cell in a Calc spreadsheet to edit Python."
-msgstr "Pythoni redigeerimiseks vali Calci arvutustabelist lahter."
-
-#: plugin/calc/python_editor.py
-msgid ""
-"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
-"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
-"(or =PYTHON(...)) with quoted code."
-msgstr ""
-"See PYTHON-valem kasutab vormi, mida redaktor ei saa ohutult ümber kirjutada "
-"(nt kood teises lahtris). Muutke seda valemiribal või kasutage jutumärkides "
-"koodiga =PY(\"kood\"; vahemik) (või =PYTHON(...))."
-
-#: plugin/calc/python_editor.py
-msgid "No Python interpreter available for the editor."
-msgstr "Redaktori jaoks pole Pythoni interpretaatorit saadaval."
-
-#: plugin/calc/python_editor.py
-#, python-format
-msgid ""
-"Cannot import webview (pywebview) with the Python from Settings → Python:\n"
-"%(exe)s\n"
-"\n"
-"In that venv run: uv pip install pywebview\n"
-"(import name is webview, package name is pywebview)."
-msgstr ""
-"Veebivaate (pywebview) importimine Pythoniga sätetest → Python pole "
-"võimalik:\n"
-"%(exe)s\n"
-"\n"
-"Käivita selles virtuaalkeskkonnas: uv pip install pywebview\n"
-"(impordinimi on webview, paketi nimi on pywebview)."
-
-#: plugin/calc/python_editor.py
-msgid "unknown error"
-msgstr "tundmatu viga"
-
 #: plugin/writer/change_context_menu.py
 msgid "Accept whole change (agent)"
 msgstr "Nõustu kogu muudatusega (agent)"
@@ -457,14 +461,6 @@ msgstr "Nõustu kogu muudatusega (agent)"
 #: plugin/writer/change_context_menu.py
 msgid "Reject whole change (agent)"
 msgstr "Lükka kogu muudatus tagasi (agent)"
-
-#: plugin/writer/change_context_menu.py
-msgid "Accept all agent changes"
-msgstr "Nõustu kõigi agendi muudatustega"
-
-#: plugin/writer/change_context_menu.py
-msgid "Reject all agent changes"
-msgstr "Lükka kõik agendi muudatused tagasi"
 
 #: plugin/writer/review_click_popup.py
 msgid "Accept this change"
@@ -1375,6 +1371,18 @@ msgid "Could not talk to the Python editor."
 msgstr "Pythoni redaktoriga ei saanud ühendust."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid ""
+"Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
+"on first check)."
+msgstr ""
+"Teksti/NLP kontrollimise ajalõpp (spaCy või transformerite esmakordne "
+"importimine võib võtta 10–30 sekundit)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text/NLP probe failed (see writeragent_debug.log)."
+msgstr "Teksti/NLP kontrollimine ebaõnnestus (vt writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "Visuaalse kontrolli ajalõpp (Doclingi importimine võib esimesel korral võtta "
@@ -1431,6 +1439,11 @@ msgstr "Pythoni tööprotsessi käivitamine..."
 #: plugin/scripting/venv_diagnostics.py
 msgid "Reading Python version..."
 msgstr "Pythoni versiooni lugemine..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text / NLP Libraries: loading (first run may take a while)..."
+msgstr ""
+"Teksti / NLP teegid: laadimine (esmakordne käivitamine võib aega võtta)..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries: loading (first run may take a while)..."

@@ -89,15 +89,18 @@ def workbook_session_id(ctx: Any) -> str | None:
     from plugin.framework.thread_guard import on_main_thread
     from plugin.framework.queue_executor import execute_on_main_thread
 
-    if not on_main_thread():
-        return execute_on_main_thread(workbook_session_id, ctx)
+    def _workbook_session_id_impl() -> str | None:
+        if python_session_mode(ctx) != "shared":
+            return None
+        doc = _calc_document(ctx)
+        if doc is None:
+            return None
+        return calc_workbook_base_session_id(doc)
 
-    if python_session_mode(ctx) != "shared":
-        return None
-    doc = _calc_document(ctx)
-    if doc is None:
-        return None
-    return calc_workbook_base_session_id(doc)
+    if not on_main_thread():
+        return execute_on_main_thread(_workbook_session_id_impl)
+
+    return _workbook_session_id_impl()
 
 
 def notebook_session_id(ctx: Any, doc: Any | None = None) -> str | None:

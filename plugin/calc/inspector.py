@@ -90,6 +90,8 @@ class CellInspector:
                 addr = cell.getRangeAddress()
                 if addr.StartColumn != addr.EndColumn or addr.StartRow != addr.EndRow:
                     raise ValueError(f"Address '{address}' resolved to a cell range, not a single cell.")
+                if hasattr(cell, "getCellByPosition") and not hasattr(cell, "getType"):
+                    cell = cell.getCellByPosition(0, 0)
             cell_type = cell.getType()
 
             if cell_type == EMPTY:
@@ -127,6 +129,8 @@ class CellInspector:
                 addr = cell.getRangeAddress()
                 if addr.StartColumn != addr.EndColumn or addr.StartRow != addr.EndRow:
                     raise ValueError(f"Address '{address}' resolved to a cell range, not a single cell.")
+                if hasattr(cell, "getCellByPosition") and not hasattr(cell, "getType"):
+                    cell = cell.getCellByPosition(0, 0)
             cell_type = cell.getType()
 
             if cell_type == EMPTY:

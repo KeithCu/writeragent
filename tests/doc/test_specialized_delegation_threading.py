@@ -376,3 +376,17 @@ def test_calc_specialized_domain_base_requires_core_read_tools():
     """Calc specialized bases declare sheet read helpers for sub-agent discovery."""
     assert "get_sheet_summary" in (ToolCalcSheetBase.required_core_tools or frozenset())
     assert "read_cell_range" in (ToolCalcSheetBase.required_core_tools or frozenset())
+
+
+def test_calc_shapes_domain_tools():
+    from plugin.calc.shapes import UpsertShape, DeleteShape, ConnectShapes, GroupShapes, GetDrawSummary
+    from plugin.calc.base import ToolCalcShapeBase
+    
+    assert issubclass(UpsertShape, ToolCalcShapeBase)
+    assert issubclass(DeleteShape, ToolCalcShapeBase)
+    assert issubclass(ConnectShapes, ToolCalcShapeBase)
+    assert issubclass(GroupShapes, ToolCalcShapeBase)
+    assert issubclass(GetDrawSummary, ToolCalcShapeBase)
+    
+    assert "com.sun.star.sheet.SpreadsheetDocument" in UpsertShape.uno_services
+
