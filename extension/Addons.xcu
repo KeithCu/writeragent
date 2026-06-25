@@ -43,6 +43,17 @@
               <value>_self</value>
             </prop>
           </node>
+          <node oor:name="M3a" oor:op="replace">
+            <prop oor:name="Title">
+              <value xml:lang="en-US">Report bug...</value>
+            </prop>
+            <prop oor:name="URL">
+              <value>org.extension.writeragent:main.report_bug</value>
+            </prop>
+            <prop oor:name="Target" oor:type="xs:string">
+              <value>_self</value>
+            </prop>
+          </node>
           <node oor:name="M3b" oor:op="replace">
             <prop oor:name="Title">
               <value xml:lang="en-US">Toggle MCP Server</value>

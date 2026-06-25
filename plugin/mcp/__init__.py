@@ -281,7 +281,17 @@ class McpModule(ModuleBase):
                 mcp_url = status.get("mcp_url", status.get("url", ""))
                 msgbox(ctx, "WriterAgent", _("MCP server started") + "\n{0}".format(mcp_url))
             else:
-                msgbox(ctx, "WriterAgent", _("MCP server failed to start") + "\n" + _("Check writeragent_debug.log in your LibreOffice user config folder"))
+                from plugin.chatbot.dialogs import msgbox_with_report
+                from plugin.framework.i18n import _
+
+                msgbox_with_report(
+                    ctx,
+                    "WriterAgent",
+                    _("MCP server failed to start") + "\n" + _("Check writeragent_debug.log in your LibreOffice user config folder"),
+                    box_type=3,
+                    reportable=True,
+                    report_title="MCP server failed to start",
+                )
 
     def _action_server_status(self):
         import unohelper

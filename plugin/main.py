@@ -250,6 +250,14 @@ def _register_core_handlers():
 
     register_action_handler("main", "settings", _open_settings)
 
+    def _report_bug():
+        from plugin.framework.bug_report import open_bug_report_in_browser
+        from plugin.framework.uno_context import get_ctx
+
+        open_bug_report_in_browser(get_ctx(), title="Bug report")
+
+    register_action_handler("main", "report_bug", _report_bug)
+
     register_action_handler("main", "EvaluationDashboard", lambda: _open_dialog_safely(show_eval_dashboard, "Failed to show eval dashboard"))
 
     register_action_handler("main", "RunFormatTests", lambda: _run_test_suite(importlib.import_module("plugin.tests.writer.test_format_uno"), is_writer, "writer.format_tests") if _tests_bundled() else _show_tests_unavailable("writer.format_tests"))
@@ -454,10 +462,18 @@ def _open_dialog_safely(dialog_func, error_msg, *args, **kwargs):
     except Exception as e:
         log.exception("%s", error_msg)
         # Show user-friendly error message
-        from plugin.chatbot.dialogs import msgbox
+        from plugin.chatbot.dialogs import msgbox_with_report
         from plugin.framework.i18n import _
 
-        msgbox(ctx_getter(), _("Error"), _(f"{error_msg}: {str(e)}"))
+        msgbox_with_report(
+            ctx_getter(),
+            _("Error"),
+            _(f"{error_msg}: {str(e)}"),
+            box_type=3,
+            reportable=True,
+            report_title=error_msg,
+            report_extra=str(e),
+        )
 
 
 def _run_test_suite(test_func, doc_checker, test_name):
@@ -581,6 +597,7 @@ def get_menu_text(command):
         "chatbot.extend_selection": _("Extend Selection"),
         "chatbot.edit_selection": _("Edit Selection"),
         "main.settings": _("Settings"),
+        "main.report_bug": _("Report bug..."),
         "mcp.toggle_server": _("Toggle MCP Server"),
         "mcp.server_status": _("MCP Server Status"),
         "main.NoOp": "Debug",  # Excluded from translation per user request
@@ -982,7 +999,6 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitializat
     def dispatch(self, URL, Arguments):
         url = URL
         command = url.Path
-        from plugin.chatbot.dialogs import msgbox
         from plugin.framework.logging import init_logging, log_exception
 
         try:
@@ -996,9 +1012,18 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitializat
             run_in_background(notify_menu_update)
         except Exception as e:
             log_exception(e, context="Dispatch")
+            from plugin.chatbot.dialogs import msgbox_with_report
             from plugin.framework.i18n import _
 
-            msgbox(self.ctx, _("Dispatch Error"), _(str(e)))
+            msgbox_with_report(
+                self.ctx,
+                _("Dispatch Error"),
+                _(str(e)),
+                box_type=3,
+                reportable=True,
+                report_title="Dispatch Error",
+                report_extra=str(e),
+            )
 
     def addStatusListener(self, Control, URL):
         listener = Control

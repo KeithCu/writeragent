@@ -749,7 +749,7 @@ def launch_monaco_editor(
     on_closed: Callable[[], None] | None = None,
 ) -> bool:
     """Start or reuse the Monaco child process and send *load_message*. Return True on success."""
-    from plugin.chatbot.dialogs import msgbox
+    from plugin.chatbot.dialogs import msgbox_with_report
 
     _PERSISTENT_EDITOR.ctx = ctx
     # Host-only keys (e.g. pyuno document refs) must not cross the pickle IPC boundary.
@@ -789,7 +789,8 @@ def launch_monaco_editor(
             proc = spawn_editor_process(exe)
         except OSError as e:
             log.exception("Failed to spawn editor")
-            msgbox(ctx, "WriterAgent", failure_message(_("Could not start the Python editor."), exc=e))
+            msg = failure_message(_("Could not start the Python editor."), exc=e)
+            msgbox_with_report(ctx, "WriterAgent", msg, box_type=3, reportable=True, report_title="Python editor spawn failed", report_extra=msg)
             return False
 
         session = EditorSession(proc, on_save=on_save, on_closed=closed_handler)
@@ -799,7 +800,8 @@ def launch_monaco_editor(
         if not session.wait_for_ready(ctx, timeout_sec=45.0):
             detail = session.read_stderr_tail()
             set_active_session(None)
-            msgbox(ctx, "WriterAgent", failure_message(_("The Python editor window did not start."), detail=detail))
+            msg = failure_message(_("The Python editor window did not start."), detail=detail)
+            msgbox_with_report(ctx, "WriterAgent", msg, box_type=3, reportable=True, report_title="Python editor did not start", report_extra=msg)
             return False
 
         # Trigger background pre-warming of the venv subprocess now that Monaco is successfully up.
@@ -808,10 +810,15 @@ def launch_monaco_editor(
     if not session.is_running:
         detail = session.read_stderr_tail()
         set_active_session(None)
-        msgbox(
+        msg = failure_message(_("The Python editor exited before it could load your code."), detail=detail)
+        msgbox_with_report(
             ctx,
             "WriterAgent",
-            failure_message(_("The Python editor exited before it could load your code."), detail=detail),
+            msg,
+            box_type=3,
+            reportable=True,
+            report_title="Python editor exited early",
+            report_extra=msg,
         )
         return False
 
@@ -820,10 +827,15 @@ def launch_monaco_editor(
     except Exception as e:
         log.exception("Failed to send load to editor")
         set_active_session(None)
-        msgbox(
+        msg = failure_message(_("Could not talk to the Python editor."), detail=session.read_stderr_tail(), exc=e)
+        msgbox_with_report(
             ctx,
             "WriterAgent",
-            failure_message(_("Could not talk to the Python editor."), detail=session.read_stderr_tail(), exc=e),
+            msg,
+            box_type=3,
+            reportable=True,
+            report_title="Python editor IPC failed",
+            report_extra=msg,
         )
         return False
 

@@ -14,7 +14,7 @@ from com.sun.star.awt import XActionListener
 
 from plugin.framework.uno_context import get_desktop
 from plugin.framework.config import get_config, get_config_str, set_config
-from plugin.chatbot.dialogs import load_writeragent_dialog, msgbox
+from plugin.chatbot.dialogs import load_writeragent_dialog, msgbox, msgbox_with_report
 from plugin.framework.i18n import _
 from plugin.doc.document_helpers import is_writer
 from plugin.writer.math.math_mml_convert import convert_latex_to_starmath, insert_writer_math_formula
@@ -193,6 +193,13 @@ def insert_latex_math_dialog(ctx: Any) -> None:
     except Exception:
         log.exception("insert_latex_math_dialog failed")
         try:
-            msgbox(ctx, _("Error"), _("An unexpected error occurred during LaTeX insertion."))
+            msgbox_with_report(
+                ctx,
+                _("Error"),
+                _("An unexpected error occurred during LaTeX insertion."),
+                box_type=3,
+                reportable=True,
+                report_title="LaTeX insertion failed",
+            )
         except Exception:
             pass

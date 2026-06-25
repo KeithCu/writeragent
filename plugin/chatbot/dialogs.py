@@ -414,6 +414,88 @@ def msgbox_with_copy(ctx, title, message, copy_text):
         msgbox(ctx, title, message)
 
 
+def msgbox_with_report(ctx, title, message, *, reportable=False, report_title="", report_extra="", box_type=3):
+    """Show a message box; when ``reportable``, offer Copy URL and Report bug buttons."""
+    if not reportable:
+        msgbox(ctx, title, message, box_type=box_type)
+        return
+    if not ctx:
+        log.info("MSGBOX_REPORT (no ctx) - %s: %s", title, message)
+        return
+    try:
+        from plugin.framework.bug_report import build_github_issue_url, open_bug_report_in_browser
+
+        dlg = load_writeragent_dialog("ErrorReportDialog", ctx)
+        if dlg is None:
+            msgbox(ctx, title, message, box_type=box_type)
+            return
+
+        issue_title = (report_title or title or "").strip()
+        msg = (message or "").strip()
+        rep = (report_extra or "").strip()
+        if msg and rep and rep != msg:
+            extra = f"{msg}\n\n{rep}"
+        else:
+            extra = rep or msg
+        report_url = build_github_issue_url(title=issue_title, extra_body=extra, ctx=ctx)
+
+        if title:
+            dlg.getModel().Title = _(title)
+
+        msg_ctrl = dlg.getControl("Msg")
+        if msg_ctrl is not None:
+            msg_ctrl.getModel().Label = _(message)
+
+        class _CopyListener(BaseActionListener):
+            def __init__(self, dialog, context, text):
+                self._dlg = dialog
+                self._ctx = context
+                self._text = text
+
+            def on_action_performed(self, rEvent):
+                if copy_to_clipboard(self._ctx, self._text):
+                    try:
+                        self._dlg.getModel().getByName("CopyBtn").Label = _("Copied!")
+                    except Exception as e:
+                        log.debug("Failed to set CopyBtn Label: %s", e)
+
+        copy_btn = dlg.getControl("CopyBtn")
+        if copy_btn is not None:
+            copy_btn.getModel().Label = _("Copy URL")
+            copy_btn.addActionListener(_CopyListener(dlg, ctx, report_url))
+
+        class _ReportListener(BaseActionListener):
+            def __init__(self, context, dlg_title, dlg_extra):
+                self._ctx = context
+                self._title = dlg_title
+                self._extra = dlg_extra
+
+            def on_action_performed(self, rEvent):
+                open_bug_report_in_browser(self._ctx, title=self._title, extra_body=self._extra)
+
+        report_btn = dlg.getControl("ReportBtn")
+        if report_btn is not None:
+            report_btn.getModel().Label = _("Report bug...")
+            report_btn.addActionListener(_ReportListener(ctx, issue_title, extra))
+
+        class _OkListener(unohelper.Base, XActionListener):
+            def actionPerformed(self, rEvent):
+                dlg.endDialog(1)
+
+            def disposing(self, Source):
+                pass
+
+        ok_btn = dlg.getControl("OKBtn")
+        if ok_btn is not None:
+            ok_btn.addActionListener(_OkListener())
+
+        dlg.execute()
+        dlg.dispose()
+    except Exception:
+        log.exception("Report dialog error")
+        msgbox(ctx, title, message, box_type=box_type)
+
+
 # ── Status dialog with live updates ──────────────────────────────────
 
 

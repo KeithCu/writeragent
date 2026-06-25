@@ -20,7 +20,7 @@ from plugin.calc.python.formula_edit import (
     rebuild_python_formula,
     rebuild_python_formula_with_data,
 )
-from plugin.chatbot.dialogs import msgbox
+from plugin.chatbot.dialogs import msgbox, msgbox_with_report
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_desktop
 from plugin.scripting.editor_host import (
@@ -268,7 +268,8 @@ def open_python_cell_editor(ctx: Any) -> None:
         _open_python_cell_editor_impl(ctx)
     except Exception as e:
         log.exception("python_editor: unhandled failure")
-        msgbox(ctx, "WriterAgent", failure_message(_("The Python editor failed unexpectedly."), exc=e))
+        msg = failure_message(_("The Python editor failed unexpectedly."), exc=e)
+        msgbox_with_report(ctx, "WriterAgent", msg, box_type=3, reportable=True, report_title="Python cell editor failed", report_extra=msg)
 
 
 def _open_python_cell_editor_impl(ctx: Any) -> None:

@@ -103,10 +103,10 @@ def _notify_thread_violation(msg: str) -> None:
     def _show_popup() -> None:
         try:
             from plugin.framework.uno_context import get_ctx
-            from plugin.chatbot.dialogs import msgbox
+            from plugin.chatbot.dialogs import msgbox_with_report
             from plugin.framework.i18n import _
 
-            msgbox(get_ctx(), _("UNO Thread Violation"), full_msg, box_type=3)
+            msgbox_with_report(get_ctx(), _("UNO Thread Violation"), full_msg, box_type=3, reportable=True, report_title="UNO thread violation", report_extra=full_msg)
         except Exception:
             log.exception("Failed to show thread violation message box")
 

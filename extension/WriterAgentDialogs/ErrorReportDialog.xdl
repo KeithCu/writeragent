@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE dlg:window PUBLIC "-//OpenOffice.org//DTD OfficeDocument 1.0//EN" "dialog.dtd">
+<dlg:window xmlns:dlg="http://openoffice.org/2000/dialog" xmlns:script="http://openoffice.org/2000/script"
+  dlg:id="ErrorReportDialog" dlg:left="100" dlg:top="50" dlg:width="280" dlg:height="90"
+  dlg:closeable="true" dlg:moveable="true" dlg:title="Message">
+ <dlg:bulletinboard>
+  <dlg:text dlg:id="Msg" dlg:left="10" dlg:top="6" dlg:width="260" dlg:height="48" dlg:value="" dlg:align="left" dlg:multiline="true"/>
+  <dlg:button dlg:id="CopyBtn" dlg:left="10" dlg:top="62" dlg:width="50" dlg:height="14" dlg:value="Copy" dlg:tabstop="true"/>
+  <dlg:button dlg:id="ReportBtn" dlg:left="68" dlg:top="62" dlg:width="72" dlg:height="14" dlg:value="Report bug..." dlg:tabstop="true"/>
+  <dlg:button dlg:id="OKBtn" dlg:left="220" dlg:top="62" dlg:width="50" dlg:height="14" dlg:value="OK" dlg:tabstop="true"/>
+ </dlg:bulletinboard>
+</dlg:window>
