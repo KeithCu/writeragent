@@ -30,7 +30,7 @@ isProject: false
 
 **Shipped baseline:** [enabling_numpy_in_libreoffice.md](enabling_numpy_in_libreoffice.md) (user guide, shared-kernel semantics, Monaco summary, [§8 status](enabling_numpy_in_libreoffice.md#8-implementation-status)). **Monaco IPC / 2B–2F:** [python-monaco-editor-dev-plan.md](python-monaco-editor-dev-plan.md).
 
-**Done (Phases 1, 2, 4):** Shared kernel + reset, matplotlib/Viz image egress, Calc init scripts. No further phase work unless noted below.
+**Done (Phases 1, 2, 4):** Shared kernel + reset, matplotlib/Viz image egress, Calc init scripts, **dynamic auto-spill** (`#SPILL!` + document spill registry). No further phase work unless noted below.
 
 ---
 
@@ -123,7 +123,6 @@ Tracked with more context in [enabling_numpy §7](enabling_numpy_in_libreoffice.
 
 | Item | Suggested owner |
 |------|-----------------|
-| **Dynamic auto-spill** + `#SPILL!`-style blocked-cell error | `python_function.py` + spill detection |
 | **DataFrame → rich Calc table** (headers, formats, filters) | Phase 5 extension or **5b** |
 | **JSON `result` envelope** (multi-cell agent updates) | `payload_codec` + host apply |
 | **Inline result preview** (stdout/thumbnail under cell) | Phase 3 or 6 |
@@ -149,7 +148,7 @@ graph TD
 2. **Phase 6** (diagnostics) — unblocks better failure UX for all Python cells.
 3. **Phase 5** (object cards) — needs shared kernel (done).
 4. **Phase 7** — prompt/polish after core UX is stable.
-5. **Unphased** items (auto-spill, named ranges, RPC) as separate PRs when prioritized.
+5. **Unphased** items (named ranges, RPC) as separate PRs when prioritized.
 
 ---
 

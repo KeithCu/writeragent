@@ -951,3 +951,63 @@ def test_dataframe_host_unpack_preserves_split_grid_for_numeric():
     assert unpacked["data"][0][0] == pytest.approx(1.0)
 
 
+def test_date_and_datetime_serialization_handling():
+    """Verify how dates and datetimes are handled when passing through the host/child bridge.
+    
+    This verifies that:
+    1. Python datetime/date objects below threshold (pickle list path) preserve their types.
+    2. Python datetime/date objects above threshold (split_grid) are coerced to strings on the wire.
+    3. NumPy datetime64 arrays serialized above threshold are cast to float64 (days/units since Epoch).
+    4. Pandas Timestamps are correctly coerced to strings under split_grid.
+    """
+    np = pytest.importorskip("numpy")
+    pd = pytest.importorskip("pandas")
+    import datetime
+
+    # 1. Below threshold (plain list path / pickle)
+    d = datetime.date(2026, 6, 25)
+    dt = datetime.datetime(2026, 6, 25, 14, 30, 0)
+    
+    wire_list = host_pack_data([d, dt], force="never")
+    child_unpacked_list = child_unpack_data(wire_list)
+    assert child_unpacked_list[0] == d
+    assert child_unpacked_list[1] == dt
+
+    # 2. Above threshold (split_grid / always binary)
+    grid = [[d, dt] * 50]  # 100 cells
+    wire_sg = host_pack_data(grid, force="always")
+    assert wire_sg["__wa_payload__"] == PAYLOAD_SPLIT_GRID
+    
+    # Verify they were treated as strings in the strings dict
+    assert 0 in wire_sg["strings"]
+    assert wire_sg["strings"][0] == "2026-06-25"
+    assert wire_sg["strings"][1] == "2026-06-25 14:30:00"
+
+    # Child unpacks them as strings
+    child_unpacked_sg = child_unpack_data(wire_sg)
+    assert isinstance(child_unpacked_sg, list)
+    assert child_unpacked_sg[0][0] == "2026-06-25"
+    assert child_unpacked_sg[0][1] == "2026-06-25 14:30:00"
+
+    # 3. NumPy np.datetime64 egress (above threshold)
+    arr = np.array([np.datetime64("2026-06-25"), np.datetime64("2026-06-26")])
+    wire_arr_sg = child_pack_result(arr, force="always")
+    assert wire_arr_sg["__wa_payload__"] == PAYLOAD_SPLIT_GRID
+    
+    host_unpacked_arr = host_unpack_data(wire_arr_sg)
+    # Internally cast to float64 representing days since Epoch (1970-01-01)
+    assert host_unpacked_arr[0] == 20629.0
+    assert host_unpacked_arr[1] == 20630.0
+
+    # 4. Pandas Timestamps under split_grid (above threshold)
+    ts = pd.Timestamp("2026-06-25 14:30:00")
+    grid_ts = [[ts] * 100]
+    wire_ts = host_pack_data(grid_ts, force="always")
+    assert wire_ts["__wa_payload__"] == PAYLOAD_SPLIT_GRID
+    assert wire_ts["strings"][0] == "2026-06-25 14:30:00"
+    
+    child_unpacked_ts = child_unpack_data(wire_ts)
+    assert child_unpacked_ts[0][0] == "2026-06-25 14:30:00"
+
+
+

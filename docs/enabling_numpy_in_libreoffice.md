@@ -77,6 +77,7 @@ Users can ask the AI to run Monte Carlo simulations, statistics, or other librar
 | `scripting.python_venv_path` | Absolute path to an existing venv directory | `~/.writeragent_venv` |
 | `scripting.python_session_mode` | **`isolated`** (default) or **`shared`** (Shared kernel for `=PYTHON()` cells) | `isolated` |
 | `scripting.python_exec_timeout` | Wall-clock limit (seconds) for Run Python Script, `=PYTHON()`, and `run_venv_python_script`. Trusted long-running helpers (OCR, spaCy, SymPy, embeddings...) use a single internal long budget instead (see `LONG_TRUSTED_WORKER_TIMEOUT_SEC` + list in client.py). | `10` (default; range 1–600) |
+| `scripting.python_auto_spill` | **On by default.** Single-cell `=PYTHON()` returning a list, 2D array, or DataFrame **auto-spills** into adjacent cells (0.1s deferred write). Blocked cells → `#SPILL!` in the formula cell. Spill coordinates persist in the document. Disable for matrix-only workflows. | `true` |
 
 Module implementation: `plugin/scripting/` (no top-level `python/` package — avoids clashing with the stdlib name).
 
@@ -526,9 +527,9 @@ Calc evaluates matrix formulas once per cell; without optimization that means ma
 
 Without the index argument, repeated evaluations in the same recalc pass return successive list elements (best-effort; prefer the `ROW()` form for reliability).
 
-#### Today vs Excel dynamic spill
+#### Dynamic auto-spill (shipped) {#dynamic-auto-spill}
 
-Microsoft Excel can **auto-spill** multi-cell results (DataFrames, 2D arrays) into adjacent rows and columns and surfaces **`#SPILL!`** when blocking cells are in the way ([Microsoft Python in Excel vs WriterAgent](#microsoft-python-in-excel-vs-writeragent)). WriterAgent now supports **automatic dynamic spill**: when you write `=PYTHON(...)` in a single cell, the results are spilled into the adjacent cells in 0.1s via a deferred background task. If any of those cells are occupied by non-spilled user data, it writes `#SPILL!` to the formula cell. For backwards-compatibility or explicit dimensions, you can still select the output range, use a **matrix formula** (**Ctrl+Shift+Enter**), or pass a **per-row index** (`ROW()-n`) as the 2nd argument.
+Microsoft Excel can **auto-spill** multi-cell results (DataFrames, 2D arrays) into adjacent rows and columns and surfaces **`#SPILL!`** when blocking cells are in the way ([Microsoft Python in Excel vs WriterAgent](#microsoft-python-in-excel-vs-writeragent)). WriterAgent supports the same pattern: a single-cell `=PYTHON(...)` that returns a list, 2D array, or DataFrame **spills into adjacent cells** via a deferred background task (~0.1s). If any target cell is occupied by non-spilled user data, the formula cell shows **`#SPILL!`**. Spill coordinates are tracked in the document (`WriterAgentSpillRegistry`) so recalc clears old spill cells correctly. Toggle with **Settings → Python → Python auto spill in Calc** (`scripting.python_auto_spill`, default **on**). For explicit dimensions, use a **matrix formula** (**Ctrl+Shift+Enter**), a selected output range, or a **per-row index** (`ROW()-n`) as the 2nd argument.
 
 * **Grid egress over a data range** — use **two arguments only**: `=PYTHON("np.sum(data)"; B1:B10)` or `=PYTHON("(np.array(data) * 2).tolist()"; D6:G9)` as a matrix formula (**Ctrl+Shift+Enter**). The add-in IDL accepts only `(code, data)`; a third argument such as `ROW()-1` causes **Err:504** (error in parameter list). When the 2nd argument is the full range, `data` in Python is that grid; use `ROW()-n` as the 2nd argument only when it is the per-cell index, not together with a range.
 
@@ -683,6 +684,13 @@ When you pass a range (or cell reference) as the second argument to `=PYTHON(cod
 
 Conversion logic: [`plugin/calc/calc_addin_data.py`](plugin/calc/calc_addin_data.py). Empty cells in Calc map to `None` in Python (or `np.nan` in pure numeric `ndarray` ingress — see [Empty cells vs NaN](#empty-cells-vs-nan)). Payload size cap: **`scripting.python_max_data_cells`** ([numpy-serialization.md — config](numpy-serialization.md#subprocess-module-map-and-config)).
 
+**Dates, Datetimes, and Coercion Policy**:
+- **Why we don't automatically coerce on ingress**: Calc stores dates internally as float serial numbers (days since `1899-12-30`). Checking whether a cell is a date requires checking the `NumberFormat` property on the main thread via UNO, which is extremely slow and degrades range performance.
+- **Ingress shape**: Date/datetime values from Calc ranges arrive as standard floats (serial numbers) or strings. 
+- **User Coercion**: User scripts should explicitly parse dates using pandas or standard python libraries:
+  - Float serial dates: `pd.to_datetime(df["date_col"], unit="D", origin="1899-12-30")`
+  - String dates: `pd.to_datetime(df["date_col"])`
+
 **Host↔venv pipeline** (UNO read → pack → worker → unpack): [numpy-serialization.md — Current pipeline](numpy-serialization.md#current-pipeline-and-costs).
 
 **Gaps vs LibrePythonista (workarounds):** chat tool still single `data_range` (use multiple `=PYTHON` cells or varargs in formulas); no `collapse` (tighter range or strip `None` in Python); no auto-DataFrame (`pd.DataFrame(data)`).
@@ -727,7 +735,6 @@ Microsoft **Python in Excel** runs user code in **cloud containers** with `=PY(c
 - Cloud container execution, compute tiers, `#CONNECT!` / `#BUSY!` cloud errors
 - `xl()` string dependency extraction (would need Calc core changes or a fragile preprocessor)
 - Row-major **co-volatility** (all PY cells re-run together)
-- **Dynamic auto-spill** of DataFrames with `#SPILL!` ([Calc UX backlog](#calc-ux-and-output-enhancements))
 - **Python Object cards** (in-memory reference + preview dialog) — [Phase 5](python-in-excel-dev-plan.md)
 - Curated Anaconda-only package set — WriterAgent uses the **user's full venv**
 
@@ -742,7 +749,7 @@ Microsoft **Python in Excel** runs user code in **cloud containers** with `=PY(c
 
 | Bucket | Excel reference | WriterAgent status |
 |--------|-----------------|-------------------|
-| **Dynamic spill** | Auto-fill adjacent cells; `#SPILL!` when blocked | **Shipped** (0.1s deferred timer + collision check) |
+| **Dynamic spill** | Auto-fill adjacent cells; `#SPILL!` when blocked | **Shipped** — [§6 Dynamic auto-spill](#dynamic-auto-spill); `python_function.py` spill registry + deferred write |
 | **Output / plots** | Object cards; embedded plot images | **Plots shipped**; table + JSON egress + object cards → backlog |
 | **UI / editor** | Monaco task pane; sheet grouping | **Cell editor + Run Python Script Monaco shipped**; grouping, range picker → [Monaco 2C](python-monaco-editor-dev-plan.md#phase-2c--calc-range-picker-medium-risk-high-value); shortcuts → [§6](enabling_numpy_in_libreoffice.md#keyboard-shortcuts-and-recalc) |
 | **Data handoff** | `xl()` names, tables, `headers=True` | **Range args + varargs shipped**; names/tables/labels → backlog |
@@ -861,7 +868,6 @@ Backlog items inspired by Microsoft Python in Excel ([parity summary above](#mic
 
 | Enhancement | Design note |
 |-------------|-------------|
-| **Dynamic array spill** | Detect 2D `result` (list, ndarray, DataFrame); write into the target rectangle from the formula cell; if occupied cells block expansion, surface a `#SPILL!`-style error. Shipped (0.1s deferred task). |
 | **DataFrame → rich table** | On DataFrame egress, optional host path: create or update a Calc table with header row, column formats, and filters — not only raw cell values. Distinct from [Phase 5 object cards](python-in-excel-dev-plan.md) (in-memory reference + preview dialog). |
 | **JSON-structured `result` envelope** | Extend the `__wa_payload__` pattern (already used for images) for agent-friendly dicts (e.g. `{ "cells": …, "formats": … }`) so `=PYTHON()` and `run_venv_python_script` can drive multi-cell updates in one evaluation. Complements the two-phase LLM workflow ([§3](#3-user-guide)). |
 | **Named range resolution** | When the `data` argument is a defined name (sheet- or workbook-scoped), resolve it to coordinates before [`calc_addin_data_to_python`](../plugin/calc/calc_addin_data.py). Parity with LibrePythonista `lp("MyRange")`; chat named-range tools exist separately ([calc-specialized-toolsets.md](calc-specialized-toolsets.md)). |
@@ -937,6 +943,7 @@ LRU eviction of large inactive DataFrames in long-lived workbook sessions — di
 | Monaco editor (Calc cell + Run Python Script) | [`python_editor.py`](../plugin/calc/python/editor.py), [`editor_host.py`](../plugin/scripting/editor_host.py) — [§3 Monaco](#monaco-editor--run-python-script) |
 | Document-attached scripts | [`document_scripts.py`](../plugin/scripting/document_scripts.py) — [`tests/scripting/test_document_scripts.py`](../tests/scripting/test_document_scripts.py) |
 | Multi-range varargs (`=PYTHON(code; A1; B1)`) | [§9](#9-multi-range-support-varargs) |
+| Dynamic auto-spill (`#SPILL!`, spill registry) | [`python_function.py`](../plugin/calc/python/function.py) — [§6](#dynamic-auto-spill); [`tests/calc/python/test_function.py`](../tests/calc/python/test_function.py) |
 
 Jupyter `.ipynb` import (separate feature): [jupyter-notebook-import.md](jupyter-notebook-import.md).
 
@@ -951,7 +958,7 @@ Jupyter `.ipynb` import (separate feature): [jupyter-notebook-import.md](jupyter
 - Managed venv (Strategy 2), worker idle shutdown, per-formula `timeout_sec`, Python edit dialog tiers 1–3.
 - **Monaco backlog** — syntax validate (2B), range picker (2C), full Jedi (2D), sheet-level Python cell list — [python-monaco-editor-dev-plan.md](python-monaco-editor-dev-plan.md). Theme sync (2E) is shipped.
 - **Jupyter notebook import** — see [jupyter-notebook-import.md](jupyter-notebook-import.md) (Writer import shipped; execution loop deferred).
-- **Calc UX backlog** — dynamic spill, object cards, diagnostics pane, named ranges/tables — [§7 Calc UX](#calc-ux-and-output-enhancements).
+- **Calc UX backlog** — object cards, diagnostics pane, named ranges/tables — [§7 Calc UX](#calc-ux-and-output-enhancements).
 
 ---
 

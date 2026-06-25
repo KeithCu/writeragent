@@ -397,6 +397,25 @@ We **do not** distinguish empty Calc cells from Python/NumPy NaN on the wire (bo
 
 **Wire / host unpack:** buffer NaN slots are preserved as `float('nan')` in nested lists (not coerced to `None`); `to_calc_compatible` leaves NaN as a double for Calc (error) and maps `None` to `""`.
 
+#### Dates, Datetimes, and Coercion (policy)
+
+To optimize speed and maintain a clean separation of concerns, the bridge delegates date/time coercion to user/client scripts rather than attempting automatic detection on the host.
+
+* **The Problem with Automatic Detection**:
+  LibreOffice Calc represents date and time values internally as floating-point serial numbers (days since `1899-12-30`). The only way to identify them as dates is to inspect the cell format (`NumberFormat`) on the main thread via UNO. Querying every cell's format individually would cause massive IPC overhead and serialize range reading.
+* **Ingress Behavior**:
+  - **Serial Dates (Floats)**: Arrive in the user's script namespace as raw floats (serial numbers).
+  - **String Dates**: Arrive as strings.
+  - **Python `datetime.date` / `datetime.datetime` / `pd.Timestamp`**:
+    - *Below threshold* (plain list path): Types are fully preserved via standard Pickle serialization.
+    - *Above threshold* (`split_grid`): Coerced to their ISO string representations in the `strings` dictionary.
+* **Egress Behavior**:
+  - Returning a NumPy `np.datetime64` array above the threshold (`split_grid`) casts elements to float64, converting them to units (like days) since the Epoch (`1970-01-01`). For example, `np.datetime64("2026-06-25")` becomes `20629.0`.
+* **Client Coercion Guide**:
+  Clients should manually coerce these inputs in pandas or python. For example:
+  - Float serial dates: `pd.to_datetime(df["date_col"], unit="D", origin="1899-12-30")`
+  - String dates: `pd.to_datetime(df["date_col"])`
+
 #### Performance Impact:
 - **~20x Speedup** over Column-Wise mixed grids.
 - Binary materialization is done at C-speed via `frombuffer` + `.tolist()`, and pure Python loops only process the small fraction of cells that actually contain string text.
