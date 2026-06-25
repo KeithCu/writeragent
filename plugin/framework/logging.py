@@ -84,6 +84,24 @@ def _redact_sensitive_inplace(o: Any) -> None:
             _redact_sensitive_inplace(item)
 
 
+FLUSH_ON_EMIT = False
+
+
+class OptionalFlushFileHandler(logging.FileHandler):
+    """FileHandler that can disable flushing on every emit to reduce disk wear."""
+
+    def flush(self) -> None:
+        if FLUSH_ON_EMIT:
+            super().flush()
+
+    def close(self) -> None:
+        try:
+            super().flush()
+        except Exception:
+            pass
+        super().close()
+
+
 def redact_sensitive_payload_for_log(obj: Any) -> Any:
     """Deep copy of a request/response payload with audio and image base64 replaced for safe debug logging."""
     out = deepcopy(obj)
@@ -136,7 +154,7 @@ def init_logging(ctx):
                         pass
 
                 if not has_matching_handler:
-                    handler = logging.FileHandler(_debug_log_path, encoding="utf-8")
+                    handler = OptionalFlushFileHandler(_debug_log_path, encoding="utf-8")
                     formatter = logging.Formatter("%(asctime)s | %(name)s | %(levelname)s | %(message)s")
                     handler.setFormatter(formatter)
                     logger.addHandler(handler)
@@ -152,7 +170,7 @@ def init_logging(ctx):
                         root_has_matching_handler = True
                         continue
                 if not root_has_matching_handler:
-                    root_handler = logging.FileHandler(_debug_log_path, encoding="utf-8")
+                    root_handler = OptionalFlushFileHandler(_debug_log_path, encoding="utf-8")
                     root_handler.setFormatter(logging.Formatter("%(asctime)s | %(name)s | %(levelname)s | %(message)s"))
                     root_logger.addHandler(root_handler)
 
