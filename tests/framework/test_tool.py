@@ -596,3 +596,21 @@ class TestToolRegistryMainThreadMarshal:
         assert len(threads_seen) == 1
         assert threads_seen[0] is caller_threads[0]
         assert threads_seen[0] is not uno_thread_safety.pump.main_thread
+
+
+def test_get_tools_off_main_thread_marshalling(monkeypatch):
+    from plugin.framework.tool import _safe_supports_service
+    
+    doc = MagicMock()
+    doc.supportsService.return_value = True
+    
+    # Mock on_main_thread to return False (simulating calling off main thread)
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    
+    # Mock execute_on_main_thread to call the function directly (since it would marshal it)
+    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()) as mock_execute:
+        res = _safe_supports_service(doc, "com.sun.star.text.TextDocument")
+        assert res is True
+        mock_execute.assert_called_once()
+        doc.supportsService.assert_called_with("com.sun.star.text.TextDocument")
+

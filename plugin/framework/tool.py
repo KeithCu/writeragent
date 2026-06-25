@@ -437,6 +437,21 @@ _DEFAULT_EXCLUDE_TIERS = frozenset({"specialized", "specialized_control", "mcp"}
 _UNSET_EXCLUDE_TIERS = object()
 
 
+def _safe_supports_service(doc: Any, service_name: str) -> bool:
+    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.queue_executor import execute_on_main_thread
+
+    def _call() -> bool:
+        try:
+            return bool(doc.supportsService(service_name))
+        except Exception:
+            return False
+
+    if not on_main_thread():
+        return execute_on_main_thread(_call)
+    return _call()
+
+
 class ToolRegistry:
     """Registers and dispatches tools.
 
@@ -551,7 +566,7 @@ class ToolRegistry:
                 if doc is not None and hasattr(doc, "supportsService"):
                     for svc in t.uno_services:
                         try:
-                            if doc.supportsService(svc):
+                            if _safe_supports_service(doc, svc):
                                 is_supported = True
                                 break
                         except Exception:
@@ -721,7 +736,7 @@ class ToolRegistry:
                 if ctx.doc and hasattr(ctx.doc, "supportsService"):
                     for svc in tool.uno_services:
                         try:
-                            if ctx.doc.supportsService(svc):
+                            if _safe_supports_service(ctx.doc, svc):
                                 is_supported = True
                                 break
                         except Exception:
