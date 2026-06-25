@@ -179,16 +179,16 @@ class FindTools(ToolBase):
         catalog = get_specialized_domain_catalog(agent_label=agent_label, ctx=getattr(ctx, "ctx", None))
 
         if not domain:
-            result: dict[str, Any] = {
+            out: dict[str, Any] = {
                 "status": "ok",
                 "domain": None,
                 "available_domains": catalog,
                 "tools": [],
             }
             if doc is None:
-                result["note"] = ("No document is open; the catalog lists all apps. "
-                                  "Open the matching document before calling an app-specific tool.")
-            return result
+                out["note"] = ("No document is open; the catalog lists all apps. "
+                               "Open the matching document before calling an app-specific tool.")
+            return out
 
         from plugin.framework.constants import WRITER_SIDEBAR_ONLY_DOMAINS
         if domain in WRITER_SIDEBAR_ONLY_DOMAINS:
@@ -211,7 +211,7 @@ class FindTools(ToolBase):
         if top_n is not None:
             tools = tools[:top_n]
 
-        result = {
+        result: dict[str, Any] = {
             "status": "ok",
             "domain": domain,
             "available_domains": catalog,
