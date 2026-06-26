@@ -56,7 +56,7 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 - **Math & LaTeX**: **MathML** and **TeX** delimiters are automatically turned into **editable LibreOffice Math formulas** (OLE objects). Use `\(...\)` / `$...$` for inline and `$$...$$` / `\[...\]` for display in chat or HTML content; prefer `\(...\)` over bare `$` near numbers. See [docs/math-tex.md](docs/math-tex.md).
 - **Symbolic Math (SymPy)**: **Math Helpers** — `solve_equation`, `symbolic_simplify`, `integrate`, `differentiate`. Results insert as **editable LibreOffice Math** objects.
 - **Charts from Python**: Matplotlib figures from **Viz Helpers** or custom scripts insert as inline images.
-- **Text Analytics (spaCy)**: Readability metrics, named entities (NER), and key phrases for Writer documents. Use **WriterAgent → Text Analytics…** (with Readability (doc/sel), Entities, Key Phrases, Insert report) or **Run Python Script → Text Analytics Helpers**. Requires `spacy` + `textdescriptives` + a model in the venv configured in Settings → Python.
+- **Text Analytics (spaCy)**: Readability metrics, named entities (NER), and key phrases for Writer documents. Use **WriterAgent → Text Analytics…** (with Readability (doc/sel), Entities, Key Phrases, Insert report). Requires `spacy` + `textdescriptives` + a model in the venv configured in Settings → Python.
 
 ### 📊 Calc
 
@@ -92,7 +92,7 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 
 ### 🐍 Local Python Execution
 
-- **Run Python Script**: **Tools → Run Python Script…** — built-in sections **Analysis**, **Viz**, **Math**, **Units**, **Quant**, **Optimize**, **Vision**, **SQL** (DuckDB; folder files + live/named Calc ranges; requires `duckdb` in venv), **Text Analytics** (Writer; requires spaCy + textdescriptives in the venv) (set **Data** range where applicable, edit `params` if needed, run). Configure venv in **Settings → Python**. SQL is also available to the chat analysis sub-agent via `query_folder_sql`.
+- **Run Python Script**: **Tools → Run Python Script…** — built-in sections **Analysis**, **Viz**, **Math**, **Units**, **Quant**, **Optimize**, **Vision**, **SQL** (DuckDB; folder files + live/named Calc ranges; requires `duckdb` in venv) (set **Data** range where applicable, edit `params` if needed, run). Configure venv in **Settings → Python**. SQL is also available to the chat analysis sub-agent via `query_folder_sql`.
 - **Auto-imported Packages**: `numpy` (as `np`), `pandas` (as `pd`), `sympy` (as `sp`), standard library `math`, `datetime`, `re`, `random`, `statistics`, `collections`, `itertools`, `json`, and `csv` are auto-imported to avoid needing manual imports.
 - **Monaco Editor UI Packages**: `pywebview`, `jedi`, `PyQt6`, `PyQt6-WebEngine`, `qtpy` (enables Python color-coded editing and highlighting). Use the **Test** button in Settings to see which packages are installed.
 - **Shared Code Cell**: Store your code in a cell (e.g., `A1`) and reference it across multiple formulas (e.g., `=PY($A$1; B1)`).

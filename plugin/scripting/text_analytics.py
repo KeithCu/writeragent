@@ -700,10 +700,10 @@ TEXT_ANALYTICS_HEADER_PREFIX = "# writeragent:text"
 
 
 def get_text_analytics_script_templates() -> dict[str, str]:
-    """Return built-in text analytics helper scripts keyed by helper name.
+    """Return text analytics helper script bodies keyed by helper name.
 
-    These appear under Text Analytics Helpers in Run Python Script (Writer documents).
-    The implementation requires spaCy + textdescriptives + a model in the venv.
+    Used for header round-trip tests and advanced scripts with ``# writeragent:text``.
+    Prefer WriterAgent → Text Analytics… for interactive use.
     """
     # Exclude internal/UI helper commands from script templates
     public_helpers = {h for h in HELPER_NAMES if h not in ("diagnostics", "check")}
@@ -786,7 +786,7 @@ def parse_text_analytics_script_header(code: str) -> TextAnalyticsScriptMeta | N
 
 
 def supports_text_analytics_manual(doc: Any) -> bool:
-    """True when Run Python Script should expose Text Analytics Helpers for *doc*."""
+    """True when Run Python Script may use the ``# writeragent:text`` fast path on *doc*."""
     if doc is None:
         return False
     try:

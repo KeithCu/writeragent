@@ -369,7 +369,7 @@ Results are inserted as compact tables and usable from scripts.
 
 **UI (minimal):** WriterAgent → **Text Analytics...** opens a modeless dialog with buttons for Readability (doc/sel), Entities, Key Phrases, **Topics**, Check Venv, and "Insert report here". All work is done with real spaCy pipelines (or sklearn for topics) in your configured Python venv (Settings → Python).
 
-**Run Python Script (Writer):** "Text Analytics Helpers" section with built-in templates for `full`, `readability`, `entities`, `key_phrases`, and `topics`. Select text or run on the whole document (topics prefers whole-doc section extraction); results insert as a compact HTML table after the caret/selection. Scripts use the header `# writeragent:text helper=...` and call `from writeragent.scripting.text_analytics import run_text_analytics`.
+**Advanced scripting:** Hand-written Run Python Script code may use the header `# writeragent:text helper=...` and call `from writeragent.scripting.text_analytics import run_text_analytics`; results insert as a compact HTML table after the caret/selection.
 
 **Settings → Python Test:** Reports a "Text / NLP Libraries" group (spacy, textdescriptives, transformers). For topics also install scikit-learn. Install hint: `uv pip install spacy textdescriptives transformers torch --index-url https://download.pytorch.org/whl/cpu && python -m spacy download xx_sent_ud_sm`.
 

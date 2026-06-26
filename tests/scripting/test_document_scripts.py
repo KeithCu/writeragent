@@ -312,3 +312,24 @@ def test_resolve_vision_script_picker_entry():
     origin_map = {display: SCRIPT_ORIGIN_VISION}
     assert resolve_script_picker_entry(display, origin_map) == ("extract_text", SCRIPT_ORIGIN_VISION)
     assert parse_vision_script_display_name(display) == "extract_text"
+
+
+def test_build_scripts_list_excludes_text_analytics_section_for_writer():
+    ctx = MagicMock()
+    doc = MagicMock()
+    with patch("plugin.framework.config.get_config", return_value={}), patch(
+        "plugin.scripting.text_analytics.supports_text_analytics_manual", return_value=True
+    ):
+        msg = build_scripts_list_message(ctx, session_doc=doc, session_doc_url=None)
+    section_ids = [s["id"] for s in msg["sections"]]
+    assert "text" not in section_ids
+
+
+def test_build_xdl_script_picker_excludes_text_analytics_for_writer():
+    ctx = MagicMock()
+    doc = MagicMock()
+    with patch("plugin.scripting.text_analytics.supports_text_analytics_manual", return_value=True):
+        items, merged, origin_map = build_xdl_script_picker_state(ctx, doc, {})
+    text_items = [name for name in items if name.startswith("[Text] ")]
+    assert text_items == []
+    assert not any(origin == "text" for origin in origin_map.values())
