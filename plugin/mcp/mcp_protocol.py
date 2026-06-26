@@ -466,15 +466,6 @@ class MCPProtocolHandler:
             return "delegate"
 
     def _mcp_tools_list(self, params, document_url=None):
-        def _get_doc():
-            doc_svc = self.services.document
-            if document_url:
-                doc, _ = doc_svc.resolve_document_by_url(document_url)
-                return doc
-            return _real_active_document(doc_svc)
-
-        doc = self.queue_executor.execute(_get_doc, timeout=10.0)
-
         mode = self._tool_exposure_mode()
         # Direct modes (direct_flat / direct_discovery) intentionally skip the delegate
         # sub-agent so MCP hosts work without a WriterAgent LLM endpoint configured.
@@ -490,26 +481,42 @@ class MCPProtocolHandler:
         else:
             exclude_tiers = frozenset({"specialized", "specialized_control"})
 
-        # In direct_flat with no target at all (no active doc AND no document_url), don't
-        # filter by doc type, or app-specific tools would be dropped with no find_tools
-        # fallback. An unresolvable document_url is a DOCUMENT_NOT_FOUND case, not a
-        # no-target broaden, so it keeps normal filtering -- as do delegate (byte-for-byte
-        # unchanged) and direct_discovery (find_tools has its own no-doc catalog).
-        broaden = mode == "direct_flat" and doc is None and not document_url
-        doc_filter = {"filter_doc_type": False} if broaden else {}
-        schemas = self.tool_registry.get_schemas("mcp", doc=doc, exclude_tiers=exclude_tiers, **doc_filter)
+        def _resolve_and_filter():
+            # Runs on the main (VCL) thread. Resolving the document AND filtering tools by
+            # doc type both touch UNO -- get_schemas() -> supports_doc() calls
+            # doc.supportsService() -- so the WHOLE block must be marshaled, not just the
+            # doc lookup. Doing the doc-type filtering on the MCP request thread trips the
+            # UNO thread guard and fails tools/list with a 500.
+            doc_svc = self.services.document
+            if document_url:
+                doc, _ = doc_svc.resolve_document_by_url(document_url)
+            else:
+                doc = _real_active_document(doc_svc)
 
-        if mode == "direct_flat":
-            # Keep Writer sidebar-only flows (brainstorming, writing_plan) out of the flat
-            # list -- they need bespoke session orchestration the direct modes don't give.
-            from plugin.doc.find_tools_tool import sidebar_only_tool_names
-            sidebar_only = sidebar_only_tool_names(self.tool_registry, doc)
-            if sidebar_only:
-                schemas = [s for s in schemas if s.get("name") not in sidebar_only]
+            # In direct_flat with no target at all (no active doc AND no document_url), don't
+            # filter by doc type, or app-specific tools would be dropped with no find_tools
+            # fallback. An unresolvable document_url is a DOCUMENT_NOT_FOUND case, not a
+            # no-target broaden, so it keeps normal filtering -- as do delegate (byte-for-byte
+            # unchanged) and direct_discovery (find_tools has its own no-doc catalog).
+            broaden = mode == "direct_flat" and doc is None and not document_url
+            doc_filter = {"filter_doc_type": False} if broaden else {}
+            schemas = self.tool_registry.get_schemas("mcp", doc=doc, exclude_tiers=exclude_tiers, **doc_filter)
+
+            if mode == "direct_flat":
+                # Keep Writer sidebar-only flows (brainstorming, writing_plan) out of the flat
+                # list -- they need bespoke session orchestration the direct modes don't give.
+                from plugin.doc.find_tools_tool import sidebar_only_tool_names
+                sidebar_only = sidebar_only_tool_names(self.tool_registry, doc)
+                if sidebar_only:
+                    schemas = [s for s in schemas if s.get("name") not in sidebar_only]
+            return schemas
+
+        schemas = self.queue_executor.execute(_resolve_and_filter, timeout=10.0)
 
         # find_tools is the discovery search tool, useful only in direct_discovery mode
         # (small core list + on-demand search). delegate advertises the gateway and
         # direct_flat already lists everything, so hide it by name in those modes.
+        # Pure name filtering -- no UNO -- so it stays off the main thread.
         if mode != "direct_discovery":
             schemas = [s for s in schemas if s.get("name") != "find_tools"]
 

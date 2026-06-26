@@ -160,6 +160,79 @@ def test_gating_keeps_other_tools():
     assert "insert_footnote" in _list_names("direct_discovery")
 
 
+def test_tools_list_filters_on_main_thread():
+    # Regression: the doc-type filtering (get_schemas -> supports_doc -> doc.supportsService)
+    # touches UNO, so it must run INSIDE the main-thread executor, not on the MCP request
+    # thread -- otherwise the UNO thread guard fails tools/list with a 500. Affects every
+    # mode (all pass the live doc to get_schemas), so delegate is enough to exercise it.
+    on_main = {"in": False}
+
+    def _exec(fn, *a, **k):
+        k.pop("timeout", None)
+        on_main["in"] = True
+        try:
+            return fn(*a, **k)
+        finally:
+            on_main["in"] = False
+
+    def _get_schemas(*a, **k):
+        assert on_main["in"], "get_schemas (UNO doc-type filtering) ran off the main thread"
+        return [{"name": "insert_footnote", "description": "f", "inputSchema": {}}]
+
+    services = MagicMock()
+    services.config.get.side_effect = (
+        lambda key, default=None: "delegate" if key == "mcp.tool_exposure_mode" else default
+    )
+    services.get.side_effect = lambda name: getattr(services, name, None)
+    services.main_thread.execute.side_effect = _exec
+    services.tools.get_schemas.side_effect = _get_schemas
+    services.document.get_active_document.return_value = MagicMock()  # a document is open
+
+    result = MCPProtocolHandler(services)._mcp_tools_list({})
+    assert any(t["name"] == "insert_footnote" for t in result["tools"])
+    services.tools.get_schemas.assert_called()  # the thread assertion only fires if get_schemas ran
+
+
+def test_tools_list_direct_flat_filters_sidebar_on_main_thread():
+    # direct_flat runs a SECOND UNO-touching filter inside the same block --
+    # sidebar_only_tool_names -> get_tools -> doc.supportsService -- so pin it to the main
+    # thread independently of get_schemas (a regression that pulls only the sidebar block
+    # off-thread would otherwise pass every other test).
+    from unittest.mock import patch
+
+    on_main = {"in": False}
+
+    def _exec(fn, *a, **k):
+        k.pop("timeout", None)
+        on_main["in"] = True
+        try:
+            return fn(*a, **k)
+        finally:
+            on_main["in"] = False
+
+    def _get_schemas(*a, **k):
+        assert on_main["in"], "get_schemas (UNO doc-type filtering) ran off the main thread"
+        return [{"name": "create_chart", "description": "c", "inputSchema": {}}]
+
+    def _sidebar(registry, doc):
+        assert on_main["in"], "sidebar_only_tool_names (UNO get_tools filtering) ran off the main thread"
+        return frozenset()
+
+    services = MagicMock()
+    services.config.get.side_effect = (
+        lambda key, default=None: "direct_flat" if key == "mcp.tool_exposure_mode" else default
+    )
+    services.get.side_effect = lambda name: getattr(services, name, None)
+    services.main_thread.execute.side_effect = _exec
+    services.tools.get_schemas.side_effect = _get_schemas
+    services.document.get_active_document.return_value = MagicMock()  # a document is open
+
+    with patch("plugin.doc.find_tools_tool.sidebar_only_tool_names", _sidebar):
+        result = MCPProtocolHandler(services)._mcp_tools_list({})
+    assert any(t["name"] == "create_chart" for t in result["tools"])
+    services.tools.get_schemas.assert_called()
+
+
 def test_initialize_instructions_mentions_find_tools_in_direct_discovery():
     handler = _handler("direct_discovery", [])
     result = handler._mcp_initialize({})
