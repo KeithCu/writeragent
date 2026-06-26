@@ -29,7 +29,6 @@ from typing import Any
 from plugin.framework.constants import get_specialized_domain_catalog
 from plugin.framework.tool import ToolBase, ToolContext
 
-_MAX_LIMIT = 50
 _FINISH_TOOL = "specialized_workflow_finished"
 # In direct_discovery mode the delegate gateway is not the intended route, so keep
 # its (core-tier) gateway tools out of discovery results.
@@ -150,29 +149,16 @@ class FindTools(ToolBase):
                                 "'charts', 'styles'). Call find_tools with no arguments first "
                                 "to see the available domains and their descriptions."),
             },
-            "limit": {
-                "type": "integer",
-                "description": "Optional cap on tools returned for a domain listing (default: all).",
-                "minimum": 1,
-                "maximum": _MAX_LIMIT,
-            },
         },
         "required": [],
     }
 
-    def execute(self, ctx: ToolContext, domain: str | None = None, limit: int | None = None,
-                **kwargs: Any) -> dict[str, Any]:
+    def execute(self, ctx: ToolContext, domain: str | None = None, **kwargs: Any) -> dict[str, Any]:
         registry = ctx.services.get("tools") if ctx.services else None
         if registry is None:
             return self._tool_error("Tool registry unavailable.", code="SERVICE_UNAVAILABLE")
 
         domain = domain.strip().lower() if isinstance(domain, str) and domain.strip() else None
-        top_n: int | None = None
-        if limit is not None:
-            try:
-                top_n = max(1, min(int(limit), _MAX_LIMIT))
-            except (TypeError, ValueError, OverflowError):
-                top_n = None
 
         doc = getattr(ctx, "doc", None)
         agent_label = _agent_label_for_doc_type(getattr(ctx, "doc_type", None)) if doc is not None else None
@@ -208,8 +194,6 @@ class FindTools(ToolBase):
                 continue
             tools.append(s)
         tools.sort(key=lambda s: str(s.get("name") or ""))
-        if top_n is not None:
-            tools = tools[:top_n]
 
         result: dict[str, Any] = {
             "status": "ok",

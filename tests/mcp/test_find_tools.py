@@ -331,13 +331,6 @@ def test_execute_tolerates_malformed_schemas_in_domain_listing():
     assert "footnotes_insert" in {t["name"] for t in result["tools"]}
 
 
-def test_execute_tolerates_infinite_limit():
-    registry = MagicMock()
-    registry.get_schemas.return_value = [_schema("a")]
-    registry.get_tools.return_value = []
-    assert FindTools().execute(_ctx(registry), domain="footnotes", limit=float("inf"))["status"] == "ok"
-
-
 def test_execute_tolerates_non_string_domain():
     registry = MagicMock()
     registry.get_schemas.return_value = [_schema("a")]
