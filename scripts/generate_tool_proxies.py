@@ -93,11 +93,19 @@ DEFAULTS_BY_TYPE = {
 }
 
 
+def _get_schema_type(schema: dict) -> str:
+    t = schema.get("type", "")
+    if isinstance(t, list):
+        types_list = [x for x in t if x != "null"]
+        t = types_list[0] if types_list else ""
+    return str(t)
+
+
 def _param_default(schema: dict) -> str:
     """Derive a Python default value from a JSON Schema property."""
     if "default" in schema:
         return repr(schema["default"])
-    return DEFAULTS_BY_TYPE.get(schema.get("type", ""), "None")
+    return DEFAULTS_BY_TYPE.get(_get_schema_type(schema), "None")
 
 
 def schema_to_signature(tool: ToolBase) -> tuple[list[str], list[str]]:
@@ -107,7 +115,8 @@ def schema_to_signature(tool: ToolBase) -> tuple[list[str], list[str]]:
 
     positional, keyword = [], []
     for param_name, schema in props.items():
-        py_type = JSON_TO_PYTHON.get(schema.get("type", ""), "Any")
+        type_str = _get_schema_type(schema)
+        py_type = JSON_TO_PYTHON.get(type_str, "Any")
         if param_name in required:
             positional.append(f"{param_name}: {py_type}")
         else:
@@ -186,11 +195,17 @@ def generate_module(tools: list[ToolBase]) -> str:
         'Provides Python-native access to WriterAgent tools from venv subprocess scripts.',
         '"""',
         'import json',
+        'import os',
+        'import pickle',
+        'import struct',
         'import sys',
         'import threading',
         'import uuid',
         'from typing import Any, Dict, List, Optional, Union',
         '',
+        '',
+        '# Detect if running in-process (LibreOffice host) or out-of-process (Venv worker)',
+        'IS_WORKER = os.environ.get("WRITERAGENT_IS_WORKER") == "1"',
         '',
         '# ── RPC transport ──────────────────────────────────────────────',
         '_lock = threading.Lock()',
@@ -198,23 +213,58 @@ def generate_module(tools: list[ToolBase]) -> str:
         '',
         'def _rpc_call(tool_name: str, **kwargs) -> dict:',
         '    """Send a tool call to the LibreOffice host and block for the result."""',
+        '    if not IS_WORKER:',
+        '        try:',
+        '            from plugin.framework.uno_context import get_ctx, get_active_document',
+        '            from plugin.doc.document_helpers import is_calc, is_writer, is_draw',
+        '            from plugin.main import get_tools',
+        '            from plugin.framework.tool import ToolContext',
+        '',
+        '            uno_ctx = get_ctx()',
+        '            doc = get_active_document(uno_ctx)',
+        '            if not doc:',
+        '                raise RuntimeError("No active document found to run tool")',
+        '',
+        '            if is_calc(doc):',
+        '                doc_type = "calc"',
+        '            elif is_writer(doc):',
+        '                doc_type = "writer"',
+        '            elif is_draw(doc):',
+        '                doc_type = "draw"',
+        '            else:',
+        '                doc_type = ""',
+        '',
+        '            registry = get_tools()',
+        '            tctx = ToolContext(',
+        '                doc=doc,',
+        '                ctx=uno_ctx,',
+        '                doc_type=doc_type,',
+        '                services=registry._services,',
+        '                caller="script"',
+        '            )',
+        '            return registry.execute(tool_name, tctx, **kwargs)',
+        '        except Exception as e:',
+        '            raise RuntimeError(f"Failed to execute tool in-process: {e}")',
+        '',
         '    call_id = str(uuid.uuid4())',
         '    request = {"type": "tool_call", "id": call_id, "tool": tool_name, "args": kwargs}',
+        '    payload = pickle.dumps(request, protocol=5)',
+        '    header = struct.pack("!I", len(payload))',
         '    with _lock:',
-        '        sys.stdout.write(json.dumps(request) + "\\n")',
-        '        sys.stdout.flush()',
-        '        # Block for response (host writes to our stdin)',
-        '        line = sys.stdin.readline()',
-        '    if not line:',
-        '        raise ConnectionError("Lost connection to LibreOffice host")',
-        '    try:',
-        '        response = json.loads(line)',
-        '    except json.JSONDecodeError:',
-        '        raise RuntimeError(f"Host sent invalid JSON: {line[:200]}")',
+        '        sys.stdout.buffer.write(header)',
+        '        sys.stdout.buffer.write(payload)',
+        '        sys.stdout.buffer.flush()',
+        '        # Block and read the response frame from the host on stdin',
+        '        resp_header = sys.stdin.buffer.read(4)',
+        '        if not resp_header or len(resp_header) < 4:',
+        '            raise ConnectionError("Lost connection to LibreOffice host during tool call")',
+        '        size = struct.unpack("!I", resp_header)[0]',
+        '        resp_payload = sys.stdin.buffer.read(size)',
+        '        response = pickle.loads(resp_payload)  # nosec B301',
         '',
         '    if response.get("status") == "error":',
         '        raise RuntimeError(response.get("message", response.get("error", "Unknown error")))',
-        '    return response',
+        '    return response.get("result", {})',
         '',
         '',
     ]

@@ -93,5 +93,5 @@ def test_rpc_call_logic_in_generated_code():
     tools = [MockTool("t", "d", {})]
     code = generate_module(tools)
     assert "_rpc_call" in code
-    assert "json.dumps(request)" in code
-    assert "sys.stdin.readline()" in code
+    assert "pickle.dumps(request" in code
+    assert "sys.stdin.buffer.read" in code

@@ -50,7 +50,16 @@ def _fatal(msg: str, *, exc: BaseException | None = None, code: int = 1) -> NoRe
     raise SystemExit(code)
 
 
+log = logging.getLogger(__name__)
+
 _bootstrap_plugin_import_path()
+
+try:
+    from plugin.framework.uno_bootstrap import register_alias_importer
+    register_alias_importer()
+except Exception as e:
+    log.warning("Could not register alias importer in editor child process: %s", e)
+
 _ASSETS_DIR = os.path.normpath(
     os.path.join(_SCRIPT_DIR, "..", "..", "contrib", "scripting", "assets", "editor")
 )
@@ -58,9 +67,6 @@ try:
     from plugin.scripting.editor_ipc import EDITOR_DEFAULT_TITLE, message_type, read_message, write_message
 except ImportError as e:
     _fatal(f"editor_main: cannot import plugin.scripting dependencies ({e}). sys.path={sys.path!r}", exc=e)
-
-
-log = logging.getLogger(__name__)
 
 # Try to import jedi dynamically. If missing, we degrade gracefully without autocomplete.
 try:

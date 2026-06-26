@@ -39,10 +39,25 @@ class AliasImporter:
     """Import hook to dynamically map 'writeragent' and 'writeragent.*' imports to 'plugin' equivalents."""
     def find_spec(self, fullname: str, path: Any = None, target: Any = None) -> Any:
         if fullname == "writeragent" or fullname.startswith("writeragent."):
-            real_name = fullname.replace("writeragent", "plugin", 1)
+            if fullname == "writeragent":
+                real_name = "plugin.scripting.writeragent_api"
+            else:
+                real_name = fullname.replace("writeragent", "plugin", 1)
+            try:
+                import importlib.util
+                real_spec = importlib.util.find_spec(real_name)
+                if real_spec is None:
+                    return None
+            except Exception:
+                return None
             try:
                 import importlib.machinery
-                return importlib.machinery.ModuleSpec(fullname, AliasLoader(real_name))
+                spec = importlib.machinery.ModuleSpec(fullname, AliasLoader(real_name))
+                if fullname == "writeragent":
+                    spec.submodule_search_locations = []
+                elif real_spec.submodule_search_locations is not None:
+                    spec.submodule_search_locations = list(real_spec.submodule_search_locations)
+                return spec
             except Exception:
                 return None
         return None
