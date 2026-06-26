@@ -123,9 +123,42 @@ def test_enqueue_skipped_when_inflight():
             return_value=("key", MagicMock(), MagicMock(), "/tmp/folder"),
         ):
             with patch("plugin.embeddings.embeddings_indexer._try_enqueue", return_value=False):
-                with patch("plugin.embeddings.embeddings_indexer.run_in_background") as bg_mock:
-                    embeddings_indexer.enqueue_folder_index(ctx, MagicMock(), MagicMock())
+                with patch(
+                    "plugin.framework.queue_executor.execute_on_main_thread",
+                    side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
+                ):
+                    with patch("plugin.embeddings.embeddings_indexer.run_in_background") as bg_mock:
+                        embeddings_indexer.enqueue_folder_index(ctx, MagicMock(), MagicMock())
                     bg_mock.assert_not_called()
+
+
+def test_enqueue_marshals_resolve_index_context():
+    ctx = MagicMock()
+    resolve_calls_during_marshal: list[bool] = []
+    marshal_depth = [0]
+
+    def mock_execute(fn, *args, **kwargs):
+        marshal_depth[0] += 1
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            marshal_depth[0] -= 1
+
+    def tracking_resolve(_ctx, _model):
+        resolve_calls_during_marshal.append(marshal_depth[0] > 0)
+        return ("key", MagicMock(), MagicMock(), "/tmp/folder")
+
+    with patch("plugin.embeddings.embeddings_indexer.folder_search_enabled", return_value=True):
+        with patch("plugin.embeddings.embeddings_indexer.resolve_index_context", side_effect=tracking_resolve):
+            with patch("plugin.embeddings.embeddings_indexer._try_enqueue", return_value=False):
+                with patch(
+                    "plugin.framework.queue_executor.execute_on_main_thread",
+                    side_effect=mock_execute,
+                ):
+                    embeddings_indexer.enqueue_folder_index(ctx, MagicMock(), MagicMock())
+
+    assert resolve_calls_during_marshal
+    assert all(resolve_calls_during_marshal)
 
 
 def test_index_worker_calls_maintain_rpc():

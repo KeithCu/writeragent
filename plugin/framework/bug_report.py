@@ -63,6 +63,35 @@ def should_offer_bug_report(*, exc: BaseException | None = None, code: str | Non
     return True
 
 
+def _config_has_property(ca: Any, name: str) -> bool:
+    """Return True when *name* exists on a ConfigurationAccess node."""
+    try:
+        info = ca.getPropertySetInfo()
+    except Exception:
+        return False
+    if info is None or not hasattr(info, "hasPropertyByName"):
+        return False
+    try:
+        return bool(info.hasPropertyByName(name))
+    except Exception:
+        return False
+
+
+def _read_config_string(ca: Any, prop: str) -> str | None:
+    """Read a non-empty string property from ConfigurationAccess, or None."""
+    if not _config_has_property(ca, prop):
+        return None
+    try:
+        val = ca.getPropertyValue(prop)
+    except Exception:
+        log.debug("bug_report: failed reading LO product property %s", prop)
+        return None
+    if val is None:
+        return None
+    text = str(val).strip()
+    return text or None
+
+
 def _get_lo_product_info(ctx: Any) -> dict[str, str]:
     """Read LibreOffice version strings from setup configuration."""
     out: dict[str, str] = {}
@@ -76,27 +105,33 @@ def _get_lo_product_info(ctx: Any) -> dict[str, str]:
         node = uno.createUnoStruct("com.sun.star.beans.PropertyValue", Name="nodepath", Value="/org.openoffice.Setup/Product")
         ca = config_provider.createInstanceWithArguments("com.sun.star.configuration.ConfigurationAccess", (node,))
         for key, prop in (
+            ("name", "ooName"),
             ("about", "ooSetupVersionAboutBox"),
             ("version", "ooSetupVersion"),
-            ("build", "ooSetupBuild"),
+            ("suffix", "ooSetupVersionAboutBoxSuffix"),
         ):
-            try:
-                val = ca.getPropertyValue(prop)
-                if val is not None and str(val).strip():
-                    out[key] = str(val).strip()
-            except Exception:
-                log.debug("bug_report: missing LO product property %s", prop, exc_info=True)
+            val = _read_config_string(ca, prop)
+            if val:
+                out[key] = val
     except Exception:
         log.debug("bug_report: could not read LO product info", exc_info=True)
     return out
 
 
 def _format_lo_version(product: dict[str, str]) -> str:
-    if product.get("about"):
-        return product["about"]
-    parts = [product.get("version", ""), product.get("build", "")]
-    joined = " ".join(p for p in parts if p).strip()
-    return joined or "unknown"
+    about = product.get("about", "").strip()
+    suffix = product.get("suffix", "").strip()
+    if about:
+        return f"{about} {suffix}".strip() if suffix else about
+    name = product.get("name", "").strip()
+    version = product.get("version", "").strip()
+    if name and version:
+        return f"{name} {version}"
+    if version:
+        return version
+    if name:
+        return name
+    return "unknown"
 
 
 def collect_environment_block(ctx: Any | None = None) -> str:

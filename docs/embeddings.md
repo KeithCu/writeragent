@@ -548,6 +548,8 @@ Production search uses vec0/hybrid, not full-matrix reload per query.
 
 Always **batch** embed — never one paragraph at a time in a Python loop.
 
+**HF cache:** embedding and rerank models load with `local_files_only=True` when files are already in the Hugging Face cache (`~/.cache/huggingface/hub/`). First use on a new machine still downloads once; later worker starts, search, and index runs do not send HEAD requests to huggingface.co. To force a re-download after upstream model updates, remove the model folder from that cache.
+
 ---
 
 ## Within-document retrieval (secondary) {#within-document-retrieval-secondary}

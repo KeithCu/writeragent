@@ -16,6 +16,7 @@ import importlib
 import json
 import logging
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any
 
 log = logging.getLogger(__name__)
@@ -27,6 +28,33 @@ EMBEDDINGS_VENV_PIP_INSTALL = (
 )
 
 _MODEL_CACHE: dict[str, Any] = {}
+
+
+def _is_hf_cache_miss(exc: BaseException) -> bool:
+    """True when local_files_only load failed because the model is not cached yet."""
+    if isinstance(exc, (OSError, ValueError)):
+        return True
+    try:
+        from huggingface_hub.errors import LocalEntryNotFoundError
+
+        return isinstance(exc, LocalEntryNotFoundError)
+    except ImportError:
+        return False
+
+
+def _load_sentence_transformers_model(loader: Callable[..., Any], model_name: str) -> Any:
+    """Load offline when the HF cache already has *model_name*; download once otherwise.
+
+    Without local_files_only, huggingface_hub validates every cached file with HEAD
+    requests even when weights are already on disk.
+    """
+    try:
+        return loader(model_name, local_files_only=True)
+    except Exception as exc:
+        if not _is_hf_cache_miss(exc):
+            raise
+        log.debug("HF model %r not fully cached (%s); downloading", model_name, exc)
+        return loader(model_name)
 
 
 def _get_embedder(model_name: str) -> Any:
@@ -42,7 +70,7 @@ def _get_embedder(model_name: str) -> Any:
             "sentence-transformers failed to import in the configured Python venv "
             f"({detail}). Install with: {EMBEDDINGS_VENV_PIP_INSTALL}"
         ) from exc
-    embedder = st_mod.SentenceTransformer(model_name)
+    embedder = _load_sentence_transformers_model(st_mod.SentenceTransformer, model_name)
     _MODEL_CACHE[model_name] = embedder
     return embedder
 

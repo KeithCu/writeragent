@@ -25,7 +25,7 @@ def _get_cross_encoder(model_name: str) -> Any:
         return cached
     import importlib
 
-    from plugin.embeddings.venv.embeddings_index import EMBEDDINGS_VENV_PIP_INSTALL
+    from plugin.embeddings.venv.embeddings_index import EMBEDDINGS_VENV_PIP_INSTALL, _load_sentence_transformers_model
 
     try:
         st_mod = importlib.import_module("sentence_transformers")
@@ -34,7 +34,7 @@ def _get_cross_encoder(model_name: str) -> Any:
             f"sentence-transformers is not installed in the configured Python venv. "
             f"Install with: {EMBEDDINGS_VENV_PIP_INSTALL}"
         ) from exc
-    encoder = st_mod.CrossEncoder(model_name)
+    encoder = _load_sentence_transformers_model(st_mod.CrossEncoder, model_name)
     _CROSS_ENCODER_CACHE[model_name] = encoder
     return encoder
 

@@ -162,71 +162,83 @@ class SearchDialog:
             if ctrl is not None:
                 ctrl.addKeyListener(enter_listener)
 
+    def _resolve_doc_index_context(self) -> tuple[Any, tuple[Any, Any, Any, str]] | None:
+        """Return (doc, resolve_index_context tuple) on the main thread, or None if no doc."""
+        ctx = self._ctx
+        from plugin.embeddings.embeddings_cache import resolve_index_context
+
+        doc = get_active_document(ctx)
+        if not doc:
+            return None
+        return doc, resolve_index_context(ctx, doc)
+
     def _refresh_cache_status(self, dlg: Any) -> None:
         ctx = self._ctx
         status_lbl = dlg.getControl("CacheStatusLbl")
         if not status_lbl:
             return
 
-        def _get_status():
+        def _apply_cache_status() -> None:
+            def _get_status() -> str:
+                try:
+                    from plugin.embeddings.embeddings_cache import (
+                        index_is_empty,
+                        read_corpus_meta,
+                        resolve_index_context,
+                        zvec_collection_looks_populated,
+                        zvec_collection_path,
+                        lancedb_collection_looks_populated,
+                        lancedb_collection_path,
+                    )
+                    from plugin.framework.client.embeddings_service import _folder_search_mode
+
+                    doc = get_active_document(ctx)
+                    if not doc:
+                        return _("Cache Status: No active document")
+
+                    folder_key, db_path, meta_path, listing_root = resolve_index_context(ctx, doc)
+                    if folder_key is None or db_path is None or meta_path is None:
+                        return _("Cache Status: Folder not resolved")
+
+                    # Mode-aware for zvec/lancedb side-by-side store
+                    mode = _folder_search_mode()
+                    if mode == "zvec":
+                        zpath = zvec_collection_path(listing_root, create_parent=False) if listing_root else None
+                        if not zpath or not zvec_collection_looks_populated(zpath):
+                            return _("Cache Status: Not built (zvec)")
+                    elif mode == "lancedb":
+                        lpath = lancedb_collection_path(listing_root, create_parent=False) if listing_root else None
+                        if not lpath or not lancedb_collection_looks_populated(lpath):
+                            return _("Cache Status: Not built (lancedb)")
+                    elif index_is_empty(meta_path, db_path):
+                        return _("Cache Status: Not built")
+
+                    meta = read_corpus_meta(meta_path)
+                    updated_at_str = meta.get("updated_at")
+                    if updated_at_str:
+                        try:
+                            updated_at = float(updated_at_str)
+                            age_secs = time.time() - updated_at
+                            if age_secs < 60:
+                                age_str = _("just now")
+                            elif age_secs < 3600:
+                                age_str = _("{0}m ago").format(int(age_secs // 60))
+                            else:
+                                age_str = _("{0}h ago").format(int(age_secs // 3600))
+                            return _("Cache Status: Built ({0})").format(age_str)
+                        except ValueError:
+                            pass
+
+                    return _("Cache Status: Built")
+                except Exception as e:
+                    return _("Cache Status: Error ({0})").format(str(e))
+
             try:
-                from plugin.embeddings.embeddings_cache import (
-                    index_is_empty,
-                    read_corpus_meta,
-                    resolve_index_context,
-                    zvec_collection_looks_populated,
-                    zvec_collection_path,
-                    lancedb_collection_looks_populated,
-                    lancedb_collection_path,
-                )
-                from plugin.framework.client.embeddings_service import _folder_search_mode
-                doc = get_active_document(ctx)
-                if not doc:
-                    return _("Cache Status: No active document")
+                status_lbl.getModel().Label = _get_status()
+            except Exception:
+                pass
 
-                folder_key, db_path, meta_path, listing_root = resolve_index_context(ctx, doc)
-                if folder_key is None or db_path is None or meta_path is None:
-                    return _("Cache Status: Folder not resolved")
-
-                # Mode-aware for zvec/lancedb side-by-side store
-                mode = _folder_search_mode()
-                if mode == "zvec":
-                    zpath = zvec_collection_path(listing_root, create_parent=False) if listing_root else None
-                    if not zpath or not zvec_collection_looks_populated(zpath):
-                        return _("Cache Status: Not built (zvec)")
-                elif mode == "lancedb":
-                    lpath = lancedb_collection_path(listing_root, create_parent=False) if listing_root else None
-                    if not lpath or not lancedb_collection_looks_populated(lpath):
-                        return _("Cache Status: Not built (lancedb)")
-                elif index_is_empty(meta_path, db_path):
-                    return _("Cache Status: Not built")
-
-                meta = read_corpus_meta(meta_path)
-                updated_at_str = meta.get("updated_at")
-                if updated_at_str:
-                    try:
-                        updated_at = float(updated_at_str)
-                        age_secs = time.time() - updated_at
-                        if age_secs < 60:
-                            age_str = _("just now")
-                        elif age_secs < 3600:
-                            age_str = _("{0}m ago").format(int(age_secs // 60))
-                        else:
-                            age_str = _("{0}h ago").format(int(age_secs // 3600))
-                        return _("Cache Status: Built ({0})").format(age_str)
-                    except ValueError:
-                        pass
-
-                return _("Cache Status: Built")
-            except Exception as e:
-                return _("Cache Status: Error ({0})").format(str(e))
-
-        def _update_ui():
-            status_text = _get_status()
-            from plugin.framework.queue_executor import execute_on_main_thread
-            execute_on_main_thread(lambda: setattr(status_lbl.getModel(), "Label", status_text))
-
-        run_in_background(_update_ui, name="search-dialog-status-refresh")
+        execute_on_main_thread(_apply_cache_status)
 
     def _run_search(self, dlg: Any) -> None:
         ctx = self._ctx
@@ -258,22 +270,8 @@ class SearchDialog:
         def _do_background_search():
             try:
                 from plugin.framework.constants import folder_search_enabled
-                doc = get_active_document(ctx)
-                if not doc:
-                    self._update_results_ui(results_ctrl, btn_search, _("No active document found."))
-                    return
-
-                if not folder_search_enabled():
-                    self._update_results_ui(
-                        results_ctrl,
-                        btn_search,
-                        _("Cross-file search is disabled. Enable Embeddings + FTS in Settings → Embeddings.")
-                    )
-                    return
-
                 from plugin.embeddings.embeddings_cache import (
                     index_is_empty,
-                    resolve_index_context,
                     zvec_collection_looks_populated,
                     zvec_collection_path,
                     lancedb_collection_looks_populated,
@@ -283,7 +281,20 @@ class SearchDialog:
                 from plugin.framework.client.embedding_client import get_embedding_model
                 from plugin.framework.client.embeddings_service import hybrid_search, _folder_search_mode
 
-                folder_key, db_path, meta_path, listing_root = resolve_index_context(ctx, doc)
+                resolved = execute_on_main_thread(self._resolve_doc_index_context)
+                if resolved is None:
+                    self._update_results_ui(results_ctrl, btn_search, _("No active document found."))
+                    return
+                doc, (folder_key, db_path, meta_path, listing_root) = resolved
+
+                if not folder_search_enabled():
+                    self._update_results_ui(
+                        results_ctrl,
+                        btn_search,
+                        _("Cross-file search is disabled. Enable Embeddings + FTS in Settings → Embeddings.")
+                    )
+                    return
+
                 if folder_key is None or db_path is None or meta_path is None:
                     self._update_results_ui(results_ctrl, btn_search, _("Error: ") + str(listing_root))
                     return
@@ -292,7 +303,7 @@ class SearchDialog:
                 if mode == "zvec":
                     zpath = zvec_collection_path(listing_root, create_parent=False) if listing_root else None
                     if not zpath or not zvec_collection_looks_populated(zpath):
-                        ensure_index_wakeup(ctx, None, doc)
+                        execute_on_main_thread(ensure_index_wakeup, ctx, None, doc)
                         self._update_results_ui(
                             results_ctrl,
                             btn_search,
@@ -303,7 +314,7 @@ class SearchDialog:
                 elif mode == "lancedb":
                     lpath = lancedb_collection_path(listing_root, create_parent=False) if listing_root else None
                     if not lpath or not lancedb_collection_looks_populated(lpath):
-                        ensure_index_wakeup(ctx, None, doc)
+                        execute_on_main_thread(ensure_index_wakeup, ctx, None, doc)
                         self._update_results_ui(
                             results_ctrl,
                             btn_search,
@@ -313,7 +324,7 @@ class SearchDialog:
                     search_path = str(lancedb_collection_path(listing_root, create_parent=True))
                 else:
                     if index_is_empty(meta_path, db_path):
-                        ensure_index_wakeup(ctx, None, doc)
+                        execute_on_main_thread(ensure_index_wakeup, ctx, None, doc)
                         self._update_results_ui(
                             results_ctrl,
                             btn_search,
@@ -332,7 +343,7 @@ class SearchDialog:
                     near_slop=10,
                 )
                 hits = list(result.get("hits") or [])
-                ensure_index_wakeup(ctx, None, doc)
+                execute_on_main_thread(ensure_index_wakeup, ctx, None, doc)
 
                 if not hits:
                     self._update_results_ui(results_ctrl, btn_search, _("No matches found."))
@@ -368,16 +379,16 @@ class SearchDialog:
 
         def _do_rebuild():
             try:
-                from plugin.embeddings.embeddings_cache import clear_folder_cache, resolve_index_context
+                from plugin.embeddings.embeddings_cache import clear_folder_cache
                 from plugin.embeddings.embeddings_heartbeat import format_index_heartbeat_line, heartbeat_counts_from_payload
                 from plugin.framework.client.embedding_client import get_embedding_model
                 from plugin.framework.client.embeddings_service import _folder_search_mode
-                doc = get_active_document(ctx)
-                if not doc:
+
+                resolved = execute_on_main_thread(self._resolve_doc_index_context)
+                if resolved is None:
                     self._update_rebuild_ui(btn_rebuild, results_ctrl, _("No active document found."))
                     return
-
-                folder_key, db_path, meta_path, listing_root = resolve_index_context(ctx, doc)
+                _doc, (_folder_key, _db_path, _meta_path, listing_root) = resolved
                 if not listing_root:
                     self._update_rebuild_ui(btn_rebuild, results_ctrl, _("No active folder resolved."))
                     return

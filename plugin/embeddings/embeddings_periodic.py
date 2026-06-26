@@ -46,11 +46,15 @@ def run_periodic_embeddings_indexer(ctx: Any) -> None:
         if not folder_search_enabled():
             continue
         from plugin.framework.queue_executor import execute_on_main_thread
-        model = execute_on_main_thread(get_active_document, ctx)
-        if model is None:
-            continue
-        try:
-            services = get_services()
-            enqueue_folder_index(ctx, services, model)
-        except Exception:
-            log.exception("embeddings periodic indexer tick failed")
+
+        def _tick() -> None:
+            model = get_active_document(ctx)
+            if model is None:
+                return
+            try:
+                services = get_services()
+                enqueue_folder_index(ctx, services, model)
+            except Exception:
+                log.exception("embeddings periodic indexer tick failed")
+
+        execute_on_main_thread(_tick)

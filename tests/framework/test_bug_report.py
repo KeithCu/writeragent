@@ -43,6 +43,63 @@ def test_should_offer_bug_report_denies_config_errors():
     assert br.should_offer_bug_report(code="INTERNAL_ERROR") is True
 
 
+def test_format_lo_version_prefers_about_with_suffix():
+    assert br._format_lo_version({"about": "24.8.4.2", "suffix": "beta1"}) == "24.8.4.2 beta1"
+    assert br._format_lo_version({"about": "24.8.4.2"}) == "24.8.4.2"
+
+
+def test_format_lo_version_falls_back_to_name_and_version():
+    assert br._format_lo_version({"name": "LibreOffice", "version": "24.8"}) == "LibreOffice 24.8"
+    assert br._format_lo_version({"version": "24.8"}) == "24.8"
+    assert br._format_lo_version({}) == "unknown"
+
+
+def test_get_lo_product_info_reads_valid_properties_only():
+    ctx = MagicMock()
+    smgr = ctx.getServiceManager.return_value
+    config_provider = smgr.createInstanceWithContext.return_value
+    ca = config_provider.createInstanceWithArguments.return_value
+    prop_info = MagicMock()
+    prop_info.hasPropertyByName.side_effect = lambda name: name in {
+        "ooName",
+        "ooSetupVersionAboutBox",
+        "ooSetupVersion",
+    }
+    ca.getPropertySetInfo.return_value = prop_info
+    ca.getPropertyValue.side_effect = lambda name: {
+        "ooName": "LibreOffice",
+        "ooSetupVersionAboutBox": "24.8.4.2",
+        "ooSetupVersion": "24.8",
+    }[name]
+
+    with patch.dict("sys.modules", {"uno": MagicMock(createUnoStruct=MagicMock())}):
+        product = br._get_lo_product_info(ctx)
+
+    assert product == {
+        "name": "LibreOffice",
+        "about": "24.8.4.2",
+        "version": "24.8",
+    }
+    queried = {call.args[0] for call in ca.getPropertyValue.call_args_list}
+    assert "ooSetupBuild" not in queried
+    assert "ooSetupVersionAboutBoxSuffix" not in queried
+
+
+def test_get_lo_product_info_skips_unknown_properties_without_get_property_value():
+    ctx = MagicMock()
+    smgr = ctx.getServiceManager.return_value
+    config_provider = smgr.createInstanceWithContext.return_value
+    ca = config_provider.createInstanceWithArguments.return_value
+    prop_info = MagicMock()
+    prop_info.hasPropertyByName.return_value = False
+    ca.getPropertySetInfo.return_value = prop_info
+
+    with patch.dict("sys.modules", {"uno": MagicMock(createUnoStruct=MagicMock())}):
+        assert br._get_lo_product_info(ctx) == {}
+
+    ca.getPropertyValue.assert_not_called()
+
+
 def test_open_url_in_browser_uses_system_shell_execute_first():
     flags = MagicMock()
     flags.URIS_ONLY = 99

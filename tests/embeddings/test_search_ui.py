@@ -43,13 +43,14 @@ class TestSearchDialog:
 
         show_search_dialog(mock_ctx)
 
+    @patch("plugin.embeddings.search_ui.execute_on_main_thread", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs))
     @patch("plugin.framework.uno_context.get_desktop")
     @patch("plugin.embeddings.search_ui.get_active_document")
     @patch("plugin.embeddings.embeddings_cache.resolve_index_context")
     @patch("plugin.embeddings.embeddings_cache.clear_folder_cache")
     @patch("plugin.framework.client.embeddings_service.maintain_folder_index")
     @patch("plugin.framework.client.embeddings_service._folder_search_mode", return_value="llama_index")
-    def test_rebuild_action_triggered(self, mock_search_mode, mock_maintain, mock_clear, mock_resolve, mock_doc, mock_get_desktop):
+    def test_rebuild_action_triggered(self, mock_search_mode, mock_maintain, mock_clear, mock_resolve, mock_doc, mock_get_desktop, _mock_execute):
         mock_ctx = MagicMock()
         mock_smgr = mock_ctx.getServiceManager.return_value
         
@@ -112,6 +113,7 @@ class TestSearchDialog:
         dialog._run_search.assert_called_with(mock_dlg)
         assert dialog._run_search.call_count == 2
 
+    @patch("plugin.embeddings.search_ui.execute_on_main_thread", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs))
     @patch("plugin.framework.uno_context.get_desktop")
     @patch("plugin.embeddings.search_ui.get_active_document")
     @patch("plugin.embeddings.embeddings_cache.clear_folder_cache")
@@ -124,6 +126,7 @@ class TestSearchDialog:
         mock_clear,
         mock_doc,
         mock_get_desktop,
+        _mock_execute,
         tmp_path,
     ):
         mock_ctx = MagicMock()
@@ -157,3 +160,73 @@ class TestSearchDialog:
         assert mock_clear.call_args.args[0] == my_docs
         assert mock_maintain.called
         assert mock_maintain.call_args.args[1] == my_docs
+
+    def test_refresh_cache_status_marshals_uno_to_main_thread(self):
+        mock_ctx = MagicMock()
+        dialog = SearchDialog.__new__(SearchDialog)
+        dialog._ctx = mock_ctx
+        mock_dlg = MagicMock()
+        status_lbl = MagicMock()
+        mock_dlg.getControl.return_value = status_lbl
+
+        with patch("plugin.embeddings.search_ui.run_in_background") as mock_bg:
+            with patch(
+                "plugin.embeddings.search_ui.execute_on_main_thread",
+                side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
+            ):
+                with patch("plugin.embeddings.search_ui.get_active_document") as mock_doc:
+                    mock_doc.return_value = None
+                    dialog._refresh_cache_status(mock_dlg)
+
+        mock_bg.assert_not_called()
+        mock_doc.assert_called_once_with(mock_ctx)
+        assert status_lbl.getModel().Label
+
+    @patch("plugin.framework.constants.folder_search_enabled", return_value=False)
+    def test_search_marshals_doc_resolution_before_background_work(self, _mock_folder_search):
+        mock_ctx = MagicMock()
+        dialog = SearchDialog.__new__(SearchDialog)
+        dialog._ctx = mock_ctx
+
+        mock_dlg = MagicMock()
+        query_ctrl = MagicMock()
+        resp_ctrl = MagicMock()
+        results_ctrl = MagicMock()
+        btn_search = MagicMock()
+        mock_dlg.getControl.side_effect = lambda name: {
+            "QueryEdit": query_ctrl,
+            "RespEdit": resp_ctrl,
+            "ResultsEdit": results_ctrl,
+            "BtnSearch": btn_search,
+        }.get(name)
+        query_ctrl.getModel().Text = "test query"
+        resp_ctrl.getModel().Text = "7"
+
+        marshal_depth = [0]
+        doc_calls_during_marshal: list[bool] = []
+
+        def fake_execute(fn, *args, **kwargs):
+            marshal_depth[0] += 1
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                marshal_depth[0] -= 1
+
+        def tracking_get_active_document(ctx):
+            doc_calls_during_marshal.append(marshal_depth[0] > 0)
+            return MagicMock()
+
+        with patch("plugin.embeddings.search_ui.execute_on_main_thread", side_effect=fake_execute):
+            with patch("plugin.embeddings.search_ui.get_active_document", side_effect=tracking_get_active_document):
+                with patch(
+                    "plugin.embeddings.embeddings_cache.resolve_index_context",
+                    return_value=("folder_key", Path("/db"), Path("/meta"), "/listing"),
+                ):
+                    with patch(
+                        "plugin.embeddings.search_ui.run_in_background",
+                        side_effect=lambda fn, *args, **kwargs: fn(*args),
+                    ):
+                        dialog._run_search(mock_dlg)
+
+        assert doc_calls_during_marshal, "get_active_document should run during search"
+        assert all(doc_calls_during_marshal), "get_active_document must be marshaled to main thread"

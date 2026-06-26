@@ -181,6 +181,47 @@ def _sqlite_hit_to_node(hit: dict[str, Any], *, leg: str) -> Any:
     return NodeWithScore(node=node, score=score)
 
 
+def _nodes_to_rerank_candidates(nodes: list[Any]) -> list[dict[str, Any]]:
+    """Map LlamaIndex NodeWithScore rows to hybrid rerank candidate dicts."""
+    candidates: list[dict[str, Any]] = []
+    for item in nodes:
+        node = item.node
+        metadata = node.metadata or {}
+        candidates.append(
+            {
+                "doc_url": metadata.get("doc_url", ""),
+                "para_index": metadata.get("para_index", 0),
+                "chunk_id": metadata.get("chunk_id"),
+                "snippet": str(node.text or ""),
+                "score": float(item.score or 0.0),
+                "matched_by": metadata.get("matched_by"),
+                "parent_expanded": metadata.get("parent_expanded"),
+            }
+        )
+    return candidates
+
+
+def _rerank_candidates_to_nodes(candidates: list[dict[str, Any]]) -> list[Any]:
+    """Rebuild NodeWithScore list after cross-encoder rerank."""
+    reranked: list[Any] = []
+    for cand in candidates:
+        metadata = {
+            "doc_url": cand.get("doc_url", ""),
+            "para_index": cand.get("para_index", 0),
+            "chunk_id": cand.get("chunk_id"),
+            "matched_by": cand.get("matched_by"),
+        }
+        if cand.get("parent_expanded"):
+            metadata["parent_expanded"] = True
+        node = TextNode(
+            text=str(cand.get("snippet") or ""),
+            id_=str(cand.get("chunk_id") or ""),
+            metadata=metadata,
+        )
+        reranked.append(NodeWithScore(node=node, score=float(cand.get("score") or 0.0)))
+    return reranked
+
+
 def _apply_llama_index_postprocessors(
     nodes: list[Any],
     query_bundle: Any,
@@ -189,15 +230,25 @@ def _apply_llama_index_postprocessors(
     use_rerank: bool,
     rerank_model: str = _DEFAULT_RERANK_MODEL,
 ) -> list[Any]:
-    """Native LlamaIndex rerank after fusion/retrieve; fall back to RRF top-k."""
+    """Rerank fused nodes with shared cross-encoder loader; fall back to RRF top-k."""
     if not nodes:
         return []
-    if use_rerank and final_k > 1 and HAS_LLAMA_INDEX and HAS_SENTENCE_TRANSFORMER_RERANK:
+    if use_rerank and final_k > 1 and HAS_LLAMA_INDEX:
         try:
-            reranker = SentenceTransformerRerank(model=rerank_model, top_n=final_k)
-            return reranker.postprocess_nodes(nodes, query_bundle=query_bundle)
+            from plugin.embeddings.venv.embeddings_cross_encoder_rerank import cross_encoder_rerank_candidates
+
+            query_text = str(getattr(query_bundle, "query_str", None) or "")
+            candidates = _nodes_to_rerank_candidates(nodes)
+            reranked = cross_encoder_rerank_candidates(
+                query_text,
+                candidates,
+                model=rerank_model,
+                top_n=final_k,
+            )
+            if reranked:
+                return _rerank_candidates_to_nodes(reranked)
         except Exception:
-            log.exception("SentenceTransformerRerank failed; using fused top-k")
+            log.exception("CrossEncoder rerank failed; using fused top-k")
     return nodes[:final_k]
 
 

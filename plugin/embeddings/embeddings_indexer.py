@@ -77,7 +77,12 @@ def enqueue_folder_index(ctx: Any, services: Any, model: Any) -> None:
     del services  # venv maintain does not use UNO services
     if not folder_search_enabled():
         return
-    resolved = resolve_index_context(ctx, model)
+    from plugin.framework.queue_executor import execute_on_main_thread
+
+    def _resolve() -> tuple[str, Any, Any, str] | tuple[None, None, None, str]:
+        return resolve_index_context(ctx, model)
+
+    resolved = execute_on_main_thread(_resolve)
     folder_key, _db, _meta, listing_root = resolved[0], resolved[1], resolved[2], resolved[3]
     if folder_key is None or listing_root is None:
         return

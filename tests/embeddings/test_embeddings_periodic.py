@@ -40,26 +40,37 @@ def test_schedule_periodic_indexer_once_when_on():
             assert run_bg.call_args[0][1] is ctx
 
 
-def test_run_periodic_embeddings_indexer_marshals_get_active_document():
+def test_run_periodic_embeddings_indexer_marshals_uno_on_tick():
     from plugin.embeddings.embeddings_periodic import run_periodic_embeddings_indexer
-    from plugin.framework.uno_context import get_active_document
-    
+
     ctx = MagicMock()
-    
+
     class StopLoop(Exception):
         pass
-        
+
+    doc_calls_during_marshal: list[bool] = []
+    marshal_depth = [0]
+
     def mock_execute(fn, *args, **kwargs):
+        marshal_depth[0] += 1
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            marshal_depth[0] -= 1
+
+    def tracking_get_active_document(_ctx):
+        doc_calls_during_marshal.append(marshal_depth[0] > 0)
         raise StopLoop()
-        
+
     with (
         patch("time.sleep", return_value=None),
         patch("plugin.framework.constants.folder_search_enabled", return_value=True),
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=mock_execute) as mock_execute_main,
+        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=mock_execute),
+        patch("plugin.framework.uno_context.get_active_document", side_effect=tracking_get_active_document),
     ):
         with pytest.raises(StopLoop):
             run_periodic_embeddings_indexer(ctx)
-            
-        mock_execute_main.assert_called_once()
-        assert mock_execute_main.call_args[0][0] is get_active_document
+
+    assert doc_calls_during_marshal, "get_active_document should run during periodic tick"
+    assert all(doc_calls_during_marshal), "get_active_document must be marshaled to main thread"
 
