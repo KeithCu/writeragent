@@ -124,7 +124,29 @@ def _serialize(obj: Any) -> Any:
     return serialize_result(obj)
 
 
+def _init_logging() -> None:
+    import logging
+    log_path = os.environ.get("WRITERAGENT_DEBUG_LOG_PATH")
+    if not log_path:
+        return
+    try:
+        handler = logging.FileHandler(log_path, encoding="utf-8")
+        formatter = logging.Formatter("%(asctime)s | %(name)s[Worker] | %(levelname)s | %(message)s")
+        handler.setFormatter(formatter)
+        root = logging.getLogger()
+        root.setLevel(logging.DEBUG)
+        root.addHandler(handler)
+        root.propagate = False
+    except Exception:
+        pass
+
+
 def main() -> None:
+    _init_logging()
+    import logging
+    logger = logging.getLogger("worker_harness")
+    logger.info("Worker process %d starting up with python %s", os.getpid(), sys.version)
+
     import pickle
     import struct
 
@@ -146,10 +168,14 @@ def main() -> None:
             # Trusted IPC: bytes from WriterAgent host that spawned this harness process.
             request = pickle.loads(payload)  # nosec B301
             req_id = str(request.get("id", ""))
+            logger.debug("Received request id=%s action=%s", req_id, request.get("action") or "execute")
             response = _handle_request(request, stdout=stdout)
+            logger.debug("Finished request id=%s, response status=%s", req_id, response.get("status") if response else "none")
         except pickle.UnpicklingError as e:
+            logger.warning("Unpickling error on request id=%s: %s", req_id, e)
             response = {"status": "error", "message": f"Invalid pickle request: {e}"}
         except Exception as e:
+            logger.exception("Exception handling request id=%s", req_id)
             response = {"status": "error", "message": str(e)}
 
         if response is None:

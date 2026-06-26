@@ -267,6 +267,18 @@ def generate_module(tools: list[ToolBase]) -> str:
         '    return response.get("result", {})',
         '',
         '',
+        'def get_active_document_type() -> str:',
+        '    """Return the active document\'s type (\'writer\', \'calc\', \'draw\', or \'unknown\')."""',
+        '    try:',
+        '        res = _rpc_call("list_open_documents")',
+        '        for doc in res.get("documents", []):',
+        '            if doc.get("is_active"):',
+        '                return doc.get("doc_type", "unknown")',
+        '    except Exception:',
+        '        pass',
+        '    return "unknown"',
+        '',
+        '',
     ]
 
     # Domain tools whitelist for host-side enforcement

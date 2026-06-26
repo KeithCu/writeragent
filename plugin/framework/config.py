@@ -415,6 +415,60 @@ class ConfigCache:
 _cache = ConfigCache()
 
 
+_DEFAULT_PYTHON_SCRIPTS = {
+    "Prime Numbers": (
+        "# Calculate primes, sharing the sieve via sp.primerange().\n"
+        "low, high = sp.prime(1000), sp.prime(1010)\n\n"
+        "result = {\n"
+        "    \"title\": \"Prime Numbers in Range\",\n"
+        "    \"primes\": [\n"
+        "        {\"position\": i, \"prime\": p}\n"
+        "        for i, p in zip(range(1000, 1011),\n"
+        "                        list(sp.primerange(low, high + 1)))\n"
+        "    ]\n"
+        "}"
+    ),
+    "Hello WriterAgent": (
+        "# A simple hello world script\n"
+        "result = \"Hello from WriterAgent Python script!\""
+    ),
+    "Universal Sample": (
+        "import writeragent as wa\n\n"
+        "def run():\n"
+        "    doc_type = wa.get_active_document_type()\n"
+        "    print(f\"Detected active document type: {doc_type}\")\n\n"
+        "    # 1. Insert Rich HTML Content\n"
+        "    if doc_type == \"writer\":\n"
+        "        wa.writer.apply_document_content(\n"
+        "            content=[\"<h1>Hello from Python SDK</h1>\", \"<p>Here is some <b>rich HTML content</b> inserted at the end.</p>\"],\n"
+        "            target=\"end\"\n"
+        "        )\n"
+        "    elif doc_type == \"calc\":\n"
+        "        wa.calc.insert_cell_html(\n"
+        "            cell_address=\"A1\",\n"
+        "            html=\"<h1>Hello from Python SDK</h1><p>Here is some <b>rich HTML content</b>.</p>\"\n"
+        "        )\n"
+        "    else:\n"
+        "        print(\"Unsupported document type for rich text insertion.\")\n\n"
+        "    # 2. Insert a 24-sided Star Shape\n"
+        "    # Width/height are in 100ths of a mm (e.g., 4000 = 4cm)\n"
+        "    wa.shape.upsert_shape(\n"
+        "        action=\"create\",\n"
+        "        shape_type=\"star24\",\n"
+        "        x=2000,\n"
+        "        y=5000,\n"
+        "        width=4000,\n"
+        "        height=4000,\n"
+        "        fill_color=\"blue\",\n"
+        "        text=\"24-sided Star\"\n"
+        "    )\n"
+        "    print(\"Inserted a 24-sided blue star shape.\")\n\n"
+        "if __name__ == \"__main__\":\n"
+        "    run()"
+    )
+}
+
+
 # --- WriterAgentConfig Schema ---
 
 
@@ -470,24 +524,7 @@ class WriterAgentConfig:
 
     # Persists multiple user-saved Python scripts (name -> code)
     saved_python_scripts: Dict[str, str] = dataclasses.field(
-        default_factory=lambda: {
-            "Prime Numbers": (
-                "# Calculate primes, sharing the sieve via sp.primerange().\n"
-                "low, high = sp.prime(1000), sp.prime(1010)\n\n"
-                "result = {\n"
-                "    \"title\": \"Prime Numbers in Range\",\n"
-                "    \"primes\": [\n"
-                "        {\"position\": i, \"prime\": p}\n"
-                "        for i, p in zip(range(1000, 1011),\n"
-                "                        list(sp.primerange(low, high + 1)))\n"
-                "    ]\n"
-                "}"
-            ),
-            "Hello WriterAgent": (
-                "# A simple hello world script\n"
-                "result = \"Hello from WriterAgent Python script!\""
-            )
-        }
+        default_factory=lambda: dict(_DEFAULT_PYTHON_SCRIPTS)
     )
 
     # Store arbitrary module.yaml config entries
@@ -607,6 +644,11 @@ class WriterAgentConfig:
 
         if isinstance(self.saved_python_scripts, dict) and "Sample" in self.saved_python_scripts:
             del self.saved_python_scripts["Sample"]
+
+        if not isinstance(self.saved_python_scripts, dict):
+            self.saved_python_scripts = {}
+        if "Universal Sample" not in self.saved_python_scripts:
+            self.saved_python_scripts["Universal Sample"] = _DEFAULT_PYTHON_SCRIPTS["Universal Sample"]
 
         return self
 

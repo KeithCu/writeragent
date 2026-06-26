@@ -84,7 +84,7 @@ def _redact_sensitive_inplace(o: Any) -> None:
             _redact_sensitive_inplace(item)
 
 
-FLUSH_ON_EMIT = False
+FLUSH_ON_EMIT = True
 
 
 class OptionalFlushFileHandler(logging.FileHandler):

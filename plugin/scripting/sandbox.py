@@ -160,7 +160,7 @@ CALC_AUTHORIZED_IMPORTS: tuple[str, ...] = (
 _BLOCKED_ENV_SUBSTR = ("KEY", "TOKEN", "SECRET", "PASSWORD", "AUTH", "CREDENTIAL")
 # LibreOffice sets PYTHONHOME/PYTHONPATH to its bundled stdlib; letting these
 # leak into a venv subprocess causes SRE module mismatch and import failures.
-_BLOCKED_ENV_EXACT = {"PYTHONHOME", "PYTHONPATH"}
+_BLOCKED_ENV_EXACT = {"PYTHONHOME", "PYTHONPATH", "LD_LIBRARY_PATH"}
 
 _NOT_SET = "__not_set__"
 _cached_sandbox: str | None = _NOT_SET  # type: ignore[assignment]  # sentinel
@@ -183,6 +183,12 @@ def scrub_subprocess_env(base: dict[str, str] | None) -> dict[str, str]:
     out.setdefault("PYTHONIOENCODING", "utf-8")
     out.setdefault("PYTHONUTF8", "1")
     out.setdefault("PYTHONDONTWRITEBYTECODE", "1")
+    try:
+        from plugin.framework.logging import _debug_log_path
+        if _debug_log_path:
+            out["WRITERAGENT_DEBUG_LOG_PATH"] = _debug_log_path
+    except Exception:
+        pass
     return out
 
 

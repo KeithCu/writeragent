@@ -76,6 +76,18 @@ def _rpc_call(tool_name: str, **kwargs) -> dict:
     return response.get("result", {})
 
 
+def get_active_document_type() -> str:
+    """Return the active document's type ('writer', 'calc', 'draw', or 'unknown')."""
+    try:
+        res = _rpc_call("list_open_documents")
+        for doc in res.get("documents", []):
+            if doc.get("is_active"):
+                return doc.get("doc_type", "unknown")
+    except Exception:
+        pass
+    return "unknown"
+
+
 DOMAIN_TOOLS = {   'analysi': ['analyze_data', 'calc_goal_seek', 'calc_solver', 'optimize_data', 'plot_data', 'query_folder_sql'],
     'bookmark': [   'cleanup_bookmarks',
                     'create_bookmark',
