@@ -206,6 +206,54 @@ def test_foreign_redline_with_no_bounds_fails_closed():
     assert _foreign_redline_in_span(model, FakeText(), span) is True
 
 
+def test_foreign_redline_in_other_text_object_is_skipped():
+    # A protected redline anchored in a DIFFERENT text object (e.g. a tracked change inside a
+    # text box) cannot overlap a span living in ``text``. The body cursor can't address its range
+    # -- createTextCursorByRange raises "End of content node doesn't have the proper start node" --
+    # so the guard must SKIP it, not fail closed. Otherwise one redline inside a text box blocks
+    # resolving EVERY change in the body. Regression test.
+    span = FakeRange(10, 20)
+    box_text = FakeText()  # the text box's own text object (a different XText)
+
+    class ForeignRange(FakeRange):
+        def getText(self):
+            return box_text
+
+    class BodyText(FakeText):
+        def createTextCursorByRange(self, r):
+            if isinstance(r, ForeignRange):
+                raise RuntimeError("End of content node doesn't have the proper start node")
+            return super().createTextCursorByRange(r)
+
+    rl = FakeRedline("", 15, 25)                       # a USER redline (protected) ...
+    rl._props["RedlineStart"] = ForeignRange(15, 15)   # ... but living inside the text box
+    rl._props["RedlineEnd"] = ForeignRange(25, 25)
+    model = FakeModel(FakeRedlines([rl]))
+    assert _foreign_redline_in_span(model, BodyText(), span) is False
+
+
+def test_redline_mapping_failure_in_same_text_fails_closed():
+    # If mapping the redline into ``text`` fails but it IS in this text (we cannot confirm it sits
+    # in another object), stay fail-closed -- never skip a redline we can't prove is elsewhere.
+    span = FakeRange(10, 20)
+
+    class BodyText(FakeText):
+        def createTextCursorByRange(self, r):
+            raise RuntimeError("transient mapping failure")
+
+    body = BodyText()
+
+    class SameTextRange(FakeRange):
+        def getText(self):
+            return body  # same text object as the one under resolution
+
+    rl = FakeRedline("", 15, 25)
+    rl._props["RedlineStart"] = SameTextRange(15, 15)
+    rl._props["RedlineEnd"] = SameTextRange(25, 25)
+    model = FakeModel(FakeRedlines([rl]))
+    assert _foreign_redline_in_span(model, body, span) is True
+
+
 # --------------------------------------------------------------------- other-agent (sibling) guard
 
 def test_other_agent_overlap_detected():

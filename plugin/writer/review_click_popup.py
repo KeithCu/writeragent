@@ -38,10 +38,8 @@ def _show_popup_and_resolve(model: Any, source_window: Any, x: int, y: int) -> N
         from plugin.framework.uno_context import get_ctx
         from plugin.framework.i18n import _
         from plugin.writer.inline_review import (
-            agent_changes,
             cursor_in_agent_change,
             goto_agent_change,
-            resolve_all_with_feedback,
             resolve_change_at_cursor,
             show_review_message,
         )
@@ -63,13 +61,10 @@ def _show_popup_and_resolve(model: Any, source_window: Any, x: int, y: int) -> N
         if smgr is None:
             return
         popup = smgr.createInstanceWithContext("com.sun.star.awt.PopupMenu", ctx)
+        # Per-change only: Accept / Reject the change under the pointer. Bulk accept/reject ALL
+        # intentionally lives on the review toolbar, not in this per-click popup.
         popup.insertItem(1, "✓ " + _("Accept this change"), 0, 0)
         popup.insertItem(2, "✗ " + _("Reject this change"), 0, 1)
-        total = len(agent_changes(model))
-        if total > 1:
-            popup.insertSeparator(2)
-            popup.insertItem(3, "✓ " + _("Accept all {0} changes").format(total), 0, 3)
-            popup.insertItem(4, "✗ " + _("Reject all {0} changes").format(total), 0, 4)
         rect = Rectangle()
         rect.X = int(x)
         rect.Y = int(y)
@@ -84,12 +79,6 @@ def _show_popup_and_resolve(model: Any, source_window: Any, x: int, y: int) -> N
             ok, msg = resolve_change_at_cursor(model, ctx, False)
             if not ok:
                 show_review_message(ctx, msg)
-        elif choice == 3:
-            n, msg = resolve_all_with_feedback(model, ctx, True)
-            show_review_message(ctx, msg)
-        elif choice == 4:
-            n, msg = resolve_all_with_feedback(model, ctx, False)
-            show_review_message(ctx, msg)
     except Exception:
         log.warning("review_click_popup: popup failed", exc_info=True)
 
