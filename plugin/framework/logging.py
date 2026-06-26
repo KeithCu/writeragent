@@ -84,15 +84,24 @@ def _redact_sensitive_inplace(o: Any) -> None:
             _redact_sensitive_inplace(item)
 
 
-FLUSH_ON_EMIT = True
+FLUSH_INTERVAL_SEC = 1.0
+_debug_log_flush_lock = threading.Lock()
+_debug_log_last_flush = 0.0
+# Import-time binding so tests that patch time.monotonic (e.g. LLM pacing) are not affected by flush rate limiting.
+_monotonic = time.monotonic
 
 
 class OptionalFlushFileHandler(logging.FileHandler):
-    """FileHandler that can disable flushing on every emit to reduce disk wear."""
+    """FileHandler that rate-limits flush() to reduce disk wear (at most once per FLUSH_INTERVAL_SEC)."""
 
     def flush(self) -> None:
-        if FLUSH_ON_EMIT:
-            super().flush()
+        global _debug_log_last_flush
+        now = _monotonic()
+        with _debug_log_flush_lock:
+            if now - _debug_log_last_flush < FLUSH_INTERVAL_SEC:
+                return
+            _debug_log_last_flush = now
+        super().flush()
 
     def close(self) -> None:
         try:

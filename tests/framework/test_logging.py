@@ -2,12 +2,15 @@
 import unittest
 import json
 import logging
+import tempfile
 from logging.handlers import MemoryHandler
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from plugin.framework.logging import (
+    FLUSH_INTERVAL_SEC,
     LOG_REDACT_AUDIO_PLACEHOLDER,
     LOG_REDACT_IMAGE_PLACEHOLDER,
+    OptionalFlushFileHandler,
     SafeLogger,
     _enable_agent_log,
     agent_log,
@@ -109,6 +112,56 @@ class TestAgentLog(unittest.TestCase):
         agent_log("test.py:1", "hello")
         handler.flush()
         assert len(handler.buffer) == 0
+
+
+class TestOptionalFlushFileHandler(unittest.TestCase):
+
+    def setUp(self):
+        import plugin.framework.logging as logging_mod
+        logging_mod._debug_log_last_flush = 0.0
+
+    def tearDown(self):
+        import plugin.framework.logging as logging_mod
+        logging_mod._debug_log_last_flush = 0.0
+
+    def test_flush_rate_limited_within_interval(self):
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", delete=False) as tmp:
+            path = tmp.name
+        handler = OptionalFlushFileHandler(path, encoding="utf-8")
+        try:
+            with patch("plugin.framework.logging._monotonic", return_value=100.0):
+                with patch.object(logging.FileHandler, "flush") as super_flush:
+                    handler.flush()
+                    handler.flush()
+                    assert super_flush.call_count == 1
+        finally:
+            handler.close()
+
+    def test_flush_allowed_after_interval(self):
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", delete=False) as tmp:
+            path = tmp.name
+        handler = OptionalFlushFileHandler(path, encoding="utf-8")
+        try:
+            with patch.object(logging.FileHandler, "flush") as super_flush:
+                with patch("plugin.framework.logging._monotonic", return_value=100.0):
+                    handler.flush()
+                assert super_flush.call_count == 1
+                with patch("plugin.framework.logging._monotonic", return_value=100.0 + FLUSH_INTERVAL_SEC):
+                    handler.flush()
+                assert super_flush.call_count == 2
+        finally:
+            handler.close()
+
+    def test_close_flushes_unconditionally(self):
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", delete=False) as tmp:
+            path = tmp.name
+        handler = OptionalFlushFileHandler(path, encoding="utf-8")
+        with patch("plugin.framework.logging._monotonic", return_value=100.0):
+            with patch.object(logging.FileHandler, "flush") as super_flush:
+                handler.flush()
+                assert super_flush.call_count == 1
+                handler.close()
+                assert super_flush.call_count == 2
 
 
 class TestLoggingErrorHandling():
