@@ -532,18 +532,42 @@ def _span_has_redline(model: Any, text: Any, span: Any, consider) -> bool:
         try:
             s = rl.getPropertyValue("RedlineStart")
             e = rl.getPropertyValue("RedlineEnd")
-            if s is None or e is None:
-                # Protected redline whose bounds are unreadable -> cannot prove it is outside span.
-                log.debug("inline_review: protected redline has no start/end; treating as unsafe")
-                unsafe[0] = True
-                raise _RedlineScanAbort()
+        except Exception:
+            # Can't read this protected redline's bounds -> can't prove it is outside span.
+            log.debug("inline_review: protected redline bounds unreadable; treating as unsafe", exc_info=True)
+            unsafe[0] = True
+            raise _RedlineScanAbort()
+        if s is None or e is None:
+            # Protected redline whose bounds are unreadable -> cannot prove it is outside span.
+            log.debug("inline_review: protected redline has no start/end; treating as unsafe")
+            unsafe[0] = True
+            raise _RedlineScanAbort()
+
+        # Map the redline into THIS text. A redline anchored in a DIFFERENT text object (text
+        # frame/box, header, footer, footnote) than ``text`` is not addressable here --
+        # ``text.createTextCursorByRange(s)`` raises "End of content node doesn't have the proper
+        # start node" -- and cannot overlap a span that lives in ``text``, so skip it. Treating
+        # this as unsafe would block EVERY change in ``text`` whenever a single tracked change
+        # lives outside it (e.g. inside a text box). Only fail closed when we cannot confirm the
+        # range is in another text object, so a genuine same-text mapping failure stays protected.
+        try:
             rl_span = text.createTextCursorByRange(s)
             rl_span.gotoRange(e, True)
+        except Exception:
+            try:
+                in_other_text = (s.getText() != text)
+            except Exception:
+                in_other_text = False
+            if in_other_text:
+                return True  # different text object -> cannot overlap this span -> keep scanning
+            log.debug("inline_review: redline overlap check failed; treating as unsafe", exc_info=True)
+            unsafe[0] = True
+            raise _RedlineScanAbort()
+
+        try:
             overlaps = (_span_contains_point(text, span, rl_span.getStart())
                         or _span_contains_point(text, span, rl_span.getEnd())
                         or _span_contains_point(text, rl_span, span.getStart()))
-        except _RedlineScanAbort:
-            raise
         except Exception:
             log.debug("inline_review: redline overlap check failed; treating as unsafe", exc_info=True)
             unsafe[0] = True
