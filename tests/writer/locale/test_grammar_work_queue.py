@@ -898,3 +898,33 @@ def test_grammar_check_routes_to_languagetool() -> None:
         mock_lt_check.assert_called_once_with(ec.ctx, "This has an error.", "en-US")
         mock_process.assert_called_once()
 
+
+def test_grammar_check_routes_to_vale() -> None:
+    from plugin.writer.locale.grammar_work_queue import GrammarWorkerContext, _run_grammar_check
+
+    a = _make_item("This is a passive voice sentence.", seq=1, inflight_key="k1")
+    ec = GrammarWorkerContext(
+        ctx=MagicMock(),
+        client=MagicMock(),
+        model="test-model",
+        max_tok=512,
+        gq=MagicMock(),
+        detect_lang_mode="off",
+        grammar_bcp47="en-US",
+        original_bcp47="en-US",
+    )
+    chunk = [(a, a.text)]
+
+    with patch("plugin.framework.config.get_grammar_provider", return_value="vale"), \
+         patch("plugin.scripting.client.run_vale_check") as mock_vale_check, \
+         patch("plugin.framework.config.user_config_dir", return_value="/tmp"), \
+         patch("plugin.writer.locale.grammar_work_queue._process_grammar_results") as mock_process:
+        mock_vale_check.return_value = {
+            "errors": [{"n_error_start": 0, "n_error_length": 4, "wrong": "This", "correct": "That", "suggestions": ["That"]}]
+        }
+        _run_grammar_check(chunk, "en-US", "en-US", ec)
+
+        mock_vale_check.assert_called_once_with(ec.ctx, "This is a passive voice sentence.", "/tmp", "Microsoft,Google,write-good")
+        mock_process.assert_called_once()
+
+

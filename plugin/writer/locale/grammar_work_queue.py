@@ -527,7 +527,7 @@ def _run_grammar_check(
     original_bcp47: str,
     ec: GrammarWorkerContext,
 ) -> None:
-    """Grammar LLM or LanguageTool, then cache results or requeue on batch mismatch."""
+    """Grammar check dispatcher: executes LLM, LanguageTool, or Vale, then caches results."""
     try:
         from plugin.framework.config import get_grammar_provider
 
@@ -551,6 +551,30 @@ def _run_grammar_check(
                     log.error("[grammar] LanguageTool local check failed: %s", ex)
                     emit_grammar_status("failed", "LanguageTool check", result=str(ex))
             return
+
+        if provider == "vale":
+            from plugin.scripting.client import run_vale_check
+            from plugin.framework.config import user_config_dir
+
+            cfg_dir = user_config_dir() or ""
+            styles = "Microsoft,Google,write-good"
+
+            for item, text in chunk:
+                try:
+                    request_start = time.monotonic()
+                    res = run_vale_check(ec.ctx, text, cfg_dir, styles)
+                    elapsed_ms = int((time.monotonic() - request_start) * 1000)
+
+                    errors = res.get("errors", [])
+                    results = [errors]
+
+                    _process_grammar_results([(item, text)], results, bcp47, original_bcp47, elapsed_ms, ec)
+                    grammar_obs("worker_style_done", chunk_len=1, results_len=len(errors), elapsed_ms=elapsed_ms, bcp47=bcp47)
+                except Exception as ex:
+                    log.error("[grammar] Vale style linter failed: %s", ex)
+                    emit_grammar_status("failed", "Vale style linter", result=str(ex))
+            return
+
 
         # Default path: AI (LLM)
         results, elapsed_ms = call_grammar_llm(chunk, bcp47, ec)

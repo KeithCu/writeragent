@@ -64,10 +64,28 @@ You do not have to write rules from scratch. Vale officially maintains packaged 
 3.  **Language Support:** **Language-agnostic engine**, but pre-made packages are almost exclusively English. Writing rules for other languages requires custom regex sets.
 
 ### PM & Dev Considerations
-*   **Installation:** Cannot be installed purely via `pip`. It is a compiled Go binary that must be downloaded or installed via a system package manager (e.g., `apt`, `brew`).
-*   **Pro:** Extremely fast, parses document markup cleanly, very low resource footprint.
+*   **Installation (Python Package Wrapper):** Although Vale is a compiled Go binary, it can be seamlessly installed using the `vale` package on PyPI (`pip install vale`). During installation, the Python package automatically detects the host architecture and downloads the correct precompiled native binary directly into the virtual environment's `bin/` directory. This bypasses any system package manager requirements.
+*   **Pro:** Extremely fast execution, processes markup (like HTML/Markdown) natively without complaining about inline code blocks, and has an incredibly low memory footprint (a few megabytes).
+
+### Style Guide Deep-Dive: Microsoft vs. Google
+When choosing which ruleset to enable, teams generally compare the **Microsoft Writing Style Guide** and the **Google Developer Documentation Style Guide**:
+
+#### Microsoft Writing Style Guide
+*   **Philosophy & Brand Voice:** Focuses on being "simple, human, and friendly." It leans heavily into a warm, conversational, and user-centric tone.
+*   **Coverage:** Evolved from the long-standing *Microsoft Manual of Style*, making it highly comprehensive for broad software help, error messages, user interface (UI/UX) text, and general IT documentation.
+*   **Target Audience:** Ideal for end-users, consumers, and general software administrators.
+
+#### Google Developer Documentation Style Guide
+*   **Philosophy & Brand Voice:** Focuses on being "informative, direct, and scannable." It values absolute clarity and structure.
+*   **Coverage:** Tailored specifically for engineers and developer portals. It excels at explaining technical APIs, code snippet formatting, command-line arguments, and mathematical notations.
+*   **Target Audience:** Ideal for developers, API users, and open-source contributors.
+
+#### What Humans Think is Better
+*   **For General Writing:** Humans generally prefer **Microsoft's** guidelines because the tone recommendations help prevent prose from feeling cold, robotic, or overly dry.
+*   **For Technical References:** Developers and technical writers prefer **Google's** guide because it is highly modular, easy to scan, and provides specific rules on code-level formatting (e.g., punctuation inside code tags).
 
 ---
+
 
 ## 3. Harper (Rust-backed Grammar Engine)
 

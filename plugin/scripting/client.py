@@ -423,3 +423,26 @@ def run_languagetool_check(ctx: Any, text: str, bcp47: str) -> dict[str, Any]:
         error_label="LanguageTool",
     )
 
+
+# --- Vale Style Linter ---
+
+_VALE_SESSION_PREFIX = "writeragent:vale"
+_VALE_STUB = """\
+from plugin.scripting.venv.vale import run_vale_check as _run
+result = _run(data["text"], data["config_dir"], data["styles"])
+"""
+
+
+def run_vale_check(ctx: Any, text: str, config_dir: str, styles: str) -> dict[str, Any]:
+    """Execute a trusted Vale linter helper inside the user venv worker."""
+    return _run_trusted_helper(
+        ctx,
+        session_id=_VALE_SESSION_PREFIX,
+        stub=_VALE_STUB,
+        payload={"text": text, "config_dir": config_dir, "styles": styles},
+        timeout_sec=25,  # Sync might take a bit longer on first check
+        error_code="VALE_ERROR",
+        error_label="Vale Linter",
+    )
+
+

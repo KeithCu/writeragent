@@ -16,6 +16,8 @@ config:
         label: "AI (LLM)"
       - value: "languagetool"
         label: "LanguageTool (Local)"
+      - value: "vale"
+        label: "Vale (Local Style) (WIP)"
     inline: true
     label_x: 8
     label_width: 100
@@ -40,6 +42,8 @@ config:
     widget: checkbox
     label: Pause grammar while chat/agent runs
     helper: "When on, AI grammar skips background requests while sidebar chat or agent runs, to avoid concurrent API calls."
+
+
 
   grammar_proofreader_batch_sentences:
     type: int
