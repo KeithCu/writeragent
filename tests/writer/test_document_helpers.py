@@ -310,3 +310,12 @@ def test_get_document_property_returns_existing_value():
     doc = _DocWithUserDefinedProperties(props)
 
     assert get_document_property(doc, "WriterAgentGrammarCache", default=None) == '{"fp":[1]}'
+
+
+def test_doc_type_label_and_title_helpers():
+    from plugin.doc.document_helpers import DocumentType, doc_type_label_for_enum, doc_type_title_for_label
+
+    assert doc_type_label_for_enum(DocumentType.WRITER) == "writer"
+    assert doc_type_label_for_enum(DocumentType.IMPRESS) == "impress"
+    assert doc_type_title_for_label("impress") == "Draw"
+    assert doc_type_title_for_label("calc") == "Calc"

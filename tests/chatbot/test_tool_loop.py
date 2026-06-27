@@ -464,13 +464,19 @@ def test_refresh_active_tools_for_session():
     try:
         panel, session = setup_mock_panel()
         panel._active_model = MagicMock()
+        panel.cached_doc_type = "writer"
+        panel.cached_uno_services = frozenset({"com.sun.star.text.TextDocument"})
         session.active_specialized_domain = "tables"
         panel._active_tools = [{"function": {"name": "stale"}}]
 
         panel._refresh_active_tools_for_session()
 
         fake_registry.get_schemas.assert_called_once_with(
-            "openai", doc=panel._active_model, active_domain="tables", ctx=panel.ctx
+            "openai",
+            doc_type="writer",
+            uno_services_supported=frozenset({"com.sun.star.text.TextDocument"}),
+            active_domain="tables",
+            ctx=panel.ctx,
         )
         assert panel._active_tools == [{"function": {"name": "fresh"}}]
     finally:

@@ -194,10 +194,9 @@ def test_tools_list_filters_on_main_thread():
 
 
 def test_tools_list_direct_flat_filters_sidebar_on_main_thread():
-    # direct_flat runs a SECOND UNO-touching filter inside the same block --
-    # sidebar_only_tool_names -> get_tools -> doc.supportsService -- so pin it to the main
-    # thread independently of get_schemas (a regression that pulls only the sidebar block
-    # off-thread would otherwise pass every other test).
+    # direct_flat runs a second sidebar-only filter; with cached uno_services_supported
+    # it no longer probes doc.supportsService, but still must run on the main thread
+    # because it shares the _mcp_tools_list UNO resolution block.
     from unittest.mock import patch
 
     on_main = {"in": False}
@@ -214,7 +213,7 @@ def test_tools_list_direct_flat_filters_sidebar_on_main_thread():
         assert on_main["in"], "get_schemas (UNO doc-type filtering) ran off the main thread"
         return [{"name": "create_chart", "description": "c", "inputSchema": {}}]
 
-    def _sidebar(registry, doc):
+    def _sidebar(registry, doc, *, doc_type=None, uno_services_supported=None):
         assert on_main["in"], "sidebar_only_tool_names (UNO get_tools filtering) ran off the main thread"
         return frozenset()
 

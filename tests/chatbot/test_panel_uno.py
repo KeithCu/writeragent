@@ -116,21 +116,12 @@ class TestChatModelLogic(unittest.TestCase):
             self.assertTrue(True)
 
     @patch('plugin.framework.logging.update_activity_state')
-    def test_doc_type_leakage(self, mock_update_activity):
+    def test_missing_cached_doc_type_aborts(self, mock_update_activity):
         self.listener.initial_doc_type = "Writer"
+        self.listener.cached_doc_type = None
 
-        # Mock _get_document_model to return a Calc document (getSheets instead of getText)
-        doc_mock = MagicMock()
-
-        # We need to correctly patch the checks used in _do_send to identify the document
-        from plugin.doc.document_helpers import DocumentType
-        with patch.object(self.listener, '_get_document_model', return_value=doc_mock), \
-             patch('plugin.doc.document_helpers.get_document_type', return_value=DocumentType.CALC):
-
-            # Since _do_send manipulates response_control internally, we don't assert its text, just the side effect terminal state.
+        with patch.object(self.listener, '_get_document_model', return_value=MagicMock()):
             self.listener._do_send()
-
-            # Since document changed from Writer to Calc, it should abort and show an error.
             self.assertEqual(self.listener._terminal_status, "Error")
 
     @patch('plugin.framework.logging.update_activity_state')

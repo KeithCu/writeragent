@@ -177,5 +177,6 @@ def test_replace_thread_guard_implementation(tmp_path: Path) -> None:
     stubbed = tg_file.read_text(encoding="utf-8")
     assert "GUARD_ON = False" in stubbed
     assert "def assert_main_thread(what: str) -> None:" in stubbed
+    assert "def guard_uno(obj):" in stubbed
     assert "raise RuntimeError" not in stubbed
 

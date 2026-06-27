@@ -500,13 +500,31 @@ class MCPProtocolHandler:
             # unchanged) and direct_discovery (find_tools has its own no-doc catalog).
             broaden = mode == "direct_flat" and doc is None and not document_url
             doc_filter = {"filter_doc_type": False} if broaden else {}
-            schemas = self.tool_registry.get_schemas("mcp", doc=doc, exclude_tiers=exclude_tiers, **doc_filter)
+            doc_type = None
+            uno_services = frozenset()
+            if doc is not None:
+                doc_type = self.services.document.detect_doc_type(doc)
+                from plugin.doc.document_helpers import uno_services_for_document
+
+                uno_services = uno_services_for_document(doc, doc_type)
+            schemas = self.tool_registry.get_schemas(
+                "mcp",
+                doc_type=doc_type,
+                uno_services_supported=uno_services,
+                exclude_tiers=exclude_tiers,
+                **doc_filter,
+            )
 
             if mode == "direct_flat":
                 # Keep Writer sidebar-only flows (brainstorming, writing_plan) out of the flat
                 # list -- they need bespoke session orchestration the direct modes don't give.
                 from plugin.doc.find_tools_tool import sidebar_only_tool_names
-                sidebar_only = sidebar_only_tool_names(self.tool_registry, doc)
+                sidebar_only = sidebar_only_tool_names(
+                    self.tool_registry,
+                    doc,
+                    doc_type=doc_type,
+                    uno_services_supported=uno_services,
+                )
                 if sidebar_only:
                     schemas = [s for s in schemas if s.get("name") not in sidebar_only]
             return schemas
@@ -699,13 +717,15 @@ class MCPProtocolHandler:
                 doc = _real_active_document(doc_svc)
                 if doc:
                     doc_type = doc_svc.detect_doc_type(doc)
-            import uno
+            from plugin.doc.document_helpers import uno_services_for_document
+            from plugin.framework.uno_context import get_ctx
 
-            ctx = uno.getComponentContext()
+            ctx = get_ctx()
             doc_key = _resolve_mcp_doc_key(document_url, doc)
-            return doc, doc_type, ctx, doc_key
+            uno_services = uno_services_for_document(doc, doc_type)
+            return doc, doc_type, ctx, doc_key, uno_services
 
-        doc, doc_type, ctx, doc_key = self.queue_executor.execute(_get_context, timeout=10.0)
+        doc, doc_type, ctx, doc_key, uno_services = self.queue_executor.execute(_get_context, timeout=10.0)
 
         # Document-optional tools (e.g. find_tools) run with no document; an explicit
         # document_url that doesn't resolve is always an error, though.
@@ -725,7 +745,15 @@ class MCPProtocolHandler:
             except Exception:
                 pass
 
-        context = ToolContext(doc=doc, ctx=ctx, doc_type=doc_type, services=self.services, caller="mcp", active_page_index=active_page_idx)
+        context = ToolContext(
+            doc=doc,
+            ctx=ctx,
+            doc_type=doc_type,
+            services=self.services,
+            caller="mcp",
+            active_page_index=active_page_idx,
+            uno_services_supported=uno_services,
+        )
 
         # Sub-tools invoked by a delegating tool run in-process (not via this method),
         # so the gate is not re-entered on the same thread -> no self-deadlock.
@@ -764,15 +792,11 @@ class MCPProtocolHandler:
         if doc is None and getattr(tool, "requires_document", True):
             return {"status": "error", "code": "NO_DOCUMENT_OPEN", "message": "No document open in LibreOffice."}
 
-        # Get UNO context
-        ctx = None
-        try:
-            import uno
+        from plugin.doc.document_helpers import uno_services_for_document
+        from plugin.framework.uno_context import get_ctx
 
-            ctx = uno.getComponentContext()
-        except Exception as e:
-            log.warning("Error getting UNO context in execution: %s", type(e).__name__)
-            pass
+        ctx = get_ctx()
+        uno_services = uno_services_for_document(doc, doc_type)
 
         from plugin.framework.tool import ToolContext
 
@@ -784,7 +808,15 @@ class MCPProtocolHandler:
             except Exception:
                 pass
 
-        context = ToolContext(doc=doc, ctx=ctx, doc_type=doc_type, services=self.services, caller="mcp", active_page_index=active_page_idx)
+        context = ToolContext(
+            doc=doc,
+            ctx=ctx,
+            doc_type=doc_type,
+            services=self.services,
+            caller="mcp",
+            active_page_index=active_page_idx,
+            uno_services_supported=uno_services,
+        )
 
         doc_key = _resolve_mcp_doc_key(document_url, doc)
         needs_gate = _tool_needs_document_mutation_gate(tool, arguments)
@@ -817,13 +849,9 @@ class MCPProtocolHandler:
                 return {"error": "Services not initialized"}
             if registry.get("config") is None:
                 return {"error": "No config service"}
-            ctx = None
-            try:
-                import uno
+            from plugin.framework.uno_context import get_ctx
 
-                ctx = uno.getComponentContext()
-            except ImportError:
-                pass
+            ctx = get_ctx()
             self.queue_executor.execute(settings_box, ctx, timeout=120.0)
             return "Settings dialog shown"
         return {"triggered": command, "note": "Use menu for UI commands"}

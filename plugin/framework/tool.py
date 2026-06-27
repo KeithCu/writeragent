@@ -169,6 +169,8 @@ class ToolContext:
         read_only_target: When True, mutation tools are rejected (document_research sibling reads).
         send_cancellation: Optional per-send :class:`~plugin.framework.queue_executor.SendCancellation`
             for worker-thread HTTP registration and stable stop checks.
+        uno_services_supported: Cached UNO service names for the active document (sidebar/MCP);
+            used for tool compatibility without touching ``doc`` off the main thread.
     """
 
     doc: Any
@@ -187,10 +189,11 @@ class ToolContext:
     python_tool_domain: str | None
     read_only_target: bool
     send_cancellation: Any | None
+    uno_services_supported: frozenset[str]
 
-    __slots__ = ("doc", "ctx", "doc_type", "services", "caller", "active_page_index", "status_callback", "append_thinking_callback", "stop_checker", "approval_callback", "chat_append_callback", "set_active_domain_callback", "active_domain", "python_tool_domain", "read_only_target", "send_cancellation")
+    __slots__ = ("doc", "ctx", "doc_type", "services", "caller", "active_page_index", "status_callback", "append_thinking_callback", "stop_checker", "approval_callback", "chat_append_callback", "set_active_domain_callback", "active_domain", "python_tool_domain", "read_only_target", "send_cancellation", "uno_services_supported")
 
-    def __init__(self, doc, ctx, doc_type, services, caller="", active_page_index=None, status_callback=None, append_thinking_callback=None, stop_checker=None, approval_callback=None, chat_append_callback=None, set_active_domain_callback=None, active_domain=None, python_tool_domain=None, read_only_target=False, send_cancellation=None):
+    def __init__(self, doc, ctx, doc_type, services, caller="", active_page_index=None, status_callback=None, append_thinking_callback=None, stop_checker=None, approval_callback=None, chat_append_callback=None, set_active_domain_callback=None, active_domain=None, python_tool_domain=None, read_only_target=False, send_cancellation=None, uno_services_supported=None):
         self.doc = doc
         self.ctx = ctx
         self.doc_type = doc_type
@@ -207,6 +210,12 @@ class ToolContext:
         self.python_tool_domain = python_tool_domain
         self.read_only_target = read_only_target
         self.send_cancellation = send_cancellation
+        if uno_services_supported is not None:
+            self.uno_services_supported = uno_services_supported
+        else:
+            from plugin.doc.document_helpers import uno_services_for_doc_type_label
+
+            self.uno_services_supported = uno_services_for_doc_type_label(doc_type)
         if send_cancellation is not None and stop_checker is None:
             self.stop_checker = send_cancellation.is_cancelled
 
@@ -440,19 +449,36 @@ _DEFAULT_EXCLUDE_TIERS = frozenset({"specialized", "specialized_control", "mcp"}
 _UNSET_EXCLUDE_TIERS = object()
 
 
-def _safe_supports_service(doc: Any, service_name: str) -> bool:
-    from plugin.framework.thread_guard import on_main_thread
-    from plugin.framework.queue_executor import execute_on_main_thread
+def tool_supports_document(
+    tool: ToolBase,
+    *,
+    doc_type: str | None,
+    uno_services_supported: frozenset[str] | None,
+) -> bool:
+    """Return True when *tool* is allowed on a document with the cached type/services."""
+    if tool.uno_services is None and tool.doc_types is None:
+        return True
 
-    def _call() -> bool:
-        try:
-            return bool(doc.supportsService(service_name))
-        except Exception:
+    services = uno_services_supported
+    if not services and doc_type:
+        from plugin.doc.document_helpers import uno_services_for_doc_type_label
+
+        services = uno_services_for_doc_type_label(doc_type)
+
+    is_supported = False
+    if tool.uno_services is not None and services:
+        if any(svc in services for svc in tool.uno_services):
+            is_supported = True
+
+    if not is_supported and tool.doc_types is not None:
+        if doc_type and doc_type.lower() in {str(d).lower() for d in tool.doc_types}:
+            is_supported = True
+        elif tool.uno_services is None:
             return False
 
-    if not on_main_thread():
-        return execute_on_main_thread(_call)
-    return _call()
+    if tool.uno_services is None and tool.doc_types is None:
+        return True
+    return is_supported
 
 
 class ToolRegistry:
@@ -541,12 +567,13 @@ class ToolRegistry:
 
     # ── Lookup & Schema Generation ────────────────────────────────────
 
-    def get_tools(self, doc=None, doc_type=None, tier=None, intent=None, names=None, filter_doc_type=True, exclude_tiers=_UNSET_EXCLUDE_TIERS, active_domain=None, **kwargs):
+    def get_tools(self, doc=None, doc_type=None, tier=None, intent=None, names=None, filter_doc_type=True, exclude_tiers=_UNSET_EXCLUDE_TIERS, active_domain=None, uno_services_supported=None, **kwargs):
         """Return a list of ToolBase instances matching the given criteria.
 
         Args:
-            doc: Optional document model instance to check against uno_services.
-            doc_type: Optional string indicating compatibility (deprecated, use doc). If None, only universal tools are returned (unless filter_doc_type=False).
+            doc: Optional document model (legacy; prefer doc_type + uno_services_supported).
+            doc_type: Optional string indicating compatibility ("writer", "calc", "draw").
+            uno_services_supported: Cached UNO service names from sidebar/MCP (no live doc probe).
             tier: Optional string; main chat tools use ``"core"``.
             intent: Optional string filtering by tool intent.
             names: Optional list of specific tool names to include.
@@ -559,30 +586,24 @@ class ToolRegistry:
         """
         tools = self._tools.values()
 
+        if doc_type is None and doc is not None and filter_doc_type:
+            doc_type = _doc_type_str_from_doc(doc)
+        if uno_services_supported is None and doc is not None and filter_doc_type:
+            from plugin.framework.thread_guard import on_main_thread
+            from plugin.doc.document_helpers import get_document_uno_services
+
+            if on_main_thread():
+                uno_services_supported = get_document_uno_services(doc)
+
         # Helper to check if a tool supports the document
         def supports_doc(t):
             if not filter_doc_type:
                 return True
-
-            is_supported = False
-            if t.uno_services is not None:
-                if doc is not None and hasattr(doc, "supportsService"):
-                    for svc in t.uno_services:
-                        try:
-                            if _safe_supports_service(doc, svc):
-                                is_supported = True
-                                break
-                        except Exception:
-                            pass
-                if is_supported:
-                    return True
-
-            if t.doc_types is not None:
-                if doc_type is not None and doc_type in t.doc_types:
-                    return True
-                return False
-
-            return t.uno_services is None
+            return tool_supports_document(
+                t,
+                doc_type=doc_type,
+                uno_services_supported=uno_services_supported,
+            )
 
         tools = [t for t in tools if supports_doc(t)]
 
@@ -733,26 +754,12 @@ class ToolRegistry:
             if tool is None:
                 raise KeyError(f"Unknown tool: {tool_name}")
 
-            # Check document compatibility using uno_services or fallback doc_types
-            is_supported = False
-            if tool.uno_services is not None:
-                if ctx.doc and hasattr(ctx.doc, "supportsService"):
-                    for svc in tool.uno_services:
-                        try:
-                            if _safe_supports_service(ctx.doc, svc):
-                                is_supported = True
-                                break
-                        except Exception:
-                            pass
-
-            if not is_supported and tool.doc_types is not None:
-                if ctx.doc_type and ctx.doc_type in tool.doc_types:
-                    is_supported = True
-
-            if tool.uno_services is None and tool.doc_types is None:
-                is_supported = True  # universal tool
-
-            if not is_supported:
+            # Check document compatibility using cached doc_type / UNO services (no live doc probe).
+            if not tool_supports_document(
+                tool,
+                doc_type=ctx.doc_type,
+                uno_services_supported=getattr(ctx, "uno_services_supported", None),
+            ):
                 raise ValueError(f"Tool {tool_name} does not support the current document")
 
             # Restrict kwargs to this tool's schema so extra keys (e.g. image_model

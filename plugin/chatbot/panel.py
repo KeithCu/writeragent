@@ -217,8 +217,8 @@ from plugin.chatbot.sidebar_state import LogSidebarEffect, SidebarCompositeState
 log = logging.getLogger(__name__)
 
 
-def _uno_model_probe_for_log(model: Any) -> str:
-    """Short UNO diagnostic for error logs. No document text."""
+def _uno_model_probe_for_log(model: Any, *, cached_doc_type: str | None = None) -> str:
+    """Short UNO diagnostic for error logs. No document text or type probing."""
     if model is None:
         return "None"
     impl = "?"
@@ -226,12 +226,9 @@ def _uno_model_probe_for_log(model: Any) -> str:
         impl = model.getImplementationName()
     except Exception:
         pass
-    try:
-        from plugin.doc.document_helpers import get_document_type
-
-        return "impl=%s doc_type=%s" % (impl, get_document_type(model).name)
-    except Exception:
-        return "impl=%s doc_type=?" % impl
+    if cached_doc_type:
+        return "impl=%s doc_type=%s" % (impl, cached_doc_type)
+    return "impl=%s" % impl
 
 
 class QueryTextListener(BaseTextListener):
@@ -301,6 +298,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
     client: LlmClient | None
     initial_doc_type: str | None
+    cached_doc_type: str | None
+    cached_uno_services: frozenset[str] | None
     _record_assistant_start: bool
 
     def __init__(
@@ -323,6 +322,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self.sidebar_include_brainstorming = sidebar_include_brainstorming
         self.ensure_path_fn = ensure_path_fn
         self.initial_doc_type = None  # Set by _wireControls
+        self.cached_doc_type = None
+        self.cached_uno_services = None
         self._stop_requested_fallback = False
         self._send_cancellation = None
         self._terminal_status = "Ready"
@@ -803,17 +804,24 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             except Exception as e:
                 frame_exc = e
 
-        from plugin.doc.document_helpers import is_writer, is_calc, is_draw
+        _COMPATIBLE_DOC_TYPES = frozenset({"writer", "calc", "draw", "impress"})
+        cached_doc_type = getattr(self, "cached_doc_type", None)
 
-        if model and (is_writer(model) or is_calc(model) or is_draw(model)):
-            return model
+        if model and cached_doc_type in _COMPATIBLE_DOC_TYPES:
+            from plugin.framework.thread_guard import guard_uno
+
+            return guard_uno(model)
 
         # Only log when chat send will fail (same moment as the sidebar error message).
-        detail_parts = ["has_frame=%s" % bool(self.frame), "model_probe=%s" % _uno_model_probe_for_log(model)]
+        detail_parts = [
+            "has_frame=%s" % bool(self.frame),
+            "cached_doc_type=%s" % cached_doc_type,
+            "model_probe=%s" % _uno_model_probe_for_log(model, cached_doc_type=cached_doc_type),
+        ]
         if frame_exc is not None:
             detail_parts.append("frame_get_model_failed=[%s] %s" % (type(frame_exc).__name__, frame_exc))
         if model is not None:
-            detail_parts.append("reject_reason=unsupported_component probe=%s" % _uno_model_probe_for_log(model))
+            detail_parts.append("reject_reason=unsupported_or_uncached_doc_type probe=%s" % _uno_model_probe_for_log(model, cached_doc_type=cached_doc_type))
         log.error("SendButtonListener: no compatible document model for chat (%s)", "; ".join(detail_parts))
         return None
 
@@ -959,16 +967,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     # _transcribe_audio_async is provided by SendHandlersMixin.
 
     def _get_doc_type_str(self, model):
-        from plugin.doc.document_helpers import get_document_type, DocumentType
+        from plugin.doc.document_helpers import doc_type_title_for_label
 
-        doc_type = get_document_type(model)
-        if doc_type == DocumentType.CALC:
-            return "Calc"
-        if doc_type in (DocumentType.DRAW, DocumentType.IMPRESS):
-            return "Draw"
-        if doc_type == DocumentType.WRITER:
-            return "Writer"
-        return "Unknown"
+        return doc_type_title_for_label(getattr(self, "cached_doc_type", None))
 
     def _do_send(self):
         from plugin.framework.i18n import _
@@ -993,17 +994,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             return
         log.debug("_do_send: got document model OK")
 
+        doc_type_label = getattr(self, "cached_doc_type", None)
         doc_type_str = self._get_doc_type_str(model)
-        log.debug("_do_send: detected document type: %s" % doc_type_str)
+        log.debug("_do_send: document type (cached): %s" % doc_type_label)
 
-        if self.initial_doc_type and doc_type_str != self.initial_doc_type:
-            err_msg = _("[Internal Error: Document type changed from {0} to {1}! Please file an error.]").format(self.initial_doc_type, doc_type_str)
-            log.exception("_do_send ERROR: %s", err_msg)
-            self._append_response("\n%s\n" % err_msg)
-            self._terminal_status = "Error"
-            return
-
-        if doc_type_str == "Unknown":
+        if not doc_type_label or doc_type_label == "unknown":
             err_msg = _("[Internal Error: Could not identify document type for {0}. Please report this!]").format(model.getImplementationName() if hasattr(model, "getImplementationName") else "Unknown")
             log.exception("_do_send ERROR: %s", err_msg)
             self._append_response("\n%s\n" % err_msg)
@@ -1085,14 +1080,14 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             self._do_send_direct_image(query_text, model)
             return
 
-        if sidebar_mode == CHAT_MODE_BRAINSTORMING and doc_type_str.lower() == "writer":
+        if sidebar_mode == CHAT_MODE_BRAINSTORMING and doc_type_label == "writer":
             if not self._brainstorming_topic:
                 self._brainstorming_topic = query_text
             log.info("_do_send: using brainstorming sub-agent")
             self._run_brainstorming(query_text, model)
             return
 
-        if sidebar_mode == CHAT_MODE_WRITING_PLAN and doc_type_str.lower() == "writer":
+        if sidebar_mode == CHAT_MODE_WRITING_PLAN and doc_type_label == "writer":
             if not getattr(self, "_writing_plan_topic", None):
                 self._writing_plan_topic = query_text
             log.info("_do_send: using writing plan sub-agent")
@@ -1107,7 +1102,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             agent_backend_id = normalize_backend_id(get_config("agent_backend.backend_id"))
             if agent_backend_id and agent_backend_id != "builtin":
                 log.info("_do_send: using agent backend %s" % agent_backend_id)
-                self._do_send_via_agent_backend(query_text, model, doc_type_str.lower())
+                self._do_send_via_agent_backend(query_text, model, doc_type_label)
                 return
         except Exception:
             log.exception("_do_send: agent backend check failed")
@@ -1136,7 +1131,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
         # Regular Chat with Tools or Streams
         # Cast to Any to satisfy ty since SendButtonListener mixes in multiple protocol hosts
-        getattr(self, "_do_send_chat_with_tools")(query_text, model, doc_type_str.lower())
+        getattr(self, "_do_send_chat_with_tools")(query_text, model, doc_type_label)
 
     # _do_send_direct_image is provided by SendHandlersMixin.
 

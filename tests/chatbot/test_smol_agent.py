@@ -98,6 +98,8 @@ def _make_listener(*, in_librarian_mode: bool) -> SimpleNamespace:
         ctx=MagicMock(),
         ensure_path_fn=None,
         initial_doc_type=None,
+        cached_doc_type="writer",
+        cached_uno_services=frozenset({"com.sun.star.text.TextDocument"}),
         audio_wav_path=None,
         chat_mode_selector=None,
         model_selector=MagicMock(),

@@ -598,19 +598,81 @@ class TestToolRegistryMainThreadMarshal:
         assert threads_seen[0] is not uno_thread_safety.pump.main_thread
 
 
-def test_get_tools_off_main_thread_marshalling(monkeypatch):
-    from plugin.framework.tool import _safe_supports_service
-    
+def test_tool_supports_document_uses_cached_services():
+    from plugin.framework.tool import ToolBase, tool_supports_document
+
+    class WriterOnly(ToolBase):
+        name = "writer_only"
+        description = "x"
+        parameters = {"type": "object", "properties": {}}
+        uno_services = ["com.sun.star.text.TextDocument"]
+
+        def execute(self, ctx, **kwargs):
+            return {"status": "ok"}
+
+    tool = WriterOnly()
+    services = frozenset({"com.sun.star.text.TextDocument"})
+    assert tool_supports_document(tool, doc_type="writer", uno_services_supported=services) is True
+    assert tool_supports_document(tool, doc_type="calc", uno_services_supported=frozenset({"com.sun.star.sheet.SpreadsheetDocument"})) is False
+
+
+def test_execute_async_delegate_skips_uno_doc_probe(monkeypatch):
+    from plugin.framework.thread_guard import guard_uno
+    from plugin.writer.specialized_base import DelegateToSpecializedWriter
+
+    class _NoExecuteDelegate(DelegateToSpecializedWriter):
+        def execute(self, ctx, **kwargs):
+            return {"status": "ok", "message": "stub"}
+
+    reg = ToolRegistry(MagicMock())
+    reg.register(_NoExecuteDelegate())
+
+    mock_doc = MagicMock()
+    guarded_doc = guard_uno(mock_doc)
+    ctx = ToolContext(
+        guarded_doc,
+        MagicMock(),
+        "writer",
+        {},
+        "test",
+        uno_services_supported=frozenset({"com.sun.star.text.TextDocument"}),
+    )
+    errors: list[Exception] = []
+
+    def bg():
+        try:
+            reg.execute("delegate_to_specialized_writer_toolset", ctx, domain="document_research", task="find notes")
+        except Exception as exc:
+            errors.append(exc)
+
+    worker = threading.Thread(target=bg, name="delegate-compat-bg")
+    worker.start()
+    worker.join(timeout=3.0)
+    assert not errors
+    mock_doc.supportsService.assert_not_called()
+
+
+def test_get_tools_off_main_thread_without_doc_probe():
+    from plugin.framework.tool import ToolBase, tool_supports_document
+
     doc = MagicMock()
     doc.supportsService.return_value = True
-    
-    # Mock on_main_thread to return False (simulating calling off main thread)
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
-    
-    # Mock execute_on_main_thread to call the function directly (since it would marshal it)
-    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()) as mock_execute:
-        res = _safe_supports_service(doc, "com.sun.star.text.TextDocument")
-        assert res is True
-        mock_execute.assert_called_once()
-        doc.supportsService.assert_called_with("com.sun.star.text.TextDocument")
+
+    class WriterOnly(ToolBase):
+        name = "writer_only2"
+        description = "x"
+        parameters = {"type": "object", "properties": {}}
+        uno_services = ["com.sun.star.text.TextDocument"]
+
+        def execute(self, ctx, **kwargs):
+            return {"status": "ok"}
+
+    reg = ToolRegistry(MagicMock())
+    reg.register(WriterOnly())
+    tools = reg.get_tools(
+        doc_type="writer",
+        uno_services_supported=frozenset({"com.sun.star.text.TextDocument"}),
+    )
+    assert any(t.name == "writer_only2" for t in tools)
+    doc.supportsService.assert_not_called()
 

@@ -316,7 +316,10 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         base_url = get_extension_url()
         dialog_url = base_url + "/" + XDL_PATH
         log.debug("dialog_url: %s" % dialog_url)
-        provider = self.ctx.getServiceManager().createInstanceWithContext("com.sun.star.awt.ContainerWindowProvider", self.ctx)
+        from plugin.framework.uno_context import get_ctx
+
+        ctx = get_ctx()
+        provider = ctx.getServiceManager().createInstanceWithContext("com.sun.star.awt.ContainerWindowProvider", ctx)
         log.info("[RICH-LIFECYCLE] calling createContainerWindow for rich-text sidebar...")
         self.m_panelRootWindow = provider.createContainerWindow(dialog_url, "", self.xParentWindow, None)
         log.info("[RICH-LIFECYCLE] createContainerWindow returned root_window=%s", bool(self.m_panelRootWindow))
@@ -451,7 +454,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 from plugin.chatbot.chat_sidebar_mode import populate_mode_selector
 
                 model = self._get_document_model()
-                include_brainstorming = self._sidebar_include_brainstorming(model)
+                cached = getattr(getattr(self, "send_listener", None), "cached_doc_type", None)
+                include_brainstorming = self._sidebar_include_brainstorming(model, cached_doc_type=cached)
                 populate_mode_selector(chat_mode_selector, include_brainstorming=include_brainstorming)
             except Exception:
                 pass
@@ -507,6 +511,10 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             except Exception as e:
                 if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
                     log.debug("Failed to get model from frame controller (likely disposed): %s", e)
+        if model is not None:
+            from plugin.framework.thread_guard import guard_uno
+
+            return guard_uno(model)
         return model
 
     def _wire_model_selectors(self, model_selector, image_model_selector):
@@ -568,7 +576,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
             image_model_selector.addItemListener(ImageModelSyncListener(self.ctx))
 
-    def _sidebar_include_brainstorming(self, model) -> bool:
+    def _sidebar_include_brainstorming(self, model, *, cached_doc_type: str | None = None) -> bool:
+        if cached_doc_type is not None:
+            return cached_doc_type == "writer"
         return get_document_type(model) == DocumentType.WRITER
 
     def _greeting_for_sidebar_mode(self, mode, model):
@@ -767,15 +777,13 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
 
 
+            from plugin.doc.document_helpers import doc_type_label_for_enum, doc_type_title_for_label, get_document_type, get_document_uno_services
+
             doc_type = get_document_type(model)
-            if doc_type == DocumentType.CALC:
-                send_listener.initial_doc_type = "Calc"
-            elif doc_type in (DocumentType.DRAW, DocumentType.IMPRESS):
-                send_listener.initial_doc_type = "Draw"
-            elif doc_type == DocumentType.WRITER:
-                send_listener.initial_doc_type = "Writer"
-            else:
-                send_listener.initial_doc_type = "Unknown"
+            send_listener.cached_doc_type = doc_type_label_for_enum(doc_type)
+            send_listener.initial_doc_type = doc_type_title_for_label(send_listener.cached_doc_type)
+            send_listener.cached_uno_services = get_document_uno_services(model)
+            send_listener.sidebar_include_brainstorming = send_listener.cached_doc_type == "writer"
 
             if controls["send"]:
                 controls["send"].addActionListener(send_listener)

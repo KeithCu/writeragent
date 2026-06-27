@@ -69,6 +69,7 @@ class TestSendButtonListenerDocumentModel(unittest.TestCase):
 
     def test_returns_compatible_document_from_frame(self) -> None:
         writer = _writer_model()
+        self.listener.cached_doc_type = "writer"
         self.frame.getController.return_value.getModel.return_value = writer
         self.assertIs(self.listener._get_document_model(), writer)
 

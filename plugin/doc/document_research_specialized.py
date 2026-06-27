@@ -44,6 +44,7 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
         stop_checker=parent_ctx.stop_checker,
         send_cancellation=getattr(parent_ctx, "send_cancellation", None),
         read_only_target=True,
+        uno_services_supported=getattr(parent_ctx, "uno_services_supported", None),
     )
 
     from plugin.framework import queue_executor

@@ -64,6 +64,74 @@ class DocumentType(Enum):
 
 _DOCUMENT_SERVICE_MAP = {DocumentType.WRITER: "com.sun.star.text.TextDocument", DocumentType.CALC: "com.sun.star.sheet.SpreadsheetDocument", DocumentType.DRAW: "com.sun.star.drawing.DrawingDocument", DocumentType.IMPRESS: "com.sun.star.presentation.PresentationDocument"}
 
+# Lowercase doc_type labels (ToolContext / sidebar) -> UNO services for tool compatibility
+# without re-querying the live document. Impress is distinct; sidebar "Draw" covers both draw kinds.
+_DOC_TYPE_LABEL_TO_UNO_SERVICES: dict[str, frozenset[str]] = {
+    "writer": frozenset({"com.sun.star.text.TextDocument"}),
+    "calc": frozenset({"com.sun.star.sheet.SpreadsheetDocument"}),
+    "draw": frozenset({"com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"}),
+    "impress": frozenset({"com.sun.star.presentation.PresentationDocument"}),
+}
+
+
+def uno_services_for_doc_type_label(doc_type: str | None) -> frozenset[str]:
+    """Return UNO services implied by a sidebar/doc_type label (no live document)."""
+    if not doc_type:
+        return frozenset()
+    return _DOC_TYPE_LABEL_TO_UNO_SERVICES.get(str(doc_type).strip().lower(), frozenset())
+
+
+def uno_services_for_document(model, doc_type: str | None) -> frozenset[str]:
+    """Return UNO services for tool filtering: main-thread probe when possible, else doc_type map."""
+    from plugin.framework.thread_guard import on_main_thread
+
+    if model is not None and on_main_thread():
+        try:
+            services = get_document_uno_services(model)
+            if services:
+                return services
+        except Exception:
+            pass
+    return uno_services_for_doc_type_label(doc_type)
+
+
+@safe_uno_call(default=frozenset())
+def get_document_uno_services(model) -> frozenset[str]:
+    """Return UNO service names supported by *model* (main thread only; cache in sidebar/MCP)."""
+    assert_main_thread("document_helpers.get_document_uno_services")
+    if model is None:
+        return frozenset()
+    found: set[str] = set()
+    for _doc_type, service_name in _DOCUMENT_SERVICE_MAP.items():
+        if safe_call(model.supportsService, f"Check {service_name}", service_name):
+            found.add(service_name)
+    return frozenset(found)
+
+
+def doc_type_label_for_enum(doc_type: DocumentType) -> str:
+    """Lowercase ToolContext doc_type label for a DocumentType enum value."""
+    if doc_type == DocumentType.CALC:
+        return "calc"
+    if doc_type == DocumentType.WRITER:
+        return "writer"
+    if doc_type == DocumentType.IMPRESS:
+        return "impress"
+    if doc_type == DocumentType.DRAW:
+        return "draw"
+    return "unknown"
+
+
+def doc_type_title_for_label(label: str | None) -> str:
+    """Sidebar display title (Writer/Calc/Draw) for a cached lowercase doc_type label."""
+    if not label:
+        return "Unknown"
+    return {
+        "writer": "Writer",
+        "calc": "Calc",
+        "draw": "Draw",
+        "impress": "Draw",
+    }.get(str(label).strip().lower(), "Unknown")
+
 
 @safe_uno_call(default=DocumentType.UNKNOWN)
 def get_document_type(model):

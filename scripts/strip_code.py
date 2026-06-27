@@ -274,6 +274,9 @@ def _wrap_uno(obj):
 
 def _unwrap_uno(obj):
     return obj
+
+def guard_uno(obj):
+    return obj
 '''
     action = "Dry run: would replace" if dry_run else "Replacing"
     print(f"  {action} {target_file} with minimal stubs...")

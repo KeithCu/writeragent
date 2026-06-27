@@ -34,7 +34,7 @@ from plugin.framework.config import get_api_config, get_config, get_config_int_s
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.constants import get_core_directives, CHAT_DOCUMENT_CONTEXT_MAX_CHARS
 from plugin.framework.queue_executor import llm_request_lane
-from plugin.doc.document_helpers import get_document_context_for_chat, is_calc, is_draw
+from plugin.doc.document_helpers import get_document_context_for_chat
 from plugin.agent_backend import get_backend
 from plugin.agent_backend.registry import normalize_backend_id
 from plugin.chatbot.state_machine import SendHandlerState, StartEvent, StreamChunkEvent, StreamDoneEvent, ErrorEvent, StopRequestedEvent, next_state, EffectInterpreter
@@ -232,9 +232,10 @@ class SendHandlersMixin:
                     base_size_val = 512
 
                 from plugin.main import get_tools
+                from plugin.framework.uno_context import get_ctx
 
                 cancel_scope = getattr(self, "_send_cancellation", None)
-                tctx = ToolContext(doc=model, ctx=self.ctx, stop_checker=self.resolve_stop_checker(), doc_type="writer", services=get_tools()._services, caller="chat", status_callback=lambda t: q.put((StreamQueueKind.STATUS, t)), send_cancellation=cancel_scope)
+                tctx = ToolContext(doc=model, ctx=get_ctx(), stop_checker=self.resolve_stop_checker(), doc_type=getattr(self, "cached_doc_type", None) or "writer", services=get_tools()._services, caller="chat", status_callback=lambda t: q.put((StreamQueueKind.STATUS, t)), send_cancellation=cancel_scope, uno_services_supported=getattr(self, "cached_uno_services", None))
                 try:
 
 
@@ -266,7 +267,7 @@ class SendHandlersMixin:
                 q.put((StreamQueueKind.CHUNK, "[generate_image: %s]\n" % note))
                 q.put((StreamQueueKind.STREAM_DONE, {}))
             except Exception as e:
-                doc_type = self._get_doc_type_str(model).lower() if model else "unknown"
+                doc_type = getattr(self, "cached_doc_type", None) or "unknown"
                 log.error("Direct image path ERROR in _do_send_direct_image [doc: %s]: %s", doc_type, e)
 
 
@@ -511,7 +512,7 @@ class SendHandlersMixin:
         history_text = format_sub_agent_conversation_history(self.session, current_query=query_text)
 
         def run_search():
-            doc_type = "calc" if is_calc(model) else "draw" if is_draw(model) else "writer"
+            doc_type = getattr(self, "cached_doc_type", None) or "writer"
             cancel_scope = getattr(self, "_send_cancellation", None)
             stop_checker = self.resolve_stop_checker()
             try:
@@ -546,7 +547,9 @@ class SendHandlersMixin:
                         q.put((StreamQueueKind.STOPPED,))
                     return (bool(getattr(event, "approved", False)), getattr(event, "query_override", None))
 
-                tctx = ToolContext(doc=model, ctx=self.ctx, stop_checker=stop_checker, doc_type=doc_type, services=get_tools()._services, caller="chat", status_callback=status_cb, append_thinking_callback=thinking_cb, approval_callback=approval_cb, chat_append_callback=chat_append_cb, send_cancellation=cancel_scope)
+                from plugin.framework.uno_context import get_ctx
+
+                tctx = ToolContext(doc=model, ctx=get_ctx(), stop_checker=stop_checker, doc_type=doc_type, services=get_tools()._services, caller="chat", status_callback=status_cb, append_thinking_callback=thinking_cb, approval_callback=approval_cb, chat_append_callback=chat_append_cb, send_cancellation=cancel_scope, uno_services_supported=getattr(self, "cached_uno_services", None))
 
                 if is_librarian:
                     res = get_tools().execute(

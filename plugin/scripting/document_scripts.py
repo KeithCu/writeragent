@@ -210,11 +210,15 @@ def get_calc_document_from_ctx(ctx: Any) -> Any | None:
                     elif hasattr(elem, "getController") and elem.getController():
                         model = elem.getController().getModel()
                     if model and is_calc(model):
-                        return model
+                        from plugin.framework.thread_guard import guard_uno
+
+                        return guard_uno(model)
         except Exception:
             pass
         return None
-    return doc
+    from plugin.framework.thread_guard import guard_uno
+
+    return guard_uno(doc)
 
 
 def init_script_hash(code: str) -> str:

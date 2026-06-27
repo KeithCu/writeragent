@@ -203,7 +203,13 @@ class ToolCallingMixin:
             toolkit = get_toolkit(self.ctx)
             if toolkit:
                 pump_ui_idle(toolkit, max_queue_items=4)
-            active_tools = get_tools().get_schemas("openai", doc=model, active_domain=active_domain, ctx=self.ctx)
+            active_tools = get_tools().get_schemas(
+                "openai",
+                doc_type=doc_type_str,
+                uno_services_supported=getattr(self, "cached_uno_services", None),
+                active_domain=active_domain,
+                ctx=self.ctx,
+            )
 
             def execute_fn(name, args, doc, ctx, status_callback=None, append_thinking_callback=None, stop_checker=None):
                 from plugin.main import get_tools as _get_tools
@@ -296,6 +302,7 @@ class ToolCallingMixin:
                     active_domain=active_domain,
                     python_tool_domain=python_tool_domain,
                     send_cancellation=cancel_scope,
+                    uno_services_supported=getattr(self, "cached_uno_services", None),
                 )
                 try:
                     res = _get_tools().execute(name, tctx, **args)
@@ -466,7 +473,8 @@ class ToolCallingMixin:
             active_domain = getattr(self.session, "active_specialized_domain", None) if hasattr(self, "session") and self.session else None
             self._active_tools = get_tools().get_schemas(
                 "openai",
-                doc=self._active_model,
+                doc_type=getattr(self, "cached_doc_type", None),
+                uno_services_supported=getattr(self, "cached_uno_services", None),
                 active_domain=active_domain,
                 ctx=getattr(self, "ctx", None),
             )
@@ -754,7 +762,7 @@ class ToolCallingMixin:
                     transcript = self._transcribe_audio(self.audio_wav_path, stt_model)
                     if transcript:
                         combined = (self._active_query_text + "\n" + transcript).strip() if self._active_query_text else transcript
-                        doc_type = self._get_doc_type_str(self._active_model).lower() if hasattr(self, "_get_doc_type_str") else "writer"
+                        doc_type = getattr(self, "cached_doc_type", None) or "writer"
                         self._do_send_chat_with_tools(combined, self._active_model, doc_type)
                 except Exception:
                     pass

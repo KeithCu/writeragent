@@ -245,6 +245,11 @@ class _UnoThreadGuardProxy:
         return self._target
 
 
+def guard_uno(obj: Any) -> Any:
+    """Attach viral UNO thread guard at a document/service boundary (alias of ``_wrap_uno``)."""
+    return _wrap_uno(obj)
+
+
 def _wrap_uno(obj: Any) -> Any:
     """Wrap a PyUNO object with the guard proxy (only when GUARD_ON)."""
     if not GUARD_ON:
@@ -264,6 +269,7 @@ def _unwrap_uno(obj: Any) -> Any:
 
 
 __all__ = [
+    "guard_uno",
     "assert_main_thread",
     "main_thread_only",
     "set_background_task",

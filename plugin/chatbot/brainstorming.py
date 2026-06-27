@@ -72,8 +72,8 @@ def collect_brainstorming_tools(ctx: ToolContext) -> list[ToolBase]:
     from plugin.doc.document_research import filter_document_research_discovery_tools
 
     registry = ctx.services.get("tools")
-    primary = registry.get_tools(doc=ctx.doc, doc_type=ctx.doc_type, active_domain="brainstorming", exclude_tiers=())
-    doc_res = registry.get_tools(doc=ctx.doc, doc_type=ctx.doc_type, active_domain="document_research", exclude_tiers=())
+    primary = registry.get_tools(doc_type=ctx.doc_type, uno_services_supported=ctx.uno_services_supported, active_domain="brainstorming", exclude_tiers=())
+    doc_res = registry.get_tools(doc_type=ctx.doc_type, uno_services_supported=ctx.uno_services_supported, active_domain="document_research", exclude_tiers=())
     doc_res = filter_document_research_discovery_tools(doc_res, ctx.ctx)
     allow = set(_BRAINSTORMING_DOC_RESEARCH_TOOL_NAMES)
     by_name = {t.name: t for t in primary if t.name}

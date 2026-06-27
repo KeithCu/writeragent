@@ -572,7 +572,9 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
         doc_type = _document_type_to_string(get_document_type(model))
         if doc_type == "unknown":
             return None, None, f"Unsupported document type for {path}", False
-        return model, doc_type, None, True
+        from plugin.framework.thread_guard import guard_uno
+
+        return guard_uno(model), doc_type, None, True
     except Exception as e:
         log.exception("open_document_for_read failed for %s", path)
         return None, None, f"Failed to open {path}: {e}", False
