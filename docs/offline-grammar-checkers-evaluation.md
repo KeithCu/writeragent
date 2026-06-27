@@ -91,16 +91,17 @@ When choosing which ruleset to enable, teams generally compare the **Microsoft W
 
 Harper is a fast, memory-safe, offline-first grammar checker written in Rust.
 
-### Technical Details & Installation
-*   **Command:** Installed via Cargo (`cargo install harper-cli`) or native binaries.
+### Technical Details & Integration
+*   **Command:** Automatically resolved by the worker. Uses a precompiled static binary fetched directly from the official releases page.
 *   **Language Support:** **English Only** (supports US, UK, Canadian, Australian, and Indian dialects). 
-*   **Performance:** Built specifically to be faster and consume less memory than JVM-based alternatives.
+*   **Performance:** Built specifically to be faster and consume less memory than JVM-based alternatives (sub-millisecond execution times).
 
 ### PM & Dev Considerations
-*   Cannot be installed via `pip`.
-*   Still in active development; has a smaller community and fewer rules compared to LanguageTool.
+*   **Zero-Setup Auto-Download:** Rather than requiring a `cargo install`, the worker dynamically detects the host OS/architecture and downloads the correct precompiled `harper-cli` binary from GitHub releases into the profile directory.
+*   **Global PATH Fallback:** Prioritizes system-wide installations (using `shutil.which`) if the user already has `harper-cli` installed on their PATH.
 
 ---
+
 
 ## 4. Proselint (Pure Python Style Linter)
 
@@ -130,24 +131,31 @@ flowchart TD
     LO[LibreOffice / XProofreader] -->|doProofreading| Host[WriterAgent Host]
     Host -->|Queue Item| Queue[Grammar Work Queue]
     Queue -->|IPC via Pickle5| Venv[Python Venv Worker]
-    Venv -->|Local Call| Checker[language_tool_python / proselint]
-    Checker -->|Run Engine| Process[Background Process / JVM / Local Server]
+    Venv -->|Local Call| Checker[language_tool_python / vale / harper]
+    Checker -->|Run Engine| Process[Background Process / JVM / Local Binary]
     Process -->|Errors & Spans| Venv
     Venv -->|Parsed JSON Results| Host
 ```
 
 ---
 
-## 5. Integrated Solution: LanguageTool in WriterAgent
+## 5. Integrated Solutions in WriterAgent
 
-As of June 2026, **LanguageTool** has been fully integrated into WriterAgent as a local, offline grammar linter.
+As of June 2026, WriterAgent supports three offline, local linting engines as alternatives to the LLM-based checking provider:
 
-### Implemented Architecture
-1. **Host-Worker Split:** The LibreOffice process communicates with the warm Python `venv` subprocess via `_run_trusted_helper`. This isolates the JVM and `language-tool-python` server execution from LibreOffice.
-2. **Worker Cache:** The worker script caches initialized `LanguageTool(bcp47)` instances in memory to eliminate JVM boot costs on successive checks.
-3. **Queue Interface:** Request tasks are dispatched via the asynchronous `GrammarWorkQueue`. Results are normalized and cached locally in `grammar_proofread_cache`.
+### 1. LanguageTool (Local)
+*   **Wrapper:** `language-tool-python` (JVM background server).
+*   **Key Strengths:** Multilingual support (30+ languages).
+*   **Setup:** Downloads JRE/LanguageTool JAR files (~250MB) on first run.
 
-### Key Performance Characteristics
-* **First-run Download:** The initial execution downloads the LanguageTool server binaries (~259MB) from the internet. Subsequent runs are fully offline.
-* **Warm-up Speed:** Subsequent check times typically register around **1.5s** (including cross-process RPC serialization and JVM execution) and are fully non-blocking to the main LibreOffice thread.
+### 2. Vale Style Linter (WIP)
+*   **Wrapper:** Compiled Go binary (`vale` PyPI package wrapper).
+*   **Key Strengths:** Enforces professional developer/consumer editorial style guides (Google, Microsoft, write-good).
+*   **Setup:** Downloads package files and runs `vale sync` to fetch style packages.
+
+### 3. Harper Rust Linter (Local)
+*   **Wrapper:** Compiled Rust binary (`harper-cli`).
+*   **Key Strengths:** Sub-millisecond execution times, minimal memory consumption, zero dependencies (no Java or external runtime engines).
+*   **Setup:** Auto-downloads the native platform binary from GitHub releases.
+
 

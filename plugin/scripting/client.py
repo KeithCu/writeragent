@@ -446,3 +446,26 @@ def run_vale_check(ctx: Any, text: str, config_dir: str, styles: str) -> dict[st
     )
 
 
+# --- Harper Rust Linter ---
+
+_HARPER_SESSION_PREFIX = "writeragent:harper"
+_HARPER_STUB = """\
+from plugin.scripting.venv.harper import run_harper_check as _run
+result = _run(data["text"], data["config_dir"])
+"""
+
+
+def run_harper_check(ctx: Any, text: str, config_dir: str) -> dict[str, Any]:
+    """Execute a trusted Harper linter helper inside the user venv worker."""
+    return _run_trusted_helper(
+        ctx,
+        session_id=_HARPER_SESSION_PREFIX,
+        stub=_HARPER_STUB,
+        payload={"text": text, "config_dir": config_dir},
+        timeout_sec=30,  # Auto-download on first run might take a bit
+        error_code="HARPER_ERROR",
+        error_label="Harper Linter",
+    )
+
+
+

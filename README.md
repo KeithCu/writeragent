@@ -50,7 +50,12 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 - **Advanced Editing**: Supports rich text, [page layout](docs/page-api-reference.md), [shapes](docs/shape_support.md), charts, [bookmarks](docs/bookmarks-api-reference.md), fields, [footnotes](docs/footnotes-api-reference.md), and [track-changes](docs/writer-tracking-api-reference.md). Tool delegation feature explained in [Writer Specialized Toolset](docs/writer-specialized-toolsets.md).
 - **Format Preservation**: Uses a "surgical" replacement method that preserves existing bold, italics, highlights, and font sizes.
 - **Agentic Analysis**: The AI can run Numpy computations and return structured results (as JSON) to update your document.
-- **Real-time Grammar Checker**: An asynchronous proofreader with a **sentence cache** and **Unicode-aware splitting**. Includes **Token-aware Overlap Repair** to fix "LLM slop" and ensure surgical replacements. Persistent storage of good/bad sentences with document. Enable in **Settings → Doc → Enable AI grammar checker (Writer)** (off by default); underlines appear shortly after you pause typing.
+- **Real-time Grammar & Style Checker**: An asynchronous proofreader with a **sentence cache** and **Unicode-aware splitting**. Includes **Token-aware Overlap Repair** to fix "LLM slop" and ensure surgical replacements. Persistent storage of good/bad sentences with document. Supports multiple backends configurable in **Settings → Doc → Enable grammar checker (Writer)**:
+  * **AI (LLM):** Cloud or local AI models/API.
+  * **LanguageTool (Local):** Offline grammar server running locally.
+  * **Vale (Local Style) (WIP):** Style guides checker (Google, Microsoft, write-good).
+  * **Harper (Local Rust):** Lightning-fast offline Rust-backed grammar linter.
+  Underlines appear shortly after you pause typing.
 - Optional **sentence language detection**: **Local (langdetect)** uses a bundled detector to auto-fix wrong `CharLocale` and then grammar-check in the right language; **AI (LLM)** uses the chat API for the same step. Set **Settings → Doc → Sentence language detection**. [Read the Plan](docs/realtime-grammar-checker-plan.md).
 - **Rich-text sidebar**: Hosts a rich text control in the sidebar. Off by default.
 - **Math & LaTeX**: **MathML** and **TeX** delimiters are automatically turned into **editable LibreOffice Math formulas** (OLE objects). Use `\(...\)` / `$...$` for inline and `$$...$$` / `\[...\]` for display in chat or HTML content; prefer `\(...\)` over bare `$` near numbers. See [docs/math-tex.md](docs/math-tex.md).

@@ -18,6 +18,8 @@ config:
         label: "LanguageTool (Local)"
       - value: "vale"
         label: "Vale (Local Style) (WIP)"
+      - value: "harper"
+        label: "Harper"
     inline: true
     label_x: 8
     label_width: 100

@@ -391,23 +391,23 @@ def _load_config_dict(
 
 
 def is_grammar_enabled():
-    """True if the grammar checker is enabled on the Doc tab (LLM, LanguageTool, or Vale)."""
+    """True if the grammar checker is enabled on the Doc tab (LLM, LanguageTool, Vale, or Harper)."""
     val = get_config("doc.grammar_proofreader_enabled")
     if isinstance(val, bool):
         return val  # Handle old boolean config
     val_str = str(val).strip().lower()
-    return val_str in ("llm", "languagetool", "vale", "true")
+    return val_str in ("llm", "languagetool", "vale", "harper", "true")
 
 
 def get_grammar_provider():
-    """Return the active grammar provider name ('off', 'llm', 'languagetool', or 'vale')."""
+    """Return the active grammar provider name ('off', 'llm', 'languagetool', 'vale', or 'harper')."""
     val = get_config("doc.grammar_proofreader_enabled")
     if isinstance(val, bool):
         return "llm" if val else "off"
     val_str = str(val).strip().lower()
     if val_str == "true":
         return "llm"
-    if val_str in ("llm", "languagetool", "vale"):
+    if val_str in ("llm", "languagetool", "vale", "harper"):
         return val_str
 
     return "off"

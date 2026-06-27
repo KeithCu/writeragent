@@ -143,6 +143,7 @@ VENV_AUTHORIZED_IMPORTS: tuple[str, ...] = (
     "plugin.scripting.calc_functions.*",
     "plugin.scripting.venv.languagetool",
     "plugin.scripting.venv.vale",
+    "plugin.scripting.venv.harper",
 )
 
 

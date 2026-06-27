@@ -574,6 +574,28 @@ def _run_grammar_check(
                     log.error("[grammar] Vale style linter failed: %s", ex)
                     emit_grammar_status("failed", "Vale style linter", result=str(ex))
             return
+        if provider == "harper":
+            from plugin.scripting.client import run_harper_check
+            from plugin.framework.config import user_config_dir
+
+            cfg_dir = user_config_dir() or ""
+
+            for item, text in chunk:
+                try:
+                    request_start = time.monotonic()
+                    res = run_harper_check(ec.ctx, text, cfg_dir)
+                    elapsed_ms = int((time.monotonic() - request_start) * 1000)
+
+                    errors = res.get("errors", [])
+                    results = [errors]
+
+                    _process_grammar_results([(item, text)], results, bcp47, original_bcp47, elapsed_ms, ec)
+                    grammar_obs("worker_harper_done", chunk_len=1, results_len=len(errors), elapsed_ms=elapsed_ms, bcp47=bcp47)
+                except Exception as ex:
+                    log.error("[grammar] Harper check failed: %s", ex)
+                    emit_grammar_status("failed", "Harper linter", result=str(ex))
+            return
+
 
 
         # Default path: AI (LLM)
