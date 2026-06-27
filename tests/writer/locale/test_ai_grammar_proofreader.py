@@ -84,6 +84,13 @@ from plugin.writer.locale.grammar_work_queue import GrammarWorkQueue
 # =============================================================================
 
 def test_worker_skips_when_agent_active_and_pause_enabled() -> None:
+    def _get_config(key: str):
+        if key == "doc.grammar_proofreader_enabled":
+            return "llm"
+        if key == "doc.grammar_proofreader_pause_during_agent":
+            return True
+        return None
+
     def _get_config_bool(key: str) -> bool:
         if key == "doc.grammar_proofreader_enabled":
             return True
@@ -92,6 +99,7 @@ def test_worker_skips_when_agent_active_and_pause_enabled() -> None:
         raise AssertionError(f"unexpected key: {key}")
 
     with (
+        patch("plugin.framework.config.get_config", side_effect=_get_config),
         patch("plugin.framework.config.get_config_int", return_value=0),
         patch("plugin.framework.config.get_config_bool", side_effect=_get_config_bool),
         patch("plugin.framework.queue_executor.is_agent_active", return_value=True),
@@ -144,12 +152,17 @@ def test_partial_threshold_counts_nonspace_chars() -> None:
     assert api["count_nonspace_chars"]("this is long enough") >= api["GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS"]
 
 def test_run_llm_skips_split_when_item_text_set() -> None:
+    def _get_config(key: str):
+        if key == "doc.grammar_proofreader_enabled": return "llm"
+        if key == "doc.grammar_proofreader_pause_during_agent": return False
+        return None
     def _get_config_bool(key: str) -> bool:
         if key == "doc.grammar_proofreader_enabled": return True
         if key == "doc.grammar_proofreader_pause_during_agent": return False
         raise AssertionError(f"unexpected key: {key}")
     def _split_must_not_run(*_a, **_k): raise AssertionError("split_into_sentences must not run")
     with (
+        patch("plugin.framework.config.get_config", side_effect=_get_config),
         patch("plugin.framework.config.get_config_bool", side_effect=_get_config_bool),
         patch("plugin.framework.config.get_config_str", return_value=""),
         patch("plugin.framework.client.model_fetcher.get_text_model", return_value="m"),
@@ -169,11 +182,16 @@ def test_run_llm_skips_split_when_item_text_set() -> None:
         api["run_llm_and_cache"](None, "Hello.", 1, "d|en", "en-US")
 
 def test_partial_sentence_adds_prompt_note() -> None:
+    def _get_config(key: str):
+        if key == "doc.grammar_proofreader_enabled": return "llm"
+        if key == "doc.grammar_proofreader_pause_during_agent": return False
+        return None
     def _get_config_bool(key: str) -> bool:
         if key == "doc.grammar_proofreader_enabled": return True
         if key == "doc.grammar_proofreader_pause_during_agent": return False
         raise AssertionError(f"unexpected key: {key}")
     with (
+        patch("plugin.framework.config.get_config", side_effect=_get_config),
         patch("plugin.framework.config.get_config_bool", side_effect=_get_config_bool),
         patch("plugin.framework.config.get_config_str", return_value=""),
         patch("plugin.framework.client.model_fetcher.get_text_model", return_value="m"),
@@ -201,6 +219,7 @@ def test_partial_sentence_adds_prompt_note() -> None:
 @pytest.fixture
 def mock_config_fixture():
     with (
+        patch("plugin.framework.config.get_config") as mock_get_config,
         patch("plugin.framework.config.get_config_bool") as mock_get_bool,
         patch("plugin.framework.config.get_config_str") as mock_get_str,
         patch("plugin.framework.config.get_config_int") as mock_get_int,
@@ -209,6 +228,10 @@ def mock_config_fixture():
         patch("plugin.framework.logging.init_logging"),
         patch.object(proofreader, "uno_mod", uno_mod),
     ):
+        mock_get_config.side_effect = lambda key: {
+            "doc.grammar_proofreader_enabled": "llm",
+            "doc.grammar_proofreader_pause_during_agent": False,
+        }.get(key, None)
         mock_get_bool.side_effect = lambda key: {
             "doc.grammar_proofreader_enabled": True,
             "doc.grammar_proofreader_pause_during_agent": False,

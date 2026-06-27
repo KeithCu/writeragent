@@ -391,8 +391,25 @@ def _load_config_dict(
 
 
 def is_grammar_enabled():
-    """True if the AI grammar checker is enabled on the Doc tab."""
-    return get_config_bool_safe("doc.grammar_proofreader_enabled")
+    """True if the grammar checker is enabled on the Doc tab (either LLM or LanguageTool)."""
+    val = get_config("doc.grammar_proofreader_enabled")
+    if isinstance(val, bool):
+        return val  # Handle old boolean config
+    val_str = str(val).strip().lower()
+    return val_str in ("llm", "languagetool", "true")
+
+
+def get_grammar_provider():
+    """Return the active grammar provider name ('off', 'llm', or 'languagetool')."""
+    val = get_config("doc.grammar_proofreader_enabled")
+    if isinstance(val, bool):
+        return "llm" if val else "off"
+    val_str = str(val).strip().lower()
+    if val_str == "true":
+        return "llm"
+    if val_str in ("llm", "languagetool"):
+        return val_str
+    return "off"
 
 
 def get_current_endpoint():

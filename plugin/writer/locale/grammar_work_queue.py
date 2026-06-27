@@ -527,8 +527,32 @@ def _run_grammar_check(
     original_bcp47: str,
     ec: GrammarWorkerContext,
 ) -> None:
-    """Grammar LLM, then cache results or requeue on batch mismatch."""
+    """Grammar LLM or LanguageTool, then cache results or requeue on batch mismatch."""
     try:
+        from plugin.framework.config import get_grammar_provider
+
+        provider = get_grammar_provider()
+
+        if provider == "languagetool":
+            from plugin.scripting.client import run_languagetool_check
+
+            for item, text in chunk:
+                try:
+                    request_start = time.monotonic()
+                    res = run_languagetool_check(ec.ctx, text, bcp47)
+                    elapsed_ms = int((time.monotonic() - request_start) * 1000)
+
+                    errors = res.get("errors", [])
+                    results = [errors]
+
+                    _process_grammar_results([(item, text)], results, bcp47, original_bcp47, elapsed_ms, ec)
+                    grammar_obs("worker_grammar_done", chunk_len=1, results_len=len(errors), elapsed_ms=elapsed_ms, bcp47=bcp47)
+                except Exception as ex:
+                    log.error("[grammar] LanguageTool local check failed: %s", ex)
+                    emit_grammar_status("failed", "LanguageTool check", result=str(ex))
+            return
+
+        # Default path: AI (LLM)
         results, elapsed_ms = call_grammar_llm(chunk, bcp47, ec)
         grammar_obs(
             "batch_stats",

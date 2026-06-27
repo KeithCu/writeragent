@@ -200,8 +200,8 @@ _VISION_OCR_INSTALL_CMD = _DOCLING_INSTALL_CMD
 _VISION_PADDLE_FALLBACK_CMD = "uv pip install paddleocr paddlepaddle numpy"
 _VIZ_INSTALL_CMD = "uv pip install matplotlib seaborn"
 _SYMBOLIC_INSTALL_CMD = "uv pip install sympy"
-_TEXT_ANALYTICS_INSTALL_CMD = "uv pip install spacy textdescriptives transformers torch --index-url https://download.pytorch.org/whl/cpu && python -m spacy download xx_sent_ud_sm"
-_NLP_PACKAGE_KEYS = ("spacy", "textdescriptives", "transformers")
+_TEXT_ANALYTICS_INSTALL_CMD = "uv pip install spacy textdescriptives transformers language-tool-python torch --index-url https://download.pytorch.org/whl/cpu && python -m spacy download xx_sent_ud_sm"
+_NLP_PACKAGE_KEYS = ("spacy", "textdescriptives", "transformers", "language_tool_python")
 _NLP_PROBE_SCRIPT = """
 import json
 out = {}
@@ -220,8 +220,15 @@ try:
     out["transformers"] = "present"
 except Exception:
     out["transformers"] = None
+try:
+    import language_tool_python  # noqa: F401
+    res = language_tool_python.__file__
+    out["language_tool_python"] = "present"
+except Exception:
+    out["language_tool_python"] = None
 print(json.dumps(out))
 """
+
 _NLP_PROBE_TIMEOUT_HINT = _(
     "Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s on first check)."
 )

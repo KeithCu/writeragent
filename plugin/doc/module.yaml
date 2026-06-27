@@ -4,14 +4,24 @@ requires: [document, config, events]
 
 config:
   grammar_proofreader_enabled:
-    type: boolean
-    default: false
-    widget: checkbox
-    label: Enable AI grammar checker (Writer)
-    helper: "When on, WriterAgent registers its AI grammar proofreader with Linguistic; checked text uses your API (Tools → Options → AI). Underlines appear shortly after you pause typing. Off by default."
+    type: string
+    default: "off"
+    widget: select
+    label: Enable grammar checker (Writer)
+    helper: "Off = disabled. AI (LLM) = use your configured text model/API. LanguageTool = use local LanguageTool server via venv pip package."
+    options:
+      - value: "off"
+        label: "Off"
+      - value: "llm"
+        label: "AI (LLM)"
+      - value: "languagetool"
+        label: "LanguageTool (Local)"
     inline: true
-    x: 8
-    width: 205
+    label_x: 8
+    label_width: 100
+    x: 110
+    width: 100
+
 
   grammar_proofreader_model:
     type: string

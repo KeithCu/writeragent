@@ -400,3 +400,26 @@ def run_text_analytics(
         error_code="TEXT_ANALYTICS_ERROR",
         error_label="Text Analytics",
     )
+
+
+# --- LanguageTool ---
+
+_LT_SESSION_PREFIX = "writeragent:languagetool"
+_LT_STUB = """\
+from plugin.scripting.venv.languagetool import run_languagetool_check as _run
+result = _run(data["text"], data["bcp47"])
+"""
+
+
+def run_languagetool_check(ctx: Any, text: str, bcp47: str) -> dict[str, Any]:
+    """Execute a trusted LanguageTool check helper inside the user venv worker."""
+    return _run_trusted_helper(
+        ctx,
+        session_id=_LT_SESSION_PREFIX,
+        stub=_LT_STUB,
+        payload={"text": text, "bcp47": bcp47},
+        timeout_sec=15,  # LanguageTool is fast
+        error_code="LANGUAGETOOL_ERROR",
+        error_label="LanguageTool",
+    )
+
