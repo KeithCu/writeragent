@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-25 09:02-0400\n"
+"POT-Creation-Date: 2026-06-26 22:30-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -427,16 +427,6 @@ msgstr ""
 msgid "Reject this change"
 msgstr ""
 
-#: plugin/writer/review_click_popup.py
-#, python-brace-format
-msgid "Accept all {0} changes"
-msgstr ""
-
-#: plugin/writer/review_click_popup.py
-#, python-brace-format
-msgid "Reject all {0} changes"
-msgstr ""
-
 #: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Extend Selection"
 msgstr ""
@@ -779,6 +769,14 @@ msgstr ""
 msgid "Copied!"
 msgstr ""
 
+#: plugin/chatbot/dialogs.py plugin/xdl_strings.py
+msgid "Copy URL"
+msgstr ""
+
+#: plugin/chatbot/dialogs.py plugin/main.py plugin/xdl_strings.py
+msgid "Report bug..."
+msgstr ""
+
 #: plugin/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
 msgstr ""
@@ -848,13 +846,6 @@ msgstr ""
 msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
-msgstr ""
-
-#: plugin/chatbot/panel.py
-#, python-brace-format
-msgid ""
-"[Internal Error: Document type changed from {0} to {1}! Please file an "
-"error.]"
 msgstr ""
 
 #: plugin/chatbot/panel.py
@@ -1129,10 +1120,6 @@ msgstr ""
 
 #: plugin/scripting/document_scripts.py
 msgid "Units Helpers"
-msgstr ""
-
-#: plugin/scripting/document_scripts.py
-msgid "Text Analytics Helpers"
 msgstr ""
 
 #: plugin/scripting/document_scripts.py
@@ -1965,10 +1952,6 @@ msgid "Copy"
 msgstr ""
 
 #: plugin/xdl_strings.py
-msgid "Copy URL"
-msgstr ""
-
-#: plugin/xdl_strings.py
 msgid "Delete"
 msgstr ""
 
@@ -2500,6 +2483,27 @@ msgid ""
 msgstr ""
 
 msgid "MCP Port"
+msgstr ""
+
+msgid "MCP Tool Exposure"
+msgstr ""
+
+msgid ""
+"How specialized tools are surfaced to MCP clients. delegate=reached via the "
+"delegate gateway (today's behavior); direct_flat=all MCP-reachable "
+"specialized tools listed directly, excluding sidebar-only flows (best for "
+"clients with their own tool-search); direct_discovery=small core list plus "
+"find_tools (domain catalog, then per-domain tool schemas; best for any "
+"client)."
+msgstr ""
+
+msgid "Delegate (default)"
+msgstr ""
+
+msgid "Direct — list all tools"
+msgstr ""
+
+msgid "Direct — discovery (find_tools)"
 msgstr ""
 
 msgid "Python"
