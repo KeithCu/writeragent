@@ -151,6 +151,7 @@ def run_harper_check(text: str, user_config_dir: str) -> dict:
             length = max(1, end - start)
             
             rule = lint.get("rule", "Grammar")
+            kind = lint.get("kind", "Grammar")
             msg = lint.get("message", "")
             
             # Parse suggestions
@@ -170,12 +171,12 @@ def run_harper_check(text: str, user_config_dir: str) -> dict:
                 "correct": correct,
                 "n_error_start": start,
                 "n_error_length": length,
-                "short_comment": f"[Harper] {msg}",
+                "short_comment": msg,
                 "full_comment": msg,
                 "rule_identifier": f"harper||{rule}",
                 "suggestions": suggestions[:5],
                 "reason": msg,
-                "type": f"Harper ({rule})"
+                "type": kind
             })
             
         return {"errors": errors}

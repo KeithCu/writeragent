@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-26 22:30-0400\n"
+"POT-Creation-Date: 2026-06-27 19:37-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -2332,13 +2332,27 @@ msgstr ""
 msgid "Doc"
 msgstr ""
 
-msgid "Enable AI grammar checker (Writer)"
+msgid "Enable grammar checker (Writer)"
 msgstr ""
 
 msgid ""
-"When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
-" after you pause typing. Off by default."
+"Off = disabled. AI (LLM) = use your configured text model/API. LanguageTool "
+"= use local LanguageTool server via venv pip package."
+msgstr ""
+
+msgid "Off"
+msgstr ""
+
+msgid "AI (LLM)"
+msgstr ""
+
+msgid "LanguageTool (Local)"
+msgstr ""
+
+msgid "Vale (Local Style) (WIP)"
+msgstr ""
+
+msgid "Harper"
 msgstr ""
 
 msgid "Model (optional)"
@@ -2380,12 +2394,6 @@ msgid ""
 "Verify each complete sentence's language against the document locale. AI "
 "uses your grammar/chat API; Local uses bundled langdetect (no API call, no "
 "venv). Mismatches update CharLocale and re-check grammar."
-msgstr ""
-
-msgid "Off"
-msgstr ""
-
-msgid "AI (LLM)"
 msgstr ""
 
 msgid "Local (langdetect)"
