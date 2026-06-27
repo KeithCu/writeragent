@@ -29,34 +29,72 @@ from plugin.framework.thread_guard import assert_main_thread
 from plugin.framework.queue_executor import execute_on_main_thread
 
 
-def _normalize_schema_for_strict_providers(params):
-    """Normalize JSON Schema so strict providers (e.g. Gemini via OpenRouter) accept it.
+_SCALAR_TYPES = frozenset({"integer", "number", "boolean", "string"})
 
-    - Union types (e.g. \"type\": [\"string\", \"array\"]) are replaced with the first type.
-    - Empty \"required\" is removed so providers do not complain about required[0/1] missing.
-    - Nested properties are normalized recursively.
+
+def _collapse_union_type(types: list) -> str | list:
+    """Collapse messy unions for Gemini; preserve scalar+null pairs for Groq."""
+    if not types:
+        return "string"
+    non_null = [t for t in types if t != "null"]
+    if len(non_null) == 1 and len(types) == 2 and "null" in types:
+        return [non_null[0], "null"]
+    if "array" in types:
+        return "array"
+    return non_null[0] if non_null else "string"
+
+
+def _type_allows_null(type_val: Any) -> bool:
+    return isinstance(type_val, list) and "null" in type_val
+
+
+def _make_optional_scalar_nullable(prop_schema: dict) -> dict:
+    """Add null to optional scalar property types (strict providers reject bare null otherwise)."""
+    if not isinstance(prop_schema, dict):
+        return prop_schema
+    type_val = prop_schema.get("type")
+    if type_val is None or _type_allows_null(type_val):
+        return prop_schema
+    if isinstance(type_val, str) and type_val in _SCALAR_TYPES:
+        out = copy.deepcopy(prop_schema)
+        out["type"] = [type_val, "null"]
+        return out
+    return prop_schema
+
+
+def _normalize_schema_for_strict_providers(params):
+    """Normalize JSON Schema for strict upstream validators (Gemini, Groq, etc.).
+
+    - Optional scalar properties get ``type: [scalar, "null"]`` so models may pass ``null``.
+    - ``[scalar, "null"]`` unions are preserved; other unions collapse (e.g. string+array → array).
+    - Empty ``required`` is removed so providers do not complain about required[0/1] missing.
+    - Nested object properties are normalized recursively with each object's ``required`` list.
     """
     if not params or not isinstance(params, dict):
         return params
     params = copy.deepcopy(params)
     if "type" in params and isinstance(params["type"], list):
-        types = params["type"]
-        params["type"] = "array" if "array" in types else (types[0] if types else "string")
+        params["type"] = _collapse_union_type(params["type"])
     if params.get("type") != "array":
         params.pop("items", None)
     if params.get("required") == []:
         params.pop("required", None)
-    for key in ("properties", "items"):
-        if key in params and isinstance(params[key], dict):
-            if key == "properties":
-                for k, v in params[key].items():
-                    params[key][k] = _normalize_schema_for_strict_providers(v)
-            else:
-                params[key] = _normalize_schema_for_strict_providers(params[key])
-        elif key in params and isinstance(params[key], list):
-            # items can be a list of schemas in JSON Schema; take first
-            if params[key]:
-                params[key] = _normalize_schema_for_strict_providers(params[key][0])
+
+    required_keys = set(params.get("required") or [])
+
+    if params.get("type") == "object" and isinstance(params.get("properties"), dict):
+        new_props = {}
+        for k, v in params["properties"].items():
+            v = _normalize_schema_for_strict_providers(v)
+            if k not in required_keys:
+                v = _make_optional_scalar_nullable(v)
+            new_props[k] = v
+        params["properties"] = new_props
+    elif "items" in params:
+        if isinstance(params["items"], dict):
+            params["items"] = _normalize_schema_for_strict_providers(params["items"])
+        elif isinstance(params["items"], list) and params["items"]:
+            params["items"] = _normalize_schema_for_strict_providers(params["items"][0])
     return params
 
 
@@ -142,6 +180,7 @@ def to_mcp_schema(tool, *, doc_type: str | None = None):
         if isinstance(props, dict) and "domain" in props and isinstance(props["domain"], dict):
             props["domain"]["description"] = format_specialized_domains_description(special_base, agent_label=agent_label)
 
+    input_schema = _normalize_schema_for_strict_providers(input_schema)
     return {"name": tool.name, "description": desc, "inputSchema": input_schema}
 
 

@@ -85,7 +85,7 @@ def test_normalize_schema_nested_properties():
         }
     }
     res = _normalize_schema_for_strict_providers(params)
-    assert res["properties"]["p1"]["type"] == "string"
+    assert res["properties"]["p1"]["type"] == ["string", "null"]
     assert "required" not in res["properties"]["p2"]
 
 def test_normalize_schema_items():
@@ -112,6 +112,57 @@ def test_normalize_schema_not_array_remove_items():
 def test_normalize_schema_none_dict():
     assert _normalize_schema_for_strict_providers(None) is None
     assert _normalize_schema_for_strict_providers("string") == "string"
+
+
+def test_normalize_schema_optional_scalar_gets_null():
+    params = {
+        "type": "object",
+        "properties": {
+            "max_chars": {"type": "integer", "description": "limit"},
+            "scope": {"type": "string", "enum": ["full", "selection"]},
+        },
+    }
+    res = _normalize_schema_for_strict_providers(params)
+    assert res["properties"]["max_chars"]["type"] == ["integer", "null"]
+    assert res["properties"]["scope"]["type"] == ["string", "null"]
+
+
+def test_normalize_schema_required_scalar_stays_non_nullable():
+    params = {
+        "type": "object",
+        "properties": {"index": {"type": "integer"}},
+        "required": ["index"],
+    }
+    res = _normalize_schema_for_strict_providers(params)
+    assert res["properties"]["index"]["type"] == "integer"
+
+
+def test_normalize_schema_scalar_null_union_preserved():
+    params = {"type": ["integer", "null"]}
+    res = _normalize_schema_for_strict_providers(params)
+    assert res["type"] == ["integer", "null"]
+
+
+def test_optional_integer_allows_null_on_openai_wire():
+    from plugin.writer.content import GetDocumentContent
+
+    props = to_openai_schema(GetDocumentContent())["function"]["parameters"]["properties"]
+    assert props["max_chars"]["type"] == ["integer", "null"]
+    assert props["include_images"]["type"] == ["boolean", "null"]
+    assert props["start"]["type"] == ["integer", "null"]
+
+
+def test_optional_scalar_nullable_mcp():
+    from plugin.writer.content import GetDocumentContent
+
+    props = to_mcp_schema(GetDocumentContent())["inputSchema"]["properties"]
+    assert props["max_chars"]["type"] == ["integer", "null"]
+    assert props["document_url"]["type"] == ["string", "null"]
+
+
+def test_required_scalar_not_nullable():
+    props = to_openai_schema(DummyTool())["function"]["parameters"]["properties"]
+    assert props["arg1"]["type"] == "string"
 
 
 def test_to_mcp_schema_delegate_writer_includes_specialized_delegation_hint():
