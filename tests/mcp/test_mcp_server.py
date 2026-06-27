@@ -270,7 +270,7 @@ def test_to_mcp_schema_injects_document_url():
     schema = to_mcp_schema(DummyTool())
     input_schema = schema.get("inputSchema", {})
     assert "document_url" in input_schema.get("properties", {})
-    assert input_schema["properties"]["document_url"]["type"] == "string"
+    assert input_schema["properties"]["document_url"]["type"] == ["string", "null"]
 
 
 def test_handle_mcp_tools_call_parameter():
