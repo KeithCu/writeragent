@@ -44,7 +44,7 @@ CHAT_DOCUMENT_CONTEXT_MAX_CHARS = 8000
 DEFAULT_EMBEDDING_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
 EMBEDDINGS_WORKER_SESSION_PREFIX = "embeddings"
 # Host corpus_meta.json schema version (docs/embeddings.md).
-EMBEDDINGS_SCHEMA_VERSION = "3"
+EMBEDDINGS_SCHEMA_VERSION = "4"
 # Background folder index tick when embeddings cache is enabled (docs/embeddings.md).
 EMBEDDINGS_INDEX_INTERVAL_S = 300
 # Worker heartbeat during long folder maintain RPC (docs/embeddings.md).

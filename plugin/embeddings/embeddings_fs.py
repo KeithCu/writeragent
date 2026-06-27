@@ -33,6 +33,8 @@ FOREIGN_EXTENSIONS = FOREIGN_WRITER_EXTENSIONS | FOREIGN_CALC_EXTENSIONS | FOREI
 
 ALL_INDEXABLE_EXTENSIONS = INDEXABLE_EXTENSIONS | FOREIGN_EXTENSIONS
 
+PROSE_CHUNK_EXTENSIONS = WRITER_EXTENSIONS | frozenset({".docx", ".doc", ".rtf", ".txt"})
+
 
 @dataclasses.dataclass(frozen=True)
 class ParagraphChunk:
@@ -186,6 +188,12 @@ def guess_writer_paths(directory: str) -> list[WriterFileEntry]:
     return guess_indexable_paths(directory)
 
 
+def path_uses_prose_chunking(path: str) -> bool:
+    """Return True when index chunks should use sentence splitting (Writer-style prose)."""
+    ext = os.path.splitext(path)[1].lower()
+    return ext in PROSE_CHUNK_EXTENSIONS
+
+
 def indexable_chunks_from_path(
     path: str,
     *,
@@ -203,6 +211,7 @@ def indexable_chunks_from_path(
         mtime = 0.0
 
     passages = [text.strip() for text in extract_indexable_passages(norm) if text.strip()]
+    prose = path_uses_prose_chunking(norm)
     chunks: list[ParagraphChunk] = []
     for para_index, passage in enumerate(passages):
         base_meta = {
@@ -210,7 +219,7 @@ def indexable_chunks_from_path(
             "para_index": para_index,
             "file_mtime": mtime,
         }
-        for piece in split_passage_to_chunk_meta(passage, base_meta):
+        for piece in split_passage_to_chunk_meta(passage, base_meta, prose=prose):
             piece_text = str(piece.get("text") or "").strip()
             if not piece_text:
                 continue

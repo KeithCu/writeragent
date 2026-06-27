@@ -24,7 +24,7 @@ log = logging.getLogger(__name__)
 EMBEDDINGS_VENV_PIP_INSTALL = (
     "pip install sentence-transformers numpy sqlite-vec langgraph "
     "langchain-core langchain-text-splitters envwrap odfpy pandas "
-    "openpyxl xlrd python-docx llama-index-core zvec"
+    "openpyxl xlrd python-docx llama-index-core zvec icu4py"
 )
 
 _MODEL_CACHE: dict[str, Any] = {}
@@ -120,6 +120,21 @@ def embed_texts(
     st_batch = max(1, min(st_batch, len(valid_texts)))
 
     embedder = _get_embedder(model)
+    max_seq_len = int(getattr(embedder, "max_seq_length", 0) or 0)
+    likely_truncated = 0
+    if max_seq_len > 0:
+        char_hint = max_seq_len * 4
+        likely_truncated = sum(1 for item in valid_texts if len(item) > char_hint)
+        if likely_truncated:
+            log.debug(
+                "embed_texts: %s/%s texts may exceed model max_seq_length=%s (char hint>%s); "
+                "vectors truncate, FTS bodies stay full",
+                likely_truncated,
+                len(valid_texts),
+                max_seq_len,
+                char_hint,
+            )
+
     batch = embedder.encode(
         valid_texts,
         batch_size=st_batch,

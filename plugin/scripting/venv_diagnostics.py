@@ -290,6 +290,7 @@ _VECTOR_SEARCH_PACKAGE_KEYS = (
     "langgraph",
     "langchain_core",
     "langchain_text_splitters",
+    "icu4py",
     "odfpy",
     "pandas",
     "openpyxl",
@@ -335,6 +336,11 @@ try:
     out["langchain_text_splitters"] = "present"
 except Exception:
     out["langchain_text_splitters"] = None
+try:
+    import icu4py  # noqa: F401
+    out["icu4py"] = "present"
+except Exception:
+    out["icu4py"] = None
 try:
     import odf  # noqa: F401
     out["odfpy"] = "present"

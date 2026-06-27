@@ -14,6 +14,7 @@ import logging
 from typing import Any, Optional, Sequence
 
 from plugin.embeddings.venv.embeddings_retrieval_pool import _MIN_FETCH_K, hybrid_retrieval_pool
+from plugin.framework.constants import EMBEDDINGS_SCHEMA_VERSION as SCHEMA_VERSION
 
 log = logging.getLogger(__name__)
 
@@ -590,7 +591,7 @@ def llama_index_ingest(
         meta_file = Path(meta_path)
         meta_file.parent.mkdir(parents=True, exist_ok=True)
         payload = {
-            "schema_version": "3",
+            "schema_version": SCHEMA_VERSION,
             "storage_backend": "llama_index",
             "embedding_model": model_name,
             "dim": str(dim or 0),
@@ -645,7 +646,7 @@ def llama_index_ingest(
     meta_file = Path(meta_path)
     meta_file.parent.mkdir(parents=True, exist_ok=True)
     payload = {
-        "schema_version": "3",
+        "schema_version": SCHEMA_VERSION,
         "storage_backend": "llama_index",
         "embedding_model": model_name,
         "dim": str(final_dim),

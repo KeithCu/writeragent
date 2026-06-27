@@ -62,6 +62,11 @@ def test_paragraph_chunks_from_path(tmp_path: Path):
     assert chunks[0].doc_url.startswith("file:")
 
 
+def test_path_uses_prose_chunking_by_extension():
+    assert embeddings_fs.path_uses_prose_chunking("/tmp/doc.odt") is True
+    assert embeddings_fs.path_uses_prose_chunking("/tmp/notes.txt") is True
+    assert embeddings_fs.path_uses_prose_chunking("/tmp/Budget.ods") is False
+    assert embeddings_fs.path_uses_prose_chunking("/tmp/deck.odp") is False
 def test_guess_indexable_paths_includes_ods_and_office(tmp_path: Path):
     (tmp_path / "notes.txt").write_text("hello", encoding="utf-8")
     (tmp_path / "budget.xlsx").write_bytes(b"placeholder")

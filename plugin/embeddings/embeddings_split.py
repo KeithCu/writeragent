@@ -2,26 +2,32 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Shared text splitting for embeddings index (512/64 — trusted venv + host extract)."""
+"""Shared text splitting for embeddings index (sentence chunks for prose; 512/64 for tabular/slides)."""
 from __future__ import annotations
 
 from typing import Any
 
 CHUNK_SIZE = 512
 CHUNK_OVERLAP = 64
+MIN_CHUNK = 120
+DEFAULT_SENTENCE_LOCALE = "en@ss=standard"
+
+
+def _embeddings_pip_install_hint() -> str:
+    from plugin.embeddings.venv.embeddings_index import EMBEDDINGS_VENV_PIP_INSTALL
+
+    return EMBEDDINGS_VENV_PIP_INSTALL
 
 
 def _import_splitter() -> Any:
     import importlib
-
-    from plugin.embeddings.venv.embeddings_index import EMBEDDINGS_VENV_PIP_INSTALL
 
     try:
         mod = importlib.import_module("langchain_text_splitters")
     except ImportError as exc:
         raise ImportError(
             "langchain-text-splitters is not installed in the configured Python venv. "
-            f"Install with: {EMBEDDINGS_VENV_PIP_INSTALL}"
+            f"Install with: {_embeddings_pip_install_hint()}"
         ) from exc
     return mod.RecursiveCharacterTextSplitter(
         chunk_size=CHUNK_SIZE,
@@ -30,35 +36,159 @@ def _import_splitter() -> Any:
     )
 
 
-def split_passage_to_chunk_meta(text: str, base_meta: dict[str, Any]) -> list[dict[str, Any]]:
-    """Split one passage into embed-sized chunks with char offsets relative to passage text."""
-    stripped = str(text or "").strip()
-    if not stripped:
+def split_passage_to_sentences(text: str, locale: str = DEFAULT_SENTENCE_LOCALE) -> list[tuple[int, int, str]]:
+    """Split *text* into ``(char_start, char_end, sentence)`` relative to *text*."""
+    passage = str(text or "")
+    if not passage.strip():
         return []
 
-    if len(stripped) <= CHUNK_SIZE:
-        meta = dict(base_meta)
-        meta.update({"char_start": 0, "char_end": len(stripped), "text": stripped})
-        return [meta]
+    try:
+        from icu4py.breakers import SentenceBreaker
+    except ImportError as exc:
+        raise ImportError(
+            "icu4py is not installed in the configured Python venv. "
+            f"Install with: {_embeddings_pip_install_hint()}"
+        ) from exc
 
-    splitter = _import_splitter()
-    pieces = splitter.split_text(stripped)
-    if not pieces:
-        return []
-
-    chunks: list[dict[str, Any]] = []
+    sentences: list[tuple[int, int, str]] = []
     search_from = 0
-    for piece in pieces:
-        idx = stripped.find(piece, search_from)
-        if idx < 0:
-            idx = search_from
-        char_start = idx
-        char_end = idx + len(piece)
-        search_from = max(0, char_end - CHUNK_OVERLAP)
+    for piece in SentenceBreaker(passage, locale):
+        sent = str(piece)
+        if not sent:
+            continue
+        start = passage.find(sent, search_from)
+        if start < 0:
+            start = search_from
+        end = start + len(sent)
+        sentences.append((start, end, sent))
+        search_from = end
+    return sentences or [(0, len(passage), passage)]
+
+
+def _meta_chunks_from_spans(
+    passage: str,
+    spans: list[tuple[int, int]],
+    base_meta: dict[str, Any],
+) -> list[dict[str, Any]]:
+    chunks: list[dict[str, Any]] = []
+    for char_start, char_end in spans:
+        piece = passage[char_start:char_end]
+        if not piece.strip():
+            continue
         meta = dict(base_meta)
         meta.update({"char_start": char_start, "char_end": char_end, "text": piece})
         chunks.append(meta)
     return chunks
 
 
-__all__ = ["CHUNK_OVERLAP", "CHUNK_SIZE", "split_passage_to_chunk_meta"]
+def _merge_small_sentences_to_spans(
+    passage: str,
+    sentences: list[tuple[int, int, str]],
+    *,
+    min_chunk: int = MIN_CHUNK,
+) -> list[tuple[int, int]]:
+    """One chunk per sentence; glue consecutive sub-*min_chunk* sentences within the passage."""
+    if not sentences:
+        return []
+
+    spans: list[tuple[int, int]] = []
+    buffer_start: int | None = None
+    buffer_end: int | None = None
+
+    def buffer_len() -> int:
+        if buffer_start is None or buffer_end is None:
+            return 0
+        return buffer_end - buffer_start
+
+    def flush_buffer(*, fold_remainder: bool) -> None:
+        nonlocal buffer_start, buffer_end
+        if buffer_start is None or buffer_end is None:
+            return
+        if fold_remainder and buffer_len() < min_chunk and spans:
+            prev_start, _prev_end = spans[-1]
+            spans[-1] = (prev_start, buffer_end)
+        else:
+            spans.append((buffer_start, buffer_end))
+        buffer_start = None
+        buffer_end = None
+
+    for start, end, sent in sentences:
+        sent_len = len(sent)
+        if buffer_start is None:
+            if sent_len >= min_chunk:
+                spans.append((start, end))
+                continue
+            buffer_start = start
+            buffer_end = end
+            continue
+
+        if sent_len >= min_chunk:
+            flush_buffer(fold_remainder=True)
+            spans.append((start, end))
+            continue
+
+        buffer_end = end
+        if buffer_len() >= min_chunk:
+            flush_buffer(fold_remainder=False)
+
+    if buffer_start is not None and buffer_end is not None:
+        flush_buffer(fold_remainder=True)
+
+    return spans
+
+
+def _split_prose_passage_to_spans(passage: str) -> list[tuple[int, int]]:
+    sentences = split_passage_to_sentences(passage)
+    if not sentences:
+        return []
+    if len(sentences) == 1:
+        start, end, _sent = sentences[0]
+        return [(start, end)]
+    return _merge_small_sentences_to_spans(passage, sentences)
+
+
+def _split_non_prose_passage_to_spans(passage: str) -> list[tuple[int, int]]:
+    if len(passage) <= CHUNK_SIZE:
+        return [(0, len(passage))]
+
+    splitter = _import_splitter()
+    pieces = splitter.split_text(passage)
+    if not pieces:
+        return []
+
+    spans: list[tuple[int, int]] = []
+    search_from = 0
+    for piece in pieces:
+        idx = passage.find(piece, search_from)
+        if idx < 0:
+            idx = search_from
+        char_start = idx
+        char_end = idx + len(piece)
+        spans.append((char_start, char_end))
+        search_from = max(0, char_end - CHUNK_OVERLAP)
+    return spans
+
+
+def split_passage_to_chunk_meta(
+    text: str,
+    base_meta: dict[str, Any],
+    *,
+    prose: bool = True,
+) -> list[dict[str, Any]]:
+    """Split one passage into embed-sized chunks with char offsets relative to passage text."""
+    stripped = str(text or "").strip()
+    if not stripped:
+        return []
+
+    spans = _split_prose_passage_to_spans(stripped) if prose else _split_non_prose_passage_to_spans(stripped)
+    return _meta_chunks_from_spans(stripped, spans, base_meta)
+
+
+__all__ = [
+    "CHUNK_OVERLAP",
+    "CHUNK_SIZE",
+    "DEFAULT_SENTENCE_LOCALE",
+    "MIN_CHUNK",
+    "split_passage_to_chunk_meta",
+    "split_passage_to_sentences",
+]
