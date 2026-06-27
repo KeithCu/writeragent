@@ -191,6 +191,43 @@ def _split_non_prose_passage_to_spans(passage: str) -> list[tuple[int, int]]:
     return spans
 
 
+def split_passage_locale_runs_to_chunk_meta(
+    text: str,
+    runs: list[Any],
+    base_meta: dict[str, Any],
+    *,
+    prose: bool = True,
+    doc_default_locale: str | None = None,
+) -> list[dict[str, Any]]:
+    """Split one passage using per-run locales; MIN_CHUNK glue never crosses locale boundaries."""
+    from plugin.embeddings.embeddings_fs import LocaleTextRun
+
+    passage = str(text or "")
+    if not passage.strip() or not runs:
+        return []
+
+    if not prose:
+        return split_passage_to_chunk_meta(passage, base_meta, prose=False)
+
+    all_spans: list[tuple[int, int]] = []
+    for run in runs:
+        if not isinstance(run, LocaleTextRun):
+            continue
+        run_text = passage[run.char_start : run.char_end]
+        if not run_text.strip():
+            continue
+        locale = run.locale_bcp47 if run.locale_bcp47 is not None else doc_default_locale
+        run_spans = _split_prose_passage_to_spans(run_text, locale)
+        for start, end in run_spans:
+            all_spans.append((run.char_start + start, run.char_start + end))
+
+    if not all_spans:
+        return []
+
+    all_spans.sort(key=lambda item: (item[0], item[1]))
+    return _meta_chunks_from_spans(passage, all_spans, base_meta)
+
+
 def split_passage_to_chunk_meta(
     text: str,
     base_meta: dict[str, Any],
@@ -199,15 +236,23 @@ def split_passage_to_chunk_meta(
     locale_bcp47: str | None = None,
 ) -> list[dict[str, Any]]:
     """Split one passage into embed-sized chunks with char offsets relative to passage text."""
+    from plugin.embeddings.embeddings_fs import LocaleTextRun
+
     stripped = str(text or "").strip()
     if not stripped:
         return []
 
-    spans = (
-        _split_prose_passage_to_spans(stripped, locale_bcp47)
-        if prose
-        else _split_non_prose_passage_to_spans(stripped)
-    )
+    if prose:
+        runs = [LocaleTextRun(char_start=0, char_end=len(stripped), locale_bcp47=locale_bcp47)]
+        return split_passage_locale_runs_to_chunk_meta(
+            stripped,
+            runs,
+            base_meta,
+            prose=True,
+            doc_default_locale=locale_bcp47,
+        )
+
+    spans = _split_non_prose_passage_to_spans(stripped)
     return _meta_chunks_from_spans(stripped, spans, base_meta)
 
 
@@ -216,6 +261,7 @@ __all__ = [
     "CHUNK_SIZE",
     "DEFAULT_SENTENCE_LOCALE",
     "MIN_CHUNK",
+    "split_passage_locale_runs_to_chunk_meta",
     "split_passage_to_chunk_meta",
     "split_passage_to_sentences",
 ]

@@ -140,3 +140,53 @@ def test_whitespace_locale_uses_grammar_split(monkeypatch: pytest.MonkeyPatch):
         locale_bcp47="th-TH",
     )
     assert called
+
+
+def test_locale_runs_use_different_icu_locales(monkeypatch: pytest.MonkeyPatch):
+    from plugin.embeddings.embeddings_fs import LocaleTextRun
+
+    passage = "Hello. Guten Tag."
+    runs = [
+        LocaleTextRun(char_start=0, char_end=7, locale_bcp47="en-US"),
+        LocaleTextRun(char_start=7, char_end=len(passage), locale_bcp47="de-DE"),
+    ]
+    seen: list[str | None] = []
+
+    def _fake_split(_text: str, locale: str = split_mod.DEFAULT_SENTENCE_LOCALE) -> list[tuple[int, int, str]]:
+        seen.append(locale)
+        return [(0, len(_text), _text)]
+
+    monkeypatch.setattr(split_mod, "split_passage_to_sentences", _fake_split)
+    split_mod.split_passage_locale_runs_to_chunk_meta(
+        passage,
+        runs,
+        {"doc_url": "file:///x"},
+        prose=True,
+    )
+    assert seen == ["en@ss=standard", "de_DE@ss=standard"]
+
+
+def test_locale_runs_do_not_glue_across_boundaries(monkeypatch: pytest.MonkeyPatch):
+    from plugin.embeddings.embeddings_fs import LocaleTextRun
+
+    passage = "Yes. No."
+    runs = [
+        LocaleTextRun(char_start=0, char_end=4, locale_bcp47="en-US"),
+        LocaleTextRun(char_start=5, char_end=len(passage), locale_bcp47="de-DE"),
+    ]
+
+    def _fake_split(_text: str, locale: str = split_mod.DEFAULT_SENTENCE_LOCALE) -> list[tuple[int, int, str]]:
+        if _text.strip() == "Yes.":
+            return [(0, 4, "Yes.")]
+        return [(0, 4, "No.")]
+
+    monkeypatch.setattr(split_mod, "split_passage_to_sentences", _fake_split)
+    rows = split_mod.split_passage_locale_runs_to_chunk_meta(
+        passage,
+        runs,
+        {"doc_url": "file:///x"},
+        prose=True,
+    )
+    assert len(rows) == 2
+    assert rows[0]["text"] == "Yes."
+    assert rows[1]["text"] == "No."

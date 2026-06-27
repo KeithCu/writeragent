@@ -13,8 +13,6 @@ import hashlib
 import logging
 import os
 import urllib.request
-import xml.etree.ElementTree as ET
-import zipfile
 from typing import Any
 
 log = logging.getLogger(__name__)
@@ -34,6 +32,15 @@ FOREIGN_EXTENSIONS = FOREIGN_WRITER_EXTENSIONS | FOREIGN_CALC_EXTENSIONS | FOREI
 ALL_INDEXABLE_EXTENSIONS = INDEXABLE_EXTENSIONS | FOREIGN_EXTENSIONS
 
 PROSE_CHUNK_EXTENSIONS = WRITER_EXTENSIONS | frozenset({".docx", ".doc", ".rtf", ".txt"})
+
+
+@dataclasses.dataclass(frozen=True)
+class LocaleTextRun:
+    """One contiguous text span within a passage with an optional BCP-47 locale."""
+
+    char_start: int
+    char_end: int
+    locale_bcp47: str | None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -75,30 +82,20 @@ def path_to_file_url(path: str) -> str:
     return "file:" + quoted
 
 
-def _paragraph_texts_from_xml_root(root: ET.Element) -> list[str]:
-    texts: list[str] = []
-    for el in root.iter(f"{TEXT_NS}p"):
-        text = "".join(el.itertext()).strip()
-        if text:
-            texts.append(text)
-    return texts
+
+def extract_writer_paragraph_runs(path: str) -> list[tuple[str, list[LocaleTextRun]]]:
+    """Read locale-tagged runs per paragraph from Writer ODF on disk."""
+    from plugin.embeddings.embeddings_locale import extract_odf_paragraph_runs
+
+    ext = os.path.splitext(path)[1].lower()
+    if ext not in WRITER_EXTENSIONS:
+        return []
+    return extract_odf_paragraph_runs(path)
 
 
 def extract_writer_paragraphs(path: str) -> list[str]:
     """Read body paragraph text from a Writer .odt/.ott (zip) or .fodt (flat XML)."""
-    ext = os.path.splitext(path)[1].lower()
-    if ext not in WRITER_EXTENSIONS:
-        return []
-    try:
-        if ext == ".fodt":
-            root = ET.parse(path).getroot()
-            return _paragraph_texts_from_xml_root(root)
-        with zipfile.ZipFile(path) as zf:
-            root = ET.fromstring(zf.read("content.xml"))
-        return _paragraph_texts_from_xml_root(root)
-    except (OSError, zipfile.BadZipFile, KeyError, ET.ParseError):
-        log.debug("extract_writer_paragraphs failed for %s", path, exc_info=True)
-        return []
+    return [passage for passage, _runs in extract_writer_paragraph_runs(path) if passage.strip()]
 
 
 def _extract_foreign_passages(path: str, ext: str) -> list[str]:
@@ -128,6 +125,30 @@ def _extract_legacy_via_soffice(path: str, ext: str) -> list[str]:
         if converted is None:
             return []
         return extract_indexable_passages(str(converted))
+
+
+def extract_indexable_passage_runs(path: str) -> list[tuple[str, list[LocaleTextRun]]]:
+    """Extract indexable passages with locale runs for prose chunking."""
+    from plugin.embeddings.embeddings_locale import extract_docx_paragraph_runs, locale_runs_for_plain_passage, resolve_document_locale_bcp47
+
+    ext = os.path.splitext(path)[1].lower()
+    if ext in WRITER_EXTENSIONS:
+        return extract_writer_paragraph_runs(path)
+    if ext == ".docx":
+        return extract_docx_paragraph_runs(path)
+    if ext in {".txt", ".rtf"}:
+        passages = extract_indexable_passages(path)
+        doc_default = resolve_document_locale_bcp47(path, body_sample="\n".join(passages[:20]))
+        return [(passage, locale_runs_for_plain_passage(passage, doc_default)) for passage in passages if passage.strip()]
+    if ext == ".doc":
+        from plugin.embeddings.embeddings_locale import extract_odf_paragraph_runs
+        from plugin.embeddings.embeddings_soffice_convert import temporary_converted_odf
+
+        with temporary_converted_odf(path) as converted:
+            if converted is None:
+                return []
+            return extract_odf_paragraph_runs(str(converted))
+    return []
 
 
 def extract_indexable_passages(path: str) -> list[str]:
@@ -201,7 +222,8 @@ def indexable_chunks_from_path(
     file_mtime: float | None = None,
 ) -> tuple[int, list[ParagraphChunk]]:
     """Extract native passages, split to embed chunks; return (passage_count, chunk_rows)."""
-    from plugin.embeddings.embeddings_split import split_passage_to_chunk_meta
+    from plugin.embeddings.embeddings_locale import resolve_document_locale_bcp47
+    from plugin.embeddings.embeddings_split import split_passage_locale_runs_to_chunk_meta, split_passage_to_chunk_meta
 
     norm = _normalize_path(path)
     url = doc_url if doc_url else path_to_file_url(norm)
@@ -210,21 +232,56 @@ def indexable_chunks_from_path(
     except OSError:
         mtime = 0.0
 
-    passages = [text.strip() for text in extract_indexable_passages(norm) if text.strip()]
     prose = path_uses_prose_chunking(norm)
-    locale_bcp47: str | None = None
+    doc_default: str | None = None
     if prose:
-        from plugin.embeddings.embeddings_locale import resolve_document_locale_bcp47
+        sample_passages = extract_indexable_passages(norm)
+        doc_default = resolve_document_locale_bcp47(norm, body_sample="\n".join(sample_passages[:20]))
 
-        locale_bcp47 = resolve_document_locale_bcp47(norm, body_sample="\n".join(passages[:20]))
     chunks: list[ParagraphChunk] = []
+    if prose:
+        passage_runs = extract_indexable_passage_runs(norm)
+        for para_index, (passage, runs) in enumerate(passage_runs):
+            if not passage.strip():
+                continue
+            base_meta = {
+                "doc_url": url,
+                "para_index": para_index,
+                "file_mtime": mtime,
+            }
+            split_rows = split_passage_locale_runs_to_chunk_meta(
+                passage,
+                runs,
+                base_meta,
+                prose=True,
+                doc_default_locale=doc_default,
+            )
+            for piece in split_rows:
+                piece_text = str(piece.get("text") or "").strip()
+                if not piece_text:
+                    continue
+                chunks.append(
+                    ParagraphChunk(
+                        doc_url=url,
+                        para_index=para_index,
+                        char_start=int(piece.get("char_start") or 0),
+                        char_end=int(piece.get("char_end") or len(piece_text)),
+                        text=piece_text,
+                        content_hash=content_hash(piece_text),
+                        file_mtime=mtime,
+                        doc_path=norm,
+                    )
+                )
+        return len(passage_runs), chunks
+
+    passages = [text.strip() for text in extract_indexable_passages(norm) if text.strip()]
     for para_index, passage in enumerate(passages):
         base_meta = {
             "doc_url": url,
             "para_index": para_index,
             "file_mtime": mtime,
         }
-        for piece in split_passage_to_chunk_meta(passage, base_meta, prose=prose, locale_bcp47=locale_bcp47):
+        for piece in split_passage_to_chunk_meta(passage, base_meta, prose=False):
             piece_text = str(piece.get("text") or "").strip()
             if not piece_text:
                 continue

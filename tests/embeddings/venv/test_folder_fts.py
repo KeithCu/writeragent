@@ -73,7 +73,7 @@ def test_fts_stats(tmp_path):
     meta = listing / "writeragent_embeddings" / "corpus_meta.json"
     stats = folder_fts.fts_stats(str(db), str(meta))
     assert stats["row_count"] >= 1
-    assert stats["schema_version"] == "5"
+    assert stats["schema_version"] == "6"
 
 
 def test_maintain_and_search_ods_cold(tmp_path: Path):

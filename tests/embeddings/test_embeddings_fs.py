@@ -9,6 +9,8 @@ from __future__ import annotations
 import zipfile
 from pathlib import Path
 
+import pytest
+
 from plugin.embeddings import embeddings_fs
 
 
@@ -131,3 +133,66 @@ def test_paragraph_chunks_from_txt(tmp_path: Path):
 def test_guess_writer_paths_alias(tmp_path: Path):
     (tmp_path / "doc.odt").write_bytes(b"x")
     assert embeddings_fs.guess_writer_paths(str(tmp_path)) == embeddings_fs.guess_indexable_paths(str(tmp_path))
+
+
+def test_extract_indexable_passage_runs_mixed_odt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import zipfile
+
+    content_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+ xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"
+ xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0"
+ xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0">
+  <office:automatic-styles>
+    <style:style style:name="German" style:family="text">
+      <style:text-properties fo:language="de" fo:country="DE"/>
+    </style:style>
+  </office:automatic-styles>
+  <office:body><office:text>
+    <text:p>Hello. <text:span text:style-name="German">Guten Tag.</text:span></text:p>
+  </office:text></office:body>
+</office:document-content>"""
+    styles_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+ xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0"
+ xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0">
+  <office:styles>
+    <style:default-style style:family="paragraph">
+      <style:text-properties fo:language="en" fo:country="US"/>
+    </style:default-style>
+  </office:styles>
+</office:document-styles>"""
+    odt = tmp_path / "mixed.odt"
+    with zipfile.ZipFile(odt, "w") as zf:
+        zf.writestr("content.xml", content_xml)
+        zf.writestr("styles.xml", styles_xml)
+
+    seen: list[str | None] = []
+
+    def _fake_split(_text: str, locale: str = "en@ss=standard") -> list[tuple[int, int, str]]:
+        seen.append(locale)
+        return [(0, len(_text), _text)]
+
+    monkeypatch.setattr("plugin.embeddings.embeddings_split.split_passage_to_sentences", _fake_split)
+    chunks = embeddings_fs.paragraph_chunks_from_path(str(odt))
+    assert len(chunks) >= 2
+    assert "en@ss=standard" in seen
+    assert "de_DE@ss=standard" in seen
+
+
+def test_txt_uses_per_paragraph_langdetect(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    path = tmp_path / "notes.txt"
+    path.write_text("First.\n\nSecond.", encoding="utf-8")
+    calls: list[str] = []
+
+    def _fake_langdetect(sample: str) -> str | None:
+        calls.append(sample)
+        return "de-DE" if "Second" in sample else "en-US"
+
+    monkeypatch.setattr("plugin.embeddings.embeddings_locale._langdetect_from_sample", _fake_langdetect)
+    runs_by_para = embeddings_fs.extract_indexable_passage_runs(str(path))
+    assert len(runs_by_para) == 2
+    assert runs_by_para[0][1][0].locale_bcp47 == "en-US"
+    assert runs_by_para[1][1][0].locale_bcp47 == "de-DE"
+    assert "First." in calls
+    assert "Second." in calls
