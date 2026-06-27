@@ -307,6 +307,7 @@ Ingest batches: **`EMBEDDINGS_INGEST_BATCH_SIZE`** (64) chunks per embed window 
 | [`embeddings_cache.py`](../plugin/embeddings/embeddings_cache.py) | Folder keys, paths, legacy store removal |
 | [`embeddings_indexer.py`](../plugin/embeddings/embeddings_indexer.py) | Background enqueue + `_inflight` guard |
 | [`embeddings_fs.py`](../plugin/embeddings/embeddings_fs.py) | Folder scan + ODF/OOXML extract (no UNO) |
+| [`embeddings_locale.py`](../plugin/embeddings/embeddings_locale.py) | Per-document BCP-47 for prose sentence breaking |
 | [`embeddings_folder_maintain.py`](../plugin/embeddings/venv/embeddings_folder_maintain.py) | Cold/incremental maintain loop |
 | [`embeddings_periodic.py`](../plugin/embeddings/embeddings_periodic.py) | Periodic folder tick |
 | [`document_research_fts_tool.py`](../plugin/embeddings/document_research_fts_tool.py) | `search_nearby_files` tool |
@@ -378,7 +379,7 @@ Lexical leg: BM25 + FTS5 **`NEAR`** on `passages` — same `corpus.db`, stdlib `
 - **Index grain (tabular/slides):** 512-character windows, 64 overlap — RecursiveCharacterTextSplitter for Calc rows, Impress/Draw slides, spreadsheets, etc. (`prose=False` in [`embeddings_fs.py`](../plugin/embeddings/embeddings_fs.py)).
 - **Extract grain:** ODF paragraph, Calc row, Impress slide body ([`embeddings_fs.py`](../plugin/embeddings/embeddings_fs.py)).
 - **Invalidation:** `content_hash` per chunk text ([Incremental maintenance](#incremental-updates)).
-- **Schema:** `EMBEDDINGS_SCHEMA_VERSION` **4** — cold rebuild on upgrade from fixed 512-char prose chunks.
+- **Schema:** `EMBEDDINGS_SCHEMA_VERSION` **5** — cold rebuild on upgrade from v4 English-only sentence locales or fixed 512-char prose chunks.
 
 #### Index granularity {#index-granularity}
 
@@ -399,9 +400,11 @@ Lexical leg: BM25 + FTS5 **`NEAR`** on `passages` — same `corpus.db`, stdlib `
 | `.xlsx`, `.docx`, `.pptx`, `.csv`, `.txt`, `.rtf` | [`embeddings_ooxml_extract.py`](../plugin/embeddings/venv/embeddings_ooxml_extract.py) etc. | Per extract rules |
 | `.odp`, `.odg` | [`embeddings_odp_extract.py`](../plugin/embeddings/venv/embeddings_odp_extract.py) — slide + notes | Monotonic over passages |
 
-#### Sentence-level chunking (schema v4) {#sentence-chunking}
+#### Sentence-level chunking (schema v4–v5) {#sentence-chunking}
 
-**Shipped (2026-06):** prose documents use **one sentence per chunk** via [`icu4py`](https://pypi.org/project/icu4py/) `SentenceBreaker` (`en@ss=standard`) in the trusted venv — bundled ICU wheels on Linux/macOS/Windows (no LibreOffice ICU data discovery). Only consecutive **sub-`MIN_CHUNK`** sentences within the same extracted paragraph are glued; run-ons stay one chunk with full FTS text (vectors truncate at the embedder's `max_seq_length`). Calc rows and Impress/Draw slides keep 512/64 recursive-char splitting.
+**Shipped (2026-06):** prose documents use **one sentence per chunk** via [`icu4py`](https://pypi.org/project/icu4py/) `SentenceBreaker` in the trusted venv — bundled ICU wheels on Linux/macOS/Windows (no LibreOffice ICU data discovery). Only consecutive **sub-`MIN_CHUNK`** sentences within the same extracted paragraph are glued; run-ons stay one chunk with full FTS text (vectors truncate at the embedder's `max_seq_length`). Calc rows and Impress/Draw slides keep 512/64 recursive-char splitting.
+
+**Shipped (2026-06, schema v5):** [Multilingual sentence breaking](#multilingual-sentence-breaking) — one document locale per file from ODF/OOXML metadata or vendored `langdetect` on plain text; Thai/Lao/Khmer use grammar whitespace splitting.
 
 **Eval (`~/Desktop/Writing`, hybrid RRF, `k=5`, 2026-06-26 re-measured after v4 re-index):**
 
@@ -411,7 +414,7 @@ Lexical leg: BM25 + FTS5 **`NEAR`** on `passages` — same `corpus.db`, stdlib `
 | Top-3 | 75.6% | 75.6% |
 | Mean MRR | 0.646 | **0.674** |
 
-**Not handled:** rapid one-word script dialog (short lines glue via `MIN_CHUNK` when consecutive in one paragraph). See [Multilingual sentence breaking](#multilingual-sentence-breaking) for the main remaining gap.
+**Not handled:** rapid one-word script dialog (short lines glue via `MIN_CHUNK` when consecutive in one paragraph).
 
 ##### Chunking constants (shipped) {#chunking-constants}
 
@@ -430,9 +433,9 @@ Defined in [`embeddings_split.py`](../plugin/embeddings/embeddings_split.py):
 
 ##### Multilingual sentence breaking {#multilingual-sentence-breaking}
 
-**Policy (planned scope):** **one language per document.** Each indexed file gets a single document locale; all prose passages in that file use the same `SentenceBreaker` (or whitespace-locale path). This matches most Writer/Calc docs and is far better than today’s English-only default. **Out of scope for now:** mixed-language paragraphs, per-span `xml:lang`, and per-passage locale overrides.
+**Shipped (schema v5, 2026-06):** [`embeddings_locale.py`](../plugin/embeddings/embeddings_locale.py) resolves **one language per document** at extract time; [`indexable_chunks_from_path`](../plugin/embeddings/embeddings_fs.py) passes `locale_bcp47` into [`split_passage_to_chunk_meta`](../plugin/embeddings/embeddings_split.py). **Out of scope:** mixed-language paragraphs, per-span `xml:lang`, and per-passage locale overrides.
 
-**Gap today:** extract → split is **locale-blind**. [`embeddings_fs.py`](../plugin/embeddings/embeddings_fs.py) reads `text:p` body text only (`itertext()`). Every prose passage uses `SentenceBreaker(..., "en@ss=standard")` even when the embedding model is multilingual (`paraphrase-multilingual-MiniLM-L12-v2`).
+**Policy:** each indexed prose file gets a single document locale; all passages use the same `SentenceBreaker` ICU tag (via [`bcp47_to_icu_sentence_breaker_locale`](../plugin/writer/locale/grammar_proofread_locale.py)) or grammar whitespace splitting for Thai/Lao/Khmer ([`is_whitespace_sentence_locale`](../plugin/writer/locale/grammar_proofread_locale.py)). When XML/langdetect yield nothing, fall back to `DEFAULT_SENTENCE_LOCALE` (`en@ss=standard`).
 
 **What breaks when the document locale is wrong (English breaker on a foreign doc):**
 
@@ -440,13 +443,13 @@ Defined in [`embeddings_split.py`](../plugin/embeddings/embeddings_split.py):
 |------|--------|
 | French / German / etc. | Wrong period/abbrev boundaries; diluted or split mid-phrase vectors |
 | CJK (ja, zh, ko) | Period-based splitting is a poor unit; one giant “sentence” or arbitrary cuts |
-| Thai / Lao / Khmer | No reliable `.` boundaries — use grammar’s whitespace path ([`is_whitespace_sentence_locale`](../plugin/writer/locale/grammar_proofread_locale.py)) instead of ICU |
+| Thai / Lao / Khmer | No reliable `.` boundaries — whitespace path instead of ICU |
 
-**Invalidation:** document locale → different sentence boundaries → different chunks. Shipping locale-aware chunking needs a **schema version bump** and cold re-chunk (like v3→v4).
+**Invalidation:** document locale → different sentence boundaries → different chunks. v5 cold re-chunks folders that were indexed at v4.
 
-###### Document locale from XML (planned, venv-only)
+###### Document locale from XML (shipped)
 
-Resolve **once per file** at extract time; pass the same locale into every `split_passage_to_sentences` call for that path.
+Resolve **once per file** at extract time; pass the same locale into every prose split for that path.
 
 **LibreOffice ODT (empirical):** on a sample of 15 `.odt` files in `~/Desktop/Writing`, **`meta.xml` `<dc:language>` was absent in all 15**; **`styles.xml` paragraph `style:default-style`** (`fo:language` + `fo:country`) was present in all 15. Prefer styles default for LO-native ODF; keep `dc:language` as a secondary signal (Word exports, other tools, or LO when meta is populated).
 
@@ -458,19 +461,11 @@ Resolution order:
 | 2 | `meta.xml` — `dc:language` if present | **`word/styles.xml`** — `w:docDefaults` / default style `w:lang` | — |
 | 3 | `DEFAULT_SENTENCE_LOCALE` (`en@ss=standard` after ICU mapping) | `word/settings.xml` or default-style fallback | `DEFAULT_SENTENCE_LOCALE` |
 
-**Plain text — bundled `langdetect` (no venv pip):** the extension ships a stripped [langdetect](../plugin/contrib/langdetect/) under `plugin/contrib/` (same stack as grammar **Local (langdetect)** — see [realtime-grammar-checker-plan.md](realtime-grammar-checker-plan.md)). For `.txt` / `.csv` with no XML metadata, run detection once on a representative sample of the file body (e.g. first N characters or concatenated passages), map the top hit through [`normalize_detected_bcp47`](../plugin/writer/locale/grammar_proofread_locale.py) / [`bcp47_to_langdetect_profile`](../plugin/writer/locale/grammar_proofread_locale.py), then use that as `document_locale`. **Caveats:** short files may fail or mis-detect — fall back to `DEFAULT_SENTENCE_LOCALE`; no API call and no extra venv package.
+**Plain text — bundled `langdetect` (no venv pip):** the extension ships a stripped [langdetect](../plugin/contrib/langdetect/) under `plugin/contrib/` (same stack as grammar **Local (langdetect)** — see [realtime-grammar-checker-plan.md](realtime-grammar-checker-plan.md)). For `.txt` / `.rtf` with no XML metadata, run detection once on a representative sample (first passages or up to 8k chars), map through [`normalize_detected_bcp47`](../plugin/writer/locale/grammar_proofread_locale.py), then use as `locale_bcp47`. Short files may mis-detect — fall back to `DEFAULT_SENTENCE_LOCALE`.
 
-**Venv / host parsing options (no UNO):**
+**Parsing:** stdlib `zipfile` + `ElementTree` in [`embeddings_locale.py`](../plugin/embeddings/embeddings_locale.py) (no UNO, no extra venv packages for locale).
 
-| Approach | Use for |
-|----------|---------|
-| **Stdlib `zipfile` + `ElementTree`** (extend current extract) | ODF/OOXML zip members above — **preferred** for structured docs |
-| **`odfpy`** (venv pip) | Optional cross-check of `styles.xml` / meta |
-| **`python-docx` / OOXML ET** | `.docx` core + styles |
-| **Grammar locale helpers** | BCP-47 → `icu4py` tag (`de_DE@ss=standard`); whitespace locales — [`grammar_proofread_locale.py`](../plugin/writer/locale/grammar_proofread_locale.py) |
-| **Vendored `plugin.contrib.langdetect`** | Plain text / silent markup only — extension bundle, not `EMBEDDINGS_VENV_PIP_INSTALL` |
-
-Threading: add `document_locale: str | None` on the extract path (e.g. `indexable_chunks_from_path` reads locale once, passes to `split_passage_to_chunk_meta(..., locale=...)`). No per-passage locale in the index schema.
+Threading: `indexable_chunks_from_path` reads locale once, passes `locale_bcp47` to `split_passage_to_chunk_meta`. No per-passage locale in the index schema.
 
 **Map to splitters:** normalize tag via grammar helpers → if whitespace locale, grammar whitespace split; else `icu4py` `SentenceBreaker(text, locale)`.
 
@@ -478,17 +473,14 @@ Threading: add `document_locale: str | None` on the extract path (e.g. `indexabl
 
 | Step | Work |
 |------|------|
-| 1 | Document locale: ODF **`styles.xml` paragraph default** (+ `meta.xml` `dc:language` fallback); OOXML core/styles; plain text via vendored **`langdetect`** |
-| 2 | Thread single `locale` per file into prose sentence split |
-| 3 | BCP-47 → ICU mapping + Thai/Lao/Khmer whitespace branch |
-| 4 | OOXML parity for `.docx` / converted legacy docs |
-| 5 | Schema bump + cold re-chunk; re-eval with non-English labeled queries |
+| — | Multilingual sentence breaking (v5) | **Done** |
+| — | Re-eval with non-English labeled query suite on multilingual corpora | Open |
 
-**Future knobs (not shipped):**
+**Knobs (constants, not Settings):**
 
 | Knob | Purpose |
 |------|---------|
-| `document_locale` | One BCP-47 tag per indexed file (XML, langdetect on plain text, or default) |
+| `locale_bcp47` (per file at split time) | One BCP-47 tag from XML, langdetect, or default |
 | `DEFAULT_SENTENCE_LOCALE` | Fallback when XML/langdetect yield nothing |
 | `@ss=standard` | ICU sentence filter; keep for abbrev handling |
 | Whitespace-locale list | `th`, `lo`, `km` — grammar-aligned, no `SentenceBreaker` |
@@ -531,7 +523,7 @@ Live keystroke hooks (`XProofreading`) were considered and **not planned** — p
 
 **Shipped:** hybrid RRF → parent merge → optional cross-encoder rerank. Vec-only debug path: kNN → MMR.
 
-**Future (not shipped):** [multilingual sentence breaking](#multilingual-sentence-breaking), heading-level parents, contextual chunk prepends, sub-question retrieval — tune via [`eval_folder_search_routing.py`](../scripts/eval_folder_search_routing.py) before building.
+**Future (not shipped):** heading-level parents, contextual chunk prepends, sub-question retrieval — tune via [`eval_folder_search_routing.py`](../scripts/eval_folder_search_routing.py) before building.
 
 ---
 

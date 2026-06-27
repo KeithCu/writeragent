@@ -100,3 +100,43 @@ def test_icu4py_integration_splits_sentences():
     assert len(sentences) >= 2
     rebuilt = "".join(piece for _start, _end, piece in sentences)
     assert rebuilt == passage
+
+
+def test_locale_bcp47_forwarded_to_icu(monkeypatch: pytest.MonkeyPatch):
+    passage = "Alpha. Beta."
+    seen: list[str] = []
+
+    def _fake_split(_text: str, locale: str = split_mod.DEFAULT_SENTENCE_LOCALE) -> list[tuple[int, int, str]]:
+        seen.append(locale)
+        return [(0, 6, "Alpha."), (7, 12, "Beta.")]
+
+    monkeypatch.setattr(split_mod, "split_passage_to_sentences", _fake_split)
+    split_mod.split_passage_to_chunk_meta(passage, {"doc_url": "file:///x"}, prose=True, locale_bcp47="de-DE")
+    assert seen == ["de_DE@ss=standard"]
+
+
+def test_whitespace_locale_uses_grammar_split(monkeypatch: pytest.MonkeyPatch):
+    passage = "word one word two word three"
+    called = False
+
+    def _fake_whitespace(_passage: str) -> list[tuple[int, int, str]]:
+        nonlocal called
+        called = True
+        return [(0, 5, "word "), (5, 9, "one "), (9, 14, "two "), (14, 19, "three")]
+
+    monkeypatch.setattr(
+        "plugin.writer.locale.grammar_proofread_locale.normalize_detected_bcp47",
+        lambda tag: "th-TH" if tag else None,
+    )
+    monkeypatch.setattr(
+        "plugin.writer.locale.grammar_proofread_locale.is_whitespace_sentence_locale",
+        lambda key: key.startswith("th"),
+    )
+    monkeypatch.setattr(split_mod, "_split_passage_whitespace_to_sentences", _fake_whitespace)
+    rows = split_mod.split_passage_to_chunk_meta(
+        passage,
+        {"doc_url": "file:///x"},
+        prose=True,
+        locale_bcp47="th-TH",
+    )
+    assert called

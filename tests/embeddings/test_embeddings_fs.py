@@ -53,6 +53,33 @@ def test_paragraph_chunks_from_path(tmp_path: Path):
  xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">
 <office:body><office:text><text:p>Body</text:p></office:text></office:body>
 </office:document-content>"""
+    styles_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+ xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0"
+ xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0">
+  <office:styles>
+    <style:default-style style:family="paragraph">
+      <style:text-properties fo:language="de" fo:country="DE"/>
+    </style:default-style>
+  </office:styles>
+</office:document-styles>"""
+    with zipfile.ZipFile(odt, "w") as zf:
+        zf.writestr("content.xml", content_xml)
+        zf.writestr("styles.xml", styles_xml)
+    chunks = embeddings_fs.paragraph_chunks_from_path(str(odt))
+    assert len(chunks) == 1
+    assert chunks[0].text == "Body"
+    assert chunks[0].para_index == 0
+    assert chunks[0].doc_url.startswith("file:")
+
+
+def test_paragraph_chunks_from_path_without_styles(tmp_path: Path):
+    odt = tmp_path / "a.odt"
+    content_xml = b"""<?xml version="1.0"?>
+<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+ xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">
+<office:body><office:text><text:p>Body</text:p></office:text></office:body>
+</office:document-content>"""
     with zipfile.ZipFile(odt, "w") as zf:
         zf.writestr("content.xml", content_xml)
     chunks = embeddings_fs.paragraph_chunks_from_path(str(odt))

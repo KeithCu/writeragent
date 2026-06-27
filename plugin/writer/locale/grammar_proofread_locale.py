@@ -215,6 +215,23 @@ GRAMMAR_REGISTRY_LOCALE_TAGS: tuple[str, ...] = tuple(GRAMMAR_REGISTRY_LOCALES.k
 GrammarDetectLanguageMode = Literal["off", "llm", "langdetect"]
 
 
+def bcp47_to_icu_sentence_breaker_locale(bcp47: str) -> str:
+    """Map a canonical BCP-47 tag to an ``icu4py`` ``SentenceBreaker`` locale (``@ss=standard``)."""
+    tag = normalize_detected_bcp47(bcp47) or str(bcp47 or "").strip()
+    if not tag:
+        return "en@ss=standard"
+    parts = tag.split("-")
+    lang = parts[0].lower()
+    if not lang:
+        return "en@ss=standard"
+    if lang == "en":
+        return "en@ss=standard"
+    country = parts[1].upper() if len(parts) > 1 else ""
+    if country:
+        return f"{lang}_{country}@ss=standard"
+    return f"{lang}@ss=standard"
+
+
 def bcp47_to_langdetect_profile(bcp47: str) -> str:
     """Map a grammar-registry BCP-47 tag to a langdetect ``profiles/`` folder name."""
     parts = bcp47.lower().split("-")

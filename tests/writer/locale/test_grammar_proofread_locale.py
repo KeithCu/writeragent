@@ -81,6 +81,13 @@ def test_normalize_german_regional() -> None:
     assert gl.normalize_uno_locale_to_bcp47(_uno_locale("de", "AT")) == "de-DE"
     assert gl.normalize_uno_locale_to_bcp47(_uno_locale("de", "DE")) == "de-DE"
 
+def test_bcp47_to_icu_sentence_breaker_locale() -> None:
+    assert gl.bcp47_to_icu_sentence_breaker_locale("en-US") == "en@ss=standard"
+    assert gl.bcp47_to_icu_sentence_breaker_locale("en-GB") == "en@ss=standard"
+    assert gl.bcp47_to_icu_sentence_breaker_locale("de-DE") == "de_DE@ss=standard"
+    assert gl.bcp47_to_icu_sentence_breaker_locale("ja-JP") == "ja_JP@ss=standard"
+    assert gl.bcp47_to_icu_sentence_breaker_locale("") == "en@ss=standard"
+
 def test_normalize_english_choices() -> None:
     assert gl.normalize_uno_locale_to_bcp47(_uno_locale("en", "US")) == "en-US"
     assert gl.normalize_uno_locale_to_bcp47(_uno_locale("en", "GB")) == "en-GB"

@@ -137,8 +137,30 @@ def _merge_small_sentences_to_spans(
     return spans
 
 
-def _split_prose_passage_to_spans(passage: str) -> list[tuple[int, int]]:
-    sentences = split_passage_to_sentences(passage)
+def _split_passage_whitespace_to_sentences(passage: str) -> list[tuple[int, int, str]]:
+    from plugin.writer.locale.grammar_proofread_locale import GRAMMAR_WHITESPACE_RUN_RE, split_sentence_chunks_by_separator_regex
+
+    sentences: list[tuple[int, int, str]] = []
+    for start, chunk in split_sentence_chunks_by_separator_regex(passage, GRAMMAR_WHITESPACE_RUN_RE):
+        end = start + len(chunk)
+        sentences.append((start, end, chunk))
+    return sentences or [(0, len(passage), passage)]
+
+
+def _split_prose_passage_to_spans(passage: str, locale_bcp47: str | None = None) -> list[tuple[int, int]]:
+    from plugin.writer.locale.grammar_proofread_locale import (
+        bcp47_to_icu_sentence_breaker_locale,
+        is_whitespace_sentence_locale,
+        normalize_detected_bcp47,
+    )
+
+    canon = normalize_detected_bcp47(locale_bcp47) if locale_bcp47 else None
+    if canon and is_whitespace_sentence_locale(canon):
+        sentences = _split_passage_whitespace_to_sentences(passage)
+    elif canon:
+        sentences = split_passage_to_sentences(passage, bcp47_to_icu_sentence_breaker_locale(canon))
+    else:
+        sentences = split_passage_to_sentences(passage)
     if not sentences:
         return []
     if len(sentences) == 1:
@@ -174,13 +196,18 @@ def split_passage_to_chunk_meta(
     base_meta: dict[str, Any],
     *,
     prose: bool = True,
+    locale_bcp47: str | None = None,
 ) -> list[dict[str, Any]]:
     """Split one passage into embed-sized chunks with char offsets relative to passage text."""
     stripped = str(text or "").strip()
     if not stripped:
         return []
 
-    spans = _split_prose_passage_to_spans(stripped) if prose else _split_non_prose_passage_to_spans(stripped)
+    spans = (
+        _split_prose_passage_to_spans(stripped, locale_bcp47)
+        if prose
+        else _split_non_prose_passage_to_spans(stripped)
+    )
     return _meta_chunks_from_spans(stripped, spans, base_meta)
 
 

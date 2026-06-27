@@ -212,6 +212,11 @@ def indexable_chunks_from_path(
 
     passages = [text.strip() for text in extract_indexable_passages(norm) if text.strip()]
     prose = path_uses_prose_chunking(norm)
+    locale_bcp47: str | None = None
+    if prose:
+        from plugin.embeddings.embeddings_locale import resolve_document_locale_bcp47
+
+        locale_bcp47 = resolve_document_locale_bcp47(norm, body_sample="\n".join(passages[:20]))
     chunks: list[ParagraphChunk] = []
     for para_index, passage in enumerate(passages):
         base_meta = {
@@ -219,7 +224,7 @@ def indexable_chunks_from_path(
             "para_index": para_index,
             "file_mtime": mtime,
         }
-        for piece in split_passage_to_chunk_meta(passage, base_meta, prose=prose):
+        for piece in split_passage_to_chunk_meta(passage, base_meta, prose=prose, locale_bcp47=locale_bcp47):
             piece_text = str(piece.get("text") or "").strip()
             if not piece_text:
                 continue
