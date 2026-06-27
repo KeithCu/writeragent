@@ -122,4 +122,14 @@ Tests: [`tests/contrib/smolagents/test_tool_call_parsing.py`](../tests/contrib/s
 
 ---
 
+## 9. Optional tool params and strict provider validation (Groq)
+
+**Problem**: Some providers (notably Groq) validate tool calls against the JSON Schema before WriterAgent runs the tool. Models often send `"max_chars": null` (or omit meaning “use default”) for optional parameters. A wire schema of `"type": "integer"` rejects `null`, so the whole call fails upstream — e.g. `get_document_content` with `max_chars: null`.
+
+**Solution**: [`to_openai_schema` / `to_mcp_schema`](../plugin/framework/tool.py) run `_normalize_schema_for_strict_providers`, which emits `"type": [scalar, "null"]` for **optional** scalar properties (`integer`, `number`, `boolean`, `string`). Required parameters stay non-nullable. Tool implementations already treat omitted/`null` as default (e.g. no truncation when `max_chars` is null).
+
+Tests: [`tests/framework/test_tool_schema_convert.py`](../tests/framework/test_tool_schema_convert.py).
+
+---
+
 *This document should be updated as new hacks are discovered or as improvements in models allow us to remove them.*
