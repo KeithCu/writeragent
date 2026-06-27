@@ -233,7 +233,72 @@ Since dialog `.xdl` files are built from template files by compiling configurati
 2. **LinguService Redraw Events:**
    * *Rationale:* In the async path, underlines are not displayed until LibreOffice runs its next spelling/grammar check pass.
    * *Proposal:* Integrate a `LinguServiceEvent` listener broadcaster (`XLinguServiceEventBroadcaster`) to fire `PROOFREAD_AGAIN` events when background checking completes, forcing immediate underline updates.
-3. **LanguageTool Rule Filtering Configuration:**
-   * *Rationale:* Users might want to enable/disable specific rules (e.g. disabling passive voice check or activating specific style rules).
-   * *Proposal:* Add rule exclusion fields in the Settings tab that feed into `LanguageTool.disabled_rules` or custom local configuration files.
+4. **Cascading Hybrid Mode (LanguageTool + LLM):**
+   * *Rationale:* Running both LanguageTool and LLM checkers concurrently via separate extensions causes double-underlines, visual clutter, and conflicting suggestions.
+   * *Proposal:* Create a sequential pipeline under a single combined dropdown choice.
+
+---
+
+## 8. Phased Dev Plan: Cascading Hybrid Mode (LanguageTool + LLM)
+
+This section provides the implementation blueprint to introduce a unified hybrid provider choice without altering the simple settings interface.
+
+### 1. UX & Configuration Schema
+We will add a new combined choice to `grammar_proofreader_enabled` inside `plugin/doc/module.yaml`:
+```yaml
+      - value: "languagetool_llm"
+        label: "LanguageTool + AI (LLM)"
+```
+
+### 2. Execution Pipeline Workflow
+When `languagetool_llm` is selected, the checking loop executes in two sequential phases:
+
+```mermaid
+flowchart TD
+    Start[Sentence Checking Request] --> Phase1[Phase 1: Local LanguageTool Check]
+    Phase1 --> Step1{Errors Found?}
+    Step1 -->|Yes| HighlightLT[Display LanguageTool Underlines]
+    Step1 -->|No| Phase2[Phase 2: AI LLM Grammar Check]
+    
+    HighlightLT --> Done[Wait for user edit]
+    Phase2 --> HighlightLLM[Display LLM Underlines]
+    HighlightLLM --> Done
+```
+
+### 3. Queue Dispatcher Integration (`grammar_work_queue.py`)
+The queue dispatcher's `_run_grammar_check` will route checking requests sequentially:
+```python
+        if provider == "languagetool_llm":
+            from plugin.scripting.client import run_languagetool_check
+            
+            clean_sentences = []
+            
+            # Phase 1: Local LanguageTool
+            for item, text in chunk:
+                try:
+                    request_start = time.monotonic()
+                    res = run_languagetool_check(ec.ctx, text, bcp47)
+                    elapsed_ms = int((time.monotonic() - request_start) * 1000)
+                    
+                    errors = res.get("errors", [])
+                    if errors:
+                        # Display LT errors immediately, skipping LLM phase
+                        _process_grammar_results([(item, text)], [errors], bcp47, original_bcp47, elapsed_ms, ec)
+                    else:
+                        clean_sentences.append((item, text))
+                except Exception as ex:
+                    log.error("[grammar] Local LT phase failed: %s", ex)
+                    clean_sentences.append((item, text)) # Fallback to LLM
+            
+            # Phase 2: AI LLM (Only run on sentences that passed LanguageTool)
+            if clean_sentences:
+                results, elapsed_ms = call_grammar_llm(clean_sentences, bcp47, ec)
+                _process_grammar_results(clean_sentences, results, bcp47, original_bcp47, elapsed_ms, ec)
+            return
+```
+
+### 4. Technical Advantages
+*   **Visual Consistency:** Since the LLM check is only invoked if the local engine is clean, sentences will never display overlapping or conflicting red lines from both engines simultaneously.
+*   **Cost/Token Efficiency:** Bypasses LLM API calls entirely for sentences containing simple typographical or grammatical mistakes (like misspelling a word), reserving LLM power for final-pass stylistic polish.
+
 
