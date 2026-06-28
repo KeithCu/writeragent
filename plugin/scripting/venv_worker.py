@@ -23,6 +23,7 @@ import uuid
 from typing import Any, Callable, Dict, IO
 
 from plugin.framework.config import get_config_str
+from plugin.framework.thread_guard import background
 from plugin.framework.constants import WORKER_POOL_DEFAULT, WORKER_POOL_EMBEDDINGS
 from plugin.scripting.config_limits import (
     WARM_WORKER_TIMEOUT_SEC,
@@ -672,6 +673,7 @@ def reset_python_session(uno_ctx: Any, session_id: str, *, timeout_sec: int | No
     )
 
 
+@background
 def warm_venv_worker(uno_ctx: Any, pool: str = WORKER_POOL_DEFAULT) -> None:
     """Pre-warm a specific venv subprocess pool (spawn + trigger auto-imports + load embedding model if embeddings pool). Safe to call from a background thread."""
     exe, err = _resolve_worker_python(uno_ctx, pool=pool)

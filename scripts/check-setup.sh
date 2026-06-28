@@ -137,6 +137,17 @@ else
     fail "make not found — install: sudo dnf install make / sudo apt install make"
 fi
 
+# ── Opengrep (Layer C UNO thread lint; required for make test) ───────────
+
+if command -v opengrep &>/dev/null; then
+    OG_VER=$(opengrep --version 2>&1 | head -1)
+    ok "opengrep: $OG_VER"
+elif [[ -x "$PROJECT_ROOT/bin/opengrep" ]]; then
+    ok "opengrep: $PROJECT_ROOT/bin/opengrep"
+else
+    fail "opengrep not found — run: make opengrep-install (required for make test uno-thread-lint)"
+fi
+
 # ── git ────────────────────────────────────────────────────────────────
 
 if command -v git &>/dev/null; then

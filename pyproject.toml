@@ -74,7 +74,6 @@ dev = [
     "css-inline",
     "py-spy",
     "Pillow",
-    "semgrep>=1.76.0",
 ]
 
 [tool.ruff]

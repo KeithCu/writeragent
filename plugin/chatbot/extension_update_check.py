@@ -67,6 +67,10 @@ def remote_is_newer(remote: str, local: str) -> bool:
     return rt > lt
 
 
+from plugin.framework.thread_guard import background
+
+
+@background
 def run_extension_update_check(ctx: Any) -> None:
     """Background worker: fetch update.xml, compare versions, optionally notify. Call after init_logging."""
     from plugin.framework.config import set_config

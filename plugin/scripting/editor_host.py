@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any, Callable, cast
 if TYPE_CHECKING:
     import subprocess as subprocess_types
 
+from plugin.framework.thread_guard import background
 from plugin.framework.event_bus import global_event_bus
 from plugin.framework.i18n import _
 from plugin.framework.queue_executor import QueueExecutor, default_executor
@@ -264,6 +265,7 @@ class PersistentEditor:
             while self._stderr_tail and sum(len(s) + 1 for s in self._stderr_tail) > self._stderr_tail_max_chars:
                 self._stderr_tail.popleft()
 
+    @background
     def _stderr_drain_loop(self) -> None:
         proc = self._proc
         if proc is None or proc.stderr is None:
@@ -330,6 +332,7 @@ class PersistentEditor:
             log.error("Editor ready timeout (%ss). child_running=%s stderr=%s", timeout_sec, self._proc is not None, self.read_stderr_tail())
         return self._ready_event.is_set()
 
+    @background
     def _read_loop(self) -> None:
         if self._proc is None or self._proc.stdout is None:
             return

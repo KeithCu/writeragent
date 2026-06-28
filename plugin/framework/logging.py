@@ -31,6 +31,7 @@ from copy import deepcopy
 from typing import Any
 
 from plugin.framework.worker_pool import run_in_background
+from plugin.framework.thread_guard import background
 from plugin.framework.errors import ConfigError, format_error_payload
 from plugin.framework.json_utils import safe_json_loads
 from plugin.framework import config
@@ -461,6 +462,7 @@ def log_send_timing(milestone: str, **extra: object) -> None:
         _send_timing_log.debug("send_timing %s +%.1fms", milestone, delta_ms)
 
 
+@background
 def _watchdog_loop(status_control):
     """Daemon thread: if no activity for threshold, log and set status to Hung: ..."""
     while True:

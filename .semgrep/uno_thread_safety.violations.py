@@ -1,4 +1,4 @@
-"""Semgrep rule fixtures — expected findings (ruleid)."""
+"""Semgrep/Opengrep rule fixtures — expected findings (ruleid)."""
 
 from plugin.framework.worker_pool import run_in_background
 from plugin.framework.uno_context import get_desktop
@@ -23,6 +23,15 @@ def start_nested():
 def bad_background_worker():
     # ruleid: uno-off-main-thread
     get_desktop()
+
+
+@background
+def bad_cross_function_worker():
+    def _touch_desktop_helper():
+        # ruleid: uno-off-main-thread
+        get_desktop()
+
+    _touch_desktop_helper()
 
 
 def spawn_raw_thread():

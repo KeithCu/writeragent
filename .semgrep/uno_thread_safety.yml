@@ -43,11 +43,35 @@ rules:
           - pattern: get_toolkit(...)
           - pattern: get_package_info(...)
           - pattern: get_extension_url(...)
+          - pattern: get_extension_path(...)
           - pattern: process_events_to_idle(...)
+          - pattern: focus_preserved(...)
           - pattern: resolve_document_by_url(...)
           - pattern: get_document_context_for_chat(...)
           - pattern: get_calc_context_for_chat(...)
           - pattern: get_draw_context_for_chat(...)
+          - pattern: get_document_uno_services(...)
+          - pattern: get_document_type(...)
+          - pattern: get_full_document_text(...)
+          - pattern: get_document_end(...)
+          - pattern: get_document_length(...)
+          - pattern: get_text_cursor_at_range(...)
+          - pattern: get_selection_range(...)
+          - pattern: get_paragraph_ranges(...)
+          - pattern: build_heading_tree(...)
+          - pattern: ensure_heading_bookmarks(...)
+          - pattern: resolve_locator(...)
+          - pattern: get_string_without_tracked_deletions(...)
+          - pattern: get_document_property(...)
+          - pattern: set_document_property(...)
+          - pattern: get_runtime_uid(...)
+          - pattern: get_document_path(...)
+          - pattern: insert_html_fragment_at_cursor(...)
+          - pattern: insert_content_at_position(...)
+          - pattern: replace_full_document(...)
+          - pattern: replace_single_range_with_content(...)
+          - pattern: replace_preserving_format(...)
+          - pattern: apply_paragraph_style_preserving_direct_char(...)
     pattern-sanitizers:
       - pattern: execute_on_main_thread(...)
       - pattern: post_to_main_thread(...)
@@ -61,6 +85,8 @@ rules:
     pattern-either:
       - pattern: threading.Thread(...)
       - pattern: threading.Timer(...)
+      - pattern: Thread(...)
+      - pattern: Timer(...)
     paths:
       exclude:
         - "**/plugin/contrib/**"
@@ -72,3 +98,50 @@ rules:
         - "**/plugin/writer/locale/grammar_work_queue.py"
         - "**/plugin/chatbot/dialog_views.py"
         - "**/plugin/calc/python/function.py"
+
+  - id: background-worker-missing-decorator
+    languages: [python]
+    severity: WARNING
+    message: >-
+      Module-level worker passed to run_in_background should be decorated @background
+      so Opengrep can track cross-file UNO taint. See docs/uno-thread-safety-enforcement.md.
+    patterns:
+      - pattern: run_in_background($F, ...)
+      - pattern-not-inside: |
+          @background
+          def $F(...):
+            ...
+      - pattern-not-inside: |
+          def $OUTER(...):
+            ...
+            def $F(...):
+              ...
+            ...
+            run_in_background($F, ...)
+    paths:
+      exclude:
+        - "**/tests/**"
+        - "**/plugin/tests/**"
+
+  - id: uno-source-needs-main-thread-decorator
+    languages: [python]
+    severity: WARNING
+    message: >-
+      UNO source getter should be decorated @main_thread_only (Layer A/C alignment).
+    paths:
+      include:
+        - "**/plugin/framework/uno_context.py"
+    patterns:
+      - pattern: |
+          def $F(...):
+            ...
+      - metavariable-regex:
+          metavariable: $F
+          regex: ^get_
+      - pattern-not-inside: |
+          @main_thread_only
+          def $F(...):
+            ...
+      - pattern-not: |
+          def get_extension_path(...):
+            ...

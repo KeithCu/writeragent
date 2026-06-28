@@ -3,6 +3,7 @@ localwriter.json
 
 # Build artifacts
 build/
+bin/opengrep
 vendor/
 *.oxt
 *.pyc

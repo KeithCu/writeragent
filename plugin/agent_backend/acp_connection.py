@@ -20,6 +20,7 @@ Supports initial handshakes, prompt sessions, and streaming notifications
 acting as an ACP client connected to a supporting agent binary backend.
 """
 
+from plugin.framework.thread_guard import background
 import json
 import logging
 import os
@@ -170,6 +171,7 @@ class ACPConnection:
         """Set a callback(method, params, msg_id) for incoming notifications."""
         self._notify_callback = callback
 
+    @background
     def _reader_loop(self):
         """Read JSON-RPC messages from stdout and dispatch them."""
         log.info("Reader loop started")

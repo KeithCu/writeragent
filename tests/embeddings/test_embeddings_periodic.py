@@ -25,7 +25,7 @@ def _reset_periodic_schedule_flag():
 
 def test_schedule_periodic_indexer_skipped_when_off():
     with patch("plugin.framework.constants.folder_search_enabled", return_value=False):
-        with patch("plugin.framework.worker_pool.run_in_background") as run_bg:
+        with patch("plugin.embeddings.embeddings_periodic.run_in_background") as run_bg:
             schedule_periodic_embeddings_indexer_once(MagicMock())
             run_bg.assert_not_called()
 
@@ -33,7 +33,7 @@ def test_schedule_periodic_indexer_skipped_when_off():
 def test_schedule_periodic_indexer_once_when_on():
     ctx = MagicMock()
     with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
-        with patch("plugin.framework.worker_pool.run_in_background") as run_bg:
+        with patch("plugin.embeddings.embeddings_periodic.run_in_background") as run_bg:
             schedule_periodic_embeddings_indexer_once(ctx)
             schedule_periodic_embeddings_indexer_once(ctx)
             assert run_bg.call_count == 1

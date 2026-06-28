@@ -69,6 +69,7 @@ from com.sun.star.frame import DispatchDescriptor, XDispatch, XDispatchProvider
 from com.sun.star.lang import XInitialization, XServiceInfo
 
 from plugin.framework.uno_context import get_active_document, get_extension_url, get_ctx
+from plugin.framework.thread_guard import background
 
 # ---------------------------------------------------------------------------
 # HTTP / MCP Server (Module wrapper)
@@ -622,6 +623,7 @@ def get_menu_text(command):
     return None
 
 
+@background
 def notify_menu_update():
     """Push current menu text and icons to all registered status listeners.
 
@@ -747,8 +749,8 @@ def _load_icon_graphic(module_name, icon_filename, ctx=None):
         return None
 
 
-def _update_menu_icons():
-    """Push current-state icons into every module's ImageManager."""
+def _update_menu_icons_impl():
+    """Push current-state icons into every module's ImageManager (UNO main thread)."""
     try:
         import uno
 
@@ -801,6 +803,14 @@ def _update_menu_icons():
                 log.warning("_update_menu_icons: failed to process ImageManager for %s: %s", mod_id, e)
     except Exception:
         log.exception("_update_menu_icons: outer exception")
+
+
+@background
+def _update_menu_icons():
+    """Background entrypoint: marshal UNO icon updates onto the main thread."""
+    from plugin.framework.queue_executor import execute_on_main_thread
+
+    execute_on_main_thread(_update_menu_icons_impl)
 
 
 def _get_http_module(ctx=None) -> McpModuleActions | None:

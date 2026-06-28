@@ -21,6 +21,7 @@ The server handles CORS, JSON encode/decode, and main-thread dispatch.
 Route handlers are looked up from an HttpRouteRegistry instance.
 """
 
+from plugin.framework.thread_guard import background
 import json
 import logging
 import socketserver
@@ -190,6 +191,7 @@ class HttpServer:
             self._server.server_close()
             log.info("HTTP server stopped")
 
+    @background
     def _run(self):
         try:
             if self._server:

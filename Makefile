@@ -98,7 +98,10 @@ endif
 PROJECT_ROOT := $(CURDIR)
 ifneq ($(wildcard .venv/bin/python),)
     PYTHON := $(PROJECT_ROOT)/.venv/bin/python
-    SEMGREP := $(PROJECT_ROOT)/.venv/bin/semgrep
+endif
+OPENGREP := $(shell command -v opengrep 2>/dev/null)
+ifeq ($(OPENGREP),)
+    OPENGREP := $(PROJECT_ROOT)/bin/opengrep
 endif
 ifeq ($(OS),Windows_NT)
 ifneq ($(wildcard .venv/Scripts/python.exe),)
@@ -117,7 +120,7 @@ endif
         lo-start lo-start-full lo-kill lo-restart \
         clean-cache nuke-cache nuke-cache-force unbundle \
         log log-tail lo-log test test-run slowtests vhs test-visible lo-test-threadguard lo-test-threadguard-visible typecheck check-ext check-setup deploy \
-        lo-start-log uno-thread-lint \
+        lo-start-log uno-thread-lint uno-thread-lint-advisory opengrep-install \
         writer calc draw impress \
         set-config vendor docker-build compile-translations merge-translations refresh-pot reset-lang preview-translations check ty mypy pyright pyrefly bandit ty-run mypy-run pyright-run pyrefly-run \
         ruff ruff-fix ruff-for-build ruff-format-check ruff-format-grammar \
@@ -184,9 +187,11 @@ help:
 	@echo "  make vhs                    Hypothesis serialization fuzz with verbose output (Hypothesis step of slowtests)"
 	@echo "  make test-visible           Run LO chart + grep UNO tests visibly (GUI) for processEventsToIdle / OLE queue"
 	@echo "  make lo-test-threadguard    Run full in-LO suite with WRITERAGENT_UNO_THREAD_GUARD=1 (Layer B)"
-	@echo "  make lo-test-threadguard-visible  Same as lo-test-threadguard but chart/grep tests with visible window"
+	@echo "  make uno-thread-lint        Opengrep UNO thread-safety lint (ERROR; part of make test)"
+	@echo "  make uno-thread-lint-advisory  Same rules including WARNING-level nudges"
+	@echo "  make opengrep-install       Install Opengrep CLI (~/.local/bin or bin/opengrep)"
 	@echo "  make typecheck              Run ty, then mypy, then pyright (same scope as each single target)"
-  @echo "  make check                  Quick gate: ty + uno-thread-lint"
+	@echo "  make check                  Quick gate: ty only"
 	@echo "  make fix-uno                Fix uno import in .venv (adds system UNO paths to .pth)"
 	@echo "  make mypy / make pyright / make pyrefly / make bandit   Single-tool runs (bandit: plugin/, excludes contrib + tests)"
 	@echo "  make pyrefly                Experimental Meta Pyrefly checker (same scope as ty; not part of make test)"
@@ -562,7 +567,15 @@ lo-test-threadguard-visible:
 	WRITERAGENT_UNO_THREAD_GUARD=1 $(LO_PYTHON) -m plugin.testing_runner --visible test_charts_uno test_enhanced_charts_uno test_document_research_grep_uno; EXIT_CODE=$$?; $(MAKE) lo-kill; exit $$EXIT_CODE
 
 uno-thread-lint:
-	SEMGREP_SEND_METRICS=off $(SEMGREP) --error --config .semgrep/uno_thread_safety.yml plugin
+	@test -x "$(OPENGREP)" || (echo "opengrep not found — run: make opengrep-install" && exit 1)
+	$(OPENGREP) scan --error --severity ERROR --taint-intrafile -c .semgrep/uno_thread_safety.yml plugin
+
+uno-thread-lint-advisory:
+	@test -x "$(OPENGREP)" || (echo "opengrep not found — run: make opengrep-install" && exit 1)
+	$(OPENGREP) scan --severity WARNING --taint-intrafile -c .semgrep/uno_thread_safety.yml plugin
+
+opengrep-install:
+	curl -fsSL https://raw.githubusercontent.com/opengrep/opengrep/main/install.sh | bash
 
 test:
 	@$(MAKE) typecheck
@@ -643,7 +656,7 @@ poc-deploy: poc-install
 	@sleep 10
 	@$(MAKE) poc-log
 
-check: ty uno-thread-lint
+check: ty
 
 ty: manifest ty-run
 mypy: manifest mypy-run

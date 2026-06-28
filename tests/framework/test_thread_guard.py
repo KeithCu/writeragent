@@ -127,7 +127,7 @@ def test_background_decorator_warns_on_main_thread(monkeypatch, caplog):
 
     monkeypatch.setattr(threading, "current_thread", lambda: threading.main_thread())
     monkeypatch.setattr(tg, "on_main_thread", lambda: True)
-    with caplog.at_level("WARNING"):
+    with caplog.at_level("WARNING", logger="writeragent.threadguard"):
         assert blue_worker() == 1
     assert any("@background fn" in r.message for r in caplog.records)
 
