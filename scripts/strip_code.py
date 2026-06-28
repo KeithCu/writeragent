@@ -254,6 +254,9 @@ def assert_main_thread(what: str) -> None:
 def main_thread_only(fn):
     return fn
 
+def background(fn):
+    return fn
+
 def set_background_task(name: str) -> None:
     pass
 

@@ -178,5 +178,6 @@ def test_replace_thread_guard_implementation(tmp_path: Path) -> None:
     assert "GUARD_ON = False" in stubbed
     assert "def assert_main_thread(what: str) -> None:" in stubbed
     assert "def guard_uno(obj):" in stubbed
+    assert "def background(fn):" in stubbed
     assert "raise RuntimeError" not in stubbed
 
