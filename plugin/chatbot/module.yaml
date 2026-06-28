@@ -41,24 +41,17 @@ config:
     default: 1000
     min: 10
     max: 4096
-    widget: number
+    internal: true
     label: Extend max tokens
-    inline: true
-    x: 110
-    width: 100
 
   edit_selection_max_new_tokens:
     type: int
     default: 1000
     min: 0
     max: 4096
-    widget: number
+    internal: true
     label: Edit extra tokens
     helper: "Extra tokens beyond original text length. 0 = same length as original."
-    label_x: 220
-    label_width: 100
-    x: 322
-    width: 100
 
 #  tool_broker:
 #    type: boolean

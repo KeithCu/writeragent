@@ -43,12 +43,12 @@ def _generate_settings_xdl(tmp_path: Path) -> tuple[Path, str]:
     return out, out.read_text(encoding="utf-8")
 
 
-def test_chatbot_paired_number_fields_share_row(tmp_path: Path) -> None:
+def test_chatbot_selection_token_fields_absent_from_settings(tmp_path: Path) -> None:
     xdl_path, _xdl = _generate_settings_xdl(tmp_path)
     tops = _control_tops(xdl_path)
 
-    assert "chatbot__extend_selection_max_tokens" in tops
-    assert tops["chatbot__extend_selection_max_tokens"] == tops["chatbot__edit_selection_max_new_tokens"]
+    assert "chatbot__extend_selection_max_tokens" not in tops
+    assert "chatbot__edit_selection_max_new_tokens" not in tops
 
 
 def test_chatbot_paired_checkbox_fields_share_row(tmp_path: Path) -> None:
@@ -76,10 +76,6 @@ def test_web_research_cache_before_web_cache_size_controls(tmp_path: Path) -> No
 def test_right_column_number_labels_use_label_x(tmp_path: Path) -> None:
     _xdl_path, xdl = _generate_settings_xdl(tmp_path)
 
-    assert re.search(
-        r'dlg:id="label_chatbot__edit_selection_max_new_tokens"[^>]*dlg:left="220"',
-        xdl,
-    )
     assert re.search(
         r'dlg:id="label_chatbot__web_cache_validity_days"[^>]*dlg:left="220"',
         xdl,
@@ -119,6 +115,8 @@ def test_json_only_settings_absent_from_settings_xdl(tmp_path: Path) -> None:
         "scripting__native_run_script_modeless",
         "scripting__force_internal_script_editor",
         "chatbot__show_search_thinking",
+        "chatbot__extend_selection_max_tokens",
+        "chatbot__edit_selection_max_new_tokens",
     ):
         assert hidden_id not in tops
 

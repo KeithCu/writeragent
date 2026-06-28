@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE dlg:window PUBLIC "-//OpenOffice.org//DTD OfficeDocument 1.0//EN" "dialog.dtd">
 <dlg:window xmlns:dlg="http://openoffice.org/2000/dialog" xmlns:script="http://openoffice.org/2000/script"
-  dlg:id="EditInputDialog" dlg:left="100" dlg:top="50" dlg:width="400" dlg:height="195"
+  dlg:id="EditInputDialog" dlg:left="100" dlg:top="50" dlg:width="400" dlg:height="235"
   dlg:closeable="true" dlg:moveable="true" dlg:resizeable="true" dlg:title="Input">
  <dlg:bulletinboard>
   <dlg:text dlg:id="label" dlg:left="8" dlg:top="8" dlg:width="384" dlg:height="14" dlg:value="Please enter edit instructions:" dlg:align="left" dlg:multiline="true"/>
@@ -13,6 +13,13 @@
   <dlg:text dlg:id="label_model" dlg:left="8" dlg:top="120" dlg:width="384" dlg:height="10" dlg:value="AI Model:" dlg:align="left"/>
   <dlg:combobox dlg:id="model_selector" dlg:left="8" dlg:top="132" dlg:width="384" dlg:height="14" dlg:tabstop="true" dlg:spin="true" dlg:dropdown="true" dlg:value="" dlg:border="1"/>
 
-  <dlg:button dlg:id="btn_ok" dlg:left="150" dlg:top="160" dlg:width="100" dlg:height="22" dlg:value="OK" dlg:button-type="ok" dlg:default="true"/>
+  <dlg:text dlg:id="label_extend_max_tokens" dlg:left="8" dlg:top="150" dlg:width="90" dlg:height="10" dlg:value="Extend max tokens:" dlg:align="left"/>
+  <dlg:numericfield dlg:id="extend_max_tokens" dlg:left="100" dlg:top="148" dlg:width="80" dlg:height="14" dlg:tabstop="true" dlg:spin="true" dlg:value="1000"/>
+
+  <dlg:text dlg:id="label_edit_extra_tokens" dlg:left="200" dlg:top="150" dlg:width="100" dlg:height="10" dlg:value="Edit extra tokens:" dlg:align="left"/>
+  <dlg:numericfield dlg:id="edit_extra_tokens" dlg:left="305" dlg:top="148" dlg:width="80" dlg:height="14" dlg:tabstop="true" dlg:spin="true" dlg:value="1000"/>
+  <dlg:text dlg:id="label_edit_extra_tokens_helper" dlg:left="8" dlg:top="166" dlg:width="384" dlg:height="10" dlg:value="Extra tokens beyond original text length. 0 = same length as original." dlg:align="left"/>
+
+  <dlg:button dlg:id="btn_ok" dlg:left="150" dlg:top="190" dlg:width="100" dlg:height="22" dlg:value="OK" dlg:button-type="ok" dlg:default="true"/>
  </dlg:bulletinboard>
 </dlg:window>
