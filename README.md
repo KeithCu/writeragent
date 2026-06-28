@@ -52,9 +52,9 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 - **Agentic Analysis**: The AI can run Numpy computations and return structured results (as JSON) to update your document.
 - **Real-time Grammar & Style Checker**: An asynchronous proofreader with a **sentence cache** and **Unicode-aware splitting**. Includes **Token-aware Overlap Repair** to fix "LLM slop" and ensure surgical replacements. Persistent storage of good/bad sentences with document. Supports multiple backends configurable in **Settings → Doc → Enable grammar checker (Writer)**:
   * **AI (LLM):** Cloud or local AI models/API.
-  * **LanguageTool (Local):** Offline grammar server running locally.
-  * **Vale (Local Style) (WIP):** Style guides checker (Google, Microsoft, write-good).
-  * **Harper (Local Rust):** Lightning-fast offline Rust-backed grammar linter.
+  * **[LanguageTool](https://languagetool.org) (Local):** Offline grammar server running locally.
+  * **[Vale](https://vale.sh) (Local Style) (WIP):** Style guides checker (Google, Microsoft, write-good).
+  * **[Harper](https://github.com/Automattic/harper) (Local Rust):** Lightning-fast offline Rust-backed grammar linter.
   Underlines appear shortly after you pause typing.
 - Optional **sentence language detection**: **Local (langdetect)** uses a bundled detector to auto-fix wrong `CharLocale` and then grammar-check in the right language; **AI (LLM)** uses the chat API for the same step. Set **Settings → Doc → Sentence language detection**. [Read the Plan](docs/realtime-grammar-checker-plan.md).
 - **Rich-text sidebar**: Hosts a rich text control in the sidebar. Off by default.
