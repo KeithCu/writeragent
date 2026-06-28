@@ -1,0 +1,3 @@
+# Semgrep scan scope — match ruff/typecheck exclusions.
+plugin/contrib/
+plugin/lib/

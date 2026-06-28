@@ -98,6 +98,7 @@ endif
 PROJECT_ROOT := $(CURDIR)
 ifneq ($(wildcard .venv/bin/python),)
     PYTHON := $(PROJECT_ROOT)/.venv/bin/python
+    SEMGREP := $(PROJECT_ROOT)/.venv/bin/semgrep
 endif
 ifeq ($(OS),Windows_NT)
 ifneq ($(wildcard .venv/Scripts/python.exe),)
@@ -116,7 +117,7 @@ endif
         lo-start lo-start-full lo-kill lo-restart \
         clean-cache nuke-cache nuke-cache-force unbundle \
         log log-tail lo-log test test-run slowtests vhs test-visible lo-test-threadguard lo-test-threadguard-visible typecheck check-ext check-setup deploy \
-        lo-start-log \
+        lo-start-log uno-thread-lint \
         writer calc draw impress \
         set-config vendor docker-build compile-translations merge-translations refresh-pot reset-lang preview-translations check ty mypy pyright pyrefly bandit ty-run mypy-run pyright-run pyrefly-run \
         ruff ruff-fix ruff-for-build ruff-format-check ruff-format-grammar \
@@ -185,7 +186,7 @@ help:
 	@echo "  make lo-test-threadguard    Run full in-LO suite with WRITERAGENT_UNO_THREAD_GUARD=1 (Layer B)"
 	@echo "  make lo-test-threadguard-visible  Same as lo-test-threadguard but chart/grep tests with visible window"
 	@echo "  make typecheck              Run ty, then mypy, then pyright (same scope as each single target)"
-	@echo "  make check                  Quick gate: ty only (also used implicitly before fast workflows)"
+  @echo "  make check                  Quick gate: ty + uno-thread-lint"
 	@echo "  make fix-uno                Fix uno import in .venv (adds system UNO paths to .pth)"
 	@echo "  make mypy / make pyright / make pyrefly / make bandit   Single-tool runs (bandit: plugin/, excludes contrib + tests)"
 	@echo "  make pyrefly                Experimental Meta Pyrefly checker (same scope as ty; not part of make test)"
@@ -560,8 +561,12 @@ lo-test-threadguard:
 lo-test-threadguard-visible:
 	WRITERAGENT_UNO_THREAD_GUARD=1 $(LO_PYTHON) -m plugin.testing_runner --visible test_charts_uno test_enhanced_charts_uno test_document_research_grep_uno; EXIT_CODE=$$?; $(MAKE) lo-kill; exit $$EXIT_CODE
 
+uno-thread-lint:
+	SEMGREP_SEND_METRICS=off $(SEMGREP) --error --config .semgrep/uno_thread_safety.yml plugin
+
 test:
 	@$(MAKE) typecheck
+	@$(MAKE) uno-thread-lint
 	@$(MAKE) test-run
 	@$(MAKE) bandit
 
@@ -638,7 +643,7 @@ poc-deploy: poc-install
 	@sleep 10
 	@$(MAKE) poc-log
 
-check: ty
+check: ty uno-thread-lint
 
 ty: manifest ty-run
 mypy: manifest mypy-run

@@ -1,0 +1,74 @@
+rules:
+  - id: uno-off-main-thread
+    mode: taint
+    languages: [python]
+    severity: ERROR
+    message: >-
+      UNO accessed from a background context. Marshal via
+      execute_on_main_thread()/post_to_main_thread(). See
+      docs/uno-thread-safety-enforcement.md (Layer C).
+    pattern-sources:
+      # Explicit blue marker (module-level worker entrypoints).
+      - patterns:
+          - pattern-inside: |
+              @background
+              def $F(...):
+                ...
+          - pattern: $X
+      # Lambda passed as first arg to run_in_background.
+      - patterns:
+          - pattern-inside: |
+              run_in_background($W, ...)
+          - pattern-either:
+              - pattern: |
+                  lambda: $BODY
+              - pattern: |
+                  lambda $A: $BODY
+          - focus-metavariable: $W
+      # Nested worker: taint only the body of $F when run_in_background($F) lives in the same outer def.
+      - patterns:
+          - pattern-inside: |
+              def $F(...):
+                ...
+          - pattern: $X
+          - pattern-inside: |
+              def $OUTER(...):
+                ...
+                run_in_background($F, ...)
+    pattern-sinks:
+      - pattern-either:
+          - pattern: get_ctx(...)
+          - pattern: get_desktop(...)
+          - pattern: get_active_document(...)
+          - pattern: get_toolkit(...)
+          - pattern: get_package_info(...)
+          - pattern: get_extension_url(...)
+          - pattern: process_events_to_idle(...)
+          - pattern: resolve_document_by_url(...)
+          - pattern: get_document_context_for_chat(...)
+          - pattern: get_calc_context_for_chat(...)
+          - pattern: get_draw_context_for_chat(...)
+    pattern-sanitizers:
+      - pattern: execute_on_main_thread(...)
+      - pattern: post_to_main_thread(...)
+
+  - id: raw-uno-thread-ban
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Spawn background work via run_in_background, not raw threading.Thread/Timer.
+      See docs/uno-thread-safety-enforcement.md (Layer C).
+    pattern-either:
+      - pattern: threading.Thread(...)
+      - pattern: threading.Timer(...)
+    paths:
+      exclude:
+        - "**/plugin/contrib/**"
+        - "**/plugin/framework/worker_pool.py"
+        - "**/plugin/framework/async_stream.py"
+        - "**/plugin/contrib/cdp/browser_supervisor.py"
+        - "**/plugin/scripting/venv_worker.py"
+        - "**/plugin/scripting/venv/editor_main.py"
+        - "**/plugin/writer/locale/grammar_work_queue.py"
+        - "**/plugin/chatbot/dialog_views.py"
+        - "**/plugin/calc/python/function.py"

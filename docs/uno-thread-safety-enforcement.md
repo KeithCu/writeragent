@@ -240,54 +240,63 @@ in `test_thread_affinity.py` documents the charts hang class (commit
 
 ---
 
-## Layer C — Author-time / static analysis (highest payoff, most work)
+## Layer C — Author-time / static analysis (Semgrep)
+
+**Status:** Implemented (C1+C2+C3). Semgrep taint rules in
+[`.semgrep/uno_thread_safety.yml`](../.semgrep/uno_thread_safety.yml); `@background`
+in [`plugin/framework/thread_guard.py`](../plugin/framework/thread_guard.py);
+`make uno-thread-lint` / `make check` / `make test` (requires `semgrep` in dev deps;
+`SEMGREP_SEND_METRICS=off`). Rule fixtures:
+[`.semgrep/uno_thread_safety.violations.py`](../.semgrep/uno_thread_safety.violations.py),
+[`.semgrep/uno_thread_safety.ok.py`](../.semgrep/uno_thread_safety.ok.py);
+pytest wrapper: [`tests/scripts/test_uno_thread_lint.py`](../tests/scripts/test_uno_thread_lint.py).
 
 Stock type-checkers (ty / mypy / pyright) **cannot** catch this: UNO objects are
-typed `Any`, and no Python type encodes thread affinity. We need the "function
-coloring" rule expressed as a bespoke check.
+typed `Any`, and no Python type encodes thread affinity. Layer C expresses the
+"function coloring" rule as Semgrep **taint** (sources / sinks / sanitizers).
 
-### C1. `@main_thread_only` / `@background` as the type system (no new deps)
+### C1. `@main_thread_only` / `@background` as the type system
 
 Reuse the Layer A decorators as **machine-readable color annotations**:
 
 - `@main_thread_only` → red (UNO-only). Already needed for the runtime guard, so
   it does double duty.
-- `@background` → blue (asserts it is *not* on the main thread; documents intent).
+- `@background` → blue (warns if run on the main thread; documents intent for
+  Semgrep taint sources).
 
 A function's color is then visible in the source for both humans and tooling.
+**Module-level worker entrypoints** passed to `run_in_background` should carry
+`@background` so Semgrep OSS (intra-function taint) can see them.
 
-### C2. A small AST linter wired into `make check` (start narrow)
+### C2. Semgrep taint rules in `make check` (start narrow)
 
-Add `scripts/uno_thread_lint.py` (modeled on the project's existing custom scripts
-such as [`scripts/manifest_registry.py`](../scripts/manifest_registry.py) and
-[`scripts/crosshair_stream.py`](../scripts/crosshair_stream.py)) and call it from
-the `check` / `test` targets. It performs a pragmatic taint/escape pass:
+[`.semgrep/uno_thread_safety.yml`](../.semgrep/uno_thread_safety.yml) performs a
+pragmatic taint pass:
 
-- **Blue roots** (background contexts):
-  - the function/lambda passed as `target=`/first arg to `run_in_background`,
-    `threading.Thread`, `threading.Timer`, `AsyncProcess(...)` callbacks,
-    `BatchingStreamQueue` timer, and smol worker entrypoints;
-  - any function decorated `@background`.
-- **Red sinks** (UNO-only):
-  - any function decorated `@main_thread_only`;
-  - a curated allowlist of known UNO modules/symbols (`uno_context` getters,
-    `document_helpers` resolution, writer/calc/draw document mutators).
-- **Rule:** inside a blue root's body (and shallow intra-module callees), a call to
-  a red sink that is **not** lexically wrapped by `execute_on_main_thread(...)` /
-  `post_to_main_thread(...)` / `QueueExecutor.execute(...)` is an **error**.
+- **Blue roots (taint sources):**
+  - any function decorated `@background`;
+  - lambda passed as first arg to `run_in_background(...)`;
+  - nested `def $F` + `run_in_background($F, ...)` (or `threading.Thread(target=$F)`) in the same outer function.
+- **Red sinks (UNO-only):**
+  - curated calls to [`uno_context`](../plugin/framework/uno_context.py) getters and
+    hot [`document_helpers`](../plugin/doc/document_helpers.py) resolution / chat context helpers.
+- **Sanitizers (legal recoloring):** `execute_on_main_thread(...)`, `post_to_main_thread(...)`.
 
-Keep the first version deliberately narrow to keep false positives near zero:
-flag only **direct** red-sink calls that appear lexically inside a `def worker()`
-body or inside an `@background`-decorated function. Expand the root/sink lists and
-the inter-procedural depth over time as confidence grows. Because the annotations
-are the same ones the runtime guard uses, Layers A and C never drift apart.
+Keep the first version deliberately narrow to keep false positives near zero: OSS
+Semgrep taint is **intra-function** (same scope as the original AST-linter plan).
+Expand sink/root lists over time. Suppress vetted false positives with
+`# nosemgrep: uno-off-main-thread`. Annotations match Layer A, so Layers A and C
+do not drift.
 
-### C3. (Optional, later) ban raw `threading.Thread` so roots stay finite
+### C3. Ban raw `threading.Thread` / `Timer` outside the chokepoint
 
-A trivial ruff/grep gate that forbids `threading.Thread(` outside `worker_pool.py`
-keeps "where background threads are born" to the single chokepoint the linter
-knows about. We already prefer `run_in_background` per AGENTS.md; this just makes
-it enforceable.
+Rule `raw-uno-thread-ban` in the same Semgrep config forbids
+`threading.Thread(` / `threading.Timer(` outside
+[`plugin/framework/worker_pool.py`](../plugin/framework/worker_pool.py) and a
+vetted allowlist (venv worker/editor, grammar queue, CDP supervisor,
+`async_stream` batch timer, settings debounce timer, calc deferred spill). Keeps
+blue roots finite; we already prefer `run_in_background` per AGENTS.md.
+`plugin/contrib/` is excluded via [`.semgrepignore`](../.semgrepignore).
 
 ---
 
@@ -298,7 +307,7 @@ it enforceable.
 | 1 | A1 + A2 | Hours | `assert_main_thread` / `@main_thread_only`, env toggle, tagged worker threads. Decorate `uno_context` getters + tool boundary. Immediate located failures on the dev machine with the guard on; harmless `log.warning(stack_info=True)` in the field with it off. |
 | 2 | A3 + B1 | ½–1 day | Viral guarding proxy on UNO sources; `make lo-test-threadguard` runs the real UNO suite with the guard on. Catches arbitrary object-graph violations with zero per-site annotation. **Done.** |
 | 3 | B2 + B3 | ~1 day | Thread-affinity mocks + synthetic main pump (`uno_thread_safety` fixture); deterministic CI coverage without LibreOffice. Seed regression in `test_thread_affinity.py`. **Done.** |
-| 4 | C1 + C2 | Days | AST linter in `make check`, starting narrow; grow sink/root lists. Moves detection to author time. |
+| 4 | C1 + C2 + C3 | ~1 day | Semgrep taint rules + `@background` + raw-thread ban in `make check` / `make test`. **Done.** |
 
 Each step is independently shippable and strictly additive. Step 1 alone already
 turns most "rare deadlock" reports into "deterministic exception with a stack
@@ -309,8 +318,8 @@ trace," which is the bulk of the user's pain.
 - **Runtime guard (A):** cheapest, most general (A3 needs no annotations), but only
   catches paths that actually execute. On by default in dev; release stub ⇒ zero release cost. Best ROI.
 - **Test-time (B):** deterministic and automatable. B1 reuses real PyUNO (`make lo-test-threadguard`); B2 uses the `uno_thread_safety` fixture and synthetic pump (no LO required).
-- **Static (C):** the only layer that catches a bug **before** it runs, but it is
-  the most work, needs annotation discipline, and a custom linter to maintain.
+- **Static (C):** catches bugs **before** they run (OSS Semgrep, intra-function taint).
+  Requires `@background` on module-level workers; grow sink lists over time.
 - **Formal verification:** not applicable — thread affinity is an effect, not a
   value property; CrossHair/`deal` cannot model it.
 
@@ -323,8 +332,8 @@ trace," which is the bulk of the user's pain.
 - Background birthplace to tag / constrain: [`plugin/framework/worker_pool.py`](../plugin/framework/worker_pool.py).
 - Marshalling boundary (the only legal recoloring): [`plugin/framework/queue_executor.py`](../plugin/framework/queue_executor.py) (`set_force_marshal_mode`, `set_test_poke_handler` for Layer B pytest; **`pump_ui_idle`** co-drains the work queue from [`run_stream_drain_loop`](../plugin/framework/async_stream.py) so async tools do not deadlock). **Sync tools** are also marshaled centrally in [`ToolRegistry.execute`](../plugin/framework/tool.py) via `execute_on_main_thread` (async tools and `bypass_thread_guard` stay on the caller thread).
 - Layer B pytest: [`tests/framework/thread_safety.py`](../tests/framework/thread_safety.py), fixture in [`tests/framework/conftest.py`](../tests/framework/conftest.py), tests in [`tests/framework/test_thread_affinity.py`](../tests/framework/test_thread_affinity.py).
-- Linter: new `scripts/uno_thread_lint.py`, wired into `check` / `test` in the
-  [`Makefile`](../Makefile).
+- Layer C Semgrep: [`.semgrep/uno_thread_safety.yml`](../.semgrep/uno_thread_safety.yml),
+  [`.semgrepignore`](../.semgrepignore), `make uno-thread-lint` in the [`Makefile`](../Makefile).
 - Tests: extend [`tests/framework/test_tool_registry_bypass_thread.py`](../tests/framework/test_tool_registry_bypass_thread.py);
   `make lo-test-threadguard` over [`plugin/testing_runner.py`](../plugin/testing_runner.py).
 - **Specialized sub-agents:** [`plugin/doc/specialized_base.py`](../plugin/doc/specialized_base.py)

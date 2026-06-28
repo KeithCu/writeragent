@@ -140,6 +140,19 @@ def main_thread_only(fn):
     return wrapper
 
 
+def background(fn):
+    """Decorator: mark a function as background-only (blue for Layer C Semgrep).
+
+    Warns if invoked on the main thread; documents intent for static analysis.
+    See docs/uno-thread-safety-enforcement.md (Layer C).
+    """
+    def wrapper(*a, **k):
+        if on_main_thread():
+            log.warning("@background fn %r ran on the main thread", getattr(fn, "__qualname__", str(fn)))
+        return fn(*a, **k)
+    return wrapper
+
+
 def _is_pyuno(obj: Any) -> bool:
     """Heuristic: is this a real PyUNO object we should guard?"""
     if obj is None:
@@ -272,6 +285,7 @@ __all__ = [
     "guard_uno",
     "assert_main_thread",
     "main_thread_only",
+    "background",
     "set_background_task",
     "get_background_task_name",
     "set_designated_main_thread",
