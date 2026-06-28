@@ -145,7 +145,13 @@ if command -v opengrep &>/dev/null; then
 elif [[ -x "$PROJECT_ROOT/bin/opengrep" ]]; then
     ok "opengrep: $PROJECT_ROOT/bin/opengrep"
 else
-    fail "opengrep not found — run: make opengrep-install (required for make test uno-thread-lint)"
+    fail "opengrep not found — run: make opengrep-install (required for make test opengrep-lint)"
+fi
+
+if [[ -f "$PROJECT_ROOT/tests/semgrep/third_party/SOURCES.json" ]]; then
+    ok "vendored Opengrep rules: tests/semgrep/third_party/SOURCES.json"
+else
+    warn "vendored Opengrep rules missing — run: make opengrep-rules-sync"
 fi
 
 # ── git ────────────────────────────────────────────────────────────────

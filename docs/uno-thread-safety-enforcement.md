@@ -242,15 +242,20 @@ in `test_thread_affinity.py` documents the charts hang class (commit
 
 ## Layer C — Author-time / static analysis (Opengrep)
 
-**Status:** Implemented (C1+C2+C3). Opengrep taint rules in
-[`.semgrep/uno_thread_safety.yml`](../.semgrep/uno_thread_safety.yml); `@background`
-in [`plugin/framework/thread_guard.py`](../plugin/framework/thread_guard.py);
-`make uno-thread-lint` runs as part of **`make test`** only (not `make check` /
-`make typecheck`). Install Opengrep: **`make opengrep-install`**. Scan uses
-**`--taint-intrafile`** for cross-function (in-file) taint. Rule fixtures:
-[`.semgrep/uno_thread_safety.violations.py`](../.semgrep/uno_thread_safety.violations.py),
-[`.semgrep/uno_thread_safety.ok.py`](../.semgrep/uno_thread_safety.ok.py);
-pytest wrapper: [`tests/scripts/test_uno_thread_lint.py`](../tests/scripts/test_uno_thread_lint.py).
+**Status:** Implemented (C1+C2+C3). Custom Opengrep rules in
+[`tests/semgrep/uno_thread_safety.yml`](../tests/semgrep/uno_thread_safety.yml) (UNO taint) and
+[`tests/semgrep/writeragent_security.yml`](../tests/semgrep/writeragent_security.yml) (project-specific);
+vendored third-party rules under [`tests/semgrep/third_party/`](../tests/semgrep/third_party/) (pinned in
+[`SOURCES.json`](../tests/semgrep/third_party/SOURCES.json), refresh via **`make opengrep-rules-sync`**).
+`@background` in [`plugin/framework/thread_guard.py`](../plugin/framework/thread_guard.py);
+**`make opengrep-lint`** (alias **`make uno-thread-lint`**) runs as part of **`make test`** only
+(not `make check` / `make typecheck`). Install Opengrep: **`make opengrep-install`**. UNO taint scan
+uses **`--taint-intrafile`**. Fixtures:
+[`tests/semgrep/uno_thread_safety.violations.py`](../tests/semgrep/uno_thread_safety.violations.py),
+[`tests/semgrep/uno_thread_safety.ok.py`](../tests/semgrep/uno_thread_safety.ok.py),
+[`tests/semgrep/security_rules.violations.py`](../tests/semgrep/security_rules.violations.py);
+pytest: [`tests/scripts/test_opengrep_lint.py`](../tests/scripts/test_opengrep_lint.py).
+Optional manual registry sweep: **`make opengrep-rules-audit`** (`p/python`; not in `make test`).
 
 Stock type-checkers (ty / mypy / pyright) **cannot** catch this: UNO objects are
 typed `Any`, and no Python type encodes thread affinity. Layer C expresses the
@@ -271,7 +276,7 @@ Reuse the Layer A decorators as **machine-readable color annotations**:
 
 ### C2. Opengrep taint rules in `make test`
 
-[`.semgrep/uno_thread_safety.yml`](../.semgrep/uno_thread_safety.yml) performs taint
+[`tests/semgrep/uno_thread_safety.yml`](../tests/semgrep/uno_thread_safety.yml) performs taint
 with **`opengrep scan --taint-intrafile`**:
 
 - **Blue roots (taint sources):** `@background` functions; lambdas passed to
@@ -287,9 +292,28 @@ with **`opengrep scan --taint-intrafile`**:
 called from a worker still need marshalling or nested helpers. **Cross-file** still
 requires `@background` on the worker entrypoint; inter-file taint is out of scope.
 
-Advisory rules (WARNING, `make uno-thread-lint-advisory`): `background-worker-missing-decorator`,
-`uno-source-needs-main-thread-decorator`. Suppress false positives with
+Advisory rules (WARNING, `make opengrep-lint-advisory`): `background-worker-missing-decorator`,
+`uno-source-needs-main-thread-decorator`, plus vendored WARNING rules (e.g. `exec-detected`,
+`eval-detected`, `insecure-file-permissions`). Suppress false positives with
 `# nosemgrep: rule-id`.
+
+### C2b. Vendored security rules (curated Semgrep Registry subset)
+
+**Do not** pull full registry rulesets (`p/default`, `p/security-audit`) into `make test` — too
+many false positives (pickle IPC, dynamic imports, grammar debug logs). Instead, nine rules are
+vendored from [semgrep/semgrep-rules](https://github.com/semgrep/semgrep-rules) and
+[trailofbits/semgrep-rules](https://github.com/trailofbits/semgrep-rules) at pinned commits
+(see [`SOURCES.json`](../tests/semgrep/third_party/SOURCES.json)):
+
+- **ERROR gate:** defused-xml / defused-xml-parse, subprocess-shell-true, avoid-pyyaml-load,
+  tarfile-extractall-traversal, `writeragent-no-tempfile-mktemp`
+- **Advisory:** exec-detected, eval-detected, hardcoded-password-default-argument,
+  insecure-file-permissions (with path excludes on vetted venv IPC in the sync script)
+
+Overlap with **Bandit** (`make test`): Bandit still owns broad HTTP/pickle/sql checks with
+project skips in [`pyproject.toml`](../pyproject.toml); Opengrep fills XXE/subprocess/YAML/tar
+gaps. Bump pins: edit SHAs in [`scripts/sync-opengrep-rules.sh`](../scripts/sync-opengrep-rules.sh),
+run **`make opengrep-rules-sync`**, triage new findings.
 
 ### C3. Ban raw `threading.Thread` / `Timer` outside the chokepoint
 
@@ -297,7 +321,7 @@ Rule `raw-uno-thread-ban` matches `threading.Thread`/`Timer` and bare `Thread`/`
 outside [`plugin/framework/worker_pool.py`](../plugin/framework/worker_pool.py) and a
 vetted allowlist (venv worker/editor, grammar queue, CDP supervisor,
 `async_stream` batch timer, settings debounce timer, calc deferred spill).
-`plugin/contrib/` is excluded via [`.semgrepignore`](../.semgrepignore).
+`plugin/contrib/` is excluded via Makefile `--exclude` flags (documented in [`tests/semgrep/semgrepignore`](../tests/semgrep/semgrepignore)).
 
 ---
 
@@ -333,8 +357,10 @@ trace," which is the bulk of the user's pain.
 - Background birthplace to tag / constrain: [`plugin/framework/worker_pool.py`](../plugin/framework/worker_pool.py).
 - Marshalling boundary (the only legal recoloring): [`plugin/framework/queue_executor.py`](../plugin/framework/queue_executor.py) (`set_force_marshal_mode`, `set_test_poke_handler` for Layer B pytest; **`pump_ui_idle`** co-drains the work queue from [`run_stream_drain_loop`](../plugin/framework/async_stream.py) so async tools do not deadlock). **Sync tools** are also marshaled centrally in [`ToolRegistry.execute`](../plugin/framework/tool.py) via `execute_on_main_thread` (async tools and `bypass_thread_guard` stay on the caller thread).
 - Layer B pytest: [`tests/framework/thread_safety.py`](../tests/framework/thread_safety.py), fixture in [`tests/framework/conftest.py`](../tests/framework/conftest.py), tests in [`tests/framework/test_thread_affinity.py`](../tests/framework/test_thread_affinity.py).
-- Layer C Opengrep: [`.semgrep/uno_thread_safety.yml`](../.semgrep/uno_thread_safety.yml),
-  [`.semgrepignore`](../.semgrepignore), `make opengrep-install`, `make uno-thread-lint` (in `make test`).
+- Layer C Opengrep: [`tests/semgrep/uno_thread_safety.yml`](../tests/semgrep/uno_thread_safety.yml),
+  [`tests/semgrep/writeragent_security.yml`](../tests/semgrep/writeragent_security.yml),
+  [`tests/semgrep/third_party/`](../tests/semgrep/third_party/), [`tests/semgrep/semgrepignore`](../tests/semgrep/semgrepignore),
+  `make opengrep-install`, `make opengrep-rules-sync`, `make opengrep-lint` (in `make test`).
 - Tests: extend [`tests/framework/test_tool_registry_bypass_thread.py`](../tests/framework/test_tool_registry_bypass_thread.py);
   `make lo-test-threadguard` over [`plugin/testing_runner.py`](../plugin/testing_runner.py).
 - **Specialized sub-agents:** [`plugin/doc/specialized_base.py`](../plugin/doc/specialized_base.py)

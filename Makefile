@@ -103,6 +103,16 @@ OPENGREP := $(shell command -v opengrep 2>/dev/null)
 ifeq ($(OPENGREP),)
     OPENGREP := $(PROJECT_ROOT)/bin/opengrep
 endif
+OPENGREP_DIR := tests/semgrep
+OPENGREP_CONFIGS := \
+	$(OPENGREP_DIR)/uno_thread_safety.yml \
+	$(OPENGREP_DIR)/writeragent_security.yml \
+	$(OPENGREP_DIR)/third_party/semgrep-rules \
+	$(OPENGREP_DIR)/third_party/trailofbits
+# Mirror tests/semgrep/semgrepignore (opengrep --semgrepignore-filename accepts basename only).
+OPENGREP_EXCLUDES := --exclude=plugin/contrib --exclude=plugin/lib
+OPENGREP_SCAN_FLAGS := --error --severity ERROR --taint-intrafile $(OPENGREP_EXCLUDES)
+OPENGREP_ENV := SEMGREP_SEND_METRICS=off
 ifeq ($(OS),Windows_NT)
 ifneq ($(wildcard .venv/Scripts/python.exe),)
     PYTHON := $(PROJECT_ROOT)/.venv/Scripts/python.exe
@@ -120,7 +130,7 @@ endif
         lo-start lo-start-full lo-kill lo-restart \
         clean-cache nuke-cache nuke-cache-force unbundle \
         log log-tail lo-log test test-run slowtests vhs test-visible lo-test-threadguard lo-test-threadguard-visible typecheck check-ext check-setup deploy \
-        lo-start-log uno-thread-lint uno-thread-lint-advisory opengrep-install \
+        lo-start-log opengrep-lint opengrep-lint-advisory opengrep-rules-sync opengrep-rules-audit uno-thread-lint uno-thread-lint-advisory opengrep-install \
         writer calc draw impress \
         set-config vendor docker-build compile-translations merge-translations refresh-pot reset-lang preview-translations check ty mypy pyright pyrefly bandit ty-run mypy-run pyright-run pyrefly-run \
         ruff ruff-fix ruff-for-build ruff-format-check ruff-format-grammar \
@@ -187,8 +197,11 @@ help:
 	@echo "  make vhs                    Hypothesis serialization fuzz with verbose output (Hypothesis step of slowtests)"
 	@echo "  make test-visible           Run LO chart + grep UNO tests visibly (GUI) for processEventsToIdle / OLE queue"
 	@echo "  make lo-test-threadguard    Run full in-LO suite with WRITERAGENT_UNO_THREAD_GUARD=1 (Layer B)"
-	@echo "  make uno-thread-lint        Opengrep UNO thread-safety lint (ERROR; part of make test)"
-	@echo "  make uno-thread-lint-advisory  Same rules including WARNING-level nudges"
+	@echo "  make opengrep-lint          Opengrep UNO + security rules (ERROR; part of make test)"
+	@echo "  make opengrep-lint-advisory Same rules including WARNING-level nudges"
+	@echo "  make opengrep-rules-sync    Refresh vendored third-party Opengrep rules"
+	@echo "  make opengrep-rules-audit   Live registry sweep (p/python; manual triage only)"
+	@echo "  make uno-thread-lint        Alias for make opengrep-lint"
 	@echo "  make opengrep-install       Install Opengrep CLI (~/.local/bin or bin/opengrep)"
 	@echo "  make typecheck              Run ty, then mypy, then pyright (same scope as each single target)"
 	@echo "  make check                  Quick gate: ty only"
@@ -566,20 +579,33 @@ lo-test-threadguard:
 lo-test-threadguard-visible:
 	WRITERAGENT_UNO_THREAD_GUARD=1 $(LO_PYTHON) -m plugin.testing_runner --visible test_charts_uno test_enhanced_charts_uno test_document_research_grep_uno; EXIT_CODE=$$?; $(MAKE) lo-kill; exit $$EXIT_CODE
 
-uno-thread-lint:
+opengrep-lint:
 	@test -x "$(OPENGREP)" || (echo "opengrep not found — run: make opengrep-install" && exit 1)
-	$(OPENGREP) scan --error --severity ERROR --taint-intrafile -c .semgrep/uno_thread_safety.yml plugin
+	@test -f $(OPENGREP_DIR)/third_party/SOURCES.json || (echo "vendored Opengrep rules missing — run: make opengrep-rules-sync" && exit 1)
+	$(OPENGREP_ENV) $(OPENGREP) scan $(OPENGREP_SCAN_FLAGS) $(foreach c,$(OPENGREP_CONFIGS),-c $(c)) plugin
 
-uno-thread-lint-advisory:
+uno-thread-lint: opengrep-lint
+
+opengrep-lint-advisory:
 	@test -x "$(OPENGREP)" || (echo "opengrep not found — run: make opengrep-install" && exit 1)
-	$(OPENGREP) scan --severity WARNING --taint-intrafile -c .semgrep/uno_thread_safety.yml plugin
+	@test -f $(OPENGREP_DIR)/third_party/SOURCES.json || (echo "vendored Opengrep rules missing — run: make opengrep-rules-sync" && exit 1)
+	$(OPENGREP_ENV) $(OPENGREP) scan --severity WARNING --taint-intrafile $(OPENGREP_EXCLUDES) $(foreach c,$(OPENGREP_CONFIGS),-c $(c)) plugin
+
+uno-thread-lint-advisory: opengrep-lint-advisory
+
+opengrep-rules-sync:
+	bash $(SCRIPTS)/sync-opengrep-rules.sh
+
+opengrep-rules-audit:
+	@test -x "$(OPENGREP)" || (echo "opengrep not found — run: make opengrep-install" && exit 1)
+	$(OPENGREP_ENV) $(OPENGREP) scan --config p/python $(OPENGREP_EXCLUDES) plugin
 
 opengrep-install:
 	curl -fsSL https://raw.githubusercontent.com/opengrep/opengrep/main/install.sh | bash
 
 test:
 	@$(MAKE) typecheck
-	@$(MAKE) uno-thread-lint
+	@$(MAKE) opengrep-lint
 	@$(MAKE) test-run
 	@$(MAKE) bandit
 

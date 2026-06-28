@@ -73,7 +73,9 @@ If you find ways to lower technical debt, while adding a feature, put that in yo
 | `make check` | **`ty`** only |
 | `make build` | **`ty`** + **`ruff-fix`** then **`ruff`** + bundle |
 | `make typecheck` | **`ty`** + **mypy** + **pyright** |
-| `make test` | Full typecheck + **bandit** (see `[tool.bandit]` in [`pyproject.toml`](pyproject.toml)) + pytest + LO tests (skip if no `soffice`) |
+| `make test` | Full typecheck + **opengrep-lint** + pytest + LO tests + **bandit** (see `[tool.bandit]` in [`pyproject.toml`](pyproject.toml); skip if no `soffice`) |
+| `make opengrep-lint` | Opengrep UNO thread + vendored security rules (ERROR; part of `make test`) |
+| `make opengrep-rules-sync` | Refresh pinned third-party rules under `tests/semgrep/third_party/` |
 | `make release` | **`make test`** then **`release-build`** (includes **`openrouter-catalog`** → [`extension/metadata/openrouter_models.json`](extension/metadata/openrouter_models.json)—not in OXT—plus [`default_models.py`](plugin/framework/default_models.py), translations, OXT) |
 | `make fix-uno` | Link system UNO into `.venv` so `import uno` resolves for checkers |
 

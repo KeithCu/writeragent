@@ -1,0 +1,12 @@
+# WriterAgent-specific Opengrep rules (security bundle; complements vendored semgrep-rules).
+rules:
+  - id: writeragent-no-tempfile-mktemp
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Do not use tempfile.mktemp() (AGENTS.md); use NamedTemporaryFile or mkstemp.
+    pattern: tempfile.mktemp(...)
+    paths:
+      exclude:
+        - "**/plugin/contrib/**"
+        - "**/plugin/lib/**"

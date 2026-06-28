@@ -1,0 +1,3 @@
+# Scan exclusions for make opengrep-lint (also passed via Makefile --exclude flags).
+plugin/contrib/
+plugin/lib/

@@ -1,0 +1,24 @@
+{
+  "description": "Pinned third-party Opengrep rules vendored for offline make test (tests/semgrep/third_party). Refresh: make opengrep-rules-sync",
+  "excluded_from_bundle": {
+    "avoid-pickle": "Intentional venv worker IPC (# nosec B301)",
+    "dynamic-urllib-use-detected": "Bandit B310 skipped intentionally for HTTP client",
+    "logger-credential-leak": "False positives on grammar debug log strings",
+    "sqlalchemy-execute-raw-query": "Controlled SQL in embeddings venv SQLite helpers",
+    "non-literal-import": "Core dynamic module loading (module_base, tool registry)"
+  },
+  "sources": [
+    {
+      "repo": "https://github.com/semgrep/semgrep-rules",
+      "commit": "d41fb34cf74466e2878af5f268ebf54466a04541",
+      "license": "Semgrep Rules License v1.0",
+      "rules": ["python/lang/security/use-defused-xml.yaml", "python/lang/security/use-defused-xml-parse.yaml", "python/lang/security/audit/insecure-file-permissions.yaml", "python/lang/security/audit/subprocess-shell-true.yaml", "python/lang/security/audit/exec-detected.yaml", "python/lang/security/audit/eval-detected.yaml", "python/lang/security/audit/hardcoded-password-default-argument.yaml", "python/lang/security/deserialization/avoid-pyyaml-load.yaml"]
+    },
+    {
+      "repo": "https://github.com/trailofbits/semgrep-rules",
+      "commit": "31390b3a99c04c81522d1b37c8d1900aa2dd4094",
+      "license": "AGPL-3.0",
+      "rules": ["python/tarfile-extractall-traversal.yaml"]
+    }
+  ]
+}

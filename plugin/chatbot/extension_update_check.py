@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 import time
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as ET  # nosemgrep: use-defused-xml  # trusted small update.xml from project repo (Bandit B314)
 from typing import Any
 
 log = logging.getLogger(__name__)

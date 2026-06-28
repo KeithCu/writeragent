@@ -7,10 +7,14 @@ from __future__ import annotations
 
 import logging
 import os
-import xml.etree.ElementTree as ET
 import zipfile
 from types import SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+import defusedxml.ElementTree as ET
+
+if TYPE_CHECKING:
+    from xml.etree.ElementTree import Element  # nosemgrep: use-defused-xml  # type hints only; parse via defusedxml above
 
 from plugin.embeddings.embeddings_fs import LocaleTextRun
 
@@ -46,9 +50,9 @@ def _bcp47_from_lang_country(lang: str | None, country: str | None) -> str | Non
     return normalize_uno_locale_to_bcp47(shim)
 
 
-def _odf_locale_from_styles_root(root: ET.Element) -> str | None:
-    paragraph_props: ET.Element | None = None
-    text_props: ET.Element | None = None
+def _odf_locale_from_styles_root(root: Element) -> str | None:
+    paragraph_props: Element | None = None
+    text_props: Element | None = None
     for default_style in root.iter(f"{STYLE_NS}default-style"):
         family = default_style.get(f"{STYLE_NS}family")
         props = default_style.find(f"{STYLE_NS}text-properties")
@@ -64,7 +68,7 @@ def _odf_locale_from_styles_root(root: ET.Element) -> str | None:
     return _bcp47_from_lang_country(props.get(f"{FO_NS}language"), props.get(f"{FO_NS}country"))
 
 
-def _odf_locale_from_meta_root(root: ET.Element) -> str | None:
+def _odf_locale_from_meta_root(root: Element) -> str | None:
     for el in root.iter(f"{DC_NS}language"):
         text = (el.text or "").strip()
         if text:
@@ -72,7 +76,7 @@ def _odf_locale_from_meta_root(root: ET.Element) -> str | None:
     return None
 
 
-def _read_zip_member(zf: zipfile.ZipFile, member: str) -> ET.Element | None:
+def _read_zip_member(zf: zipfile.ZipFile, member: str) -> Element | None:
     try:
         return ET.fromstring(zf.read(member))
     except (KeyError, ET.ParseError, OSError):
@@ -100,6 +104,8 @@ def _odf_locale_from_fodt(path: str) -> str | None:
         root = ET.parse(path).getroot()
     except (OSError, ET.ParseError):
         log.debug("fodt locale read failed for %s", path, exc_info=True)
+        return None
+    if root is None:
         return None
     tag = _odf_locale_from_styles_root(root)
     if tag:
@@ -247,13 +253,13 @@ def locale_runs_for_plain_passage(text: str, fallback_doc_locale: str | None = N
     return [LocaleTextRun(char_start=0, char_end=len(passage), locale_bcp47=detected)]
 
 
-def _odf_locale_from_text_properties(props: ET.Element | None) -> str | None:
+def _odf_locale_from_text_properties(props: Element | None) -> str | None:
     if props is None:
         return None
     return _bcp47_from_lang_country(props.get(f"{FO_NS}language"), props.get(f"{FO_NS}country"))
 
 
-def _odf_locale_from_element(el: ET.Element) -> str | None:
+def _odf_locale_from_element(el: Element) -> str | None:
     xml_lang = (el.get(f"{XML_NS}lang") or "").strip()
     if xml_lang:
         return _normalize_locale_tag(xml_lang)
@@ -265,12 +271,12 @@ def _odf_locale_from_element(el: ET.Element) -> str | None:
     return None
 
 
-def _odf_style_entry_locale(style_el: ET.Element) -> str | None:
+def _odf_style_entry_locale(style_el: Element) -> str | None:
     props = style_el.find(f"{STYLE_NS}text-properties")
     return _odf_locale_from_text_properties(props)
 
 
-def load_odf_style_locale_map(*roots: ET.Element | None) -> dict[str, str]:
+def load_odf_style_locale_map(*roots: Element | None) -> dict[str, str]:
     """Build ``style_name -> bcp47`` from ODF styles sections (styles.xml + content.xml)."""
     style_map: dict[str, str] = {}
     parent_map: dict[str, str | None] = {}
@@ -309,8 +315,8 @@ def _locale_from_style_name(style_name: str | None, style_map: dict[str, str], d
     return doc_default
 
 
-def _odf_note_body_paragraphs(content_root: ET.Element) -> set[ET.Element]:
-    excluded: set[ET.Element] = set()
+def _odf_note_body_paragraphs(content_root: Element) -> set[Element]:
+    excluded: set[Element] = set()
     for note_body in content_root.iter(f"{TEXT_NS}note-body"):
         for p_el in note_body.iter(f"{TEXT_NS}p"):
             excluded.add(p_el)
@@ -370,7 +376,7 @@ def _locale_runs_from_merged_pieces(merged: list[tuple[str, str | None]], fallba
 
 
 def _odf_collect_text_and_locale(
-    el: ET.Element,
+    el: Element,
     *,
     style_map: dict[str, str],
     paragraph_style: str | None,
@@ -448,7 +454,7 @@ def _odf_collect_text_and_locale(
     return pieces
 
 
-def _odf_paragraph_to_passage_and_runs(p_el: ET.Element, *, style_map: dict[str, str], doc_default: str | None) -> tuple[str, list[LocaleTextRun]]:
+def _odf_paragraph_to_passage_and_runs(p_el: Element, *, style_map: dict[str, str], doc_default: str | None) -> tuple[str, list[LocaleTextRun]]:
     paragraph_style = (p_el.get(f"{TEXT_NS}style-name") or "").strip() or None
     para_locale = _odf_locale_from_element(p_el) or _locale_from_style_name(paragraph_style, style_map, doc_default)
 
@@ -472,9 +478,9 @@ def _odf_paragraph_to_passage_and_runs(p_el: ET.Element, *, style_map: dict[str,
 
 
 def _odf_paragraph_runs_from_roots(
-    content_root: ET.Element,
+    content_root: Element,
     *,
-    styles_root: ET.Element | None,
+    styles_root: Element | None,
     doc_default: str | None,
 ) -> list[tuple[str, list[LocaleTextRun]]]:
     style_map = load_odf_style_locale_map(styles_root, content_root)
@@ -496,6 +502,8 @@ def extract_odf_paragraph_runs(path: str) -> list[tuple[str, list[LocaleTextRun]
     try:
         if ext == ".fodt":
             root = ET.parse(path).getroot()
+            if root is None:
+                return []
             return _odf_paragraph_runs_from_roots(root, styles_root=root, doc_default=doc_default)
         with zipfile.ZipFile(path) as zf:
             content_root = _read_zip_member(zf, "content.xml")
@@ -508,7 +516,7 @@ def extract_odf_paragraph_runs(path: str) -> list[tuple[str, list[LocaleTextRun]
     return []
 
 
-def _docx_lang_from_r_pr(r_pr: ET.Element | None) -> str | None:
+def _docx_lang_from_r_pr(r_pr: Element | None) -> str | None:
     if r_pr is None:
         return None
     lang_el = r_pr.find(f"{W_NS}lang")
@@ -520,7 +528,7 @@ def _docx_lang_from_r_pr(r_pr: ET.Element | None) -> str | None:
     return None
 
 
-def load_docx_style_locale_map(styles_root: ET.Element | None, doc_default: str | None) -> dict[str, str]:
+def load_docx_style_locale_map(styles_root: Element | None, doc_default: str | None) -> dict[str, str]:
     """Build ``style_id -> bcp47`` from ``word/styles.xml``."""
     style_map: dict[str, str] = {}
     if styles_root is None:
@@ -546,7 +554,7 @@ def load_docx_style_locale_map(styles_root: ET.Element | None, doc_default: str 
 
 
 def _docx_paragraph_runs_from_document(
-    document_root: ET.Element,
+    document_root: Element,
     *,
     style_map: dict[str, str],
     doc_default: str | None,

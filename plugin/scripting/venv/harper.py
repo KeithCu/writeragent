@@ -77,7 +77,7 @@ def _download_harper_binary(dest_path: Path):
                     raise RuntimeError("harper-cli file not found inside zip archive")
                     
         if dest_path.exists():
-            os.chmod(dest_path, 0o755)  # nosec B103
+            os.chmod(dest_path, 0o755)  # nosec B103  # nosemgrep: insecure-file-permissions  # executable bit on downloaded harper-cli binary
             log.info(f"[harper] Binary installed successfully at {dest_path}")
     except Exception as e:
         log.error(f"[harper] Failed to download and extract binary: {e}")

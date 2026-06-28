@@ -120,16 +120,17 @@ def test_main_thread_only_decorator_raises_from_bg(monkeypatch):
         tg.GUARD_ON = was
 
 
-def test_background_decorator_warns_on_main_thread(monkeypatch, caplog):
+def test_background_decorator_warns_on_main_thread(monkeypatch):
     @tg.background
     def blue_worker():
         return 1
 
     monkeypatch.setattr(threading, "current_thread", lambda: threading.main_thread())
     monkeypatch.setattr(tg, "on_main_thread", lambda: True)
-    with caplog.at_level("WARNING", logger="writeragent.threadguard"):
+    with patch.object(tg.log, "warning") as warn:
         assert blue_worker() == 1
-    assert any("@background fn" in r.message for r in caplog.records)
+    warn.assert_called_once()
+    assert "@background fn" in warn.call_args[0][0]
 
 
 def test_proxy_wraps_pyuno_and_asserts_on_access(monkeypatch):

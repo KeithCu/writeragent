@@ -12,9 +12,10 @@ from __future__ import annotations
 import csv
 import logging
 import re
-import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
+
+import defusedxml.ElementTree as ET
 
 log = logging.getLogger(__name__)
 

@@ -2,3 +2,4 @@ snowballstemmer
 json-repair
 latex2mathml
 websockets>=13.0,<16
+defusedxml
