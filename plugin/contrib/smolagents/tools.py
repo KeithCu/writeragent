@@ -729,9 +729,9 @@ class Tool(BaseTool):
                     ]  # Sometime the space also returns the generation seed, in which case the result is at index 0
                 IMAGE_EXTENTIONS = [".png", ".jpg", ".jpeg", ".gif", ".webp"]
                 AUDIO_EXTENTIONS = [".mp3", ".wav", ".ogg", ".m4a", ".flac"]
-                if isinstance(output, str) and any([output.endswith(ext) for ext in IMAGE_EXTENTIONS]):
+                if isinstance(output, str) and any(output.endswith(ext) for ext in IMAGE_EXTENTIONS):
                     output = AgentImage(output)
-                elif isinstance(output, str) and any([output.endswith(ext) for ext in AUDIO_EXTENTIONS]):
+                elif isinstance(output, str) and any(output.endswith(ext) for ext in AUDIO_EXTENTIONS):
                     output = AgentAudio(output)
                 return output
 
