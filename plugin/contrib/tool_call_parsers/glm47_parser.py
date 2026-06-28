@@ -21,15 +21,19 @@ class Glm47ToolCallParser(Glm45ToolCallParser):
     Extends GLM 4.5 with updated regex patterns.
     """
 
+    # Compile regexes once at the class level for performance
+    _COMPILED_DETAIL_REGEX = re.compile(
+        r"<tool_call>(.*?)(<arg_key>.*?)?</tool_call>", re.DOTALL
+    )
+    _COMPILED_ARG_REGEX = re.compile(
+        r"<arg_key>(.*?)</arg_key>(?:\\n|\s)*<arg_value>(.*?)</arg_value>",
+        re.DOTALL,
+    )
+
     def __init__(self):
         super().__init__()
         # GLM 4.7 uses a slightly different detail regex that includes
         # the <tool_call> wrapper and optional arg_key content
-        self.FUNC_DETAIL_REGEX = re.compile(
-            r"<tool_call>(.*?)(<arg_key>.*?)?</tool_call>", re.DOTALL
-        )
+        self.FUNC_DETAIL_REGEX = self._COMPILED_DETAIL_REGEX
         # GLM 4.7 handles newlines between arg_key and arg_value tags
-        self.FUNC_ARG_REGEX = re.compile(
-            r"<arg_key>(.*?)</arg_key>(?:\\n|\s)*<arg_value>(.*?)</arg_value>",
-            re.DOTALL,
-        )
+        self.FUNC_ARG_REGEX = self._COMPILED_ARG_REGEX
