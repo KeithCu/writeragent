@@ -443,12 +443,60 @@ def _ensure_init_executed(
     return None
 
 
-def _inject_data(executor: LocalPythonExecutor, data: Any | None) -> None:
+def convert_datetimes_and_deltas(data: Any, locale: str | None, convert_datetime: bool) -> Any:
+    if not convert_datetime:
+        return data
+    try:
+        import pandas as pd
+        import dateparser
+    except ImportError as e:
+        raise ImportError(
+            "Date-time and Timedelta conversion requires both 'pandas' and 'dateparser' packages to be installed in the virtual environment. "
+            "Please run: uv pip install pandas dateparser"
+        ) from e
+
+    import re
+    import numpy as np
+    lang = locale.split("_")[0] if locale else "en"
+
+    def _rec(val: Any) -> Any:
+        if isinstance(val, str):
+            if re.search(r'[a-zA-Z:]', val):
+                try:
+                    td = pd.to_timedelta(val)
+                    if not pd.isna(td):
+                        return td.to_pytimedelta()
+                except Exception:
+                    pass
+            try:
+                parsed = dateparser.parse(val, languages=[lang])
+                if parsed is not None:
+                    return parsed
+            except Exception:
+                pass
+            return val
+        elif isinstance(val, list):
+            return [_rec(item) for item in val]
+        elif isinstance(val, tuple):
+            return tuple(_rec(item) for item in val)
+        elif isinstance(val, np.ndarray):
+            if val.dtype == object or np.issubdtype(val.dtype, np.character):
+                flat_list = val.ravel().tolist()
+                converted_flat = [_rec(item) for item in flat_list]
+                return np.array(converted_flat, dtype=object).reshape(val.shape)
+            return val
+        return val
+
+    return _rec(data)
+
+
+def _inject_data(executor: LocalPythonExecutor, data: Any | None, locale: str | None = None, convert_datetime: bool = False) -> None:
     if data is None:
         return
     if is_split_grid(data):
         log.debug("venv_sandbox injecting data %s", describe_wire_value(data))
     unpacked = child_unpack_data(data)
+    unpacked = convert_datetimes_and_deltas(unpacked, locale, convert_datetime)
     variables: dict[str, Any] = {"data": unpacked}
     variables["data_list"] = unpacked if is_multi_data(data) else [unpacked]
     executor.send_variables(variables)
@@ -687,6 +735,8 @@ def run_sandboxed_code(
     init_script: str | None = None,
     init_session_id: str | None = None,
     init_script_hash: str | None = None,
+    locale: str | None = None,
+    convert_datetime: bool = False,
 ) -> dict[str, Any]:
     """Run *code* in LocalPythonExecutor.
 
@@ -738,5 +788,5 @@ def run_sandboxed_code(
             _seed_executor_from_init(executor, init_sid)
 
     inject_auto_imports(executor, code)
-    _inject_data(executor, data)
+    _inject_data(executor, data, locale=locale, convert_datetime=convert_datetime)
     return _run_on_executor(executor, code)

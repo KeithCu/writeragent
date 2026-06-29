@@ -10,8 +10,6 @@
 **Bugreport**: One last thing I noticed, though possibly it already might have been fixed by now. Sometimes the sidebar chat acts a bit counterintuitively in copies of documents.
 A few times I had the impression that two copies ended up sharing the same chat history. When I had interacted with a model in one of the two files, after I had made the copies, the chat history also turned up in the second document; when I cleared the chat history in the second document it was also gone in the first. However, it appeared that this had 'unlinked' both documents' chat histories.
 
-(Note: Active work on document identity (#6) using RuntimeUID + frame resolution helps reliable per-doc addressing; session history keying (WriterAgentSessionID via properties + URL hash) is a related follow-up.)
-
 ---
 
 **Last Updated**: 2026-06-29
@@ -122,29 +120,6 @@ Unified via `get_text_model()` / `set_text_model()` in [`plugin/framework/client
 - [x] Centralize reads/writes; writers use `set_text_model(..., update_lru=...)`.
 - [x] MCP / Tools → Options `ai.text_model` writes go through `set_text_model` in [`config_service.py`](../plugin/framework/config_service.py).
 - [x] Belt-and-suspenders: [`SettingsDialog._apply_dropdowns`](../plugin/chatbot/dialog_views.py) seeds text model from combobox `getText()` before falling back to `get_text_model()`.
-
----
-
-## Document acquisition, resolution & identity (active work)
-
-Progress toward consolidating the many paths to "the current document" and stable per-document identity.
-
-- **Central gateway**: `DocumentService` (name="document", registered via services in main.py). Exposes `get_active_document`, `resolve_document_by_url`, `detect_doc_type`, `get_document_context_for_chat`, paragraph helpers, `resolve_locator`, `doc_key`, etc. Most new tool code and MCP now do `doc_svc = ctx.services.document` (or `services.document`).
-
-- **Frame-only resolution (preferred for UI)**: `get_document_from_frame(frame)` — does `frame.getController().getModel()` + `guard_uno`. Explicitly the recommended path for sidebars (avoids Desktop picking the wrong document when focus changes). Used by `ChatPanelFactory._get_document_model` and `SendButtonListener`.
-
-- **Stable identity via RuntimeUID**: `get_runtime_uid(model)` (tries `getRuntimeUID()`, attribute, and property). Survives Save As (unlike file URL). Used by:
-  - `resolve_document_by_url` (accepts URL *or* RuntimeUID)
-  - MCP mutation gates (`_resolve_mcp_doc_key` prefers uid: over url:)
-  - Review toolbars, etc.
-
-- `resolve_document_by_url(ctx, url)` handles component enumeration, normalization, and both addressing schemes. Also a filtering helper `_real_active_document` to ignore the Start Center.
-
-- Per-document custom properties remain centralized (`get_document_property` / `set_document_property` in document_helpers) and are still used for `WriterAgentSessionID`, scripts, grammar persistence, etc.
-
-Direct calls to `get_active_document` from `uno_context` remain in bootstrap, menus, testing_runner, and a few legacy paths (by design for those layers). `doc_key` currently uses `id(doc)` (may improve further).
-
-This work directly helps sidebar correctness and multi-document / MCP scenarios.
 
 ---
 

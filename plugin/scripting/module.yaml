@@ -66,6 +66,14 @@ config:
     helper: Automatically spill multi-cell array/DataFrame results from =PYTHON() into adjacent cells.
     public: true
 
+  python_convert_datetime:
+    type: bool
+    default: false
+    widget: checkbox
+    label: Convert Date/Time and Timedelta Strings
+    helper: Automatically detect and convert date/time and duration strings to datetime/timedelta objects when sending data to the Python worker. Requires the 'pandas' and 'dateparser' packages in your venv.
+    public: true
+
   force_internal_script_editor:
     type: bool
     default: false
