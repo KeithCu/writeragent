@@ -4,7 +4,7 @@ WriterAgent adopts substantial design from [Nous Hermes Agent](https://github.co
 
 **Entry points:** [`plugin/chatbot/memory.py`](../plugin/chatbot/memory.py), [`plugin/chatbot/skills.py`](../plugin/chatbot/skills.py), [`plugin/framework/constants.py`](../plugin/framework/constants.py) (`MEMORY_GUIDANCE`, injection in `get_chat_system_prompt_for_document`).
 
-**Status (2026-06):** `upsert_memory` + `USER.md` injection are active. The first skill (`humanizer`) ships with ambient prompt injection and an optional `humanize` tool. General skills list/view/manage tools remain aspirational.
+**Status (2026-06):** `upsert_memory` + `USER.md` injection are active. The first skill (`humanizer`) ships with ambient prompt injection only (Settings checkbox). General skills list/view/manage tools remain aspirational.
 
 ---
 
@@ -130,7 +130,6 @@ Librarian path also injects user memory ([`librarian.py`](../plugin/chatbot/libr
 
 - Ambient `[HUMANIZER GUIDANCE]` injection when `chatbot.humanizer_enabled` (Settings checkbox in [`module.yaml`](../plugin/chatbot/module.yaml))
 - User-edited `skills/humanizer/SKILL.md` always wins; built-in default auto-seeded on first access
-- Optional `humanize` tool for targeted rewrites (uses `LlmClient` + active skill rules)
 - `SkillStore` modeled 1:1 on `MemoryStore` — no general skills framework yet
 
 **Future (Hermes-style, not implemented):** `skills_list`, `skill_view`, `skill_manage` with progressive disclosure (list overview → view full skill → create/edit/patch/delete). No `SKILLS_GUIDANCE` constant exists in code today.
@@ -152,7 +151,7 @@ Librarian path also injects user memory ([`librarian.py`](../plugin/chatbot/libr
 |-------|--------|
 | `upsert_memory` + memory `auto_discover` | Active |
 | `USER.md` prompt injection | Active |
-| Humanizer injection + `humanize` tool | Active |
+| Humanizer prompt injection | Active |
 | Frozen snapshot / threat scan / drift guard | Not implemented |
 | Background reviewer | Not implemented |
 | General skills list/view/manage | Not implemented |
@@ -177,7 +176,6 @@ flowchart LR
   end
   subgraph tools [Registered tools]
     Mem["upsert_memory"]
-    Hum["humanize"]
   end
   subgraph disk [User config disk]
     UserMd["memories/USER.md"]
@@ -187,7 +185,6 @@ flowchart LR
   HumSkill -->|"injects HUMANIZER when enabled"| Constants
   Constants -->|"MEMORY_GUIDANCE"| Mem
   Mem --> UserMd
-  Hum --> HumSkill
 ```
 
 ### Hermes-style target (reference)

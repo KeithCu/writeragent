@@ -187,6 +187,7 @@ The native grammar checker pairs **sentence-bound work units** with **sentence-l
 
 - **`doProofreading`** (async return path): On a **full cache miss**, WriterAgent returns with empty `aErrors` and enqueues a work item. On a **partial cache hit** (some sentences cached, some not), it **returns the cached errors immediately** (better than empty — squiggles appear for already-checked sentences) and enqueues for the remaining uncached sentences. On a **full cache hit** all errors are returned directly, no enqueue needed. It **does not** wait inside `doProofreading` or pump `processEventsToIdle()` for results. That keeps **menus and chrome responsive** while grammar runs.
 - **Sidebar status**: the proofreader emits `grammar:status` for meaningful phases (`start`, `request`, `complete`, `failed`, etc.). Skipped work is not reported to the status bar.
+- **Async delivery watchdog  (In GitHub branch only)**: when the worker caches **non-empty** errors, [`grammar_delivery.py`](../plugin/writer/locale/grammar_delivery.py) marks the sentence pending until LO calls `doProofreading` again and reads the warm cache. If LO has not retrieved the result within **5 seconds**, a coalesced main-thread nudge runs (at most **2** attempts per sentence, **5 s** cooldown per document): first `PROOFREAD_AGAIN` via `XLinguServiceEventBroadcaster` on the live proofreader instance, then targeted `XProofreadingIterator.checkSentenceAtPosition` for pending sentences only, then a weak window `invalidate(0)` repaint. Clean (zero-issue) cache rows do not schedule nudges.
 
 #### Worker thread, quiet period, and batching
 
@@ -293,7 +294,7 @@ Two tables: **product / hardening** (user-visible or systemic improvements) and 
 |----|------|--------|
 | P2 | HTTP 429 / backoff | Theoretical: Exponential backoff and cooldown in the grammar worker if providers ever rate-limit; currently unnecessary due to `LlmClient` request pacing. |
 | P3 | Locales | Optional regional tags in XCU if an LO build needs explicit `hasLocale`/`getLocales` pairing beyond normalization. |
-| P4 | Refresh UX | LO shows new squiggles on subsequent passes — document for users; research safe invalidate APIs if any. |
+| P4 | Refresh UX | **Shipped (partial):** delivery tracker + 5 s watchdog nudge in [`grammar_delivery.py`](../plugin/writer/locale/grammar_delivery.py). Remaining: verify LO listener wiring across builds; optional user-facing doc note that squiggles may lag briefly while typing stops. |
 | P6 | Document-generation invalidation | Fold revision/mod-generation into cache keys if LO exposes it; reduces stale offsets after edits above span. |
 | P7 | Shared policy with chat | Expand beyond pause-during-agent + shared LLM lane (endpoint-aware policy, status UX, adaptive queue). |
 | P8 | Prompt and schema hardening | Few-shot edge cases (quotes, lists, track changes); stricter JSON recovery. |

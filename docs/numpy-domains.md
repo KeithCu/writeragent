@@ -48,6 +48,16 @@ uv pip install numpy pandas scipy scikit-learn statsmodels ydata-profiling panda
 
 Helpers that need a missing package return `MISSING_PACKAGE` with the install line above — there is no in-code fallback to alternate libraries. See [Analysis Sub-Agent](analysis-sub-agent.md).
 
+### Demo workbook (all NumPy domains)
+
+Manual QA fixture covering Analysis, Viz, Math, Quant, Optimize, Units, and Goal Seek/Solver: [`tests/fixtures/numpy_domains_demo.ods`](../tests/fixtures/numpy_domains_demo.ods) ([`numpy_domains_demo.README.md`](../tests/fixtures/numpy_domains_demo.README.md)). Native ODS preserves uppercase `=PYTHON()` (LibreOffice lowercases custom add-ins when importing XLSX). One sheet per domain with sample data, `=PYTHON()` scalar checks where applicable, Run Python Script picker hints, and chat prompts for tools that expose a Calc chat surface. Regenerate from repo root:
+
+```bash
+python scripts/generate_numpy_domains_demo_spreadsheet.py
+```
+
+Case definitions: [`tests/calc/numpy_domains_demo_cases.py`](../tests/calc/numpy_domains_demo_cases.py).
+
 ### Planned domain package groups {#planned-domain-package-groups}
 
 Future trusted-helper domains (Forecasting, Text Analytics, Optimization, Geospatial, Audio) will each declare required venv packages and a Settings → Python **Test** group when implemented. **Shipped today:**

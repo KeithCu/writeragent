@@ -61,6 +61,10 @@ Built-in helpers use the same trusted `run_analysis` path as `analyze_data` (not
 
 See [enabling_numpy_in_libreoffice.md](enabling_numpy_in_libreoffice.md) for venv setup.
 
+### Demo workbook
+
+Manual QA fixture: [`tests/fixtures/numpy_domains_demo.ods`](../tests/fixtures/numpy_domains_demo.ods) (see [`numpy_domains_demo.README.md`](../tests/fixtures/numpy_domains_demo.README.md)). The **analysis** and **goal_seek_solver** sheets exercise all 14 `analyze_data` helpers plus native Goal Seek/Solver with sample grids, `=PYTHON()` spot checks, Run Python Script hints, and chat prompts. Regenerate: `python scripts/generate_numpy_domains_demo_spreadsheet.py`.
+
 ---
 
 ## 2. Goal Seek
