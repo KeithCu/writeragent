@@ -47,7 +47,7 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 
 ### 🖋️ Writer
 
-- **Advanced Editing**: Supports rich text, [page layout](docs/page-api-reference.md), [shapes](docs/shape_support.md), charts, [bookmarks](docs/bookmarks-api-reference.md), fields, [footnotes](docs/footnotes-api-reference.md), and [track-changes](docs/writer-tracking-api-reference.md). Tool delegation feature explained in [Writer Specialized Toolset](docs/writer-specialized-toolsets.md).
+- **LLM-facing Writer APIs**: **9 core** tools for everyday chat plus **dozens of specialized** UNO-backed tools. The main model keeps a small default list  while [`domain-scoped sub-agents`](docs/writer-specialized-toolsets.md) unlock deep APIs for [page layout](docs/page-api-reference.md), [shapes](docs/shape_support.md), charts, [bookmarks](docs/bookmarks-api-reference.md), fields, [footnotes](docs/footnotes-api-reference.md), [track changes](docs/writer-tracking-api-reference.md), indexes, forms, and more—so models run **multi-step document automation**, not just rewrite paragraphs.
 - **Format Preservation**: Uses a "surgical" replacement method that preserves existing bold, italics, highlights, and font sizes.
 - **Agentic Analysis**: The AI can run Numpy computations and return structured results (as JSON) to update your document.
 - **Real-time Grammar & Style Checker**: An asynchronous proofreader with a **sentence cache** and **Unicode-aware splitting**. Includes **Token-aware Overlap Repair** to fix "LLM slop" and ensure surgical replacements. Persistent storage of good/bad sentences with document. Supports multiple backends configurable in **Settings → Doc → Enable grammar checker (Writer)**:
@@ -68,12 +68,37 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 - **=PROMPT() Function**: Run AI prompts within spreadsheet cells.
 - **=PY() / =PYTHON() Function**: Run Python/NumPy within spreadsheet cells: `=PY("sp.prime(data)", A10)`. Supports multi-range inputs (e.g., `=PY("np.mean(data)", A1:A10, C1:C10)`) and auto-unpacks single-cell inputs to Python scalars. The `data` variable contains the cell values, dynamically injected at runtime. Returns can include lists/dicts of figures (multiple images) or DataFrames. Return semantics: `None` → empty cell; `float("nan")` / `np.nan` → Calc error cell (`#NUM!` / `#VALUE!`, cascades). Use `np.nanmean` / `np.nansum` etc. when input contains blanks. See [Data Handoff Guide](docs/enabling_numpy_in_libreoffice.md#data-handoff-and-shaping) and [Empty cells vs NaN](docs/calc-blanks-vs-nans.md).
 - **Automatic spill (Calc)**: On by default (Settings → Python → "Python auto spill in Calc"). A single-cell `=PYTHON()` returning a list, 2D array, or DataFrame automatically spills the result into adjacent cells. Blocked cells produce `#SPILL!` in the formula cell. Spill locations are saved in the document (persistent across reloads). Explicit matrix formulas (Ctrl+Shift+Enter) and per-row index arguments remain available for manual control.
-- **Analysis helpers**: Fourteen trusted numpy/pandas/scipy helpers — `describe_data`, `kpi_summary`, `detect_outliers`, `quick_stats`, `format_currency`, `format_percent`, `clean_and_prepare`, `pivot_aggregate`, `group_summary`, `compare_periods`, `correlation_matrix`, `run_regression`, `cluster_numeric`, `monte_carlo`. **Analysis Helpers** — set **Data** range and run. Also Goal Seek and Solver. [Analysis Tools](docs/calc-analysis-tools.md) · [Architecture](docs/analysis-sub-agent.md).
-- **Visualization**: **Viz Helpers** — `quick_plot`, `correlation_heatmap`, `time_series_plot`. Charts insert on the sheet; `=PY()` / `matplotlib` plots work the same way. Supports returning lists or dicts of figures (multiple images inserted at once). **Packages:** `matplotlib`, `seaborn`. See [Visualization](docs/numpy-domains.md#visualization).
-- **Symbolic Math (SymPy)**: **Math Helpers**.
-- **Quantitative Finance**: **Quant Helpers** — `fetch_historical_data`, `technical_analysis`, `portfolio_tearsheet`, `efficient_frontier`. **Packages:** `yfinance`, `pandas-ta`, `quantstats`, `pyportfolioopt`.
-- **Optimization & OR**: **Optimize Helpers** — `optimize_portfolio`, `linear_programming`, `solve_scheduling_problem`. See [Optimization](docs/numpy-domains.md#optimization).
-- **Unit conversion (Pint)**: **Units Helpers** — `convert_quantity`, `parse_quantity`, `format_quantity`, `check_dimensionality`. On Calc, `convert_quantity` / `parse_quantity` write a **single formatted cell** at the selection anchor by default (e.g. `36 km/h`); pass `output_style: "detailed"` for a key-value grid. Goes beyond Calc's built-in `CONVERT()` for compound units like `m/s` → `km/h`. **Packages:** `pint`. See [Data Engineering / Units](docs/numpy-domains.md#data-engineering-units).
+- **Trusted Calc helpers**: via `analyze_data`, chat delegation, and **Tools → Run Python Script** — set **Data** range where applicable.
+
+| Domain | Helpers | Notes |
+|--------|---------|-------|
+| **Analysis** | 14 trusted helpers (detail below) + `calc_goal_seek`, `calc_solver` | **Run Python Script → Analysis Helpers**; `numpy`/`pandas`/`scipy`/… stack. [Analysis Tools](docs/calc-analysis-tools.md) · [Architecture](docs/analysis-sub-agent.md) |
+| **Viz** | `quick_plot`, `correlation_heatmap`, `time_series_plot` | Charts insert on sheet; `=PY()` / matplotlib same; multi-figure lists/dicts. `matplotlib`, `seaborn`. [Visualization](docs/numpy-domains.md#visualization) |
+| **Math** | `solve_equation`, `symbolic_simplify`, `integrate`, `differentiate` | SymPy; inserts editable LO Math. `sympy` |
+| **Quant** | `fetch_historical_data`, `technical_analysis`, `portfolio_tearsheet`, `efficient_frontier` | `yfinance`, `pandas-ta`, `quantstats`, `pyportfolioopt` |
+| **Optimize** | `optimize_portfolio`, `linear_programming`, `solve_scheduling_problem` | `scipy.optimize`. [Optimization](docs/numpy-domains.md#optimization) |
+| **Units** | `convert_quantity`, `parse_quantity`, `format_quantity`, `check_dimensionality` | Calc: single formatted cell by default (`36 km/h`); `output_style: "detailed"` for grid. Beyond `CONVERT()` for compound units. `pint`. [Units](docs/numpy-domains.md#data-engineering-units) |
+
+**Analysis helpers (detail)**
+
+| Helper | Purpose |
+|--------|---------|
+| `describe_data` | Extended EDA + column quality |
+| `kpi_summary` | Aggregate mean/min/max/sum for metrics |
+| `detect_outliers` | IQR, z-score, or isolation forest |
+| `quick_stats` | Compact metric card |
+| `format_currency` / `format_percent` | Display formatters |
+| `clean_and_prepare` | Dedupe, simple imputation |
+| `pivot_aggregate` | Pivot table wrapper |
+| `group_summary` | Group-by aggregates |
+| `compare_periods` | YoY/QoQ/MoM comparisons |
+| `correlation_matrix` | Top correlated pairs |
+| `run_regression` | OLS via statsmodels |
+| `cluster_numeric` | KMeans centroids |
+| `monte_carlo` | Monte Carlo resampling |
+| `calc_goal_seek` | Single-variable what-if (native Calc, no venv) |
+| `calc_solver` | Constrained optimization on formulas (native Calc) |
+
 - **Rich Text Cells**: Paste **HTML** (bold, links, breaks) into a **single cell** using advanced StarWriter import paths.
 - **Batch Range Edits**: Apply formulas and formatting in bulk. [Specialized Toolsets](docs/calc-specialized-toolsets.md).
 - **Advanced Features**: [Conditional Formatting](docs/calc-conditional-formatting.md) and [Sheet Filtering (AutoFilter)](docs/calc-sheet-filter.md).

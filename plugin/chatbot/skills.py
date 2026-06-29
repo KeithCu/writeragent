@@ -3,9 +3,7 @@
 Re-uses the exact same user profile storage pattern as MemoryStore (user_config_dir + subdirectory).
 The primary delivery mechanism is **ambient prompt injection** (see get_chat_system_prompt_for_document),
 exactly like the existing (partial) memory injection. This gives the model the rules "for free"
-during any writing or document work without extra tool calls in most cases.
-
-An explicit `humanize` tool is also provided for targeted use (e.g. "make this paragraph sound human").
+during any writing or document work without a separate tool call.
 
 Users can turn the skill on/off via Settings and edit the rules by editing the SKILL.md file
 (or via a future in-app editor). The file in the user profile always wins over the built-in default.
@@ -15,7 +13,7 @@ import os
 import logging
 from typing import Any
 
-from plugin.framework.config import user_config_dir, get_config_bool_safe
+from plugin.framework.config import user_config_dir
 from plugin.framework.errors import ConfigError
 
 log = logging.getLogger(__name__)
@@ -114,102 +112,4 @@ class SkillStore:
         return self._humanizer_path()
 
 
-def _resolve_uno_ctx(ctx: Any) -> Any:
-    return getattr(ctx, "ctx", ctx)
-
-
-# --- Tool (explicit "force a humanize pass") ---
-
-from plugin.framework.tool import ToolBase
-
-
-class HumanizerTool(ToolBase):
-    """Explicit tool the model (or user) can call to humanize specific text.
-
-    Primary experience is the ambient injection in the system prompt (see constants.py),
-    so the model applies the rules automatically while writing/editing.
-    This tool exists for targeted "make only this paragraph sound human" requests
-    and for sub-agents that want a clean separation.
-
-    Re-uses LlmClient (same as the rest of the system) and the SkillStore for the rules.
-    """
-
-    name = "humanize"
-    description = (
-        "Rewrite the given text to sound natural and human rather than AI-generated. "
-        "Follows the active humanizer skill rules (user-editable in the profile/skills/humanizer/SKILL.md). "
-        "Use when the user explicitly asks to humanize, de-slop, or make writing sound less robotic. "
-        "Preserve original meaning and any document-specific constraints."
-    )
-    tier = "core"
-    intent = "edit"
-    is_mutation = False  # it returns text; the caller decides whether to apply it to the document
-
-    parameters = {
-        "type": "object",
-        "properties": {
-            "text": {
-                "type": "string",
-                "description": "The text to humanize (can be a paragraph, section, or full passage).",
-            }
-        },
-        "required": ["text"],
-    }
-
-    def execute(self, ctx: Any, **kwargs: Any) -> dict:
-        # Defined declaratively in plugin/chatbot/module.yaml (appears as checkbox in Settings).
-        # get_config_bool_safe falls back to the schema default (true) or False on error.
-        enabled = False
-        try:
-            enabled = get_config_bool_safe("chatbot.humanizer_enabled")
-        except Exception:
-            enabled = False
-        if not enabled:
-            return self._tool_error("Humanizer skill is disabled in Settings.")
-
-        text = (kwargs.get("text") or "").strip()
-        if not text:
-            return self._tool_error("text is required")
-
-        try:
-            store = SkillStore(ctx)
-            guidance = store.get_humanizer_guidance()
-        except Exception as e:
-            return self._tool_error(f"Failed to load humanizer rules: {e}")
-
-        # Build a focused prompt that re-uses the same style as other internal LLM calls.
-        # We deliberately keep it short so it works even with smaller models.
-        prompt = f"""Follow these humanization rules exactly. Do not add extra commentary.
-
-{guidance}
-
-TEXT TO HUMANIZE:
-{text}
-
-Return ONLY the rewritten text (no quotes, no explanations, no prefix like "Here is the humanized version")."""
-
-        try:
-            from plugin.framework.config import get_api_config
-            from plugin.framework.client.llm_client import LlmClient
-
-            api_cfg = get_api_config()
-            client = LlmClient(api_cfg, ctx=ctx)  # re-uses pacing, redaction, shims, etc.
-
-            # Small, cheap call focused on rewrite quality.
-            # Use chat_completion_sync (which internally does request_with_tools + make_chat_request)
-            # so we get a simple content string back, and all the normal config (model, temperature, etc.)
-            # + safety (date injection, dev prefix, coalescing, redaction, pacing) is applied automatically.
-            result = client.chat_completion_sync(
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=4096,
-            )
-            if not result:
-                return self._tool_error("Model returned empty humanized text")
-            return {"status": "ok", "humanized": result}
-        except Exception as e:
-            log.exception("Humanizer tool failed")
-            return self._tool_error(f"Humanization failed: {e}")
-
-
-# For auto-discovery (see plugin/chatbot/__init__.py pattern used by memory)
-__all__ = ["SkillStore", "HumanizerTool", "HUMANIZER_GUIDANCE"]
+__all__ = ["SkillStore", "HUMANIZER_GUIDANCE"]

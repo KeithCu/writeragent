@@ -31,7 +31,7 @@ def _label_chat() -> str:
 
 
 def _label_image() -> str:
-    return _("Use Image model")
+    return _("Image model")
 
 
 def _label_web_research() -> str:

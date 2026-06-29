@@ -115,12 +115,7 @@ DOMAIN_TOOLS = {   'analysi': ['analyze_data', 'calc_goal_seek', 'calc_solver', 
                    'resolve_comment',
                    'workflow'],
     'conditional_formatting': ['add_conditional_format', 'list_conditional_formats', 'remove_conditional_formats'],
-    'core': [   'find_tools',
-                'humanize',
-                'list_open_documents',
-                'specialized_workflow_finished',
-                'upsert_memory',
-                'web_research'],
+    'core': ['find_tools', 'list_open_documents', 'specialized_workflow_finished', 'upsert_memory', 'web_research'],
     'document_research': ['delegate_read_document', 'grep_nearby_files', 'list_nearby_files', 'search_nearby_files'],
     'draw': [   'add_slide',
                 'delegate_to_specialized_draw_toolset',
@@ -424,10 +419,6 @@ class _CoreProxy:
     def find_tools(self, *, domain: str = "") -> dict:
         """Discover additional tools that are available but not listed here."""
         return _rpc_call("find_tools", domain=domain)
-
-    def humanize(self, text: str) -> dict:
-        """Rewrite the given text to sound natural and human rather than AI-generated."""
-        return _rpc_call("humanize", text=text)
 
     def list_open_documents(self) -> dict:
         """List all currently open documents in LibreOffice."""

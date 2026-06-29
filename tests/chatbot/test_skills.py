@@ -7,9 +7,9 @@ import os
 import shutil
 import tempfile
 import unittest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 
-from plugin.chatbot.skills import SkillStore, HumanizerTool
+from plugin.chatbot.skills import SkillStore
 
 
 class DummyCtx:
@@ -90,39 +90,6 @@ Vary your sentences.
         got = store.get_humanizer_guidance()
         self.assertIn("Vary your sentences", got)
         self.assertNotIn("name: humanizer", got)
-
-
-class TestHumanizerTool(_SkillTestBase):
-    def test_disabled_returns_error(self):
-        tool = HumanizerTool()
-        with patch("plugin.chatbot.skills.get_config_bool_safe", return_value=False):
-            res = tool.execute(self.ctx, text="Some AI slop text.")
-            self.assertIn("disabled", res.get("message", "").lower())
-
-    def test_calls_llm_with_guidance(self):
-        tool = HumanizerTool()
-
-        mock_client = MagicMock()
-        mock_client.chat_completion_sync.return_value = "Much more human version."
-
-        with patch("plugin.chatbot.skills.get_config_bool_safe", return_value=True), \
-             patch("plugin.chatbot.skills.SkillStore") as mock_store_cls, \
-             patch("plugin.framework.client.llm_client.LlmClient", return_value=mock_client):
-
-            mock_store = MagicMock()
-            mock_store.get_humanizer_guidance.return_value = "Be specific. Vary rhythm."
-            mock_store_cls.return_value = mock_store
-
-            res = tool.execute(self.ctx, text="The pivotal paradigm shift...")
-
-            self.assertEqual(res["status"], "ok")
-            self.assertEqual(res["humanized"], "Much more human version.")
-
-            # Verify the guidance was included in the prompt sent to the model
-            call_args = mock_client.chat_completion_sync.call_args[1]
-            prompt = call_args["messages"][0]["content"]
-            self.assertIn("Be specific. Vary rhythm.", prompt)
-            self.assertIn("The pivotal paradigm shift", prompt)
 
 
 if __name__ == "__main__":

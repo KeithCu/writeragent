@@ -37,7 +37,7 @@ class ChatbotModule(ModuleBase):
         from . import librarian
         from . import brainstorming
         from . import writing
-        from . import skills  # Humanizer skill + future general skills (minimal, re-uses MemoryStore pattern + prompt injection)
+        from . import skills  # Humanizer skill (prompt injection via SkillStore)
 
         services.tools.auto_discover(web_research)
         services.tools.auto_discover(memory)
