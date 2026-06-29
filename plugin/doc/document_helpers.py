@@ -17,7 +17,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import logging
 import uno
-from typing import TypedDict
+from typing import TypedDict, Any, cast
 from enum import Enum, auto
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.analyzer import SheetAnalyzer
@@ -25,6 +25,14 @@ from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
 from plugin.framework.uno_context import get_active_document as get_active_doc
 from plugin.framework.errors import UnoObjectError, check_disposed, safe_call, safe_uno_call
 from plugin.framework.thread_guard import main_thread_only, _wrap_uno
+
+try:
+    from com.sun.star.lang import DisposedException
+    from com.sun.star.uno import RuntimeException, Exception as UnoException
+    UNO_DISPOSED_EXCEPTIONS = (DisposedException, RuntimeException, UnoException)
+except ImportError:
+    UNO_DISPOSED_EXCEPTIONS = cast("Any", (Exception,))
+
 
 
 def normalize_linebreaks(text: str | None) -> str:
@@ -743,6 +751,81 @@ def resolve_document_by_url(ctx, url):
     return (None, None)
 
 
+@main_thread_only
+def get_document_from_frame(frame):
+    """Get the document model strictly from the frame controller.
+
+    This is the preferred path for sidebar panels to ensure we resolve
+    the document bound to the active window rather than relying on Desktop.
+    """
+    if not frame:
+        return None
+    try:
+        check_disposed(frame, "Frame")
+        controller = frame.getController()
+        if not controller:
+            return None
+        check_disposed(controller, "Controller")
+        model = controller.getModel()
+        if model is not None:
+            from plugin.framework.thread_guard import guard_uno
+            return guard_uno(model)
+    except Exception as e:
+        if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
+            logging.getLogger(__name__).debug("Failed to get model from frame controller (likely disposed): %s", e)
+        else:
+            logging.getLogger(__name__).exception("Error resolving document from frame")
+    return None
+
+
+@main_thread_only
+def get_selection_text(model):
+    """Return the selected text or None if selection is empty/unavailable/fails. Handles Writer, Calc, Draw."""
+    try:
+        check_disposed(model, "Document Model")
+        controller = safe_call(model.getCurrentController, "Get current controller")
+        if not controller:
+            return None
+        check_disposed(controller, "Controller")
+
+        doc_type = get_document_type(model)
+
+        if doc_type == DocumentType.WRITER:
+            sel = safe_call(controller.getSelection, "Get selection")
+            sel_count = 0
+            if sel and hasattr(sel, "getCount"):
+                sel_count = safe_call(sel.getCount, "Get selection count")
+            if not sel or sel_count == 0:
+                vc = safe_call(controller.getViewCursor, "Get view cursor")
+                if vc:
+                    check_disposed(vc, "View Cursor")
+                    return safe_call(vc.getString, "Get view cursor string")
+            else:
+                rng = safe_call(sel.getByIndex, "Get selection by index", 0)
+                if rng:
+                    check_disposed(rng, "Selection Range")
+                    return safe_call(rng.getString, "Get selection string")
+        elif doc_type == DocumentType.CALC:
+            selection = safe_call(controller.getSelection, "Get selection")
+            if selection:
+                if hasattr(selection, "getString"):
+                    return safe_call(selection.getString, "Get selection string")
+        elif doc_type in (DocumentType.DRAW, DocumentType.IMPRESS):
+            selection = safe_call(controller.getSelection, "Get selection")
+            if selection and hasattr(selection, "getCount"):
+                count = safe_call(selection.getCount, "Get selection count")
+                parts = []
+                for i in range(count):
+                    shape = safe_call(selection.getByIndex, "Get selection shape", i)
+                    if shape and hasattr(shape, "getString"):
+                        parts.append(safe_call(shape.getString, "Get shape string"))
+                if parts:
+                    return "\n".join(parts)
+    except Exception:
+        pass
+    return None
+
+
 def get_document_path(model):
     """Return the local filesystem path for the document, or None if not a file URL (e.g. untitled)."""
     try:
@@ -996,64 +1079,78 @@ def get_selection_range(model):
 
 @main_thread_only
 def get_document_context_for_chat(model, max_context=CHAT_DOCUMENT_CONTEXT_MAX_CHARS, include_end=True, include_selection=True, ctx=None):
-    """Build a single context string for chat. Handles Writer and Calc.
+    """Build a single context string for chat. Handles Writer, Calc and Draw.
     ctx: component context (required for Calc and Draw documents)."""
-    doc_type = get_document_type(model)
+    try:
+        doc_type = get_document_type(model)
 
-    if doc_type == DocumentType.CALC:
-        return get_calc_context_for_chat(model, max_context, ctx)
+        if doc_type == DocumentType.CALC:
+            return get_calc_context_for_chat(model, max_context, ctx)
 
-    if doc_type in (DocumentType.DRAW, DocumentType.IMPRESS):
-        return get_draw_context_for_chat(model, max_context, ctx)
+        if doc_type in (DocumentType.DRAW, DocumentType.IMPRESS):
+            return get_draw_context_for_chat(model, max_context, ctx)
 
-    # Writer: read only the excerpt slice(s), not the full document text.
-    if doc_type == DocumentType.WRITER:
-        try:
-            check_disposed(model, "Document Model")
-            doc_len = _writer_char_count(model)
-        except UnoObjectError:
-            logging.getLogger(__name__).exception("get_document_context_for_chat Writer failed")
-            return "[Unable to read Writer document context. The document may be locked or initializing.]"
+        # Writer: read only the excerpt slice(s), not the full document text.
+        if doc_type == DocumentType.WRITER:
+            try:
+                check_disposed(model, "Document Model")
+                doc_len = _writer_char_count(model)
+            except (UnoObjectError, Exception):
+                logging.getLogger(__name__).exception("get_document_context_for_chat Writer failed, trying fallback to selection-only")
+                sel_text = get_selection_text(model)
+                if sel_text:
+                    return f"[Document text reading failed. Active selection: {sel_text}]"
+                return "[Document content unavailable]"
 
-        if include_end and doc_len > (max_context // 2):
-            start_chars = max_context // 2
-            end_chars = max_context - start_chars
-            excerpt_windows = [(0, start_chars), (doc_len - end_chars, doc_len)]
-        else:
-            start_chars = 0
-            end_chars = 0
+            if include_end and doc_len > (max_context // 2):
+                start_chars = max_context // 2
+                end_chars = max_context - start_chars
+                excerpt_windows = [(0, start_chars), (doc_len - end_chars, doc_len)]
+            else:
+                start_chars = 0
+                end_chars = 0
+                take = min(doc_len, max_context)
+                excerpt_windows = [(0, take)]
+
+            start_offset, end_offset = (0, 0)
+            if include_selection:
+                sel_positions = _get_writer_selection_positions(model)
+                if sel_positions is not None and _writer_selection_overlaps_windows(model, excerpt_windows, sel_positions[1], sel_positions[2]):
+                    start_offset, end_offset = get_selection_range(model)
+                    start_offset = max(0, min(start_offset, doc_len))
+                    end_offset = max(0, min(end_offset, doc_len))
+                    if start_offset > end_offset:
+                        start_offset, end_offset = end_offset, start_offset
+                    max_selection_span = 2000
+                    if end_offset - start_offset > max_selection_span:
+                        end_offset = start_offset + max_selection_span
+
+            if include_end and doc_len > (max_context // 2):
+                start_excerpt = _read_writer_text_slice(model, 0, start_chars)
+                end_excerpt = _read_writer_text_slice(model, doc_len - end_chars, end_chars)
+                start_excerpt = _inject_markers_into_excerpt(start_excerpt, 0, start_chars, start_offset, end_offset, "[DOCUMENT START]\n", "\n[DOCUMENT END]")
+                end_excerpt = _inject_markers_into_excerpt(end_excerpt, doc_len - end_chars, doc_len, start_offset, end_offset, "[DOCUMENT END]\n", "\n[END DOCUMENT]")
+                middle_note = "\n\n[... middle of document omitted ...]\n\n" if doc_len > max_context else ""
+                return "Document length: %d characters.\n\n%s%s%s" % (doc_len, start_excerpt, middle_note, end_excerpt)
+
             take = min(doc_len, max_context)
-            excerpt_windows = [(0, take)]
+            excerpt = _read_writer_text_slice(model, 0, take)
+            if doc_len > max_context:
+                excerpt += "\n\n[... document truncated ...]"
+            excerpt = _inject_markers_into_excerpt(excerpt, 0, take, start_offset, end_offset, "[DOCUMENT START]\n", "\n[END DOCUMENT]")
+            return "Document length: %d characters.\n\n%s" % (doc_len, excerpt)
 
-        start_offset, end_offset = (0, 0)
-        if include_selection:
-            sel_positions = _get_writer_selection_positions(model)
-            if sel_positions is not None and _writer_selection_overlaps_windows(model, excerpt_windows, sel_positions[1], sel_positions[2]):
-                start_offset, end_offset = get_selection_range(model)
-                start_offset = max(0, min(start_offset, doc_len))
-                end_offset = max(0, min(end_offset, doc_len))
-                if start_offset > end_offset:
-                    start_offset, end_offset = end_offset, start_offset
-                max_selection_span = 2000
-                if end_offset - start_offset > max_selection_span:
-                    end_offset = start_offset + max_selection_span
+        return ""
+    except Exception as e:
+        logging.getLogger(__name__).exception("get_document_context_for_chat unexpected failure, trying selection fallback")
+        try:
+            sel_text = get_selection_text(model)
+            if sel_text:
+                return f"[Document context resolution failed. Active selection: {sel_text}]"
+        except Exception:
+            pass
+        return "[Document content unavailable]"
 
-        if include_end and doc_len > (max_context // 2):
-            start_excerpt = _read_writer_text_slice(model, 0, start_chars)
-            end_excerpt = _read_writer_text_slice(model, doc_len - end_chars, end_chars)
-            start_excerpt = _inject_markers_into_excerpt(start_excerpt, 0, start_chars, start_offset, end_offset, "[DOCUMENT START]\n", "\n[DOCUMENT END]")
-            end_excerpt = _inject_markers_into_excerpt(end_excerpt, doc_len - end_chars, doc_len, start_offset, end_offset, "[DOCUMENT END]\n", "\n[END DOCUMENT]")
-            middle_note = "\n\n[... middle of document omitted ...]\n\n" if doc_len > max_context else ""
-            return "Document length: %d characters.\n\n%s%s%s" % (doc_len, start_excerpt, middle_note, end_excerpt)
-
-        take = min(doc_len, max_context)
-        excerpt = _read_writer_text_slice(model, 0, take)
-        if doc_len > max_context:
-            excerpt += "\n\n[... document truncated ...]"
-        excerpt = _inject_markers_into_excerpt(excerpt, 0, take, start_offset, end_offset, "[DOCUMENT START]\n", "\n[END DOCUMENT]")
-        return "Document length: %d characters.\n\n%s" % (doc_len, excerpt)
-
-    return ""
 
 
 @main_thread_only

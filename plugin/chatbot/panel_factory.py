@@ -504,18 +504,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
     def _get_document_model(self):
         """Helper to get the current document model strictly from the frame."""
-        model = None
-        if self.xFrame:
-            try:
-                model = self.xFrame.getController().getModel()
-            except Exception as e:
-                if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
-                    log.debug("Failed to get model from frame controller (likely disposed): %s", e)
-        if model is not None:
-            from plugin.framework.thread_guard import guard_uno
+        from plugin.doc.document_helpers import get_document_from_frame
 
-            return guard_uno(model)
-        return model
+        return get_document_from_frame(self.xFrame)
 
     def _wire_model_selectors(self, model_selector, image_model_selector):
         """Initializes model selectors and their sync listeners."""

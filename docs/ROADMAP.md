@@ -10,9 +10,11 @@
 **Bugreport**: One last thing I noticed, though possibly it already might have been fixed by now. Sometimes the sidebar chat acts a bit counterintuitively in copies of documents.
 A few times I had the impression that two copies ended up sharing the same chat history. When I had interacted with a model in one of the two files, after I had made the copies, the chat history also turned up in the second document; when I cleared the chat history in the second document it was also gone in the first. However, it appeared that this had 'unlinked' both documents' chat histories.
 
+(Note: Active work on document identity (#6) using RuntimeUID + frame resolution helps reliable per-doc addressing; session history keying (WriterAgentSessionID via properties + URL hash) is a related follow-up.)
+
 ---
 
-**Last Updated**: 2026-05-06
+**Last Updated**: 2026-06-29
 **Status**: Active Development
 
 This document outlines the planned features, improvements, and technical debt to address in WriterAgent. Items are organized by priority and domain.
@@ -123,6 +125,29 @@ Unified via `get_text_model()` / `set_text_model()` in [`plugin/framework/client
 
 ---
 
+## Document acquisition, resolution & identity (active work)
+
+Progress toward consolidating the many paths to "the current document" and stable per-document identity.
+
+- **Central gateway**: `DocumentService` (name="document", registered via services in main.py). Exposes `get_active_document`, `resolve_document_by_url`, `detect_doc_type`, `get_document_context_for_chat`, paragraph helpers, `resolve_locator`, `doc_key`, etc. Most new tool code and MCP now do `doc_svc = ctx.services.document` (or `services.document`).
+
+- **Frame-only resolution (preferred for UI)**: `get_document_from_frame(frame)` — does `frame.getController().getModel()` + `guard_uno`. Explicitly the recommended path for sidebars (avoids Desktop picking the wrong document when focus changes). Used by `ChatPanelFactory._get_document_model` and `SendButtonListener`.
+
+- **Stable identity via RuntimeUID**: `get_runtime_uid(model)` (tries `getRuntimeUID()`, attribute, and property). Survives Save As (unlike file URL). Used by:
+  - `resolve_document_by_url` (accepts URL *or* RuntimeUID)
+  - MCP mutation gates (`_resolve_mcp_doc_key` prefers uid: over url:)
+  - Review toolbars, etc.
+
+- `resolve_document_by_url(ctx, url)` handles component enumeration, normalization, and both addressing schemes. Also a filtering helper `_real_active_document` to ignore the Start Center.
+
+- Per-document custom properties remain centralized (`get_document_property` / `set_document_property` in document_helpers) and are still used for `WriterAgentSessionID`, scripts, grammar persistence, etc.
+
+Direct calls to `get_active_document` from `uno_context` remain in bootstrap, menus, testing_runner, and a few legacy paths (by design for those layers). `doc_key` currently uses `id(doc)` (may improve further).
+
+This work directly helps sidebar correctness and multi-document / MCP scenarios.
+
+---
+
 ## 🧹 Framework Consolidation (Technical Debt)
 
 **Goal**: Reduce technical debt and improve code discoverability by merging small, highly related framework modules.
@@ -219,33 +244,31 @@ Our primary focus is **LibreOffice Fidelity**—systematically closing the gap b
 
 | Feature | Description |
 | :--- | :--- |
-| **LLM Response Parsing Refactor** | Extract provider-specific parsing logic into `plugin/framework/client/parsers.py` to improve resilience against API changes. |
+| **LLM Response Parsing Refactor** | ✅ **COMPLETED** — Provider-specific parsing and normalizers extracted to `plugin/framework/client/response_normalizers.py` (plus dedicated shims) for better modularity and resilience. |
 | **Batch Section Rewriting** | Implement heading-based document segmentation for whole-document processing. |
 | **Advanced Impress Layouts** | Adopt native shape positioning/sizing for Draw/Impress image generation. |
 
 ---
 
-## 💡 Refactoring Plan: LLM Parsing for Resilience
+## 💡 Refactoring Plan: LLM Parsing for Resilience ✅ **COMPLETED**
 
-To improve modularity and stability, we are refactoring provider-specific response parsing into a dedicated module. 
+Provider-specific response parsing and normalization were extracted (see `plugin/framework/client/response_normalizers.py`, `OpenAIShim`, and sibling shims in `anthropic_shim.py`, `google_shim.py`, `grok_shim.py`).
 
-### Why this is needed
-LLM APIs frequently update their JSON structures. Currently, these parsing quirks are interleaved with request logic in `llm_client.py`, making them hard to test and maintain. We are porting patterns from **LibreAI's** modular C++ clients to create a robust Python equivalent.
+### Why it was needed
+LLM APIs frequently update their JSON structures. These quirks were previously interleaved with request logic in `llm_client.py`, making them hard to test and maintain. The implementation follows patterns from LibreAI-style modular clients.
 
-### Common Quirks to Address
-When refactoring, ensure these provider-specific behaviors are isolated:
-1. **Gemini Role Mapping:** Gemini uses `model` for assistant roles, while others use `assistant`. 
-   ```python
-   # Example pattern to port
-   role = "model" if msg.role == "assistant" else "user"
-   ```
-2. **Anthropic Nested Content:** Anthropic responses wrap text in an array within a `content` object, requiring deeper traversal.
-   ```python
-   # Port from AnthropicClient::parseResponse
-   return data["content"][0]["text"]
-   ```
-3. **Ollama JSON Non-Standard:** Ollama occasionally returns trailing newline characters or non-standard JSON formatting that requires stricter parsing than OpenAI-compatible providers.
-4. **Hardcoded Fallbacks:** If the live model-list endpoint fails, use a predefined list (e.g., `["claude-opus-4-7", "claude-sonnet-4-6"]`) to keep the UI functional.
+### What was delivered
+- Central `response_normalizers.py` now owns token stripping, image extraction, multimodal normalization, and provider shims.
+- `llm_client.py` imports and delegates to the normalizers (keeps wire/pacing concerns separate).
+- Common quirks isolated (Gemini roles, Anthropic nested content, Ollama formatting, etc.).
+
+The original plan text is preserved below for historical context.
+
+### Common Quirks Addressed
+1. **Gemini Role Mapping:** Gemini uses `model` for assistant roles.
+2. **Anthropic Nested Content:** Content wrapped in arrays.
+3. **Ollama JSON Non-Standard:** Trailing newlines / formatting tolerance.
+4. **Hardcoded Fallbacks** and resilient chunk parsing remain available.
 
 ---
 
@@ -611,9 +634,12 @@ WriterAgent aims to be the most powerful, flexible, and user-friendly document a
 - ✅ Calc tool integration
 - ✅ Tunnel module removal
 - ✅ Memory management simplification
+- ✅ Config / chat model unification (`text_model` canonical via `get_text_model()` + `set_text_model()` in model_fetcher; legacy `model` ignored; LRU updates centralized)
+- ✅ LLM Response Parsing Refactor (extracted to `plugin/framework/client/response_normalizers.py` + provider shims; `llm_client.py` now delegates)
 
 **Active Development**:
 - Test infrastructure consolidation
+- Document acquisition / resolution unification (DocumentService + frame resolution + RuntimeUID identity)
 - Documentation enhancement
 
 **Up Next**:

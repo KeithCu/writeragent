@@ -796,21 +796,15 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         instead of ``Desktop.getCurrentComponent()``, which can point at the wrong
         document if focus changes.
         """
-        model = None
-        frame_exc: BaseException | None = None
-        if self.frame:
-            try:
-                model = self.frame.getController().getModel()
-            except Exception as e:
-                frame_exc = e
+        from plugin.doc.document_helpers import get_document_from_frame
+
+        model = get_document_from_frame(self.frame)
 
         _COMPATIBLE_DOC_TYPES = frozenset({"writer", "calc", "draw", "impress"})
         cached_doc_type = getattr(self, "cached_doc_type", None)
 
         if model and cached_doc_type in _COMPATIBLE_DOC_TYPES:
-            from plugin.framework.thread_guard import guard_uno
-
-            return guard_uno(model)
+            return model
 
         # Only log when chat send will fail (same moment as the sidebar error message).
         detail_parts = [
@@ -818,8 +812,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             "cached_doc_type=%s" % cached_doc_type,
             "model_probe=%s" % _uno_model_probe_for_log(model, cached_doc_type=cached_doc_type),
         ]
-        if frame_exc is not None:
-            detail_parts.append("frame_get_model_failed=[%s] %s" % (type(frame_exc).__name__, frame_exc))
         if model is not None:
             detail_parts.append("reject_reason=unsupported_or_uncached_doc_type probe=%s" % _uno_model_probe_for_log(model, cached_doc_type=cached_doc_type))
         log.error("SendButtonListener: no compatible document model for chat (%s)", "; ".join(detail_parts))
