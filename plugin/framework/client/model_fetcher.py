@@ -434,8 +434,8 @@ def set_native_audio_support(model_id, endpoint, supported):
 
 
 def get_text_model():
-    """Return the text/chat model (stored as text_model, fallback to model)."""
-    val = str(get_config("text_model") or get_config("model") or "").strip()
+    """Return the text/chat model (stored as ``text_model``)."""
+    val = str(get_config("text_model") or "").strip()
     if val:
         return val
     current_endpoint = get_current_endpoint()
@@ -472,6 +472,25 @@ def get_image_model():
     provider = get_provider_from_endpoint(current_endpoint)
     defaults = get_provider_defaults(provider)
     return str(defaults.get("image_model", "")).strip()
+
+
+def set_text_model(val, update_lru=True):
+    """Set text/chat model and optionally update model_lru for the current endpoint."""
+    if val is None:
+        return
+    val_str = str(val).strip()
+    if not val_str:
+        return
+
+    current = str(get_config("text_model") or "").strip()
+    if val_str == current:
+        return
+
+    set_config("text_model", val_str)
+    if update_lru:
+        from plugin.chatbot.config_ui_helpers import update_lru_history
+
+        update_lru_history(val_str, "model_lru", get_current_endpoint())
 
 
 def set_image_model(val, update_lru=True):

@@ -23,7 +23,7 @@ from plugin.framework.errors import format_error_payload, UnoObjectError
 from plugin.framework.uno_context import get_active_document, get_desktop, get_extension_url, get_toolkit
 from plugin.framework.i18n import _
 from plugin.framework.config import get_config, get_current_endpoint, set_config, get_config_str, get_config_int, as_bool, parse_int_robust, parse_float_robust
-from plugin.framework.client.model_fetcher import get_text_model, get_stt_model
+from plugin.framework.client.model_fetcher import get_text_model, get_stt_model, set_text_model
 from plugin.framework.logging import init_logging
 from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru, update_lru_history
 from plugin.chatbot.history_db import HAS_SQLITE
@@ -115,8 +115,7 @@ def input_box(ctx, message, title="", default="", x=None, y=None):
             if model_selector:
                 chosen = model_selector.getText()
                 if chosen:
-                    set_config("text_model", chosen)
-                    update_lru_history(chosen, "model_lru", get_current_endpoint())
+                    set_text_model(chosen, update_lru=True)
             _save_selection_token_controls(extend_tokens_ctrl, extra_tokens_ctrl)
             return ret_text, ret_prompt
         # ESC/close: execute() returned false — skip dispose in finally (double dispose segfaults LO).
@@ -747,7 +746,7 @@ class EvalDashboard:
         set_control_text(endpoint_ctrl, get_config_str("endpoint"))
 
         model_ctrl = self._dlg.getControl("models")
-        current_model = str(get_config("text_model") or get_config("model") or "")
+        current_model = str(get_text_model())
         current_endpoint = get_config_str("endpoint").strip()
         populate_combobox_with_lru(self._ctx, model_ctrl, current_model, "model_lru", current_endpoint)
 

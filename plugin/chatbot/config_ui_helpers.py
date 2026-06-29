@@ -375,10 +375,10 @@ def sync_sidebar_text_model(ctx, ctrl) -> str | None:
     txt = _sanitize_model_combobox_value(str(ctrl.getText() or ""))
     if not txt:
         return None
-    from plugin.framework.client.model_fetcher import get_text_model
+    from plugin.framework.client.model_fetcher import get_text_model, set_text_model
 
     if txt != get_text_model():
-        set_config("text_model", txt)
+        set_text_model(txt, update_lru=False)
     update_lru_history(txt, "model_lru", get_current_endpoint())
     return txt
 

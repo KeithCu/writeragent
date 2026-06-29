@@ -14,7 +14,7 @@ from plugin.framework.config import (
     set_config,
 )
 from plugin.framework.errors import ConfigError
-from plugin.framework.client.model_fetcher import get_image_model, set_image_model
+from plugin.framework.client.model_fetcher import get_image_model, get_text_model, set_image_model, set_text_model
 from plugin.framework.event_bus import global_event_bus
 from plugin.tests.testing_utils import setup_uno_mocks
 from plugin.framework.constants import get_plugin_dir
@@ -34,6 +34,7 @@ class TestConfigSync(unittest.TestCase):
 
         def mock_set_config(key, value):
             self.config_data[key] = value
+
         self.get_patcher = patch('plugin.framework.config.get_config', side_effect=mock_get_config)
         self.set_patcher = patch('plugin.framework.config.set_config', side_effect=mock_set_config)
         self.get_mf_patcher = patch('plugin.framework.client.model_fetcher.get_config', side_effect=mock_get_config)
@@ -41,13 +42,57 @@ class TestConfigSync(unittest.TestCase):
         self.mock_get = self.get_patcher.start()
         self.mock_set = self.set_patcher.start()
         self.get_mf_patcher.start()
-        self.set_mf_patcher.start()
+        self.mock_mf_set = self.set_mf_patcher.start()
 
     def tearDown(self):
         self.get_patcher.stop()
         self.set_patcher.stop()
         self.get_mf_patcher.stop()
         self.set_mf_patcher.stop()
+
+    def test_set_text_model_writes_and_lru(self):
+        self.config_data['text_model'] = ''
+        with patch('plugin.chatbot.config_ui_helpers.update_lru_history') as mock_lru, patch.object(global_event_bus, 'emit') as mock_emit:
+            set_text_model('new-chat-model')
+            self.assertEqual(self.config_data.get('text_model'), 'new-chat-model')
+            mock_lru.assert_called_once_with('new-chat-model', 'model_lru', '')
+            mock_emit.assert_not_called()
+
+    def test_set_text_model_skips_when_unchanged(self):
+        self.config_data['text_model'] = 'same-model'
+        self.mock_mf_set.reset_mock()
+        set_text_model('same-model')
+        self.mock_mf_set.assert_not_called()
+
+    def test_set_text_model_update_lru_false(self):
+        self.config_data['text_model'] = ''
+        with patch('plugin.chatbot.config_ui_helpers.update_lru_history') as mock_lru:
+            set_text_model('chat-only', update_lru=False)
+            self.assertEqual(self.config_data.get('text_model'), 'chat-only')
+            mock_lru.assert_not_called()
+
+    def test_get_text_model_ignores_legacy_model_key(self):
+        """Legacy top-level ``model`` in writeragent.json is no longer read."""
+        self.config_data['model'] = 'legacy-model'
+        self.config_data['text_model'] = ''
+        with patch('plugin.framework.client.model_fetcher.get_current_endpoint', return_value='http://localhost:11434'), \
+             patch('plugin.framework.client.model_fetcher.get_provider_from_endpoint', return_value='ollama'), \
+             patch('plugin.framework.client.model_fetcher.get_provider_defaults', return_value={'text_model': 'default-model'}):
+            self.assertEqual(get_text_model(), 'default-model')
+        self.assertEqual(self.config_data.get('text_model'), '')
+        self.assertEqual(self.config_data.get('model'), 'legacy-model')
+
+    def test_model_lru_endpoint_isolation(self):
+        endpoint_a = 'http://localhost:11434'
+        endpoint_b = 'http://localhost:8080'
+        self.config_data[f'model_lru@{endpoint_b}'] = ['other-model']
+        with patch('plugin.framework.client.model_fetcher.get_current_endpoint', return_value=endpoint_a), \
+             patch('plugin.chatbot.config_ui_helpers.get_config', side_effect=lambda k: self.config_data.get(k, '')), \
+             patch('plugin.chatbot.config_ui_helpers.set_config', side_effect=lambda k, v: self.config_data.__setitem__(k, v)), \
+             patch('plugin.chatbot.config_ui_helpers.get_current_endpoint', return_value=endpoint_a):
+            set_text_model('model-on-a', update_lru=True)
+        self.assertEqual(self.config_data.get(f'model_lru@{endpoint_a}'), ['model-on-a'])
+        self.assertEqual(self.config_data.get(f'model_lru@{endpoint_b}'), ['other-model'])
 
     def test_set_image_model_endpoint(self):
         self.config_data['image_model'] = ''

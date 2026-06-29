@@ -115,11 +115,11 @@ If you had never seen SPDX before: think of it as **the license name in a standa
 
 ## Config / chat model (`text_model` vs `model_lru`)
 
-The sidebar now updates `model_lru@<endpoint>` when the user picks a model (same as Settings apply). Larger cleanup is deferred:
+Unified via `get_text_model()` / `set_text_model()` in [`plugin/framework/client/model_fetcher.py`](../plugin/framework/client/model_fetcher.py) (mirrors `get_image_model` / `set_image_model`). `text_model` is the canonical stored key (not LRU-first). Legacy top-level `model` in `writeragent.json` is ignored.
 
-- [ ] Optionally derive active chat model from `model_lru@<endpoint>[0]` with `get_active_text_model` / `set_active_text_model`, legacy fallbacks, and one-shot migration from `text_model` / `model`.
-- [ ] Migrate readers (`get_text_model`, `get_api_config`) and writers (`set_config(..., "text_model")`) off the duplicate global key; special-case `AI_SIMPLE_FIELDS` / MCP if needed.
-- [ ] Belt-and-suspenders: in [`plugin/chatbot/legacy_ui.py`](plugin/chatbot/legacy_ui.py) `_apply_dropdowns`, pass `text_ctrl.getText()` instead of `""` when repopulating text/image/STT combos after endpoint refresh.
+- [x] Centralize reads/writes; writers use `set_text_model(..., update_lru=...)`.
+- [x] MCP / Tools → Options `ai.text_model` writes go through `set_text_model` in [`config_service.py`](../plugin/framework/config_service.py).
+- [x] Belt-and-suspenders: [`SettingsDialog._apply_dropdowns`](../plugin/chatbot/dialog_views.py) seeds text model from combobox `getText()` before falling back to `get_text_model()`.
 
 ---
 

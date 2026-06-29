@@ -266,6 +266,40 @@ class TestEndpointCombinedListener(unittest.TestCase):
         self.assertEqual(len(text_calls), 1)
         self.assertIsNotNone(text_calls[0]['remote_models'])
 
+    def test_apply_dropdowns_uses_combobox_text_for_text_model(self):
+        """Endpoint refresh must seed text model from combobox text, not empty string."""
+        from plugin.chatbot.dialog_views import EndpointCombinedListener
+
+        dialog = MagicMock()
+        ctx = MagicMock()
+        combo = MagicMock()
+        listener = EndpointCombinedListener(dialog, ctx, combo)
+
+        text_ctrl = MagicMock()
+        text_ctrl.getText.return_value = 'user-typed-model'
+        stt_ctrl = MagicMock()
+        stt_ctrl.getText.return_value = ''
+        image_ctrl = MagicMock()
+        image_ctrl.getText.return_value = ''
+
+        def get_optional_side_effect(dlg, name):
+            return {'text_model': text_ctrl, 'stt_model': stt_ctrl, 'image_model': image_ctrl, 'api_key': None}.get(name)
+
+        populate_calls = []
+
+        def track_populate(ctx, ctrl, current, lru_key, endpoint, **kwargs):
+            populate_calls.append({'lru_key': lru_key, 'current': current})
+
+        with patch('plugin.chatbot.dialog_views.get_optional', side_effect=get_optional_side_effect):
+            with patch('plugin.framework.config.get_current_endpoint', return_value='http://localhost:11434'):
+                with patch('plugin.framework.client.model_fetcher.get_provider_from_endpoint', return_value='ollama'):
+                    listener.populate_combobox_with_lru = track_populate
+                    listener._apply_dropdowns('http://localhost:11434', models=['llama3'], skip_fetch=True)
+
+        text_calls = [c for c in populate_calls if c['lru_key'] == 'model_lru']
+        self.assertEqual(len(text_calls), 1)
+        self.assertEqual(text_calls[0]['current'], 'user-typed-model')
+
 
 if __name__ == '__main__':
     unittest.main()

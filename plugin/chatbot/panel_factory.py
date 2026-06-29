@@ -79,7 +79,7 @@ except ImportError:
 
 from plugin.chatbot.listeners import BaseItemListener, BaseTextListener
 from plugin.framework.config import get_config, set_config, get_current_endpoint
-from plugin.framework.client.model_fetcher import get_text_model, get_image_model, set_image_model
+from plugin.framework.client.model_fetcher import get_text_model, get_image_model, set_image_model, set_text_model
 from plugin.framework.i18n import _
 from plugin.framework.errors import UnoObjectError, ConfigError
 from plugin.framework.constants import get_chat_system_prompt_for_document, get_greeting_for_document, DEFAULT_RESEARCH_GREETING, DEFAULT_BRAINSTORMING_GREETING
@@ -438,7 +438,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         if model_selector:
             set_val = populate_combobox_with_lru(self.ctx, model_selector, current_model, "model_lru", current_endpoint)
             if set_val != current_model:
-                set_config("text_model", set_val)
+                set_text_model(set_val, update_lru=False)
         if prompt_selector:
             populate_combobox_with_lru(self.ctx, prompt_selector, extra_instructions, "prompt_lru", "")
 
@@ -527,7 +527,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         if model_selector:
             set_model_val = populate_combobox_with_lru(self.ctx, model_selector, current_model, "model_lru", current_endpoint)
             if set_model_val != current_model:
-                set_config("text_model", set_model_val)
+                set_text_model(set_model_val, update_lru=False)
 
         if image_model_selector:
             current_image = get_image_model()

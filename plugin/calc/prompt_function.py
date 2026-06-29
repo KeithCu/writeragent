@@ -12,7 +12,8 @@ from typing import Any
 from plugin.framework.async_stream import run_blocking_in_thread
 from plugin.framework.client.errors import format_error_for_display
 from plugin.framework.client.llm_client import LlmClient
-from plugin.framework.config import get_api_config, get_config, get_config_int, get_config_str
+from plugin.framework.config import get_api_config, get_config_int, get_config_str
+from plugin.framework.client.model_fetcher import get_text_model
 
 log = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ def execute_prompt_addin(
                 from plugin.framework.constants import CALC_PYTHON_FORMULA_LLM_HINT
 
                 resolved_system = CALC_PYTHON_FORMULA_LLM_HINT
-        model_name = model if model is not None else (get_config("text_model") or get_config("model") or "")
+        model_name = model if model is not None else get_text_model()
         if max_tokens is not None:
             try:
                 resolved_max = int(max_tokens)

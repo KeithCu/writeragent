@@ -27,7 +27,7 @@ from plugin.framework.config import (
     get_config_str,
     parse_int_robust,
 )
-from plugin.framework.client.model_fetcher import get_image_model, set_image_model
+from plugin.framework.client.model_fetcher import get_image_model, get_text_model, set_image_model, set_text_model
 from plugin.chatbot.config_ui_helpers import endpoint_from_selector_text
 from plugin.framework.event_bus import global_event_bus
 
@@ -86,7 +86,7 @@ def _get_core_field_specs(ctx, current_endpoint):
     return [
         {"name": "endpoint", "value": get_config_str("endpoint")},
         {"name": "request_timeout", "value": str(get_config_int("request_timeout")), "type": "int"},
-        {"name": "text_model", "value": str(get_config("text_model") or get_config("model") or "")},
+        {"name": "text_model", "value": str(get_text_model())},
         {"name": "api_key", "value": str(get_api_key_for_endpoint(current_endpoint))},
         {"name": "temperature", "value": str(get_config_float("temperature")), "type": "float"},
         {"name": "chat_max_tokens", "value": str(get_config_int("chat_max_tokens")), "type": "int"},
@@ -233,6 +233,11 @@ def apply_settings_result(ctx, result):
             except (ValueError, TypeError):
                 pass
 
+        if save_key == "text_model":
+            if val:
+                set_text_model(val, update_lru=True)
+            continue
+
         set_config(save_key, val)
         _update_lru_for_key(ctx, key, val, current_endpoint)
 
@@ -248,9 +253,7 @@ def _update_lru_for_key(ctx, key, val, current_endpoint):
     if not val:
         return
         
-    if key == "text_model":
-        update_lru_history(val, "model_lru", current_endpoint)
-    elif key == "stt_model":
+    if key == "stt_model":
         update_lru_history(val, "audio_model_lru", current_endpoint)
     elif key == "image_model":
         set_image_model(val)

@@ -59,14 +59,20 @@ class TestSyncSidebarTextModel(unittest.TestCase):
 
         self.get_patcher = patch('plugin.chatbot.config_ui_helpers.get_config', side_effect=mock_get_config)
         self.set_patcher = patch('plugin.chatbot.config_ui_helpers.set_config', side_effect=mock_set_config)
-        self.endpoint_patcher = patch('plugin.chatbot.config_ui_helpers.get_current_endpoint', return_value=self.endpoint)
+        self.get_mf_patcher = patch('plugin.framework.client.model_fetcher.get_config', side_effect=mock_get_config)
+        self.set_mf_patcher = patch('plugin.framework.client.model_fetcher.set_config', side_effect=mock_set_config)
         self.mock_get = self.get_patcher.start()
         self.mock_set = self.set_patcher.start()
+        self.get_mf_patcher.start()
+        self.mock_mf_set = self.set_mf_patcher.start()
+        self.endpoint_patcher = patch('plugin.chatbot.config_ui_helpers.get_current_endpoint', return_value=self.endpoint)
         self.endpoint_patcher.start()
 
     def tearDown(self):
         self.get_patcher.stop()
         self.set_patcher.stop()
+        self.get_mf_patcher.stop()
+        self.set_mf_patcher.stop()
         self.endpoint_patcher.stop()
 
     def test_pasted_openrouter_model_replaces_stale_text_model(self):
@@ -93,7 +99,7 @@ class TestSyncSidebarTextModel(unittest.TestCase):
         with patch('plugin.framework.client.model_fetcher.get_text_model', return_value='openai/gpt-oss-120b:nitro'):
             sync_sidebar_text_model(self.ctx, ctrl)
 
-        text_model_writes = [c for c in self.mock_set.call_args_list if c.args[1] == 'text_model']
+        text_model_writes = [c for c in self.mock_mf_set.call_args_list if c.args[0] == 'text_model']
         self.assertEqual(text_model_writes, [])
 
     def test_placeholder_not_persisted(self):
@@ -105,7 +111,7 @@ class TestSyncSidebarTextModel(unittest.TestCase):
 
         self.assertIsNone(result)
         self.assertEqual(self.config_data['text_model'], 'openai/gpt-oss-120b:nitro')
-        self.mock_set.assert_not_called()
+        self.mock_mf_set.assert_not_called()
 
     def test_missing_control_returns_none(self):
         self.assertIsNone(sync_sidebar_text_model(self.ctx, None))
@@ -131,6 +137,8 @@ class TestSyncSidebarTextModel(unittest.TestCase):
 
         with patch('plugin.framework.config.get_config', side_effect=shared_get_config), \
              patch('plugin.framework.config.set_config', side_effect=shared_set_config), \
+             patch('plugin.framework.client.model_fetcher.get_config', side_effect=shared_get_config), \
+             patch('plugin.framework.client.model_fetcher.set_config', side_effect=shared_set_config), \
              patch('plugin.framework.client.model_fetcher.get_text_model') as mock_get_text_model:
             mock_get_text_model.side_effect = lambda: str(self.config_data.get('text_model') or '')
             sync_sidebar_text_model(self.ctx, ctrl)

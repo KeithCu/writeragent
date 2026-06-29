@@ -28,8 +28,8 @@ Image generation and editing in WriterAgent uses the **same endpoint URL and API
 
 | Key | Role |
 |-----|------|
-| `text_model` | Chat/text model (also exposed to `LlmClient` as `"model"` via `get_api_config()`). |
-| `image_model` | Model id for image generation on the configured endpoint. |
+| `text_model` | Chat/text model (also exposed to `LlmClient` as `"model"` via `get_api_config()`). Writes use `set_text_model()`; recent ids per endpoint live in `model_lru@<endpoint>`. |
+| `image_model` | Model id for image generation on the configured endpoint. Writes use `set_image_model()`. |
 | `image_model_lru` | Recent image model ids for Settings and sidebar comboboxes. |
 
 ## Settings UI

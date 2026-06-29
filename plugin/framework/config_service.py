@@ -28,7 +28,7 @@ from plugin.framework.config import (
     _emit_config_changed_ctx,
     AI_SIMPLE_FIELDS,
 )
-from plugin.framework.client.model_fetcher import set_image_model
+from plugin.framework.client.model_fetcher import set_image_model, set_text_model
 
 _unohelper_mod: Any
 try:
@@ -184,6 +184,8 @@ class ConfigService(ServiceBase):
                         set_config("endpoint", resolved)
                 elif field == "image_model":
                     set_image_model(value or "", update_lru=True)
+                elif field == "text_model":
+                    set_text_model(value or "", update_lru=True)
                 else:
                     # Direct 1:1 mapping to top-level key.
                     set_config(field, value)
