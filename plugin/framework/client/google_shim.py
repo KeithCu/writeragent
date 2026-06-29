@@ -22,13 +22,21 @@ import logging
 from typing import Any
 
 from plugin.framework.url_utils import get_url_path_and_query
-from .llm_client import BaseProviderShim
+from .response_normalizers import BaseProviderShim
 
 log = logging.getLogger(__name__)
 
 
 class GoogleShim(BaseProviderShim):
     """Shim for Google Gemini native API."""
+
+    def parse_sync_response(self, response_data):
+        content, finish_reason, _, delta = self.parse_response_chunk(response_data)
+        tool_calls = delta.get("tool_calls")
+        usage = response_data.get("usageMetadata") or response_data.get("usage") or {}
+        images = delta.get("images") or []
+        return content, finish_reason, tool_calls, usage, images, delta
+
 
     def build_chat_request(self, messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra=None):
         endpoint = self.client._endpoint()

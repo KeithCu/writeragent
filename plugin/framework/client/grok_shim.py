@@ -19,7 +19,7 @@ xAI Grok provider shim.
 
 import json
 import logging
-from .llm_client import OpenAIShim
+from .response_normalizers import OpenAIShim
 from plugin.framework.url_utils import get_url_path_and_query
 
 log = logging.getLogger(__name__)
