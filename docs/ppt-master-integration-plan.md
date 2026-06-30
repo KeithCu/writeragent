@@ -1,164 +1,136 @@
-# Integration Plan: Integrating `ppt-master` into WriterAgent
+# Integration Plan: PPT-Master in WriterAgent (Adapter Layer)
 
-This document presents a comprehensive design and execution plan for integrating the core capabilities of [ppt-master](https://github.com/hugohe3/ppt-master) into the **WriterAgent** LibreOffice extension.
+This document describes how [ppt-master](https://github.com/hugohe3/ppt-master) integrates with WriterAgent: a **UNO adapter layer**, **sidebar PPT-Master mode** (Impress/Draw only), and **upstream assets from a cloned skill tree** (not vendored in the OXT).
 
----
+## Status (implementation summary)
 
-## 1. Executive Summary & Value Proposition (PM Focus)
+| Decision | Choice |
+|----------|--------|
+| Upstream `svg_to_pptx` | **Not** copied into `plugin/contrib/` — loaded from skill tree `scripts/svg_to_pptx/` |
+| WriterAgent-only code | Six modules under [`plugin/contrib/ppt_master/`](../plugin/contrib/ppt_master/) |
+| Host / UNO | [`plugin/ppt_master/`](../plugin/ppt_master/) (client, paths, tools, adapters) |
+| Sidebar UX | Smol sub-agent via [`plugin/chatbot/ppt_master.py`](../plugin/chatbot/ppt_master.py) — hidden from main chat (like Brainstorming) |
+| Dev reference clone | Optional repo root `ppt-master/` (not shipped) |
 
-### Background
-`ppt-master` is an agentic workflow that generates natively editable `.pptx` presentations from arbitrary source documents (PDFs, DOCX, Markdown, URLs) by first generating intermediate slide layouts (SVGs/Design Specs) and then executing them into PowerPoint structures (DrawingML/native shapes). 
+**Removed during cleanup (no longer in tree):**
 
-Currently, **WriterAgent** supports basic Impress/Draw editing (creating individual shapes, text boxes, and slides via UNO). However, it lacks a unified, high-quality, document-to-presentation pipeline.
+- `plugin/contrib/ppt_master/bundled/svg_to_pptx/` — byte-identical upstream copy (~18 files); deleted in favor of external skill tree
+- `plugin/contrib/ppt_master/backends/` — unused protocol stubs
+- `plugin/ppt_master/diagnostics.py` — install hint moved to `paths.PPT_MASTER_INSTALL_CMD`
+- `plugin/ppt_master/client.py` dead `export_plans_from_venv` / `venv/export.py` stub — export runs host-side `svg_convert` → `uno_apply`
 
-### The Opportunity
-By integrating `ppt-master`'s strategy, layout generation, and slide consistency concepts into WriterAgent, we can enable users to:
-1. **Auto-Generate Decks:** Convert active documents (e.g., a long text document in Writer or raw data in Calc) into fully styled, cohesive presentations in Impress with a single chat command.
-2. **Ensure Visual Consistency:** Retain design constraints (font families, layout rhythms, color palettes, templates) across all slides using a structured design contract (`design_spec.md` / `spec_lock.md` equivalents).
-3. **Natively Editable Slides:** Keep all generated slides fully editable as native LibreOffice Impress shapes rather than static flat images.
+## Overview
 
-### Key Benefits
-* **High-Fidelity AI Presentations:** Offers slide designs comparable to commercial tools (like Gamma or Tome) but directly inside the open-source LibreOffice ecosystem.
-* **Low Code Complexity:** Leverages WriterAgent's existing Python sandbox/venv worker infrastructure and UNO shape tools to execute slide layouts without introducing external binary dependencies.
+ppt-master is an agentic workflow (SKILL.md + project artifacts + SVG → native shapes). WriterAgent:
 
----
+1. Ships **adapter modules** under [`plugin/contrib/ppt_master/`](../plugin/contrib/ppt_master/) — see [`README.md`](../plugin/contrib/ppt_master/README.md)
+2. Loads **unmodified upstream** Python and assets from the configured skill tree (`PPT_MASTER_DATA_ROOT`)
+3. Hosts **UNO adapters** under [`plugin/ppt_master/`](../plugin/ppt_master/)
+4. Exposes **PPT-Master** in the sidebar mode dropdown for **Impress and Draw only**
+5. Runs a **smol sub-agent** when that mode is selected — tools use `specialized_domain="ppt-master"` and are excluded from the main agent / `delegate_to_specialized_draw_toolset`
 
-## 2. Architecture & Design Alignment (Senior Dev Focus)
+## Packaging
 
-### Existing WriterAgent Architecture Alignment
-WriterAgent runs advanced Python workloads (like NumPy, pandas, or Docling) within a sandboxed virtual environment (venv) using a persistent background worker (`PythonWorkerManager` / `venv_worker.py`). 
+Upstream [ppt-master](https://github.com/hugohe3/ppt-master) is a **skill/workflow repo**, not a pip package (no `pyproject.toml`). Install by cloning and pointing Settings at the skill directory:
 
-To avoid ABI and dependency conflicts inside LibreOffice's main thread, the integration will split `ppt-master`'s logic into two layers:
-
-```mermaid
-graph TD
-    A[Main Chat / SmolAgent] -->|1. Request Slide Deck| B(PPT-Master Gateway Tool)
-    B -->|2. Invoke venv process| C[Warm Python Worker Sandbox]
-    C -->|3. Run Strategist / Executor| D[SVG & Spec Generation]
-    D -->|4. Return JSON Slide commands| B
-    B -->|5. Apply structure batch| E[transform_document_structure / Impress UNO API]
-    E -->|6. Render native shapes| F[Active Impress Document]
+```bash
+git clone https://github.com/hugohe3/ppt-master.git
 ```
 
-### Core Design Elements
+Then **Settings → Python** → **PPT-Master data path** → `.../ppt-master/skills/ppt-master` (must contain `SKILL.md`, `templates/`, `scripts/svg_to_pptx/`).
 
-1. **The Slide Generator Worker (Sandbox Layer):**
-   * **Role:** Analyzes source text and outputs slide content schemas, layouts, and SVG previews using standard template engines or LLM-driven generation.
-   * **Input:** Raw text, selected document paragraphs, templates, or style rules.
-   * **Output:** A serialized sequence of page descriptors (e.g., text blocks, shape types, coordinate placements, colors, and styling properties).
+**Dev without manual path:** clone upstream beside the repo as `ppt-master/`; `paths._dev_clone_data_root()` finds `ppt-master/skills/ppt-master` automatically.
 
-2. **The Impress UNO Executor (Host Layer):**
-   * **Role:** Translates the serialized page descriptors returned from the worker into native LibreOffice Impress API calls.
-   * **Implementation:** Standardizes on the existing `transform_document_structure` tool (or extends `DrawBridge`) to batch create pages, slide layouts, shape paths, text frames, and styles.
+| Layer | In OXT? | Location |
+|-------|---------|----------|
+| UNO adapter (`shape_ops`, `coords`, `svg_convert`, `upstream`, `config`) | Yes | `plugin/contrib/ppt_master/` |
+| Upstream `scripts/svg_to_pptx`, templates, references, `SKILL.md` | **No** — user clone / path | Resolved to `PPT_MASTER_DATA_ROOT` |
+| UNO apply, client, tools | Yes | `plugin/ppt_master/` |
+| Sidebar session | Yes | `plugin/chatbot/ppt_master.py` |
 
-3. **Design Consistency (The `spec_lock` Pattern):**
-   * Before generating individual slides, the worker creates a `design_spec.json` representing color palette, typography choices, and layout constraints.
-   * Subsequent slide-generation steps read this specification to avoid style drift between slides 1 and 10.
+## Settings
 
----
+On **Settings → Python** (bottom of tab):
 
-## 3. Phased Implementation Roadmap
+| Control | Config key | Notes |
+|---------|------------|-------|
+| PPT-Master data path | `scripting.ppt_master_data_path` | Directory picker row (own line, below Python options) |
+| Test | — | Probes `SKILL.md`, `templates/`, `scripts/svg_to_pptx/` via `data_root_status` |
+
+Python venv path is separate; PPT-Master does **not** require a pip install of upstream.
+
+## Architecture
 
 ```mermaid
-gantt
-    title PPT-Master Integration Roadmap
-    dateFormat  YYYY-MM-DD
-    section Phase 1: Core Porting & Worker Setup
-    Port PPT-Master Logic to venv         :active, p1_1, 2026-07-01, 7d
-    Define Slide Commands schema         :active, p1_2, after p1_1, 5d
-    section Phase 2: Host Execution (UNO)
-    Implement Impress shape builder      :p2_1, after p1_2, 8d
-    Batch execute slide modifications    :p2_2, after p2_1, 5d
-    section Phase 3: Agent Tooling & UI
-    Create Chat Tool & UI Deck           :p3_1, after p2_2, 6d
-    E2E Verification & Integration Tests :p3_2, after p3_1, 7d
+flowchart TB
+  UI[Sidebar PPT-Master mode] --> Session[ppt_master_session smol sub-agent]
+  Session --> DrawTools[Existing draw/impress core tools]
+  Session --> PmTools[ppt-master specialized tools]
+  PmTools --> HostSVG[svg_convert → ShapeOp]
+  HostSVG --> UNO[uno_apply via DrawBridge]
+  UNO --> Doc[Active Impress/Draw document]
+  Data[(skill tree: SKILL templates scripts/svg_to_pptx)] --> Upstream[upstream.py loads pptx_discovery]
+  Upstream --> HostSVG
+  Data --> Session
 ```
 
-### Phase 1: Porting Core Logic & Sandbox Harness (Venv Layer)
-* Extract the generation rules, strategist logic, and consistency checker from `ppt-master` into a package under `plugin/scripting/ppt/`.
-* Update `import_policy.py` to whitelist the new `plugin.scripting.ppt` package so the isolated AST sandbox worker can load and execute the layout engine without import blocks. (Since the codebase is porting to standard Python libraries, no external pip package installations are required).
-* Create a worker command `generate_deck_spec(text, template_name)` that outputs slide structural JSON.
+### Data root resolution (`plugin/ppt_master/paths.py`)
 
-### Phase 2: Native Impress Generator (UNO Host Layer)
-* Map the output layout schemas directly to UNO operations in `plugin/draw/bridge.py` or a dedicated `plugin/draw/ppt_bridge.py`.
-* Ensure coordinates are properly converted from SVG viewBox values (e.g., standard layout bounds) to LibreOffice 100th-millimeter (1/100 mm) coordinates.
-* Implement native shapes creation: `com.sun.star.drawing.RectangleShape`, `com.sun.star.drawing.TextShape`, and group hierarchies.
+1. `scripting.ppt_master_data_path` (Settings → Python)
+2. `PPT_MASTER_DATA_ROOT` env (set by `apply_data_root_env`)
+3. User venv `site-packages` scan (optional fallback)
+4. Dev clone `ppt-master/skills/ppt-master`
 
-### Phase 3: Agent Tool & User Experience (Chat Integration)
-* Create `create_presentation_from_text` tool, registering it under `uno_services=["PresentationDocument"]`.
-* Let the agent suggest slide design summaries in the chat sidebar, allowing the user to review slide designs before execution.
+`data_root_status()` requires templates/references/SKILL.md **and** `scripts/` (with `svg_to_pptx/`).
 
----
+### Upstream import policy (`plugin/contrib/ppt_master/upstream.py`)
 
-## 4. User Stories & Acceptance Criteria
+- Load `pptx_discovery.py` **by file path** so `svg_to_pptx/__init__.py` is not executed on the LO host (that import chain requires `python-pptx`).
+- Full `svg_to_pptx` stack runs in the **user venv** when ppt-master workflow scripts need PPTX output.
 
-### User Story 1: Document to Slides
-* **As a** WriterAgent user drafting a project proposal in LibreOffice Writer,
-* **I want to** select my text and ask the chat sidebar: *"Generate a 5-slide summary presentation from this outline"*,
-* **So that** I don't have to manually copy and paste details to create a summary deck.
-* **Acceptance Criteria:**
-  * The tool automatically opens or updates a presentation file.
-  * Slide 1 is a Title slide; subsequent slides are content slides.
-  * Colors, fonts, and headers align with a single cohesive layout choice.
-  * All text is natively editable (not flat screenshots).
+### Main export path (UNO)
 
-### User Story 2: Preserving Layout Constraints
-* **As a** Senior Designer,
-* **I want** the generated slides to strictly follow predefined style coordinates (like a specific color scheme),
-* **So that** the AI doesn't mix different layout frameworks or fonts between pages.
-* **Acceptance Criteria:**
-  * A `design_spec.json` is generated first and passed into all slide generator calls.
-  * Font sizes are scaled proportionally based on content length to avoid overlapping boxes.
+`export_presentation_project` → `uno_svg_deck.build_plans_from_project` → `collect_svg_files` (upstream `find_svg_files` when skill tree present, else minimal fallback) → `svg_to_slide_plan` → `uno_apply.apply_slide_plans`.
 
----
+## Routes
 
-## 5. Dependency Analysis & Vendoring Strategy
+| Route | Implementation | Notes |
+|-------|----------------|-------|
+| Main SVG pipeline | `export_presentation_project` → `svg_convert` → `uno_apply` | Default Impress/Draw path |
+| template-fill | `apply_ppt_master_template_fill` → `uno_template_fill` | Incremental stub |
+| native-enhance | `apply_ppt_master_native_enhance` → `uno_enhance` | `enhancement_plan.json` |
+| beautify | venv `pptx_to_svg` + SVG pipeline | Not wired end-to-end yet |
 
-The original `ppt-master` codebase specifies several dependencies in its `requirements.txt`:
-* **`python-pptx`** (Creates PowerPoint files)
-* **`pymupdf` (imported as `fitz`)** (Parses input PDFs)
-* **`curl_cffi`** (Advanced web scraper wrapper)
-* **`edge-tts`** (TTS audio generation)
-* **`svglib`** (SVG layout processing)
+## Key modules
 
-### The Vendor & Compatibility Challenge
-Both `pymupdf` and `curl_cffi` compile platform-specific binary C/C++ extensions. Vendoring binary wheels directly inside a cross-platform LibreOffice extension (`.oxt` zip file) is highly complex, as it requires shipping pre-compiled binaries for Windows, macOS (Intel + Apple Silicon), and multiple Linux architectures.
+| Module | Role |
+|--------|------|
+| [`plugin/chatbot/ppt_master.py`](../plugin/chatbot/ppt_master.py) | `ppt_master_session`, `collect_ppt_master_tools`, `ppt_master_finished` |
+| [`plugin/chatbot/chat_sidebar_mode.py`](../plugin/chatbot/chat_sidebar_mode.py) | `CHAT_MODE_PPT_MASTER`, `sidebar_mode_flags_for_doc_type` |
+| [`plugin/ppt_master/tools.py`](../plugin/ppt_master/tools.py) | Specialized tools (`ToolDrawPptMasterBase`) |
+| [`plugin/contrib/ppt_master/svg_convert.py`](../plugin/contrib/ppt_master/svg_convert.py) | Minimal SVG → `SlideBuildPlan` |
+| [`plugin/ppt_master/adapter/uno_apply.py`](../plugin/ppt_master/adapter/uno_apply.py) | `ShapeOp` → UNO shapes |
+| [`plugin/framework/constants.py`](../plugin/framework/constants.py) | `IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS`, sub-agent instructions |
 
-### The UNO Solution: Bypassing Binaries
-Because WriterAgent runs directly inside LibreOffice, we can bypass the heavy binary dependencies entirely by replacing them with native LibreOffice APIs:
+## Contrib merge policy
 
-1. **Bypassing `pymupdf`:** Instead of parsing external PDF files, WriterAgent reads the source text directly from the open, active document context (e.g., a Writer draft or Calc sheet) via UNO APIs.
-2. **Bypassing `python-pptx`:** Instead of writing slide formats to a `.pptx` file structure on disk, WriterAgent generates slides, coordinates, text boxes, and shapes directly inside the open Impress document using the `com.sun.star.drawing` UNO API.
-3. **Bypassing `curl_cffi`:** Advanced scraping functions are replaced by WriterAgent's existing web-search and document resolution tools.
+Only add files under `plugin/contrib/ppt_master/` when WriterAgent must **change** behavior. Do not re-vendor `svg_to_pptx/`. When forking upstream lines, **comment out** old code rather than deleting (see `plugin/contrib/nbformat/README.md`).
 
-### What is Vendored
-By decoupling the layout planner from file creation, we can vendor `ppt-master`'s core strategizing logic as a **pure-Python package** (no compiled dependencies) in `plugin/scripting/ppt/`. This package will handle:
-* LLM visual strategist/planner prompting.
-* Slide page hierarchy splitting.
-* Structured layout schema generation (`design_spec.json`).
+## Future work
 
-| Component / Risk | Impact | Mitigation Strategy |
-|------|--------|---------------------|
-| **Dependency Heavy:** Original `ppt-master` relies on custom binary/cffi libraries. | High | **Bypass and vendor pure Python:** Strip `python-pptx`, `pymupdf`, and `curl_cffi`. Delegate all document read/write rendering directly to LibreOffice UNO APIs. |
-| **Performance Overhead:** Iteratively querying LLMs for each slide can be slow. | Medium | Use a single structural prompt to plan the presentation, and parallelize or optimize single-pass layout generation. |
-| **Sandbox Violations:** Importing whitelisted user-scripts or modules not registered in the trusted import list. | High | Add the new vendored `plugin.scripting.ppt.*` modules to the trusted package whitelists in `import_policy.py`. |
-| **Coordinate Discrepancies:** Layout engines targeting standard pixels/viewports may mismatch LibreOffice's `1/100 mm` units. | Medium | Write a robust mathematical coordinate converter in `plugin/draw/bridge.py`. |
+- **SVG fidelity:** expand [`plugin/contrib/ppt_master/svg_convert.py`](../plugin/contrib/ppt_master/svg_convert.py) or delegate more to upstream `drawingml_converter` where host-safe
+- **SKILL.md access:** sub-agent instructions reference `get_ppt_master_skill_path`; consider reading workflow files into context automatically
+- **Routes still stubbed:** `apply_ppt_master_template_fill` / beautify (`pptx_to_svg` → SVG pipeline) — wire end-to-end
+- **UNO coverage:** broaden `uno_apply` shape types; UNO tests for multi-slide export
 
----
+## Tests
 
-## 6. Verification & Test Plan
+| File | Coverage |
+|------|----------|
+| `tests/ppt_master/test_ppt_master_coords.py` | coords, shape_ops, svg_convert |
+| `tests/ppt_master/test_ppt_master_sidebar.py` | sidebar flags, tool tier exclusion |
+| `tests/ppt_master/test_ppt_master_paths.py` | config path, dev clone, upstream `pptx_discovery` |
+| `tests/chatbot/test_ppt_master_data_test_listener.py` | Settings Test button probe |
+| `tests/uno/test_ppt_master_adapter_uno.py` | SVG rect → Impress slide (requires `soffice`) |
 
-### Automated Verification
-1. **Unit Tests (`tests/test_ppt_generator.py`):**
-   * Mock LLM returns for layout strategy.
-   * Verify that `design_spec.json` conforms to style contracts.
-   * Test coordinate transformation logic under variable aspect ratios (16:9 vs 4:3).
-2. **UNO Verification (`tests/uno/test_ppt_bridge_uno.py`):**
-   * Run via `testing_runner.py`.
-   * Create an Impress deck, insert shapes, and assert text fields match expectations.
-
-### Manual Verification
-1. Open a multi-page document in Writer.
-2. Select a subset of paragraphs.
-3. Run: `"Generate presentation from selected text"`.
-4. Inspect the resulting Impress presentation slides: check font uniformity, overlap boundaries, and color schemes.
+Run: `pytest tests/ppt_master/` (and `make test` for full matrix).

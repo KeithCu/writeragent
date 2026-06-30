@@ -20,7 +20,7 @@ import logging
 from typing import Any, cast, Type, ClassVar
 
 from plugin.framework.tool import ToolBase
-from plugin.framework.constants import DELEGATE_SPECIALIZED_TASK_PARAM_HINT, USE_SUB_AGENT, WRITER_SIDEBAR_ONLY_DOMAINS, python_specialized_sub_agent_hint
+from plugin.framework.constants import DELEGATE_SPECIALIZED_TASK_PARAM_HINT, USE_SUB_AGENT, WRITER_SIDEBAR_ONLY_DOMAINS, IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS, python_specialized_sub_agent_hint
 from plugin.framework.i18n import _
 from plugin.chatbot.smol_agent import build_toolcalling_agent, SmolAgentExecutor, SmolToolAdapter
 from plugin.chatbot.smol_examples import get_examples_block
@@ -75,6 +75,8 @@ class DelegateToSpecializedBase(ToolBase):
                 if self._agent_label == "Calc" and domain == "python":
                     continue
                 if self._agent_label == "Writer" and domain in WRITER_SIDEBAR_ONLY_DOMAINS:
+                    continue
+                if self._agent_label == "Draw" and domain in IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS:
                     continue
                 domains.append(domain)
 

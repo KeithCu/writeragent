@@ -97,3 +97,13 @@ class ToolDrawPythonBase(ToolDrawSpecialBase):
     specialized_domain_description: ClassVar[str | None] = (
         "Run Python in the user-configured venv (subprocess); isolated from LibreOffice."
     )
+
+
+class ToolDrawPptMasterBase(ToolDrawSpecialBase):
+    """PPT-Master sidebar mode — not exposed via delegate_to_specialized_draw_toolset."""
+
+    specialized_domain: ClassVar[str | None] = "ppt-master"
+    specialized_domain_description: ClassVar[str | None] = (
+        "PPT-Master workflow: export SVG projects to native Impress shapes, validate, template-fill, enhance."
+    )
+    uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]

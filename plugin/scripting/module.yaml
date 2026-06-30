@@ -74,6 +74,25 @@ config:
     helper: Automatically detect and convert date/time and duration strings to datetime/timedelta objects when sending data to the Python worker. Requires the 'pandas' and 'dateparser' packages in your venv.
     public: true
 
+  ppt_master_data_path:
+    type: string
+    default: ""
+    widget: folder
+    label: PPT-Master data path
+    helper: Path to the ppt-master skill tree (SKILL.md, templates/, scripts/svg_to_pptx/). Clone https://github.com/hugohe3/ppt-master and point here at .../ppt-master/skills/ppt-master. Leave empty to auto-detect (dev clone beside repo, then env).
+    width: 200
+    inline: true
+
+  test_ppt_master_data:
+    type: string
+    default: ""
+    widget: button
+    label: Test
+    inline_no_label: true
+    settings_persist: false
+    x: 314
+    width: 48
+
   force_internal_script_editor:
     type: bool
     default: false

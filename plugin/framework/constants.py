@@ -334,6 +334,9 @@ Prioritize what reduces future user steering."""
 # Writer sidebar modes — not exposed on delegate_to_specialized_writer_toolset (user picks from dropdown).
 WRITER_SIDEBAR_ONLY_DOMAINS = frozenset({"brainstorming", "writing_plan"})
 
+# Impress/Draw sidebar modes — PPT-Master combo box; hidden from main chat and draw delegate.
+IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS = frozenset({"ppt-master"})
+
 # Single-line blocks: MCP tool descriptions and many clients do not render newlines inside JSON strings.
 WRITER_SPECIALIZED_DELEGATION_TEMPLATE = (
     "SPECIALIZED WRITER (nested tools): The default tool list hides deep Writer features. "
@@ -453,6 +456,34 @@ COMPLETION TOOLS:
 - writing_plan_finished: END the session after all sections are completed and reviewed.
 - write_document_section: write content for a section to the document.
 - writing_research_web: search the public web for context or information."""
+
+
+PPT_MASTER_SUB_AGENT_INSTRUCTIONS = """PPT-MASTER MODE:
+You run the ppt-master presentation workflow against the active Impress or Draw document.
+
+WORKFLOW:
+1. Call get_ppt_master_skill_path and read SKILL.md / references from the returned data_root when you need workflow steps.
+2. Use draw/impress tools (add_slide, upsert_shape, placeholders, speaker notes, get_draw_tree, etc.) to build or refine slides.
+3. When svg_final/ or svg_output/ exists in a project folder, call export_presentation_project to apply native shapes to this document.
+4. For template-fill routes use apply_ppt_master_template_fill with fill_plan.json.
+5. For native enhancement (notes, transitions) use apply_ppt_master_native_enhance.
+6. validate_ppt_master_project checks project artifacts before export.
+
+HTML RULES:
+- reply_to_user and ppt_master_finished messages must be HTML (see CHAT RESPONSE FORMAT).
+
+COMPLETION:
+- reply_to_user: continue the PPT-Master session.
+- ppt_master_finished: end when the deck is done or the user switches back to Chat mode. Set exported=true if export_presentation_project succeeded."""
+
+
+def get_ppt_master_sub_agent_instructions(ctx=None) -> str:
+    """Full system instructions for the PPT-Master smol sub-agent (Impress/Draw sidebar)."""
+    parts = [
+        PPT_MASTER_SUB_AGENT_INSTRUCTIONS,
+        get_chat_response_format_instructions(ctx),
+    ]
+    return "\n\n".join(parts)
 
 
 def get_brainstorming_sub_agent_instructions(ctx=None) -> str:
@@ -634,6 +665,8 @@ def _catalog_entries_from_base(base_cls, *, agent_label: str | None = None, ctx=
             continue
         if agent_label == "Writer" and domain in WRITER_SIDEBAR_ONLY_DOMAINS:
             continue
+        if agent_label == "Draw" and domain in IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS:
+            continue
         if domain == "vision" and ctx is not None:
             from plugin.vision.vision_availability import vision_venv_configured
 
@@ -767,6 +800,7 @@ DEFAULT_DRAW_GREETING = _("AI: I can help you create and edit polished, colorful
 DEFAULT_RESEARCH_GREETING = _("AI: I can do web research to answer any question, or summarize a web page, without seeing or changing your document. Let's chat.")
 DEFAULT_BRAINSTORMING_GREETING = _("AI: Let's explore and design your idea together. I'll ask questions, suggest approaches, and help you build an approved spec in your document when you're ready.")
 DEFAULT_WRITING_PLAN_GREETING = _("AI: Let's draft your document section-by-section. I'll help you create a writing plan outline, and then implement it incrementally with your approval.")
+DEFAULT_PPT_MASTER_GREETING = _("AI: PPT-Master mode — I'll follow the ppt-master workflow to design and build native Impress slides. Describe your topic or point me at a project folder.")
 
 # Remove dummy _ so it doesn't leak
 del _

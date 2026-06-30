@@ -82,7 +82,7 @@ from plugin.framework.config import get_config, set_config, get_current_endpoint
 from plugin.framework.client.model_fetcher import get_text_model, get_image_model, set_image_model, set_text_model
 from plugin.framework.i18n import _
 from plugin.framework.errors import UnoObjectError, ConfigError
-from plugin.framework.constants import get_chat_system_prompt_for_document, get_greeting_for_document, DEFAULT_RESEARCH_GREETING, DEFAULT_BRAINSTORMING_GREETING
+from plugin.framework.constants import get_chat_system_prompt_for_document, get_greeting_for_document, DEFAULT_RESEARCH_GREETING, DEFAULT_BRAINSTORMING_GREETING, DEFAULT_PPT_MASTER_GREETING
 from plugin.doc.document_helpers import get_document_property, set_document_property, get_document_type, DocumentType
 
 log = logging.getLogger(__name__)
@@ -451,12 +451,15 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         chat_mode_selector = get_optional("chat_mode_selector")
         if chat_mode_selector:
             try:
-                from plugin.chatbot.chat_sidebar_mode import populate_mode_selector
+                from plugin.chatbot.chat_sidebar_mode import populate_mode_selector_with_flags, sidebar_mode_flags_for_doc_type
 
                 model = self._get_document_model()
                 cached = getattr(getattr(self, "send_listener", None), "cached_doc_type", None)
-                include_brainstorming = self._sidebar_include_brainstorming(model, cached_doc_type=cached)
-                populate_mode_selector(chat_mode_selector, include_brainstorming=include_brainstorming)
+                from plugin.doc.document_helpers import doc_type_label_for_enum, get_document_type
+
+                dt = cached or doc_type_label_for_enum(get_document_type(model))
+                flags = sidebar_mode_flags_for_doc_type(dt)
+                populate_mode_selector_with_flags(chat_mode_selector, flags)
             except Exception:
                 pass
         try:
@@ -572,13 +575,23 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             return cached_doc_type == "writer"
         return get_document_type(model) == DocumentType.WRITER
 
+    def _sidebar_mode_flags(self, model, *, cached_doc_type: str | None = None):
+        from plugin.chatbot.chat_sidebar_mode import sidebar_mode_flags_for_doc_type
+        from plugin.doc.document_helpers import doc_type_label_for_enum
+
+        if cached_doc_type is not None:
+            return sidebar_mode_flags_for_doc_type(cached_doc_type)
+        return sidebar_mode_flags_for_doc_type(doc_type_label_for_enum(get_document_type(model)))
+
     def _greeting_for_sidebar_mode(self, mode, model):
-        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_BRAINSTORMING, CHAT_MODE_WEB_RESEARCH
+        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_BRAINSTORMING, CHAT_MODE_PPT_MASTER, CHAT_MODE_WEB_RESEARCH
 
         if mode == CHAT_MODE_WEB_RESEARCH:
             return _(DEFAULT_RESEARCH_GREETING)
         if mode == CHAT_MODE_BRAINSTORMING:
             return _(DEFAULT_BRAINSTORMING_GREETING)
+        if mode == CHAT_MODE_PPT_MASTER:
+            return _(DEFAULT_PPT_MASTER_GREETING)
         return get_greeting_for_document(model)
 
     def _wire_chat_mode_ui(
@@ -593,7 +606,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         model,
     ):
         """Initializes sidebar mode dropdown and image-related controls; returns (initial_mode, include_brainstorming, toggle_image_ui)."""
-        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT, is_image_mode, populate_mode_selector, set_selector_mode
+        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT, is_image_mode, populate_mode_selector_with_flags, set_selector_mode_with_flags
 
         if aspect_ratio_selector:
             aspect_ratio_selector.addItems(("Square", "Landscape (16:9)", "Portrait (9:16)", "Landscape (3:2)", "Portrait (2:3)"), 0)
@@ -652,12 +665,13 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                         log.debug("Failed to relayout after toggling image UI (likely disposed): %s", e)
 
         include_brainstorming = self._sidebar_include_brainstorming(model)
+        mode_flags = self._sidebar_mode_flags(model)
         initial_mode = CHAT_MODE_CHAT
 
         if chat_mode_selector:
             try:
-                populate_mode_selector(chat_mode_selector, include_brainstorming=include_brainstorming)
-                set_selector_mode(chat_mode_selector, initial_mode, include_brainstorming=include_brainstorming)
+                populate_mode_selector_with_flags(chat_mode_selector, mode_flags)
+                set_selector_mode_with_flags(chat_mode_selector, initial_mode, mode_flags)
                 toggle_image_ui(is_image_mode(initial_mode))
             except Exception as e:
                 if isinstance(e, ConfigError):
@@ -668,13 +682,22 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     else:
                         log.error("chat_mode_selector wire error: %s" % e)
 
-        return initial_mode, include_brainstorming, toggle_image_ui
+        return initial_mode, mode_flags, toggle_image_ui
 
     def _apply_sidebar_mode(self, mode, model, response_ctrl, send_listener, clear_listener, toggle_image_ui):
-        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_BRAINSTORMING, CHAT_MODE_WEB_RESEARCH, clear_brainstorming_session, is_image_mode
+        from plugin.chatbot.chat_sidebar_mode import (
+            CHAT_MODE_BRAINSTORMING,
+            CHAT_MODE_PPT_MASTER,
+            CHAT_MODE_WEB_RESEARCH,
+            clear_brainstorming_session,
+            clear_ppt_master_session,
+            is_image_mode,
+        )
 
         if mode != CHAT_MODE_BRAINSTORMING and send_listener:
             clear_brainstorming_session(send_listener)
+        if mode != CHAT_MODE_PPT_MASTER and send_listener:
+            clear_ppt_master_session(send_listener)
         if mode == CHAT_MODE_WEB_RESEARCH:
             self.session = self.web_session
         else:
@@ -689,30 +712,28 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             self._render_session_history(self.session, response_ctrl, model, greeting)
         return greeting
 
-    def _wire_chat_mode_listener(self, chat_mode_selector, model, response_ctrl, send_listener, clear_listener, toggle_image_ui, include_brainstorming):
-        from plugin.chatbot.chat_sidebar_mode import mode_from_selector
+    def _wire_chat_mode_listener(self, chat_mode_selector, model, response_ctrl, send_listener, clear_listener, toggle_image_ui, mode_flags):
+        from plugin.chatbot.chat_sidebar_mode import mode_from_selector_with_flags
 
         if not chat_mode_selector or not hasattr(chat_mode_selector, "addItemListener"):
             return
 
-        # Item listeners must override on_item_state_changed on the class (not nested in
-        # __init__) or LibreOffice never dispatches toggle/mode changes.
         class ChatModeListener(BaseItemListener):
-            def __init__(self, panel, ctx, selector, include_brainstorming_flag, apply_target):
+            def __init__(self, panel, ctx, selector, flags, apply_target):
                 self.panel = panel
                 self.ctx = ctx
                 self.selector = selector
-                self.include_brainstorming = include_brainstorming_flag
+                self.mode_flags = flags
                 self.apply_target = apply_target
 
             def on_item_state_changed(self, rEvent):
-                mode = mode_from_selector(self.selector, include_brainstorming=self.include_brainstorming)
+                mode = mode_from_selector_with_flags(self.selector, self.mode_flags)
                 self.apply_target(mode)
 
         def apply_mode(mode):
             self._apply_sidebar_mode(mode, model, response_ctrl, send_listener, clear_listener, toggle_image_ui)
 
-        chat_mode_selector.addItemListener(ChatModeListener(self, self.ctx, chat_mode_selector, include_brainstorming, apply_mode))
+        chat_mode_selector.addItemListener(ChatModeListener(self, self.ctx, chat_mode_selector, mode_flags, apply_mode))
         return apply_mode
 
     def _setup_sessions(self, model, extra_instructions):
@@ -738,7 +759,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         self.web_session = ChatSession("Observe: Always use the web_search tool to answer questions.", session_id=session_id + "_web")
         self.session = self.doc_session
 
-    def _wire_buttons(self, controls, model, initial_mode, include_brainstorming, toggle_image_ui):
+    def _wire_buttons(self, controls, model, initial_mode, mode_flags, toggle_image_ui):
         """Wires up the Send, Stop, Clear, and chat mode selector."""
         from plugin.chatbot.panel import ClearButtonListener, SendButtonListener, StopButtonListener
 
@@ -758,7 +779,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 chat_mode_selector=controls["chat_mode_selector"],
                 aspect_ratio_selector=controls["aspect_ratio_selector"],
                 base_size_input=controls["base_size_input"],
-                sidebar_include_brainstorming=include_brainstorming,
+                sidebar_include_brainstorming=mode_flags.include_brainstorming,
                 ensure_path_fn=_initialize_extension_paths,
                 clear_control=controls.get("clear"),
             )
@@ -775,6 +796,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             send_listener.initial_doc_type = doc_type_title_for_label(send_listener.cached_doc_type)
             send_listener.cached_uno_services = get_document_uno_services(model)
             send_listener.sidebar_include_brainstorming = send_listener.cached_doc_type == "writer"
+            send_listener.sidebar_mode_flags = mode_flags
 
             if controls["send"]:
                 controls["send"].addActionListener(send_listener)
@@ -803,7 +825,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             send_listener,
             clear_listener,
             toggle_image_ui,
-            include_brainstorming,
+            mode_flags,
         )
 
 

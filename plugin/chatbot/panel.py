@@ -320,6 +320,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self.aspect_ratio_selector = aspect_ratio_selector
         self.base_size_input = base_size_input
         self.sidebar_include_brainstorming = sidebar_include_brainstorming
+        from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
+
+        self.sidebar_mode_flags = SidebarModeFlags(include_brainstorming=sidebar_include_brainstorming)
         self.ensure_path_fn = ensure_path_fn
         self.initial_doc_type = None  # Set by _wireControls
         self.cached_doc_type = None
@@ -333,6 +336,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self._brainstorming_topic = ""
         self._in_writing_plan_mode = False
         self._writing_plan_topic = ""
+        self._in_ppt_master_mode = False
+        self._ppt_master_topic = ""
         self.client = None
         self.audio_wav_path = None
         self._current_agent_backend = None  # Set during _do_send_via_agent_backend for Stop button
@@ -462,30 +467,46 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             CHAT_MODE_CHAT,
             CHAT_MODE_WRITING_PLAN,
             clear_brainstorming_session,
-            set_selector_mode,
+            set_selector_mode_with_flags,
         )
 
+        flags = getattr(self, "sidebar_mode_flags", None)
         clear_brainstorming_session(self)
         if spec_saved:
             self._in_writing_plan_mode = True
             self._writing_plan_topic = f"Implement the saved spec: {self._brainstorming_topic}"
-            if self.chat_mode_selector:
-                set_selector_mode(self.chat_mode_selector, CHAT_MODE_WRITING_PLAN, include_brainstorming=self.sidebar_include_brainstorming)
+            if self.chat_mode_selector and flags:
+                set_selector_mode_with_flags(self.chat_mode_selector, CHAT_MODE_WRITING_PLAN, flags)
         else:
-            if self.chat_mode_selector:
-                set_selector_mode(self.chat_mode_selector, CHAT_MODE_CHAT, include_brainstorming=self.sidebar_include_brainstorming)
+            if self.chat_mode_selector and flags:
+                set_selector_mode_with_flags(self.chat_mode_selector, CHAT_MODE_CHAT, flags)
 
     def on_writing_plan_session_finished(self) -> None:
         """Reset sidebar after writing_plan_finished (dropdown returns to Chat)."""
         from plugin.chatbot.chat_sidebar_mode import (
             CHAT_MODE_CHAT,
             clear_writing_plan_session,
-            set_selector_mode,
+            set_selector_mode_with_flags,
         )
 
+        flags = getattr(self, "sidebar_mode_flags", None)
         clear_writing_plan_session(self)
-        if self.chat_mode_selector:
-            set_selector_mode(self.chat_mode_selector, CHAT_MODE_CHAT, include_brainstorming=self.sidebar_include_brainstorming)
+        if self.chat_mode_selector and flags:
+            set_selector_mode_with_flags(self.chat_mode_selector, CHAT_MODE_CHAT, flags)
+
+    def on_ppt_master_session_finished(self, exported: bool = False) -> None:
+        """Reset sidebar after ppt_master_finished (dropdown returns to Chat)."""
+        from plugin.chatbot.chat_sidebar_mode import (
+            CHAT_MODE_CHAT,
+            clear_ppt_master_session,
+            set_selector_mode_with_flags,
+        )
+
+        del exported
+        flags = getattr(self, "sidebar_mode_flags", None)
+        clear_ppt_master_session(self)
+        if self.chat_mode_selector and flags:
+            set_selector_mode_with_flags(self.chat_mode_selector, CHAT_MODE_CHAT, flags)
 
     def begin_inline_web_approval(self, query: str, tool: str, event: Any) -> None:
         """Replace Send/Stop/Clear with Accept/Change/Reject (all enabled). Unblock ``event`` when user chooses.
@@ -1055,12 +1076,15 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         from plugin.chatbot.chat_sidebar_mode import (
             CHAT_MODE_BRAINSTORMING,
             CHAT_MODE_IMAGE,
+            CHAT_MODE_PPT_MASTER,
             CHAT_MODE_WEB_RESEARCH,
             CHAT_MODE_WRITING_PLAN,
-            mode_from_selector,
+            mode_from_selector_with_flags,
+            sidebar_mode_flags_for_doc_type,
         )
 
-        sidebar_mode = mode_from_selector(self.chat_mode_selector, include_brainstorming=self.sidebar_include_brainstorming)
+        flags = getattr(self, "sidebar_mode_flags", None) or sidebar_mode_flags_for_doc_type(doc_type_label or "writer")
+        sidebar_mode = mode_from_selector_with_flags(self.chat_mode_selector, flags)
 
         if sidebar_mode == CHAT_MODE_WEB_RESEARCH:
             log.info("_do_send: using web research sub-agent — skip chat model and direct image")
@@ -1084,6 +1108,13 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 self._writing_plan_topic = query_text
             log.info("_do_send: using writing plan sub-agent")
             self._run_writing_plan(query_text, model)
+            return
+
+        if sidebar_mode == CHAT_MODE_PPT_MASTER and doc_type_label in ("draw", "impress"):
+            if not getattr(self, "_ppt_master_topic", None):
+                self._ppt_master_topic = query_text
+            log.info("_do_send: using PPT-Master sub-agent")
+            self._run_ppt_master(query_text, model)
             return
 
         # Agent backend (Aider, Hermes): use external agent instead of built-in LLM

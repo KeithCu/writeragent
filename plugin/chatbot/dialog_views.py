@@ -138,6 +138,7 @@ class SettingsDialog:
         self._endpoint_listener = None
         self._api_key_listener = None
         self._scripting_venv_test_listener = None
+        self._ppt_master_data_test_listener = None
 
     def show(self):
         """Execute the settings dialog and apply results."""
@@ -201,6 +202,11 @@ class SettingsDialog:
         if test_venv_btn:
             self._scripting_venv_test_listener = ScriptingVenvTestListener(self._ctx, self._dlg)
             test_venv_btn.addActionListener(self._scripting_venv_test_listener)
+
+        test_ppt_btn = get_optional(self._dlg, "scripting__test_ppt_master_data")
+        if test_ppt_btn:
+            self._ppt_master_data_test_listener = PptMasterDataTestListener(self._ctx, self._dlg)
+            test_ppt_btn.addActionListener(self._ppt_master_data_test_listener)
 
     def _setup_module_tabs(self):
         try:
@@ -364,6 +370,14 @@ class SettingsDialog:
                 except Exception:
                     pass
             self._scripting_venv_test_listener = None
+        if self._ppt_master_data_test_listener and self._dlg is not None:
+            test_ppt_btn = get_optional(self._dlg, "scripting__test_ppt_master_data")
+            if test_ppt_btn and hasattr(test_ppt_btn, "removeActionListener"):
+                try:
+                    test_ppt_btn.removeActionListener(self._ppt_master_data_test_listener)
+                except Exception:
+                    pass
+            self._ppt_master_data_test_listener = None
         if self._dlg:
             self._dlg.dispose()
 
@@ -542,6 +556,26 @@ class ScriptingVenvTestListener(BaseActionListener):
                 on_status=on_status,
                 extra_lines_after_header=(cython_line,),
             )
+
+        progress = _VenvProbeProgressDialog(self._ctx, parent_dlg=self._dlg)
+        progress.run_modal_probe(probe)
+
+
+class PptMasterDataTestListener(BaseActionListener):
+    """Settings → Python: verify ppt-master skill tree at the path in the text field (saved or not)."""
+
+    def __init__(self, ctx, dlg):
+        self._ctx = ctx
+        self._dlg = dlg
+
+    def on_action_performed(self, rEvent):
+        from plugin.ppt_master.paths import probe_data_path_with_progress
+
+        path_ctrl = get_optional(self._dlg, "scripting__ppt_master_data_path")
+        raw = get_control_text(path_ctrl) if path_ctrl else ""
+
+        def probe(on_display, on_status):
+            return probe_data_path_with_progress(raw, on_display, on_status=on_status)
 
         progress = _VenvProbeProgressDialog(self._ctx, parent_dlg=self._dlg)
         progress.run_modal_probe(probe)

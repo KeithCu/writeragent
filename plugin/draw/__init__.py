@@ -31,3 +31,6 @@ class DrawModule(ModuleBase):
         self.services = services
 
         services.tools.auto_discover_package(__name__)
+        from plugin.ppt_master import tools as ppt_master_tools
+
+        services.tools.auto_discover(ppt_master_tools)

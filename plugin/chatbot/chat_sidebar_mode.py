@@ -6,11 +6,12 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 
-"""Sidebar chat mode dropdown: Chat, Image, Web Research, Brainstorming."""
+"""Sidebar chat mode dropdown: Chat, Image, Web Research, Brainstorming, Writing Plan, PPT-Master."""
 
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 from plugin.framework.i18n import _
@@ -22,8 +23,36 @@ CHAT_MODE_IMAGE = "image"
 CHAT_MODE_WEB_RESEARCH = "web_research"
 CHAT_MODE_BRAINSTORMING = "brainstorming"
 CHAT_MODE_WRITING_PLAN = "writing_plan"
+CHAT_MODE_PPT_MASTER = "ppt-master"
 
-_VALID_MODES = frozenset({CHAT_MODE_CHAT, CHAT_MODE_IMAGE, CHAT_MODE_WEB_RESEARCH, CHAT_MODE_BRAINSTORMING, CHAT_MODE_WRITING_PLAN})
+_VALID_MODES = frozenset(
+    {
+        CHAT_MODE_CHAT,
+        CHAT_MODE_IMAGE,
+        CHAT_MODE_WEB_RESEARCH,
+        CHAT_MODE_BRAINSTORMING,
+        CHAT_MODE_WRITING_PLAN,
+        CHAT_MODE_PPT_MASTER,
+    }
+)
+
+
+@dataclass(frozen=True)
+class SidebarModeFlags:
+    """Which optional sidebar modes appear for the current document type."""
+
+    include_brainstorming: bool = False
+    include_writing_plan: bool = True
+    include_ppt_master: bool = False
+
+
+def sidebar_mode_flags_for_doc_type(doc_type_label: str) -> SidebarModeFlags:
+    """Writer: brainstorming + writing plan. Draw/Impress: PPT-Master. Calc: writing plan only."""
+    if doc_type_label == "writer":
+        return SidebarModeFlags(include_brainstorming=True, include_writing_plan=True, include_ppt_master=False)
+    if doc_type_label in ("draw", "impress"):
+        return SidebarModeFlags(include_brainstorming=False, include_writing_plan=False, include_ppt_master=True)
+    return SidebarModeFlags(include_brainstorming=False, include_writing_plan=True, include_ppt_master=False)
 
 
 def _label_chat() -> str:
@@ -46,40 +75,76 @@ def _label_writing_plan() -> str:
     return _("Writing Plan")
 
 
-def get_mode_labels(*, include_brainstorming: bool = True) -> tuple[str, ...]:
+def _label_ppt_master() -> str:
+    return _("PPT-Master")
+
+
+def _modes_for(flags: SidebarModeFlags) -> tuple[str, ...]:
+    modes: list[str] = [CHAT_MODE_CHAT, CHAT_MODE_IMAGE, CHAT_MODE_WEB_RESEARCH]
+    if flags.include_brainstorming:
+        modes.append(CHAT_MODE_BRAINSTORMING)
+    if flags.include_writing_plan:
+        modes.append(CHAT_MODE_WRITING_PLAN)
+    if flags.include_ppt_master:
+        modes.append(CHAT_MODE_PPT_MASTER)
+    return tuple(modes)
+
+
+def get_mode_labels(*, include_brainstorming: bool = False, include_writing_plan: bool = True, include_ppt_master: bool = False) -> tuple[str, ...]:
     """Translated combobox labels in display order."""
-    labels = (_label_chat(), _label_image(), _label_web_research())
-    if include_brainstorming:
-        return labels + (_label_brainstorming(), _label_writing_plan())
-    return labels + (_label_writing_plan(),)
+    flags = SidebarModeFlags(
+        include_brainstorming=include_brainstorming,
+        include_writing_plan=include_writing_plan,
+        include_ppt_master=include_ppt_master,
+    )
+    labels = [_label_chat(), _label_image(), _label_web_research()]
+    if flags.include_brainstorming:
+        labels.append(_label_brainstorming())
+    if flags.include_writing_plan:
+        labels.append(_label_writing_plan())
+    if flags.include_ppt_master:
+        labels.append(_label_ppt_master())
+    return tuple(labels)
 
 
-def mode_from_label(label: str, *, include_brainstorming: bool = True) -> str:
+def mode_from_label(label: str, *, include_brainstorming: bool = False, include_writing_plan: bool = True, include_ppt_master: bool = False) -> str:
     """Map a combobox display label to a mode constant."""
+    flags = SidebarModeFlags(
+        include_brainstorming=include_brainstorming,
+        include_writing_plan=include_writing_plan,
+        include_ppt_master=include_ppt_master,
+    )
     text = str(label or "").strip()
-    for mode, item_label in zip(_modes_for(include_brainstorming), get_mode_labels(include_brainstorming=include_brainstorming)):
+    for mode, item_label in zip(_modes_for(flags), get_mode_labels(**flags.__dict__)):
         if text == item_label:
             return mode
     return CHAT_MODE_CHAT
 
 
-def _modes_for(include_brainstorming: bool) -> tuple[str, ...]:
-    modes = (CHAT_MODE_CHAT, CHAT_MODE_IMAGE, CHAT_MODE_WEB_RESEARCH)
-    if include_brainstorming:
-        return modes + (CHAT_MODE_BRAINSTORMING, CHAT_MODE_WRITING_PLAN)
-    return modes + (CHAT_MODE_WRITING_PLAN,)
-
-
-def mode_from_selector(ctrl: Any, *, include_brainstorming: bool = True) -> str:
+def mode_from_selector(ctrl: Any, *, include_brainstorming: bool = False, include_writing_plan: bool = True, include_ppt_master: bool = False) -> str:
     """Read the selected sidebar mode from a combobox control."""
     if not ctrl:
         return CHAT_MODE_CHAT
     try:
         if hasattr(ctrl, "getText"):
-            return mode_from_label(ctrl.getText(), include_brainstorming=include_brainstorming)
+            return mode_from_label(
+                ctrl.getText(),
+                include_brainstorming=include_brainstorming,
+                include_writing_plan=include_writing_plan,
+                include_ppt_master=include_ppt_master,
+            )
     except Exception:
         pass
     return CHAT_MODE_CHAT
+
+
+def mode_from_selector_with_flags(ctrl: Any, flags: SidebarModeFlags) -> str:
+    return mode_from_selector(
+        ctrl,
+        include_brainstorming=flags.include_brainstorming,
+        include_writing_plan=flags.include_writing_plan,
+        include_ppt_master=flags.include_ppt_master,
+    )
 
 
 def _set_combobox_items(ctrl: Any, labels: tuple[str, ...]) -> None:
@@ -134,23 +199,42 @@ def _configure_mode_selector_model(ctrl: Any) -> None:
         log.debug("chat_mode_selector: configure model failed: %s", e)
 
 
-def populate_mode_selector(ctrl: Any, *, include_brainstorming: bool = True) -> None:
+def populate_mode_selector(ctrl: Any, *, include_brainstorming: bool = False, include_writing_plan: bool = True, include_ppt_master: bool = False) -> None:
     """Fill the mode combobox with translated items."""
     if not ctrl:
         return
-    labels = tuple(str(x) for x in get_mode_labels(include_brainstorming=include_brainstorming))
+    labels = get_mode_labels(
+        include_brainstorming=include_brainstorming,
+        include_writing_plan=include_writing_plan,
+        include_ppt_master=include_ppt_master,
+    )
+    labels = tuple(str(x) for x in labels)
     _configure_mode_selector_model(ctrl)
     _set_combobox_items(ctrl, labels)
 
 
-def set_selector_mode(ctrl: Any, mode: str, *, include_brainstorming: bool = True) -> None:
+def populate_mode_selector_with_flags(ctrl: Any, flags: SidebarModeFlags) -> None:
+    populate_mode_selector(
+        ctrl,
+        include_brainstorming=flags.include_brainstorming,
+        include_writing_plan=flags.include_writing_plan,
+        include_ppt_master=flags.include_ppt_master,
+    )
+
+
+def set_selector_mode(ctrl: Any, mode: str, *, include_brainstorming: bool = False, include_writing_plan: bool = True, include_ppt_master: bool = False) -> None:
     """Set combobox selection by mode constant."""
     if not ctrl or mode not in _VALID_MODES:
         return
-    labels = get_mode_labels(include_brainstorming=include_brainstorming)
-    modes = _modes_for(include_brainstorming)
+    flags = SidebarModeFlags(
+        include_brainstorming=include_brainstorming,
+        include_writing_plan=include_writing_plan,
+        include_ppt_master=include_ppt_master,
+    )
+    modes = _modes_for(flags)
     if mode not in modes:
         mode = CHAT_MODE_CHAT
+    labels = get_mode_labels(**flags.__dict__)
     idx = modes.index(mode)
     label = labels[idx]
     try:
@@ -162,10 +246,26 @@ def set_selector_mode(ctrl: Any, mode: str, *, include_brainstorming: bool = Tru
         log.debug("chat_mode_selector: set selection failed: %s", e)
 
 
+def set_selector_mode_with_flags(ctrl: Any, mode: str, flags: SidebarModeFlags) -> None:
+    set_selector_mode(
+        ctrl,
+        mode,
+        include_brainstorming=flags.include_brainstorming,
+        include_writing_plan=flags.include_writing_plan,
+        include_ppt_master=flags.include_ppt_master,
+    )
+
+
 def clear_brainstorming_session(send_listener: Any) -> None:
     """Drop in-progress brainstorming state (dropdown change or normal exit)."""
     send_listener._in_brainstorming_mode = False
     send_listener._brainstorming_topic = ""
+
+
+def clear_ppt_master_session(send_listener: Any) -> None:
+    """Drop in-progress PPT-Master state."""
+    send_listener._in_ppt_master_mode = False
+    send_listener._ppt_master_topic = ""
 
 
 def is_image_mode(mode: str) -> bool:
@@ -182,6 +282,10 @@ def is_brainstorming_mode(mode: str) -> bool:
 
 def is_writing_plan_mode(mode: str) -> bool:
     return mode == CHAT_MODE_WRITING_PLAN
+
+
+def is_ppt_master_mode(mode: str) -> bool:
+    return mode == CHAT_MODE_PPT_MASTER
 
 
 def clear_writing_plan_session(send_listener: Any) -> None:

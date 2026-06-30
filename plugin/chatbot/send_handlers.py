@@ -98,6 +98,8 @@ class SendHandlerHost(Protocol):
     def _do_send_via_agent_backend(self, query_text: str, model: Any, doc_type_str: str) -> None: ...
     def _run_librarian(self, query_text: str, model: Any) -> None: ...
     def _run_brainstorming(self, query_text: str, model: Any) -> None: ...
+    def _run_writing_plan(self, query_text: str, model: Any) -> None: ...
+    def _run_ppt_master(self, query_text: str, model: Any) -> None: ...
     def _run_web_research(self, query_text: str, model: Any) -> None: ...
 
 
@@ -467,6 +469,23 @@ class SendHandlersMixin:
         for effect in step.effects:
             interpreter.interpret(effect)
 
+    def _run_ppt_master(self: SendHandlerHost, query_text: str, model: Any) -> None:
+        """Run the PPT-Master sub-agent (Impress/Draw sidebar mode)."""
+        interpreter = EffectInterpreter(self)
+        current_state = SendHandlerState(handler_type="web", status="ready")
+
+        self._in_ppt_master_mode = True
+        self.session.add_user_message(query_text)
+
+        step = next_state(current_state, StartEvent(query_text, model, "web"))
+        current_state = step.state
+        interpreter.current_state = current_state
+
+        setattr(self, "_active_run_ppt_master", True)
+
+        for effect in step.effects:
+            interpreter.interpret(effect)
+
     def _run_web_research(self: SendHandlerHost, query_text: str, model: Any) -> None:
         """Run the web_research tool via the sub-agent and stream its result into the response area."""
         interpreter = EffectInterpreter(self)
@@ -492,6 +511,9 @@ class SendHandlersMixin:
         is_writing_plan = getattr(self, "_active_run_writing_plan", False)
         if hasattr(self, "_active_run_writing_plan"):
             delattr(self, "_active_run_writing_plan")
+        is_ppt_master = getattr(self, "_active_run_ppt_master", False)
+        if hasattr(self, "_active_run_ppt_master"):
+            delattr(self, "_active_run_ppt_master")
 
 
 
@@ -673,6 +695,47 @@ class SendHandlersMixin:
                         self._in_writing_plan_mode = False
                         msg = data.get("message", _("Unknown writing plan error."))
                         q.put((StreamQueueKind.CHUNK, "\n" + _("[Writing plan error: {0}]").format(msg) + "\n"))
+
+                    q.put((StreamQueueKind.STREAM_DONE, {}))
+                elif is_ppt_master:
+                    topic = getattr(self, "_ppt_master_topic", "") or ""
+                    res = get_tools().execute(
+                        "ppt_master_session",
+                        tctx,
+                        bypass_thread_guard=False,
+                        **{"query": query_text, "history_text": history_text, "topic": topic},
+                    )
+                    result = json.dumps(res) if isinstance(res, dict) else str(res)
+
+                    data = safe_json_loads(result)
+                    if not isinstance(data, dict):
+                        log.error("Failed to parse PPT-Master result [doc: %s]", doc_type)
+                        parsed_err = AgentParsingError("Invalid JSON from PPT-Master tool.", details={"raw_result": result})
+                        data = format_error_payload(parsed_err)
+
+                    if data.get("status") == "ok":
+                        answer = data.get("result", "")
+                        if not isinstance(answer, str):
+                            answer = str(answer)
+                        self._record_assistant_start = True
+                        q.put((StreamQueueKind.CHUNK, answer + "\n"))
+                        self.session.add_assistant_message(content=answer)
+                    elif data.get("status") == "finished":
+                        finished_cb = getattr(self, "on_ppt_master_session_finished", None)
+                        if callable(finished_cb):
+                            finished_cb(exported=bool(data.get("exported", False)))
+                        else:
+                            self._in_ppt_master_mode = False
+                        answer = data.get("result", _("PPT-Master session complete."))
+                        if not isinstance(answer, str):
+                            answer = str(answer)
+                        self._record_assistant_start = True
+                        q.put((StreamQueueKind.CHUNK, answer + "\n"))
+                        self.session.add_assistant_message(content=answer)
+                    else:
+                        self._in_ppt_master_mode = False
+                        msg = data.get("message", _("Unknown PPT-Master error."))
+                        q.put((StreamQueueKind.CHUNK, "\n" + _("[PPT-Master error: {0}]").format(msg) + "\n"))
 
                     q.put((StreamQueueKind.STREAM_DONE, {}))
                 else:

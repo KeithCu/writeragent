@@ -104,16 +104,11 @@ def sidebar_only_tool_names(
     doc_type: str | None = None,
     uno_services_supported: frozenset[str] | None = None,
 ) -> frozenset:
-    """Tool names in Writer sidebar-only domains (e.g. brainstorming, writing_plan).
-
-    Those flows depend on bespoke session orchestration / finish tools that the direct
-    MCP modes don't provide, so the delegate keeps them off MCP (``tool.py`` /
-    ``WRITER_SIDEBAR_ONLY_DOMAINS``). The direct modes -- ``find_tools`` and
-    ``direct_flat``'s ``tools/list`` -- must exclude them the same way.
-    """
+    """Tool names in sidebar-only domains (brainstorming, writing_plan, ppt-master)."""
     try:
-        from plugin.framework.constants import WRITER_SIDEBAR_ONLY_DOMAINS
+        from plugin.framework.constants import IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS, WRITER_SIDEBAR_ONLY_DOMAINS
 
+        sidebar_only = WRITER_SIDEBAR_ONLY_DOMAINS | IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS
         tools = registry.get_tools(
             doc_type=doc_type,
             uno_services_supported=uno_services_supported,
@@ -124,7 +119,7 @@ def sidebar_only_tool_names(
         return frozenset()
     out = set()
     for t in tools:
-        if getattr(t, "specialized_domain", None) in WRITER_SIDEBAR_ONLY_DOMAINS:
+        if getattr(t, "specialized_domain", None) in sidebar_only:
             name = getattr(t, "name", None)
             if isinstance(name, str):
                 out.add(name)

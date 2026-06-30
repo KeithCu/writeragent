@@ -110,7 +110,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
     extra_instructions = ""
     model = self._get_document_model()
     initial_mode = "chat"
-    include_brainstorming = False
+    mode_flags = None
 
     def toggle_image_ui(_is_image):
         return None
@@ -121,7 +121,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
 
         self._wire_model_selectors(controls["model_selector"], controls["image_model_selector"])
 
-        initial_mode, include_brainstorming, toggle_image_ui = self._wire_chat_mode_ui(
+        initial_mode, mode_flags, toggle_image_ui = self._wire_chat_mode_ui(
             controls["aspect_ratio_selector"],
             controls["base_size_input"],
             controls["base_size_label"],
@@ -139,7 +139,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
     self._setup_sessions(model, extra_instructions)
 
     # 3. Buttons (applies initial mode, session history, and mode listener)
-    self._wire_buttons(controls, model, initial_mode, include_brainstorming, toggle_image_ui)
+    self._wire_buttons(controls, model, initial_mode, mode_flags, toggle_image_ui)
 
     # Wire query listener to update Record/Send button label (fixed width captured in snapshot before relayout)
     query_text_listener = None

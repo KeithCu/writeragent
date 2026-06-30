@@ -182,6 +182,33 @@ Action:
 )
 
 
+PPT_MASTER_EXAMPLES = """Task: "Export my ppt-master project at ~/projects/demo to this deck."
+
+Action:
+{
+  "name": "validate_ppt_master_project",
+  "arguments": {"project_path": "/home/user/projects/demo"}
+}
+Observation: {"status": "ok", "has_svg": true}
+
+Action:
+{
+  "name": "export_presentation_project",
+  "arguments": {"project_path": "/home/user/projects/demo"}
+}
+Observation: {"status": "ok", "slides": 5}
+
+Action:
+{
+  "name": "ppt_master_finished",
+  "arguments": {"message": "<p>Exported 5 slides as native Impress shapes.</p>", "exported": true}
+}
+Observation: {"status": "finished"}
+
+
+"""
+
+
 def get_examples_block(key: str) -> str:
     """Return the few-shot block for *key*.
 
@@ -196,6 +223,8 @@ def get_examples_block(key: str) -> str:
         return BRAINSTORMING_EXAMPLES
     if key == "writing_plan":
         return WRITING_PLAN_EXAMPLES
+    if key == "ppt-master":
+        return PPT_MASTER_EXAMPLES
     if key == "web_research":
         return WEB_RESEARCH_EXAMPLES_BLOCK
     if key.endswith(":python"):
