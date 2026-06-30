@@ -2,16 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Serializable shape operations produced from SVG (ppt-master adapter pipeline).
-
-UPSTREAM NOTE (WriterAgent addition — not in upstream):
-  Upstream emits DrawingML XML inside the venv install:
-  ``<PPT_MASTER_DATA_ROOT>/scripts/svg_to_pptx/drawingml_converter.py``.
-  ShapeOp / SlideBuildPlan are the UNO interchange format for Impress/Draw.
-
-  # Upstream PPTX path (venv scripts — commented):
-  #   from svg_to_pptx.pptx_builder import create_pptx_with_native_svg
-"""
+"""Serializable shape operations for the ppt-master UNO export pipeline."""
 
 from __future__ import annotations
 

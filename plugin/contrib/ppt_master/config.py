@@ -2,13 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""ppt-master data path resolution (templates, references, workflows).
-
-UPSTREAM NOTE (WriterAgent addition — not in upstream):
-  Templates, references, workflows, and SKILL.md come from the pip-installed skill tree
-  (``PPT_MASTER_DATA_ROOT``), not from this contrib package. Only WriterAgent adapter
-  modules live under ``plugin/contrib/ppt_master/``.
-"""
+"""ppt-master data path resolution (templates, references, workflows)."""
 
 from __future__ import annotations
 

@@ -2,16 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Import helpers for upstream ppt-master scripts (user venv / pip install).
-
-UPSTREAM NOTE:
-  Unmodified ppt-master Python lives under ``<data_root>/scripts/`` after:
-  ``uv pip install "ppt-master @ git+https://github.com/hugohe3/ppt-master.git"``
-  WriterAgent only vendors adapter modules in this package; do not copy svg_to_pptx here.
-
-  Import ``pptx_discovery`` by file path so we do not execute ``svg_to_pptx/__init__.py``
-  (that pulls python-pptx). Full svg_to_pptx runs in the user venv worker when needed.
-"""
+"""Load skill-tree script modules by file path (avoids package __init__ side effects on LO host)."""
 
 from __future__ import annotations
 
@@ -65,7 +56,7 @@ def with_upstream_script(
     loader: Callable[[Path], ModuleType | None],
     fn: Callable[[ModuleType], _T],
 ) -> _T | None:
-    """Load a standalone upstream module file and run *fn* (no svg_to_pptx package __init__)."""
+    """Load a standalone module file and run *fn* (no svg_to_pptx package __init__)."""
     mod = loader(data_root)
     if mod is None:
         return None
@@ -73,7 +64,7 @@ def with_upstream_script(
 
 
 def collect_svg_files_upstream(project_path: Path, data_root: Path) -> list[Path] | None:
-    """Use upstream ``pptx_discovery.find_svg_files`` when the venv skill tree is present."""
+    """Use ``find_svg_files`` from skill-tree ``pptx_discovery.py`` when installed."""
 
     def _collect(mod: ModuleType) -> list[Path] | None:
         find_svg_files: Any = getattr(mod, "find_svg_files", None)

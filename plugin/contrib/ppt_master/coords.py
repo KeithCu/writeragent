@@ -2,16 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""SVG viewBox pixels → LibreOffice 1/100 mm coordinates.
-
-UPSTREAM NOTE (WriterAgent addition — not in upstream):
-  Upstream svg_to_pptx uses EMU (English Metric Units) via drawingml_utils.EMU_PER_PX
-  and pptx_dimensions slide sizing for OOXML. LibreOffice UNO expects 1/100 mm (hmm).
-
-  # Upstream (venv install — not used on the default UNO export path):
-  #   from svg_to_pptx.drawingml_utils import EMU_PER_PX
-  #   from svg_to_pptx.pptx_dimensions import slide_emu_size
-"""
+"""SVG viewBox pixels → LibreOffice 1/100 mm coordinates."""
 
 from __future__ import annotations
 

@@ -2,17 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Minimal SVG → ShapeOp converter for ppt-master UNO export.
-
-UPSTREAM NOTE (WriterAgent addition — parallel to, not a fork of, drawingml_converter.py):
-  Upstream's full converter lives in the venv install:
-  ``<PPT_MASTER_DATA_ROOT>/scripts/svg_to_pptx/drawingml_converter.py``
-  (pure Python — import via plugin.contrib.ppt_master.upstream).
-
-  # Upstream full conversion (PPTX export — run in user venv / scripts on sys.path):
-  #   from svg_to_pptx.drawingml_converter import convert_svg_to_slide_shapes
-  #   from svg_to_pptx.pptx_builder import create_pptx_with_native_svg
-"""
+"""Minimal SVG → ShapeOp converter for ppt-master UNO export."""
 
 from __future__ import annotations
 
@@ -283,9 +273,6 @@ def svg_to_slide_plan(
     notes_text: str | None = None,
 ) -> SlideBuildPlan:
     """Parse one SVG file into a SlideBuildPlan."""
-    # WriterAgent UNO path (active): ElementTree walk → ShapeOp list → uno_apply.
-    # Upstream PPTX path (commented):
-    #   shapes_xml, rels = convert_svg_to_slide_shapes(svg_path)
     tree = ET.parse(svg_path)
     root = tree.getroot()
     vb = root.get("viewBox")
@@ -329,8 +316,7 @@ def collect_svg_files(project_path: Path, *, subdir: str = "svg_final", data_roo
         if upstream_files:
             return upstream_files
 
-    # WriterAgent fallback when ppt-master is not installed (unit tests, minimal dirs).
-    # Upstream equivalent (venv): svg_to_pptx.pptx_discovery.find_svg_files
+    # Fallback when skill tree is not installed (unit tests, minimal dirs).
     for name in (subdir, "svg_output"):
         folder = project_path / name
         if folder.is_dir():
