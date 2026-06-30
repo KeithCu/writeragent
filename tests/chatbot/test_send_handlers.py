@@ -114,6 +114,168 @@ def test_run_web_research_stores_raw_answer_and_rerenders():
     assert "AI (research):" not in "".join(panel.responses)
 
 
+def test_run_web_research_tool_context_uses_panel_ctx_not_get_ctx():
+    """Regression: sub-agent worker must not call get_ctx() off the main thread."""
+    panel = DummyChatbotPanel()
+    panel.rerender_rich_text_session = MagicMock()
+    model = MockDocument()
+    panel.session = MagicMock()
+    captured_tool_ctx = []
+
+    mock_main = MagicMock()
+    mock_registry = MagicMock()
+    mock_registry._services = MagicMock()
+
+    def capture_execute(_tool_name, tctx, **_kwargs):
+        captured_tool_ctx.append(tctx)
+        return '{"status": "ok", "result": "answer"}'
+
+    mock_registry.execute.side_effect = capture_execute
+    mock_main.get_tools.return_value = mock_registry
+
+    mock_uno = MagicMock()
+    class DummyBase1(object):
+        pass
+
+    class DummyBase2(object):
+        pass
+
+    mock_unohelper = MagicMock()
+    mock_unohelper.Base = DummyBase1
+    mock_awt = MagicMock()
+    mock_awt.XActionListener = DummyBase2
+    mock_awt.XItemListener = DummyBase2
+    mock_awt.XTextListener = DummyBase2
+    mock_awt.XWindowListener = DummyBase2
+    mock_awt.XKeyListener = DummyBase2
+    mock_lang = MagicMock()
+    mock_lang.XEventListener = DummyBase2
+    with patch.dict(
+        "sys.modules",
+        {
+            "plugin.main": mock_main,
+            "uno": mock_uno,
+            "unohelper": mock_unohelper,
+            "com.sun.star.text": MagicMock(),
+            "com.sun.star.awt": mock_awt,
+            "com.sun.star.lang": mock_lang,
+        },
+    ):
+        with patch("plugin.framework.async_stream.run_in_background") as mock_run_bg:
+            def fake_run_bg(func, **kwargs):
+                func()
+
+            mock_run_bg.side_effect = fake_run_bg
+
+            with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
+                def fake_drain_loop(q, toolkit, job_done, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, ctx, stop_checker, **kwargs):
+                    while not q.empty():
+                        item = q.get()
+                        k = item[0]
+                        if k == StreamQueueKind.CHUNK:
+                            apply_chunk(item[1])
+                        elif k == StreamQueueKind.STREAM_DONE:
+                            on_stream_done(item)
+                        elif k == StreamQueueKind.STATUS:
+                            on_status_fn(item[1])
+                        elif k == StreamQueueKind.ERROR:
+                            on_error(item[1])
+                    job_done[0] = True
+
+                mock_run_stream.side_effect = fake_drain_loop
+
+                getattr(panel.ctx, "getServiceManager")().createInstanceWithContext.return_value = MagicMock()
+
+                with patch(
+                    "plugin.framework.uno_context.get_ctx",
+                    side_effect=AssertionError("get_ctx must not run on background thread"),
+                ):
+                    panel._run_web_research("What is X?", model)  # type: ignore
+
+    assert len(captured_tool_ctx) == 1
+    assert captured_tool_ctx[0].ctx is panel.ctx
+
+
+def test_do_send_direct_image_tool_context_uses_panel_ctx_not_get_ctx():
+    """Regression: direct-image worker must not call get_ctx() off the main thread."""
+    panel = DummyChatbotPanel()
+    model = MockDocument()
+    captured_tool_ctx = []
+
+    mock_main = MagicMock()
+    mock_registry = MagicMock()
+    mock_registry._services = MagicMock()
+
+    def capture_execute(_tool_name, tctx, **_kwargs):
+        captured_tool_ctx.append(tctx)
+        return {"status": "done", "message": "Image generated successfully"}
+
+    mock_registry.execute.side_effect = capture_execute
+    mock_main.get_tools.return_value = mock_registry
+
+    mock_uno = MagicMock()
+    class DummyBase1(object):
+        pass
+
+    class DummyBase2(object):
+        pass
+
+    mock_unohelper = MagicMock()
+    mock_unohelper.Base = DummyBase1
+    mock_awt = MagicMock()
+    mock_awt.XActionListener = DummyBase2
+    mock_awt.XItemListener = DummyBase2
+    mock_awt.XTextListener = DummyBase2
+    mock_awt.XWindowListener = DummyBase2
+    mock_awt.XKeyListener = DummyBase2
+    mock_lang = MagicMock()
+    mock_lang.XEventListener = DummyBase2
+    with patch.dict(
+        "sys.modules",
+        {
+            "plugin.main": mock_main,
+            "uno": mock_uno,
+            "unohelper": mock_unohelper,
+            "com.sun.star.text": MagicMock(),
+            "com.sun.star.awt": mock_awt,
+            "com.sun.star.lang": mock_lang,
+        },
+    ):
+        with patch("plugin.framework.async_stream.run_in_background") as mock_run_bg:
+            def fake_run_bg(func, **kwargs):
+                func()
+
+            mock_run_bg.side_effect = fake_run_bg
+
+            with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
+                def fake_drain_loop(q, toolkit, job_done, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, ctx, stop_checker, **kwargs):
+                    while not q.empty():
+                        item = q.get()
+                        k = item[0]
+                        if k == StreamQueueKind.CHUNK:
+                            apply_chunk(item[1])
+                        elif k == StreamQueueKind.STREAM_DONE:
+                            on_stream_done(item)
+                        elif k == StreamQueueKind.STATUS:
+                            on_status_fn(item[1])
+                        elif k == StreamQueueKind.ERROR:
+                            on_error(item[1])
+                    job_done[0] = True
+
+                mock_run_stream.side_effect = fake_drain_loop
+
+                getattr(panel.ctx, "getServiceManager")().createInstanceWithContext.return_value = MagicMock()
+
+                with patch(
+                    "plugin.framework.uno_context.get_ctx",
+                    side_effect=AssertionError("get_ctx must not run on background thread"),
+                ):
+                    panel._do_send_direct_image("A cute dog", model)  # type: ignore
+
+    assert len(captured_tool_ctx) == 1
+    assert captured_tool_ctx[0].ctx is panel.ctx
+
+
 def test_do_send_direct_image():
     panel = DummyChatbotPanel()
     model = MockDocument()

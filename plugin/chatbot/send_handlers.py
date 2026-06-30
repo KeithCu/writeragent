@@ -234,10 +234,9 @@ class SendHandlersMixin:
                     base_size_val = 512
 
                 from plugin.main import get_tools
-                from plugin.framework.uno_context import get_ctx
 
                 cancel_scope = getattr(self, "_send_cancellation", None)
-                tctx = ToolContext(doc=model, ctx=get_ctx(), stop_checker=self.resolve_stop_checker(), doc_type=getattr(self, "cached_doc_type", None) or "writer", services=get_tools()._services, caller="chat", status_callback=lambda t: q.put((StreamQueueKind.STATUS, t)), send_cancellation=cancel_scope, uno_services_supported=getattr(self, "cached_uno_services", None))
+                tctx = ToolContext(doc=model, ctx=self.ctx, stop_checker=self.resolve_stop_checker(), doc_type=getattr(self, "cached_doc_type", None) or "writer", services=get_tools()._services, caller="chat", status_callback=lambda t: q.put((StreamQueueKind.STATUS, t)), send_cancellation=cancel_scope, uno_services_supported=getattr(self, "cached_uno_services", None))
                 try:
 
 
@@ -569,9 +568,9 @@ class SendHandlersMixin:
                         q.put((StreamQueueKind.STOPPED,))
                     return (bool(getattr(event, "approved", False)), getattr(event, "query_override", None))
 
-                from plugin.framework.uno_context import get_ctx
-
-                tctx = ToolContext(doc=model, ctx=get_ctx(), stop_checker=stop_checker, doc_type=doc_type, services=get_tools()._services, caller="chat", status_callback=status_cb, append_thinking_callback=thinking_cb, approval_callback=approval_cb, chat_append_callback=chat_append_cb, send_cancellation=cancel_scope, uno_services_supported=getattr(self, "cached_uno_services", None))
+                # BUGFIX: run_search runs on chatbot-send-handler worker; get_ctx() is main-thread-only.
+                # Panel bootstrap ctx matches tool_loop.execute_fn (async tools marshal UNO reads themselves).
+                tctx = ToolContext(doc=model, ctx=self.ctx, stop_checker=stop_checker, doc_type=doc_type, services=get_tools()._services, caller="chat", status_callback=status_cb, append_thinking_callback=thinking_cb, approval_callback=approval_cb, chat_append_callback=chat_append_cb, send_cancellation=cancel_scope, uno_services_supported=getattr(self, "cached_uno_services", None))
 
                 if is_librarian:
                     res = get_tools().execute(
