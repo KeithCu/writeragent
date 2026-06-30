@@ -10,13 +10,14 @@ from pathlib import Path
 from typing import Any
 
 from plugin.ppt_master.adapter.uno_enhance import apply_enhancement_project
-from plugin.ppt_master.adapter.uno_svg_deck import export_project_to_doc
+from plugin.ppt_master.adapter.uno_pptx_deck import export_project_to_doc
+from plugin.ppt_master.pptx_build import find_project_pptx
 from plugin.ppt_master.adapter.uno_template_fill import apply_fill_plan_file
 from plugin.ppt_master.paths import apply_data_root_env
 
 
 def export_project_to_impress(ctx: Any, doc: Any, project_path: str | Path) -> dict[str, Any]:
-    """Apply a ppt-master project SVG deck to the open Impress/Draw document."""
+    """Apply a ppt-master project to the open Impress/Draw document via PPTX → ODP import."""
     apply_data_root_env(ctx)
     path = Path(project_path).expanduser().resolve()
     if not path.is_dir():
@@ -40,10 +41,13 @@ def validate_project_structure(project_path: str | Path) -> dict[str, Any]:
         return {"status": "error", "message": "Project directory does not exist."}
     has_svg = (path / "svg_final").is_dir() or (path / "svg_output").is_dir()
     has_spec = (path / "design_spec.md").is_file() or (path / "spec_lock.md").is_file()
+    pptx = find_project_pptx(path)
     return {
         "status": "ok",
         "path": str(path),
         "has_svg": has_svg,
+        "has_exports_pptx": pptx is not None,
+        "exports_pptx": str(pptx) if pptx is not None else None,
         "has_design_spec": has_spec,
         "has_sources": (path / "sources").is_dir(),
     }

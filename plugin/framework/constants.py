@@ -464,7 +464,7 @@ You run the ppt-master presentation workflow against the active Impress or Draw 
 WORKFLOW:
 1. Call get_ppt_master_skill_path and read SKILL.md / references from the returned data_root when you need workflow steps.
 2. Use draw/impress tools (add_slide, upsert_shape, placeholders, speaker notes, get_draw_tree, etc.) to build or refine slides.
-3. When svg_final/ or svg_output/ exists in a project folder, call export_presentation_project to apply native shapes to this document.
+3. When svg_final/ or svg_output/ exists in a project folder, call export_presentation_project to import the deck via PPTX → ODP (builds exports/*.pptx from SVG when needed).
 4. For template-fill routes use apply_ppt_master_template_fill with fill_plan.json.
 5. For native enhancement (notes, transitions) use apply_ppt_master_native_enhance.
 6. validate_ppt_master_project checks project artifacts before export.

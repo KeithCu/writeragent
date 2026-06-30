@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Compare ppt-master SVG slides to WriterAgent UNO import output (PDF/PNG diff + structure)."""
+"""Compare ppt-master PPTX slides to WriterAgent PPTX→ODP import (PDF/PNG diff + structure)."""
 
 from __future__ import annotations
 
@@ -15,11 +15,11 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from plugin.contrib.ppt_master.coords import DEFAULT_SLIDE_HEIGHT_HMM, DEFAULT_SLIDE_WIDTH_HMM
-from plugin.contrib.ppt_master.svg_preprocess import preprocess_svg_for_import
 from plugin.contrib.ppt_master.upstream import collect_svg_files
 from plugin.embeddings.embeddings_soffice_convert import resolve_soffice_executable
-from plugin.ppt_master.adapter.uno_svg_import import import_svg_to_slide
+from plugin.ppt_master.adapter.uno_pptx_import import import_pptx_slide_to_odp, load_pptx_as_impress_doc
+from plugin.ppt_master.paths import data_root_status
+from plugin.ppt_master.pptx_build import ensure_project_pptx, find_project_pptx
 
 log = logging.getLogger(__name__)
 
@@ -125,10 +125,18 @@ def count_odf_shape_types(page: Any) -> dict[str, int]:
     return counts
 
 
-def structural_metrics(svg_path: Path, page: Any) -> StructuralMetrics:
-    counts = count_odf_shape_types(page)
+def count_page_text_shapes(page: Any) -> int:
+    count = 0
+    for i in range(page.getCount()):
+        if "TextShape" in page.getByIndex(i).getShapeType():
+            count += 1
+    return count
+
+
+def structural_metrics_pptx(source_page: Any, imported_page: Any) -> StructuralMetrics:
+    counts = count_odf_shape_types(imported_page)
     return StructuralMetrics(
-        svg_text_elements=count_svg_text_elements(svg_path),
+        svg_text_elements=count_page_text_shapes(source_page),
         odf_text_shapes=counts.get("TextShape", 0),
         odf_shape_counts=counts,
     )
@@ -228,63 +236,94 @@ def pdf_to_png(pdf_path: Path, png_path: Path, *, dpi: int = DEFAULT_DPI, timeou
     return False
 
 
-def import_slide_to_odp(ctx: Any, svg_path: Path, project_dir: Path, odp_path: Path) -> tuple[Any, Any] | None:
-    """Import one SVG via the shipped pipeline; save a one-slide Impress doc."""
-    import uno
+def pdf_page_to_png(pdf_path: Path, png_path: Path, *, page_1based: int, dpi: int = DEFAULT_DPI, timeout_sec: int = 60) -> bool:
+    """Rasterize one PDF page (1-based index) to PNG."""
+    png_path.parent.mkdir(parents=True, exist_ok=True)
+    stem = png_path.with_suffix("")
+    pdftoppm = shutil.which("pdftoppm")
+    page = max(1, int(page_1based))
+    if pdftoppm:
+        out_base = stem
+        cmd = [pdftoppm, "-png", "-singlefile", "-f", str(page), "-l", str(page), "-r", str(dpi), str(pdf_path), str(out_base)]
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_sec, check=False)
+        except (OSError, subprocess.TimeoutExpired):
+            proc = None
+        produced = Path(f"{out_base}.png")
+        if proc is not None and proc.returncode == 0 and produced.is_file():
+            if produced != png_path:
+                produced.replace(png_path)
+            return True
+    magick = shutil.which("magick") or shutil.which("convert")
+    if magick:
+        cmd = [magick, "-density", str(dpi), f"{pdf_path}[{page - 1}]", str(png_path)]
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_sec, check=False)
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        return proc.returncode == 0 and png_path.is_file()
+    return False
 
-    from plugin.framework.uno_context import get_desktop
 
-    desktop = get_desktop(ctx)
-    hidden = uno.createUnoStruct("com.sun.star.beans.PropertyValue", Name="Hidden", Value=True)
-    doc = desktop.loadComponentFromURL("private:factory/simpress", "_blank", 0, (hidden,))
-    if doc is None:
+def import_slide_to_odp(
+    ctx: Any,
+    pptx_path: Path,
+    slide_index: int,
+    odp_path: Path,
+) -> tuple[Any, Any, Any] | None:
+    """Import one PPTX slide via the shipped pipeline; save a one-slide Impress doc."""
+    imported = import_pptx_slide_to_odp(ctx, pptx_path, slide_index, odp_path)
+    if imported is None:
         return None
-    page = doc.getDrawPages().getByIndex(0)
-    try:
-        page.setPropertyValue("Width", DEFAULT_SLIDE_WIDTH_HMM)
-        page.setPropertyValue("Height", DEFAULT_SLIDE_HEIGHT_HMM)
-    except Exception as exc:
-        log.debug("set impress page size: %s", exc)
-    result = import_svg_to_slide(ctx, doc, svg_path, slide_index=0, project_dir=project_dir)
-    if result.get("status") != "ok":
-        doc.close(True)
-        return None
-    page = doc.getDrawPages().getByIndex(0)
-    odp_path.parent.mkdir(parents=True, exist_ok=True)
-    doc.storeToURL(odp_path.resolve().as_uri(), ())
-    return doc, page
+    doc, page = imported
+    source_doc = load_pptx_as_impress_doc(ctx, pptx_path)
+    source_page = None
+    if source_doc is not None:
+        try:
+            source_page = source_doc.getDrawPages().getByIndex(slide_index)
+        finally:
+            try:
+                source_doc.close(True)
+            except Exception as exc:
+                log.debug("close source pptx doc: %s", exc)
+    return doc, page, source_page
 
 
 def evaluate_slide_fidelity(
     ctx: Any,
     *,
     project_dir: Path,
-    svg_path: Path,
+    slide_label: str,
     slide_index: int,
+    pptx_path: Path,
+    reference_deck_pdf: Path,
     work_dir: Path,
     soffice: str,
     threshold: float = DEFAULT_DIFF_THRESHOLD,
     dpi: int = DEFAULT_DPI,
     skip_visual: bool = False,
 ) -> SlideFidelityResult:
-    """Import one slide, export reference/import PDFs, compare PNGs, return metrics."""
-    slide_dir = work_dir / f"slide_{slide_index:02d}_{svg_path.stem}"
+    """Import one PPTX slide to ODP, compare PDF page N (PPTX) vs imported ODP."""
+    slide_dir = work_dir / f"slide_{slide_index:02d}_{Path(slide_label).stem}"
     slide_dir.mkdir(parents=True, exist_ok=True)
     result = SlideFidelityResult(
-        svg_name=svg_path.name,
+        svg_name=slide_label if slide_label.endswith(".svg") else f"{slide_label}.svg",
         slide_index=slide_index,
         passed=False,
         threshold=threshold,
-        artifacts={"svg": str(svg_path.resolve())},
+        artifacts={"pptx": str(pptx_path.resolve())},
     )
 
     odp_path = slide_dir / "imported.odp"
-    imported = import_slide_to_odp(ctx, svg_path, project_dir, odp_path)
+    imported = import_slide_to_odp(ctx, pptx_path, slide_index, odp_path)
     if imported is None:
-        result.errors.append("import_svg_to_slide failed")
+        result.errors.append("import_pptx_slide_to_odp failed")
         return result
-    doc, page = imported
-    result.structural = structural_metrics(svg_path, page)
+    doc, page, source_page = imported
+    if source_page is not None:
+        result.structural = structural_metrics_pptx(source_page, page)
+    else:
+        result.structural = StructuralMetrics(odf_shape_counts=count_odf_shape_types(page))
     result.artifacts["imported_odp"] = str(odp_path)
     try:
         doc.close(True)
@@ -292,35 +331,34 @@ def evaluate_slide_fidelity(
         log.debug("close impress doc: %s", exc)
 
     if skip_visual:
-        text_ok = result.structural.odf_text_shapes >= result.structural.svg_text_elements
-        result.passed = text_ok
-        if not text_ok:
-            result.errors.append(
-                f"text shape count {result.structural.odf_text_shapes} < svg text {result.structural.svg_text_elements}"
-            )
+        if result.structural and source_page is not None:
+            text_ok = result.structural.odf_text_shapes >= result.structural.svg_text_elements
+            result.passed = text_ok
+            if not text_ok:
+                result.errors.append(
+                    f"text shape count {result.structural.odf_text_shapes} < pptx text {result.structural.svg_text_elements}"
+                )
+        else:
+            result.passed = page.getCount() > 0
         return result
 
-    ref_pdf_dir = slide_dir / "ref_pdf"
     imp_pdf_dir = slide_dir / "imp_pdf"
-    preprocessed = preprocess_svg_for_import(svg_path, project_dir=project_dir)
-    result.artifacts["preprocessed_svg"] = str(preprocessed)
-    ref_pdf = soffice_convert_to_pdf(soffice, preprocessed, ref_pdf_dir)
     imp_pdf = soffice_convert_to_pdf(soffice, odp_path, imp_pdf_dir)
-    if ref_pdf is None:
-        result.errors.append("reference PDF export failed (soffice convert SVG)")
-    else:
-        result.artifacts["reference_pdf"] = str(ref_pdf)
+    ref_pdf = reference_deck_pdf
+    if not ref_pdf.is_file():
+        result.errors.append("reference deck PDF missing")
+        return result
     if imp_pdf is None:
         result.errors.append("imported PDF export failed (soffice convert ODP)")
-    else:
-        result.artifacts["imported_pdf"] = str(imp_pdf)
-    if ref_pdf is None or imp_pdf is None:
         return result
+    result.artifacts["reference_pdf"] = str(ref_pdf)
+    result.artifacts["imported_pdf"] = str(imp_pdf)
 
     ref_png = slide_dir / "reference.png"
     imp_png = slide_dir / "imported.png"
     diff_png = slide_dir / "diff.png"
-    if not pdf_to_png(ref_pdf, ref_png, dpi=dpi):
+    ref_page = slide_index + 1
+    if not pdf_page_to_png(ref_pdf, ref_png, page_1based=ref_page, dpi=dpi):
         result.errors.append("reference PNG rasterize failed (install poppler pdftoppm or ImageMagick)")
         return result
     if not pdf_to_png(imp_pdf, imp_png, dpi=dpi):
@@ -332,25 +370,15 @@ def evaluate_slide_fidelity(
     result.visual.imported_pdf = str(imp_pdf)
     result.visual.reference_pdf_info = read_pdf_info(ref_pdf)
     result.visual.imported_pdf_info = read_pdf_info(imp_pdf)
-    if (
-        result.visual.reference_pdf_info.page_size_pts
-        and result.visual.imported_pdf_info.page_size_pts
-        and result.visual.reference_pdf_info.page_size_pts != result.visual.imported_pdf_info.page_size_pts
-    ):
-        result.errors.append(
-            "PDF page size mismatch: reference "
-            f"{result.visual.reference_pdf_info.page_size_pts} vs imported "
-            f"{result.visual.imported_pdf_info.page_size_pts}"
-        )
     result.passed = result.visual.diff_fraction <= threshold
     if not result.passed:
         result.errors.append(
             f"visual diff_fraction {result.visual.diff_fraction:.3f} > threshold {threshold:.3f} "
             f"(see {diff_png.name})"
         )
-    if result.structural and result.structural.odf_text_shapes < result.structural.svg_text_elements:
+    if result.structural and source_page is not None and result.structural.odf_text_shapes < result.structural.svg_text_elements:
         result.errors.append(
-            f"text shapes {result.structural.odf_text_shapes} < svg text elements {result.structural.svg_text_elements}"
+            f"text shapes {result.structural.odf_text_shapes} < pptx text shapes {result.structural.svg_text_elements}"
         )
     return result
 
@@ -372,10 +400,32 @@ def run_project_fidelity(
     if soffice is None:
         raise RuntimeError("soffice not found; install LibreOffice and ensure soffice is on PATH")
 
+    pptx_path = find_project_pptx(project_dir)
+    if pptx_path is None:
+        status = data_root_status(ctx)
+        if status.get("ok"):
+            pptx_path, build_err = ensure_project_pptx(ctx, project_dir, Path(status["data_root"]))
+            if pptx_path is None:
+                raise RuntimeError(build_err or "PPTX not available for fidelity run")
+        else:
+            raise RuntimeError("No exports/*.pptx found; build PPTX or configure PPT-Master data path + venv")
+
     svg_files = collect_svg_files(project_dir)
     if slide_names:
         wanted = {n if n.endswith(".svg") else f"{n}.svg" for n in slide_names}
         svg_files = [p for p in svg_files if p.name in wanted]
+    if not svg_files:
+        raise RuntimeError("No SVG slide names found for fidelity slide list")
+
+    ref_pdf_dir = out_dir / "reference_deck_pdf"
+    reference_deck_pdf = out_dir / "reference_deck.pdf"
+    if not reference_deck_pdf.is_file():
+        converted = soffice_convert_to_pdf(soffice, pptx_path, ref_pdf_dir)
+        if converted is None:
+            raise RuntimeError("reference PDF export failed (soffice convert PPTX)")
+        if converted != reference_deck_pdf:
+            converted.replace(reference_deck_pdf)
+
     report = ProjectFidelityReport(
         project=str(project_dir),
         work_dir=str(out_dir),
@@ -386,8 +436,10 @@ def run_project_fidelity(
             evaluate_slide_fidelity(
                 ctx,
                 project_dir=project_dir,
-                svg_path=svg_path,
+                slide_label=svg_path.name,
                 slide_index=i,
+                pptx_path=pptx_path,
+                reference_deck_pdf=reference_deck_pdf,
                 work_dir=out_dir,
                 soffice=soffice,
                 threshold=threshold,

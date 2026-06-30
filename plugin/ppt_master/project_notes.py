@@ -2,16 +2,13 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""UNO backend: project SVG folder → Impress via LO draw_svg_import."""
+"""Map ppt-master project speaker notes to slide indices."""
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
-from plugin.contrib.ppt_master.upstream import collect_notes_upstream, collect_svg_files
-from plugin.ppt_master.adapter.uno_svg_import import import_svg_files_to_doc
-from plugin.ppt_master.paths import data_root_status
+from plugin.contrib.ppt_master.upstream import collect_notes_upstream
 
 
 def _read_notes_for_slide(project_path: Path, slide_num: int) -> str | None:
@@ -22,7 +19,7 @@ def _read_notes_for_slide(project_path: Path, slide_num: int) -> str | None:
     return None
 
 
-def _notes_for_slides(project_path: Path, svg_files: list[Path], data_root: Path | None) -> dict[int, str]:
+def notes_for_slides(project_path: Path, svg_files: list[Path], data_root: Path | None) -> dict[int, str]:
     """Map slide index → notes text (upstream filename match, then slide_NN.md)."""
     notes_by_index: dict[int, str] = {}
     upstream_notes: dict[str, str] | None = None
@@ -42,17 +39,3 @@ def _notes_for_slides(project_path: Path, svg_files: list[Path], data_root: Path
         if text:
             notes_by_index[i] = text
     return notes_by_index
-
-
-def export_project_to_doc(doc: Any, project_path: Path, ctx: Any | None = None) -> dict[str, Any]:
-    project_path = Path(project_path).expanduser().resolve()
-    svg_files = collect_svg_files(project_path)
-    if not svg_files:
-        return {"status": "error", "message": "No SVG slides found under svg_final/ or svg_output/."}
-    if ctx is None:
-        return {"status": "error", "message": "UNO context required for SVG import."}
-
-    status = data_root_status(ctx)
-    data_root = Path(status["data_root"]) if status.get("ok") else None
-    notes_by_index = _notes_for_slides(project_path, svg_files, data_root)
-    return import_svg_files_to_doc(ctx, doc, svg_files, project_dir=project_path, notes_by_index=notes_by_index)

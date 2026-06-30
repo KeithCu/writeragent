@@ -3,18 +3,16 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Compare ppt-master SVG slides to WriterAgent UNO import (PDF raster diff).
+"""Compare ppt-master PPTX import fidelity (PPTX vs ODP PDF raster diff).
 
-Automated fidelity loop for agents improving ``uno_svg_import`` / postprocess:
+Automated fidelity loop for agents improving ``uno_pptx_import``:
 
-1. Import each ``svg_final/*.svg`` slide via the shipped pipeline → one-slide ODP.
-2. Export **reference** PDF: ``soffice --convert-to pdf`` on the source SVG (LO render).
-3. Export **imported** PDF: same on the ODP.
-4. Rasterize both (``pdftoppm`` or ImageMagick), pixel-diff → ``diff.png`` + metrics.
-5. Write ``report.json`` and ``SUMMARY.md`` under the work dir.
-
-Reference PDF is LibreOffice's render of the SVG (single graphic). Imported PDF is
-after Break + shape copy + postprocess. Diff highlights import fidelity gaps.
+1. Locate or build ``exports/*.pptx`` for the project.
+2. Import each slide via ``import_pptx_slide_to_odp`` → one-slide ODP.
+3. Export **reference** PDF: ``soffice --convert-to pdf`` on the full PPTX deck.
+4. Export **imported** PDF: same on each one-slide ODP.
+5. Rasterize PPTX page N vs ODP page 1, pixel-diff → ``diff.png`` + metrics.
+6. Write ``report.json`` and ``SUMMARY.md`` under the work dir.
 
 Usage (from repo root; needs ``uno`` Python + ``soffice`` + ``pdftoppm`` or ImageMagick):
 
@@ -61,8 +59,8 @@ def _bootstrap_ctx():
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Compare ppt-master SVG import fidelity (PDF/PNG diff).")
-    parser.add_argument("project", type=Path, help="ppt-master project folder (contains svg_final/)")
+    parser = argparse.ArgumentParser(description="Compare ppt-master PPTX→ODP import fidelity (PDF/PNG diff).")
+    parser.add_argument("project", type=Path, help="ppt-master project folder (contains svg_final/ and/or exports/*.pptx)")
     parser.add_argument(
         "--work-dir",
         type=Path,

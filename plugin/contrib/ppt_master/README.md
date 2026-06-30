@@ -12,23 +12,20 @@ Do **not** re-add `plugin/contrib/ppt_master/bundled/` or `backends/` — upstre
 
 | File | Purpose | Relationship |
 |------|---------|--------------|
-| `coords.py` | SVG viewBox helpers (preprocess / postprocess sizing) | WriterAgent-only |
-| `svg_preprocess.py` | SVG normalization before LO `draw_svg_import` | WriterAgent-only |
+| `coords.py` | Default Impress slide dimensions (16:9 hmm) | WriterAgent-only |
 | `upstream.py` | Load upstream `pptx_discovery`; project SVG/notes discovery | WriterAgent runtime loader |
 | `config.py` | Path helpers under `PPT_MASTER_DATA_ROOT` | WriterAgent-only |
 
-Host integration: [`plugin/ppt_master/`](../../ppt_master/) (`uno_svg_import`, `uno_shape_postprocess`, `uno_svg_deck`). Design doc: [`docs/ppt-master-integration-plan.md`](../../../docs/ppt-master-integration-plan.md#roadmap).
+Host integration: [`plugin/ppt_master/`](../../ppt_master/) (`pptx_build`, `uno_pptx_import`, `uno_pptx_deck`, `uno_shape_postprocess`). Design doc: [`docs/ppt-master-integration-plan.md`](../../../docs/ppt-master-integration-plan.md#roadmap).
 
 ## Symbol map (WriterAgent → upstream)
 
 | WriterAgent symbol | Upstream equivalent | Active route |
 |--------------------|---------------------|--------------|
-| `coords.parse_viewbox` | (inline in drawingml_converter) | preprocess / postprocess |
-| `svg_preprocess.preprocess_svg_for_import` | (none) | Before `draw_svg_import` |
-| `upstream.collect_svg_files` | `pptx_discovery.find_svg_files` | hybrid |
+| `upstream.collect_svg_files` | `pptx_discovery.find_svg_files` | project discovery / PPTX build input |
 | `upstream.collect_svg_files_upstream` | `pptx_discovery.find_svg_files` | runtime file load |
 | `upstream.collect_notes_upstream` | `pptx_discovery.find_notes_files` | runtime file load |
-| `uno_svg_import.import_svg_to_slide` | (none) | Primary UNO export |
+| `uno_pptx_import.import_pptx_to_doc` | (none) | Primary UNO export |
 
 ## Annotation conventions
 
@@ -45,7 +42,7 @@ git clone https://github.com/hugohe3/ppt-master.git
 ## Merge policy
 
 - **Do not** copy `scripts/svg_to_pptx/` into contrib unless you must **change** upstream code.
-- UNO export uses LibreOffice `draw_svg_import` — do not re-add a Python SVG→ShapeOp rewrite.
+- UNO export uses LibreOffice's native PPTX filter → copy shapes into Impress (see `uno_pptx_import`).
 
 ## MIT License (upstream ppt-master)
 

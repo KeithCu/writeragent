@@ -21,8 +21,8 @@ from plugin.ppt_master.paths import PPT_MASTER_INSTALL_CMD, apply_data_root_env,
 class ExportPresentationProject(ToolDrawPptMasterBase):
     name = "export_presentation_project"
     description = (
-        "Export a ppt-master project folder (svg_final/ or svg_output/) into the active Impress/Draw document "
-        "as native editable shapes."
+        "Export a ppt-master project folder into the active Impress/Draw document "
+        "by building or loading exports/*.pptx and importing via LibreOffice's native PPTX filter."
     )
     is_mutation = True
     long_running = True
