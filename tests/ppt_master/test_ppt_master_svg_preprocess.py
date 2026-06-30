@@ -13,14 +13,14 @@ from plugin.contrib.ppt_master.svg_preprocess import preprocess_svg_text
 def test_preprocess_ensure_viewbox_and_dimensions(tmp_path: Path):
     svg = tmp_path / "s.svg"
     svg.write_text(
-        '<svg xmlns="http://www.w3.org/2000/svg">'
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720">'
         '<rect x="0" y="0" width="100" height="50" fill="#000"/>'
         "</svg>",
         encoding="utf-8",
     )
     out = preprocess_svg_text(svg)
-    assert 'width="' in out
-    assert 'height="' in out
+    assert 'width="254.000mm"' in out
+    assert 'height="142.880mm"' in out
 
 
 def test_preprocess_resolves_image_href(tmp_path: Path):

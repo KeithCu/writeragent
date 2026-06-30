@@ -69,7 +69,8 @@ flowchart TB
   Session --> PmTools[ppt-master specialized tools]
   PmTools --> Pre[svg_preprocess]
   Pre --> HostSVG[draw_svg_import hidden doc]
-  HostSVG --> Copy[copy shapes + postprocess]
+  HostSVG --> Break[uno Break on GraphicObject]
+  Break --> Copy[copy shapes + postprocess]
   Copy --> UNO[Impress/Draw document]
   Data[(skill tree: SKILL templates scripts/svg_to_pptx)] --> Upstream[upstream.py loads pptx_discovery]
   Upstream --> Session
@@ -92,7 +93,76 @@ flowchart TB
 
 ### Main export path (UNO)
 
-`export_presentation_project` → `uno_svg_deck.export_project_to_doc` → [`uno_svg_import.py`](../plugin/ppt_master/adapter/uno_svg_import.py) (`svg_preprocess` → `draw_svg_import` → shape copy → `uno_shape_postprocess`).
+`export_presentation_project` → `uno_svg_deck.export_project_to_doc` → [`uno_svg_import.py`](../plugin/ppt_master/adapter/uno_svg_import.py):
+
+```text
+svg_final/*.svg
+  → svg_preprocess (href + slide size in mm)
+  → draw_svg_import (hidden Draw doc → one GraphicObjectShape)
+  → .uno:Break (decompose into TextShape / paths / lines)
+  → clone shapes to Impress slide (254×142.88 mm page)
+  → uno_shape_postprocess (scale, fonts, text frame height)
+```
+
+**LibreOffice behavior:** `draw_svg_import` does **not** produce editable shapes directly — it embeds the SVG as one graphic. **Break** (same as UI: right-click → Break) is required to get native draw objects. There is no stock LO filter that skips this for arbitrary ppt-master SVGs.
+
+### Import fidelity tooling (agents)
+
+Compare **reference** vs **imported** output per slide using PDF as the interchange format:
+
+| Step | Reference | Imported |
+|------|-----------|----------|
+| Source | Preprocessed SVG | `import_svg_to_slide` → one-slide ODP |
+| PDF | `soffice --headless --convert-to pdf` | same |
+| Compare | Rasterize both (`pdftoppm` or ImageMagick) → pixel diff + `diff.png` | |
+
+**CLI:**
+
+```bash
+# Full project (writes <project>/.import_fidelity/report.json + SUMMARY.md)
+python scripts/ppt_master_import_fidelity.py ppt-master/examples/ppt169_attention_is_all_you_need
+
+# One slide while iterating
+python scripts/ppt_master_import_fidelity.py path/to/project --slides 01_cover
+
+# Structural only (shape/text counts; no pdftoppm)
+python scripts/ppt_master_import_fidelity.py path/to/project --structural-only
+
+# Stricter pass threshold (default diff_fraction 0.12)
+python scripts/ppt_master_import_fidelity.py path/to/project --threshold 0.08
+```
+
+**Requires:** LibreOffice (`soffice`, UNO Python), **`pdftoppm`** (poppler) or ImageMagick for visual mode.
+
+**Library:** [`plugin/ppt_master/fidelity.py`](../plugin/ppt_master/fidelity.py) — unit-tested in [`test_ppt_master_fidelity.py`](../tests/ppt_master/test_ppt_master_fidelity.py).
+
+**Agent loop:**
+
+1. Run fidelity script on a real project (e.g. `ppt169_attention_is_all_you_need`).
+2. Open worst `slide_NN_*/diff.png` and side-by-side PDFs (`reference.pdf`, `imported.pdf`).
+3. Fix [`svg_preprocess.py`](../plugin/contrib/ppt_master/svg_preprocess.py), [`uno_shape_postprocess.py`](../plugin/ppt_master/adapter/uno_shape_postprocess.py), or [`uno_svg_import.py`](../plugin/ppt_master/adapter/uno_svg_import.py).
+4. Re-run until `diff_fraction` ≤ threshold; export ODP for manual spot-check.
+
+**Manual export (full deck):**
+
+```bash
+# From repo root, UNO Python — or use export_presentation_project in Impress sidebar
+python -c "
+import officehelper, uno
+from pathlib import Path
+from plugin.ppt_master.adapter.uno_svg_deck import export_project_to_doc
+p = Path('ppt-master/examples/ppt169_attention_is_all_you_need')
+ctx = officehelper.bootstrap()
+d = ctx.ServiceManager.createInstanceWithContext('com.sun.star.frame.Desktop', ctx)
+h = uno.createUnoStruct('com.sun.star.beans.PropertyValue', Name='Hidden', Value=True)
+doc = d.loadComponentFromURL('private:factory/simpress', '_blank', 0, (h,))
+export_project_to_doc(doc, p, ctx=ctx)
+doc.storeToURL((p / 'exports' / 'deck.odp').resolve().as_uri(), ())
+doc.close(True)
+"
+```
+
+Reference PDF is LO’s render of the **preprocessed SVG** (single graphic — “perfect” baseline). Imported PDF is after **Break + copy + postprocess** (editable shapes). Remaining diff is real import fidelity gap, not canvas mismatch.
 
 ## Routes
 
@@ -111,8 +181,10 @@ flowchart TB
 | [`plugin/chatbot/chat_sidebar_mode.py`](../plugin/chatbot/chat_sidebar_mode.py) | `CHAT_MODE_PPT_MASTER`, `sidebar_mode_flags_for_doc_type` |
 | [`plugin/ppt_master/tools.py`](../plugin/ppt_master/tools.py) | Specialized tools (`ToolDrawPptMasterBase`) |
 | [`plugin/contrib/ppt_master/svg_preprocess.py`](../plugin/contrib/ppt_master/svg_preprocess.py) | SVG normalization before LO import |
-| [`plugin/ppt_master/adapter/uno_svg_import.py`](../plugin/ppt_master/adapter/uno_svg_import.py) | `draw_svg_import` → copy shapes to Impress |
-| [`plugin/ppt_master/adapter/uno_shape_postprocess.py`](../plugin/ppt_master/adapter/uno_shape_postprocess.py) | Scale/text tweaks after shape copy |
+| [`plugin/ppt_master/adapter/uno_svg_import.py`](../plugin/ppt_master/adapter/uno_svg_import.py) | `draw_svg_import` → Break → copy shapes to Impress |
+| [`plugin/ppt_master/adapter/uno_shape_postprocess.py`](../plugin/ppt_master/adapter/uno_shape_postprocess.py) | Clone shapes, font copy, text frame sizing |
+| [`plugin/ppt_master/fidelity.py`](../plugin/ppt_master/fidelity.py) | PDF/PNG diff vs reference SVG render |
+| [`scripts/ppt_master_import_fidelity.py`](../scripts/ppt_master_import_fidelity.py) | CLI fidelity loop for agents |
 | [`plugin/framework/constants.py`](../plugin/framework/constants.py) | `IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS`, sub-agent instructions |
 
 ## Contrib merge policy
@@ -132,8 +204,9 @@ Backlog for PPT-Master integration work. **Priority order matters** — validate
 1. Confirm dev setup: clone upstream beside repo as `ppt-master/` **or** set **Settings → Python → PPT-Master data path** to `.../ppt-master/skills/ppt-master`. Run **Test** in Settings.
 2. Read [`plugin/contrib/ppt_master/README.md`](../plugin/contrib/ppt_master/README.md) symbol map (WriterAgent module ↔ upstream equivalent).
 3. Trace the happy path: `export_presentation_project` → [`client.py`](../plugin/ppt_master/client.py) → [`uno_svg_deck.py`](../plugin/ppt_master/adapter/uno_svg_deck.py) → [`uno_svg_import.py`](../plugin/ppt_master/adapter/uno_svg_import.py).
-4. Run tests: `pytest tests/ppt_master/`; UNO: `make test` (needs `soffice`) includes [`tests/uno/test_ppt_master_svg_import_uno.py`](../tests/uno/test_ppt_master_svg_import_uno.py).
-5. Pick the next roadmap item below; add tests in the matching `test_*` file per [AGENTS.md](../AGENTS.md).
+4. Run tests: `pytest tests/ppt_master/`; UNO: `python -m plugin.testing_runner test_ppt_master_svg_import_uno`; fidelity: `python scripts/ppt_master_import_fidelity.py <project>`.
+5. Pick the next roadmap item below; run fidelity script before/after changes.
+6. Add tests in the matching `test_*` file per [AGENTS.md](../AGENTS.md).
 
 ### What is done (v1 baseline)
 
@@ -143,21 +216,36 @@ Backlog for PPT-Master integration work. **Priority order matters** — validate
 | Sidebar PPT-Master mode (Impress/Draw) | Shipped | [`chat_sidebar_mode.py`](../plugin/chatbot/chat_sidebar_mode.py) |
 | Smol sub-agent session | Shipped | [`ppt_master.py`](../plugin/chatbot/ppt_master.py), instructions in [`constants.py`](../plugin/framework/constants.py) `PPT_MASTER_SUB_AGENT_INSTRUCTIONS` |
 | Specialized tools | Shipped | [`tools.py`](../plugin/ppt_master/tools.py) — export, validate, template-fill, native-enhance, skill path |
-| Main SVG → UNO export | Shipped | `draw_svg_import` via [`uno_svg_import.py`](../plugin/ppt_master/adapter/uno_svg_import.py) |
-| SVG preprocess / postprocess | Shipped | [`svg_preprocess.py`](../plugin/contrib/ppt_master/svg_preprocess.py), [`uno_shape_postprocess.py`](../plugin/ppt_master/adapter/uno_shape_postprocess.py) |
+| Main SVG → UNO export | Shipped | `draw_svg_import` + **Break** via [`uno_svg_import.py`](../plugin/ppt_master/adapter/uno_svg_import.py) |
+| SVG preprocess | Shipped | [`svg_preprocess.py`](../plugin/contrib/ppt_master/svg_preprocess.py) — image hrefs, **slide width/height in mm** (254×142.88 for 16:9) |
+| Shape postprocess | Shipped | [`uno_shape_postprocess.py`](../plugin/ppt_master/adapter/uno_shape_postprocess.py) — see [postprocess fixes](#postprocess-fixes-jun-2025) |
+| Impress page size on import | Shipped | Target slide set to 25400×14288 hmm in `_ensure_target_page` (was LO default 28000×15750) |
+| Multi-slide UNO tests | Shipped | [`test_ppt_master_svg_import_uno.py`](../tests/uno/test_ppt_master_svg_import_uno.py) — 3-slide fixture |
+| Import fidelity script | Shipped | [`scripts/ppt_master_import_fidelity.py`](../scripts/ppt_master_import_fidelity.py) + [`fidelity.py`](../plugin/ppt_master/fidelity.py) |
+| Real-project smoke | Validated | `ppt169_attention_is_all_you_need` — 16 slides, ~959 shapes; cover slide PDF diff ~8.6% after page-size fix |
 | Speaker notes matching | Partial | Upstream `find_notes_files` when skill tree configured; fallback `slide_NN.md` |
+
+#### Postprocess fixes (Jun 2025)
+
+Issues found exporting real decks; fixes live in [`uno_shape_postprocess.py`](../plugin/ppt_master/adapter/uno_shape_postprocess.py) and [`svg_preprocess.py`](../plugin/contrib/ppt_master/svg_preprocess.py):
+
+| Problem | Cause | Fix |
+|---------|-------|-----|
+| One object per slide | `draw_svg_import` → single `GraphicObjectShape` | `.uno:Break` in [`uno_svg_import.py`](../plugin/ppt_master/adapter/uno_svg_import.py) |
+| Wrong fonts / sizes | Plain `setString` reset char props; px slide dimensions overscaled page ~1.33× | Copy per-run `CharHeight`/`CharFontName`; preprocess sets **mm** not px |
+| Text lines overlapping | `TextAutoGrowHeight` + `setString` ballooned frames; LO Break frames taller than one line | `TextAutoGrowHeight=False`, re-apply source size after text copy; tighten frame height to ~`CharHeight×1.05` |
+| PDF/ODP canvas mismatch | New Impress doc default 280 mm wide | Set page 25400×14288 hmm before shape copy |
 
 ### What is not done (gaps)
 
 | Area | Status | Impact |
 |------|--------|--------|
-| SVG fidelity vs upstream `drawingml_converter` | **Reduced** | LO `draw_svg_import` + pre/post-process; gradient/text gaps may remain |
-| `uno_apply` path geometry | **Fallback only** | Primary route uses LO native shapes |
+| SVG fidelity vs upstream `drawingml_converter` | **Reduced** | LO Break + pre/post-process; gradients, diagram edges ~8–15% PDF diff on cover |
 | Speaker notes matching | **Partial** | Upstream `find_notes_files` when skill tree present |
 | SKILL.md auto-injection | **Manual** | Agent must call `get_ppt_master_skill_path`; workflow not pre-loaded |
 | template-fill route | **Stub** | Creates slides; does not call `set_placeholder_text` |
 | beautify route | **Not wired** | `pptx_to_svg` → SVG pipeline absent |
-| Multi-slide UNO tests | **Missing** | Only one slide tested under `soffice` |
+| Browser-grade SVG reference | **Optional** | Upstream [`visual_review.py`](../ppt-master/skills/ppt-master/scripts/visual_review.py) (Playwright); not wired to fidelity script |
 | `make test` typecheck | **Known issue** | `SendHandlerHost._in_ppt_master_mode` unresolved in [`send_handlers.py`](../plugin/chatbot/send_handlers.py) |
 
 ### Architecture decision log (do not re-litigate without cause)
@@ -165,7 +253,7 @@ Backlog for PPT-Master integration work. **Priority order matters** — validate
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
 | Upstream Python in OXT | **No** — external skill tree | Avoid `python-pptx` on LO host; keep OXT small |
-| `svg_convert.py` | **Parallel rewrite**, not fork of `drawingml_converter.py` | UNO output is `ShapeOp`/hmm, not DrawingML XML |
+| `svg_convert.py` / `uno_apply.py` | **Removed** | Replaced by LO `draw_svg_import` + Break; do not resurrect |
 | `bundled/svg_to_pptx/` | **Removed** | Was byte-identical copy; use user clone |
 | Upstream attribution | **README only** | Shipped `.py` files are WriterAgent-original ([`contrib README`](../plugin/contrib/ppt_master/README.md)) |
 | Fork upstream for clarity | **Rejected for now** | Reference-only; expand rewrites or host-safe delegation instead |
@@ -173,26 +261,35 @@ Backlog for PPT-Master integration work. **Priority order matters** — validate
 **Two export paths (only first is WriterAgent's job today):**
 
 ```text
-WriterAgent (Impress/Draw):  SVG → preprocess → draw_svg_import → copy shapes → postprocess → UNO document
+WriterAgent (Impress/Draw):  SVG → preprocess → draw_svg_import → Break → copy shapes → postprocess → UNO document
 Upstream (PPTX):             SVG → drawingml_converter → DrawingML → python-pptx → .pptx
 ```
 
 ### Known fidelity gaps (LO import + pre/post-process)
 
-Use this table when triaging visual bugs from real projects.
+Use this table when triaging visual bugs from real projects. Run [`scripts/ppt_master_import_fidelity.py`](../scripts/ppt_master_import_fidelity.py) first.
 
 | SVG / feature | WriterAgent today | Mitigation |
 |---------------|-------------------|------------|
-| Paths, transforms, basic shapes | LO `draw_svg_import` | Native import |
+| Editable shapes | Break after `draw_svg_import` | [`uno_svg_import._break_svg_graphic_objects`](../plugin/ppt_master/adapter/uno_svg_import.py) |
+| Slide / PDF page size | Preprocess mm + `_ensure_target_page` | 254×142.88 mm; check `pdfinfo` in fidelity report |
+| Paths, transforms, basic shapes | LO Break → native shapes | — |
+| Text fonts | Per-run char prop copy on clone | [`uno_shape_postprocess._copy_shape_text`](../plugin/ppt_master/adapter/uno_shape_postprocess.py) |
+| Text line spacing | Frame height + AutoGrow | `_fit_text_frame_height`, `TextAutoGrowHeight=False` |
 | Gradients | LO approximates | Post-process fills if needed |
 | Complex `tspan` text | LO import gaps | Post-process text props |
 | `<image>` hrefs | Preprocess resolves paths | `svg_preprocess.py` |
+| Diagram vs text diff | Break changes anti-aliasing | Expect higher diff on path-heavy regions; tune threshold |
+
+**Measured (cover slide, `ppt169_attention_is_all_you_need`):** PDF page sizes matched → **diff_fraction ≈ 0.086** @ 300 dpi (left text ~0.09, right diagram ~0.16). Wrong Impress page size inflated diff to ~0.12.
 
 Primary files to change for fidelity: [`svg_preprocess.py`](../plugin/contrib/ppt_master/svg_preprocess.py), [`uno_shape_postprocess.py`](../plugin/ppt_master/adapter/uno_shape_postprocess.py), [`uno_svg_import.py`](../plugin/ppt_master/adapter/uno_svg_import.py).
 
 ### Prioritized backlog
 
 #### P0 — Validate end-to-end on a real project
+
+**Status:** Done for [`ppt169_attention_is_all_you_need`](../ppt-master/examples/ppt169_attention_is_all_you_need) (16 slides). Repeat for additional upstream examples as regressions.
 
 **Goal:** Confirm the main pipeline works on artifacts from upstream's normal workflow, not just unit-test SVGs.
 
@@ -204,58 +301,47 @@ Primary files to change for fidelity: [`svg_preprocess.py`](../plugin/contrib/pp
 
 **Dev steps:**
 
-1. Manual test checklist:
-   - Clone `ppt-master`, set data path, **Test** → all green.
-   - Open Impress, sidebar mode **PPT-Master**, describe project path or run through agent export.
-   - Call tool `export_presentation_project` with path to a project that has `svg_final/*.svg`.
-2. Add fixture under `tests/fixtures/` (minimal project: 2–3 SVGs, optional `notes/`) and pytest in `tests/ppt_master/test_ppt_master_coords.py` or new `test_ppt_master_project.py`:
-   - `collect_svg_files` returns expected count.
-   - `build_plans_from_project` returns one plan per SVG.
+1. Manual test checklist (see [Manual E2E checklist](#manual-e2e-checklist-qa--pm)).
+2. Run fidelity script; capture `report.json` for the example project.
+3. Fixtures: [`tests/fixtures/ppt_master_minimal/`](../tests/fixtures/ppt_master_minimal/) (3 slides); add realistic snippets from failing real SVGs as needed.
 
-**Files:** [`uno_svg_deck.py`](../plugin/ppt_master/adapter/uno_svg_deck.py), [`client.py`](../plugin/ppt_master/client.py), new fixture + test.
+**Files:** [`uno_svg_deck.py`](../plugin/ppt_master/adapter/uno_svg_deck.py), [`client.py`](../plugin/ppt_master/client.py), [`fidelity.py`](../plugin/ppt_master/fidelity.py).
 
 ---
 
 #### P1 — SVG → UNO fidelity (highest technical ROI)
 
-**Goal:** Real ppt-master slides render acceptably in Impress (text, paths, images first).
+**Goal:** Drive PDF `diff_fraction` down on real `svg_final/` decks using the fidelity loop.
 
 **PM acceptance criteria:**
 
-- Pick 3–5 failing cases from a real `svg_final/` deck; each fixed case has a pytest (SVG snippet → `ShapeOp` assertions) and/or UNO test.
-- Paths render as visible geometry (not empty or single diagonal line).
+- Cover + 2 inner slides from `ppt169_attention_is_all_you_need` pass `--threshold 0.08` (stretch) or stay ≤ 0.12 (baseline).
+- No text overlap on title stacks; shape count ≥ SVG `<text>` count per slide.
 
-**Dev strategy (pick one per task; prefer A until insufficient):**
+**Dev strategy (in order):**
 
-- **A. Incremental expand** [`svg_convert.py`](../plugin/contrib/ppt_master/svg_convert.py) + [`uno_apply.py`](../plugin/ppt_master/adapter/uno_apply.py) — smallest diff, match AGENTS.md least-complexity rule.
-- **B. Host-safe upstream delegation** — load pure-Python pieces from skill tree via [`upstream.py`](../plugin/contrib/ppt_master/upstream.py) pattern (by file path, no package `__init__`), map output to `ShapeOp`. More fidelity, more design work.
+1. **Measure:** `python scripts/ppt_master_import_fidelity.py <project> --slides …` → inspect `diff.png`, `pdfinfo` page-size lines in `report.json`.
+2. **Preprocess:** href resolution, mm dimensions, future: `<use>`/defs, inline styles LO rejects.
+3. **Import:** Break rounds, page size, temp-doc quirks in [`uno_svg_import.py`](../plugin/ppt_master/adapter/uno_svg_import.py).
+4. **Postprocess:** fonts, frame height, scaling in [`uno_shape_postprocess.py`](../plugin/ppt_master/adapter/uno_shape_postprocess.py).
+5. **Optional reference:** wire Playwright PNG from upstream `visual_review.py` as `--reference browser` (not implemented).
 
-**Suggested sub-tasks (in order):**
+**Do not:** revive deleted `svg_convert.py` / `uno_apply.py` — LO native path is the architecture.
 
-1. **Path shapes:** parse `d` into point lists; apply via `CustomShape` or polylines in `uno_apply` (replace LineShape placeholder).
-2. **Text:** improve font size, anchor, multi-line/tspan in `svg_convert`; verify `TextShape` sizing in `uno_apply`.
-3. **Images:** verify `GraphicURL` paths from project `images/` folder.
-4. **Transforms:** accumulate `transform` on `<g>` in `_convert_element` before hmm mapping.
-
-**Tests:** extend [`test_ppt_master_coords.py`](../tests/ppt_master/test_ppt_master_coords.py); add UNO cases in [`test_ppt_master_adapter_uno.py`](../tests/uno/test_ppt_master_adapter_uno.py).
+**Tests:** extend [`test_ppt_master_svg_preprocess.py`](../tests/ppt_master/test_ppt_master_svg_preprocess.py), [`test_ppt_master_fidelity.py`](../tests/ppt_master/test_ppt_master_fidelity.py), [`test_ppt_master_svg_import_uno.py`](../tests/uno/test_ppt_master_svg_import_uno.py).
 
 ---
 
 #### P2 — Speaker notes matching
 
-**Goal:** Notes from project `notes/` land on the correct slides.
+**Status:** Partial — [`uno_svg_deck._notes_for_slides`](../plugin/ppt_master/adapter/uno_svg_deck.py) calls upstream `find_notes_files` when data root is configured.
 
-**Today:** [`uno_svg_deck._read_notes_for_slide`](../plugin/ppt_master/adapter/uno_svg_deck.py) only reads `notes/slide_{NN}.md`.
+**Goal:** Notes from project `notes/` land on the correct slides when skill tree absent or naming edge cases fail.
 
-**Upstream:** `pptx_discovery.find_notes_files` — filename match (`01_cover.md` ↔ `01_cover.svg`) and index match (`slide01.md`).
+**Remaining:**
 
-**Dev steps:**
-
-1. Extend [`upstream.py`](../plugin/contrib/ppt_master/upstream.py) to load and call `find_notes_files` (same file-path pattern as `collect_svg_files_upstream`).
-2. In `build_plans_from_project`, map notes dict to each `svg_to_slide_plan(..., notes_text=...)`.
-3. Fallback to current `slide_NN.md` logic when skill tree absent.
-
-**Tests:** fixture project with mixed note naming; assert `notes_text` on plans.
+1. Broader fallback patterns when skill tree absent.
+2. Tests: fixture project with mixed note naming; assert notes on imported slides via UNO.
 
 ---
 
@@ -293,10 +379,11 @@ Primary files to change for fidelity: [`svg_preprocess.py`](../plugin/contrib/pp
 
 | Task | File(s) | Done when |
 |------|---------|-----------|
-| Multi-slide UNO export | [`test_ppt_master_adapter_uno.py`](../tests/uno/test_ppt_master_adapter_uno.py) | 3 slides, assert page count + shape count |
+| Multi-slide UNO export | [`test_ppt_master_svg_import_uno.py`](../tests/uno/test_ppt_master_svg_import_uno.py) | ✅ 3 slides, shape + text frame checks |
+| Import fidelity CLI | [`scripts/ppt_master_import_fidelity.py`](../scripts/ppt_master_import_fidelity.py) | ✅ PDF diff + `report.json` |
 | Fix `ty` on PPT-Master send path | [`send_handlers.py`](../plugin/chatbot/send_handlers.py) | Declare `_in_ppt_master_mode: bool` on host class; `make test` typecheck passes |
-| Review venv export stub | [`plugin/ppt_master/venv/export.py`](../plugin/ppt_master/venv/export.py) | Either wire to worker IPC or remove if host-side export is permanent |
-| Regression fixtures | `tests/fixtures/ppt_master_*` | At least one minimal + one “realistic” SVG from upstream examples |
+| Regression fixtures | `tests/fixtures/ppt_master_*` | Minimal shipped; add realistic SVGs from failing slides |
+| Example project baseline | `ppt169_attention_is_all_you_need` | Fidelity metrics recorded in this doc |
 
 Run: `pytest tests/ppt_master/`; full matrix: `make test`.
 
@@ -317,13 +404,14 @@ Run: `pytest tests/ppt_master/`; full matrix: `make test`.
 [ ] Sidebar → mode PPT-Master
 [ ] Project with svg_final/ (from upstream workflow or examples/)
 [ ] Agent or tool: export_presentation_project(project_path=...)
-[ ] Verify: slide count, shapes visible, notes if present
-[ ] Note failures: element type, SVG file name, screenshot
+[ ] Optional: python scripts/ppt_master_import_fidelity.py <project> — review .import_fidelity/SUMMARY.md
+[ ] Verify: slide count, shapes visible, notes if present, PDF page sizes match in report.json
+[ ] Note failures: element type, SVG file name, diff.png screenshot
 ```
 
 ### Roadmap summary (one line)
 
-**Run a real project through Impress export → fix top visual gaps in `svg_convert`/`uno_apply` → notes matching → SKILL context → secondary routes → tests/CI.**
+**Run fidelity script on real projects → lower PDF diff via preprocess/import/postprocess → notes matching → SKILL context → secondary routes → CI.**
 
 ---
 
@@ -336,7 +424,10 @@ Run: `pytest tests/ppt_master/`; full matrix: `make test`.
 | `tests/ppt_master/test_ppt_master_paths.py` | config path, dev clone, upstream `pptx_discovery` |
 | `tests/chatbot/test_ppt_master_data_test_listener.py` | Settings Test button probe |
 | `tests/ppt_master/test_ppt_master_project.py` | Project fixture, collect_svg_files, notes |
-| `tests/ppt_master/test_ppt_master_svg_preprocess.py` | SVG preprocess (href, dimensions) |
-| `tests/uno/test_ppt_master_svg_import_uno.py` | LO import route: single + multi-slide (requires `soffice`) |
+| `tests/ppt_master/test_ppt_master_svg_preprocess.py` | SVG preprocess (href, mm dimensions) |
+| `tests/ppt_master/test_ppt_master_fidelity.py` | PNG diff math, SVG text counts, summary writer |
+| `tests/uno/test_ppt_master_svg_import_uno.py` | LO import: Break, multi-slide, text frame height |
 
-Run: `pytest tests/ppt_master/` (and `make test` for full matrix).
+**Import fidelity (agents):** [`scripts/ppt_master_import_fidelity.py`](../scripts/ppt_master_import_fidelity.py) — see [Import fidelity tooling](#import-fidelity-tooling-agents) above.
+
+Run: `pytest tests/ppt_master/`; UNO: `python -m plugin.testing_runner test_ppt_master_svg_import_uno`; full matrix: `make test`.

@@ -12,7 +12,12 @@ from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
 
-from plugin.contrib.ppt_master.coords import DEFAULT_VIEWBOX_HEIGHT_PX, DEFAULT_VIEWBOX_WIDTH_PX, parse_viewbox
+from plugin.contrib.ppt_master.coords import (
+    DEFAULT_VIEWBOX_HEIGHT_PX,
+    DEFAULT_VIEWBOX_WIDTH_PX,
+    parse_viewbox,
+    slide_dims_for_viewbox,
+)
 
 SVG_NS = "http://www.w3.org/2000/svg"
 XLINK_NS = "http://www.w3.org/1999/xlink"
@@ -68,15 +73,17 @@ def _fix_image_hrefs(root: ET.Element, svg_dir: Path, project_dir: Path | None) 
 
 
 def _ensure_slide_dimensions(root: ET.Element) -> None:
-    """Set width/height in px for LO import page sizing."""
+    """Set width/height in mm so LO page size matches Impress slide (25400×14288 hmm)."""
     vb = root.get("viewBox")
     _min_x, _min_y, vb_w, vb_h = parse_viewbox(vb)
     if not vb:
         vb_w = _parse_float(root.get("width"), DEFAULT_VIEWBOX_WIDTH_PX)
         vb_h = _parse_float(root.get("height"), DEFAULT_VIEWBOX_HEIGHT_PX)
-    # Do not add viewBox when absent — ElementTree + default_namespace rejects new unqualified attrs.
-    root.set("width", str(int(vb_w)))
-    root.set("height", str(int(vb_h)))
+    width_hmm, height_hmm = slide_dims_for_viewbox(vb_w, vb_h)
+    # draw_svg_import maps SVG width/height to page size; px values oversize the page (~1.33×)
+    # and break font/layout scaling when shapes are copied to a standard Impress slide.
+    root.set("width", f"{width_hmm / 100:.3f}mm")
+    root.set("height", f"{height_hmm / 100:.3f}mm")
 
 
 def _serialize_svg_tree(tree: ET.ElementTree[Any]) -> str:

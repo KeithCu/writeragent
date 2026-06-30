@@ -26,11 +26,29 @@ _COPY_PROPS = (
     "PolyPolygon",
     "Polygon",
     "CustomShapeGeometry",
-    "CharHeight",
-    "CharFontName",
-    "CharColor",
     "GraphicURL",
     "Graphic",
+)
+
+# Text frame layout props (must copy; setString after setSize expands height when AutoGrow is on).
+_TEXT_LAYOUT_PROPS = (
+    "TextAutoGrowHeight",
+    "TextVerticalAdjust",
+    "TextHorizontalAdjust",
+    "TextFitToSize",
+)
+
+# Character props copied per text run (shape-level CharHeight/CharFontName alone are not enough).
+_TEXT_CHAR_PROPS = (
+    "CharHeight",
+    "CharFontName",
+    "CharWeight",
+    "CharPosture",
+    "CharColor",
+    "CharUnderline",
+    "CharStrikeout",
+    "CharEscapement",
+    "CharKerning",
 )
 
 
@@ -54,6 +72,54 @@ def _shape_bbox(shape: Any) -> tuple[int, int, int, int] | None:
         return None
 
 
+def _scale_text_char_heights(shape: Any, scale: float) -> None:
+    """Scale font size when the slide is resized (position/size scaling skips CharHeight)."""
+    if scale == 1.0 or "TextShape" not in shape.getShapeType():
+        return
+    try:
+        text = shape.getText()
+        enum = text.createEnumeration()
+        while enum.hasMoreElements():
+            portion = enum.nextElement()
+            try:
+                height = float(portion.getPropertyValue("CharHeight"))
+                if height > 0:
+                    portion.setPropertyValue("CharHeight", height * scale)
+            except Exception as exc:
+                log.debug("scale portion CharHeight: %s", exc)
+        try:
+            height = float(shape.getPropertyValue("CharHeight"))
+            if height > 0:
+                shape.setPropertyValue("CharHeight", height * scale)
+        except Exception as exc:
+            log.debug("scale shape CharHeight: %s", exc)
+    except Exception as exc:
+        log.debug("scale text char heights: %s", exc)
+
+
+def _fit_text_frame_height(shape: Any) -> None:
+    """Shrink bloated LO text frames so consecutive SVG lines do not overlap."""
+    if "TextShape" not in shape.getShapeType():
+        return
+    try:
+        text_val = shape.getString() if hasattr(shape, "getString") else shape.getText().getString()
+        if "\n" in text_val:
+            return
+        char_height_pt = float(shape.getPropertyValue("CharHeight"))
+        if char_height_pt <= 0:
+            return
+        # CharHeight is pt; 1 pt ≈ 35.28 hundredths-mm. LO Break frames are often ~1.3× too tall.
+        tight_h = max(int(char_height_pt * 35.28 * 1.05), 80)
+        size = shape.getSize()
+        if int(size.Height) <= tight_h + 50:
+            return
+        from com.sun.star.awt import Size
+
+        shape.setSize(Size(int(size.Width), tight_h))
+    except Exception as exc:
+        log.debug("fit text frame: %s", exc)
+
+
 def _scale_shape(shape: Any, scale_x: float, scale_y: float) -> None:
     if scale_x == 1.0 and scale_y == 1.0:
         return
@@ -64,6 +130,7 @@ def _scale_shape(shape: Any, scale_x: float, scale_y: float) -> None:
 
         shape.setPosition(Point(int(pos.X * scale_x), int(pos.Y * scale_y)))
         shape.setSize(Size(max(1, int(size.Width * scale_x)), max(1, int(size.Height * scale_y))))
+        _scale_text_char_heights(shape, min(scale_x, scale_y))
     except Exception as exc:
         log.debug("scale shape: %s", exc)
 
@@ -73,6 +140,38 @@ def _copy_property(source: Any, dest: Any, name: str) -> None:
         dest.setPropertyValue(name, source.getPropertyValue(name))
     except Exception as exc:
         log.debug("copy prop %s: %s", name, exc)
+
+
+def _copy_text_portion_props(source_portion: Any, dest_portion: Any) -> None:
+    for prop in _TEXT_CHAR_PROPS:
+        try:
+            dest_portion.setPropertyValue(prop, source_portion.getPropertyValue(prop))
+        except Exception as exc:
+            log.debug("copy text prop %s: %s", prop, exc)
+
+
+def _copy_shape_text(source_shape: Any, dest_shape: Any) -> None:
+    """Copy draw/impress text with character formatting (plain setString resets fonts)."""
+    if hasattr(source_shape, "getText") and hasattr(dest_shape, "getText"):
+        src_text = source_shape.getText()
+        dst_text = dest_shape.getText()
+        dst_text.setString(src_text.getString())
+        for prop in _TEXT_CHAR_PROPS:
+            try:
+                dest_shape.setPropertyValue(prop, source_shape.getPropertyValue(prop))
+            except Exception as exc:
+                log.debug("copy shape text prop %s: %s", prop, exc)
+        src_enum = src_text.createEnumeration()
+        dst_enum = dst_text.createEnumeration()
+        while src_enum.hasMoreElements() and dst_enum.hasMoreElements():
+            src_portion = src_enum.nextElement()
+            dst_portion = dst_enum.nextElement()
+            if not src_portion.getString() and not dst_portion.getString():
+                continue
+            _copy_text_portion_props(src_portion, dst_portion)
+        return
+    if hasattr(source_shape, "getString") and hasattr(dest_shape, "setString"):
+        dest_shape.setString(source_shape.getString())
 
 
 def clone_shape_to_page(source_shape: Any, target_doc: Any, target_page: Any) -> Any | None:
@@ -85,21 +184,24 @@ def clone_shape_to_page(source_shape: Any, target_doc: Any, target_page: Any) ->
         target_page.add(new_shape)
         if hasattr(source_shape, "getPosition") and hasattr(new_shape, "setPosition"):
             new_shape.setPosition(source_shape.getPosition())
-        if hasattr(source_shape, "getSize") and hasattr(new_shape, "setSize"):
-            new_shape.setSize(source_shape.getSize())
         for prop in _COPY_PROPS:
             if hasattr(source_shape, "getPropertyValue") and hasattr(new_shape, "setPropertyValue"):
                 _copy_property(source_shape, new_shape, prop)
-        if hasattr(source_shape, "getString") and hasattr(new_shape, "setString"):
+        for prop in _TEXT_LAYOUT_PROPS:
+            if prop == "TextAutoGrowHeight":
+                continue
+            if hasattr(source_shape, "getPropertyValue") and hasattr(new_shape, "setPropertyValue"):
+                _copy_property(source_shape, new_shape, prop)
+        if hasattr(new_shape, "setPropertyValue"):
             try:
-                new_shape.setString(source_shape.getString())
+                # LO defaults True; setString then grows the frame and breaks SVG line spacing.
+                new_shape.setPropertyValue("TextAutoGrowHeight", False)
             except Exception as exc:
-                log.debug("copy string: %s", exc)
-        elif hasattr(source_shape, "getText") and hasattr(new_shape, "getText"):
-            try:
-                new_shape.getText().setString(source_shape.getText().getString())
-            except Exception as exc:
-                log.debug("copy text: %s", exc)
+                log.debug("TextAutoGrowHeight: %s", exc)
+        _copy_shape_text(source_shape, new_shape)
+        # setString with TextAutoGrowHeight expands the frame; restore LO's broken-apart box size.
+        if hasattr(source_shape, "getSize") and hasattr(new_shape, "setSize"):
+            new_shape.setSize(source_shape.getSize())
         return new_shape
     except Exception as exc:
         log.warning("clone_shape_to_page failed: %s", exc)
@@ -143,11 +245,13 @@ def postprocess_slide_shapes(
         shape = page.getByIndex(i)
         _scale_shape(shape, scale_x, scale_y)
         adjusted += 1
+        _fit_text_frame_height(shape)
         # Text shapes sometimes import with CharHeight 0; nudge if empty.
         try:
-            if "TextShape" in shape.getShapeType() and hasattr(shape, "getCharHeight"):
-                if float(shape.getCharHeight()) <= 0:
-                    shape.setCharHeight(14.0)
+            if "TextShape" in shape.getShapeType():
+                height = float(shape.getPropertyValue("CharHeight"))
+                if height <= 0:
+                    shape.setPropertyValue("CharHeight", 14.0)
         except Exception as exc:
             log.debug("text postprocess: %s", exc)
     return {"shapes_adjusted": adjusted, "scale_x": scale_x, "scale_y": scale_y}

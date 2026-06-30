@@ -25,6 +25,9 @@ from plugin.ppt_master.adapter.uno_shape_postprocess import (
 log = logging.getLogger(__name__)
 
 _SVG_IMPORT_FILTER = "draw_svg_import"
+_GRAPHIC_OBJECT_SHAPE = "com.sun.star.drawing.GraphicObjectShape"
+# draw_svg_import embeds the SVG as one GraphicObjectShape; Break decomposes it into paths/text.
+_MAX_BREAK_ROUNDS = 10
 
 
 def _load_props(hidden: bool = True) -> tuple[Any, ...]:
@@ -52,6 +55,39 @@ def _load_svg_as_draw_doc(desktop: Any, svg_uri: str) -> Any | None:
         return None
 
 
+def _break_svg_graphic_objects(ctx: Any, temp_doc: Any, page: Any) -> int:
+    """Run LO Break on GraphicObjectShapes so SVG paths/text become editable draw objects."""
+    try:
+        controller = temp_doc.getCurrentController()
+        frame = controller.getFrame()
+        dispatch = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+    except Exception as exc:
+        log.warning("SVG break setup failed: %s", exc)
+        return 0
+
+    broken = 0
+    for _ in range(_MAX_BREAK_ROUNDS):
+        graphic_indices = [
+            i
+            for i in range(page.getCount())
+            if page.getByIndex(i).getShapeType() == _GRAPHIC_OBJECT_SHAPE
+        ]
+        if not graphic_indices:
+            break
+        for i in reversed(graphic_indices):
+            shape = page.getByIndex(i)
+            before = page.getCount()
+            try:
+                controller.select(shape)
+                dispatch.executeDispatch(frame, ".uno:Break", "", 0, ())
+            except Exception as exc:
+                log.debug("Break failed for shape %s: %s", i, exc)
+                continue
+            if page.getCount() != before:
+                broken += 1
+    return broken
+
+
 def _apply_notes(doc: Any, page: Any, notes_text: str | None) -> None:
     if not notes_text or not doc.supportsService("com.sun.star.presentation.PresentationDocument"):
         return
@@ -71,6 +107,11 @@ def _ensure_target_page(bridge: DrawBridge, slide_index: int, *, clear: bool = T
     while pages.getCount() <= slide_index:
         bridge.create_slide(pages.getCount(), switch=False)
     page = pages.getByIndex(slide_index)
+    try:
+        page.setPropertyValue("Width", DEFAULT_SLIDE_WIDTH_HMM)
+        page.setPropertyValue("Height", DEFAULT_SLIDE_HEIGHT_HMM)
+    except Exception as exc:
+        log.debug("set target page size: %s", exc)
     if clear:
         clear_page_shapes(page)
     bridge.set_current_page_index(slide_index)
@@ -99,6 +140,7 @@ def import_svg_to_slide(
             return {"status": "error", "message": f"SVG import failed: {svg_path.name}"}
 
         source_page = temp_doc.getDrawPages().getByIndex(0)
+        _break_svg_graphic_objects(ctx, temp_doc, source_page)
         src_w, src_h = _page_size_hmm(source_page)
         bridge = DrawBridge(target_doc)
         target_page = _ensure_target_page(bridge, slide_index, clear=clear_slide)
