@@ -235,6 +235,11 @@ Issues found exporting real decks; fixes live in [`uno_shape_postprocess.py`](..
 | Wrong fonts / sizes | Plain `setString` reset char props; px slide dimensions overscaled page ~1.33× | Copy per-run `CharHeight`/`CharFontName`; preprocess sets **mm** not px |
 | Text lines overlapping | `TextAutoGrowHeight` + `setString` ballooned frames; LO Break frames taller than one line | `TextAutoGrowHeight=False`, re-apply source size after text copy; tighten frame height to ~`CharHeight×1.05` |
 | PDF/ODP canvas mismatch | New Impress doc default 280 mm wide | Set page 25400×14288 hmm before shape copy |
+| KPI cards stacked / blank (slide 2) | `filter="url(#cardShadow)"` → 4 unbreakable `GraphicObjectShape` at same position | `_strip_unbreakable_filters` in [`svg_preprocess.py`](../plugin/contrib/ppt_master/svg_preprocess.py) |
+| Card chrome missing after save (slide 6) | `ClosedBezierShape` uses `PolyPolygonBezier`/`Geometry`; clone copied only `PolyPolygon` → empty paths dropped on ODP save | Copy `PolyPolygonBezier` + `Geometry` in [`uno_shape_postprocess.py`](../plugin/ppt_master/adapter/uno_shape_postprocess.py) |
+| Card subtitles → GraphicObject strips | `fill-opacity` on `<text>` survives Break as thin `GraphicObjectShape` | `_strip_text_fill_opacity` in [`svg_preprocess.py`](../plugin/contrib/ppt_master/svg_preprocess.py) |
+| tspan headline overlap | LO Break splits colored runs; oversized text frames overlap in PDF | `_tighten_same_line_text_fragments` + `_fit_text_frame_width` in [`uno_shape_postprocess.py`](../plugin/ppt_master/adapter/uno_shape_postprocess.py) |
+| Title wraps mid-phrase | Narrow frame after import | `_fix_header_title_single_line` widens header title frame |
 
 ### What is not done (gaps)
 
@@ -277,11 +282,18 @@ Use this table when triaging visual bugs from real projects. Run [`scripts/ppt_m
 | Text fonts | Per-run char prop copy on clone | [`uno_shape_postprocess._copy_shape_text`](../plugin/ppt_master/adapter/uno_shape_postprocess.py) |
 | Text line spacing | Frame height + AutoGrow | `_fit_text_frame_height`, `TextAutoGrowHeight=False` |
 | Gradients | LO approximates | Post-process fills if needed |
-| Complex `tspan` text | LO import gaps | Post-process text props |
+| Complex `tspan` text | LO Break splits runs onto one row | `_tighten_same_line_text_fragments`, per-portion `CharColor` copy |
+| SVG `filter` (drop shadow) | LO leaves stacked `GraphicObjectShape`; Break ineffective | Strip `filter=` in preprocess (shadow cosmetic only) |
+| `<text fill-opacity>` | LO Break → `GraphicObjectShape` strip instead of text | Strip `fill-opacity` in preprocess |
+| `ClosedBezierShape` geometry | Clone missed `PolyPolygonBezier` → paths vanish on ODP save | Copy `PolyPolygonBezier` + `Geometry` on clone |
 | `<image>` hrefs | Preprocess resolves paths | `svg_preprocess.py` |
 | Diagram vs text diff | Break changes anti-aliasing | Expect higher diff on path-heavy regions; tune threshold |
 
-**Measured (cover slide, `ppt169_attention_is_all_you_need`):** PDF page sizes matched → **diff_fraction ≈ 0.086** @ 300 dpi (left text ~0.09, right diagram ~0.16). Wrong Impress page size inflated diff to ~0.12.
+**Measured (`ppt169_attention_is_all_you_need`):**
+
+- **Cover (`01_cover.svg`):** PDF page sizes matched → **diff_fraction ≈ 0.086** @ 300 dpi (left text ~0.09, right diagram ~0.16). Wrong Impress page size inflated diff to ~0.12.
+- **Slide 2 (`02_why_it_matters.svg`):** **diff_fraction ≈ 0.094** @ 150 dpi before fixes (passes 0.12 baseline; fails 0.08 stretch). Root cause: four KPI `filter="url(#cardShadow)"` paths → stacked `GraphicObjectShape`. Fixes: filter strip in preprocess + tspan frame tightening + header title width.
+- **Slide 6 (`06_encoder_decoder.svg`):** **diff_fraction ≈ 0.258 → 0.094** @ 150 dpi. Root causes: (1) `fill-opacity` on card subtitles → 2× `GraphicObjectShape`; (2) clone omitted `PolyPolygonBezier` so all card paths were empty and dropped on ODP/PDF save. Fixes: `_strip_text_fill_opacity`, copy bezier geometry, centered-text width skip.
 
 Primary files to change for fidelity: [`svg_preprocess.py`](../plugin/contrib/ppt_master/svg_preprocess.py), [`uno_shape_postprocess.py`](../plugin/ppt_master/adapter/uno_shape_postprocess.py), [`uno_svg_import.py`](../plugin/ppt_master/adapter/uno_svg_import.py).
 
@@ -383,7 +395,7 @@ Primary files to change for fidelity: [`svg_preprocess.py`](../plugin/contrib/pp
 | Import fidelity CLI | [`scripts/ppt_master_import_fidelity.py`](../scripts/ppt_master_import_fidelity.py) | ✅ PDF diff + `report.json` |
 | Fix `ty` on PPT-Master send path | [`send_handlers.py`](../plugin/chatbot/send_handlers.py) | Declare `_in_ppt_master_mode: bool` on host class; `make test` typecheck passes |
 | Regression fixtures | `tests/fixtures/ppt_master_*` | Minimal shipped; add realistic SVGs from failing slides |
-| Example project baseline | `ppt169_attention_is_all_you_need` | Fidelity metrics recorded in this doc |
+| Example project baseline | `ppt169_attention_is_all_you_need` | Cover ~0.086 @ 300 dpi; slide 2 ~0.094 @ 150 dpi; slide 6 ~0.094 @ 150 dpi (from ~0.258 pre-fix) |
 
 Run: `pytest tests/ppt_master/`; full matrix: `make test`.
 

@@ -41,3 +41,30 @@ def test_preprocess_resolves_image_href(tmp_path: Path):
     out = preprocess_svg_text(svg, project_dir=project)
     assert "file://" in out
     assert "logo.png" in out
+
+
+def test_preprocess_strips_svg_filters(tmp_path: Path):
+    svg = tmp_path / "card.svg"
+    svg.write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720">'
+        "<defs><filter id=\"cardShadow\"><feGaussianBlur stdDeviation=\"4\" /></filter></defs>"
+        '<path filter="url(#cardShadow)" d="M72,160 H333 V400 H72 Z" fill="#FFFFFF"/>'
+        "</svg>",
+        encoding="utf-8",
+    )
+    out = preprocess_svg_text(svg)
+    assert 'filter="' not in out
+    assert "<filter" not in out
+
+
+def test_preprocess_strips_text_fill_opacity(tmp_path: Path):
+    svg = tmp_path / "subtitle.svg"
+    svg.write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720">'
+        '<text x="100" y="200" fill="#FFFFFF" fill-opacity="0.85">Subtitle</text>'
+        "</svg>",
+        encoding="utf-8",
+    )
+    out = preprocess_svg_text(svg)
+    assert "fill-opacity" not in out
+    assert "Subtitle" in out

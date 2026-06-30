@@ -72,6 +72,40 @@ def _fix_image_hrefs(root: ET.Element, svg_dir: Path, project_dir: Path | None) 
     return fixed
 
 
+def _strip_unbreakable_filters(root: ET.Element) -> int:
+    """Remove SVG filter attrs LO leaves as stacked GraphicObjectShapes after Break.
+
+    ppt-master KPI cards use filter=\"url(#cardShadow)\"; draw_svg_import + Break cannot
+    decompose those paths, so four cards collapse to the same GraphicObject position.
+    """
+    removed = 0
+    for elem in root.iter():
+        if elem.get("filter"):
+            del elem.attrib["filter"]
+            removed += 1
+    for parent in root.iter():
+        for child in list(parent):
+            if _local_tag(child.tag) == "filter":
+                parent.remove(child)
+    return removed
+
+
+def _strip_text_fill_opacity(root: ET.Element) -> int:
+    """Drop fill-opacity on text — LO Break leaves those runs as GraphicObjectShape strips."""
+    removed = 0
+    for elem in root.iter():
+        if _local_tag(elem.tag) != "text":
+            continue
+        if elem.get("fill-opacity") is not None:
+            del elem.attrib["fill-opacity"]
+            removed += 1
+        for child in elem:
+            if _local_tag(child.tag) == "tspan" and child.get("fill-opacity") is not None:
+                del child.attrib["fill-opacity"]
+                removed += 1
+    return removed
+
+
 def _ensure_slide_dimensions(root: ET.Element) -> None:
     """Set width/height in mm so LO page size matches Impress slide (25400×14288 hmm)."""
     vb = root.get("viewBox")
@@ -121,9 +155,11 @@ def preprocess_svg_for_import(
     root = tree.getroot()
     proj = project_dir.expanduser().resolve() if project_dir else svg_path.parent.parent
     href_fixes = _fix_image_hrefs(root, svg_path.parent, proj if proj.is_dir() else None)
+    filter_fixes = _strip_unbreakable_filters(root)
+    opacity_fixes = _strip_text_fill_opacity(root)
     old_vb, old_w, old_h = root.get("viewBox"), root.get("width"), root.get("height")
     _ensure_slide_dimensions(root)
-    changed = href_fixes > 0 or (
+    changed = href_fixes > 0 or filter_fixes > 0 or opacity_fixes > 0 or (
         root.get("viewBox") != old_vb or root.get("width") != old_w or root.get("height") != old_h
     )
     if not changed and out_path is None:
@@ -144,5 +180,7 @@ def preprocess_svg_text(svg_path: Path, *, project_dir: Path | None = None) -> s
     root = tree.getroot()
     proj = project_dir.expanduser().resolve() if project_dir else svg_path.parent.parent
     _fix_image_hrefs(root, svg_path.parent, proj if proj.is_dir() else None)
+    _strip_unbreakable_filters(root)
+    _strip_text_fill_opacity(root)
     _ensure_slide_dimensions(root)
     return _svg_tree_to_text(tree)

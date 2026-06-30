@@ -25,6 +25,8 @@ _COPY_PROPS = (
     "RotateAngle",
     "PolyPolygon",
     "Polygon",
+    "PolyPolygonBezier",
+    "Geometry",
     "CustomShapeGeometry",
     "GraphicURL",
     "Graphic",
@@ -49,7 +51,13 @@ _TEXT_CHAR_PROPS = (
     "CharStrikeout",
     "CharEscapement",
     "CharKerning",
+    "CharLetterSpacing",
 )
+
+# LO Break splits tspan runs onto one row when Y matches within this band (1/100 mm).
+_SAME_LINE_Y_TOLERANCE_HMM = 150
+_HEADER_BAND_MAX_Y_HMM = 2500
+_TEXT_WIDTH_PADDING_HMM = 80
 
 
 def _page_size_hmm(page: Any) -> tuple[int, int]:
@@ -97,6 +105,54 @@ def _scale_text_char_heights(shape: Any, scale: float) -> None:
         log.debug("scale text char heights: %s", exc)
 
 
+def _shape_uses_monospace_font(shape: Any) -> bool:
+    try:
+        text = shape.getText()
+        enum = text.createEnumeration()
+        while enum.hasMoreElements():
+            portion = enum.nextElement()
+            name = str(portion.getPropertyValue("CharFontName")).lower()
+            if "consolas" in name or "mono" in name or "courier" in name:
+                return True
+    except Exception as exc:
+        log.debug("monospace check: %s", exc)
+    try:
+        name = str(shape.getPropertyValue("CharFontName")).lower()
+        return "consolas" in name or "mono" in name or "courier" in name
+    except Exception as exc:
+        log.debug("shape monospace check: %s", exc)
+    return False
+
+
+def _estimate_text_width_hmm(text: str, char_height_pt: float, *, monospace: bool = False) -> int:
+    """Rough single-line width for Latin text (CharHeight is pt; convert to 1/100 mm)."""
+    stripped = text.strip()
+    if not stripped or char_height_pt <= 0:
+        return _TEXT_WIDTH_PADDING_HMM
+    width_factor = 0.62 if monospace else 0.55
+    return max(int(len(stripped) * char_height_pt * 35.28 * width_factor) + _TEXT_WIDTH_PADDING_HMM, 80)
+
+
+def _should_skip_width_tightening(shape: Any) -> bool:
+    """Centered labels and badge digits must keep LO's frame for PDF alignment."""
+    if "TextShape" not in shape.getShapeType():
+        return False
+    try:
+        from com.sun.star.drawing import TextHorizontalAdjust
+
+        if shape.getPropertyValue("TextHorizontalAdjust") == TextHorizontalAdjust.CENTER:
+            return True
+    except Exception as exc:
+        log.debug("TextHorizontalAdjust: %s", exc)
+    try:
+        text_val = shape.getString().strip() if hasattr(shape, "getString") else shape.getText().getString().strip()
+        if len(text_val) <= 2:
+            return True
+    except Exception as exc:
+        log.debug("skip width text read: %s", exc)
+    return False
+
+
 def _fit_text_frame_height(shape: Any) -> None:
     """Shrink bloated LO text frames so consecutive SVG lines do not overlap."""
     if "TextShape" not in shape.getShapeType():
@@ -118,6 +174,113 @@ def _fit_text_frame_height(shape: Any) -> None:
         shape.setSize(Size(int(size.Width), tight_h))
     except Exception as exc:
         log.debug("fit text frame: %s", exc)
+
+
+def _fit_text_frame_width(shape: Any, *, max_width_hmm: int | None = None) -> None:
+    """Shrink oversized LO text frames (tspan Break leaves full-line widths on fragments)."""
+    if "TextShape" not in shape.getShapeType() or _should_skip_width_tightening(shape):
+        return
+    try:
+        text_val = shape.getString() if hasattr(shape, "getString") else shape.getText().getString()
+        if "\n" in text_val:
+            return
+        char_height_pt = float(shape.getPropertyValue("CharHeight"))
+        if char_height_pt <= 0:
+            return
+        est_w = _estimate_text_width_hmm(text_val, char_height_pt, monospace=_shape_uses_monospace_font(shape))
+        if max_width_hmm is not None:
+            est_w = min(est_w, max_width_hmm)
+        size = shape.getSize()
+        if int(size.Width) <= est_w + 50:
+            return
+        from com.sun.star.awt import Size
+
+        shape.setSize(Size(est_w, int(size.Height)))
+    except Exception as exc:
+        log.debug("fit text frame width: %s", exc)
+
+
+def _collect_text_shapes(page: Any) -> list[tuple[int, int, Any]]:
+    shapes: list[tuple[int, int, Any]] = []
+    for i in range(page.getCount()):
+        shape = page.getByIndex(i)
+        if "TextShape" not in shape.getShapeType():
+            continue
+        bbox = _shape_bbox(shape)
+        if bbox is None:
+            continue
+        x, y, _w, _h = bbox
+        shapes.append((y, x, shape))
+    return shapes
+
+
+def _tighten_same_line_text_fragments(page: Any) -> None:
+    """Prevent adjacent tspan fragments on one row from overlapping in PDF export."""
+    texts = _collect_text_shapes(page)
+    if len(texts) < 2:
+        return
+    texts.sort(key=lambda item: (item[0], item[1]))
+    line: list[tuple[int, int, Any]] = []
+    line_y: int | None = None
+    try:
+        page_width = int(page.getPropertyValue("Width"))
+    except Exception:
+        page_width = DEFAULT_SLIDE_WIDTH_HMM
+
+    def flush_line() -> None:
+        if len(line) < 2:
+            line.clear()
+            return
+        for idx, (y, x, shape) in enumerate(line):
+            if _should_skip_width_tightening(shape):
+                continue
+            if idx + 1 < len(line):
+                max_w = line[idx + 1][1] - x - 50
+            else:
+                max_w = page_width - x - 600
+            _fit_text_frame_width(shape, max_width_hmm=max(80, max_w))
+        line.clear()
+
+    for y, x, shape in texts:
+        if line_y is None or abs(y - line_y) <= _SAME_LINE_Y_TOLERANCE_HMM:
+            line.append((y, x, shape))
+            line_y = y if line_y is None else line_y
+        else:
+            flush_line()
+            line = [(y, x, shape)]
+            line_y = y
+    flush_line()
+
+
+def _fix_header_title_single_line(page: Any) -> None:
+    """Keep slide title on one line — LO wraps when the frame is too narrow for CharHeight."""
+    candidates: list[tuple[float, Any]] = []
+    for _y, _x, shape in _collect_text_shapes(page):
+        if _y > _HEADER_BAND_MAX_Y_HMM:
+            continue
+        try:
+            char_h = float(shape.getPropertyValue("CharHeight"))
+        except Exception:
+            continue
+        if char_h > 0:
+            candidates.append((char_h, shape))
+    if not candidates:
+        return
+    title = max(candidates, key=lambda item: item[0])[1]
+    try:
+        page_width = int(page.getPropertyValue("Width"))
+        size = title.getSize()
+        from com.sun.star.awt import Size
+
+        # Wide frame + no auto-grow height stops mid-title wraps on long Georgia titles.
+        title.setPropertyValue("TextAutoGrowHeight", False)
+        try:
+            title.setPropertyValue("TextAutoGrowWidth", False)
+        except Exception as exc:
+            log.debug("TextAutoGrowWidth: %s", exc)
+        title.setSize(Size(max(page_width - 2400, int(size.Width)), int(size.Height)))
+    except Exception as exc:
+        log.debug("fix header title: %s", exc)
 
 
 def _scale_shape(shape: Any, scale_x: float, scale_y: float) -> None:
@@ -161,14 +324,19 @@ def _copy_shape_text(source_shape: Any, dest_shape: Any) -> None:
                 dest_shape.setPropertyValue(prop, source_shape.getPropertyValue(prop))
             except Exception as exc:
                 log.debug("copy shape text prop %s: %s", prop, exc)
+        src_portions = []
         src_enum = src_text.createEnumeration()
+        while src_enum.hasMoreElements():
+            src_portions.append(src_enum.nextElement())
         dst_enum = dst_text.createEnumeration()
-        while src_enum.hasMoreElements() and dst_enum.hasMoreElements():
-            src_portion = src_enum.nextElement()
-            dst_portion = dst_enum.nextElement()
-            if not src_portion.getString() and not dst_portion.getString():
-                continue
-            _copy_text_portion_props(src_portion, dst_portion)
+        dst_portions = []
+        while dst_enum.hasMoreElements():
+            dst_portions.append(dst_enum.nextElement())
+        fallback = src_portions[-1] if src_portions else None
+        for idx, dst_portion in enumerate(dst_portions):
+            src_portion = src_portions[idx] if idx < len(src_portions) else fallback
+            if src_portion is not None:
+                _copy_text_portion_props(src_portion, dst_portion)
         return
     if hasattr(source_shape, "getString") and hasattr(dest_shape, "setString"):
         dest_shape.setString(source_shape.getString())
@@ -254,4 +422,6 @@ def postprocess_slide_shapes(
                     shape.setPropertyValue("CharHeight", 14.0)
         except Exception as exc:
             log.debug("text postprocess: %s", exc)
+    _tighten_same_line_text_fragments(page)
+    _fix_header_title_single_line(page)
     return {"shapes_adjusted": adjusted, "scale_x": scale_x, "scale_y": scale_y}
