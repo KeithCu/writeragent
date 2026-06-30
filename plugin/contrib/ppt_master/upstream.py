@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
 from contextlib import contextmanager
 from pathlib import Path
@@ -77,3 +78,40 @@ def collect_svg_files_upstream(project_path: Path, data_root: Path) -> list[Path
         return list(files) if files else None
 
     return with_upstream_script(data_root, _load_pptx_discovery, _collect)
+
+
+def collect_notes_upstream(project_path: Path, data_root: Path) -> dict[str, str] | None:
+    """Use ``find_notes_files`` from skill-tree ``pptx_discovery.py`` when installed."""
+
+    def _notes(mod: ModuleType) -> dict[str, str] | None:
+        find_notes_files: Any = getattr(mod, "find_notes_files", None)
+        if not callable(find_notes_files):
+            return None
+        resolved = Path(project_path).expanduser().resolve()
+        notes = find_notes_files(resolved)
+        return dict(notes) if notes else None
+
+    return with_upstream_script(data_root, _load_pptx_discovery, _notes)
+
+
+def collect_svg_files(project_path: Path, *, subdir: str = "svg_final", data_root: Path | None = None) -> list[Path]:
+    """Return sorted SVG paths from a ppt-master project folder."""
+    root = data_root
+    if root is None:
+        env = os.environ.get("PPT_MASTER_DATA_ROOT", "").strip()
+        if env:
+            root = Path(env)
+    if root is not None:
+        upstream_files = collect_svg_files_upstream(project_path, root)
+        if upstream_files:
+            return upstream_files
+
+    # Fallback when skill tree is not installed (unit tests, minimal dirs).
+    resolved = Path(project_path).expanduser().resolve()
+    for name in (subdir, "svg_output"):
+        folder = resolved / name
+        if folder.is_dir():
+            files = sorted(folder.glob("*.svg"))
+            if files:
+                return files
+    return []

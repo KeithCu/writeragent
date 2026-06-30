@@ -21,7 +21,7 @@ def export_project_to_impress(ctx: Any, doc: Any, project_path: str | Path) -> d
     path = Path(project_path).expanduser().resolve()
     if not path.is_dir():
         return {"status": "error", "message": f"Project path not found: {path}"}
-    return export_project_to_doc(doc, path)
+    return export_project_to_doc(doc, path, ctx=ctx)
 
 
 def apply_template_fill(ctx: Any, doc: Any, plan_path: str | Path) -> dict[str, Any]:

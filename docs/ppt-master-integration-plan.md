@@ -7,7 +7,7 @@ This document describes how [ppt-master](https://github.com/hugohe3/ppt-master) 
 | Decision | Choice |
 |----------|--------|
 | Upstream `svg_to_pptx` | **Not** copied into `plugin/contrib/` — loaded from skill tree `scripts/svg_to_pptx/` |
-| WriterAgent-only code | Six modules under [`plugin/contrib/ppt_master/`](../plugin/contrib/ppt_master/) |
+| WriterAgent-only code | Four modules under [`plugin/contrib/ppt_master/`](../plugin/contrib/ppt_master/) |
 | Host / UNO | [`plugin/ppt_master/`](../plugin/ppt_master/) (client, paths, tools, adapters) |
 | Sidebar UX | Smol sub-agent via [`plugin/chatbot/ppt_master.py`](../plugin/chatbot/ppt_master.py) — hidden from main chat (like Brainstorming) |
 | Dev reference clone | Optional repo root `ppt-master/` (not shipped) |
@@ -17,7 +17,8 @@ This document describes how [ppt-master](https://github.com/hugohe3/ppt-master) 
 - `plugin/contrib/ppt_master/bundled/svg_to_pptx/` — byte-identical upstream copy (~18 files); deleted in favor of external skill tree
 - `plugin/contrib/ppt_master/backends/` — unused protocol stubs
 - `plugin/ppt_master/diagnostics.py` — install hint moved to `paths.PPT_MASTER_INSTALL_CMD`
-- `plugin/ppt_master/client.py` dead `export_plans_from_venv` / `venv/export.py` stub — export runs host-side `svg_convert` → `uno_apply`
+- `plugin/ppt_master/venv/` — dead worker stub removed; export is host-side `draw_svg_import`
+- `plugin/contrib/ppt_master/svg_convert.py`, `shape_ops.py`, `plugin/ppt_master/adapter/uno_apply.py` — removed; replaced by LO native SVG import
 
 ## Overview
 
@@ -43,7 +44,7 @@ Then **Settings → Python** → **PPT-Master data path** → `.../ppt-master/sk
 
 | Layer | In OXT? | Location |
 |-------|---------|----------|
-| UNO adapter (`shape_ops`, `coords`, `svg_convert`, `upstream`, `config`) | Yes | `plugin/contrib/ppt_master/` |
+| UNO adapter (`coords`, `svg_preprocess`, `upstream`, `config`) | Yes | `plugin/contrib/ppt_master/` |
 | Upstream `scripts/svg_to_pptx`, templates, references, `SKILL.md` | **No** — user clone / path | Resolved to `PPT_MASTER_DATA_ROOT` |
 | UNO apply, client, tools | Yes | `plugin/ppt_master/` |
 | Sidebar session | Yes | `plugin/chatbot/ppt_master.py` |
@@ -66,11 +67,12 @@ flowchart TB
   UI[Sidebar PPT-Master mode] --> Session[ppt_master_session smol sub-agent]
   Session --> DrawTools[Existing draw/impress core tools]
   Session --> PmTools[ppt-master specialized tools]
-  PmTools --> HostSVG[svg_convert → ShapeOp]
-  HostSVG --> UNO[uno_apply via DrawBridge]
-  UNO --> Doc[Active Impress/Draw document]
+  PmTools --> Pre[svg_preprocess]
+  Pre --> HostSVG[draw_svg_import hidden doc]
+  HostSVG --> Copy[copy shapes + postprocess]
+  Copy --> UNO[Impress/Draw document]
   Data[(skill tree: SKILL templates scripts/svg_to_pptx)] --> Upstream[upstream.py loads pptx_discovery]
-  Upstream --> HostSVG
+  Upstream --> Session
   Data --> Session
 ```
 
@@ -90,13 +92,13 @@ flowchart TB
 
 ### Main export path (UNO)
 
-`export_presentation_project` → `uno_svg_deck.build_plans_from_project` → `collect_svg_files` (upstream `find_svg_files` when skill tree present, else minimal fallback) → `svg_to_slide_plan` → `uno_apply.apply_slide_plans`.
+`export_presentation_project` → `uno_svg_deck.export_project_to_doc` → [`uno_svg_import.py`](../plugin/ppt_master/adapter/uno_svg_import.py) (`svg_preprocess` → `draw_svg_import` → shape copy → `uno_shape_postprocess`).
 
 ## Routes
 
 | Route | Implementation | Notes |
 |-------|----------------|-------|
-| Main SVG pipeline | `export_presentation_project` → `svg_convert` → `uno_apply` | Default Impress/Draw path |
+| Main SVG pipeline | `export_presentation_project` → `uno_svg_import` | Default Impress/Draw path |
 | template-fill | `apply_ppt_master_template_fill` → `uno_template_fill` | Incremental stub |
 | native-enhance | `apply_ppt_master_native_enhance` → `uno_enhance` | `enhancement_plan.json` |
 | beautify | venv `pptx_to_svg` + SVG pipeline | Not wired end-to-end yet |
@@ -108,8 +110,9 @@ flowchart TB
 | [`plugin/chatbot/ppt_master.py`](../plugin/chatbot/ppt_master.py) | `ppt_master_session`, `collect_ppt_master_tools`, `ppt_master_finished` |
 | [`plugin/chatbot/chat_sidebar_mode.py`](../plugin/chatbot/chat_sidebar_mode.py) | `CHAT_MODE_PPT_MASTER`, `sidebar_mode_flags_for_doc_type` |
 | [`plugin/ppt_master/tools.py`](../plugin/ppt_master/tools.py) | Specialized tools (`ToolDrawPptMasterBase`) |
-| [`plugin/contrib/ppt_master/svg_convert.py`](../plugin/contrib/ppt_master/svg_convert.py) | Minimal SVG → `SlideBuildPlan` |
-| [`plugin/ppt_master/adapter/uno_apply.py`](../plugin/ppt_master/adapter/uno_apply.py) | `ShapeOp` → UNO shapes |
+| [`plugin/contrib/ppt_master/svg_preprocess.py`](../plugin/contrib/ppt_master/svg_preprocess.py) | SVG normalization before LO import |
+| [`plugin/ppt_master/adapter/uno_svg_import.py`](../plugin/ppt_master/adapter/uno_svg_import.py) | `draw_svg_import` → copy shapes to Impress |
+| [`plugin/ppt_master/adapter/uno_shape_postprocess.py`](../plugin/ppt_master/adapter/uno_shape_postprocess.py) | Scale/text tweaks after shape copy |
 | [`plugin/framework/constants.py`](../plugin/framework/constants.py) | `IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS`, sub-agent instructions |
 
 ## Contrib merge policy
@@ -128,8 +131,8 @@ Backlog for PPT-Master integration work. **Priority order matters** — validate
 
 1. Confirm dev setup: clone upstream beside repo as `ppt-master/` **or** set **Settings → Python → PPT-Master data path** to `.../ppt-master/skills/ppt-master`. Run **Test** in Settings.
 2. Read [`plugin/contrib/ppt_master/README.md`](../plugin/contrib/ppt_master/README.md) symbol map (WriterAgent module ↔ upstream equivalent).
-3. Trace the happy path: `export_presentation_project` → [`client.py`](../plugin/ppt_master/client.py) → [`uno_svg_deck.py`](../plugin/ppt_master/adapter/uno_svg_deck.py) → [`svg_convert.py`](../plugin/contrib/ppt_master/svg_convert.py) → [`uno_apply.py`](../plugin/ppt_master/adapter/uno_apply.py).
-4. Run tests: `pytest tests/ppt_master/`; UNO: `make test` (needs `soffice`) includes [`tests/uno/test_ppt_master_adapter_uno.py`](../tests/uno/test_ppt_master_adapter_uno.py).
+3. Trace the happy path: `export_presentation_project` → [`client.py`](../plugin/ppt_master/client.py) → [`uno_svg_deck.py`](../plugin/ppt_master/adapter/uno_svg_deck.py) → [`uno_svg_import.py`](../plugin/ppt_master/adapter/uno_svg_import.py).
+4. Run tests: `pytest tests/ppt_master/`; UNO: `make test` (needs `soffice`) includes [`tests/uno/test_ppt_master_svg_import_uno.py`](../tests/uno/test_ppt_master_svg_import_uno.py).
 5. Pick the next roadmap item below; add tests in the matching `test_*` file per [AGENTS.md](../AGENTS.md).
 
 ### What is done (v1 baseline)
@@ -140,18 +143,17 @@ Backlog for PPT-Master integration work. **Priority order matters** — validate
 | Sidebar PPT-Master mode (Impress/Draw) | Shipped | [`chat_sidebar_mode.py`](../plugin/chatbot/chat_sidebar_mode.py) |
 | Smol sub-agent session | Shipped | [`ppt_master.py`](../plugin/chatbot/ppt_master.py), instructions in [`constants.py`](../plugin/framework/constants.py) `PPT_MASTER_SUB_AGENT_INSTRUCTIONS` |
 | Specialized tools | Shipped | [`tools.py`](../plugin/ppt_master/tools.py) — export, validate, template-fill, native-enhance, skill path |
-| Main SVG → UNO export | Shipped (minimal fidelity) | Host-side only; no venv required for export |
-| Runtime load of `pptx_discovery` | Shipped | [`upstream.py`](../plugin/contrib/ppt_master/upstream.py) — file-path import, no `python-pptx` on LO host |
-| Unit tests | Shipped | `tests/ppt_master/*` |
-| UNO test | Partial | Single-slide rect + text only |
+| Main SVG → UNO export | Shipped | `draw_svg_import` via [`uno_svg_import.py`](../plugin/ppt_master/adapter/uno_svg_import.py) |
+| SVG preprocess / postprocess | Shipped | [`svg_preprocess.py`](../plugin/contrib/ppt_master/svg_preprocess.py), [`uno_shape_postprocess.py`](../plugin/ppt_master/adapter/uno_shape_postprocess.py) |
+| Speaker notes matching | Partial | Upstream `find_notes_files` when skill tree configured; fallback `slide_NN.md` |
 
 ### What is not done (gaps)
 
 | Area | Status | Impact |
 |------|--------|--------|
-| SVG fidelity vs upstream `drawingml_converter` | **Large gap** | Real ppt-master decks may look wrong (paths, transforms, text, styles) |
-| `uno_apply` path geometry | **Stub** | `path` kind maps to `LineShape`, not Bezier/CustomShape |
-| Speaker notes matching | **Partial** | Only `notes/slide_NN.md`; upstream supports filename + index matching |
+| SVG fidelity vs upstream `drawingml_converter` | **Reduced** | LO `draw_svg_import` + pre/post-process; gradient/text gaps may remain |
+| `uno_apply` path geometry | **Fallback only** | Primary route uses LO native shapes |
+| Speaker notes matching | **Partial** | Upstream `find_notes_files` when skill tree present |
 | SKILL.md auto-injection | **Manual** | Agent must call `get_ppt_master_skill_path`; workflow not pre-loaded |
 | template-fill route | **Stub** | Creates slides; does not call `set_placeholder_text` |
 | beautify route | **Not wired** | `pptx_to_svg` → SVG pipeline absent |
@@ -171,25 +173,22 @@ Backlog for PPT-Master integration work. **Priority order matters** — validate
 **Two export paths (only first is WriterAgent's job today):**
 
 ```text
-WriterAgent (Impress/Draw):  SVG → svg_convert → ShapeOp → uno_apply → UNO document
+WriterAgent (Impress/Draw):  SVG → preprocess → draw_svg_import → copy shapes → postprocess → UNO document
 Upstream (PPTX):             SVG → drawingml_converter → DrawingML → python-pptx → .pptx
 ```
 
-### Known fidelity gaps (svg_convert + uno_apply)
+### Known fidelity gaps (LO import + pre/post-process)
 
 Use this table when triaging visual bugs from real projects.
 
-| SVG / feature | WriterAgent today | Upstream reference (skill tree, not vendored) |
-|---------------|-------------------|-----------------------------------------------|
-| `<rect>`, `<circle>`, `<ellipse>`, `<line>` | Basic hmm mapping | `drawingml_elements.py` |
-| `<path>` | Bounding box + fake line | Full path commands in `drawingml_paths.py` |
-| `<text>` / `<tspan>` | Rough size estimate | `tspan_flattener.py`, font/anchor logic |
-| `<g>` + `transform` | Walk children only | Matrix stack in `drawingml_converter.py` |
-| Gradients, opacity, dash | Mostly ignored | `drawingml_styles.py` |
-| `<image>` | File href resolve | Media + sizing in upstream |
-| Groups | Flatten to children | Native group XML in PPTX path |
+| SVG / feature | WriterAgent today | Mitigation |
+|---------------|-------------------|------------|
+| Paths, transforms, basic shapes | LO `draw_svg_import` | Native import |
+| Gradients | LO approximates | Post-process fills if needed |
+| Complex `tspan` text | LO import gaps | Post-process text props |
+| `<image>` hrefs | Preprocess resolves paths | `svg_preprocess.py` |
 
-Primary files to change for fidelity: [`svg_convert.py`](../plugin/contrib/ppt_master/svg_convert.py), [`uno_apply.py`](../plugin/ppt_master/adapter/uno_apply.py), [`coords.py`](../plugin/contrib/ppt_master/coords.py).
+Primary files to change for fidelity: [`svg_preprocess.py`](../plugin/contrib/ppt_master/svg_preprocess.py), [`uno_shape_postprocess.py`](../plugin/ppt_master/adapter/uno_shape_postprocess.py), [`uno_svg_import.py`](../plugin/ppt_master/adapter/uno_svg_import.py).
 
 ### Prioritized backlog
 
@@ -332,10 +331,12 @@ Run: `pytest tests/ppt_master/`; full matrix: `make test`.
 
 | File | Coverage |
 |------|----------|
-| `tests/ppt_master/test_ppt_master_coords.py` | coords, shape_ops, svg_convert |
+| `tests/ppt_master/test_ppt_master_coords.py` | coords helpers |
 | `tests/ppt_master/test_ppt_master_sidebar.py` | sidebar flags, tool tier exclusion |
 | `tests/ppt_master/test_ppt_master_paths.py` | config path, dev clone, upstream `pptx_discovery` |
 | `tests/chatbot/test_ppt_master_data_test_listener.py` | Settings Test button probe |
-| `tests/uno/test_ppt_master_adapter_uno.py` | SVG rect → Impress slide (requires `soffice`) |
+| `tests/ppt_master/test_ppt_master_project.py` | Project fixture, collect_svg_files, notes |
+| `tests/ppt_master/test_ppt_master_svg_preprocess.py` | SVG preprocess (href, dimensions) |
+| `tests/uno/test_ppt_master_svg_import_uno.py` | LO import route: single + multi-slide (requires `soffice`) |
 
 Run: `pytest tests/ppt_master/` (and `make test` for full matrix).
