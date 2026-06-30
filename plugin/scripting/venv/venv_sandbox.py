@@ -448,7 +448,7 @@ def convert_datetimes_and_deltas(data: Any, locale: str | None, convert_datetime
         return data
     try:
         import pandas as pd
-        import dateparser
+        import dateparser  # type: ignore[import-untyped]
     except ImportError as e:
         raise ImportError(
             "Date-time and Timedelta conversion requires both 'pandas' and 'dateparser' packages to be installed in the virtual environment. "
