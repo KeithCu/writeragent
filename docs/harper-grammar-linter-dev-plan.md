@@ -35,12 +35,12 @@ def is_grammar_enabled():
 ## 3. Dependency Management (Binary Fetching)
 
 To avoid compiling Rust from source, WriterAgent fetches the official precompiled `harper-ls` binary based on the host architecture:
-1. **GitHub Releases API:** Resolve the latest release via `https://api.github.com/repos/Automattic/harper/releases/latest` (checked at most once per week per profile, persisted in `bin/harper-ls.release.json`), then download the matching asset URL and verify GitHub's published `digest` (SHA256).
+1. **GitHub Releases API:** Resolve the latest release via `https://api.github.com/repos/Automattic/harper/releases/latest` (checked at most once per week per profile, persisted in `harper/harper-ls.release.json`), then download the matching asset URL and verify GitHub's published `digest` (SHA256).
 2. **Platform Resolution:**
    * **Linux x86_64:** `harper-ls-x86_64-unknown-linux-gnu.tar.gz`
    * **macOS Arm64:** `harper-ls-aarch64-apple-darwin.tar.gz`
    * **Windows x86_64:** `harper-ls-x86_64-pc-windows-msvc.zip`
-3. **Auto-install / auto-update:** First run downloads into `user_config_dir/bin/` and writes `harper-ls.version`. Later runs compare the sidecar to the latest GitHub tag and re-download when Harper ships a new release (falls back to the installed binary if an update download fails).
+3. **Auto-install / auto-update:** First run downloads into `user_config_dir/harper/` and writes `harper-ls.version`. Later runs compare the sidecar to the latest GitHub tag and re-download when Harper ships a new release (falls back to the installed binary if an update download fails). After a successful install, the downloaded `.tar.gz` or `.zip` archive is removed from `harper/`; only `harper-ls` and `harper-ls.version` remain. Legacy installs under `bin/` are migrated automatically (temporary; remove migration code after ~2026-09).
 
 ---
 
@@ -195,7 +195,7 @@ Additional items identified in a post-implementation review of `plugin/scripting
 | **LSP framing / reader robustness** | `_read_loop` does bare `except: pass`, performs no validation that `len(body) == Content-Length`, uses simplistic `split(":", 1)` header parsing, and can fail on partial reads or malformed frames. Add length checks, defensive parsing, and `log.exception(...)` for unexpected failures. | Completed |
 | **Secure + reliable binary download** | `urllib.request.urlretrieve` on the GitHub `/latest/download/` asset has no timeout, User-Agent, size limit, or integrity check (SHA256 / signature). A tampered release would be extracted + executed. Add timeouts, limits, User-Agent, and consider pinning a release + verifying a hash before `chmod +x`. Improve temp-file handling. | Completed (GitHub releases API + asset `digest` SHA256) |
 | **Worker shutdown / client lifecycle cleanup** | Cached `HarperLSClient` instances are never explicitly closed when the venv worker is terminated (`PythonWorkerManager._terminate_worker` does hard killpg). Add best-effort cleanup (didClose + graceful shutdown) via atexit, harness hook, or explicit close in the client cache. | Deferred |
-| **Binary upgrade path + version diagnostics** | Once downloaded, the `harper-ls` in `user_config_dir/bin` is never refreshed. Provide (or document) a way to force re-download, and expose the resolved path + `harper-ls --version` (when available) for about/diagnostics UI and health checks. | Completed (sidecar `harper-ls.version`; weekly GitHub latest check + auto-download when version changes) |
+| **Binary upgrade path + version diagnostics** | Once downloaded, the `harper-ls` in `user_config_dir/harper` is never refreshed. Provide (or document) a way to force re-download, and expose the resolved path + `harper-ls --version` (when available) for about/diagnostics UI and health checks. | Completed (sidecar `harper-ls.version`; weekly GitHub latest check + auto-download when version changes) |
 | **Zero-length / empty diagnostic range handling** | Result construction does `length = max(1, end - start)` and guarded slices. Harper reporting zero-width spans can produce misleading `"wrong"` text or underlines. Tighten offset + error dict construction and add tests. | Completed |
 
 ### 8.3 Not planned: general-purpose LSP port

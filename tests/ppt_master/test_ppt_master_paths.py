@@ -17,6 +17,16 @@ from plugin.ppt_master.paths import (
 )
 
 
+def _make_outer_clone_layout(tmp_path: Path) -> tuple[Path, Path]:
+    outer = tmp_path / "ppt-master"
+    inner = outer / "skills" / "ppt-master"
+    inner.mkdir(parents=True)
+    (inner / "SKILL.md").write_text("# skill", encoding="utf-8")
+    (inner / "templates").mkdir()
+    (inner / "scripts" / "svg_to_pptx").mkdir(parents=True)
+    return outer, inner
+
+
 def test_dev_clone_data_root_when_repo_present():
     root = _dev_clone_data_root()
     if root is None:
@@ -77,4 +87,30 @@ def test_data_root_status_for_path_uses_typed_value(tmp_path: Path) -> None:
     status = data_root_status_for_path(str(skill))
     assert status["ok"] is True
     assert status["has_skill_md"] is True
+
+
+def test_configured_data_root_accepts_outer_clone_path(tmp_path: Path, monkeypatch) -> None:
+    outer, inner = _make_outer_clone_layout(tmp_path)
+    import plugin.framework.config as config_mod
+
+    monkeypatch.setattr(config_mod, "get_config_str", lambda key: str(outer) if key == "scripting.ppt_master_data_path" else "")
+    assert _configured_data_root() == inner
+    assert resolve_data_root() == inner
+
+
+def test_data_root_status_for_path_accepts_outer_clone_path(tmp_path: Path) -> None:
+    outer, inner = _make_outer_clone_layout(tmp_path)
+    status = data_root_status_for_path(str(outer))
+    assert status["ok"] is True
+    assert status["data_root"] == str(inner)
+    assert status["has_svg_to_pptx"] is True
+
+
+def test_resolve_data_root_env_accepts_outer_clone_path(tmp_path: Path, monkeypatch) -> None:
+    outer, inner = _make_outer_clone_layout(tmp_path)
+    import plugin.framework.config as config_mod
+
+    monkeypatch.setattr(config_mod, "get_config_str", lambda key: "")
+    monkeypatch.setenv("PPT_MASTER_DATA_ROOT", str(outer))
+    assert resolve_data_root() == inner
 

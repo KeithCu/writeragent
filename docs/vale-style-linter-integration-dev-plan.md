@@ -7,7 +7,7 @@ This document outlines the development plan for **Vale** as an offline, local st
 ## 1. Objectives
 
 1. **Editorial compliance:** Run style guides (Microsoft, Google, write-good) for tone, wordiness, passive voice, and formatting consistency.
-2. **Zero custom binary plumbing:** Use the official **`vale` PyPI wrapper**, which downloads the compiled Go binary into the user venv's `bin/` (same pattern as `language-tool-python`, unlike Harper's profile `bin/` auto-download).
+2. **Zero custom binary plumbing:** Use the official **`vale` PyPI wrapper**, which downloads the compiled Go binary into the user venv's `bin/` (same pattern as `language-tool-python`, unlike Harper's profile `harper/` auto-download).
 3. **Unified error mapping:** Parse Vale JSON and map alerts into the shared grammar-queue shape (`n_error_start`, `n_error_length`, `rule_identifier`, etc.).
 4. **Multi-style compatibility:** Apply Microsoft + Google + write-good together, with `.vale.ini` rules that resolve known conflicts (e.g. heading casing).
 
@@ -86,7 +86,7 @@ WriterAgent prefers **proven upstream code in `plugin/contrib/`** (or official P
 
 | Concern | Vale approach | Harper analogue (for comparison) |
 |--------|---------------|--------------------------------|
-| **Native binary** | `uv pip install vale` → binary in venv `bin/` | GitHub release → [`plugin/contrib/pooch/`](../plugin/contrib/pooch/) + profile `bin/` |
+| **Native binary** | `uv pip install vale` → binary in venv `bin/` | GitHub release → [`plugin/contrib/pooch/`](../plugin/contrib/pooch/) + profile `harper/` |
 | **Style / rule packages** | Official `vale sync` (Vale's own downloader) | N/A |
 | **Protocol / I/O** | Subprocess + JSON stdout | LSP → [`plugin/contrib/lsp/`](../plugin/contrib/lsp/) |
 | **Offset mapping** | Vale `Span` (1-indexed file offsets) | LSP UTF-16 → [`position_codec.py`](../plugin/contrib/lsp/position_codec.py) |

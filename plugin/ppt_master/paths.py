@@ -20,7 +20,7 @@ _SKILL_REL_PATHS = (
 
 PPT_MASTER_INSTALL_CMD = (
     "git clone https://github.com/hugohe3/ppt-master.git\n"
-    "# then Settings → Python → PPT-Master data path → .../ppt-master/skills/ppt-master"
+    "# then Settings → Python → PPT-Master data path → .../ppt-master (clone root or skills/ppt-master)"
 )
 
 
@@ -38,6 +38,11 @@ def _search_tree(root: Path) -> Path | None:
         if _looks_like_data_root(cand):
             return cand
     return None
+
+
+def _resolve_user_path(raw: Path) -> Path | None:
+    """Accept clone root or inner skill dir; return resolved data root."""
+    return _search_tree(raw.expanduser())
 
 
 def _user_venv_site_package_roots(ctx: Any | None = None) -> list[Path]:
@@ -89,9 +94,7 @@ def _configured_data_root() -> Path | None:
 
         cfg_path = get_config_str("scripting.ppt_master_data_path").strip()
         if cfg_path:
-            p = Path(cfg_path).expanduser()
-            if _looks_like_data_root(p):
-                return p
+            return _resolve_user_path(Path(cfg_path))
     except Exception:
         pass
     return None
@@ -105,9 +108,9 @@ def resolve_data_root(ctx: Any | None = None) -> Path:
 
     env = os.environ.get("PPT_MASTER_DATA_ROOT", "").strip()
     if env:
-        p = Path(env).expanduser()
-        if _looks_like_data_root(p):
-            return p
+        resolved = _resolve_user_path(Path(env))
+        if resolved is not None:
+            return resolved
 
     found = find_data_root_in_site_packages(ctx)
     if found is not None:
@@ -149,6 +152,9 @@ def data_root_status_for_path(raw_path: str | None) -> dict[str, Any]:
     """Probe a path from Settings (saved or typed, not yet applied)."""
     raw = str(raw_path or "").strip()
     if raw:
+        resolved = _resolve_user_path(Path(raw))
+        if resolved is not None:
+            return _status_for_root(resolved)
         return _status_for_root(Path(raw).expanduser())
     return data_root_status()
 
@@ -165,7 +171,7 @@ def format_data_root_probe_message(status: dict[str, Any]) -> str:
     ]
     if not status.get("ok"):
         lines.append("")
-        lines.append("Not ready. Clone upstream and set the path to skills/ppt-master:")
+        lines.append("Not ready. Clone upstream and set the path to the clone root or skills/ppt-master:")
         lines.append(PPT_MASTER_INSTALL_CMD)
     return "\n".join(lines)
 

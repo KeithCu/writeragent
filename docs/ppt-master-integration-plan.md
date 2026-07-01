@@ -42,7 +42,7 @@ Upstream [ppt-master](https://github.com/hugohe3/ppt-master) is a **skill/workfl
 git clone https://github.com/hugohe3/ppt-master.git
 ```
 
-Then **Settings → Python** → **PPT-Master data path** → `.../ppt-master/skills/ppt-master` (must contain `SKILL.md`, `templates/`, `scripts/svg_to_pptx/`).
+Then **Settings → Python** → **PPT-Master data path** → `.../ppt-master` (clone root) or `.../ppt-master/skills/ppt-master` (inner skill dir). The resolved directory must contain `SKILL.md`, `templates/`, and `scripts/svg_to_pptx/`.
 
 **Dev without manual path:** clone upstream beside the repo as `ppt-master/`; `paths._dev_clone_data_root()` finds `ppt-master/skills/ppt-master` automatically.
 
@@ -188,7 +188,7 @@ SKILL injection at session start: [`skill_context.py`](../plugin/ppt_master/venv
 
 ### Data root resolution (`plugin/ppt_master/paths.py`)
 
-1. `scripting.ppt_master_data_path` (Settings → Python)
+1. `scripting.ppt_master_data_path` (Settings → Python; clone root or inner `skills/ppt-master`)
 2. `PPT_MASTER_DATA_ROOT` env (set by `apply_data_root_env`)
 3. User venv `site-packages` scan (optional fallback)
 4. Dev clone `ppt-master/skills/ppt-master`
@@ -321,7 +321,7 @@ Backlog for PPT-Master integration work. **Priority order matters** — validate
 
 ### Agent quick start
 
-1. Confirm dev setup: clone upstream beside repo as `ppt-master/` **or** set **Settings → Python → PPT-Master data path** to `.../ppt-master/skills/ppt-master`. Run **Test** in Settings.
+1. Confirm dev setup: clone upstream beside repo as `ppt-master/` **or** set **Settings → Python → PPT-Master data path** to the clone root (`.../ppt-master`) or inner skill dir (`.../ppt-master/skills/ppt-master`). Run **Test** in Settings.
 2. Read [`plugin/contrib/ppt_master/README.md`](../plugin/contrib/ppt_master/README.md) symbol map (WriterAgent module ↔ upstream equivalent).
 3. Trace the happy path: `export_presentation_project` → [`client.py`](../plugin/ppt_master/client.py) → [`uno_pptx_deck.py`](../plugin/ppt_master/adapter/uno_pptx_deck.py) → [`uno_pptx_import.py`](../plugin/ppt_master/adapter/uno_pptx_import.py).
 4. Run tests: `pytest tests/ppt_master/`; UNO: `python -m plugin.testing_runner test_ppt_master_pptx_import_uno`; fidelity: `python scripts/ppt_master_import_fidelity.py <project>`.
@@ -476,7 +476,7 @@ Run: `pytest tests/ppt_master/`; full matrix: `make test`.
 
 ```text
 [ ] git clone https://github.com/hugohe3/ppt-master.git
-[ ] Settings → Python → PPT-Master data path → .../ppt-master/skills/ppt-master
+[ ] Settings → Python → PPT-Master data path → .../ppt-master (clone root) or .../ppt-master/skills/ppt-master
 [ ] Settings → Python → user venv configured
 [ ] pip install -r .../ppt-master/skills/ppt-master/requirements.txt (in user venv)
 [ ] Settings → Test → SKILL.md, templates/, scripts/svg_to_pptx/ all yes

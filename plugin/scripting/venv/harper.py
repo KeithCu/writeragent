@@ -121,12 +121,16 @@ def _github_api_request(url: str) -> dict:
     return payload
 
 
-def _release_cache_path(bin_dir: Path) -> Path:
-    return bin_dir / _RELEASE_CACHE_FILENAME
+def _harper_install_dir(user_config_dir: str) -> Path:
+    return Path(user_config_dir) / "harper"
 
 
-def _read_persisted_release(bin_dir: Path, asset_name: str) -> HarperReleaseAsset | None:
-    path = _release_cache_path(bin_dir)
+def _release_cache_path(harper_dir: Path) -> Path:
+    return harper_dir / _RELEASE_CACHE_FILENAME
+
+
+def _read_persisted_release(harper_dir: Path, asset_name: str) -> HarperReleaseAsset | None:
+    path = _release_cache_path(harper_dir)
     if not path.is_file():
         return None
     try:
@@ -141,17 +145,17 @@ def _read_persisted_release(bin_dir: Path, asset_name: str) -> HarperReleaseAsse
         return None
 
 
-def _write_persisted_release(bin_dir: Path, release: HarperReleaseAsset) -> None:
-    bin_dir.mkdir(parents=True, exist_ok=True)
+def _write_persisted_release(harper_dir: Path, release: HarperReleaseAsset) -> None:
+    harper_dir.mkdir(parents=True, exist_ok=True)
     payload = {"checked_at": time.time(), "version": release.version, "asset_name": release.asset_name, "download_url": release.download_url, "sha256": release.sha256}
-    _release_cache_path(bin_dir).write_text(json.dumps(payload), encoding="utf-8")
+    _release_cache_path(harper_dir).write_text(json.dumps(payload), encoding="utf-8")
 
 
-def _fetch_latest_release_asset(system: str, machine: str, bin_dir: Path) -> HarperReleaseAsset:
+def _fetch_latest_release_asset(system: str, machine: str, harper_dir: Path) -> HarperReleaseAsset:
     """Resolve the latest harper-ls asset for this platform (checked at most once per week)."""
     asset_name = _resolve_harper_asset(system, machine)
 
-    persisted = _read_persisted_release(bin_dir, asset_name)
+    persisted = _read_persisted_release(harper_dir, asset_name)
     if persisted is not None:
         return persisted
 
@@ -176,15 +180,15 @@ def _fetch_latest_release_asset(system: str, machine: str, bin_dir: Path) -> Har
         if not download_url:
             raise RuntimeError(f"Harper asset {asset_name} has no download URL")
         info = HarperReleaseAsset(version=version, asset_name=asset_name, download_url=download_url, sha256=_parse_github_digest(asset.get("digest")))
-        _write_persisted_release(bin_dir, info)
+        _write_persisted_release(harper_dir, info)
         _release_cache[asset_name] = (time.time(), info)
         return info
 
     raise RuntimeError(f"Harper asset {asset_name} not found in latest release {tag_name}")
 
 
-def _read_installed_version(bin_dir: Path) -> str | None:
-    sidecar = bin_dir / "harper-ls.version"
+def _read_installed_version(harper_dir: Path) -> str | None:
+    sidecar = harper_dir / "harper-ls.version"
     if not sidecar.is_file():
         return None
     try:
@@ -202,6 +206,7 @@ def _download_harper_binary(dest_path: Path, release: HarperReleaseAsset) -> Non
     processor = Untar() if release.asset_name.endswith((".tar.gz", ".tgz")) else Unzip()
     downloader = HTTPDownloader(headers={"User-Agent": USER_AGENT}, timeout=_DOWNLOAD_TIMEOUT_SEC, max_bytes=_DOWNLOAD_MAX_BYTES)
     tmp_binary = dest_path.parent / f".harper-ls{'.exe' if os.name == 'nt' else ''}.download"
+    archive_path = dest_path.parent / release.asset_name
 
     try:
         extracted = retrieve(
@@ -221,6 +226,12 @@ def _download_harper_binary(dest_path: Path, release: HarperReleaseAsset) -> Non
         os.replace(tmp_binary, dest_path)
         (dest_path.parent / "harper-ls.version").write_text(release.version, encoding="utf-8")
         log.info("[harper] Binary v%s installed at %s", release.version, dest_path)
+        try:
+            if archive_path.is_file():
+                archive_path.unlink()
+                log.info("[harper] Removed downloaded archive %s", archive_path)
+        except Exception as cleanup_err:
+            log.warning("[harper] Could not remove downloaded archive %s: %s", archive_path, cleanup_err)
     except Exception as e:
         log.error("[harper] Failed to download and extract binary: %s", e)
         raise RuntimeError(f"Failed to auto-download Harper binary: {e}")
@@ -232,20 +243,58 @@ def _download_harper_binary(dest_path: Path, release: HarperReleaseAsset) -> Non
             pass
 
 
+# TEMP(2026-07): Remove after ~2026-09 — migrates Harper from profile bin/ to harper/.
+def _migrate_legacy_bin_install(user_config_dir: str, harper_dir: Path) -> None:
+    suffix = ".exe" if os.name == "nt" else ""
+    binary_name = f"harper-ls{suffix}"
+    if (harper_dir / binary_name).exists():
+        return
+
+    legacy_dir = Path(user_config_dir) / "bin"
+    legacy_binary = legacy_dir / binary_name
+    if not legacy_binary.is_file():
+        return
+
+    harper_dir.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(legacy_binary), str(harper_dir / binary_name))
+    for sidecar_name in ("harper-ls.version", _RELEASE_CACHE_FILENAME):
+        legacy_sidecar = legacy_dir / sidecar_name
+        if legacy_sidecar.is_file():
+            shutil.move(str(legacy_sidecar), str(harper_dir / sidecar_name))
+
+    try:
+        for entry in legacy_dir.iterdir():
+            name = entry.name
+            if name.startswith("harper-ls-") and (name.endswith((".tar.gz", ".zip", ".tgz")) or name.endswith((".untar", ".unzip"))):
+                if entry.is_dir():
+                    shutil.rmtree(entry, ignore_errors=True)
+                else:
+                    entry.unlink(missing_ok=True)
+        tmp_download = legacy_dir / f".harper-ls{suffix}.download"
+        if tmp_download.is_file():
+            tmp_download.unlink()
+        if legacy_dir.is_dir() and not any(legacy_dir.iterdir()):
+            legacy_dir.rmdir()
+    except Exception as cleanup_err:
+        log.warning("[harper] Legacy bin/ cleanup incomplete: %s", cleanup_err)
+
+
 def _get_harper_binary(user_config_dir: str) -> str:
     """Resolve path to harper-ls binary, auto-downloading if missing or outdated."""
     sys_path = shutil.which("harper-ls")
     if sys_path:
         return sys_path
 
-    bin_dir = Path(user_config_dir) / "bin"
+    harper_dir = _harper_install_dir(user_config_dir)
+    # TEMP(2026-07): Remove after ~2026-09 — migrates Harper from profile bin/ to harper/.
+    _migrate_legacy_bin_install(user_config_dir, harper_dir)
     suffix = ".exe" if os.name == "nt" else ""
-    binary_path = bin_dir / f"harper-ls{suffix}"
+    binary_path = harper_dir / f"harper-ls{suffix}"
 
     system = platform.system().lower()
     machine = platform.machine().lower()
-    release = _fetch_latest_release_asset(system, machine, bin_dir)
-    installed = _read_installed_version(bin_dir)
+    release = _fetch_latest_release_asset(system, machine, harper_dir)
+    installed = _read_installed_version(harper_dir)
 
     if not binary_path.exists() or installed != release.version:
         try:
