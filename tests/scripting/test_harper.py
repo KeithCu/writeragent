@@ -46,11 +46,34 @@ def test_harper_ls_client_and_check(mock_popen: MagicMock, mock_get_bin: MagicMo
         "result": {"capabilities": {}}
     }).encode("utf-8")
     
+    # Stale diagnostic notification (version 0 when expecting version 1)
+    diag_notification_stale = json.dumps({
+        "jsonrpc": "2.0",
+        "method": "textDocument/publishDiagnostics",
+        "params": {
+            "uri": "file:///tmp/writeragent_harper_lint_123.txt",
+            "version": 0,
+            "diagnostics": [
+                {
+                    "code": "SomeOldCode",
+                    "message": "Old warning",
+                    "range": {
+                        "start": {"line": 0, "character": 0},
+                        "end": {"line": 0, "character": 4}
+                    },
+                    "severity": 4,
+                    "source": "Harper"
+                }
+            ]
+        }
+    }).encode("utf-8")
+
     diag_notification = json.dumps({
         "jsonrpc": "2.0",
         "method": "textDocument/publishDiagnostics",
         "params": {
-            "uri": "file:///tmp/writeragent_lint_123.txt", # We'll patch time.time_ns to match
+            "uri": "file:///tmp/writeragent_harper_lint_123.txt",
+            "version": 1,
             "diagnostics": [
                 {
                     "code": "SentenceCapitalization",
@@ -75,7 +98,7 @@ def test_harper_ls_client_and_check(mock_popen: MagicMock, mock_get_bin: MagicMo
                 "title": "Replace with: “This”",
                 "edit": {
                     "changes": {
-                        "file:///tmp/writeragent_lint_123.txt": [
+                        "file:///tmp/writeragent_harper_lint_123.txt": [
                             {
                                 "newText": "This",
                                 "range": {
@@ -103,6 +126,7 @@ def test_harper_ls_client_and_check(mock_popen: MagicMock, mock_get_bin: MagicMo
 
     responses = [
         make_lsp_chunk(init_resp),
+        make_lsp_chunk(diag_notification_stale),
         make_lsp_chunk(diag_notification),
         make_lsp_chunk(code_action_resp),
         make_lsp_chunk(shutdown_resp)
@@ -128,3 +152,37 @@ def test_harper_ls_client_and_check(mock_popen: MagicMock, mock_get_bin: MagicMo
     assert err["n_error_length"] == 4
     assert err["rule_identifier"] == "harper||SentenceCapitalization"
     assert err["suggestions"] == ["This"]
+
+
+@patch("plugin.scripting.venv.harper._get_harper_binary")
+@patch("subprocess.Popen")
+def test_harper_ls_timeout(mock_popen: MagicMock, mock_get_bin: MagicMock) -> None:
+    mock_get_bin.return_value = "/bin/harper-ls"
+    
+    # Configure mock process
+    mock_proc = MagicMock()
+    mock_popen.return_value = mock_proc
+    mock_proc.poll.return_value = None
+    
+    init_resp = json.dumps({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {"capabilities": {}}
+    }).encode("utf-8")
+    
+    def make_lsp_chunk(body: bytes) -> bytes:
+        return f"Content-Length: {len(body)}\r\n\r\n".encode("utf-8") + body
+        
+    import io
+    stream = io.BytesIO(make_lsp_chunk(init_resp))
+    mock_proc.stdout.readline = stream.readline
+    mock_proc.stdout.read = stream.read
+    
+    client = HarperLSClient("/bin/harper-ls")
+    
+    # Mock queue.get to simulate a timeout
+    import queue
+    with patch.object(client.stdout_queue, "get", side_effect=queue.Empty):
+        with pytest.raises(TimeoutError):
+            client.lint("test text")
+

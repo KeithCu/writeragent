@@ -16,6 +16,8 @@ import tarfile
 import zipfile
 import shutil
 import time
+import queue
+import threading
 from pathlib import Path
 
 
@@ -118,17 +120,28 @@ class HarperLSClient:
         self.binary_path = binary_path
         self.proc = None
         self.request_id = 0
+        self.uri = f"file:///tmp/writeragent_harper_lint_{time.time_ns()}.txt"
+        self._doc_version = 0
+        self._doc_opened = False
+        self.stdout_queue: queue.Queue = queue.Queue()
+        self.stdout_thread = None
         self._initialize()
 
     def _initialize(self):
         try:
+            self._doc_version = 0
+            self._doc_opened = False
+            self.stdout_queue = queue.Queue()
             self.proc = subprocess.Popen(
                 [self.binary_path, "--stdio"],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
                 bufsize=0
             )
+            self.stdout_thread = threading.Thread(target=self._read_loop, daemon=True)  # nosemgrep: raw-uno-thread-ban
+            self.stdout_thread.start()
+
             # Send initialize
             self._send_request("initialize", {
                 "processId": os.getpid(),
@@ -159,6 +172,35 @@ class HarperLSClient:
             self.close()
             raise RuntimeError(f"Failed to start/initialize harper-ls: {e}")
 
+    def _read_loop(self):
+        try:
+            while self.proc and self.proc.stdout:
+                headers = {}
+                while True:
+                    line = self.proc.stdout.readline()
+                    if not line:
+                        break
+                    line_str = line.decode('utf-8').strip()
+                    if not line_str:
+                        break
+                    if ':' in line_str:
+                        k, v = line_str.split(':', 1)
+                        headers[k.strip().lower()] = v.strip()
+                
+                if not line:
+                    break
+
+                content_length = int(headers.get('content-length', 0))
+                if content_length == 0:
+                    continue
+
+                body = self.proc.stdout.read(content_length).decode('utf-8')
+                self.stdout_queue.put(json.loads(body))
+        except Exception:
+            pass
+        finally:
+            self.stdout_queue.put(None)
+
     def is_alive(self) -> bool:
         return self.proc is not None and self.proc.poll() is None
 
@@ -170,31 +212,17 @@ class HarperLSClient:
         self.proc.stdin.write((header + body).encode('utf-8'))
         self.proc.stdin.flush()
 
-    def _read(self) -> dict | None:
-        if not self.proc or self.proc.stdout is None:
+    def _read(self, timeout: float = 5.0) -> dict | None:
+        if not self.proc:
             raise RuntimeError("harper-ls process not running")
-        
-        headers = {}
-        while True:
-            line = self.proc.stdout.readline()
-            if not line:
-                return None
-            line_str = line.decode('utf-8').strip()
-            if not line_str:
-                break
-            if ':' in line_str:
-                k, v = line_str.split(':', 1)
-                headers[k.strip().lower()] = v.strip()
-        
-        content_length = int(headers.get('content-length', 0))
-        if content_length == 0:
-            return None
-        
-        body = self.proc.stdout.read(content_length).decode('utf-8')
-        return json.loads(body)
+        try:
+            msg = self.stdout_queue.get(timeout=timeout)
+            return msg
+        except queue.Empty:
+            raise TimeoutError("Timeout waiting for LSP response")
 
-    def _read_and_handle(self) -> dict | None:
-        msg = self._read()
+    def _read_and_handle(self, timeout: float = 5.0) -> dict | None:
+        msg = self._read(timeout=timeout)
         if not msg:
             return None
         
@@ -213,11 +241,11 @@ class HarperLSClient:
                     "id": msg["id"],
                     "result": None
                 })
-            return self._read_and_handle()
+            return self._read_and_handle(timeout=timeout)
         
         return msg
 
-    def _send_request(self, method: str, params: dict) -> dict | None:
+    def _send_request(self, method: str, params: dict, timeout: float = 5.0) -> dict | None:
         self.request_id += 1
         req_id = self.request_id
         self._write({
@@ -228,7 +256,7 @@ class HarperLSClient:
         })
         
         for _ in range(50):
-            msg = self._read_and_handle()
+            msg = self._read_and_handle(timeout=timeout)
             if not msg:
                 break
             if msg.get("id") == req_id:
@@ -239,83 +267,110 @@ class HarperLSClient:
         if not self.is_alive():
             self._initialize()
 
-        uri = f"file:///tmp/writeragent_lint_{time.time_ns()}.txt"
-        
-        self._write({
-            "jsonrpc": "2.0",
-            "method": "textDocument/didOpen",
-            "params": {
-                "textDocument": {
-                    "uri": uri,
-                    "languageId": "markdown",
-                    "version": 1,
-                    "text": text
-                }
-            }
-        })
-        
-        diagnostics = []
-        for _ in range(50):
-            msg = self._read_and_handle()
-            if not msg:
-                break
-            
-            if msg.get("method") == "textDocument/publishDiagnostics":
-                params = msg.get("params", {})
-                if params.get("uri") == uri:
-                    diagnostics = params.get("diagnostics", [])
-                    break
-        
-        # Get code actions / suggestions for each diagnostic
-        results = []
-        for diag in diagnostics:
-            suggestions = []
-            try:
-                res = self._send_request("textDocument/codeAction", {
-                    "textDocument": {
-                        "uri": uri
-                    },
-                    "range": diag["range"],
-                    "context": {
-                        "diagnostics": [diag]
+        self._doc_version += 1
+        version = self._doc_version
+
+        try:
+            if not self._doc_opened:
+                self._write({
+                    "jsonrpc": "2.0",
+                    "method": "textDocument/didOpen",
+                    "params": {
+                        "textDocument": {
+                            "uri": self.uri,
+                            "languageId": "markdown",
+                            "version": version,
+                            "text": text
+                        }
                     }
                 })
-                if res and isinstance(res.get("result"), list):
-                    for action in res["result"]:
-                        if action.get("kind") == "quickfix":
-                            edit = action.get("edit", {})
-                            changes = edit.get("changes", {})
-                            for change_list in changes.values():
-                                for chg in change_list:
-                                    new_text = chg.get("newText")
-                                    if new_text is not None and new_text not in suggestions:
-                                        suggestions.append(new_text)
-            except Exception as e:
-                log.error(f"[harper] Failed to fetch codeActions: {e}")
-                
-            results.append({
-                "diagnostic": diag,
-                "suggestions": suggestions
-            })
-
-        # Clean up
-        try:
-            self._write({
-                "jsonrpc": "2.0",
-                "method": "textDocument/didClose",
-                "params": {
-                    "textDocument": {
-                        "uri": uri
+                self._doc_opened = True
+            else:
+                self._write({
+                    "jsonrpc": "2.0",
+                    "method": "textDocument/didChange",
+                    "params": {
+                        "textDocument": {
+                            "uri": self.uri,
+                            "version": version
+                        },
+                        "contentChanges": [
+                            {
+                                "text": text
+                            }
+                        ]
                     }
-                }
-            })
-        except Exception:
-            pass
+                })
             
-        return results
+            diagnostics = []
+            for _ in range(50):
+                msg = self._read_and_handle(timeout=5.0)
+                if not msg:
+                    break
+                
+                if msg.get("method") == "textDocument/publishDiagnostics":
+                    params = msg.get("params", {})
+                    if params.get("uri") == self.uri:
+                        msg_version = params.get("version")
+                        if msg_version is not None and msg_version < version:
+                            continue
+                        diagnostics = params.get("diagnostics", [])
+                        break
+            
+            # Get code actions / suggestions for each diagnostic
+            results = []
+            for diag in diagnostics:
+                suggestions = []
+                try:
+                    res = self._send_request("textDocument/codeAction", {
+                        "textDocument": {
+                            "uri": self.uri
+                        },
+                        "range": diag["range"],
+                        "context": {
+                            "diagnostics": [diag]
+                        }
+                    }, timeout=5.0)
+                    if res and isinstance(res.get("result"), list):
+                        for action in res["result"]:
+                            if action.get("kind") == "quickfix":
+                                edit = action.get("edit", {})
+                                changes = edit.get("changes", {})
+                                for change_list in changes.values():
+                                      for chg in change_list:
+                                          new_text = chg.get("newText")
+                                          if new_text is not None and new_text not in suggestions:
+                                              suggestions.append(new_text)
+                except Exception as e:
+                    log.error(f"[harper] Failed to fetch codeActions: {e}")
+                    
+                results.append({
+                    "diagnostic": diag,
+                    "suggestions": suggestions
+                })
+                
+            return results
+        except Exception as e:
+            log.error(f"[harper] Exception during linting, closing client: {e}")
+            self.close()
+            raise
 
     def close(self):
         if self.proc:
+            if self._doc_opened:
+                try:
+                    self._write({
+                        "jsonrpc": "2.0",
+                        "method": "textDocument/didClose",
+                        "params": {
+                            "textDocument": {
+                                "uri": self.uri
+                            }
+                        }
+                    })
+                except Exception:
+                    pass
+                self._doc_opened = False
             try:
                 self._write({
                     "jsonrpc": "2.0",

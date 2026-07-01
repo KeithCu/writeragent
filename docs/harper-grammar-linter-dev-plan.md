@@ -92,4 +92,65 @@ Integrate Harper directly into the linter work queue:
 The Harper Rust linter integration is fully implemented and optimized:
 1. **Persistent Daemon Pattern:** Upgraded from one-shot `harper-cli` process spawning to a persistent `harper-ls` background daemon running inside the virtual environment worker process. This eliminates process startup and disk I/O overhead.
 2. **Standard LSP Protocol:** Implemented handshake, configuration negotiation, diagnostics handling, and code actions queries natively over stdin/stdout streams.
-3. **Integration Testing:** Verified via [scripts/test_harper.py](file:///home/keithcu/Desktop/Python/writeragent/scripts/test_harper.py) and added comprehensive mocks and range mapping unit tests inside [tests/scripting/test_harper.py](file:///home/keithcu/Desktop/Python/writeragent/tests/scripting/test_harper.py). All checks and tests pass successfully.
+3. **Integration Testing:** Verified via [`scripts/test_harper.py`](../scripts/test_harper.py) and added mocks and range-mapping unit tests in [`tests/scripting/test_harper.py`](../tests/scripting/test_harper.py).
+
+Primary implementation: [`plugin/scripting/venv/harper.py`](../plugin/scripting/venv/harper.py) (`HarperLSClient`, `run_harper_check`). Host RPC: [`plugin/scripting/client.py`](../plugin/scripting/client.py) (`run_harper_check`). Queue wiring: [`plugin/writer/locale/grammar_work_queue.py`](../plugin/writer/locale/grammar_work_queue.py).
+
+---
+
+## 7. Known Limitations
+
+These are accepted trade-offs for the current Harper-only integration. None block normal grammar proofreading use.
+
+### LSP client scope
+
+`HarperLSClient` is a **purpose-built client for `harper-ls`**, not a reusable general LSP library. It implements only the methods Harper needs: `initialize`, `textDocument/didOpen`, `textDocument/publishDiagnostics`, `textDocument/codeAction`, `textDocument/didClose`, and `workspace/configuration`. Other server-initiated requests receive a generic `result: null` reply.
+
+#### Diagnostic and request waiting
+
+The client waits for responses with a wall-clock timeout of 5 seconds by utilizing a background reader thread pushing to a thread-safe `queue.Queue`. If the server hangs or crashes, the client fails fast with a `TimeoutError` and restarts.
+
+### Quickfix round trips
+
+Code actions are fetched with **one `textDocument/codeAction` request per diagnostic**. A paragraph with many issues therefore incurs N sequential LSP round trips after diagnostics arrive.
+
+### Language and configuration
+
+- `languageId` is hardcoded to `"markdown"` for every segment, regardless of document locale or content type.
+- `workspace/configuration` replies with `[{}]` — Harper-specific settings (dialect, rule toggles) are not forwarded from WriterAgent config.
+
+### Position encoding
+
+Range mapping uses Python string indices (`lsp_range_to_offset`) and assumes Harper's LSP columns align with UTF-8 code units in the segment text. Mixed surrogate-pair or complex Unicode edge cases are untested.
+
+### Test coverage
+
+Tests cover range mapping, mocked happy-path lint (including stable URI and didChange notifications), and diagnostic timeout verification. There are no automated tests for process restart, interleaved server requests, or malformed framing.
+
+### Queue granularity
+
+The grammar worker processes Harper chunks **one paragraph at a time** (`chunk_len=1` in observability). This matches other local linters and keeps memory bounded but multiplies LSP overhead when many short paragraphs are queued.
+
+---
+
+## 8. Future Work
+
+### 8.1 Reuse a stable document with `didChange` (Completed)
+
+We implemented the proposed `didChange` pattern. We reuse a stable URI per client instance, send `didOpen` once, and use `didChange` with full text replacement on subsequent lints. Monotonic document versioning ensures we reject stale, in-flight diagnostics, and `didClose` is sent cleanly upon shutdown.
+
+### 8.2 Other improvements (lower priority)
+
+| Item | Rationale | Status |
+|------|-----------|--------|
+| **Timed diagnostic wait** | Replace the fixed 50-message loop with a monotonic budget (e.g. 5s per lint) so hung servers fail fast. | Completed |
+| **stderr drain** | Background thread reading stderr, or `stderr=subprocess.DEVNULL` if Harper guarantees silence. | Completed (stderr redirected to DEVNULL) |
+| **Harper config via LSP** | Map WriterAgent grammar/locale settings into `workspace/configuration` responses so Harper rule sets match user expectations. | Open |
+| **Dynamic `languageId`** | Derive from document BCP47 or content type instead of hardcoded `markdown`. | Open |
+| **Protocol helpers** | Extract Content-Length framing and JSON-RPC envelope builders (similar to Hermes `agent/lsp/protocol.py`) if Harper client grows or a second LSP consumer appears. | Open |
+| **Edge-case tests** | Process death + restart, interleaved `workspace/configuration` during `codeAction`, empty diagnostic list, timeout path. | Open |
+| **Batch code actions** | Investigate whether `harper-ls` supports range-wide or document-wide code actions to cut round trips when diagnostic count is high. | Open |t is high. |
+
+### 8.3 Not planned: general-purpose LSP port
+
+WriterAgent does **not** need Hermes's full multi-language LSP stack (`pyright`, `gopls`, workspace delta baselines, etc.) for Harper grammar. A future **separate** feature — semantic lint of user Python scripts or macros — would warrant porting selected pieces from [Hermes `agent/lsp`](file:///home/keithcu/.hermes/hermes-agent/agent/lsp/) under a new module, not extending `HarperLSClient`.
