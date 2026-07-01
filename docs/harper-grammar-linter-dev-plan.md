@@ -40,7 +40,7 @@ To avoid compiling Rust from source, WriterAgent fetches the official precompile
    * **Linux x86_64:** `harper-ls-x86_64-unknown-linux-gnu.tar.gz`
    * **macOS Arm64:** `harper-ls-aarch64-apple-darwin.tar.gz`
    * **Windows x86_64:** `harper-ls-x86_64-pc-windows-msvc.zip`
-3. **Auto-install / auto-update:** First run downloads into `user_config_dir/harper/` and writes `harper-ls.version`. Later runs compare the sidecar to the latest GitHub tag and re-download when Harper ships a new release (falls back to the installed binary if an update download fails). After a successful install, the downloaded `.tar.gz` or `.zip` archive is removed from `harper/`; only `harper-ls` and `harper-ls.version` remain. Legacy installs under `bin/` are migrated automatically (temporary; remove migration code after ~2026-09).
+3. **Auto-install / auto-update:** First run downloads into `user_config_dir/harper/` and writes `harper-ls.version`. Release archives download into a temporary directory (then deleted after extract); extracted contents remain under `harper/`. Later runs compare the sidecar to the latest GitHub tag and re-download when Harper ships a new release (falls back to the installed binary if an update download fails). Legacy installs under `bin/` are migrated automatically (temporary; remove migration code after ~2026-09).
 
 ---
 

@@ -13,6 +13,7 @@ import platform
 import queue
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 import urllib.request
@@ -203,35 +204,39 @@ def _download_harper_binary(dest_path: Path, release: HarperReleaseAsset) -> Non
     log.info("[harper] Downloading v%s binary (%s) from %s", release.version, release.asset_name, release.download_url)
 
     dest_path.parent.mkdir(parents=True, exist_ok=True)
-    processor = Untar() if release.asset_name.endswith((".tar.gz", ".tgz")) else Unzip()
+    extract_suffix = ".untar" if release.asset_name.endswith((".tar.gz", ".tgz")) else ".unzip"
+    extract_root = dest_path.parent / f"{release.asset_name}{extract_suffix}"
+    processor = Untar(extract_dir=str(extract_root)) if release.asset_name.endswith((".tar.gz", ".tgz")) else Unzip(extract_dir=str(extract_root))
     downloader = HTTPDownloader(headers={"User-Agent": USER_AGENT}, timeout=_DOWNLOAD_TIMEOUT_SEC, max_bytes=_DOWNLOAD_MAX_BYTES)
     tmp_binary = dest_path.parent / f".harper-ls{'.exe' if os.name == 'nt' else ''}.download"
-    archive_path = dest_path.parent / release.asset_name
 
     try:
-        extracted = retrieve(
-            url=release.download_url,
-            known_hash=f"sha256:{release.sha256}",
-            path=str(dest_path.parent),
-            fname=release.asset_name,
-            processor=processor,
-            downloader=downloader,
-            retry_if_failed=2,
-        )
-        if not isinstance(extracted, list):
-            raise RuntimeError("Harper archive extraction did not return file paths")
-        source = Path(_pick_harper_member(extracted))
-        shutil.copy2(source, tmp_binary)
-        os.chmod(tmp_binary, 0o755)  # nosec B103  # nosemgrep: insecure-file-permissions
-        os.replace(tmp_binary, dest_path)
-        (dest_path.parent / "harper-ls.version").write_text(release.version, encoding="utf-8")
-        log.info("[harper] Binary v%s installed at %s", release.version, dest_path)
-        try:
-            if archive_path.is_file():
-                archive_path.unlink()
-                log.info("[harper] Removed downloaded archive %s", archive_path)
-        except Exception as cleanup_err:
-            log.warning("[harper] Could not remove downloaded archive %s: %s", archive_path, cleanup_err)
+        with tempfile.TemporaryDirectory(prefix="writeragent-harper-") as tmp_dir:
+            archive_path = Path(tmp_dir) / release.asset_name
+            retrieve(
+                url=release.download_url,
+                known_hash=f"sha256:{release.sha256}",
+                path=tmp_dir,
+                fname=release.asset_name,
+                processor=None,
+                downloader=downloader,
+                retry_if_failed=2,
+            )
+            extracted = processor(str(archive_path), "download", None)
+            if not isinstance(extracted, list):
+                raise RuntimeError("Harper archive extraction did not return file paths")
+            source = Path(_pick_harper_member(extracted))
+            shutil.copy2(source, tmp_binary)
+            os.chmod(tmp_binary, 0o755)  # nosec B103  # nosemgrep: insecure-file-permissions
+            os.replace(tmp_binary, dest_path)
+            (dest_path.parent / "harper-ls.version").write_text(release.version, encoding="utf-8")
+            log.info("[harper] Binary v%s installed at %s", release.version, dest_path)
+            try:
+                if archive_path.is_file():
+                    archive_path.unlink()
+                    log.info("[harper] Removed downloaded archive %s", archive_path)
+            except Exception as cleanup_err:
+                log.warning("[harper] Could not remove downloaded archive %s: %s", archive_path, cleanup_err)
     except Exception as e:
         log.error("[harper] Failed to download and extract binary: %s", e)
         raise RuntimeError(f"Failed to auto-download Harper binary: {e}")

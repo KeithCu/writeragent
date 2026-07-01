@@ -526,18 +526,23 @@ def test_download_harper_binary_installs_binary(mock_retrieve: MagicMock, tmp_pa
         download_url="https://example.com/harper.tar.gz",
         sha256="abc123",
     )
-    extracted = tmp_path / "harper" / "harper-ls-x86_64-unknown-linux-gnu.tar.gz.untar" / "harper-ls"
+    harper_dir = tmp_path / "harper"
+    extracted = harper_dir / "harper-ls-x86_64-unknown-linux-gnu.tar.gz.untar" / "harper-ls"
     extracted.parent.mkdir(parents=True)
     extracted.write_bytes(b"fake-binary")
-    mock_retrieve.return_value = [str(extracted)]
+    mock_retrieve.return_value = str(harper_dir / release.asset_name)
+    mock_processor = MagicMock(return_value=[str(extracted)])
 
-    dest = tmp_path / "harper" / "harper-ls"
+    dest = harper_dir / "harper-ls"
     dest.parent.mkdir(parents=True, exist_ok=True)
-    harper_module._download_harper_binary(dest, release)
+    with patch("plugin.scripting.venv.harper.Untar", return_value=mock_processor):
+        harper_module._download_harper_binary(dest, release)
 
     mock_retrieve.assert_called_once()
+    mock_processor.assert_called_once()
     assert dest.read_bytes() == b"fake-binary"
     assert (dest.parent / "harper-ls.version").read_text(encoding="utf-8") == "2.6.0"
+    assert extracted.is_file()
 
 
 @patch("plugin.scripting.venv.harper.retrieve")
@@ -550,19 +555,33 @@ def test_download_harper_binary_removes_archive_after_success(mock_retrieve: Mag
     )
     harper_dir = tmp_path / "harper"
     harper_dir.mkdir(parents=True)
-    archive_path = harper_dir / release.asset_name
-    archive_path.write_bytes(b"fake-archive")
+    dest = harper_dir / "harper-ls"
     extracted = harper_dir / f"{release.asset_name}.untar" / "harper-ls"
     extracted.parent.mkdir(parents=True)
     extracted.write_bytes(b"fake-binary")
-    mock_retrieve.return_value = [str(extracted)]
+    captured: dict[str, Path] = {}
 
-    dest = harper_dir / "harper-ls"
-    harper_module._download_harper_binary(dest, release)
+    def fake_retrieve(*, path: str, fname: str, processor=None, **kwargs) -> str:
+        del kwargs
+        assert processor is None
+        download_dir = Path(path)
+        archive_path = download_dir / fname
+        archive_path.write_bytes(b"fake-archive")
+        captured["download_dir"] = download_dir
+        captured["archive_path"] = archive_path
+        return str(archive_path)
+
+    mock_retrieve.side_effect = fake_retrieve
+    mock_processor = MagicMock(return_value=[str(extracted)])
+    with patch("plugin.scripting.venv.harper.Untar", return_value=mock_processor):
+        harper_module._download_harper_binary(dest, release)
 
     assert dest.read_bytes() == b"fake-binary"
     assert (harper_dir / "harper-ls.version").read_text(encoding="utf-8") == "2.6.0"
-    assert not archive_path.exists()
+    assert captured["download_dir"] != harper_dir
+    assert not captured["archive_path"].exists()
+    assert not (harper_dir / release.asset_name).exists()
+    assert extracted.is_file()
 
 
 @patch("plugin.scripting.venv.harper.retrieve")
@@ -578,13 +597,11 @@ def test_download_harper_binary_propagates_retrieve_failure(mock_retrieve: Magic
     dest = tmp_path / "harper" / "harper-ls"
     harper_dir = dest.parent
     harper_dir.mkdir(parents=True, exist_ok=True)
-    archive_path = harper_dir / release.asset_name
-    archive_path.write_bytes(b"fake-archive")
 
     with pytest.raises(RuntimeError, match="Failed to auto-download Harper binary"):
         harper_module._download_harper_binary(dest, release)
 
-    assert archive_path.exists()
+    assert not (harper_dir / release.asset_name).exists()
 
 
 def test_fetch_latest_release_asset_uses_github_api(tmp_path: Path) -> None:
