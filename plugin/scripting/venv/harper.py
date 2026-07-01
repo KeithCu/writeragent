@@ -17,6 +17,7 @@ import threading
 import time
 import urllib.request
 from dataclasses import dataclass
+from typing import BinaryIO, cast
 from pathlib import Path
 
 from plugin.contrib.lsp import json_rpc_framing
@@ -53,11 +54,11 @@ class HarperReleaseAsset:
 _BCP47_TO_DIALECT: dict[str, str] = {"en-GB": "British", "en-AU": "Australian", "en-CA": "Canadian"}
 
 
-def _lsp_notification(method: str, params: dict) -> dict:
+def _lsp_notification(method: str, params: dict | None) -> dict:
     return {"jsonrpc": _JSONRPC, "method": method, "params": params}
 
 
-def _lsp_request(req_id: int, method: str, params: dict) -> dict:
+def _lsp_request(req_id: int, method: str, params: dict | None) -> dict:
     return {"jsonrpc": _JSONRPC, "id": req_id, "method": method, "params": params}
 
 
@@ -267,13 +268,13 @@ class HarperLSClient:
         self.user_config_dir = user_config_dir
         self._bcp47 = bcp47
         self._lsp_settings = _harper_lsp_settings(bcp47, user_config_dir)
-        self.proc = None
+        self.proc: subprocess.Popen[bytes] | None = None
         self.request_id = 0
         self.uri = f"file:///tmp/writeragent_harper_lint_{time.time_ns()}.txt"
         self._doc_version = 0
         self._doc_opened = False
         self.stdout_queue: queue.Queue = queue.Queue()
-        self.stdout_thread = None
+        self.stdout_thread: threading.Thread | None = None
         self._lint_lock = threading.Lock()
         self._initialize()
 
@@ -300,7 +301,7 @@ class HarperLSClient:
     def _read_loop(self) -> None:
         try:
             while self.proc and self.proc.stdout:
-                msg = json_rpc_framing.read_frame(self.proc.stdout)
+                msg = json_rpc_framing.read_frame(cast(BinaryIO, self.proc.stdout))
                 if msg is None:
                     break
                 self.stdout_queue.put(msg)
@@ -315,7 +316,7 @@ class HarperLSClient:
     def _write(self, payload: dict) -> None:
         if not self.proc or self.proc.stdin is None:
             raise RuntimeError("harper-ls process not running")
-        json_rpc_framing.write_frame(self.proc.stdin, payload)
+        json_rpc_framing.write_frame(cast(BinaryIO, self.proc.stdin), payload)
 
     def _read(self, deadline: float) -> dict | None:
         if not self.proc:
