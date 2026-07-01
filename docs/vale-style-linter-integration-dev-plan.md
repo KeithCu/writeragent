@@ -1,221 +1,169 @@
 # Development Plan: Vale Editorial Style Linter Integration
 
-This document outlines the detailed development plan to integrate the **Vale Prose Linter** into WriterAgent as an offline, local style-guide checking engine. 
+This document outlines the development plan for **Vale** as an offline, local style-guide checker inside WriterAgent's grammar proofreader pipeline.
 
 ---
 
 ## 1. Objectives
 
-1.  **Editorial Compliance:** Allow users to run style guides (Microsoft, Google, write-good) to check for tone, wordiness, passive voice, and formatting consistency.
-2.  **Zero-Dependency Binary Distribution:** Leverage the `vale` package on PyPI to auto-download and run the compiled Vale Go binary inside the user's venv.
-3.  **Unified Error Mapping:** Parse Vale's structured JSON output and translate style alerts (suggestions, warnings, errors) into red lines / tooltips inside LibreOffice Writer.
-4.  **Multi-Style Compatibility:** Enable both Microsoft and Google style guides simultaneously, with a custom configuration that resolves conflicts (e.g., heading casing).
+1. **Editorial compliance:** Run style guides (Microsoft, Google, write-good) for tone, wordiness, passive voice, and formatting consistency.
+2. **Zero custom binary plumbing:** Use the official **`vale` PyPI wrapper**, which downloads the compiled Go binary into the user venv's `bin/` (same pattern as `language-tool-python`, unlike Harper's profile `bin/` auto-download).
+3. **Unified error mapping:** Parse Vale JSON and map alerts into the shared grammar-queue shape (`n_error_start`, `n_error_length`, `rule_identifier`, etc.).
+4. **Multi-style compatibility:** Apply Microsoft + Google + write-good together, with `.vale.ini` rules that resolve known conflicts (e.g. heading casing).
 
 ---
 
-## 2. Configuration & Packaging Design
+## 2. Configuration & Integration Design
 
-### Configuration Schema (`plugin/doc/module.yaml`)
-We will add Vale configuration settings on the Doc tab:
+### UI schema (`plugin/doc/module.yaml`)
+
+Vale is selected via the shared grammar checker dropdown (`grammar_proofreader_enabled`), not a separate style-only toggle:
+
 ```yaml
-  style_linter_enabled:
-    type: boolean
-    default: false
-    widget: checkbox
-    label: Enable Vale Style Linter
-    helper: "Enforces professional editorial style guides (Google, Microsoft, write-good) locally."
-    inline: true
-    x: 8
-    width: 205
-
-  style_linter_styles:
-    type: string
-    default: "Microsoft,Google,write-good"
-    widget: text
-    label: Active Styles
-    helper: "Comma-separated list of style guide packages to enforce (e.g., Microsoft, Google, write-good)."
-    label_x: 220
-    label_width: 95
-    x: 318
-    width: 106
+      - value: "vale"
+        label: "Vale (Local Style) (WIP)"
 ```
 
-### Vale Initialization & Assets
-To function, Vale requires:
-1.  A `.vale.ini` configuration file.
-2.  Style guide packages downloaded locally (usually stored in a `styles/` folder).
+Config coercion: [`get_grammar_provider()`](plugin/framework/config.py) returns `"vale"` when that value is selected.
 
-During worker initialization:
-*   We will generate a `.vale.ini` configuration file inside the user's WriterAgent config folder.
-*   If the style directories do not exist, the worker will run `vale sync` using the downloaded binary to automatically pull the official Microsoft, Google, and write-good style guides.
+**Not implemented (original plan):** separate `style_linter_enabled` / `style_linter_styles` fields from early drafts. Active style packages are currently **hardcoded** in [`grammar_work_queue.py`](plugin/writer/locale/grammar_work_queue.py) as `"Microsoft,Google,write-good"`.
+
+### Vale assets (profile directory)
+
+Vale needs:
+
+1. **`.vale.ini`** under the WriterAgent user config dir (`user_config_dir()`).
+2. **Style packages** under `vale_styles/`, fetched by `vale sync`.
+
+First run (when `.vale.ini` is missing): [`vale.py`](plugin/scripting/venv/vale.py) writes the ini, then runs `vale sync` via the venv binary.
 
 ---
 
-## 3. Worker-Side Vale Helper
+## 3. Worker-Side Vale Helper (`plugin/scripting/venv/vale.py`)
 
-We will create a worker script `plugin/scripting/venv/vale.py` that handles writing the text segment to a temporary file (Vale runs on files), executing the binary, and parsing the JSON output.
+Vale lints **files**, not raw strings. The helper:
 
-### Target Script: `plugin/scripting/venv/vale.py`
-```python
-import os
-import sys
-import json
-import subprocess
-import tempfile
-from pathlib import Path
+1. Resolves `vale` / `vale.exe` from `Path(sys.executable).parent` (PyPI-installed wrapper).
+2. Ensures `.vale.ini` + `vale sync` on first use.
+3. Writes the sentence string to a temp `.txt` file.
+4. Runs `vale --config … --output JSON <file>`.
+5. Maps JSON alerts to grammar-queue error dicts (including `Action` → `correct` / `suggestions` when `Name == "replace"`).
 
-# Resolve path to the vale binary downloaded by PyPI wrapper
-def _get_vale_binary() -> str:
-    # Usually installed in the venv's bin directory
-    venv_bin = Path(sys.executable).parent
-    vale_path = venv_bin / "vale"
-    if not vale_path.exists():
-        raise RuntimeError("Vale binary not found. Please run 'uv pip install vale' in the venv.")
-    return str(vale_path)
+Primary implementation: [`plugin/scripting/venv/vale.py`](plugin/scripting/venv/vale.py).
 
-def run_vale_check(text: str, user_config_dir: str, styles: str) -> dict:
-    """Run Vale linter on the text segment and return the style errors list."""
-    vale_bin = _get_vale_binary()
-    
-    # 1. Ensure .vale.ini exists in user config dir
-    ini_path = Path(user_config_dir) / ".vale.ini"
-    styles_path = Path(user_config_dir) / "vale_styles"
-    
-    if not ini_path.exists():
-        styles_path.mkdir(parents=True, exist_ok=True)
-        ini_content = f"""
-StylesPath = {styles_path.as_posix()}
-MinAlertLevel = suggestion
-Packages = Microsoft, Google, write-good
+Host RPC: [`plugin/scripting/client.py`](plugin/scripting/client.py) (`run_vale_check` via `_run_trusted_helper`, session `writeragent:vale`).
 
-[*]
-BasedOnStyles = {styles}
-# Resolve heading case conflict: prefer Google sentence-casing
-Microsoft.Headings = NO
-"""
-        ini_path.write_text(ini_content, encoding="utf-8")
-        
-        # Pull packages from the web on first initialization
-        try:
-            subprocess.run([vale_bin, "--config", str(ini_path), "sync"], check=True, capture_output=True)
-        except Exception as e:
-            raise RuntimeError(f"Failed to sync Vale styles: {e}")
+Queue wiring: [`plugin/writer/locale/grammar_work_queue.py`](plugin/writer/locale/grammar_work_queue.py) — one sentence per `run_vale_check` call (same scheduling model as Harper and LanguageTool).
 
-    # 2. Write text segment to a temporary file
-    with tempfile.NamedTemporaryFile(suffix=".txt", mode="w+", delete=False, encoding="utf-8") as temp_file:
-        temp_file.write(text)
-        temp_file_name = temp_file.name
-
-    try:
-        # 3. Execute Vale check
-        cmd = [
-            vale_bin,
-            "--config", str(ini_path),
-            "--output", "JSON",
-            temp_file_name
-        ]
-        proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
-        
-        if proc.returncode not in (0, 1): # Vale returns 1 if it flags warnings/errors
-            raise RuntimeError(f"Vale linter exited with error: {proc.stderr}")
-
-        # 4. Parse output
-        output_data = json.loads(proc.stdout or "{}")
-        file_errors = output_data.get(temp_file_name, [])
-        
-        errors = []
-        for err in file_errors:
-            # err keys: Line, Span (list of start/end), Text, Severity, Title, Message, Description
-            span = err.get("Span", [1, 1])
-            start = span[0] - 1  # 1-indexed to 0-indexed
-            length = span[1] - span[0] + 1
-            
-            severity = err.get("Severity", "suggestion")
-            rule = err.get("Check", "Style")
-            
-            errors.append({
-                "wrong": text[start:start+length],
-                "correct": "", # Vale rarely suggests a single replacement string; it gives descriptions
-                "n_error_start": start,
-                "n_error_length": length,
-                "short_comment": f"[{severity.upper()}] {err.get('Message')}",
-                "full_comment": err.get("Description") or err.get("Message"),
-                "rule_identifier": f"vale||{rule}",
-                "suggestions": [],
-                "reason": err.get("Message"),
-                "type": f"Style ({severity})"
-            })
-            
-        return {"errors": errors}
-        
-    finally:
-        if os.path.exists(temp_file_name):
-            os.remove(temp_file_name)
-```
+Manual smoke test: [`scripts/test_vale.py`](scripts/test_vale.py).
 
 ---
 
-## 4. Host-Side Integration
+## 4. Provider Model (not a cascade)
 
-### Client Hook (`plugin/scripting/client.py`)
-Expose the facade launcher method:
-```python
-_VALE_STUB = """\
-from plugin.scripting.venv.vale import run_vale_check as _run
-result = _run(data["text"], data["config_dir"], data["styles"])
-"""
-
-def run_vale_check(ctx: Any, text: str, config_dir: str, styles: str) -> dict[str, Any]:
-    """Execute a trusted Vale linter helper inside the user venv worker."""
-    return _run_trusted_helper(
-        ctx,
-        session_id="writeragent:vale",
-        stub=_VALE_STUB,
-        payload={"text": text, "config_dir": config_dir, "styles": styles},
-        timeout_sec=15,
-        error_code="VALE_ERROR",
-        error_label="Vale Linter",
-    )
-```
-
----
-
-## 5. Sequential Cascading Checking Pipeline
-
-We can implement a multi-stage linter pipeline inside the worker dispatcher (`grammar_work_queue.py`):
+Vale is a **mutually exclusive grammar provider**, like LLM, LanguageTool, and Harper — not a first stage in a multi-linter cascade.
 
 ```mermaid
 flowchart TD
-    Start[Check Requested] --> Step1{Is Style Linter On?}
-    Step1 -->|Yes| Vale[Run Vale Style Linter]
-    Step1 -->|No| Step2
-    
-    Vale --> Step1Check{Style Issues Found?}
-    Step1Check -->|Yes| CacheStyle[Cache Style Warnings & Underlines]
-    Step1Check -->|No| Step2{Grammar Provider?}
-    
-    Step2 -->|LanguageTool| LT[Run LanguageTool Check]
-    Step2 -->|AI/LLM| LLM[Run LLM Semantic Check]
-    Step2 -->|Off| Done[Display Underlines]
-    
-    LT --> CacheLT[Cache LT Underlines]
-    LLM --> CacheLLM[Cache LLM Underlines]
-    
-    CacheStyle --> Done
-    CacheLT --> Done
-    CacheLLM --> Done
+  Queue[GrammarWorkItem sentence] --> Provider{grammar_proofreader_enabled}
+  Provider -->|vale| Vale[run_vale_check]
+  Provider -->|harper| Harper[run_harper_check]
+  Provider -->|languagetool| LT[run_languagetool_check]
+  Provider -->|llm| LLM[call_grammar_llm]
+  Vale --> Cache[Sentence cache + underlines]
+  Harper --> Cache
+  LT --> Cache
+  LLM --> Cache
 ```
 
-### Why this pipeline is optimal:
-1.  **No Visual Conflicts:** If a sentence has stylistic issues (e.g. passive voice or corporate jargon), it gets highlighted first. Once the user edits the sentence to fix the style, it naturally flows to Phase 2 to verify grammar.
-2.  **API Conservation:** We do not trigger LLM calls on sentences that are already flagged as having style or grammar warnings, saving on cost and latency.
+**Deferred (original §5 idea):** sequential Style → Grammar cascade in one pass. Would require queue/cache changes and UX rules for overlapping underlines. Not planned until there is a clear product requirement.
+
+---
+
+## 5. Vendoring & Third-Party Code Strategy
+
+WriterAgent prefers **proven upstream code in `plugin/contrib/`** (or official PyPI wrappers in the user venv) over hand-rolled infrastructure. Vale fits the **PyPI wrapper** pattern; Harper fits **contrib + profile download**.
+
+| Concern | Vale approach | Harper analogue (for comparison) |
+|--------|---------------|--------------------------------|
+| **Native binary** | `uv pip install vale` → binary in venv `bin/` | GitHub release → [`plugin/contrib/pooch/`](../plugin/contrib/pooch/) + profile `bin/` |
+| **Style / rule packages** | Official `vale sync` (Vale's own downloader) | N/A |
+| **Protocol / I/O** | Subprocess + JSON stdout | LSP → [`plugin/contrib/lsp/`](../plugin/contrib/lsp/) |
+| **Offset mapping** | Vale `Span` (1-indexed file offsets) | LSP UTF-16 → [`position_codec.py`](../plugin/contrib/lsp/position_codec.py) |
+
+### What to vendor for Vale (recommendations)
+
+| Item | Recommendation | Rationale |
+|------|----------------|-----------|
+| **Binary download (Pooch)** | **Not needed** | PyPI `vale` package already ships the Go binary; do not duplicate Harper's fetch path. |
+| **Style package sync** | **Keep `vale sync`** | Official mechanism; replacing with Pooch would fight Vale's package layout and updates. |
+| **JSON parsing** | **Stdlib `json`** | Vale output is small; no need for a vendored parser. |
+| **langdetect-style contrib pin** | **Optional later** | Only if we **vendor frozen style YAML** under `plugin/contrib/vale_styles/` for fully offline/air-gapped installs (large, high maintenance). Default remains `vale sync`. |
+| **UTF-16 / multiline offsets** | **Evaluate if bugs appear** | Vale spans are file character indices, not LSP UTF-16. Sentence-scoped checks usually hit a single line; sentences with embedded newlines (Writer soft breaks) may need Harper-style line/offset handling — see [§7](#7-known-limitations). |
+
+### Contrib refresh pattern (when we do vendor)
+
+Follow the [langdetect model](../plugin/contrib/langdetect/README.md): pin upstream version in README + `scripts/update_*_contrib.py` + `make …-contrib`. Do not hand-edit vendored trees except documented patches.
 
 ---
 
 ## 6. Implementation Status (WIP)
 
-The Vale style linter has been successfully integrated as a distinct, mutually-exclusive linter provider choice alongside LLM and LanguageTool:
-*   **Active Styles:** Enforces Google, Microsoft, and write-good guidelines.
-*   **Contraction & Style Replacements:** Initial support for parsing the linter's `Action` fields to extract suggestions.
-*   **Status Tagged as WIP:** The dropdown label is marked as `Vale (Local Style) (WIP)` in [module.yaml](file:///home/keithcu/Desktop/Python/writeragent/plugin/doc/module.yaml) because replacement alignment can sometimes be imprecise compared to advanced LLM-based replacements, and will be tuned in future revisions.
+Shipped:
 
+- Vale as grammar provider `"vale"` in Settings → Doc.
+- [`vale.py`](plugin/scripting/venv/vale.py): binary resolution, first-run ini + sync, temp file lint, JSON mapping, `Action.replace` suggestions.
+- Host worker RPC and queue branch with `worker_style_done` observability.
+- Routing test: [`tests/writer/locale/test_grammar_work_queue.py`](../tests/writer/locale/test_grammar_work_queue.py) (`test_grammar_check_routes_to_vale`).
+
+Still **WIP** (dropdown label): replacement alignment and suggestion quality vs LLM/Harper; tuning continues.
+
+---
+
+## 7. Known Limitations
+
+### Sentence-scoped, file-based lint
+
+Each check writes **one sentence** to a temp file. Offsets map from Vale's `Span` into that string. This matches LanguageTool/Harper scheduling but differs from whole-document Vale runs.
+
+### Multiline sentences
+
+If a sentence contains embedded `\n` (soft line breaks), Vale sees multiple lines in the temp file while offset math assumes a flat span over the sentence buffer. **Untested** for non-BMP / multiline edge cases (Harper uses explicit UTF-16 codec for LSP; Vale does not yet).
+
+### Configuration rigidity
+
+- `.vale.ini` is created **once** when missing; changing active styles in settings later will not update an existing ini (styles are also hardcoded in the queue today).
+- `Packages` in ini lists Microsoft, Google, write-good; `BasedOnStyles` comes from the `styles` argument passed from the queue.
+
+### Install surface
+
+- Requires `uv pip install vale` in the configured venv (same as LanguageTool).
+- **No** Settings → Python probe/install hint for Vale yet (unlike Vision/NLP stacks in [`venv_diagnostics.py`](../plugin/scripting/venv_diagnostics.py)).
+
+### Suggestions
+
+- Many rules are descriptive only; `correct` / `suggestions` populate only when Vale emits `Action` with `Name == "replace"`.
+- `n_error_length` uses `max(1, …)` so zero-width spans still underline at least one character.
+
+---
+
+## 8. Future Work
+
+| Item | Rationale | Status |
+|------|-----------|--------|
+| **`grammar_proofreader_vale_styles` setting** | Expose comma-separated styles in `module.yaml` instead of hardcoding in `grammar_work_queue.py`. | Deferred |
+| **Settings → Python Vale probe** | Report `vale` binary presence + install hint (`uv pip install vale`), like other optional venv stacks. | Deferred |
+| **`tests/scripting/test_vale.py`** | Unit tests for JSON mapping, `Action.replace`, span offsets, missing binary (mocked); mirror [`test_harper.py`](../tests/scripting/test_harper.py). | Deferred |
+| **Re-sync / upgrade styles** | Document or automate `vale sync` when packages update; optional version sidecar under profile. | Deferred |
+| **Multiline / Unicode offset audit** | If user reports misaligned underlines, add tests + mapping fixes (may reuse ideas from [`position_codec.py`](../plugin/contrib/lsp/position_codec.py) only if Vale spans prove UTF-16-like). | Deferred |
+| **Offline vendored style packages** | langdetect-style contrib pin of frozen Microsoft/Google/write-good YAML for air-gapped users; trade size vs `vale sync`. | Deferred |
+| **Sequential Style → Grammar cascade** | Run Vale then LLM/LT on clean sentences only. | Not planned |
+| **Pooch for Vale** | Custom download/cache for Vale binary or styles. | **Not planned** (PyPI wrapper + `vale sync` are sufficient) |
+
+---
+
+## 9. References
+
+- Vale: https://vale.sh
+- PyPI wrapper: https://pypi.org/project/vale/
+- Related: [Harper integration plan](harper-grammar-linter-dev-plan.md), [realtime grammar checker plan](realtime-grammar-checker-plan.md)
