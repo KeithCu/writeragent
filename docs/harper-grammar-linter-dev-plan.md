@@ -34,117 +34,28 @@ def is_grammar_enabled():
 
 ## 3. Dependency Management (Binary Fetching)
 
-To avoid compiling Rust from source, WriterAgent can fetch the official precompiled `harper-cli` binary based on the host architecture:
-1. **GitHub Releases API:** Fetch binaries from `https://github.com/elijahpotter/harper/releases`.
+To avoid compiling Rust from source, WriterAgent fetches the official precompiled `harper-ls` binary based on the host architecture:
+1. **GitHub Releases API:** Fetch binaries from `https://github.com/Automattic/harper/releases`.
 2. **Platform Resolution:**
-   * **Linux x86_64:** `harper-cli-x86_64-unknown-linux-gnu.tar.gz`
-   * **macOS Arm64:** `harper-cli-aarch64-apple-darwin.tar.gz`
-   * **Windows x86_64:** `harper-cli-x86_64-pc-windows-msvc.zip`
-3. **First-run Auto-Install:** The worker will automatically download and unpack the correct binary into the user's WriterAgent config folder if not already present.
+   * **Linux x86_64:** `harper-ls-x86_64-unknown-linux-gnu.tar.gz`
+   * **macOS Arm64:** `harper-ls-aarch64-apple-darwin.tar.gz`
+   * **Windows x86_64:** `harper-ls-x86_64-pc-windows-msvc.zip`
+3. **First-run Auto-Install:** The worker will automatically download and unpack the correct `harper-ls` binary into the user's WriterAgent config folder if not already present.
 
 ---
 
-## 4. Worker-Side Harper Helper
+## 4. Worker-Side Harper Helper (`plugin/scripting/venv/harper.py`)
 
-We will create a worker script `plugin/scripting/venv/harper.py` that writes text segments to a temp file, runs `harper-cli`, and parses the stdout.
+Rather than spawning a new process and writing temporary files on every grammar check, WriterAgent runs `harper-ls --stdio` as a persistent background process inside the venv worker. Communication occurs over standard input/output streams using the JSON-RPC Language Server Protocol (LSP).
 
-### CLI JSON Format Analysis
-When running `harper-cli --format json <file>`, Harper returns a JSON array of issues:
-```json
-[
-  {
-    "check": "SentenceCapitalization",
-    "message": "This sentence does not start with a capitalized letter.",
-    "span": { "start": 0, "end": 4 },
-    "suggestions": [
-      {
-        "type": "Replace",
-        "text": "This"
-      }
-    ]
-  }
-]
-```
-
-### Target Script: `plugin/scripting/venv/harper.py`
-```python
-import os
-import sys
-import json
-import subprocess
-import tempfile
-from pathlib import Path
-
-def _get_harper_binary(user_config_dir: str) -> str:
-    # Resolves local binary path (or downloads it if missing)
-    bin_dir = Path(user_config_dir) / "bin"
-    suffix = ".exe" if os.name == "nt" else ""
-    binary_path = bin_dir / f"harper-cli{suffix}"
-    
-    if not binary_path.exists():
-        # TODO: Implement platform-specific auto-download from GitHub releases
-        # For development, fall back to PATH or throw exception
-        pass
-        
-    return str(binary_path)
-
-def run_harper_check(text: str, user_config_dir: str) -> dict:
-    """Run harper-cli on text segment and return parsed errors."""
-    try:
-        harper_bin = _get_harper_binary(user_config_dir)
-    except Exception as e:
-        raise RuntimeError(f"Harper binary not available: {e}")
-
-    with tempfile.NamedTemporaryFile(suffix=".txt", delete=False, mode="w", encoding="utf-8") as temp_file:
-        temp_file.write(text)
-        temp_file_name = temp_file.name
-
-    try:
-        cmd = [harper_bin, "--format", "json", temp_file_name]
-        proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
-        
-        if proc.returncode != 0 and not proc.stdout:
-            raise RuntimeError(f"Harper failed with code {proc.returncode}: {proc.stderr}")
-
-        output_data = json.loads(proc.stdout or "[]")
-        errors = []
-        
-        for err in output_data:
-            span = err.get("span", {})
-            start = span.get("start", 0)
-            end = span.get("end", 0)
-            length = max(1, end - start)
-            
-            rule = err.get("check", "Grammar")
-            msg = err.get("message", "")
-            
-            # Map suggestions
-            suggestions = []
-            for sug in err.get("suggestions", []):
-                if sug.get("type") == "Replace":
-                    suggestions.append(sug.get("text", ""))
-            
-            correct = suggestions[0] if suggestions else ""
-
-            errors.append({
-                "wrong": text[start:start+length] if start+length <= len(text) else "",
-                "correct": correct,
-                "n_error_start": start,
-                "n_error_length": length,
-                "short_comment": f"[Harper] {msg}",
-                "full_comment": msg,
-                "rule_identifier": f"harper||{rule}",
-                "suggestions": suggestions,
-                "reason": msg,
-                "type": f"Harper ({rule})"
-            })
-            
-        return {"errors": errors}
-        
-    finally:
-        if os.path.exists(temp_file_name):
-            os.remove(temp_file_name)
-```
+### Persistent LSP Client implementation (`HarperLSClient`)
+The class `HarperLSClient` manages:
+- **Process Lifecycle:** Starts `harper-ls --stdio` and keeps it alive. Auto-restarts the process if it goes offline.
+- **Handshakes:** Sends standard LSP `initialize` and `initialized` payloads.
+- **Request Interception:** Captures and automatically replies to server-initiated requests like `workspace/configuration`.
+- **Text Sync:** Sends `textDocument/didOpen` notifications to lint text segments and listens for `textDocument/publishDiagnostics` containing lint rules and location spans.
+- **Action Queries:** Query the `textDocument/codeAction` endpoint for each diagnostic to fetch and parse quickfix suggestions (e.g. spelling corrections).
+- **Position Mapping:** Converts LSP 0-indexed line/column pairs back into absolute character offset spans expected by `WriterAgent`.
 
 ---
 
@@ -178,8 +89,7 @@ Integrate Harper directly into the linter work queue:
 
 ## 6. Implementation Status (Completed)
 
-The Harper Rust linter integration is fully implemented and verified:
-1. **Dropdown UI & Config:** Added `harper` under the dynamic dropdown select option `grammar_proofreader_enabled` inside `module.yaml`, with configuration mapping in `config.py`.
-2. **Global PATH & Fallback Auto-Download:** Implemented `shutil.which("harper-cli")` in `harper.py` to prioritize global path binaries, falling back to downloading and unpacking precompiled releases from the official `Automattic/harper` GitHub repository.
-3. **Structured JSON Parser:** Handled nested file-relative lints arrays (`output_data[0].get("lints")`) and parsed span coordinates (`char_start`, `char_end`) + string-formatted suggestions (stripping `"Replace with: “...”` decorations).
-4. **Integration Testing:** Created [scripts/test_harper.py](file:///home/keithcu/Desktop/Python/writeragent/scripts/test_harper.py) to test functionality locally, and verified that all 3,500+ unit/integration tests and Bandit security scans pass successfully.
+The Harper Rust linter integration is fully implemented and optimized:
+1. **Persistent Daemon Pattern:** Upgraded from one-shot `harper-cli` process spawning to a persistent `harper-ls` background daemon running inside the virtual environment worker process. This eliminates process startup and disk I/O overhead.
+2. **Standard LSP Protocol:** Implemented handshake, configuration negotiation, diagnostics handling, and code actions queries natively over stdin/stdout streams.
+3. **Integration Testing:** Verified via [scripts/test_harper.py](file:///home/keithcu/Desktop/Python/writeragent/scripts/test_harper.py) and added comprehensive mocks and range mapping unit tests inside [tests/scripting/test_harper.py](file:///home/keithcu/Desktop/Python/writeragent/tests/scripting/test_harper.py). All checks and tests pass successfully.

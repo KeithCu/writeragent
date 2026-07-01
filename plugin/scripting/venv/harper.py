@@ -15,28 +15,30 @@ import urllib.request
 import tarfile
 import zipfile
 import shutil
+import time
 from pathlib import Path
+
 
 log = logging.getLogger("writeragent.grammar")
 
 
 def _download_harper_binary(dest_path: Path):
-    """Download precompiled harper-cli binary from Automattic/harper releases."""
+    """Download precompiled harper-ls binary from Automattic/harper releases."""
     system = platform.system().lower()
     machine = platform.machine().lower()
     
     if system == "linux":
         if "arm" in machine or "aarch64" in machine:
-            asset = "harper-cli-aarch64-unknown-linux-gnu.tar.gz"
+            asset = "harper-ls-aarch64-unknown-linux-gnu.tar.gz"
         else:
-            asset = "harper-cli-x86_64-unknown-linux-gnu.tar.gz"
+            asset = "harper-ls-x86_64-unknown-linux-gnu.tar.gz"
     elif system == "darwin":
         if "arm" in machine or "aarch64" in machine:
-            asset = "harper-cli-aarch64-apple-darwin.tar.gz"
+            asset = "harper-ls-aarch64-apple-darwin.tar.gz"
         else:
-            asset = "harper-cli-x86_64-apple-darwin.tar.gz"
+            asset = "harper-ls-x86_64-apple-darwin.tar.gz"
     elif system == "windows":
-        asset = "harper-cli-x86_64-pc-windows-msvc.zip"
+        asset = "harper-ls-x86_64-pc-windows-msvc.zip"
     else:
         raise RuntimeError(f"Unsupported OS: {system}")
         
@@ -56,7 +58,7 @@ def _download_harper_binary(dest_path: Path):
                 # Extract member to target path directly
                 member_found = False
                 for member in tar.getmembers():
-                    if member.name.endswith("harper-cli"):
+                    if member.name.endswith("harper-ls"):
                         # Extract and rename
                         f = tar.extractfile(member)
                         if f:
@@ -64,20 +66,20 @@ def _download_harper_binary(dest_path: Path):
                             member_found = True
                         break
                 if not member_found:
-                    raise RuntimeError("harper-cli file not found inside tarball")
+                    raise RuntimeError("harper-ls file not found inside tarball")
         elif asset.endswith(".zip"):
             with zipfile.ZipFile(tmp_name, "r") as zip_ref:
                 member_found = False
                 for file_info in zip_ref.infolist():
-                    if file_info.filename.endswith("harper-cli.exe") or file_info.filename.endswith("harper-cli"):
+                    if file_info.filename.endswith("harper-ls.exe") or file_info.filename.endswith("harper-ls"):
                         dest_path.write_bytes(zip_ref.read(file_info))
                         member_found = True
                         break
                 if not member_found:
-                    raise RuntimeError("harper-cli file not found inside zip archive")
+                    raise RuntimeError("harper-ls file not found inside zip archive")
                     
         if dest_path.exists():
-            os.chmod(dest_path, 0o755)  # nosec B103  # nosemgrep: insecure-file-permissions  # executable bit on downloaded harper-cli binary
+            os.chmod(dest_path, 0o755)  # nosec B103  # nosemgrep: insecure-file-permissions  # executable bit on downloaded harper-ls binary
             log.info(f"[harper] Binary installed successfully at {dest_path}")
     except Exception as e:
         log.error(f"[harper] Failed to download and extract binary: {e}")
@@ -91,16 +93,16 @@ def _download_harper_binary(dest_path: Path):
 
 
 def _get_harper_binary(user_config_dir: str) -> str:
-    """Resolve path to harper-cli binary, auto-downloading if missing."""
-    # 1. Check if harper-cli is installed globally on the system PATH
-    sys_path = shutil.which("harper-cli")
+    """Resolve path to harper-ls binary, auto-downloading if missing."""
+    # 1. Check if harper-ls is installed globally on the system PATH
+    sys_path = shutil.which("harper-ls")
     if sys_path:
         return sys_path
 
     # 2. Otherwise, check/download to the user profile bin directory
     bin_dir = Path(user_config_dir) / "bin"
     suffix = ".exe" if os.name == "nt" else ""
-    binary_path = bin_dir / f"harper-cli{suffix}"
+    binary_path = bin_dir / f"harper-ls{suffix}"
     
     if not binary_path.exists():
         _download_harper_binary(binary_path)
@@ -108,82 +110,302 @@ def _get_harper_binary(user_config_dir: str) -> str:
     return str(binary_path)
 
 
+
+_HARPER_CLIENT_CACHE = {}
+
+class HarperLSClient:
+    def __init__(self, binary_path: str):
+        self.binary_path = binary_path
+        self.proc = None
+        self.request_id = 0
+        self._initialize()
+
+    def _initialize(self):
+        try:
+            self.proc = subprocess.Popen(
+                [self.binary_path, "--stdio"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                bufsize=0
+            )
+            # Send initialize
+            self._send_request("initialize", {
+                "processId": os.getpid(),
+                "rootUri": "file:///tmp",
+                "capabilities": {
+                    "textDocument": {
+                        "publishDiagnostics": {
+                            "relatedInformation": False
+                        },
+                        "codeAction": {
+                            "dynamicRegistration": False,
+                            "codeActionLiteralSupport": {
+                                "codeActionKind": {
+                                    "valueSet": ["quickfix"]
+                                }
+                            }
+                        }
+                    }
+                }
+            })
+            # Send initialized notification
+            self._write({
+                "jsonrpc": "2.0",
+                "method": "initialized",
+                "params": {}
+            })
+        except Exception as e:
+            self.close()
+            raise RuntimeError(f"Failed to start/initialize harper-ls: {e}")
+
+    def is_alive(self) -> bool:
+        return self.proc is not None and self.proc.poll() is None
+
+    def _write(self, payload: dict):
+        if not self.proc or self.proc.stdin is None:
+            raise RuntimeError("harper-ls process not running")
+        body = json.dumps(payload)
+        header = f"Content-Length: {len(body.encode('utf-8'))}\r\n\r\n"
+        self.proc.stdin.write((header + body).encode('utf-8'))
+        self.proc.stdin.flush()
+
+    def _read(self) -> dict | None:
+        if not self.proc or self.proc.stdout is None:
+            raise RuntimeError("harper-ls process not running")
+        
+        headers = {}
+        while True:
+            line = self.proc.stdout.readline()
+            if not line:
+                return None
+            line_str = line.decode('utf-8').strip()
+            if not line_str:
+                break
+            if ':' in line_str:
+                k, v = line_str.split(':', 1)
+                headers[k.strip().lower()] = v.strip()
+        
+        content_length = int(headers.get('content-length', 0))
+        if content_length == 0:
+            return None
+        
+        body = self.proc.stdout.read(content_length).decode('utf-8')
+        return json.loads(body)
+
+    def _read_and_handle(self) -> dict | None:
+        msg = self._read()
+        if not msg:
+            return None
+        
+        # If it is a request from the server, reply to keep it happy
+        if "id" in msg and "method" in msg:
+            method = msg["method"]
+            if method == "workspace/configuration":
+                self._write({
+                    "jsonrpc": "2.0",
+                    "id": msg["id"],
+                    "result": [{}]
+                })
+            else:
+                self._write({
+                    "jsonrpc": "2.0",
+                    "id": msg["id"],
+                    "result": None
+                })
+            return self._read_and_handle()
+        
+        return msg
+
+    def _send_request(self, method: str, params: dict) -> dict | None:
+        self.request_id += 1
+        req_id = self.request_id
+        self._write({
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "method": method,
+            "params": params
+        })
+        
+        for _ in range(50):
+            msg = self._read_and_handle()
+            if not msg:
+                break
+            if msg.get("id") == req_id:
+                return msg
+        return None
+
+    def lint(self, text: str) -> list:
+        if not self.is_alive():
+            self._initialize()
+
+        uri = f"file:///tmp/writeragent_lint_{time.time_ns()}.txt"
+        
+        self._write({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": {
+                "textDocument": {
+                    "uri": uri,
+                    "languageId": "markdown",
+                    "version": 1,
+                    "text": text
+                }
+            }
+        })
+        
+        diagnostics = []
+        for _ in range(50):
+            msg = self._read_and_handle()
+            if not msg:
+                break
+            
+            if msg.get("method") == "textDocument/publishDiagnostics":
+                params = msg.get("params", {})
+                if params.get("uri") == uri:
+                    diagnostics = params.get("diagnostics", [])
+                    break
+        
+        # Get code actions / suggestions for each diagnostic
+        results = []
+        for diag in diagnostics:
+            suggestions = []
+            try:
+                res = self._send_request("textDocument/codeAction", {
+                    "textDocument": {
+                        "uri": uri
+                    },
+                    "range": diag["range"],
+                    "context": {
+                        "diagnostics": [diag]
+                    }
+                })
+                if res and isinstance(res.get("result"), list):
+                    for action in res["result"]:
+                        if action.get("kind") == "quickfix":
+                            edit = action.get("edit", {})
+                            changes = edit.get("changes", {})
+                            for change_list in changes.values():
+                                for chg in change_list:
+                                    new_text = chg.get("newText")
+                                    if new_text is not None and new_text not in suggestions:
+                                        suggestions.append(new_text)
+            except Exception as e:
+                log.error(f"[harper] Failed to fetch codeActions: {e}")
+                
+            results.append({
+                "diagnostic": diag,
+                "suggestions": suggestions
+            })
+
+        # Clean up
+        try:
+            self._write({
+                "jsonrpc": "2.0",
+                "method": "textDocument/didClose",
+                "params": {
+                    "textDocument": {
+                        "uri": uri
+                    }
+                }
+            })
+        except Exception:
+            pass
+            
+        return results
+
+    def close(self):
+        if self.proc:
+            try:
+                self._write({
+                    "jsonrpc": "2.0",
+                    "id": self.request_id + 1,
+                    "method": "shutdown",
+                    "params": None
+                })
+                self._write({
+                    "jsonrpc": "2.0",
+                    "method": "exit",
+                    "params": None
+                })
+                self.proc.wait(timeout=0.2)
+            except Exception:
+                try:
+                    self.proc.terminate()
+                    self.proc.wait(timeout=0.2)
+                except Exception:
+                    try:
+                        self.proc.kill()
+                    except Exception:
+                        pass
+            self.proc = None
+
+def lsp_range_to_offset(text: str, line: int, character: int) -> int:
+    """Convert LSP 0-indexed line and character to absolute 0-indexed character offset."""
+    lines = text.splitlines(keepends=True)
+    if line >= len(lines):
+        return len(text)
+    offset = sum(len(l) for l in lines[:line])
+    return min(offset + character, len(text))
+
 def run_harper_check(text: str, user_config_dir: str) -> dict:
-    """Run harper-cli on text segment and return parsed errors."""
+    """Run harper-ls on text segment and return parsed errors."""
     try:
         harper_bin = _get_harper_binary(user_config_dir)
     except Exception as e:
         raise RuntimeError(str(e))
 
-    # Write text segment to a temporary file
+    if harper_bin not in _HARPER_CLIENT_CACHE:
+        _HARPER_CLIENT_CACHE[harper_bin] = HarperLSClient(harper_bin)
+
+    client = _HARPER_CLIENT_CACHE[harper_bin]
     try:
-        with tempfile.NamedTemporaryFile(suffix=".txt", mode="w+", delete=False, encoding="utf-8") as temp_file:
-            temp_file.write(text)
-            temp_file_name = temp_file.name
+        results = client.lint(text)
     except Exception as e:
-        raise RuntimeError(f"Failed to create temporary file for linting: {e}")
+        log.error(f"[harper] Linting error or connection lost, restarting client: {e}")
+        client.close()
+        # Retry once with a fresh client
+        _HARPER_CLIENT_CACHE[harper_bin] = HarperLSClient(harper_bin)
+        results = _HARPER_CLIENT_CACHE[harper_bin].lint(text)
 
-    try:
-        # Execute harper-cli check
-        cmd = [harper_bin, "lint", "--format", "json", temp_file_name]
-        proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
+    errors = []
+    for item in results:
+        diag = item["diagnostic"]
+        suggestions = item["suggestions"]
         
-        # Harper CLI outputs results as JSON on stdout.
-        # It may return exit code 1 if issues are found, which is normal for CLI linters.
-        if proc.returncode != 0 and not proc.stdout.strip():
-            stderr_msg = (proc.stderr or "").strip()
-            raise RuntimeError(f"Harper process failed (code {proc.returncode}): {stderr_msg}")
-
-        try:
-            output_data = json.loads(proc.stdout or "[]")
-        except Exception as e:
-            raise RuntimeError(f"Harper returned invalid JSON: {e}. Output was: {proc.stdout}")
-
-        file_lints = []
-        if output_data and isinstance(output_data, list):
-            file_lints = output_data[0].get("lints", [])
-
-        errors = []
-        for lint in file_lints:
-            span = lint.get("span", {})
-            start = span.get("char_start", 0)
-            end = span.get("char_end", 0)
-            length = max(1, end - start)
-            
-            rule = lint.get("rule", "Grammar")
-            kind = lint.get("kind", "Grammar")
-            msg = lint.get("message", "")
-            
-            # Parse suggestions
-            suggestions = []
-            for sug in lint.get("suggestions", []):
-                # Clean up "Replace with: “This”" formatting
-                if "Replace with: “" in sug:
-                    cleaned = sug.split("Replace with: “")[1].rstrip("”")
-                    suggestions.append(cleaned)
-                else:
-                    suggestions.append(sug)
-                    
-            correct = suggestions[0] if suggestions else ""
-            
-            errors.append({
-                "wrong": text[start:start+length] if start + length <= len(text) else lint.get("matched_text", ""),
-                "correct": correct,
-                "n_error_start": start,
-                "n_error_length": length,
-                "short_comment": msg,
-                "full_comment": msg,
-                "rule_identifier": f"harper||{rule}",
-                "suggestions": suggestions[:5],
-                "reason": msg,
-                "type": kind
-            })
-            
-        return {"errors": errors}
+        msg = diag.get("message", "")
+        code = diag.get("code", "Grammar")
+        source = diag.get("source", "Harper")
         
-    finally:
-        if os.path.exists(temp_file_name):
-            try:
-                os.remove(temp_file_name)
-            except Exception:
-                pass
+        # Translate LSP range to start and end character offsets
+        diag_range = diag.get("range", {})
+        start_pos = diag_range.get("start", {})
+        end_pos = diag_range.get("end", {})
+        
+        start_line = start_pos.get("line", 0)
+        start_char = start_pos.get("character", 0)
+        end_line = end_pos.get("line", 0)
+        end_char = end_pos.get("character", 0)
+        
+        start_offset = lsp_range_to_offset(text, start_line, start_char)
+        end_offset = lsp_range_to_offset(text, end_line, end_char)
+        length = max(1, end_offset - start_offset)
+        
+        correct = suggestions[0] if suggestions else ""
+        
+        errors.append({
+            "wrong": text[start_offset:start_offset+length] if start_offset + length <= len(text) else "",
+            "correct": correct,
+            "n_error_start": start_offset,
+            "n_error_length": length,
+            "short_comment": msg,
+            "full_comment": msg,
+            "rule_identifier": f"harper||{code}",
+            "suggestions": suggestions[:5],
+            "reason": msg,
+            "type": code
+        })
+        
+    return {"errors": errors}
+
+
