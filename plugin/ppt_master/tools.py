@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import Any
 
 from plugin.draw.base import ToolDrawPptMasterBase
 from plugin.ppt_master.client import (

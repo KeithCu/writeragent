@@ -25,7 +25,13 @@ if TYPE_CHECKING:
 
 from plugin.framework.uno_bootstrap import ensure_plugin_on_path
 
-ensure_plugin_on_path(__file__, levels_up=3, also_add_plugin_dir=True)
+ensure_plugin_on_path(
+    __file__,
+    levels_up=3,
+    also_add_plugin_dir=True,
+    also_add_lib=True,
+    also_add_vendor=True,
+)
 
 import unohelper  # noqa: E402
 

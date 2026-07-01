@@ -25,7 +25,7 @@ from plugin.framework.i18n import _
 from plugin.framework.config import get_config, get_current_endpoint, set_config, get_config_str, get_config_int, as_bool, parse_int_robust, parse_float_robust
 from plugin.framework.client.model_fetcher import get_text_model, get_stt_model, set_text_model
 from plugin.framework.logging import init_logging
-from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru, update_lru_history
+from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru
 from plugin.chatbot.history_db import HAS_SQLITE
 
 from .listeners import BaseActionListener, BaseListener

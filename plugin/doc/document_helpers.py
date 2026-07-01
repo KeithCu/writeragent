@@ -1141,7 +1141,7 @@ def get_document_context_for_chat(model, max_context=CHAT_DOCUMENT_CONTEXT_MAX_C
             return "Document length: %d characters.\n\n%s" % (doc_len, excerpt)
 
         return ""
-    except Exception as e:
+    except Exception:
         logging.getLogger(__name__).exception("get_document_context_for_chat unexpected failure, trying selection fallback")
         try:
             sel_text = get_selection_text(model)

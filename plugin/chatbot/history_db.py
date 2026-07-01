@@ -29,13 +29,11 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 from plugin.framework.config import user_config_dir
-from plugin.framework.uno_context import get_ctx
 
 log = logging.getLogger(__name__)
 
 
 def _get_db_path():
-    ctx = get_ctx()
     config_dir = user_config_dir()
     if config_dir:
         try:

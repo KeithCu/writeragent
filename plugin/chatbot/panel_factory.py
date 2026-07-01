@@ -78,7 +78,7 @@ except ImportError:
     TOOLPANEL = 3  # Fallback
 
 from plugin.chatbot.listeners import BaseItemListener, BaseTextListener
-from plugin.framework.config import get_config, set_config, get_current_endpoint
+from plugin.framework.config import get_config, get_current_endpoint
 from plugin.framework.client.model_fetcher import get_text_model, get_image_model, set_image_model, set_text_model
 from plugin.framework.i18n import _
 from plugin.framework.errors import UnoObjectError, ConfigError
@@ -664,7 +664,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
                         log.debug("Failed to relayout after toggling image UI (likely disposed): %s", e)
 
-        include_brainstorming = self._sidebar_include_brainstorming(model)
         mode_flags = self._sidebar_mode_flags(model)
         initial_mode = CHAT_MODE_CHAT
 

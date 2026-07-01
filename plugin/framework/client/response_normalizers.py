@@ -20,7 +20,6 @@ Contains parser classes and shims to handle provider quirks and formats
 for OpenAI, Ollama, OpenRouter, Anthropic, and Google Gemini.
 """
 
-import copy
 import json
 import logging
 import re
@@ -153,7 +152,7 @@ def normalize_multimodal_messages(messages: list[dict[str, Any]], provider: str)
                 messages.insert(insert_idx, target_message)
 
         # Attach images to target_message
-        target_dict = cast(dict[str, Any], target_message)
+        target_dict = cast("dict[str, Any]", target_message)
         content = target_dict.get("content")
         new_content: list[Any] = []
         if isinstance(content, str):

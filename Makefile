@@ -86,7 +86,7 @@ else
     SCRIPTS = scripts
     RUN_SH  = bash
     EXT     = .sh
-    PYTHON  = python
+    PYTHON  ?= python3
     RM_RF   = rm -rf
     MKDIR   = mkdir -p
     LO_CONF = $(HOME)/.config/libreoffice/4

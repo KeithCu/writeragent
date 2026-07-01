@@ -15,7 +15,6 @@ from plugin.framework.client.model_fetcher import (
     ENDPOINT_PRESETS,
 )
 from plugin.framework.url_utils import normalize_endpoint_url
-from plugin.framework.uno_context import get_ctx
 from plugin.framework.default_models import DEFAULT_MODELS, resolve_model_id
 from plugin.framework.constants import ModelCapability
 from plugin.framework.client.model_fetcher import fetch_available_models, _filter_fetched_models
@@ -435,7 +434,6 @@ def populate_endpoint_selector(ctx, ctrl, current_endpoint):
 
 def get_endpoint_options(services):
     """Options provider for AI endpoint combobox in Tools → Options."""
-    ctx = get_ctx()
     options = []
     presets = ENDPOINT_PRESETS
     preset_urls = set()
@@ -456,7 +454,6 @@ def get_endpoint_options(services):
 
 def get_text_model_options(services):
     """Options provider for the simple text model combobox in Tools → Options."""
-    ctx = get_ctx()
     endpoint = get_current_endpoint()
     scoped_key = f"model_lru@{endpoint}" if endpoint else "model_lru"
     lru = get_config(scoped_key)
@@ -472,7 +469,6 @@ def get_text_model_options(services):
 
 def get_image_model_options(services):
     """Options provider for the simple image model combobox in Tools → Options."""
-    ctx = get_ctx()
     endpoint = get_current_endpoint()
     scoped_key = f"image_model_lru@{endpoint}" if endpoint else "image_model_lru"
     lru = get_config(scoped_key)

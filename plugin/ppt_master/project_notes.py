@@ -6,7 +6,10 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 from plugin.contrib.ppt_master.upstream import collect_notes_upstream
 

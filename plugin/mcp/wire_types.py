@@ -65,7 +65,7 @@ def parse_jsonrpc_request(msg: object) -> ParsedJsonRpcRequest | JsonRpcParseErr
     """
     if not isinstance(msg, dict):
         return JsonRpcParseError("Invalid JSON-RPC 2.0 request")
-    raw = cast(dict[str, Any], msg)
+    raw = cast("dict[str, Any]", msg)
     if raw.get("jsonrpc") != "2.0":
         return JsonRpcParseError("Invalid JSON-RPC 2.0 request")
     method = raw.get("method")
@@ -85,7 +85,7 @@ def is_jsonrpc_notification(msg: object) -> bool:
     """True when *msg* is a JSON-RPC notification (no response expected)."""
     if not isinstance(msg, dict):
         return False
-    raw = cast(dict[str, Any], msg)
+    raw = cast("dict[str, Any]", msg)
     if raw.get("jsonrpc") != "2.0":
         return False
     return "id" not in raw or raw.get("id") is None

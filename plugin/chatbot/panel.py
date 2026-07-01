@@ -1008,7 +1008,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         log.debug("_do_send: got document model OK")
 
         doc_type_label = getattr(self, "cached_doc_type", None)
-        doc_type_str = self._get_doc_type_str(model)
         log.debug("_do_send: document type (cached): %s" % doc_type_label)
 
         if not doc_type_label or doc_type_label == "unknown":

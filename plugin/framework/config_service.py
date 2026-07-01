@@ -13,7 +13,6 @@ from typing import Any, Callable, cast
 
 from plugin.framework.service import ServiceBase
 from plugin.framework.event_bus import global_event_bus
-from plugin.framework.uno_context import get_ctx
 from plugin.framework.errors import ConfigError
 
 from plugin.framework.config import (

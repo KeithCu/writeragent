@@ -27,7 +27,6 @@ import logging
 import collections
 import copy
 import json
-import re
 import time
 import urllib.parse
 import http.client
@@ -45,7 +44,6 @@ LLM_MIN_REQUEST_INTERVAL_SEC = 0.05
 
 from .response_normalizers import (
     strip_leaked_chat_template_control_tokens,
-    extract_and_strip_images_from_message,
     normalize_multimodal_messages,
     prepend_dev_build_system_prefix_to_messages as _prepend_dev_build_system_prefix_to_messages,
 )
@@ -72,12 +70,12 @@ def merge_openrouter_chat_extra(base: dict[str, Any], extra: dict[str, Any] | No
 
 # accumulate_delta is required for tool-calling: it merges streaming deltas into message_snapshot so full tool_calls (with function.arguments) are available.
 from plugin.framework.async_stream import accumulate_delta
-from plugin.framework.constants import APP_REFERER, APP_TITLE, LLM_DEV_BUILD_SYSTEM_PREFIX, should_prepend_dev_llm_system_prefix
+from plugin.framework.constants import APP_REFERER, APP_TITLE
 
 from plugin.framework.logging import init_logging, redact_sensitive_payload_for_log
 from plugin.framework.client.auth import resolve_auth_for_config, build_auth_headers, AuthError
 from plugin.framework.errors import NetworkError
-from plugin.framework.url_utils import get_url_hostname, get_url_path_and_query, get_api_version_suffix
+from plugin.framework.url_utils import get_url_hostname, get_api_version_suffix
 
 from .errors import format_error_message, _format_http_error_response
 from .ssl_helpers import get_unverified_ssl_context, get_verified_ssl_context, _is_certificate_verify_error, _is_local_host
@@ -85,7 +83,6 @@ from .ssl_helpers import get_unverified_ssl_context, get_verified_ssl_context, _
 # for the canonical home after the 2026 heuristic consolidation).
 from .stream_normalizer import (
     iterate_sse,
-    _extract_thinking_from_delta,
     _normalize_message_content,
     _normalize_delta,
     accumulate_streaming_thinking,
