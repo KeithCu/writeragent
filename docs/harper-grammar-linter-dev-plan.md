@@ -50,12 +50,13 @@ Rather than spawning a new process and writing temporary files on every grammar 
 
 ### Persistent LSP Client implementation (`HarperLSClient`)
 The class `HarperLSClient` manages:
-- **Process Lifecycle:** Starts `harper-ls --stdio` and keeps it alive. Auto-restarts the process if it goes offline.
-- **Handshakes:** Sends standard LSP `initialize` and `initialized` payloads.
-- **Request Interception:** Captures and automatically replies to server-initiated requests like `workspace/configuration`.
-- **Text Sync:** Sends `textDocument/didOpen` notifications to lint text segments and listens for `textDocument/publishDiagnostics` containing lint rules and location spans.
-- **Action Queries:** Query the `textDocument/codeAction` endpoint for each diagnostic to fetch and parse quickfix suggestions (e.g. spelling corrections).
-- **Position Mapping:** Converts LSP 0-indexed line/column pairs back into absolute character offset spans expected by `WriterAgent` (see below).
+- **Process Lifecycle:** Starts `harper-ls --stdio` and keeps it alive. Auto-restarts on failure (checked before each lint). Uses a background reader thread.
+- **Handshakes & Config:** Sends `initialize`/`initialized`. Replies to `workspace/configuration` with real Harper settings (BCP47-derived dialect + optional user dictionary path). Dynamically sends `workspace/didChangeConfiguration` when the sentence locale changes.
+- **Text Sync:** Reuses a stable document URI: `didOpen` on first use, then `didChange` (full text) for subsequent sentences. Uses monotonic document versions to reject stale diagnostics.
+- **Action Queries:** For each diagnostic, queries `textDocument/codeAction` (quickfix) to obtain spelling/grammar replacement suggestions.
+- **Thread Safety:** A per-client lock serializes `lint()` operations.
+- **Position Mapping:** Delegates to the vendored UTF-16 `PositionCodec` (see below). Uses deadline-based monotonic timeouts for operations (default 15s per lint, 5s for init).
+- **Framing:** Uses the vendored `json_rpc_framing` helpers for correct Content-Length header handling and body reads.
 
 ### Position mapping (`lsp_range_to_offset`)
 
@@ -63,10 +64,14 @@ Harper returns diagnostic ranges as LSP `{line, character}` pairs; the grammar q
 
 Grammar work is **sentence-scoped**, not line-scoped: each `run_harper_check` call lints one sentence string from [`GrammarWorkItem.text`](../plugin/writer/locale/grammar_work_queue.py). That does **not** mean every sentence is a single visual line — Writer soft line breaks (Shift+Enter) can embed `\n` inside one sentence, and Harper may report `line > 0` for text after the break.
 
-Implementation:
+Implementation (current):
 
-1. **Fast path (typical):** If the sentence contains no `\n` or `\r`, line 0 maps directly to `character` (clamped to `len(text)`); any other line returns `len(text)`.
-2. **Multiline path:** Otherwise `text.splitlines(keepends=True)` sums prior line lengths (including terminators) before adding `character`. This matches LSP line indexing for `\n`, `\r\n`, and `\r`.
+The function first prepares a list of lines (fast path: wrap the whole text as a single line if no newlines are present; otherwise `splitlines(keepends=True)`). It then delegates character offset calculation within the target line to the vendored `PositionCodec` (UTF-16 code unit aware), and finally sums preceding line lengths + the codec-adjusted character position (clamped).
+
+This correctly handles:
+- Soft line breaks inside a single sentence.
+- Emoji and other non-BMP characters (LSP uses UTF-16 code units).
+- CRLF and other line endings.
 
 Sentence-at-a-time scheduling removes cross-sentence / cross-paragraph offset work; it does **not** remove the need to map LSP lines **within** the sentence buffer.
 
@@ -87,7 +92,7 @@ Integrate Harper directly into the linter work queue:
             for item, text in chunk:
                 try:
                     request_start = time.monotonic()
-                    res = run_harper_check(ec.ctx, text, cfg_dir)
+                    res = run_harper_check(ec.ctx, text, cfg_dir, bcp47=bcp47)
                     elapsed_ms = int((time.monotonic() - request_start) * 1000)
 
                     errors = res.get("errors", [])
@@ -107,9 +112,11 @@ Integrate Harper directly into the linter work queue:
 The Harper Rust linter integration is fully implemented and optimized:
 1. **Persistent Daemon Pattern:** Upgraded from one-shot `harper-cli` process spawning to a persistent `harper-ls` background daemon running inside the virtual environment worker process. This eliminates process startup and disk I/O overhead.
 2. **Standard LSP Protocol:** Implemented handshake, configuration negotiation, diagnostics handling, and code actions queries natively over stdin/stdout streams.
-3. **Integration Testing:** Verified via [`scripts/test_harper.py`](../scripts/test_harper.py). Unit tests in [`tests/scripting/test_harper.py`](../tests/scripting/test_harper.py) cover `lsp_range_to_offset` (single-line fast path, multiline/soft-break, CRLF), mocked happy-path lint (stale diagnostic rejection, stable URI, `didChange`), soft-line-break offset mapping through `run_harper_check`, and diagnostic timeout verification.
+3. **Integration Testing:** Verified via [`scripts/test_harper.py`](../scripts/test_harper.py). Unit tests cover offset mapping (including UTF-16 surrogate pairs), mocked LSP flows (stale versions, didChange, soft breaks, code actions), timeout behavior, download/upgrade logic, and the vendored framing + pooch helpers (in `tests/contrib/`). See the Test coverage subsection under Known Limitations for details.
 
 Primary implementation: [`plugin/scripting/venv/harper.py`](../plugin/scripting/venv/harper.py) (`HarperLSClient`, `run_harper_check`). Host RPC: [`plugin/scripting/client.py`](../plugin/scripting/client.py) (`run_harper_check`). Queue wiring: [`plugin/writer/locale/grammar_work_queue.py`](../plugin/writer/locale/grammar_work_queue.py).
+
+Supporting vendored helpers live in [`plugin/contrib/lsp/`](../plugin/contrib/lsp/) (framing + UTF-16 position codec) and [`plugin/contrib/pooch/`](../plugin/contrib/pooch/) (secure hashed downloads + safe archive extraction). Both include provenance READMEs and dedicated tests.
 
 ---
 
@@ -123,7 +130,7 @@ These are accepted trade-offs for the current Harper-only integration. None bloc
 
 #### Diagnostic and request waiting
 
-The client waits for responses with a wall-clock timeout of 5 seconds by utilizing a background reader thread pushing to a thread-safe `queue.Queue`. If the server hangs or crashes, the client fails fast with a `TimeoutError` and restarts.
+Operations use monotonic deadline budgets (`_LINT_BUDGET_SEC = 15.0` for lints, `_INIT_BUDGET_SEC = 5.0` for initialization/handshake) rather than fixed iteration counts. A background reader thread feeds a `queue.Queue`. On timeout or crash the client fails fast (raising `TimeoutError`), closes the process, and the caller typically triggers a restart on the next `lint()` call.
 
 ### Quickfix round trips
 
@@ -131,14 +138,14 @@ Code actions are fetched with **one `textDocument/codeAction` request per diagno
 
 ### Language and configuration
 
-- `languageId` is hardcoded to `"markdown"` for every segment, regardless of document locale or content type.
-- `workspace/configuration` replies with `[{}]` — Harper-specific settings (dialect, rule toggles) are not forwarded from WriterAgent config.
+- `languageId` is still hardcoded to `"markdown"` (Harper is currently English-focused; full multi-language `languageId` support is deferred).
+- Harper now receives useful configuration: the `workspace/configuration` reply (and `workspace/didChangeConfiguration` notifications) supply a `dialect` (American/British/Australian/Canadian derived from BCP47) plus an optional `userDictPath` under the user profile for custom words. Broader rule toggles are not yet exposed.
 
 ### Position encoding
 
 Range mapping uses vendored [`PositionCodec`](../../plugin/contrib/lsp/position_codec.py) (from pygls) so LSP UTF-16 code units convert to Python string indices in `lsp_range_to_offset`. Emoji and other non-BMP characters are covered by unit tests.
 
-Most checked sentences are BMP-only on a single line; embedded newlines (soft breaks) use the multiline line-splitting path described in [§4 Position mapping](#position-mapping-lsp_range_to_offset).
+Most checked sentences are BMP-only on a single line. Embedded newlines (soft breaks) and surrogate-pair characters are handled by the `lsp_range_to_offset` + vendored `PositionCodec` logic described in [§4 Position mapping](#position-mapping-lsp_range_to_offset).
 
 ### Test coverage
 
@@ -148,7 +155,7 @@ Tests cover:
 - **Mocked LSP lint:** stale diagnostic version filtering, single-line capitalization fix, line-1 diagnostic on a soft-break sentence end-to-end through `run_harper_check`
 - **Timeout:** hung diagnostic collection raises `TimeoutError`
 
-There are no automated tests for process restart or interleaved server requests. Malformed LSP framing is covered in [`tests/contrib/test_lsp_contrib.py`](../tests/contrib/test_lsp_contrib.py).
+Core restart logic (re-init on `!is_alive()` and error recovery paths) and dynamic configuration exist and are exercised indirectly. Dedicated unit coverage for full process death + restart scenarios and complex interleaved `workspace/configuration` during `codeAction` remains limited. Malformed LSP framing, unsafe archive members, hash verification, and oversized frames are covered in [`tests/contrib/test_lsp_contrib.py`](../tests/contrib/test_lsp_contrib.py) and [`tests/contrib/test_pooch_contrib.py`](../tests/contrib/test_pooch_contrib.py).
 
 ### Queue granularity
 
@@ -181,7 +188,7 @@ Additional items identified in a post-implementation review of `plugin/scripting
 | **Protocol helpers** | Extract Content-Length framing and JSON-RPC envelope builders (similar to Hermes `agent/lsp/protocol.py`) if Harper client grows or a second LSP consumer appears. | Completed ([`plugin/contrib/lsp/json_rpc_framing.py`](../plugin/contrib/lsp/json_rpc_framing.py)) |
 | **Binary fetch/cache** | Replace hand-rolled download/extract with vendored Pooch subset (SHA256, retry, safe Untar/Unzip). | Completed ([`plugin/contrib/pooch/`](../plugin/contrib/pooch/)) |
 | **UTF-16 position codec** | Map LSP UTF-16 columns to Python indices for emoji / non-BMP text. | Completed ([`plugin/contrib/lsp/position_codec.py`](../plugin/contrib/lsp/position_codec.py)) |
-| **Edge-case tests** | Process death + restart, interleaved `workspace/configuration` during `codeAction`, empty diagnostic list. | Completed |
+| **Edge-case tests** | Process death + restart, interleaved `workspace/configuration` during `codeAction`, empty diagnostic list. | Partial (core recovery paths present and indirectly tested; dedicated "kill + reinit" and complex interleaving tests are limited) |
 | **Batch code actions** | Investigate whether `harper-ls` supports range-wide or document-wide code actions to cut round trips when one sentence has many diagnostics. | Deferred |
 | **Python < 3.10 annotation compatibility** | Add `from __future__ import annotations` (top of `harper.py`). Current use of `dict \| None` (and bare `list` annotations) will raise `SyntaxError` on import under older Python interpreters commonly bundled with LibreOffice. | Completed |
 | **Thread safety for shared LSP client** | `_HARPER_CLIENT_CACHE` + `HarperLSClient` (version counter, `_write`, `_read` loops, `lint`) have no locks or synchronization. With `doc.grammar_proofreader_max_in_flight > 1` (or concurrent chunks), messages can interleave and corrupt document state or framing on stdin/stdout. | Completed (`threading.Lock` on `lint()`; host venv IPC already serializes) |
