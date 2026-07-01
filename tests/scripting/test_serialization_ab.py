@@ -290,6 +290,12 @@ def test_hypothesis_fancier_result_roundtrip(result: Any) -> None:
             return [normalize(x) for x in val]
         if isinstance(val, dict):
             return {k: normalize(v) for k, v in val.items()}
+        try:
+            import math
+            if math.isnan(val):
+                return "NaN_sentinel"
+        except (TypeError, ValueError):
+            pass
         return val
 
     assert normalize(unpacked) == normalize(result)

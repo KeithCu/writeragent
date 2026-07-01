@@ -31,6 +31,7 @@ from plugin.scripting.payload_codec import (
     host_pack_split_grid,
     host_unpack_split_grid,
 )
+from tests.scripting.serialization_ab_support import flatten_semantic_cells
 
 # Test cases representing structural variety of inputs
 VERIFICATION_GRIDS = [
@@ -76,15 +77,18 @@ def test_serialization_contracts_runtime_and_invariants() -> None:
         assert isinstance(envelope.get("strings"), dict)
         assert isinstance(envelope.get("buffer"), bytes)
 
-        # B. host_unpack_split_grid (equivalence/roundtrip contract)
+        # B. host_unpack_split_grid (egress policy: buffer NaN preserved, not coerced to None)
         reconstructed = host_unpack_split_grid(envelope)
         assert isinstance(reconstructed, list)
-        assert reconstructed == grid
+        assert flatten_semantic_cells(reconstructed) == flatten_semantic_cells(grid)
 
-        # C. child_unpack_split_grid
+        # C. child_unpack_split_grid (ingress: mixed grids restore None literally)
         pytest.importorskip("numpy")
         child_unpacked = child_unpack_split_grid(envelope)
-        assert child_unpacked is not None
+        if envelope.get("strings"):
+            assert child_unpacked == grid
+        else:
+            assert child_unpacked is not None
 
 
 def test_jagged_grid_raises_value_error() -> None:
