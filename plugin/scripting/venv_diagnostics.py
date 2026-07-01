@@ -35,7 +35,7 @@ sci = ['numpy', 'pandas', 'scipy', 'sklearn', 'matplotlib', 'sympy']
 eda = ['data_profiling', 'statsmodels', 'pandas_montecarlo']
 cas = ['sympy']
 viz = ['matplotlib', 'seaborn']
-ui = ['webview', 'jedi', 'PyQt6', 'PyQt6.QtWebEngineWidgets', 'qtpy']
+ui = ['webview', 'rocher', 'jedi', 'PyQt6', 'PyQt6.QtWebEngineWidgets', 'qtpy']
 quant = ['yfinance', 'pandas_ta', 'quantstats', 'pypfopt']
 data_eng = ['pint', 'duckdb']
 res['sci'] = sci
@@ -95,6 +95,12 @@ try:
     res['p']['webview'] = 'present'
 except ImportError:
     res['p']['webview'] = None
+
+try:
+    import rocher
+    res['p']['rocher'] = 'present'
+except ImportError:
+    res['p']['rocher'] = None
 
 try:
     import jedi
@@ -481,7 +487,7 @@ def _probe_vision_packages(
 _SANDBOX_SELF_CHECK_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Scientific Libraries", ("numpy", "pandas", "scipy", "sklearn", "matplotlib", "sympy")),
     ("Data Analysis / EDA Libraries", ("data_profiling", "statsmodels", "pandas_montecarlo")),
-    ("UI / Monaco Libraries", ("webview", "jedi", "PyQt6", "PyQt6.QtWebEngineWidgets", "qtpy")),
+    ("UI / Monaco Libraries", ("webview", "rocher", "jedi", "PyQt6", "PyQt6.QtWebEngineWidgets", "qtpy")),
     ("Visualization Libraries", ("matplotlib", "seaborn")),
     ("Computer Algebra", ("sympy",)),
     ("Quantitative Finance Libraries", ("yfinance", "pandas_ta", "quantstats", "pypfopt")),

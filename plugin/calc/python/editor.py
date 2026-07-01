@@ -315,9 +315,9 @@ def _open_python_cell_editor_impl(ctx: Any) -> None:
         log.info("python_editor: webview probe exe=%s ok=%s detail=%r", exe, webview_ok, webview_detail[:200] if webview_detail else "")
         if not webview_ok:
             summary = _(
-                "Cannot import webview (pywebview) with the Python from Settings → Python:\n"
+                "Cannot import webview (pywebview) or rocher with the Python from Settings → Python:\n"
                 "%(exe)s\n\n"
-                "In that venv run: uv pip install pywebview\n"
+                "In that venv run: uv pip install pywebview rocher\n"
                 "(import name is webview, package name is pywebview)."
             ) % {"exe": exe}
             msgbox(ctx, "WriterAgent", failure_message(summary, detail=webview_detail or _("unknown error")))

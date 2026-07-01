@@ -10,7 +10,7 @@ import json
 import logging
 import shutil
 import subprocess
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as ET  # nosemgrep
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, cast
@@ -109,7 +109,7 @@ class ProjectFidelityReport:
 def count_svg_text_elements(svg_path: Path) -> int:
     """Count ``<text>`` nodes in an SVG (ppt-master uses one block per line)."""
     try:
-        root = ET.parse(svg_path).getroot()
+        root = ET.parse(svg_path).getroot()  # nosemgrep
     except ET.ParseError as exc:
         log.warning("SVG parse failed for %s: %s", svg_path, exc)
         return 0

@@ -420,7 +420,7 @@ def test_make_chat_request_includes_dev_build_prefix_when_enabled():
     ctx = MockContext()
     client = LlmClient({"endpoint": "http://test", "model": "test-model"}, ctx)
     messages = [{"role": "user", "content": "Hi"}]
-    with patch("plugin.framework.client.llm_client.should_prepend_dev_llm_system_prefix", return_value=True):
+    with patch("plugin.framework.client.response_normalizers.should_prepend_dev_llm_system_prefix", return_value=True):
         _m, _p, body, _h = client.make_chat_request(messages, max_tokens=50)
     data = json.loads(body.decode("utf-8"))
     system = data["messages"][0]["content"]
@@ -435,7 +435,7 @@ def test_make_chat_request_skips_dev_build_prefix_when_disabled():
     ctx = MockContext()
     client = LlmClient({"endpoint": "http://test", "model": "test-model"}, ctx)
     messages = [{"role": "system", "content": "task-only prompt"}, {"role": "user", "content": "x"}]
-    with patch("plugin.framework.constants.should_prepend_dev_llm_system_prefix", return_value=True):
+    with patch("plugin.framework.client.response_normalizers.should_prepend_dev_llm_system_prefix", return_value=True):
         _m, _p, body, _h = client.make_chat_request(
             messages,
             max_tokens=50,
@@ -460,7 +460,7 @@ def test_make_chat_request_does_not_duplicate_dev_prefix_on_repeated_calls():
     ctx = MockContext()
     client = LlmClient({"endpoint": "http://test", "model": "test-model"}, ctx)
     messages = [{"role": "system", "content": "Core instructions."}]
-    with patch("plugin.framework.client.llm_client.should_prepend_dev_llm_system_prefix", return_value=True):
+    with patch("plugin.framework.client.response_normalizers.should_prepend_dev_llm_system_prefix", return_value=True):
         _, _, json_data1, _ = client.make_chat_request(messages, max_tokens=50)
         _, _, json_data2, _ = client.make_chat_request(messages, max_tokens=50)
     
@@ -774,7 +774,7 @@ def test_prepend_dev_build_prefix_supports_list_content():
         {"role": "system", "content": [{"type": "text", "text": "Existing text."}]}
     ]
 
-    with patch("plugin.framework.client.llm_client.should_prepend_dev_llm_system_prefix", return_value=True):
+    with patch("plugin.framework.client.response_normalizers.should_prepend_dev_llm_system_prefix", return_value=True):
         _prepend_dev_build_system_prefix_to_messages(messages)
 
     content = messages[0]["content"]

@@ -350,6 +350,41 @@ def main() -> None:
     if not os.path.isfile(index_html):
         _fatal(f"Editor assets not found: {index_html}")
 
+    def wsgi_app(environ, start_response):
+        import mimetypes
+        path = environ.get("PATH_INFO", "")
+        if "?" in path:
+            path = path.split("?")[0]
+
+        if path in ("/", "/index.html"):
+            filepath = os.path.join(assets, "index.html")
+        elif path in ("/editor.js", "/scripts_manager.js", "/style.css"):
+            filepath = os.path.join(assets, path.lstrip("/"))
+        elif path.startswith("/vs/"):
+            try:
+                import rocher
+                filepath = os.path.normpath(os.path.join(rocher.path(), path[4:]))
+            except ImportError:
+                filepath = ""
+        else:
+            filepath = ""
+
+        if filepath and os.path.exists(filepath) and os.path.isfile(filepath):
+            mime, _ = mimetypes.guess_type(filepath)
+            if not mime:
+                mime = "application/octet-stream"
+            try:
+                with open(filepath, "rb") as f:
+                    content = f.read()
+                start_response("200 OK", [("Content-Type", mime), ("Content-Length", str(len(content)))])
+                return [content]
+            except Exception as e:
+                start_response("500 Internal Server Error", [("Content-Type", "text/plain")])
+                return [str(e).encode("utf-8")]
+        else:
+            start_response("404 Not Found", [("Content-Type", "text/plain")])
+            return [b"Not Found"]
+
     try:
         webview = cast("Any", importlib.import_module("webview"))
     except ImportError as e:
@@ -359,13 +394,11 @@ def main() -> None:
     threading.Thread(target=_pipe_reader_loop, name="editor-stdin-reader", daemon=True).start()
 
     api = MonacoEditorApi()
-    # pywebview resolves relative URLs against dirname(sys.argv[0]) (plugin/scripting/),
-    # not cwd. Pass an absolute path so the HTTP server root is contrib/scripting/assets/editor/.
     log.info("editor_main: assets=%s index=%s argv0=%s", assets, index_html, sys.argv[0])
-    print(f"editor_main: serving {index_html}", file=sys.stderr, flush=True)
+    print(f"editor_main: serving {index_html} via WSGI WSGI app", file=sys.stderr, flush=True)
     global _window
     try:
-        window = webview.create_window(EDITOR_DEFAULT_TITLE, url=index_html, width=900, height=640, js_api=api)
+        window = webview.create_window(EDITOR_DEFAULT_TITLE, url=wsgi_app, width=900, height=640, js_api=api)
         _window = window
     except Exception as e:
         _fatal(f"webview.create_window failed: {e}", exc=e)

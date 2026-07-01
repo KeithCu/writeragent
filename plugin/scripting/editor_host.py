@@ -54,6 +54,7 @@ import sys
 import traceback
 try:
     import webview
+    import rocher
     print(getattr(webview, "__file__", "ok"))
 except Exception:
     traceback.print_exc()
@@ -80,7 +81,7 @@ def resolve_editor_python(uno_ctx: Any) -> tuple[str | None, str]:
         return (
             None,
             "Set the Python venv path in WriterAgent Settings → Python (same venv where you ran "
-            "'uv pip install pywebview'). LibreOffice's built-in Python cannot run the Monaco editor.",
+            "'uv pip install pywebview rocher'). LibreOffice's built-in Python cannot run the Monaco editor.",
         )
     exe = resolve_venv_python(venv_dir)
     if not exe:
@@ -336,36 +337,46 @@ class PersistentEditor:
     def _read_loop(self) -> None:
         if self._proc is None or self._proc.stdout is None:
             return
-        stdout = self._proc.stdout
+        proc = self._proc
+        stdout = proc.stdout
         try:
             if sys.platform == "win32":
-                self._read_loop_blocking(stdout)
+                self._read_loop_blocking(proc, stdout)
             else:
-                self._read_loop_select(stdout)
+                self._read_loop_select(proc, stdout)
         except Exception:
             log.exception("Editor pipe reader failed")
         finally:
             log.info("editor_host: persistent reader loop finished.")
-            self._handle_disconnect()
+            if self._proc is proc:
+                self._handle_disconnect()
+            else:
+                log.info("editor_host: old reader loop ignored disconnect (superseded by new process)")
 
-    def _read_loop_select(self, stdout: Any) -> None:
+    def _read_loop_select(self, proc: subprocess_types.Popen[bytes], stdout: Any) -> None:
         """POSIX: use select() to poll the pipe with periodic liveness checks."""
-        while self._proc is not None and self._proc.poll() is None:
+        while proc.poll() is None:
             ready, _, _ = select.select([stdout], [], [], 0.5)
             if not ready:
                 continue
             msg = read_message(stdout)
             if msg is None:
                 break
-            self._dispatch_incoming(msg)
+            if self._proc is proc:
+                self._dispatch_incoming(msg)
+            else:
+                log.warning("editor_host: ignored incoming message from old process")
 
-    def _read_loop_blocking(self, stdout: Any) -> None:
+    def _read_loop_blocking(self, proc: subprocess_types.Popen[bytes], stdout: Any) -> None:
         """Windows: blocking read (pipe close on process exit unblocks read)."""
-        while self._proc is not None:
+        while True:
             msg = read_message(stdout)
             if msg is None:
                 break
-            self._dispatch_incoming(msg)
+            if self._proc is proc:
+                self._dispatch_incoming(msg)
+            else:
+                log.warning("editor_host: ignored incoming message from old process")
 
     def set_run_script_document(self, doc: Any | None) -> None:
         from plugin.scripting.document_scripts import document_scripts_identity

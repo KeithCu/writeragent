@@ -155,12 +155,6 @@ def test_append_stderr_line_ring_buffer():
     assert "cccc" in tail
 
 
-def test_monaco_vs_pruned_for_python_only_editor():
-    vs = os.path.join(_ASSETS_DIR, "vs")
-    assert os.path.isdir(os.path.join(vs, "basic-languages", "python"))
-    assert not os.path.isdir(os.path.join(vs, "language"))
-    assert not os.path.isfile(os.path.join(vs, "nls.messages.de.js"))
-    assert not os.path.isdir(os.path.join(vs, "basic-languages", "typescript"))
 
 
 def test_monaco_index_html_lives_under_assets_not_scripting_dir():

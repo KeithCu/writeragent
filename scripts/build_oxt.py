@@ -43,28 +43,27 @@ ALWAYS_INCLUDE_EXTENSION = [
     "extension/assets/",
 ]
 
-ALWAYS_INCLUDE_PLUGIN = [
+ALWAYS_INCLUDE_PLUGIN_FILES = [
     "plugin/__init__.py",
     "plugin/main.py",
     "plugin/version.py",
     "plugin/_manifest.py",
     "plugin/plugin.yaml",
-    "plugin/framework/",
-    # Application packages (each has module.yaml); required at runtime — do not ship only panel_factory.
-    "plugin/doc/",
-    "plugin/draw/",
-    "plugin/calc/",
-    "plugin/writer/",
-    "plugin/mcp/",
-    "plugin/chatbot/",
-    "plugin/agent_backend/",
-    "plugin/lib/",
-    "plugin/contrib/",
-    "plugin/scripting/",
-    "plugin/vision/",
-    "plugin/embeddings/",
-    "plugin/notebook/",
 ]
+
+
+def get_always_include_plugin(base_dir):
+    """Dynamically discover all subdirectories under plugin/ except tests and cache."""
+    plugin_dir = os.path.join(base_dir, "plugin")
+    includes = list(ALWAYS_INCLUDE_PLUGIN_FILES)
+    if os.path.isdir(plugin_dir):
+        for entry in sorted(os.listdir(plugin_dir)):
+            if entry in ("tests", "__pycache__") or entry.startswith("."):
+                continue
+            entry_path = os.path.join(plugin_dir, entry)
+            if os.path.isdir(entry_path):
+                includes.append(f"plugin/{entry}/")
+    return includes
 
 # Only included when --with-tests (make release)
 RELEASE_INCLUDE_PLUGIN = [
@@ -185,7 +184,7 @@ def assemble_bundle(base_dir, modules, no_recording=False, with_tests=False, dry
         shutil.rmtree(bundle_path)
 
     include = list(ALWAYS_INCLUDE_EXTENSION)
-    include.extend(ALWAYS_INCLUDE_PLUGIN)
+    include.extend(get_always_include_plugin(base_dir))
     if with_tests:
         include.extend(RELEASE_INCLUDE_PLUGIN)
         print("  Dev build: including plugin/tests/ and testing_runner.py")
