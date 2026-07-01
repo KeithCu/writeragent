@@ -410,6 +410,9 @@ A weekly chronicle of building a professional AI suite inside LibreOffice:
 git clone https://github.com/KeithCu/writeragent.git
 cd writeragent
 
+# Install dependencies
+uv sync
+
 # Build the extension package (.oxt)
 make build
 
