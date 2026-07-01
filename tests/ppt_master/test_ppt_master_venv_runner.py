@@ -55,17 +55,36 @@ def test_load_skill_context_missing_root(tmp_path: Path, monkeypatch: pytest.Mon
 
 
 def test_load_skill_context_includes_skill_md(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from plugin.contrib.ppt_master.skill_paths import bundled_skill_md_path
     from plugin.ppt_master.venv.skill_context import load_skill_context
 
     monkeypatch.setenv("PPT_MASTER_DATA_ROOT", str(tmp_path))
-    (tmp_path / "SKILL.md").write_text("# PPT-Master skill\n", encoding="utf-8")
+    (tmp_path / "scripts").mkdir()
     (tmp_path / "workflows").mkdir()
     (tmp_path / "workflows" / "routing.md").write_text("route here\n", encoding="utf-8")
 
     ctx = load_skill_context()
     assert ctx["ok"] is True
-    assert "PPT-Master skill" in ctx["block"]
+    assert "WriterAgent fork" in ctx["block"]
+    assert bundled_skill_md_path().read_text(encoding="utf-8")[:50] in ctx["block"] or "PPT Master" in ctx["block"]
     assert "WRITERAGENT LO BRIDGE" in ctx["block"]
+
+
+def test_resolve_writeragent_skill_md_prefers_bundled_fork():
+    from plugin.contrib.ppt_master.skill_paths import bundled_skill_md_path, resolve_writeragent_skill_md
+
+    assert resolve_writeragent_skill_md().resolve() == bundled_skill_md_path().resolve()
+
+
+def test_resolve_writeragent_skill_md_fallback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from plugin.contrib.ppt_master import skill_paths
+
+    fallback = tmp_path / "SKILL.md"
+    fallback.write_text("# fallback\n", encoding="utf-8")
+    monkeypatch.setattr(skill_paths, "_BUNDLED_SKILL", tmp_path / "missing.md")
+    monkeypatch.setenv("PPT_MASTER_DATA_ROOT", str(tmp_path))
+
+    assert skill_paths.resolve_writeragent_skill_md().resolve() == fallback.resolve()
 
 
 def test_run_turn_missing_skill_returns_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

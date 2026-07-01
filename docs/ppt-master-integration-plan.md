@@ -7,7 +7,7 @@ This document describes how [ppt-master](https://github.com/hugohe3/ppt-master) 
 | Decision | Choice |
 |----------|--------|
 | Upstream `svg_to_pptx` | **Not** copied into `plugin/contrib/` — loaded from skill tree `scripts/svg_to_pptx/` |
-| WriterAgent-only code | Four modules under [`plugin/contrib/ppt_master/`](../plugin/contrib/ppt_master/) |
+| WriterAgent-only code | Adapters + forked `SKILL.md` under [`plugin/contrib/ppt_master/`](../plugin/contrib/ppt_master/) |
 | Host / UNO | [`plugin/ppt_master/`](../plugin/ppt_master/) (client, paths, tools, adapters) |
 | Sidebar UX | Venv-hosted smol sub-agent via [`plugin/ppt_master/venv/`](../plugin/ppt_master/venv/) + [`plugin/chatbot/ppt_master.py`](../plugin/chatbot/ppt_master.py) — hidden from main chat |
 | Dev reference clone | Optional repo root `ppt-master/` (not shipped) |
@@ -21,14 +21,15 @@ This document describes how [ppt-master](https://github.com/hugohe3/ppt-master) 
 
 **Added for venv-hosted sub-agent (current sidebar design):**
 
-- [`plugin/ppt_master/venv/`](../plugin/ppt_master/venv/) — smol loop, SKILL load, script/file tools, host RPC client
+- [`plugin/ppt_master/venv/`](../plugin/ppt_master/venv/) — smol loop, script/file tools, host RPC client
+- [`plugin/contrib/ppt_master/skill/SKILL.md`](../plugin/contrib/ppt_master/skill/SKILL.md) + [`skill_paths.py`](../plugin/contrib/ppt_master/skill_paths.py) — WriterAgent orchestration fork (sidebar chat confirmations; no browser UI)
 
 ## Overview
 
 ppt-master is an agentic workflow (SKILL.md + project artifacts + SVG → native shapes). WriterAgent:
 
 1. Ships **adapter modules** under [`plugin/contrib/ppt_master/`](../plugin/contrib/ppt_master/) — see [`README.md`](../plugin/contrib/ppt_master/README.md)
-2. Loads **unmodified upstream** Python and assets from the configured skill tree (`PPT_MASTER_DATA_ROOT`)
+2. Loads **unmodified upstream scripts and assets** from the configured skill tree (`PPT_MASTER_DATA_ROOT`); orchestration doc is the **WriterAgent fork** in contrib (see Packaging)
 3. Hosts **UNO adapters** under [`plugin/ppt_master/`](../plugin/ppt_master/)
 4. Exposes **PPT-Master** in the sidebar mode dropdown for **Impress and Draw only**
 5. Runs a **venv-hosted smol sub-agent** when that mode is selected — full SKILL workflow (scripts + project files) in the user venv; host provides LLM HTTP and UNO export tools only
@@ -47,11 +48,14 @@ Then **Settings → Python** → **PPT-Master data path** → `.../ppt-master/sk
 
 | Layer | In OXT? | Location |
 |-------|---------|----------|
-| UNO adapter (`coords`, `upstream`, `config`) | Yes | `plugin/contrib/ppt_master/` |
-| Upstream `scripts/svg_to_pptx`, templates, references, `SKILL.md` | **No** — user clone / path | Resolved to `PPT_MASTER_DATA_ROOT` |
+| UNO adapter (`coords`, `upstream`, `config`, `skill_paths`) | Yes | `plugin/contrib/ppt_master/` |
+| Forked orchestration `SKILL.md` | Yes | [`plugin/contrib/ppt_master/skill/SKILL.md`](../plugin/contrib/ppt_master/skill/SKILL.md) |
+| Upstream `scripts/`, templates, references, workflows | **No** — user clone / path | Resolved to `PPT_MASTER_DATA_ROOT` |
 | UNO apply, client, tools | Yes | `plugin/ppt_master/` |
 | Venv sub-agent runner | Yes | `plugin/ppt_master/venv/` |
 | Sidebar session (host bridge) | Yes | `plugin/chatbot/ppt_master.py` |
+
+**SKILL split:** The venv agent loads the **WriterAgent fork** via [`skill_paths.resolve_writeragent_skill_md()`](../plugin/contrib/ppt_master/skill_paths.py). Routing files (`workflows/routing.md`, etc.) still come from the user data root. The fork drops Confirm UI browser and Step 6 live-preview server — sidebar chat + `export_presentation_project` instead.
 
 ## Sidebar sub-agent design
 
@@ -89,7 +93,7 @@ That is enough for **“import an existing project folder”** but not for **“
 ```text
 Sidebar send → ppt_master_session (host)
   → execute_ppt_master_turn (venv_worker IPC)
-    → runner.run_turn (venv): ToolCallingAgent + SKILL.md
+    → runner.run_turn (venv): ToolCallingAgent + forked SKILL (contrib)
       → llm_request / tool_call / worker_event (stdout pipe)
         → host_rpc.dispatch_worker_response (LO main thread for UNO)
 ```
@@ -116,8 +120,8 @@ Sidebar send → ppt_master_session (host)
 |---------------|-------------|
 | Script pipeline (`project_manager`, `pdf_to_md`, …) | **Yes** — core win |
 | Hand-written SVG by LLM | **Yes** — `write_project_file` |
-| `confirm_ui/server.py --daemon` | **Maybe** — subprocess + browser; needs LO sandbox testing |
-| `svg_editor/server.py --live` | **Maybe** — same |
+| `confirm_ui/server.py --daemon` | **No** — removed from WriterAgent fork; sidebar chat only |
+| `svg_editor/server.py --live` | **No** — removed from WriterAgent fork; use `read_project_file` + `export_presentation_project` |
 
 **Infrastructure reused:** existing venv worker IPC ([`venv_worker.py`](../plugin/scripting/venv_worker.py) `tool_call` loop), [`pptx_build.py`](../plugin/ppt_master/pptx_build.py) subprocess patterns, vendored smolagents on worker `PYTHONPATH`.
 
@@ -151,10 +155,11 @@ flowchart TB
   end
   subgraph venv [User venv worker]
     Runner[ppt_master_runner]
-    Smol[ToolCallingAgent + SKILL.md]
+    Smol[ToolCallingAgent + forked SKILL]
     Scripts[subprocess scripts/*]
     Files[project read/write]
   end
+  ForkSKILL[(contrib skill/SKILL.md)] --> Smol
   UI --> Session
   Session --> Runner
   Runner --> Smol
@@ -163,8 +168,8 @@ flowchart TB
   Smol --> Files
   Smol -->|export_presentation_project| ToolRPC
   Runner -->|worker_event| Drain
-  Data[(skill tree SKILL scripts)] --> Scripts
-  Data --> Smol
+  Data[(user data root scripts templates workflows)] --> Scripts
+  Data -.->|routing refs| Smol
   ToolRPC --> UNO[Impress/Draw document]
 ```
 
@@ -179,7 +184,7 @@ flowchart TB
 
 Venv-side client: [`ipc.py`](../plugin/ppt_master/venv/ipc.py) (`rpc_llm`, `rpc_tool`, `emit_worker_event`). Host entry: [`host.py`](../plugin/ppt_master/venv/host.py) → [`PythonWorkerManager.execute_ppt_master_turn`](../plugin/scripting/venv_worker.py).
 
-SKILL injection at session start: [`skill_context.py`](../plugin/ppt_master/venv/skill_context.py) loads `SKILL.md`, `workflows/routing.md`, `workflows/index.md`, `references/artifact-ownership.md` (capped) plus a short LO-bridge paragraph telling the agent which steps are venv-local vs host RPC.
+SKILL injection at session start: [`skill_context.py`](../plugin/ppt_master/venv/skill_context.py) loads the **bundled fork** via [`skill_paths.resolve_writeragent_skill_md()`](../plugin/contrib/ppt_master/skill_paths.py), plus `workflows/routing.md`, `workflows/index.md`, and `references/artifact-ownership.md` from the data root (capped), and a short LO-bridge paragraph.
 
 ### Data root resolution (`plugin/ppt_master/paths.py`)
 
@@ -281,7 +286,9 @@ Reference PDF is LO’s render of the **PPTX slide**. Imported PDF is the same s
 | Module | Role |
 |--------|------|
 | [`plugin/chatbot/ppt_master.py`](../plugin/chatbot/ppt_master.py) | `ppt_master_session` — delegates to venv runner |
-| [`plugin/ppt_master/venv/runner.py`](../plugin/ppt_master/venv/runner.py) | Venv smol loop, SKILL load, script + file tools |
+| [`plugin/contrib/ppt_master/skill/SKILL.md`](../plugin/contrib/ppt_master/skill/SKILL.md) | WriterAgent fork of upstream orchestration doc |
+| [`plugin/contrib/ppt_master/skill_paths.py`](../plugin/contrib/ppt_master/skill_paths.py) | Resolve bundled SKILL vs data-root fallback |
+| [`plugin/ppt_master/venv/runner.py`](../plugin/ppt_master/venv/runner.py) | Venv smol loop, script + file tools |
 | [`plugin/ppt_master/venv/host_rpc.py`](../plugin/ppt_master/venv/host_rpc.py) | Host LLM + UNO tool RPC dispatch |
 | [`plugin/ppt_master/venv/host.py`](../plugin/ppt_master/venv/host.py) | Host entry: `run_ppt_master_venv_turn`, session id |
 | [`plugin/ppt_master/venv/ipc.py`](../plugin/ppt_master/venv/ipc.py) | Venv-side RPC client over worker stdin/stdout |
@@ -302,7 +309,7 @@ Reference PDF is LO’s render of the **PPTX slide**. Imported PDF is the same s
 
 ## Contrib merge policy
 
-Only add files under `plugin/contrib/ppt_master/` when WriterAgent must **change** behavior. Do not re-vendor `svg_to_pptx/`. Upstream is **MIT** (Hugo He); WriterAgent adapters are **GPL-3.0-or-later** — see [`plugin/contrib/ppt_master/README.md`](../plugin/contrib/ppt_master/README.md) for the full MIT notice, upstream pin, and symbol map.
+Only add files under `plugin/contrib/ppt_master/` when WriterAgent must **change** behavior. Do not re-vendor `svg_to_pptx/`. **Exception:** [`plugin/contrib/ppt_master/skill/SKILL.md`](../plugin/contrib/ppt_master/skill/SKILL.md) is a tracked fork of upstream orchestration only — scripts, templates, and references remain in the user's cloned data root. Upstream is **MIT** (Hugo He); WriterAgent adapters are **GPL-3.0-or-later** — see [`plugin/contrib/ppt_master/README.md`](../plugin/contrib/ppt_master/README.md) for the full MIT notice, upstream pin, and symbol map.
 
 **Python files:** shipped adapters are WriterAgent-original; keep upstream attribution in README only (not in `.py` headers). When **vendoring** upstream lines, comment out replaced code with `'''` blocks in that file only (see [`plugin/contrib/nbformat/README.md`](../plugin/contrib/nbformat/README.md)).
 
@@ -327,7 +334,7 @@ Backlog for PPT-Master integration work. **Priority order matters** — validate
 |------|--------|-------|
 | Settings data path + Test probe | Shipped | [`paths.py`](../plugin/ppt_master/paths.py), [`test_ppt_master_data_test_listener.py`](../tests/chatbot/test_ppt_master_data_test_listener.py) |
 | Sidebar PPT-Master mode (Impress/Draw) | Shipped | [`chat_sidebar_mode.py`](../plugin/chatbot/chat_sidebar_mode.py) |
-| Smol sub-agent session | Shipped | Venv-hosted via [`plugin/ppt_master/venv/`](../plugin/ppt_master/venv/); host LLM + UNO RPC |
+| Smol sub-agent session | Shipped | Venv-hosted via [`plugin/ppt_master/venv/`](../plugin/ppt_master/venv/); forked SKILL + host LLM/UNO RPC |
 | Specialized tools | Shipped | [`tools.py`](../plugin/ppt_master/tools.py) — export, validate, template-fill, native-enhance (host UNO) |
 | Main PPTX → ODP export | Shipped | [`uno_pptx_deck.py`](../plugin/ppt_master/adapter/uno_pptx_deck.py) + [`pptx_build.py`](../plugin/ppt_master/pptx_build.py) |
 | PPTX auto-build from SVG | Shipped | User venv runs upstream `svg_to_pptx.py` when `exports/*.pptx` missing |
@@ -337,7 +344,6 @@ Backlog for PPT-Master integration work. **Priority order matters** — validate
 | Import fidelity script | Shipped | PPTX vs ODP PDF diff per slide |
 | Real-project smoke | Validated | `ppt169_attention_is_all_you_need` via existing `exports/*.pptx` |
 | Speaker notes matching | Partial | [`project_notes.py`](../plugin/ppt_master/project_notes.py); PPTX import copies notes from source slides |
-| Venv sub-agent + SKILL injection | Shipped | [`plugin/ppt_master/venv/`](../plugin/ppt_master/venv/); see [Sidebar sub-agent design](#sidebar-sub-agent-design) |
 
 ### What is not done (gaps)
 
@@ -361,7 +367,8 @@ Backlog for PPT-Master integration work. **Priority order matters** — validate
 | `svg_convert.py` / `uno_apply.py` / `uno_svg_import` / `svg_preprocess` | **Removed** | Replaced by PPTX build + LO PPTX import |
 | `bundled/svg_to_pptx/` | **Removed** | Was byte-identical copy; use user clone |
 | Upstream attribution | **README only** | Shipped `.py` files are WriterAgent-original ([`contrib README`](../plugin/contrib/ppt_master/README.md)) |
-| Fork upstream for clarity | **Rejected for now** | Reference-only; expand rewrites or host-safe delegation instead |
+| Fork upstream `SKILL.md` only (orchestration) | **Shipped** | [`plugin/contrib/ppt_master/skill/SKILL.md`](../plugin/contrib/ppt_master/skill/SKILL.md); scripts/templates stay in user clone; diff tracked in git |
+| Fork full upstream Python tree | **Rejected** | Reference-only for scripts; expand rewrites or host-safe delegation instead |
 
 **WriterAgent export path:**
 
@@ -424,7 +431,7 @@ Primary files: [`uno_pptx_import.py`](../plugin/ppt_master/adapter/uno_pptx_impo
 
 #### P3 — Agent UX: SKILL + workflow context
 
-**Status:** Shipped — venv runner loads SKILL.md + routing at session start ([`skill_context.py`](../plugin/ppt_master/venv/skill_context.py)); venv tools `read_ppt_master_workflow_file`, `run_ppt_master_script`, `read_project_file`, `write_project_file`.
+**Status:** Shipped — venv runner loads the **WriterAgent fork** ([`plugin/contrib/ppt_master/skill/SKILL.md`](../plugin/contrib/ppt_master/skill/SKILL.md) via [`skill_paths.py`](../plugin/contrib/ppt_master/skill_paths.py)) plus data-root routing at session start ([`skill_context.py`](../plugin/ppt_master/venv/skill_context.py)); venv tools `read_ppt_master_workflow_file`, `run_ppt_master_script`, `read_project_file`, `write_project_file`. Fork uses **sidebar chat** for Eight Confirmations (Confirm UI / live-preview browser removed).
 
 **Model guidance (upstream FAQ):** Claude Opus/Sonnet with large context (~1M) gives best results; GPT/Gemini/Kimi work with a lower ceiling. Sidebar model selection is forwarded to the host via `llm_request` RPC (API keys stay in `writeragent.json`).
 
@@ -461,7 +468,7 @@ Run: `pytest tests/ppt_master/`; full matrix: `make test`.
 - **Run PPT-Master smol inside LO embedded Python with SKILL.md injection only** — teaches a workflow the host cannot execute; use venv runner instead.
 - **Re-merge Draw core tools into PPT-Master session** — upstream does not use UNO shape editing for the main route.
 - **Re-vendor `plugin/contrib/ppt_master/bundled/svg_to_pptx/`** — external skill tree is intentional.
-- **Fork upstream Python only for attribution** — symbol map lives in contrib README.
+- **Fork full upstream Python tree for attribution** — symbol map lives in contrib README; orchestration is the tracked [`skill/SKILL.md`](../plugin/contrib/ppt_master/skill/SKILL.md) fork only.
 - **Import `svg_to_pptx` package on LO host** — triggers `python-pptx` dependency ([`upstream.py`](../plugin/contrib/ppt_master/upstream.py) policy).
 - **Spread effort across beautify + template-fill + fidelity in parallel** — finish P0/P1 first.
 
@@ -484,7 +491,7 @@ Run: `pytest tests/ppt_master/`; full matrix: `make test`.
 
 ### Roadmap summary (one line)
 
-**Run fidelity script on real projects → PPTX→ODP import quality → notes matching → secondary routes → confirm UI / live editor (optional) → CI.**
+**Run fidelity script on real projects → PPTX→ODP import quality → notes matching → secondary routes → CI.**
 
 ---
 

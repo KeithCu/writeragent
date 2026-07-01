@@ -10,6 +10,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from plugin.contrib.ppt_master.skill_paths import bundled_skill_md_path, resolve_writeragent_skill_md
+
 _DEFAULT_SKILL_CAP = 80_000
 
 _EXTRA_FILES = (
@@ -35,11 +37,24 @@ def resolve_data_root_from_env() -> Path:
     return Path("skills/ppt-master")
 
 
+def _data_root_ready(root: Path) -> bool:
+    return (root / "scripts").is_dir()
+
+
 def load_skill_context(*, cap: int = _DEFAULT_SKILL_CAP) -> dict[str, Any]:
-    """Build system-prompt block from upstream skill tree (Level-2 load)."""
+    """Build system-prompt block from WriterAgent SKILL fork + data-root routing files."""
     root = resolve_data_root_from_env()
-    skill_path = root / "SKILL.md"
+    skill_path = resolve_writeragent_skill_md()
     if not skill_path.is_file():
+        return {
+            "ok": False,
+            "data_root": str(root),
+            "block": (
+                "PPT-Master SKILL.md not found (bundled fork missing).\n"
+                "Configure Settings → Python → PPT-Master data path and clone upstream ppt-master."
+            ),
+        }
+    if not _data_root_ready(root):
         return {
             "ok": False,
             "data_root": str(root),
@@ -49,7 +64,12 @@ def load_skill_context(*, cap: int = _DEFAULT_SKILL_CAP) -> dict[str, Any]:
             ),
         }
 
-    parts: list[str] = [f"[PPT-MASTER SKILL from {root}]\n", _read_capped(skill_path, cap)]
+    label = "WriterAgent fork" if skill_path.resolve() == bundled_skill_md_path().resolve() else str(skill_path.parent)
+    parts: list[str] = [
+        f"[PPT-MASTER SKILL — {label}]\n",
+        f"[scripts/data root: {root}]\n",
+        _read_capped(skill_path, cap),
+    ]
     remaining = max(0, cap - sum(len(p) for p in parts))
     for rel in _EXTRA_FILES:
         if remaining <= 0:
@@ -62,9 +82,11 @@ def load_skill_context(*, cap: int = _DEFAULT_SKILL_CAP) -> dict[str, Any]:
     bridge = """
 [WRITERAGENT LO BRIDGE]
 - You run inside LibreOffice via a user venv worker with filesystem + script access.
-- Use run_ppt_master_script for upstream commands under scripts/.
+- Use run_ppt_master_script for upstream commands under scripts/ (data root above).
 - Use read/write_project_file for project artifacts (SVG, design_spec, etc.).
-- Call export_presentation_project / validate_ppt_master_project for the active Impress/Draw document (host UNO).
+- Present Eight Confirmations via reply_to_user in the sidebar chat only — do NOT launch confirm_ui or localhost browser servers.
+- After SVG export is ready, call export_presentation_project for the active Impress/Draw document (host UNO).
+- validate_ppt_master_project checks artifacts before export.
 - reply_to_user continues the session; ppt_master_finished ends it (HTML messages).
 """
     parts.append(bridge)

@@ -1,6 +1,6 @@
 # ppt-master in WriterAgent (contrib)
 
-WriterAgent-specific adapters for [hugohe3/ppt-master](https://github.com/hugohe3/ppt-master) (MIT). **Unmodified upstream code is not vendored here** — it loads from a cloned skill tree on disk.
+WriterAgent-specific adapters for [hugohe3/ppt-master](https://github.com/hugohe3/ppt-master) (MIT). **Unmodified upstream scripts are not vendored here** — they load from a cloned skill tree on disk. WriterAgent ships a **forked `skill/SKILL.md`** (orchestration only); the upstream pin below applies to scripts/assets in the user clone, not the forked doc.
 
 **Dev reference clone (optional):** repo root `ppt-master/`.
 
@@ -15,6 +15,8 @@ Do **not** re-add `plugin/contrib/ppt_master/bundled/` or `backends/` — upstre
 | `coords.py` | Default Impress slide dimensions (16:9 hmm) | WriterAgent-only |
 | `upstream.py` | Load upstream `pptx_discovery`; project SVG/notes discovery | WriterAgent runtime loader |
 | `config.py` | Path helpers under `PPT_MASTER_DATA_ROOT` | WriterAgent-only |
+| `skill/SKILL.md` | Forked orchestration doc (WriterAgent sidebar) | Fork of upstream `SKILL.md`; scripts/templates stay in user data root |
+| `skill_paths.py` | Resolve bundled `SKILL.md` vs data-root fallback | WriterAgent-only |
 
 Host integration: [`plugin/ppt_master/`](../../ppt_master/) (`pptx_build`, `uno_pptx_import`, `uno_pptx_deck`, `uno_shape_postprocess`). Design doc: [`docs/ppt-master-integration-plan.md`](../../../docs/ppt-master-integration-plan.md#roadmap).
 

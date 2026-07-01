@@ -11,7 +11,9 @@ description: >
 
 > AI-driven multi-format SVG content generation system. Converts source documents into high-quality SVG pages through multi-role collaboration and exports to PPTX.
 
-**Core Pipeline**: `Source Document → Create Project → [Template] → Strategist → [Image_Generator] → Executor Live Preview → Quality Check → Post-processing → Export`
+**Core Pipeline**: `Source Document → Create Project → [Template] → Strategist → [Image_Generator] → Executor → Quality Check → Post-processing → Export`
+
+> **WriterAgent fork:** Eight Confirmations use **sidebar chat only** (no Confirm UI browser). Step 6 has **no live-preview server** — review SVG via project files and `export_presentation_project` into Impress.
 
 > [!CAUTION]
 > ## 🚨 Global Execution Discipline (MANDATORY)
@@ -63,7 +65,7 @@ description: >
 | Workflow registry | [`workflows/index.md`](workflows/index.md) | Owns standalone workflow trigger/precondition/output inventory |
 | Artifact ownership | [`references/artifact-ownership.md`](references/artifact-ownership.md) | Owns fact channels, source/derived artifact boundaries, and regeneration rules |
 | Failure recovery | [`workflows/failure-recovery.md`](workflows/failure-recovery.md) | Owns stop/continue decisions for common failures |
-| Confirm UI details | [`scripts/docs/confirm_ui.md`](scripts/docs/confirm_ui.md) | Owns schema, launcher behavior, port strategy, and chat fallback details |
+| Eight Confirmations (WriterAgent) | This `SKILL.md` Step 4 | Sidebar chat only — two tiers (anchors → realization); do not launch browser confirm UI |
 
 ## Main Pipeline Scripts
 
@@ -339,7 +341,7 @@ Read references/strategist.md
 
 **Eight Confirmations** (full template: `templates/design_spec_reference.md`):
 
-⛔ **BLOCKING**: present the Eight Confirmations and **wait for explicit user confirmation or modification** before outputting Design Specification & Content Outline. This is the single core confirmation gate — once the final confirmation lands, all subsequent steps proceed automatically. The default Confirm UI delivers the gate in **two tiers** (anchors → re-derive → realization; see below); the chat fallback mirrors the same two steps.
+⛔ **BLOCKING**: present the Eight Confirmations and **wait for explicit user confirmation or modification** before outputting Design Specification & Content Outline. This is the single core confirmation gate — once the final confirmation lands, all subsequent steps proceed automatically. **WriterAgent uses sidebar chat only** (`reply_to_user`) in **two tiers** (anchors → re-derive → realization).
 
 1. Canvas format
 2. Page count range
@@ -350,40 +352,22 @@ Read references/strategist.md
 7. Typography plan, including formula rendering policy
 8. Image usage approach
 
-**Confirm UI Auto-Launch (Mandatory — default visual confirmation surface)**: by default the Eight Confirmations are presented through an interactive local page in **two tiers within one browser session** — Tier 1 confirms the *anchors*; the AI then re-derives the realization layer from the **user's actual** anchors; Tier 2 confirms that layer. Color swatches, live font previews, candidate picks; the chat path is the always-valid fallback. [`scripts/docs/confirm_ui.md`](scripts/docs/confirm_ui.md) owns the schema, server lifecycle, port strategy, and fallback details; this section keeps the orchestration contract. The split:
+**Chat confirmation (Mandatory — WriterAgent / LibreOffice sidebar)**: present the Eight Confirmations in **two chat rounds** — Tier 1 confirms the *anchors*; after the user replies, re-derive the realization layer from their **actual** anchors and present Tier 2; wait for final confirmation before writing `design_spec.md` / `spec_lock.md`. Do **NOT** launch `confirm_ui/server.py` or any localhost browser server.
 
 | Tier | Confirms | Driven by |
 |---|---|---|
 | **1 — anchors** | canvas · audience + core message + `content_divergence` + `delivery_purpose` *(PPT only — omitted on non-PPT canvases)* (all §c key info) · `mode` + `visual_style` | the source + user intent |
 | **2 — realization** (re-derived from Tier 1) | page count · color · typography (font + size) · icons · formula policy · image usage + generated-image style · generation mode · refine-spec toggle | the confirmed Tier 1 |
 
-> **Why two tiers.** Every realization field is anchored by the same few choices (`visual_style` anchors color / icon / typography / image; `delivery_purpose` sets the body size, page density, **and** the page-count recommendation). Confirming anchors first, then re-deriving, means Tier 2's candidates fit the user's *real* anchors instead of your originals — the coherence reconciliation below is done by construction on this path. Page count is a **derived** field (content volume × `delivery_purpose`), which is why it lives in Tier 2, not up front.
+> **Why two tiers.** Every realization field is anchored by the same few choices (`visual_style` anchors color / icon / typography / image; `delivery_purpose` sets the body size, page density, **and** the page-count recommendation). Confirming anchors first, then re-deriving, means Tier 2's candidates fit the user's *real* anchors instead of your originals.
 
 Steps:
 
-> ⛔ **Steps 2 → 3 → 4 are ONE uninterrupted run — do NOT yield to the user mid-flow.** When the tier-1 `--wait` (step 2) returns, the AI **immediately and autonomously** continues to step 3 (re-derive + write Tier 2) and step 4 (`--wait-only`) in the **same turn**: do **not** summarize, ask a question, report progress, or end the turn in between. The browser is sitting on a "deriving…" spinner polling for the Tier 2 you must write next — stopping here strands the page and the user must prod you in chat to finish (a bug, not the intended flow). **The tier-1 confirmation is an intermediate machine handoff, not a stopping point.** The single ⛔ BLOCKING wait is the **final** confirmation at the end of step 4. (Chat-fallback path — only when the page never opened — is the exception: there you do present each tier in chat and wait for a reply.)
+1. **Present Tier 1 in chat** via `reply_to_user`: anchors with recommended values plus ≥3-style `visual_style_spectrum` where applicable (safe / shifted / bold — same hard rule as h.5). `audience` and `content_divergence` are free text. **Stop and wait** for the user's explicit reply.
+2. **Re-derive Tier 2 from the confirmed anchors** using the user's **actual** Tier 1 choices (not your originals): page count (content volume × `delivery_purpose`); color, typography, and generated-image style as **generative ≥3-candidate** fields; enumerable icons / formula_policy / generation_mode; `image_usage` as one or more source ids. Present Tier 2 via `reply_to_user` and **wait** for final confirmation.
+3. **Take the user's final chat reply as authoritative** before writing `design_spec.md` / `spec_lock.md`. Optionally mirror confirmations to `<project_path>/confirm_ui/result.json` for audit — not required in WriterAgent.
 
-1. **Write Tier 1** to `<project_path>/confirm_ui/recommendations.json` with `"tier": 1` and only the anchor fields. Enumerable anchors (`canvas` / `mode` / `visual_style` / `delivery_purpose`) name a recommended canonical `id` in a `recommend` block (the page lists common options from `confirm_ui/static/catalogs.json`); `visual_style` also carries the ≥3-style `visual_style_spectrum` (safe / shifted / bold — same hard rule as h.5). `audience` and `content_divergence` are plain `{ "value": "<free text>" }`. `content_divergence` is the **free-text** field shown under audience in §c — how closely to follow the source vs how freely to reshape it (blank = balanced; facts stay sourced at every level); it is consumed by Strategist when authoring `§IX`, recorded in `design_spec.md §I`, carries no page-count coupling, and is **not** written to `spec_lock.md`. Set `lang` to the page language; visible text matches `lang`, or provide bilingual `name_zh` / `name_en` + `note_zh` / `note_en`.
-2. **Launch + wait for Tier 1.** Background launch; the parent returns when the page writes the tier-1 `result.json`. **Long tool timeout — 600000 ms** (the `--wait` ≈590 s budget):
-   ```bash
-   python3 ${SKILL_DIR}/scripts/confirm_ui/server.py <project_path> --daemon --wait
-   ```
-   Page opens at `http://localhost:5050` — the **same port as the Step 6 live preview** (they never run at once: this page shuts down at the end of Step 4). If 5050 is held, the launcher **auto-advances** (5051, …) — read the actual URL from the launch log and report it. The page does **not** close after Tier 1: it shows a "deriving…" state and polls for Tier 2. **Launch or wait failure is non-fatal**: if it fails or times out (flask missing, port blocked, no GUI / remote / web host), do **NOT** troubleshoot — **on any non-zero exit, re-check `result.json` once** (a fresh `status: tier1-confirmed`) before dropping to the chat fallback. **On success (exit 0 with a tier-1 result), do not pause or report — go straight to step 3 in the same turn.**
-3. **Re-derive Tier 2 from the confirmed anchors, then write it — immediately, same turn (the page is polling for it).** Read the tier-1 `result.json` (`status: tier1-confirmed`). Using the user's **actual** confirmed anchors (not your originals), author the realization candidates and **overwrite** `recommendations.json` with `"tier": 2`: page count (content volume × `delivery_purpose`); color, typography, and generated-image style as **generative ≥3-candidate** fields (creative recommendations always offer real choice — same rule as h.5; fewer than 3 only on the honest-shortfall exception, with a stated reason; color: core `palette` with background/secondary_bg/primary/accent/secondary_accent/body_text; typography: CJK + Latin for `heading` and `body` with `css` preview stacks + `body_size` as the body baseline in **px** (every canvas) — **one fixed value per confirmed `delivery_purpose`** (`text` 20 / `balanced` 24 / `presentation` 32), not a range; each typography candidate must include topic-matched `sample_heading` / `sample_heading_latin` / `sample_body` / `sample_body_latin` preview text, never a fixed unrelated industry sample; images: `image_strategy.candidates` rendering × palette from h.5); enumerable `icons` / `formula_policy` / `generation_mode` (recommended `id`); `image_usage` as one or more source ids (`["ai"]`, `["ai","provided"]`, `["web","placeholder"]`, or `["none"]`; `none` is exclusive). If the recommendation involves several sources, keep the source list structured in `recommend.image_usage` and write the usage rationale / page-role guidance into `image_notes` (for example, "封面和章节页用 AI 主视觉，产品页优先用户素材，行业背景页可用网络参考"). Write `image_ai_path` only when `image_usage` includes `ai`. Spot-illustration lean is **not** a candidate field here: it derives from the locked `visual_style`'s illustration propensity and is expressed only in the recommendation rationale / `image_notes`, never as a new confirmation field. The still-open page polls, renders Tier 2, and preserves the user's Tier 1 picks. Closed fields (`image_ai_path`, `formula_policy`, `generation_mode`, `refine_spec`) stay finite; open fields (`icons`, typography custom text, image notes) expose free-text controls.
-4. **Wait for the final confirmation** — attach to the already-running page, do **not** relaunch (same 600000 ms budget):
-   ```bash
-   python3 ${SKILL_DIR}/scripts/confirm_ui/server.py <project_path> --wait-only
-   ```
-   This is the ⛔ BLOCKING completion: returns when the page writes the final `result.json` (`status: confirmed`, `stage: final`, carrying all Tier 1 + Tier 2 fields). On a non-zero exit, re-check `result.json` once. Confirmed sizes are **already px** (the system is px-only — no pt anywhere, no conversion): write `result.json` `typography.body_size` / `sizes` into `design_spec.md` / `spec_lock.md` / SVG verbatim. `generation_mode: "split"` / `refine_spec: true` are explicit user choices.
-5. **Close the confirm page (Mandatory cleanup — every path).** Shut the server down before leaving Step 4 so it cannot keep holding port 5050 (which Step 6 live preview reuses):
-   ```bash
-   python3 ${SKILL_DIR}/scripts/confirm_ui/server.py <project_path> --shutdown
-   ```
-   **Idempotent and required regardless of whether Confirm was clicked**: clicking the final Confirm already shuts the page down (then a no-op); the chat-fallback path leaves it running. Run it after reading the confirmation, before Step 5.
-
-**Always also print each tier's recommendations + URL in chat** as the always-valid fallback. **The chat fallback is two-step too**: if the page never opens or a wait times out with no fresh result, present Tier 1 in chat → get confirmation → re-derive → present Tier 2 → get confirmation → take those values. Either path converges.
-
-**Honoring the confirmation (result.json is authoritative — Mandatory)**: the confirmed values **override your own recommendations** when you write `design_spec.md` / `spec_lock.md`. A user who changed any field changed it on purpose. In particular, map `image_usage` to §VIII `Acquire Via` (its value names differ from §h options — translate). `image_usage` may be either a legacy single string or a Confirm UI multi-select array; for arrays, apply every selected source. `image_notes`, when present, is a user-authored image intent note that Strategist must honor while assigning per-page §VIII rows:
+**Honoring the confirmation (user chat reply is authoritative — Mandatory)**: the confirmed values **override your own recommendations** when you write `design_spec.md` / `spec_lock.md`. A user who changed any field changed it on purpose. In particular, map `image_usage` to §VIII `Acquire Via` (its value names differ from §h options — translate). `image_usage` may be either a legacy single string or a multi-select array; for arrays, apply every selected source. `image_notes`, when present, is a user-authored image intent note that Strategist must honor while assigning per-page §VIII rows:
 
 | `result.json.image_usage` | §VIII `Acquire Via` | h.5 + Step 5 generation |
 |---|---|---|
@@ -398,7 +382,7 @@ When the confirmed `image_usage` does not include `ai` (and no legacy custom pro
 
 **Small spot illustrations are a Strategist judgment, not a confirmation field.** The user chooses image *source* through `image_usage`; whether the deck leans into decorative illustrations is anchored by the locked `visual_style`'s **illustration propensity** (`core` / `supportive` / `sparse`), expressed only in the `image_notes` rationale — never a new confirmation control. An explicit user request to use or skip illustrations overrides that default either way; `image_usage: none` still wins (write no illustration rows); and source still comes from `image_usage` — a `core` style does not silently generate AI spots when the user did not pick AI. They are ordinary §VIII image rows (`Type: Illustration` / `Illustration Sheet`) using normal `Acquire Via` values. If the plan needs ≥3 same-family AI spot illustrations, use the `ai` Illustration Sheet + `slice` workflow by default; do not generate one AI image per spot. Full rule + precedence: [`references/strategist.md`](references/strategist.md) §h. Use them on suitable pages and omit them where they would weaken clarity.
 
-**Upstream override → re-derive untouched downstream (Mandatory — chat-fallback / single-pass path).** On the **two-tier page path this is already handled** (Step 3 re-derives Tier 2 from the user's actual anchors). It still applies whenever anchors and realization are confirmed **together** — the two-step chat fallback collapsed into one bundle, or a legacy single-pass `result.json`. "Confirmed value wins" governs each field's *own* value — never recompute a value the user set (a size, canvas, or palette they edited stays verbatim). But a single-pass `result.json` can carry a changed **anchor** beside downstream fields still holding your original — now incoherent — recommendation (e.g. switched to `dark-tech` while the light palette you proposed is untouched). Before writing the spec, reconcile: when the user changed an anchor, re-derive the downstream fields the user did **not** themselves edit so they realize the new anchor; fields the user pinned stay as confirmed.
+**Upstream override → re-derive untouched downstream (Mandatory).** When anchors and realization are confirmed **together** in a single chat bundle, "confirmed value wins" governs each field's *own* value — never recompute a value the user set. When the user changed an anchor in Tier 1, re-derive downstream Tier 2 fields they did **not** themselves edit so they realize the new anchor; fields the user pinned stay as confirmed.
 
 | Anchor the user changed | Re-derive (only the downstream fields the user left at your recommendation) |
 |---|---|
@@ -410,9 +394,7 @@ When the confirmed `image_usage` does not include `ai` (and no legacy custom pro
 
 Reconcile **without a new blocking wait** — fold the coherent values into `design_spec.md` / `spec_lock.md` and state the adjustment in the §8 next-step handoff (e.g. "you switched to `dark-tech`; the light palette you had left no longer fit, so background / accent were re-derived — tell me if you wanted the original"). Canvas is the explicit exception: font sizes are deliberately **not** rescaled on a canvas change (see strategist §g).
 
-**Opt-out**: if the user has said they don't want the page (e.g. "不要网页" / "just confirm in chat" / "纯聊天确认"), skip the launch entirely (step 2) and present the Eight Confirmations in chat as before — steps 1, 3, 4 still apply (recommendations summary in chat; wait; take chat values).
-
-The page is a **confirmation surface only** — Strategist still authors every recommendation; the page never generates content.
+Strategist still authors every recommendation; chat is the confirmation surface only.
 
 **Mandatory — split-mode note** (not a ninth confirmation): after listing the eight confirmation details, you MUST append exactly one short line (rendered in the user's language, prefixed with 💡) about generation mode. Pick the variant by qualitative read of Phase A signals — recommended page count, source-material bulk, whether `topic-research` ran with substantial web-fetch accumulation:
 
@@ -421,9 +403,9 @@ The page is a **confirmation surface only** — Strategist still authors every r
 | Heavy (long page count / bulky sources / heavy web-fetch accumulation) | State estimated page count and large source size; recommend switching to [split mode](workflows/resume-execute.md) after Step 5 — stop this chat, open a fresh window and input `继续生成 projects/<project_name>` to enter Phase B (SVG generation + export); no response or "continue" = default continuous mode. |
 | Normal (default) | State scale is moderate, default continuous mode generates in one go; if mid-way window switch is desired, input `继续生成 projects/<project_name>` after Step 5 to switch to [split mode](workflows/resume-execute.md). |
 
-This line is required output every run — the user must always see the mode choice exists. Whether to act on it is the user's call. When the Confirm UI is used, this choice also appears as the in-page generation-mode toggle and is captured in `result.json` (`generation_mode`); the chat-summary fallback still prints this line.
+This line is required output every run — the user must always see the mode choice exists. Whether to act on it is the user's call. Capture `generation_mode: "split"` only when the user explicitly chooses split mode in chat.
 
-**Mandatory — spec-refinement note** (not a ninth confirmation): after the split-mode line, you MUST append one short opt-in line (rendered in the user's language, prefixed with 💡) telling the user they may **refine the spec first** — Strategist will produce the full design spec, then stop for review/revision of any part of it before any generation, via the [refine-spec](workflows/refine-spec.md) workflow. Default is OFF: no request → the spec is written in one go and the pipeline auto-proceeds as usual. Only when the user explicitly asks in chat (e.g. "refine the spec first") or confirms `refine_spec: true` through Confirm UI does the [refine-spec](workflows/refine-spec.md) workflow take over after the Eight Confirmations. This line, like the split-mode line, is required output every run — the user must see the choice exists; whether to act on it is theirs. When the Confirm UI is used, this choice also appears as the in-page refine-spec toggle and is captured in `result.json` (`refine_spec`); the chat-summary fallback still prints this line.
+**Mandatory — spec-refinement note** (not a ninth confirmation): after the split-mode line, you MUST append one short opt-in line (rendered in the user's language, prefixed with 💡) telling the user they may **refine the spec first** — Strategist will produce the full design spec, then stop for review/revision of any part of it before any generation, via the [refine-spec](workflows/refine-spec.md) workflow. Default is OFF: no request → the spec is written in one go and the pipeline auto-proceeds as usual. Only when the user explicitly asks in chat (e.g. "refine the spec first") or confirms `refine_spec: true` does the [refine-spec](workflows/refine-spec.md) workflow take over after the Eight Confirmations.
 
 **Formula rendering policy lives inside item 7 (Typography plan)**:
 
@@ -462,7 +444,7 @@ python3 ${SKILL_DIR}/scripts/analyze_images.py <project_path>/images
 ```markdown
 ## ✅ Strategist Phase Complete
 - [x] Read the auto-extracted facts already in `analysis/` (e.g. `source_profile.json`) before the Eight Confirmations
-- [x] Eight Confirmations completed (user confirmed via Confirm UI `result.json` or chat fallback)
+- [x] Eight Confirmations completed (user confirmed via sidebar chat)
 - [x] Split-mode note appended below the eight items (heavy or normal variant)
 - [x] Spec-refinement opt-in line appended (default OFF; only the user's explicit request enters the refine-spec workflow)
 - [x] Design Specification & Content Outline generated
@@ -524,7 +506,7 @@ Workflow:
 - [x] analyze_images.py re-run so image_analysis.csv covers the acquired web / AI / sliced images
 ```
 
-**Default — auto-proceed to Step 6.** Only when the user's Step 4 response explicitly opted into split mode (in chat or via Confirm UI `result.json` with `generation_mode: "split"`), output the Phase A hand-off below and stop this conversation:
+**Default — auto-proceed to Step 6.** Only when the user's Step 4 chat response explicitly opted into split mode (`generation_mode: "split"`), output the Phase A hand-off below and stop this conversation:
 
   ```markdown
   ## ✅ Phase A Complete
@@ -555,15 +537,7 @@ Read references/visual-styles/<locked-style>.md   # aesthetic (spec_lock.md `vis
 
 **Design Parameter Confirmation (Mandatory)**: before the first SVG, output key design parameters from the spec (canvas dimensions, color scheme, font plan, body font size). See executor-base.md §2.
 
-**Live Preview Auto-Startup (Mandatory)**: before the first SVG, automatically start the browser editor in live mode and keep it running continuously through Executor + Step 7 export:
-```bash
-python3 ${SKILL_DIR}/scripts/svg_editor/server.py <project_path> --live --daemon
-```
-- Start it immediately when Executor begins; `svg_output/` may be empty. Editor opens at `http://localhost:5050`; if another project already holds it, the launcher **auto-advances to the next free port** — read the actual URL from the launch log and report that.
-- Run it as a long-running side process/session; do not wait for it to exit before generating SVG pages. Do not wait for user confirmation after startup.
-- **Service must keep running** until one of: (a) the user clicks **Exit preview** in the browser, or (b) the user explicitly asks in chat to stop it. Generation continues even if the user closes the editor.
-- **Do NOT read or apply submitted annotations during generation.** Users may annotate at any time, but Executor proceeds without touching them. The window to apply annotations opens only after Step 7 completes — see [`workflows/live-preview.md`](workflows/live-preview.md).
-- The editor also supports **staged direct edits** (text content + SVG element attributes previewed immediately, then written to `svg_output/` only when the user clicks **Apply changes**; `Ctrl+Z` / Undo drops staged edits) alongside annotation; re-export stays chat-driven. Full scope and editor details: see [`workflows/live-preview.md`](workflows/live-preview.md) Notes.
+**Review during generation (WriterAgent)**: there is no browser live preview. Use `read_project_file` to inspect `svg_output/` as pages are written; when ready, call `export_presentation_project` to import into the active Impress/Draw document for visual review.
 
 **Pre-generation Batch Read (Mandatory)**: before the first SVG, batch-read every distinct layout SVG referenced in `spec_lock.page_layouts` and every distinct chart SVG referenced in `spec_lock.page_charts` (plus any §VII backup charts). One read per file, up front — do not re-read these during page generation. See executor-base.md §1.0.
 
@@ -589,7 +563,6 @@ python3 ${SKILL_DIR}/scripts/svg_quality_checker.py <project_path>
 **✅ Checkpoint — Confirm all SVGs and notes are fully generated and quality-checked. Proceed directly to Step 7 post-processing**:
 ```markdown
 ## ✅ Executor Phase Complete
-- [x] Live preview started and kept available at the reported URL
 - [x] All SVGs generated to svg_output/
 - [x] svg_quality_checker.py passed (0 errors)
 - [x] Speaker notes generated at notes/total.md
@@ -654,8 +627,7 @@ python3 ${SKILL_DIR}/scripts/svg_to_pptx.py <project_path>
 > The `svg_output/`
 > snapshot in `backup/<timestamp>/` is always written so the project can be
 > re-exported from frozen SVG sources without re-running the LLM. The SVG-rendered
-> preview pptx is opt-in via `--svg-snapshot` — live preview already provides the
-> SVG visual reference, so it's only needed when you want a self-contained file
+> preview pptx is opt-in via `--svg-snapshot` when you need a self-contained file
 > to share. Pass `-s output` or `-s final` to force a single source if you need it.
 
 > **Paragraph editability vs line fidelity** — by default, mergeable dy-stacked
@@ -688,11 +660,7 @@ Full effect list, anchor logic, and limits: [`references/animations.md`](referen
 > ❌ **NEVER** force `-s output` for the legacy/preview pptx (PowerPoint's internal SVG parser drops icons and rounded corners). The default auto-split already gives native the high-fidelity source it needs without touching legacy.
 > ❌ **NEVER** use `--only` (it suppresses one of the two output files)
 
-> **Post-export annotation window**: the preview service from Step 6 typically remains running after export. If the user submitted annotations in the browser (during Executor or after export) and now asks to apply them — they may quote the browser prompt (`Changes saved to svg_output...` / `修改已保存到 svg_output...`), say "apply my annotations" / "应用注解" / equivalent — run [`live-preview`](workflows/live-preview.md) Step 2 to apply and re-export. Annotations submitted during generation are also handled here, not earlier.
-
-> **Direct edits in the browser**: the user may also stage text / SVG attribute edits in the preview. These land in `svg_output/` only after the user clicks **Apply changes**. If they ask to "re-export" / "重新导出" after applying such edits, just re-run Step 7.2–7.3 (finalize + export); no annotation-application step is needed unless they also saved AI-needed annotations.
-
-> **Preview not running?** Any time the user mentions "live preview", "preview", "看效果", or wants to select/click a slide element and the service is not running, run [`live-preview`](workflows/live-preview.md) Step 1 to start it. If the service is already running, just point them at the URL — do not restart.
+> **Post-export review (WriterAgent)**: after Step 7.3, call `export_presentation_project` to load the deck into Impress. If the user asks to revise SVG, edit files under `svg_output/` and re-run Step 7.2–7.3 (finalize + export), then export again.
 
 ---
 
@@ -723,5 +691,6 @@ Before switching roles, **MUST first read** the corresponding reference file. Ou
 
 ## Notes
 
-- Local preview: `python3 -m http.server -d <project_path>/svg_final 8000`
+- **WriterAgent visual review**: `export_presentation_project` → active Impress/Draw document (preferred over browser preview).
+- Optional static file browse: `python3 -m http.server -d <project_path>/svg_final 8000` (external browser only; not used by the sidebar agent).
 - **Troubleshooting**: on generation issues (layout overflow, export errors, blank images, etc.), check `docs/faq.md` for known solutions
