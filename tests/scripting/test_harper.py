@@ -4,10 +4,24 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Unit tests for the Harper Rust linter helper."""
 
+from io import BytesIO
+from pathlib import Path
 from unittest.mock import MagicMock, patch
+import hashlib
 import json
+import queue
 import pytest
-from plugin.scripting.venv.harper import lsp_range_to_offset, run_harper_check, HarperLSClient
+
+from plugin.scripting.venv.harper import (
+    HarperLSClient,
+    HarperReleaseAsset,
+    _fetch_latest_release_asset,
+    _harper_lsp_settings,
+    _read_installed_version,
+    _read_exactly,
+    lsp_range_to_offset,
+    run_harper_check,
+)
 import plugin.scripting.venv.harper as harper_module
 
 
@@ -17,6 +31,7 @@ def _reset_harper_client_cache() -> None:
     for client in harper_module._HARPER_CLIENT_CACHE.values():
         client.close()
     harper_module._HARPER_CLIENT_CACHE.clear()
+    harper_module._release_cache.clear()
 
 
 def test_lsp_range_to_offset_single_line() -> None:
@@ -57,15 +72,18 @@ def _make_lsp_chunk(body: bytes) -> bytes:
 
 
 def _mock_harper_lsp_stream(responses: list[bytes]) -> MagicMock:
-    import io
-
     mock_proc = MagicMock()
     mock_proc.poll.return_value = None
-    stream = io.BytesIO(b"".join(responses))
+    stream = BytesIO(b"".join(responses))
     mock_proc.stdout.readline = stream.readline
     mock_proc.stdout.read = stream.read
     return mock_proc
 
+
+def test_harper_lsp_settings_dialect_mapping() -> None:
+    assert _harper_lsp_settings("en-GB", "/tmp")["harper-ls"]["dialect"] == "British"
+    assert _harper_lsp_settings("en-US", "/tmp")["harper-ls"]["dialect"] == "American"
+    assert _harper_lsp_settings("en-GB", "/tmp")["harper-ls"]["userDictPath"] == str(Path("/tmp") / "harper-dictionary.txt")
 
 @patch("plugin.scripting.venv.harper._get_harper_binary")
 @patch("subprocess.Popen")
@@ -256,9 +274,304 @@ def test_harper_ls_timeout(mock_popen: MagicMock, mock_get_bin: MagicMock) -> No
 
     client = HarperLSClient("/bin/harper-ls")
 
-    import queue
-
     with patch.object(client.stdout_queue, "get", side_effect=queue.Empty):
         with pytest.raises(TimeoutError):
             client.lint("test text")
+
+
+@patch("plugin.scripting.venv.harper._get_harper_binary")
+@patch("subprocess.Popen")
+def test_harper_check_empty_diagnostics(mock_popen: MagicMock, mock_get_bin: MagicMock) -> None:
+    mock_get_bin.return_value = "/bin/harper-ls"
+    mock_popen.return_value = _mock_harper_lsp_stream(
+        [
+            _make_lsp_chunk(json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"capabilities": {}}}).encode("utf-8")),
+            _make_lsp_chunk(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "method": "textDocument/publishDiagnostics",
+                        "params": {
+                            "uri": "file:///tmp/writeragent_harper_lint_123.txt",
+                            "version": 1,
+                            "diagnostics": [],
+                        },
+                    }
+                ).encode("utf-8")
+            ),
+        ]
+    )
+
+    with patch("time.time_ns", return_value=123):
+        res = run_harper_check("clean sentence.", "/tmp")
+
+    assert res == {"errors": []}
+
+
+@patch("plugin.scripting.venv.harper._get_harper_binary")
+@patch("subprocess.Popen")
+def test_harper_check_zero_width_diagnostic(mock_popen: MagicMock, mock_get_bin: MagicMock) -> None:
+    mock_get_bin.return_value = "/bin/harper-ls"
+    mock_popen.return_value = _mock_harper_lsp_stream(
+        [
+            _make_lsp_chunk(json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"capabilities": {}}}).encode("utf-8")),
+            _make_lsp_chunk(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "method": "textDocument/publishDiagnostics",
+                        "params": {
+                            "uri": "file:///tmp/writeragent_harper_lint_123.txt",
+                            "version": 1,
+                            "diagnostics": [
+                                {
+                                    "code": "PointDiag",
+                                    "message": "Insert comma",
+                                    "range": {
+                                        "start": {"line": 0, "character": 5},
+                                        "end": {"line": 0, "character": 5},
+                                    },
+                                }
+                            ],
+                        },
+                    }
+                ).encode("utf-8")
+            ),
+            _make_lsp_chunk(json.dumps({"jsonrpc": "2.0", "id": 2, "result": []}).encode("utf-8")),
+        ]
+    )
+
+    with patch("time.time_ns", return_value=123):
+        res = run_harper_check("hello world", "/tmp")
+
+    assert len(res["errors"]) == 1
+    err = res["errors"][0]
+    assert err["wrong"] == ""
+    assert err["n_error_start"] == 5
+    assert err["n_error_length"] == 0
+
+
+@patch("plugin.scripting.venv.harper._get_harper_binary")
+@patch("subprocess.Popen")
+def test_harper_workspace_configuration_dialect(mock_popen: MagicMock, mock_get_bin: MagicMock) -> None:
+    mock_get_bin.return_value = "/bin/harper-ls"
+    mock_proc = _mock_harper_lsp_stream(
+        [
+            _make_lsp_chunk(json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"capabilities": {}}}).encode("utf-8")),
+            _make_lsp_chunk(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 99,
+                        "method": "workspace/configuration",
+                        "params": {"items": [{"section": "harper-ls"}]},
+                    }
+                ).encode("utf-8")
+            ),
+            _make_lsp_chunk(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "method": "textDocument/publishDiagnostics",
+                        "params": {
+                            "uri": "file:///tmp/writeragent_harper_lint_123.txt",
+                            "version": 1,
+                            "diagnostics": [],
+                        },
+                    }
+                ).encode("utf-8")
+            ),
+        ]
+    )
+    mock_popen.return_value = mock_proc
+
+    with patch("time.time_ns", return_value=123):
+        run_harper_check("colour is fine.", "/tmp", bcp47="en-GB")
+
+    written = b"".join(call.args[0] for call in mock_proc.stdin.write.call_args_list if call.args)
+    assert b'"dialect": "British"' in written
+
+
+@patch("plugin.scripting.venv.harper._get_harper_binary")
+def test_harper_run_harper_check_retries_after_failure(mock_get_bin: MagicMock) -> None:
+    mock_get_bin.return_value = "/bin/harper-ls"
+    broken_client = MagicMock()
+    broken_client.lint.side_effect = TimeoutError("Harper LSP operation timed out")
+    fresh_client = MagicMock()
+    fresh_client.lint.return_value = []
+
+    with patch("plugin.scripting.venv.harper._get_or_create_client", return_value=broken_client), \
+         patch("plugin.scripting.venv.harper.HarperLSClient", return_value=fresh_client) as mock_ctor:
+        res = run_harper_check("retry me.", "/tmp")
+
+    assert res == {"errors": []}
+    broken_client.close.assert_called_once()
+    mock_ctor.assert_called_once()
+    fresh_client.lint.assert_called_once_with("retry me.", bcp47="en-US")
+
+
+def test_read_exactly_handles_partial_reads() -> None:
+    payload = b"abcdefghij"
+
+    class PartialReader:
+        def __init__(self) -> None:
+            self._parts = iter([payload[:3], payload[3:7], payload[7:]])
+
+        def read(self, n: int) -> bytes:
+            return next(self._parts, b"")
+
+    assert _read_exactly(PartialReader(), len(payload)) == payload
+
+
+def test_read_installed_version_sidecar(tmp_path: Path) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    assert _read_installed_version(bin_dir) is None
+    (bin_dir / "harper-ls.version").write_text("2.6.0", encoding="utf-8")
+    assert _read_installed_version(bin_dir) == "2.6.0"
+
+
+def _sample_release(version: str = "2.6.0") -> HarperReleaseAsset:
+    return HarperReleaseAsset(
+        version=version,
+        asset_name="harper-ls-x86_64-unknown-linux-gnu.tar.gz",
+        download_url=f"https://github.com/Automattic/harper/releases/download/v{version}/harper-ls-x86_64-unknown-linux-gnu.tar.gz",
+        sha256="abc123",
+    )
+
+
+@patch("plugin.scripting.venv.harper._download_harper_binary")
+@patch("plugin.scripting.venv.harper._fetch_latest_release_asset")
+def test_get_harper_binary_redownloads_when_latest_changes(
+    mock_fetch: MagicMock,
+    mock_download: MagicMock,
+    tmp_path: Path,
+) -> None:
+    mock_fetch.return_value = _sample_release("2.7.0")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    binary_path = bin_dir / "harper-ls"
+    binary_path.write_bytes(b"old")
+    (bin_dir / "harper-ls.version").write_text("2.6.0", encoding="utf-8")
+
+    with patch("plugin.scripting.venv.harper.shutil.which", return_value=None):
+        path = harper_module._get_harper_binary(str(tmp_path))
+
+    mock_download.assert_called_once_with(binary_path, mock_fetch.return_value)
+    assert path == str(binary_path)
+
+
+@patch("plugin.scripting.venv.harper._download_harper_binary")
+@patch("plugin.scripting.venv.harper._fetch_latest_release_asset")
+def test_get_harper_binary_skips_download_when_up_to_date(
+    mock_fetch: MagicMock,
+    mock_download: MagicMock,
+    tmp_path: Path,
+) -> None:
+    mock_fetch.return_value = _sample_release("2.6.0")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    binary_path = bin_dir / "harper-ls"
+    binary_path.write_bytes(b"current")
+    (bin_dir / "harper-ls.version").write_text("2.6.0", encoding="utf-8")
+
+    with patch("plugin.scripting.venv.harper.shutil.which", return_value=None):
+        path = harper_module._get_harper_binary(str(tmp_path))
+
+    mock_download.assert_not_called()
+    assert path == str(binary_path)
+
+
+@patch("plugin.scripting.venv.harper._extract_harper_member")
+def test_download_harper_binary_verifies_sha256(mock_extract: MagicMock, tmp_path: Path) -> None:
+    payload = b"fake-archive-bytes"
+    digest = hashlib.sha256(payload).hexdigest()
+    release = HarperReleaseAsset(
+        version="2.6.0",
+        asset_name="harper-ls-x86_64-unknown-linux-gnu.tar.gz",
+        download_url="https://example.com/harper.tar.gz",
+        sha256=digest,
+    )
+
+    def _fake_extract(archive_path: Path, dest_path: Path) -> None:
+        dest_path.write_bytes(b"fake-binary")
+
+    mock_extract.side_effect = _fake_extract
+
+    class FakeResponse:
+        def read(self, size=-1):
+            if not hasattr(self, "_sent"):
+                self._sent = True
+                return payload
+            return b""
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    dest = tmp_path / "bin" / "harper-ls"
+    dest.parent.mkdir(parents=True)
+
+    with patch("urllib.request.urlopen", return_value=FakeResponse()):
+        harper_module._download_harper_binary(dest, release)
+
+    mock_extract.assert_called_once()
+    assert dest.read_bytes() == b"fake-binary"
+    assert (dest.parent / "harper-ls.version").read_text(encoding="utf-8") == "2.6.0"
+
+
+@patch("plugin.scripting.venv.harper._extract_harper_member")
+def test_download_harper_binary_rejects_bad_hash(mock_extract: MagicMock, tmp_path: Path) -> None:
+    release = HarperReleaseAsset(
+        version="2.6.0",
+        asset_name="harper-ls-x86_64-unknown-linux-gnu.tar.gz",
+        download_url="https://example.com/harper.tar.gz",
+        sha256="deadbeef",
+    )
+
+    class FakeResponse:
+        def read(self, size=-1):
+            if not hasattr(self, "_sent"):
+                self._sent = True
+                return b"bad-bytes"
+            return b""
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    dest = tmp_path / "bin" / "harper-ls"
+    dest.parent.mkdir(parents=True)
+
+    with patch("urllib.request.urlopen", return_value=FakeResponse()), \
+         pytest.raises(RuntimeError, match="SHA256"):
+        harper_module._download_harper_binary(dest, release)
+
+    mock_extract.assert_not_called()
+
+
+def test_fetch_latest_release_asset_uses_github_api(tmp_path: Path) -> None:
+    harper_module._release_cache.clear()
+    api_payload = {
+        "tag_name": "v2.7.0",
+        "assets": [
+            {
+                "name": "harper-ls-x86_64-unknown-linux-gnu.tar.gz",
+                "browser_download_url": "https://example.com/harper.tar.gz",
+                "digest": "sha256:abc123",
+            }
+        ],
+    }
+
+    with patch("plugin.scripting.venv.harper._github_api_request", return_value=api_payload), \
+         patch("plugin.scripting.venv.harper.platform.system", return_value="Linux"), \
+         patch("plugin.scripting.venv.harper.platform.machine", return_value="x86_64"):
+        release = _fetch_latest_release_asset("linux", "x86_64", tmp_path / "bin")
+
+    assert release.version == "2.7.0"
+    assert release.sha256 == "abc123"
 

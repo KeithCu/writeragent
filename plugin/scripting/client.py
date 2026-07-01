@@ -451,17 +451,17 @@ def run_vale_check(ctx: Any, text: str, config_dir: str, styles: str) -> dict[st
 _HARPER_SESSION_PREFIX = "writeragent:harper"
 _HARPER_STUB = """\
 from plugin.scripting.venv.harper import run_harper_check as _run
-result = _run(data["text"], data["config_dir"])
+result = _run(data["text"], data["config_dir"], data.get("bcp47") or "en-US")
 """
 
 
-def run_harper_check(ctx: Any, text: str, config_dir: str) -> dict[str, Any]:
+def run_harper_check(ctx: Any, text: str, config_dir: str, *, bcp47: str = "en-US") -> dict[str, Any]:
     """Execute a trusted Harper linter helper inside the user venv worker."""
     return _run_trusted_helper(
         ctx,
         session_id=_HARPER_SESSION_PREFIX,
         stub=_HARPER_STUB,
-        payload={"text": text, "config_dir": config_dir},
+        payload={"text": text, "config_dir": config_dir, "bcp47": bcp47},
         timeout_sec=30,  # Auto-download on first run might take a bit
         error_code="HARPER_ERROR",
         error_label="Harper Linter",

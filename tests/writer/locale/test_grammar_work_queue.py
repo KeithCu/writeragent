@@ -953,7 +953,7 @@ def test_grammar_check_routes_to_harper() -> None:
         }
         _run_grammar_check(chunk, "en-US", "en-US", ec)
 
-        mock_harper_check.assert_called_once_with(ec.ctx, "This is a test sentence.", "/tmp")
+        mock_harper_check.assert_called_once_with(ec.ctx, "This is a test sentence.", "/tmp", bcp47="en-US")
         mock_process.assert_called_once()
 
 

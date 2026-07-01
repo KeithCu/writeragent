@@ -583,7 +583,7 @@ def _run_grammar_check(
             for item, text in chunk:
                 try:
                     request_start = time.monotonic()
-                    res = run_harper_check(ec.ctx, text, cfg_dir)
+                    res = run_harper_check(ec.ctx, text, cfg_dir, bcp47=bcp47)
                     elapsed_ms = int((time.monotonic() - request_start) * 1000)
 
                     errors = res.get("errors", [])
