@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 from plugin.contrib.smolagents.models import ChatMessage, Model, TokenUsage, remove_content_after_stop_sequences
 from plugin.ppt_master.venv.ipc import rpc_llm
@@ -15,7 +15,7 @@ from plugin.ppt_master.venv.ipc import rpc_llm
 class HostRpcModel(Model):
     """Venv-side model: HTTP/auth on host via llm_request IPC."""
 
-    def __init__(self, *, model_id: str | None, max_tokens: int, status_callback: object | None = None) -> None:
+    def __init__(self, *, model_id: str | None, max_tokens: int, status_callback: Callable[[str], Any] | None = None) -> None:
         super().__init__()
         self.model_id = model_id
         self.max_tokens = max_tokens
@@ -39,7 +39,7 @@ class HostRpcModel(Model):
         msg_dicts: list[dict[str, Any]] = []
         for m in messages:
             if isinstance(m, ChatMessage):
-                msg_dicts.append(m.model_dump())
+                msg_dicts.append(m.dict())
             elif isinstance(m, dict):
                 msg_dicts.append(m)
             else:

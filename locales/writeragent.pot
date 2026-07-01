@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-27 19:37-0400\n"
+"POT-Creation-Date: 2026-07-01 10:36-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -294,6 +294,13 @@ msgid ""
 "AI: Let's draft your document section-by-section. I'll help you create a "
 "writing plan outline, and then implement it incrementally with your "
 "approval."
+msgstr ""
+
+#: plugin/framework/constants.py
+msgid ""
+"AI: PPT-Master mode — I'll run the ppt-master workflow in your configured "
+"Python venv (scripts + export to Impress). Describe your topic or point me "
+"at a project folder."
 msgstr ""
 
 #: plugin/framework/client/errors.py
@@ -791,7 +798,7 @@ msgid "Chat"
 msgstr ""
 
 #: plugin/chatbot/chat_sidebar_mode.py
-msgid "Use Image model"
+msgid "Image model"
 msgstr ""
 
 #: plugin/chatbot/chat_sidebar_mode.py
@@ -804,6 +811,10 @@ msgstr ""
 
 #: plugin/chatbot/chat_sidebar_mode.py
 msgid "Writing Plan"
+msgstr ""
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "PPT-Master"
 msgstr ""
 
 #: plugin/chatbot/panel.py
@@ -998,6 +1009,19 @@ msgstr ""
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
 msgid "[Writing plan error: {0}]"
+msgstr ""
+
+#: plugin/chatbot/send_handlers.py
+msgid "PPT-Master session complete."
+msgstr ""
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown PPT-Master error."
+msgstr ""
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[PPT-Master error: {0}]"
 msgstr ""
 
 #: plugin/chatbot/send_handlers.py
@@ -1964,6 +1988,10 @@ msgid "Edit config file (JSON)…"
 msgstr ""
 
 #: plugin/xdl_strings.py
+msgid "Edit extra tokens:"
+msgstr ""
+
+#: plugin/xdl_strings.py
 msgid "Edit search query"
 msgstr ""
 
@@ -1987,6 +2015,14 @@ msgstr ""
 
 #: plugin/xdl_strings.py
 msgid "Entities"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Extend max tokens:"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Extra tokens beyond original text length. 0 = same length as original."
 msgstr ""
 
 #: plugin/xdl_strings.py
@@ -2255,15 +2291,6 @@ msgid "Outline + excerpt"
 msgstr ""
 
 msgid "Stats + outline only"
-msgstr ""
-
-msgid "Extend max tokens"
-msgstr ""
-
-msgid "Edit extra tokens"
-msgstr ""
-
-msgid "Extra tokens beyond original text length. 0 = same length as original."
 msgstr ""
 
 msgid "Web Research Cache"
@@ -2566,6 +2593,25 @@ msgstr ""
 msgid ""
 "Automatically spill multi-cell array/DataFrame results from =PYTHON() into "
 "adjacent cells."
+msgstr ""
+
+msgid "Convert Date/Time and Timedelta Strings"
+msgstr ""
+
+msgid ""
+"Automatically detect and convert date/time and duration strings to "
+"datetime/timedelta objects when sending data to the Python worker. Requires "
+"the 'pandas' and 'dateparser' packages in your venv."
+msgstr ""
+
+msgid "PPT-Master data path"
+msgstr ""
+
+msgid ""
+"Path to the ppt-master skill tree (SKILL.md, templates/, "
+"scripts/svg_to_pptx/). Clone https://github.com/hugohe3/ppt-master and point"
+" here at .../ppt-master/skills/ppt-master. Leave empty to auto-detect (dev "
+"clone beside repo, then env)."
 msgstr ""
 
 msgid "Vision / OCR"

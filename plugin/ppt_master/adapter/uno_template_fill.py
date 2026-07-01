@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from plugin.draw.bridge import DrawBridge
 
@@ -25,7 +25,8 @@ def apply_fill_plan_to_doc(doc: Any, plan: dict[str, Any], *, template_doc: Any 
         if not isinstance(item, dict):
             continue
         bridge.create_slide(offset, switch=False)
-        replacements = item.get("replacements") or item.get("text") or {}
+        item_dict = cast("dict[str, Any]", item)
+        replacements = item_dict.get("replacements") or item_dict.get("text") or {}
         if isinstance(replacements, dict):
             for _key, text in replacements.items():
                 if not text:

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-27 19:15-0400\n"
+"POT-Creation-Date: 2026-07-01 10:36-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Danish <LL@li.org>\n"
@@ -31,8 +31,8 @@ msgstr "Kører lokal OCR på valgt billede..."
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
 "Dokumentresearch kræver specialiseret opgaveuddelegering (USE_SUB_AGENT). "
 "Aktivér dette i konfigurationen."
@@ -40,8 +40,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Værktøjskald skiftet til '{0}'. Du er i en specialiseret værktøjstilstand. "
@@ -58,8 +58,8 @@ msgstr "Notebook-kørsel understøttes kun i LibreOffice Writer."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
 "Dette dokument har ingen importeret notebook. Brug Funktioner → Importér "
 "Jupyter Notebook… først."
@@ -249,7 +249,8 @@ msgstr ""
 "Anmodningen fik timeout. Prøv at øge 'Anmodnings-timeout' i Indstillinger."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr "Forbindelse afvist. Kører din lokale AI-server (Ollama/LM Studio)?"
 
 #: plugin/framework/errors.py
@@ -284,7 +285,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "AI: Jeg kan hjælpe dig med formler, dataanalyse og farverige diagrammer. "
 "Prøv mig!"
@@ -307,9 +309,9 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest "
-"approaches, and help you build an approved spec in your document when you're "
-"ready."
+"AI: Let's explore and design your idea together. I'll ask questions, suggest"
+" approaches, and help you build an approved spec in your document when "
+"you're ready."
 msgstr ""
 "AI: Lad os udforske og designe din idé sammen. Jeg vil stille spørgsmål, "
 "foreslå tilgange og hjælpe dig med at opbygge en godkendt specifikation i "
@@ -318,11 +320,22 @@ msgstr ""
 #: plugin/framework/constants.py
 msgid ""
 "AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your approval."
+"writing plan outline, and then implement it incrementally with your "
+"approval."
 msgstr ""
 "AI: Lad os udarbejde dit dokument sektion for sektion. Jeg hjælper dig med "
 "at oprette en disposition for skriveplanen og derefter implementere den "
 "trinvist med din godkendelse."
+
+#: plugin/framework/constants.py
+msgid ""
+"AI: PPT-Master mode — I'll run the ppt-master workflow in your configured "
+"Python venv (scripts + export to Impress). Describe your topic or point me "
+"at a project folder."
+msgstr ""
+"AI: PPT-Master-tilstand — Jeg kører ppt-master-arbejdsgangen i dit "
+"konfigurerede Python-venv (scripts + eksport til Impress). Beskriv dit emne "
+"eller peg på en projektmappe."
 
 #: plugin/framework/client/errors.py
 #, python-brace-format
@@ -357,8 +370,8 @@ msgid ""
 "Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
 "A1:B10) or =PYTHON(...)."
 msgstr ""
-"Kunne ikke bevare denne celles PYTHON-formulargumenter (f.eks. dataområder). "
-"Rediger formlen i Calc, eller brug en citeret kodestreng som =PY(\"kode\"; "
+"Kunne ikke bevare denne celles PYTHON-formulargumenter (f.eks. dataområder)."
+" Rediger formlen i Calc, eller brug en citeret kodestreng som =PY(\"kode\"; "
 "A1:B10) eller =PYTHON(...)."
 
 #: plugin/calc/python/editor.py
@@ -405,8 +418,7 @@ msgid ""
 "In that venv run: uv pip install pywebview\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"Kan ikke importere webview (pywebview) med Python fra Indstillinger → "
-"Python:\n"
+"Kan ikke importere webview (pywebview) med Python fra Indstillinger → Python:\n"
 "%(exe)s\n"
 "\n"
 "Kør følgende i det venv:\n"
@@ -837,8 +849,8 @@ msgid "Chat"
 msgstr "Chat"
 
 #: plugin/chatbot/chat_sidebar_mode.py
-msgid "Use Image model"
-msgstr "Brug billedmodel"
+msgid "Image model"
+msgstr "Billedmodel"
 
 #: plugin/chatbot/chat_sidebar_mode.py
 msgid "Web Research"
@@ -851,6 +863,10 @@ msgstr "Brainstorming"
 #: plugin/chatbot/chat_sidebar_mode.py
 msgid "Writing Plan"
 msgstr "Skriveplan"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "PPT-Master"
+msgstr "PPT-Master"
 
 #: plugin/chatbot/panel.py
 msgid "Accept"
@@ -902,8 +918,8 @@ msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
 "this!]"
 msgstr ""
-"[Intern fejl: Kunne ikke identificere dokumenttype for {0}. Indsend venligst "
-"en fejlrapport!]"
+"[Intern fejl: Kunne ikke identificere dokumenttype for {0}. Indsend venligst"
+" en fejlrapport!]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -1019,7 +1035,8 @@ msgstr "[Agent-backend '{0}' blev ikke fundet.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Agent-backend '{0}' er ikke tilgængelig. Kontrollér Indstillinger (sti, "
 "installation).]"
@@ -1058,6 +1075,19 @@ msgstr "Ukendt fejl i skriveplan."
 #, python-brace-format
 msgid "[Writing plan error: {0}]"
 msgstr "[Fejl i skriveplan: {0}]"
+
+#: plugin/chatbot/send_handlers.py
+msgid "PPT-Master session complete."
+msgstr "PPT-Master-session fuldført."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown PPT-Master error."
+msgstr "Ukendt PPT-Master-fejl."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[PPT-Master error: {0}]"
+msgstr "[PPT-Master-fejl: {0}]"
 
 #: plugin/chatbot/send_handlers.py
 msgid "Unknown research error."
@@ -1363,15 +1393,16 @@ msgid ""
 "Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
 "on first check)."
 msgstr ""
-"Text/NLP-sonde fik timeout (spaCy- eller transformers-koldimport kan tage 10–"
-"30 sekunder ved første tjek)."
+"Text/NLP-sonde fik timeout (spaCy- eller transformers-koldimport kan tage "
+"10–30 sekunder ved første tjek)."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text/NLP probe failed (see writeragent_debug.log)."
 msgstr "Text/NLP-sonde mislykkedes (se writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "Vision-sonde fik timeout (Docling-import kan tage 10–30 sek. ved første "
 "tjek)."
@@ -1385,8 +1416,8 @@ msgid ""
 "Vector Search probe timed out (sentence-transformers import can take 10–30s "
 "on first check)."
 msgstr ""
-"Vector Search-probe fik timeout (sentence-transformers import kan tage 10–30 "
-"sek. ved første tjek)."
+"Vector Search-probe fik timeout (sentence-transformers import kan tage 10–30"
+" sek. ved første tjek)."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vector Search probe failed (see writeragent_debug.log)."
@@ -1435,12 +1466,14 @@ msgstr ""
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries: loading (first run may take a while)..."
-msgstr "Vision-biblioteker: indlæser (første kørsel kan tage et stykke tid)..."
+msgstr ""
+"Vision-biblioteker: indlæser (første kørsel kan tage et stykke tid)..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vector Search Libraries: loading (first run may take a while)..."
 msgstr ""
-"Vector Search-biblioteker: indlæser (første kørsel kan tage et stykke tid)..."
+"Vector Search-biblioteker: indlæser (første kørsel kan tage et stykke "
+"tid)..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using LibreOffice process Python..."
@@ -1473,8 +1506,7 @@ msgid ""
 "Error from the Text Analytics worker:\n"
 "{err}\n"
 "\n"
-"The features in this dialog require these packages in the python it is "
-"using:\n"
+"The features in this dialog require these packages in the python it is using:\n"
 "  • spacy + a model          (entities, key phrases, basic stats)\n"
 "  • textdescriptives         (real Readability scores)\n"
 "  • transformers + torch     (Sentiment using the multilingual model)\n"
@@ -1482,25 +1514,20 @@ msgid ""
 "Install them with:\n"
 "  {install}\n"
 "\n"
-"The worker reported the module as missing. Verify the packages are installed "
-"in the exact python executable the worker resolved for your configured venv."
+"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
 msgstr ""
 "Fejl fra tekstanalyse-worker:\n"
 "{err}\n"
 "\n"
 "Funktionerne i denne dialog kræver disse pakker i den Python, der anvendes:\n"
-"  • spacy + en model          (entiteter, nøglefraser, grundlæggende "
-"statistik)\n"
+"  • spacy + en model          (entiteter, nøglefraser, grundlæggende statistik)\n"
 "  • textdescriptives         (reelle læsbarhedsscorer)\n"
-"  • transformers + torch     (sentimentanalyse ved brug af den flersprogede "
-"model)\n"
+"  • transformers + torch     (sentimentanalyse ved brug af den flersprogede model)\n"
 "\n"
 "Installer dem med:\n"
 "  {install}\n"
 "\n"
-"Workeren rapporterede, at modulet mangler. Bekræft, at pakkerne er "
-"installeret i den præcise Python-eksekverbar, som workeren har fundet til "
-"dit konfigurerede venv."
+"Workeren rapporterede, at modulet mangler. Bekræft, at pakkerne er installeret i den præcise Python-eksekverbar, som workeren har fundet til dit konfigurerede venv."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "Open a Writer document to analyze."
@@ -1519,16 +1546,11 @@ msgstr "Analyserer..."
 msgid ""
 "Error: %s\n"
 "\n"
-"Required packages may be missing in your configured venv (Settings → "
-"Python). Click Check Venv in this dialog or use the full Test in Settings → "
-"Python for details on spacy, textdescriptives, transformers, torch etc."
+"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
 msgstr ""
 "Fejl: %s\n"
 "\n"
-"Nødvendige pakker mangler muligvis i dit konfigurerede venv (Indstillinger → "
-"Python). Klik på Tjek Venv i denne dialog eller brug den fulde Test i "
-"Indstillinger → Python for detaljer om spacy, textdescriptives, "
-"transformers, torch osv."
+"Nødvendige pakker mangler muligvis i dit konfigurerede venv (Indstillinger → Python). Klik på Tjek Venv i denne dialog eller brug den fulde Test i Indstillinger → Python for detaljer om spacy, textdescriptives, transformers, torch osv."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "No Writer document to insert into."
@@ -1785,8 +1807,8 @@ msgid ""
 "Optimization helper requires a data range. Select cells or enter a range in "
 "the Data field."
 msgstr ""
-"Optimeringshjælper kræver et dataområde. Vælg celler eller indtast et område "
-"i datafeltet."
+"Optimeringshjælper kræver et dataområde. Vælg celler eller indtast et område"
+" i datafeltet."
 
 #: plugin/scripting/python_runner.py
 msgid "Optimization failed."
@@ -1817,8 +1839,8 @@ msgstr "Analyse '{helper}' fuldført. Skrev {rows} rækker. (tog {time})"
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "Script udført korrekt, men returnerede intet resultat og producerede intet "
 "output. (tog {time})"
@@ -1898,7 +1920,8 @@ msgstr "MCP-server kunne ikke starte"
 
 #: plugin/mcp/__init__.py
 msgid "Check writeragent_debug.log in your LibreOffice user config folder"
-msgstr "Tjek writeragent_debug.log i din LibreOffice-brugerkonfigurationsmappe"
+msgstr ""
+"Tjek writeragent_debug.log i din LibreOffice-brugerkonfigurationsmappe"
 
 #: plugin/mcp/__init__.py
 msgid "MCP server is not running"
@@ -2097,6 +2120,10 @@ msgid "Edit config file (JSON)…"
 msgstr "Rediger konfigurationsfil (JSON)…"
 
 #: plugin/xdl_strings.py
+msgid "Edit extra tokens:"
+msgstr "Rediger ekstra tokens:"
+
+#: plugin/xdl_strings.py
 msgid "Edit search query"
 msgstr "Rediger søgeforespørgsel"
 
@@ -2123,6 +2150,16 @@ msgstr ""
 #: plugin/xdl_strings.py
 msgid "Entities"
 msgstr "Enheder"
+
+#: plugin/xdl_strings.py
+msgid "Extend max tokens:"
+msgstr "Udvid maks. tokens:"
+
+#: plugin/xdl_strings.py
+msgid "Extra tokens beyond original text length. 0 = same length as original."
+msgstr ""
+"Ekstra tokens ud over den oprindelige tekstlængde. 0 = samme længde som "
+"originalen."
 
 #: plugin/xdl_strings.py
 msgid "General"
@@ -2341,11 +2378,11 @@ msgid "Path / URL"
 msgstr "Sti / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Sti til backend-CLI (f.eks. aider) eller ACP-server-URL (f.eks. http://"
-"localhost:8000 for Hermes). Tom = prøv standard."
+"Sti til backend-CLI (f.eks. aider) eller ACP-server-URL (f.eks. "
+"http://localhost:8000 for Hermes). Tom = prøv standard."
 
 msgid "Extra arguments"
 msgstr "Ekstra argumenter"
@@ -2395,17 +2432,6 @@ msgstr "Oversigt + uddrag"
 
 msgid "Stats + outline only"
 msgstr "Statistik + kun oversigt"
-
-msgid "Extend max tokens"
-msgstr "Udvid maks. tokens"
-
-msgid "Edit extra tokens"
-msgstr "Rediger ekstra tokens"
-
-msgid "Extra tokens beyond original text length. 0 = same length as original."
-msgstr ""
-"Ekstra tokens ud over den oprindelige tekstlængde. 0 = samme længde som "
-"originalen."
 
 msgid "Web Research Cache"
 msgstr "Web-research-cache"
@@ -2469,9 +2495,9 @@ msgstr "Humanizer-færdighed (naturlig prosa)"
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
-"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
-"dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
 msgstr ""
 "Når aktiveret, indsættes vejledning i systemprompten, så modellen får "
 "genereret eller revideret dokumenttekst til at lyde mere naturlig og "
@@ -2643,11 +2669,11 @@ msgid "Rerank model"
 msgstr "Rerank-model"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
-"is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
 msgstr ""
-"Bruges kun når rerank er aktiveret. Engelsk MiniLM er hurtig; bge-reranker-"
-"v2-m3 er flersproget og downloader ca. 2,3 GB."
+"Bruges kun når rerank er aktiveret. Engelsk MiniLM er hurtig; bge-"
+"reranker-v2-m3 er flersproget og downloader ca. 2,3 GB."
 
 msgid "cross-encoder/ms-marco-MiniLM-L-6-v2"
 msgstr "cross-encoder/ms-marco-MiniLM-L-6-v2"
@@ -2665,11 +2691,11 @@ msgid "Enable MCP Server"
 msgstr "Aktivér MCP-server"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Kun localhost, ingen godkendelse. Klienter bruger http://localhost:<port>/"
-"mcp (streambar HTTP)."
+"Kun localhost, ingen godkendelse. Klienter bruger "
+"http://localhost:<port>/mcp (streambar HTTP)."
 
 msgid "MCP Port"
 msgstr "MCP-port"
@@ -2687,8 +2713,8 @@ msgid ""
 msgstr ""
 "Hvordan specialiserede værktøjer præsenteres for MCP-klienter. delegate=nås "
 "via delegate-gatewayen (nuværende opførsel); direct_flat=alle MCP-"
-"tilgængelige specialiserede værktøjer listes direkte, eksklusive flows kun i "
-"sidepanelet (bedst til klienter med egen værktøjssøgning); "
+"tilgængelige specialiserede værktøjer listes direkte, eksklusive flows kun i"
+" sidepanelet (bedst til klienter med egen værktøjssøgning); "
 "direct_discovery=lille kerne-liste plus find_tools (domænekatalog, derefter "
 "værktøjsskemaer pr. domæne; bedst til enhver klient)."
 
@@ -2727,18 +2753,19 @@ msgstr "Timeout for Python-script (sekunder)"
 msgid ""
 "Wall-clock limit for Run Python Script, =PYTHON(), and "
 "run_venv_python_script."
-msgstr "Tidsgrænse for Kør Python-script, =PYTHON() og run_venv_python_script."
+msgstr ""
+"Tidsgrænse for Kør Python-script, =PYTHON() og run_venv_python_script."
 
 msgid "Max Calc data cells"
 msgstr "Maks. Calc-dataceller"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
-"Maksimalt antal celler i =PYTHON()-data eller Kør Python-script data/"
-"data_område. Større værdier bruger mere RAM og tid; UNO-områdelæsning er "
-"stadig den dominerende faktor."
+"Maksimalt antal celler i =PYTHON()-data eller Kør Python-script "
+"data/data_område. Større værdier bruger mere RAM og tid; UNO-områdelæsning "
+"er stadig den dominerende faktor."
 
 msgid "Python session mode"
 msgstr "Python-sessionstilstand"
@@ -2765,6 +2792,32 @@ msgid ""
 msgstr ""
 "Spejl automatisk resultater fra multi-celle-arrays/DataFrame fra =PYTHON() "
 "til tilstødende celler."
+
+msgid "Convert Date/Time and Timedelta Strings"
+msgstr "Konverter dato/klokkeslæt og tidsinterval-strenge"
+
+msgid ""
+"Automatically detect and convert date/time and duration strings to "
+"datetime/timedelta objects when sending data to the Python worker. Requires "
+"the 'pandas' and 'dateparser' packages in your venv."
+msgstr ""
+"Registrer og konverter automatisk dato/klokkeslæt- og varighedsstrenge til "
+"datetime/timedelta-objekter, når data sendes til Python-worker. Kræver "
+"pakkerne 'pandas' og 'dateparser' i dit venv."
+
+msgid "PPT-Master data path"
+msgstr "Sti til PPT-Master-data"
+
+msgid ""
+"Path to the ppt-master skill tree (SKILL.md, templates/, "
+"scripts/svg_to_pptx/). Clone https://github.com/hugohe3/ppt-master and point"
+" here at .../ppt-master/skills/ppt-master. Leave empty to auto-detect (dev "
+"clone beside repo, then env)."
+msgstr ""
+"Sti til ppt-master-færdighedstræet (SKILL.md, templates/, "
+"scripts/svg_to_pptx/). Klon https://github.com/hugohe3/ppt-master og peg her"
+" på .../ppt-master/skills/ppt-master. Lad feltet være tomt for automatisk "
+"detektering (udvikler-klon ved siden af arkivet, derefter miljø)."
 
 msgid "Vision / OCR"
 msgstr "Vision / OCR"

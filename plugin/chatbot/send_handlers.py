@@ -73,6 +73,7 @@ class SendHandlerHost(Protocol):
     _brainstorming_topic: str
     _in_writing_plan_mode: bool
     _writing_plan_topic: str
+    _in_ppt_master_mode: bool
     session: "ChatSession"
     response_control: Any
     status_control: Any

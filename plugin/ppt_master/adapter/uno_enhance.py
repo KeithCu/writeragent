@@ -27,7 +27,10 @@ def apply_enhancement_project(doc: Any, project_path: Path) -> dict[str, Any]:
     for item in plan.get("slides") or []:
         if not isinstance(item, dict):
             continue
-        idx = int(item.get("slide_index", item.get("index", 0)))
+        slide_idx = item.get("slide_index")
+        if slide_idx is None:
+            slide_idx = item.get("index")
+        idx = int(slide_idx) if slide_idx is not None else 0
         if idx < 0 or idx >= pages.getCount():
             continue
         notes = item.get("notes")

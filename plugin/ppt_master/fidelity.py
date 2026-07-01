@@ -13,7 +13,7 @@ import subprocess
 import xml.etree.ElementTree as ET
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from plugin.contrib.ppt_master.upstream import collect_svg_files
 from plugin.embeddings.embeddings_soffice_convert import resolve_soffice_executable
@@ -167,7 +167,7 @@ def compare_png_images(reference_png: Path, imported_png: Path, diff_png: Path, 
     diff.save(diff_png)
     stat = ImageStat.Stat(diff)
     mae = sum(stat.mean) / (3.0 * 255.0)
-    diff_pixels = sum(1 for px in diff.getdata() if sum(px) > pixel_threshold)
+    diff_pixels = sum(sum(cast("tuple[int, ...]", px)) > pixel_threshold for px in cast("Any", diff.getdata()))
     total = ref.size[0] * ref.size[1] or 1
     return VisualMetrics(
         width=ref.size[0],
