@@ -72,32 +72,12 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 
 | Domain | Helpers | Notes |
 |--------|---------|-------|
-| **Analysis** | 14 trusted helpers (detail below) + `calc_goal_seek`, `calc_solver` | **Run Python Script → Analysis Helpers**; `numpy`/`pandas`/`scipy`/… stack. [Analysis Tools](docs/calc-analysis-tools.md) · [Architecture](docs/analysis-sub-agent.md) |
+| **Analysis** | 14 trusted helpers ([detail](#analysis-helpers-detail)) + `calc_goal_seek`, `calc_solver` | **Run Python Script → Analysis Helpers**; `numpy`/`pandas`/`scipy`/… stack. [Analysis Tools](docs/calc-analysis-tools.md) · [Architecture](docs/analysis-sub-agent.md) |
 | **Viz** | `quick_plot`, `correlation_heatmap`, `time_series_plot` | Charts insert on sheet; `=PY()` / matplotlib same; multi-figure lists/dicts. `matplotlib`, `seaborn`. [Visualization](docs/numpy-domains.md#visualization) |
 | **Math** | `solve_equation`, `symbolic_simplify`, `integrate`, `differentiate` | SymPy; inserts editable LO Math. `sympy` |
 | **Quant** | `fetch_historical_data`, `technical_analysis`, `portfolio_tearsheet`, `efficient_frontier` | `yfinance`, `pandas-ta`, `quantstats`, `pyportfolioopt` |
 | **Optimize** | `optimize_portfolio`, `linear_programming`, `solve_scheduling_problem` | `scipy.optimize`. [Optimization](docs/numpy-domains.md#optimization) |
 | **Units** | `convert_quantity`, `parse_quantity`, `format_quantity`, `check_dimensionality` | Calc: single formatted cell by default (`36 km/h`); `output_style: "detailed"` for grid. Beyond `CONVERT()` for compound units. `pint`. [Units](docs/numpy-domains.md#data-engineering-units) |
-
-**Analysis helpers (detail)**
-
-| Helper | Purpose |
-|--------|---------|
-| `describe_data` | Extended EDA + column quality |
-| `kpi_summary` | Aggregate mean/min/max/sum for metrics |
-| `detect_outliers` | IQR, z-score, or isolation forest |
-| `quick_stats` | Compact metric card |
-| `format_currency` / `format_percent` | Display formatters |
-| `clean_and_prepare` | Dedupe, simple imputation |
-| `pivot_aggregate` | Pivot table wrapper |
-| `group_summary` | Group-by aggregates |
-| `compare_periods` | YoY/QoQ/MoM comparisons |
-| `correlation_matrix` | Top correlated pairs |
-| `run_regression` | OLS via statsmodels |
-| `cluster_numeric` | KMeans centroids |
-| `monte_carlo` | Monte Carlo resampling |
-| `calc_goal_seek` | Single-variable what-if (native Calc, no venv) |
-| `calc_solver` | Constrained optimization on formulas (native Calc) |
 
 - **Rich Text Cells**: Paste **HTML** (bold, links, breaks) into a **single cell** using advanced StarWriter import paths.
 - **Batch Range Edits**: Apply formulas and formatting in bulk. [Specialized Toolsets](docs/calc-specialized-toolsets.md).
@@ -123,7 +103,6 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 ### 🐍 Local Python Execution
 
 - **Run Python Script**: **Tools → Run Python Script…** — built-in sections **Analysis**, **Viz**, **Math**, **Units**, **Quant**, **Optimize**, **Vision**, **SQL** (DuckDB; folder files + live/named Calc ranges; requires `duckdb` in venv) (set **Data** range where applicable, edit `params` if needed, run). Configure venv in **Settings → Python**. SQL is also available to the chat analysis sub-agent via `query_folder_sql`.
-- **Auto-imported Packages**: `numpy` (as `np`), `pandas` (as `pd`), `sympy` (as `sp`), standard library `math`, `datetime`, `re`, `random`, `statistics`, `collections`, `itertools`, `json`, and `csv` are auto-imported to avoid needing manual imports.
 - **Monaco Editor UI Packages**: `pywebview`, `jedi`, `PyQt6`, `PyQt6-WebEngine`, `qtpy` (enables Python color-coded editing and highlighting). Use the **Test** button in Settings to see which packages are installed.
 - **Shared Code Cell**: Store your code in a cell (e.g., `A1`) and reference it across multiple formulas (e.g., `=PY($A$1; B1)`).
 - **Shared Kernel**: Keeps a persistent, single global Python namespace per Calc workbook across all `=PY()` cells. This allows cells to share variables, imports, and state, mimicking Jupyter notebook behavior. Enable it in **Settings → Python → Python session mode → Shared kernel**, and use **WriterAgent → Reset Python Session** to clear variables for the active workbook.
@@ -131,6 +110,27 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 - **Document-Attached Scripts**: Save and manage Python scripts directly inside document custom properties rather than just in your personal user-profile library. This ensures your custom scripts travel with the document when shared. Access this in the script run dialog under "This Document" to attach, save, or run document-backed scripts.
 - **Safety & Isolation**: Code runs safely in a separate process and is evaluated by a [custom AST-based executor](plugin/contrib/smolagents/local_python_executor.py) (adapted from [Hugging Face smolagents](https://github.com/huggingface/smolagents)) that acts as a secure sandbox which blocks dangerous modules (like `os`, `subprocess`, or `sys`) and functions (like `eval` or `exec`), ensuring that the AI can only perform safe, mathematical, and data-processing tasks. 
 - **High performance**: Compact pickle Protocol 5 + Split-grid [binary blob serialization for numbers](docs/numpy-serialization.md), 50x faster and 60% smaller than standard JSON lists.
+- **Auto-imported Packages**: `numpy` (as `np`), `pandas` (as `pd`), `sympy` (as `sp`), standard library `math`, `datetime`, `re`, `random`, `statistics`, `collections`, `itertools`, `json`, and `csv` are auto-imported to avoid needing manual imports.
+
+**Analysis helpers (detail)**
+
+| Helper | Purpose |
+|--------|---------|
+| `describe_data` | Extended EDA + column quality |
+| `kpi_summary` | Aggregate mean/min/max/sum for metrics |
+| `detect_outliers` | IQR, z-score, or isolation forest |
+| `quick_stats` | Compact metric card |
+| `format_currency` / `format_percent` | Display formatters |
+| `clean_and_prepare` | Dedupe, simple imputation |
+| `pivot_aggregate` | Pivot table wrapper |
+| `group_summary` | Group-by aggregates |
+| `compare_periods` | YoY/QoQ/MoM comparisons |
+| `correlation_matrix` | Top correlated pairs |
+| `run_regression` | OLS via statsmodels |
+| `cluster_numeric` | KMeans centroids |
+| `monte_carlo` | Monte Carlo resampling |
+| `calc_goal_seek` | Single-variable what-if (native Calc, no venv) |
+| `calc_solver` | Constrained optimization on formulas (native Calc) |
 
 ### 🎨 Showcase
 
