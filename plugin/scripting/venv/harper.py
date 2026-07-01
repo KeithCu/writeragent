@@ -313,7 +313,20 @@ class HarperLSClient:
 
 
 def lsp_range_to_offset(text: str, line: int, character: int) -> int:
-    """Convert LSP 0-indexed line and character to absolute 0-indexed character offset."""
+    """Convert LSP 0-indexed line/character to a 0-indexed offset into *text*.
+
+    Harper reports diagnostics in LSP form; the grammar queue stores ``n_error_start``
+    as an offset into the checked sentence string. Grammar work is sentence-scoped,
+    but a sentence can still contain embedded newlines (e.g. Writer soft line breaks),
+    so line > 0 is valid and uses the multiline path below.
+    """
+    # Typical case: one sentence on a single line — skip splitlines allocation.
+    if "\n" not in text and "\r" not in text:
+        if line == 0:
+            return min(character, len(text))
+        return len(text)
+
+    # Soft breaks and pasted multiline text: sum prior line lengths (with line terminators).
     lines = text.splitlines(keepends=True)
     if line >= len(lines):
         return len(text)
@@ -349,7 +362,7 @@ def run_harper_check(text: str, user_config_dir: str) -> dict:
         msg = diag.get("message", "")
         code = diag.get("code", "Grammar")
 
-        # Translate LSP range to start and end character offsets
+        # Map LSP line/character spans to offsets in this sentence string (see lsp_range_to_offset).
         diag_range = diag.get("range", {})
         start_pos = diag_range.get("start", {})
         end_pos = diag_range.get("end", {})

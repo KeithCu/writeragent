@@ -55,7 +55,20 @@ The class `HarperLSClient` manages:
 - **Request Interception:** Captures and automatically replies to server-initiated requests like `workspace/configuration`.
 - **Text Sync:** Sends `textDocument/didOpen` notifications to lint text segments and listens for `textDocument/publishDiagnostics` containing lint rules and location spans.
 - **Action Queries:** Query the `textDocument/codeAction` endpoint for each diagnostic to fetch and parse quickfix suggestions (e.g. spelling corrections).
-- **Position Mapping:** Converts LSP 0-indexed line/column pairs back into absolute character offset spans expected by `WriterAgent`.
+- **Position Mapping:** Converts LSP 0-indexed line/column pairs back into absolute character offset spans expected by `WriterAgent` (see below).
+
+### Position mapping (`lsp_range_to_offset`)
+
+Harper returns diagnostic ranges as LSP `{line, character}` pairs; the grammar queue expects `n_error_start` / `n_error_length` as offsets into the checked sentence string. [`run_harper_check`](../plugin/scripting/venv/harper.py) maps each diagnostic through `lsp_range_to_offset`.
+
+Grammar work is **sentence-scoped**, not line-scoped: each `run_harper_check` call lints one sentence string from [`GrammarWorkItem.text`](../plugin/writer/locale/grammar_work_queue.py). That does **not** mean every sentence is a single visual line — Writer soft line breaks (Shift+Enter) can embed `\n` inside one sentence, and Harper may report `line > 0` for text after the break.
+
+Implementation:
+
+1. **Fast path (typical):** If the sentence contains no `\n` or `\r`, line 0 maps directly to `character` (clamped to `len(text)`); any other line returns `len(text)`.
+2. **Multiline path:** Otherwise `text.splitlines(keepends=True)` sums prior line lengths (including terminators) before adding `character`. This matches LSP line indexing for `\n`, `\r\n`, and `\r`.
+
+Sentence-at-a-time scheduling removes cross-sentence / cross-paragraph offset work; it does **not** remove the need to map LSP lines **within** the sentence buffer.
 
 ---
 
@@ -94,7 +107,7 @@ Integrate Harper directly into the linter work queue:
 The Harper Rust linter integration is fully implemented and optimized:
 1. **Persistent Daemon Pattern:** Upgraded from one-shot `harper-cli` process spawning to a persistent `harper-ls` background daemon running inside the virtual environment worker process. This eliminates process startup and disk I/O overhead.
 2. **Standard LSP Protocol:** Implemented handshake, configuration negotiation, diagnostics handling, and code actions queries natively over stdin/stdout streams.
-3. **Integration Testing:** Verified via [`scripts/test_harper.py`](../scripts/test_harper.py) and added mocks and range-mapping unit tests in [`tests/scripting/test_harper.py`](../tests/scripting/test_harper.py).
+3. **Integration Testing:** Verified via [`scripts/test_harper.py`](../scripts/test_harper.py). Unit tests in [`tests/scripting/test_harper.py`](../tests/scripting/test_harper.py) cover `lsp_range_to_offset` (single-line fast path, multiline/soft-break, CRLF), mocked happy-path lint (stale diagnostic rejection, stable URI, `didChange`), soft-line-break offset mapping through `run_harper_check`, and diagnostic timeout verification.
 
 Primary implementation: [`plugin/scripting/venv/harper.py`](../plugin/scripting/venv/harper.py) (`HarperLSClient`, `run_harper_check`). Host RPC: [`plugin/scripting/client.py`](../plugin/scripting/client.py) (`run_harper_check`). Queue wiring: [`plugin/writer/locale/grammar_work_queue.py`](../plugin/writer/locale/grammar_work_queue.py).
 
@@ -123,11 +136,19 @@ Code actions are fetched with **one `textDocument/codeAction` request per diagno
 
 ### Position encoding
 
-Range mapping uses Python string indices (`lsp_range_to_offset`) and assumes Harper's LSP columns align with UTF-8 code units in the segment text. Mixed surrogate-pair or complex Unicode edge cases are untested.
+Range mapping uses Python string indices via `lsp_range_to_offset` and assumes Harper's LSP columns align with Python code points in the segment text (not strict LSP UTF-16 code units). Mixed surrogate-pair or complex Unicode edge cases are untested.
+
+Most checked sentences hit the single-line fast path; embedded newlines (soft breaks) use the multiline branch described in [§4 Position mapping](#position-mapping-lsp_range_to_offset).
 
 ### Test coverage
 
-Tests cover range mapping, mocked happy-path lint (including stable URI and didChange notifications), and diagnostic timeout verification. There are no automated tests for process restart, interleaved server requests, or malformed framing.
+Tests cover:
+
+- **`lsp_range_to_offset`:** single-line fast path, multiline text, soft-break sentences (`"Hello,\nworld."`), CRLF terminators, out-of-range line clamping
+- **Mocked LSP lint:** stale diagnostic version filtering, single-line capitalization fix, line-1 diagnostic on a soft-break sentence end-to-end through `run_harper_check`
+- **Timeout:** hung diagnostic collection raises `TimeoutError`
+
+There are no automated tests for process restart, interleaved server requests, or malformed framing.
 
 ### Queue granularity
 
@@ -156,7 +177,7 @@ We implemented the proposed `didChange` pattern. We reuse a stable URI per clien
 | **Harper config via LSP** | Map WriterAgent grammar/locale settings into `workspace/configuration` responses so Harper rule sets match user expectations. | Open |
 | **Dynamic `languageId`** | Derive from document BCP47 or content type instead of hardcoded `markdown`. | Open |
 | **Protocol helpers** | Extract Content-Length framing and JSON-RPC envelope builders (similar to Hermes `agent/lsp/protocol.py`) if Harper client grows or a second LSP consumer appears. | Open |
-| **Edge-case tests** | Process death + restart, interleaved `workspace/configuration` during `codeAction`, empty diagnostic list, timeout path. | Open |
+| **Edge-case tests** | Process death + restart, interleaved `workspace/configuration` during `codeAction`, empty diagnostic list. | Open |
 | **Batch code actions** | Investigate whether `harper-ls` supports range-wide or document-wide code actions to cut round trips when one sentence has many diagnostics. | Open |
 
 ### 8.3 Not planned: general-purpose LSP port
