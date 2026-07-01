@@ -61,6 +61,8 @@ The class `HarperLSClient` manages:
 
 ## 5. Queue Dispatcher Integration (`grammar_work_queue.py`)
 
+Harper runs on **one sentence per `run_harper_check` call**. Upstream, [`ai_grammar_proofreader.py`](../plugin/writer/locale/ai_grammar_proofreader.py) splits each paragraph Writer hands in via [`split_into_sentences()`](../plugin/writer/locale/grammar_proofread_text.py) and enqueues each uncached sentence as its own `GrammarWorkItem` (see [realtime grammar checker plan](realtime-grammar-checker-plan.md) — sentence-sized scheduling). Unlike the LLM provider, Harper does not batch multiple sentences into one request.
+
 Integrate Harper directly into the linter work queue:
 ```python
         if provider == "harper":
@@ -112,7 +114,7 @@ The client waits for responses with a wall-clock timeout of 5 seconds by utilizi
 
 ### Quickfix round trips
 
-Code actions are fetched with **one `textDocument/codeAction` request per diagnostic**. A paragraph with many issues therefore incurs N sequential LSP round trips after diagnostics arrive.
+Code actions are fetched with **one `textDocument/codeAction` request per diagnostic**. A single sentence with many issues therefore incurs N sequential LSP round trips after diagnostics arrive. In practice this is usually a small N because each Harper call lints one sentence, not a whole paragraph.
 
 ### Language and configuration
 
@@ -129,7 +131,13 @@ Tests cover range mapping, mocked happy-path lint (including stable URI and didC
 
 ### Queue granularity
 
-The grammar worker processes Harper chunks **one paragraph at a time** (`chunk_len=1` in observability). This matches other local linters and keeps memory bounded but multiplies LSP overhead when many short paragraphs are queued.
+Harper is **sentence-scoped end to end**:
+
+1. **Proofreader** — Writer passes paragraph-like `aText`; WriterAgent splits it into sentences and enqueues one work item per uncached sentence (plus partial-sentence drafts while typing).
+2. **Worker** — The Harper branch loops `for item, text in chunk` and calls `run_harper_check` once per sentence. It does not use LLM-style multi-sentence batching (`doc.grammar_proofreader_batch_sentences` applies only to the AI provider).
+3. **Observability** — `worker_harper_done` logs `chunk_len=1` because each Harper invocation handles a single queue item (one sentence string).
+
+This matches LanguageTool and Vale and keeps memory bounded. LSP overhead scales with the number of **sentences** checked (e.g. a long paragraph yields several Harper calls, one per sentence), not with paragraph count alone.
 
 ---
 
@@ -149,7 +157,7 @@ We implemented the proposed `didChange` pattern. We reuse a stable URI per clien
 | **Dynamic `languageId`** | Derive from document BCP47 or content type instead of hardcoded `markdown`. | Open |
 | **Protocol helpers** | Extract Content-Length framing and JSON-RPC envelope builders (similar to Hermes `agent/lsp/protocol.py`) if Harper client grows or a second LSP consumer appears. | Open |
 | **Edge-case tests** | Process death + restart, interleaved `workspace/configuration` during `codeAction`, empty diagnostic list, timeout path. | Open |
-| **Batch code actions** | Investigate whether `harper-ls` supports range-wide or document-wide code actions to cut round trips when diagnostic count is high. | Open |t is high. |
+| **Batch code actions** | Investigate whether `harper-ls` supports range-wide or document-wide code actions to cut round trips when one sentence has many diagnostics. | Open |
 
 ### 8.3 Not planned: general-purpose LSP port
 
