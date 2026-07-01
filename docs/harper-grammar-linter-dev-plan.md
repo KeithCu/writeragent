@@ -136,19 +136,19 @@ Code actions are fetched with **one `textDocument/codeAction` request per diagno
 
 ### Position encoding
 
-Range mapping uses Python string indices via `lsp_range_to_offset` and assumes Harper's LSP columns align with Python code points in the segment text (not strict LSP UTF-16 code units). Mixed surrogate-pair or complex Unicode edge cases are untested.
+Range mapping uses vendored [`PositionCodec`](../../plugin/contrib/lsp/position_codec.py) (from pygls) so LSP UTF-16 code units convert to Python string indices in `lsp_range_to_offset`. Emoji and other non-BMP characters are covered by unit tests.
 
-Most checked sentences hit the single-line fast path; embedded newlines (soft breaks) use the multiline branch described in [§4 Position mapping](#position-mapping-lsp_range_to_offset).
+Most checked sentences are BMP-only on a single line; embedded newlines (soft breaks) use the multiline line-splitting path described in [§4 Position mapping](#position-mapping-lsp_range_to_offset).
 
 ### Test coverage
 
 Tests cover:
 
-- **`lsp_range_to_offset`:** single-line fast path, multiline text, soft-break sentences (`"Hello,\nworld."`), CRLF terminators, out-of-range line clamping
+- **`lsp_range_to_offset`:** single-line BMP text, multiline text, soft-break sentences, CRLF terminators, UTF-16 surrogate pairs (emoji), out-of-range line clamping
 - **Mocked LSP lint:** stale diagnostic version filtering, single-line capitalization fix, line-1 diagnostic on a soft-break sentence end-to-end through `run_harper_check`
 - **Timeout:** hung diagnostic collection raises `TimeoutError`
 
-There are no automated tests for process restart, interleaved server requests, or malformed framing.
+There are no automated tests for process restart or interleaved server requests. Malformed LSP framing is covered in [`tests/contrib/test_lsp_contrib.py`](../tests/contrib/test_lsp_contrib.py).
 
 ### Queue granularity
 
@@ -178,7 +178,9 @@ Additional items identified in a post-implementation review of `plugin/scripting
 | **stderr drain** | Background thread reading stderr, or `stderr=subprocess.DEVNULL` if Harper guarantees silence. | Completed (stderr redirected to DEVNULL) |
 | **Harper config via LSP** | Map WriterAgent grammar/locale settings into `workspace/configuration` responses so Harper rule sets match user expectations. | Completed (BCP47 → dialect; `userDictPath` under profile) |
 | **Dynamic `languageId`** | Derive from document BCP47 or content type instead of hardcoded `markdown`. | Deferred (Harper is English-only; dialect mapping covers locale) |
-| **Protocol helpers** | Extract Content-Length framing and JSON-RPC envelope builders (similar to Hermes `agent/lsp/protocol.py`) if Harper client grows or a second LSP consumer appears. | Deferred |
+| **Protocol helpers** | Extract Content-Length framing and JSON-RPC envelope builders (similar to Hermes `agent/lsp/protocol.py`) if Harper client grows or a second LSP consumer appears. | Completed ([`plugin/contrib/lsp/json_rpc_framing.py`](../plugin/contrib/lsp/json_rpc_framing.py)) |
+| **Binary fetch/cache** | Replace hand-rolled download/extract with vendored Pooch subset (SHA256, retry, safe Untar/Unzip). | Completed ([`plugin/contrib/pooch/`](../plugin/contrib/pooch/)) |
+| **UTF-16 position codec** | Map LSP UTF-16 columns to Python indices for emoji / non-BMP text. | Completed ([`plugin/contrib/lsp/position_codec.py`](../plugin/contrib/lsp/position_codec.py)) |
 | **Edge-case tests** | Process death + restart, interleaved `workspace/configuration` during `codeAction`, empty diagnostic list. | Completed |
 | **Batch code actions** | Investigate whether `harper-ls` supports range-wide or document-wide code actions to cut round trips when one sentence has many diagnostics. | Deferred |
 | **Python < 3.10 annotation compatibility** | Add `from __future__ import annotations` (top of `harper.py`). Current use of `dict \| None` (and bare `list` annotations) will raise `SyntaxError` on import under older Python interpreters commonly bundled with LibreOffice. | Completed |

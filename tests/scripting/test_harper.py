@@ -7,7 +7,6 @@
 from io import BytesIO
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-import hashlib
 import json
 import queue
 import pytest
@@ -65,6 +64,15 @@ def test_lsp_range_to_offset_crlf() -> None:
     text = "a\r\nb"
     assert lsp_range_to_offset(text, 0, 0) == 0
     assert lsp_range_to_offset(text, 1, 0) == 3  # start of "b"
+
+
+def test_lsp_range_to_offset_utf16_surrogate_pair() -> None:
+    """LSP character offsets count UTF-16 code units, not Python code points."""
+    text = "a👋b"
+    assert lsp_range_to_offset(text, 0, 0) == 0
+    assert lsp_range_to_offset(text, 0, 1) == 1  # after "a"
+    assert lsp_range_to_offset(text, 0, 3) == 2  # after emoji (2 UTF-16 units)
+    assert lsp_range_to_offset(text, 0, 4) == 3  # start of "b"
 
 
 def _make_lsp_chunk(body: bytes) -> bytes:
@@ -482,76 +490,43 @@ def test_get_harper_binary_skips_download_when_up_to_date(
     assert path == str(binary_path)
 
 
-@patch("plugin.scripting.venv.harper._extract_harper_member")
-def test_download_harper_binary_verifies_sha256(mock_extract: MagicMock, tmp_path: Path) -> None:
-    payload = b"fake-archive-bytes"
-    digest = hashlib.sha256(payload).hexdigest()
+@patch("plugin.scripting.venv.harper.retrieve")
+def test_download_harper_binary_installs_binary(mock_retrieve: MagicMock, tmp_path: Path) -> None:
     release = HarperReleaseAsset(
         version="2.6.0",
         asset_name="harper-ls-x86_64-unknown-linux-gnu.tar.gz",
         download_url="https://example.com/harper.tar.gz",
-        sha256=digest,
+        sha256="abc123",
     )
-
-    def _fake_extract(archive_path: Path, dest_path: Path) -> None:
-        dest_path.write_bytes(b"fake-binary")
-
-    mock_extract.side_effect = _fake_extract
-
-    class FakeResponse:
-        def read(self, size=-1):
-            if not hasattr(self, "_sent"):
-                self._sent = True
-                return payload
-            return b""
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return False
+    extracted = tmp_path / "bin" / "harper-ls-x86_64-unknown-linux-gnu.tar.gz.untar" / "harper-ls"
+    extracted.parent.mkdir(parents=True)
+    extracted.write_bytes(b"fake-binary")
+    mock_retrieve.return_value = [str(extracted)]
 
     dest = tmp_path / "bin" / "harper-ls"
-    dest.parent.mkdir(parents=True)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    harper_module._download_harper_binary(dest, release)
 
-    with patch("urllib.request.urlopen", return_value=FakeResponse()):
-        harper_module._download_harper_binary(dest, release)
-
-    mock_extract.assert_called_once()
+    mock_retrieve.assert_called_once()
     assert dest.read_bytes() == b"fake-binary"
     assert (dest.parent / "harper-ls.version").read_text(encoding="utf-8") == "2.6.0"
 
 
-@patch("plugin.scripting.venv.harper._extract_harper_member")
-def test_download_harper_binary_rejects_bad_hash(mock_extract: MagicMock, tmp_path: Path) -> None:
+@patch("plugin.scripting.venv.harper.retrieve")
+def test_download_harper_binary_propagates_retrieve_failure(mock_retrieve: MagicMock, tmp_path: Path) -> None:
     release = HarperReleaseAsset(
         version="2.6.0",
         asset_name="harper-ls-x86_64-unknown-linux-gnu.tar.gz",
         download_url="https://example.com/harper.tar.gz",
         sha256="deadbeef",
     )
-
-    class FakeResponse:
-        def read(self, size=-1):
-            if not hasattr(self, "_sent"):
-                self._sent = True
-                return b"bad-bytes"
-            return b""
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return False
+    mock_retrieve.side_effect = ValueError("SHA256 hash of downloaded file does not match")
 
     dest = tmp_path / "bin" / "harper-ls"
-    dest.parent.mkdir(parents=True)
+    dest.parent.mkdir(parents=True, exist_ok=True)
 
-    with patch("urllib.request.urlopen", return_value=FakeResponse()), \
-         pytest.raises(RuntimeError, match="SHA256"):
+    with pytest.raises(RuntimeError, match="Failed to auto-download Harper binary"):
         harper_module._download_harper_binary(dest, release)
-
-    mock_extract.assert_not_called()
 
 
 def test_fetch_latest_release_asset_uses_github_api(tmp_path: Path) -> None:

@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
@@ -14,14 +13,15 @@ import platform
 import queue
 import shutil
 import subprocess
-import tarfile
 import threading
 import time
 import urllib.request
-import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from plugin.contrib.lsp import json_rpc_framing
+from plugin.contrib.lsp.position_codec import ClientPosition, PositionCodec
+from plugin.contrib.pooch import HTTPDownloader, Untar, Unzip, retrieve
 from plugin.framework.constants import USER_AGENT
 
 
@@ -31,7 +31,6 @@ _JSONRPC = "2.0"
 _INIT_PARAMS = {"processId": os.getpid(), "rootUri": "file:///tmp", "capabilities": {"textDocument": {"publishDiagnostics": {"relatedInformation": False}, "codeAction": {"dynamicRegistration": False, "codeActionLiteralSupport": {"codeActionKind": {"valueSet": ["quickfix"]}}}}}}
 
 _HARPER_RELEASES_API = "https://api.github.com/repos/Automattic/harper/releases/latest"
-_LSP_MAX_FRAME_BYTES = 10 * 1024 * 1024
 _DOWNLOAD_MAX_BYTES = 20 * 1024 * 1024
 _DOWNLOAD_TIMEOUT_SEC = 120
 _RELEASE_CHECK_INTERVAL_SEC = 7 * 24 * 3600
@@ -39,7 +38,8 @@ _RELEASE_CACHE_FILENAME = "harper-ls.release.json"
 _LINT_BUDGET_SEC = 15.0
 _INIT_BUDGET_SEC = 5.0
 
-_release_cache: dict[str, tuple[float, HarperReleaseAsset]] = {}
+_LSP_POSITION_CODEC = PositionCodec("utf-16")
+_release_cache: dict[str, tuple[float, "HarperReleaseAsset"]] = {}
 
 
 @dataclass(frozen=True)
@@ -69,16 +69,8 @@ def _deadline_remaining(deadline: float) -> float:
     return max(0.0, deadline - time.monotonic())
 
 
-def _read_exactly(stream, nbytes: int) -> bytes:
-    chunks: list[bytes] = []
-    remaining = nbytes
-    while remaining > 0:
-        chunk = stream.read(remaining)
-        if not chunk:
-            raise RuntimeError("Unexpected EOF while reading LSP frame body")
-        chunks.append(chunk)
-        remaining -= len(chunk)
-    return b"".join(chunks)
+# Re-export for unit tests that exercise partial stream reads.
+_read_exactly = json_rpc_framing.read_exactly
 
 
 def _harper_lsp_settings(bcp47: str, user_config_dir: str) -> dict:
@@ -101,36 +93,15 @@ def _resolve_harper_asset(system: str, machine: str) -> str:
 
 
 def _is_harper_member(name: str) -> bool:
-    return name.endswith("harper-ls.exe") or name.endswith("harper-ls")
+    normalized = name.replace("\\", "/")
+    return normalized.endswith("harper-ls.exe") or normalized.endswith("/harper-ls") or normalized == "harper-ls"
 
 
-def _extract_harper_member(archive_path: Path, dest_path: Path) -> None:
-    """Extract harper-ls binary from a release tarball or zip into dest_path."""
-    if archive_path.suffix == ".gz" or str(archive_path).endswith(".tar.gz"):
-        with tarfile.open(archive_path, "r:gz") as tar:
-            for member in tar.getmembers():
-                if _is_harper_member(member.name):
-                    extracted = tar.extractfile(member)
-                    if extracted:
-                        dest_path.write_bytes(extracted.read())
-                        return
-        raise RuntimeError("harper-ls file not found inside tarball")
-
-    with zipfile.ZipFile(archive_path, "r") as zip_ref:
-        for file_info in zip_ref.infolist():
-            if _is_harper_member(file_info.filename):
-                dest_path.write_bytes(zip_ref.read(file_info))
-                return
-    raise RuntimeError("harper-ls file not found inside zip archive")
-
-
-def _verify_sha256(path: Path, expected: str) -> None:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    if digest.hexdigest() != expected.lower():
-        raise RuntimeError(f"Harper download failed SHA256 check for {path.name}")
+def _pick_harper_member(paths: list[str]) -> str:
+    for path in paths:
+        if _is_harper_member(path):
+            return path
+    raise RuntimeError("harper-ls file not found inside archive")
 
 
 def _parse_github_digest(digest: str | None) -> str:
@@ -223,29 +194,28 @@ def _read_installed_version(bin_dir: Path) -> str | None:
 
 
 def _download_harper_binary(dest_path: Path, release: HarperReleaseAsset) -> None:
-    """Download harper-ls from GitHub with timeout, size cap, and SHA256 check."""
+    """Download harper-ls via vendored Pooch retrieve (hash verify, retry, archive extract)."""
     log.info("[harper] Downloading v%s binary (%s) from %s", release.version, release.asset_name, release.download_url)
 
     dest_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_archive = dest_path.parent / f".{release.asset_name}.download"
+    processor = Untar() if release.asset_name.endswith((".tar.gz", ".tgz")) else Unzip()
+    downloader = HTTPDownloader(headers={"User-Agent": USER_AGENT}, timeout=_DOWNLOAD_TIMEOUT_SEC, max_bytes=_DOWNLOAD_MAX_BYTES)
     tmp_binary = dest_path.parent / f".harper-ls{'.exe' if os.name == 'nt' else ''}.download"
 
     try:
-        request = urllib.request.Request(release.download_url, headers={"User-Agent": USER_AGENT})
-        with urllib.request.urlopen(request, timeout=_DOWNLOAD_TIMEOUT_SEC) as response:
-            total = 0
-            with tmp_archive.open("wb") as handle:
-                while True:
-                    chunk = response.read(1024 * 1024)
-                    if not chunk:
-                        break
-                    total += len(chunk)
-                    if total > _DOWNLOAD_MAX_BYTES:
-                        raise RuntimeError(f"Harper download exceeded {_DOWNLOAD_MAX_BYTES} bytes")
-                    handle.write(chunk)
-
-        _verify_sha256(tmp_archive, release.sha256)
-        _extract_harper_member(tmp_archive, tmp_binary)
+        extracted = retrieve(
+            url=release.download_url,
+            known_hash=f"sha256:{release.sha256}",
+            path=str(dest_path.parent),
+            fname=release.asset_name,
+            processor=processor,
+            downloader=downloader,
+            retry_if_failed=2,
+        )
+        if not isinstance(extracted, list):
+            raise RuntimeError("Harper archive extraction did not return file paths")
+        source = Path(_pick_harper_member(extracted))
+        shutil.copy2(source, tmp_binary)
         os.chmod(tmp_binary, 0o755)  # nosec B103  # nosemgrep: insecure-file-permissions
         os.replace(tmp_binary, dest_path)
         (dest_path.parent / "harper-ls.version").write_text(release.version, encoding="utf-8")
@@ -254,12 +224,11 @@ def _download_harper_binary(dest_path: Path, release: HarperReleaseAsset) -> Non
         log.error("[harper] Failed to download and extract binary: %s", e)
         raise RuntimeError(f"Failed to auto-download Harper binary: {e}")
     finally:
-        for tmp in (tmp_archive, tmp_binary):
-            try:
-                if tmp.exists():
-                    tmp.unlink()
-            except Exception:
-                pass
+        try:
+            if tmp_binary.exists():
+                tmp_binary.unlink()
+        except Exception:
+            pass
 
 
 def _get_harper_binary(user_config_dir: str) -> str:
@@ -331,36 +300,10 @@ class HarperLSClient:
     def _read_loop(self) -> None:
         try:
             while self.proc and self.proc.stdout:
-                headers: dict[str, str] = {}
-                while True:
-                    line = self.proc.stdout.readline()
-                    if not line:
-                        break
-                    line_str = line.decode("utf-8").strip()
-                    if not line_str:
-                        break
-                    if ":" in line_str:
-                        key, value = line_str.split(":", 1)
-                        headers[key.strip().lower()] = value.strip()
-
-                if not line:
+                msg = json_rpc_framing.read_frame(self.proc.stdout)
+                if msg is None:
                     break
-
-                raw_length = headers.get("content-length")
-                if raw_length is None:
-                    log.warning("[harper] LSP frame missing Content-Length header")
-                    continue
-                try:
-                    content_length = int(raw_length)
-                except ValueError:
-                    log.warning("[harper] Invalid Content-Length header: %r", raw_length)
-                    continue
-                if content_length <= 0 or content_length > _LSP_MAX_FRAME_BYTES:
-                    log.warning("[harper] Rejecting LSP frame with Content-Length=%s", content_length)
-                    continue
-
-                body = _read_exactly(self.proc.stdout, content_length).decode("utf-8")
-                self.stdout_queue.put(json.loads(body))
+                self.stdout_queue.put(msg)
         except Exception:
             log.exception("[harper] LSP reader failed")
         finally:
@@ -372,10 +315,7 @@ class HarperLSClient:
     def _write(self, payload: dict) -> None:
         if not self.proc or self.proc.stdin is None:
             raise RuntimeError("harper-ls process not running")
-        body = json.dumps(payload)
-        header = f"Content-Length: {len(body.encode('utf-8'))}\r\n\r\n"
-        self.proc.stdin.write((header + body).encode("utf-8"))
-        self.proc.stdin.flush()
+        json_rpc_framing.write_frame(self.proc.stdin, payload)
 
     def _read(self, deadline: float) -> dict | None:
         if not self.proc:
@@ -510,23 +450,13 @@ class HarperLSClient:
 
 
 def lsp_range_to_offset(text: str, line: int, character: int) -> int:
-    """Convert LSP 0-indexed line/character to a 0-indexed offset into *text*.
-
-    Harper reports diagnostics in LSP form; the grammar queue stores ``n_error_start``
-    as an offset into the checked sentence string. Grammar work is sentence-scoped,
-    but a sentence can still contain embedded newlines (e.g. Writer soft line breaks),
-    so line > 0 is valid and uses the multiline path below.
-    """
-    if "\n" not in text and "\r" not in text:
-        if line == 0:
-            return min(character, len(text))
-        return len(text)
-
-    lines = text.splitlines(keepends=True)
+    """Convert LSP 0-indexed line/character (UTF-16 code units) to a Python string offset."""
+    lines = [text] if ("\n" not in text and "\r" not in text) else text.splitlines(keepends=True)
     if line >= len(lines):
         return len(text)
-    offset = sum(len(line_text) for line_text in lines[:line])
-    return min(offset + character, len(text))
+    pos = _LSP_POSITION_CODEC.position_from_client_units(lines, ClientPosition(line=line, character=character))
+    offset = sum(len(lines[i]) for i in range(pos.line))
+    return min(offset + pos.character, len(text))
 
 
 def _get_or_create_client(harper_bin: str, user_config_dir: str, bcp47: str) -> HarperLSClient:
