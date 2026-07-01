@@ -63,3 +63,15 @@ def test_impress_default_schemas_exclude_ppt_master_tools():
         registry.register(cls())
     names = {s["function"]["name"] for s in registry.get_schemas("openai", doc=doc)}
     assert "export_presentation_project" not in names
+    assert "get_ppt_master_skill_path" not in names
+
+
+def test_ppt_master_session_no_longer_merges_draw_tools():
+    import inspect
+
+    from plugin.chatbot import ppt_master as pm
+
+    source = inspect.getsource(pm)
+    assert "_PPT_MASTER_DRAW_CORE_TOOL_NAMES" not in source
+    assert "collect_ppt_master_tools" not in source
+    assert "run_ppt_master_venv_turn" in source or "_run_ppt_master_venv_agent" in source

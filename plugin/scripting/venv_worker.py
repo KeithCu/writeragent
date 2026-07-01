@@ -139,6 +139,8 @@ class PythonWorkerManager:
             request["action"] = action
             if session_id:
                 request["session_id"] = session_id
+            if data is not None:
+                request["data"] = data
         else:
             request["code"] = code if code is not None else ""
             if data is not None:
@@ -169,6 +171,8 @@ class PythonWorkerManager:
         allow_heartbeat: bool = False,
         heartbeat_grace_sec: int | None = None,
         on_heartbeat: Callable[[dict[str, Any]], None] | None = None,
+        on_worker_event: Callable[[dict[str, Any]], None] | None = None,
+        stop_checker: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
         request = self._build_request(
             code,
@@ -212,62 +216,21 @@ class PythonWorkerManager:
                         raise RuntimeError(f"Worker closed stdout without a response{stderr_out}")
                     # Trusted IPC: bytes from our own worker_harness child over a private pipe.
                     response = pickle.loads(response_bytes)  # nosec B301
-                    if isinstance(response, dict) and response.get("type") == "tool_call":
-                        tool_name = response.get("tool")
-                        if not isinstance(tool_name, str):
-                            raise RuntimeError(f"Invalid or missing tool name in tool_call: {tool_name}")
-                        args = response.get("args") or {}
-                        call_id = response.get("id")
-                        log.debug("Worker requested tool call: %s with args %s", tool_name, args)
+                    if isinstance(response, dict):
+                        from plugin.ppt_master.venv.host_rpc import dispatch_worker_response
 
-                        def _run_tool_on_main_thread():
-                            from plugin.framework.uno_context import get_ctx, get_active_document
-                            from plugin.doc.document_helpers import is_calc, is_writer, is_draw
-                            from plugin.main import get_tools
-                            from plugin.framework.tool import ToolContext
+                        def _stdin_write(blob: bytes) -> None:
+                            stdin.write(blob)
+                            stdin.flush()
 
-                            uno_ctx = get_ctx()
-                            doc = get_active_document(uno_ctx)
-                            if not doc:
-                                raise RuntimeError("No active document found to run tool")
-
-                            if is_calc(doc):
-                                doc_type = "calc"
-                            elif is_writer(doc):
-                                doc_type = "writer"
-                            elif is_draw(doc):
-                                doc_type = "draw"
-                            else:
-                                doc_type = ""
-
-                            registry = get_tools()
-                            tctx = ToolContext(
-                                doc=doc,
-                                ctx=uno_ctx,
-                                doc_type=doc_type,
-                                services=registry._services,
-                                caller="script"
-                            )
-                            t_name = tool_name
-                            assert isinstance(t_name, str)
-                            return registry.execute(t_name, tctx, **args)
-
-                        try:
-                            from plugin.framework.queue_executor import execute_on_main_thread
-                            res = execute_on_main_thread(_run_tool_on_main_thread)
-                            tool_response = {"status": "ok", "id": call_id, "result": res}
-                        except Exception as e:
-                            log.exception("Tool execution failed on host for %s", tool_name)
-                            tool_response = {"status": "error", "id": call_id, "message": str(e)}
-
-                        tool_payload = pickle.dumps(tool_response, protocol=5)
-                        tool_header = struct.pack("!I", len(tool_payload))
-                        stdin.write(tool_header)
-                        stdin.write(tool_payload)
-                        stdin.flush()
-                        continue
-                    else:
-                        break
+                        if dispatch_worker_response(
+                            response,
+                            stdin_write=_stdin_write,
+                            on_worker_event=on_worker_event,
+                            stop_checker=stop_checker,
+                        ):
+                            continue
+                    break
                 return self._normalize_response(response)
             except (BrokenPipeError, pickle.UnpicklingError, RuntimeError, subprocess.TimeoutExpired, OSError) as e:
                 log.warning("Python worker failed (attempt %s): %s", attempt + 1, e)
@@ -319,6 +282,34 @@ class PythonWorkerManager:
                 heartbeat_grace_sec=heartbeat_grace_sec,
                 on_heartbeat=on_heartbeat,
             )
+
+    def execute_ppt_master_turn(
+        self,
+        payload: dict[str, Any],
+        *,
+        timeout_sec: int,
+        on_worker_event: Callable[[dict[str, Any]], None] | None = None,
+        stop_checker: Callable[[], bool] | None = None,
+    ) -> dict[str, Any]:
+        """Run one PPT-Master sidebar turn in the venv worker (LLM + scripts + host UNO RPC)."""
+        with self._io_lock:
+            warm_err = self._ensure_warmed_unlocked()
+            if warm_err is not None:
+                return warm_err
+            raw = self._execute_ipc_unlocked(
+                None,
+                data=payload,
+                timeout_sec=timeout_sec,
+                action="ppt_master_turn",
+                on_worker_event=on_worker_event,
+                stop_checker=stop_checker,
+            )
+        if raw.get("status") == "error":
+            return raw
+        inner = raw.get("result")
+        if isinstance(inner, dict):
+            return inner
+        return {"status": "ok", "result": str(inner) if inner is not None else ""}
 
     def _normalize_response(self, response: dict[str, Any]) -> dict[str, Any]:
         if response.get("status") == "ok":

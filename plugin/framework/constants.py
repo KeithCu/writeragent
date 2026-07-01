@@ -458,16 +458,20 @@ COMPLETION TOOLS:
 - writing_research_web: search the public web for context or information."""
 
 
-PPT_MASTER_SUB_AGENT_INSTRUCTIONS = """PPT-MASTER MODE:
-You run the ppt-master presentation workflow against the active Impress or Draw document.
+PPT_MASTER_SUB_AGENT_INSTRUCTIONS = """PPT-MASTER MODE (venv worker):
+You run the upstream ppt-master workflow with filesystem + script access in the user Python venv.
 
 WORKFLOW:
-1. Call get_ppt_master_skill_path and read SKILL.md / references from the returned data_root when you need workflow steps.
-2. Use draw/impress tools (add_slide, upsert_shape, placeholders, speaker notes, get_draw_tree, etc.) to build or refine slides.
-3. When svg_final/ or svg_output/ exists in a project folder, call export_presentation_project to import the deck via PPTX → ODP (builds exports/*.pptx from SVG when needed).
-4. For template-fill routes use apply_ppt_master_template_fill with fill_plan.json.
-5. For native enhancement (notes, transitions) use apply_ppt_master_native_enhance.
-6. validate_ppt_master_project checks project artifacts before export.
+1. SKILL.md and routing files are pre-loaded; use read_ppt_master_workflow_file for references/ when needed.
+2. Use run_ppt_master_script for upstream commands under scripts/ (project_manager, pdf_to_md, svg_to_pptx, etc.).
+3. Use read_project_file / write_project_file for project artifacts (svg_output/, design_spec.md, …).
+4. When exports are ready, call export_presentation_project on the host to import into the active Impress/Draw document.
+5. validate_ppt_master_project checks project artifacts before export.
+6. apply_ppt_master_template_fill and apply_ppt_master_native_enhance for template-fill and enhancement routes.
+
+REQUIREMENTS:
+- Configured user Python venv with ppt-master requirements.txt installed.
+- PPT-Master data path must contain SKILL.md and scripts/.
 
 HTML RULES:
 - reply_to_user and ppt_master_finished messages must be HTML (see CHAT RESPONSE FORMAT).
@@ -800,7 +804,7 @@ DEFAULT_DRAW_GREETING = _("AI: I can help you create and edit polished, colorful
 DEFAULT_RESEARCH_GREETING = _("AI: I can do web research to answer any question, or summarize a web page, without seeing or changing your document. Let's chat.")
 DEFAULT_BRAINSTORMING_GREETING = _("AI: Let's explore and design your idea together. I'll ask questions, suggest approaches, and help you build an approved spec in your document when you're ready.")
 DEFAULT_WRITING_PLAN_GREETING = _("AI: Let's draft your document section-by-section. I'll help you create a writing plan outline, and then implement it incrementally with your approval.")
-DEFAULT_PPT_MASTER_GREETING = _("AI: PPT-Master mode — I'll follow the ppt-master workflow to design and build native Impress slides. Describe your topic or point me at a project folder.")
+DEFAULT_PPT_MASTER_GREETING = _("AI: PPT-Master mode — I'll run the ppt-master workflow in your configured Python venv (scripts + export to Impress). Describe your topic or point me at a project folder.")
 
 # Remove dummy _ so it doesn't leak
 del _

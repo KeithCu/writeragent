@@ -104,6 +104,20 @@ def _handle_request(request: dict[str, Any], *, stdout: Any | None = None) -> di
             return {"status": "error", "message": "No session_id provided."}
         return reset_sandbox_session(session_id)
 
+    if action == "ppt_master_turn":
+        from plugin.ppt_master.venv.runner import run_turn
+
+        data = request.get("data")
+        if not isinstance(data, dict):
+            return {"status": "error", "message": "ppt_master_turn requires data dict."}
+        try:
+            result = run_turn(data)
+            return {"status": "ok", "result": result}
+        except Exception as exc:
+            import traceback
+
+            return {"status": "error", "message": str(exc), "traceback": traceback.format_exc()}
+
     code = request.get("code")
     if not isinstance(code, str) or not code.strip():
         return {"status": "error", "message": "No code provided."}
