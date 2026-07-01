@@ -34,7 +34,7 @@ def is_grammar_enabled():
 
 ## 3. Dependency Management (Binary Fetching)
 
-To avoid compiling Rust from source, WriterAgent fetches the official precompiled `harper-ls` binary based on the host architecture:
+Binary resolution, download, and install live in [`plugin/scripting/venv/harper_binary.py`](../plugin/scripting/venv/harper_binary.py). To avoid compiling Rust from source, WriterAgent fetches the official precompiled `harper-ls` binary based on the host architecture:
 1. **GitHub Releases API:** Resolve the latest release via `https://api.github.com/repos/Automattic/harper/releases/latest` (checked at most once per week per profile, persisted in `harper/harper-ls.release.json`), then download the matching asset URL and verify GitHub's published `digest` (SHA256).
 2. **Platform Resolution:**
    * **Linux x86_64:** `harper-ls-x86_64-unknown-linux-gnu.tar.gz`
@@ -46,7 +46,7 @@ To avoid compiling Rust from source, WriterAgent fetches the official precompile
 
 ## 4. Worker-Side Harper Helper (`plugin/scripting/venv/harper.py`)
 
-Rather than spawning a new process and writing temporary files on every grammar check, WriterAgent runs `harper-ls --stdio` as a persistent background process inside the venv worker. Communication occurs over standard input/output streams using the JSON-RPC Language Server Protocol (LSP).
+Rather than spawning a new process and writing temporary files on every grammar check, WriterAgent runs `harper-ls --stdio` as a persistent background process inside the venv worker. Communication occurs over standard input/output streams using the JSON-RPC Language Server Protocol (LSP). The LSP client and `run_harper_check` live in [`harper.py`](../plugin/scripting/venv/harper.py); binary fetch/install is in [`harper_binary.py`](../plugin/scripting/venv/harper_binary.py).
 
 ### Persistent LSP Client implementation (`HarperLSClient`)
 The class `HarperLSClient` manages:
@@ -114,7 +114,7 @@ The Harper Rust linter integration is fully implemented and optimized:
 2. **Standard LSP Protocol:** Implemented handshake, configuration negotiation, diagnostics handling, and code actions queries natively over stdin/stdout streams.
 3. **Integration Testing:** Verified via [`scripts/test_harper.py`](../scripts/test_harper.py). Unit tests cover offset mapping (including UTF-16 surrogate pairs), mocked LSP flows (stale versions, didChange, soft breaks, code actions), timeout behavior, download/upgrade logic, and the vendored framing + pooch helpers (in `tests/contrib/`). See the Test coverage subsection under Known Limitations for details.
 
-Primary implementation: [`plugin/scripting/venv/harper.py`](../plugin/scripting/venv/harper.py) (`HarperLSClient`, `run_harper_check`). Host RPC: [`plugin/scripting/client.py`](../plugin/scripting/client.py) (`run_harper_check`). Queue wiring: [`plugin/writer/locale/grammar_work_queue.py`](../plugin/writer/locale/grammar_work_queue.py).
+Primary implementation: [`plugin/scripting/venv/harper.py`](../plugin/scripting/venv/harper.py) (`HarperLSClient`, `run_harper_check`); binary fetch/install: [`plugin/scripting/venv/harper_binary.py`](../plugin/scripting/venv/harper_binary.py). Host RPC: [`plugin/scripting/client.py`](../plugin/scripting/client.py) (`run_harper_check`). Queue wiring: [`plugin/writer/locale/grammar_work_queue.py`](../plugin/writer/locale/grammar_work_queue.py).
 
 Supporting vendored helpers live in [`plugin/contrib/lsp/`](../plugin/contrib/lsp/) (framing + UTF-16 position codec) and [`plugin/contrib/pooch/`](../plugin/contrib/pooch/) (secure hashed downloads + safe archive extraction). Both include provenance READMEs and dedicated tests.
 

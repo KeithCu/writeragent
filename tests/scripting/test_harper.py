@@ -13,15 +13,18 @@ import pytest
 
 from plugin.scripting.venv.harper import (
     HarperLSClient,
-    HarperReleaseAsset,
-    _fetch_latest_release_asset,
     _harper_lsp_settings,
-    _read_installed_version,
     _read_exactly,
     lsp_range_to_offset,
     run_harper_check,
 )
+from plugin.scripting.venv.harper_binary import (
+    HarperReleaseAsset,
+    _fetch_latest_release_asset,
+    _read_installed_version,
+)
 import plugin.scripting.venv.harper as harper_module
+import plugin.scripting.venv.harper_binary as harper_binary_module
 
 
 @pytest.fixture(autouse=True)
@@ -30,7 +33,7 @@ def _reset_harper_client_cache() -> None:
     for client in harper_module._HARPER_CLIENT_CACHE.values():
         client.close()
     harper_module._HARPER_CLIENT_CACHE.clear()
-    harper_module._release_cache.clear()
+    harper_binary_module._release_cache.clear()
 
 
 def test_lsp_range_to_offset_single_line() -> None:
@@ -448,8 +451,8 @@ def _sample_release(version: str = "2.6.0") -> HarperReleaseAsset:
     )
 
 
-@patch("plugin.scripting.venv.harper._download_harper_binary")
-@patch("plugin.scripting.venv.harper._fetch_latest_release_asset")
+@patch("plugin.scripting.venv.harper_binary._download_harper_binary")
+@patch("plugin.scripting.venv.harper_binary._fetch_latest_release_asset")
 def test_get_harper_binary_redownloads_when_latest_changes(
     mock_fetch: MagicMock,
     mock_download: MagicMock,
@@ -462,15 +465,15 @@ def test_get_harper_binary_redownloads_when_latest_changes(
     binary_path.write_bytes(b"old")
     (harper_dir / "harper-ls.version").write_text("2.6.0", encoding="utf-8")
 
-    with patch("plugin.scripting.venv.harper.shutil.which", return_value=None):
-        path = harper_module._get_harper_binary(str(tmp_path))
+    with patch("plugin.scripting.venv.harper_binary.shutil.which", return_value=None):
+        path = harper_binary_module._get_harper_binary(str(tmp_path))
 
     mock_download.assert_called_once_with(binary_path, mock_fetch.return_value)
     assert path == str(binary_path)
 
 
-@patch("plugin.scripting.venv.harper._download_harper_binary")
-@patch("plugin.scripting.venv.harper._fetch_latest_release_asset")
+@patch("plugin.scripting.venv.harper_binary._download_harper_binary")
+@patch("plugin.scripting.venv.harper_binary._fetch_latest_release_asset")
 def test_get_harper_binary_skips_download_when_up_to_date(
     mock_fetch: MagicMock,
     mock_download: MagicMock,
@@ -483,15 +486,15 @@ def test_get_harper_binary_skips_download_when_up_to_date(
     binary_path.write_bytes(b"current")
     (harper_dir / "harper-ls.version").write_text("2.6.0", encoding="utf-8")
 
-    with patch("plugin.scripting.venv.harper.shutil.which", return_value=None):
-        path = harper_module._get_harper_binary(str(tmp_path))
+    with patch("plugin.scripting.venv.harper_binary.shutil.which", return_value=None):
+        path = harper_binary_module._get_harper_binary(str(tmp_path))
 
     mock_download.assert_not_called()
     assert path == str(binary_path)
 
 
-@patch("plugin.scripting.venv.harper._download_harper_binary")
-@patch("plugin.scripting.venv.harper._fetch_latest_release_asset")
+@patch("plugin.scripting.venv.harper_binary._download_harper_binary")
+@patch("plugin.scripting.venv.harper_binary._fetch_latest_release_asset")
 def test_migrate_legacy_bin_install_moves_binary(
     mock_fetch: MagicMock,
     mock_download: MagicMock,
@@ -505,8 +508,8 @@ def test_migrate_legacy_bin_install_moves_binary(
     (legacy_dir / "harper-ls.version").write_text("2.6.0", encoding="utf-8")
     (legacy_dir / "harper-ls.release.json").write_text("{}", encoding="utf-8")
 
-    with patch("plugin.scripting.venv.harper.shutil.which", return_value=None):
-        path = harper_module._get_harper_binary(str(tmp_path))
+    with patch("plugin.scripting.venv.harper_binary.shutil.which", return_value=None):
+        path = harper_binary_module._get_harper_binary(str(tmp_path))
 
     harper_dir = tmp_path / "harper"
     assert path == str(harper_dir / "harper-ls")
@@ -518,7 +521,7 @@ def test_migrate_legacy_bin_install_moves_binary(
     mock_download.assert_not_called()
 
 
-@patch("plugin.scripting.venv.harper.retrieve")
+@patch("plugin.scripting.venv.harper_binary.retrieve")
 def test_download_harper_binary_installs_binary(mock_retrieve: MagicMock, tmp_path: Path) -> None:
     release = HarperReleaseAsset(
         version="2.6.0",
@@ -535,8 +538,8 @@ def test_download_harper_binary_installs_binary(mock_retrieve: MagicMock, tmp_pa
 
     dest = harper_dir / "harper-ls"
     dest.parent.mkdir(parents=True, exist_ok=True)
-    with patch("plugin.scripting.venv.harper.Untar", return_value=mock_processor):
-        harper_module._download_harper_binary(dest, release)
+    with patch("plugin.scripting.venv.harper_binary.Untar", return_value=mock_processor):
+        harper_binary_module._download_harper_binary(dest, release)
 
     mock_retrieve.assert_called_once()
     mock_processor.assert_called_once()
@@ -545,7 +548,7 @@ def test_download_harper_binary_installs_binary(mock_retrieve: MagicMock, tmp_pa
     assert extracted.is_file()
 
 
-@patch("plugin.scripting.venv.harper.retrieve")
+@patch("plugin.scripting.venv.harper_binary.retrieve")
 def test_download_harper_binary_removes_archive_after_success(mock_retrieve: MagicMock, tmp_path: Path) -> None:
     release = HarperReleaseAsset(
         version="2.6.0",
@@ -573,8 +576,8 @@ def test_download_harper_binary_removes_archive_after_success(mock_retrieve: Mag
 
     mock_retrieve.side_effect = fake_retrieve
     mock_processor = MagicMock(return_value=[str(extracted)])
-    with patch("plugin.scripting.venv.harper.Untar", return_value=mock_processor):
-        harper_module._download_harper_binary(dest, release)
+    with patch("plugin.scripting.venv.harper_binary.Untar", return_value=mock_processor):
+        harper_binary_module._download_harper_binary(dest, release)
 
     assert dest.read_bytes() == b"fake-binary"
     assert (harper_dir / "harper-ls.version").read_text(encoding="utf-8") == "2.6.0"
@@ -584,7 +587,7 @@ def test_download_harper_binary_removes_archive_after_success(mock_retrieve: Mag
     assert extracted.is_file()
 
 
-@patch("plugin.scripting.venv.harper.retrieve")
+@patch("plugin.scripting.venv.harper_binary.retrieve")
 def test_download_harper_binary_propagates_retrieve_failure(mock_retrieve: MagicMock, tmp_path: Path) -> None:
     release = HarperReleaseAsset(
         version="2.6.0",
@@ -599,13 +602,13 @@ def test_download_harper_binary_propagates_retrieve_failure(mock_retrieve: Magic
     harper_dir.mkdir(parents=True, exist_ok=True)
 
     with pytest.raises(RuntimeError, match="Failed to auto-download Harper binary"):
-        harper_module._download_harper_binary(dest, release)
+        harper_binary_module._download_harper_binary(dest, release)
 
     assert not (harper_dir / release.asset_name).exists()
 
 
 def test_fetch_latest_release_asset_uses_github_api(tmp_path: Path) -> None:
-    harper_module._release_cache.clear()
+    harper_binary_module._release_cache.clear()
     api_payload = {
         "tag_name": "v2.7.0",
         "assets": [
@@ -617,9 +620,9 @@ def test_fetch_latest_release_asset_uses_github_api(tmp_path: Path) -> None:
         ],
     }
 
-    with patch("plugin.scripting.venv.harper._github_api_request", return_value=api_payload), \
-         patch("plugin.scripting.venv.harper.platform.system", return_value="Linux"), \
-         patch("plugin.scripting.venv.harper.platform.machine", return_value="x86_64"):
+    with patch("plugin.scripting.venv.harper_binary._github_api_request", return_value=api_payload), \
+         patch("plugin.scripting.venv.harper_binary.platform.system", return_value="Linux"), \
+         patch("plugin.scripting.venv.harper_binary.platform.machine", return_value="x86_64"):
         release = _fetch_latest_release_asset("linux", "x86_64", tmp_path / "harper")
 
     assert release.version == "2.7.0"
