@@ -60,7 +60,7 @@ If you find ways to lower technical debt, while adding a feature, put that in yo
 - **Calc:** `=PROMPT()` — [`plugin/calc/prompt_addin.py`](plugin/calc/prompt_addin.py) / [`plugin/calc/prompt_function.py`](plugin/calc/prompt_function.py); `=PYTHON()` — [`plugin/calc/python/addin.py`](plugin/calc/python/addin.py) / [`plugin/calc/python/function.py`](plugin/calc/python/function.py).
 - **Eval / benchmarks:** `make run_eval` / [`scripts/benchmark.py`](scripts/benchmark.py) → [`scripts/prompt_optimization/`](scripts/prompt_optimization/) (`eval_auth.py` for CLI credentials; judge via `LlmClient`). Setup: `uv sync`, `make eval-deps`. [`scripts/prompt_optimization/README.md`](scripts/prompt_optimization/README.md), [`docs/eval-dev-plan.md`](docs/eval-dev-plan.md).
 
-**Python:** Dev/tooling **3.11–3.14** ([`pyproject.toml`](pyproject.toml)); **extension runtime** is whatever LibreOffice bundles (often older). **Shipped code under `plugin/` must not rely on stdlib newer than that runtime.**
+**Python:** Dev/tooling **3.11–3.13** ([`pyproject.toml`](pyproject.toml)); dev `.venv` is pinned to **3.13** via [`.python-version`](.python-version) (3.14 lacks wheels for some dev deps such as spaCy). **Extension runtime** is whatever LibreOffice bundles (often older). **Shipped code under `plugin/` must not rely on stdlib newer than that runtime.**
 
 **GPL v3+**; prior contributors credited in headers/installer.
 

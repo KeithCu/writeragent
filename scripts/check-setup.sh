@@ -54,6 +54,12 @@ if [[ -n "$PYTHON" ]]; then
     PY_PATH=$(command -v "$PYTHON")
     ok "$PY_VER ($PY_PATH)"
 
+    PY_MAJOR=$("$PYTHON" -c "import sys; print(sys.version_info.major)" 2>/dev/null || echo "0")
+    PY_MINOR=$("$PYTHON" -c "import sys; print(sys.version_info.minor)" 2>/dev/null || echo "0")
+    if [[ "$PY_MAJOR" -eq 3 && "$PY_MINOR" -ge 14 ]]; then
+        warn "Python 3.14+ detected — dev dependencies may fail to install. Use: uv python install 3.13 && uv sync (see README)"
+    fi
+
     # Check it's not inside a venv (unopkg issue)
     if [[ -n "${VIRTUAL_ENV:-}" ]]; then
         warn "Python is inside a venv ($VIRTUAL_ENV) — unopkg may fail with std::bad_alloc"

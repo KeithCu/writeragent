@@ -403,14 +403,15 @@ A weekly chronicle of building a professional AI suite inside LibreOffice:
 
 **Update May 11, 2026:** Removed `dspy` from `pyproject.toml` to remove dependencies like `litellm`. Run `uv sync` to update your `.venv`. If you want to do prompt optimization, install manually.
 
-**Prerequisites:** Python 3.11+, [uv](https://docs.astral.sh/uv/), and LibreOffice with `unopkg` on your PATH. Run `make check-setup` to verify.
+**Prerequisites:** Python 3.11–3.13 for dev (some native deps like spaCy do not ship 3.14 wheels yet), [uv](https://docs.astral.sh/uv/), and LibreOffice with `unopkg` on your PATH. Dev Python is pinned to **3.13** in [`.python-version`](.python-version). Run `make check-setup` to verify.
 
 ```bash
 # Clone the repository
 git clone https://github.com/KeithCu/writeragent.git
 cd writeragent
 
-# Install dependencies
+# Install dependencies (uv uses .python-version; downloads 3.13 if needed)
+uv python install 3.13
 uv sync
 
 # Build the extension package (.oxt)
@@ -427,6 +428,8 @@ make test
 # See all available targets
 make help
 ```
+
+**Troubleshooting:** If `uv sync` fails with `cp314` or “no wheel” for spaCy (common when python.org 3.14 is your default), remove the broken venv and resync: `rm -rf .venv && uv sync --python 3.13`. You do not need to uninstall system Python 3.14.
 
 ---
 
