@@ -32,7 +32,13 @@ def handle_llm_request(payload: dict[str, Any]) -> dict[str, Any]:
     if not callable(stop_checker):
         stop_checker = None
 
-    ctx = get_ctx()
+    from plugin.framework.queue_executor import execute_on_main_thread
+
+    # Bugfix: handle_llm_request is called on a background worker thread.
+    # get_ctx() is decorated with @main_thread_only, so calling it directly
+    # triggers a thread safety violation. Wrapping it in execute_on_main_thread
+    # marshals it safely to the main thread.
+    ctx = execute_on_main_thread(get_ctx)
     client = LlmClient(get_api_config(), ctx)
     try:
         result = client.request_with_tools(

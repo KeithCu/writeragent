@@ -44,9 +44,19 @@ def _run_ppt_master_venv_agent(
         status_callback("PPT-Master...")
 
     from plugin.framework.uno_context import get_active_document, get_ctx
+    from plugin.framework.queue_executor import execute_on_main_thread
 
-    uno_doc = ctx.doc if hasattr(ctx.doc, "getURL") else get_active_document(get_ctx())
-    session_id = ppt_master_session_id(uno_doc)
+    # Bugfix: The tool runs on a background thread (is_async=True). Accessing ctx.doc,
+    # calling get_active_document(), or calling getURL() off the main thread (including via
+    # _selected_chat_model) causes a UNO thread safety violation. Wrapping these in
+    # execute_on_main_thread ensures they execute safely on the main thread.
+    def _resolve_session_and_model() -> tuple[str, str | None]:
+        uno_doc = ctx.doc if hasattr(ctx.doc, "getURL") else get_active_document(get_ctx())
+        sess_id = ppt_master_session_id(uno_doc)
+        selected_model = _selected_chat_model(ctx)
+        return sess_id, selected_model
+
+    session_id, resolved_model = execute_on_main_thread(_resolve_session_and_model)
 
     def on_worker_event(event: dict[str, Any]) -> None:
         kind = event.get("kind")
@@ -69,7 +79,7 @@ def _run_ppt_master_venv_agent(
         query=query,
         history_text=history_text,
         topic=topic,
-        model=model or _selected_chat_model(ctx),
+        model=model or resolved_model,
         session_id=session_id,
         on_worker_event=on_worker_event,
         stop_checker=stop_checker,
