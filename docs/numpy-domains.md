@@ -431,11 +431,11 @@ Results are inserted as compact tables and usable from scripts.
 
 ### 7. Audio / Signal Processing {#audio-signal}
 
-**Status:** **Partial.** Voice recording shipped ([audio-architecture.md](audio-architecture.md)); no venv analysis helpers.
+**Status:** **Partial.** Voice recording runs in the user venv ([audio-architecture.md](audio-architecture.md)); venv analysis helpers (librosa) not shipped yet.
 
 **Goal:** Analyze imported audio (including recordings saved from the chat panel): spectrograms, basic features, optional transcription post-processing.
 
-**Synergy:** Recording produces WAV in user workflow; analysis runs in **venv** (librosa), not in embedded LO Python (recording uses vendored `sounddevice` without numpy).
+**Synergy:** Recording produces WAV in user workflow; capture and analysis both run in the **venv** (`sounddevice` for mic input; optional `librosa` for analysis helpers).
 
 **Proposed helpers:**
 

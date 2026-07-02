@@ -1,104 +1,146 @@
+import json
 import os
+import threading
 import wave
-import pytest
-import time
 from unittest.mock import MagicMock, patch
+
+import pytest
+
 from plugin.chatbot.audio_recorder import AudioRecorder
 
-def test_audio_recorder_creates_file_mocked():
-    # Keep the original mocked test to ensure basic state logic works
-    with patch.dict("sys.modules", {"sounddevice": MagicMock()}):
-        recorder = AudioRecorder()
-        temp_file = None
-        try:
-            recorder.start_recording()
-            temp_file = recorder.temp_filename
 
-            assert temp_file is not None
-            assert os.path.exists(temp_file)
-            assert recorder.state.status == 'recording'
-            assert recorder.wav_file is not None
+@pytest.fixture
+def ctx():
+    return MagicMock()
 
-            returned_file = recorder.stop_recording()
 
-            assert returned_file == temp_file
-            assert recorder.state.status == 'idle'
-            assert recorder.wav_file is None
-            assert recorder.stream is None
+@pytest.fixture
+def recording_mocks(tmp_path):
+    wav_path = str(tmp_path / "test.wav")
+    proc = MagicMock()
+    proc.stdin = MagicMock()
+    proc.stdout = MagicMock()
+    with (
+        patch("plugin.chatbot.audio_recorder.resolve_recording_python", return_value=("/usr/bin/python", "")),
+        patch("plugin.chatbot.audio_recorder.make_temp_wav_path", return_value=wav_path),
+        patch("plugin.chatbot.audio_recorder.spawn_recording_process", return_value=proc) as spawn,
+        patch("plugin.chatbot.audio_recorder.wait_for_recording_ready") as wait_ready,
+        patch("plugin.chatbot.audio_recorder.stop_recording_process", return_value=wav_path) as stop_proc,
+    ):
+        yield {
+            "wav_path": wav_path,
+            "proc": proc,
+            "spawn": spawn,
+            "wait_ready": wait_ready,
+            "stop_proc": stop_proc,
+        }
 
-            with wave.open(temp_file, 'rb') as wf:
-                assert wf.getnchannels() == recorder.channels
-                assert wf.getframerate() == recorder.fs
-        finally:
-            if temp_file and os.path.exists(temp_file):
-                os.remove(temp_file)
 
-def test_audio_recorder_multiple_recordings_mocked():
-    with patch.dict("sys.modules", {"sounddevice": MagicMock()}):
-        recorder = AudioRecorder()
-        files = []
-        try:
-            recorder.start_recording()
-            files.append(recorder.temp_filename)
-            recorder.stop_recording()
-
-            recorder.start_recording()
-            files.append(recorder.temp_filename)
-            recorder.stop_recording()
-
-            assert len(files) == 2
-            assert files[0] != files[1]
-            assert os.path.exists(files[0])
-            assert os.path.exists(files[1])
-        finally:
-            for f in files:
-                if os.path.exists(f):
-                    os.remove(f)
-
-def test_audio_recorder_real_hardware():
-    """
-    Integration test to verify real audio hardware interaction.
-    If no audio hardware is found, it safely skips rather than failing the suite.
-    """
+def test_audio_recorder_spawns_venv_subprocess(ctx, recording_mocks):
+    recorder = AudioRecorder(ctx)
     try:
-        import sounddevice as sd
-        # Query devices to see if there is any input device available.
-        devices = sd.query_devices()
-        input_device_available = any(d.get('max_input_channels', 0) > 0 for d in devices)
-        if not input_device_available:
-            pytest.skip("No audio input devices found.")
-    except Exception as e:
-        pytest.skip(f"sounddevice cannot be loaded or queried: {e}")
+        recorder.start_recording()
+        recording_mocks["spawn"].assert_called_once()
+        recording_mocks["wait_ready"].assert_called_once()
+        assert recorder.state.status == "recording"
+        assert recorder.temp_filename == recording_mocks["wav_path"]
 
-    recorder = AudioRecorder()
-    temp_file = None
-    try:
-        try:
-            recorder.start_recording()
-        except RuntimeError as e:
-            # e.g., "Error querying device -1" or generic backend failure
-            pytest.skip(f"Audio hardware failed to initialize: {e}")
-
-        temp_file = recorder.temp_filename
-        assert temp_file is not None
-        assert os.path.exists(temp_file)
-
-        # Record for a short duration
-        time.sleep(0.5)
-
-        returned_file = recorder.stop_recording()
-        assert returned_file == temp_file
-
-        # Verify it wrote a valid header and potentially some frames
-        with wave.open(temp_file, 'rb') as wf:
-            assert wf.getnchannels() == recorder.channels
-            assert wf.getframerate() == recorder.fs
+        returned = recorder.stop_recording()
+        assert returned == recording_mocks["wav_path"]
+        recording_mocks["stop_proc"].assert_called_once()
+        assert recorder.state.status == "idle"
     finally:
-        # Stop recording if we crashed mid-flight
-        if getattr(recorder, 'state', None) and recorder.state.status in ('recording', 'initializing'):
-            try:
-                recorder.stop_recording()
-            except Exception:
-                pass
-        if temp_file and os.path.exists(temp_file):
-            os.remove(temp_file)
+        if os.path.exists(recording_mocks["wav_path"]):
+            os.remove(recording_mocks["wav_path"])
+
+
+def test_audio_recorder_multiple_sessions(ctx, recording_mocks):
+    paths = [str(recording_mocks["wav_path"]), str(recording_mocks["wav_path"]) + "2"]
+
+    with patch("plugin.chatbot.audio_recorder.make_temp_wav_path", side_effect=paths):
+        recorder = AudioRecorder(ctx)
+        recorder.start_recording()
+        first = recorder.temp_filename
+        recorder.stop_recording()
+
+        recorder.start_recording()
+        second = recorder.temp_filename
+        recorder.stop_recording()
+
+        assert first == paths[0]
+        assert second == paths[1]
+        assert first != second
+
+
+def test_audio_recorder_missing_venv(ctx):
+    with patch(
+        "plugin.chatbot.audio_recorder.resolve_recording_python",
+        return_value=(None, "Configure Settings → Python"),
+    ):
+        recorder = AudioRecorder(ctx)
+        with pytest.raises(RuntimeError, match="Configure Settings"):
+            recorder.start_recording()
+
+
+def test_venv_record_to_wav_writes_file(tmp_path):
+    import plugin.scripting.venv.audio_recorder as var
+
+    stop_event = threading.Event()
+    output_path = str(tmp_path / "out.wav")
+
+    mock_sd = MagicMock()
+    mock_stream = MagicMock()
+
+    def fake_raw_input_stream(*args, **kwargs):
+        callback = kwargs.get("callback")
+
+        def start():
+            if callback is not None:
+                callback(b"\x00\x01", 1, None, None)
+            stop_event.set()
+
+        mock_stream.start.side_effect = start
+        return mock_stream
+
+    mock_sd.RawInputStream.side_effect = fake_raw_input_stream
+
+    with patch.object(var, "_import_sounddevice", return_value=mock_sd):
+        var.record_to_wav(output_path, stop_event, on_stream_started=lambda: None)
+
+    assert os.path.exists(output_path)
+    with wave.open(output_path, "rb") as wf:
+        assert wf.getnchannels() == var.CHANNELS
+        assert wf.getframerate() == var.SAMPLE_RATE
+
+
+def test_audio_record_main_protocol(tmp_path, monkeypatch):
+    from plugin.scripting.venv import audio_record_main as main_mod
+
+    output_path = str(tmp_path / "child.wav")
+    emitted: list[dict] = []
+
+    def fake_emit(payload):
+        emitted.append(payload)
+
+    stop_event = threading.Event()
+
+    def fake_record(output, event, *, on_stream_started=None):
+        if on_stream_started is not None:
+            on_stream_started()
+        event.set()
+
+    monkeypatch.setattr(main_mod, "_emit", fake_emit)
+    monkeypatch.setattr(main_mod, "record_to_wav", fake_record)
+    class _NoOpThread:
+        def __init__(self, target, args, daemon):
+            pass
+
+        def start(self):
+            return None
+
+    monkeypatch.setattr(main_mod.threading, "Thread", _NoOpThread)
+
+    code = main_mod.main(["--output", output_path])
+    assert code == 0
+    assert emitted[0] == {"status": "ready"}
+    assert emitted[-1] == {"status": "ok", "path": os.path.abspath(output_path)}

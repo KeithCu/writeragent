@@ -65,14 +65,16 @@ Release default remains `x86-64` in [`setup.py`](../native/writeragent_vec/setup
 
 ---
 
-## How Audio Does It (Model to Copy)
+## How Audio Worked (Historical) vs Host Natives Today
 
-Audio does **not** compile C in this repo for release. [`scripts/update_audio_contrib.py`](../scripts/update_audio_contrib.py) **downloads prebuilt wheels** from PyPI and copies artifacts into [`plugin/contrib/audio/`](../plugin/contrib/audio/):
+Sidebar **microphone capture** no longer ships vendored PortAudio wheels in the OXT. It runs in the **user venv** via `sounddevice` ([audio-architecture.md](audio-architecture.md)). Host-side **small native helpers** (e.g. future `plugin/contrib/vec_pack/` for pack/unpack) still follow the contrib pattern below.
 
-- **Python tags:** 3.11–3.14 (`PYTHON_VERSIONS` in the script; 3.9/3.10 and free-threaded `314t` pruned per [audio-architecture.md](audio-architecture.md))
-- **Platforms:** `win_amd64`, `win_arm64`, macOS `macosx_11_0_arm64` only (Apple Silicon), `manylinux2014` x86_64 and aarch64 (`PLATFORMS` in the script)
-- **Tagged binaries** sit **flat** in one directory, e.g. `_cffi_backend.cpython-312-x86_64-linux-gnu.so` (~**28** files for cffi today)
-- **Runtime:** [`panel_factory.py`](../plugin/chatbot/panel_factory.py) prepends `plugin/contrib/audio` to `sys.path`; Python imports the module whose tag matches **LO’s** `sys.version` and platform
+For **vec_pack** (or similar), maintainers **download or build prebuilt wheels** and copy tagged artifacts into `plugin/contrib/vec_pack/`:
+
+- **Python tags:** 3.11–3.14
+- **Platforms:** `win_amd64`, `win_arm64`, macOS `macosx_11_0_arm64`, `manylinux2014` x86_64 and aarch64
+- **Tagged binaries** sit **flat** in one directory, e.g. `writeragent_vec.cpython-312-x86_64-linux-gnu.so`
+- **Runtime:** host code imports the module whose tag matches **LO’s** `sys.version` and platform (with stdlib fallback on `ImportError`)
 
 [`vendor/`](../vendor/) + [`requirements-vendor.txt`](../requirements-vendor.txt) (`make vendor`) is for **pure-Python** deps (snowballstemmer, etc.) — a different path from contrib natives.
 
@@ -85,7 +87,7 @@ For **your** module (e.g. `writeragent_vec`), PyPI will not have wheels unless *
 | Approach | Workflow | OXT contents |
 |----------|----------|--------------|
 | **A — cibuildwheel (recommended)** | CI builds wheels on tag; extract into contrib | Flat tagged `.so` / `.pyd` in `plugin/contrib/vec_pack/` |
-| **B — pip download your wheels** | Publish to GitHub Releases / PyPI; [`update_vec_contrib.py`](../scripts/update_audio_contrib.py) mirrors audio’s download script | Same |
+| **B — pip download your wheels** | Publish to GitHub Releases / PyPI; `update_vec_contrib.py` extracts wheels into contrib | Same |
 
 You do **not** need every developer machine to compile the full matrix.
 
@@ -133,7 +135,7 @@ Wire into [`calc_addin_data.py`](../plugin/calc/calc_addin_data.py) or [`payload
 1. Pin ABI to the table above (`pyproject.toml` + `[tool.cibuildwheel]` or GitHub Actions matrix).
 2. On release tag: `pip install cibuildwheel && cibuildwheel native/writeragent_vec` → `wheelhouse/`.
 3. `update_vec_contrib.py`: unzip wheels; copy `writeragent_vec/*.so` (+ `__init__.py` once) into `plugin/contrib/vec_pack/`.
-4. **Strip** with `llvm-strip` (reuse `strip_binary` from [`update_audio_contrib.py`](../scripts/update_audio_contrib.py)).
+4. **Strip** with `llvm-strip` (shared helper in vec contrib scripts when added).
 5. Optional: prune musl tags if you only target glibc LO builds; optional `NO_VEC_PACK=1` in [`build_oxt.py`](../scripts/build_oxt.py).
 
 ---

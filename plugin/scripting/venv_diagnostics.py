@@ -206,6 +206,25 @@ _VISION_OCR_INSTALL_CMD = _DOCLING_INSTALL_CMD
 _VISION_PADDLE_FALLBACK_CMD = "uv pip install paddleocr paddlepaddle numpy"
 _VIZ_INSTALL_CMD = "uv pip install matplotlib seaborn"
 _SYMBOLIC_INSTALL_CMD = "uv pip install sympy"
+_AUDIO_PACKAGE_KEYS = ("sounddevice", "input_device")
+_AUDIO_INSTALL_CMD = "uv pip install sounddevice"
+_AUDIO_LINUX_PORTAUDIO_HINT = _("On Linux also install system PortAudio: sudo apt-get install libportaudio2")
+_AUDIO_PROBE_SCRIPT = """
+import json
+out = {}
+try:
+    import sounddevice as sd
+    out["sounddevice"] = "present"
+    devices = sd.query_devices()
+    has_input = any(d.get("max_input_channels", 0) > 0 for d in devices)
+    out["input_device"] = "present" if has_input else None
+except Exception:
+    out["sounddevice"] = None
+    out["input_device"] = None
+print(json.dumps(out))
+"""
+_AUDIO_PROBE_TIMEOUT_HINT = _("Audio probe timed out (sounddevice import failed or hung).")
+_AUDIO_PROBE_FAILED_HINT = _("Audio probe failed (see writeragent_debug.log).")
 _TEXT_ANALYTICS_INSTALL_CMD = "uv pip install spacy textdescriptives transformers language-tool-python torch --index-url https://download.pytorch.org/whl/cpu && python -m spacy download xx_sent_ud_sm"
 _NLP_PACKAGE_KEYS = ("spacy", "textdescriptives", "transformers", "language_tool_python")
 _NLP_PROBE_SCRIPT = """
@@ -490,6 +509,37 @@ def _probe_vision_packages(
     return parsed, None
 
 
+def _probe_audio_packages(
+    python_exe: str,
+    timeout: float = SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC,
+) -> tuple[dict[str, str | None], str | None]:
+    try:
+        proc = subprocess.run(
+            [python_exe, "-c", _AUDIO_PROBE_SCRIPT],
+            capture_output=True,
+            timeout=timeout,
+            env=scrub_subprocess_env(dict(os.environ)),
+            text=True,
+        )
+    except subprocess.TimeoutExpired:
+        return {}, _AUDIO_PROBE_TIMEOUT_HINT
+    except OSError as exc:
+        log.warning("Audio package probe could not run: %s", exc)
+        return {}, _AUDIO_PROBE_FAILED_HINT
+    if proc.returncode != 0:
+        stderr = (proc.stderr or "").strip()[:200]
+        log.warning("Audio package probe exit %s: %s", proc.returncode, stderr)
+        return {}, _AUDIO_PROBE_FAILED_HINT
+    try:
+        parsed = json.loads((proc.stdout or "").strip() or "{}")
+    except json.JSONDecodeError:
+        log.warning("Audio package probe returned invalid JSON: %r", (proc.stdout or "")[:200])
+        return {}, _AUDIO_PROBE_FAILED_HINT
+    if not isinstance(parsed, dict):
+        return {}, _AUDIO_PROBE_FAILED_HINT
+    return parsed, None
+
+
 _SANDBOX_SELF_CHECK_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Scientific Libraries", ("numpy", "pandas", "scipy", "sklearn", "matplotlib", "sympy")),
     ("Data Analysis / EDA Libraries", ("data_profiling", "statsmodels", "pandas_montecarlo")),
@@ -559,6 +609,7 @@ def _self_check_group_specs(data: dict[str, Any]) -> list[tuple[str, tuple[str, 
         (_("Text / NLP Libraries"), tuple(data.get("nlp", ()))),
         (_("Vision Libraries"), tuple(data.get("vision", ()))),
         (_("Vector Search Libraries"), tuple(data.get("vector_search", ()))),
+        (_("Audio Recording"), tuple(data.get("audio", ()))),
     ]
 
 
@@ -571,6 +622,7 @@ def _build_probe_display(
     extra_lines_after_header: tuple[str, ...] | None = None,
     include_vector_search: bool = False,
     include_vision: bool = False,
+    include_audio: bool = False,
 ) -> str:
     """Rebuild the Settings → Python Test body in the legacy grouped Present/Missing format."""
     version = data.get("v", "unknown")
@@ -606,6 +658,13 @@ def _build_probe_display(
             vector_search_failure = data.get("vector_search_probe_failure")
             if vector_search_failure:
                 msg_lines.append(f"  {vector_search_failure}")
+        elif include_audio and title == _("Audio Recording"):
+            msg_lines.extend(_format_group_lines(title, keys, packages))
+            audio_failure = data.get("audio_probe_failure")
+            if audio_failure:
+                msg_lines.append(f"  {audio_failure}")
+            elif packages.get("sounddevice") == "present" and packages.get("input_device") != "present":
+                msg_lines.append(f"  {_('No microphone input devices detected.')}")
 
     probe_warnings = data.get("probe_warnings")
     if isinstance(probe_warnings, list):
@@ -620,6 +679,7 @@ def _format_self_check_success(data: dict[str, Any]) -> str:
     data = dict(data)
     data.setdefault("vector_search", list(_VECTOR_SEARCH_PACKAGE_KEYS))
     data.setdefault("vision", list(_VISION_PACKAGE_KEYS))
+    data.setdefault("audio", list(_AUDIO_PACKAGE_KEYS))
     data.setdefault("nlp", list(_NLP_PACKAGE_KEYS))
     data.setdefault("data_eng", list(_SANDBOX_SELF_CHECK_GROUPS[6][1]))
     return _build_probe_display(
@@ -627,6 +687,7 @@ def _format_self_check_success(data: dict[str, Any]) -> str:
         completed_groups=_SELF_CHECK_DISPLAY_GROUP_COUNT,
         include_vector_search=True,
         include_vision=True,
+        include_audio=True,
     )
 
 
@@ -655,6 +716,7 @@ def run_venv_self_check_with_progress(
         partial_group_title: str | None = None,
         include_vector_search: bool = False,
         include_vision: bool = False,
+        include_audio: bool = False,
     ) -> None:
         on_display(
             _build_probe_display(
@@ -665,6 +727,7 @@ def run_venv_self_check_with_progress(
                 extra_lines_after_header=extra_lines_after_header,
                 include_vector_search=include_vector_search,
                 include_vision=include_vision,
+                include_audio=include_audio,
             )
         )
 
@@ -785,12 +848,32 @@ def run_venv_self_check_with_progress(
         include_vision=True,
     )
 
+    _status(_("Audio Recording: checking sounddevice..."))
+    audio_probes, audio_failure = _probe_audio_packages(
+        python_exe,
+        timeout=float(SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC),
+    )
+    packages = data.setdefault("p", {})
+    if isinstance(packages, dict) and audio_probes:
+        packages.update(audio_probes)
+    data["audio"] = list(_AUDIO_PACKAGE_KEYS)
+    if audio_failure:
+        data["audio_probe_failure"] = audio_failure
+    _refresh(
+        data,
+        completed_groups=_SELF_CHECK_DISPLAY_GROUP_COUNT,
+        include_vector_search=True,
+        include_vision=True,
+        include_audio=True,
+    )
+
     try:
         final_msg = _build_probe_display(
             data,
             completed_groups=_SELF_CHECK_DISPLAY_GROUP_COUNT,
             include_vector_search=True,
             include_vision=True,
+            include_audio=True,
             extra_lines_after_header=extra_lines_after_header,
         )
         on_display(final_msg)
@@ -852,6 +935,17 @@ def run_venv_self_check(python_exe: str, timeout: float | None = None) -> Tuple[
     data["vector_search"] = list(_VECTOR_SEARCH_PACKAGE_KEYS)
     if vector_search_failure:
         data["vector_search_probe_failure"] = vector_search_failure
+
+    audio_probes, audio_failure = _probe_audio_packages(
+        python_exe,
+        timeout=float(SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC),
+    )
+    packages = data.setdefault("p", {})
+    if isinstance(packages, dict) and audio_probes:
+        packages.update(audio_probes)
+    data["audio"] = list(_AUDIO_PACKAGE_KEYS)
+    if audio_failure:
+        data["audio_probe_failure"] = audio_failure
 
     try:
         return True, _format_self_check_success(data)

@@ -34,7 +34,7 @@ from plugin.framework.logging import update_activity_state
 from plugin.framework.queue_executor import QueueExecutor
 from plugin.chatbot.history_db import get_chat_history
 
-# Recording available only if audio_recorder (and plugin/contrib/audio) is present
+# Recording shipped unless built with --no-recording (see scripts/build_oxt.py).
 from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
@@ -48,6 +48,8 @@ try:
 except ImportError:
     _AudioRecorderCls = None
 HAS_RECORDING = _AudioRecorderCls is not None
+
+from plugin.scripting.audio_recorder_service import is_audio_recording_configured
 
 # Default max tool rounds when not in config (get_api_config supplies chat_max_tool_rounds)
 DEFAULT_MAX_TOOL_ROUNDS = 5
@@ -364,12 +366,13 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self._rich_plain_fallback_warned = False
         if HAS_RECORDING:
             assert _AudioRecorderCls is not None
-            self.audio_recorder = _AudioRecorderCls()
+            self.audio_recorder = _AudioRecorderCls(ctx)
         else:
             self.audio_recorder = None
+        audio_supported = HAS_RECORDING and is_audio_recording_configured(ctx)
         self.queue_executor = QueueExecutor()
 
-        send_initial = SendButtonState(is_busy=False, is_recording=False, has_text=False, has_audio=False, audio_supported=HAS_RECORDING)
+        send_initial = SendButtonState(is_busy=False, is_recording=False, has_text=False, has_audio=False, audio_supported=audio_supported)
         self.sidebar_state = SidebarCompositeState(send=send_initial, tool_loop=None, audio=AudioRecorderState(status="idle"))
 
         # Subscribe to MCP/tool bus events

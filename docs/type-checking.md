@@ -27,7 +27,7 @@ Static checking does **not** prove LibreOffice runtime behavior: UNO remains hig
 - **`make mypy`** — same prelude as `ty` (`make manifest`, `import uno` → `make fix-uno`), then **`python -m mypy`** using **`[tool.mypy]`** in `pyproject.toml`.
 - **Not** part of **`make check`** or **`make build`** alone; it **is** part of **`make typecheck`** and **`make test`**. **`make release`** runs **`make test`** first, so mypy runs there too. Use standalone **`make mypy`** to compare against **`ty`**. Mypy often reports issues `ty` does not (and vice versa).
 - **Scope**: `packages = ["plugin"]` with path **`exclude`** plus **`[[tool.mypy.overrides]]`** `ignore_errors = true` for **`plugin.contrib.*`**, **`plugin.lib.*`**, and **`plugin.tests.*`**. Plain `exclude` alone does not stop mypy from checking vendored trees when resolving the `plugin` package, so the overrides mirror ty’s “no contrib / no lib / no tests” intent.
-- **Stubs**: **`types-requests`**, **`types-unopy`**, and overrides for **`officehelper`** and **`sounddevice`** (no PyPI stubs: **`disable_error_code = ["import-untyped"]`** plus an inline **`# type: ignore[import-untyped]`** on the lazy import in **`audio_recorder.py`**) are configured for a usable first run; remaining diagnostics are normal application code until you tighten further.
+- **Stubs**: **`types-requests`**, **`types-unopy`**, and overrides for **`officehelper`** are configured for a usable first run; remaining diagnostics are normal application code until you tighten further. Venv-only packages (e.g. **`sounddevice`** for sidebar recording) are type-checked only when imported inside `plugin/scripting/venv/`.
 
 ### Pyright (optional)
 

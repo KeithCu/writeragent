@@ -40,7 +40,7 @@ ensure_plugin_on_path(
     levels_up=2,                    # plugin/main.py → plugin/ → extension root
     also_add_plugin_dir=True,
     also_add_lib=True,
-    also_add_vendor=True,           # root-level vendor/ for dev audio wheels
+    also_add_vendor=True,           # root-level vendor/ when present (optional dev wheels)
 )
 
 import unohelper

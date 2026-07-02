@@ -54,7 +54,7 @@ from plugin.framework.uno_bootstrap import ensure_plugin_on_path
 
 ensure_plugin_on_path(__file__, levels_up=3, also_add_contrib=True)
 
-# Recording available only if audio_recorder (and thus plugin/contrib/audio) is present
+# Recording shipped unless built with --no-recording (see scripts/build_oxt.py).
 try:
     from plugin.chatbot.audio_recorder import AudioRecorder  # noqa: F401
 
@@ -124,12 +124,6 @@ def _initialize_extension_paths(ctx):
         contrib_dir = os.path.join(ext_path, "contrib")
         if contrib_dir not in sys.path:
             sys.path.insert(0, contrib_dir)
-
-        # Audio paths (only if needed)
-        if HAS_RECORDING:
-            audio_dir = os.path.join(ext_path, "plugin", "contrib", "audio")
-            if audio_dir not in sys.path:
-                sys.path.insert(0, audio_dir)
 
         init_logging(ctx)
         log.info("Initialized extension paths for session: %s" % ext_path)

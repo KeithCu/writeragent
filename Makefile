@@ -41,7 +41,7 @@ SELECTED_COMPONENT := $(filter $(COMPONENTS),$(MAKECMDGOALS))
 # Create Makefile.local with e.g. USE_DOCKER = 1
 -include Makefile.local
 
-# Set NO_RECORDING=1 to build without voice recording (excludes plugin/contrib/audio, audio_recorder.py).
+# Set NO_RECORDING=1 to build without voice recording (excludes recording modules and Record button).
 NO_RECORDING ?= 0
 
 # Set USE_DOCKER=1 to build via Docker instead of local Python/PyYAML.
@@ -149,7 +149,7 @@ help:
 	@echo "  make openrouter-catalog     Fetch Orca slim OpenRouter catalog + refresh default_models.py (network)"
 	@echo "  make release                Regular build with full verification: test source, build stripped bundle,"
 	@echo "                              test bundle, build final .oxt. (Includes Cython if pre-built via 'make native')"
-	@echo "  make build-no-recording     Build .oxt without voice recording (no plugin/contrib/audio, no Record button)"
+	@echo "  make build-no-recording     Build .oxt without voice recording (no Record button)"
 	@echo "  make xcu                    Generate XCS/XCU from config schemas"
 	@echo "  make clean                  Remove build artifacts"
 	@echo ""
