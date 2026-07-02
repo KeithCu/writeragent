@@ -41,6 +41,20 @@ def test_convert_datetimes_and_deltas_enabled():
     assert isinstance(res4, datetime.timedelta)
     assert res4.seconds == 5400  # 1 hour 30 mins
 
+    # Test clock timedelta with localized characters (e.g. colon and characters)
+    # The regex [^\W\d_]|: will match the colon and 'м' (Cyrillic letter)
+    res_loc = convert_datetimes_and_deltas("01:30:00", "ru_RU", convert_datetime=True)
+    assert isinstance(res_loc, datetime.timedelta)
+    assert res_loc.seconds == 5400
+
+    # Ensure a non-ASCII date-time (e.g. "29 июня 2026") parses correctly with the new regex
+    # It has Cyrillic characters, which will match the unicode-aware letters regex
+    res_ru_date = convert_datetimes_and_deltas("29 июня 2026", "ru_RU", convert_datetime=True)
+    assert isinstance(res_ru_date, datetime.datetime)
+    assert res_ru_date.year == 2026
+    assert res_ru_date.month == 6
+    assert res_ru_date.day == 29
+
     # Test nested lists
     data_list = [["2026-06-29", "12h"], ["not a date", 42]]
     res_list = convert_datetimes_and_deltas(data_list, "en_US", convert_datetime=True)

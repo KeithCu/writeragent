@@ -461,7 +461,7 @@ def convert_datetimes_and_deltas(data: Any, locale: str | None, convert_datetime
 
     def _rec(val: Any) -> Any:
         if isinstance(val, str):
-            if re.search(r'[a-zA-Z:]', val):
+            if re.search(r'[^\W\d_]|:', val):
                 try:
                     td = pd.to_timedelta(val)
                     if not pd.isna(td):
