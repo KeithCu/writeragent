@@ -599,9 +599,10 @@ def _format_group_lines(title: str, keys: tuple[str, ...] | list[str], packages:
 
 def _self_check_group_specs(data: dict[str, Any]) -> list[tuple[str, tuple[str, ...]]]:
     return [
-        ("Scientific Libraries", tuple(data.get("sci", ()))),
-        ("Data Analysis / EDA Libraries", tuple(data.get("eda", ()))),
-        ("UI / Monaco Libraries", tuple(data.get("ui", ()))),
+        (_("Audio Recording"), tuple(data.get("audio", ()))),
+        (_("Scientific Libraries"), tuple(data.get("sci", ()))),
+        (_("Data Analysis / EDA Libraries"), tuple(data.get("eda", ()))),
+        (_("UI / Monaco Libraries"), tuple(data.get("ui", ()))),
         (_("Visualization Libraries"), tuple(data.get("viz", ()))),
         (_("Computer Algebra"), tuple(data.get("cas", ()))),
         (_("Quantitative Finance Libraries"), tuple(data.get("quant", ()))),
@@ -609,7 +610,6 @@ def _self_check_group_specs(data: dict[str, Any]) -> list[tuple[str, tuple[str, 
         (_("Text / NLP Libraries"), tuple(data.get("nlp", ()))),
         (_("Vision Libraries"), tuple(data.get("vision", ()))),
         (_("Vector Search Libraries"), tuple(data.get("vector_search", ()))),
-        (_("Audio Recording"), tuple(data.get("audio", ()))),
     ]
 
 
@@ -637,34 +637,50 @@ def _build_probe_display(
     msg_lines = [first_line]
 
     specs = _self_check_group_specs(data)
+    sandbox_titles = [
+        _("Scientific Libraries"),
+        _("Data Analysis / EDA Libraries"),
+        _("UI / Monaco Libraries"),
+        _("Visualization Libraries"),
+        _("Computer Algebra"),
+        _("Quantitative Finance Libraries"),
+        _("Data Engineering Libraries"),
+    ]
     for idx, (title, keys) in enumerate(specs):
         if not keys:
             continue
-        if idx < completed_groups:
-            msg_lines.extend(_format_group_lines(title, keys, packages))
-            if title == _("Text / NLP Libraries"):
+        if title in sandbox_titles:
+            s_idx = sandbox_titles.index(title)
+            if s_idx < completed_groups:
+                msg_lines.extend(_format_group_lines(title, keys, packages))
+            elif s_idx == completed_groups and partial_group_keys and partial_group_title == title:
+                msg_lines.extend(_format_group_lines(title, partial_group_keys, packages))
+        elif title == _("Text / NLP Libraries"):
+            if completed_groups >= _SELF_CHECK_DISPLAY_GROUP_COUNT:
+                msg_lines.extend(_format_group_lines(title, keys, packages))
                 nlp_failure = data.get("nlp_probe_failure")
                 if nlp_failure:
                     msg_lines.append(f"  {nlp_failure}")
-        elif idx == completed_groups and partial_group_keys and partial_group_title:
-            msg_lines.extend(_format_group_lines(partial_group_title, partial_group_keys, packages))
-        elif include_vision and title == _("Vision Libraries"):
-            msg_lines.extend(_format_group_lines(title, keys, packages))
-            vision_failure = data.get("vision_probe_failure")
-            if vision_failure:
-                msg_lines.append(f"  {vision_failure}")
-        elif include_vector_search and title == _("Vector Search Libraries"):
-            msg_lines.extend(_format_group_lines(title, keys, packages))
-            vector_search_failure = data.get("vector_search_probe_failure")
-            if vector_search_failure:
-                msg_lines.append(f"  {vector_search_failure}")
-        elif include_audio and title == _("Audio Recording"):
-            msg_lines.extend(_format_group_lines(title, keys, packages))
-            audio_failure = data.get("audio_probe_failure")
-            if audio_failure:
-                msg_lines.append(f"  {audio_failure}")
-            elif packages.get("sounddevice") == "present" and packages.get("input_device") != "present":
-                msg_lines.append(f"  {_('No microphone input devices detected.')}")
+        elif title == _("Vision Libraries"):
+            if include_vision:
+                msg_lines.extend(_format_group_lines(title, keys, packages))
+                vision_failure = data.get("vision_probe_failure")
+                if vision_failure:
+                    msg_lines.append(f"  {vision_failure}")
+        elif title == _("Vector Search Libraries"):
+            if include_vector_search:
+                msg_lines.extend(_format_group_lines(title, keys, packages))
+                vector_search_failure = data.get("vector_search_probe_failure")
+                if vector_search_failure:
+                    msg_lines.append(f"  {vector_search_failure}")
+        elif title == _("Audio Recording"):
+            if include_audio:
+                msg_lines.extend(_format_group_lines(title, keys, packages))
+                audio_failure = data.get("audio_probe_failure")
+                if audio_failure:
+                    msg_lines.append(f"  {audio_failure}")
+                elif packages.get("sounddevice") == "present" and packages.get("input_device") != "present":
+                    msg_lines.append(f"  {_('No microphone input devices detected.')}")
 
     probe_warnings = data.get("probe_warnings")
     if isinstance(probe_warnings, list):
@@ -771,7 +787,19 @@ def run_venv_self_check_with_progress(
         "data_eng": list(_SANDBOX_SELF_CHECK_GROUPS[6][1]),
         "nlp": list(_NLP_PACKAGE_KEYS),
     }
-    _refresh(data)
+
+    _status(_("Audio Recording: checking sounddevice..."))
+    audio_probes, audio_failure = _probe_audio_packages(
+        python_exe,
+        timeout=float(SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC),
+    )
+    packages = data.setdefault("p", {})
+    if isinstance(packages, dict) and audio_probes:
+        packages.update(audio_probes)
+    data["audio"] = list(_AUDIO_PACKAGE_KEYS)
+    if audio_failure:
+        data["audio_probe_failure"] = audio_failure
+    _refresh(data, include_audio=True)
 
     for group_index, (group_title, packages) in enumerate(_SANDBOX_SELF_CHECK_GROUPS):
         checked: list[str] = []
@@ -792,6 +820,7 @@ def run_venv_self_check_with_progress(
                     completed_groups=group_index,
                     partial_group_keys=tuple(checked),
                     partial_group_title=group_title,
+                    include_audio=True,
                 )
                 continue
             present = pkg_resp.get("result") == "present"
@@ -802,8 +831,9 @@ def run_venv_self_check_with_progress(
                 completed_groups=group_index,
                 partial_group_keys=tuple(checked),
                 partial_group_title=group_title,
+                include_audio=True,
             )
-        _refresh(data, completed_groups=group_index + 1)
+        _refresh(data, completed_groups=group_index + 1, include_audio=True)
 
     _status(_("Text / NLP Libraries: loading (first run may take a while)..."))
     nlp_probes, nlp_failure = _probe_nlp_packages(
@@ -815,7 +845,7 @@ def run_venv_self_check_with_progress(
         packages.update(nlp_probes)
     if nlp_failure:
         data["nlp_probe_failure"] = nlp_failure
-    _refresh(data, completed_groups=_SELF_CHECK_DISPLAY_GROUP_COUNT)
+    _refresh(data, completed_groups=_SELF_CHECK_DISPLAY_GROUP_COUNT, include_audio=True)
 
     _status(_("Vision Libraries: loading (first run may take a while)..."))
     vision_probes, vision_failure = _probe_vision_packages(
@@ -828,7 +858,12 @@ def run_venv_self_check_with_progress(
     data["vision"] = list(_VISION_PACKAGE_KEYS)
     if vision_failure:
         data["vision_probe_failure"] = vision_failure
-    _refresh(data, completed_groups=_SELF_CHECK_DISPLAY_GROUP_COUNT, include_vision=True)
+    _refresh(
+        data,
+        completed_groups=_SELF_CHECK_DISPLAY_GROUP_COUNT,
+        include_vision=True,
+        include_audio=True,
+    )
 
     _status(_("Vector Search Libraries: loading (first run may take a while)..."))
     vector_search_probes, vector_search_failure = _probe_vector_search_packages(
@@ -841,24 +876,6 @@ def run_venv_self_check_with_progress(
     data["vector_search"] = list(_VECTOR_SEARCH_PACKAGE_KEYS)
     if vector_search_failure:
         data["vector_search_probe_failure"] = vector_search_failure
-    _refresh(
-        data,
-        completed_groups=_SELF_CHECK_DISPLAY_GROUP_COUNT,
-        include_vector_search=True,
-        include_vision=True,
-    )
-
-    _status(_("Audio Recording: checking sounddevice..."))
-    audio_probes, audio_failure = _probe_audio_packages(
-        python_exe,
-        timeout=float(SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC),
-    )
-    packages = data.setdefault("p", {})
-    if isinstance(packages, dict) and audio_probes:
-        packages.update(audio_probes)
-    data["audio"] = list(_AUDIO_PACKAGE_KEYS)
-    if audio_failure:
-        data["audio_probe_failure"] = audio_failure
     _refresh(
         data,
         completed_groups=_SELF_CHECK_DISPLAY_GROUP_COUNT,
@@ -903,6 +920,17 @@ def run_venv_self_check(python_exe: str, timeout: float | None = None) -> Tuple[
     if not isinstance(data, dict):
         return False, f"Unexpected output from test run: {data!r}"
 
+    audio_probes, audio_failure = _probe_audio_packages(
+        python_exe,
+        timeout=float(SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC),
+    )
+    packages = data.setdefault("p", {})
+    if isinstance(packages, dict) and audio_probes:
+        packages.update(audio_probes)
+    data["audio"] = list(_AUDIO_PACKAGE_KEYS)
+    if audio_failure:
+        data["audio_probe_failure"] = audio_failure
+
     nlp_probes, nlp_failure = _probe_nlp_packages(
         python_exe,
         timeout=float(SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC),
@@ -935,17 +963,6 @@ def run_venv_self_check(python_exe: str, timeout: float | None = None) -> Tuple[
     data["vector_search"] = list(_VECTOR_SEARCH_PACKAGE_KEYS)
     if vector_search_failure:
         data["vector_search_probe_failure"] = vector_search_failure
-
-    audio_probes, audio_failure = _probe_audio_packages(
-        python_exe,
-        timeout=float(SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC),
-    )
-    packages = data.setdefault("p", {})
-    if isinstance(packages, dict) and audio_probes:
-        packages.update(audio_probes)
-    data["audio"] = list(_AUDIO_PACKAGE_KEYS)
-    if audio_failure:
-        data["audio_probe_failure"] = audio_failure
 
     try:
         return True, _format_self_check_success(data)
