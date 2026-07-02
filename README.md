@@ -429,7 +429,7 @@ make test
 make help
 ```
 
-**Troubleshooting:** If `uv sync` fails with `cp314` or “no wheel” for spaCy (common when python.org 3.14 is your default), remove the broken venv and resync: `rm -rf .venv && uv sync --python 3.13`. You do not need to uninstall system Python 3.14.
+**Troubleshooting:** If `uv sync` fails with `cp314` or “no wheel” for spaCy (common when python.org 3.14 is your default), remove the broken venv and resync: `rm -rf .venv && uv sync --python 3.13`. You do not need to uninstall system Python 3.14. `make test` / `make build` run `ensure-uno` automatically when UNO paths are missing.
 
 ---
 

@@ -78,7 +78,8 @@ If you find ways to lower technical debt, while adding a feature, put that in yo
 | `make opengrep-lint` | Opengrep UNO thread + vendored security rules (ERROR; part of `make test`) |
 | `make opengrep-rules-sync` | Refresh pinned third-party rules under `tests/semgrep/third_party/` |
 | `make release` | **`make test`** then **`release-build`** (includes **`openrouter-catalog`** → [`extension/metadata/openrouter_models.json`](extension/metadata/openrouter_models.json)—not in OXT—plus [`default_models.py`](plugin/framework/default_models.py), translations, OXT) |
-| `make fix-uno` | Link system UNO into `.venv` so `import uno` resolves for checkers |
+| `make ensure-uno` | Link system UNO into `.venv` if `import uno` fails (auto-run before typecheck/test) |
+| `make fix-uno` | Same as **`ensure-uno`** with verbose output |
 
 **Ruff:** `[tool.ruff]` line length **320** (Ruff’s maximum; fits dense one-line calls without wrapping); `[tool.ruff.format]` **`skip-magic-trailing-comma` true**—see [`pyproject.toml`](pyproject.toml). **`make build`** runs **`ruff-fix`** then **`ruff check`** (`ruff-for-build`); standalone **`make ruff`** is check-only. Not part of **`make test`**.
 

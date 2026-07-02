@@ -129,7 +129,7 @@ endif
         dev-deploy dev-deploy-remove \
         lo-start lo-start-full lo-kill lo-restart \
         clean-cache nuke-cache nuke-cache-force unbundle \
-        log log-tail lo-log test test-run slowtests vhs test-visible lo-test-threadguard lo-test-threadguard-visible typecheck check-ext check-setup deploy \
+        log log-tail lo-log test test-run slowtests vhs test-visible lo-test-threadguard lo-test-threadguard-visible typecheck check-ext check-setup deploy ensure-uno \
         lo-start-log opengrep-lint opengrep-lint-advisory opengrep-rules-sync opengrep-rules-audit uno-thread-lint uno-thread-lint-advisory opengrep-install \
         writer calc draw impress \
         set-config vendor docker-build compile-translations merge-translations refresh-pot reset-lang preview-translations check ty mypy pyright pyrefly bandit ty-run mypy-run pyright-run pyrefly-run \
@@ -204,7 +204,8 @@ help:
 	@echo "  make opengrep-install       Install Opengrep CLI (~/.local/bin or bin/opengrep)"
 	@echo "  make typecheck              Run ty, then mypy, then pyright (same scope as each single target)"
 	@echo "  make check                  Quick gate: ty only"
-	@echo "  make fix-uno                Fix uno import in .venv (adds system UNO paths to .pth)"
+	@echo "  make ensure-uno             Link system UNO into .venv if import uno fails (auto-run by typecheck/test)"
+	@echo "  make fix-uno                Same as ensure-uno with verbose output"
 	@echo "  make mypy / make pyright / make pyrefly / make bandit   Single-tool runs (bandit: plugin/, excludes contrib + tests)"
 	@echo "  make pyrefly                Experimental Meta Pyrefly checker (same scope as ty; not part of make test)"
 	@echo "  make ruff                   Ruff lint (plugin/, excludes contrib + tests; see pyproject.toml)"
@@ -222,8 +223,10 @@ help:
 vendor:
 	uv pip install --target vendor -r requirements-vendor.txt
 
+ensure-uno:
+	@$(PYTHON) scripts/fix_uno_import.py -q
+
 fix-uno:
-	@echo "Fixing UNO import in .venv..."
 	@$(PYTHON) scripts/fix_uno_import.py
 
 docker-build:
@@ -669,20 +672,16 @@ mypy: manifest mypy-run
 pyright: manifest pyright-run
 pyrefly: manifest pyrefly-run
 
-ty-run:
-	@$(PYTHON) -c "import uno" 2>/dev/null || $(MAKE) fix-uno
+ty-run: ensure-uno
 	$(PYTHON) -m ty check --exclude plugin/contrib/ --exclude plugin/lib/
 
-mypy-run:
-	@$(PYTHON) -c "import uno" 2>/dev/null || $(MAKE) fix-uno
+mypy-run: ensure-uno
 	$(PYTHON) -m mypy
 
-pyright-run:
-	@$(PYTHON) -c "import uno" 2>/dev/null || $(MAKE) fix-uno
+pyright-run: ensure-uno
 	$(PYTHON) -m pyright
 
-pyrefly-run:
-	@$(PYTHON) -c "import uno" 2>/dev/null || $(MAKE) fix-uno
+pyrefly-run: ensure-uno
 	$(PYTHON) -m pyrefly check
 
 bandit:
