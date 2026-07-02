@@ -48,9 +48,7 @@ try:
 except ImportError:
     _AudioRecorderCls = None
 HAS_RECORDING = _AudioRecorderCls is not None
-
-from plugin.scripting.audio_recorder_service import is_audio_recording_configured
-
+from plugin.scripting.audio_recorder_service import is_audio_recording_supported
 # Default max tool rounds when not in config (get_api_config supplies chat_max_tool_rounds)
 DEFAULT_MAX_TOOL_ROUNDS = 5
 
@@ -369,7 +367,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             self.audio_recorder = _AudioRecorderCls(ctx)
         else:
             self.audio_recorder = None
-        audio_supported = HAS_RECORDING and is_audio_recording_configured(ctx)
+        audio_supported = HAS_RECORDING and is_audio_recording_supported(ctx)
         self.queue_executor = QueueExecutor()
 
         send_initial = SendButtonState(is_busy=False, is_recording=False, has_text=False, has_audio=False, audio_supported=audio_supported)

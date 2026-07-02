@@ -26,6 +26,18 @@ config:
     x: 314
     width: 48
 
+  download_audio_binaries:
+    type: string
+    default: ""
+    widget: button
+    label: "Download SoundDevice Platform-specific audio binaries:"
+    button_text: "Download"
+    show_button_label: true
+    label_width: 280
+    settings_persist: false
+    x: 297
+    width: 65
+
   python_exec_timeout:
     type: int
     default: 10

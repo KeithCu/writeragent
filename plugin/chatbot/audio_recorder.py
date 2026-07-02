@@ -45,6 +45,7 @@ from plugin.scripting.audio_recorder_service import (
     stop_recording_process,
     terminate_recording_process,
     wait_for_recording_ready,
+    ensure_downloaded_audio_on_path,
 )
 
 log = logging.getLogger(__name__)
@@ -58,11 +59,29 @@ class AudioRecorder:
         self.ctx = ctx
         self.temp_filename: str | None = None
         self._proc: subprocess.Popen[str] | None = None
+        self.stream: Any = None
+        self.wav_file: Any = None
         self.state = AudioRecorderState(status="idle")
 
     def _cleanup_failed_start(self) -> None:
         terminate_recording_process(self._proc)
         self._proc = None
+        if self.stream is not None:
+            try:
+                self.stream.stop()
+            except Exception:
+                pass
+            try:
+                self.stream.close()
+            except Exception:
+                pass
+            self.stream = None
+        if self.wav_file is not None:
+            try:
+                self.wav_file.close()
+            except Exception:
+                pass
+            self.wav_file = None
         if self.temp_filename:
             try:
                 os.remove(self.temp_filename)
@@ -71,26 +90,72 @@ class AudioRecorder:
             self.temp_filename = None
 
     def _execute_effect(self, effect: object) -> None:
+        import sys
+        import wave
         if isinstance(effect, InitializeDeviceEffect):
             exe, err = resolve_recording_python(self.ctx)
-            if not exe:
-                self._apply_event(ErrorOccurredEvent(err))
-                return
-            try:
-                self.temp_filename = make_temp_wav_path()
-                self._proc = spawn_recording_process(exe, self.temp_filename)
-                wait_for_recording_ready(self._proc)
-                self._apply_event(DeviceReadyEvent())
-            except RuntimeError as exc:
-                self._apply_event(ErrorOccurredEvent(str(exc)))
-            except Exception as exc:
-                self._apply_event(ErrorOccurredEvent(f"Audio recording failed to start: {exc}"))
+            if exe:
+                try:
+                    self.temp_filename = make_temp_wav_path()
+                    self._proc = spawn_recording_process(exe, self.temp_filename)
+                    wait_for_recording_ready(self._proc)
+                    self._apply_event(DeviceReadyEvent())
+                except RuntimeError as exc:
+                    self._apply_event(ErrorOccurredEvent(str(exc)))
+                except Exception as exc:
+                    self._apply_event(ErrorOccurredEvent(f"Venv audio recording failed to start: {exc}"))
+            else:
+                try:
+                    ensure_downloaded_audio_on_path()
+                    import sounddevice as sd
+                    self.temp_filename = make_temp_wav_path()
+                    self.wav_file = wave.open(self.temp_filename, "wb")
+                    self.wav_file.setnchannels(self.channels)
+                    self.wav_file.setsampwidth(2)  # 16-bit
+                    self.wav_file.setframerate(self.fs)
+
+                    def callback(indata, frames, time_info, status):
+                        if status:
+                            print(status, file=sys.stderr)
+                        if self.state.status == "recording" and self.wav_file:
+                            self.wav_file.writeframes(indata)
+
+                    self.stream = sd.RawInputStream(
+                        samplerate=self.fs, channels=self.channels, dtype="int16", callback=callback
+                    )
+                    self._apply_event(DeviceReadyEvent())
+                except Exception as exc:
+                    self._apply_event(ErrorOccurredEvent(
+                        f"Audio recording failed to start. "
+                        f"Please configure a Python venv or click 'Download Audio' in Settings → Python. Error: {exc}"
+                    ))
 
         elif isinstance(effect, StartRecordingEffect):
-            # Venv child begins capture before emitting ready; nothing to do here.
-            pass
+            if self.stream is not None:
+                try:
+                    self.stream.start()
+                except Exception as e:
+                    self._apply_event(ErrorOccurredEvent(f"Audio recording failed to start stream: {e}"))
 
         elif isinstance(effect, StopRecordingEffect):
+            if self.stream is not None:
+                try:
+                    self.stream.stop()
+                except Exception as e:
+                    log.debug("Failed to stop stream on StopRecordingEffect: %s", e)
+                try:
+                    self.stream.close()
+                except Exception as e:
+                    log.debug("Failed to close stream on StopRecordingEffect: %s", e)
+                self.stream = None
+
+            if self.wav_file is not None:
+                try:
+                    self.wav_file.close()
+                except Exception as e:
+                    log.debug("Failed to close wav_file on StopRecordingEffect: %s", e)
+                self.wav_file = None
+
             proc = self._proc
             self._proc = None
             if proc is not None and self.temp_filename and self.state.status != "error":
@@ -127,9 +192,19 @@ class AudioRecorder:
 
     def cleanup(self) -> None:
         """Terminate an in-flight recording child (panel teardown)."""
-        if self._proc is not None or self.state.status in ("initializing", "recording"):
+        if self._proc is not None or self.stream is not None or self.state.status in ("initializing", "recording"):
             try:
                 self._apply_event(StopRequestedEvent())
             except Exception:
                 terminate_recording_process(self._proc)
                 self._proc = None
+                if self.stream is not None:
+                    try:
+                        self.stream.stop()
+                    except Exception:
+                        pass
+                    try:
+                        self.stream.close()
+                    except Exception:
+                        pass
+                    self.stream = None

@@ -73,12 +73,15 @@ def test_audio_recorder_multiple_sessions(ctx, recording_mocks):
 
 
 def test_audio_recorder_missing_venv(ctx):
-    with patch(
-        "plugin.chatbot.audio_recorder.resolve_recording_python",
-        return_value=(None, "Configure Settings → Python"),
+    with (
+        patch(
+            "plugin.chatbot.audio_recorder.resolve_recording_python",
+            return_value=(None, "Configure Settings → Python"),
+        ),
+        patch.dict("sys.modules", {"sounddevice": None}),
     ):
         recorder = AudioRecorder(ctx)
-        with pytest.raises(RuntimeError, match="Configure Settings"):
+        with pytest.raises(RuntimeError, match="Configure Settings|Please configure a Python venv"):
             recorder.start_recording()
 
 

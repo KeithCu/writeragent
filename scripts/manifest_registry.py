@@ -445,11 +445,12 @@ def generate_settings_dialog_tabs(modules, tpl_path, output_path):
                     )
                 elif widget == "button":
                     # Use a standard button instead of label + textbox
-                    if not schema.get("inline_no_label") and board[-1].get(_dlg("id")) == f"label_{ctrl_id}":
+                    if not schema.get("inline_no_label") and not schema.get("show_button_label") and board[-1].get(_dlg("id")) == f"label_{ctrl_id}":
                         board.remove(board[-1])
                     btn_left = field_x if "x" in schema else "8"
                     btn_width = field_w if "width" in schema else "100"
-                    _common_add_button(board, ctrl_id, schema.get("label", "Click"), btn_left, curr_y, btn_width, 14)
+                    btn_label = schema.get("button_text") or schema.get("label", "Click")
+                    _common_add_button(board, ctrl_id, btn_label, btn_left, curr_y, btn_width, 14)
                 else:
                     _common_add_textfield(board, ctrl_id, field_x, curr_y, field_w, 14)
                 

@@ -12,7 +12,7 @@ import os
 import subprocess
 import sys
 import tempfile
-from typing import Any
+from typing import Any, Callable
 
 from plugin.framework.config import get_config_str
 from plugin.scripting.sandbox import resolve_venv_python, scrub_subprocess_env, wrap_command_for_sandbox
@@ -171,3 +171,140 @@ def make_temp_wav_path() -> str:
     fd, path = tempfile.mkstemp(suffix=".wav")
     os.close(fd)
     return path
+
+
+def ensure_downloaded_audio_on_path() -> None:
+    """Ensure downloaded pure Python audio files and platform binaries are on sys.path."""
+    from plugin.framework.config import user_config_dir
+    try:
+        ucd = user_config_dir()
+        if ucd:
+            bin_dir = os.path.join(ucd, "audio_binaries")
+            if os.path.isdir(bin_dir) and bin_dir not in sys.path:
+                sys.path.insert(0, bin_dir)
+    except Exception as exc:
+        log.debug("Failed to add user config audio path to sys.path: %s", exc)
+
+
+def check_host_audio_supported() -> bool:
+    """Check if host-side audio recording is supported by trying to import sounddevice."""
+    ensure_downloaded_audio_on_path()
+    try:
+        import sounddevice as sd
+        devices = sd.query_devices()
+        return any(d.get("max_input_channels", 0) > 0 for d in devices)
+    except Exception:
+        return False
+
+
+def is_audio_recording_supported(ctx: Any) -> bool:
+    """True when either the user VENV is configured, or host-side audio libraries are installed."""
+    if is_audio_recording_configured(ctx):
+        return True
+    return check_host_audio_supported()
+
+
+def run_audio_download(on_display: Callable[[str], None], on_status: Callable[[str], None]) -> bool:
+    """Download the pure-Python audio source zip and the platform-specific compiled binaries from GitHub."""
+    import sysconfig
+    import platform
+    import urllib.request
+    import urllib.error
+    import zipfile
+    from plugin.framework.config import user_config_dir
+
+    ucd = user_config_dir()
+    if not ucd:
+        raise RuntimeError("User config directory not resolved.")
+
+    target_dir = os.path.join(ucd, "audio_binaries")
+    os.makedirs(target_dir, exist_ok=True)
+
+    ext_suffix = sysconfig.get_config_var('EXT_SUFFIX')
+    if not ext_suffix:
+        raise RuntimeError("Failed to determine Python EXT_SUFFIX.")
+
+    cffi_name = f"_cffi_backend{ext_suffix}"
+
+    portaudio_name = None
+    if platform.system() == 'Darwin':
+        portaudio_name = 'libportaudio.dylib'
+    elif platform.system() == 'Windows':
+        is_arm = platform.machine().lower() in ('arm64', 'aarch64')
+        platform_suffix = 'arm64' if is_arm else '64bit'
+        portaudio_name = f'libportaudio{platform_suffix}.dll'
+
+    base_url = "https://raw.githubusercontent.com/KeithCu/writeragent/main/contrib/"
+
+    on_display(f"Target directory: {target_dir}\n")
+    on_display(f"Platform: {platform.system()} ({platform.machine()})\n")
+    on_display(f"Python: {platform.python_version()}\n\n")
+
+    def download_url_to_file(url: str, dest_path: str) -> None:
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        )
+        try:
+            with urllib.request.urlopen(req) as response:
+                total_size = int(response.headers.get('content-length', 0))
+                block_size = 8192
+                downloaded = 0
+                os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+                with open(dest_path, 'wb') as f:
+                    while True:
+                        buffer = response.read(block_size)
+                        if not buffer:
+                            break
+                        downloaded += len(buffer)
+                        f.write(buffer)
+                        if total_size:
+                            percent = int(downloaded * 100 / total_size)
+                            on_status(f"Downloading {os.path.basename(dest_path)}: {percent}%")
+        except urllib.error.HTTPError as err:
+            raise RuntimeError(f"HTTP Error {err.code}: {err.reason} for URL: {url}") from err
+        except Exception as exc:
+            raise RuntimeError(f"Failed to download {url}: {exc}") from exc
+
+    # Download pure Python source zip
+    zip_url = f"{base_url}audio_source.zip"
+    zip_dest = os.path.join(target_dir, "audio_source.zip")
+    on_display("Downloading pure Python audio libraries (audio_source.zip)...\n")
+    download_url_to_file(zip_url, zip_dest)
+
+    # Extract audio_source.zip
+    on_status("Extracting audio_source.zip...")
+    on_display("Extracting audio_source.zip...\n")
+    try:
+        with zipfile.ZipFile(zip_dest, "r") as zf:
+            zf.extractall(target_dir)
+    except Exception as exc:
+        raise RuntimeError(f"Failed to extract audio_source.zip: {exc}") from exc
+    finally:
+        if os.path.exists(zip_dest):
+            try:
+                os.remove(zip_dest)
+            except Exception:
+                pass
+
+    # Download CFFI binary
+    cffi_url = f"{base_url}audio/{cffi_name}"
+    cffi_dest = os.path.join(target_dir, cffi_name)
+    on_display(f"Downloading binary {cffi_name}...\n")
+    download_url_to_file(cffi_url, cffi_dest)
+
+    # Download PortAudio binary if needed
+    if portaudio_name:
+        pa_url = f"{base_url}audio/_sounddevice_data/portaudio-binaries/{portaudio_name}"
+        pa_dest = os.path.join(target_dir, "_sounddevice_data", "portaudio-binaries", portaudio_name)
+        on_display(f"Downloading binary {portaudio_name}...\n")
+        download_url_to_file(pa_url, pa_dest)
+
+    # Create _sounddevice_data/__init__.py placeholder
+    init_dest = os.path.join(target_dir, "_sounddevice_data", "__init__.py")
+    os.makedirs(os.path.dirname(init_dest), exist_ok=True)
+    with open(init_dest, "w") as f:
+        f.write("# Placeholder\n")
+
+    on_display("\nAll downloaded files installed successfully!\n")
+    return True

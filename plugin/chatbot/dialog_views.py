@@ -139,6 +139,7 @@ class SettingsDialog:
         self._api_key_listener = None
         self._scripting_venv_test_listener = None
         self._ppt_master_data_test_listener = None
+        self._download_audio_listener = None
 
     def show(self):
         """Execute the settings dialog and apply results."""
@@ -207,6 +208,11 @@ class SettingsDialog:
         if test_ppt_btn:
             self._ppt_master_data_test_listener = PptMasterDataTestListener(self._ctx, self._dlg)
             test_ppt_btn.addActionListener(self._ppt_master_data_test_listener)
+
+        download_audio_btn = get_optional(self._dlg, "scripting__download_audio_binaries")
+        if download_audio_btn:
+            self._download_audio_listener = DownloadAudioListener(self._ctx, self._dlg)
+            download_audio_btn.addActionListener(self._download_audio_listener)
 
     def _setup_module_tabs(self):
         try:
@@ -378,6 +384,14 @@ class SettingsDialog:
                 except Exception:
                     pass
             self._ppt_master_data_test_listener = None
+        if self._download_audio_listener and self._dlg is not None:
+            download_audio_btn = get_optional(self._dlg, "scripting__download_audio_binaries")
+            if download_audio_btn and hasattr(download_audio_btn, "removeActionListener"):
+                try:
+                    download_audio_btn.removeActionListener(self._download_audio_listener)
+                except Exception:
+                    pass
+            self._download_audio_listener = None
         if self._dlg:
             self._dlg.dispose()
 
@@ -882,3 +896,27 @@ def setup_module_tabs(dlg):
         pass
     except Exception as e:
         log.error(f"Failed to setup module tabs: {e}")
+
+
+class DownloadAudioListener(BaseActionListener):
+    """Settings → Python: download audio binaries and pure Python dependencies from GitHub."""
+
+    def __init__(self, ctx, dlg):
+        self._ctx = ctx
+        self._dlg = dlg
+
+    def on_action_performed(self, rEvent):
+        from plugin.scripting.audio_recorder_service import run_audio_download
+
+        progress = _VenvProbeProgressDialog(self._ctx, parent_dlg=self._dlg)
+        if progress._dlg is not None:
+            try:
+                progress._dlg.getModel().Title = _("Audio Library Download")
+            except Exception:
+                pass
+
+        def probe(on_display, on_status):
+            ok = run_audio_download(on_display, on_status)
+            return ok, ""
+
+        progress.run_modal_probe(probe)
