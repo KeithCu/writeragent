@@ -134,8 +134,7 @@ endif
         writer calc draw impress \
         set-config vendor docker-build compile-translations merge-translations refresh-pot reset-lang preview-translations check ty mypy pyright pyrefly bandit ty-run mypy-run pyright-run pyrefly-run \
         ruff ruff-fix ruff-for-build ruff-format-check ruff-format-grammar \
-        eval-deps run_eval run_eval-smoke \
-        fetch-monaco prune-monaco minify-editor-js
+        eval-deps run_eval run_eval-smoke
 
 # ── Help ─────────────────────────────────────────────────────────────────────
 
@@ -213,11 +212,6 @@ help:
 	@echo "  make ruff-for-build         Ruff --fix then check (used by make build)"
 	@echo "  make ruff-format-grammar    Ruff format ai_grammar_proofreader.py only (project line-length 320)"
 	@echo ""
-	@echo "Monaco editor assets:"
-	@echo "  make fetch-monaco           Download monaco-editor min/vs, prune python-only, minify JS (needs Node)"
-	@echo "  make prune-monaco           Drop unused languages/workers/locales from assets/editor/vs/"
-	@echo "  make minify-editor-js       Terser pass on assets/editor/**/*.js (strip comments; needs Node)"
-	@echo ""
 	@echo "Translation:"
 	@echo "  make translate-missing      Auto-translate missing strings with AI"
 	@echo "  make reset-lang LANG=pt     Clear all translations for a language and reset to template"
@@ -227,9 +221,6 @@ help:
 
 vendor:
 	uv pip install --target vendor -r requirements-vendor.txt
-
-langdetect-contrib:
-	$(PYTHON) scripts/update_langdetect_contrib.py
 
 fix-uno:
 	@echo "Fixing UNO import in .venv..."
@@ -456,17 +447,6 @@ nuke-cache-force:
 	rm -f "$(LO_CONF)/user/extensions/tmp/extensions.pmap"
 	@$(RM_RF) "$(LO_CONF)/user/extensions/tmp/extensions/"*.tmp_
 	rm -f "$(LO_CONF)/.lock"
-
-# ── Monaco editor assets ─────────────────────────────────────────────────────
-
-fetch-monaco:
-	$(RUN_SH) $(SCRIPTS)/fetch_monaco_editor.sh$(EXT)
-
-prune-monaco:
-	$(RUN_SH) $(SCRIPTS)/prune_monaco_vs.sh$(EXT)
-
-minify-editor-js:
-	$(RUN_SH) $(SCRIPTS)/minify_editor_js.sh$(EXT)
 
 # ── Translation ──────────────────────────────────────────────────────────────
 extract-strings:

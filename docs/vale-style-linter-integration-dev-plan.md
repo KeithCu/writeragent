@@ -103,7 +103,7 @@ WriterAgent prefers **proven upstream code in `plugin/contrib/`** (or official P
 
 ### Contrib refresh pattern (when we do vendor)
 
-Follow the [langdetect model](../plugin/contrib/langdetect/README.md): pin upstream version in README + `scripts/update_*_contrib.py` + `make …-contrib`. Do not hand-edit vendored trees except documented patches.
+Follow the venv `langdetect` pin in [`langdetect_rpc.py`](../plugin/embeddings/venv/langdetect_rpc.py) + [`EMBEDDINGS_VENV_PIP_INSTALL`](../plugin/embeddings/venv/embeddings_index.py) for optional offline packages.
 
 ---
 

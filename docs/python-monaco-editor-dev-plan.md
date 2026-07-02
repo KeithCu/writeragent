@@ -8,7 +8,7 @@ Architectural design for the **LibrePythonista-style Monaco editor** in WriterAg
 
 **`=PYTHON()` is not localized:** The Calc add-in always registers the English function name `PYTHON` (programmatic `python`). Formulas stored by Calc must use that token in `getFormula()` / `FormulaLocal`. A localized alias (e.g. a translated function name) is a **bug** in add-in registration — do **not** add `FormulaOpCodeMapper` workarounds in the editor or formula parser.
 
-**Session 1 fixes (post-MVP):** venv path required (no LibreOffice embedded Python for the editor); `resolve_venv_python` tries `bin/python`, `bin/python3`, and `bin/python3.*`; `ready` is sent only after `window.events.loaded` / `shown` (not before `webview.start()`); child uses `http_server=True` with **absolute** path to `assets/editor/index.html` (relative `index.html` resolves against `plugin/scripting/` and 404s); probe/save failures show child stderr + Python tracebacks via [`editor_diagnostics.py`](../plugin/scripting/editor_ipc.py).
+**Session 1 fixes (post-MVP):** venv path required (no LibreOffice embedded Python for the editor); `resolve_venv_python` tries `bin/python`, `bin/python3`, and `bin/python3.*`; `ready` is sent only after `window.events.loaded` / `shown` (not before `webview.start()`); child uses a WSGI static server in [`editor_main.py`](../plugin/scripting/venv/editor_main.py) that serves **all** editor HTML/JS/CSS and Monaco `vs/` assets from packages installed in the configured venv (`rocher`); probe/save failures show child stderr + Python tracebacks via [`editor_ipc.py`](../plugin/scripting/editor_ipc.py).
 
 **Dual save modes:** Monaco always edits **stripped Python source** (inline `=PYTHON("…")` code is parsed on load; plain-text cells use `getString`). Toolbar checkbox **Save as plain text** writes `cell.setString(code)` only (for `=PYTHON($A$1; …)` workflows elsewhere). Default Save wraps `=PYTHON("…")` via `setFormula`, preserving existing data-range suffixes. Opening `=PYTHON($A$1; …)` on the formula cell remains blocked; edit the code storage cell instead.
 
@@ -28,7 +28,8 @@ The editor is a **separate native window** in the user's configured Python venv.
 | Editor process | [`plugin/scripting/editor_main.py`](../plugin/scripting/editor_main.py) | `pywebview` + Monaco (venv only) |
 | Calc integration | [`plugin/calc/python/editor.py`](../plugin/calc/python/editor.py), [`python_formula_edit.py`](../plugin/calc/python/formula_edit.py), [`python_editor_context_menu.py`](../plugin/calc/python/editor_context_menu.py) | Active cell `=PYTHON()` load/save; cell context menu |
 | Protocol | [`plugin/scripting/editor_ipc.py`](../plugin/scripting/editor_ipc.py) | `!I` length + pickle protocol 5 |
-| Frontend | [`plugin/contrib/scripting/assets/editor/`](../plugin/contrib/scripting/assets/editor/) | Project HTML/JS wrapper files (Monaco runtime itself served from `rocher` package in the venv) |
+| Frontend (runtime) | `rocher` in configured venv | `index.html`, `editor.js`, `scripts_manager.js`, `style.css`, Monaco `vs/` — served by child WSGI ([`editor_main.py`](../plugin/scripting/venv/editor_main.py)); **not bundled in the OXT** |
+| Frontend (dev source) | [`plugin/contrib/scripting/assets/editor/`](../plugin/contrib/scripting/assets/editor/) | In-repo copies of WriterAgent shell files (edit here; installed/served via venv `rocher`) |
 
 Menu: `org.extension.writeragent:scripting.edit_python_cell` in [`extension/Addons.xcu`](../extension/Addons.xcu) (Calc menubar). Cell right-click uses [`python_editor_context_menu.py`](../plugin/calc/python/editor_context_menu.py) (`XContextMenuInterceptor` — LibreOffice has no static Addons.xcu merge point for Calc cell popups).
 
@@ -73,7 +74,7 @@ Same framing as [`worker_harness.py`](../plugin/scripting/worker_harness.py) (`s
   ```
   - **Why:** `pywebview` requires a GUI driver. While it can use system GTK, a venv often cannot see system bindings. `PyQt6` + `WebEngine` provides a self-contained Chromium-based browser engine. `qtpy` is a mandatory shim for the `pywebview` Qt driver.
 - **Linux GUI:** child inherits `DISPLAY`, `WAYLAND_DISPLAY`, `XDG_RUNTIME_DIR`, `DBUS_SESSION_BUS_ADDRESS`, `LD_LIBRARY_PATH` from the LO process. Optional `WRITERAGENT_PYWEBVIEW_GUI=qt|gtk` for [`editor_main.py`](../plugin/scripting/editor_main.py).
-- **Monaco:** served from the `rocher` package installed in the user virtual environment. The extension no longer bundles the `vs/` directory. Run `uv pip install pywebview rocher` in the configured venv.
+- **Monaco / editor UI assets:** all static files (`index.html`, `editor.js`, `scripts_manager.js`, `style.css`, and Monaco `vs/`) are served from the **`rocher`** package in the configured venv. The OXT does **not** bundle editor HTML/JS/CSS or Monaco assets. Run `uv pip install pywebview rocher` in the configured venv.
 - **`jedi`** (session 2+): optional, persistent `Environment` in child — see below.
 
 **Note:** **Run Python Script…** opens Monaco when the configured venv has pywebview (Python syntax highlighting, **Run** button, editor stays open after execution). If pywebview is unavailable, it falls back to the native multiline dialog in [`python_runner.py`](../plugin/scripting/python_runner.py). That legacy dialog is **modeless by default** (`scripting.native_run_script_modeless` in `writeragent.json`; set `false` for the classic modal dialog). To force the native LO dialog instead of Monaco, set `scripting.force_internal_script_editor` to `true` in `writeragent.json` (default `false`). The Calc **Edit Python in Cell…** menu does **not** fall back—it explains how to fix the configured venv instead.
@@ -109,12 +110,11 @@ plugin/
 │   └── python_formula_edit.py        # Parse/rebuild =PYTHON() formulas
 ├── contrib/
 │   └── scripting/
-│       └── assets/editor/
+│       └── assets/editor/          # Dev source only (runtime: venv rocher)
 │           ├── index.html
 │           ├── editor.js
 │           ├── scripts_manager.js  # Run Python Script picker (Sample + My Scripts)
-│           ├── style.css
-│           └── (vs/ removed, now loaded via rocher in the venv)
+│           └── style.css
 └── scripting/
     ├── document_scripts.py         # scripts_list IPC + document-attached scripts
     ├── editor_host.py                # Spawn, PersistentEditor, session launch
@@ -597,7 +597,7 @@ flowchart TD
 
 1. **Auto-close on Save?** LP keeps editor open; WriterAgent today shows “Saved.” — default stay open; optional setting later.
 2. **Multiple editor windows?** Session singleton forbids two — enough for now; multi-cell edit is rare.
-3. **Monaco bundle size:** pruned python-only tree (~4–5 MB) is bundled in OXT for offline use; `make fetch-monaco` / `make minify-editor-js` documented in release notes when refreshing Monaco.
+3. **Monaco / editor assets:** all static UI files (`index.html`, JS, CSS, and Monaco `vs/`) come from **`rocher`** in the configured venv (`uv pip install rocher`). The OXT ships none of them. Refresh by upgrading `rocher` in the venv. In-repo dev copies live under `plugin/contrib/scripting/assets/editor/`.
 4. **Validate in child with `ast.parse` instead of LO?** Faster but diverges from worker `compile` mode — prefer LO for consistency unless latency forces child-side AST-only pass first.
 
 ---
@@ -658,7 +658,7 @@ Feasibility analysis for replacing Monaco/pywebview with an embedded Writer docu
 
 - `editor_main.py`, `editor_bridge.py`, `editor_protocol.py` — the entire subprocess + IPC pipe layer.
 - `editor_launcher.py` / `editor_session_launch.py` — venv probing and process spawn.
-- `plugin/contrib/scripting/assets/editor/` — the Monaco JS bundle (~4–5 MB).
+- `plugin/contrib/scripting/assets/editor/` — dev source for WriterAgent shell files; runtime assets from venv `rocher`.
 - The pywebview dependency (and the requirement for a configured venv just to open the editor).
 - The persistent child process lifecycle, stderr drain thread, and warm-reuse logic.
 
@@ -706,7 +706,7 @@ Feasibility analysis for replacing Monaco/pywebview with an embedded Writer docu
 | Architecture | Subprocess + IPC (complex) | In-process (simple) |
 | Shutdown | Clean (separate process) | Inherits VCL lifecycle issues (unless modal dialog) |
 | Startup time | ~2s first launch (warm after) | Instant (in-process) |
-| Bundle size | ~4–5 MB Monaco JS | Zero |
+| Bundle size | Zero in OXT; all editor static assets via `rocher` in user venv | Zero |
 
 ### When this might make sense
 

@@ -309,6 +309,7 @@ _VECTOR_SEARCH_PACKAGE_KEYS = (
     "openpyxl",
     "xlrd",
     "python_docx",
+    "langdetect",
 )
 _VECTOR_SEARCH_PROBE_SCRIPT = """
 import json
@@ -379,6 +380,11 @@ try:
     out["python_docx"] = "present"
 except Exception:
     out["python_docx"] = None
+try:
+    import langdetect  # noqa: F401
+    out["langdetect"] = "present"
+except Exception:
+    out["langdetect"] = None
 print(json.dumps(out))
 """
 

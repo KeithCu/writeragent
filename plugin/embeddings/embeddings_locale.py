@@ -181,28 +181,15 @@ def _langdetect_from_sample(sample: str) -> str | None:
     if len(text) > _LANGDETECT_SAMPLE_MAX:
         text = text[:_LANGDETECT_SAMPLE_MAX]
     try:
-        from plugin.contrib.langdetect import detect_langs
-        from plugin.contrib.langdetect.lang_detect_exception import LangDetectException
+        from plugin.embeddings.venv.langdetect_rpc import detect_lang_sample
+
+        return detect_lang_sample(text)
     except ImportError:
-        log.debug("contrib langdetect not available for embeddings locale")
+        log.debug("venv langdetect not available for embeddings locale")
         return None
-    try:
-        hits = detect_langs(text)
-    except LangDetectException:
+    except Exception:
+        log.debug("langdetect failed for embeddings locale sample", exc_info=True)
         return None
-    if not hits:
-        return None
-    top = hits[0]
-    raw = f"{top.lang}"
-    if top.lang == "zh-cn":
-        raw = "zh-CN"
-    elif top.lang == "zh-tw":
-        raw = "zh-TW"
-    else:
-        parts = top.lang.split("-")
-        if len(parts) == 2:
-            raw = f"{parts[0]}-{parts[1].upper()}"
-    return _normalize_locale_tag(raw)
 
 
 def resolve_document_locale_bcp47(path: str, body_sample: str | None = None) -> str | None:

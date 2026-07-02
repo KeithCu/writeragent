@@ -242,7 +242,7 @@ The **AST sandbox** (`LocalPythonExecutor` + `VENV_AUTHORIZED_IMPORTS`) applies 
 |-------|-------------|----------|-------------|
 | **LibreOffice host** | Embedded Python in-process | No NumPy; stdlib + UNO | UNO, config, resolve folder path, enqueue **maintain** RPC + heartbeat timeout |
 | **User venv worker** | User’s venv subprocess | **Yes** for user `code` strings | `=PYTHON()`, `run_venv_python_script` |
-| **Trusted venv modules** | Same subprocess | **No** (normal CPython inside the module) | [`embeddings_index.py`](../plugin/embeddings/venv/embeddings_index.py), [`embeddings_sqlite.py`](../plugin/embeddings/venv/embeddings_sqlite.py), [`embeddings_hybrid_search.py`](../plugin/embeddings/venv/embeddings_hybrid_search.py), [`embeddings_ingest_graph.py`](../plugin/embeddings/venv/embeddings_ingest_graph.py), [`embeddings_search_graph.py`](../plugin/embeddings/venv/embeddings_search_graph.py), [`payload_codec.py`](../plugin/scripting/payload_codec.py), [`calc_functions.py`](../plugin/scripting/calc_functions.py) |
+| **Trusted venv modules** | Same subprocess | **No** (normal CPython inside the module) | [`embeddings_index.py`](../plugin/embeddings/venv/embeddings_index.py), [`embeddings_sqlite.py`](../plugin/embeddings/venv/embeddings_sqlite.py), [`embeddings_hybrid_search.py`](../plugin/embeddings/venv/embeddings_hybrid_search.py), [`embeddings_ingest_graph.py`](../plugin/embeddings/venv/embeddings_ingest_graph.py), [`embeddings_search_graph.py`](../plugin/embeddings/venv/embeddings_search_graph.py), [`langdetect_rpc.py`](../plugin/embeddings/venv/langdetect_rpc.py), [`payload_codec.py`](../plugin/scripting/payload_codec.py), [`calc_functions.py`](../plugin/scripting/calc_functions.py) |
 
 #### How trusted venv code runs
 
@@ -259,6 +259,8 @@ The **AST sandbox** (`LocalPythonExecutor` + `VENV_AUTHORIZED_IMPORTS`) applies 
 4. **Optional whitelist entry** — add trusted `plugin.scripting.*` modules to [`VENV_AUTHORIZED_IMPORTS`](../plugin/scripting/sandbox.py) so the stub’s `import` passes static policy. **Do not** add `sqlite_vec`, `langgraph`, or `os` to the LLM import list; keep those imports inside the trusted module only.
 
 5. **IPC for bulk data** — pass paragraph lists, query text, and `k` via worker **`data=`** (Pickle5); trusted code opens the per-folder **`corpus.db`** path by reference from the host.
+
+**Embeddings worker pool:** Folder maintain, hybrid search, and grammar **Local (langdetect)** language detection use **`WORKER_POOL_EMBEDDINGS`** — a second warm venv child isolated from Calc `=PYTHON()` and chat scripts ([embeddings.md § Dedicated embeddings subprocess](embeddings.md#dedicated-embeddings-subprocess)). Grammar langdetect RPC: [`langdetect_service.py`](../plugin/framework/client/langdetect_service.py) → [`langdetect_rpc.py`](../plugin/embeddings/venv/langdetect_rpc.py) (requires `langdetect` in the venv; see [`EMBEDDINGS_VENV_PIP_INSTALL`](../plugin/embeddings/venv/embeddings_index.py)).
 
 #### What not to do
 

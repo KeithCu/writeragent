@@ -18,7 +18,7 @@
 - **Native grammar** is implemented as an `XProofreader` service with Lightproof-style registry (`LinguisticWriterAgentGrammar.xcu`); users enable LLM work on the **Doc** tab and pick the proofreader under Writing aids.
 - **Batching** groups sentences from the same paragraph into chunked LLM requests; batch size is capped (`doc.grammar_proofreader_batch_sentences`, max 8).
 - **Concurrent requests** (`doc.grammar_proofreader_max_in_flight`, 1–8, default **1**): up to N background drain workers and matching grammar HTTP slots; **1** keeps prior global `llm_request_lane` behavior with chat; **>1** allows parallel grammar API calls (e.g. OpenRouter).
-- **Language Detection** (`doc.grammar_proofreader_detect_language`: **Off** / **AI (LLM)** / **Local (langdetect)**) compares sentence language to document `CharLocale`. LLM mode uses a lightweight API call; Local mode uses vendored [langdetect](../plugin/contrib/langdetect/) in-process (grammar-registry profile subset, no venv). Mismatches trigger locale update and re-check.
+- **Language Detection** (`doc.grammar_proofreader_detect_language`: **Off** / **AI (LLM)** / **Local (langdetect)**) compares sentence language to document `CharLocale`. LLM mode uses a lightweight API call; Local mode uses PyPI `langdetect` in the **embeddings venv worker** ([`langdetect_service.py`](../plugin/framework/client/langdetect_service.py) → [`langdetect_rpc.py`](../plugin/embeddings/venv/langdetect_rpc.py); requires Settings → Python venv). Mismatches trigger locale update and re-check.
 - **Cache** is **document-embedded** (`.odt` user property `WriterAgentGrammarCache`) plus a **global in-memory LRU** (2048 entries) shared across open documents for copy-paste hits. The old profile SQLite cache was removed.
 - **Sidebar chat** is separate: use it for explanations, rewrites, and editorial comment tools—not as a second linguistic pipeline.
 
@@ -206,7 +206,7 @@ Settings key **`doc.grammar_proofreader_detect_language`** (Doc tab: **Off** / *
 |------|----------------|
 | **Off** | No detection; grammar uses document locale only. |
 | **AI (LLM)** | Batch or single-sentence API call via `language_detect_llm_sync`; shares `grammar_llm_request_gate` with grammar HTTP. |
-| **Local (langdetect)** | Vendored [langdetect](../plugin/contrib/langdetect/) in-process (`_detect_languages_via_langdetect`); grammar-registry profile subset only (no venv, no extra API). Refresh profiles with `make langdetect-contrib` / [`scripts/update_langdetect_contrib.py`](../scripts/update_langdetect_contrib.py). |
+| **Local (langdetect)** | PyPI `langdetect` in the embeddings venv worker (`_detect_languages_via_langdetect` → [`langdetect_service.detect_languages`](../plugin/framework/client/langdetect_service.py)); requires configured venv + `langdetect` in [`EMBEDDINGS_VENV_PIP_INSTALL`](../plugin/embeddings/venv/embeddings_index.py). Missing venv/package fails the detection pass (Harper-style). |
 
 Shared behavior for **LLM** and **langdetect** modes: in-memory language LRU (`get_cached_language` / `put_cached_language`); skip detection for incomplete sentences; optional persisted-grammar heuristic to avoid re-detecting known-good text; `normalize_detected_bcp47` maps detector output to grammar-registry tags. Regression: [`test_grammar_worker_llm.py`](../tests/writer/locale/test_grammar_worker_llm.py), [`test_langdetect_profiles.py`](../tests/writer/locale/test_langdetect_profiles.py).
 

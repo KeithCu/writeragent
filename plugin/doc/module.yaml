@@ -77,7 +77,7 @@ config:
     default: "off"
     widget: select
     label: Sentence language detection
-    helper: "Verify each complete sentence's language against the document locale. AI uses your grammar/chat API; Local uses bundled langdetect (no API call, no venv). Mismatches update CharLocale and re-check grammar."
+    helper: "Verify each complete sentence's language against the document locale. AI uses your grammar/chat API; Local uses langdetect in your Python venv (Settings → Python; no API call). Mismatches update CharLocale and re-check grammar."
     options:
       - value: "off"
         label: "Off"

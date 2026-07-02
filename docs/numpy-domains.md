@@ -115,7 +115,7 @@ We are actively expanding the set of supported scientific libraries. These packa
 | Domain | Packages | Implementation |
 |--------|----------|----------------|
 | **Data Engineering** | `pint`, `pyarrow` | Trusted module `plugin/scripting/units.py` or `io.py` |
-| **NLP** | `langdetect` (grammar, vendored), `spacy` (future) | Bundled [`plugin/contrib/langdetect/`](../plugin/contrib/langdetect/) for grammar Local mode; future `plugin/scripting/nlp.py` for spacy |
+| **NLP** | `langdetect` (grammar Local + embeddings plain-text locale), `spacy` (future) | Venv `langdetect` via [`langdetect_rpc.py`](../plugin/embeddings/venv/langdetect_rpc.py); future `plugin/scripting/nlp.py` for spacy |
 | **Bayesian Opt** | `scikit-optimize` | Trusted module `plugin/scripting/optimization.py` |
 
 The implementation should follow the [Domain helper pattern](#domain-helper-pattern-analysis--vision-canonical) using the established RPC stub architecture.
@@ -133,7 +133,7 @@ The implementation should follow the [Domain helper pattern](#domain-helper-patt
 | 6 | **Geospatial** | Not started | `[Geo] map_data` |
 | 7 | **Audio / Signal Processing** | Recording shipped; no librosa analysis | Spectrogram via Viz egress |
 | 8 | **Data Engineering** | **Shipped (Pint)** — [`units.py`](../plugin/scripting/units.py), `[Units]` templates; `pyarrow` IO deferred | `convert_quantity`, `parse_quantity` |
-| 9 | **NLP** | **Partial** — langdetect vendored for grammar language detection | `spacy` entity extraction |
+| 9 | **NLP** | **Partial** — `langdetect` in embeddings venv (grammar Local + plain-text locale) | `spacy` entity extraction |
 | 10 | **Bayesian Opt** | Not started | `skopt` |
 
 ---

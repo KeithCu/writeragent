@@ -1,12 +1,13 @@
 # WriterAgent - AI Writing Assistant for LibreOffice
-# Copyright (c) 2026 KeithCu
+# Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Vendored langdetect profile allowlist vs grammar registry."""
+"""Grammar registry ↔ langdetect profile mapping and venv RPC helpers."""
 
 from __future__ import annotations
 
-from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -17,8 +18,6 @@ from plugin.writer.locale.grammar_proofread_locale import (
     langdetect_profiles_for_grammar_registry,
 )
 
-_CONTRIB_PROFILES = Path(__file__).resolve().parents[3] / "plugin" / "contrib" / "langdetect" / "profiles"
-
 
 def test_bcp47_to_langdetect_profile_mapping() -> None:
     assert bcp47_to_langdetect_profile("en-US") == "en"
@@ -28,23 +27,15 @@ def test_bcp47_to_langdetect_profile_mapping() -> None:
     assert bcp47_to_langdetect_profile("nn-NO") == "no"
 
 
-def test_on_disk_profiles_match_grammar_allowlist() -> None:
-    if not _CONTRIB_PROFILES.is_dir():
-        pytest.skip("plugin/contrib/langdetect not built — run make langdetect-contrib")
+def test_langdetect_profiles_for_grammar_registry() -> None:
     allowed = langdetect_profiles_for_grammar_registry()
-    on_disk = {p.name for p in _CONTRIB_PROFILES.iterdir() if p.is_file() and not p.name.startswith(".")}
-    assert on_disk == allowed
-    assert len(on_disk) >= 2
+    assert len(allowed) >= 2
     for tag in GRAMMAR_REGISTRY_LOCALE_TAGS:
         prof = bcp47_to_langdetect_profile(tag)
-        assert (_CONTRIB_PROFILES / prof).is_file(), f"missing profile for {tag} -> {prof}"
+        assert prof in allowed, f"missing profile mapping for {tag} -> {prof}"
 
 
 def test_get_grammar_detect_language_mode_legacy_bool() -> None:
-    class _Cfg:
-        def __init__(self, val):
-            self._val = val
-
     from plugin.framework import config
 
     with pytest.MonkeyPatch.context() as mp:
@@ -64,10 +55,11 @@ def test_get_grammar_detect_language_mode_strings() -> None:
         assert get_grammar_detect_language_mode(object()) == "off"
 
 
-@pytest.mark.skipif(not _CONTRIB_PROFILES.is_dir(), reason="contrib langdetect missing")
-def test_langdetect_smoke_french() -> None:
-    from plugin.contrib.langdetect import detect_langs
+def test_langdetect_rpc_smoke_french() -> None:
+    from plugin.embeddings.venv import langdetect_rpc as rpc_mod
 
-    langs = detect_langs("Bonjour le monde.")
-    assert langs
-    assert langs[0].lang == "fr"
+    mock_detect = MagicMock(return_value=[SimpleNamespace(lang="fr", prob=0.99)])
+    mock_exc = type("LangDetectException", (Exception,), {})
+    fake_ld = SimpleNamespace(detect_langs=mock_detect, lang_detect_exception=SimpleNamespace(LangDetectException=mock_exc))
+    with patch.dict("sys.modules", {"langdetect": fake_ld, "langdetect.lang_detect_exception": fake_ld.lang_detect_exception}):
+        assert rpc_mod.detect_lang_sample("Bonjour le monde.") == "fr-FR"

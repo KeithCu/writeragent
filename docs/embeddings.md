@@ -433,7 +433,7 @@ Defined in [`embeddings_split.py`](../plugin/embeddings/embeddings_split.py):
 
 ##### Multilingual sentence breaking {#multilingual-sentence-breaking}
 
-**Shipped (schema v6, 2026-06):** [`embeddings_locale.py`](../plugin/embeddings/embeddings_locale.py) parses **locale-tagged runs** from ODF/OOXML content at extract time; [`indexable_chunks_from_path`](../plugin/embeddings/embeddings_fs.py) passes run lists into [`split_passage_locale_runs_to_chunk_meta`](../plugin/embeddings/embeddings_split.py). Plain `.txt`/`.rtf` use **per-paragraph** vendored `langdetect`. **Out of scope:** per-sentence langdetect on plain text; Settings UI for chunk strategy.
+**Shipped (schema v6, 2026-06):** [`embeddings_locale.py`](../plugin/embeddings/embeddings_locale.py) parses **locale-tagged runs** from ODF/OOXML content at extract time; [`indexable_chunks_from_path`](../plugin/embeddings/embeddings_fs.py) passes run lists into [`split_passage_locale_runs_to_chunk_meta`](../plugin/embeddings/embeddings_split.py). Plain `.txt`/`.rtf` use **per-paragraph** venv `langdetect`. **Out of scope:** per-sentence langdetect on plain text; Settings UI for chunk strategy.
 
 **Policy:** each prose passage may contain multiple `LocaleTextRun` slices (char offsets + BCP-47). Each run uses its own `SentenceBreaker` ICU tag (via [`bcp47_to_icu_sentence_breaker_locale`](../plugin/writer/locale/grammar_proofread_locale.py)) or grammar whitespace splitting for Thai/Lao/Khmer ([`is_whitespace_sentence_locale`](../plugin/writer/locale/grammar_proofread_locale.py)). Unmarked runs inherit paragraph style, then document default from XML or langdetect. `MIN_CHUNK` gluing never crosses run/locale boundaries. When XML/langdetect yield nothing, fall back to `DEFAULT_SENTENCE_LOCALE` (`en@ss=standard`).
 
@@ -461,11 +461,11 @@ Resolution order for **document default**:
 
 | Priority | ODF (`.odt`, …) | OOXML (`.docx`, …) | Plain (`.txt`, `.rtf`) |
 |---------:|-------------------|--------------------|-------------------------|
-| 1 | **`styles.xml`** — `style:default-style` `style:family="paragraph"` (else `"text"`) → `style:text-properties` → `fo:language` + `fo:country` → BCP-47 | **`docProps/core.xml`** — `dc:language` | **Per-paragraph [`langdetect`](../plugin/contrib/langdetect/)** (see below) |
+| 1 | **`styles.xml`** — `style:default-style` `style:family="paragraph"` (else `"text"`) → `style:text-properties` → `fo:language` + `fo:country` → BCP-47 | **`docProps/core.xml`** — `dc:language` | **Per-paragraph venv `langdetect`** (see below) |
 | 2 | `meta.xml` — `dc:language` if present | **`word/styles.xml`** — `w:docDefaults` / default style `w:lang` | Document-level langdetect sample (fallback default only) |
 | 3 | `DEFAULT_SENTENCE_LOCALE` (`en@ss=standard` after ICU mapping) | `word/settings.xml` or default-style fallback | `DEFAULT_SENTENCE_LOCALE` |
 
-**Plain text — per-paragraph `langdetect`:** for each extracted paragraph, run detection on the full paragraph text, map through [`normalize_detected_bcp47`](../plugin/writer/locale/grammar_proofread_locale.py). Short paragraphs may mis-detect — fall back to document default from a file sample or `DEFAULT_SENTENCE_LOCALE`.
+**Plain text — per-paragraph `langdetect`:** for each extracted paragraph, run detection via [`langdetect_rpc.detect_lang_sample`](../plugin/embeddings/venv/langdetect_rpc.py) in the embeddings worker (requires `langdetect` in the venv). Map through [`normalize_detected_bcp47`](../plugin/writer/locale/grammar_proofread_locale.py). Short paragraphs may mis-detect — fall back to document default from a file sample or `DEFAULT_SENTENCE_LOCALE`.
 
 **Parsing:** stdlib `zipfile` + `ElementTree` in [`embeddings_locale.py`](../plugin/embeddings/embeddings_locale.py) (no UNO, no extra venv packages for locale).
 
@@ -568,10 +568,11 @@ Per-folder semantic search runs in the user venv via trusted RPC modules. Settin
 
 | Package | Install | Used by |
 |---------|---------|---------|
-| [sentence-transformers](https://www.sbert.net/) (`sentence_transformers`) + **numpy** | `uv pip install sentence-transformers numpy sqlite-vec langgraph langchain-core langchain-text-splitters envwrap icu4py odfpy pandas openpyxl xlrd python-docx` | Encode queries and corpus chunks; Office sibling extract |
+| [sentence-transformers](https://www.sbert.net/) (`sentence_transformers`) + **numpy** | `uv pip install sentence-transformers numpy sqlite-vec langgraph langchain-core langchain-text-splitters envwrap icu4py langdetect odfpy pandas openpyxl xlrd python-docx` | Encode queries and corpus chunks; Office sibling extract |
 | [sqlite-vec](https://github.com/asg017/sqlite-vec) (`sqlite_vec`) | (same line) | vec0 KNN in unified `corpus.db` |
 | [LangGraph](https://github.com/langchain-ai/langgraph) + [langchain-core](https://github.com/langchain-ai/langchain) + [langchain-text-splitters](https://github.com/langchain-ai/langchain) | (same line) | Ingest/search graphs in trusted venv modules |
 | [icu4py](https://pypi.org/project/icu4py/) | (same line) | Sentence boundaries for prose chunking (`SentenceBreaker`; bundled ICU wheels) |
+| [langdetect](https://pypi.org/project/langdetect/) | (same line) | Plain-text locale detection; grammar Local language detection (via embeddings worker RPC) |
 | [envwrap](https://pypi.org/project/envwrap/) | (same line) | Transitive dependency for `sentence-transformers` / Hugging Face stack on some Python versions |
 
 Canonical install constant: `EMBEDDINGS_VENV_PIP_INSTALL` in [`embeddings_index.py`](../plugin/embeddings/venv/embeddings_index.py).
@@ -581,7 +582,7 @@ Settings → **Python Test** and [`venv_diagnostics.py`](../plugin/scripting/ven
 **Minimum install:**
 
 ```bash
-uv pip install numpy sentence-transformers sqlite-vec langgraph langchain-core langchain-text-splitters envwrap icu4py odfpy pandas openpyxl xlrd python-docx
+uv pip install numpy sentence-transformers sqlite-vec langgraph langchain-core langchain-text-splitters envwrap icu4py langdetect odfpy pandas openpyxl xlrd python-docx
 ```
 
 See [`EMBEDDINGS_VENV_PIP_INSTALL`](../plugin/embeddings/venv/embeddings_index.py) for the canonical one-liner. [Installing sqlite-vec](#installing-sqlite-vec) if `sqlite_vec.load()` fails.

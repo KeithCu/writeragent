@@ -115,14 +115,11 @@ def test_language_detect_llm_sync_retries_on_empty() -> None:
 
 
 def test_detect_languages_for_chunk_langdetect_mode() -> None:
-    from types import SimpleNamespace
-
     item = _item("Bonjour le monde.")
     ec = _ec(detect_lang_mode="langdetect")
-    mock_lang = SimpleNamespace(lang="fr", prob=0.99)
     with patch("plugin.writer.locale.grammar_worker_llm.get_cached_language", return_value=None), \
          patch("plugin.writer.locale.grammar_worker_llm.persisted_grammar_skip_lang_detect", return_value=False), \
-         patch("plugin.contrib.langdetect.detect_langs", return_value=[mock_lang]), \
+         patch("plugin.framework.client.langdetect_service.detect_languages", return_value=["fr-FR"]), \
          patch("plugin.writer.locale.grammar_worker_llm.emit_grammar_status"):
         detected = detect_languages_for_chunk([(item, item.text)], "", ec)
     ec.client.chat_completion_sync.assert_not_called()
