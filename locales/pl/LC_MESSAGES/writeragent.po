@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-01 18:39-0400\n"
+"POT-Creation-Date: 2026-07-01 21:28-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Polish <LL@li.org>\n"
@@ -1399,6 +1399,23 @@ msgstr "Nie można było nawiązać połączenia z edytorem języka Python."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid ""
+"On Linux also install system PortAudio: sudo apt-get install libportaudio2"
+msgstr ""
+"W systemie Linux zainstaluj również systemowe PortAudio: sudo apt-get "
+"install libportaudio2"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio probe timed out (sounddevice import failed or hung)."
+msgstr ""
+"Przekroczono limit czasu sondowania dźwięku (import sounddevice nie powiódł "
+"się lub zawiesił)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio probe failed (see writeragent_debug.log)."
+msgstr "Sondowanie dźwięku nie powiodło się (zobacz writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid ""
 "Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
 "on first check)."
 msgstr ""
@@ -1463,6 +1480,14 @@ msgid "Vector Search Libraries"
 msgstr "Biblioteki wyszukiwania wektorowego"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording"
+msgstr "Nagrywanie dźwięku"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "No microphone input devices detected."
+msgstr "Nie wykryto urządzeń wejściowych mikrofonu."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
 msgstr "Uruchamianie procesu roboczego Python..."
 
@@ -1486,6 +1511,10 @@ msgid "Vector Search Libraries: loading (first run may take a while)..."
 msgstr ""
 "Biblioteki wyszukiwania wektorowego: ładowanie (pierwsze uruchomienie może "
 "chwilę potrwać)..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording: checking sounddevice..."
+msgstr "Nagrywanie dźwięku: sprawdzanie sounddevice..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using LibreOffice process Python..."
@@ -2607,13 +2636,14 @@ msgstr "Wykrywanie języka zdania"
 
 msgid ""
 "Verify each complete sentence's language against the document locale. AI "
-"uses your grammar/chat API; Local uses bundled langdetect (no API call, no "
-"venv). Mismatches update CharLocale and re-check grammar."
+"uses your grammar/chat API; Local uses langdetect in your Python venv "
+"(Settings → Python; no API call). Mismatches update CharLocale and re-check "
+"grammar."
 msgstr ""
-"Weryfikuj język każdego pełnego zdania zgodnie z ustawieniami języka "
-"dokumentu. AI korzysta z Twojego API gramatyki/czatu; Local korzysta z "
-"wbudowanego langdetect (bez wywołań API, bez venv). Niezgodności aktualizują"
-" CharLocale i ponownie sprawdzają gramatykę."
+"Weryfikuj język każdego pełnego zdania zgodnie z ustawieniami regionalnymi "
+"dokumentu. AI używa Twojego API gramatyki/czatu; Local używa langdetect w "
+"Twoim środowisku Python venv (Ustawienia → Python; brak wywołania API). "
+"Niezgodności aktualizują CharLocale i ponownie sprawdzają gramatykę."
 
 msgid "Local (langdetect)"
 msgstr "Lokalnie (langdetect)"
@@ -2843,13 +2873,15 @@ msgstr "Ścieżka danych PPT-Master"
 msgid ""
 "Path to the ppt-master skill tree (SKILL.md, templates/, "
 "scripts/svg_to_pptx/). Clone https://github.com/hugohe3/ppt-master and point"
-" here at .../ppt-master/skills/ppt-master. Leave empty to auto-detect (dev "
-"clone beside repo, then env)."
+" here at the clone root (.../ppt-master) or the inner skill dir (.../ppt-"
+"master/skills/ppt-master). Leave empty to auto-detect (dev clone beside "
+"repo, then env)."
 msgstr ""
 "Ścieżka do drzewa umiejętności ppt-master (SKILL.md, templates/, "
 "scripts/svg_to_pptx/). Sklonuj https://github.com/hugohe3/ppt-master i wskaż"
-" tutaj .../ppt-master/skills/ppt-master. Pozostaw puste, aby wykryć "
-"automatycznie (klon deweloperski obok repozytorium, następnie środowisko)."
+" tutaj katalog główny klona (.../ppt-master) lub wewnętrzny katalog "
+"umiejętności (.../ppt-master/skills/ppt-master). Pozostaw puste, aby użyć "
+"autodetekcji (klon deweloperski obok repozytorium, następnie env)."
 
 msgid "Vision / OCR"
 msgstr "Wizja / OCR"

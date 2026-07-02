@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-01 18:39-0400\n"
+"POT-Creation-Date: 2026-07-01 21:28-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Chinese (Traditional) <LL@li.org>\n"
@@ -1339,6 +1339,19 @@ msgstr "無法與 Python 編輯器通訊。"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid ""
+"On Linux also install system PortAudio: sudo apt-get install libportaudio2"
+msgstr "在 Linux 上也請安裝系統 PortAudio：sudo apt-get install libportaudio2"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio probe timed out (sounddevice import failed or hung)."
+msgstr "音訊探測逾時（sounddevice 匯入失敗或無回應）。"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio probe failed (see writeragent_debug.log)."
+msgstr "音訊探測失敗（請參閱 writeragent_debug.log）。"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid ""
 "Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
 "on first check)."
 msgstr "文字/NLP 探測逾時（spaCy 或 transformers 的冷啟動匯入在首次檢查時可能需要 10–30 秒）。"
@@ -1395,6 +1408,14 @@ msgid "Vector Search Libraries"
 msgstr "向量搜尋程式庫"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording"
+msgstr "錄音"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "No microphone input devices detected."
+msgstr "未偵測到麥克風輸入裝置。"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
 msgstr "正在啟動 Python 背景程式..."
 
@@ -1413,6 +1434,10 @@ msgstr "視覺函式庫：載入中（首次執行可能需要一些時間）...
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vector Search Libraries: loading (first run may take a while)..."
 msgstr "向量搜尋程式庫：載入中 (首次執行可能需要一些時間)..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording: checking sounddevice..."
+msgstr "錄音：正在檢查 sounddevice..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using LibreOffice process Python..."
@@ -2472,11 +2497,12 @@ msgstr "句子語言偵測"
 
 msgid ""
 "Verify each complete sentence's language against the document locale. AI "
-"uses your grammar/chat API; Local uses bundled langdetect (no API call, no "
-"venv). Mismatches update CharLocale and re-check grammar."
+"uses your grammar/chat API; Local uses langdetect in your Python venv "
+"(Settings → Python; no API call). Mismatches update CharLocale and re-check "
+"grammar."
 msgstr ""
-"根據文件語言驗證每個完整句子的語言。AI 使用您的語法/聊天 API；Local 使用內建的 langdetect（無 API "
-"呼叫，無需虛擬環境）。若不匹配，將更新字元語言設定 (CharLocale) 並重新檢查語法。"
+"根據文件語言環境驗證每個完整句子的語言。AI 使用您的語法/聊天 API；Local 使用您 Python 虛擬環境中的 langdetect（設定 →"
+" Python；無 API 呼叫）。不匹配時會更新 CharLocale 並重新檢查語法。"
 
 msgid "Local (langdetect)"
 msgstr "本機 (langdetect)"
@@ -2680,12 +2706,13 @@ msgstr "PPT-Master 資料路徑"
 msgid ""
 "Path to the ppt-master skill tree (SKILL.md, templates/, "
 "scripts/svg_to_pptx/). Clone https://github.com/hugohe3/ppt-master and point"
-" here at .../ppt-master/skills/ppt-master. Leave empty to auto-detect (dev "
-"clone beside repo, then env)."
+" here at the clone root (.../ppt-master) or the inner skill dir (.../ppt-"
+"master/skills/ppt-master). Leave empty to auto-detect (dev clone beside "
+"repo, then env)."
 msgstr ""
-"指向 ppt-master 技能樹的路徑 (SKILL.md, templates/, scripts/svg_to_pptx/)。請複製 "
-"https://github.com/hugohe3/ppt-master 並將此處指向 .../ppt-master/skills/ppt-"
-"master。留空則自動偵測 (開發者複製於儲存庫旁，然後設定環境變數)。"
+"ppt-master 技能樹的路徑（SKILL.md, templates/, scripts/svg_to_pptx/）。請複製 "
+"https://github.com/hugohe3/ppt-master 並指向該複製根目錄 (.../ppt-master) 或內部技能目錄 "
+"(.../ppt-master/skills/ppt-master)。留空則自動偵測（開發複製版位於儲存庫旁，然後設定環境）。"
 
 msgid "Vision / OCR"
 msgstr "視覺 / OCR"

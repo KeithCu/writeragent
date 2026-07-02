@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-01 18:39-0400\n"
+"POT-Creation-Date: 2026-07-01 21:28-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Norwegian Bokmål <LL@li.org>\n"
@@ -1395,6 +1395,21 @@ msgstr "Kunne ikke kommunisere med Python-redigeringsprogrammet."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid ""
+"On Linux also install system PortAudio: sudo apt-get install libportaudio2"
+msgstr ""
+"På Linux må du også installere system-PortAudio: sudo apt-get install "
+"libportaudio2"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio probe timed out (sounddevice import failed or hung)."
+msgstr "Tidsavbrudd for lydsjekk (import av sounddevice feilet eller hang)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio probe failed (see writeragent_debug.log)."
+msgstr "Lydsjekk feilet (se writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid ""
 "Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
 "on first check)."
 msgstr ""
@@ -1457,6 +1472,14 @@ msgid "Vector Search Libraries"
 msgstr "Vektorsøk-biblioteker"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording"
+msgstr "Lydopptak"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "No microphone input devices detected."
+msgstr "Ingen mikrofonenheter oppdaget."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
 msgstr "Starter Python-arbeider..."
 
@@ -1476,6 +1499,10 @@ msgstr "Vision-biblioteker: laster inn (første kjøring kan ta litt tid)..."
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vector Search Libraries: loading (first run may take a while)..."
 msgstr "Vektorsøk-biblioteker: laster inn (første kjøring kan ta litt tid)..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording: checking sounddevice..."
+msgstr "Lydopptak: sjekker sounddevice..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using LibreOffice process Python..."
@@ -2582,13 +2609,14 @@ msgstr "Gjenkjenning av setningsspråk"
 
 msgid ""
 "Verify each complete sentence's language against the document locale. AI "
-"uses your grammar/chat API; Local uses bundled langdetect (no API call, no "
-"venv). Mismatches update CharLocale and re-check grammar."
+"uses your grammar/chat API; Local uses langdetect in your Python venv "
+"(Settings → Python; no API call). Mismatches update CharLocale and re-check "
+"grammar."
 msgstr ""
-"Verifiser hvert fullstendige setningsspråk mot dokumentets lokalitet. AI "
-"bruker din grammatikk-/chat-API; Lokal bruker medfølgende langdetect (ingen "
-"API-kall, ingen venv). Avvik oppdaterer CharLocale og sjekker grammatikken "
-"på nytt."
+"Verifiser hver fullstendige setning sitt språk mot dokumentets "
+"språkinnstilling. AI bruker din grammatikk-/chat-API; Lokal bruker "
+"langdetect i ditt Python-miljø (Innstillinger → Python; ingen API-kall). "
+"Avvik oppdaterer CharLocale og sjekker grammatikken på nytt."
 
 msgid "Local (langdetect)"
 msgstr "Lokal (langdetect)"
@@ -2814,13 +2842,15 @@ msgstr "Sti til PPT-master-data"
 msgid ""
 "Path to the ppt-master skill tree (SKILL.md, templates/, "
 "scripts/svg_to_pptx/). Clone https://github.com/hugohe3/ppt-master and point"
-" here at .../ppt-master/skills/ppt-master. Leave empty to auto-detect (dev "
-"clone beside repo, then env)."
+" here at the clone root (.../ppt-master) or the inner skill dir (.../ppt-"
+"master/skills/ppt-master). Leave empty to auto-detect (dev clone beside "
+"repo, then env)."
 msgstr ""
 "Sti til ppt-master-ferdighetstreet (SKILL.md, templates/, "
 "scripts/svg_to_pptx/). Klon https://github.com/hugohe3/ppt-master og pek hit"
-" til .../ppt-master/skills/ppt-master. La stå tom for å oppdage automatisk "
-"(utviklerklon ved siden av depotet, deretter miljø)."
+" til klonens rot (.../ppt-master) eller den indre ferdighetsmappen (.../ppt-"
+"master/skills/ppt-master). La stå tom for automatisk gjenkjenning "
+"(utviklerklon ved siden av repo, deretter miljø)."
 
 msgid "Vision / OCR"
 msgstr "Visjon / OCR"

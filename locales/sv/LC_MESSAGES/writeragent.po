@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: WriterAgent 1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-01 18:39-0400\n"
+"POT-Creation-Date: 2026-07-01 21:28-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: \n"
 "Language-Team: Swedish\n"
@@ -1385,6 +1385,23 @@ msgstr "Kunde inte kommunicera med Python-redigeraren."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid ""
+"On Linux also install system PortAudio: sudo apt-get install libportaudio2"
+msgstr ""
+"På Linux, installera även systemets PortAudio: sudo apt-get install "
+"libportaudio2"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio probe timed out (sounddevice import failed or hung)."
+msgstr ""
+"Ljudtestet tog för lång tid (import av sounddevice misslyckades eller hängde"
+" sig)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio probe failed (see writeragent_debug.log)."
+msgstr "Ljudtestet misslyckades (se writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid ""
 "Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
 "on first check)."
 msgstr ""
@@ -1447,6 +1464,14 @@ msgid "Vector Search Libraries"
 msgstr "Vektorsökbibliotek"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording"
+msgstr "Ljudinspelning"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "No microphone input devices detected."
+msgstr "Inga mikrofonenheter hittades."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
 msgstr "Startar Python-arbetsprocess..."
 
@@ -1465,6 +1490,10 @@ msgstr "Vision-bibliotek: läser in (första körningen kan ta en stund)..."
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vector Search Libraries: loading (first run may take a while)..."
 msgstr "Vektorsökbibliotek: läser in (första körningen kan ta en stund)..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording: checking sounddevice..."
+msgstr "Ljudinspelning: kontrollerar sounddevice..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using LibreOffice process Python..."
@@ -2569,13 +2598,14 @@ msgstr "Identifiering av meningsspråk"
 
 msgid ""
 "Verify each complete sentence's language against the document locale. AI "
-"uses your grammar/chat API; Local uses bundled langdetect (no API call, no "
-"venv). Mismatches update CharLocale and re-check grammar."
+"uses your grammar/chat API; Local uses langdetect in your Python venv "
+"(Settings → Python; no API call). Mismatches update CharLocale and re-check "
+"grammar."
 msgstr ""
 "Verifiera varje fullständig menings språk mot dokumentets språkinställning. "
-"AI använder ditt API för grammatik/chatt; Lokalt använder medföljande "
-"langdetect (inget API-anrop, ingen venv). Felaktigheter uppdaterar "
-"CharLocale och kontrollerar grammatiken på nytt."
+"AI använder ditt grammatik-/chatt-API; Lokalt använder langdetect i din "
+"Python-venv (Inställningar → Python; inget API-anrop). Felaktiga matchningar"
+" uppdaterar CharLocale och kontrollerar grammatiken på nytt."
 
 msgid "Local (langdetect)"
 msgstr "Lokalt (langdetect)"
@@ -2801,13 +2831,15 @@ msgstr "Sökväg till PPT-Master-data"
 msgid ""
 "Path to the ppt-master skill tree (SKILL.md, templates/, "
 "scripts/svg_to_pptx/). Clone https://github.com/hugohe3/ppt-master and point"
-" here at .../ppt-master/skills/ppt-master. Leave empty to auto-detect (dev "
-"clone beside repo, then env)."
+" here at the clone root (.../ppt-master) or the inner skill dir (.../ppt-"
+"master/skills/ppt-master). Leave empty to auto-detect (dev clone beside "
+"repo, then env)."
 msgstr ""
 "Sökväg till ppt-master-färdighetsträdet (SKILL.md, templates/, "
 "scripts/svg_to_pptx/). Klona https://github.com/hugohe3/ppt-master och peka "
-"här på .../ppt-master/skills/ppt-master. Lämna tomt för automatisk "
-"identifiering (utvecklingsklon bredvid lagringsplatsen, sedan miljö)."
+"här på klonens rot (.../ppt-master) eller den inre färdighetskatalogen "
+"(.../ppt-master/skills/ppt-master). Lämna tomt för automatisk identifiering "
+"(utvecklingsklon bredvid repo, sedan env)."
 
 msgid "Vision / OCR"
 msgstr "Vision / OCR"

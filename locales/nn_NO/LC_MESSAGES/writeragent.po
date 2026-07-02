@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-01 18:39-0400\n"
+"POT-Creation-Date: 2026-07-01 21:28-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Norwegian Nynorsk <LL@li.org>\n"
@@ -1396,6 +1396,22 @@ msgstr "Kunne ikkje kommunisera med Python-redigeringsprogrammet."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid ""
+"On Linux also install system PortAudio: sudo apt-get install libportaudio2"
+msgstr ""
+"På Linux må du òg installere system-PortAudio: sudo apt-get install "
+"libportaudio2"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio probe timed out (sounddevice import failed or hung)."
+msgstr ""
+"Tidsavbrot ved lydsjekk (import av sounddevice feila eller hengde seg opp)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio probe failed (see writeragent_debug.log)."
+msgstr "Lydsjekk feila (sjå writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid ""
 "Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
 "on first check)."
 msgstr ""
@@ -1458,6 +1474,14 @@ msgid "Vector Search Libraries"
 msgstr "Bibliotek for vektorsøk"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording"
+msgstr "Lydopptak"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "No microphone input devices detected."
+msgstr "Ingen mikrofonar funne."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
 msgstr "Startar Python-arbeidar..."
 
@@ -1477,6 +1501,10 @@ msgstr "Vision-bibliotek: lastar inn (første køyring kan ta litt tid)..."
 msgid "Vector Search Libraries: loading (first run may take a while)..."
 msgstr ""
 "Bibliotek for vektorsøk: lastar inn (første køyring kan ta litt tid)..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording: checking sounddevice..."
+msgstr "Lydopptak: sjekkar sounddevice..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using LibreOffice process Python..."
@@ -2581,13 +2609,14 @@ msgstr "Språkattkjenning for setningar"
 
 msgid ""
 "Verify each complete sentence's language against the document locale. AI "
-"uses your grammar/chat API; Local uses bundled langdetect (no API call, no "
-"venv). Mismatches update CharLocale and re-check grammar."
+"uses your grammar/chat API; Local uses langdetect in your Python venv "
+"(Settings → Python; no API call). Mismatches update CharLocale and re-check "
+"grammar."
 msgstr ""
-"Kontroller kvart fullstendig setning sitt språk mot dokumentet sitt "
-"språkområde. AI brukar grammatikk-/chat-API-et ditt; Lokal brukar innebygd "
-"langdetect (ingen API-kall, ingen venv). Avvik oppdaterer CharLocale og "
-"sjekkar grammatikken på nytt."
+"Kontroller språket i kvar fullstendige setning mot dokumentet sitt språk. AI"
+" brukar grammatikk-/chat-API-et ditt; Lokal brukar langdetect i Python-venv-"
+"et ditt (Innstillinger → Python; ingen API-kall). Avvik oppdaterer "
+"CharLocale og sjekkar grammatikken på nytt."
 
 msgid "Local (langdetect)"
 msgstr "Lokal (langdetect)"
@@ -2813,13 +2842,15 @@ msgstr "Sti til PPT-master-data"
 msgid ""
 "Path to the ppt-master skill tree (SKILL.md, templates/, "
 "scripts/svg_to_pptx/). Clone https://github.com/hugohe3/ppt-master and point"
-" here at .../ppt-master/skills/ppt-master. Leave empty to auto-detect (dev "
-"clone beside repo, then env)."
+" here at the clone root (.../ppt-master) or the inner skill dir (.../ppt-"
+"master/skills/ppt-master). Leave empty to auto-detect (dev clone beside "
+"repo, then env)."
 msgstr ""
 "Sti til ppt-master-ferdigheitstreet (SKILL.md, templates/, "
-"scripts/svg_to_pptx/). Klone https://github.com/hugohe3/ppt-master og peik "
-"hit til .../ppt-master/skills/ppt-master. Lat feltet stå tomt for automatisk"
-" gjenkjenning (utviklingsklone ved sida av depotet, deretter miljø)."
+"scripts/svg_to_pptx/). Klon https://github.com/hugohe3/ppt-master og peik "
+"hit til klon-rota (.../ppt-master) eller den indre ferdigheitsmappa "
+"(.../ppt-master/skills/ppt-master). Lat feltet stå tomt for automatisk "
+"deteksjon (utviklingsklon ved sida av repo, deretter env)."
 
 msgid "Vision / OCR"
 msgstr "Visjon / OCR"

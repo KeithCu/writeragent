@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-01 18:39-0400\n"
+"POT-Creation-Date: 2026-07-01 21:28-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Urdu <LL@li.org>\n"
@@ -1394,6 +1394,21 @@ msgstr "پائتھون ایڈیٹر سے رابطہ نہیں ہو سکا۔"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid ""
+"On Linux also install system PortAudio: sudo apt-get install libportaudio2"
+msgstr ""
+"Linux پر سسٹم PortAudio بھی انسٹال کریں: sudo apt-get install libportaudio2"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio probe timed out (sounddevice import failed or hung)."
+msgstr ""
+"آڈیو پروب کا وقت ختم ہو گیا (sounddevice امپورٹ ناکام یا ہینگ ہو گیا)۔"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio probe failed (see writeragent_debug.log)."
+msgstr "آڈیو پروب ناکام (writeragent_debug.log ملاحظہ کریں)۔"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid ""
 "Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
 "on first check)."
 msgstr ""
@@ -1456,6 +1471,14 @@ msgid "Vector Search Libraries"
 msgstr "ویکٹر سرچ لائبریریاں"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording"
+msgstr "آڈیو ریکارڈنگ"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "No microphone input devices detected."
+msgstr "مائیکروفون کے کوئی ان پٹ آلات نہیں ملے۔"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
 msgstr "پائتھن ورکر شروع ہو رہا ہے..."
 
@@ -1477,6 +1500,10 @@ msgstr ""
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vector Search Libraries: loading (first run may take a while)..."
 msgstr "ویکٹر سرچ لائبریریاں: لوڈ ہو رہی ہیں (پہلی بار کچھ وقت لگ سکتا ہے)..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording: checking sounddevice..."
+msgstr "آڈیو ریکارڈنگ: sounddevice کی جانچ ہو رہی ہے..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using LibreOffice process Python..."
@@ -2583,13 +2610,14 @@ msgstr "جملے کی زبان کی شناخت"
 
 msgid ""
 "Verify each complete sentence's language against the document locale. AI "
-"uses your grammar/chat API; Local uses bundled langdetect (no API call, no "
-"venv). Mismatches update CharLocale and re-check grammar."
+"uses your grammar/chat API; Local uses langdetect in your Python venv "
+"(Settings → Python; no API call). Mismatches update CharLocale and re-check "
+"grammar."
 msgstr ""
-"دستاویز کے مقام (locale) کے مطابق ہر مکمل جملے کی زبان کی تصدیق کریں۔ AI آپ "
-"کے گرامر/چیٹ API کا استعمال کرتا ہے؛ Local بنڈل شدہ langdetect کا استعمال "
-"کرتا ہے (کوئی API کال نہیں، کوئی venv نہیں)۔ مماثلت نہ ہونے پر CharLocale کو"
-" اپ ڈیٹ کیا جاتا ہے اور گرامر کو دوبارہ چیک کیا جاتا ہے۔"
+"ہر مکمل جملے کی زبان کو دستاویز کے لوکیل (locale) کے مطابق تصدیق کریں۔ AI آپ"
+" کا گرامر/چیٹ API استعمال کرتا ہے؛ Local آپ کے Python venv میں langdetect "
+"استعمال کرتا ہے (ترتیبات → Python؛ کوئی API کال نہیں)۔ مماثلت نہ ہونے پر "
+"CharLocale کو اپ ڈیٹ کریں اور گرامر کو دوبارہ چیک کریں۔"
 
 msgid "Local (langdetect)"
 msgstr "Local (langdetect)"
@@ -2815,13 +2843,15 @@ msgstr "PPT-Master ڈیٹا کا راستہ"
 msgid ""
 "Path to the ppt-master skill tree (SKILL.md, templates/, "
 "scripts/svg_to_pptx/). Clone https://github.com/hugohe3/ppt-master and point"
-" here at .../ppt-master/skills/ppt-master. Leave empty to auto-detect (dev "
-"clone beside repo, then env)."
+" here at the clone root (.../ppt-master) or the inner skill dir (.../ppt-"
+"master/skills/ppt-master). Leave empty to auto-detect (dev clone beside "
+"repo, then env)."
 msgstr ""
-"ppt-master اسکل ٹری (SKILL.md, templates/, scripts/svg_to_pptx/) کا راستہ۔ "
-"https://github.com/hugohe3/ppt-master کو کلون کریں اور یہاں .../ppt-"
-"master/skills/ppt-master کی طرف اشارہ کریں۔ خودکار شناخت کے لیے خالی چھوڑ "
-"دیں (ریپو کے ساتھ dev کلون، پھر env)۔"
+"ppt-master اسکل ٹری کا پاتھ (SKILL.md, templates/, scripts/svg_to_pptx/)۔ "
+"https://github.com/hugohe3/ppt-master کو کلون کریں اور یہاں کلون روٹ "
+"(.../ppt-master) یا اندرونی اسکل ڈائریکٹری (.../ppt-master/skills/ppt-"
+"master) کی نشاندہی کریں۔ خودکار شناخت کے لیے خالی چھوڑ دیں (ریپو کے ساتھ dev"
+" کلون، پھر env)۔"
 
 msgid "Vision / OCR"
 msgstr "ویژن / OCR"

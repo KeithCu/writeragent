@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-01 18:39-0400\n"
+"POT-Creation-Date: 2026-07-01 21:28-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Turkish <LL@li.org>\n"
@@ -1393,6 +1393,23 @@ msgstr "Python düzenleyicisi ile iletişim kurulamadı."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid ""
+"On Linux also install system PortAudio: sudo apt-get install libportaudio2"
+msgstr ""
+"Linux'ta ayrıca sistem PortAudio'yu kurun: sudo apt-get install "
+"libportaudio2"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio probe timed out (sounddevice import failed or hung)."
+msgstr ""
+"Ses algılama zaman aşımına uğradı (sounddevice içe aktarma başarısız oldu "
+"veya yanıt vermiyor)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio probe failed (see writeragent_debug.log)."
+msgstr "Ses algılama başarısız oldu (bkz. writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid ""
 "Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
 "on first check)."
 msgstr ""
@@ -1459,6 +1476,14 @@ msgid "Vector Search Libraries"
 msgstr "Vektör Arama Kütüphaneleri"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording"
+msgstr "Ses Kaydı"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "No microphone input devices detected."
+msgstr "Mikrofon giriş aygıtı algılanamadı."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
 msgstr "Python çalışanı başlatılıyor..."
 
@@ -1481,6 +1506,10 @@ msgid "Vector Search Libraries: loading (first run may take a while)..."
 msgstr ""
 "Vektör Arama Kütüphaneleri: yükleniyor (ilk çalıştırma biraz zaman "
 "alabilir)..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording: checking sounddevice..."
+msgstr "Ses Kaydı: sounddevice kontrol ediliyor..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using LibreOffice process Python..."
@@ -2594,13 +2623,15 @@ msgstr "Cümle dili algılama"
 
 msgid ""
 "Verify each complete sentence's language against the document locale. AI "
-"uses your grammar/chat API; Local uses bundled langdetect (no API call, no "
-"venv). Mismatches update CharLocale and re-check grammar."
+"uses your grammar/chat API; Local uses langdetect in your Python venv "
+"(Settings → Python; no API call). Mismatches update CharLocale and re-check "
+"grammar."
 msgstr ""
-"Her tam cümleyi belge yerel ayarına göre doğrulayın. AI, dil bilgisi/sohbet "
-"API'nizi kullanır; Yerel ise paketlenmiş langdetect kullanır (API çağrısı "
-"yok, sanal ortam yok). Uyuşmazlıklar CharLocale'i günceller ve dil bilgisini"
-" yeniden kontrol eder."
+"Her tam cümlenin dilini belge yerel ayarına göre doğrulayın. AI, "
+"dilbilgisi/sohbet API'nizi kullanır; Yerel (Local), Python sanal "
+"ortamınızdaki (venv) langdetect'i kullanır (Ayarlar → Python; API çağrısı "
+"yapılmaz). Uyumsuzluklar CharLocale'i günceller ve dilbilgisini yeniden "
+"kontrol eder."
 
 msgid "Local (langdetect)"
 msgstr "Yerel (langdetect)"
@@ -2828,14 +2859,15 @@ msgstr "PPT-Master veri yolu"
 msgid ""
 "Path to the ppt-master skill tree (SKILL.md, templates/, "
 "scripts/svg_to_pptx/). Clone https://github.com/hugohe3/ppt-master and point"
-" here at .../ppt-master/skills/ppt-master. Leave empty to auto-detect (dev "
-"clone beside repo, then env)."
+" here at the clone root (.../ppt-master) or the inner skill dir (.../ppt-"
+"master/skills/ppt-master). Leave empty to auto-detect (dev clone beside "
+"repo, then env)."
 msgstr ""
-"ppt-master beceri ağacına giden yol (SKILL.md, templates/, "
+"ppt-master beceri ağacının yolu (SKILL.md, templates/, "
 "scripts/svg_to_pptx/). https://github.com/hugohe3/ppt-master adresini "
-"klonlayın ve burayı .../ppt-master/skills/ppt-master konumuna yönlendirin. "
-"Otomatik algılama için boş bırakın (deponun yanındaki geliştirici klonu, "
-"ardından ortam değişkeni)."
+"klonlayın ve burayı klon köküne (.../ppt-master) veya iç beceri dizinine "
+"(.../ppt-master/skills/ppt-master) yönlendirin. Otomatik algılama için boş "
+"bırakın (repo yanındaki geliştirici klonu, ardından env)."
 
 msgid "Vision / OCR"
 msgstr "Vizyon / OCR"

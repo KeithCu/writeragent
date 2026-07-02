@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-01 18:39-0400\n"
+"POT-Creation-Date: 2026-07-01 21:28-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Hungarian <LL@li.org>\n"
@@ -1401,6 +1401,23 @@ msgstr "Nem sikerült kommunikálni a Python-szerkesztővel."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid ""
+"On Linux also install system PortAudio: sudo apt-get install libportaudio2"
+msgstr ""
+"Linuxon telepítse a rendszer PortAudio könyvtárát is: sudo apt-get install "
+"libportaudio2"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio probe timed out (sounddevice import failed or hung)."
+msgstr ""
+"Az audio-ellenőrzés túllépte az időkorlátot (a sounddevice importálása "
+"sikertelen vagy lefagyott)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio probe failed (see writeragent_debug.log)."
+msgstr "Az audio-ellenőrzés sikertelen (lásd: writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid ""
 "Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
 "on first check)."
 msgstr ""
@@ -1463,6 +1480,14 @@ msgid "Vector Search Libraries"
 msgstr "Vektorkeresési könyvtárak"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording"
+msgstr "Hangfelvétel"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "No microphone input devices detected."
+msgstr "Nem található mikrofon bemeneti eszköz."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
 msgstr "Python-háttérfolyamat indítása..."
 
@@ -1484,6 +1509,10 @@ msgid "Vector Search Libraries: loading (first run may take a while)..."
 msgstr ""
 "Vektorkeresési könyvtárak: betöltés (az első futtatás eltarthat egy "
 "ideig)..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording: checking sounddevice..."
+msgstr "Hangfelvétel: sounddevice ellenőrzése..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using LibreOffice process Python..."
@@ -2619,13 +2648,15 @@ msgstr "Mondatnyelv-felismerés"
 
 msgid ""
 "Verify each complete sentence's language against the document locale. AI "
-"uses your grammar/chat API; Local uses bundled langdetect (no API call, no "
-"venv). Mismatches update CharLocale and re-check grammar."
+"uses your grammar/chat API; Local uses langdetect in your Python venv "
+"(Settings → Python; no API call). Mismatches update CharLocale and re-check "
+"grammar."
 msgstr ""
-"Ellenőrzi minden teljes mondat nyelvét a dokumentum területi beállításai "
-"alapján. Az AI a nyelvtani/csevegési API-t használja; a Helyi a beépített "
-"langdetectet (nincs API-hívás, nincs venv). Az eltérések frissítik a "
-"CharLocale-t és újraellenőrzik a nyelvtant."
+"Minden teljes mondat nyelvét ellenőrizze a dokumentum területi beállítása "
+"alapján. Az AI a nyelvhelyességi/csevegési API-t használja; a Helyi (Local) "
+"a Python venv-ben lévő langdetectet használja (Beállítások → Python; nincs "
+"API-hívás). Az eltérések frissítik a CharLocale-t és újraellenőrzik a "
+"nyelvhelyességet."
 
 msgid "Local (langdetect)"
 msgstr "Helyi (langdetect)"
@@ -2854,14 +2885,15 @@ msgstr "PPT-Master adatútvonal"
 msgid ""
 "Path to the ppt-master skill tree (SKILL.md, templates/, "
 "scripts/svg_to_pptx/). Clone https://github.com/hugohe3/ppt-master and point"
-" here at .../ppt-master/skills/ppt-master. Leave empty to auto-detect (dev "
-"clone beside repo, then env)."
+" here at the clone root (.../ppt-master) or the inner skill dir (.../ppt-"
+"master/skills/ppt-master). Leave empty to auto-detect (dev clone beside "
+"repo, then env)."
 msgstr ""
 "A ppt-master készségfa elérési útja (SKILL.md, templates/, "
 "scripts/svg_to_pptx/). Klónozza a https://github.com/hugohe3/ppt-master "
-"címet, és mutasson ide: .../ppt-master/skills/ppt-master. Hagyja üresen az "
-"automatikus észleléshez (fejlesztői klón a tárhely mellett, majd környezeti "
-"változó)."
+"címet, és mutasson a klón gyökerére (.../ppt-master) vagy a belső "
+"készségkönyvtárra (.../ppt-master/skills/ppt-master). Hagyja üresen az "
+"automatikus észleléshez (fejlesztői klón a tárhely mellett, majd környezet)."
 
 msgid "Vision / OCR"
 msgstr "Látásmód / OCR"

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-01 18:39-0400\n"
+"POT-Creation-Date: 2026-07-01 21:28-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Croatian <LL@li.org>\n"
@@ -1391,6 +1391,23 @@ msgstr "Nije bilo moguće komunicirati s Python uređivačem."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid ""
+"On Linux also install system PortAudio: sudo apt-get install libportaudio2"
+msgstr ""
+"Na Linuxu također instalirajte sistemski PortAudio: sudo apt-get install "
+"libportaudio2"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio probe timed out (sounddevice import failed or hung)."
+msgstr ""
+"Vrijeme provjere zvuka je isteklo (uvoz sounddevice nije uspio ili se "
+"zamrznuo)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio probe failed (see writeragent_debug.log)."
+msgstr "Provjera zvuka nije uspjela (pogledajte writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid ""
 "Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
 "on first check)."
 msgstr ""
@@ -1456,6 +1473,14 @@ msgid "Vector Search Libraries"
 msgstr "Biblioteke vektorskog pretraživanja"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording"
+msgstr "Snimanje zvuka"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "No microphone input devices detected."
+msgstr "Nisu otkriveni ulazni uređaji mikrofona."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
 msgstr "Pokretanje Python radnika..."
 
@@ -1477,6 +1502,10 @@ msgid "Vector Search Libraries: loading (first run may take a while)..."
 msgstr ""
 "Biblioteke vektorskog pretraživanja: učitavanje (prvo pokretanje može "
 "potrajati)..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording: checking sounddevice..."
+msgstr "Snimanje zvuka: provjera sounddevice..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using LibreOffice process Python..."
@@ -2588,13 +2617,14 @@ msgstr "Otkrivanje jezika rečenice"
 
 msgid ""
 "Verify each complete sentence's language against the document locale. AI "
-"uses your grammar/chat API; Local uses bundled langdetect (no API call, no "
-"venv). Mismatches update CharLocale and re-check grammar."
+"uses your grammar/chat API; Local uses langdetect in your Python venv "
+"(Settings → Python; no API call). Mismatches update CharLocale and re-check "
+"grammar."
 msgstr ""
-"Provjeri jezik svake potpune rečenice prema lokalnim postavkama dokumenta. "
-"AI koristi vaš API za gramatiku/razgovor; Lokalno koristi ugrađeni "
-"langdetect (bez API poziva, bez venv-a). Nepodudaranja ažuriraju CharLocale "
-"i ponovno provjeravaju gramatiku."
+"Provjerite jezik svake potpune rečenice prema lokalnim postavkama dokumenta."
+" AI koristi vaš API za gramatiku/razgovor; Lokalno koristi langdetect u "
+"vašem Python venv-u (Postavke → Python; nema API poziva). Nepodudaranja "
+"ažuriraju CharLocale i ponovno provjeravaju gramatiku."
 
 msgid "Local (langdetect)"
 msgstr "Lokalno (langdetect)"
@@ -2821,13 +2851,15 @@ msgstr "Putanja do PPT-Master podataka"
 msgid ""
 "Path to the ppt-master skill tree (SKILL.md, templates/, "
 "scripts/svg_to_pptx/). Clone https://github.com/hugohe3/ppt-master and point"
-" here at .../ppt-master/skills/ppt-master. Leave empty to auto-detect (dev "
-"clone beside repo, then env)."
+" here at the clone root (.../ppt-master) or the inner skill dir (.../ppt-"
+"master/skills/ppt-master). Leave empty to auto-detect (dev clone beside "
+"repo, then env)."
 msgstr ""
 "Putanja do stabla vještina ppt-master (SKILL.md, templates/, "
 "scripts/svg_to_pptx/). Klonirajte https://github.com/hugohe3/ppt-master i "
-"usmjerite ovdje na .../ppt-master/skills/ppt-master. Ostavite prazno za "
-"automatsko otkrivanje (razvojni klon pored repozitorija, zatim env)."
+"usmjerite ovdje na korijen klona (.../ppt-master) ili unutarnji direktorij "
+"vještina (.../ppt-master/skills/ppt-master). Ostavite prazno za automatsko "
+"otkrivanje (dev klon pored repozitorija, zatim env)."
 
 msgid "Vision / OCR"
 msgstr "Vizija / OCR"

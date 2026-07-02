@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-01 18:39-0400\n"
+"POT-Creation-Date: 2026-07-01 21:28-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Ukrainian <LL@li.org>\n"
@@ -1399,6 +1399,23 @@ msgstr "Не вдалося зв'язатися з редактором Python."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid ""
+"On Linux also install system PortAudio: sudo apt-get install libportaudio2"
+msgstr ""
+"У Linux також встановіть системний PortAudio: sudo apt-get install "
+"libportaudio2"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio probe timed out (sounddevice import failed or hung)."
+msgstr ""
+"Час очікування перевірки аудіо вичерпано (імпорт sounddevice не вдався або "
+"завис)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio probe failed (see writeragent_debug.log)."
+msgstr "Помилка перевірки аудіо (див. writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid ""
 "Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
 "on first check)."
 msgstr ""
@@ -1461,6 +1478,14 @@ msgid "Vector Search Libraries"
 msgstr "Бібліотеки векторного пошуку"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording"
+msgstr "Запис аудіо"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "No microphone input devices detected."
+msgstr "Не виявлено пристроїв введення мікрофона."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
 msgstr "Запуск робочого процесу Python..."
 
@@ -1483,6 +1508,10 @@ msgid "Vector Search Libraries: loading (first run may take a while)..."
 msgstr ""
 "Бібліотеки векторного пошуку: завантаження (перший запуск може тривати "
 "деякий час)..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording: checking sounddevice..."
+msgstr "Запис аудіо: перевірка sounddevice..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using LibreOffice process Python..."
@@ -2602,13 +2631,14 @@ msgstr "Визначення мови речення"
 
 msgid ""
 "Verify each complete sentence's language against the document locale. AI "
-"uses your grammar/chat API; Local uses bundled langdetect (no API call, no "
-"venv). Mismatches update CharLocale and re-check grammar."
+"uses your grammar/chat API; Local uses langdetect in your Python venv "
+"(Settings → Python; no API call). Mismatches update CharLocale and re-check "
+"grammar."
 msgstr ""
-"Перевіряти кожне повне речення на відповідність мові документа. AI "
-"використовує ваш API граматики/чату; Local використовує вбудований "
-"langdetect (без виклику API, без venv). Невідповідності оновлюють CharLocale"
-" та повторно перевіряють граматику."
+"Перевіряйте мову кожного повного речення відповідно до мови документа. AI "
+"використовує ваш API граматики/чату; Local використовує langdetect у вашому "
+"Python venv (Налаштування → Python; без виклику API). Невідповідності "
+"оновлюють CharLocale та повторно перевіряють граматику."
 
 msgid "Local (langdetect)"
 msgstr "Local (langdetect)"
@@ -2839,14 +2869,15 @@ msgstr "Шлях до даних PPT-Master"
 msgid ""
 "Path to the ppt-master skill tree (SKILL.md, templates/, "
 "scripts/svg_to_pptx/). Clone https://github.com/hugohe3/ppt-master and point"
-" here at .../ppt-master/skills/ppt-master. Leave empty to auto-detect (dev "
-"clone beside repo, then env)."
+" here at the clone root (.../ppt-master) or the inner skill dir (.../ppt-"
+"master/skills/ppt-master). Leave empty to auto-detect (dev clone beside "
+"repo, then env)."
 msgstr ""
 "Шлях до дерева навичок ppt-master (SKILL.md, templates/, "
-"scripts/svg_to_pptx/). Клонуйте https://github.com/hugohe3/ppt-master та "
-"вкажіть тут шлях до .../ppt-master/skills/ppt-master. Залиште порожнім для "
-"автоматичного визначення (клон для розробки поруч із репозиторієм, потім "
-"середовище)."
+"scripts/svg_to_pptx/). Клонуйте https://github.com/hugohe3/ppt-master і "
+"вкажіть тут корінь клону (.../ppt-master) або внутрішню папку навичок "
+"(.../ppt-master/skills/ppt-master). Залиште порожнім для автовизначення "
+"(dev-клон поруч із репозиторієм, потім env)."
 
 msgid "Vision / OCR"
 msgstr "Бачення / OCR"

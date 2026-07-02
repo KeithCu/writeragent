@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-01 18:39-0400\n"
+"POT-Creation-Date: 2026-07-01 21:28-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Estonian <LL@li.org>\n"
@@ -1387,6 +1387,22 @@ msgstr "Pythoni redaktoriga ei saanud ühendust."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid ""
+"On Linux also install system PortAudio: sudo apt-get install libportaudio2"
+msgstr ""
+"Linuxil installige ka süsteemne PortAudio: sudo apt-get install "
+"libportaudio2"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio probe timed out (sounddevice import failed or hung)."
+msgstr ""
+"Helituvastuse ajalõpp (sounddevice importimine ebaõnnestus või hangus)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio probe failed (see writeragent_debug.log)."
+msgstr "Helituvastus ebaõnnestus (vt writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid ""
 "Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
 "on first check)."
 msgstr ""
@@ -1449,6 +1465,14 @@ msgid "Vector Search Libraries"
 msgstr "Vektorotsingu teegid"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording"
+msgstr "Heli salvestamine"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "No microphone input devices detected."
+msgstr "Ühtegi mikrofoni sisendseadet ei tuvastatud."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
 msgstr "Pythoni tööprotsessi käivitamine..."
 
@@ -1469,6 +1493,10 @@ msgstr "Vision-teegid: laadimine (esmakordne käivitamine võib aega võtta)..."
 msgid "Vector Search Libraries: loading (first run may take a while)..."
 msgstr ""
 "Vektorotsingu teegid: laadimine (esmakordne käivitamine võib aega võtta)..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording: checking sounddevice..."
+msgstr "Heli salvestamine: kontrollin sounddevice'i..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using LibreOffice process Python..."
@@ -2576,14 +2604,14 @@ msgstr "Lause keele tuvastamine"
 
 msgid ""
 "Verify each complete sentence's language against the document locale. AI "
-"uses your grammar/chat API; Local uses bundled langdetect (no API call, no "
-"venv). Mismatches update CharLocale and re-check grammar."
+"uses your grammar/chat API; Local uses langdetect in your Python venv "
+"(Settings → Python; no API call). Mismatches update CharLocale and re-check "
+"grammar."
 msgstr ""
-"Kontrollige iga täislause keelt vastavalt dokumendi keelesätetele. AI "
-"kasutab teie grammatika-/vestlusliidest (API); kohalik režiim kasutab "
-"kaasasolevat keeletuvastust (ei vaja API-päringuid ega virtuaalkeskkonda). "
-"Ebakõlade korral uuendatakse tähemärgi keelesätet (CharLocale) ja "
-"kontrollitakse grammatikat uuesti."
+"Kontrolli iga täislause keelt vastavalt dokumendi keelele. AI kasutab teie "
+"grammatika/vestluse API-t; Local kasutab teie Pythoni venv-is olevat "
+"langdetecti (Sätted → Python; API-kutsed puuduvad). Mitterastavused "
+"uuendavad CharLocale'i ja kontrollivad grammatikat uuesti."
 
 msgid "Local (langdetect)"
 msgstr "Kohalik (langdetect)"
@@ -2810,13 +2838,15 @@ msgstr "PPT-Masteri andmete tee"
 msgid ""
 "Path to the ppt-master skill tree (SKILL.md, templates/, "
 "scripts/svg_to_pptx/). Clone https://github.com/hugohe3/ppt-master and point"
-" here at .../ppt-master/skills/ppt-master. Leave empty to auto-detect (dev "
-"clone beside repo, then env)."
+" here at the clone root (.../ppt-master) or the inner skill dir (.../ppt-"
+"master/skills/ppt-master). Leave empty to auto-detect (dev clone beside "
+"repo, then env)."
 msgstr ""
 "Tee ppt-masteri oskuste puuni (SKILL.md, templates/, scripts/svg_to_pptx/). "
-"Kloonige https://github.com/hugohe3/ppt-master ja suunake siia asukohta "
-".../ppt-master/skills/ppt-master. Jätke tühjaks automaatseks tuvastamiseks "
-"(arenduskloon hoidla kõrval, seejärel keskkonnamuutuja)."
+"Kloonige https://github.com/hugohe3/ppt-master ja suunake siia klooni "
+"juurkataloog (.../ppt-master) või sisemine oskuste kataloog (.../ppt-"
+"master/skills/ppt-master). Jätke tühjaks automaatseks tuvastamiseks "
+"(arenduskloon repositooriumi kõrval, seejärel env)."
 
 msgid "Vision / OCR"
 msgstr "Visioon / OCR"

@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: WriterAgent 1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-01 18:39-0400\n"
+"POT-Creation-Date: 2026-07-01 21:28-0400\n"
 "PO-Revision-Date: 2024-03-21 12:00+0000\n"
 "Last-Translator: \n"
 "Language-Team: German\n"
@@ -1405,6 +1405,23 @@ msgstr "Die Kommunikation mit dem Python-Editor ist fehlgeschlagen."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid ""
+"On Linux also install system PortAudio: sudo apt-get install libportaudio2"
+msgstr ""
+"Installieren Sie unter Linux auch das System-PortAudio: sudo apt-get install"
+" libportaudio2"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio probe timed out (sounddevice import failed or hung)."
+msgstr ""
+"Audio-Prüfung zeitlich abgelaufen (sounddevice-Import fehlgeschlagen oder "
+"hängt)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio probe failed (see writeragent_debug.log)."
+msgstr "Audio-Prüfung fehlgeschlagen (siehe writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid ""
 "Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
 "on first check)."
 msgstr ""
@@ -1467,6 +1484,14 @@ msgid "Vector Search Libraries"
 msgstr "Vektorsuch-Bibliotheken"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording"
+msgstr "Audioaufnahme"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "No microphone input devices detected."
+msgstr "Keine Mikrofon-Eingabegeräte erkannt."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
 msgstr "Starte Python-Worker..."
 
@@ -1490,6 +1515,10 @@ msgid "Vector Search Libraries: loading (first run may take a while)..."
 msgstr ""
 "Vektorsuch-Bibliotheken: werden geladen (erster Start kann einige Zeit "
 "dauern)..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording: checking sounddevice..."
+msgstr "Audioaufnahme: sounddevice wird geprüft..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using LibreOffice process Python..."
@@ -2614,13 +2643,15 @@ msgstr "Satzsprachenerkennung"
 
 msgid ""
 "Verify each complete sentence's language against the document locale. AI "
-"uses your grammar/chat API; Local uses bundled langdetect (no API call, no "
-"venv). Mismatches update CharLocale and re-check grammar."
+"uses your grammar/chat API; Local uses langdetect in your Python venv "
+"(Settings → Python; no API call). Mismatches update CharLocale and re-check "
+"grammar."
 msgstr ""
-"Überprüft jeden vollständigen Satz auf die Dokument-Sprache. KI verwendet "
-"Ihre Grammatik-/Chat-API; Lokal verwendet das mitgelieferte langdetect (kein"
-" API-Aufruf, kein venv). Nichtübereinstimmungen aktualisieren CharLocale und"
-" prüfen die Grammatik erneut."
+"Überprüfen Sie jeden vollständigen Satz auf die Dokumentensprache. AI "
+"verwendet Ihre Grammatik-/Chat-API; Lokal verwendet langdetect in Ihrem "
+"Python-venv (Einstellungen → Python; kein API-Aufruf). "
+"Nichtübereinstimmungen aktualisieren CharLocale und prüfen die Grammatik "
+"erneut."
 
 msgid "Local (langdetect)"
 msgstr "Lokal (langdetect)"
@@ -2848,14 +2879,16 @@ msgstr "Pfad zu PPT-Master-Daten"
 msgid ""
 "Path to the ppt-master skill tree (SKILL.md, templates/, "
 "scripts/svg_to_pptx/). Clone https://github.com/hugohe3/ppt-master and point"
-" here at .../ppt-master/skills/ppt-master. Leave empty to auto-detect (dev "
-"clone beside repo, then env)."
+" here at the clone root (.../ppt-master) or the inner skill dir (.../ppt-"
+"master/skills/ppt-master). Leave empty to auto-detect (dev clone beside "
+"repo, then env)."
 msgstr ""
-"Pfad zum ppt-master-Skill-Tree (SKILL.md, templates/, scripts/svg_to_pptx/)."
-" Klonen Sie https://github.com/hugohe3/ppt-master und geben Sie hier den "
-"Pfad zu .../ppt-master/skills/ppt-master an. Lassen Sie das Feld leer für "
-"die automatische Erkennung (Entwickler-Klon neben dem Repository, dann "
-"Umgebungsvariable)."
+"Pfad zum ppt-master-Skill-Baum (SKILL.md, templates/, scripts/svg_to_pptx/)."
+" Klonen Sie https://github.com/hugohe3/ppt-master und verweisen Sie hier auf"
+" das Klon-Stammverzeichnis (.../ppt-master) oder das innere Skill-"
+"Verzeichnis (.../ppt-master/skills/ppt-master). Lassen Sie das Feld leer für"
+" die automatische Erkennung (Entwickler-Klon neben dem Repository, dann "
+"env)."
 
 msgid "Vision / OCR"
 msgstr "Vision / OCR"

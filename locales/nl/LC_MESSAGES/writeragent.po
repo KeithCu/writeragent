@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-01 18:39-0400\n"
+"POT-Creation-Date: 2026-07-01 21:28-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Dutch <LL@li.org>\n"
@@ -1395,6 +1395,22 @@ msgstr "Kon niet communiceren met de Python-editor."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid ""
+"On Linux also install system PortAudio: sudo apt-get install libportaudio2"
+msgstr ""
+"Installeer op Linux ook het systeem PortAudio: sudo apt-get install "
+"libportaudio2"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio probe timed out (sounddevice import failed or hung)."
+msgstr ""
+"Audio-onderzoek is verlopen (sounddevice import mislukt of vastgelopen)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio probe failed (see writeragent_debug.log)."
+msgstr "Audio-onderzoek mislukt (zie writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid ""
 "Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
 "on first check)."
 msgstr ""
@@ -1457,6 +1473,14 @@ msgid "Vector Search Libraries"
 msgstr "Vector Search-bibliotheken"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording"
+msgstr "Audio-opname"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "No microphone input devices detected."
+msgstr "Geen microfooningaveapparaten gedetecteerd."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
 msgstr "Python-worker starten..."
 
@@ -1475,6 +1499,10 @@ msgstr "Vision Libraries: laden (eerste keer kan even duren)..."
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vector Search Libraries: loading (first run may take a while)..."
 msgstr "Vector Search-bibliotheken: laden (eerste keer kan even duren)..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording: checking sounddevice..."
+msgstr "Audio-opname: sounddevice controleren..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using LibreOffice process Python..."
@@ -2590,13 +2618,14 @@ msgstr "Taaldetectie voor zinnen"
 
 msgid ""
 "Verify each complete sentence's language against the document locale. AI "
-"uses your grammar/chat API; Local uses bundled langdetect (no API call, no "
-"venv). Mismatches update CharLocale and re-check grammar."
+"uses your grammar/chat API; Local uses langdetect in your Python venv "
+"(Settings → Python; no API call). Mismatches update CharLocale and re-check "
+"grammar."
 msgstr ""
-"Controleer elke volledige zin op taalgebruik op basis van de "
-"documentinstelling. AI gebruikt uw grammatica/chat-API; Lokaal gebruikt "
-"gebundelde langdetect (geen API-aanroep, geen venv). Mismatches werken "
-"CharLocale bij en controleren de grammatica opnieuw."
+"Controleer de taal van elke volledige zin tegen de documenttaal. AI gebruikt"
+" uw grammatica/chat-API; Lokaal gebruikt langdetect in uw Python venv "
+"(Instellingen → Python; geen API-aanroep). Mismatches werken CharLocale bij "
+"en controleren de grammatica opnieuw."
 
 msgid "Local (langdetect)"
 msgstr "Lokaal (langdetect)"
@@ -2822,13 +2851,15 @@ msgstr "Pad naar PPT-Master-gegevens"
 msgid ""
 "Path to the ppt-master skill tree (SKILL.md, templates/, "
 "scripts/svg_to_pptx/). Clone https://github.com/hugohe3/ppt-master and point"
-" here at .../ppt-master/skills/ppt-master. Leave empty to auto-detect (dev "
-"clone beside repo, then env)."
+" here at the clone root (.../ppt-master) or the inner skill dir (.../ppt-"
+"master/skills/ppt-master). Leave empty to auto-detect (dev clone beside "
+"repo, then env)."
 msgstr ""
-"Pad naar de ppt-master-vaardigheidsboom (SKILL.md, templates/, "
+"Pad naar de ppt-master skill tree (SKILL.md, templates/, "
 "scripts/svg_to_pptx/). Kloon https://github.com/hugohe3/ppt-master en "
-"verwijs hier naar .../ppt-master/skills/ppt-master. Laat leeg voor "
-"automatische detectie (ontwikkelingskloon naast repo, daarna env)."
+"verwijs hier naar de kloon-root (.../ppt-master) of de interne skill-map "
+"(.../ppt-master/skills/ppt-master). Laat leeg voor automatische detectie "
+"(dev-kloon naast repo, dan env)."
 
 msgid "Vision / OCR"
 msgstr "Visie / OCR"
