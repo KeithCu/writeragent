@@ -22,7 +22,7 @@ include = ["plugin*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--ignore=tests/uno --ignore=tests/scripting/test_serialization_verification.py"
+addopts = "--ignore=build --ignore=tests/uno --ignore=tests/scripting/test_serialization_verification.py"
 markers = [
     "slow: excluded from default pytest; run via make slowtests",
     "integration: full subprocess worker IPC (optional, slower)",
