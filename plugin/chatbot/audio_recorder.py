@@ -20,8 +20,10 @@ from __future__ import annotations
 
 import logging
 import os
-import subprocess
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    import subprocess
 
 from plugin.chatbot.audio_recorder_state import (
     AudioRecorderEvent,
