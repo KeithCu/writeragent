@@ -87,7 +87,7 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 ### 🌐 Multi-modal & Research
 
 - **Web Research**: Powered by a vendored **smolagents** loop. [Web Research Loop](docs/agent-search.md) & [Search Integration](docs/search-engine-integration.md).
-- **Audio & Voice**: Integrated cross-platform voice recording. [Audio Architecture](docs/audio-architecture.md).
+- **Audio & Voice**: Integrated cross-platform voice recording (requires `sounddevice` in your external venv). [Audio Architecture](docs/audio-architecture.md).
 - **Image Generation**: Generate or edit (Img2Img) images. [Image Generation Guide](docs/image-generation.md).
 - **Local OCR (Writer & Calc)**: Extract text and layout from embedded images offline via **Docling** — no cloud vision API required. **Run Python Script → Vision Helpers** — `extract_text` (Writer: inserts at cursor; Calc: sheet report below the image). **Packages:** `docling`, `rapidocr-paddle`, `numpy`, `pillow`, `onnxruntime` (required for default RapidOCR), and optional `paddleocr`, `paddlepaddle` fallback. Settings: **WriterAgent → Vision OCR Settings…** for pipeline defaults; **Settings → Python** for venv path and **Test**. [Image recognition design](docs/image-recognition.md).
 
