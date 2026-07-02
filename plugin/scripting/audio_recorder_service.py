@@ -234,7 +234,7 @@ def run_audio_download(on_display: Callable[[str], None], on_status: Callable[[s
         platform_suffix = 'arm64' if is_arm else '64bit'
         portaudio_name = f'libportaudio{platform_suffix}.dll'
 
-    base_url = "https://raw.githubusercontent.com/KeithCu/writeragent/main/contrib/"
+    base_url = "https://raw.githubusercontent.com/KeithCu/writeragent/master/contrib/"
 
     on_display(f"Target directory: {target_dir}\n")
     on_display(f"Platform: {platform.system()} ({platform.machine()})\n")

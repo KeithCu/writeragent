@@ -117,6 +117,9 @@ def load_cython_accelerator() -> None:
         fn1d = getattr(_vp, "fast_flatten_grid_1d", None)
         loc = "contrib"
     except ImportError:
+        pass
+
+    if fn2d is None or fn1d is None:
         # Fallback: absolute import (mostly for dev/standalone tests)
         try:
             import writeragent_vec as _wv  # type: ignore
