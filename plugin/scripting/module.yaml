@@ -30,7 +30,7 @@ config:
     type: string
     default: ""
     widget: button
-    label: "Download SoundDevice Platform-specific audio binaries:"
+    label: "Download platform-specific audio and serialization binaries:"
     button_text: "Download"
     show_button_label: true
     label_width: 280

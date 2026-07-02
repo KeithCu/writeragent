@@ -306,5 +306,17 @@ def run_audio_download(on_display: Callable[[str], None], on_status: Callable[[s
     with open(init_dest, "w") as f:
         f.write("# Placeholder\n")
 
+    # Download writeragent_vec serialization binaries
+    vec_init_url = f"{base_url}vec_pack/__init__.py"
+    vec_init_dest = os.path.join(target_dir, "writeragent_vec", "__init__.py")
+    on_display("Downloading writeragent_vec/__init__.py...\n")
+    download_url_to_file(vec_init_url, vec_init_dest)
+
+    pack_name = f"pack{ext_suffix}"
+    vec_bin_url = f"{base_url}vec_pack/{pack_name}"
+    vec_bin_dest = os.path.join(target_dir, "writeragent_vec", pack_name)
+    on_display(f"Downloading binary {pack_name}...\n")
+    download_url_to_file(vec_bin_url, vec_bin_dest)
+
     on_display("\nAll downloaded files installed successfully!\n")
     return True

@@ -43,6 +43,13 @@ ensure_plugin_on_path(
     also_add_vendor=True,           # root-level vendor/ when present (optional dev wheels)
 )
 
+# Inject downloaded binaries path (audio + serialization)
+try:
+    from plugin.scripting.audio_recorder_service import ensure_downloaded_audio_on_path
+    ensure_downloaded_audio_on_path()
+except Exception:
+    pass
+
 import unohelper
 from typing import TYPE_CHECKING, Any, Callable, Protocol, cast
 

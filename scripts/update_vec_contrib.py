@@ -15,7 +15,7 @@ from pathlib import Path
 import argparse
 
 REPO_ROOT = Path(__file__).parent.parent.resolve()
-DEST_DIR = REPO_ROOT / "plugin" / "contrib" / "vec_pack"
+DEST_DIR = REPO_ROOT / "contrib" / "vec_pack"
 WORKFLOW_NAME = "build-vec-wheels.yml"
 
 def strip_binary(filepath):
@@ -99,13 +99,7 @@ def harvest_wheels(input_dir):
     print(f"Found {len(found_wheels)} wheels in {input_dir}")
 
     for wheel in found_wheels:
-        # Skip Windows ARM64 and macOS builds for now as requested
-        if "win_arm64" in wheel.name:
-            print(f"Skipping {wheel.name} (Windows ARM64 disabled)")
-            continue
-        if "macosx" in wheel.name:
-            print(f"Skipping {wheel.name} (macOS disabled)")
-            continue
+
 
         print(f"Processing {wheel.name}...")
         with zipfile.ZipFile(wheel, 'r') as zip_ref:
