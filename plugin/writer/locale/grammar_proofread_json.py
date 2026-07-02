@@ -14,9 +14,7 @@ import logging
 import re
 from typing import Any, Mapping, cast
 
-import json_repair
-
-from plugin.framework.json_utils import safe_json_loads
+from plugin.framework.json_utils import repair_json_object, safe_json_loads
 
 _log = logging.getLogger("writeragent.grammar")
 
@@ -76,7 +74,7 @@ def parse_grammar_json(content: str) -> list[dict[str, Any]]:
     if not isinstance(data, Mapping):
         try:
             _log.info("[grammar] parse_grammar_json: attempting json_repair")
-            data = json_repair.repair_json(text, return_objects=True)
+            data = repair_json_object(text)
         except Exception as e:
             _log.warning("[grammar] parse_grammar_json: json_repair failed: %s", e)
             return []
@@ -116,7 +114,7 @@ def parse_grammar_batch_json(content: str) -> list[list[dict[str, Any]]]:
     if not isinstance(data, Mapping):
         try:
             _log.info("[grammar] parse_grammar_batch_json: attempting json_repair")
-            data = json_repair.repair_json(text, return_objects=True)
+            data = repair_json_object(text)
         except Exception as e:
             _log.warning("[grammar] parse_grammar_batch_json: json_repair failed: %s", e)
             return []
@@ -167,7 +165,7 @@ def parse_language_detect_json(content: str) -> str | None:
     data: Any = safe_json_loads(text)
     if not isinstance(data, Mapping):
         try:
-            data = json_repair.repair_json(text, return_objects=True)
+            data = repair_json_object(text)
         except Exception:
             return None
     if not isinstance(data, Mapping):
@@ -188,7 +186,7 @@ def parse_language_detect_batch_json(content: str) -> list[str | None]:
     data: Any = safe_json_loads(text)
     if not isinstance(data, Mapping):
         try:
-            data = json_repair.repair_json(text, return_objects=True)
+            data = repair_json_object(text)
         except Exception:
             return []
     if not isinstance(data, Mapping):

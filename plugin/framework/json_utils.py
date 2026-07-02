@@ -181,6 +181,18 @@ def repair_json(text: str) -> str:
     return str(json_repair.repair_json(repaired))
 
 
+def repair_json_object(text: str) -> Any:
+    """Repair malformed JSON and return a parsed object (json-repair return_objects=True)."""
+    if not isinstance(text, str):
+        return text
+    stripped = text.strip()
+    if not stripped:
+        return stripped
+    import json_repair  # lazy: vendored in plugin/lib or vendor/
+
+    return json_repair.repair_json(stripped, return_objects=True)
+
+
 def safe_json_loads(text: Any, default: Any = None, strict: bool = False) -> Any:
     """Safely parse a JSON string into a Python object with optional robust repair logic.
 

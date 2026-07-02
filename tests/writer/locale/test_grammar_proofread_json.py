@@ -6,7 +6,40 @@
 
 from __future__ import annotations
 
+import builtins
+import importlib
+import sys
+from unittest.mock import patch
+
 from plugin.writer.locale import grammar_proofread_json as gj
+
+
+def test_module_imports_without_json_repair(monkeypatch) -> None:
+    """Module must load even when vendored json_repair is not importable yet."""
+    real_import = builtins.__import__
+
+    def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "json_repair":
+            raise ImportError("no json_repair")
+        return real_import(name, globals, locals, fromlist, level)
+
+    sys.modules.pop("json_repair", None)
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    importlib.reload(gj)
+
+    # safe_json_loads also lazy-imports json_repair; isolate the grammar repair fallback.
+    with patch("plugin.writer.locale.grammar_proofread_json.safe_json_loads", return_value=None):
+        assert gj.parse_grammar_json("not json") == []
+
+
+def test_parse_grammar_json_uses_json_repair_fallback() -> None:
+    """When safe_json_loads fails, repair_json_object fallback still parses errors."""
+    raw = '{"errors": [{"wrong": "they is", "correct": "they are", "type": "grammar", "reason": "agreement"},]}'
+    with patch("plugin.writer.locale.grammar_proofread_json.safe_json_loads", return_value=None):
+        items = gj.parse_grammar_json(raw)
+    assert len(items) == 1
+    assert items[0]["wrong"] == "they is"
+    assert items[0]["correct"] == "they are"
 
 
 def test_parse_grammar_json_empty() -> None:
