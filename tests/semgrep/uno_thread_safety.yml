@@ -95,6 +95,7 @@ rules:
         - "**/plugin/contrib/cdp/browser_supervisor.py"
         - "**/plugin/scripting/venv_worker.py"
         - "**/plugin/scripting/venv/editor_main.py"
+        - "**/plugin/scripting/venv/audio_record_main.py"
         - "**/plugin/writer/locale/grammar_work_queue.py"
         - "**/plugin/chatbot/dialog_views.py"
         - "**/plugin/calc/python/function.py"

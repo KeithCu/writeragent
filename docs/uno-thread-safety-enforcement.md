@@ -319,7 +319,7 @@ run **`make opengrep-rules-sync`**, triage new findings.
 
 Rule `raw-uno-thread-ban` matches `threading.Thread`/`Timer` and bare `Thread`/`Timer`
 outside [`plugin/framework/worker_pool.py`](../plugin/framework/worker_pool.py) and a
-vetted allowlist (venv worker/editor, grammar queue, CDP supervisor,
+vetted allowlist (venv worker/editor/audio recorder, grammar queue, CDP supervisor,
 `async_stream` batch timer, settings debounce timer, calc deferred spill).
 `plugin/contrib/` is excluded via Makefile `--exclude` flags (documented in [`tests/semgrep/semgrepignore`](../tests/semgrep/semgrepignore)).
 
