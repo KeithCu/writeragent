@@ -1,6 +1,5 @@
 import pytest
 import json
-import logging
 from unittest.mock import MagicMock, patch
 
 from plugin.tests.testing_utils import setup_uno_mocks
@@ -8,9 +7,9 @@ setup_uno_mocks()
 
 from plugin.framework.errors import (
     ToolExecutionError,
-    format_error_payload,
 )
 
+from plugin.chatbot.tool_loop_actions import build_tool_execute_fn
 from plugin.chatbot.tool_loop import ToolCallingMixin
 from plugin.chatbot.audio_recorder_state import AudioRecorderState
 from plugin.chatbot.send_state import SendButtonState
@@ -100,30 +99,11 @@ def test_tool_execution_error_handling(test_instance, mock_get_tools):
     # Setup mock to simulate a tool throwing an error when execute_fn is called
     registry = mock_get_tools
     registry.get_schemas.return_value = [{"name": "test_tool"}]
+    execute_fn = build_tool_execute_fn(test_instance, "writer", None, None, MagicMock())
 
-    # Simulate execute function
-    with patch("plugin.chatbot.tool_loop.get_document_context_for_chat") as mock_doc_context, \
-         patch("plugin.chatbot.tool_loop.agent_log") as mock_agent_log:
-
-        mock_doc_context.return_value = "doc text"
-
+    with patch("plugin.chatbot.tool_loop_actions.agent_log") as mock_agent_log:
         # Test 1: ToolExecutionError
         registry.execute.side_effect = ToolExecutionError("Specific tool error")
-
-        # Call the private method that defines execute_fn
-        # Instead of calling _do_send_chat_with_tools which goes all the way, we extract the execute_fn definition
-        # Since _do_send_chat_with_tools defines execute_fn dynamically, we need to run it and intercept
-
-        # We patch _start_tool_calling_async to capture the execute_fn
-        captured_execute_fn = []
-        def mock_start(*args, **kwargs):
-            # execute_fn is the 5th argument in the positional arguments of _start_tool_calling_async
-            captured_execute_fn.append(args[4])
-
-        with patch.object(test_instance, "_start_tool_calling_async", mock_start):
-            test_instance._do_send_chat_with_tools("test", "test_model", "writer")
-
-        execute_fn = captured_execute_fn[0]
 
         # Execute it and verify the exception handling
         res = execute_fn("test_tool", {"arg": "val"}, None, test_instance.ctx)

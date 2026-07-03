@@ -271,6 +271,10 @@ LibreOffice’s UI (VCL) is single-threaded. To keep the UI responsive during lo
 
 This flat architecture avoids nested callbacks and makes state transitions explicit.
 
+### Tool-loop command boundary
+
+The main-chat loop keeps the transition layer pure. Queue items from worker threads are normalized in [`plugin/chatbot/tool_loop.py`](../plugin/chatbot/tool_loop.py) by `_create_event_from_stream_item()`, then [`plugin/chatbot/tool_loop_state.py`](../plugin/chatbot/tool_loop_state.py) `next_state()` returns only a new `ToolLoopState` plus effect dataclasses. [`plugin/chatbot/tool_loop_actions.py`](../plugin/chatbot/tool_loop_actions.py) is the interpreter that executes those effects against concrete dependencies: sidebar UI, `ChatSession`, worker spawning, tool execution, and document-context refresh after successful mutating tools. This keeps document mutations out of the FSM while preserving the main-thread drain-loop boundary for UNO work.
+
 > [!WARNING]
 > **`job_done` ownership invariant:** `job_done[0]` must **only** be written by the drain loop (main thread) when it processes a terminal queue item (`STREAM_DONE`, `ERROR`, or `STOPPED`). The worker thread must never set `job_done[0] = True` directly, even in a `finally` block.
 >

@@ -8,9 +8,6 @@ import logging
 import inspect
 import dataclasses
 import queue
-import json
-import threading
-import traceback
 import base64
 import os
 from typing import TYPE_CHECKING, Protocol, Any, Callable, Sequence, cast
@@ -33,7 +30,6 @@ from plugin.framework.config import (
     get_api_config,
     get_config,
     get_config_int,
-    get_config_bool,
     get_config_str,
     get_current_endpoint,
     validate_api_config,
@@ -47,30 +43,20 @@ from plugin.framework.client.model_fetcher import (
 from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
 from plugin.framework.constants import get_chat_system_prompt_for_document, CHAT_DOCUMENT_CONTEXT_MAX_CHARS
 from plugin.doc.document_helpers import get_document_context_for_chat
-from plugin.framework.errors import format_error_payload, ToolExecutionError, UnoObjectError, NetworkError
+from plugin.framework.errors import format_error_payload, UnoObjectError, NetworkError
 from plugin.framework.queue_executor import llm_request_lane
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.config import as_bool
 
-from plugin.framework.tool import ToolContext
 from plugin.framework.worker_pool import run_in_background
 from plugin.framework.uno_context import get_toolkit
 from plugin.framework.i18n import _
+from plugin.chatbot.tool_loop_actions import ToolLoopEffectInterpreter, build_tool_execute_fn
 
 from plugin.chatbot.tool_loop_state import (
     ToolLoopState,
     ToolLoopEvent,
     EventKind,
-    SpawnLLMWorkerEffect,
-    SpawnToolWorkerEffect,
-    ToolLoopUIEffect,
-    LogAgentEffect,
-    AddMessageEffect,
-    UpdateActivityStateEffect,
-    ExitLoopEffect,
-    TriggerNextToolEffect,
-    SpawnFinalStreamEffect,
-    UpdateDocumentContextEffect,
     next_state,
 )
 
@@ -117,6 +103,7 @@ class ToolLoopHost(Protocol):
     _current_tool_call_id: str | None
     _assistant_stream_start_len: int | None
     _record_assistant_start: bool
+    _tool_loop_interpreter: ToolLoopEffectInterpreter | None
     _in_brainstorming_mode: bool
     _brainstorming_topic: str
 
@@ -210,117 +197,7 @@ class ToolCallingMixin:
                 active_domain=active_domain,
                 ctx=self.ctx,
             )
-
-            def execute_fn(name, args, doc, ctx, status_callback=None, append_thinking_callback=None, stop_checker=None):
-                from plugin.main import get_tools as _get_tools
-
-
-                # NOTE: Experimental planning/TodoStore wiring is intentionally
-                # commented out. When enabling the hermes-style todo tool,
-                # you can attach a session-scoped TodoStore here and expose it
-                # via ToolContext.services, e.g.:
-                #
-                # from plugin.contrib.todo_store import TodoStore
-                # if not hasattr(self, "_todo_store"):
-                #     self._todo_store = TodoStore()
-                # services = dict(_get_tools()._services)
-                # services["todo_store"] = self._todo_store
-                #
-                # and then pass `services=services` into ToolContext below.
-
-                approval_cb: Any = None
-                chat_append_cb: Any = None
-                safe_args = args if isinstance(args, dict) else {}
-                from plugin.chatbot.tool_loop_state import DELEGATE_GATEWAY_TOOL_NAMES
-
-                delegate_domain = str(safe_args.get("domain") or "") if name in DELEGATE_GATEWAY_TOOL_NAMES else ""
-                # Delegate gateways forward domain=web_research to WebResearchTool with the same ctx;
-                # they must receive the same HITL wiring as the outer web_research tool.
-                needs_web_research_ui = name == "web_research" or delegate_domain == "web_research"
-                needs_document_research_ui = delegate_domain == "document_research"
-                if needs_web_research_ui or needs_document_research_ui:
-
-                    def _sub_agent_chat_append(text):
-                        aq = getattr(self, "_active_q", None)
-                        if aq is not None:
-                            aq.put((StreamQueueKind.CHUNK, text))
-                        cid = getattr(self, "_current_tool_call_id", None)
-                        if cid and hasattr(self, "session") and self.session:
-                            if not hasattr(self.session, "tool_streamed_texts"):
-                                self.session.tool_streamed_texts = {}
-                            if cid not in self.session.tool_streamed_texts:
-                                self.session.tool_streamed_texts[cid] = []
-                            self.session.tool_streamed_texts[cid].append(text)
-
-                    chat_append_cb = _sub_agent_chat_append
-
-                    try:
-                        if needs_web_research_ui and get_config_bool("chatbot.prompt_for_web_research"):
-
-                            def _web_approval(query_for_engine, tool_name, args):
-                                q = getattr(self, "_active_q", None)
-                                if q is None:
-                                    log.warning("tool_loop: web_research approval skipped (_active_q missing)")
-                                    return True
-                                event = threading.Event()
-                                # Use setattr/getattr to avoid static attribute errors on Event
-                                setattr(event, "approved", False)
-                                setattr(event, "query_override", None)
-                                q.put((StreamQueueKind.APPROVAL_REQUIRED, query_for_engine, tool_name, event))
-                                event.wait()
-                                if not getattr(event, "approved", False):
-                                    q.put((StreamQueueKind.STOPPED,))
-                                return (bool(getattr(event, "approved", False)), getattr(event, "query_override", None))
-
-                            approval_cb = _web_approval
-                    except Exception as ex:
-                        log.warning("tool_loop: web_research approval setup failed: %s", ex)
-
-                active_page_idx = None
-                if doc_type_str in ("draw", "impress"):
-                    try:
-                        from plugin.draw.bridge import DrawBridge
-                        active_page_idx = DrawBridge(doc).get_active_page_index()
-                    except Exception:
-                        log.debug("execute_fn: failed to get active page index for %s", doc_type_str)
-
-                cancel_scope = getattr(self, "_send_cancellation", None)
-
-                tctx = ToolContext(
-                    doc=doc,
-                    ctx=ctx,
-                    doc_type=doc_type_str,
-                    services=_get_tools()._services,
-                    caller="chat",
-                    active_page_index=active_page_idx,
-                    status_callback=status_callback,
-                    append_thinking_callback=append_thinking_callback,
-                    stop_checker=stop_checker if stop_checker is not None else self.resolve_stop_checker(),
-                    approval_callback=approval_cb,
-                    chat_append_callback=chat_append_cb if (needs_web_research_ui or needs_document_research_ui) else None,
-                    set_active_domain_callback=set_active_domain,
-                    active_domain=active_domain,
-                    python_tool_domain=python_tool_domain,
-                    send_cancellation=cancel_scope,
-                    uno_services_supported=getattr(self, "cached_uno_services", None),
-                )
-                try:
-                    res = _get_tools().execute(name, tctx, **args)
-                    return json.dumps(res) if isinstance(res, dict) else str(res)
-                except (ToolExecutionError, UnoObjectError) as e:
-                    tb = traceback.format_exc()
-                    log.exception("Tool execution failed")
-                    agent_log("tool_loop.py:execute_fn", "Tool execution failed", data={"type": type(e).__name__, "message": str(e)})
-                    err_payload = format_error_payload(e)
-                    if "details" not in err_payload:
-                        err_payload["details"] = {}
-                    err_payload["details"]["traceback"] = tb
-                    return json.dumps(err_payload)
-                except Exception as e:
-                    log.exception("Unexpected tool error")
-                    tb = traceback.format_exc()
-                    wrapped_error = ToolExecutionError("Unexpected error executing tool '%s'" % name, code="TOOL_UNEXPECTED_ERROR", details={"tool_name": name, "original_error": str(e), "type": type(e).__name__, "traceback": tb})
-                    return json.dumps(format_error_payload(wrapped_error))
+            execute_fn = build_tool_execute_fn(self, doc_type_str, active_domain, python_tool_domain, set_active_domain)
 
         except Exception as e:
             log.exception("_do_send: tool import FAILED")
@@ -592,116 +469,11 @@ class ToolCallingMixin:
 
     def _execute_effect(self: ToolLoopHost, effect: Any) -> bool:
         """Execute a single pure effect returned by the state machine."""
-        if isinstance(effect, ExitLoopEffect):
-            return True
-        elif isinstance(effect, TriggerNextToolEffect):
-            self._active_q.put((StreamQueueKind.NEXT_TOOL,))
-        elif isinstance(effect, SpawnFinalStreamEffect):
-            self._spawn_final_stream(self._active_batched_q or self._active_q, self._active_client, self._active_max_tokens)
-        elif isinstance(effect, UpdateDocumentContextEffect):
-            try:
-                doc = self._get_document_model() if hasattr(self, "_get_document_model") else None
-                if doc:
-                    max_ctx = CHAT_DOCUMENT_CONTEXT_MAX_CHARS
-                    doc_text = get_document_context_for_chat(doc, max_ctx, include_end=True, include_selection=True, ctx=self.ctx)
-                    extra_instructions = get_config_str("additional_instructions")
-                    base_prompt = get_chat_system_prompt_for_document(doc, extra_instructions, ctx=self.ctx)
-                    self.session.set_system_context(base_prompt, doc_text)
-            except Exception:
-                pass
-
-        elif isinstance(effect, ToolLoopUIEffect):
-            if effect.kind == "append":
-                self._append_response(effect.text)
-                if effect.text.startswith("\n[Debug: round="):
-                    log.warning("Tool loop: no assistant text from model: %s", effect.text.strip())
-            elif effect.kind == "status":
-                self._set_status(effect.text)
-                if effect.text in ("Stopped", "Ready", "Error"):
-                    self._terminal_status = effect.text
-            elif effect.kind == "debug":
-                log.debug(effect.text)
-            elif effect.kind == "info":
-                log.info(effect.text)
-
-        elif isinstance(effect, LogAgentEffect):
-            agent_log(effect.location, effect.message, data=effect.data, hypothesis_id=effect.hypothesis_id)
-
-        elif isinstance(effect, AddMessageEffect):
-            if effect.role == "assistant":
-                self.session.add_assistant_message(content=effect.content, tool_calls=effect.tool_calls, reasoning_replay=effect.reasoning_replay)
-            elif effect.role == "tool":
-                self.session.add_tool_result(effect.call_id, effect.content)
-
-        elif isinstance(effect, SpawnLLMWorkerEffect):
-            self._refresh_active_tools_for_session()
-            self._spawn_llm_worker(self._active_batched_q or self._active_q, self._active_client, self._active_max_tokens, self._active_tools, effect.round_num, query_text=self._active_query_text)
-
-        elif isinstance(effect, UpdateActivityStateEffect):
-            if effect.action == "tool_execute":
-                update_activity_state("tool_execute", round_num=effect.round_num, tool_name=effect.tool_name)
-            elif effect.action == "exhausted_rounds":
-                update_activity_state("exhausted_rounds")
-
-        elif effect.__class__.__name__ == "CleanupAudioEffect":
-            current_model = get_text_model()
-            current_endpoint = get_current_endpoint()
-            set_native_audio_support(current_model, current_endpoint, supported=True)
-            
-
-            try:
-                if self.audio_wav_path:
-                    os.remove(self.audio_wav_path)
-            except Exception:
-                pass
-            self.audio_wav_path = None
-
-        elif isinstance(effect, SpawnToolWorkerEffect):
-            func_name = effect.func_name
-            func_args_str = effect.func_args_str
-            func_args = effect.func_args
-            call_id = effect.call_id
-            self._current_tool_call_id = call_id
-
-            image_model_override = self.image_model_selector.getText() if self.image_model_selector else None
-            if image_model_override and func_name == "generate_image":
-                func_args["image_model"] = image_model_override
-
-            def tool_status_callback(msg):
-                self._active_q.put((StreamQueueKind.STATUS, msg))
-
-            if effect.is_async:
-
-                def run_async():
-                    try:
-
-                        def tool_thinking_callback(msg):
-                            self._active_q.put((StreamQueueKind.TOOL_THINKING, msg))
-
-                        if self._active_supports_status:
-                            res = self._active_execute_tool_fn(func_name, func_args, self._active_model, self.ctx, status_callback=tool_status_callback, append_thinking_callback=tool_thinking_callback, stop_checker=self.resolve_stop_checker())
-                        else:
-                            res = self._active_execute_tool_fn(func_name, func_args, self._active_model, self.ctx, stop_checker=self.resolve_stop_checker())
-                        self._active_q.put((StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, res))
-                    except Exception as e:
-
-                        self._active_q.put((StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, json.dumps(format_error_payload(e))))
-
-
-
-                run_in_background(run_async, name=f"tool-async-{func_name}")
-            else:
-                try:
-                    if self._active_supports_status:
-                        res = self._active_execute_tool_fn(func_name, func_args, self._active_model, self.ctx, status_callback=tool_status_callback)
-                    else:
-                        res = self._active_execute_tool_fn(func_name, func_args, self._active_model, self.ctx)
-                    self._active_q.put((StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, res))
-                except Exception as e:
-
-                    self._active_q.put((StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, json.dumps(format_error_payload(e))))
-
-        return False
+        interpreter = getattr(self, "_tool_loop_interpreter", None)
+        if interpreter is None:
+            interpreter = ToolLoopEffectInterpreter(self)
+            self._tool_loop_interpreter = interpreter
+        return interpreter.execute(effect)
 
     def _handle_stream_completion(self: ToolLoopHost, item: Any) -> bool:
         raw_kind = item[0] if isinstance(item, (tuple, list)) else item
@@ -830,6 +602,7 @@ class ToolCallingMixin:
             self._active_execute_tool_fn = execute_tool_fn
             self._active_max_tool_rounds = max_tool_rounds
             self._active_query_text = query_text
+            self._tool_loop_interpreter = ToolLoopEffectInterpreter(self)
 
             # Read config once for web research thinking display
             try:
@@ -875,6 +648,7 @@ class ToolCallingMixin:
 
             finalize_sidebar_assistant_response(self)
         finally:
+            self._tool_loop_interpreter = None
             self.sidebar_state = dataclasses.replace(self.sidebar_state, tool_loop=None)
 
     def begin_inline_web_approval(self, query: str, tool: str, event: Any) -> None:
