@@ -47,13 +47,23 @@ def resolve_venv_paths(venv_base: str) -> tuple[str, str, str]:
 
 def uno_import_works(venv_python: str) -> bool:
     try:
-        subprocess.run(
+        result = subprocess.run(
             [venv_python, "-c", "import uno"],
             check=True,
             capture_output=True,
+            text=True,
         )
         return True
-    except (subprocess.CalledProcessError, OSError):
+    except subprocess.CalledProcessError as e:
+        # On macOS, we deliberately only expose uno.py (not pyuno.so) because
+        # importing the real pyuno under a different Python version hangs/crashes.
+        # This means "import uno" will fail with ModuleNotFoundError/ImportError
+        # for 'pyuno'. If 'pyuno' is in the error message, the path to uno.py is
+        # successfully configured.
+        if sys.platform == "darwin" and "pyuno" in (e.stderr or ""):
+            return True
+        return False
+    except OSError:
         return False
 
 
