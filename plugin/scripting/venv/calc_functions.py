@@ -6,6 +6,7 @@
 
 Semantics mirror the inline helpers formerly pasted by spreadsheet import translation.
 """
+
 from __future__ import annotations
 
 from plugin.scripting.calc_functions_common import HELPER_NAMES

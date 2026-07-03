@@ -6,6 +6,7 @@
 
 Semantics mirror the inline helpers formerly pasted by spreadsheet import translation.
 """
+
 from __future__ import annotations
 
 import datetime
@@ -20,16 +21,67 @@ import numpy as np
 from plugin.scripting.calc_functions_common import HELPER_NAMES
 
 
+__all__ = [
+    "na",
+    "negbinomdist",
+    "networkdays",
+    "networkdays_intl",
+    "nominal",
+    "normdist",
+    "norminv",
+    "normsdist",
+    "normsinv",
+    "nper",
+    "npv",
+    "numbervalue",
+    "odd",
+    "oddfprice",
+    "oddfyield",
+    "oddlprice",
+    "pearson",
+    "percentrank",
+    "permut",
+    "pmt",
+    "poisson",
+    "prob",
+    "pv",
+    "py_str",
+    "quartile",
+    "rank",
+    "regex",
+    "rept",
+    "rsq",
+    "sec",
+    "sech",
+    "seriessum",
+    "skew",
+    "slope",
+    "small",
+    "sort",
+    "sortby",
+    "sqrtpi",
+    "standardize",
+    "stdeva",
+    "stdevpa",
+    "steyx",
+    "subtotal",
+    "sumif",
+    "sumifs",
+    "sumproduct",
+    "sumsq",
+    "textafter",
+]
 
-__all__ = ["na", "negbinomdist", "networkdays", "networkdays_intl", "nominal", "normdist", "norminv", "normsdist", "normsinv", "nper", "npv", "numbervalue", "odd", "oddfprice", "oddfyield", "oddlprice", "pearson", "percentrank", "permut", "pmt", "poisson", "prob", "pv", "py_str", "quartile", "rank", "regex", "rept", "rsq", "sec", "sech", "seriessum", "skew", "slope", "small", "sort", "sortby", "sqrtpi", "standardize", "stdeva", "stdevpa", "steyx", "subtotal", "sumif", "sumifs", "sumproduct", "sumsq", "textafter"]
 
 def na() -> float:
     # Usually #N/A in Calc maps to NaN in Python data array
     return float("nan")
 
+
 def negbinomdist(x: Any, r: Any, p: Any) -> float:
     try:
         import scipy.stats as st
+
         k = int(float(x))
         r_val = int(float(r))
         prob = float(p)
@@ -38,6 +90,8 @@ def negbinomdist(x: Any, r: Any, p: Any) -> float:
         return float(st.nbinom.pmf(k, r_val, prob))
     except (ValueError, TypeError, ImportError):
         return float("nan")
+
+
 def networkdays(start_date: Any, end_date: Any, holidays: Any | None = None) -> float:
     try:
         sd = datetime.date.fromordinal(int(float(start_date)) + 693594)
@@ -64,6 +118,8 @@ def networkdays(start_date: Any, end_date: Any, holidays: Any | None = None) -> 
             days += 1
         curr += datetime.timedelta(days=1)
     return float(sign * days)
+
+
 def networkdays_intl(start_date: Any, end_date: Any, weekend: Any = 1, holidays: Any | None = None) -> float:
     try:
         sd = datetime.date.fromordinal(int(float(start_date)) + 693594)
@@ -84,22 +140,7 @@ def networkdays_intl(start_date: Any, end_date: Any, weekend: Any = 1, holidays:
                 wk_days.add(i)
     else:
         w_idx = int(float(weekend))
-        mapping = {
-            1: (5, 6),
-            2: (6, 0),
-            3: (0, 1),
-            4: (1, 2),
-            5: (2, 3),
-            6: (3, 4),
-            7: (4, 5),
-            11: (6,),
-            12: (0,),
-            13: (1,),
-            14: (2,),
-            15: (3,),
-            16: (4,),
-            17: (5,),
-        }
+        mapping = {1: (5, 6), 2: (6, 0), 3: (0, 1), 4: (1, 2), 5: (2, 3), 6: (3, 4), 7: (4, 5), 11: (6,), 12: (0,), 13: (1,), 14: (2,), 15: (3,), 16: (4,), 17: (5,)}
         wk_days.update(mapping.get(w_idx, (5, 6)))
 
     h_dates: set[datetime.date] = set()
@@ -117,6 +158,8 @@ def networkdays_intl(start_date: Any, end_date: Any, weekend: Any = 1, holidays:
             days += 1
         curr += datetime.timedelta(days=1)
     return float(sign * days)
+
+
 def nominal(effect_rate: Any, npery: Any) -> float:
     try:
         er = float(effect_rate)
@@ -126,9 +169,12 @@ def nominal(effect_rate: Any, npery: Any) -> float:
     if er <= 0 or np_y < 1:
         return float("nan")
     return np_y * ((er + 1) ** (1.0 / np_y) - 1)
+
+
 def normdist(x: Any, mean: Any, stdev: Any, c: Any = 1) -> float:
     try:
         import scipy.stats as st
+
         x_val = float(x)
         m = float(mean)
         s = float(stdev)
@@ -140,6 +186,8 @@ def normdist(x: Any, mean: Any, stdev: Any, c: Any = 1) -> float:
         return float(st.norm.pdf(x_val, loc=m, scale=s))
     except (ValueError, TypeError, ImportError):
         return float("nan")
+
+
 def norminv(prob: Any, mean: Any, stdev: Any) -> float:
     try:
         p = float(prob)
@@ -148,24 +196,33 @@ def norminv(prob: Any, mean: Any, stdev: Any) -> float:
         if p <= 0 or p >= 1 or s <= 0:
             return float("nan")
         import scipy.stats
+
         return float(scipy.stats.norm.ppf(p, loc=m, scale=s))
     except (ValueError, TypeError):
         return float("nan")
+
+
 def normsdist(z: Any) -> float:
     try:
         import scipy.stats
+
         return float(scipy.stats.norm.cdf(float(z)))
     except (ValueError, TypeError):
         return float("nan")
+
+
 def normsinv(prob: Any) -> float:
     try:
         p = float(prob)
         if p <= 0 or p >= 1:
             return float("nan")
         import scipy.stats
+
         return float(scipy.stats.norm.ppf(p))
     except (ValueError, TypeError):
         return float("nan")
+
+
 def nper(rate: Any, pmt_val: Any, pv_val: Any, fv_val: Any = 0, type_val: Any = 0) -> float:
     try:
         r = float(rate)
@@ -176,7 +233,8 @@ def nper(rate: Any, pmt_val: Any, pv_val: Any, fv_val: Any = 0, type_val: Any = 
     except (ValueError, TypeError):
         return float("nan")
     if r == 0:
-        if pmt_f == 0: return float("nan")
+        if pmt_f == 0:
+            return float("nan")
         return -(pv_f + fv_f) / pmt_f
 
     # PV * (1+r)^n + PMT*(1+r*t)*(((1+r)^n - 1)/r) + FV = 0
@@ -193,6 +251,8 @@ def nper(rate: Any, pmt_val: Any, pv_val: Any, fv_val: Any = 0, type_val: Any = 
     if val <= 0:
         return float("nan")
     return math.log(val) / math.log(1 + r)
+
+
 def npv(rate: Any, *args: Any) -> float:
     r = float(rate)
     vals = []
@@ -206,6 +266,8 @@ def npv(rate: Any, *args: Any) -> float:
     for i, v in enumerate(vals):
         res += v / ((1 + r) ** (i + 1))
     return float(res)
+
+
 def numbervalue(text: Any, dec_sep: Any = ".", grp_sep: Any = ",") -> float:
     try:
         s = str(text).strip()
@@ -217,6 +279,8 @@ def numbervalue(text: Any, dec_sep: Any = ".", grp_sep: Any = ",") -> float:
         return float(s)
     except (ValueError, TypeError):
         return float("nan")
+
+
 def odd(n: Any) -> float:
     v = float(n)
     i = int(np.trunc(v))
@@ -224,8 +288,10 @@ def odd(n: Any) -> float:
         return float(i)
     return float(i + (1 if v >= 0 else -1))
 
+
 def oddfprice(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rate: Any, yld: Any, redemption: Any, frequency: Any, basis: Any = 0) -> float:
     from plugin.scripting.venv.calc_functions_a_c import _days_between
+
     try:
         s = float(settlement)
         m = float(maturity)
@@ -242,14 +308,18 @@ def oddfprice(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rat
     days_to_mat = _days_between(s, m, b)
     years = days_to_mat / 365.25 if b == 1 else days_to_mat / 360.0
     n = years * f
-    if n <= 0: return float("nan")
+    if n <= 0:
+        return float("nan")
 
     c = 100 * r / f
     price = sum(c / ((1 + y / f) ** i) for i in range(1, int(n) + 1))
     price += red / ((1 + y / f) ** n)
     return price
+
+
 def oddfyield(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rate: Any, pr: Any, redemption: Any, frequency: Any, basis: Any = 0) -> float:
     from plugin.scripting.venv.calc_functions_a_c import _days_between
+
     try:
         s = float(settlement)
         m = float(maturity)
@@ -266,12 +336,16 @@ def oddfyield(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rat
     # Approx yield using simple formula: Y = (C + (F-P)/n) / ((F+P)/2)
     days_to_mat = _days_between(s, m, b)
     years = days_to_mat / 365.25 if b == 1 else days_to_mat / 360.0
-    if years <= 0: return float("nan")
+    if years <= 0:
+        return float("nan")
     c = 100 * r
     approx_y = (c + (red - price) / years) / ((red + price) / 2)
     return approx_y
+
+
 def oddlprice(settlement: Any, maturity: Any, last_interest: Any, rate: Any, yld: Any, redemption: Any, frequency: Any, basis: Any = 0) -> float:
     from plugin.scripting.venv.calc_functions_a_c import _days_between
+
     try:
         s = float(settlement)
         m = float(maturity)
@@ -291,7 +365,8 @@ def oddlprice(settlement: Any, maturity: Any, last_interest: Any, rate: Any, yld
     days_s_to_m = _days_between(s, m, b)
     settle_frac = days_s_to_m / days_in_reg_period
 
-    if last_period_frac <= 0 or settle_frac <= 0: return float("nan")
+    if last_period_frac <= 0 or settle_frac <= 0:
+        return float("nan")
 
     c = 100 * r / f
     last_c = c * last_period_frac
@@ -303,24 +378,29 @@ def oddlprice(settlement: Any, maturity: Any, last_interest: Any, rate: Any, yld
     accrued_interest = c * accrued_frac
 
     return price - accrued_interest
+
+
 def pearson(data1: Any, data2: Any) -> float:
     try:
         d1 = np.asarray(data1).ravel()
         d2 = np.asarray(data2).ravel()
         if len(d1) != len(d2):
             return float("nan")
-        mask1 = np.array([isinstance(x.item() if hasattr(x, 'item') else x, (int, float)) and not math.isnan(x.item() if hasattr(x, 'item') else x) for x in d1])
-        mask2 = np.array([isinstance(x.item() if hasattr(x, 'item') else x, (int, float)) and not math.isnan(x.item() if hasattr(x, 'item') else x) for x in d2])
+        mask1 = np.array([isinstance(x.item() if hasattr(x, "item") else x, (int, float)) and not math.isnan(x.item() if hasattr(x, "item") else x) for x in d1])
+        mask2 = np.array([isinstance(x.item() if hasattr(x, "item") else x, (int, float)) and not math.isnan(x.item() if hasattr(x, "item") else x) for x in d2])
         mask = mask1 & mask2
         d1_clean = np.asarray(d1[mask], dtype=float)
         d2_clean = np.asarray(d2[mask], dtype=float)
         if len(d1_clean) <= 1:
             return float("nan")
         import scipy.stats  # type: ignore[import-untyped]
+
         corr, _p = scipy.stats.pearsonr(d1_clean, d2_clean)
         return float(cast("float", corr))
     except (ValueError, TypeError):
         return float("nan")
+
+
 def percentrank(data: Any, x: Any, significance: Any = 3) -> float:
     try:
         d = np.asarray(data, dtype=float).ravel()
@@ -351,13 +431,15 @@ def percentrank(data: Any, x: Any, significance: Any = 3) -> float:
             res = count_less / (n - 1)
         else:
             idx = np.searchsorted(d_sorted, val) - 1
-            x0, x1 = d_sorted[idx], d_sorted[idx+1]
+            x0, x1 = d_sorted[idx], d_sorted[idx + 1]
             r0, r1 = np.sum(d < x0) / (n - 1), np.sum(d < x1) / (n - 1)
             res = r0 + (r1 - r0) * (val - x0) / (x1 - x0)
 
         return float(np.round(res, sig))
     except (ValueError, TypeError, IndexError):
         return float("nan")
+
+
 def permut(n: Any, k: Any) -> float:
     try:
         n_val = int(float(n))
@@ -367,6 +449,8 @@ def permut(n: Any, k: Any) -> float:
         return float(math.perm(n_val, k_val))
     except (ValueError, TypeError):
         return float("nan")
+
+
 def pmt(rate: Any, nper: Any, pv: Any, fv_val: Any = 0, type_val: Any = 0) -> float:
     r = float(rate)
     n = float(nper)
@@ -380,6 +464,7 @@ def pmt(rate: Any, nper: Any, pv: Any, fv_val: Any = 0, type_val: Any = 0) -> fl
         return float(-(p * factor + f) * r / (factor - 1) / (1 + r))
     return float(-(p * factor + f) * r / (factor - 1))
 
+
 def poisson(x: Any, mean: Any, cumulative: Any = False) -> float:
     try:
         k = int(float(x))
@@ -387,12 +472,15 @@ def poisson(x: Any, mean: Any, cumulative: Any = False) -> float:
         if k < 0 or m < 0:
             return float("nan")
         import scipy.stats
+
         if cumulative:
             return float(scipy.stats.poisson.cdf(k, m))
         else:
             return float(scipy.stats.poisson.pmf(k, m))
     except (ValueError, TypeError):
         return float("nan")
+
+
 def prob(data: Any, probs: Any, x_start: Any, x_end: Any | None = None) -> float:
     try:
         d = np.asarray(data, dtype=float).ravel()
@@ -407,6 +495,8 @@ def prob(data: Any, probs: Any, x_start: Any, x_end: Any | None = None) -> float
         return float(np.sum(p[mask]))
     except (ValueError, TypeError):
         return float("nan")
+
+
 def pv(rate: Any, nper: Any, pmt_val: Any, fv_val: Any = 0, type_val: Any = 0) -> float:
     r = float(rate)
     n = float(nper)
@@ -420,12 +510,14 @@ def pv(rate: Any, nper: Any, pmt_val: Any, fv_val: Any = 0, type_val: Any = 0) -
         return float(-(f + pm * (factor - 1) * (1 + r) / r) / factor)
     return float(-(f + pm * (factor - 1) / r) / factor)
 
+
 def quartile(r: Any, q: Any) -> float:
     arr = np.asarray(r, dtype=float).ravel()
     arr = arr[~np.isnan(arr)]
     qi = int(float(q))
     pct = {0: 0.0, 1: 25.0, 2: 50.0, 3: 75.0, 4: 100.0}.get(qi, float(qi) * 25.0)
     return float(np.percentile(arr, pct)) if len(arr) else float("nan")
+
 
 def rank(val: Any, r: Any, order: int | float = 0) -> float:
     arr = [float(x) for x in np.asarray(r).ravel() if x is not None and x != ""]
@@ -441,6 +533,8 @@ def rank(val: Any, r: Any, order: int | float = 0) -> float:
         return float(arr.index(target) + 1)
     except ValueError:
         return float("nan")
+
+
 def regex(text: Any, expr: Any, replacement: Any | None = None, flags: str = "") -> str:
     if text is None:
         text = ""
@@ -465,11 +559,15 @@ def regex(text: Any, expr: Any, replacement: Any | None = None, flags: str = "")
     if "g" in str(flags).lower():
         return re.sub(expr_str, rep_str, text_str, flags=re_flags)
     return re.sub(expr_str, rep_str, text_str, count=1, flags=re_flags)
+
+
 def rept(text: Any, n: Any) -> str:
     try:
         return str(text) * int(float(n))
     except (ValueError, TypeError, OverflowError):
         return ""
+
+
 def rsq(data_y: Any, data_x: Any) -> float:
     y = np.asarray(data_y, dtype=float).ravel()
     x = np.asarray(data_x, dtype=float).ravel()
@@ -480,16 +578,21 @@ def rsq(data_y: Any, data_x: Any) -> float:
     corr = np.corrcoef(x, y)[0, 1]
     return float(corr**2)
 
+
 def sec(x: Any) -> float:
     try:
         return float(1.0 / math.cos(float(x)))
     except (ValueError, TypeError, ZeroDivisionError):
         return float("nan")
+
+
 def sech(x: Any) -> float:
     try:
         return float(1.0 / math.cosh(float(x)))
     except (ValueError, TypeError, ZeroDivisionError):
         return float("nan")
+
+
 def seriessum(x: Any, n: Any, m: Any, coefficients: Any) -> float:
     try:
         x_val = float(x)
@@ -502,6 +605,8 @@ def seriessum(x: Any, n: Any, m: Any, coefficients: Any) -> float:
         return res
     except Exception:
         return float("nan")
+
+
 def skew(*args: Any) -> float:
     vals = []
     for arg in args:
@@ -523,6 +628,8 @@ def skew(*args: Any) -> float:
     term1 = n / ((n - 1) * (n - 2))
     term2 = np.sum(z**3)
     return float(term1 * term2)
+
+
 def slope(data_y: Any, data_x: Any) -> float:
     y = np.asarray(data_y, dtype=float).ravel()
     x = np.asarray(data_x, dtype=float).ravel()
@@ -535,10 +642,12 @@ def slope(data_y: Any, data_x: Any) -> float:
     ss_xx = np.sum((x - mx) ** 2)
     return float(ss_xy / ss_xx) if ss_xx != 0 else float("nan")
 
+
 def small(r: Any, k: Any) -> float:
     arr = sorted([float(x) for x in np.asarray(r).ravel() if x is not None and x != ""])
     ki = int(float(k))
     return float(arr[ki - 1]) if 0 < ki <= len(arr) else float("nan")
+
 
 def sort(range_arr: Any, sort_index: int | float = 1, sort_order: int | float = 1, by_col: bool = False) -> list:
     arr = np.asarray(range_arr)
@@ -558,6 +667,8 @@ def sort(range_arr: Any, sort_index: int | float = 1, sort_order: int | float = 
     if not asc:
         order = order[::-1]
     return arr[order].tolist()
+
+
 def sortby(range_arr: Any, by_array: Any, sort_order: int | float = 1, *extra: Any) -> list:
     arr = np.asarray(range_arr)
     by = np.asarray(by_array).ravel()
@@ -572,6 +683,7 @@ def sortby(range_arr: Any, by_array: Any, sort_order: int | float = 1, *extra: A
         order = order[::-1]
     return arr[order].tolist()
 
+
 def sqrtpi(number: Any) -> float:
     try:
         n = float(number)
@@ -580,6 +692,8 @@ def sqrtpi(number: Any) -> float:
         return float(math.sqrt(n * math.pi))
     except (ValueError, TypeError):
         return float("nan")
+
+
 def standardize(x: Any, mean: Any, stdev: Any) -> float:
     try:
         val = float(x)
@@ -590,8 +704,11 @@ def standardize(x: Any, mean: Any, stdev: Any) -> float:
         return float((val - m) / s)
     except (ValueError, TypeError):
         return float("nan")
+
+
 def stdeva(*args: Any) -> float:
     from plugin.scripting.venv.calc_functions_a_c import _to_float_a
+
     vals = []
     for arg in args:
         for v in np.asarray(arg).ravel():
@@ -599,8 +716,11 @@ def stdeva(*args: Any) -> float:
     if len(vals) < 2:
         return float("nan")
     return float(np.std(vals, ddof=1))
+
+
 def stdevpa(*args: Any) -> float:
     from plugin.scripting.venv.calc_functions_a_c import _to_float_a
+
     vals = []
     for arg in args:
         for v in np.asarray(arg).ravel():
@@ -608,9 +728,12 @@ def stdevpa(*args: Any) -> float:
     if not vals:
         return float("nan")
     return float(np.std(vals, ddof=0))
+
+
 def steyx(data_y: Any, data_x: Any) -> float:
     from plugin.scripting.venv.calc_functions_i_m import intercept
     from plugin.scripting.venv.calc_functions_n_s import slope
+
     y = np.asarray(data_y, dtype=float).ravel()
     x = np.asarray(data_x, dtype=float).ravel()
     mask = ~np.isnan(y) & ~np.isnan(x)
@@ -623,6 +746,8 @@ def steyx(data_y: Any, data_x: Any) -> float:
     y_hat = s * x + i
     ss_resid = np.sum((y - y_hat) ** 2)
     return float(math.sqrt(ss_resid / (n - 2)))
+
+
 def subtotal(fn_num: Any, r: Any) -> float:
     fn = int(float(fn_num)) % 100
     flat = np.asarray(r).ravel()
@@ -660,8 +785,11 @@ def subtotal(fn_num: Any, r: Any) -> float:
     if fn == 11:
         return float(np.var(arr, ddof=0)) if len(arr) else 0.0
     return float(np.sum(arr))
+
+
 def sumif(r: Any, crit: Any, sr: Any | None = None) -> float:
     from plugin.scripting.venv.calc_functions_i_m import match_criteria
+
     r_flat = np.asarray(r).ravel()
     sr_flat = np.asarray(sr).ravel() if sr is not None else r_flat
     total = 0.0
@@ -674,8 +802,11 @@ def sumif(r: Any, crit: Any, sr: Any | None = None) -> float:
             except (ValueError, TypeError):
                 pass
     return float(total)
+
+
 def sumifs(sr: Any, *args: Any) -> float:
     from plugin.scripting.venv.calc_functions_i_m import match_criteria
+
     sr_flat = np.asarray(sr).ravel()
     cond_ranges = []
     criteria = []
@@ -697,6 +828,8 @@ def sumifs(sr: Any, *args: Any) -> float:
             except (ValueError, TypeError):
                 pass
     return float(total)
+
+
 def sumproduct(*args: Any) -> float:
     arrays = [np.asarray(a).ravel() for a in args]
     if not arrays:
@@ -713,6 +846,8 @@ def sumproduct(*args: Any) -> float:
                 break
         total += prod
     return float(total)
+
+
 def sumsq(*args: Any) -> float:
     total = 0.0
     for arg in args:
@@ -723,9 +858,12 @@ def sumsq(*args: Any) -> float:
                 except (ValueError, TypeError):
                     pass
     return float(total)
+
+
 def py_str(val: Any) -> str:
     """Stringify for inline ``=PY()`` code without emitting the ``str(`` token."""
     return str(val)
+
 
 def textafter(text: Any, delimiter: Any, instance_num: Any = 1, match_mode: Any = 0, match_end: Any = 0, if_not_found: Any = float("nan")) -> str | float:
     try:
@@ -759,7 +897,7 @@ def textafter(text: Any, delimiter: Any, instance_num: Any = 1, match_mode: Any 
             idx = len(s)
             for i in range(abs(inst)):
                 idx = s_search.rfind(delim_search, 0, idx)
-            return s[idx + len(delim_search):]
+            return s[idx + len(delim_search) :]
         else:
             return float("nan")
     except (ValueError, TypeError):

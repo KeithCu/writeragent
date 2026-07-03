@@ -6,6 +6,7 @@
 
 Semantics mirror the inline helpers formerly pasted by spreadsheet import translation.
 """
+
 from __future__ import annotations
 
 import datetime
@@ -20,7 +21,77 @@ import numpy as np
 from plugin.scripting.calc_functions_common import HELPER_NAMES
 
 
-__all__ = ["iferror", "ifna", "imabs", "imaginary", "imargument", "imconjugate", "imcos", "imcosh", "imcot", "imcsc", "imcsch", "imdiv", "imexp", "imln", "imlog10", "imlog2", "impower", "improduct", "imreal", "imsec", "imsech", "imsin", "imsinh", "imsqrt", "imsub", "imsum", "imtan", "imtanh", "intercept", "intrate", "ipmt", "irr", "isblank", "iserr", "iserror", "iseven", "isformula", "islogical", "isna", "isnontext", "isnumber", "isodd", "isoweeknum", "ispmt", "isref", "istext", "jis", "kurt", "large", "linest", "logest", "loginv", "lognormdist", "lookup", "match_criteria", "maxa", "mdeterm", "mduration", "mina", "minverse", "mirr", "mmult", "mode", "mround", "mtrans", "multinomial", "munit", "n"]
+__all__ = [
+    "iferror",
+    "ifna",
+    "imabs",
+    "imaginary",
+    "imargument",
+    "imconjugate",
+    "imcos",
+    "imcosh",
+    "imcot",
+    "imcsc",
+    "imcsch",
+    "imdiv",
+    "imexp",
+    "imln",
+    "imlog10",
+    "imlog2",
+    "impower",
+    "improduct",
+    "imreal",
+    "imsec",
+    "imsech",
+    "imsin",
+    "imsinh",
+    "imsqrt",
+    "imsub",
+    "imsum",
+    "imtan",
+    "imtanh",
+    "intercept",
+    "intrate",
+    "ipmt",
+    "irr",
+    "isblank",
+    "iserr",
+    "iserror",
+    "iseven",
+    "isformula",
+    "islogical",
+    "isna",
+    "isnontext",
+    "isnumber",
+    "isodd",
+    "isoweeknum",
+    "ispmt",
+    "isref",
+    "istext",
+    "jis",
+    "kurt",
+    "large",
+    "linest",
+    "logest",
+    "loginv",
+    "lognormdist",
+    "lookup",
+    "match_criteria",
+    "maxa",
+    "mdeterm",
+    "mduration",
+    "mina",
+    "minverse",
+    "mirr",
+    "mmult",
+    "mode",
+    "mround",
+    "mtrans",
+    "multinomial",
+    "munit",
+    "n",
+]
+
 
 def iferror(f: Callable[[], Any], alt: Any) -> Any:
     try:
@@ -30,6 +101,8 @@ def iferror(f: Callable[[], Any], alt: Any) -> Any:
         return val
     except Exception:
         return alt
+
+
 def ifna(f: Callable[[], Any], alt: Any) -> Any:
     try:
         val = f()
@@ -38,124 +111,183 @@ def ifna(f: Callable[[], Any], alt: Any) -> Any:
         return val
     except Exception:
         return alt
+
+
 def imabs(inumber: Any) -> float:
     from plugin.scripting.venv.calc_functions_a_c import _to_complex
+
     try:
         return float(abs(_to_complex(inumber)))
     except (ValueError, TypeError):
         return float("nan")
+
+
 def imaginary(inumber: Any) -> float:
     from plugin.scripting.venv.calc_functions_a_c import _to_complex
+
     try:
         return float(_to_complex(inumber).imag)
     except (ValueError, TypeError):
         return float("nan")
+
+
 def imargument(inumber: Any) -> float:
     from plugin.scripting.venv.calc_functions_a_c import _to_complex
+
     try:
         import cmath
+
         return float(cmath.phase(_to_complex(inumber)))
     except (ValueError, TypeError):
         return float("nan")
+
+
 def imconjugate(inumber: Any) -> str:
     from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
+
     try:
         c = _to_complex(inumber)
         return _from_complex(c.conjugate())
     except (ValueError, TypeError):
         return "#VALUE!"
+
+
 def imcos(inumber: Any) -> str:
     from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
+
     try:
         import cmath
+
         c = _to_complex(inumber)
         return _from_complex(cmath.cos(c))
     except (ValueError, TypeError):
         return "#VALUE!"
+
+
 def imcosh(inumber: Any) -> str:
     from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
+
     try:
         import cmath
+
         c = _to_complex(inumber)
         return _from_complex(cmath.cosh(c))
     except (ValueError, TypeError):
         return "#VALUE!"
+
+
 def imcot(inumber: Any) -> str:
     from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
+
     try:
         import cmath
+
         c = _to_complex(inumber)
         return _from_complex(1.0 / cmath.tan(c))
     except (ValueError, TypeError, ZeroDivisionError):
         return "#VALUE!"
+
+
 def imcsc(inumber: Any) -> str:
     from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
+
     try:
         import cmath
+
         c = _to_complex(inumber)
         return _from_complex(1.0 / cmath.sin(c))
     except (ValueError, TypeError, ZeroDivisionError):
         return "#VALUE!"
+
+
 def imcsch(inumber: Any) -> str:
     from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
+
     try:
         import cmath
+
         c = _to_complex(inumber)
         return _from_complex(1.0 / cmath.sinh(c))
     except (ValueError, TypeError, ZeroDivisionError):
         return "#VALUE!"
+
+
 def imdiv(inumber1: Any, inumber2: Any) -> str:
     from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
+
     try:
         c1 = _to_complex(inumber1)
         c2 = _to_complex(inumber2)
         return _from_complex(c1 / c2)
     except (ValueError, TypeError, ZeroDivisionError):
         return "#VALUE!"
+
+
 def imexp(inumber: Any) -> str:
     from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
+
     try:
         import cmath
+
         c = _to_complex(inumber)
         return _from_complex(cmath.exp(c))
     except (ValueError, TypeError):
         return "#VALUE!"
+
+
 def imln(inumber: Any) -> str:
     from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
+
     try:
         import cmath
+
         c = _to_complex(inumber)
         return _from_complex(cmath.log(c))
     except (ValueError, TypeError):
         return "#VALUE!"
+
+
 def imlog10(inumber: Any) -> str:
     from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
+
     try:
         import cmath
+
         c = _to_complex(inumber)
         return _from_complex(cmath.log10(c))
     except (ValueError, TypeError):
         return "#VALUE!"
+
+
 def imlog2(inumber: Any) -> str:
     from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
+
     try:
         import cmath
+
         c = _to_complex(inumber)
         return _from_complex(cmath.log(c, 2))
     except (ValueError, TypeError):
         return "#VALUE!"
+
+
 def impower(inumber: Any, number: Any) -> str:
     from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
+
     try:
         c = _to_complex(inumber)
         p = float(number)
-        return _from_complex(c ** p)
+        return _from_complex(c**p)
     except (ValueError, TypeError):
         return "#VALUE!"
+
+
 def improduct(*args: Any) -> str:
     from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
+
     try:
         import builtins
+
         res = builtins.complex(1, 0)
         for arg in args:
             for v in np.asarray(arg).ravel():
@@ -163,64 +295,94 @@ def improduct(*args: Any) -> str:
         return _from_complex(res)
     except (ValueError, TypeError):
         return "#VALUE!"
+
+
 def imreal(inumber: Any) -> float:
     from plugin.scripting.venv.calc_functions_a_c import _to_complex
+
     try:
         return float(_to_complex(inumber).real)
     except (ValueError, TypeError):
         return float("nan")
+
+
 def imsec(inumber: Any) -> str:
     from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
+
     try:
         import cmath
+
         c = _to_complex(inumber)
         return _from_complex(1.0 / cmath.cos(c))
     except (ValueError, TypeError, ZeroDivisionError):
         return "#VALUE!"
+
+
 def imsech(inumber: Any) -> str:
     from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
+
     try:
         import cmath
+
         c = _to_complex(inumber)
         return _from_complex(1.0 / cmath.cosh(c))
     except (ValueError, TypeError, ZeroDivisionError):
         return "#VALUE!"
+
+
 def imsin(inumber: Any) -> str:
     from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
+
     try:
         import cmath
+
         c = _to_complex(inumber)
         return _from_complex(cmath.sin(c))
     except (ValueError, TypeError):
         return "#VALUE!"
+
+
 def imsinh(inumber: Any) -> str:
     from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
+
     try:
         import cmath
+
         c = _to_complex(inumber)
         return _from_complex(cmath.sinh(c))
     except (ValueError, TypeError):
         return "#VALUE!"
+
+
 def imsqrt(inumber: Any) -> str:
     from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
+
     try:
         import cmath
+
         c = _to_complex(inumber)
         return _from_complex(cmath.sqrt(c))
     except (ValueError, TypeError):
         return "#VALUE!"
+
+
 def imsub(inumber1: Any, inumber2: Any) -> str:
     from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
+
     try:
         c1 = _to_complex(inumber1)
         c2 = _to_complex(inumber2)
         return _from_complex(c1 - c2)
     except (ValueError, TypeError):
         return "#VALUE!"
+
+
 def imsum(*args: Any) -> str:
     from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
+
     try:
         import builtins
+
         res = builtins.complex(0, 0)
         for arg in args:
             for v in np.asarray(arg).ravel():
@@ -228,24 +390,35 @@ def imsum(*args: Any) -> str:
         return _from_complex(res)
     except (ValueError, TypeError):
         return "#VALUE!"
+
+
 def imtan(inumber: Any) -> str:
     from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
+
     try:
         import cmath
+
         c = _to_complex(inumber)
         return _from_complex(cmath.tan(c))
     except (ValueError, TypeError):
         return "#VALUE!"
+
+
 def imtanh(inumber: Any) -> str:
     from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
+
     try:
         import cmath
+
         c = _to_complex(inumber)
         return _from_complex(cmath.tanh(c))
     except (ValueError, TypeError):
         return "#VALUE!"
+
+
 def intercept(data_y: Any, data_x: Any) -> float:
     from plugin.scripting.venv.calc_functions_n_s import slope
+
     s = slope(data_y, data_x)
     if np.isnan(s):
         return float("nan")
@@ -253,8 +426,11 @@ def intercept(data_y: Any, data_x: Any) -> float:
     x = np.asarray(data_x, dtype=float).ravel()
     mask = ~np.isnan(y) & ~np.isnan(x)
     return float(np.mean(y[mask]) - s * np.mean(x[mask]))
+
+
 def intrate(settlement: Any, maturity: Any, investment: Any, redemption: Any, basis: Any = 0) -> float:
     from plugin.scripting.venv.calc_functions_a_c import _year_frac
+
     try:
         s = float(settlement)
         m = float(maturity)
@@ -269,6 +445,8 @@ def intrate(settlement: Any, maturity: Any, investment: Any, redemption: Any, ba
     if yf == 0:
         return float("nan")
     return (red - inv) / inv / yf
+
+
 def ipmt(rate: Any, per: Any, nper: Any, pv_val: Any, fv_val: Any = 0, type_val: Any = 0) -> float:
     try:
         r = float(rate)
@@ -299,13 +477,16 @@ def ipmt(rate: Any, per: Any, nper: Any, pv_val: Any, fv_val: Any = 0, type_val:
         return interest
     else:
         # Beginning of period
-        if p == 1: return 0.0
+        if p == 1:
+            return 0.0
         bal = pv_f * ((1 + r) ** (p - 1)) + pmt_amt * (((1 + r) ** (p - 1)) - 1) / r
         # Since payment is at beginning, the interest for period p is based on balance after payment p-1
         interest = -(bal - (-pmt_amt)) * r if bal != 0 else 0.0
         # Actually standard IPMT formula:
         bal2 = pv_f * ((1 + r) ** (p - 2)) + pmt_amt * (((1 + r) ** (p - 2)) - 1) / r
         return -(bal2 + pmt_amt) * r
+
+
 def irr(values: Any, guess: Any = 0.1) -> float:
     vals = np.asarray(values, dtype=float).ravel()
     # Simple Newton's method for IRR
@@ -323,15 +504,21 @@ def irr(values: Any, guess: Any = 0.1) -> float:
             break
         x = x - f / df
     return float("nan")
+
+
 def isblank(val: Any) -> bool:
     return val is None or val == ""
+
 
 def iserr(val: Any) -> bool:
     if isinstance(val, str) and val.startswith("#"):
         return not val.upper().startswith("#N/A")
     return False
+
+
 def iserror(val: Any) -> bool:
     return isinstance(val, str) and val.startswith("#")
+
 
 def iseven(val: Any) -> bool:
     try:
@@ -341,22 +528,30 @@ def iseven(val: Any) -> bool:
         return int(f) % 2 == 0
     except (ValueError, TypeError):
         return False
+
+
 def isformula(val: Any) -> bool:
     # We do not have access to formula strings in PY() by default.
     return False
 
+
 def islogical(val: Any) -> bool:
     return isinstance(val, bool)
+
 
 def isna(val: Any) -> bool:
     if isinstance(val, str) and val.upper().startswith("#N/A"):
         return True
     return val is None or (isinstance(val, float) and np.isnan(val))
+
+
 def isnontext(val: Any) -> bool:
     return not isinstance(val, str) or val == "" or val.startswith("#")
 
+
 def isnumber(val: Any) -> bool:
     return isinstance(val, (int, float)) and not isinstance(val, bool)
+
 
 def isodd(val: Any) -> bool:
     try:
@@ -366,12 +561,15 @@ def isodd(val: Any) -> bool:
         return int(f) % 2 != 0
     except (ValueError, TypeError):
         return False
+
+
 def isoweeknum(serial: Any) -> float:
     try:
         d = datetime.date.fromordinal(int(float(serial)) + 693594)
         return float(d.isocalendar()[1])
     except Exception:
         return float("nan")
+
 
 def ispmt(rate: Any, per: Any, nper: Any, pv_val: Any) -> float:
     try:
@@ -387,12 +585,16 @@ def ispmt(rate: Any, per: Any, nper: Any, pv_val: Any) -> float:
     # interest for period 'per' (0-indexed in ISPMT) = balance * rate
     bal = pv_f - (pv_f / n) * p
     return -(bal * r)
+
+
 def isref(val: Any) -> bool:
     # We do not have object references in PY(), only values.
     return False
 
+
 def istext(val: Any) -> bool:
     return isinstance(val, str) and not (isinstance(val, str) and val.startswith("#"))
+
 
 def jis(text: Any) -> str | float:
     try:
@@ -401,6 +603,8 @@ def jis(text: Any) -> str | float:
         return str(text)
     except (ValueError, TypeError):
         return float("nan")
+
+
 def kurt(*args: Any) -> float:
     vals = []
     for arg in args:
@@ -423,15 +627,19 @@ def kurt(*args: Any) -> float:
     term2 = np.sum(z**4)
     term3 = (3 * (n - 1) ** 2) / ((n - 2) * (n - 3))
     return float(term1 * term2 - term3)
+
+
 def large(r: Any, k: Any) -> float:
     arr = sorted([float(x) for x in np.asarray(r).ravel() if x is not None and x != ""], reverse=True)
     ki = int(float(k))
     return float(arr[ki - 1]) if 0 < ki <= len(arr) else float("nan")
 
+
 def linest(*args: Any) -> Any:
     # A complete implementation using numpy.polyfit or similar
     try:
         import numpy as np
+
         data_y = np.asarray(args[0]).ravel()
         if len(args) > 1:
             data_x = np.asarray(args[1])
@@ -446,9 +654,11 @@ def linest(*args: Any) -> Any:
     except Exception:
         return "#VALUE!"
 
+
 def logest(*args: Any) -> Any:
     try:
         import numpy as np
+
         data_y = np.asarray(args[0]).ravel()
         data_y = np.log(data_y)
         if len(args) > 1:
@@ -465,10 +675,12 @@ def logest(*args: Any) -> Any:
     except Exception:
         return "#VALUE!"
 
+
 def loginv(p: Any, mean: Any, stdev: Any) -> float:
     try:
         import scipy.stats as st
         import math
+
         prob = float(p)
         m = float(mean)
         s = float(stdev)
@@ -477,10 +689,13 @@ def loginv(p: Any, mean: Any, stdev: Any) -> float:
         return float(st.lognorm.ppf(prob, s, scale=math.exp(m)))
     except (ValueError, TypeError, ImportError):
         return float("nan")
+
+
 def lognormdist(x: Any, mean: Any, stdev: Any, c: Any = 1) -> float:
     try:
         import scipy.stats as st
         import math
+
         x_val = float(x)
         m = float(mean)
         s = float(stdev)
@@ -492,6 +707,8 @@ def lognormdist(x: Any, mean: Any, stdev: Any, c: Any = 1) -> float:
         return float(st.lognorm.pdf(x_val, s, scale=math.exp(m)))
     except (ValueError, TypeError, ImportError):
         return float("nan")
+
+
 def lookup(lookup_val: Any, *args: Any) -> Any:
     if len(args) == 1:
         vec = np.asarray(args[0]).ravel()
@@ -511,6 +728,8 @@ def lookup(lookup_val: Any, *args: Any) -> Any:
     if best_idx is None:
         return None
     return result[best_idx]
+
+
 def match_criteria(val: Any, crit: Any) -> bool:
     if crit is None or crit == "":
         return val is None or val == ""
@@ -555,8 +774,11 @@ def match_criteria(val: Any, crit: Any) -> bool:
     except (ValueError, TypeError):
         pass
     return str(val) == str(crit)
+
+
 def maxa(*args: Any) -> float:
     from plugin.scripting.venv.calc_functions_a_c import _to_float_a
+
     vals = []
     for arg in args:
         for v in np.asarray(arg).ravel():
@@ -564,9 +786,12 @@ def maxa(*args: Any) -> float:
     if not vals:
         return 0.0
     return float(np.max(vals))
+
+
 def mdeterm(matrix: Any) -> float:
     try:
         import numpy as np
+
         m = np.asarray(matrix, dtype=float)
         if m.ndim > 2:
             m = m[0]
@@ -574,8 +799,10 @@ def mdeterm(matrix: Any) -> float:
     except Exception:
         return float("nan")
 
+
 def mduration(settlement: Any, maturity: Any, coupon: Any, yld: Any, frequency: Any, basis: Any = 0) -> float:
     from plugin.scripting.venv.calc_functions_d_h import duration
+
     try:
         s = float(settlement)
         m = float(maturity)
@@ -589,8 +816,11 @@ def mduration(settlement: Any, maturity: Any, coupon: Any, yld: Any, frequency: 
     if math.isnan(macd):
         return macd
     return macd / (1 + y / f)
+
+
 def mina(*args: Any) -> float:
     from plugin.scripting.venv.calc_functions_a_c import _to_float_a
+
     vals = []
     for arg in args:
         for v in np.asarray(arg).ravel():
@@ -598,15 +828,19 @@ def mina(*args: Any) -> float:
     if not vals:
         return 0.0
     return float(np.min(vals))
+
+
 def minverse(matrix: Any) -> Any:
     try:
         import numpy as np
+
         m = np.asarray(matrix, dtype=float)
         if m.ndim > 2:
             m = m[0]
         return np.linalg.inv(m).tolist()
     except Exception:
         return "#VALUE!"
+
 
 def mirr(values: Any, finance_rate: Any, reinvest_rate: Any) -> float:
     try:
@@ -616,7 +850,8 @@ def mirr(values: Any, finance_rate: Any, reinvest_rate: Any) -> float:
     except (ValueError, TypeError):
         return float("nan")
     n = len(vals) - 1
-    if n < 1: return float("nan")
+    if n < 1:
+        return float("nan")
 
     # NPV of negative flows at finance rate
     npv_neg = sum(v / ((1 + fr) ** i) for i, v in enumerate(vals) if v < 0)
@@ -632,9 +867,12 @@ def mirr(values: Any, finance_rate: Any, reinvest_rate: Any) -> float:
         return (-fv_pos / npv_neg) ** (1.0 / n) - 1.0
     except (ValueError, TypeError):
         return float("nan")
+
+
 def mmult(array1: Any, array2: Any) -> Any:
     try:
         import numpy as np
+
         a1 = np.asarray(array1, dtype=float)
         if a1.ndim > 2:
             a1 = a1[0]
@@ -645,12 +883,14 @@ def mmult(array1: Any, array2: Any) -> Any:
     except Exception:
         return "#VALUE!"
 
+
 def mode(r: Any) -> Any:
     vals = [x for x in np.asarray(r).ravel() if x is not None and x != ""]
     if not vals:
         return float("nan")
     counts = Counter(vals)
     return counts.most_common(1)[0][0]
+
 
 def mround(number: Any, multiple: Any) -> float:
     n = float(number)
@@ -660,15 +900,19 @@ def mround(number: Any, multiple: Any) -> float:
     if (n > 0 and m < 0) or (n < 0 and m > 0):
         return float("nan")
     return float(round(n / m) * m)
+
+
 def mtrans(matrix: Any) -> Any:
     try:
         import numpy as np
+
         m = np.asarray(matrix)
         if m.ndim > 2:
             m = m[0]
         return np.transpose(m).tolist()
     except Exception:
         return "#VALUE!"
+
 
 def multinomial(*args: Any) -> float:
     try:
@@ -679,12 +923,16 @@ def multinomial(*args: Any) -> float:
         return float(math.factorial(sum(vals)) / math.prod(math.factorial(x) for x in vals))
     except Exception:
         return float("nan")
+
+
 def munit(dimension: Any) -> Any:
     try:
         import numpy as np
+
         return np.eye(int(dimension)).tolist()
     except Exception:
         return "#VALUE!"
+
 
 def n(val: Any) -> float:
     if isinstance(val, (int, float)) and not isinstance(val, bool):

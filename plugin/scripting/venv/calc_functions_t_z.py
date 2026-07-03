@@ -6,6 +6,7 @@
 
 Semantics mirror the inline helpers formerly pasted by spreadsheet import translation.
 """
+
 from __future__ import annotations
 
 import datetime
@@ -20,13 +21,49 @@ import numpy as np
 from plugin.scripting.calc_functions_common import HELPER_NAMES
 
 
+__all__ = [
+    "t",
+    "tdist",
+    "text",
+    "textbefore",
+    "textjoin",
+    "textsplit",
+    "time",
+    "timevalue",
+    "tinv",
+    "trend",
+    "trimmean",
+    "ttest",
+    "type",
+    "unichar",
+    "unicode",
+    "unique",
+    "vara",
+    "varpa",
+    "weekday",
+    "weeknum",
+    "weibull",
+    "workday",
+    "workday_intl",
+    "xirr",
+    "xlookup",
+    "xmatch",
+    "xnpv",
+    "xor",
+    "yearfrac",
+    "yield_calc",
+    "yielddisc",
+    "yieldmat",
+    "ztest",
+]
 
-__all__ = ["t", "tdist", "text", "textbefore", "textjoin", "textsplit", "time", "timevalue", "tinv", "trend", "trimmean", "ttest", "type", "unichar", "unicode", "unique", "vara", "varpa", "weekday", "weeknum", "weibull", "workday", "workday_intl", "xirr", "xlookup", "xmatch", "xnpv", "xor", "yearfrac", "yield_calc", "yielddisc", "yieldmat", "ztest"]
 
 def t(value: Any) -> str:
     if isinstance(value, str):
         return value
     return ""
+
+
 def tdist(x: Any, df: Any, tails: Any) -> float:
     try:
         val = float(x)
@@ -35,12 +72,15 @@ def tdist(x: Any, df: Any, tails: Any) -> float:
         if d < 1 or t not in (1, 2) or val < 0:
             return float("nan")
         import scipy.stats
+
         # tdist in Calc/Excel returns 1 - cdf(val) for 1 tail
         # and 2 * (1 - cdf(val)) for 2 tails
         p = scipy.stats.t.sf(val, d)
         return float(p if t == 1 else 2 * p)
     except (ValueError, TypeError):
         return float("nan")
+
+
 def text(val: Any, fmt: Any) -> str:
     fmt_str = str(fmt).strip('"').strip("'")
     if fmt_str in ("0", "0.00", "#,##0"):
@@ -64,6 +104,8 @@ def text(val: Any, fmt: Any) -> str:
 # Alias for spreadsheet-import emission: Calc's formula lexer treats ``TEXT(`` inside
 # ``=PY("xl.text(...)")`` as a spreadsheet function (#NAME?).
 fmt = text
+
+
 def textbefore(text: Any, delimiter: Any, instance_num: Any = 1, match_mode: Any = 0, match_end: Any = 0, if_not_found: Any = float("nan")) -> str | float:
     try:
         s = str(text)
@@ -102,6 +144,8 @@ def textbefore(text: Any, delimiter: Any, instance_num: Any = 1, match_mode: Any
             return float("nan")
     except (ValueError, TypeError):
         return float("nan")
+
+
 def textjoin(delim: Any, ignore_empty: Any, *args: Any) -> str:
     parts = []
     for arg in args:
@@ -112,6 +156,8 @@ def textjoin(delim: Any, ignore_empty: Any, *args: Any) -> str:
             else:
                 parts.append(str(val))
     return str(delim).join(parts)
+
+
 def textsplit(text: Any, col_delimiter: Any, row_delimiter: Any = None, ignore_empty: Any = False, match_mode: Any = 0, pad_with: Any = float("nan")) -> Any:
     # A simplified version of textsplit returning a 2D array or 1D array.
     try:
@@ -148,12 +194,14 @@ def textsplit(text: Any, col_delimiter: Any, row_delimiter: Any = None, ignore_e
     except Exception:
         return float("nan")
 
+
 def time(hour: Any, minute: Any, second: Any) -> float:
     h = int(float(hour))
     m = int(float(minute))
     s = int(float(second))
     total_seconds = h * 3600 + m * 60 + s
     return float(total_seconds / 86400.0)
+
 
 def timevalue(text: Any) -> float:
     s = str(text).strip().strip('"')
@@ -164,6 +212,8 @@ def timevalue(text: Any) -> float:
         except ValueError:
             continue
     return float("nan")
+
+
 def tinv(prob: Any, df: Any) -> float:
     try:
         p = float(prob)
@@ -171,13 +221,17 @@ def tinv(prob: Any, df: Any) -> float:
         if p <= 0 or p > 1 or d < 1:
             return float("nan")
         import scipy.stats
+
         # TINV is the 2-tailed inverse
         return float(scipy.stats.t.ppf(1 - p / 2, d))
     except (ValueError, TypeError):
         return float("nan")
+
+
 def trend(*args: Any) -> Any:
     try:
         import numpy as np
+
         data_y = np.asarray(args[0]).ravel()
         if len(args) > 1:
             data_x = np.asarray(args[1])
@@ -198,6 +252,7 @@ def trend(*args: Any) -> Any:
     except Exception:
         return "#VALUE!"
 
+
 def trimmean(r: Any, percent: Any) -> float:
     arr = np.asarray(r, dtype=float).ravel()
     arr = arr[~np.isnan(arr)]
@@ -212,6 +267,7 @@ def trimmean(r: Any, percent: Any) -> float:
     arr.sort()
     return float(np.mean(arr[k:-k]))
 
+
 def ttest(data1: Any, data2: Any, tails: Any, type_: Any) -> float:
     try:
         d1 = np.asarray(data1).ravel()
@@ -221,14 +277,14 @@ def ttest(data1: Any, data2: Any, tails: Any, type_: Any) -> float:
         if type_num == 1:
             if len(d1) != len(d2):
                 return float("nan")
-            mask1 = np.array([isinstance(x.item() if hasattr(x, 'item') else x, (int, float)) and not math.isnan(x.item() if hasattr(x, 'item') else x) for x in d1])
-            mask2 = np.array([isinstance(x.item() if hasattr(x, 'item') else x, (int, float)) and not math.isnan(x.item() if hasattr(x, 'item') else x) for x in d2])
+            mask1 = np.array([isinstance(x.item() if hasattr(x, "item") else x, (int, float)) and not math.isnan(x.item() if hasattr(x, "item") else x) for x in d1])
+            mask2 = np.array([isinstance(x.item() if hasattr(x, "item") else x, (int, float)) and not math.isnan(x.item() if hasattr(x, "item") else x) for x in d2])
             mask = mask1 & mask2
             d1_clean = np.asarray(d1[mask], dtype=float)
             d2_clean = np.asarray(d2[mask], dtype=float)
         else:
-            d1_clean = np.asarray([x for x in d1 if isinstance(x.item() if hasattr(x, 'item') else x, (int, float)) and not math.isnan(x.item() if hasattr(x, 'item') else x)], dtype=float)
-            d2_clean = np.asarray([x for x in d2 if isinstance(x.item() if hasattr(x, 'item') else x, (int, float)) and not math.isnan(x.item() if hasattr(x, 'item') else x)], dtype=float)
+            d1_clean = np.asarray([x for x in d1 if isinstance(x.item() if hasattr(x, "item") else x, (int, float)) and not math.isnan(x.item() if hasattr(x, "item") else x)], dtype=float)
+            d2_clean = np.asarray([x for x in d2 if isinstance(x.item() if hasattr(x, "item") else x, (int, float)) and not math.isnan(x.item() if hasattr(x, "item") else x)], dtype=float)
         t = int(float(tails))
         type_num = int(float(type_))
         if t not in (1, 2) or type_num not in (1, 2, 3) or len(d1_clean) < 2 or len(d2_clean) < 2:
@@ -252,6 +308,8 @@ def ttest(data1: Any, data2: Any, tails: Any, type_: Any) -> float:
         return float(p)
     except (ValueError, TypeError):
         return float("nan")
+
+
 def type(val: Any) -> float:
     if val is None or val == "":
         return 1.0
@@ -266,6 +324,8 @@ def type(val: Any) -> float:
     if isinstance(val, (list, np.ndarray)):
         return 64.0
     return 1.0
+
+
 def unichar(number: Any) -> str | float:
     try:
         val = int(float(number))
@@ -274,6 +334,8 @@ def unichar(number: Any) -> str | float:
         return chr(val)
     except (ValueError, TypeError, OverflowError):
         return float("nan")
+
+
 def unicode(text: Any) -> float:
     try:
         s = str(text)
@@ -282,6 +344,8 @@ def unicode(text: Any) -> float:
         return float(ord(s[0]))
     except (ValueError, TypeError):
         return float("nan")
+
+
 def unique(arr: Any, by_col: bool = False, unique_only: bool = False) -> list:
     data = np.asarray(arr)
     if data.size == 0:
@@ -303,8 +367,11 @@ def unique(arr: Any, by_col: bool = False, unique_only: bool = False) -> list:
         if row not in seen_rows:
             seen_rows.append(row)
     return [list(r) for r in seen_rows]
+
+
 def vara(*args: Any) -> float:
     from plugin.scripting.venv.calc_functions_a_c import _to_float_a
+
     vals = []
     for arg in args:
         for v in np.asarray(arg).ravel():
@@ -312,8 +379,11 @@ def vara(*args: Any) -> float:
     if len(vals) < 2:
         return float("nan")
     return float(np.var(vals, ddof=1))
+
+
 def varpa(*args: Any) -> float:
     from plugin.scripting.venv.calc_functions_a_c import _to_float_a
+
     vals = []
     for arg in args:
         for v in np.asarray(arg).ravel():
@@ -321,6 +391,8 @@ def varpa(*args: Any) -> float:
     if not vals:
         return float("nan")
     return float(np.var(vals, ddof=0))
+
+
 def weekday(serial: Any, return_type: int | float = 1) -> float:
     try:
         d = datetime.date.fromordinal(int(float(serial)) + 693594)
@@ -336,6 +408,7 @@ def weekday(serial: Any, return_type: int | float = 1) -> float:
         return float((wd + 6) % 7)
     return float(wd + 1)
 
+
 def weeknum(serial: Any, return_type: int | float = 1) -> float:
     try:
         d = datetime.date.fromordinal(int(float(serial)) + 693594)
@@ -343,6 +416,7 @@ def weeknum(serial: Any, return_type: int | float = 1) -> float:
         return float("nan")
     iso = d.isocalendar()
     return float(iso[1])
+
 
 def weibull(x: Any, alpha: Any, beta: Any, cumulative: Any = True) -> float:
     try:
@@ -352,6 +426,7 @@ def weibull(x: Any, alpha: Any, beta: Any, cumulative: Any = True) -> float:
         if val < 0 or a <= 0 or b <= 0:
             return float("nan")
         import scipy.stats
+
         # In scipy, c=alpha (shape), scale=beta. Note: Calc calls alpha shape and beta scale.
         if cumulative:
             return float(scipy.stats.weibull_min.cdf(val, a, scale=b))
@@ -359,6 +434,8 @@ def weibull(x: Any, alpha: Any, beta: Any, cumulative: Any = True) -> float:
             return float(scipy.stats.weibull_min.pdf(val, a, scale=b))
     except (ValueError, TypeError):
         return float("nan")
+
+
 def workday(start_date: Any, days: Any, holidays: Any | None = None) -> float:
     try:
         curr = datetime.date.fromordinal(int(float(start_date)) + 693594)
@@ -379,6 +456,8 @@ def workday(start_date: Any, days: Any, holidays: Any | None = None) -> float:
         if curr.weekday() < 5 and curr not in h_dates:
             remaining -= step
     return float(curr.toordinal() - 693594)
+
+
 def workday_intl(start_date: Any, days: Any, weekend: Any = 1, holidays: Any | None = None) -> float:
     try:
         curr = datetime.date.fromordinal(int(float(start_date)) + 693594)
@@ -392,22 +471,7 @@ def workday_intl(start_date: Any, days: Any, weekend: Any = 1, holidays: Any | N
                 wk_days.add(i)
     else:
         w_idx = int(float(weekend))
-        mapping = {
-            1: (5, 6),
-            2: (6, 0),
-            3: (0, 1),
-            4: (1, 2),
-            5: (2, 3),
-            6: (3, 4),
-            7: (4, 5),
-            11: (6,),
-            12: (0,),
-            13: (1,),
-            14: (2,),
-            15: (3,),
-            16: (4,),
-            17: (5,),
-        }
+        mapping = {1: (5, 6), 2: (6, 0), 3: (0, 1), 4: (1, 2), 5: (2, 3), 6: (3, 4), 7: (4, 5), 11: (6,), 12: (0,), 13: (1,), 14: (2,), 15: (3,), 16: (4,), 17: (5,)}
         wk_days.update(mapping.get(w_idx, (5, 6)))
 
     h_dates: set[datetime.date] = set()
@@ -426,6 +490,8 @@ def workday_intl(start_date: Any, days: Any, weekend: Any = 1, holidays: Any | N
         if curr.weekday() not in wk_days and curr not in h_dates:
             remaining -= step
     return float(curr.toordinal() - 693594)
+
+
 def xirr(values: Any, dates: Any, guess: Any = 0.1) -> float:
     try:
         vals = np.asarray(values, dtype=float).ravel()
@@ -449,14 +515,9 @@ def xirr(values: Any, dates: Any, guess: Any = 0.1) -> float:
         return float("nan")
     except Exception:
         return float("nan")
-def xlookup(
-    lookup_val: Any,
-    lookup_arr: Any,
-    return_arr: Any,
-    if_not_found: Any | None = None,
-    match_mode: int | float = 0,
-    search_mode: int | float = 1,
-) -> Any:
+
+
+def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any | None = None, match_mode: int | float = 0, search_mode: int | float = 1) -> Any:
     l_flat = np.asarray(lookup_arr).ravel()
     r_flat = np.asarray(return_arr)
     indices = list(range(len(l_flat)))
@@ -513,6 +574,8 @@ def xlookup(
             return r_flat[:, best_idx].tolist()
         return r_flat.ravel()[best_idx]
     return r_flat.ravel()[best_idx]
+
+
 def xmatch(lookup_val: Any, lookup_arr: Any, match_mode: int | float = 0, search_mode: int | float = 1) -> float:
     l_flat = np.asarray(lookup_arr).ravel()
     indices = list(range(len(l_flat)))
@@ -541,6 +604,8 @@ def xmatch(lookup_val: Any, lookup_arr: Any, match_mode: int | float = 0, search
                 pass
         return float(best_idx + 1) if best_idx is not None else float("nan")
     return float("nan")
+
+
 def xnpv(rate: Any, values: Any, dates: Any) -> float:
     try:
         r = float(rate)
@@ -555,12 +620,16 @@ def xnpv(rate: Any, values: Any, dates: Any) -> float:
         return res
     except Exception:
         return float("nan")
+
+
 def xor(*args: Any) -> bool:
     true_count = 0
     for arg in args:
         if bool(arg):
             true_count += 1
     return true_count % 2 == 1
+
+
 def yearfrac(start_date: Any, end_date: Any, basis: Any = 0) -> float:
     try:
         sd = datetime.date.fromordinal(int(float(start_date)) + 693594)
@@ -585,17 +654,21 @@ def yearfrac(start_date: Any, end_date: Any, basis: Any = 0) -> float:
         return diff / 360.0
     return diff / 365.0
 
+
 def yield_calc(settlement: Any, maturity: Any, rate: Any, pr: Any, redemption: Any, frequency: Any, basis: Any = 0) -> float:
     # Approximate stub
     return float("nan")
+
 
 def yielddisc(settlement: Any, maturity: Any, pr: Any, redemption: Any, basis: Any = 0) -> float:
     # Approximate stub
     return float("nan")
 
+
 def yieldmat(settlement: Any, maturity: Any, issue: Any, rate: Any, pr: Any, basis: Any = 0) -> float:
     # Approximate stub
     return float("nan")
+
 
 def ztest(data: Any, x: Any, sigma: Any | None = None) -> float:
     try:
@@ -616,6 +689,7 @@ def ztest(data: Any, x: Any, sigma: Any | None = None) -> float:
 
         z = (m - val) / (s / math.sqrt(n))
         import scipy.stats
+
         return float(scipy.stats.norm.sf(z))
     except (ValueError, TypeError):
         return float("nan")
