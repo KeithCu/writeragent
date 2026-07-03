@@ -25,9 +25,8 @@ import json
 import logging
 import os
 import subprocess
-import sys
 import threading
-from typing import Any, cast
+from typing import cast
 
 from plugin.framework.worker_pool import get_subprocess_creationflags
 from plugin.framework.errors import ToolExecutionError

@@ -11,8 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
-import urllib.parse
-import urllib.request
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
 
 import uno
@@ -149,14 +148,11 @@ def _normalize_path(path: str) -> str:
 def _path_to_file_url(path: str) -> str:
     """Build a LO-compatible file URL (file:/// on Unix).
 
-    urljoin('file:', pathname2url(...)) wrongly yields file:/home/... (two slashes);
+    urljoin('file:', ...) wrongly yields file:/home/... (two slashes);
     loadComponentFromURL and open_document_for_read require file:///home/...
     """
     norm = _normalize_path(path)
-    quoted = urllib.request.pathname2url(norm)
-    if quoted.startswith("/"):
-        return "file://" + quoted
-    return "file:" + quoted
+    return Path(norm).as_uri()
 
 
 def _normalize_file_url(url: str) -> str:

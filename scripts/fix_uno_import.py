@@ -8,13 +8,35 @@ from __future__ import annotations
 import argparse
 import glob
 import os
+import shutil
 import subprocess
 import sys
 
 
+def _candidate_venv_pythons(venv_base: str) -> list[str]:
+    scripts_candidates = [
+        os.path.join(venv_base, "Scripts", "python.exe"),
+        os.path.join(venv_base, "Scripts", "python"),
+    ]
+    bin_candidates = [
+        os.path.join(venv_base, "bin", "python"),
+        os.path.join(venv_base, "bin", "python.exe"),
+    ]
+    if sys.platform == "win32":
+        return scripts_candidates + bin_candidates
+    return bin_candidates + scripts_candidates
+
+
+def _find_venv_python(venv_base: str) -> str | None:
+    for candidate in _candidate_venv_pythons(venv_base):
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
 def _venv_python_version(venv_base: str) -> tuple[int, int] | None:
-    venv_python = os.path.join(venv_base, "bin", "python")
-    if not os.path.isfile(venv_python):
+    venv_python = _find_venv_python(venv_base)
+    if not venv_python:
         return None
     try:
         out = subprocess.run(
@@ -31,16 +53,37 @@ def _venv_python_version(venv_base: str) -> tuple[int, int] | None:
 
 def resolve_venv_paths(venv_base: str) -> tuple[str, str, str]:
     """Return (site_packages, venv_python, pth_file)."""
-    lib_dir = os.path.join(venv_base, "lib")
-    if not os.path.exists(lib_dir):
-        raise FileNotFoundError(f"{lib_dir} not found")
-    py_dirs = [d for d in os.listdir(lib_dir) if d.startswith("python")]
-    if not py_dirs:
-        raise FileNotFoundError(f"No python directory found in {lib_dir}")
-    site_packages = os.path.join(lib_dir, py_dirs[0], "site-packages")
-    if not os.path.exists(site_packages):
-        raise FileNotFoundError(f"{site_packages} not found")
-    venv_python = os.path.join(venv_base, "bin", "python")
+    venv_python = _find_venv_python(venv_base)
+    if not venv_python:
+        raise FileNotFoundError(f"No venv python found in {venv_base}")
+
+    site_packages = None
+    try:
+        out = subprocess.run(
+            [venv_python, "-c", "import sysconfig; print(sysconfig.get_paths()['purelib'])"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        candidate = out.stdout.strip()
+        if candidate and os.path.exists(candidate):
+            site_packages = candidate
+    except Exception:
+        pass
+
+    if site_packages is None:
+        fallback_candidates = [os.path.join(venv_base, "Lib", "site-packages")]
+        lib_dir = os.path.join(venv_base, "lib")
+        if os.path.isdir(lib_dir):
+            fallback_candidates.extend(os.path.join(lib_dir, d, "site-packages") for d in os.listdir(lib_dir) if d.startswith("python"))
+        for candidate in fallback_candidates:
+            if os.path.exists(candidate):
+                site_packages = candidate
+                break
+
+    if site_packages is None:
+        raise FileNotFoundError(f"No site-packages directory found in {venv_base}")
+
     pth_file = os.path.join(site_packages, "uno.pth")
     return site_packages, venv_python, pth_file
 
@@ -55,22 +98,59 @@ def uno_import_works(venv_python: str) -> bool:
         )
         return True
     except subprocess.CalledProcessError as e:
-        # On macOS, we deliberately only expose uno.py (not pyuno.so) because
-        # importing the real pyuno under a different Python version hangs/crashes.
-        # This means "import uno" will fail with ModuleNotFoundError/ImportError
-        # for 'pyuno'. If 'pyuno' is in the error message, the path to uno.py is
-        # successfully configured.
-        if sys.platform == "darwin" and "pyuno" in (e.stderr or ""):
+        # On macOS and Windows, we deliberately allow a configured uno.py even
+        # when the real pyuno bridge cannot load in the dev venv. Static
+        # checkers need import resolution and types-unopy; the extension runtime
+        # uses LibreOffice's own Python/bridge.
+        output = f"{e.stdout or ''}\n{e.stderr or ''}"
+        if sys.platform in {"darwin", "win32"} and "pyuno" in output:
             return True
         return False
     except OSError:
         return False
 
 
+def _windows_lo_program_candidates() -> list[str]:
+    candidates: list[str] = []
+    for exe in ("soffice.exe", "soffice", "unopkg.exe"):
+        found = shutil.which(exe)
+        if found:
+            candidates.append(os.path.dirname(os.path.realpath(found)))
+
+    for env_name in ("PROGRAMFILES", "ProgramW6432", "PROGRAMFILES(X86)"):
+        base = os.environ.get(env_name)
+        if base:
+            candidates.append(os.path.join(base, "LibreOffice", "program"))
+
+    candidates.extend(
+        [
+            r"C:\Program Files\LibreOffice\program",
+            r"C:\Program Files (x86)\LibreOffice\program",
+        ]
+    )
+
+    seen = set()
+    unique_candidates = []
+    for candidate in candidates:
+        normalized = os.path.normcase(os.path.abspath(candidate))
+        if normalized not in seen:
+            seen.add(normalized)
+            unique_candidates.append(candidate)
+    return unique_candidates
+
+
 def find_system_uno(*, venv_py: tuple[int, int] | None = None):
     """Find the system's uno.py and LibreOffice program directory."""
     uno_path = None
     lo_program = None
+
+    if sys.platform == "win32":
+        for p in _windows_lo_program_candidates():
+            if os.path.exists(os.path.join(p, "uno.py")):
+                uno_path = p
+                lo_program = p
+                break
+        return uno_path, lo_program
 
     # 1. Prefer a distro site-packages dir matching the venv's Python minor version.
     if venv_py is not None:
@@ -168,7 +248,7 @@ def find_system_uno(*, venv_py: tuple[int, int] | None = None):
 
 def _expected_pth_lines(uno_path: str, lo_program: str | None) -> list[str]:
     lines = ["# Added by scripts/fix_uno_import.py", uno_path]
-    if lo_program:
+    if lo_program and os.path.normcase(os.path.abspath(lo_program)) != os.path.normcase(os.path.abspath(uno_path)):
         lines.append(lo_program)
     return lines
 
@@ -242,7 +322,7 @@ def _apply_uno_fix(venv_base: str, *, quiet: bool = False) -> bool:
         return False
 
     if not lo_program and not quiet:
-        print("Warning: Could not find LibreOffice program directory (pyuno.so).")
+        print("Warning: Could not find LibreOffice program directory (pyuno).")
 
     try:
         site_packages, venv_python, pth_file = resolve_venv_paths(venv_base)

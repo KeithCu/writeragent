@@ -21,6 +21,7 @@ Static checking does **not** prove LibreOffice runtime behavior: UNO remains hig
 - **`pyproject.toml`** — `[tool.ty.src]`: `include = ["plugin"]`, `exclude = ["plugin/contrib", "plugin/lib", "plugin/tests"]`.
 - **`Makefile`** — `make ty`: ensures `import uno` (via `make fix-uno` if needed), then `python -m ty check --exclude plugin/contrib/ --exclude plugin/lib/`.
 - **Dev dependency**: **`types-unopy`** (LibreOffice API stubs). **`make fix-uno`** links system UNO into `.venv` so `uno` and `com.sun.star` resolve; without that, the checker cannot see extension types.
+- **Windows / ARM64 note**: **`make fix-uno`** is a static-analysis helper, not proof that external Python can run PyUNO. On Windows, especially ARM64, LibreOffice's `pyuno.pyd` still depends on matching Python ABI and native DLL loading; the extension runtime uses LibreOffice's own Python.
 
 ### mypy (optional)
 

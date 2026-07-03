@@ -15,7 +15,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import urllib.request
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
@@ -68,10 +67,7 @@ def resolve_soffice_executable() -> str | None:
 
 def _profile_url(profile_dir: Path) -> str:
     profile_dir.mkdir(parents=True, exist_ok=True)
-    quoted = urllib.request.pathname2url(str(profile_dir.resolve()))
-    if quoted.startswith("/"):
-        return "file://" + quoted
-    return "file:" + quoted
+    return profile_dir.resolve().as_uri()
 
 
 def convert_legacy_to_odf(source_path: str, *, timeout_sec: int = 120) -> Path | None:

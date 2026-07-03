@@ -482,7 +482,7 @@ def _apply_rich_control_style_defaults(control, style_window=None):
             apply_chat_char_props(cursor, bg_color=theme.bg_color)
             _apply_sidebar_para_margins(cursor)
             cursor.gotoEnd(False)
-            if hasattr(control, "setSelection"):
+            if control is not None and hasattr(control, "setSelection"):
                 control.setSelection(uno.createUnoStruct("com.sun.star.awt.Selection", text_len, text_len))
         except Exception as e:
             log.debug("_apply_rich_control_style_defaults cursor failed: %s", e)
@@ -583,7 +583,7 @@ def _create_rich_control_peer(smgr, ctx, toolkit, field_model, parent_window):
             for label, args in peer_attempts:
                 try:
                     control.createPeer(args[0], args[1])
-                    if hasattr(parent_window, "addControl"):
+                    if parent_window is not None and hasattr(parent_window, "addControl"):
                         try:
                             parent_window.addControl(RICH_CONTROL_NAME, control)
                         except Exception as add_err:

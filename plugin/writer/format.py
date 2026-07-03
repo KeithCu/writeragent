@@ -20,10 +20,9 @@ import contextlib
 import html as html_mod
 import logging
 import os
+from pathlib import Path
 import re
 import tempfile
-import urllib.parse
-import urllib.request
 from html.parser import HTMLParser
 from typing import Any, cast
 
@@ -164,7 +163,7 @@ class FormatService(ServiceBase):
 
 def _file_url(path):
     """Return a ``file://`` URL for *path*."""
-    return urllib.parse.urljoin("file:", urllib.request.pathname2url(os.path.abspath(path)))
+    return Path(os.path.abspath(path)).as_uri()
 
 
 def _create_property_value(name, value):

@@ -12,7 +12,7 @@ import dataclasses
 import hashlib
 import logging
 import os
-import urllib.request
+from pathlib import Path
 from typing import Any
 
 log = logging.getLogger(__name__)
@@ -76,10 +76,7 @@ def _normalize_path(path: str) -> str:
 def path_to_file_url(path: str) -> str:
     """Build a LO-compatible file URL (file:/// on Unix)."""
     norm = _normalize_path(path)
-    quoted = urllib.request.pathname2url(norm)
-    if quoted.startswith("/"):
-        return "file://" + quoted
-    return "file:" + quoted
+    return Path(norm).as_uri()
 
 
 

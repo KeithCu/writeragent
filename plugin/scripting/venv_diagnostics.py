@@ -13,7 +13,6 @@ import json
 import logging
 import os
 import subprocess
-import sys
 from typing import Any, Callable, Optional, Tuple
 
 from plugin.framework.i18n import _

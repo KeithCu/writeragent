@@ -28,6 +28,8 @@ def _values_equal(expected: Any, actual: Any, *, rtol: float) -> tuple[bool, str
         return str(expected) == str(actual), f"string {expected!r} vs {actual!r}"
     if isinstance(expected, bool) or isinstance(actual, bool):
         return bool(expected) == bool(actual), f"bool {expected!r} vs {actual!r}"
+    if expected is None or actual is None:
+        return expected == actual, f"none {expected!r} vs {actual!r}"
     try:
         exp_f = float(expected)
         act_f = float(actual)

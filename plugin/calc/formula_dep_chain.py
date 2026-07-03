@@ -30,8 +30,10 @@ def _resolve_sheet_and_cell(doc, address: str) -> tuple[Any, int, int] | None:
         col, row = parse_address(cell_part)
     except ValueError:
         return None
+    if doc is None:
+        return None
 
-    controller = doc.getCurrentController() if doc is not None else None
+    controller = doc.getCurrentController()
     if sheet_name:
         sheets = doc.getSheets()
         if not sheets.hasByName(sheet_name):
