@@ -24,7 +24,7 @@ HELPER_NAMES = frozenset(
 
 log = logging.getLogger(__name__)
 
-_PARSE_TRANSFORMS: Any | None = None
+_PARSE_TRANSFORMS: tuple[Any, ...] | None = None
 
 
 def _error_result(code: str, message: str, *, helper: str | None = None) -> dict[str, Any]:
@@ -62,6 +62,7 @@ def _parse_transformations() -> tuple[Any, ...]:
             standard_transformations,
         )
         _PARSE_TRANSFORMS = standard_transformations + (implicit_multiplication_application,)
+    assert _PARSE_TRANSFORMS is not None
     return _PARSE_TRANSFORMS
 
 
