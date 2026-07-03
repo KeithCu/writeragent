@@ -299,3 +299,80 @@ def test_tool_loop_integration():
     assert "Universe" in doc_text, "Document text was not modified successfully by apply_document_content"
     assert "World" not in doc_text, "Original text was not replaced"
     '''
+
+
+@native_test
+def test_session_id_isolation_on_url_change():
+    """
+    Test that if a document has an existing session ID and its URL changes (simulating a copy),
+    the session ID is regenerated to isolate chat history.
+    """
+    from plugin.chatbot.panel_factory import ChatPanelElement
+    from plugin.doc.document_helpers import get_document_property, set_document_property
+    
+    # Create a dummy element instance
+    element = ChatPanelElement(_test_ctx, None, None, "test_resource_url")
+    
+    # We will use mock models that mimic document models with properties
+    class MockModel:
+        def __init__(self, url):
+            self.url = url
+            # Mock properties using a simple dictionary
+            self._props = {}
+            
+            class MockPropertySet:
+                def __init__(self, parent):
+                    self.parent = parent
+                def getPropertyValue(self, name):
+                    return self.parent._props.get(name)
+                def setPropertyValue(self, name, val):
+                    self.parent._props[name] = val
+                def addProperty(self, name, attr, val):
+                    self.parent._props[name] = val
+                def getPropertySetInfo(self):
+                    class MockInfo:
+                        def __init__(self, parent):
+                            self.parent = parent
+                        def hasPropertyByName(self, name):
+                            return name in self.parent._props
+                    return MockInfo(self.parent)
+
+            class MockDocProps:
+                def __init__(self, parent):
+                    self.UserDefinedProperties = MockPropertySet(parent)
+
+            self._doc_props = MockDocProps(self)
+
+        def getDocumentProperties(self):
+            return self._doc_props
+
+        def getURL(self):
+            return self.url
+
+        def supportsService(self, service_name):
+            return service_name == "com.sun.star.text.TextDocument"
+
+    model = MockModel("file:///path/to/original.odt")
+    
+    # Run setup sessions initially
+    element._setup_sessions(model, "")
+    
+    orig_session_id = get_document_property(model, "WriterAgentSessionID")
+    orig_session_url = get_document_property(model, "WriterAgentSessionURL")
+    
+    assert orig_session_id is not None
+    assert orig_session_url == "file:///path/to/original.odt"
+    
+    # 2. Simulate copying/saving as new file (URL changes, but properties are preserved)
+    copied_model = MockModel("file:///path/to/copy.odt")
+    copied_model._props = dict(model._props) # copy the UserDefinedProperties
+    
+    # Run setup sessions on the copy
+    element._setup_sessions(copied_model, "")
+    
+    new_session_id = get_document_property(copied_model, "WriterAgentSessionID")
+    new_session_url = get_document_property(copied_model, "WriterAgentSessionURL")
+    
+    assert new_session_id != orig_session_id, "Session ID should have been regenerated for the copied document URL"
+    assert new_session_url == "file:///path/to/copy.odt", "Session URL should have been updated to the copied document URL"
+

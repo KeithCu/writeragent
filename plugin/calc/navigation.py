@@ -200,7 +200,7 @@ def resolve_sheet_and_cell(doc, address: str) -> tuple[Any, int, int] | None:
 
 def navigate_to_cell(doc, ctx, address: str) -> bool:
     """Select *address* in the Calc document (PyUNO select, not sidebar dispatch)."""
-    _ = ctx  # kept for callers; navigation uses the document controller directly
+    unused_ctx = ctx  # kept for callers; navigation uses the document controller directly
     resolved = resolve_sheet_and_cell(doc, address)
     if not resolved:
         log.debug("navigate_to_cell: could not resolve %r", address)

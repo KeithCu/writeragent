@@ -738,15 +738,45 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         system_prompt = get_chat_system_prompt_for_document(model, extra_instructions or "")
 
         session_id = get_document_property(model, "WriterAgentSessionID")
-        if not session_id:
-            if model and hasattr(model, "getURL"):
-                url = model.getURL()
+        url = model.getURL() if (model and hasattr(model, "getURL")) else ""
+        if session_id:
+            session_url = get_document_property(model, "WriterAgentSessionURL")
+            if session_url and url and session_url != url:
+                log.info(f"Document URL changed from {session_url} to {url}. Regenerating session ID for copy isolation.")
+                old_session_id = session_id
                 if url:
                     session_id = hashlib.sha256(url.encode("utf-8")).hexdigest()
-            if not session_id:
+                else:
+                    session_id = str(uuid.uuid4())
+                
+                try:
+                    from plugin.chatbot.history_db import get_chat_history
+                    old_db = get_chat_history(old_session_id)
+                    new_db = get_chat_history(session_id)
+                    for msg in old_db.get_messages():
+                        new_db.add_message(msg["role"], msg["content"], msg.get("tool_calls"))
+                except Exception as e:
+                    log.error(f"Failed to copy chat history from {old_session_id} to {session_id}: {e}")
+
+                if model:
+                    set_document_property(model, "WriterAgentSessionID", session_id)
+                    if url:
+                        set_document_property(model, "WriterAgentSessionURL", url)
+
+        if not session_id:
+            if url:
+                session_id = hashlib.sha256(url.encode("utf-8")).hexdigest()
+            else:
                 session_id = str(uuid.uuid4())
             if model:
                 set_document_property(model, "WriterAgentSessionID", session_id)
+                if url:
+                    set_document_property(model, "WriterAgentSessionURL", url)
+        else:
+            if model and url:
+                session_url = get_document_property(model, "WriterAgentSessionURL")
+                if not session_url:
+                    set_document_property(model, "WriterAgentSessionURL", url)
 
         self.doc_session = ChatSession(system_prompt, session_id=session_id)
         self.web_session = ChatSession("Observe: Always use the web_search tool to answer questions.", session_id=session_id + "_web")

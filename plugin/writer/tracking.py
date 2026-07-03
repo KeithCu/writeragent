@@ -46,7 +46,7 @@ def _calc_track_changes_show_markup(_ctx: Any, _controller: Any, show: bool) -> 
     not reliably expose or toggle markup the way Writer does. Revisit when LibreOffice
     documents a supported API (or headless-safe dispatch with deterministic state).
     """
-    _ = show
+    unused_show = show
     return {
         "status": "ok",
         "message": ("Calc: showing or hiding tracked-change markup from WriterAgent is not supported yet—use Edit - Track Changes - Show (or Review in the tabbed UI) in LibreOffice. track_changes_start / track_changes_stop still control recording."),

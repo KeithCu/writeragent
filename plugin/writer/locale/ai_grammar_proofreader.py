@@ -539,7 +539,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
     # --- XServiceDisplayName ---
     def getServiceDisplayName(self, aLocale: Any) -> str:
         try:
-            _ = aLocale
+            unused_locale = aLocale
             return "WriterAgent AI Grammar"
         except Exception as e:
             log.warning("[grammar] getServiceDisplayName: %s", e, exc_info=True)
