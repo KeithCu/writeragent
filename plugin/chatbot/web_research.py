@@ -98,7 +98,7 @@ def _research_cache_result_fields(
     *,
     stem_lang: str | None = None,
     matched_key: str | None = None,
-    jaccard: float | None = None,
+    score: float | None = None,
 ) -> dict[str, Any]:
     fields: dict[str, Any] = {
         "research_cache_event": event,
@@ -108,8 +108,11 @@ def _research_cache_result_fields(
         fields["research_cache_lang"] = stem_lang
     if matched_key:
         fields["research_cache_matched_key"] = matched_key
-    if jaccard is not None:
-        fields["research_cache_jaccard"] = round(jaccard, 2)
+    if score is not None:
+        if event == "hit_embedding":
+            fields["research_cache_similarity"] = round(score, 2)
+        else:
+            fields["research_cache_jaccard"] = round(score, 2)
     return fields
 
 
@@ -123,10 +126,12 @@ def _write_research_cache(
     stem_lang: str,
 ) -> dict[str, Any]:
     from plugin.chatbot.web_research_cache import format_research_cache_key
+    from plugin.chatbot.web_research_cache import enqueue_research_cache_embedding_backfill
     from plugin.contrib.smolagents.default_tools import _web_cache_set
 
     storage_key = format_research_cache_key(stem_lang, unique_key)
     _web_cache_set(cache_path, "research", storage_key, result_text, cache_max_mb * 1024 * 1024)
+    enqueue_research_cache_embedding_backfill(getattr(ctx, "ctx", ctx), cache_path, max_age_days)
     return _research_cache_result_fields("saved", unique_key, cache_path, max_age_days, stem_lang=stem_lang)
 
 
@@ -214,11 +219,13 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
 
         if cache_enabled and cache_path and os.path.exists(cache_path) and unique_key:
             try:
-                from plugin.chatbot.web_research_cache import lookup_research_cache
+                from plugin.chatbot.web_research_cache import enqueue_research_cache_embedding_backfill, lookup_research_cache
                 from plugin.framework.i18n import _
 
                 jaccard_percent = get_config_int("web_research_cache_jaccard_percent")
+                embedding_percent = get_config_int("web_research_cache_embedding_percent")
                 min_overlap = get_config_int("web_research_cache_min_overlap")
+                enqueue_research_cache_embedding_backfill(ctx.ctx, cache_path, cache_max_age_days)
                 hit = lookup_research_cache(
                     cache_path,
                     unique_key,
@@ -226,6 +233,8 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
                     cache_max_age_days,
                     jaccard_percent,
                     min_overlap,
+                    ctx=ctx.ctx,
+                    embedding_percent=embedding_percent,
                 )
                 if hit is not None:
                     event, display_key, matched_raw_key, score, cached = hit
@@ -236,8 +245,8 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
                         cache_path,
                         cache_max_age_days,
                         stem_lang=stem_lang,
-                        matched_key=matched_raw_key if event == "hit_fuzzy" else None,
-                        jaccard=score if event == "hit_fuzzy" else None,
+                        matched_key=matched_raw_key if event in ("hit_fuzzy", "hit_embedding") else None,
+                        score=score if event in ("hit_fuzzy", "hit_embedding") else None,
                     )
                     return {"status": "ok", "message": _("Web research completed."), "result": cached, **cache_fields}
             except Exception as e:

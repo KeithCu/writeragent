@@ -8,6 +8,7 @@ import pytest
 
 from plugin.chatbot.web_research_cache import (
     _read_doc_char_locale,
+    _research_cache_embedding_backfill_worker,
     find_fuzzy_research_match,
     format_research_cache_key,
     jaccard,
@@ -17,7 +18,9 @@ from plugin.chatbot.web_research_cache import (
     resolve_research_locale,
     stem_set_from_word_key,
     stem_word,
+    store_research_cache_embeddings,
 )
+from plugin.framework.client.embedding_client import EmbeddingBatch
 
 SPACE_ELEVATOR_KEY_1 = (
     "challenges concept conclusion dynamics elevator energy engineering focusing including "
@@ -164,6 +167,141 @@ def test_lookup_research_cache_fuzzy_hit(tmp_path):
     assert matched_raw_key == SPACE_ELEVATOR_KEY_1
     assert score >= 0.40
     assert cached == "Cached elevator report"
+
+
+def test_web_cache_schema_adds_embeddings_table_to_existing_db(tmp_path):
+    import sqlite3
+    from plugin.contrib.smolagents.default_tools import _web_cache_get
+
+    db_file = str(tmp_path / "writeragent_web_cache.db")
+    conn = sqlite3.connect(db_file)
+    try:
+        conn.execute(
+            "CREATE TABLE web_cache "
+            "(kind TEXT, key TEXT, value TEXT, size INTEGER, created_at REAL, PRIMARY KEY (kind, key))"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    assert _web_cache_get(db_file, "research", "missing", max_age_days=30) is None
+
+    conn = sqlite3.connect(db_file)
+    try:
+        row = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'web_cache_embeddings'"
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row == ("web_cache_embeddings",)
+
+
+def test_lookup_research_cache_embedding_hit(tmp_path):
+    from plugin.contrib.smolagents.default_tools import _web_cache_set
+
+    db_file = str(tmp_path / "writeragent_web_cache.db")
+    raw_key = "english|best nearby pizza"
+    _web_cache_set(db_file, "research", raw_key, "Cached pizza report", 50 * 1024 * 1024)
+    _web_cache_set(db_file, "research", "english|space elevator physics", "Cached space report", 50 * 1024 * 1024)
+    store_research_cache_embeddings(
+        db_file,
+        [
+            (raw_key, "best nearby pizza", [1.0, 0.0]),
+            ("english|space elevator physics", "space elevator physics", [0.0, 1.0]),
+        ],
+        embedding_model="test-model",
+    )
+
+    with patch("plugin.chatbot.web_research_cache._research_cache_embedding_configured", return_value=True), \
+         patch("plugin.chatbot.web_research_cache._get_embedding_model_or_none", return_value="test-model"), \
+         patch(
+             "plugin.framework.client.embedding_client.embed_texts",
+             return_value=EmbeddingBatch(model="test-model", dim=2, vectors=[[1.0, 0.0]], indices=[0]),
+         ):
+        hit = lookup_research_cache(
+            db_file,
+            "good pizza around",
+            "english",
+            max_age_days=30,
+            jaccard_percent=60,
+            min_overlap=8,
+            ctx=object(),
+        )
+
+    assert hit is not None
+    event, display_key, matched_raw_key, score, cached = hit
+    assert event == "hit_embedding"
+    assert display_key == "good pizza around"
+    assert matched_raw_key == raw_key
+    assert score == pytest.approx(1.0)
+    assert cached == "Cached pizza report"
+
+
+def test_lookup_research_cache_embedding_model_mismatch_falls_back_to_jaccard(tmp_path):
+    from plugin.contrib.smolagents.default_tools import _web_cache_set
+
+    db_file = str(tmp_path / "writeragent_web_cache.db")
+    _web_cache_set(db_file, "research", SPACE_ELEVATOR_KEY_1, "Cached elevator report", 50 * 1024 * 1024)
+    store_research_cache_embeddings(
+        db_file,
+        [(SPACE_ELEVATOR_KEY_1, SPACE_ELEVATOR_KEY_1, [1.0, 0.0])],
+        embedding_model="old-model",
+    )
+
+    with patch("plugin.chatbot.web_research_cache._research_cache_embedding_configured", return_value=True), \
+         patch("plugin.chatbot.web_research_cache._get_embedding_model_or_none", return_value="new-model"), \
+         patch("plugin.framework.client.embedding_client.embed_texts") as embed_texts:
+        hit = lookup_research_cache(
+            db_file,
+            SPACE_ELEVATOR_KEY_2,
+            "english",
+            max_age_days=30,
+            jaccard_percent=40,
+            min_overlap=8,
+            ctx=object(),
+        )
+
+    embed_texts.assert_not_called()
+    assert hit is not None
+    assert hit[0] == "hit_fuzzy"
+    assert hit[4] == "Cached elevator report"
+
+
+def test_research_cache_embedding_backfill_worker_stores_missing_vectors(tmp_path):
+    from plugin.contrib.smolagents.default_tools import _web_cache_set
+
+    db_file = str(tmp_path / "writeragent_web_cache.db")
+    _web_cache_set(db_file, "research", "english|best nearby pizza", "Cached pizza report", 50 * 1024 * 1024)
+    _web_cache_set(db_file, "research", "english|space elevator physics", "Cached space report", 50 * 1024 * 1024)
+
+    def fake_embed_texts(ctx, texts, *, model=None, timeout_sec=None):
+        del ctx, timeout_sec
+        assert model == "test-model"
+        vectors = [[1.0, 0.0] if "pizza" in text else [0.0, 1.0] for text in texts]
+        return EmbeddingBatch(model="test-model", dim=2, vectors=vectors, indices=list(range(len(texts))))
+
+    with patch("plugin.framework.client.embedding_client.embed_texts", side_effect=fake_embed_texts):
+        _research_cache_embedding_backfill_worker(object(), db_file, 30, "test-model")
+
+    with patch("plugin.chatbot.web_research_cache._research_cache_embedding_configured", return_value=True), \
+         patch("plugin.chatbot.web_research_cache._get_embedding_model_or_none", return_value="test-model"), \
+         patch(
+             "plugin.framework.client.embedding_client.embed_texts",
+             return_value=EmbeddingBatch(model="test-model", dim=2, vectors=[[0.0, 1.0]], indices=[0]),
+         ):
+        hit = lookup_research_cache(
+            db_file,
+            "orbital tether mechanics",
+            "english",
+            max_age_days=30,
+            jaccard_percent=60,
+            min_overlap=8,
+            ctx=object(),
+        )
+
+    assert hit is not None
+    assert hit[0] == "hit_embedding"
+    assert hit[2] == "english|space elevator physics"
 
 
 def test_read_doc_char_locale_from_first_paragraph():

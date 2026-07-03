@@ -68,7 +68,7 @@ def _parse_worker_result(payload: dict[str, Any], *, model: str) -> EmbeddingBat
     )
 
 
-def embed_texts(ctx: Any, texts: list[str], *, model: str | None = None) -> EmbeddingBatch:
+def embed_texts(ctx: Any, texts: list[str], *, model: str | None = None, timeout_sec: int | None = None) -> EmbeddingBatch:
     """Encode *texts* to float32 vectors via the user venv (sentence-transformers).
 
     Empty strings are skipped on the worker side; see ``EmbeddingBatch.indices`` for alignment.
@@ -88,12 +88,12 @@ def embed_texts(ctx: Any, texts: list[str], *, model: str | None = None) -> Embe
     if texts is None:
         texts = []
 
-    timeout_sec = embeddings_worker_timeout_sec(ctx)
+    resolved_timeout_sec = embeddings_worker_timeout_sec(ctx) if timeout_sec is None else int(timeout_sec)
     response = run_code_in_user_venv(
         ctx,
         _EMBED_STUB,
         data={"model": model_name, "texts": list(texts)},
-        timeout_sec=timeout_sec,
+        timeout_sec=resolved_timeout_sec,
         session_id=_embedding_session_id(model_name),
         worker_pool=WORKER_POOL_EMBEDDINGS,
     )

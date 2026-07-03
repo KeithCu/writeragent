@@ -135,6 +135,16 @@ config:
     helper: "Minimum similarity (0-100) for a fuzzy cache hit. JSON only (internal); default 60."
     internal: true
 
+  web_research_cache_embedding_percent:
+    type: int
+    default: 75
+    min: 0
+    max: 100
+    widget: number
+    label: Research Cache Embedding Match (%)
+    helper: "Minimum cosine similarity (0-100) for an embedding cache hit. JSON only (internal); default 75."
+    internal: true
+
   web_research_cache_min_overlap:
     type: int
     default: 8

@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import time
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -409,6 +410,19 @@ def test_web_research_cache_chat_text_fuzzy_hit():
     assert "elevator space" in block
 
 
+def test_web_research_cache_chat_text_embedding_hit():
+    block = web_research_cache_chat_text({
+        "research_cache_event": "hit_embedding",
+        "research_cache_key": "elevator space",
+        "research_cache_matched_key": "english|space elevator physics",
+        "research_cache_lang": "english",
+        "research_cache_similarity": 0.82,
+    })
+    assert "embedding" in block.lower()
+    assert "82%" in block
+    assert "elevator space" in block
+
+
 # =============================================================================
 # Web research query override tests (from test_web_research_query_override.py)
 # =============================================================================
@@ -637,6 +651,49 @@ def test_web_research_caching_logic(tmp_path):
         assert "caching unique" in cache_chat
 
 
+def test_web_research_cache_lookup_uses_embedding_threshold(tmp_path):
+    from plugin.chatbot.web_research import WebResearchTool
+    from plugin.tests.testing_utils import MockContext
+
+    ctx = MagicMock()
+    ctx.ctx = MockContext()
+    db_file = str(tmp_path / "writeragent_web_cache.db")
+    db_file_path = Path(db_file)
+    db_file_path.write_bytes(b"")
+    captured: dict[str, object] = {}
+
+    def _cfg_int(key):
+        if key == "web_cache_validity_days":
+            return 30
+        if key == "web_research_cache_jaccard_percent":
+            return 60
+        if key == "web_research_cache_embedding_percent":
+            return 75
+        if key == "web_research_cache_min_overlap":
+            return 8
+        return 50
+
+    def fake_lookup(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return ("hit_embedding", "caching unique", "english|cached similar", 0.78, "Cached Answer Content")
+
+    with patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
+         patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
+         patch("plugin.framework.config.get_config_int_safe", return_value=50), \
+         patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
+         patch("plugin.framework.constants.should_prepend_dev_llm_system_prefix", return_value=False), \
+         patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")), \
+         patch("plugin.chatbot.web_research_cache.enqueue_research_cache_embedding_backfill"), \
+         patch("plugin.chatbot.web_research_cache.lookup_research_cache", side_effect=fake_lookup):
+        res = WebResearchTool().execute(ctx, query="Search for caching test unique info")
+
+    assert res["status"] == "ok"
+    assert res["research_cache_event"] == "hit_embedding"
+    assert captured["kwargs"]["embedding_percent"] == 75
+    assert captured["args"][4] == 60
+
+
 def test_web_research_caching_write(tmp_path):
     from plugin.chatbot.web_research import WebResearchTool
     from plugin.tests.testing_utils import MockContext
@@ -687,6 +744,22 @@ def test_web_research_caching_write(tmp_path):
         cache_chat = format_research_cache_result_chat(res)
         assert "Research cache saved" in cache_chat
         assert "execute" in cache_chat
+
+
+def test_write_research_cache_enqueues_embedding_backfill(tmp_path):
+    from plugin.chatbot.web_research import _write_research_cache
+    from plugin.contrib.smolagents.default_tools import _web_cache_get
+
+    ctx = MagicMock()
+    ctx.ctx = object()
+    db_file = str(tmp_path / "writeragent_web_cache.db")
+
+    with patch("plugin.chatbot.web_research_cache.enqueue_research_cache_embedding_backfill") as enqueue:
+        fields = _write_research_cache(ctx, db_file, "execute", "Live Searched Output", 50, 30, "english")
+
+    assert fields["research_cache_event"] == "saved"
+    assert _web_cache_get(db_file, "research", "english|execute", max_age_days=30) == "Live Searched Output"
+    enqueue.assert_called_once_with(ctx.ctx, db_file, 30)
 
 
 def test_web_research_caching_disabled_bypasses_cache(tmp_path):

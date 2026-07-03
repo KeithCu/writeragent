@@ -104,6 +104,18 @@ def web_research_cache_chat_text(fields: Mapping[str, Any]) -> str:
             "cache_key": cache_key,
             "matched": matched,
         } + "\n"
+    elif event == "hit_embedding":
+        similarity = fields.get("research_cache_similarity")
+        pct = int(round(float(similarity) * 100)) if similarity is not None else 0
+        lang = fields.get("research_cache_lang") or ""
+        matched = fields.get("research_cache_matched_key") or ""
+        lang_bit = f"{lang}: " if lang else ""
+        block = "\n" + _("Research cache hit (embedding, %(pct)s%% match: %(lang_bit)s%(cache_key)s → %(matched)s)") % {
+            "pct": pct,
+            "lang_bit": lang_bit,
+            "cache_key": cache_key,
+            "matched": matched,
+        } + "\n"
     elif event == "hit":
         block = "\n" + _("Research cache hit (key: %s)") % (cache_key,) + "\n"
     else:

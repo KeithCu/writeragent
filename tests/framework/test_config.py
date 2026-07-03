@@ -256,6 +256,7 @@ class TestConfigSyncFileIO(unittest.TestCase):
         self.assertEqual(get_config_bool('web_research_cache_enabled'), False)
         self.assertEqual(get_config('embeddings.folder_search_mode'), 'none')
         self.assertEqual(get_config_int('web_research_cache_jaccard_percent'), 60)
+        self.assertEqual(get_config_int('web_research_cache_embedding_percent'), 75)
         self.assertEqual(get_config_int('web_research_cache_min_overlap'), 8)
         self.assertEqual(get_config('log_level'), 'DEBUG')
         with self.assertRaises(ConfigError) as err_ctx:

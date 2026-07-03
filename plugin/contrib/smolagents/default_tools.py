@@ -78,6 +78,12 @@ def _web_cache_ensure_schema(conn: Any) -> None:
         "(kind TEXT, key TEXT, value TEXT, size INTEGER, created_at REAL, PRIMARY KEY (kind, key))"
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_web_cache_created_at ON web_cache(created_at)")
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS web_cache_embeddings "
+        "(kind TEXT, key TEXT, embedding_model TEXT, text_hash TEXT, dim INTEGER, vector_json TEXT, created_at REAL, "
+        "PRIMARY KEY (kind, key, embedding_model))"
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_web_cache_embeddings_kind_model ON web_cache_embeddings(kind, embedding_model)")
 
 
 def _web_cache_with_connection(db_path: str, fn):
@@ -115,6 +121,7 @@ def _web_cache_get(db_path: str, kind: str, key: str, max_age_days: int) -> str 
         now = time.time()
 
         if now - created_at > max_age_seconds:
+            conn.execute("DELETE FROM web_cache_embeddings WHERE kind = ? AND key = ?", (kind, key))
             conn.execute("DELETE FROM web_cache WHERE kind = ? AND key = ?", (kind, key))
             conn.commit()
             return None
@@ -170,6 +177,7 @@ def _web_cache_set(db_path: str, kind: str, key: str, value: str, max_size_bytes
                     break
             if to_delete:
                 conn.executemany("DELETE FROM web_cache WHERE kind = ? AND key = ?", to_delete)
+                conn.executemany("DELETE FROM web_cache_embeddings WHERE kind = ? AND key = ?", to_delete)
         conn.commit()
 
     _web_cache_with_connection(db_path, do_set)

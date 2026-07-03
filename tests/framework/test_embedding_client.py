@@ -97,6 +97,22 @@ def test_embed_texts_custom_model_session_slug(ctx, config_data):
     assert mock_run.call_args.kwargs["session_id"] == f"{EMBEDDINGS_WORKER_SESSION_PREFIX}:BAAI_bge-small-en-v1.5"
 
 
+def test_embed_texts_uses_timeout_override(ctx, config_data):
+    worker_result = {
+        "status": "ok",
+        "result": {"model": DEFAULT_EMBEDDING_MODEL, "dim": 384, "vectors": [], "indices": []},
+    }
+
+    with (
+        patch("plugin.framework.client.embedding_client.get_config", side_effect=_mock_get_config(config_data)),
+        patch("plugin.framework.client.embedding_client.embeddings_worker_timeout_sec", return_value=long_trusted_worker_timeout_sec()),
+        patch("plugin.framework.client.embedding_client.run_code_in_user_venv", return_value=worker_result) as mock_run,
+    ):
+        embed_texts(ctx, ["hello"], timeout_sec=5)
+
+    assert mock_run.call_args.kwargs["timeout_sec"] == 5
+
+
 def test_embed_texts_worker_error(ctx, config_data):
     with (
         patch("plugin.framework.client.embedding_client.get_config", side_effect=_mock_get_config(config_data)),
