@@ -252,14 +252,14 @@ flowchart TB
     DB["corpus.db I/O"]
   end
   Outer --> Cache --> RPC
-  RPC -->|"Pickle5 RPC"| ST
+  RPC -->|"shared Pickle5 IPC"| ST
   ST --> Hybrid --> DB
   Hybrid -->|"hits, counts"| RPC
 ```
 
 ### Host vs venv boundary {#why-numpy-stays-in-the-venv}
 
-NumPy, **sqlite-vec**, and **sentence-transformers** run **only in the user venv subprocess** ([`PythonWorkerManager`](../plugin/scripting/venv_worker.py)). LibreOffice’s embedded Python stays stdlib — no 50–100 MB science stack in the OXT. See [enabling_numpy_in_libreoffice.md](enabling_numpy_in_libreoffice.md).
+NumPy, **sqlite-vec**, and **sentence-transformers** run **only in the user venv subprocess** ([`PythonWorkerManager`](../plugin/scripting/venv_worker.py)) over the shared Pickle5 framing helpers in [`plugin/scripting/ipc.py`](../plugin/scripting/ipc.py). LibreOffice’s embedded Python stays stdlib — no 50–100 MB science stack in the OXT. See [enabling_numpy_in_libreoffice.md](enabling_numpy_in_libreoffice.md).
 
 | Layer | Responsibility |
 |-------|----------------|

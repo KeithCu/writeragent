@@ -25,7 +25,7 @@ WriterAgent registers **`=PYTHON()`** and **`=PROMPT()`** as **separate UNO comp
 
 ## Architecture (host vs venv)
 
-LibreOffice’s embedded Python must **not** import NumPy/pandas from arbitrary user installs (ABI mismatch → crash). `=PYTHON()` runs user code in a **separate venv interpreter** over a JSON line protocol.
+LibreOffice’s embedded Python must **not** import NumPy/pandas from arbitrary user installs (ABI mismatch → crash). `=PYTHON()` runs user code in a **separate venv interpreter** over shared length-prefixed Pickle5 frames.
 
 ```mermaid
 flowchart TB
@@ -48,7 +48,7 @@ flowchart TB
   PF --> RVC --> CFG
   RVC --> PWM --> WH --> VS --> LPE
   VS --> PC2
-  PWM -.->|stdin/stdout JSON| WH
+  PWM -.->|stdin/stdout Pickle5 frames| WH
 ```
 
 **Recalc constraint:** `=PYTHON()` runs **synchronously** during Calc recalc. The implementation deliberately avoids UI event pumping on this path (see comments in [`python_function.py`](../plugin/calc/python/function.py)) so the formula engine is not re-entered.

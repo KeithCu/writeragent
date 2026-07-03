@@ -16,6 +16,7 @@ import sys
 import textwrap
 import pprint
 from collections import defaultdict
+from importlib.abc import Loader, MetaPathFinder
 from typing import Any, Iterable, cast
 
 # Ensure the project root is in sys.path
@@ -57,7 +58,7 @@ sys.modules["uno"] = MagicMock()
 sys.modules["unohelper"] = MockModule("unohelper")
 
 # Custom finder for com.sun.star hierarchy
-class MockFinder:
+class MockFinder(MetaPathFinder, Loader):
     def find_spec(self, fullname, path, target=None):
         if fullname.startswith("com.") or fullname == "com":
             return self._gen_spec(fullname)
@@ -196,12 +197,11 @@ def generate_module(tools: list[ToolBase]) -> str:
         '"""',
         'import json',
         'import os',
-        'import pickle',
-        'import struct',
         'import sys',
         'import threading',
         'import uuid',
         'from typing import Any, Dict, List, Optional, Union',
+        'from plugin.scripting.ipc import read_pickle_frame, write_pickle_frame',
         '',
         '',
         '# Detect if running in-process (LibreOffice host) or out-of-process (Venv worker)',
@@ -248,19 +248,12 @@ def generate_module(tools: list[ToolBase]) -> str:
         '',
         '    call_id = str(uuid.uuid4())',
         '    request = {"type": "tool_call", "id": call_id, "tool": tool_name, "args": kwargs}',
-        '    payload = pickle.dumps(request, protocol=5)',
-        '    header = struct.pack("!I", len(payload))',
         '    with _lock:',
-        '        sys.stdout.buffer.write(header)',
-        '        sys.stdout.buffer.write(payload)',
-        '        sys.stdout.buffer.flush()',
+        '        write_pickle_frame(sys.stdout.buffer, request)',
         '        # Block and read the response frame from the host on stdin',
-        '        resp_header = sys.stdin.buffer.read(4)',
-        '        if not resp_header or len(resp_header) < 4:',
+        '        response = read_pickle_frame(sys.stdin.buffer, require_dict=True)',
+        '        if response is None:',
         '            raise ConnectionError("Lost connection to LibreOffice host during tool call")',
-        '        size = struct.unpack("!I", resp_header)[0]',
-        '        resp_payload = sys.stdin.buffer.read(size)',
-        '        response = pickle.loads(resp_payload)  # nosec B301',
         '',
         '    if response.get("status") == "error":',
         '        raise RuntimeError(response.get("message", response.get("error", "Unknown error")))',
@@ -284,7 +277,7 @@ def generate_module(tools: list[ToolBase]) -> str:
     # Domain tools whitelist for host-side enforcement
     domain_tools_map = {}
     for ns, tool_list in sorted(groups.items()):
-        domain_tools_map[ns] = sorted([t.name for _, t in tool_list])
+        domain_tools_map[ns] = sorted([t.name for _, t in tool_list if t.name])
 
     pretty_map = pprint.pformat(domain_tools_map, indent=4, width=120)
     lines.append(f"DOMAIN_TOOLS = {pretty_map}")

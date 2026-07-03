@@ -11,10 +11,8 @@ from __future__ import annotations
 
 import logging
 import os
-import pickle
 import select
 import signal
-import struct
 import subprocess
 import sys
 import threading
@@ -32,6 +30,7 @@ from plugin.scripting.config_limits import (
     python_exec_timeout_default,
     resolve_python_exec_timeout,
 )
+from plugin.scripting.ipc import read_frame_payload, unpack_pickle_frame, write_pickle_frame
 from plugin.scripting.payload_codec import host_unpack_data
 from plugin.scripting.sandbox import (
     optimize_popen_pipes,
@@ -185,18 +184,13 @@ class PythonWorkerManager:
             allow_heartbeat=allow_heartbeat,
             timeout_sec=timeout_sec,
         )
-        payload = pickle.dumps(request, protocol=5)
-        header = struct.pack("!I", len(payload))
-
         for attempt in range(2):
             try:
                 self._ensure_running()
                 assert self._proc is not None and self._proc.stdin is not None and self._proc.stdout is not None
                 stdin = self._proc.stdin
                 stdout = self._proc.stdout
-                stdin.write(header)
-                stdin.write(payload)
-                stdin.flush()
+                write_pickle_frame(stdin, request)
 
                 while True:
                     if allow_heartbeat:
@@ -214,8 +208,9 @@ class PythonWorkerManager:
                     if not response_bytes:
                         stderr_out = self._drain_stderr()
                         raise RuntimeError(f"Worker closed stdout without a response{stderr_out}")
-                    # Trusted IPC: bytes from our own worker_harness child over a private pipe.
-                    response = pickle.loads(response_bytes)  # nosec B301
+                    response = unpack_pickle_frame(response_bytes)
+                    if not isinstance(response, dict):
+                        raise RuntimeError("Worker response must be a dict")
                     if isinstance(response, dict):
                         from plugin.ppt_master.venv.host_rpc import dispatch_worker_response
 
@@ -232,7 +227,7 @@ class PythonWorkerManager:
                             continue
                     break
                 return self._normalize_response(response)
-            except (BrokenPipeError, pickle.UnpicklingError, RuntimeError, subprocess.TimeoutExpired, OSError) as e:
+            except (BrokenPipeError, ValueError, RuntimeError, subprocess.TimeoutExpired, OSError) as e:
                 log.warning("Python worker failed (attempt %s): %s", attempt + 1, e)
                 self._terminate_worker()
                 if attempt == 1:
@@ -382,16 +377,7 @@ class PythonWorkerManager:
                     break
             return bytes(buf)
 
-        header = _read_exact(4)
-        if len(header) < 4:
-            return b""
-
-        size = struct.unpack("!I", header)[0]
-        payload = _read_exact(size)
-        if len(payload) < size:
-            return b""
-
-        return payload
+        return read_frame_payload(stdout, read_exact=_read_exact) or b""
 
     def _read_response_bytes_threaded(self, stdout: IO[bytes], timeout_sec: int) -> bytes:
         """Windows path: blocking read in a daemon thread with join-timeout."""
@@ -400,14 +386,7 @@ class PythonWorkerManager:
 
         def _reader() -> None:
             try:
-                header = stdout.read(4)
-                if not header or len(header) < 4:
-                    return
-                size = struct.unpack("!I", header)[0]
-                payload = stdout.read(size)
-                if len(payload) < size:
-                    return
-                result[0] = payload
+                result[0] = read_frame_payload(stdout) or b""
             except Exception as exc:
                 error[0] = exc
 
@@ -481,14 +460,7 @@ class PythonWorkerManager:
                 return frame_bytes
 
     def _read_frame_bytes(self, stdout: IO[bytes], read_exact: Callable[[int], bytes]) -> bytes:
-        header = read_exact(4)
-        if len(header) < 4:
-            return b""
-        size = struct.unpack("!I", header)[0]
-        payload = read_exact(size)
-        if len(payload) < size:
-            return b""
-        return payload
+        return read_frame_payload(stdout, read_exact=read_exact) or b""
 
     def _drain_stderr(self) -> str:
         """Read any pending stderr from the crashed worker for diagnostics."""

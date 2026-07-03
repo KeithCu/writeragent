@@ -1,5 +1,5 @@
 import json
-import subprocess
+from io import StringIO
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -41,7 +41,27 @@ def test_stop_recording_process_returns_path():
     proc.stdout.readline.return_value = json.dumps({"status": "ok", "path": "/tmp/x.wav"}) + "\n"
     proc.wait.return_value = 0
     assert stop_recording_process(proc) == "/tmp/x.wav"
-    proc.stdin.write.assert_called_once_with("stop\n")
+    proc.stdin.write.assert_called_once_with(json.dumps({"command": "stop"}) + "\n")
+
+
+def test_stop_recording_process_uses_json_stop_command():
+    proc = MagicMock()
+    proc.stdin = StringIO()
+    proc.stdout = StringIO(json.dumps({"status": "ok", "path": "/tmp/x.wav"}) + "\n")
+    proc.wait.return_value = 0
+
+    assert stop_recording_process(proc) == "/tmp/x.wav"
+    assert proc.stdin.getvalue() == json.dumps({"command": "stop"}) + "\n"
+
+
+def test_wait_for_recording_ready_eof_raises_runtime_error():
+    proc = MagicMock()
+    proc.stdout = StringIO("")
+    proc.stderr = StringIO("")
+    proc.poll.return_value = None
+
+    with pytest.raises(RuntimeError, match="ended before responding"):
+        wait_for_recording_ready(proc, timeout_sec=0.01)
 
 
 def test_resolve_recording_python_requires_venv():
@@ -50,3 +70,11 @@ def test_resolve_recording_python_requires_venv():
         exe, err = resolve_recording_python(ctx)
         assert exe is None
         assert "Settings" in err
+
+
+def test_audio_record_main_accepts_json_and_legacy_stop_commands():
+    from plugin.scripting.venv.audio_record_main import _is_stop_command
+
+    assert _is_stop_command(json.dumps({"command": "stop"}))
+    assert _is_stop_command("stop\n")
+    assert not _is_stop_command(json.dumps({"command": "continue"}))

@@ -25,16 +25,27 @@ from plugin.framework.uno_bootstrap import register_alias_importer
 register_alias_importer()
 
 from plugin.scripting.venv.audio_recorder import record_to_wav
+from plugin.scripting.ipc import write_json_line
 
 
 def _emit(payload: dict[str, object]) -> None:
-    sys.stdout.write(json.dumps(payload) + "\n")
-    sys.stdout.flush()
+    write_json_line(sys.stdout, payload)
+
+
+def _is_stop_command(line: str) -> bool:
+    stripped = line.strip()
+    if stripped.lower() == "stop":
+        return True
+    try:
+        payload = json.loads(stripped)
+    except json.JSONDecodeError:
+        return False
+    return isinstance(payload, dict) and payload.get("command") == "stop"
 
 
 def _stdin_stop_reader(stop_event: threading.Event) -> None:
     for line in sys.stdin:
-        if line.strip().lower() == "stop":
+        if _is_stop_command(line):
             stop_event.set()
             return
 

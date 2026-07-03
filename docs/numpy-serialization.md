@@ -62,17 +62,17 @@ LibreOffice's embedded Python and the user's venv are **different interpreters**
 
 **Reset:** `reset_session` / **WriterAgent → Reset Python Session** drops the shared executor (and paired `:init` session). Shared-kernel **Calc semantics** (recalc, idempotent cells): [core §6 — Session modes](enabling_numpy_in_libreoffice.md#session-modes-and-recalc-semantics); shortcuts: [§6 Keyboard shortcuts](enabling_numpy_in_libreoffice.md#keyboard-shortcuts-and-recalc).
 
-Implementation: [`venv_worker.py`](../plugin/scripting/venv_worker.py), [`worker_harness.py`](../plugin/scripting/worker_harness.py), [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py).
+Implementation: [`venv_worker.py`](../plugin/scripting/venv_worker.py), [`worker_harness.py`](../plugin/scripting/venv/worker_harness.py), [`venv_sandbox.py`](../plugin/scripting/venv/venv_sandbox.py).
 
 ---
 
 ## Worker protocol {#worker-protocol}
 
-Production IPC uses **length-prefixed Pickle5 frames** on stdin/stdout (not JSON lines). Each frame is a pickled request/response dict; large `data` / `result` values use [`split_grid`](#strategy-3-split-grid-serialization-detail) or nested lists inside that dict.
+Production IPC uses **length-prefixed Pickle5 frames** on stdin/stdout (not JSON lines). The shared framing helpers live in [`plugin/scripting/ipc.py`](../plugin/scripting/ipc.py); each frame is a pickled request/response dict, and large `data` / `result` values use [`split_grid`](#strategy-3-split-grid-serialization-detail) or nested lists inside that dict.
 
 ### Length-prefixed framing
 
-To guarantee complete frame assembly over asynchronous UNIX pipe crossings, `PythonWorkerManager` and [`worker_harness.py`](../plugin/scripting/worker_harness.py) use:
+To guarantee complete frame assembly over asynchronous UNIX pipe crossings, `PythonWorkerManager` and [`worker_harness.py`](../plugin/scripting/venv/worker_harness.py) use the shared helpers in [`plugin/scripting/ipc.py`](../plugin/scripting/ipc.py):
 
 - **Write frame:** `pickle.dumps(request, protocol=5)` → 4-byte big-endian length (`struct.pack("!I", N)`) → `N` raw bytes on the pipe.
 - **Read frame:** read exactly 4 bytes → `_read_exact(N)` with `select` + blocking read → `pickle.loads(payload)`.
@@ -515,7 +515,7 @@ The implementation was simplified in May 2026 to unify the 1D and 2D packing pat
 | [`plugin/scripting/venv_worker.py`](../plugin/scripting/venv_worker.py) | `_normalize_response`: `host_unpack_data` on worker `result` (all callers); respects `column_kinds` |
 | [`plugin/calc/python/function.py`](../plugin/calc/python/function.py) | `=PYTHON()` ingress pack + matrix/session flattening (result already unpacked) |
 | [`plugin/calc/python/venv.py`](../plugin/calc/python/venv.py) | Chat tool ingress pack |
-| [`plugin/scripting/venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) | `child_unpack_data` before inject; `child_pack_result` in `serialize_result` |
+| [`plugin/scripting/venv/venv_sandbox.py`](../plugin/scripting/venv/venv_sandbox.py) | `child_unpack_data` before inject; `child_pack_result` in `serialize_result` |
 | [`tests/scripting/test_payload_codec.py`](../tests/scripting/test_payload_codec.py) | Unit tests (threshold, round-trip, mixed text → lists) |
 | [`tests/scripting/test_venv_worker.py`](../tests/scripting/test_venv_worker.py) | Harness integration with split_grid payloads |
 
@@ -546,8 +546,8 @@ Calc UNO range
 | Range read | [`calc_addin_data.py`](../plugin/calc/calc_addin_data.py) | Cell scalars in nested lists | O(cells) once at read |
 | Host pack | [`payload_codec.py`](../plugin/scripting/payload_codec.py) | **Single-pass** flattening loop; handles `None` in fast path | **Bottleneck** (Python loop) |
 | Host encode | [`venv_worker.py`](../plugin/scripting/venv_worker.py) | `pickle.dumps` of request dict | **Instant** (binary buffer) |
-| Child unpack | [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) | `frombuffer` + `reshape` → ndarray | **Instant** (C-speed) |
-| Return | [`serialize_result`](../plugin/scripting/venv_sandbox.py) | `child_pack_result` for ndarray/list; DataFrame/Series use rectangular `dataframe` envelope (columns + split_grid data) | Large ndarray/DF egress as binary buffer |
+| Child unpack | [`venv_sandbox.py`](../plugin/scripting/venv/venv_sandbox.py) | `frombuffer` + `reshape` → ndarray | **Instant** (C-speed) |
+| Return | [`serialize_result`](../plugin/scripting/venv/venv_sandbox.py) | `child_pack_result` for ndarray/list; DataFrame/Series use rectangular `dataframe` envelope (columns + split_grid data) | Large ndarray/DF egress as binary buffer |
 | Host decode | [`venv_worker.py`](../plugin/scripting/venv_worker.py) | `_normalize_response` → `host_unpack_data` on `result` | Nested lists for LLM, smol observations, Calc matrix/session |
 | Calc return | [`python_function.py`](../plugin/calc/python/function.py) | `finalize_python_return` / session flattening | Per-cell scalars for legacy add-in bridge |
 
@@ -637,7 +637,7 @@ Record: cells/sec host→child, cells/sec child→host, bytes on wire, and wheth
 | **Next optimizations** | See [Future work — serialization performance](#future-work--serialization-performance) (profile in LO first, then summaries → host paths → defer vendored/mmap) |
 | **Host flatten loop (stdlib)** | [Host pack hot path — pure-Python optimizations](#host-pack-hot-path--pure-python-optimizations) — identity checks, bound-method capture, rectangular validation, unified 1D/2D cell loop |
 
-**Vendoring policy:** avoid NumPy/pandas in the OXT; **do** consider a few MB of focused binaries only if Tier 2 stdlib is insufficient after measurement. Keep pack/unpack logic in **`plugin/scripting/`** (host + [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py)).
+**Vendoring policy:** avoid NumPy/pandas in the OXT; **do** consider a few MB of focused binaries only if Tier 2 stdlib is insufficient after measurement. Keep pack/unpack logic in **`plugin/scripting/`** (host + [`venv_sandbox.py`](../plugin/scripting/venv/venv_sandbox.py)).
 
 ### Future work — serialization performance
 
@@ -736,7 +736,7 @@ Larger architectural slice than “faster JSON.”
 | Idea | Notes |
 |------|--------|
 | **`float32` envelope** | Optional `dtype` in wire dict; ~half bytes when precision allows; policy + round-trip tests. |
-| **Pandas egress** | Shipped (rectangular + columns): DataFrames/Series emit `dataframe` envelope (columns + split_grid-able data) instead of records list-of-dicts. See [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) and [`payload_codec.py`](../plugin/scripting/payload_codec.py). |
+| **Pandas egress** | Shipped (rectangular + columns): DataFrames/Series emit `dataframe` envelope (columns + split_grid-able data) instead of records list-of-dicts. See [`venv_sandbox.py`](../plugin/scripting/venv/venv_sandbox.py) and [`payload_codec.py`](../plugin/scripting/payload_codec.py). |
 
 #### Priority 6 — Worker payload cache (same range, many recalcs)
 

@@ -5,11 +5,10 @@
 
 from __future__ import annotations
 
-import pickle
-import struct
+import io
 from unittest.mock import MagicMock, patch
 
-import pytest
+from plugin.scripting.ipc import read_pickle_frame
 
 
 def test_dispatch_worker_event_only():
@@ -46,9 +45,8 @@ def test_dispatch_tool_call_writes_response():
     assert handled is True
     mock_tool.assert_called_once_with("validate_ppt_master_project", {"project_path": "/tmp/p"})
     assert len(written) == 1
-    payload = written[0]
-    size = struct.unpack("!I", payload[:4])[0]
-    resp = pickle.loads(payload[4 : 4 + size])  # nosec B301
+    resp = read_pickle_frame(io.BytesIO(written[0]), require_dict=True)
+    assert resp is not None
     assert resp["status"] == "ok"
     assert resp["id"] == "abc"
 
@@ -75,9 +73,8 @@ def test_dispatch_llm_request_forwards_to_handler():
     assert call_payload["messages"][0]["content"] == "x"
     assert "_stop_checker" in call_payload
 
-    payload = written[0]
-    size = struct.unpack("!I", payload[:4])[0]
-    resp = pickle.loads(payload[4 : 4 + size])  # nosec B301
+    resp = read_pickle_frame(io.BytesIO(written[0]), require_dict=True)
+    assert resp is not None
     assert resp["status"] == "ok"
     assert resp["result"]["content"] == "hi"
 

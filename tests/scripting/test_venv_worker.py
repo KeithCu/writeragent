@@ -24,6 +24,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.scripting.config_limits import EMBEDDINGS_PROBE_TIMEOUT_SEC, VISION_PROBE_TIMEOUT_SEC, WARM_WORKER_TIMEOUT_SEC
+from plugin.scripting.ipc import pack_pickle_frame, read_pickle_frame
 from plugin.scripting.venv_worker import (
     PythonWorkerManager,
     _worker_error_message,
@@ -126,9 +127,7 @@ def test_duckdb_import_not_deep_wrapped():
 def test_harness_main_loop_integration():
     """Harness reads and writes Pickle (subprocess smoke)."""
     harness = __import__("plugin.scripting.venv.worker_harness", fromlist=["main"])
-    
-    import pickle
-    import struct
+
     proc_pickle = subprocess.Popen(
         [sys.executable, harness.__file__],
         stdin=subprocess.PIPE,
@@ -138,18 +137,11 @@ def test_harness_main_loop_integration():
         bufsize=0,
     )
     req_dict = {"id": "t2", "code": "result = 2 ** 10"}
-    payload = pickle.dumps(req_dict, protocol=5)
-    header = struct.pack("!I", len(payload))
-    proc_pickle.stdin.write(header)
-    proc_pickle.stdin.write(payload)
+    proc_pickle.stdin.write(pack_pickle_frame(req_dict))
     proc_pickle.stdin.flush()
 
-    resp_header = proc_pickle.stdout.read(4)
-    assert len(resp_header) == 4
-    resp_size = struct.unpack("!I", resp_header)[0]
-    resp_payload = proc_pickle.stdout.read(resp_size)
-    assert len(resp_payload) == resp_size
-    resp_dict = pickle.loads(resp_payload)
+    resp_dict = read_pickle_frame(proc_pickle.stdout, require_dict=True)
+    assert resp_dict is not None
     assert resp_dict["id"] == "t2"
     assert resp_dict["status"] == "ok"
     assert resp_dict["result"] == 1024
@@ -556,8 +548,7 @@ def test_split_grid_integration_pickle_mode():
 
 def _pack_response(obj: dict) -> bytes:
     """Encode a response the same way worker_harness.py does."""
-    payload = pickle.dumps(obj, protocol=5)
-    return struct.pack("!I", len(payload)) + payload
+    return pack_pickle_frame(obj)
 
 
 class TestReadResponseBytesThreaded:

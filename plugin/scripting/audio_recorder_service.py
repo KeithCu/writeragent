@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import subprocess
@@ -15,6 +14,7 @@ import tempfile
 from typing import Any, Callable
 
 from plugin.framework.config import get_config_str
+from plugin.scripting.ipc import read_json_line, write_json_line
 from plugin.scripting.sandbox import resolve_venv_python, scrub_subprocess_env, wrap_command_for_sandbox
 
 log = logging.getLogger(__name__)
@@ -87,21 +87,22 @@ def spawn_recording_process(exe: str, output_path: str) -> subprocess.Popen[str]
 def _read_json_line(proc: subprocess.Popen[str], timeout: float) -> dict[str, Any]:
     if proc.stdout is None:
         raise RuntimeError("Recording subprocess stdout is not available.")
+    # Bugfix: this used to call stdout.readline() directly, so the ready/stop
+    # timeout was ignored when the child hung before emitting JSON. The shared
+    # IPC helper waits with a real deadline before reading the line.
     try:
-        line = proc.stdout.readline()
+        payload = read_json_line(proc.stdout, timeout_sec=timeout)
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"Recording subprocess timed out after {timeout:g} seconds.") from exc
+    except ValueError as exc:
+        raise RuntimeError(f"Invalid recording subprocess response: {exc}") from exc
     except Exception as exc:
         raise RuntimeError(f"Failed to read from recording subprocess: {exc}") from exc
-    if not line:
+    if payload is None:
         stderr = (proc.stderr.read() if proc.stderr else "") or ""
         code = proc.poll()
         detail = stderr.strip() or f"exit code {code}"
         raise RuntimeError(f"Recording subprocess ended before responding ({detail}).")
-    try:
-        payload = json.loads(line.strip())
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"Invalid recording subprocess response: {line!r}") from exc
-    if not isinstance(payload, dict):
-        raise RuntimeError(f"Unexpected recording subprocess payload: {payload!r}")
     return payload
 
 
@@ -125,8 +126,7 @@ def stop_recording_process(
     if proc.stdin is None:
         raise RuntimeError("Recording subprocess stdin is not available.")
     try:
-        proc.stdin.write("stop\n")
-        proc.stdin.flush()
+        write_json_line(proc.stdin, {"command": "stop"})
     except OSError as exc:
         raise RuntimeError(f"Failed to signal recording subprocess: {exc}") from exc
 
@@ -153,8 +153,7 @@ def terminate_recording_process(proc: subprocess.Popen[str] | None) -> None:
     if proc.poll() is None:
         try:
             if proc.stdin is not None:
-                proc.stdin.write("stop\n")
-                proc.stdin.flush()
+                write_json_line(proc.stdin, {"command": "stop"})
         except OSError:
             pass
         try:

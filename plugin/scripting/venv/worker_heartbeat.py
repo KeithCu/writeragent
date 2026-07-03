@@ -5,10 +5,10 @@
 """Length-prefixed heartbeat/result frames on the venv worker stdout pipe."""
 from __future__ import annotations
 
-import pickle
-import struct
 import sys
 from typing import Any, BinaryIO, Callable
+
+from plugin.scripting.ipc import read_frame_payload, unpack_pickle_frame, write_pickle_frame
 
 FRAME_HEARTBEAT = "heartbeat"
 FRAME_RESULT = "result"
@@ -16,10 +16,7 @@ FRAME_RESULT = "result"
 
 def write_frame(stream: BinaryIO, payload: dict[str, Any]) -> None:
     """Write one pickle frame (4-byte big-endian length prefix)."""
-    out = pickle.dumps(payload, protocol=5)
-    stream.write(struct.pack("!I", len(out)))
-    stream.write(out)
-    stream.flush()
+    write_pickle_frame(stream, payload)
 
 
 class HeartbeatEmitter:
@@ -42,16 +39,11 @@ def write_result_frame(stream: BinaryIO, response: dict[str, Any]) -> None:
 def read_frame(stream: BinaryIO, *, deadline: float, read_exact: Callable[[BinaryIO, int, float], bytes]) -> bytes | None:
     """Read one length-prefixed frame before *deadline*; return None on timeout/EOF."""
 
-    header = read_exact(stream, 4, deadline)
-    if len(header) < 4:
-        return None
-    size = struct.unpack("!I", header)[0]
-    return read_exact(stream, size, deadline)
+    return read_frame_payload(stream, read_exact=lambda nbytes: read_exact(stream, nbytes, deadline))
 
 
 def parse_frame(frame_bytes: bytes) -> dict[str, Any]:
     if not frame_bytes:
         return {}
-    # Trusted IPC from our own worker child process.
-    data = pickle.loads(frame_bytes)  # nosec B301
+    data = unpack_pickle_frame(frame_bytes)
     return data if isinstance(data, dict) else {}

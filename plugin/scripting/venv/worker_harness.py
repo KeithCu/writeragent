@@ -26,6 +26,7 @@ if _PROJECT_ROOT not in sys.path:
 from plugin.framework.uno_bootstrap import register_alias_importer
 register_alias_importer()
 
+from plugin.scripting.ipc import read_pickle_frame, write_pickle_frame
 from plugin.scripting.venv.venv_sandbox import reset_sandbox_session, run_sandboxed_code, serialize_result
 
 
@@ -167,32 +168,21 @@ def main() -> None:
     logger = logging.getLogger("worker_harness")
     logger.info("Worker process %d starting up with python %s", os.getpid(), sys.version)
 
-    import pickle
-    import struct
-
     stdin = sys.stdin.buffer
     stdout = sys.stdout.buffer
 
     while True:
-        header = stdin.read(4)
-        if not header or len(header) < 4:
-            break
-
-        size = struct.unpack("!I", header)[0]
-        payload = stdin.read(size)
-        if len(payload) < size:
-            break
-
         req_id = ""
         try:
-            # Trusted IPC: bytes from WriterAgent host that spawned this harness process.
-            request = pickle.loads(payload)  # nosec B301
+            request = read_pickle_frame(stdin, require_dict=True)
+            if request is None:
+                break
             req_id = str(request.get("id", ""))
             logger.debug("Received request id=%s action=%s", req_id, request.get("action") or "execute")
             response = _handle_request(request, stdout=stdout)
             logger.debug("Finished request id=%s, response status=%s", req_id, response.get("status") if response else "none")
-        except pickle.UnpicklingError as e:
-            logger.warning("Unpickling error on request id=%s: %s", req_id, e)
+        except ValueError as e:
+            logger.warning("Invalid pickle request on request id=%s: %s", req_id, e)
             response = {"status": "error", "message": f"Invalid pickle request: {e}"}
         except Exception as e:
             logger.exception("Exception handling request id=%s", req_id)
@@ -203,14 +193,10 @@ def main() -> None:
 
         response["id"] = req_id
         try:
-            out_payload = pickle.dumps(response, protocol=5)
+            write_pickle_frame(stdout, response)
         except Exception as e:
             err_response = {"id": req_id, "status": "error", "message": f"Pickle serialization failed: {e}"}
-            out_payload = pickle.dumps(err_response, protocol=5)
-
-        stdout.write(struct.pack("!I", len(out_payload)))
-        stdout.write(out_payload)
-        stdout.flush()
+            write_pickle_frame(stdout, err_response)
 
 
 

@@ -2,6 +2,9 @@ import sys
 import os
 import pytest
 from unittest.mock import MagicMock
+from typing import cast
+
+from plugin.framework.tool import ToolBase
 
 # Add project root to sys.path
 root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -21,6 +24,10 @@ class MockTool:
         self.specialized_domain = specialized_domain
         self.tier = tier
 
+
+def _as_tool(tool: MockTool) -> ToolBase:
+    return cast("ToolBase", tool)
+
 def test_schema_to_signature_positional_and_keyword():
     tool = MockTool(
         "test_tool",
@@ -35,22 +42,22 @@ def test_schema_to_signature_positional_and_keyword():
             "required": ["req"]
         }
     )
-    pos, kw = schema_to_signature(tool)
+    pos, kw = schema_to_signature(_as_tool(tool))
     assert pos == ["req: str"]
     assert kw == ["opt: int = 10", "opt2: bool = True"]
 
 def test_schema_to_signature_empty_schema():
     tool = MockTool("test_tool", "desc", {})
-    pos, kw = schema_to_signature(tool)
+    pos, kw = schema_to_signature(_as_tool(tool))
     assert pos == []
     assert kw == []
 
 def test_group_tools_by_domain():
     tools = [
-        MockTool("footnotes_insert", "Insert footnote.", {}, specialized_domain="footnotes"),
-        MockTool("footnotes_list", "List footnotes.", {}, specialized_domain="footnotes"),
-        MockTool("bookmark_add", "Add bookmark.", {}, specialized_domain="bookmarks"),
-        MockTool("get_doc_tree", "Get tree.", {}, specialized_domain=None, tier="core"),
+        _as_tool(MockTool("footnotes_insert", "Insert footnote.", {}, specialized_domain="footnotes")),
+        _as_tool(MockTool("footnotes_list", "List footnotes.", {}, specialized_domain="footnotes")),
+        _as_tool(MockTool("bookmark_add", "Add bookmark.", {}, specialized_domain="bookmarks")),
+        _as_tool(MockTool("get_doc_tree", "Get tree.", {}, specialized_domain=None, tier="core")),
     ]
     groups = group_tools(tools)
     
@@ -67,7 +74,7 @@ def test_group_tools_by_domain():
 
 def test_generate_module_output_is_valid_python():
     tools = [
-        MockTool("footnotes_insert", "Insert footnote.", {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}, specialized_domain="footnotes"),
+        _as_tool(MockTool("footnotes_insert", "Insert footnote.", {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}, specialized_domain="footnotes")),
     ]
     code = generate_module(tools)
     # Should compile without error
@@ -81,8 +88,8 @@ def test_generate_module_output_is_valid_python():
 
 def test_method_names_strip_prefix_plural():
     tools = [
-        MockTool("footnotes_insert", "desc", {}, specialized_domain="footnotes"),
-        MockTool("footnote_insert", "desc", {}, specialized_domain="footnotes"),
+        _as_tool(MockTool("footnotes_insert", "desc", {}, specialized_domain="footnotes")),
+        _as_tool(MockTool("footnote_insert", "desc", {}, specialized_domain="footnotes")),
     ]
     groups = group_tools(tools)
     # Both should become "insert" if prefix matches
@@ -90,8 +97,8 @@ def test_method_names_strip_prefix_plural():
     assert "insert" in method_names
 
 def test_rpc_call_logic_in_generated_code():
-    tools = [MockTool("t", "d", {})]
+    tools = [_as_tool(MockTool("t", "d", {}))]
     code = generate_module(tools)
     assert "_rpc_call" in code
-    assert "pickle.dumps(request" in code
-    assert "sys.stdin.buffer.read" in code
+    assert "write_pickle_frame(sys.stdout.buffer, request)" in code
+    assert "read_pickle_frame(sys.stdin.buffer, require_dict=True)" in code

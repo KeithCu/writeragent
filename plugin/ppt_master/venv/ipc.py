@@ -6,19 +6,22 @@
 
 from __future__ import annotations
 
-import pickle
-import struct
 import sys
 import uuid
 from typing import Any
 
+from plugin.scripting.ipc import read_pickle_frame, write_pickle_frame
+
 
 def _write_frame(payload: dict[str, Any]) -> None:
-    out = pickle.dumps(payload, protocol=5)
-    stream = sys.stdout.buffer
-    stream.write(struct.pack("!I", len(out)))
-    stream.write(out)
-    stream.flush()
+    write_pickle_frame(sys.stdout.buffer, payload)
+
+
+def _read_host_response(context: str) -> dict[str, Any]:
+    response = read_pickle_frame(sys.stdin.buffer, require_dict=True)
+    if response is None:
+        raise ConnectionError(f"Lost connection to LibreOffice host during {context}")
+    return response
 
 
 def emit_worker_event(event: dict[str, Any]) -> None:
@@ -29,12 +32,7 @@ def rpc_tool(tool_name: str, **kwargs: Any) -> Any:
     """Call a WriterAgent host tool via the worker IPC protocol."""
     call_id = str(uuid.uuid4())
     _write_frame({"type": "tool_call", "id": call_id, "tool": tool_name, "args": kwargs})
-    header = sys.stdin.buffer.read(4)
-    if not header or len(header) < 4:
-        raise ConnectionError("Lost connection to LibreOffice host during tool call")
-    size = struct.unpack("!I", header)[0]
-    resp_payload = sys.stdin.buffer.read(size)
-    response = pickle.loads(resp_payload)  # nosec B301
+    response = _read_host_response("tool call")
     if response.get("status") == "error":
         raise RuntimeError(response.get("message", "Tool call failed"))
     return response.get("result")
@@ -61,12 +59,7 @@ def rpc_llm(
     if max_tokens is not None:
         frame["max_tokens"] = max_tokens
     _write_frame(frame)
-    header = sys.stdin.buffer.read(4)
-    if not header or len(header) < 4:
-        raise ConnectionError("Lost connection to LibreOffice host during LLM request")
-    size = struct.unpack("!I", header)[0]
-    resp_payload = sys.stdin.buffer.read(size)
-    response = pickle.loads(resp_payload)  # nosec B301
+    response = _read_host_response("LLM request")
     if response.get("status") == "error":
         raise RuntimeError(response.get("message", "LLM request failed"))
     result = response.get("result")

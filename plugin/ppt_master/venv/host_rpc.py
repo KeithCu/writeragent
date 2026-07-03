@@ -9,6 +9,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
+from plugin.scripting.ipc import pack_pickle_frame
+
 log = logging.getLogger(__name__)
 
 
@@ -129,11 +131,7 @@ def dispatch_worker_response(
         except Exception as exc:
             log.exception("ppt-master tool_call %s failed", tool_name)
             tool_response = {"status": "error", "id": call_id, "message": str(exc)}
-        import pickle
-        import struct
-
-        tool_payload = pickle.dumps(tool_response, protocol=5)
-        stdin_write(struct.pack("!I", len(tool_payload)) + tool_payload)
+        stdin_write(pack_pickle_frame(tool_response))
         return True
 
     if frame_type == "llm_request":
@@ -149,11 +147,7 @@ def dispatch_worker_response(
             llm_response["result"] = llm_out.get("result")
         else:
             llm_response["message"] = llm_out.get("message", "LLM request failed")
-        import pickle
-        import struct
-
-        out_payload = pickle.dumps(llm_response, protocol=5)
-        stdin_write(struct.pack("!I", len(out_payload)) + out_payload)
+        stdin_write(pack_pickle_frame(llm_response))
         return True
 
     return False

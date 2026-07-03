@@ -48,8 +48,10 @@ Host spawns `{venv_python} audio_record_main.py --output /tmp/….wav` with stdi
 | Direction | Payload |
 |-----------|---------|
 | child → host | `{"status":"ready"}` after the input stream starts |
-| host → child | `stop` on stdin |
+| host → child | `{"command":"stop"}` on stdin; legacy plain `stop` is still accepted by the child |
 | child → host | `{"status":"ok","path":"/abs/path.wav"}` or `{"status":"error","message":"…"}` |
+
+The JSON-line framing uses [`plugin/scripting/ipc.py`](../plugin/scripting/ipc.py), which also enforces the host-side ready/stop read timeouts so a hung recorder cannot block forever waiting on `readline()`.
 
 Capture uses `sounddevice.RawInputStream` with `dtype='int16'` and Python's built-in `wave` module — no NumPy required for recording. Future **analysis** helpers (librosa, spectrograms) stay in the venv per [numpy-domains.md § Audio / Signal](numpy-domains.md#audio-signal).
 

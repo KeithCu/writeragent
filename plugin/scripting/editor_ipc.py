@@ -6,33 +6,25 @@
 
 from __future__ import annotations
 
-import pickle
-import struct
 import traceback
 from typing import Any, IO
+
+from plugin.scripting.ipc import IpcFrameError, pack_pickle_frame, read_frame_payload, unpack_pickle_frame
 
 EDITOR_DEFAULT_TITLE = " "
 
 # Cap payloads to avoid accidental OOM from a corrupted length header.
 _MAX_PAYLOAD_BYTES = 16 * 1024 * 1024
-_PICKLE_PROTOCOL = 5
 
 
 def read_message(stream: IO[bytes]) -> dict[str, Any] | None:
     """Read one pickle-framed message from *stream*. Returns None on clean EOF."""
-    header = stream.read(4)
-    if not header or len(header) < 4:
-        return None
-    size = struct.unpack("!I", header)[0]
-    if size <= 0 or size > _MAX_PAYLOAD_BYTES:
-        raise ValueError(f"Invalid editor message size: {size}")
-    payload = stream.read(size)
-    if len(payload) < size:
+    payload = read_frame_payload(stream, max_payload_bytes=_MAX_PAYLOAD_BYTES, frame_label="editor message")
+    if payload is None:
         return None
     try:
-        # Trusted IPC: bytes from WriterAgent host or editor_main child over a private pipe.
-        decoded = pickle.loads(payload)  # nosec B301
-    except pickle.UnpicklingError as e:
+        decoded = unpack_pickle_frame(payload)
+    except ValueError as e:
         raise ValueError(f"Invalid editor message pickle: {e}") from e
     if not isinstance(decoded, dict):
         raise ValueError("Editor message must be a dict")
@@ -41,11 +33,11 @@ def read_message(stream: IO[bytes]) -> dict[str, Any] | None:
 
 def write_message(stream: IO[bytes], message: dict[str, Any]) -> None:
     """Write one dict to *stream* as pickle protocol 5 with a 4-byte big-endian length prefix."""
-    payload = pickle.dumps(message, protocol=_PICKLE_PROTOCOL)
-    if len(payload) > _MAX_PAYLOAD_BYTES:
-        raise ValueError("Editor message exceeds maximum payload size")
-    stream.write(struct.pack("!I", len(payload)))
-    stream.write(payload)
+    try:
+        frame = pack_pickle_frame(message, max_payload_bytes=_MAX_PAYLOAD_BYTES)
+    except IpcFrameError as exc:
+        raise ValueError("Editor message exceeds maximum payload size") from exc
+    stream.write(frame)
     stream.flush()
 
 
