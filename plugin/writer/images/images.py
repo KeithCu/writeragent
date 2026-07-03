@@ -39,6 +39,7 @@ from plugin.framework.config import get_config_int, get_config_bool, get_config_
 from plugin.framework.client.model_fetcher import get_image_model
 from plugin.chatbot.config_ui_helpers import update_lru_history
 from plugin.doc.document_research import list_nearby_files
+from plugin.doc import visual_helpers
 from .image_tools import (
     IMAGE_CACHE_DIR_NAME,
     insert_image,
@@ -232,22 +233,11 @@ class ListImages(ToolWriterImageBase):
 
     def execute(self, ctx, **kwargs):
         doc = ctx.doc
-        is_calc = not hasattr(doc, "getGraphicObjects") and hasattr(doc, "getSheets")
-        graphics_names = []
-
-        if is_calc:
-            sheet = doc.getCurrentController().getActiveSheet()
-            dp = sheet.getDrawPage()
-            for i in range(dp.getCount()):
-                shape = dp.getByIndex(i)
-                if shape.supportsService("com.sun.star.drawing.GraphicObjectShape"):
-                    graphics_names.append((shape.getName(), shape))
-        else:
-            if not hasattr(doc, "getGraphicObjects"):
-                return self._tool_error("Document does not support graphic objects.")
-            graphics = doc.getGraphicObjects()
-            for name in graphics.getElementNames():
-                graphics_names.append((name, graphics.getByName(name)))
+        doc_type = visual_helpers.get_visual_doc_type(doc)
+        is_calc = doc_type == "calc"
+        if not is_calc and not hasattr(doc, "getGraphicObjects"):
+            return self._tool_error("Document does not support graphic objects.")
+        graphics_names = visual_helpers.list_graphic_objects(doc, doc_type=doc_type)
 
         doc_svc = getattr(ctx.services, "document", None)
         para_ranges = None
@@ -307,22 +297,7 @@ class ListImages(ToolWriterImageBase):
 
 
 def _get_graphic_object(ctx, doc, image_name):
-    is_calc = not hasattr(doc, "getGraphicObjects") and hasattr(doc, "getSheets")
-    if is_calc:
-        sheet = doc.getCurrentController().getActiveSheet()
-        dp = sheet.getDrawPage()
-        for i in range(dp.getCount()):
-            shape = dp.getByIndex(i)
-            if shape.supportsService("com.sun.star.drawing.GraphicObjectShape") and shape.getName() == image_name:
-                return shape
-        return None
-    else:
-        if not hasattr(doc, "getGraphicObjects"):
-            return None
-        graphics = doc.getGraphicObjects()
-        if graphics.hasByName(image_name):
-            return graphics.getByName(image_name)
-        return None
+    return visual_helpers.get_graphic_object_by_name(doc, image_name)
 
 
 class GetImageInfo(ToolWriterImageBase):
@@ -391,7 +366,7 @@ class GetImageInfo(ToolWriterImageBase):
 
         # Paragraph index via anchor
         paragraph_index = -1
-        is_calc = not hasattr(ctx.doc, "getGraphicObjects") and hasattr(ctx.doc, "getSheets")
+        is_calc = visual_helpers.get_visual_doc_type(ctx.doc) == "calc"
         if not is_calc:
             try:
                 anchor = graphic.getAnchor()
@@ -617,10 +592,11 @@ class DeleteImage(ToolWriterImageBase):
         if not graphic:
             return self._tool_error("Image '%s' not found or document does not support graphic objects." % image_name, code="IMAGE_NOT_FOUND", image_name=image_name)
 
-        is_calc = not hasattr(ctx.doc, "getGraphicObjects") and hasattr(ctx.doc, "getSheets")
+        is_calc = visual_helpers.get_visual_doc_type(ctx.doc) == "calc"
         if is_calc:
-            sheet = ctx.doc.getCurrentController().getActiveSheet()
-            dp = sheet.getDrawPage()
+            dp = visual_helpers.get_active_draw_page(ctx.doc, "calc")
+            if dp is None:
+                return self._tool_error("Image '%s' not found or document does not support graphic objects." % image_name, code="IMAGE_NOT_FOUND", image_name=image_name)
             dp.remove(graphic)
         else:
             anchor = graphic.getAnchor()

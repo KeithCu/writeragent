@@ -6,6 +6,7 @@
 
 import logging
 from .base import ToolCalcShapeBase
+from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES
 from plugin.draw.shapes import UpsertShape as DrawUpsertShape
 from plugin.draw.shapes import DeleteShape as DrawDeleteShape
 from plugin.draw.shapes import GetDrawSummary as DrawGetDrawSummary
@@ -14,12 +15,7 @@ from plugin.draw.shapes import GroupShapes as DrawGroupShapes
 
 log = logging.getLogger("writeragent.calc")
 
-_CALC_DRAW_SHAPE_DOCS = [
-    "com.sun.star.sheet.SpreadsheetDocument",
-    "com.sun.star.drawing.DrawingDocument",
-    "com.sun.star.presentation.PresentationDocument",
-    "com.sun.star.text.TextDocument"
-]
+_CALC_DRAW_SHAPE_DOCS = list(SHAPE_TOOL_UNO_SERVICES)
 
 class UpsertShape(DrawUpsertShape, ToolCalcShapeBase):
     name = "upsert_shape"

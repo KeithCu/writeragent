@@ -26,6 +26,7 @@ from typing import Any, cast
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_FRAME
 from com.sun.star.awt import Size, Point
 from com.sun.star.beans import PropertyValue
+from plugin.doc import visual_helpers
 
 logger = logging.getLogger(__name__)
 
@@ -34,16 +35,12 @@ GALLERY_IMAGE_DIR = GALLERY_NAME
 # Shared with images.py download cache — paths under this dir are embedded, not linked.
 IMAGE_CACHE_DIR_NAME = "writeragent_images"
 
-_WRITER_GRAPHIC_SERVICE = "com.sun.star.text.TextGraphicObject"
-_DRAW_GRAPHIC_SERVICE = "com.sun.star.drawing.GraphicObjectShape"
+_WRITER_GRAPHIC_SERVICE = visual_helpers.WRITER_GRAPHIC_SERVICE
+_DRAW_GRAPHIC_SERVICE = visual_helpers.DRAW_GRAPHIC_SERVICE
 
 
 def get_type_doc(doc):
-    TYPE_DOC = {"calc": "com.sun.star.sheet.SpreadsheetDocument", "draw": "com.sun.star.drawing.DrawingDocument", "impress": "com.sun.star.presentation.PresentationDocument", "web": "com.sun.star.text.WebDocument", "writer": "com.sun.star.text.TextDocument"}
-    for k, v in TYPE_DOC.items():
-        if doc.supportsService(v):
-            return k
-    return "writer"
+    return visual_helpers.get_visual_doc_type(doc)
 
 
 def _image_cache_dir() -> str:
@@ -74,24 +71,15 @@ def _file_url_for_path(img_path: str) -> str:
 
 
 def _mm_to_units(width_mm: int | float, height_mm: int | float) -> tuple[int, int]:
-    return int(width_mm) * 100, int(height_mm) * 100
+    return visual_helpers.mm_to_units(width_mm, height_mm)
 
 
 def _mm_to_px(width_mm: int | float, height_mm: int | float) -> tuple[int, int]:
-    # 1/100 mm -> px at 96 DPI: px = units * 96 / 2540
-    w_units, h_units = _mm_to_units(width_mm, height_mm)
-    return max(1, int(w_units * 96 / 2540)), max(1, int(h_units * 96 / 2540))
+    return visual_helpers.mm_to_px(width_mm, height_mm)
 
 
 def _safe_try_method(obj: Any, method_name: str, *args: Any) -> bool:
-    try:
-        method = getattr(obj, method_name, None)
-        if callable(method):
-            method(*args)
-            return True
-    except Exception as ex:
-        logger.debug("_safe_try_method %s failed: %s", method_name, ex)
-    return False
+    return visual_helpers.safe_try_method(obj, method_name, *args)
 
 
 def _apply_graphic_properties(graphic, *, width: int, height: int, title: str, description: str, anchor_type=AS_CHARACTER, inside: str = "writer"):
@@ -112,74 +100,20 @@ def _apply_graphic_properties(graphic, *, width: int, height: int, title: str, d
 
 
 def _is_graphic_object(obj) -> bool:
-    if obj is None:
-        return False
-    if hasattr(obj, "Graphic") and obj.Graphic is not None:
-        return True
-    try:
-        if hasattr(obj, "getPropertyValue"):
-            g = obj.getPropertyValue("Graphic")
-            if g is not None:
-                return True
-    except Exception:
-        pass
-    try:
-        if hasattr(obj, "supportsService"):
-            return bool(
-                obj.supportsService(_WRITER_GRAPHIC_SERVICE)
-                or obj.supportsService("com.sun.star.text.GraphicObject")
-                or obj.supportsService(_DRAW_GRAPHIC_SERVICE)
-            )
-    except Exception:
-        pass
-    # GraphicURL is present on any graphic object even when "Graphic" property
-    # is not accessible via hasattr (e.g. pyuno TextGraphicObject).
-    try:
-        if hasattr(obj, "getPropertyValue"):
-            obj.getPropertyValue("GraphicURL")
-            return True
-    except Exception:
-        pass
-    return False
+    return visual_helpers.is_graphic_object(obj)
 
 
 def _selection_graphic_object(model):
-    try:
-        selection = model.CurrentController.Selection
-        if not selection:
-            return None
-        if hasattr(selection, "getCount"):
-            if selection.getCount() != 1:
-                return None
-            obj = selection.getByIndex(0)
-        else:
-            obj = selection
-        return obj if _is_graphic_object(obj) else None
-    except Exception as e:
-        logger.debug("_selection_graphic_object error: %s", e)
-        return None
+    return visual_helpers.selected_graphic_object(model)
 
 
 def _has_uno_property(obj: Any, name: str) -> bool:
     """True if *name* exists on the UNO PropertySet (never use hasattr on UNO attrs)."""
-    try:
-        psi = obj.getPropertySetInfo()
-        if psi is not None and hasattr(psi, "hasPropertyByName"):
-            return bool(psi.hasPropertyByName(name))
-    except Exception:
-        pass
-    return False
+    return visual_helpers.has_uno_property(obj, name)
 
 
 def _safe_set_property(obj: Any, name: str, value: Any) -> bool:
-    if not _has_uno_property(obj, name):
-        return False
-    try:
-        obj.setPropertyValue(name, value)
-        return True
-    except Exception as ex:
-        logger.debug("_safe_set_property %s failed: %s", name, ex)
-        return False
+    return visual_helpers.safe_set_property(obj, name, value)
 
 
 def _graphic_from_provider(ctx: Any, file_url: str) -> Any | None:
@@ -238,9 +172,7 @@ def insert_image(ctx, model, img_path, width_px, height_px, title="", descriptio
     """
     inside = get_type_doc(model)
 
-    # 1 inch = 25.4 mm = 2540 units (1/100th mm). At 96 DPI: 1px = 25.4/96 mm ≈ 0.2646 mm = 26.46 units.
-    width_units = int(width_px * 26.46)
-    height_units = int(height_px * 26.46)
+    width_units, height_units = visual_helpers.px_to_units(width_px, height_px)
 
     if inside in ["writer", "web"]:
         _insert_image_to_writer(ctx, model, img_path, width_units, height_units, title, description, add_frame)
@@ -259,7 +191,6 @@ def insert_image_at_locator(ctx, model, img_path, width_mm: int | float = 80, he
     """
     inside = get_type_doc(model)
     width_units, height_units = _mm_to_units(width_mm, height_mm)
-    width_px, height_px = _mm_to_px(width_mm, height_mm)
 
     if inside in ("writer", "web"):
         if text_cursor is not None:
@@ -371,11 +302,9 @@ def _insert_frame(ctx, model, img_path, width, height, title, description):
 
 
 def _insert_image_to_drawpage(ctx, model, inside, img_path, width, height, title, description):
-    ctrllr = model.CurrentController
-    if inside == "calc":
-        draw_page = ctrllr.ActiveSheet.DrawPage
-    else:
-        draw_page = ctrllr.CurrentPage
+    draw_page = visual_helpers.get_active_draw_page(model, inside)
+    if draw_page is None:
+        raise RuntimeError(f"Could not resolve draw page for {inside}")
 
     if _should_link_image_path(img_path):
         file_url = _file_url_for_path(img_path)
@@ -418,7 +347,6 @@ def replace_graphic_source(ctx, model, graphic, img_path, width_units=None, heig
 
     if _should_link_image_path(img_path):
         file_url = _file_url_for_path(img_path)
-        is_calc = inside == "calc"
         if inside in ("writer", "web"):
             anchor = graphic.getAnchor()
             if anchor is None:
@@ -448,8 +376,9 @@ def replace_graphic_source(ctx, model, graphic, img_path, width_units=None, heig
                     inside=inside,
                 )
         else:
-            ctrllr = model.CurrentController
-            draw_page = ctrllr.ActiveSheet.DrawPage if is_calc else ctrllr.CurrentPage
+            draw_page = visual_helpers.get_active_draw_page(model, inside)
+            if draw_page is None:
+                return False
             pos = graphic.getPosition()
             draw_page.remove(graphic)
             new_graphic = _dispatch_insert_linked_graphic(ctx, model, file_url)
@@ -519,8 +448,7 @@ def replace_image_in_place(ctx, model, img_path, width_px, height_px, title="", 
     obj, inside = _get_selected_graphic_object(model)
     if obj is None:
         return False
-    width_units = int(width_px * 26.46)
-    height_units = int(height_px * 26.46)
+    width_units, height_units = visual_helpers.px_to_units(width_px, height_px)
     try:
         if replace_graphic_source(ctx, model, obj, img_path, width_units, height_units, title, description):
             if add_to_gallery:
@@ -545,27 +473,14 @@ def get_selected_image_dimensions_px(model):
             size = obj.getSize()
         else:
             size = obj.getPropertyValue("Size")
-        # Size is in 1/100 mm. At 96 DPI: 1 mm = 96/25.4 px, so px = size * 96 / 2540
-        w_px = int(size.Width * 96 / 2540)
-        h_px = int(size.Height * 96 / 2540)
-        return max(64, w_px), max(64, h_px)  # clamp to provider minimum
+        return visual_helpers.units_to_px(size.Width, size.Height, minimum=64)
     except Exception:
         return None, None
 
 
 def _graphic_from_object(obj: Any) -> Any | None:
     """Return the UNO Graphic for a text graphic or draw GraphicObjectShape."""
-    if obj is None:
-        return None
-    if hasattr(obj, "Graphic"):
-        return obj.Graphic
-    if hasattr(obj, "getPropertyValue"):
-        try:
-            return obj.getPropertyValue("Graphic")
-        except Exception as e:
-            logger.warning("_graphic_from_object missing Graphic property: %s", e)
-            return None
-    return None
+    return visual_helpers.graphic_from_object(obj)
 
 
 def export_graphic_to_bytes(ctx: Any, graphic: Any) -> bytes:
