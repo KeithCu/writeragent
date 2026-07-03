@@ -65,7 +65,7 @@ def test_persistent_connections(client):
     with (
         patch("http.client.HTTPSConnection") as mock_https,
         patch("http.client.HTTPConnection") as mock_http,
-        patch("plugin.framework.client.llm_client.get_unverified_ssl_context") as mock_ssl,
+        patch("plugin.framework.client.http_transport.get_unverified_ssl_context") as mock_ssl,
     ):
         conn1 = client._get_connection()
         conn2 = client._get_connection()
@@ -313,7 +313,7 @@ def test_stream_request_with_tools_tls_retry():
     ]
 
     with patch("http.client.HTTPSConnection") as mock_https, \
-         patch("plugin.framework.client.llm_client.get_unverified_ssl_context") as mock_unverified_ssl:
+         patch("plugin.framework.client.http_transport.get_unverified_ssl_context") as mock_unverified_ssl:
         mock_unverified_ssl.return_value = "unverified_context"
 
         # We need two connection objects: one for the first try, one for the retry
@@ -346,6 +346,42 @@ def test_stream_request_with_tools_tls_retry():
         assert kwargs2["context"] == "unverified_context"
 
         assert result["content"] == "Success"
+
+
+def test_request_with_tools_sync_tls_retry():
+    import ssl
+    ctx = MockContext()
+    client = LlmClient({"endpoint": "https://localhost:11434", "model": "gpt-4"}, ctx)
+    ok_json = json.dumps(
+        {
+            "choices": [
+                {
+                    "message": {"role": "assistant", "content": "Success"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {},
+        }
+    ).encode("utf-8")
+
+    with patch("http.client.HTTPSConnection") as mock_https, \
+         patch("plugin.framework.client.http_transport.get_unverified_ssl_context") as mock_unverified_ssl:
+        mock_unverified_ssl.return_value = "unverified_context"
+        mock_conn1 = MagicMock()
+        mock_conn2 = MagicMock()
+        mock_https.side_effect = [mock_conn1, mock_conn2]
+        mock_conn1.request.side_effect = ssl.SSLCertVerificationError("self-signed certificate")
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_response.read.return_value = ok_json
+        mock_conn2.getresponse.return_value = mock_response
+
+        result = client.request_with_tools([{"role": "user", "content": "Hello"}], max_tokens=100)
+
+    assert mock_https.call_count == 2
+    assert mock_https.call_args_list[1].kwargs["context"] == "unverified_context"
+    assert result["content"] == "Success"
+
 
 def test_stream_request_with_tools_malformed_tool_arguments():
     ctx = MockContext()
@@ -520,16 +556,11 @@ def test_request_with_tools_strips_leaked_control_tokens_in_sync_response(client
         ],
         "usage": {},
     }
-    with (
-        patch.object(client, "_get_connection") as mock_get,
-        patch("plugin.framework.client.llm_client.get_unverified_ssl_context"),
-    ):
-        mock_conn = MagicMock()
-        mock_get.return_value = mock_conn
+    with patch.object(client._transport, "send") as mock_send:
         mock_resp = MagicMock()
         mock_resp.status = 200
         mock_resp.read.return_value = json.dumps(payload).encode("utf-8")
-        mock_conn.getresponse.return_value = mock_resp
+        mock_send.return_value = mock_resp
 
         result = client.request_with_tools([{"role": "user", "content": "hi"}], max_tokens=10)
     assert "<|" not in (result.get("content") or "")
@@ -571,6 +602,55 @@ def test_request_with_tools_sync_paces_consecutive_requests(client):
 
     assert len(sleeps) == 1
     assert abs(sleeps[0] - 0.05) < 1e-9
+
+
+def test_stream_request_with_tools_paces_consecutive_requests(client):
+    """Streaming sends use the same burst guard as sync sends."""
+    mock_responses = [
+        b'data: {"choices": [{"delta": {"role": "assistant", "content": "a"}}]}\n\n',
+        b"data: [DONE]\n\n",
+    ]
+    sleeps: list[float] = []
+
+    def track_sleep(dt: float) -> None:
+        sleeps.append(dt)
+
+    with (
+        patch("http.client.HTTPSConnection") as mock_https,
+        patch("time.sleep", side_effect=track_sleep),
+        patch("time.monotonic", side_effect=[1000.0] * 8),
+    ):
+        mock_conn = MagicMock()
+        mock_https.return_value = mock_conn
+        mock_resp1 = MagicMock()
+        mock_resp1.status = 200
+        mock_resp1.__iter__.return_value = iter(mock_responses)
+        mock_resp2 = MagicMock()
+        mock_resp2.status = 200
+        mock_resp2.__iter__.return_value = iter(mock_responses)
+        mock_conn.getresponse.side_effect = [mock_resp1, mock_resp2]
+
+        client.stream_request_with_tools([{"role": "user", "content": "x"}], max_tokens=10)
+        client.stream_request_with_tools([{"role": "user", "content": "y"}], max_tokens=10)
+
+    assert len(sleeps) == 1
+    assert abs(sleeps[0] - 0.05) < 1e-9
+
+
+def test_stream_request_with_tools_stop_checker_suppresses_connection_retry(client):
+    with patch("http.client.HTTPSConnection") as mock_https:
+        mock_conn = MagicMock()
+        mock_https.return_value = mock_conn
+        mock_conn.request.side_effect = socket.timeout("timed out")
+
+        result = client.stream_request_with_tools(
+            messages=[{"role": "user", "content": "Hi"}],
+            max_tokens=100,
+            stop_checker=lambda: True,
+        )
+
+    assert result["finish_reason"] == "stop"
+    assert mock_https.call_count == 1
 
 
 def test_make_chat_request_coalesces_system_messages(client):

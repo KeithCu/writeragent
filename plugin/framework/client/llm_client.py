@@ -16,31 +16,23 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """LLM API client for WriterAgent.
 
-Wire behavior lives here: request pacing (``LLM_MIN_REQUEST_INTERVAL_SEC``),
-leaked chat-template token stripping, dev/release system prefix, date prefix on
-first system message, Anthropic/Gemini shims, OpenRouter merge
-(``merge_openrouter_chat_extra``), logging redaction, local HTTPS retry.
-Takes a config dict from ``get_api_config`` and UNO ``ctx``.
+Builds provider-aware LLM payloads and delegates chat HTTP execution to
+``http_transport``. Request assembly still owns leaked chat-template token
+stripping, dev/release system prefix, date prefix on first system message,
+Anthropic/Gemini shims, OpenRouter merge (``merge_openrouter_chat_extra``), and
+logging redaction. Takes a config dict from ``get_api_config`` and UNO ``ctx``.
 """
 
 import logging
 import collections
 import copy
 import json
-import time
 import urllib.parse
-import http.client
-import socket
 import datetime
 from typing import Any, cast
 
 # LiteLLM: streaming_handler.py ~L198 safety_checker(), issue #5158
 REPEATED_STREAMING_CHUNK_LIMIT = 20
-
-# Minimum wall time between consecutive ``conn.request`` calls on one client (bursty
-# sub-agents / tool loops can otherwise hit provider rate limits). Also used when
-# starting additional grammar queue drain workers so N workers do not burst together.
-LLM_MIN_REQUEST_INTERVAL_SEC = 0.05
 
 from .response_normalizers import (
     strip_leaked_chat_template_control_tokens,
@@ -75,12 +67,11 @@ from plugin.framework.constants import APP_REFERER, APP_TITLE
 from plugin.framework.logging import init_logging, redact_sensitive_payload_for_log
 from plugin.framework.client.auth import resolve_auth_for_config, build_auth_headers, AuthError
 from plugin.framework.errors import NetworkError
-from plugin.framework.url_utils import get_url_hostname, get_api_version_suffix
+from plugin.framework.url_utils import get_api_version_suffix
 
 from .errors import format_error_message, _format_http_error_response
-from .ssl_helpers import get_unverified_ssl_context, get_verified_ssl_context, _is_certificate_verify_error, _is_local_host
-# _is_local_host is re-exported from ssl_helpers for now (see provider_detection.py
-# for the canonical home after the 2026 heuristic consolidation).
+from .http_transport import CONNECTION_ERRORS, LlmHttpTransport
+from .request_controls import LLM_MIN_REQUEST_INTERVAL_SEC
 from .stream_normalizer import (
     iterate_sse,
     _normalize_message_content,
@@ -111,10 +102,7 @@ class LlmClient:
     def __init__(self, config, ctx, cancellation_scope=None):
         self.config = config
         self.ctx = ctx
-        self._persistent_conn = None
-        self._conn_key = None  # (scheme, host, port)
-        self._ssl_fallback_hosts = set()
-        self._last_llm_request_sent_monotonic = 0.0
+        self._transport = LlmHttpTransport(self._endpoint, self._timeout)
         self._shims: dict[str, BaseProviderShim] = {}
         scope = cancellation_scope
         if scope is None:
@@ -148,73 +136,20 @@ class LlmClient:
                 self._shims[provider] = OpenAIShim(self)
         return self._shims[provider]
 
-    def _pace_before_llm_request(self) -> None:
-        """Sleep if needed so consecutive HTTP sends on this client are not back-to-back."""
-        now = time.monotonic()
-        wait = LLM_MIN_REQUEST_INTERVAL_SEC - (now - self._last_llm_request_sent_monotonic)
-        if wait > 0:
-            time.sleep(wait)
+    @property
+    def _persistent_conn(self):
+        return self._transport.persistent_conn
 
-    def _mark_llm_request_sent(self) -> None:
-        self._last_llm_request_sent_monotonic = time.monotonic()
+    @property
+    def _conn_key(self):
+        return self._transport.conn_key
 
     def _get_connection(self):
-        """Get or create a persistent http.client connection."""
-        endpoint = self._endpoint()
-        parsed = urllib.parse.urlparse(endpoint)
-        scheme = parsed.scheme.lower()
-        host = get_url_hostname(endpoint)
-        port = parsed.port
-
-        # Default ports if not specified
-        if not port:
-            port = 443 if scheme == "https" else 80
-
-        ssl_mode = "plain"
-        if scheme == "https":
-            ssl_mode = "unverified"
-            if _is_local_host(host) and host not in self._ssl_fallback_hosts:
-                ssl_mode = "verified"
-        new_key = (scheme, host, port, ssl_mode)
-
-        if self._persistent_conn:
-            if self._conn_key != new_key:
-                log.debug("Closing old connection to %s, opening new to %s" % (self._conn_key, new_key))
-                self._persistent_conn.close()
-                self._persistent_conn = None
-            else:
-                return self._persistent_conn
-
-        log.debug("Opening new connection to %s://%s:%s" % (scheme, host, port))
-        self._conn_key = new_key
-        timeout = self._timeout()
-
-        if scheme == "https":
-            ssl_context = get_verified_ssl_context() if ssl_mode == "verified" else get_unverified_ssl_context()
-            self._persistent_conn = http.client.HTTPSConnection(host, port, context=ssl_context, timeout=timeout)
-        else:
-            self._persistent_conn = http.client.HTTPConnection(host, port, timeout=timeout)
-
-        return self._persistent_conn
+        """Compatibility wrapper for tests and internal diagnostics."""
+        return self._transport.get_connection()
 
     def _close_connection(self):
-        if self._persistent_conn:
-            try:
-                log.debug("Closing persistent connection to %s" % (self._conn_key,))
-                # Try to shut down the actual socket to break blocking reads in other threads
-                try:
-                    sock = getattr(self._persistent_conn, "sock", None)
-                    if sock:
-                        import socket
-
-                        sock.shutdown(socket.SHUT_RDWR)
-                except Exception:
-                    pass
-                self._persistent_conn.close()
-            except Exception:
-                pass
-            self._persistent_conn = None
-            self._conn_key = None
+        self._transport.close()
 
     def stop(self):
         """Immediately stop any active request by closing the connection."""
@@ -265,21 +200,18 @@ class LlmClient:
         return self.config.get("request_timeout", 120)
 
     def _current_host(self):
-        endpoint = self._endpoint()
-        urllib.parse.urlparse(endpoint)
-        return get_url_hostname(endpoint)
+        return self._transport.current_host()
 
     def _enable_local_ssl_fallback(self, err):
-        """Switch a local HTTPS host to unverified mode after cert validation fails."""
-        host = self._current_host()
-        if not host or not _is_local_host(host) or not _is_certificate_verify_error(err):
-            return False
-        if host in self._ssl_fallback_hosts:
-            return False
-        self._ssl_fallback_hosts.add(host)
-        log.error("Local HTTPS certificate verification failed for %s; retrying unverified." % host)
-        self._close_connection()
-        return True
+        """Compatibility wrapper for the transport-owned certificate fallback."""
+        return self._transport.enable_local_ssl_fallback(err)
+
+    def _send_request(self, method, path, body, headers):
+        """Send through the transport while honoring tests/debuggers that override ``_get_connection`` on the instance."""
+        connection_getter = self.__dict__.get("_get_connection")
+        if connection_getter is not None:
+            return self._transport.send(method, path, body, headers, connection_getter=connection_getter)
+        return self._transport.send(method, path, body, headers)
 
     def make_api_request(self, prompt, system_prompt="", max_tokens=70):
         """Build a streaming chat completions request (legacy/simple wrapper)."""
@@ -516,133 +448,126 @@ class LlmClient:
         log.debug("=== Starting streaming loop (persistent, level=logging.INFO) ===")
         log.debug("Request Path: %s" % path)
 
-        last_finish_reason = None
-        conn = self._get_connection()
-
-        try:
-            self._pace_before_llm_request()
-            conn.request(method, path, body=body, headers=headers)
-            self._mark_llm_request_sent()
-            response = conn.getresponse()
-
-            if response.status != 200:
-                err_body = response.read().decode("utf-8", errors="replace")
-                log.error("Provider API Error %d: %s" % (response.status, err_body))
-                # Close on error to be safe
-                self._close_connection()
-                raise NetworkError(_format_http_error_response(response.status, response.reason, err_body), code="HTTP_ERROR", context={"url": path, "status": response.status})
+        retry_available = _retry
+        while True:
+            last_finish_reason = None
 
             try:
-                # Use a flag to stop logical processing but keep reading to exhaust the stream
-                content_finished = False
-                # LiteLLM: streaming_handler.py ~L198 safety_checker(), issue #5158
-                last_contents = collections.deque(maxlen=REPEATED_STREAMING_CHUNK_LIMIT)
+                response = self._send_request(method, path, body, headers)
 
-                self._get_provider()
-                # Google Gemini stream is a JSON array of objects, not SSE.
-                # Actually, iterate_sse might fail if it's not 'data: ...'.
-                # For now, we assume it's SSE-like or we add custom iteration.
+                if response.status != 200:
+                    err_body = response.read().decode("utf-8", errors="replace")
+                    log.error("Provider API Error %d: %s" % (response.status, err_body))
+                    # Close on error to be safe
+                    self._close_connection()
+                    raise NetworkError(_format_http_error_response(response.status, response.reason, err_body), code="HTTP_ERROR", context={"url": path, "status": response.status})
 
-                for payload in iterate_sse(response):
-                    if payload == "[DONE]":
-                        log.info("streaming_loop: [DONE] received")
-                        content_finished = True
-                        continue
+                try:
+                    # Use a flag to stop logical processing but keep reading to exhaust the stream
+                    content_finished = False
+                    # LiteLLM: streaming_handler.py ~L198 safety_checker(), issue #5158
+                    last_contents = collections.deque(maxlen=REPEATED_STREAMING_CHUNK_LIMIT)
 
-                    try:
-                        chunk = json.loads(payload)
-                    except json.JSONDecodeError:
-                        if payload and payload != "{}":
-                            log.error("streaming_loop: JSON decode error in payload: %s" % payload)
-                        continue
+                    self._get_provider()
+                    # Google Gemini stream is a JSON array of objects, not SSE.
+                    # Actually, iterate_sse might fail if it's not 'data: ...'.
+                    # For now, we assume it's SSE-like or we add custom iteration.
 
-                    # Log all chunks for debugging, even after content_finished
-                    # (this might contain 'usage' data)
-                    if "usage" in chunk:
-                        log.debug("streaming_loop: received usage: %s" % chunk["usage"])
+                    for payload in iterate_sse(response):
+                        if payload == "[DONE]":
+                            log.info("streaming_loop: [DONE] received")
+                            content_finished = True
+                            continue
 
-                    if content_finished:
-                        continue
+                        try:
+                            chunk = json.loads(payload)
+                        except json.JSONDecodeError:
+                            if payload and payload != "{}":
+                                log.error("streaming_loop: JSON decode error in payload: %s" % payload)
+                            continue
 
-                    if stop_checker and stop_checker():
-                        log.debug("streaming_loop: Stop requested.")
-                        last_finish_reason = "stop"
-                        content_finished = True
-                        # On user stop, we usually want to kill the connection
-                        # because the model might keep streaming for a long time.
-                        self._close_connection()
-                        continue
+                        # Log all chunks for debugging, even after content_finished
+                        # (this might contain 'usage' data)
+                        if "usage" in chunk:
+                            log.debug("streaming_loop: received usage: %s" % chunk["usage"])
 
-                    # Grok/xAI sends a final chunk with empty choices + usage
-                    choices = chunk.get("choices", [])
-                    if not choices:
-                        continue
+                        if content_finished:
+                            continue
 
-                    content, finish_reason, thinking, delta = self.extract_content_from_response(chunk)
+                        if stop_checker and stop_checker():
+                            log.debug("streaming_loop: Stop requested.")
+                            last_finish_reason = "stop"
+                            content_finished = True
+                            # On user stop, we usually want to kill the connection
+                            # because the model might keep streaming for a long time.
+                            self._close_connection()
+                            continue
 
-                    # LiteLLM: streaming_handler.py ~L736 "finish_reason: error, no content string given"
-                    if finish_reason == "error":
-                        from plugin.framework.i18n import _
+                        # Grok/xAI sends a final chunk with empty choices + usage
+                        choices = chunk.get("choices", [])
+                        if not choices:
+                            continue
 
-                        raise NetworkError(_("Stream ended with finish_reason=error"), code="STREAM_ERROR")
+                        content, finish_reason, thinking, delta = self.extract_content_from_response(chunk)
 
-                    if thinking and on_thinking:
-                        on_thinking(thinking)
-                    if content and on_content:
-                        on_content(content)
-                        # LiteLLM: streaming_handler.py ~L198 safety_checker(), issue #5158
-                        last_contents.append(content)
-                        if len(last_contents) == REPEATED_STREAMING_CHUNK_LIMIT and len(content) > 2 and all(c == last_contents[0] for c in last_contents):
+                        # LiteLLM: streaming_handler.py ~L736 "finish_reason: error, no content string given"
+                        if finish_reason == "error":
                             from plugin.framework.i18n import _
 
-                            raise NetworkError(_("The model is repeating the same chunk (infinite loop). Try again or use a different model."), code="INFINITE_LOOP")
-                    if delta and on_delta:
-                        _normalize_delta(delta)
-                        on_delta(delta)
+                            raise NetworkError(_("Stream ended with finish_reason=error"), code="STREAM_ERROR")
 
-                    if finish_reason:
-                        log.debug("streaming_loop: logical finish_reason=%s" % finish_reason)
-                        last_finish_reason = finish_reason
-            finally:
-                # Ensure the entire response body is read so the connection is reusable.
-                try:
-                    remaining = response.read()
-                    if remaining:
-                        log.debug("Consumed extra %d bytes after loop" % len(remaining))
-                except Exception:
-                    pass
-                # Honor Connection: close so we don't try to reuse when the server closed.
-                conn_hdr = (response.getheader("Connection") or "").strip().lower()
-                if conn_hdr == "close":
-                    self._close_connection()
+                        if thinking and on_thinking:
+                            on_thinking(thinking)
+                        if content and on_content:
+                            on_content(content)
+                            # LiteLLM: streaming_handler.py ~L198 safety_checker(), issue #5158
+                            last_contents.append(content)
+                            if len(last_contents) == REPEATED_STREAMING_CHUNK_LIMIT and len(content) > 2 and all(c == last_contents[0] for c in last_contents):
+                                from plugin.framework.i18n import _
 
-        except (http.client.HTTPException, socket.error, OSError) as e:
-            log.error("Connection error, closing: %s" % e)
-            self._close_connection()
-            # If the user requested a stop, don't retry. The connection error
-            # might be a side-effect of us closing the connection in stop().
-            if stop_checker and stop_checker():
-                log.error("Connection error during stop; exiting streaming loop")
-                return "stop"
-            if self._enable_local_ssl_fallback(e):
-                return self._run_streaming_loop(method, path, body, headers, on_content=on_content, on_thinking=on_thinking, on_delta=on_delta, stop_checker=stop_checker, _retry=False)
+                                raise NetworkError(_("The model is repeating the same chunk (infinite loop). Try again or use a different model."), code="INFINITE_LOOP")
+                        if delta and on_delta:
+                            _normalize_delta(delta)
+                            on_delta(delta)
 
-            err_msg = format_error_message(e)
-            if _retry:
-                log.warning("Retrying streaming request once on fresh connection")
-                return self._run_streaming_loop(method, path, body, headers, on_content=on_content, on_thinking=on_thinking, on_delta=on_delta, stop_checker=stop_checker, _retry=False)
-            log.error("Connection retry failed: %s" % err_msg)
-            raise NetworkError(err_msg, code="CONNECTION_ERROR", context={"url": path}) from e
-        except NetworkError:
-            self._close_connection()
-            raise
-        except Exception as e:
-            self._close_connection()  # Reset on any other error too
-            err_msg = format_error_message(e)
-            log.error("ERROR in _run_streaming_loop: %s -> %s" % (type(e).__name__, err_msg))
-            raise NetworkError(err_msg, context={"url": path}) from e
+                        if finish_reason:
+                            log.debug("streaming_loop: logical finish_reason=%s" % finish_reason)
+                            last_finish_reason = finish_reason
+                finally:
+                    # Ensure the entire response body is read so the connection is reusable.
+                    try:
+                        remaining = response.read()
+                        if remaining:
+                            log.debug("Consumed extra %d bytes after loop" % len(remaining))
+                    except Exception:
+                        pass
+                    # Honor Connection: close so we don't try to reuse when the server closed.
+                    conn_hdr = (response.getheader("Connection") or "").strip().lower()
+                    if conn_hdr == "close":
+                        self._close_connection()
 
-        return last_finish_reason
+            except CONNECTION_ERRORS as e:
+                action = self._transport.handle_connection_error(
+                    e,
+                    path=path,
+                    retry_available=retry_available,
+                    retry_log_message="Retrying streaming request once on fresh connection",
+                    stop_checker=stop_checker,
+                )
+                if action == "stop":
+                    return "stop"
+                retry_available = False
+                continue
+            except NetworkError:
+                self._close_connection()
+                raise
+            except Exception as e:
+                self._close_connection()  # Reset on any other error too
+                err_msg = format_error_message(e)
+                log.error("ERROR in _run_streaming_loop: %s -> %s" % (type(e).__name__, err_msg))
+                raise NetworkError(err_msg, context={"url": path}) from e
+
+            return last_finish_reason
 
     def stream_request(self, method, path, body, headers, append_callback, append_thinking_callback=None, stop_checker=None):
         """Stream a chat response and append chunks via callbacks."""
@@ -710,13 +635,10 @@ class LlmClient:
         else:
             # Sync path
             result = None
-            for attempt in (0, 1):
+            retry_available = True
+            while True:
                 try:
-                    conn = self._get_connection()
-                    self._pace_before_llm_request()
-                    conn.request(method, path, body=body, headers=headers)
-                    self._mark_llm_request_sent()
-                    response = conn.getresponse()
+                    response = self._send_request(method, path, body, headers)
                     if response.status != 200:
                         err_body = response.read().decode("utf-8", errors="replace")
                         log.error("Provider API Error %d: %s" % (response.status, err_body))
@@ -731,16 +653,15 @@ class LlmClient:
 
                     result = safe_json_loads(response.read().decode("utf-8"))
                     break
-                except (http.client.HTTPException, socket.error, OSError) as e:
-                    log.error("Connection error, closing: %s" % e)
-                    self._close_connection()
-                    if self._enable_local_ssl_fallback(e):
-                        continue
-                    if attempt == 0:
-                        log.warning("Retrying request_with_tools once on fresh connection")
-                        continue
-                    log.error("Connection retry failed: %s" % format_error_message(e))
-                    raise NetworkError(format_error_message(e), code="CONNECTION_ERROR", context={"url": path}) from e
+                except CONNECTION_ERRORS as e:
+                    self._transport.handle_connection_error(
+                        e,
+                        path=path,
+                        retry_available=retry_available,
+                        retry_log_message="Retrying request_with_tools once on fresh connection",
+                    )
+                    retry_available = False
+                    continue
                 except NetworkError:
                     raise
                 except Exception as e:

@@ -10,7 +10,7 @@ from typing import Any
 from plugin.writer.locale import ai_grammar_proofreader as proofreader
 from plugin.writer.locale import grammar_proofread_cache as gc
 from plugin.writer.locale import grammar_proofread_text as gt
-from plugin.framework.config import get_config_bool, set_config
+from plugin.framework.config import get_config, set_config
 from plugin.testing_runner import native_test, setup, teardown
 
 _test_ctx: Any = None
@@ -21,10 +21,13 @@ def setup_grammar_proof_tests(ctx: Any) -> None:
     global _test_ctx, _saved_enabled
     _test_ctx = ctx
     try:
-        _saved_enabled = get_config_bool("doc.grammar_proofreader_enabled")
+        # This setting is a provider string now ("harper", "llm", "off", ...).
+        # Saving it through get_config_bool() collapsed providers like "harper"
+        # to False and teardown persisted the user's grammar checker as off.
+        _saved_enabled = get_config("doc.grammar_proofreader_enabled")
     except Exception:
-        _saved_enabled = False
-    set_config("doc.grammar_proofreader_enabled", True)
+        _saved_enabled = "off"
+    set_config("doc.grammar_proofreader_enabled", "llm")
 
 @teardown
 def teardown_grammar_proof_tests(ctx: Any) -> None:

@@ -27,59 +27,26 @@
 
 ### Current Implementation
 
-WriterAgent **already has a solid connection management system** in `core/api.py`:
+WriterAgent chat requests use a small split client stack:
 
 ```python
-class LlmClient:
-    def __init__(self, config, ctx):
-        self.config = config
-        self.ctx = ctx
-        self._persistent_conn = None
-        self._conn_key = None  # (scheme, host, port)
-    
-    def _get_connection(self):
-        """Get or create a persistent http.client connection."""
-        endpoint = self._endpoint()
-        parsed = urllib.parse.urlparse(endpoint)
-        scheme = parsed.scheme.lower()
-        host = parsed.hostname
-        port = parsed.port
-        
-        # Default ports if not specified
-        if not port:
-            port = 443 if scheme == "https" else 80
-            
-        new_key = (scheme, host, port)
-        
-        if self._persistent_conn:
-            if self._conn_key != new_key:
-                debug_log("Closing old connection to %s, opening new to %s" % (self._conn_key, new_key), context="API")
-                self._persistent_conn.close()
-                self._persistent_conn = None
-            else:
-                return self._persistent_conn  # Reuse existing connection
-        
-        debug_log("Opening new connection to %s://%s:%s" % (scheme, host, port), context="API")
-        self._conn_key = new_key
-        timeout = self._timeout()
-        
-        if scheme == "https":
-            ssl_context = _get_ssl_context()
-            self._persistent_conn = http.client.HTTPSConnection(host, port, context=ssl_context, timeout=timeout)
-        else:
-            self._persistent_conn = http.client.HTTPConnection(host, port, timeout=timeout)
-            
-        return self._persistent_conn
+LlmClient.make_chat_request(...)  # provider payloads, headers, logging redaction
+LlmHttpTransport.send(...)        # persistent http.client connection + pacing
+RequestPacer                      # per-client 50 ms burst guard
+LocalHttpsCertificateFallback     # local HTTPS verified-to-unverified retry policy
 ```
+
+`plugin/framework/client/llm_client.py` still owns provider shims, message normalization, date/dev prefixes, OpenRouter extra merging, response parsing, and token cleanup. `plugin/framework/client/http_transport.py` owns the persistent connection, close/stop behavior, one fresh-connection retry on connection exceptions, and local HTTPS certificate fallback. `plugin/framework/client/request_controls.py` owns the pacing constant and the local-only fallback rule.
 
 ### Current Strengths
 
-1. **Connection Reuse**: Already reuses connections for the same endpoint
-2. **Endpoint Management**: Handles different endpoints properly
-3. **Proper Cleanup**: Closes connections when endpoint changes
-4. **Debug Logging**: Good visibility into connection lifecycle
-5. **Timeout Support**: Configurable connection timeouts
-6. **SSL Handling**: Proper SSL context management
+1. **Connection Reuse**: Reuses a persistent `http.client` connection for the same endpoint and SSL mode.
+2. **Endpoint Management**: Reopens when the endpoint scheme, host, port, or local TLS mode changes.
+3. **Proper Cleanup**: Closes the connection on endpoint changes, HTTP errors, stop requests, and connection failures.
+4. **Request Pacing**: Applies a per-client 50 ms burst guard before consecutive sends.
+5. **Timeout Support**: Uses configurable connection timeouts.
+6. **SSL Handling**: Uses verified TLS first for local HTTPS, then retries unverified only for local certificate verification failures.
+7. **Transient Retry**: Retries one connection failure on a fresh connection, unless the failure is caused by a user stop.
 
 ### Current Limitations
 
@@ -88,7 +55,7 @@ The existing system works well for sequential requests but has some limitations:
 1. **Single Connection Only**: Can only maintain one connection at a time
 2. **No Concurrent Requests**: Can't handle multiple simultaneous requests
 3. **No Connection Health Checks**: Doesn't verify if connection is still valid
-4. **No Automatic Reconnection**: Failed connections aren't automatically retried
+4. **Limited Automatic Reconnection**: Connection exceptions get one fresh-connection retry; HTTP status errors such as 429/5xx are not retried with backoff.
 5. **No DNS Caching**: Repeated DNS lookups for the same endpoint
 6. **No Connection Pooling**: Can't maintain multiple connections for different endpoints
 
@@ -618,7 +585,7 @@ class ConnectionHealthMonitor:
 
 ### Current Limitation
 
-Current implementation has **no automatic reconnection** - if a connection fails, the request fails.
+Current implementation has **limited automatic reconnection**: chat requests retry one connection exception on a fresh connection, but there is no multi-attempt backoff strategy and HTTP status failures such as 429/5xx are not retried.
 
 ### Enhanced Reconnection Strategy
 
@@ -1209,7 +1176,7 @@ global_connection_pool = ConnectionPool(
 #### 2. Update LlmClient to Use Pool
 
 ```python
-# In core/api.py
+# In plugin/framework/client/llm_client.py
 class LlmClient:
     def __init__(self, config, connection_pool=None):
         self.config = config

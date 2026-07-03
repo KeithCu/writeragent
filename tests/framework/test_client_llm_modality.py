@@ -153,10 +153,7 @@ def test_llm_client_chat_with_tools_normalizes():
         }]
     }).encode("utf-8")
 
-    mock_conn = MagicMock()
-    mock_conn.getresponse.return_value = mock_response
-
-    with patch.object(client, "_get_connection", return_value=mock_conn):
+    with patch.object(client._transport, "send", return_value=mock_response):
         result = client.request_with_tools([{"role": "user", "content": "Hi"}])
 
         assert result["role"] == "assistant"
@@ -182,10 +179,7 @@ def test_llm_client_chat_with_tools_normalizes_done_reason():
         }
     }).encode("utf-8")
 
-    mock_conn = MagicMock()
-    mock_conn.getresponse.return_value = mock_response
-
-    with patch.object(client, "_get_connection", return_value=mock_conn):
+    with patch.object(client._transport, "send", return_value=mock_response):
         result = client.request_with_tools([{"role": "user", "content": "Hi"}])
 
         assert result["finish_reason"] == "stop"
