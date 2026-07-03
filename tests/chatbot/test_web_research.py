@@ -598,13 +598,16 @@ def test_web_research_agent_instructions_include_minimal_tool_use_advice():
 
 
 def test_web_research_unique_words_key():
-    from plugin.chatbot.web_research import _get_unique_words_key
+    from plugin.chatbot.web_research import _get_embedding_words_text, _get_unique_words_key
+
     q = "Please find the best pizza restaurants in Madison Heights, Michigan (MI)!"
     key = _get_unique_words_key(q)
     # Fluff words like please, find, the, best, in are stripped; content words stay sorted unique.
     assert key == "heights madison michigan pizza restaurants"
+    assert _get_embedding_words_text(q) == "pizza restaurants madison heights michigan"
     q2 = "Research a concise report on the best pizza in Madison Heights"
     assert _get_unique_words_key(q2) == "heights madison pizza"
+    assert _get_embedding_words_text(q2) == "pizza madison heights"
 
 
 def test_web_research_caching_logic(tmp_path):
@@ -691,6 +694,7 @@ def test_web_research_cache_lookup_uses_embedding_threshold(tmp_path):
     assert res["status"] == "ok"
     assert res["research_cache_event"] == "hit_embedding"
     assert captured["kwargs"]["embedding_percent"] == 75
+    assert captured["kwargs"]["embedding_text"] == "caching unique"
     assert captured["args"][4] == 60
 
 
@@ -754,12 +758,14 @@ def test_write_research_cache_enqueues_embedding_backfill(tmp_path):
     ctx.ctx = object()
     db_file = str(tmp_path / "writeragent_web_cache.db")
 
-    with patch("plugin.chatbot.web_research_cache.enqueue_research_cache_embedding_backfill") as enqueue:
-        fields = _write_research_cache(ctx, db_file, "execute", "Live Searched Output", 50, 30, "english")
+    with patch("plugin.chatbot.web_research_cache.enqueue_research_cache_embedding_backfill") as enqueue_backfill, \
+         patch("plugin.chatbot.web_research_cache.enqueue_research_cache_embedding_for_row") as enqueue_row:
+        fields = _write_research_cache(ctx, db_file, "execute", "Live Searched Output", 50, 30, "english", embedding_text="execute ordered")
 
     assert fields["research_cache_event"] == "saved"
     assert _web_cache_get(db_file, "research", "english|execute", max_age_days=30) == "Live Searched Output"
-    enqueue.assert_called_once_with(ctx.ctx, db_file, 30)
+    enqueue_row.assert_called_once_with(ctx.ctx, db_file, "english|execute", "execute ordered")
+    enqueue_backfill.assert_called_once_with(ctx.ctx, db_file, 30)
 
 
 def test_web_research_caching_disabled_bypasses_cache(tmp_path):

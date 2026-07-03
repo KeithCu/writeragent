@@ -80,9 +80,12 @@ def _web_cache_ensure_schema(conn: Any) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_web_cache_created_at ON web_cache(created_at)")
     conn.execute(
         "CREATE TABLE IF NOT EXISTS web_cache_embeddings "
-        "(kind TEXT, key TEXT, embedding_model TEXT, text_hash TEXT, dim INTEGER, vector_json TEXT, created_at REAL, "
+        "(kind TEXT, key TEXT, embedding_model TEXT, embedding_text TEXT, text_hash TEXT, dim INTEGER, vector_json TEXT, created_at REAL, "
         "PRIMARY KEY (kind, key, embedding_model))"
     )
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(web_cache_embeddings)").fetchall()}
+    if "embedding_text" not in columns:
+        conn.execute("ALTER TABLE web_cache_embeddings ADD COLUMN embedding_text TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_web_cache_embeddings_kind_model ON web_cache_embeddings(kind, embedding_model)")
 
 

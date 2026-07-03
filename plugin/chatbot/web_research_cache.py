@@ -299,6 +299,7 @@ def store_research_cache_embeddings(
                 _RESEARCH_CACHE_KIND,
                 raw_key,
                 embedding_model,
+                text,
                 _embedding_text_hash(text),
                 len(floats),
                 json.dumps(floats, separators=(",", ":")),
@@ -307,7 +308,7 @@ def store_research_cache_embeddings(
         if payload:
             conn.executemany(
                 "INSERT OR REPLACE INTO web_cache_embeddings "
-                "(kind, key, embedding_model, text_hash, dim, vector_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "(kind, key, embedding_model, embedding_text, text_hash, dim, vector_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 payload,
             )
             conn.commit()
@@ -332,7 +333,7 @@ def _research_cache_embedding_rows(
 
     def do_list(conn):
         return conn.execute(
-            "SELECT e.key, e.text_hash, e.dim, e.vector_json "
+            "SELECT e.key, e.embedding_text, e.text_hash, e.dim, e.vector_json "
             "FROM web_cache_embeddings e "
             "JOIN web_cache w ON w.kind = e.kind AND w.key = e.key "
             "WHERE e.kind = ? AND e.embedding_model = ? AND w.created_at >= ?",
@@ -343,11 +344,12 @@ def _research_cache_embedding_rows(
     out: list[tuple[str, list[float]]] = []
     if not isinstance(raw_rows, list):
         return out
-    for raw_key, text_hash, dim, vector_json in raw_rows:
+    for raw_key, embedding_text, text_hash, dim, vector_json in raw_rows:
         key_lang, word_key = parse_research_cache_key(str(raw_key))
         if key_lang != snowball_lang:
             continue
-        if text_hash != _embedding_text_hash(word_key):
+        stored_text = str(embedding_text or "").strip() or word_key
+        if text_hash != _embedding_text_hash(stored_text):
             continue
         vector = _vector_from_json(str(vector_json or ""), int(dim or 0))
         if vector:
@@ -372,7 +374,7 @@ def _research_cache_missing_embedding_rows(
 
     def do_list(conn):
         return conn.execute(
-            "SELECT w.key, e.text_hash "
+            "SELECT w.key, e.embedding_text, e.text_hash "
             "FROM web_cache w "
             "LEFT JOIN web_cache_embeddings e ON e.kind = w.kind AND e.key = w.key AND e.embedding_model = ? "
             "WHERE w.kind = ? AND w.created_at >= ? "
@@ -384,8 +386,9 @@ def _research_cache_missing_embedding_rows(
     missing: list[tuple[str, str]] = []
     if not isinstance(raw_rows, list):
         return missing
-    for raw_key, stored_hash in raw_rows:
-        text = _embedding_text_from_raw_key(str(raw_key))
+    for raw_key, embedding_text, stored_hash in raw_rows:
+        stored_text = str(embedding_text or "").strip()
+        text = stored_text or _embedding_text_from_raw_key(str(raw_key))
         if not text:
             continue
         if stored_hash == _embedding_text_hash(text):
@@ -415,6 +418,7 @@ def find_embedding_research_match(
     snowball_lang: str,
     max_age_days: int,
     similarity_min: float,
+    embedding_text: str | None = None,
     embedding_model: str | None = None,
     timeout_sec: int = _EMBEDDING_LOOKUP_TIMEOUT_SEC,
 ) -> tuple[str, float] | None:
@@ -430,7 +434,8 @@ def find_embedding_research_match(
 
     from plugin.framework.client.embedding_client import embed_texts
 
-    batch = embed_texts(ctx, [word_key], model=model, timeout_sec=timeout_sec)
+    query_text = str(embedding_text or "").strip() or word_key
+    batch = embed_texts(ctx, [query_text], model=model, timeout_sec=timeout_sec)
     query_vector: list[float] | None = None
     for batch_index, vector in zip(batch.indices, batch.vectors):
         if batch_index == 0:
@@ -507,6 +512,42 @@ def enqueue_research_cache_embedding_backfill(ctx: Any, cache_path: str, max_age
         raise
 
 
+def _research_cache_embedding_row_worker(ctx: Any, cache_path: str, raw_key: str, embedding_text: str, embedding_model: str) -> None:
+    try:
+        from plugin.framework.client.embedding_client import embed_texts
+
+        text = str(embedding_text or "").strip()
+        if not text:
+            return
+        batch = embed_texts(ctx, [text], model=embedding_model)
+        for batch_index, vector in zip(batch.indices, batch.vectors):
+            if batch_index == 0 and vector:
+                store_research_cache_embeddings(cache_path, [(raw_key, text, vector)], embedding_model=embedding_model)
+                return
+    except Exception as e:
+        log.debug("research cache embedding row skipped: %s", e)
+
+
+def enqueue_research_cache_embedding_for_row(ctx: Any, cache_path: str, raw_key: str, embedding_text: str) -> None:
+    """Embed one new research-cache key using order-preserving query terms, off the hot path."""
+    if not ctx or not cache_path or not raw_key or not embedding_text or not _research_cache_embedding_configured():
+        return
+    embedding_model = _get_embedding_model_or_none()
+    if not embedding_model:
+        return
+    from plugin.framework.worker_pool import run_in_background
+
+    run_in_background(
+        _research_cache_embedding_row_worker,
+        ctx,
+        cache_path,
+        raw_key,
+        embedding_text,
+        embedding_model,
+        name="web-research-cache-embedding-row",
+    )
+
+
 def find_fuzzy_research_match(
     query_stems: set[str],
     stored_keys: list[str],
@@ -552,8 +593,9 @@ def lookup_research_cache(
     *,
     ctx: Any | None = None,
     embedding_percent: int | None = None,
+    embedding_text: str | None = None,
 ) -> tuple[str, str, str | None, float, str] | None:
-    """Return (event, display_key, matched_raw_key, jaccard, cached_value) or None on miss."""
+    """Return (event, display_key, matched_raw_key, score, cached_value) or None on miss."""
     from plugin.contrib.smolagents.default_tools import _web_cache_get, _web_cache_list_keys
 
     if not cache_path or not word_key:
@@ -577,6 +619,7 @@ def lookup_research_cache(
                 snowball_lang=snowball_lang,
                 max_age_days=max_age_days,
                 similarity_min=embedding_min,
+                embedding_text=embedding_text,
             )
             if embedding is not None:
                 matched_raw_key, score = embedding

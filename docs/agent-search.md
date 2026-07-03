@@ -92,16 +92,24 @@ Completed `web_research` / delegate `web_research` reports can be cached in the 
 
 **Instruction fluff** ([`research_cache_fluff.py`](../plugin/chatbot/research_cache_fluff.py)): web-research prompt filler words are listed as standard `_('…')` calls in `translated_research_cache_fluff()` — same gettext path as the rest of the extension (`make extract-strings`, `make auto-translate`). At runtime `get_research_fluff_words()` tokenizes those translated strings for the active LO UI locale and unions grammar stop words from [`stop_words.py`](../plugin/writer/locale/stop_words.py) for the document/Snowball language (generated from [stopwords-iso](https://github.com/stopwords-iso/stopwords-iso) via `python scripts/generate_stop_words.py`).
 
-**Lookup order:** exact key (legacy or prefixed) → fuzzy match among same-language keys.
+**Lookup order:** exact key (legacy or prefixed) → embedding match among same-language keys when local embeddings are configured and already warm → fuzzy stem match among same-language keys.
+
+**Embedding match:** when the local embeddings venv is configured, WriterAgent opportunistically stores vectors for research cache keys in a companion SQLite table (`web_cache_embeddings`). The web research path does not wait for cold model startup or old-row migration:
+
+- New cache writes enqueue embedding generation in a background worker after the report is saved, using normalized query terms in their original order.
+- Old `kind="research"` rows are backfilled in the same background path. Their original prompt order is not recoverable, so backfill uses the stored normalized word key.
+- Lookup only attempts embedding search when stored vectors already exist, and uses a short timeout for the query vector. Missing dependencies, unsupported providers, model downloads, or worker errors silently fall back to the old stem/Jaccard path.
+- Embedding hits use **Research Cache Embedding Match (%)** (default 75) as their cosine threshold.
+- Cosine search runs in LibreOffice Python over JSON vectors stored in SQLite; only embedding generation runs in the user venv.
 
 **Fuzzy match** ([`plugin/chatbot/web_research_cache.py`](../plugin/chatbot/web_research_cache.py)):
 
 - Stems use the same Snowball algorithms as writer full-text search ([`linguistic_index.py`](../plugin/writer/locale/linguistic_index.py) `_ISO_TO_SNOWBALL`).
 - Language: document `CharLocale` → LibreOffice UI locale → `english`. Both UNO reads are marshalled to the main thread via `execute_on_main_thread` because `web_research` runs on an async worker.
 - Similarity = `max(union Jaccard, overlap / min(|A|, |B|))` so repeat prompts with extra words still match.
-- Gates: similarity ≥ **Research Cache Fuzzy Match (%)** (default 40) and shared stem count ≥ **Min Stem Overlap** (default 8).
+- Gates: similarity ≥ **Research Cache Fuzzy Match (%)** (default 60) and shared stem count ≥ **Min Stem Overlap** (default 8).
 
-Settings UI: `web_research_cache_enabled` only. Fuzzy tuning (`web_research_cache_jaccard_percent`, `web_research_cache_min_overlap`) is **internal** — defaults from module YAML, override in `writeragent.json` if needed. Sidebar shows `hit_fuzzy` with match percent and stored key.
+Settings UI: `web_research_cache_enabled` only. Cache matching tuning (`web_research_cache_embedding_percent`, `web_research_cache_jaccard_percent`, `web_research_cache_min_overlap`) is **internal** — defaults from module YAML, override in `writeragent.json` if needed. Sidebar shows `hit_embedding` / `hit_fuzzy` with match percent and stored key.
 
 ---
 

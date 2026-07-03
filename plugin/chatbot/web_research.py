@@ -90,6 +90,23 @@ def _get_unique_words_key(query: str, *, snowball_lang: str = "english") -> str:
     return " ".join(unique)
 
 
+def _get_embedding_words_text(query: str, *, snowball_lang: str = "english") -> str:
+    """Normalize query terms for embeddings while preserving original word order."""
+    from plugin.chatbot.web_research_cache import get_research_fluff_words, tokenize_query_words
+
+    if not query:
+        return ""
+    fluff = get_research_fluff_words(snowball_lang=snowball_lang)
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for token in tokenize_query_words(query):
+        if token in fluff or len(token) < 3 or token in seen:
+            continue
+        seen.add(token)
+        ordered.append(token)
+    return " ".join(ordered)
+
+
 def _research_cache_result_fields(
     event: str,
     cache_key: str,
@@ -124,13 +141,16 @@ def _write_research_cache(
     cache_max_mb: int,
     max_age_days: int,
     stem_lang: str,
+    embedding_text: str | None = None,
 ) -> dict[str, Any]:
     from plugin.chatbot.web_research_cache import format_research_cache_key
-    from plugin.chatbot.web_research_cache import enqueue_research_cache_embedding_backfill
+    from plugin.chatbot.web_research_cache import enqueue_research_cache_embedding_backfill, enqueue_research_cache_embedding_for_row
     from plugin.contrib.smolagents.default_tools import _web_cache_set
 
     storage_key = format_research_cache_key(stem_lang, unique_key)
     _web_cache_set(cache_path, "research", storage_key, result_text, cache_max_mb * 1024 * 1024)
+    if embedding_text:
+        enqueue_research_cache_embedding_for_row(getattr(ctx, "ctx", ctx), cache_path, storage_key, embedding_text)
     enqueue_research_cache_embedding_backfill(getattr(ctx, "ctx", ctx), cache_path, max_age_days)
     return _research_cache_result_fields("saved", unique_key, cache_path, max_age_days, stem_lang=stem_lang)
 
@@ -210,6 +230,7 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
 
         _lo_locale, stem_lang = resolve_research_locale(ctx.ctx, getattr(ctx, "doc", None))
         unique_key = _get_unique_words_key(query_str, snowball_lang=stem_lang)
+        embedding_text = _get_embedding_words_text(query_str, snowball_lang=stem_lang)
 
         from plugin.framework.config import get_config_bool_safe, get_config_int, user_config_dir, get_config_int_safe
         cache_enabled = get_config_bool_safe("web_research_cache_enabled")
@@ -235,6 +256,7 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
                     min_overlap,
                     ctx=ctx.ctx,
                     embedding_percent=embedding_percent,
+                    embedding_text=embedding_text,
                 )
                 if hit is not None:
                     event, display_key, matched_raw_key, score, cached = hit
@@ -413,7 +435,7 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
                     try:
                         raw_mb = get_config_int_safe("web_cache_max_mb")
                         cache_max_mb = 0 if raw_mb <= 0 else max(1, min(500, raw_mb))
-                        cache_fields = _write_research_cache(ctx, cache_path, unique_key, str(final_ans.get("result", "")), cache_max_mb, cache_max_age_days, stem_lang)
+                        cache_fields = _write_research_cache(ctx, cache_path, unique_key, str(final_ans.get("result", "")), cache_max_mb, cache_max_age_days, stem_lang, embedding_text=embedding_text)
                     except Exception as e:
                         log.warning("Failed to write to web research cache: %s", e)
                 if cache_fields:
@@ -425,7 +447,7 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
                 try:
                     raw_mb = get_config_int_safe("web_cache_max_mb")
                     cache_max_mb = 0 if raw_mb <= 0 else max(1, min(500, raw_mb))
-                    cache_fields = _write_research_cache(ctx, cache_path, unique_key, result_str, cache_max_mb, cache_max_age_days, stem_lang)
+                    cache_fields = _write_research_cache(ctx, cache_path, unique_key, result_str, cache_max_mb, cache_max_age_days, stem_lang, embedding_text=embedding_text)
                 except Exception as e:
                     log.warning("Failed to write to web research cache: %s", e)
 

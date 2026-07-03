@@ -191,9 +191,11 @@ def test_web_cache_schema_adds_embeddings_table_to_existing_db(tmp_path):
         row = conn.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'web_cache_embeddings'"
         ).fetchone()
+        columns = {col[1] for col in conn.execute("PRAGMA table_info(web_cache_embeddings)").fetchall()}
     finally:
         conn.close()
     assert row == ("web_cache_embeddings",)
+    assert "embedding_text" in columns
 
 
 def test_lookup_research_cache_embedding_hit(tmp_path):
@@ -217,7 +219,7 @@ def test_lookup_research_cache_embedding_hit(tmp_path):
          patch(
              "plugin.framework.client.embedding_client.embed_texts",
              return_value=EmbeddingBatch(model="test-model", dim=2, vectors=[[1.0, 0.0]], indices=[0]),
-         ):
+         ) as embed_texts:
         hit = lookup_research_cache(
             db_file,
             "good pizza around",
@@ -226,8 +228,11 @@ def test_lookup_research_cache_embedding_hit(tmp_path):
             jaccard_percent=60,
             min_overlap=8,
             ctx=object(),
+            embedding_text="pizza around good",
         )
 
+    embed_texts.assert_called_once()
+    assert embed_texts.call_args.args[1] == ["pizza around good"]
     assert hit is not None
     event, display_key, matched_raw_key, score, cached = hit
     assert event == "hit_embedding"
