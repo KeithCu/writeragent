@@ -183,55 +183,23 @@ def apply_settings_result(ctx, result):
 
     field_specs = get_settings_field_specs(ctx)
     field_specs_by_name = {f["name"]: f for f in field_specs}
-    int_field_names = {f["name"] for f in field_specs if f.get("type") == "int"}
 
-    # Resolve endpoint first
-    effective_endpoint = endpoint_from_selector_text(result.get("endpoint", "")) if "endpoint" in result else get_current_endpoint()
-    if "endpoint" in result and effective_endpoint:
-        set_config("endpoint", effective_endpoint)
-        update_lru_history(effective_endpoint, "endpoint_lru", "")
+    # Resolve and validate endpoint first
+    if "endpoint" in result:
+        set_config("endpoint", result["endpoint"])
+        normalized_endpoint = get_current_endpoint()
+        if normalized_endpoint:
+            update_lru_history(normalized_endpoint, "endpoint_lru", "")
     
-    current_endpoint = effective_endpoint or get_current_endpoint()
+    current_endpoint = get_current_endpoint()
 
-    # Apply most keys directly
+    # Apply other keys
     _apply_skip = ("endpoint", "api_key")
     for key, val in result.items():
         if key in _apply_skip or key not in field_specs_by_name:
             continue
             
-        spec = field_specs_by_name[key]
         save_key = key.replace("__", ".")
-
-        # Type conversion
-        if key in int_field_names:
-            try:
-                val = parse_int_robust(val)
-            except ValueError:
-                pass
-        
-        # Map translated label back to value
-        if "options" in spec and val:
-            val_str = str(val)
-            for opt in spec["options"]:
-                if isinstance(opt, dict):
-                    # We compare translated labels to the UI result to map back to original value
-                    lbl = str(opt.get("label", opt.get("value", "")))
-                    if _(lbl) == val_str:
-                        val = opt.get("value", lbl)
-                        break
-
-        # Special validation for temperature
-        if save_key == "temperature":
-            try:
-                f_val = float(val)
-                if f_val > 1.0:
-                    from .dialog_views import msgbox
-                    msgbox(ctx, _("Invalid Setting"), _("Temperature must be <= 1.0"))
-                    continue
-                if f_val < 0:
-                    val = -1.0
-            except (ValueError, TypeError):
-                pass
 
         if save_key == "text_model":
             if val:

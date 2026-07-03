@@ -80,6 +80,14 @@ class ConfigError(WriterAgentException):
         super().__init__(message, code=code, context=context, details=details)
 
 
+class ConfigValidationError(ConfigError):
+    """Validation issues with configuration keys/values."""
+
+    def __init__(self, message, code="CONFIG_VALIDATION_ERROR", context=None, details=None):
+        super().__init__(message, code=code, context=context, details=details)
+
+
+
 class NetworkError(WriterAgentException):
     """HTTP/Network related failures."""
 

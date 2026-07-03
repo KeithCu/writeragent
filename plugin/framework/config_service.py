@@ -13,7 +13,7 @@ from typing import Any, Callable, cast
 
 from plugin.framework.service import ServiceBase
 from plugin.framework.event_bus import global_event_bus
-from plugin.framework.errors import ConfigError
+from plugin.framework.errors import ConfigError, ConfigValidationError
 
 from plugin.framework.config import (
     get_config,
@@ -26,6 +26,7 @@ from plugin.framework.config import (
     _write_config_file,
     _emit_config_changed_ctx,
     AI_SIMPLE_FIELDS,
+    WriterAgentConfig,
 )
 from plugin.framework.client.model_fetcher import set_image_model, set_text_model
 
@@ -200,7 +201,17 @@ class ConfigService(ServiceBase):
                 data = _load_config_dict(self._config_path, allow_repair=True, persist_repair=False)
             else:
                 data = {}
-            data[key] = value
+            test_data = dict(data)
+            test_data[key] = value
+            try:
+                test_config = WriterAgentConfig.from_dict(test_data)
+                test_config.validate()
+                data = test_config.to_dict()
+            except ConfigValidationError as e:
+                raise e
+            except Exception as e:
+                raise ConfigValidationError(f"Invalid configuration value for {key}: {e}") from e
+
             try:
                 _write_config_file(self._config_path, data)
             except OSError as e:

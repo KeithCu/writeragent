@@ -36,7 +36,7 @@ import time
 from typing import Any, Dict
 
 from plugin.framework.constants import get_plugin_dir
-from plugin.framework.errors import ConfigError, safe_call
+from plugin.framework.errors import ConfigError, ConfigValidationError, safe_call
 from plugin.framework.event_bus import global_event_bus
 from plugin.framework.i18n import _
 from plugin.framework.json_utils import repair_json
@@ -612,7 +612,15 @@ class WriterAgentConfig:
                     default_val = _get_schema_default(k)
                     self._extra_config[k] = default_val if isinstance(default_val, list) else []
 
-        self.endpoint = normalize_endpoint_url(str(self.endpoint or ""), is_openwebui=self.is_openwebui)
+        endpoint_str = str(self.endpoint or "").strip()
+        if endpoint_str:
+            try:
+                from plugin.chatbot.config_ui_helpers import endpoint_from_selector_text
+                self.endpoint = endpoint_from_selector_text(endpoint_str)
+            except Exception:
+                self.endpoint = normalize_endpoint_url(endpoint_str, is_openwebui=self.is_openwebui)
+        else:
+            self.endpoint = ""
 
         # Normalize localized strings back to internal keys (e.g. image_default_aspect, agent_backend.*)
         # Dotted module keys live in _extra_config; flat keys are dataclass attributes.
@@ -643,18 +651,29 @@ class WriterAgentConfig:
         except Exception as e:
             log.warning(f"Failed to normalize config against specs: {e}")
 
-        if not isinstance(self.chat_max_tokens, int) or self.chat_max_tokens < 0:
-            log.warning("Invalid chat_max_tokens %s, falling back to 16384", self.chat_max_tokens)
-            self.chat_max_tokens = 16384
+        if not isinstance(self.chat_max_tokens, int):
+            try:
+                self.chat_max_tokens = parse_int_robust(self.chat_max_tokens)
+            except ValueError:
+                self.chat_max_tokens = 16384
+        if self.chat_max_tokens < 0:
+            raise ConfigValidationError(_("Chat max tokens must be >= 0"), code="INVALID_CHAT_MAX_TOKENS")
 
-        if not isinstance(self.request_timeout, int) or self.request_timeout <= 0:
-            log.warning("Invalid request_timeout %s, falling back to 120", self.request_timeout)
-            self.request_timeout = 120
-
+        if not isinstance(self.request_timeout, int):
+            try:
+                self.request_timeout = parse_int_robust(self.request_timeout)
+            except ValueError:
+                self.request_timeout = 120
+        if self.request_timeout <= 0:
+            raise ConfigValidationError(_("Request timeout must be > 0"), code="INVALID_REQUEST_TIMEOUT")
 
         if not isinstance(self.temperature, (int, float)):
-            log.warning("Invalid temperature %s, falling back to -1.0", self.temperature)
-            self.temperature = -1.0
+            try:
+                self.temperature = parse_float_robust(self.temperature)
+            except ValueError:
+                self.temperature = -1.0
+        if self.temperature > 1.0:
+            raise ConfigValidationError(_("Temperature must be <= 1.0"), code="INVALID_TEMPERATURE")
 
         if not isinstance(self.openrouter_chat_extra, dict):
             log.warning("Invalid openrouter_chat_extra (not a dict), resetting to {}")
@@ -804,7 +823,18 @@ def set_config(key, value):
         config_data = {}
     if config_data.get(key) == value:
         return
-    config_data[key] = value
+    test_data = dict(config_data)
+    test_data[key] = value
+    try:
+        test_config = WriterAgentConfig.from_dict(test_data)
+        test_config.validate()
+        config_data = test_config.to_dict()
+    except ConfigValidationError as e:
+        raise e
+    except Exception as e:
+        log.exception("Validation error in set_config")
+        raise ConfigValidationError(f"Invalid configuration value for {key}: {e}") from e
+
     try:
         _write_config_file(config_file_path, config_data)
 

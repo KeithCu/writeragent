@@ -398,3 +398,30 @@ class TestRobustNumericParsing(unittest.TestCase):
         config = WriterAgentConfig.from_dict({"web_cache_max_mb": "50,0"})
         config.validate()
         self.assertEqual(config._extra_config.get("web_cache_max_mb"), 50)
+
+    def test_config_validation_constraints(self):
+        from plugin.framework.config import WriterAgentConfig
+        from plugin.framework.errors import ConfigValidationError
+
+        # temperature > 1.0
+        config = WriterAgentConfig.from_dict({"temperature": 1.5})
+        with self.assertRaises(ConfigValidationError) as ctx:
+            config.validate()
+        self.assertEqual(ctx.exception.code, "INVALID_TEMPERATURE")
+
+        # chat_max_tokens < 0
+        config = WriterAgentConfig.from_dict({"chat_max_tokens": -5})
+        with self.assertRaises(ConfigValidationError) as ctx:
+            config.validate()
+        self.assertEqual(ctx.exception.code, "INVALID_CHAT_MAX_TOKENS")
+
+        # request_timeout <= 0
+        config = WriterAgentConfig.from_dict({"request_timeout": 0})
+        with self.assertRaises(ConfigValidationError) as ctx:
+            config.validate()
+        self.assertEqual(ctx.exception.code, "INVALID_REQUEST_TIMEOUT")
+
+        # endpoint preset resolution
+        config = WriterAgentConfig.from_dict({"endpoint": "OpenRouter"})
+        config.validate()
+        self.assertEqual(config.endpoint, "https://openrouter.ai/api")

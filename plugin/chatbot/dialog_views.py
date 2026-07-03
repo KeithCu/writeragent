@@ -19,7 +19,7 @@ import threading
 import uno
 from com.sun.star.awt import XItemListener, XTextListener
 
-from plugin.framework.errors import format_error_payload, UnoObjectError
+from plugin.framework.errors import format_error_payload, UnoObjectError, ConfigValidationError
 from plugin.framework.uno_context import get_active_document, get_desktop, get_extension_url, get_toolkit
 from plugin.framework.i18n import _
 from plugin.framework.config import get_config, get_current_endpoint, set_config, get_config_str, get_config_int, as_bool, parse_int_robust, parse_float_robust
@@ -172,8 +172,12 @@ class SettingsDialog:
             if self._dlg.execute():
                 result = self._extract_results(field_specs)
                 if result:
-                    apply_settings_result(self._ctx, result)
-                    return result
+                    try:
+                        apply_settings_result(self._ctx, result)
+                        return result
+                    except ConfigValidationError as ve:
+                        msgbox(self._ctx, _("Invalid Setting"), str(ve))
+                        return {}
             return {}
         except Exception as e:
             log.exception("Failed to open Settings")
@@ -334,31 +338,15 @@ class SettingsDialog:
                 continue
 
             try:
-                if hasattr(ctrl, "getText") and not is_checkbox_control(ctrl):
-                    val = ctrl.getText()
+                if is_checkbox_control(ctrl):
+                    result[name] = get_checkbox_state(ctrl) == 1
+                elif hasattr(ctrl, "getText"):
+                    result[name] = ctrl.getText()
                 else:
-                    val = get_control_text(ctrl)
-
-                field_type = field.get("type", "text")
-                if field_type == "int":
-                    try:
-                        result[name] = parse_int_robust(val)
-                    except ValueError:
-                        result[name] = val
-                elif field_type == "bool":
-                    if is_checkbox_control(ctrl):
-                        result[name] = get_checkbox_state(ctrl) == 1
-                    else:
-                        result[name] = as_bool(val)
-                elif field_type == "float":
-                    try:
-                        result[name] = parse_float_robust(val)
-                    except ValueError:
-                        result[name] = val
-                else:
-                    result[name] = val
+                    result[name] = get_control_text(ctrl)
             except Exception as e:
                 log.error(f"Failed to extract field {name}: {e}")
+                result[name] = ""
         return result
 
     def _cleanup(self):
