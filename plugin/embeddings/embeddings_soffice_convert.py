@@ -20,6 +20,9 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
+from plugin.framework.worker_pool import get_subprocess_creationflags
+from plugin.scripting.sandbox import wrap_command_for_sandbox
+
 log = logging.getLogger(__name__)
 
 __all__ = [
@@ -101,11 +104,12 @@ def convert_legacy_to_odf(source_path: str, *, timeout_sec: int = 120) -> Path |
         ]
         try:
             proc = subprocess.run(
-                cmd,
+                wrap_command_for_sandbox(cmd),
                 capture_output=True,
                 text=True,
                 timeout=max(1, int(timeout_sec)),
                 check=False,
+                **get_subprocess_creationflags(),
             )
         except (OSError, subprocess.TimeoutExpired):
             log.debug("legacy soffice convert failed for %s", source_path, exc_info=True)

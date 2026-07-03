@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import subprocess
+import sys
 from typing import Any, Callable, Optional, Tuple
 
 from plugin.framework.i18n import _
@@ -21,7 +22,8 @@ from plugin.scripting.config_limits import (
     VECTOR_SEARCH_PROBE_TIMEOUT_SEC,
     VISION_PROBE_TIMEOUT_SEC,
 )
-from plugin.scripting.sandbox import resolve_libreoffice_python, resolve_venv_python, scrub_subprocess_env
+from plugin.framework.worker_pool import get_subprocess_creationflags
+from plugin.scripting.sandbox import resolve_libreoffice_python, resolve_venv_python, scrub_subprocess_env, wrap_command_for_sandbox
 
 log = logging.getLogger(__name__)
 
@@ -420,11 +422,12 @@ def _probe_nlp_packages(
     """Import-check Text/NLP stack in the real venv interpreter (not the sandboxed warm worker)."""
     try:
         proc = subprocess.run(
-            [python_exe, "-c", _NLP_PROBE_SCRIPT],
+            wrap_command_for_sandbox([python_exe, "-c", _NLP_PROBE_SCRIPT]),
             capture_output=True,
             text=True,
             timeout=max(1.0, timeout),
             env=scrub_subprocess_env(dict(os.environ)),
+            **get_subprocess_creationflags(),
         )
     except subprocess.TimeoutExpired:
         return {}, _NLP_PROBE_TIMEOUT_HINT
@@ -452,11 +455,12 @@ def _probe_vector_search_packages(
     """Import-check embeddings stack in the real venv interpreter (not the sandboxed warm worker)."""
     try:
         proc = subprocess.run(
-            [python_exe, "-c", _VECTOR_SEARCH_PROBE_SCRIPT],
+            wrap_command_for_sandbox([python_exe, "-c", _VECTOR_SEARCH_PROBE_SCRIPT]),
             capture_output=True,
             text=True,
             timeout=max(1.0, timeout),
             env=scrub_subprocess_env(dict(os.environ)),
+            **get_subprocess_creationflags(),
         )
     except subprocess.TimeoutExpired:
         return {}, _VECTOR_SEARCH_PROBE_TIMEOUT_HINT
@@ -484,11 +488,12 @@ def _probe_vision_packages(
     """Import-check vision stack in the real venv interpreter (not the sandboxed warm worker)."""
     try:
         proc = subprocess.run(
-            [python_exe, "-c", _VISION_PROBE_SCRIPT],
+            wrap_command_for_sandbox([python_exe, "-c", _VISION_PROBE_SCRIPT]),
             capture_output=True,
             text=True,
             timeout=max(1.0, timeout),
             env=scrub_subprocess_env(dict(os.environ)),
+            **get_subprocess_creationflags(),
         )
     except subprocess.TimeoutExpired:
         return {}, _VISION_PROBE_TIMEOUT_HINT
@@ -515,11 +520,12 @@ def _probe_audio_packages(
 ) -> tuple[dict[str, str | None], str | None]:
     try:
         proc = subprocess.run(
-            [python_exe, "-c", _AUDIO_PROBE_SCRIPT],
+            wrap_command_for_sandbox([python_exe, "-c", _AUDIO_PROBE_SCRIPT]),
             capture_output=True,
             timeout=timeout,
             env=scrub_subprocess_env(dict(os.environ)),
             text=True,
+            **get_subprocess_creationflags(),
         )
     except subprocess.TimeoutExpired:
         return {}, _AUDIO_PROBE_TIMEOUT_HINT

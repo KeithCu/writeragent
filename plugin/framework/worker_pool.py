@@ -22,10 +22,11 @@ UNO main-thread runtime guard (Layer A) can name the offending task on violation
 
 import logging
 import subprocess
+import sys
 import threading
 import traceback
 import uuid
-from typing import Optional, Callable
+from typing import Optional, Callable, Any
 
 from plugin.framework.errors import WorkerPoolError
 
@@ -81,6 +82,13 @@ def run_in_background(func, *args, name=None, error_callback=None, daemon=True, 
     return t
 
 
+def get_subprocess_creationflags() -> dict[str, Any]:
+    """Return popen/run kwargs to hide command prompt windows on Windows."""
+    if sys.platform == "win32":
+        return {"creationflags": subprocess.CREATE_NO_WINDOW}
+    return {}
+
+
 class AsyncProcess:
     """
     Manages a subprocess.Popen instance, asynchronously reading its stdout/stderr
@@ -95,6 +103,8 @@ class AsyncProcess:
         self.process: Optional[subprocess.Popen] = None
 
         self._popen_kwargs = popen_kwargs
+        if sys.platform == "win32":
+            self._popen_kwargs.setdefault("creationflags", subprocess.CREATE_NO_WINDOW)
         self._popen_kwargs.setdefault("stdout", subprocess.PIPE)
         self._popen_kwargs.setdefault("stderr", subprocess.PIPE)
         self._popen_kwargs.setdefault("text", True)

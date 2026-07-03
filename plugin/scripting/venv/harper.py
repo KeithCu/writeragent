@@ -10,10 +10,14 @@ import logging
 import os
 import queue
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
 from typing import BinaryIO, cast
+
+from plugin.framework.worker_pool import get_subprocess_creationflags
+from plugin.scripting.sandbox import wrap_command_for_sandbox
 
 from plugin.contrib.lsp import json_rpc_framing
 from plugin.contrib.lsp.position_codec import ClientPosition, PositionCodec
@@ -86,7 +90,17 @@ class HarperLSClient:
             self._doc_version = 0
             self._doc_opened = False
             self.stdout_queue = queue.Queue()
-            self.proc = subprocess.Popen([self.binary_path, "--stdio"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
+            self.proc = cast(
+                "subprocess.Popen[bytes]",
+                subprocess.Popen(
+                    wrap_command_for_sandbox([self.binary_path, "--stdio"]),
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    bufsize=0,
+                    **get_subprocess_creationflags(),
+                ),
+            )
             self.stdout_thread = threading.Thread(target=self._read_loop, daemon=True)  # nosemgrep: raw-uno-thread-ban
             self.stdout_thread.start()
 

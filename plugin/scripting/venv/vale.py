@@ -13,6 +13,9 @@ import logging
 from pathlib import Path
 from typing import Dict, Any
 
+from plugin.framework.worker_pool import get_subprocess_creationflags
+from plugin.scripting.sandbox import wrap_command_for_sandbox
+
 log = logging.getLogger("writeragent.grammar")
 
 
@@ -55,9 +58,12 @@ Microsoft.Headings = NO
 """
             ini_path.write_text(ini_content, encoding="utf-8")
             
-            # Sync / download style packages via local binary
-            log.info("[style] Syncing Vale style guides (first run)...")
-            subprocess.run([vale_bin, "--config", str(ini_path), "sync"], check=True, capture_output=True)
+            subprocess.run(
+                wrap_command_for_sandbox([vale_bin, "--config", str(ini_path), "sync"]),
+                check=True,
+                capture_output=True,
+                **get_subprocess_creationflags(),
+            )
         except Exception as e:
             raise RuntimeError(f"Failed to initialize and sync Vale style guides: {e}")
 
@@ -77,7 +83,13 @@ Microsoft.Headings = NO
             "--output", "JSON",
             temp_file_name
         ]
-        proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
+        proc = subprocess.run(
+            wrap_command_for_sandbox(cmd),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            **get_subprocess_creationflags(),
+        )
         
         # Vale returns status code 1 if it flags style alerts, which is normal.
         if proc.returncode not in (0, 1):

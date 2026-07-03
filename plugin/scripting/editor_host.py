@@ -16,6 +16,8 @@ import time
 from collections import deque
 from typing import TYPE_CHECKING, Any, Callable, cast
 
+from plugin.framework.worker_pool import get_subprocess_creationflags
+
 if TYPE_CHECKING:
     import subprocess as subprocess_types
 
@@ -107,6 +109,7 @@ def probe_webview_import(exe: str) -> tuple[bool, str]:
             timeout=30,
             env=build_editor_child_env(),
             text=True,
+            **get_subprocess_creationflags(),
         )
     except (subprocess.TimeoutExpired, OSError) as e:
         log.warning("probe_webview_import failed for %s: %s", exe, e, exc_info=True)

@@ -25,8 +25,11 @@ import json
 import logging
 import os
 import subprocess
+import sys
 import threading
+from typing import Any, cast
 
+from plugin.framework.worker_pool import get_subprocess_creationflags
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.worker_pool import run_in_background
 
@@ -45,7 +48,7 @@ class ACPConnection:
         self._cmd_line = cmd_line
         self._env = env
         self._cwd = cwd
-        self._proc = None
+        self._proc: subprocess.Popen[bytes] | None = None
         self._lock = threading.Lock()
         self._request_id = 0
         self._pending = {}  # id -> threading.Event, response dict
@@ -64,7 +67,18 @@ class ACPConnection:
 
         from plugin.scripting.venv_worker import wrap_command_for_sandbox
 
-        self._proc = subprocess.Popen(wrap_command_for_sandbox(self._cmd_line), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, cwd=self._cwd)
+        self._proc = cast(
+            "subprocess.Popen[bytes]",
+            subprocess.Popen(
+                wrap_command_for_sandbox(self._cmd_line),
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=env,
+                cwd=self._cwd,
+                **get_subprocess_creationflags(),
+            ),
+        )
         self._running = True
         self._reader_thread = run_in_background(self._reader_loop, daemon=True, name="acp-reader")
 
