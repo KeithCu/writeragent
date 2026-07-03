@@ -210,7 +210,7 @@ _VIZ_INSTALL_CMD = "uv pip install matplotlib seaborn"
 _SYMBOLIC_INSTALL_CMD = "uv pip install sympy"
 _AUDIO_PACKAGE_KEYS = ("sounddevice", "input_device")
 _AUDIO_INSTALL_CMD = "uv pip install sounddevice"
-_AUDIO_LINUX_PORTAUDIO_HINT = _("On Linux also install system PortAudio: sudo apt-get install libportaudio2")
+_AUDIO_LINUX_PORTAUDIO_HINT = _("On Linux also install system PortAudio: sudo pacman -S portaudio")
 _AUDIO_PROBE_SCRIPT = """
 import json
 out = {}
