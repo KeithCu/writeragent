@@ -166,7 +166,7 @@ def _file_url(path):
     return Path(os.path.abspath(path)).as_uri()
 
 
-def _create_property_value(name, value):
+def create_property_value(name, value):
     """Create a ``com.sun.star.beans.PropertyValue``."""
     p = cast("Any", uno.createUnoStruct("com.sun.star.beans.PropertyValue"))
     p.Name = name
@@ -249,7 +249,7 @@ def _apply_image_export_options(content: str, *, include_images: bool) -> str:
 def _export_xhtml(doc, config_svc):
     """Export *doc* via the XHTML Writer File filter; return the raw XHTML string."""
     with _with_temp_buffer(None, config_svc, ext=XHTML_EXTENSION) as (path, file_url):
-        props = (_create_property_value("FilterName", XHTML_FILTER),)
+        props = (create_property_value("FilterName", XHTML_FILTER),)
         doc.storeToURL(file_url, props)
         with open(path, "r", encoding="utf-8", errors="replace") as f:
             return f.read()
@@ -263,7 +263,7 @@ def _autostyle_parents(doc, config_svc):
     without the autostyle-name recovery)."""
     try:
         with _with_temp_buffer(None, config_svc, ext=FODT_EXTENSION) as (path, file_url):
-            props = (_create_property_value("FilterName", FLAT_ODF_FILTER),)
+            props = (create_property_value("FilterName", FLAT_ODF_FILTER),)
             doc.storeToURL(file_url, props)
             with open(path, "r", encoding="utf-8", errors="replace") as f:
                 fodt = f.read()
@@ -514,13 +514,13 @@ def html_to_plain_text(html_string, ctx, config_svc=None):
     temp_doc = None
     try:
         desktop = get_desktop(ctx)
-        load_props = (_create_property_value("Hidden", True),)
+        load_props = (create_property_value("Hidden", True),)
         temp_doc = desktop.loadComponentFromURL("private:factory/swriter", "_default", 0, load_props)
         if not temp_doc or not hasattr(temp_doc, "getText"):
             return html_string.strip()
         with _with_temp_buffer(prepared, config_svc) as (_path, file_url):
             filter_name, _ = _get_format_props(config_svc)
-            filter_props = (_create_property_value("FilterName", filter_name),)
+            filter_props = (create_property_value("FilterName", filter_name),)
             text = temp_doc.getText()
             cursor = text.createTextCursor()
             cursor.gotoStart(False)
@@ -553,7 +553,7 @@ def _range_to_content_via_temp_doc(model, ctx, start, end, max_chars, config_svc
     try:
         ctx.getServiceManager()
         desktop = get_desktop(ctx)
-        load_props = (_create_property_value("Hidden", True),)
+        load_props = (create_property_value("Hidden", True),)
         temp_doc = desktop.loadComponentFromURL("private:factory/swriter", "_default", 0, load_props)
         if not temp_doc or not hasattr(temp_doc, "getText"):
             return ""
@@ -613,7 +613,7 @@ def _range_to_content_via_temp_doc(model, ctx, start, end, max_chars, config_svc
             log.exception("_range_to_content_via_temp_doc (XHTML) failed; falling back to StarWriter")
             filter_name, _ = _get_format_props(config_svc)
             with _with_temp_buffer(None, config_svc) as (path, file_url):
-                props = (_create_property_value("FilterName", filter_name),)
+                props = (create_property_value("FilterName", filter_name),)
                 temp_doc.storeToURL(file_url, props)
                 with open(path, "r", encoding="utf-8", errors="replace") as f:
                     content = f.read()
@@ -689,7 +689,7 @@ def document_to_content(
     try:
         filter_name, _ = _get_format_props(config_svc)
         with _with_temp_buffer(None, config_svc) as (path, file_url):
-            props = (_create_property_value("FilterName", filter_name),)
+            props = (create_property_value("FilterName", filter_name),)
             model.storeToURL(file_url, props)
             with open(path, "r", encoding="utf-8", errors="replace") as f:
                 content = f.read()
@@ -734,7 +734,7 @@ def insert_html_fragment_at_cursor(
     prepared = _wrap_html_fragment(html_fragment, extra_css=extra_css) if wrap else html_fragment
     with _with_temp_buffer(prepared, config_svc) as (_path, file_url):
         filter_name, _ = _get_format_props(config_svc)
-        filter_props = (_create_property_value("FilterName", filter_name),)
+        filter_props = (create_property_value("FilterName", filter_name),)
         cursor.insertDocumentFromURL(file_url, filter_props)
     if model is not None:
         _cursor_goto_document_end(model, cursor)

@@ -114,8 +114,8 @@ def do_selection_action_for_document(ctx, model, input_box_fn, is_edit: bool) ->
         do_calc_extend_edit(ctx, model, input_box_fn, is_edit)
         return
 
-    action = "Edit" if is_edit else "Extend"
-    msgbox(ctx, "WriterAgent", f"{action} selection not supported for this document type")
+    action = _("Edit") if is_edit else _("Extend")
+    msgbox(ctx, "WriterAgent", _("{0} selection not supported for this document type").format(action))
 
 
 def _action_selection(services, is_edit: bool) -> None:
@@ -125,7 +125,7 @@ def _action_selection(services, is_edit: bool) -> None:
     doc_svc = services.document
     doc = doc_svc.get_active_document()
     if not doc:
-        msgbox(ctx, "WriterAgent", "No document open")
+        msgbox(ctx, "WriterAgent", _("No document open"))
         return
 
     do_selection_action_for_document(ctx, doc, input_box, is_edit)

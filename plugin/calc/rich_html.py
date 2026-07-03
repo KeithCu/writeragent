@@ -80,7 +80,7 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str, 
     temp_doc = None
     try:
         desktop = get_desktop(uno_ctx)
-        hidden = format_support._create_property_value("Hidden", True)
+        hidden = format_support.create_property_value("Hidden", True)
         temp_doc = desktop.loadComponentFromURL("private:factory/swriter", "_default", 0, (hidden,))
         if temp_doc is None or not hasattr(temp_doc, "getText"):
             raise ToolExecutionError("Could not create temporary Writer document")

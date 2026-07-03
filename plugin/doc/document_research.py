@@ -515,13 +515,6 @@ def resolve_path_or_name(
     return None, f"No file matching {raw!r}"
 
 
-def _create_property_value(name: str, value: Any) -> Any:
-    p = cast("Any", uno.createUnoStruct("com.sun.star.beans.PropertyValue"))
-    p.Name = name
-    p.Value = value
-    return p
-
-
 def _document_type_to_string(doc_type: DocumentType) -> str:
     if doc_type == DocumentType.CALC:
         return "calc"
@@ -561,10 +554,11 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
         return existing, existing_type or _document_type_to_string(get_document_type(existing)), None, False
 
     try:
+        from plugin.writer.format import create_property_value
         desktop = get_desktop(ctx)
         load_props = (
-            _create_property_value("Hidden", True),
-            _create_property_value("ReadOnly", True),
+            create_property_value("Hidden", True),
+            create_property_value("ReadOnly", True),
         )
         model = desktop.loadComponentFromURL(url, "_default", 0, load_props)
         if model is None:

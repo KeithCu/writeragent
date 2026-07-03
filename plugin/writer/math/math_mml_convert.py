@@ -48,13 +48,6 @@ def _file_url(path: str) -> str:
     return uno.systemPathToFileUrl(os.path.abspath(path))
 
 
-def _create_property_value(name: str, value: Any) -> Any:
-    p = cast("Any", uno.createUnoStruct("com.sun.star.beans.PropertyValue"))
-    p.Name = name
-    p.Value = value
-    return p
-
-
 def collapse_starmath_newline_tokens_for_writer_embed(starmath: str) -> str:
     """Remove StarMath ``newline`` keywords so Writer can paint the formula.
 
@@ -133,8 +126,9 @@ def convert_mathml_to_starmath(ctx: Any, mathml_fragment: str) -> MathConversion
         with open(path, "w", encoding="utf-8") as f:
             f.write(payload)
 
+        from plugin.writer.format import create_property_value
         desktop = get_desktop(ctx)
-        hidden = (_create_property_value("Hidden", True),)
+        hidden = (create_property_value("Hidden", True),)
         url = _file_url(path)
         doc = desktop.loadComponentFromURL(url, "_blank", 0, hidden)
         if doc is None:
