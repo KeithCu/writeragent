@@ -17,6 +17,8 @@ plugin/lib*/
 *~
 *.mo
 
+.venv/
+
 # Log files
 writeragent_debug.log
 writeragent_history.db*

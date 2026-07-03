@@ -810,6 +810,9 @@ def test_grammar_empty_single_response_caches_clean() -> None:
          patch("plugin.writer.locale.grammar_work_queue.call_grammar_llm", return_value=([[]], 50)), \
          patch("plugin.writer.locale.grammar_work_queue.emit_grammar_status") as mock_status, \
          patch("plugin.writer.locale.grammar_work_queue._requeue_individual_item") as mock_requeue, \
+         patch("plugin.writer.locale.grammar_ignore_rules.doc_ignored_rules", return_value=set()), \
+         patch("plugin.writer.locale.grammar_proofread_cache.ignored_rules_snapshot", return_value=set()), \
+         patch("plugin.writer.locale.grammar_work_queue.grammar_proofread_text.normalize_errors_for_text", return_value=[]), \
          patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_put:
         _run_grammar_check(chunk, "en-US", "en-US", ec)
     mock_put.assert_called_once()

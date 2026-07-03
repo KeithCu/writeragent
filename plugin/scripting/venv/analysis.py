@@ -333,7 +333,7 @@ def detect_outliers(
         z = np.abs(cast("Any", scipy_stats.zscore(sample.values, axis=0, nan_policy="omit")))
         col_mask = pd.DataFrame(z > threshold, index=sample.index, columns=sample.columns).fillna(False)
         mask = col_mask.any(axis=1)
-        per_column = {str(col): int(col_mask[col].sum()) for col in numeric_cols}
+        per_column = {str(col): int(cast("Any", col_mask[col].sum())) for col in numeric_cols}
     elif method == "isolation_forest":
         from sklearn.ensemble import IsolationForest
         if not sample.empty:

@@ -238,10 +238,11 @@ def bootstrap(ctx=None):
             main_thread = _services.get("main_thread")
             events_svc.subscribe("menu:update", lambda **kw: main_thread.execute(notify_menu_update) if main_thread else notify_menu_update())
 
-        # Pre-load icons into ImageManager so first menu display has them
-        from plugin.framework.worker_pool import run_in_background
+        if os.environ.get("WRITERAGENT_TESTING") != "1":
+            # Pre-load icons into ImageManager so first menu display has them.
+            from plugin.framework.worker_pool import run_in_background
 
-        run_in_background(_update_menu_icons)
+            run_in_background(_update_menu_icons)
 
         # Register core handlers
         _register_core_handlers()
@@ -659,10 +660,11 @@ def notify_menu_update():
                 (lstnr, u) for (lstnr, u) in _status_listeners
                 if not any(lstnr is fl and u.Complete == fu.Complete for (fl, fu) in failed)
             ]
-    # Update icons in a background thread (avoids blocking UI)
-    from plugin.framework.worker_pool import run_in_background
+    if os.environ.get("WRITERAGENT_TESTING") != "1":
+        # Update icons in a background thread (avoids blocking UI)
+        from plugin.framework.worker_pool import run_in_background
 
-    run_in_background(_update_menu_icons)
+        run_in_background(_update_menu_icons)
 
 
 def _fire_status_event(listener, url, text):

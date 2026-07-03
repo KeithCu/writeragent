@@ -13,12 +13,27 @@ import logging
 import json
 import traceback
 import unittest
+import tempfile
+from pathlib import Path
 from typing import Any, Callable, Dict, List
 
 log = logging.getLogger(__name__)
 
 # Flag to run UNO chart tests with visible window rather than hidden
 show_window: bool = False
+
+
+def _soffice_bootstrap_command(officehelper_module: Any) -> str | None:
+    """Return a soffice command for native tests that never opens recovery UI."""
+    try:
+        program_dir = Path(officehelper_module.__file__).resolve().parent
+        soffice = program_dir / ("soffice.exe" if __import__("sys").platform.startswith("win") else "soffice")
+        if not soffice.exists():
+            return None
+        profile_url = Path(tempfile.mkdtemp(prefix="writeragent-lo-test-profile-")).as_uri()
+        return f'"{soffice}" --headless --norestore --nofirststartwizard --nocrashreport -env:UserInstallation={profile_url}'
+    except Exception:
+        return None
 
 
 
@@ -57,6 +72,10 @@ def _run_suite(ctx: Any, suites: List[Dict[str, Any]], name: str, module, *args)
         entry["failed"] = failed
     suites.append(entry)
     return passed, failed
+
+
+def _is_uno_bridge_disposed(exc: Exception) -> bool:
+    return type(exc).__name__ == "DisposedException" or "Binary URP bridge" in str(exc)
 
 
 def run_module_suite(ctx, module, name, doc_model=None):
@@ -162,9 +181,12 @@ def run_module_suite(ctx, module, name, doc_model=None):
                 else:
                     teardown_func()
             except Exception as e:
-                total_failed += 1
-                suite_log.append(f"TEARDOWN EXCEPTION: {e}")
-                suite_log.append(traceback.format_exc())
+                if _is_uno_bridge_disposed(e):
+                    suite_log.append(f"TEARDOWN SKIPPED: UNO bridge disposed ({e})")
+                else:
+                    total_failed += 1
+                    suite_log.append(f"TEARDOWN EXCEPTION: {e}")
+                    suite_log.append(traceback.format_exc())
 
     return total_passed, total_failed, suite_log
 
@@ -254,6 +276,23 @@ def run_all_tests(ctx: Any) -> str:
     writer_doc = model if (model is not None and is_writer_fn(model)) else None
     calc_doc = model if (model is not None and is_calc_fn(model)) else None
     draw_doc = model if (model is not None and is_draw_fn(model)) else None
+    keeper_doc = None
+
+    try:
+        from plugin.framework.uno_context import get_desktop
+        import uno
+
+        hidden_prop = uno.createUnoStruct(
+            "com.sun.star.beans.PropertyValue",
+            Name="Hidden",
+            Value=True,
+        )
+        # External Windows bootstraps can shut down LibreOffice when a suite
+        # closes its only hidden document. Keep one document alive until all
+        # native suites finish so the UNO bridge stays valid across modules.
+        keeper_doc = get_desktop(ctx).loadComponentFromURL("private:factory/swriter", "_blank", 0, (hidden_prop,))
+    except Exception as e:
+        log.warning("run_all_tests: could not create keeper document: %s", e)
 
     # Initialize the tool registry (Writer/Calc/Draw modules) before loading any
     # UNO test file. Each suite below snapshots/restores sys.modules (uno, com,
@@ -273,6 +312,30 @@ def run_all_tests(ctx: Any) -> str:
         bootstrap(ctx=ctx)
     except Exception as e:
         log.warning("run_all_tests: bootstrap failed (in-LO tool tests may fail): %s", e)
+
+    def _ensure_live_ctx(current_ctx: Any) -> Any:
+        try:
+            current_ctx.getServiceManager()
+            return current_ctx
+        except Exception:
+            pass
+        try:
+            import officehelper
+
+            new_ctx = officehelper.bootstrap(soffice=_soffice_bootstrap_command(officehelper))
+            from plugin.framework.uno_context import set_fallback_ctx
+
+            set_fallback_ctx(new_ctx)
+            from plugin.framework.config import init_config
+
+            init_config(new_ctx)
+            from plugin.main import bootstrap
+
+            bootstrap(ctx=new_ctx)
+            return new_ctx
+        except Exception as e:
+            log.warning("run_all_tests: could not refresh disposed UNO context: %s", e)
+            return current_ctx
 
     import os
     from plugin.framework.constants import get_plugin_dir
@@ -315,6 +378,7 @@ def run_all_tests(ctx: Any) -> str:
                         test_candidates.append(full_path)
 
         for module_path in sorted(test_candidates):
+            ctx = _ensure_live_ctx(ctx)
             filename = os.path.basename(module_path)
             module_name = filename[:-3]
             
@@ -367,6 +431,12 @@ def run_all_tests(ctx: Any) -> str:
                         else:
                             sys.modules[k] = v
 
+        if keeper_doc is not None:
+            try:
+                keeper_doc.close(True)
+            except Exception:
+                pass
+
     summary: Dict[str, Any] = {"total_passed": total_passed, "suites": suites}
     if total_failed:
         summary["total_failed"] = total_failed
@@ -399,7 +469,7 @@ def main() -> int:
     os.environ["WRITERAGENT_TESTING"] = "1"
 
     try:
-        ctx = officehelper.bootstrap()
+        ctx = officehelper.bootstrap(soffice=_soffice_bootstrap_command(officehelper))
     except Exception as e:
         # Typical in CI/headless shells: no soffice pipe (BootstrapException, NoConnectException, etc.)
         print(f"SKIP: LibreOffice UNO bootstrap failed; skipping in-LO tests.\n  ({type(e).__name__}: {e})", flush=True)
