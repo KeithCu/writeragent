@@ -44,13 +44,24 @@ class CoerceResult:
     metadata: dict[str, Any]
 
 
-def _is_missing_cell(value: Any) -> bool:
+def is_missing_value(value: Any) -> bool:
+    """Check if value represents a missing cell, blank string, error token, or NaN/None."""
     if value is None:
         return True
+    if isinstance(value, float):
+        import math
+        if math.isnan(value):
+            return True
     if isinstance(value, str):
         stripped = value.strip()
         if stripped == "" or stripped in _LO_ERROR_TOKENS:
             return True
+    try:
+        import numpy as np
+        if isinstance(value, (np.floating, float)) and np.isnan(value):
+            return True
+    except ImportError:
+        pass
     return False
 
 
@@ -80,7 +91,7 @@ def _parse_numeric_string(text: str) -> float | None:
 
 
 def _coerce_cell(value: Any) -> Any:
-    if _is_missing_cell(value):
+    if is_missing_value(value):
         return None
     if isinstance(value, bool):
         return value

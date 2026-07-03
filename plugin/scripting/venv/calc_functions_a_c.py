@@ -19,6 +19,7 @@ from typing import Any, Callable, cast
 import numpy as np
 
 from plugin.scripting.calc_functions_common import HELPER_NAMES
+from .coerce import is_missing_value
 
 
 __all__ = [
@@ -147,7 +148,7 @@ def _eval_d_criteria(db: Any, field: Any, criteria: Any, as_float: bool = True) 
             for c_col_idx in range(crit_arr.shape[1]):
                 c_header = crit_headers[c_col_idx]
                 c_val = crit_arr[c_row_idx, c_col_idx]
-                if c_val is None or str(c_val) == "":
+                if is_missing_value(c_val):
                     continue
 
                 if c_header in headers:
@@ -234,7 +235,7 @@ def _to_complex(val: Any) -> builtins.complex:
 
 def _to_float_a(val: Any) -> float:
     """Helper for *A functions (AVERAGEA, STDEVA, etc.)."""
-    if val is None or val == "":
+    if is_missing_value(val):
         return 0.0
     if isinstance(val, bool):
         return 1.0 if val else 0.0
@@ -469,7 +470,7 @@ def avedev(r: Any) -> float:
 def averagea(r: Any) -> float:
     vals = []
     for x in np.asarray(r).ravel():
-        if x is None or x == "":
+        if is_missing_value(x):
             vals.append(0.0)
         else:
             try:

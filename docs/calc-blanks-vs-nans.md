@@ -79,6 +79,14 @@ If pass-through numeric blanks must remain empty cells (or you want `np.mean(dat
 
 Because host and worker ship together, we can make that change atomically when we choose to.
 
+## Standardized Missing-Value Checks (`is_missing_value`)
+
+To ensure consistent behavior across data coercion, parsing, and custom spreadsheet functions (like `=PY()`), we centralized checks into `is_missing_value` under [coerce.py](file:///home/keithcu/Desktop/Python/writeragent/plugin/scripting/venv/coerce.py):
+
+* **Standard Missing-Values:** Detects `None`, empty/blank strings `""`, and common LibreOffice error tokens (e.g. `#VALUE!`, `#NUM!`).
+* **NaNs:** Detects both native Python float `NaN` and NumPy floating-point `NaN` types.
+* **Usage:** Used uniformly by data frame coercion helpers and standard Excel formula replicas (`AVERAGEA`, `ISBLANK`, `ISNA`, `MATCH`, etc.) to prevent divergent cell-handling behavior.
+
 ## Summary for authors (and LLM prompts)
 
 - Blanks on ingress are still `np.nan` in numeric arrays — use `np.nansum` / `np.nanmean` when you mean "ignore missing."

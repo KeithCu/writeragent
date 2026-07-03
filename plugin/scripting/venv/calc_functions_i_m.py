@@ -19,6 +19,7 @@ from typing import Any, Callable, cast
 import numpy as np
 
 from plugin.scripting.calc_functions_common import HELPER_NAMES
+from .coerce import is_missing_value
 
 
 __all__ = [
@@ -106,7 +107,7 @@ def iferror(f: Callable[[], Any], alt: Any) -> Any:
 def ifna(f: Callable[[], Any], alt: Any) -> Any:
     try:
         val = f()
-        if val is None or (isinstance(val, float) and np.isnan(val)):
+        if is_missing_value(val):
             return alt
         return val
     except Exception:
@@ -507,7 +508,7 @@ def irr(values: Any, guess: Any = 0.1) -> float:
 
 
 def isblank(val: Any) -> bool:
-    return val is None or val == ""
+    return is_missing_value(val)
 
 
 def iserr(val: Any) -> bool:
@@ -540,9 +541,7 @@ def islogical(val: Any) -> bool:
 
 
 def isna(val: Any) -> bool:
-    if isinstance(val, str) and val.upper().startswith("#N/A"):
-        return True
-    return val is None or (isinstance(val, float) and np.isnan(val))
+    return is_missing_value(val)
 
 
 def isnontext(val: Any) -> bool:
@@ -731,8 +730,8 @@ def lookup(lookup_val: Any, *args: Any) -> Any:
 
 
 def match_criteria(val: Any, crit: Any) -> bool:
-    if crit is None or crit == "":
-        return val is None or val == ""
+    if is_missing_value(crit):
+        return is_missing_value(val)
     if isinstance(crit, str):
         m = re.match(r"^([<>=]+)(.*)$", crit)
         if m:

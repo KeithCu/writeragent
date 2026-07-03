@@ -19,6 +19,7 @@ from typing import Any, Callable, cast
 import numpy as np
 
 from plugin.scripting.calc_functions_common import HELPER_NAMES
+from .coerce import is_missing_value
 
 
 __all__ = [
@@ -150,7 +151,7 @@ def textjoin(delim: Any, ignore_empty: Any, *args: Any) -> str:
     parts = []
     for arg in args:
         for val in np.asarray(arg).ravel():
-            if val is None or val == "":
+            if is_missing_value(val):
                 if not ignore_empty:
                     parts.append("")
             else:
@@ -311,7 +312,7 @@ def ttest(data1: Any, data2: Any, tails: Any, type_: Any) -> float:
 
 
 def type(val: Any) -> float:
-    if val is None or val == "":
+    if is_missing_value(val):
         return 1.0
     if isinstance(val, (int, float)) and not isinstance(val, bool):
         return 1.0
