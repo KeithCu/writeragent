@@ -99,10 +99,6 @@ PROJECT_ROOT := $(CURDIR)
 ifneq ($(wildcard .venv/bin/python),)
     PYTHON := $(PROJECT_ROOT)/.venv/bin/python
 endif
-OPENGREP := $(shell command -v opengrep 2>/dev/null)
-ifeq ($(OPENGREP),)
-    OPENGREP := $(PROJECT_ROOT)/bin/opengrep
-endif
 OPENGREP_DIR := tests/semgrep
 OPENGREP_CONFIGS := \
 	$(OPENGREP_DIR)/uno_thread_safety.yml \
@@ -116,6 +112,14 @@ OPENGREP_ENV := SEMGREP_SEND_METRICS=off
 ifeq ($(OS),Windows_NT)
 ifneq ($(wildcard .venv/Scripts/python.exe),)
     PYTHON := $(PROJECT_ROOT)/.venv/Scripts/python.exe
+endif
+endif
+OPENGREP := $(shell "$(PYTHON)" $(SCRIPTS)/opengrep_path.py 2>/dev/null)
+ifeq ($(OPENGREP),)
+ifeq ($(OS),Windows_NT)
+    OPENGREP := $(PROJECT_ROOT)/bin/opengrep.exe
+else
+    OPENGREP := $(PROJECT_ROOT)/bin/opengrep
 endif
 endif
 
@@ -565,14 +569,14 @@ lo-test-threadguard-visible:
 opengrep-lint:
 	@test -x "$(OPENGREP)" || (echo "opengrep not found — run: make opengrep-install" && exit 1)
 	@test -f $(OPENGREP_DIR)/third_party/SOURCES.json || (echo "vendored Opengrep rules missing — run: make opengrep-rules-sync" && exit 1)
-	$(OPENGREP_ENV) $(OPENGREP) scan $(OPENGREP_SCAN_FLAGS) $(foreach c,$(OPENGREP_CONFIGS),-c $(c)) plugin
+	$(OPENGREP_ENV) "$(OPENGREP)" scan $(OPENGREP_SCAN_FLAGS) $(foreach c,$(OPENGREP_CONFIGS),-c $(c)) plugin
 
 uno-thread-lint: opengrep-lint
 
 opengrep-lint-advisory:
 	@test -x "$(OPENGREP)" || (echo "opengrep not found — run: make opengrep-install" && exit 1)
 	@test -f $(OPENGREP_DIR)/third_party/SOURCES.json || (echo "vendored Opengrep rules missing — run: make opengrep-rules-sync" && exit 1)
-	$(OPENGREP_ENV) $(OPENGREP) scan --severity WARNING --taint-intrafile $(OPENGREP_EXCLUDES) $(foreach c,$(OPENGREP_CONFIGS),-c $(c)) plugin
+	$(OPENGREP_ENV) "$(OPENGREP)" scan --severity WARNING --taint-intrafile $(OPENGREP_EXCLUDES) $(foreach c,$(OPENGREP_CONFIGS),-c $(c)) plugin
 
 uno-thread-lint-advisory: opengrep-lint-advisory
 
@@ -581,10 +585,14 @@ opengrep-rules-sync:
 
 opengrep-rules-audit:
 	@test -x "$(OPENGREP)" || (echo "opengrep not found — run: make opengrep-install" && exit 1)
-	$(OPENGREP_ENV) $(OPENGREP) scan --config p/python $(OPENGREP_EXCLUDES) plugin
+	$(OPENGREP_ENV) "$(OPENGREP)" scan --config p/python $(OPENGREP_EXCLUDES) plugin
 
 opengrep-install:
+ifeq ($(OS),Windows_NT)
+	powershell -NoProfile -ExecutionPolicy Bypass -Command 'if (-not (Get-Command New-TemporaryFile -ErrorAction SilentlyContinue)) { function New-TemporaryFile { $$p = [System.IO.Path]::GetTempFileName(); Get-Item -LiteralPath $$p } }; irm https://raw.githubusercontent.com/opengrep/opengrep/main/install.ps1 | iex'
+else
 	curl -fsSL https://raw.githubusercontent.com/opengrep/opengrep/main/install.sh | bash
+endif
 
 test:
 	@$(MAKE) typecheck

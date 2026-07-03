@@ -7,6 +7,8 @@ import os
 import subprocess
 from pathlib import Path
 
+from scripts.opengrep_path import resolve_opengrep
+
 ROOT = Path(__file__).resolve().parents[2]
 SEMGREP_DIR = ROOT / "tests" / "semgrep"
 UNO_CONFIG = SEMGREP_DIR / "uno_thread_safety.yml"
@@ -25,11 +27,7 @@ OPENGREP_CONFIGS = [
     THIRD_PARTY / "trailofbits",
 ]
 
-OPENGREP = Path(os.environ.get("OPENGREP", "")) if os.environ.get("OPENGREP") else None
-if OPENGREP is None or not OPENGREP.is_file():
-    _local = ROOT / "bin" / "opengrep"
-    _path = subprocess.run(["bash", "-lc", "command -v opengrep"], capture_output=True, text=True, check=False).stdout.strip()
-    OPENGREP = Path(_path) if _path else _local
+OPENGREP = resolve_opengrep(repo_root=ROOT)
 
 
 def _config_args() -> list[str]:
@@ -40,6 +38,7 @@ def _config_args() -> list[str]:
 
 
 def _run_opengrep(*args: str) -> subprocess.CompletedProcess[str]:
+    assert OPENGREP is not None, "opengrep not found — run: make opengrep-install"
     env = os.environ.copy()
     env.setdefault("SEMGREP_SEND_METRICS", "off")
     cmd = [str(OPENGREP), "scan", *args]
@@ -72,7 +71,7 @@ def _scan_json(*extra: str, configs: list[Path] | None = None) -> list[dict]:
 
 
 def test_opengrep_available():
-    assert OPENGREP.is_file(), f"opengrep not found at {OPENGREP} — run: make opengrep-install"
+    assert OPENGREP is not None and OPENGREP.is_file(), f"opengrep not found at {OPENGREP} — run: make opengrep-install"
 
 
 def test_third_party_rules_present():

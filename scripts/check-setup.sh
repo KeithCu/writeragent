@@ -145,11 +145,11 @@ fi
 
 # ── Opengrep (Layer C UNO thread lint; required for make test) ───────────
 
-if command -v opengrep &>/dev/null; then
-    OG_VER=$(opengrep --version 2>&1 | head -1)
-    ok "opengrep: $OG_VER"
-elif [[ -x "$PROJECT_ROOT/bin/opengrep" ]]; then
-    ok "opengrep: $PROJECT_ROOT/bin/opengrep"
+PYTHON_FOR_HELPERS="${PYTHON:-python}"
+OPENGREP_PATH="$("$PYTHON_FOR_HELPERS" "$PROJECT_ROOT/scripts/opengrep_path.py" 2>/dev/null || true)"
+if [[ -n "$OPENGREP_PATH" && -x "$OPENGREP_PATH" ]]; then
+    OG_VER=$("$OPENGREP_PATH" --version 2>&1 | head -1)
+    ok "opengrep: $OG_VER ($OPENGREP_PATH)"
 else
     fail "opengrep not found — run: make opengrep-install (required for make test opengrep-lint)"
 fi
