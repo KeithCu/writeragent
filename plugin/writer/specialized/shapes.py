@@ -18,6 +18,7 @@
 
 import logging
 from ..specialized_base import ToolWriterShapeBase
+from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES
 from plugin.draw.shapes import UpsertShape as DrawUpsertShape
 from plugin.draw.shapes import DeleteShape as DrawDeleteShape
 from plugin.draw.shapes import GetDrawSummary as DrawGetDrawSummary
@@ -31,12 +32,7 @@ log = logging.getLogger("writeragent.writer")
 # 2. Inherit from the specialized ToolWriterShapeBase to enforce Writer scoping.
 # 3. Union services: same names as Draw tools; include Draw/Impress so registration
 # order does not drop support for non-Writer documents.
-_WRITER_DRAW_SHAPE_DOCS = [
-    "com.sun.star.text.TextDocument",
-    "com.sun.star.sheet.SpreadsheetDocument",
-    "com.sun.star.drawing.DrawingDocument",
-    "com.sun.star.presentation.PresentationDocument",
-]
+_WRITER_DRAW_SHAPE_DOCS = list(SHAPE_TOOL_UNO_SERVICES)
 
 
 class UpsertShape(DrawUpsertShape, ToolWriterShapeBase):
