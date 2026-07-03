@@ -286,14 +286,20 @@ def _python_candidates_in_bin_dir(bin_dir: str) -> list[str]:
     """Return candidate interpreter paths under a venv ``bin/`` or ``Scripts/`` directory."""
     candidates: list[str] = []
     if os.name == "nt":
-        candidates.append(os.path.join(bin_dir, "python.exe"))
+        candidates.extend(
+            [
+                os.path.join(bin_dir, "python.exe"),
+                os.path.join(bin_dir, "python"),
+                os.path.join(bin_dir, "python3"),
+            ]
+        )
     else:
         for name in ("python", "python3"):
             candidates.append(os.path.join(bin_dir, name))
-        if os.path.isdir(bin_dir):
-            for entry in sorted(os.listdir(bin_dir)):
-                if entry.startswith("python3."):
-                    candidates.append(os.path.join(bin_dir, entry))
+    if os.path.isdir(bin_dir):
+        for entry in sorted(os.listdir(bin_dir)):
+            if entry.startswith("python3."):
+                candidates.append(os.path.join(bin_dir, entry))
     return candidates
 
 
@@ -333,9 +339,9 @@ def resolve_venv_python(venv_dir: str) -> Optional[str]:
         return _first_executable_python(_python_candidates_in_bin_dir(expanded))
 
     if os.name == "nt":
-        bin_candidates = [os.path.join(expanded, "Scripts")]
+        bin_candidates = [os.path.join(expanded, "Scripts"), os.path.join(expanded, "bin")]
     else:
-        bin_candidates = [os.path.join(expanded, "bin")]
+        bin_candidates = [os.path.join(expanded, "bin"), os.path.join(expanded, "Scripts")]
     candidates: list[str] = []
     for bin_dir in bin_candidates:
         if os.path.isdir(bin_dir):

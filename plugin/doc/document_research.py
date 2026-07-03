@@ -145,6 +145,10 @@ def _normalize_path(path: str) -> str:
     return os.path.normpath(os.path.abspath(path))
 
 
+def _is_absolute_or_posix_absolute(path: str) -> bool:
+    return os.path.isabs(path) or path.startswith("/")
+
+
 def _path_to_file_url(path: str) -> str:
     """Build a LO-compatible file URL (file:/// on Unix).
 
@@ -543,7 +547,7 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
     if raw.startswith("file:"):
         url = _normalize_file_url(raw)
         path = _system_path_from_url(url)
-    elif os.path.isabs(raw) and os.path.isfile(raw):
+    elif _is_absolute_or_posix_absolute(raw) and os.path.isfile(raw):
         path = _normalize_path(raw)
         url = _path_to_file_url(path)
     else:

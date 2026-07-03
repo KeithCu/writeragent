@@ -12,9 +12,16 @@ from __future__ import annotations
 import os
 import stat
 import sys
+import types
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+if "fcntl" not in sys.modules:
+    fake_fcntl = types.ModuleType("fcntl")
+    fake_fcntl.F_SETPIPE_SZ = 1031
+    fake_fcntl.fcntl = lambda *args, **kwargs: None
+    sys.modules["fcntl"] = fake_fcntl
 
 from plugin.scripting.sandbox import (
     _PIPE_BUF_TARGET,

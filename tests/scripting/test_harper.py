@@ -8,6 +8,7 @@ from io import BytesIO
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 import json
+import os
 import queue
 import pytest
 
@@ -451,6 +452,10 @@ def _sample_release(version: str = "2.6.0") -> HarperReleaseAsset:
     )
 
 
+def _harper_binary_name() -> str:
+    return "harper-ls.exe" if os.name == "nt" else "harper-ls"
+
+
 @patch("plugin.scripting.venv.harper_binary._download_harper_binary")
 @patch("plugin.scripting.venv.harper_binary._fetch_latest_release_asset")
 def test_get_harper_binary_redownloads_when_latest_changes(
@@ -461,7 +466,7 @@ def test_get_harper_binary_redownloads_when_latest_changes(
     mock_fetch.return_value = _sample_release("2.7.0")
     harper_dir = tmp_path / "harper"
     harper_dir.mkdir()
-    binary_path = harper_dir / "harper-ls"
+    binary_path = harper_dir / _harper_binary_name()
     binary_path.write_bytes(b"old")
     (harper_dir / "harper-ls.version").write_text("2.6.0", encoding="utf-8")
 
@@ -482,7 +487,7 @@ def test_get_harper_binary_skips_download_when_up_to_date(
     mock_fetch.return_value = _sample_release("2.6.0")
     harper_dir = tmp_path / "harper"
     harper_dir.mkdir()
-    binary_path = harper_dir / "harper-ls"
+    binary_path = harper_dir / _harper_binary_name()
     binary_path.write_bytes(b"current")
     (harper_dir / "harper-ls.version").write_text("2.6.0", encoding="utf-8")
 
@@ -503,7 +508,8 @@ def test_migrate_legacy_bin_install_moves_binary(
     mock_fetch.return_value = _sample_release("2.6.0")
     legacy_dir = tmp_path / "bin"
     legacy_dir.mkdir()
-    legacy_binary = legacy_dir / "harper-ls"
+    binary_name = _harper_binary_name()
+    legacy_binary = legacy_dir / binary_name
     legacy_binary.write_bytes(b"legacy-binary")
     (legacy_dir / "harper-ls.version").write_text("2.6.0", encoding="utf-8")
     (legacy_dir / "harper-ls.release.json").write_text("{}", encoding="utf-8")
@@ -512,8 +518,8 @@ def test_migrate_legacy_bin_install_moves_binary(
         path = harper_binary_module._get_harper_binary(str(tmp_path))
 
     harper_dir = tmp_path / "harper"
-    assert path == str(harper_dir / "harper-ls")
-    assert (harper_dir / "harper-ls").read_bytes() == b"legacy-binary"
+    assert path == str(harper_dir / binary_name)
+    assert (harper_dir / binary_name).read_bytes() == b"legacy-binary"
     assert (harper_dir / "harper-ls.version").read_text(encoding="utf-8") == "2.6.0"
     assert (harper_dir / "harper-ls.release.json").is_file()
     assert not legacy_binary.exists()

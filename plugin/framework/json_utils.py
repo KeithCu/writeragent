@@ -228,14 +228,14 @@ def safe_json_loads(text: Any, default: Any = None, strict: bool = False) -> Any
     try:
         parsed = json.loads(stripped)
         return parsed if parsed is not None else default
-    except (json.JSONDecodeError, TypeError, ValueError):
+    except (json.JSONDecodeError, TypeError, ValueError, RecursionError):
         pass
 
     # 2. strict=False attempt (handles bare control characters)
     try:
         parsed = json.loads(stripped, strict=False)
         return parsed if parsed is not None else default
-    except (json.JSONDecodeError, TypeError, ValueError):
+    except (json.JSONDecodeError, TypeError, ValueError, RecursionError):
         pass
 
     # In strict mode, we stop here.
@@ -258,7 +258,7 @@ def safe_json_loads(text: Any, default: Any = None, strict: bool = False) -> Any
         if repaired != stripped:
             parsed = json.loads(repaired, strict=False)
             return parsed if parsed is not None else default
-    except (json.JSONDecodeError, TypeError, ValueError):
+    except (json.JSONDecodeError, TypeError, ValueError, RecursionError):
         pass
 
     return default

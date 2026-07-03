@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import os
+import posixpath
 
 
 def display_name_for_path_or_name(path_or_name: str) -> str:
@@ -14,6 +15,8 @@ def display_name_for_path_or_name(path_or_name: str) -> str:
     raw = (path_or_name or "").strip()
     if not raw:
         return ""
+    if raw.startswith("/"):
+        return posixpath.basename(raw) or raw
     if os.path.isabs(raw):
         return os.path.basename(raw) or raw
     return raw
