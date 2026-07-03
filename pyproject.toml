@@ -152,6 +152,10 @@ skips = ["B310", "B314", "B608"]
 include = ["plugin"]
 exclude = ["plugin/contrib", "plugin/lib", "plugin/tests", "plugin/xdl_strings.py", "tests", "plugin/scripting/text_analytics.py"]
 
+[tool.ty.rules]
+redundant-cast = "ignore"
+
+
 # Pyrefly (CLI: make pyrefly) — experimental; same scope as ty/mypy/pyright; not part of make test
 [tool.pyrefly]
 project-includes = ["plugin"]
