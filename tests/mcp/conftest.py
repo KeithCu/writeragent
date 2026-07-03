@@ -7,6 +7,7 @@
 # (at your option) any later version.
 
 import socket
+import sys
 import time
 from unittest.mock import MagicMock
 
@@ -16,7 +17,20 @@ import urllib.request
 from plugin.mcp import McpModule
 
 
+def _ensure_winsock_started() -> None:
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        data = ctypes.create_string_buffer(512)
+        ctypes.windll.ws2_32.WSAStartup(0x0202, ctypes.byref(data))
+    except Exception:
+        pass
+
+
 def get_free_port():
+    _ensure_winsock_started()
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.bind(("", 0))
     port = s.getsockname()[1]

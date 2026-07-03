@@ -263,6 +263,14 @@ def _serialize_result_impl(obj: Any) -> Any:
         if isinstance(obj, pd_mod.DataFrame):
             df: Any = obj
             columns = [str(c) for c in df.columns]
+            def _dataframe_cell(value: Any) -> Any:
+                try:
+                    if pd_mod.isna(value):
+                        return None
+                except Exception:
+                    pass
+                return value
+
             # Build rectangular data for packing: ndarray fast path for homogeneous numeric;
             # list-of-lists for mixed so strings/None go through the split_grid strings map
             # instead of the old per-row to_dict("records") which defeated binary envelopes.
@@ -274,10 +282,10 @@ def _serialize_result_impl(obj: Any) -> Any:
                     if getattr(arr, "dtype", None) is not None and arr.dtype.kind not in ("O", "U", "S"):
                         data_part = child_pack_result(arr)
                     else:
-                        grid = [list(row) for row in df.itertuples(index=False, name=None)]
+                        grid = [[_dataframe_cell(cell) for cell in row] for row in df.itertuples(index=False, name=None)]
                         data_part = child_pack_result(grid)
                 except Exception:
-                    grid = [list(row) for row in df.itertuples(index=False, name=None)]
+                    grid = [[_dataframe_cell(cell) for cell in row] for row in df.itertuples(index=False, name=None)]
                     data_part = child_pack_result(grid)
             return {
                 "__wa_payload__": PAYLOAD_DATAFRAME,

@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 from unittest.mock import patch
 
+import pytest
+
 from plugin.embeddings.venv.embeddings_ingest_graph import delete_stale, embed_and_upsert_batches
 from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, corpus_chunk_count
 
@@ -50,6 +52,7 @@ def test_delete_stale_skips_vec_schema_until_dim_known(tmp_path):
 
 def test_embed_and_upsert_batches_calls_embed_in_windows(tmp_path, monkeypatch):
     """Large ingest runs embed+upsert in fixed-size windows, not one mega batch."""
+    pytest.importorskip("sqlite_vec")
     monkeypatch.setattr("plugin.embeddings.venv.embeddings_ingest_graph.EMBEDDINGS_INGEST_BATCH_SIZE", 2)
 
     db_path = tmp_path / "corpus.db"
@@ -104,6 +107,7 @@ def test_embed_and_upsert_batches_calls_embed_in_windows(tmp_path, monkeypatch):
 
 def test_relative_age_expiry_cleanup(tmp_path):
     """Test that model-specific virtual tables and metadata are cleaned up after 7 days relative to the active model."""
+    pytest.importorskip("sqlite_vec")
     db_path = tmp_path / "corpus.db"
     meta_path = tmp_path / "corpus_meta.json"
     meta_path.write_text('{"embedding_model": "active-model"}', encoding="utf-8")

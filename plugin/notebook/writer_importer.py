@@ -447,7 +447,13 @@ def _get_para_styles(doc: Any) -> Any | None:
 
 def _no_spellcheck_locale() -> Any:
     """Locale that disables Writer spell/grammar checking (ISO 639-2 ``zxx``)."""
-    import uno
+    try:
+        import uno
+    except ImportError:
+        # External test/development Pythons can see LibreOffice's uno.py but fail to
+        # load pyuno when the bundled Python ABI differs. A namespace with the same
+        # attributes is enough for setPropertyValue mocks and keeps import tests portable.
+        return SimpleNamespace(Language="zxx", Country="")
 
     create = getattr(uno, "createUnoStruct", None)
     if callable(create):

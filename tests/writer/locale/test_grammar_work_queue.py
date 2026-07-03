@@ -793,26 +793,28 @@ def test_grammar_empty_single_response_caches_clean() -> None:
     from plugin.writer.locale.grammar_work_queue import GrammarWorkerContext, _run_grammar_check
 
     item = _make_item("They is here.", seq=1)
+    gq = MagicMock()
     ec = GrammarWorkerContext(
         ctx=MagicMock(),
         client=MagicMock(),
         model="test-model",
         max_tok=512,
-        gq=MagicMock(),
+        gq=gq,
         detect_lang_mode="off",
         grammar_bcp47="en-US",
         original_bcp47="en-US",
     )
     chunk = [(item, item.text)]
-    ec.gq.inflight_superseded.return_value = False
-    with patch("plugin.writer.locale.grammar_work_queue.call_grammar_llm", return_value=([[]], 50)), \
+    gq.inflight_superseded.return_value = False
+    with patch("plugin.framework.config.get_grammar_provider", return_value="ai"), \
+         patch("plugin.writer.locale.grammar_work_queue.call_grammar_llm", return_value=([[]], 50)), \
          patch("plugin.writer.locale.grammar_work_queue.emit_grammar_status") as mock_status, \
          patch("plugin.writer.locale.grammar_work_queue._requeue_individual_item") as mock_requeue, \
          patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_put:
         _run_grammar_check(chunk, "en-US", "en-US", ec)
     mock_put.assert_called_once()
     mock_requeue.assert_not_called()
-    ec.gq.enqueue.assert_not_called()
+    gq.enqueue.assert_not_called()
     for call in mock_status.call_args_list:
         assert call.args[0] != "failed"
 
@@ -822,12 +824,13 @@ def test_grammar_batch_empty_response_emits_failed_no_requeue() -> None:
 
     a = _make_item("First sentence.", seq=1, inflight_key="k1")
     b = _make_item("Second sentence.", seq=2, inflight_key="k2")
+    gq = MagicMock()
     ec = GrammarWorkerContext(
         ctx=MagicMock(),
         client=MagicMock(),
         model="test-model",
         max_tok=512,
-        gq=MagicMock(),
+        gq=gq,
         detect_lang_mode="off",
         grammar_bcp47="en-US",
         original_bcp47="en-US",
@@ -841,7 +844,7 @@ def test_grammar_batch_empty_response_emits_failed_no_requeue() -> None:
     mock_status.assert_called_once_with("failed", "Grammar check", result="Empty LLM response")
     mock_requeue.assert_not_called()
     mock_put.assert_not_called()
-    ec.gq.enqueue.assert_not_called()
+    gq.enqueue.assert_not_called()
 
 
 def test_grammar_mismatch_requeue_skips_cache_placeholder() -> None:

@@ -188,7 +188,7 @@ def test_async_process_drain_stream_errors():
     mock_stream.close.assert_called()
 
 def test_async_process_terminate_not_running():
-    ap = AsyncProcess(["ls"])
+    ap = AsyncProcess([sys.executable, "-c", "pass"])
     # Not started, terminate should return silently
     ap.terminate()
 
