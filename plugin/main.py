@@ -932,23 +932,18 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
         return True
 
     def _handle_writer_actions(self, args, model):
-        if args == "ExtendSelection":
-            from plugin.writer.editselection import do_extend_selection
-            from plugin.chatbot.dialog_views import input_box
-
-            do_extend_selection(self.ctx, model, input_box)
-        elif args == "EditSelection":
-            from plugin.writer.editselection import do_edit_selection
-            from plugin.chatbot.dialog_views import input_box
-
-            do_edit_selection(self.ctx, model, input_box)
+        if args in ("ExtendSelection", "EditSelection"):
+            self._handle_selection_action(args, model)
 
     def _handle_calc_actions(self, args, model):
         if args in ("ExtendSelection", "EditSelection"):
-            from plugin.calc.editselection import do_calc_extend_edit
-            from plugin.chatbot.dialog_views import input_box
+            self._handle_selection_action(args, model)
 
-            do_calc_extend_edit(self.ctx, model, input_box, args == "EditSelection")
+    def _handle_selection_action(self, args, model):
+        from plugin.chatbot.dialog_views import input_box
+        from plugin.chatbot.selection import do_selection_action_for_document
+
+        do_selection_action_for_document(self.ctx, model, input_box, args == "EditSelection")
 
 
 # Starting from Python IDE

@@ -17,12 +17,21 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Operations for Calc (Extend/Edit Selection)."""
 
-from plugin.framework.config import get_config_int, get_config_str, get_api_config, validate_api_config
+from plugin.framework.config import get_config_int, get_config_str
 from plugin.framework.client.errors import format_error_message
-from plugin.framework.client.llm_client import LlmClient
-from plugin.framework.async_stream import run_stream_completion_async
 from plugin.chatbot.dialogs import msgbox
 from plugin.framework.i18n import _
+from plugin.chatbot.selection import StreamCompletionTask, create_validated_client, prompt_for_edit_instructions, stream_completion_tasks
+
+
+def _build_calc_edit_prompt(original: str, instructions: str) -> str:
+    return (
+        "ORIGINAL VERSION:\n"
+        + original
+        + "\n Below is an edited version according to the following instructions. Don't waste time thinking, be as fast as you can. The edited text will be a shorter or longer version of the original text based on the instructions. There are no comments in the edited version. The edited version is followed by the end of the document. The original version will be edited as follows to create the edited version:\n"
+        + instructions
+        + "\nEDITED VERSION:\n"
+    )
 
 
 def do_calc_extend_edit(ctx, model, input_box_fn, is_edit):
@@ -30,10 +39,13 @@ def do_calc_extend_edit(ctx, model, input_box_fn, is_edit):
     selection = model.CurrentController.Selection
 
     user_input = ""
+    extra_instructions = ""
+    title = _("WriterAgent: Edit Selection (Calc)") if is_edit else _("WriterAgent: Extend Selection (Calc)")
     if is_edit:
-        user_input, _extra = input_box_fn(ctx, _("Please enter edit instructions!"), _("Input"), "")
-        if not user_input:
+        edit_request = prompt_for_edit_instructions(ctx, input_box_fn, title)
+        if edit_request is None:
             return
+        user_input, extra_instructions = edit_request
 
     area = selection.getRangeAddress()
     col_range = range(area.StartColumn, area.EndColumn + 1)
@@ -41,10 +53,10 @@ def do_calc_extend_edit(ctx, model, input_box_fn, is_edit):
 
     extend_sys = get_config_str("extend_selection_system_prompt")
     extend_max = get_config_int("extend_selection_max_tokens")
-    edit_sys = get_config_str("edit_selection_system_prompt")
+    edit_sys = extra_instructions or get_config_str("edit_selection_system_prompt")
     edit_max = get_config_int("edit_selection_max_new_tokens")
 
-    tasks = []
+    tasks: list[StreamCompletionTask] = []
     cell_range = sheet.getCellRangeByPosition(area.StartColumn, area.StartRow, area.EndColumn, area.EndRow)
     data_array = cell_range.getDataArray()
 
@@ -57,43 +69,28 @@ def do_calc_extend_edit(ctx, model, input_box_fn, is_edit):
             if not is_edit:
                 if not cell_text:
                     continue
-                tasks.append((col, row, cell_text, extend_sys, extend_max, None))
+                tasks.append(StreamCompletionTask(cell_text, extend_sys, extend_max, (col, row, None)))
             else:
                 cell_original = cell_text
-                prompt = (
-                    "ORIGINAL VERSION:\n"
-                    + cell_original
-                    + "\n Below is an edited version according to the following instructions. Don't waste time thinking, be as fast as you can. The edited text will be a shorter or longer version of the original text based on the instructions. There are no comments in the edited version. The edited version is followed by the end of the document. The original version will be edited as follows to create the edited version:\n"
-                    + user_input
-                    + "\nEDITED VERSION:\n"
-                )
+                prompt = _build_calc_edit_prompt(cell_original, user_input)
                 max_tokens = len(cell_original) + edit_max
-                tasks.append((col, row, prompt, edit_sys, max_tokens, cell_original))
+                tasks.append(StreamCompletionTask(prompt, edit_sys, max_tokens, (col, row, cell_original)))
 
     if not tasks:
         return
 
-    api_config = get_api_config()
-    ok, err_msg = validate_api_config(api_config)
-    if not ok:
-        title = _("WriterAgent: Edit Selection (Calc)") if is_edit else _("WriterAgent: Extend Selection (Calc)")
-        msgbox(ctx, title, _(err_msg))
+    client = create_validated_client(ctx, title)
+    if client is None:
         return
 
-    client = LlmClient(api_config, ctx)
-    task_index = [0]
-
-    def run_next_cell():
-        if task_index[0] >= len(tasks):
-            return
-        col, row, prompt, system_prompt, max_tokens, original = tasks[task_index[0]]
-        task_index[0] += 1
+    def prepare_task(task: StreamCompletionTask):
+        col, row, original = task.payload
         cell = sheet.getCellByPosition(col, row)
 
-        # Use a list for closure-based mutability of the current cell text
+        # Keep Calc writes local to the cell adapter; the shared code only drives the stream.
         accumulated_text = [""]
         if not is_edit:
-            accumulated_text[0] = prompt  # In extend mode, 'prompt' is the initial cell_text
+            accumulated_text[0] = task.prompt
         elif original is not None:
             cell.setString("")
 
@@ -102,15 +99,11 @@ def do_calc_extend_edit(ctx, model, input_box_fn, is_edit):
                 accumulated_text[0] += chunk_text
                 cell.setString(accumulated_text[0])
 
-        def on_done():
-            run_next_cell()
-
         def on_error(e):
             if original is not None:
                 cell.setString(original)
-            title = _("WriterAgent: Edit Selection (Calc)") if is_edit else _("WriterAgent: Extend Selection (Calc)")
             msgbox(ctx, title, format_error_message(e))
 
-        run_stream_completion_async(ctx, client, prompt, system_prompt, max_tokens, apply_chunk, on_done, on_error)
+        return apply_chunk, on_error
 
-    run_next_cell()
+    stream_completion_tasks(ctx, client, tasks, prepare_task)

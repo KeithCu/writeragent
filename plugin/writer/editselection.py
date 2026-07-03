@@ -16,15 +16,13 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Operations for Writer (Extend/Edit Selection)."""
 
-from plugin.framework.config import get_config_int, get_config_str, get_api_config, validate_api_config, get_current_endpoint
+from plugin.framework.config import get_config_int, get_config_str, get_current_endpoint
 from plugin.framework.client.model_fetcher import get_text_model
 from plugin.chatbot.config_ui_helpers import update_lru_history
 from plugin.framework.client.errors import format_error_message
-from plugin.framework.async_stream import run_stream_completion_async
 from plugin.chatbot.dialogs import msgbox
 from plugin.framework.i18n import _
-from plugin.framework.config import set_config
-from plugin.framework.client.llm_client import LlmClient
+from plugin.chatbot.selection import create_validated_client, prompt_for_edit_instructions, stream_completion
 from plugin.doc.document_helpers import WriterStreamedAppendSession, WriterStreamedRewriteSession, build_writer_rewrite_prompt, get_string_without_tracked_deletions
 from plugin.writer.edit_review import review_recording_enabled
 
@@ -45,13 +43,10 @@ def do_extend_selection(ctx, model, input_box_fn):
     model_val = get_text_model()
     update_lru_history(model_val, "model_lru", current_endpoint)
 
-    api_config = get_api_config()
-    ok, err_msg = validate_api_config(api_config)
-    if not ok:
-        msgbox(ctx, _("WriterAgent: Extend Selection"), _(err_msg))
+    title = _("WriterAgent: Extend Selection")
+    client = create_validated_client(ctx, title)
+    if client is None:
         return
-
-    client = LlmClient(api_config, ctx)
 
     session = WriterStreamedAppendSession(
         model, text_range, original_text,
@@ -65,16 +60,13 @@ def do_extend_selection(ctx, model, input_box_fn):
     def on_done():
         warning = session.finish()
         if warning:
-            msgbox(ctx, _("WriterAgent: Extend Selection"), warning)
+            msgbox(ctx, title, warning)
 
     def on_error(e):
         session.abort_and_restore()
-        msgbox(ctx, _("WriterAgent: Extend Selection"), _(format_error_message(e)))
+        msgbox(ctx, title, _(format_error_message(e)))
 
-    try:
-        run_stream_completion_async(ctx, client, prompt, system_prompt, max_tokens, apply_chunk, on_done, on_error)
-    except Exception as e:
-        on_error(e)
+    stream_completion(ctx, client, prompt, system_prompt, max_tokens, apply_chunk, on_done, on_error)
 
 
 def do_edit_selection(ctx, model, input_box_fn):
@@ -82,28 +74,20 @@ def do_edit_selection(ctx, model, input_box_fn):
     text_range = selection.getByIndex(0)
     original_text = get_string_without_tracked_deletions(text_range)
 
-    try:
-        user_input, extra_instructions = input_box_fn(ctx, _("Please enter edit instructions!"), _("Input"), "")
-        if not user_input:
-            return
-        if extra_instructions:
-            set_config("additional_instructions", extra_instructions)
-            update_lru_history(extra_instructions, "prompt_lru", "")
-    except Exception as e:
-        msgbox(ctx, _("WriterAgent: Edit Selection"), _(format_error_message(e)))
+    title = _("WriterAgent: Edit Selection")
+    edit_request = prompt_for_edit_instructions(ctx, input_box_fn, title)
+    if edit_request is None:
         return
+    user_input, extra_instructions = edit_request
 
     prompt = build_writer_rewrite_prompt(original_text, user_input)
     system_prompt = extra_instructions or ""
     max_tokens = len(original_text) + get_config_int("edit_selection_max_new_tokens")
 
-    api_config = get_api_config()
-    ok, err_msg = validate_api_config(api_config)
-    if not ok:
-        msgbox(ctx, _("WriterAgent: Edit Selection"), _(err_msg))
+    client = create_validated_client(ctx, title)
+    if client is None:
         return
 
-    client = LlmClient(api_config, ctx)
     session = WriterStreamedRewriteSession(
         model, text_range, original_text,
         track_reviewable=review_recording_enabled(ctx),
@@ -116,13 +100,10 @@ def do_edit_selection(ctx, model, input_box_fn):
     def on_done():
         warning = session.finish()
         if warning:
-            msgbox(ctx, _("WriterAgent: Edit Selection"), warning)
+            msgbox(ctx, title, warning)
 
     def on_error(e):
         session.abort_and_restore()
-        msgbox(ctx, _("WriterAgent: Edit Selection"), _(format_error_message(e)))
+        msgbox(ctx, title, _(format_error_message(e)))
 
-    try:
-        run_stream_completion_async(ctx, client, prompt, system_prompt, max_tokens, apply_chunk, on_done, on_error)
-    except Exception as e:
-        on_error(e)
+    stream_completion(ctx, client, prompt, system_prompt, max_tokens, apply_chunk, on_done, on_error)

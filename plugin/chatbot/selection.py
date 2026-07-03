@@ -1,375 +1,141 @@
-import logging
-from typing import Any, cast
+# WriterAgent - AI Writing Assistant for LibreOffice
+# Copyright (c) 2026 KeithCu (modifications and relicensing)
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+"""Active-document dispatch for Extend/Edit Selection actions."""
 
-try:
-    from com.sun.star.lang import DisposedException
-    from com.sun.star.uno import RuntimeException, Exception as UnoException
-    UNO_DISPOSED_EXCEPTIONS = (DisposedException, RuntimeException, UnoException)
-except ImportError:
-    UNO_DISPOSED_EXCEPTIONS = cast("Any", (Exception,))
+from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Any, Callable
+
+from plugin.chatbot.config_ui_helpers import update_lru_history
+from plugin.doc.document_helpers import DocumentType, get_document_type
+from plugin.framework.async_stream import run_stream_completion_async
+from plugin.framework.client.errors import format_error_message
+from plugin.framework.client.llm_client import LlmClient
+from plugin.framework.config import get_api_config, set_config, validate_api_config
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_ctx
-from plugin.framework.async_stream import run_stream_async
-from plugin.framework.config import get_api_config, set_config
-from plugin.framework.client.llm_client import LlmClient
-from plugin.writer.edit_review import review_recording_enabled
-from plugin.doc.document_helpers import (
-    WriterStreamedAppendSession,
-    get_string_without_tracked_deletions,
-    build_writer_rewrite_prompt,
-    WriterStreamedRewriteSession,
-)
-from plugin.chatbot.config_ui_helpers import update_lru_history
 from .dialogs import msgbox
 from .dialog_views import input_box
 
-log = logging.getLogger("writeragent.chatbot.selection")
 
-# ── Extend Selection ─────────────────────────────────────────────
+@dataclass
+class StreamCompletionTask:
+    prompt: str
+    system_prompt: str
+    max_tokens: int
+    payload: Any = None
+
+
+ApplyChunkFn = Callable[[str, bool], None]
+ErrorFn = Callable[[Exception], None]
+PrepareTaskFn = Callable[[StreamCompletionTask], tuple[ApplyChunkFn, ErrorFn]]
+
+
+def create_validated_client(ctx, title: str):
+    """Return an LLM client for selection actions, or show the config error."""
+    api_config = get_api_config()
+    ok, err_msg = validate_api_config(api_config)
+    if not ok:
+        msgbox(ctx, title, _(err_msg))
+        return None
+    return LlmClient(api_config, ctx)
+
+
+def prompt_for_edit_instructions(ctx, input_box_fn, title: str):
+    """Show the edit dialog and persist shared prompt history when supplied."""
+    try:
+        user_input, extra_instructions = input_box_fn(ctx, _("Please enter edit instructions!"), _("Input"), "")
+    except Exception as e:
+        msgbox(ctx, title, _(format_error_message(e)))
+        return None
+
+    if not user_input:
+        return None
+    if extra_instructions:
+        set_config("additional_instructions", extra_instructions)
+        update_lru_history(extra_instructions, "prompt_lru", "")
+    return user_input, extra_instructions
+
+
+def stream_completion(ctx, client, prompt: str, system_prompt: str, max_tokens: int, apply_chunk_fn: ApplyChunkFn, on_done_fn: Callable[[], None], on_error_fn: ErrorFn) -> None:
+    """Start a simple completion stream and route startup failures like stream errors."""
+    try:
+        run_stream_completion_async(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn)
+    except Exception as e:
+        on_error_fn(e)
+
+
+def stream_completion_tasks(ctx, client, tasks: list[StreamCompletionTask], prepare_task_fn: PrepareTaskFn) -> None:
+    """Run simple completion streams sequentially, advancing from each done callback."""
+    task_index = [0]
+
+    def run_next_task() -> None:
+        if task_index[0] >= len(tasks):
+            return
+        task = tasks[task_index[0]]
+        task_index[0] += 1
+        apply_chunk_fn, on_error_fn = prepare_task_fn(task)
+        stream_completion(ctx, client, task.prompt, task.system_prompt, task.max_tokens, apply_chunk_fn, run_next_task, on_error_fn)
+
+    run_next_task()
+
+
+def do_selection_action_for_document(ctx, model, input_box_fn, is_edit: bool) -> None:
+    """Dispatch Extend/Edit Selection to the document-specific implementation."""
+    doc_type = get_document_type(model)
+    if doc_type == DocumentType.WRITER:
+        if is_edit:
+            from plugin.writer.editselection import do_edit_selection
+
+            do_edit_selection(ctx, model, input_box_fn)
+        else:
+            from plugin.writer.editselection import do_extend_selection
+
+            do_extend_selection(ctx, model, input_box_fn)
+        return
+
+    if doc_type == DocumentType.CALC:
+        from plugin.calc.editselection import do_calc_extend_edit
+
+        do_calc_extend_edit(ctx, model, input_box_fn, is_edit)
+        return
+
+    action = "Edit" if is_edit else "Extend"
+    msgbox(ctx, "WriterAgent", f"{action} selection not supported for this document type")
+
+
+def _action_selection(services, is_edit: bool) -> None:
+    """Resolve the active document, then use the canonical selection action."""
+
+    ctx = get_ctx()
+    doc_svc = services.document
+    doc = doc_svc.get_active_document()
+    if not doc:
+        msgbox(ctx, "WriterAgent", "No document open")
+        return
+
+    do_selection_action_for_document(ctx, doc, input_box, is_edit)
 
 
 def action_extend_selection(services):
     """Get document selection -> stream AI completion -> append to text."""
-
-
-    ctx = get_ctx()
-    doc_svc = services.document
-    doc = doc_svc.get_active_document()
-    if not doc:
-        msgbox(ctx, "WriterAgent", "No document open")
-        return
-
-    doc_type = doc_svc.detect_doc_type(doc)
-    if doc_type == "writer":
-        _extend_writer(services, ctx, doc)
-    elif doc_type == "calc":
-        _extend_calc(services, ctx, doc)
-    else:
-        msgbox(ctx, "WriterAgent", "Extend selection not supported for this document type")
-
-
-def _extend_writer(services, ctx, doc):
-    """Extend selection in a Writer document."""
-
-
-    try:
-        selection = doc.CurrentController.getSelection()
-        text_range = selection.getByIndex(0)
-        selected_text = get_string_without_tracked_deletions(text_range)
-    except Exception as e:
-        if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
-            log.debug("Failed to get Writer selection (likely disposed): %s", e)
-        else:
-            log.debug("No valid Writer selection found: %s", e)
-        msgbox(ctx, "WriterAgent", "No text selected")
-        return
-
-    if not selected_text:
-        msgbox(ctx, "WriterAgent", "No text selected")
-        return
-
-    config = services.config.proxy_for("chatbot")
-    system_prompt = config.get("system_prompt") or ""
-    _mt = config.get("extend_selection_max_tokens") or 70
-    max_tokens = int(float(_mt))
-
-    messages = []
-    if system_prompt:
-        messages.append({"role": "system", "content": system_prompt})
-    messages.append({"role": "user", "content": selected_text})
-
-    session = WriterStreamedAppendSession(
-        doc, text_range, selected_text,
-        track_reviewable=review_recording_enabled(ctx),
-    )
-
-    def apply_chunk(text, is_thinking=False):
-        if not is_thinking:
-            session.append_chunk(text)
-
-    def on_done():
-        warning = session.finish()
-        if warning:
-            msgbox(ctx, _("WriterAgent: Extend Selection"), warning)
-
-    def on_error(e):
-        session.abort_and_restore()
-        log.exception("Extend selection failed")
-        msgbox(ctx, _("WriterAgent: Extend Selection"), str(e))
-
-    api_config = get_api_config()
-    client = LlmClient(api_config, ctx)
-    run_stream_async(ctx, client, messages, tools=None, apply_chunk_fn=apply_chunk, on_done_fn=on_done, on_error_fn=on_error, max_tokens=max_tokens)
-
-
-def _extend_calc(services, ctx, doc):
-    """Extend selection in a Calc document."""
-    try:
-        sheet = doc.CurrentController.ActiveSheet
-        selection = doc.CurrentController.Selection
-        area = selection.getRangeAddress()
-    except Exception as e:
-        if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
-            log.debug("Failed to get Calc selection (likely disposed): %s", e)
-        else:
-            log.debug("No valid Calc selection found: %s", e)
-        msgbox(ctx, "WriterAgent", "No cells selected")
-        return
-
-    config = services.config.proxy_for("chatbot")
-    system_prompt = config.get("system_prompt") or ""
-    _mt = config.get("extend_selection_max_tokens") or 70
-    max_tokens = int(float(_mt))
-
-    # Build task list
-    tasks = []
-    cell_range = sheet.getCellRangeByPosition(area.StartColumn, area.StartRow, area.EndColumn, area.EndRow)
-    data_array = cell_range.getDataArray()
-
-    for row_idx, row in enumerate(range(area.StartRow, area.EndRow + 1)):
-        for col_idx, col in enumerate(range(area.StartColumn, area.EndColumn + 1)):
-            raw_val = data_array[row_idx][col_idx]
-            cell_text = str(raw_val) if raw_val != "" and raw_val is not None else ""
-
-            if cell_text:
-                cell = sheet.getCellByPosition(col, row)
-                tasks.append((cell, cell_text))
-
-    if not tasks:
-        msgbox(ctx, "WriterAgent", "No cells with content selected")
-        return
-
-    api_config = get_api_config()
-    client = LlmClient(api_config, ctx)
-
-    # Process cells sequentially via callback chain
-    task_index = [0]
-
-    def run_next_cell():
-        if task_index[0] >= len(tasks):
-            return
-        cell, cell_text = tasks[task_index[0]]
-        task_index[0] += 1
-
-        msgs = []
-        if system_prompt:
-            msgs.append({"role": "system", "content": system_prompt})
-        msgs.append({"role": "user", "content": cell_text})
-
-        def apply_chunk(text, is_thinking=False):
-            if not is_thinking:
-                try:
-                    cell.setString(cell.getString() + text)
-                except Exception as e:
-                    if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
-                        log.debug("Failed to append text to Calc cell (likely disposed): %s", e)
-
-        def on_error(e):
-            log.exception("Extend selection (calc) failed")
-            msgbox(ctx, _("WriterAgent: Extend Selection"), str(e))
-
-        run_stream_async(ctx, client, msgs, tools=None, apply_chunk_fn=apply_chunk, on_done_fn=run_next_cell, on_error_fn=on_error, max_tokens=max_tokens)
-
-    run_next_cell()
-
-
-# ── Edit Selection ───────────────────────────────────────────────
+    _action_selection(services, is_edit=False)
 
 
 def action_edit_selection(services):
     """Get selection -> input instructions -> stream AI -> replace text."""
-
-
-    ctx = get_ctx()
-    doc_svc = services.document
-    doc = doc_svc.get_active_document()
-    if not doc:
-        msgbox(ctx, "WriterAgent", "No document open")
-        return
-
-    doc_type = doc_svc.detect_doc_type(doc)
-    if doc_type == "writer":
-        _edit_writer(services, ctx, doc)
-    elif doc_type == "calc":
-        _edit_calc(services, ctx, doc)
-    else:
-        msgbox(ctx, "WriterAgent", "Edit selection not supported for this document type")
-
-
-def _show_edit_input():
-    """Show the edit instructions dialog. Returns (user_input, extra_instructions); empty strings if cancelled.
-    Uses the shared EditInputDialog.xdl (legacy_ui.input_box) so menu and shortcut share the same UI.
-    """
-
-
-    ctx = get_ctx()
-    user_input, extra_instructions = input_box(ctx, "Please enter edit instructions!", "Input", "")
-    return user_input, extra_instructions
-
-
-def _edit_writer(services, ctx, doc):
-    """Edit selection in a Writer document."""
-
-
-    try:
-        selection = doc.CurrentController.getSelection()
-        text_range = selection.getByIndex(0)
-        original_text = get_string_without_tracked_deletions(text_range)
-    except Exception as e:
-        if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
-            log.debug("Failed to get Writer selection for edit (likely disposed): %s", e)
-        else:
-            log.debug("No valid Writer selection found for edit: %s", e)
-        msgbox(ctx, "WriterAgent", "No text selected")
-        return
-
-    if not original_text:
-        msgbox(ctx, "WriterAgent", "No text selected")
-        return
-
-    user_input, extra_instructions = _show_edit_input()
-    if not user_input:
-        return
-    if extra_instructions:
-        set_config("additional_instructions", extra_instructions)
-        update_lru_history(extra_instructions, "prompt_lru", "")
-
-    config = services.config.proxy_for("chatbot")
-    system_prompt = extra_instructions or config.get("system_prompt") or ""
-    _mnt = config.get("edit_selection_max_new_tokens") or 0
-    max_new_tokens = int(float(_mnt))
-
-    prompt = build_writer_rewrite_prompt(original_text, user_input)
-
-    messages = []
-    if system_prompt:
-        messages.append({"role": "system", "content": system_prompt})
-    messages.append({"role": "user", "content": prompt})
-
-    max_tokens = len(original_text) + max_new_tokens
-
-    session = WriterStreamedRewriteSession(
-        doc, text_range, original_text,
-        track_reviewable=review_recording_enabled(ctx),
-    )
-
-    def apply_chunk(text, is_thinking=False):
-        if not is_thinking:
-            session.append_chunk(text)
-
-    def on_done():
-        warning = session.finish()
-        if warning:
-            log.warning("Writer streamed rewrite fallback: %s", warning)
-            msgbox(ctx, _("WriterAgent: Edit Selection"), warning)
-
-    def on_error(e):
-        try:
-            session.abort_and_restore()
-        except Exception as recovery_err:
-            if isinstance(recovery_err, UNO_DISPOSED_EXCEPTIONS):
-                log.debug("Failed to restore original text (likely disposed): %s", recovery_err)
-        log.exception("Edit selection failed")
-        msgbox(ctx, _("WriterAgent: Edit Selection"), str(e))
-
-    api_config = get_api_config()
-    client = LlmClient(api_config, ctx)
-    run_stream_async(ctx, client, messages, tools=None, apply_chunk_fn=apply_chunk, on_done_fn=on_done, on_error_fn=on_error, max_tokens=max_tokens)
-
-
-def _edit_calc(services, ctx, doc):
-    """Edit selection in a Calc document."""
-
-
-    try:
-        sheet = doc.CurrentController.ActiveSheet
-        selection = doc.CurrentController.Selection
-        area = selection.getRangeAddress()
-    except Exception as e:
-        if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
-            log.debug("Failed to get Calc selection for edit (likely disposed): %s", e)
-        else:
-            log.debug("No valid Calc selection found for edit: %s", e)
-        msgbox(ctx, "WriterAgent", "No cells selected")
-        return
-
-    user_input, extra_instructions = _show_edit_input()
-    if not user_input:
-        return
-    if extra_instructions:
-        set_config("additional_instructions", extra_instructions)
-        update_lru_history(extra_instructions, "prompt_lru", "")
-
-    config = services.config.proxy_for("chatbot")
-    system_prompt = extra_instructions or config.get("system_prompt") or ""
-    _mnt = config.get("edit_selection_max_new_tokens") or 0
-    max_new_tokens = int(float(_mnt))
-
-    # Build task list
-    tasks = []
-    cell_range = sheet.getCellRangeByPosition(area.StartColumn, area.StartRow, area.EndColumn, area.EndRow)
-    data_array = cell_range.getDataArray()
-
-    for row_idx, row in enumerate(range(area.StartRow, area.EndRow + 1)):
-        for col_idx, col in enumerate(range(area.StartColumn, area.EndColumn + 1)):
-            raw_val = data_array[row_idx][col_idx]
-            original = str(raw_val) if raw_val != "" and raw_val is not None else ""
-
-            prompt = (
-                "ORIGINAL VERSION:\n" + original + "\n Below is an edited version according to the following "
-                "instructions. Don't waste time thinking, be as fast as "
-                "you can. The edited text will be a shorter or longer "
-                "version of the original text based on the instructions. "
-                "There are no comments in the edited version. The edited "
-                "version is followed by the end of the document. The "
-                "original version will be edited as follows to create "
-                "the edited version:\n" + user_input + "\nEDITED VERSION:\n"
-            )
-            max_tokens = len(original) + max_new_tokens
-
-            cell = sheet.getCellByPosition(col, row)
-            tasks.append((cell, prompt, max_tokens, original))
-
-    if not tasks:
-        return
-
-    api_config = get_api_config()
-    client = LlmClient(api_config, ctx)
-
-    # Process cells sequentially
-    task_index = [0]
-
-    def run_next_cell():
-        if task_index[0] >= len(tasks):
-            return
-        cell, prompt, max_tok, original = tasks[task_index[0]]
-        task_index[0] += 1
-
-        cell.setString("")
-
-        msgs = []
-        if system_prompt:
-            msgs.append({"role": "system", "content": system_prompt})
-        msgs.append({"role": "user", "content": prompt})
-
-        def apply_chunk(text, is_thinking=False):
-            if not is_thinking:
-                try:
-                    cell.setString(cell.getString() + text)
-                except Exception as e:
-                    if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
-                        log.debug("Failed to write text to Calc cell (likely disposed): %s", e)
-
-        def on_error(e):
-            try:
-                cell.setString(original)
-            except Exception as recovery_err:
-                if isinstance(recovery_err, UNO_DISPOSED_EXCEPTIONS):
-                    log.debug("Failed to restore original cell text (likely disposed): %s", recovery_err)
-            log.exception("Edit selection (calc) failed")
-            msgbox(ctx, _("WriterAgent: Edit Selection"), str(e))
-
-        run_stream_async(ctx, client, msgs, tools=None, apply_chunk_fn=apply_chunk, on_done_fn=run_next_cell, on_error_fn=on_error, max_tokens=max_tok)
-
-    run_next_cell()
+    _action_selection(services, is_edit=True)
