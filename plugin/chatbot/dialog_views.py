@@ -22,7 +22,7 @@ from com.sun.star.awt import XItemListener, XTextListener
 from plugin.framework.errors import format_error_payload, UnoObjectError, ConfigValidationError
 from plugin.framework.uno_context import get_active_document, get_desktop, get_extension_url, get_toolkit
 from plugin.framework.i18n import _
-from plugin.framework.config import get_config, get_current_endpoint, set_config, get_config_str, get_config_int, as_bool, parse_int_robust, parse_float_robust
+from plugin.framework.config import get_config, get_current_endpoint, set_config, get_config_str, get_config_int, as_bool
 from plugin.framework.client.model_fetcher import get_text_model, get_stt_model, set_text_model
 from plugin.framework.logging import init_logging
 from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru
@@ -37,11 +37,6 @@ from .dialogs import (
 
 log = logging.getLogger(__name__)
 
-_EXTEND_MAX_TOKENS_MIN = 10
-_EXTEND_MAX_TOKENS_MAX = 4096
-_EDIT_EXTRA_TOKENS_MIN = 0
-_EDIT_EXTRA_TOKENS_MAX = 4096
-
 
 def _load_selection_token_controls(extend_ctrl, edit_extra_ctrl) -> None:
     if extend_ctrl:
@@ -52,19 +47,9 @@ def _load_selection_token_controls(extend_ctrl, edit_extra_ctrl) -> None:
 
 def _save_selection_token_controls(extend_ctrl, edit_extra_ctrl) -> None:
     if extend_ctrl:
-        try:
-            extend_val = parse_int_robust(get_control_text(extend_ctrl))
-        except ValueError:
-            extend_val = get_config_int("extend_selection_max_tokens")
-        extend_val = max(_EXTEND_MAX_TOKENS_MIN, min(_EXTEND_MAX_TOKENS_MAX, extend_val))
-        set_config("extend_selection_max_tokens", extend_val)
+        set_config("extend_selection_max_tokens", get_control_text(extend_ctrl))
     if edit_extra_ctrl:
-        try:
-            edit_val = parse_int_robust(get_control_text(edit_extra_ctrl))
-        except ValueError:
-            edit_val = get_config_int("edit_selection_max_new_tokens")
-        edit_val = max(_EDIT_EXTRA_TOKENS_MIN, min(_EDIT_EXTRA_TOKENS_MAX, edit_val))
-        set_config("edit_selection_max_new_tokens", edit_val)
+        set_config("edit_selection_max_new_tokens", get_control_text(edit_extra_ctrl))
 
 
 # ── Generic Helpers ──────────────────────────────────────────────────

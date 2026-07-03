@@ -11,6 +11,7 @@ from unittest.mock import patch
 from plugin.chatbot.module_config_dialog import (
     _option_labels,
     _set_field_options,
+    apply_module_config_result,
     get_module_config_dialog_id,
     get_module_config_field_specs,
 )
@@ -87,3 +88,26 @@ def test_set_field_options_uses_string_item_list():
     }
     _set_field_options(ctrl, field)
     assert model.StringItemList == ("Standard HTML",)
+
+
+def test_apply_module_config_result_delegates_raw_values_to_config():
+    ctx = object()
+    manifest = {
+        "name": "demo",
+        "config": {
+            "count": {"type": "int", "default": 1, "widget": "number"},
+            "mode": {
+                "type": "string",
+                "default": "fast",
+                "widget": "select",
+                "options": [{"value": "fast", "label": "Fast Mode"}],
+            },
+        },
+    }
+    with patch("plugin.chatbot.module_config_dialog._find_module_manifest", return_value=manifest), \
+         patch("plugin.chatbot.module_config_dialog.get_config", side_effect=lambda key: {"demo.count": 1, "demo.mode": "fast"}[key]), \
+         patch("plugin.chatbot.module_config_dialog.set_config") as mock_set_config:
+        apply_module_config_result(ctx, "demo", {"count": "42", "mode": "Fast Mode"})
+
+    mock_set_config.assert_any_call("demo.count", "42")
+    mock_set_config.assert_any_call("demo.mode", "Fast Mode")

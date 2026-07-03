@@ -22,7 +22,7 @@ from plugin.chatbot.dialogs import (
     set_control_text,
     translate_dialog,
 )
-from plugin.framework.config import as_bool, get_config, parse_float_robust, parse_int_robust, set_config
+from plugin.framework.config import as_bool, get_config, set_config
 from plugin.framework.event_bus import global_event_bus
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_extension_url
@@ -119,34 +119,12 @@ def apply_module_config_result(ctx: Any, module_name: str, result: dict[str, Any
     """Persist standalone module dialog values to writeragent.json."""
     field_specs = get_module_config_field_specs(ctx, module_name)
     by_name = {f["name"]: f for f in field_specs}
-    int_names = {f["name"] for f in field_specs if f.get("type") == "int"}
-    float_names = {f["name"] for f in field_specs if f.get("type") == "float"}
 
     for key, val in result.items():
         if key not in by_name:
             continue
         spec = by_name[key]
         save_key = str(spec.get("config_key") or f"{module_name}.{key}")
-
-        if key in int_names:
-            try:
-                val = parse_int_robust(val)
-            except ValueError:
-                pass
-        elif key in float_names:
-            try:
-                val = parse_float_robust(val)
-            except ValueError:
-                pass
-
-        if "options" in spec and val:
-            for opt in spec["options"]:
-                if isinstance(opt, dict):
-                    lbl = str(opt.get("label") or opt.get("value") or "")
-                    if _(lbl) == str(val):
-                        val = opt.get("value", lbl)
-                        break
-
         set_config(save_key, val)
 
     global_event_bus.emit("config:changed", ctx=ctx)

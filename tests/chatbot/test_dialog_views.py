@@ -97,14 +97,14 @@ class TestInputBoxExtraTokens(unittest.TestCase):
             text, prompt = input_box(ctx, "msg", "title", "")
 
         self.assertEqual(text, "rewrite this")
-        mock_set_config.assert_any_call("extend_selection_max_tokens", 1500)
-        mock_set_config.assert_any_call("edit_selection_max_new_tokens", 250)
+        mock_set_config.assert_any_call("extend_selection_max_tokens", "1500")
+        mock_set_config.assert_any_call("edit_selection_max_new_tokens", "250")
 
     @patch("plugin.chatbot.dialog_views.translate_dialog")
     @patch("plugin.chatbot.dialog_views.populate_combobox_with_lru")
     @patch("plugin.chatbot.dialog_views.get_extension_url", return_value="vnd.sun.star.expand:/WriterAgent")
     @patch("plugin.chatbot.dialog_views.init_logging")
-    def test_input_box_clamps_selection_token_fields(
+    def test_input_box_delegates_selection_token_bounds_to_config(
         self, _init_log, _ext_url, _populate, _translate,
     ):
         from plugin.chatbot.dialog_views import input_box
@@ -131,8 +131,8 @@ class TestInputBoxExtraTokens(unittest.TestCase):
              patch("plugin.chatbot.dialog_views.get_optional", side_effect=optional_side_effect):
             input_box(ctx, "msg", "title", "")
 
-        mock_set_config.assert_any_call("extend_selection_max_tokens", 10)
-        mock_set_config.assert_any_call("edit_selection_max_new_tokens", 4096)
+        mock_set_config.assert_any_call("extend_selection_max_tokens", "1")
+        mock_set_config.assert_any_call("edit_selection_max_new_tokens", "99999")
 
 
 class TestSettingsInitialModelsFetch(unittest.TestCase):

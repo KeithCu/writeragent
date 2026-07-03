@@ -59,13 +59,16 @@ class TestI18n(unittest.TestCase):
 
     def test_config_validate_maps_translated_label_to_canonical_in_extra_config(self):
         """Saved UI label (wrong) in dotted key is normalized to schema value via _()."""
-        def fake_specs():
-            return [
-                {
-                    "name": "agent_backend__backend_id",
+        mock_modules = [{
+            "name": "agent_backend",
+            "config": {
+                "backend_id": {
+                    "type": "string",
+                    "default": "builtin",
                     "options": [{"value": "hermes", "label": "Hermes"}],
-                }
-            ]
+                },
+            },
+        }]
 
         cfg = WriterAgentConfig.from_dict({"endpoint": "http://127.0.0.1:11434"})
         cfg._extra_config["agent_backend.backend_id"] = "GERMAN_HERMES"
@@ -75,51 +78,57 @@ class TestI18n(unittest.TestCase):
                 return "GERMAN_HERMES"
             return msg
 
-        with patch("plugin.chatbot.settings_dialog.get_settings_option_specs", fake_specs):
+        with patch("plugin.framework.config.MODULES", mock_modules):
             with patch("plugin.framework.config._", side_effect=_fake):
                 cfg.validate()
         self.assertEqual(cfg._extra_config["agent_backend.backend_id"], "hermes")
 
-    def test_config_validate_maps_translated_label_top_level_field(self):
-        """Combo field stored on dataclass (no dots) still normalizes via options."""
-        def fake_specs():
-            return [
-                {
-                    "name": "image_default_aspect",
-                    "options": [{"value": "Square", "label": "Square"}],
-                }
-            ]
+    def test_config_validate_maps_translated_label_flat_module_field(self):
+        """Flat module-backed keys normalize via the same manifest schema options."""
+        mock_modules = [{
+            "name": "agent_backend",
+            "config": {
+                "backend_id": {
+                    "type": "string",
+                    "default": "builtin",
+                    "options": [{"value": "hermes", "label": "Hermes"}],
+                },
+            },
+        }]
 
         cfg = WriterAgentConfig.from_dict(
-            {"endpoint": "http://127.0.0.1:11434", "image_default_aspect": "SQ_LABEL"}
+            {"endpoint": "http://127.0.0.1:11434", "backend_id": "GERMAN_HERMES"}
         )
 
         def _fake(msg):
-            if msg == "Square":
-                return "SQ_LABEL"
+            if msg == "Hermes":
+                return "GERMAN_HERMES"
             return msg
 
-        with patch("plugin.chatbot.settings_dialog.get_settings_option_specs", fake_specs):
+        with patch("plugin.framework.config.MODULES", mock_modules):
             with patch("plugin.framework.config._", side_effect=_fake):
                 cfg.validate()
-        self.assertEqual(cfg.image_default_aspect, "Square")
+        self.assertEqual(cfg._extra_config["backend_id"], "hermes")
 
     def test_config_validate_normalization_noop_when_already_canonical(self):
         """When stored value already matches canonical option value, leave unchanged."""
-        def fake_specs():
-            return [
-                {
-                    "name": "image_default_aspect",
-                    "options": [{"value": "Square", "label": "Square"}],
-                }
-            ]
+        mock_modules = [{
+            "name": "agent_backend",
+            "config": {
+                "backend_id": {
+                    "type": "string",
+                    "default": "builtin",
+                    "options": [{"value": "hermes", "label": "Hermes"}],
+                },
+            },
+        }]
 
         cfg = WriterAgentConfig.from_dict(
-            {"endpoint": "http://127.0.0.1:11434", "image_default_aspect": "Square"}
+            {"endpoint": "http://127.0.0.1:11434", "agent_backend.backend_id": "hermes"}
         )
-        with patch("plugin.chatbot.settings_dialog.get_settings_option_specs", fake_specs):
+        with patch("plugin.framework.config.MODULES", mock_modules):
             cfg.validate()
-        self.assertEqual(cfg.image_default_aspect, "Square")
+        self.assertEqual(cfg._extra_config["agent_backend.backend_id"], "hermes")
 
     def test_po_strip_extra_config_on_validate(self):
         data = {

@@ -26,6 +26,10 @@ UNO operations.
 ``~/.config/libreoffice/{4,24}/user/``; macOS: ``~/Library/Application Support/LibreOffice/4/user/``;
 Windows: ``%APPDATA%\\LibreOffice\\4\\user\\``). Broken JSON is copied to
 ``.bak`` when possible; ``json_repair`` fixes small typos on read.
+
+Schema-backed coercion, option canonicalization, and min/max bounds live here
+so UI controllers can pass raw dialog values to ``set_config`` without copying
+validation rules from ``module.yaml``.
 """
 import dataclasses
 import json
@@ -177,27 +181,10 @@ def parse_float_robust(val) -> float:
 
 def _get_schema_type(key: str) -> str | None:
     """Return type ('int', 'float', 'boolean', 'string') for key from MODULES."""
-    if not MODULES:
-        return None
-    if "." in key:
-        mod_name, field_name = key.split(".", 1)
-        for m in MODULES:
-            if isinstance(m, dict) and m.get("name") == mod_name:
-                config = m.get("config", {})
-                if isinstance(config, dict):
-                    for fname, schema in config.items():
-                        if fname == field_name and isinstance(schema, dict):
-                            t = schema.get("type")
-                            return str(t) if t is not None else None
-        return None
-    for m in MODULES:
-        if isinstance(m, dict):
-            config = m.get("config", {})
-            if isinstance(config, dict):
-                for fname, schema in config.items():
-                    if fname == key and isinstance(schema, dict):
-                        t = schema.get("type")
-                        return str(t) if t is not None else None
+    schema = get_config_schema(key)
+    if schema:
+        t = schema.get("type")
+        return _normalize_schema_type(t) if t is not None else None
     return None
 
 
@@ -563,54 +550,21 @@ class WriterAgentConfig:
                 else:
                     setattr(self, f.name, "")
 
-        # Cast standard types robustly
+        # Cast standard fields through the central schema validator so dialog
+        # controllers do not need to duplicate config type rules.
         for f in dataclasses.fields(self):
             if f.name == "_extra_config":
                 continue
             val = getattr(self, f.name)
-            if f.type is int:
-                try:
-                    setattr(self, f.name, parse_int_robust(val))
-                except ValueError:
-                    if f.default is not dataclasses.MISSING:
-                        setattr(self, f.name, f.default)
-            elif f.type is float:
-                try:
-                    setattr(self, f.name, parse_float_robust(val))
-                except ValueError:
-                    if f.default is not dataclasses.MISSING:
-                        setattr(self, f.name, f.default)
+            setattr(self, f.name, coerce_config_value(f.name, val))
 
-        # Clean up and cast extra keys from module schemas robustly
+        # Clean up and cast extra keys from module schemas robustly.
         for k, v in list(self._extra_config.items()):
             if isinstance(v, str) and "Project-Id-Version:" in v:
                 log.debug("config validate: stripped PO/header from extra key %r (len=%s)", k, len(v))
                 self._extra_config[k] = ""
                 v = ""
-
-            t = _get_schema_type(k)
-            if t == "int":
-                try:
-                    self._extra_config[k] = parse_int_robust(v)
-                except ValueError:
-                    default_val = _get_schema_default(k)
-                    self._extra_config[k] = default_val if default_val is not None else v
-            elif t == "float":
-                try:
-                    self._extra_config[k] = parse_float_robust(v)
-                except ValueError:
-                    default_val = _get_schema_default(k)
-                    self._extra_config[k] = default_val if default_val is not None else v
-            elif t == "boolean":
-                self._extra_config[k] = as_bool(v)
-            elif t == "list":
-                if isinstance(v, list):
-                    self._extra_config[k] = v
-                elif isinstance(v, str) and v.strip():
-                    self._extra_config[k] = [v.strip()]
-                else:
-                    default_val = _get_schema_default(k)
-                    self._extra_config[k] = default_val if isinstance(default_val, list) else []
+            self._extra_config[k] = coerce_config_value(k, v)
 
         endpoint_str = str(self.endpoint or "").strip()
         if endpoint_str:
@@ -621,35 +575,6 @@ class WriterAgentConfig:
                 self.endpoint = normalize_endpoint_url(endpoint_str, is_openwebui=self.is_openwebui)
         else:
             self.endpoint = ""
-
-        # Normalize localized strings back to internal keys (e.g. image_default_aspect, agent_backend.*)
-        # Dotted module keys live in _extra_config; flat keys are dataclass attributes.
-        try:
-            from plugin.chatbot.settings_dialog import get_settings_option_specs
-
-            specs = get_settings_option_specs()
-            for spec in specs:
-                if "options" not in spec:
-                    continue
-                key = spec["name"].replace("__", ".")
-                if key in self._extra_config:
-                    val = self._extra_config.get(key)
-                elif "." not in key and hasattr(self, key):
-                    val = getattr(self, key)
-                else:
-                    continue
-                for opt in spec["options"]:
-                    if isinstance(opt, dict):
-                        lbl = opt.get("label", opt.get("value", ""))
-                        if _(lbl) == str(val):
-                            canon = opt.get("value", lbl)
-                            if key in self._extra_config:
-                                self._extra_config[key] = canon
-                            else:
-                                setattr(self, key, canon)
-                            break
-        except Exception as e:
-            log.warning(f"Failed to normalize config against specs: {e}")
 
         if not isinstance(self.chat_max_tokens, int):
             try:
@@ -716,6 +641,192 @@ class WriterAgentConfig:
             out[f.name] = getattr(self, f.name)
         out.update(self._extra_config)
         return out
+
+
+_MISSING_VALUE = object()
+
+
+def _normalize_schema_type(schema_type: Any) -> str | None:
+    if schema_type is None:
+        return None
+    t = str(schema_type).strip().lower()
+    if t == "bool":
+        return "boolean"
+    return t
+
+
+def _dataclass_field_default(field: dataclasses.Field) -> Any:
+    if field.default is not dataclasses.MISSING:
+        return field.default
+    if field.default_factory is not dataclasses.MISSING:  # type: ignore[attr-defined]
+        return field.default_factory()  # type: ignore[misc]
+    return None
+
+
+def _dataclass_field_type(field: dataclasses.Field) -> str | None:
+    if field.type is int:
+        return "int"
+    if field.type is float:
+        return "float"
+    if field.type is bool:
+        return "boolean"
+    if field.type is str:
+        return "string"
+    if field.type is list or isinstance(_dataclass_field_default(field), list):
+        return "list"
+    if field.type is dict or isinstance(_dataclass_field_default(field), dict):
+        return "dict"
+    return None
+
+
+def _module_schema_for_key(key: str) -> dict[str, Any] | None:
+    if not MODULES:
+        return None
+    if "." in key:
+        mod_name, field_name = key.split(".", 1)
+        for module in MODULES:
+            if not isinstance(module, dict) or module.get("name") != mod_name:
+                continue
+            config = module.get("config", {})
+            if isinstance(config, dict):
+                schema = config.get(field_name)
+                if isinstance(schema, dict):
+                    return dict(schema)
+        return None
+
+    for module in MODULES:
+        if not isinstance(module, dict):
+            continue
+        config = module.get("config", {})
+        if isinstance(config, dict):
+            schema = config.get(key)
+            if isinstance(schema, dict):
+                return dict(schema)
+    return None
+
+
+def _dataclass_schema_for_key(key: str) -> dict[str, Any] | None:
+    safe_key = key.replace(".", "_")
+    for field in dataclasses.fields(WriterAgentConfig):
+        if field.name == "_extra_config" or field.name != safe_key:
+            continue
+        schema: dict[str, Any] = {"default": _dataclass_field_default(field)}
+        field_type = _dataclass_field_type(field)
+        if field_type:
+            schema["type"] = field_type
+        return schema
+    return None
+
+
+def get_config_schema(key: str) -> dict[str, Any] | None:
+    """Return the config schema for a flat or dotted key.
+
+    Module schemas come from ``module.yaml`` via the manifest and take
+    precedence over dataclass defaults, matching ``_resolve_default``.
+    """
+    return _module_schema_for_key(key) or _dataclass_schema_for_key(key)
+
+
+def _schema_default_from_schema(schema: dict[str, Any] | None) -> Any:
+    if schema and "default" in schema:
+        return schema["default"]
+    return _MISSING_VALUE
+
+
+def _fallback_value_for_invalid(key: str, schema: dict[str, Any] | None, fallback_value: Any) -> Any:
+    if fallback_value is not _MISSING_VALUE:
+        return coerce_config_value(key, fallback_value)
+    default_val = _schema_default_from_schema(schema)
+    if default_val is not _MISSING_VALUE:
+        return default_val
+    return _MISSING_VALUE
+
+
+def _canonicalize_schema_option_value(schema: dict[str, Any] | None, value: Any) -> Any:
+    opts = schema.get("options") if schema else None
+    if not isinstance(opts, list):
+        return value
+    value_str = str(value)
+    for opt in opts:
+        if isinstance(opt, dict):
+            opt_value = opt.get("value", opt.get("label", ""))
+            opt_label = opt.get("label", opt_value)
+            candidates = {str(opt_value), str(opt_label), str(_(str(opt_label)))}
+            if value_str in candidates:
+                return opt_value
+        elif opt is not None and value_str in {str(opt), str(_(str(opt)))}:
+            return opt
+    return value
+
+
+def clamp_schema_value(key: str, value: Any) -> Any:
+    """Apply module/dataclass schema min/max bounds to an already coerced value."""
+    schema = get_config_schema(key)
+    if not schema or ("min" not in schema and "max" not in schema):
+        return value
+    schema_type = _normalize_schema_type(schema.get("type"))
+    if schema_type not in {"int", "float"}:
+        return value
+    try:
+        numeric_value = parse_float_robust(value)
+        if "min" in schema:
+            numeric_value = max(parse_float_robust(schema["min"]), numeric_value)
+        if "max" in schema:
+            numeric_value = min(parse_float_robust(schema["max"]), numeric_value)
+    except ValueError:
+        return value
+    if schema_type == "int":
+        return int(numeric_value)
+    return numeric_value
+
+
+def coerce_config_value(key: str, value: Any, *, fallback_value: Any = _MISSING_VALUE) -> Any:
+    """Coerce a config value according to its schema and canonicalize options.
+
+    Invalid numeric/list values use ``fallback_value`` when supplied (used by
+    ``set_config`` to preserve the previous saved value), otherwise the schema
+    default. Unknown keys are returned unchanged.
+    """
+    schema = get_config_schema(key)
+    if not schema:
+        return value
+
+    value = _canonicalize_schema_option_value(schema, value)
+    schema_type = _normalize_schema_type(schema.get("type"))
+
+    if schema_type == "int":
+        try:
+            value = parse_int_robust(value)
+        except ValueError:
+            fallback = _fallback_value_for_invalid(key, schema, fallback_value)
+            return fallback if fallback is not _MISSING_VALUE else value
+    elif schema_type == "float":
+        try:
+            value = parse_float_robust(value)
+        except ValueError:
+            fallback = _fallback_value_for_invalid(key, schema, fallback_value)
+            return fallback if fallback is not _MISSING_VALUE else value
+    elif schema_type == "boolean":
+        value = as_bool(value)
+    elif schema_type == "list":
+        if isinstance(value, list):
+            pass
+        elif isinstance(value, str) and value.strip():
+            value = [value.strip()]
+        else:
+            fallback = _fallback_value_for_invalid(key, schema, fallback_value)
+            if fallback is not _MISSING_VALUE:
+                value = fallback if isinstance(fallback, list) else [fallback]
+            else:
+                value = []
+    elif schema_type == "string":
+        if value is None:
+            fallback = _fallback_value_for_invalid(key, schema, fallback_value)
+            value = fallback if fallback is not _MISSING_VALUE else ""
+        else:
+            value = str(value)
+
+    return clamp_schema_value(key, value)
 
 
 # --- Core config I/O ---
@@ -808,6 +919,19 @@ def get_config_dict():
     return _get_validated_config_dict()
 
 
+def _raw_config_value_for_key(config_data: dict[str, Any], key: str) -> Any:
+    if key in config_data:
+        return config_data[key]
+    for dotted in _dotted_fallback_keys(key):
+        if dotted in config_data:
+            return config_data[dotted]
+    if "." in key:
+        field_name = key.split(".", 1)[1]
+        if field_name in config_data:
+            return config_data[field_name]
+    return _MISSING_VALUE
+
+
 def set_config(key, value):
     """Set a config key to value. Creates file if needed."""
     try:
@@ -821,6 +945,8 @@ def set_config(key, value):
         config_data = _load_config_dict(config_file_path, allow_repair=True, persist_repair=False)
     else:
         config_data = {}
+    current_value = _raw_config_value_for_key(config_data, key)
+    value = coerce_config_value(key, value, fallback_value=current_value)
     if config_data.get(key) == value:
         return
     test_data = dict(config_data)

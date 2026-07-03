@@ -287,6 +287,26 @@ class TestConfigSyncFileIO(unittest.TestCase):
             data = json.load(f)
         self.assertEqual(data.get('text_model'), 'other')
 
+    def test_set_config_invalid_numeric_falls_back_to_current_value(self):
+        with open(self.config_path, 'w', encoding='utf-8') as f:
+            json.dump({'extend_selection_max_tokens': 1200}, f)
+        self._reset_config_cache()
+
+        set_config('extend_selection_max_tokens', 'not-a-number')
+
+        with open(self.config_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        self.assertEqual(data.get('extend_selection_max_tokens'), 1200)
+
+    def test_set_config_clamps_schema_bounds(self):
+        set_config('extend_selection_max_tokens', '1')
+        set_config('edit_selection_max_new_tokens', '99999')
+
+        with open(self.config_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        self.assertEqual(data.get('extend_selection_max_tokens'), 10)
+        self.assertEqual(data.get('edit_selection_max_new_tokens'), 4096)
+
 
 class TestRobustNumericParsing(unittest.TestCase):
 
@@ -398,6 +418,45 @@ class TestRobustNumericParsing(unittest.TestCase):
         config = WriterAgentConfig.from_dict({"web_cache_max_mb": "50,0"})
         config.validate()
         self.assertEqual(config._extra_config.get("web_cache_max_mb"), 50)
+
+    def test_yaml_backed_key_schema_bounds_flat_and_dotted(self):
+        from plugin.framework.config import WriterAgentConfig
+
+        config = WriterAgentConfig.from_dict({
+            "extend_selection_max_tokens": "1",
+            "chatbot.edit_selection_max_new_tokens": "99999",
+        })
+        config.validate()
+
+        self.assertEqual(config._extra_config.get("extend_selection_max_tokens"), 10)
+        self.assertEqual(config._extra_config.get("chatbot.edit_selection_max_new_tokens"), 4096)
+
+    def test_schema_option_label_canonicalization_from_manifest(self):
+        from plugin.framework.config import WriterAgentConfig
+
+        mock_modules = [{
+            "name": "demo",
+            "config": {
+                "mode": {
+                    "type": "string",
+                    "default": "fast",
+                    "options": [{"value": "fast", "label": "Fast Mode"}],
+                },
+            },
+        }]
+
+        config = WriterAgentConfig.from_dict({"demo.mode": "Translated Fast"})
+
+        def fake_gettext(msg):
+            if msg == "Fast Mode":
+                return "Translated Fast"
+            return msg
+
+        with patch("plugin.framework.config.MODULES", mock_modules), \
+             patch("plugin.framework.config._", side_effect=fake_gettext):
+            config.validate()
+
+        self.assertEqual(config._extra_config.get("demo.mode"), "fast")
 
     def test_config_validation_constraints(self):
         from plugin.framework.config import WriterAgentConfig
