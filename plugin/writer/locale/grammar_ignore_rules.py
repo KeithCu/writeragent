@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from .grammar_proofread_cache import ignored_rules_snapshot
@@ -15,8 +14,12 @@ from .grammar_proofread_locale import normalize_reason
 WA_G_RULE_PREFIX = "wa_g_rule||"
 HARPER_RULE_PREFIX = "harper||"
 LANGUAGETOOL_RULE_PREFIX = "languagetool||"
+STABLE_RULE_PREFIXES = (HARPER_RULE_PREFIX, LANGUAGETOOL_RULE_PREFIX)
 
-_BARE_LANGUAGETOOL_RULE_ID_RE = re.compile(r"^[A-Z][A-Z0-9_]+$")
+
+def make_rule_identifier(prefix: str, rule_code: str) -> str:
+    """Build a prefixed grammar rule id for UNO ``aRuleIdentifier``."""
+    return f"{prefix}{rule_code}"
 
 
 def parse_prefixed_rule_identifier(rule_identifier: str, prefix: str) -> str | None:
@@ -27,39 +30,17 @@ def parse_prefixed_rule_identifier(rule_identifier: str, prefix: str) -> str | N
     return code or None
 
 
-def parse_harper_rule_identifier(rule_identifier: str) -> str | None:
-    """Return Harper rule code suffix (e.g. ``SpellCheck``), or ``None`` when not a Harper id."""
-    return parse_prefixed_rule_identifier(rule_identifier, HARPER_RULE_PREFIX)
-
-
-def parse_languagetool_rule_identifier(rule_identifier: str) -> str | None:
-    """Return LanguageTool rule id suffix, or ``None`` when not a LanguageTool id."""
-    return parse_prefixed_rule_identifier(rule_identifier, LANGUAGETOOL_RULE_PREFIX)
-
-
-def harper_rule_code(rule_identifier: str) -> str | None:
-    """Alias for :func:`parse_harper_rule_identifier`."""
-    return parse_harper_rule_identifier(rule_identifier)
-
-
-def is_bare_languagetool_rule_id(rule_identifier: str) -> bool:
-    """True for legacy bare LT ids (uppercase snake_case, e.g. ``ENGLISH_WORD_REPEAT_RULE``)."""
-    if not rule_identifier or rule_identifier.startswith((WA_G_RULE_PREFIX, HARPER_RULE_PREFIX, LANGUAGETOOL_RULE_PREFIX)):
-        return False
-    return _BARE_LANGUAGETOOL_RULE_ID_RE.fullmatch(rule_identifier) is not None
+def bare_code_for_persistence(rule_identifier: str, prefix: str) -> str:
+    """Bare rule code stored in document ``ignored_rules`` (fallback: full id)."""
+    return parse_prefixed_rule_identifier(rule_identifier, prefix) or rule_identifier
 
 
 def is_prefixed_rule_ignored(rule_identifier: str, prefix: str, doc_ignored: set[str], global_ignored: set[str]) -> bool:
-    """Match ignore lists for stable prefixed rule ids (full id or bare code suffix)."""
+    """Match ignore lists for stable prefixed rule ids (bare code in doc; full id in session global)."""
     code = parse_prefixed_rule_identifier(rule_identifier, prefix)
     if code is None:
         return False
-    return (
-        rule_identifier in doc_ignored
-        or rule_identifier in global_ignored
-        or code in doc_ignored
-        or code in global_ignored
-    )
+    return rule_identifier in global_ignored or code in doc_ignored
 
 
 def is_rule_ignored(rule_identifier: str, doc_ignored: set[str], global_ignored: set[str]) -> bool:
@@ -67,18 +48,9 @@ def is_rule_ignored(rule_identifier: str, doc_ignored: set[str], global_ignored:
     if rule_identifier.startswith(WA_G_RULE_PREFIX):
         norm_reason = normalize_reason(rule_identifier[len(WA_G_RULE_PREFIX) :])
         return norm_reason in doc_ignored or rule_identifier in global_ignored
-    if is_prefixed_rule_ignored(rule_identifier, HARPER_RULE_PREFIX, doc_ignored, global_ignored):
-        return True
-    if is_prefixed_rule_ignored(rule_identifier, LANGUAGETOOL_RULE_PREFIX, doc_ignored, global_ignored):
-        return True
-    if is_bare_languagetool_rule_id(rule_identifier):
-        prefixed = f"{LANGUAGETOOL_RULE_PREFIX}{rule_identifier}"
-        return (
-            rule_identifier in doc_ignored
-            or rule_identifier in global_ignored
-            or prefixed in doc_ignored
-            or prefixed in global_ignored
-        )
+    for prefix in STABLE_RULE_PREFIXES:
+        if is_prefixed_rule_ignored(rule_identifier, prefix, doc_ignored, global_ignored):
+            return True
     return rule_identifier in doc_ignored or rule_identifier in global_ignored
 
 
@@ -96,6 +68,14 @@ def collect_ignored_reasons(ctx: Any, doc_id: str) -> set[str]:
     for rule_id in ignored_rules_snapshot():
         if rule_id.startswith(WA_G_RULE_PREFIX):
             ignored_reasons.add(normalize_reason(rule_id[len(WA_G_RULE_PREFIX) :]))
+            continue
+        bare_code = None
+        for prefix in STABLE_RULE_PREFIXES:
+            if rule_id.startswith(prefix):
+                bare_code = parse_prefixed_rule_identifier(rule_id, prefix)
+                break
+        if bare_code:
+            ignored_reasons.add(bare_code)
         else:
             ignored_reasons.add(normalize_reason(rule_id))
     return ignored_reasons

@@ -7,7 +7,7 @@
 import logging
 from typing import Any, Dict
 
-LANGUAGETOOL_RULE_PREFIX = "languagetool||"
+from plugin.writer.locale.grammar_ignore_rules import LANGUAGETOOL_RULE_PREFIX, make_rule_identifier
 
 # Global cache of initialized LanguageTool clients to avoid JVM startup/restart overhead
 _LT_CACHE: Dict[str, Any] = {}
@@ -51,7 +51,7 @@ def run_languagetool_check(text: str, bcp47: str) -> dict:
                 "n_error_length": m.error_length,
                 "short_comment": m.message,
                 "full_comment": m.sentence,
-                "rule_identifier": f"{LANGUAGETOOL_RULE_PREFIX}{m.rule_id}",
+                "rule_identifier": make_rule_identifier(LANGUAGETOOL_RULE_PREFIX, m.rule_id),
                 "suggestions": m.replacements[:5],
                 "reason": m.message,
                 "type": "LanguageTool",

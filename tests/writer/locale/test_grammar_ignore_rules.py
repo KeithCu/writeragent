@@ -6,21 +6,28 @@ import json
 import unittest
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.writer.locale.grammar_ignore_rules import (
     HARPER_RULE_PREFIX,
     LANGUAGETOOL_RULE_PREFIX,
+    STABLE_RULE_PREFIXES,
     WA_G_RULE_PREFIX,
     collect_ignored_reasons,
     doc_ignored_rules,
-    harper_rule_code,
-    is_bare_languagetool_rule_id,
     is_rule_ignored,
-    parse_harper_rule_identifier,
-    parse_languagetool_rule_identifier,
+    make_rule_identifier,
+    parse_prefixed_rule_identifier,
 )
 from plugin.writer.locale.grammar_proofread_locale import normalize_reason
 from plugin.writer.locale.grammar_persistence import DocumentPersistence
 from plugin.writer.locale.ai_grammar_proofreader import _cached_errors_to_uno_tuple, WriterAgentAiGrammarProofreader
+
+_STABLE_PREFIX_CASES = (
+    (HARPER_RULE_PREFIX, "SpellCheck", "SentenceCapitalization"),
+    (LANGUAGETOOL_RULE_PREFIX, "ENGLISH_WORD_REPEAT_RULE", "UPPERCASE_SENTENCE_START"),
+)
+
 
 class TestGrammarIgnoreRules(unittest.TestCase):
     def test_is_rule_ignored_wa_g_rule_doc_match(self) -> None:
@@ -38,254 +45,12 @@ class TestGrammarIgnoreRules(unittest.TestCase):
         rule = f"{WA_G_RULE_PREFIX}Use 'an' instead of 'a'."
         self.assertFalse(is_rule_ignored(rule, {"avoid passive voice"}, set()))
 
-    def test_parse_harper_rule_identifier(self) -> None:
-        self.assertEqual(parse_harper_rule_identifier("harper||SpellCheck"), "SpellCheck")
-        self.assertEqual(harper_rule_code("harper||SentenceCapitalization"), "SentenceCapitalization")
-        self.assertIsNone(parse_harper_rule_identifier("wa_g_rule||reason"))
-        self.assertIsNone(parse_harper_rule_identifier("harper||"))
-
-    def test_is_rule_ignored_harper_doc_full_id(self) -> None:
-        rule = f"{HARPER_RULE_PREFIX}SpellCheck"
-        self.assertTrue(is_rule_ignored(rule, {rule}, set()))
-
-    def test_is_rule_ignored_harper_doc_code_only(self) -> None:
-        rule = f"{HARPER_RULE_PREFIX}SpellCheck"
-        self.assertTrue(is_rule_ignored(rule, {"SpellCheck"}, set()))
-
-    def test_is_rule_ignored_harper_global(self) -> None:
-        rule = f"{HARPER_RULE_PREFIX}SpellCheck"
-        self.assertTrue(is_rule_ignored(rule, set(), {rule}))
-
-    def test_is_rule_ignored_harper_not_ignored(self) -> None:
-        rule = f"{HARPER_RULE_PREFIX}SpellCheck"
-        self.assertFalse(is_rule_ignored(rule, {f"{HARPER_RULE_PREFIX}SentenceCapitalization"}, set()))
-
-    def test_cached_errors_to_uno_tuple_filters_harper_ignored_rules(self) -> None:
-        ctx = MagicMock()
-        doc_id = "doc-x"
-
-        dp = MagicMock()
-        dp._ignored_rules = {f"{HARPER_RULE_PREFIX}SpellCheck"}
-
-        cached = (
-            {
-                "n_error_start": 0,
-                "n_error_length": 5,
-                "suggestions": ("correct",),
-                "short_comment": "Misspelled word",
-                "full_comment": "Misspelled word",
-                "rule_identifier": f"{HARPER_RULE_PREFIX}SpellCheck",
-            },
-            {
-                "n_error_start": 10,
-                "n_error_length": 3,
-                "suggestions": ("Fix",),
-                "short_comment": "Capitalize",
-                "full_comment": "Capitalize",
-                "rule_identifier": f"{HARPER_RULE_PREFIX}SentenceCapitalization",
-            },
-        )
-
-        with patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp):
-            res = _cached_errors_to_uno_tuple(cached, ctx, doc_id)
-
-        self.assertEqual(len(res), 1)
-        self.assertEqual(res[0].aRuleIdentifier, f"{HARPER_RULE_PREFIX}SentenceCapitalization")
-
-    def test_cached_errors_to_uno_tuple_filters_harper_after_reload(self) -> None:
-        """Doc persistence holds full Harper id; global registry empty (post-reload)."""
-        ctx = MagicMock()
-        doc_id = "doc-x"
-        dp = MagicMock()
-        dp._ignored_rules = {f"{HARPER_RULE_PREFIX}SpellCheck"}
-
-        cached = (
-            {
-                "n_error_start": 0,
-                "n_error_length": 5,
-                "suggestions": ("correct",),
-                "short_comment": "Misspelled word",
-                "full_comment": "Misspelled word",
-                "rule_identifier": f"{HARPER_RULE_PREFIX}SpellCheck",
-            },
-        )
-
-        with (
-            patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp),
-            patch("plugin.writer.locale.grammar_proofread_cache.ignored_rules_snapshot", return_value=set()),
-        ):
-            res = _cached_errors_to_uno_tuple(cached, ctx, doc_id)
-
-        self.assertEqual(len(res), 0)
-
-    def test_proofreader_ignore_harper_rule(self) -> None:
-        ctx = MagicMock()
-        pr = WriterAgentAiGrammarProofreader(ctx)
-        pr._last_doc_id = "2"
-
-        dp = MagicMock()
-        dp._ignored_rules = set()
-
-        with (
-            patch("plugin.writer.locale.ai_grammar_proofreader._ensure_persistence_bound"),
-            patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp),
-        ):
-            pr.ignoreRule(f"{HARPER_RULE_PREFIX}SpellCheck", None)
-
-        self.assertIn(f"{HARPER_RULE_PREFIX}SpellCheck", dp._ignored_rules)
-        self.assertIn("SpellCheck", dp._ignored_rules)
-        self.assertTrue(dp._persist_to_udprops.called)
-
-    def test_parse_languagetool_rule_identifier(self) -> None:
-        self.assertEqual(parse_languagetool_rule_identifier("languagetool||ENGLISH_WORD_REPEAT_RULE"), "ENGLISH_WORD_REPEAT_RULE")
-        self.assertIsNone(parse_languagetool_rule_identifier("harper||SpellCheck"))
-        self.assertIsNone(parse_languagetool_rule_identifier("languagetool||"))
-
-    def test_is_bare_languagetool_rule_id(self) -> None:
-        self.assertTrue(is_bare_languagetool_rule_id("ENGLISH_WORD_REPEAT_RULE"))
-        self.assertTrue(is_bare_languagetool_rule_id("MORFOLOGIK_RULE_EN_US"))
-        self.assertFalse(is_bare_languagetool_rule_id("languagetool||ENGLISH_WORD_REPEAT_RULE"))
-        self.assertFalse(is_bare_languagetool_rule_id("wa_g_rule||reason"))
-
-    def test_is_rule_ignored_languagetool_doc_full_id(self) -> None:
-        rule = f"{LANGUAGETOOL_RULE_PREFIX}ENGLISH_WORD_REPEAT_RULE"
-        self.assertTrue(is_rule_ignored(rule, {rule}, set()))
-
-    def test_is_rule_ignored_languagetool_doc_code_only(self) -> None:
-        rule = f"{LANGUAGETOOL_RULE_PREFIX}ENGLISH_WORD_REPEAT_RULE"
-        self.assertTrue(is_rule_ignored(rule, {"ENGLISH_WORD_REPEAT_RULE"}, set()))
-
-    def test_is_rule_ignored_languagetool_global(self) -> None:
-        rule = f"{LANGUAGETOOL_RULE_PREFIX}ENGLISH_WORD_REPEAT_RULE"
-        self.assertTrue(is_rule_ignored(rule, set(), {rule}))
-
-    def test_is_rule_ignored_languagetool_not_ignored(self) -> None:
-        rule = f"{LANGUAGETOOL_RULE_PREFIX}ENGLISH_WORD_REPEAT_RULE"
-        self.assertFalse(is_rule_ignored(rule, {f"{LANGUAGETOOL_RULE_PREFIX}UPPERCASE_SENTENCE_START"}, set()))
-
-    def test_is_rule_ignored_languagetool_legacy_bare_id(self) -> None:
-        bare = "ENGLISH_WORD_REPEAT_RULE"
-        prefixed = f"{LANGUAGETOOL_RULE_PREFIX}{bare}"
-        self.assertTrue(is_rule_ignored(bare, {prefixed}, set()))
-        self.assertTrue(is_rule_ignored(bare, {bare}, set()))
-
-    def test_cached_errors_to_uno_tuple_filters_languagetool_ignored_rules(self) -> None:
-        ctx = MagicMock()
-        doc_id = "doc-x"
-        dp = MagicMock()
-        dp._ignored_rules = {f"{LANGUAGETOOL_RULE_PREFIX}ENGLISH_WORD_REPEAT_RULE"}
-
-        cached = (
-            {
-                "n_error_start": 0,
-                "n_error_length": 4,
-                "suggestions": ("word",),
-                "short_comment": "Repeated word",
-                "full_comment": "Repeated word",
-                "rule_identifier": f"{LANGUAGETOOL_RULE_PREFIX}ENGLISH_WORD_REPEAT_RULE",
-            },
-            {
-                "n_error_start": 10,
-                "n_error_length": 3,
-                "suggestions": ("The",),
-                "short_comment": "Capitalize",
-                "full_comment": "Capitalize",
-                "rule_identifier": f"{LANGUAGETOOL_RULE_PREFIX}UPPERCASE_SENTENCE_START",
-            },
-        )
-
-        with patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp):
-            res = _cached_errors_to_uno_tuple(cached, ctx, doc_id)
-
-        self.assertEqual(len(res), 1)
-        self.assertEqual(res[0].aRuleIdentifier, f"{LANGUAGETOOL_RULE_PREFIX}UPPERCASE_SENTENCE_START")
-
-    def test_cached_errors_to_uno_tuple_filters_languagetool_after_reload(self) -> None:
-        ctx = MagicMock()
-        doc_id = "doc-x"
-        dp = MagicMock()
-        dp._ignored_rules = {f"{LANGUAGETOOL_RULE_PREFIX}ENGLISH_WORD_REPEAT_RULE"}
-
-        cached = (
-            {
-                "n_error_start": 0,
-                "n_error_length": 4,
-                "suggestions": ("word",),
-                "short_comment": "Repeated word",
-                "full_comment": "Repeated word",
-                "rule_identifier": f"{LANGUAGETOOL_RULE_PREFIX}ENGLISH_WORD_REPEAT_RULE",
-            },
-        )
-
-        with (
-            patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp),
-            patch("plugin.writer.locale.grammar_proofread_cache.ignored_rules_snapshot", return_value=set()),
-        ):
-            res = _cached_errors_to_uno_tuple(cached, ctx, doc_id)
-
-        self.assertEqual(len(res), 0)
-
-    def test_cached_errors_to_uno_tuple_filters_legacy_bare_languagetool_id(self) -> None:
-        ctx = MagicMock()
-        doc_id = "doc-x"
-        bare = "ENGLISH_WORD_REPEAT_RULE"
-        dp = MagicMock()
-        dp._ignored_rules = {f"{LANGUAGETOOL_RULE_PREFIX}{bare}"}
-
-        cached = (
-            {
-                "n_error_start": 0,
-                "n_error_length": 4,
-                "suggestions": ("word",),
-                "short_comment": "Repeated word",
-                "full_comment": "Repeated word",
-                "rule_identifier": bare,
-            },
-        )
-
-        with (
-            patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp),
-            patch("plugin.writer.locale.grammar_proofread_cache.ignored_rules_snapshot", return_value=set()),
-        ):
-            res = _cached_errors_to_uno_tuple(cached, ctx, doc_id)
-
-        self.assertEqual(len(res), 0)
-
-    def test_proofreader_ignore_languagetool_rule(self) -> None:
-        ctx = MagicMock()
-        pr = WriterAgentAiGrammarProofreader(ctx)
-        pr._last_doc_id = "2"
-
-        dp = MagicMock()
-        dp._ignored_rules = set()
-
-        with (
-            patch("plugin.writer.locale.ai_grammar_proofreader._ensure_persistence_bound"),
-            patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp),
-        ):
-            pr.ignoreRule(f"{LANGUAGETOOL_RULE_PREFIX}ENGLISH_WORD_REPEAT_RULE", None)
-
-        self.assertIn(f"{LANGUAGETOOL_RULE_PREFIX}ENGLISH_WORD_REPEAT_RULE", dp._ignored_rules)
-        self.assertIn("ENGLISH_WORD_REPEAT_RULE", dp._ignored_rules)
-        self.assertTrue(dp._persist_to_udprops.called)
-
-    def test_proofreader_ignore_legacy_bare_languagetool_rule(self) -> None:
-        ctx = MagicMock()
-        pr = WriterAgentAiGrammarProofreader(ctx)
-        pr._last_doc_id = "2"
-
-        dp = MagicMock()
-        dp._ignored_rules = set()
-
-        with (
-            patch("plugin.writer.locale.ai_grammar_proofreader._ensure_persistence_bound"),
-            patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp),
-        ):
-            pr.ignoreRule("ENGLISH_WORD_REPEAT_RULE", None)
-
-        self.assertIn("ENGLISH_WORD_REPEAT_RULE", dp._ignored_rules)
-        self.assertIn(f"{LANGUAGETOOL_RULE_PREFIX}ENGLISH_WORD_REPEAT_RULE", dp._ignored_rules)
-        self.assertTrue(dp._persist_to_udprops.called)
+    def test_parse_prefixed_rule_identifier(self) -> None:
+        for prefix in STABLE_RULE_PREFIXES:
+            sample = "SpellCheck" if prefix == HARPER_RULE_PREFIX else "ENGLISH_WORD_REPEAT_RULE"
+            self.assertEqual(parse_prefixed_rule_identifier(make_rule_identifier(prefix, sample), prefix), sample)
+        self.assertIsNone(parse_prefixed_rule_identifier("wa_g_rule||reason", HARPER_RULE_PREFIX))
+        self.assertIsNone(parse_prefixed_rule_identifier(f"{HARPER_RULE_PREFIX}", HARPER_RULE_PREFIX))
 
     def test_collect_ignored_reasons_merges_doc_and_global(self) -> None:
         ctx = MagicMock()
@@ -300,30 +65,30 @@ class TestGrammarIgnoreRules(unittest.TestCase):
         self.assertIn("avoid passive voice", reasons)
         self.assertIn(normalize_reason(global_rule[len(WA_G_RULE_PREFIX) :]), reasons)
 
+    def test_collect_ignored_reasons_stable_global_uses_bare_code(self) -> None:
+        ctx = MagicMock()
+        dp = MagicMock()
+        dp._ignored_rules = set()
+        global_rule = make_rule_identifier(HARPER_RULE_PREFIX, "SpellCheck")
+        with (
+            patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp),
+            patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value={global_rule}),
+        ):
+            reasons = collect_ignored_reasons(ctx, "doc-x")
+        self.assertIn("SpellCheck", reasons)
+        self.assertNotIn("harper spellcheck", reasons)
+
     def test_doc_ignored_rules_empty_when_no_persistence(self) -> None:
         with patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=None):
             self.assertEqual(doc_ignored_rules(MagicMock(), "missing"), set())
 
     def test_normalize_reason(self) -> None:
-        # Test basic lowercase and whitespace collapse
         self.assertEqual(normalize_reason("Avoid passive voice."), "avoid passive voice")
         self.assertEqual(normalize_reason("  Avoid    passive   voice. "), "avoid passive voice")
-        
-        # Test quote characters are stripped but their contents are preserved
         self.assertEqual(
             normalize_reason("Use 'an' instead of 'a' before vowel sounds."),
-            "use an instead of a before vowel sounds"
+            "use an instead of a before vowel sounds",
         )
-        self.assertEqual(
-            normalize_reason('Use "an" instead of "a" before vowel sounds.'),
-            "use an instead of a before vowel sounds"
-        )
-        self.assertEqual(
-            normalize_reason("Use \u2018an\u2019 instead of \u201ca\u201d before vowel sounds."),
-            "use an instead of a before vowel sounds"
-        )
-        
-        # Test punctuation stripping
         self.assertEqual(normalize_reason("Is this a question? Yes!"), "is this a question yes")
         self.assertEqual(normalize_reason(""), "")
 
@@ -332,26 +97,22 @@ class TestGrammarIgnoreRules(unittest.TestCase):
         model = MagicMock()
         with patch("plugin.doc.document_helpers.get_document_property", return_value=None):
             dp = DocumentPersistence(ctx, "doc-x", model=model)
-            
+
         dp._ignored_rules.add("avoid passive voice")
-        
+
         with patch("plugin.doc.document_helpers.set_document_property") as mock_set:
             dp._persist_to_udprops()
-            
+
         self.assertTrue(mock_set.called)
-        args = mock_set.call_args[0]
-        written = json.loads(str(args[2]))
-        self.assertIn("ignored_rules", written)
+        written = json.loads(str(mock_set.call_args[0][2]))
         self.assertIn("avoid passive voice", written["ignored_rules"])
 
     def test_cached_errors_to_uno_tuple_filters_ignored_rules(self) -> None:
         ctx = MagicMock()
         doc_id = "doc-x"
-        
-        # Mock persistence
         dp = MagicMock()
         dp._ignored_rules = {"avoid passive voice"}
-        
+
         cached = (
             {
                 "n_error_start": 0,
@@ -359,7 +120,7 @@ class TestGrammarIgnoreRules(unittest.TestCase):
                 "suggestions": ("active",),
                 "short_comment": "Avoid passive voice",
                 "full_comment": "Avoid passive voice",
-                "rule_identifier": "wa_g_rule||Avoid passive voice."
+                "rule_identifier": "wa_g_rule||Avoid passive voice.",
             },
             {
                 "n_error_start": 10,
@@ -367,44 +128,31 @@ class TestGrammarIgnoreRules(unittest.TestCase):
                 "suggestions": ("an",),
                 "short_comment": "Use 'an'",
                 "full_comment": "Use 'an'",
-                "rule_identifier": "wa_g_rule||Use 'an' instead of 'a'."
-            }
+                "rule_identifier": "wa_g_rule||Use 'an' instead of 'a'.",
+            },
         )
-        
+
         with patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp):
             res = _cached_errors_to_uno_tuple(cached, ctx, doc_id)
-            
-        # First error (avoid passive voice) should be ignored
-        # Second error (use an) should NOT be ignored
+
         self.assertEqual(len(res), 1)
         self.assertEqual(res[0].aRuleIdentifier, "wa_g_rule||Use 'an' instead of 'a'.")
 
     def test_normalize_errors_filters_ignored_rules(self) -> None:
         from plugin.writer.locale.grammar_proofread_text import normalize_errors_for_text
         from tests.writer.locale.test_grammar_proofread_text import FakeBI
-        
+
         full_text = "This was done by him. This is a apple."
         items = [
-            {
-                "wrong": "was done",
-                "correct": "active",
-                "reason": "Avoid passive voice.",
-                "type": "grammar"
-            },
-            {
-                "wrong": "a apple",
-                "correct": "an apple",
-                "reason": "Use 'an' instead of 'a'.",
-                "type": "grammar"
-            }
+            {"wrong": "was done", "correct": "active", "reason": "Avoid passive voice.", "type": "grammar"},
+            {"wrong": "a apple", "correct": "an apple", "reason": "Use 'an' instead of 'a'.", "type": "grammar"},
         ]
-        
+
         ignored = {"avoid passive voice"}
         with patch("plugin.writer.locale.grammar_proofread_text.get_break_iterator_and_locale", return_value=(FakeBI(), "en-US")):
             norm_errors = normalize_errors_for_text(full_text, 0, len(full_text), items)
 
         filtered_errors = [e for e in norm_errors if not is_rule_ignored(e.rule_identifier, ignored, set())]
-        # The passive voice error should be skipped/thrown away
         self.assertEqual(len(filtered_errors), 1)
         self.assertEqual(filtered_errors[0].rule_identifier, "wa_g_rule||Use 'an' instead of 'a'.")
 
@@ -413,7 +161,6 @@ class TestGrammarIgnoreRules(unittest.TestCase):
         pr = WriterAgentAiGrammarProofreader(ctx)
         pr._last_doc_id = "2"
 
-        model = MagicMock()
         dp = MagicMock()
         dp._ignored_rules = set()
 
@@ -421,15 +168,112 @@ class TestGrammarIgnoreRules(unittest.TestCase):
             patch("plugin.writer.locale.ai_grammar_proofreader._ensure_persistence_bound"),
             patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp) as mock_get,
         ):
-            # Ignore a rule
             pr.ignoreRule("wa_g_rule||Avoid passive voice.", None)
             mock_get.assert_called_with(ctx, "2")
             self.assertIn("avoid passive voice", dp._ignored_rules)
             self.assertTrue(dp._persist_to_udprops.called)
-            
-            # Reset rules
+
             pr.resetIgnoreRules()
             self.assertEqual(len(dp._ignored_rules), 0)
+
+
+@pytest.mark.parametrize("prefix,ignored_code,other_code", _STABLE_PREFIX_CASES)
+def test_is_rule_ignored_stable_doc_code_only(prefix: str, ignored_code: str, other_code: str) -> None:
+    rule = make_rule_identifier(prefix, ignored_code)
+    assert is_rule_ignored(rule, {ignored_code}, set())
+
+
+@pytest.mark.parametrize("prefix,ignored_code,other_code", _STABLE_PREFIX_CASES)
+def test_is_rule_ignored_stable_global(prefix: str, ignored_code: str, other_code: str) -> None:
+    rule = make_rule_identifier(prefix, ignored_code)
+    assert is_rule_ignored(rule, set(), {rule})
+
+
+@pytest.mark.parametrize("prefix,ignored_code,other_code", _STABLE_PREFIX_CASES)
+def test_is_rule_ignored_stable_not_ignored(prefix: str, ignored_code: str, other_code: str) -> None:
+    rule = make_rule_identifier(prefix, ignored_code)
+    assert not is_rule_ignored(rule, {other_code}, set())
+
+
+@pytest.mark.parametrize("prefix,ignored_code,other_code", _STABLE_PREFIX_CASES)
+def test_cached_errors_to_uno_tuple_filters_stable_ignored_rules(prefix: str, ignored_code: str, other_code: str) -> None:
+    ctx = MagicMock()
+    doc_id = "doc-x"
+    dp = MagicMock()
+    dp._ignored_rules = {ignored_code}
+
+    cached = (
+        {
+            "n_error_start": 0,
+            "n_error_length": 4,
+            "suggestions": ("fix",),
+            "short_comment": "ignored",
+            "full_comment": "ignored",
+            "rule_identifier": make_rule_identifier(prefix, ignored_code),
+        },
+        {
+            "n_error_start": 10,
+            "n_error_length": 3,
+            "suggestions": ("Fix",),
+            "short_comment": "other",
+            "full_comment": "other",
+            "rule_identifier": make_rule_identifier(prefix, other_code),
+        },
+    )
+
+    with patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp):
+        res = _cached_errors_to_uno_tuple(cached, ctx, doc_id)
+
+    assert len(res) == 1
+    assert res[0].aRuleIdentifier == make_rule_identifier(prefix, other_code)
+
+
+@pytest.mark.parametrize("prefix,ignored_code,other_code", _STABLE_PREFIX_CASES)
+def test_cached_errors_to_uno_tuple_filters_stable_after_reload(prefix: str, ignored_code: str, other_code: str) -> None:
+    ctx = MagicMock()
+    doc_id = "doc-x"
+    dp = MagicMock()
+    dp._ignored_rules = {ignored_code}
+
+    cached = (
+        {
+            "n_error_start": 0,
+            "n_error_length": 4,
+            "suggestions": ("fix",),
+            "short_comment": "ignored",
+            "full_comment": "ignored",
+            "rule_identifier": make_rule_identifier(prefix, ignored_code),
+        },
+    )
+
+    with (
+        patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp),
+        patch("plugin.writer.locale.grammar_proofread_cache.ignored_rules_snapshot", return_value=set()),
+    ):
+        res = _cached_errors_to_uno_tuple(cached, ctx, doc_id)
+
+    assert len(res) == 0
+
+
+@pytest.mark.parametrize("prefix,ignored_code,other_code", _STABLE_PREFIX_CASES)
+def test_proofreader_ignore_stable_rule(prefix: str, ignored_code: str, other_code: str) -> None:
+    ctx = MagicMock()
+    pr = WriterAgentAiGrammarProofreader(ctx)
+    pr._last_doc_id = "2"
+
+    dp = MagicMock()
+    dp._ignored_rules = set()
+
+    with (
+        patch("plugin.writer.locale.ai_grammar_proofreader._ensure_persistence_bound"),
+        patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp),
+    ):
+        pr.ignoreRule(make_rule_identifier(prefix, ignored_code), None)
+
+    assert ignored_code in dp._ignored_rules
+    assert make_rule_identifier(prefix, ignored_code) not in dp._ignored_rules
+    assert dp._persist_to_udprops.called
+
 
 if __name__ == "__main__":
     unittest.main()

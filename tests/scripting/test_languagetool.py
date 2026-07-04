@@ -9,7 +9,8 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 import sys
 
-from plugin.scripting.venv.languagetool import LANGUAGETOOL_RULE_PREFIX, run_languagetool_check
+from plugin.writer.locale.grammar_ignore_rules import LANGUAGETOOL_RULE_PREFIX, make_rule_identifier
+from plugin.scripting.venv.languagetool import run_languagetool_check
 
 
 def test_run_languagetool_check_prefixes_rule_identifier() -> None:
@@ -34,5 +35,5 @@ def test_run_languagetool_check_prefixes_rule_identifier() -> None:
 
     assert len(res["errors"]) == 1
     err = res["errors"][0]
-    assert err["rule_identifier"] == f"{LANGUAGETOOL_RULE_PREFIX}MORFOLOGIK_RULE_EN_US"
+    assert err["rule_identifier"] == make_rule_identifier(LANGUAGETOOL_RULE_PREFIX, "MORFOLOGIK_RULE_EN_US")
     assert err["type"] == "LanguageTool"

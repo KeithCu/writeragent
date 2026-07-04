@@ -228,7 +228,7 @@ Since dialog `.xdl` files are built from template files by compiling configurati
 
 ### Ignore All (rule-based)
 
-LanguageTool matches expose stable upstream `rule_id` values (e.g. `ENGLISH_WORD_REPEAT_RULE`, `MORFOLOGIK_RULE_EN_US`). WriterAgent maps them to `languagetool||{rule_id}` in [`languagetool.py`](../plugin/scripting/venv/languagetool.py), preserves that id through [`normalize_errors_for_text`](../plugin/writer/locale/grammar_proofread_text.py), and stores ignored rules in the document-embedded grammar cache `ignored_rules` via [`ignoreRule`](../plugin/writer/locale/ai_grammar_proofreader.py). [`is_rule_ignored`](../plugin/writer/locale/grammar_ignore_rules.py) filters all matching instances on later proofreading passes, including after save/reload. Bare legacy ids (pre-prefix sentence cache entries) remain ignorable until those sentences are re-checked.
+LanguageTool matches expose stable upstream `rule_id` values (e.g. `ENGLISH_WORD_REPEAT_RULE`, `MORFOLOGIK_RULE_EN_US`). WriterAgent maps them to `languagetool||{rule_id}` in [`languagetool.py`](../plugin/scripting/venv/languagetool.py), preserves that id through [`normalize_errors_for_text`](../plugin/writer/locale/grammar_proofread_text.py), and stores the bare rule id in document `ignored_rules` via [`ignoreRule`](../plugin/writer/locale/ai_grammar_proofreader.py). [`is_rule_ignored`](../plugin/writer/locale/grammar_ignore_rules.py) filters all matching instances on later proofreading passes, including after save/reload.
 
 ### Future Work & Extensions
 1. **Direct Synchronous Mode Option:** 

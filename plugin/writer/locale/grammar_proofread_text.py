@@ -25,6 +25,7 @@ def slice_preview_debug(text: str, max_len: int = 72) -> str:
 
 from .grammar_obs import grammar_obs
 
+from .grammar_ignore_rules import WA_G_RULE_PREFIX
 from .grammar_proofread_locale import (
     GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS,
     GRAMMAR_WHITESPACE_RUN_RE,
@@ -286,7 +287,7 @@ def normalize_errors_for_text(full_text: str, n_slice_start: int, n_slice_end: i
 
         reason = it.get("reason", "")
         existing = str(it.get("rule_identifier") or "").strip()
-        rule_id = existing if existing else f"wa_g_rule||{reason}"
+        rule_id = existing if existing else f"{WA_G_RULE_PREFIX}{reason}"
 
         sugg = (correct,) if correct else ()
         typ = it.get("type", "grammar")

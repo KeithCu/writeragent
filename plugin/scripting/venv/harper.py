@@ -22,6 +22,7 @@ from plugin.scripting.sandbox import wrap_command_for_sandbox
 from plugin.contrib.lsp import json_rpc_framing
 from plugin.contrib.lsp.position_codec import ClientPosition, PositionCodec
 from plugin.scripting.venv.harper_binary import _get_harper_binary
+from plugin.writer.locale.grammar_ignore_rules import HARPER_RULE_PREFIX, make_rule_identifier
 
 log = logging.getLogger("writeragent.grammar")
 
@@ -323,7 +324,7 @@ def run_harper_check(text: str, user_config_dir: str, bcp47: str = "en-US") -> d
                 "n_error_length": length,
                 "short_comment": msg,
                 "full_comment": msg,
-                "rule_identifier": f"harper||{code}",
+                "rule_identifier": make_rule_identifier(HARPER_RULE_PREFIX, code),
                 "suggestions": suggestions[:5],
                 "reason": msg,
                 "type": code,
