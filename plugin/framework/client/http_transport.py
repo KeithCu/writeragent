@@ -9,8 +9,7 @@ import http.client
 import logging
 import socket
 import urllib.parse
-from collections.abc import Callable
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 from plugin.framework.errors import NetworkError
 from plugin.framework.url_utils import get_url_hostname

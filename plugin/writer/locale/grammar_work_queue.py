@@ -101,6 +101,7 @@ from .grammar_worker_llm import call_grammar_llm, detect_languages_for_chunk
 
 from plugin.framework import queue_executor, config
 from plugin.framework.client import model_fetcher, llm_client
+from plugin.framework.client.request_controls import LLM_MIN_REQUEST_INTERVAL_SEC
 
 import uno
 
@@ -930,7 +931,7 @@ class GrammarWorkQueue:
                 i = self._worker_count
                 if i > 0:
                     # Stagger extra drain threads (same 50 ms pacing as LlmClient HTTP sends).
-                    time.sleep(llm_client.LLM_MIN_REQUEST_INTERVAL_SEC)
+                    time.sleep(LLM_MIN_REQUEST_INTERVAL_SEC)
                 self._worker_count += 1
                 t = threading.Thread(target=self._drain_loop, name=f"writeragent-grammar-queue-{i}", daemon=True)
                 t.start()

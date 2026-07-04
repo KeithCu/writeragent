@@ -27,7 +27,6 @@ from plugin.framework.config import (
     get_config_str,
 )
 from plugin.framework.client.model_fetcher import get_image_model, get_text_model, set_image_model, set_text_model
-from plugin.chatbot.config_ui_helpers import endpoint_from_selector_text
 from plugin.framework.event_bus import global_event_bus
 
 import logging

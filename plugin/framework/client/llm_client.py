@@ -71,7 +71,6 @@ from plugin.framework.url_utils import get_api_version_suffix
 
 from .errors import format_error_message, _format_http_error_response
 from .http_transport import CONNECTION_ERRORS, LlmHttpTransport
-from .request_controls import LLM_MIN_REQUEST_INTERVAL_SEC
 from .stream_normalizer import (
     iterate_sse,
     _normalize_message_content,

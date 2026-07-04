@@ -37,7 +37,7 @@ log = logging.getLogger("writeragent.writer")
 _TRACK_CHANGES_UNO_SERVICES = ["com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument"]
 
 
-def _calc_track_changes_show_markup(_ctx: Any, _controller: Any, show: bool) -> dict[str, Any]:
+def _calc_track_changes_show_markup(_ctx: Any, _controller: Any, _show: bool) -> dict[str, Any]:
     """Calc: show/hide tracked-change markup from tools is deferred (no stable UNO path yet).
 
     INVESTIGATE LATER: spreadsheet controllers lack ``getViewSettings``/``ShowChangesInMargin``.
@@ -46,7 +46,6 @@ def _calc_track_changes_show_markup(_ctx: Any, _controller: Any, show: bool) -> 
     not reliably expose or toggle markup the way Writer does. Revisit when LibreOffice
     documents a supported API (or headless-safe dispatch with deterministic state).
     """
-    unused_show = show
     return {
         "status": "ok",
         "message": ("Calc: showing or hiding tracked-change markup from WriterAgent is not supported yet—use Edit - Track Changes - Show (or Review in the tabbed UI) in LibreOffice. track_changes_start / track_changes_stop still control recording."),

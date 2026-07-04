@@ -7,7 +7,7 @@
 
 import logging
 import time
-from collections.abc import Callable
+from typing import Callable
 
 from .ssl_helpers import _is_certificate_verify_error, _is_local_host
 
