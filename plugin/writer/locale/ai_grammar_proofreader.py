@@ -116,7 +116,13 @@ def _ignore_rule_on_main(ctx: Any, doc_id: str | None, rule_identifier: str) -> 
     p = get_persistence(ctx, doc_id) if doc_id else None
     if not p:
         return
-    from .grammar_ignore_rules import HARPER_RULE_PREFIX, parse_harper_rule_identifier
+    from .grammar_ignore_rules import (
+        HARPER_RULE_PREFIX,
+        LANGUAGETOOL_RULE_PREFIX,
+        is_bare_languagetool_rule_id,
+        parse_harper_rule_identifier,
+        parse_languagetool_rule_identifier,
+    )
 
     if rule_identifier.startswith("wa_g_rule||"):
         reason = rule_identifier[11:]
@@ -135,6 +141,20 @@ def _ignore_rule_on_main(ctx: Any, doc_id: str | None, rule_identifier: str) -> 
                 p._ignored_rules.add(code)
         p._persist_to_udprops()
         log.debug("[grammar] ignoreRule added Harper rule: '%s' to doc_id=%s", code or rule_identifier, doc_id)
+    elif rule_identifier.startswith(LANGUAGETOOL_RULE_PREFIX):
+        code = parse_languagetool_rule_identifier(rule_identifier)
+        with p._lock:
+            p._ignored_rules.add(rule_identifier)
+            if code:
+                p._ignored_rules.add(code)
+        p._persist_to_udprops()
+        log.debug("[grammar] ignoreRule added LanguageTool rule: '%s' to doc_id=%s", code or rule_identifier, doc_id)
+    elif is_bare_languagetool_rule_id(rule_identifier):
+        with p._lock:
+            p._ignored_rules.add(rule_identifier)
+            p._ignored_rules.add(f"{LANGUAGETOOL_RULE_PREFIX}{rule_identifier}")
+        p._persist_to_udprops()
+        log.debug("[grammar] ignoreRule added legacy LanguageTool rule: '%s' to doc_id=%s", rule_identifier, doc_id)
     else:
         from .grammar_proofread_locale import normalize_reason
 

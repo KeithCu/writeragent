@@ -226,6 +226,10 @@ Since dialog `.xdl` files are built from template files by compiling configurati
 3. **Snake_Case Attribute Alignment:** Aligned the Match parser in `languagetool.py` to match the native Python library `language-tool-python` properties (`rule_id`, `offset_in_context`, `error_length`) instead of the raw Java camelCase properties.
 4. **Clean Dictionary Formatting:** Configured the worker script to return a direct `{"errors": errors}` mapping and set `"reason"` and `"type"` keys so LibreOffice's `normalize_errors_for_text` function correctly displays error explanations in tooltips.
 
+### Ignore All (rule-based)
+
+LanguageTool matches expose stable upstream `rule_id` values (e.g. `ENGLISH_WORD_REPEAT_RULE`, `MORFOLOGIK_RULE_EN_US`). WriterAgent maps them to `languagetool||{rule_id}` in [`languagetool.py`](../plugin/scripting/venv/languagetool.py), preserves that id through [`normalize_errors_for_text`](../plugin/writer/locale/grammar_proofread_text.py), and stores ignored rules in the document-embedded grammar cache `ignored_rules` via [`ignoreRule`](../plugin/writer/locale/ai_grammar_proofreader.py). [`is_rule_ignored`](../plugin/writer/locale/grammar_ignore_rules.py) filters all matching instances on later proofreading passes, including after save/reload. Bare legacy ids (pre-prefix sentence cache entries) remain ignorable until those sentences are re-checked.
+
 ### Future Work & Extensions
 1. **Direct Synchronous Mode Option:** 
    * *Rationale:* Since the local LanguageTool engine + local IPC takes only milliseconds (sub-10ms), running it asynchronously can sometimes result in missing a subsequent typing check pass to trigger underlines.

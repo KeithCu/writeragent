@@ -8,12 +8,15 @@ from unittest.mock import MagicMock, patch
 
 from plugin.writer.locale.grammar_ignore_rules import (
     HARPER_RULE_PREFIX,
+    LANGUAGETOOL_RULE_PREFIX,
     WA_G_RULE_PREFIX,
     collect_ignored_reasons,
     doc_ignored_rules,
     harper_rule_code,
+    is_bare_languagetool_rule_id,
     is_rule_ignored,
     parse_harper_rule_identifier,
+    parse_languagetool_rule_identifier,
 )
 from plugin.writer.locale.grammar_proofread_locale import normalize_reason
 from plugin.writer.locale.grammar_persistence import DocumentPersistence
@@ -131,6 +134,157 @@ class TestGrammarIgnoreRules(unittest.TestCase):
 
         self.assertIn(f"{HARPER_RULE_PREFIX}SpellCheck", dp._ignored_rules)
         self.assertIn("SpellCheck", dp._ignored_rules)
+        self.assertTrue(dp._persist_to_udprops.called)
+
+    def test_parse_languagetool_rule_identifier(self) -> None:
+        self.assertEqual(parse_languagetool_rule_identifier("languagetool||ENGLISH_WORD_REPEAT_RULE"), "ENGLISH_WORD_REPEAT_RULE")
+        self.assertIsNone(parse_languagetool_rule_identifier("harper||SpellCheck"))
+        self.assertIsNone(parse_languagetool_rule_identifier("languagetool||"))
+
+    def test_is_bare_languagetool_rule_id(self) -> None:
+        self.assertTrue(is_bare_languagetool_rule_id("ENGLISH_WORD_REPEAT_RULE"))
+        self.assertTrue(is_bare_languagetool_rule_id("MORFOLOGIK_RULE_EN_US"))
+        self.assertFalse(is_bare_languagetool_rule_id("languagetool||ENGLISH_WORD_REPEAT_RULE"))
+        self.assertFalse(is_bare_languagetool_rule_id("wa_g_rule||reason"))
+
+    def test_is_rule_ignored_languagetool_doc_full_id(self) -> None:
+        rule = f"{LANGUAGETOOL_RULE_PREFIX}ENGLISH_WORD_REPEAT_RULE"
+        self.assertTrue(is_rule_ignored(rule, {rule}, set()))
+
+    def test_is_rule_ignored_languagetool_doc_code_only(self) -> None:
+        rule = f"{LANGUAGETOOL_RULE_PREFIX}ENGLISH_WORD_REPEAT_RULE"
+        self.assertTrue(is_rule_ignored(rule, {"ENGLISH_WORD_REPEAT_RULE"}, set()))
+
+    def test_is_rule_ignored_languagetool_global(self) -> None:
+        rule = f"{LANGUAGETOOL_RULE_PREFIX}ENGLISH_WORD_REPEAT_RULE"
+        self.assertTrue(is_rule_ignored(rule, set(), {rule}))
+
+    def test_is_rule_ignored_languagetool_not_ignored(self) -> None:
+        rule = f"{LANGUAGETOOL_RULE_PREFIX}ENGLISH_WORD_REPEAT_RULE"
+        self.assertFalse(is_rule_ignored(rule, {f"{LANGUAGETOOL_RULE_PREFIX}UPPERCASE_SENTENCE_START"}, set()))
+
+    def test_is_rule_ignored_languagetool_legacy_bare_id(self) -> None:
+        bare = "ENGLISH_WORD_REPEAT_RULE"
+        prefixed = f"{LANGUAGETOOL_RULE_PREFIX}{bare}"
+        self.assertTrue(is_rule_ignored(bare, {prefixed}, set()))
+        self.assertTrue(is_rule_ignored(bare, {bare}, set()))
+
+    def test_cached_errors_to_uno_tuple_filters_languagetool_ignored_rules(self) -> None:
+        ctx = MagicMock()
+        doc_id = "doc-x"
+        dp = MagicMock()
+        dp._ignored_rules = {f"{LANGUAGETOOL_RULE_PREFIX}ENGLISH_WORD_REPEAT_RULE"}
+
+        cached = (
+            {
+                "n_error_start": 0,
+                "n_error_length": 4,
+                "suggestions": ("word",),
+                "short_comment": "Repeated word",
+                "full_comment": "Repeated word",
+                "rule_identifier": f"{LANGUAGETOOL_RULE_PREFIX}ENGLISH_WORD_REPEAT_RULE",
+            },
+            {
+                "n_error_start": 10,
+                "n_error_length": 3,
+                "suggestions": ("The",),
+                "short_comment": "Capitalize",
+                "full_comment": "Capitalize",
+                "rule_identifier": f"{LANGUAGETOOL_RULE_PREFIX}UPPERCASE_SENTENCE_START",
+            },
+        )
+
+        with patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp):
+            res = _cached_errors_to_uno_tuple(cached, ctx, doc_id)
+
+        self.assertEqual(len(res), 1)
+        self.assertEqual(res[0].aRuleIdentifier, f"{LANGUAGETOOL_RULE_PREFIX}UPPERCASE_SENTENCE_START")
+
+    def test_cached_errors_to_uno_tuple_filters_languagetool_after_reload(self) -> None:
+        ctx = MagicMock()
+        doc_id = "doc-x"
+        dp = MagicMock()
+        dp._ignored_rules = {f"{LANGUAGETOOL_RULE_PREFIX}ENGLISH_WORD_REPEAT_RULE"}
+
+        cached = (
+            {
+                "n_error_start": 0,
+                "n_error_length": 4,
+                "suggestions": ("word",),
+                "short_comment": "Repeated word",
+                "full_comment": "Repeated word",
+                "rule_identifier": f"{LANGUAGETOOL_RULE_PREFIX}ENGLISH_WORD_REPEAT_RULE",
+            },
+        )
+
+        with (
+            patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp),
+            patch("plugin.writer.locale.grammar_proofread_cache.ignored_rules_snapshot", return_value=set()),
+        ):
+            res = _cached_errors_to_uno_tuple(cached, ctx, doc_id)
+
+        self.assertEqual(len(res), 0)
+
+    def test_cached_errors_to_uno_tuple_filters_legacy_bare_languagetool_id(self) -> None:
+        ctx = MagicMock()
+        doc_id = "doc-x"
+        bare = "ENGLISH_WORD_REPEAT_RULE"
+        dp = MagicMock()
+        dp._ignored_rules = {f"{LANGUAGETOOL_RULE_PREFIX}{bare}"}
+
+        cached = (
+            {
+                "n_error_start": 0,
+                "n_error_length": 4,
+                "suggestions": ("word",),
+                "short_comment": "Repeated word",
+                "full_comment": "Repeated word",
+                "rule_identifier": bare,
+            },
+        )
+
+        with (
+            patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp),
+            patch("plugin.writer.locale.grammar_proofread_cache.ignored_rules_snapshot", return_value=set()),
+        ):
+            res = _cached_errors_to_uno_tuple(cached, ctx, doc_id)
+
+        self.assertEqual(len(res), 0)
+
+    def test_proofreader_ignore_languagetool_rule(self) -> None:
+        ctx = MagicMock()
+        pr = WriterAgentAiGrammarProofreader(ctx)
+        pr._last_doc_id = "2"
+
+        dp = MagicMock()
+        dp._ignored_rules = set()
+
+        with (
+            patch("plugin.writer.locale.ai_grammar_proofreader._ensure_persistence_bound"),
+            patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp),
+        ):
+            pr.ignoreRule(f"{LANGUAGETOOL_RULE_PREFIX}ENGLISH_WORD_REPEAT_RULE", None)
+
+        self.assertIn(f"{LANGUAGETOOL_RULE_PREFIX}ENGLISH_WORD_REPEAT_RULE", dp._ignored_rules)
+        self.assertIn("ENGLISH_WORD_REPEAT_RULE", dp._ignored_rules)
+        self.assertTrue(dp._persist_to_udprops.called)
+
+    def test_proofreader_ignore_legacy_bare_languagetool_rule(self) -> None:
+        ctx = MagicMock()
+        pr = WriterAgentAiGrammarProofreader(ctx)
+        pr._last_doc_id = "2"
+
+        dp = MagicMock()
+        dp._ignored_rules = set()
+
+        with (
+            patch("plugin.writer.locale.ai_grammar_proofreader._ensure_persistence_bound"),
+            patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp),
+        ):
+            pr.ignoreRule("ENGLISH_WORD_REPEAT_RULE", None)
+
+        self.assertIn("ENGLISH_WORD_REPEAT_RULE", dp._ignored_rules)
+        self.assertIn(f"{LANGUAGETOOL_RULE_PREFIX}ENGLISH_WORD_REPEAT_RULE", dp._ignored_rules)
         self.assertTrue(dp._persist_to_udprops.called)
 
     def test_collect_ignored_reasons_merges_doc_and_global(self) -> None:
