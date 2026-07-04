@@ -376,22 +376,12 @@ def generate_settings_dialog_tabs(modules, tpl_path, output_path):
     tab_x = 131
     page_num = 3
 
-    for m in modules:
+    from plugin.chatbot.settings_tab_order import iter_settings_tab_modules
+
+    for m in iter_settings_tab_modules(modules):
         name = m["name"]
-        if name in ("ai", "main", "core") or name in inline_set:
-            continue
-        if name in ("tunnel", "launcher"):
-            continue
-
-        if m.get("settings_tab") is False:
-            continue
-
         config = m.get("config", {})
         children = inline_map.get(name)
-
-        # Skip modules with no config properties and no inline children
-        if not config and not children:
-            continue
 
         # Create tab button
         tab_label = m.get("title", name.title())

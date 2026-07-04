@@ -167,6 +167,10 @@ Harper is **sentence-scoped end to end**:
 
 This matches LanguageTool and Vale and keeps memory bounded. LSP overhead scales with the number of **sentences** checked (e.g. a long paragraph yields several Harper calls, one per sentence), not with paragraph count alone.
 
+### Ignore All (rule-based)
+
+Harper diagnostics carry stable LSP `code` values (`SpellCheck`, `SentenceCapitalization`, …). WriterAgent maps them to `harper||{code}` rule identifiers and preserves that id through [`normalize_errors_for_text`](../plugin/writer/locale/grammar_proofread_text.py) into the sentence cache and UNO proofreading errors. When the user chooses **Ignore All** in Writer, [`ignoreRule`](../plugin/writer/locale/ai_grammar_proofreader.py) stores the full `harper||RuleCode` (and the bare code) in the document-embedded grammar cache `ignored_rules`; [`is_rule_ignored`](../plugin/writer/locale/grammar_ignore_rules.py) filters all matching instances on subsequent proofreading passes, including after save/reload.
+
 ---
 
 ## 8. Future Work

@@ -50,6 +50,23 @@ def test_normalize_errors_for_text() -> None:
     assert len(norms) == 1
     assert full[norms[0].n_error_start : norms[0].n_error_start + norms[0].n_error_length] == "they is"
 
+
+def test_normalize_errors_preserves_harper_rule_identifier() -> None:
+    full = "hello world."
+    items = [
+        {
+            "wrong": "hello",
+            "correct": "Hello",
+            "type": "SentenceCapitalization",
+            "reason": "Start with a capital letter.",
+            "rule_identifier": "harper||SentenceCapitalization",
+        }
+    ]
+    norms = gt.normalize_errors_for_text(full, 0, len(full), items)
+    assert len(norms) == 1
+    assert norms[0].rule_identifier == "harper||SentenceCapitalization"
+    assert norms[0].rule_identifier != "wa_g_rule||Start with a capital letter."
+
 def test_normalize_errors_respects_slice() -> None:
     full = "xx they is yy"
     items = [{"wrong": "they is", "correct": "they are", "type": "grammar", "reason": ""}]

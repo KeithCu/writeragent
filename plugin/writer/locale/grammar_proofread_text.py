@@ -285,7 +285,8 @@ def normalize_errors_for_text(full_text: str, n_slice_start: int, n_slice_end: i
         used_spans.append(span)
 
         reason = it.get("reason", "")
-        rule_id = f"wa_g_rule||{reason}"
+        existing = str(it.get("rule_identifier") or "").strip()
+        rule_id = existing if existing else f"wa_g_rule||{reason}"
 
         sugg = (correct,) if correct else ()
         typ = it.get("type", "grammar")

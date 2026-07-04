@@ -116,6 +116,8 @@ def _ignore_rule_on_main(ctx: Any, doc_id: str | None, rule_identifier: str) -> 
     p = get_persistence(ctx, doc_id) if doc_id else None
     if not p:
         return
+    from .grammar_ignore_rules import HARPER_RULE_PREFIX, parse_harper_rule_identifier
+
     if rule_identifier.startswith("wa_g_rule||"):
         reason = rule_identifier[11:]
         from .grammar_proofread_locale import normalize_reason
@@ -125,6 +127,14 @@ def _ignore_rule_on_main(ctx: Any, doc_id: str | None, rule_identifier: str) -> 
             p._ignored_rules.add(norm_reason)
         p._persist_to_udprops()
         log.debug("[grammar] ignoreRule added: '%s' (normalized: '%s') to doc_id=%s", reason, norm_reason, doc_id)
+    elif rule_identifier.startswith(HARPER_RULE_PREFIX):
+        code = parse_harper_rule_identifier(rule_identifier)
+        with p._lock:
+            p._ignored_rules.add(rule_identifier)
+            if code:
+                p._ignored_rules.add(code)
+        p._persist_to_udprops()
+        log.debug("[grammar] ignoreRule added Harper rule: '%s' to doc_id=%s", code or rule_identifier, doc_id)
     else:
         from .grammar_proofread_locale import normalize_reason
 

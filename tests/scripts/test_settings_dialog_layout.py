@@ -105,6 +105,21 @@ def test_doc_model_label_uses_right_column(tmp_path: Path) -> None:
     )
 
 
+def test_settings_tab_buttons_in_user_facing_order(tmp_path: Path) -> None:
+    """Module tabs follow SETTINGS_TAB_MODULE_ORDER, not manifest/topo-sort order."""
+    _xdl_path, xdl = _generate_settings_xdl(tmp_path)
+
+    tab_ids = (
+        "btn_tab_doc",
+        "btn_tab_chatbot",
+        "btn_tab_embeddings",
+        "btn_tab_mcp",
+        "btn_tab_scripting",
+    )
+    indices = [xdl.index(f'dlg:id="{tab_id}"') for tab_id in tab_ids]
+    assert indices == sorted(indices), f"tab order indices {dict(zip(tab_ids, indices, strict=True))}"
+
+
 def test_json_only_settings_absent_from_settings_xdl(tmp_path: Path) -> None:
     """Internal module.yaml keys are not emitted as Settings dialog controls."""
     xdl_path, _xdl = _generate_settings_xdl(tmp_path)

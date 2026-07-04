@@ -12,6 +12,20 @@ from .grammar_proofread_cache import ignored_rules_snapshot
 from .grammar_proofread_locale import normalize_reason
 
 WA_G_RULE_PREFIX = "wa_g_rule||"
+HARPER_RULE_PREFIX = "harper||"
+
+
+def parse_harper_rule_identifier(rule_identifier: str) -> str | None:
+    """Return Harper rule code suffix (e.g. ``SpellCheck``), or ``None`` when not a Harper id."""
+    if not rule_identifier.startswith(HARPER_RULE_PREFIX):
+        return None
+    code = rule_identifier[len(HARPER_RULE_PREFIX) :].strip()
+    return code or None
+
+
+def harper_rule_code(rule_identifier: str) -> str | None:
+    """Alias for :func:`parse_harper_rule_identifier`."""
+    return parse_harper_rule_identifier(rule_identifier)
 
 
 def is_rule_ignored(rule_identifier: str, doc_ignored: set[str], global_ignored: set[str]) -> bool:
@@ -19,6 +33,14 @@ def is_rule_ignored(rule_identifier: str, doc_ignored: set[str], global_ignored:
     if rule_identifier.startswith(WA_G_RULE_PREFIX):
         norm_reason = normalize_reason(rule_identifier[len(WA_G_RULE_PREFIX) :])
         return norm_reason in doc_ignored or rule_identifier in global_ignored
+    harper_code = parse_harper_rule_identifier(rule_identifier)
+    if harper_code is not None:
+        return (
+            rule_identifier in doc_ignored
+            or rule_identifier in global_ignored
+            or harper_code in doc_ignored
+            or harper_code in global_ignored
+        )
     return rule_identifier in doc_ignored or rule_identifier in global_ignored
 
 

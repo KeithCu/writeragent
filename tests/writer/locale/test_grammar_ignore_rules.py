@@ -7,10 +7,13 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from plugin.writer.locale.grammar_ignore_rules import (
+    HARPER_RULE_PREFIX,
     WA_G_RULE_PREFIX,
     collect_ignored_reasons,
     doc_ignored_rules,
+    harper_rule_code,
     is_rule_ignored,
+    parse_harper_rule_identifier,
 )
 from plugin.writer.locale.grammar_proofread_locale import normalize_reason
 from plugin.writer.locale.grammar_persistence import DocumentPersistence
@@ -31,6 +34,104 @@ class TestGrammarIgnoreRules(unittest.TestCase):
     def test_is_rule_ignored_not_ignored(self) -> None:
         rule = f"{WA_G_RULE_PREFIX}Use 'an' instead of 'a'."
         self.assertFalse(is_rule_ignored(rule, {"avoid passive voice"}, set()))
+
+    def test_parse_harper_rule_identifier(self) -> None:
+        self.assertEqual(parse_harper_rule_identifier("harper||SpellCheck"), "SpellCheck")
+        self.assertEqual(harper_rule_code("harper||SentenceCapitalization"), "SentenceCapitalization")
+        self.assertIsNone(parse_harper_rule_identifier("wa_g_rule||reason"))
+        self.assertIsNone(parse_harper_rule_identifier("harper||"))
+
+    def test_is_rule_ignored_harper_doc_full_id(self) -> None:
+        rule = f"{HARPER_RULE_PREFIX}SpellCheck"
+        self.assertTrue(is_rule_ignored(rule, {rule}, set()))
+
+    def test_is_rule_ignored_harper_doc_code_only(self) -> None:
+        rule = f"{HARPER_RULE_PREFIX}SpellCheck"
+        self.assertTrue(is_rule_ignored(rule, {"SpellCheck"}, set()))
+
+    def test_is_rule_ignored_harper_global(self) -> None:
+        rule = f"{HARPER_RULE_PREFIX}SpellCheck"
+        self.assertTrue(is_rule_ignored(rule, set(), {rule}))
+
+    def test_is_rule_ignored_harper_not_ignored(self) -> None:
+        rule = f"{HARPER_RULE_PREFIX}SpellCheck"
+        self.assertFalse(is_rule_ignored(rule, {f"{HARPER_RULE_PREFIX}SentenceCapitalization"}, set()))
+
+    def test_cached_errors_to_uno_tuple_filters_harper_ignored_rules(self) -> None:
+        ctx = MagicMock()
+        doc_id = "doc-x"
+
+        dp = MagicMock()
+        dp._ignored_rules = {f"{HARPER_RULE_PREFIX}SpellCheck"}
+
+        cached = (
+            {
+                "n_error_start": 0,
+                "n_error_length": 5,
+                "suggestions": ("correct",),
+                "short_comment": "Misspelled word",
+                "full_comment": "Misspelled word",
+                "rule_identifier": f"{HARPER_RULE_PREFIX}SpellCheck",
+            },
+            {
+                "n_error_start": 10,
+                "n_error_length": 3,
+                "suggestions": ("Fix",),
+                "short_comment": "Capitalize",
+                "full_comment": "Capitalize",
+                "rule_identifier": f"{HARPER_RULE_PREFIX}SentenceCapitalization",
+            },
+        )
+
+        with patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp):
+            res = _cached_errors_to_uno_tuple(cached, ctx, doc_id)
+
+        self.assertEqual(len(res), 1)
+        self.assertEqual(res[0].aRuleIdentifier, f"{HARPER_RULE_PREFIX}SentenceCapitalization")
+
+    def test_cached_errors_to_uno_tuple_filters_harper_after_reload(self) -> None:
+        """Doc persistence holds full Harper id; global registry empty (post-reload)."""
+        ctx = MagicMock()
+        doc_id = "doc-x"
+        dp = MagicMock()
+        dp._ignored_rules = {f"{HARPER_RULE_PREFIX}SpellCheck"}
+
+        cached = (
+            {
+                "n_error_start": 0,
+                "n_error_length": 5,
+                "suggestions": ("correct",),
+                "short_comment": "Misspelled word",
+                "full_comment": "Misspelled word",
+                "rule_identifier": f"{HARPER_RULE_PREFIX}SpellCheck",
+            },
+        )
+
+        with (
+            patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp),
+            patch("plugin.writer.locale.grammar_proofread_cache.ignored_rules_snapshot", return_value=set()),
+        ):
+            res = _cached_errors_to_uno_tuple(cached, ctx, doc_id)
+
+        self.assertEqual(len(res), 0)
+
+    def test_proofreader_ignore_harper_rule(self) -> None:
+        ctx = MagicMock()
+        pr = WriterAgentAiGrammarProofreader(ctx)
+        pr._last_doc_id = "2"
+
+        dp = MagicMock()
+        dp._ignored_rules = set()
+
+        with (
+            patch("plugin.writer.locale.ai_grammar_proofreader._ensure_persistence_bound"),
+            patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp),
+        ):
+            pr.ignoreRule(f"{HARPER_RULE_PREFIX}SpellCheck", None)
+
+        self.assertIn(f"{HARPER_RULE_PREFIX}SpellCheck", dp._ignored_rules)
+        self.assertIn("SpellCheck", dp._ignored_rules)
+        self.assertTrue(dp._persist_to_udprops.called)
 
     def test_collect_ignored_reasons_merges_doc_and_global(self) -> None:
         ctx = MagicMock()

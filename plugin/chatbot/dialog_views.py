@@ -840,31 +840,13 @@ def setup_module_tabs(dlg):
     """Register action listeners for module-specific tabs in the Settings dialog."""
     try:
         from plugin._manifest import MODULES
+        from plugin.chatbot.settings_tab_order import iter_settings_tab_modules
 
         # Map button ID to step index (starting from 3 for module tabs)
         # Core tabs: 1=Chat, 2=Image
         step = 3
-        for m in MODULES:
+        for m in iter_settings_tab_modules(MODULES):
             m_name = str(m.get("name", ""))
-            if m_name in ("main", "ai"):
-                continue
-
-            # Skip core modules that don't have user-facing config
-            m_config = m.get("config", {})
-            if not m_config:
-                continue
-
-            has_visible = False
-            if not isinstance(m_config, dict):
-                continue
-            for schema in m_config.values():
-                if isinstance(schema, dict) and not schema.get("internal") and schema.get("widget") != "list_detail" and schema.get("settings_persist") is not False:
-                    has_visible = True
-                    break
-            
-            if not has_visible:
-                continue
-
             prefix = m_name.replace(".", "_")
             btn_id = f"btn_tab_{prefix}"
             btn = get_optional(dlg, btn_id)
