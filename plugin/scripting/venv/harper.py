@@ -81,7 +81,6 @@ class HarperLSClient:
         self._doc_opened = False
         self.stdout_queue: queue.Queue = queue.Queue()
         self.stdout_thread: threading.Thread | None = None
-        self._lint_lock = threading.Lock()
         self._initialize()
 
     def _initialize(self) -> None:
@@ -224,23 +223,23 @@ class HarperLSClient:
         return suggestions
 
     def lint(self, text: str, bcp47: str = "en-US") -> list:
-        with self._lint_lock:
-            if not self.is_alive():
-                self._initialize()
+        # One lint at a time: venv worker IPC is serialized; grammar uses a single drain thread for Harper.
+        if not self.is_alive():
+            self._initialize()
 
-            self._apply_bcp47(bcp47)
-            self._doc_version += 1
-            version = self._doc_version
-            deadline = time.monotonic() + _LINT_BUDGET_SEC
+        self._apply_bcp47(bcp47)
+        self._doc_version += 1
+        version = self._doc_version
+        deadline = time.monotonic() + _LINT_BUDGET_SEC
 
-            try:
-                self._sync_document(text, version)
-                diagnostics = self._collect_diagnostics(version, deadline)
-                return [{"diagnostic": diag, "suggestions": self._suggestions_for_diagnostic(diag, deadline)} for diag in diagnostics]
-            except Exception as e:
-                log.error("[harper] Exception during linting, closing client: %s", e)
-                self.close()
-                raise
+        try:
+            self._sync_document(text, version)
+            diagnostics = self._collect_diagnostics(version, deadline)
+            return [{"diagnostic": diag, "suggestions": self._suggestions_for_diagnostic(diag, deadline)} for diag in diagnostics]
+        except Exception as e:
+            log.error("[harper] Exception during linting, closing client: %s", e)
+            self.close()
+            raise
 
     def close(self) -> None:
         if self.proc:

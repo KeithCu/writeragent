@@ -10,6 +10,9 @@ import os
 import re
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from plugin.framework.constants import get_locales_dir
 from plugin.writer.locale import grammar_proofread_locale as gl
@@ -200,4 +203,32 @@ def test_grammar_inflight_key_incomplete_stable() -> None:
     key = gl.grammar_inflight_key("doc1", "en-US", "H", is_complete=False)
     assert key == "doc1|en-US|INCOMPLETE_WRITER_AGENT_INTERNAL_STRING"
     assert key == gl.grammar_inflight_key("doc1", "en-US", "Hello world", is_complete=False)
+
+
+@pytest.mark.parametrize("provider", ("harper", "languagetool", "vale"))
+def test_grammar_max_in_flight_local_providers_always_one(provider: str) -> None:
+    ctx = MagicMock()
+    with (
+        patch("plugin.framework.config.get_config_int_safe", return_value=4),
+        patch("plugin.framework.config.get_grammar_provider", return_value=provider),
+    ):
+        assert gl.grammar_max_in_flight(ctx) == 1
+
+
+def test_grammar_max_in_flight_llm_uses_config() -> None:
+    ctx = MagicMock()
+    with (
+        patch("plugin.framework.config.get_config_int_safe", return_value=4),
+        patch("plugin.framework.config.get_grammar_provider", return_value="llm"),
+    ):
+        assert gl.grammar_max_in_flight(ctx) == 4
+
+
+def test_grammar_max_in_flight_llm_clamps_to_hard_cap() -> None:
+    ctx = MagicMock()
+    with (
+        patch("plugin.framework.config.get_config_int_safe", return_value=99),
+        patch("plugin.framework.config.get_grammar_provider", return_value="llm"),
+    ):
+        assert gl.grammar_max_in_flight(ctx) == gl.GRAMMAR_MAX_IN_FLIGHT
 

@@ -67,11 +67,18 @@ GRAMMAR_MAX_IN_FLIGHT = 8
 
 
 def grammar_max_in_flight(ctx: Any) -> int:
-    """Clamp ``doc.grammar_proofreader_max_in_flight`` to [1, GRAMMAR_MAX_IN_FLIGHT]."""
+    """Clamp ``doc.grammar_proofreader_max_in_flight`` to [1, GRAMMAR_MAX_IN_FLIGHT].
+
+    Local providers (Harper, LanguageTool, Vale) always use 1 worker; parallel
+    drain threads and HTTP slots apply only when the grammar provider is LLM.
+    """
     from plugin.framework import config
 
     n = config.get_config_int_safe("doc.grammar_proofreader_max_in_flight")
-    return max(1, min(GRAMMAR_MAX_IN_FLIGHT, n))
+    n = max(1, min(GRAMMAR_MAX_IN_FLIGHT, n))
+    if config.get_grammar_provider() != "llm":
+        return 1
+    return n
 
 
 # Maximum tokens requested for a single-sentence language detection LLM call.
