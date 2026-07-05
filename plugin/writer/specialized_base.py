@@ -60,7 +60,7 @@ class DelegateToSpecializedWriter(DelegateToSpecializedBase):
         "Delegates a specialized task with a focused toolset. "
         f"document_research {DELEGATION_USER_FILE_DATA_HINT}; web_research {DELEGATION_PUBLIC_WEB_HINT}. "
         "Also: charts, fields, styles, page, textframes, embedded (active doc OLE only), shapes, indexes, "
-        "bookmarks, tracking, footnotes, forms, images, vision (local OCR when venv configured)."
+        "bookmarks, tracking, footnotes, tables, forms, images, vision (local OCR when venv configured)."
     )
 
     uno_services = ["com.sun.star.text.TextDocument"]
@@ -167,6 +167,12 @@ class ToolWriterStructuralBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "structural"
     specialized_domain_description: ClassVar[str | None] = "Document navigation, headings, and structural summary."
     intent = "navigate"
+
+
+class ToolWriterTableBase(ToolWriterSpecialBase):
+    specialized_domain: ClassVar[str | None] = "tables"
+    specialized_domain_description: ClassVar[str | None] = "Read and edit table structure and cell contents (rows, columns, cells)."
+    intent = "edit"
 
 
 class ToolWriterFootnoteBase(ToolWriterSpecialBase):
