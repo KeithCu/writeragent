@@ -33,6 +33,7 @@ from plugin.framework.errors import safe_json_loads, format_error_payload, Agent
 from plugin.framework.config import get_api_config, get_config, get_config_int_safe, as_bool
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.constants import get_core_directives, CHAT_DOCUMENT_CONTEXT_MAX_CHARS
+from plugin.framework.agent_manual import full_manual_for_model
 from plugin.framework.queue_executor import llm_request_lane
 from plugin.doc.document_helpers import get_document_context_for_chat
 from plugin.agent_backend import get_backend
@@ -356,7 +357,11 @@ class SendHandlersMixin:
                     )
 
                 core_dirs = get_core_directives(model)
-                lean_system_prompt = f"{core_dirs}\n\nYou are currently interacting with a LibreOffice document.\n{mcp_instructions}\nPlease proceed with the user's request."
+                # Inject the FULL shared manual: the same prompt pieces (constants) that feed the
+                # sidebar's hybrid prompt and get_guidance's topics, concatenated by agent_manual
+                # WITH the MCP extras (this backend talks to the HTTP server, so e.g. the 429
+                # concurrency contract applies here, unlike the in-process sidebar).
+                lean_system_prompt = f"{core_dirs}\n\n{full_manual_for_model(model)}\n\nYou are currently interacting with a LibreOffice document.\n{mcp_instructions}\nPlease proceed with the user's request."
 
                 # Add optional instructions from settings
                 extra = str(get_config("additional_instructions") or "").strip()

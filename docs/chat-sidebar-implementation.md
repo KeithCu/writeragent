@@ -32,7 +32,7 @@ See [streaming-and-threading.md](streaming-and-threading.md) §§3.3–3.4 for i
 
 ## Chat prompt constants
 
-Writer main-chat system prompt blocks in [`constants.py`](../plugin/framework/constants.py) are ordered to match runtime assembly in `get_chat_system_prompt_for_document` (persona → chat format → sidebar routing → core directives → tools → translation → usage patterns → `apply_document_content` HTML rules → specialized delegation).
+Writer main-chat system prompt blocks in [`constants.py`](../plugin/framework/constants.py) are ordered to match runtime assembly in `get_chat_system_prompt_for_document` (persona → chat format → sidebar routing → core directives → tools → translation → usage patterns → review modes → `apply_document_content` HTML rules → specialized delegation → memory). The delivery is hybrid: the reference pieces (search, navigation, images) are NOT ambient — the sidebar pulls them on demand via the `get_guidance` tool (topics mapped in `plugin/framework/agent_manual.py`, the same single source the MCP serves).
 
 Design notes for prompt authors live in this section so the source file stays scannable.
 

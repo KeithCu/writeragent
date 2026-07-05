@@ -225,6 +225,7 @@ This section is the important mental model for integrating Cursor, LM Studio, or
 `tools/list` returns **core-tier** tools only. Tools with `tier="specialized"` or `tier="specialized_control"` are **omitted** from the default registry filter (see [`plugin/framework/tool.py`](../plugin/framework/tool.py) `get_tools` / `get_schemas`). The host typically receives:
 
 - Document I/O: `get_document_content`, `apply_document_content`, `search_in_document`, `get_document_tree`, …
+- Guidance: **`get_guidance(topic)`** — the on-demand how-to manual (topics per document type; single source: the shared prompt pieces in `plugin/framework/constants.py`, mapped by `plugin/framework/agent_manual.py`)
 - A single gateway: **`delegate_to_specialized_writer_toolset`** ([`plugin/doc/specialized_base.py`](../plugin/doc/specialized_base.py), Writer variant in [`plugin/writer/specialized_base.py`](../plugin/writer/specialized_base.py))
 
 It does **not** receive dozens of low-level UNO tools (`list_styles`, page margin APIs, chart editors, etc.) as separate MCP tools.
@@ -248,7 +249,7 @@ Other MCP surfaces (for integrators):
 | Surface | Status | Delegation / routing hints |
 |---------|--------|----------------------------|
 | **`tools/list`** | Implemented | **Primary** — use the delegate gateway tool metadata above |
-| **`initialize` → `instructions`** | Short transport stub only | Does not include full chat prompt or domain list today |
+| **`initialize` → `instructions`** | Short stub + pointer to the on-demand manual (`get_guidance` topics, per document type) | Does not include the full chat prompt; the behavioral manual is pulled per topic via `get_guidance` |
 | **`prompts/list` / `prompts/get`** | Empty | Could expose full system prompt later; not implemented |
 | **`resources/list` / `resources/read`** | Empty | Not used for guidance |
 | **`GET /`** | Server name, version, routes | Does **not** return agent instructions (older docs were wrong) |
@@ -470,7 +471,7 @@ is straightforward.
 
 Use **`POST /mcp`** with JSON-RPC 2.0:
 
-- **`initialize`** — protocol handshake; `result.instructions` is a short WriterAgent/MCP workflow stub (not the full sidebar system prompt).
+- **`initialize`** — protocol handshake; `result.instructions` is a short WriterAgent/MCP workflow stub plus a pointer to `get_guidance(topic)`, the on-demand behavioral manual (not the full sidebar system prompt).
 - **`tools/list`** — core-tier tools for the target document (`X-Document-URL` header or active document). Each tool has `name`, `description`, and `inputSchema`. Specialized domains are documented on **`delegate_to_specialized_{writer|calc|draw}_toolset`** (see [Where delegation guidance lives](#where-delegation-guidance-lives-mcp-vs-sidebar-chat)).
 - **`tools/call`** — run a tool on the LibreOffice main thread.
 
@@ -1008,6 +1009,8 @@ is much simpler and doesn't explain when to use it vs rewriting the whole docume
 ---
 
 ### System prompt additions worth making now
+
+> **Historical analysis — superseded.** The review-workflow suggestion below predates the shipped review-mode contract: `WRITER_REVIEW_MODES_RULES` (constants.py) now says the USER picks the review mode and the agent must NEVER accept/reject its own tracked changes. Paths/names are also stale (`core/constants.py` → `plugin/framework/constants.py`; `target="full"` → `full_document`; "FORMATTING RULES" → "APPLY_DOCUMENT_CONTENT AND HTML"). Kept for history only.
 
 The `DEFAULT_CHAT_SYSTEM_PROMPT` in `core/constants.py` should get a workflow section for
 the new tools. Currently the TOOLS list mentions them but gives no usage patterns. Suggested
