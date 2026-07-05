@@ -590,6 +590,39 @@ def close_document_research_document(model: Any, *, opened_for_document_research
         log.exception("Failed to close document_research read document")
 
 
+def _is_same_document(model: Any, active_model: Any) -> bool:
+    """Proxy-safe document identity for the is_active flag.
+
+    ``model == active_model`` is ALWAYS False on guard-enabled builds: both sides are fresh
+    _UnoThreadGuardProxy instances (no __eq__), so the old identity compare reported
+    is_active=false even for the genuinely active document. Compare the stable runtime uid
+    instead, falling back to the URL for models without one."""
+    if model is None or active_model is None:
+        return False
+    from plugin.doc.document_helpers import get_runtime_uid
+
+    try:
+        ua, ub = get_runtime_uid(model), get_runtime_uid(active_model)
+        if ua and ub:
+            return ua == ub
+    except Exception:
+        pass
+    try:
+        url = str(getattr(model, "URL", "") or "")
+        return bool(url) and url == str(getattr(active_model, "URL", "") or "")
+    except Exception:
+        return False
+
+
+def _is_modified(model: Any) -> bool:
+    """doc.isModified() (XModifiable), best-effort. Lets an agent SEE unsaved changes so it can
+    tell the user to save. The agent never saves itself (user owns persistence)."""
+    try:
+        return bool(model.isModified())
+    except Exception:
+        return False
+
+
 def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str, Any]]:
     """Retrieve all open documents from the desktop context with metadata."""
     from plugin.framework.thread_guard import assert_main_thread
@@ -631,7 +664,8 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
                 "uid": get_runtime_uid(model),
                 "path": "",
                 "doc_type": doc_type,
-                "is_active": (active_model is not None and model == active_model)
+                "is_active": _is_same_document(model, active_model),
+                "modified": _is_modified(model)
             })
             continue
         
@@ -656,7 +690,8 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
             "uid": get_runtime_uid(model),
             "path": path,
             "doc_type": doc_type_guess,
-            "is_active": (active_model is not None and model == active_model)
+            "is_active": _is_same_document(model, active_model),
+            "modified": _is_modified(model)
         })
     return docs
 

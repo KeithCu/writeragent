@@ -12,6 +12,12 @@ Some unexpected-failure message boxes include **Report bug...** and **Copy URL**
 
 Debug builds (UNO thread guard) also offer report on thread-violation popups.
 
+## Agent tool
+
+The agent (chat or MCP) can call **`report_bug`** to capture a bad experience without leaving the conversation. It takes a `summary`, `details`, and a `category` (`bug`, `ux`, or `feature`), records the feedback to a local log (the durable record), and builds the same pre-filled GitHub issue URL as the menu. It **never auto-submits**: the tool returns `github_issue_url` for the agent to show the user, who reviews and files it. No document text, chat history, or API keys are sent.
+
+Implementation: `ReportBug` in [`plugin/doc/document_research_tools.py`](../plugin/doc/document_research_tools.py).
+
 ## What is collected automatically
 
 | Field | Notes |
