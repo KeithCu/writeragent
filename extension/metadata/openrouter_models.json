@@ -1,6 +1,71 @@
 {
-  "updated_at": "2026-07-02T00:10:10.909Z",
+  "updated_at": "2026-07-05T21:10:10.177Z",
   "models": [
+    {
+      "id": "poolside/laguna-xs-2.1:free",
+      "name": "Laguna XS 2.1 (free)",
+      "author_name": "Poolside",
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "free",
+      "version_id": "poolside/laguna-xs-2.1-20260625",
+      "created_at": "2026-07-02T14:27:09.627Z",
+      "context_length": 262144,
+      "supported_parameters": [
+        "include_reasoning",
+        "max_tokens",
+        "reasoning",
+        "temperature",
+        "tool_choice",
+        "tools"
+      ],
+      "chat_completions": true,
+      "native_web_search": false,
+      "pricing": null
+    },
+    {
+      "id": "poolside/laguna-xs-2.1",
+      "name": "Laguna XS 2.1",
+      "author_name": "Poolside",
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "standard",
+      "version_id": "poolside/laguna-xs-2.1-20260625",
+      "created_at": "2026-07-02T14:27:09.627Z",
+      "context_length": 262144,
+      "supported_parameters": [
+        "include_reasoning",
+        "max_tokens",
+        "reasoning",
+        "temperature",
+        "tool_choice",
+        "tools"
+      ],
+      "chat_completions": true,
+      "native_web_search": false,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": 3e-08,
+        "text_cache_write": null,
+        "text_input": 6e-08,
+        "text_output": 1.2e-07
+      }
+    },
     {
       "id": "anthropic/claude-sonnet-5",
       "name": "Claude Sonnet 5",
@@ -209,10 +274,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 2.72609e-07,
+        "text_cache_read": 2.59718e-07,
         "text_cache_write": null,
-        "text_input": 1.335636e-06,
-        "text_output": 4.363529e-06
+        "text_input": 1.282814e-06,
+        "text_output": 4.183743e-06
       }
     },
     {
@@ -263,10 +328,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1.96033e-07,
+        "text_cache_read": 1.89367e-07,
         "text_cache_write": null,
-        "text_input": 9.74333e-07,
-        "text_output": 4.205833e-06
+        "text_input": 9.51833e-07,
+        "text_output": 4.108333e-06
       }
     },
     {
@@ -486,8 +551,8 @@
         "reasoning_output": null,
         "text_cache_read": 6e-08,
         "text_cache_write": null,
-        "text_input": 3.5e-07,
-        "text_output": 1.4e-06
+        "text_input": 3.42857e-07,
+        "text_output": 1.371429e-06
       }
     },
     {
@@ -1495,7 +1560,7 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1.4e-07,
+        "text_cache_read": 1.425e-07,
         "text_cache_write": null,
         "text_input": 3.54333e-07,
         "text_output": 2.827778e-06
@@ -1631,10 +1696,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1.27102e-07,
+        "text_cache_read": 1.26377e-07,
         "text_cache_write": null,
-        "text_input": 1.396967e-06,
-        "text_output": 2.791e-06
+        "text_input": 1.388847e-06,
+        "text_output": 2.77476e-06
       }
     },
     {
@@ -1682,10 +1747,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 3.0283e-08,
+        "text_cache_read": 3.0235e-08,
         "text_cache_write": null,
-        "text_input": 1.28199e-07,
-        "text_output": 2.57585e-07
+        "text_input": 1.28006e-07,
+        "text_output": 2.572e-07
       }
     },
     {
@@ -1878,10 +1943,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 4.8825e-08,
+        "text_cache_read": 4.57e-08,
         "text_cache_write": null,
-        "text_input": 1.92e-07,
-        "text_output": 6.38e-07
+        "text_input": 1.85e-07,
+        "text_output": 6.24e-07
       }
     },
     {
@@ -1978,10 +2043,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1.761e-07,
+        "text_cache_read": 1.79579e-07,
         "text_cache_write": null,
-        "text_input": 8.25667e-07,
-        "text_output": 3.720952e-06
+        "text_input": 8.3945e-07,
+        "text_output": 3.747e-06
       }
     },
     {
@@ -2049,10 +2114,8 @@
         "logprobs",
         "max_tokens",
         "min_p",
-        "parallel_tool_calls",
         "presence_penalty",
         "reasoning",
-        "reasoning_effort",
         "repetition_penalty",
         "response_format",
         "seed",
@@ -2074,10 +2137,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 3.06667e-07,
+        "text_cache_read": 2.86965e-07,
         "text_cache_write": null,
-        "text_input": 1.233421e-06,
-        "text_output": 3.955789e-06
+        "text_input": 1.211722e-06,
+        "text_output": 3.928667e-06
       }
     },
     {
@@ -2127,10 +2190,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 5.6667e-08,
+        "text_cache_read": 5.5e-08,
         "text_cache_write": null,
-        "text_input": 1.1825e-07,
-        "text_output": 4.07e-07
+        "text_input": 1.15e-07,
+        "text_output": 3.97e-07
       }
     },
     {
@@ -2153,6 +2216,7 @@
       "supported_parameters": [
         "frequency_penalty",
         "include_reasoning",
+        "logprobs",
         "max_tokens",
         "presence_penalty",
         "reasoning",
@@ -2165,6 +2229,7 @@
         "tool_choice",
         "tools",
         "top_k",
+        "top_logprobs",
         "top_p"
       ],
       "chat_completions": true,
@@ -2220,8 +2285,8 @@
         "reasoning_output": null,
         "text_cache_read": 8.25e-08,
         "text_cache_write": null,
-        "text_input": 1.76154e-07,
-        "text_output": 4.96923e-07
+        "text_input": 1.88462e-07,
+        "text_output": 5.4e-07
       }
     },
     {
@@ -2842,7 +2907,7 @@
         "reasoning_output": null,
         "text_cache_read": null,
         "text_cache_write": null,
-        "text_input": 1.7125e-07,
+        "text_input": 1.6875e-07,
         "text_output": 5.5125e-07
       }
     },
@@ -3738,10 +3803,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 6.4071e-08,
+        "text_cache_read": 6.3357e-08,
         "text_cache_write": null,
-        "text_input": 2.6875e-07,
-        "text_output": 1.1925e-06
+        "text_input": 2.64375e-07,
+        "text_output": 1.1775e-06
       }
     },
     {
@@ -3789,10 +3854,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 2.42308e-07,
+        "text_cache_read": 2.20833e-07,
         "text_cache_write": null,
-        "text_input": 8.9e-07,
-        "text_output": 2.778e-06
+        "text_input": 8.82143e-07,
+        "text_output": 2.747857e-06
       }
     },
     {
@@ -5883,8 +5948,8 @@
         "reasoning_output": null,
         "text_cache_read": 1.2e-07,
         "text_cache_write": null,
-        "text_input": 1.49e-07,
-        "text_output": 5.68333e-07
+        "text_input": 1.835e-07,
+        "text_output": 6.025e-07
       }
     },
     {
@@ -6058,10 +6123,8 @@
         "max_tokens",
         "presence_penalty",
         "reasoning",
-        "repetition_penalty",
         "response_format",
         "seed",
-        "stop",
         "structured_outputs",
         "temperature",
         "tool_choice",
@@ -6081,8 +6144,8 @@
         "reasoning_output": null,
         "text_cache_read": null,
         "text_cache_write": null,
-        "text_input": 2.06667e-07,
-        "text_output": 1.186667e-06
+        "text_input": 2.1e-07,
+        "text_output": 1.28e-06
       }
     },
     {
@@ -6463,10 +6526,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1.05e-07,
+        "text_cache_read": 1.03333e-07,
         "text_cache_write": null,
-        "text_input": 2.44e-07,
-        "text_output": 1.364e-06
+        "text_input": 2.36e-07,
+        "text_output": 1.444e-06
       }
     },
     {
@@ -6732,8 +6795,8 @@
         "reasoning_output": null,
         "text_cache_read": null,
         "text_cache_write": null,
-        "text_input": 1.325e-07,
-        "text_output": 1.16e-06
+        "text_input": 1.2375e-07,
+        "text_output": 9.9e-07
       }
     },
     {
@@ -7486,6 +7549,7 @@
       "supported_parameters": [
         "frequency_penalty",
         "include_reasoning",
+        "logprobs",
         "max_tokens",
         "min_p",
         "presence_penalty",
@@ -7500,6 +7564,7 @@
         "tools",
         "top_a",
         "top_k",
+        "top_logprobs",
         "top_p"
       ],
       "chat_completions": true,

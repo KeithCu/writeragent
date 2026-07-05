@@ -13,6 +13,11 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import pytest
 
 _BRIDGE_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "scripts", "mcp_bridge.py")
+if not os.path.isfile(_BRIDGE_PATH):
+    pytest.skip(
+        "scripts/mcp_bridge.py not available (e.g., bundled release builds)",
+        allow_module_level=True,
+    )
 _spec = importlib.util.spec_from_file_location("wa_mcp_bridge", _BRIDGE_PATH)
 bridge = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(bridge)

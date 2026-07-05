@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-02 21:14-0400\n"
+"POT-Creation-Date: 2026-07-05 17:17-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Lithuanian <LL@li.org>\n"
@@ -364,6 +364,18 @@ msgstr ""
 "Modelis kartoja tą patį fragmentą (begalinis ciklas). Bandykite dar kartą "
 "arba naudokite kitą modelį."
 
+#: plugin/framework/config.py
+msgid "Chat max tokens must be >= 0"
+msgstr "Maksimalus pokalbio žetonų skaičius turi būti >= 0"
+
+#: plugin/framework/config.py
+msgid "Request timeout must be > 0"
+msgstr "Užklausos skirtasis laikas turi būti > 0"
+
+#: plugin/framework/config.py
+msgid "Temperature must be <= 1.0"
+msgstr "Temperatūra turi būti <= 1.0"
+
 #: plugin/calc/python/editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
 msgstr "Redaguoti Python langelyje..."
@@ -441,15 +453,6 @@ msgstr "Paveikslėlis įterptas"
 msgid "Images inserted"
 msgstr "Įterpti paveikslėliai"
 
-#: plugin/calc/editselection.py plugin/writer/editselection.py
-msgid "Please enter edit instructions!"
-msgstr "Įveskite redagavimo instrukcijas!"
-
-#: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/xdl_strings.py
-msgid "Input"
-msgstr "Įvestis"
-
 #: plugin/calc/editselection.py
 msgid "WriterAgent: Edit Selection (Calc)"
 msgstr "WriterAgent: redaguoti pažymėtą sritį (Calc)"
@@ -489,11 +492,11 @@ msgstr "Priimti šį pakeitimą"
 msgid "Reject this change"
 msgstr "Atmesti šį pakeitimą"
 
-#: plugin/writer/editselection.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: išplėsti pažymėtą sritį"
 
-#: plugin/writer/editselection.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: redaguoti pažymėtą sritį"
 
@@ -892,6 +895,11 @@ msgid "Waiting for approval…"
 msgstr "Laukiama patvirtinimo…"
 
 #: plugin/chatbot/panel.py
+#, python-format
+msgid "Recording audio… (%d ms silence)"
+msgstr "Įrašomas garsas… (%d ms tyla)"
+
+#: plugin/chatbot/panel.py
 msgid "Record"
 msgstr "Įrašyti"
 
@@ -936,14 +944,6 @@ msgid ""
 msgstr ""
 "[Modelis {0} nepalaiko vietinio garso. Nustatymuose pasirinkite STT modelį.]"
 
-#: plugin/chatbot/settings_dialog.py
-msgid "Invalid Setting"
-msgstr "Netinkama nuostata"
-
-#: plugin/chatbot/settings_dialog.py
-msgid "Temperature must be <= 1.0"
-msgstr "Temperatūra turi būti <= 1.0"
-
 #: plugin/chatbot/web_research_chat.py
 #, python-format
 msgid "This search query '%s' will be sent to the search engine."
@@ -956,6 +956,15 @@ msgid ""
 "%(matched)s)"
 msgstr ""
 "Tyrimų talpyklos pataikymas (neaiškus, %(pct)s%% atitikmuo: "
+"%(lang_bit)s%(cache_key)s → %(matched)s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid ""
+"Research cache hit (embedding, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
+"%(matched)s)"
+msgstr ""
+"Tyrimų podėlio pataikymas (įdėjimas, %(pct)s%% atitiktis: "
 "%(lang_bit)s%(cache_key)s → %(matched)s)"
 
 #: plugin/chatbot/web_research_chat.py
@@ -1104,6 +1113,31 @@ msgstr "Nežinoma tyrimų klaida."
 msgid "[Research error: {0}]"
 msgstr "[Tyrimų klaida: {0}]"
 
+#: plugin/chatbot/selection.py
+msgid "Please enter edit instructions!"
+msgstr "Įveskite redagavimo instrukcijas!"
+
+#: plugin/chatbot/selection.py plugin/xdl_strings.py
+msgid "Input"
+msgstr "Įvestis"
+
+#: plugin/chatbot/selection.py
+msgid "Edit"
+msgstr "Redaguoti"
+
+#: plugin/chatbot/selection.py
+msgid "Extend"
+msgstr "Išplėsti"
+
+#: plugin/chatbot/selection.py
+#, python-brace-format
+msgid "{0} selection not supported for this document type"
+msgstr "{0} pasirinkimas nepalaikomas šio tipo dokumentui"
+
+#: plugin/chatbot/selection.py
+msgid "No document open"
+msgstr "Nėra atidaryto dokumento"
+
 #: plugin/chatbot/extension_update_check.py
 msgid "Update available"
 msgstr "Yra naujinimų"
@@ -1124,6 +1158,10 @@ msgstr "Perjungiama į dokumento režimą..."
 #: plugin/chatbot/dialog_views.py plugin/main.py plugin/xdl_strings.py
 msgid "Settings"
 msgstr "Nuostatos"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Invalid Setting"
+msgstr "Netinkama nuostata"
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -2560,6 +2598,16 @@ msgstr ""
 "writeragent/skills/humanizer/SKILL.md (failas automatiškai sukuriamas "
 "pirmojo naudojimo metu). Specialus įgūdžių skirtukas gali būti pridėtas "
 "vėliau."
+
+msgid "Silence before send (ms)"
+msgstr "Tyla prieš siunčiant (ms)"
+
+msgid ""
+"Pause after you stop talking, then auto-stop and send (Record). 0 = wait "
+"until you click Stop Rec."
+msgstr ""
+"Pauzė nustojus kalbėti, tada automatinis sustabdymas ir siuntimas (Įrašyti)."
+" 0 = laukti, kol paspausite „Stabdyti įrašymą“."
 
 msgid "Doc"
 msgstr "Dokumentas"

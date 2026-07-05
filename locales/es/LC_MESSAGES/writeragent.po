@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-02 21:14-0400\n"
+"POT-Creation-Date: 2026-07-05 17:17-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Spanish <LL@li.org>\n"
@@ -364,6 +364,18 @@ msgstr ""
 "El modelo está repitiendo el mismo fragmento (bucle infinito). Inténtalo de "
 "nuevo o usa un modelo diferente."
 
+#: plugin/framework/config.py
+msgid "Chat max tokens must be >= 0"
+msgstr "El máximo de tokens del chat debe ser >= 0"
+
+#: plugin/framework/config.py
+msgid "Request timeout must be > 0"
+msgstr "El tiempo de espera de la solicitud debe ser > 0"
+
+#: plugin/framework/config.py
+msgid "Temperature must be <= 1.0"
+msgstr "La temperatura debe ser <= 1.0"
+
 #: plugin/calc/python/editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
 msgstr "Editar Python en celda..."
@@ -442,15 +454,6 @@ msgstr "Imagen insertada"
 msgid "Images inserted"
 msgstr "Imágenes insertadas"
 
-#: plugin/calc/editselection.py plugin/writer/editselection.py
-msgid "Please enter edit instructions!"
-msgstr "¡Por favor ingrese las instrucciones de edición!"
-
-#: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/xdl_strings.py
-msgid "Input"
-msgstr "Entrada"
-
 #: plugin/calc/editselection.py
 msgid "WriterAgent: Edit Selection (Calc)"
 msgstr "WriterAgent: Editar Selección (Calc)"
@@ -487,11 +490,11 @@ msgstr "Aceptar este cambio"
 msgid "Reject this change"
 msgstr "Rechazar este cambio"
 
-#: plugin/writer/editselection.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Ampliar selección"
 
-#: plugin/writer/editselection.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Editar selección"
 
@@ -890,6 +893,11 @@ msgid "Waiting for approval…"
 msgstr "Esperando aprobación…"
 
 #: plugin/chatbot/panel.py
+#, python-format
+msgid "Recording audio… (%d ms silence)"
+msgstr "Grabando audio… (%d ms de silencio)"
+
+#: plugin/chatbot/panel.py
 msgid "Record"
 msgstr "Grabar"
 
@@ -935,14 +943,6 @@ msgstr ""
 "[El modelo {0} no soporta audio nativo. Por favor, selecciona un Modelo STT "
 "en Configuración.]"
 
-#: plugin/chatbot/settings_dialog.py
-msgid "Invalid Setting"
-msgstr "Configuración no válida"
-
-#: plugin/chatbot/settings_dialog.py
-msgid "Temperature must be <= 1.0"
-msgstr "La temperatura debe ser <= 1.0"
-
 #: plugin/chatbot/web_research_chat.py
 #, python-format
 msgid "This search query '%s' will be sent to the search engine."
@@ -955,6 +955,15 @@ msgid ""
 "%(matched)s)"
 msgstr ""
 "Acierto de caché de investigación (coincidencia difusa, %(pct)s%%: "
+"%(lang_bit)s%(cache_key)s → %(matched)s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid ""
+"Research cache hit (embedding, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
+"%(matched)s)"
+msgstr ""
+"Acierto en caché de investigación (incrustación, %(pct)s%% coincidencia: "
 "%(lang_bit)s%(cache_key)s → %(matched)s)"
 
 #: plugin/chatbot/web_research_chat.py
@@ -1103,6 +1112,31 @@ msgstr "Error de investigación desconocido."
 msgid "[Research error: {0}]"
 msgstr "[Error de investigación: {0}]"
 
+#: plugin/chatbot/selection.py
+msgid "Please enter edit instructions!"
+msgstr "¡Por favor ingrese las instrucciones de edición!"
+
+#: plugin/chatbot/selection.py plugin/xdl_strings.py
+msgid "Input"
+msgstr "Entrada"
+
+#: plugin/chatbot/selection.py
+msgid "Edit"
+msgstr "Editar"
+
+#: plugin/chatbot/selection.py
+msgid "Extend"
+msgstr "Extender"
+
+#: plugin/chatbot/selection.py
+#, python-brace-format
+msgid "{0} selection not supported for this document type"
+msgstr "La selección {0} no es compatible con este tipo de documento"
+
+#: plugin/chatbot/selection.py
+msgid "No document open"
+msgstr "No hay ningún documento abierto"
+
 #: plugin/chatbot/extension_update_check.py
 msgid "Update available"
 msgstr "Actualización disponible"
@@ -1124,6 +1158,10 @@ msgstr "Cambiando al modo de documento..."
 #: plugin/chatbot/dialog_views.py plugin/main.py plugin/xdl_strings.py
 msgid "Settings"
 msgstr "Configuración"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Invalid Setting"
+msgstr "Configuración no válida"
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -2574,6 +2612,16 @@ msgstr ""
 "perfil de LibreOffice en writeragent/skills/humanizer/SKILL.md (el archivo "
 "se crea automáticamente en el primer uso). Se podrá añadir una pestaña de "
 "Habilidades dedicada más adelante."
+
+msgid "Silence before send (ms)"
+msgstr "Silencio antes de enviar (ms)"
+
+msgid ""
+"Pause after you stop talking, then auto-stop and send (Record). 0 = wait "
+"until you click Stop Rec."
+msgstr ""
+"Pausa tras dejar de hablar, luego detener automáticamente y enviar (Grabar)."
+" 0 = esperar hasta hacer clic en Detener grabación."
 
 msgid "Doc"
 msgstr "Doc"

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-02 21:14-0400\n"
+"POT-Creation-Date: 2026-07-05 17:17-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Czech <LL@li.org>\n"
@@ -366,6 +366,18 @@ msgstr ""
 "Model opakuje stejný úsek (nekonečná smyčka). Zkuste to znovu nebo použijte "
 "jiný model."
 
+#: plugin/framework/config.py
+msgid "Chat max tokens must be >= 0"
+msgstr "Maximální počet tokenů chatu musí být >= 0"
+
+#: plugin/framework/config.py
+msgid "Request timeout must be > 0"
+msgstr "Časový limit požadavku musí být > 0"
+
+#: plugin/framework/config.py
+msgid "Temperature must be <= 1.0"
+msgstr "Teplota musí být <= 1.0"
+
 #: plugin/calc/python/editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
 msgstr "Upravit Python v buňce..."
@@ -442,15 +454,6 @@ msgstr "Obrázek vložen"
 msgid "Images inserted"
 msgstr "Vložené obrázky"
 
-#: plugin/calc/editselection.py plugin/writer/editselection.py
-msgid "Please enter edit instructions!"
-msgstr "Prosím, zadejte pokyny pro úpravy!"
-
-#: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/xdl_strings.py
-msgid "Input"
-msgstr "Vstup"
-
 #: plugin/calc/editselection.py
 msgid "WriterAgent: Edit Selection (Calc)"
 msgstr "WriterAgent: Upravit výběr (Calc)"
@@ -488,11 +491,11 @@ msgstr "Přijmout tuto změnu"
 msgid "Reject this change"
 msgstr "Odmítnout tuto změnu"
 
-#: plugin/writer/editselection.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Rozšířit výběr"
 
-#: plugin/writer/editselection.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Upravit výběr"
 
@@ -891,6 +894,11 @@ msgid "Waiting for approval…"
 msgstr "Čeká se na schválení…"
 
 #: plugin/chatbot/panel.py
+#, python-format
+msgid "Recording audio… (%d ms silence)"
+msgstr "Nahrávání zvuku… (%d ms ticha)"
+
+#: plugin/chatbot/panel.py
 msgid "Record"
 msgstr "Nahrát"
 
@@ -935,14 +943,6 @@ msgid ""
 msgstr ""
 "[Model {0} nepodporuje nativní zvuk. Prosím, vyberte model STT v Nastavení.]"
 
-#: plugin/chatbot/settings_dialog.py
-msgid "Invalid Setting"
-msgstr "Neplatné nastavení"
-
-#: plugin/chatbot/settings_dialog.py
-msgid "Temperature must be <= 1.0"
-msgstr "Teplota musí být <= 1.0"
-
 #: plugin/chatbot/web_research_chat.py
 #, python-format
 msgid "This search query '%s' will be sent to the search engine."
@@ -955,6 +955,15 @@ msgid ""
 "%(matched)s)"
 msgstr ""
 "Nalezeno v mezipaměti výzkumu (přibližná shoda %(pct)s%%: "
+"%(lang_bit)s%(cache_key)s → %(matched)s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid ""
+"Research cache hit (embedding, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
+"%(matched)s)"
+msgstr ""
+"Nalezeno ve vyrovnávací paměti výzkumu (embedding, %(pct)s%% shoda: "
 "%(lang_bit)s%(cache_key)s → %(matched)s)"
 
 #: plugin/chatbot/web_research_chat.py
@@ -1103,6 +1112,31 @@ msgstr "Neznámá chyba výzkumu."
 msgid "[Research error: {0}]"
 msgstr "[Chyba výzkumu: {0}]"
 
+#: plugin/chatbot/selection.py
+msgid "Please enter edit instructions!"
+msgstr "Prosím, zadejte pokyny pro úpravy!"
+
+#: plugin/chatbot/selection.py plugin/xdl_strings.py
+msgid "Input"
+msgstr "Vstup"
+
+#: plugin/chatbot/selection.py
+msgid "Edit"
+msgstr "Upravit"
+
+#: plugin/chatbot/selection.py
+msgid "Extend"
+msgstr "Rozšířit"
+
+#: plugin/chatbot/selection.py
+#, python-brace-format
+msgid "{0} selection not supported for this document type"
+msgstr "{0} výběr není pro tento typ dokumentu podporován"
+
+#: plugin/chatbot/selection.py
+msgid "No document open"
+msgstr "Není otevřen žádný dokument"
+
 #: plugin/chatbot/extension_update_check.py
 msgid "Update available"
 msgstr "Je k dispozici aktualizace"
@@ -1123,6 +1157,10 @@ msgstr "Přepínání do režimu dokumentu..."
 #: plugin/chatbot/dialog_views.py plugin/main.py plugin/xdl_strings.py
 msgid "Settings"
 msgstr "Nastavení"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Invalid Setting"
+msgstr "Neplatné nastavení"
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -2556,6 +2594,16 @@ msgstr ""
 "LibreOffice ve složce writeragent/skills/humanizer/SKILL.md (soubor se "
 "automaticky vytvoří při prvním použití). Vyhrazenou kartu Dovednosti lze "
 "přidat později."
+
+msgid "Silence before send (ms)"
+msgstr "Ticho před odesláním (ms)"
+
+msgid ""
+"Pause after you stop talking, then auto-stop and send (Record). 0 = wait "
+"until you click Stop Rec."
+msgstr ""
+"Pauza po skončení mluvení, poté automatické zastavení a odeslání (Nahrát). 0"
+" = čekat, dokud nekliknete na Zastavit nahrávání."
 
 msgid "Doc"
 msgstr "Dokument"

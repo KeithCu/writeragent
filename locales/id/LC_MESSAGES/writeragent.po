@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-02 21:14-0400\n"
+"POT-Creation-Date: 2026-07-05 17:17-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Indonesian <LL@li.org>\n"
@@ -366,6 +366,18 @@ msgstr ""
 "Model mengulang potongan yang sama (perulangan tak terbatas). Coba lagi atau"
 " gunakan model yang berbeda."
 
+#: plugin/framework/config.py
+msgid "Chat max tokens must be >= 0"
+msgstr "Token maksimal chat harus >= 0"
+
+#: plugin/framework/config.py
+msgid "Request timeout must be > 0"
+msgstr "Batas waktu permintaan harus > 0"
+
+#: plugin/framework/config.py
+msgid "Temperature must be <= 1.0"
+msgstr "Suhu harus <= 1.0"
+
 #: plugin/calc/python/editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
 msgstr "Edit Python di Sel..."
@@ -443,15 +455,6 @@ msgstr "Gambar disisipkan"
 msgid "Images inserted"
 msgstr "Gambar disisipkan"
 
-#: plugin/calc/editselection.py plugin/writer/editselection.py
-msgid "Please enter edit instructions!"
-msgstr "Harap masukkan instruksi penyuntingan!"
-
-#: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/xdl_strings.py
-msgid "Input"
-msgstr "Masukan"
-
 #: plugin/calc/editselection.py
 msgid "WriterAgent: Edit Selection (Calc)"
 msgstr "WriterAgent: Sunting Pilihan (Calc)"
@@ -488,11 +491,11 @@ msgstr "Terima perubahan ini"
 msgid "Reject this change"
 msgstr "Tolak perubahan ini"
 
-#: plugin/writer/editselection.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Perluas Pilihan"
 
-#: plugin/writer/editselection.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Sunting Pilihan"
 
@@ -891,6 +894,11 @@ msgid "Waiting for approval…"
 msgstr "Menunggu persetujuan…"
 
 #: plugin/chatbot/panel.py
+#, python-format
+msgid "Recording audio… (%d ms silence)"
+msgstr "Merekam audio… (%d ms hening)"
+
+#: plugin/chatbot/panel.py
 msgid "Record"
 msgstr "Rekam"
 
@@ -935,14 +943,6 @@ msgid ""
 msgstr ""
 "[Model {0} tidak mendukung audio asli. Harap pilih Model STT di Pengaturan.]"
 
-#: plugin/chatbot/settings_dialog.py
-msgid "Invalid Setting"
-msgstr "Pengaturan Tidak Valid"
-
-#: plugin/chatbot/settings_dialog.py
-msgid "Temperature must be <= 1.0"
-msgstr "Suhu harus <= 1.0"
-
 #: plugin/chatbot/web_research_chat.py
 #, python-format
 msgid "This search query '%s' will be sent to the search engine."
@@ -955,6 +955,15 @@ msgid ""
 "%(matched)s)"
 msgstr ""
 "Cache riset ditemukan (fuzzy, kecocokan %(pct)s%%: %(lang_bit)s%(cache_key)s"
+" → %(matched)s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid ""
+"Research cache hit (embedding, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
+"%(matched)s)"
+msgstr ""
+"Cache riset ditemukan (embedding, %(pct)s%% cocok: %(lang_bit)s%(cache_key)s"
 " → %(matched)s)"
 
 #: plugin/chatbot/web_research_chat.py
@@ -1102,6 +1111,31 @@ msgstr "Kesalahan riset tidak dikenal."
 msgid "[Research error: {0}]"
 msgstr "[Kesalahan riset: {0}]"
 
+#: plugin/chatbot/selection.py
+msgid "Please enter edit instructions!"
+msgstr "Harap masukkan instruksi penyuntingan!"
+
+#: plugin/chatbot/selection.py plugin/xdl_strings.py
+msgid "Input"
+msgstr "Masukan"
+
+#: plugin/chatbot/selection.py
+msgid "Edit"
+msgstr "Sunting"
+
+#: plugin/chatbot/selection.py
+msgid "Extend"
+msgstr "Perluas"
+
+#: plugin/chatbot/selection.py
+#, python-brace-format
+msgid "{0} selection not supported for this document type"
+msgstr "Pilihan {0} tidak didukung untuk jenis dokumen ini"
+
+#: plugin/chatbot/selection.py
+msgid "No document open"
+msgstr "Tidak ada dokumen yang terbuka"
+
 #: plugin/chatbot/extension_update_check.py
 msgid "Update available"
 msgstr "Pembaruan tersedia"
@@ -1122,6 +1156,10 @@ msgstr "Beralih ke mode dokumen..."
 #: plugin/chatbot/dialog_views.py plugin/main.py plugin/xdl_strings.py
 msgid "Settings"
 msgstr "Pengaturan"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Invalid Setting"
+msgstr "Pengaturan Tidak Valid"
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -2550,6 +2588,16 @@ msgstr ""
 " manusiawi (menghapus pola AI yang kaku). Edit aturan di profil LibreOffice "
 "Anda di bawah writeragent/skills/humanizer/SKILL.md (file dibuat otomatis "
 "saat penggunaan pertama). Tab Keahlian khusus dapat ditambahkan nanti."
+
+msgid "Silence before send (ms)"
+msgstr "Hening sebelum kirim (ms)"
+
+msgid ""
+"Pause after you stop talking, then auto-stop and send (Record). 0 = wait "
+"until you click Stop Rec."
+msgstr ""
+"Jeda setelah Anda berhenti bicara, lalu berhenti otomatis dan kirim (Rekam)."
+" 0 = tunggu sampai Anda mengeklik Berhenti Rekam."
 
 msgid "Doc"
 msgstr "Dok"

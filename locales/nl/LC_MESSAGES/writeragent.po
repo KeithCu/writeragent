@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-02 21:14-0400\n"
+"POT-Creation-Date: 2026-07-05 17:17-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Dutch <LL@li.org>\n"
@@ -364,6 +364,18 @@ msgstr ""
 "Het model herhaalt hetzelfde fragment (oneindige lus). Probeer het opnieuw "
 "of gebruik een ander model."
 
+#: plugin/framework/config.py
+msgid "Chat max tokens must be >= 0"
+msgstr "Chat max tokens moet >= 0 zijn"
+
+#: plugin/framework/config.py
+msgid "Request timeout must be > 0"
+msgstr "Request timeout moet > 0 zijn"
+
+#: plugin/framework/config.py
+msgid "Temperature must be <= 1.0"
+msgstr "Temperatuur moet <= 1.0 zijn"
+
 #: plugin/calc/python/editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
 msgstr "Python bewerken in cel..."
@@ -440,15 +452,6 @@ msgstr "Afbeelding ingevoegd"
 msgid "Images inserted"
 msgstr "Afbeeldingen ingevoegd"
 
-#: plugin/calc/editselection.py plugin/writer/editselection.py
-msgid "Please enter edit instructions!"
-msgstr "Voer bewerkingsinstructies in!"
-
-#: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/xdl_strings.py
-msgid "Input"
-msgstr "Invoer"
-
 #: plugin/calc/editselection.py
 msgid "WriterAgent: Edit Selection (Calc)"
 msgstr "WriterAgent: Selectie bewerken (Calc)"
@@ -486,11 +489,11 @@ msgstr "Deze wijziging accepteren"
 msgid "Reject this change"
 msgstr "Deze wijziging weigeren"
 
-#: plugin/writer/editselection.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Selectie uitbreiden"
 
-#: plugin/writer/editselection.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Selectie bewerken"
 
@@ -889,6 +892,11 @@ msgid "Waiting for approval…"
 msgstr "Wachten op goedkeuring…"
 
 #: plugin/chatbot/panel.py
+#, python-format
+msgid "Recording audio… (%d ms silence)"
+msgstr "Audio opnemen… (%d ms stilte)"
+
+#: plugin/chatbot/panel.py
 msgid "Record"
 msgstr "Opnemen"
 
@@ -934,14 +942,6 @@ msgstr ""
 "[Model {0} ondersteunt geen native audio. Selecteer een STT-model in "
 "Instellingen.]"
 
-#: plugin/chatbot/settings_dialog.py
-msgid "Invalid Setting"
-msgstr "Ongeldige instelling"
-
-#: plugin/chatbot/settings_dialog.py
-msgid "Temperature must be <= 1.0"
-msgstr "Temperatuur moet <= 1.0 zijn"
-
 #: plugin/chatbot/web_research_chat.py
 #, python-format
 msgid "This search query '%s' will be sent to the search engine."
@@ -954,6 +954,15 @@ msgid ""
 "%(matched)s)"
 msgstr ""
 "Research cache hit (fuzzy, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
+"%(matched)s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid ""
+"Research cache hit (embedding, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
+"%(matched)s)"
+msgstr ""
+"Research cache hit (embedding, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
 "%(matched)s)"
 
 #: plugin/chatbot/web_research_chat.py
@@ -1102,6 +1111,31 @@ msgstr "Onbekende onderzoeksfout."
 msgid "[Research error: {0}]"
 msgstr "[Onderzoeksfout: {0}]"
 
+#: plugin/chatbot/selection.py
+msgid "Please enter edit instructions!"
+msgstr "Voer bewerkingsinstructies in!"
+
+#: plugin/chatbot/selection.py plugin/xdl_strings.py
+msgid "Input"
+msgstr "Invoer"
+
+#: plugin/chatbot/selection.py
+msgid "Edit"
+msgstr "Bewerken"
+
+#: plugin/chatbot/selection.py
+msgid "Extend"
+msgstr "Uitbreiden"
+
+#: plugin/chatbot/selection.py
+#, python-brace-format
+msgid "{0} selection not supported for this document type"
+msgstr "{0} selectie niet ondersteund voor dit documenttype"
+
+#: plugin/chatbot/selection.py
+msgid "No document open"
+msgstr "Geen document geopend"
+
 #: plugin/chatbot/extension_update_check.py
 msgid "Update available"
 msgstr "Update beschikbaar"
@@ -1123,6 +1157,10 @@ msgstr "Overschakelen naar documentmodus..."
 #: plugin/chatbot/dialog_views.py plugin/main.py plugin/xdl_strings.py
 msgid "Settings"
 msgstr "Instellingen"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Invalid Setting"
+msgstr "Ongeldige instelling"
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -2556,6 +2594,16 @@ msgstr ""
 "onder writeragent/skills/humanizer/SKILL.md (het bestand wordt automatisch "
 "aangemaakt bij het eerste gebruik). Een apart tabblad 'Vaardigheden' kan "
 "later worden toegevoegd."
+
+msgid "Silence before send (ms)"
+msgstr "Stilte voor verzenden (ms)"
+
+msgid ""
+"Pause after you stop talking, then auto-stop and send (Record). 0 = wait "
+"until you click Stop Rec."
+msgstr ""
+"Pauzeer nadat u stopt met praten, stop dan automatisch en verzend (Opnemen)."
+" 0 = wacht tot u op Stop opname klikt."
 
 msgid "Doc"
 msgstr "Doc"

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-02 21:14-0400\n"
+"POT-Creation-Date: 2026-07-05 17:17-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Chinese (Traditional) <LL@li.org>\n"
@@ -334,6 +334,18 @@ msgid ""
 "different model."
 msgstr "模型正在重複相同的區塊（無限迴圈）。請重試或使用不同的模型。"
 
+#: plugin/framework/config.py
+msgid "Chat max tokens must be >= 0"
+msgstr "聊天最大權杖數必須 >= 0"
+
+#: plugin/framework/config.py
+msgid "Request timeout must be > 0"
+msgstr "請求逾時必須 > 0"
+
+#: plugin/framework/config.py
+msgid "Temperature must be <= 1.0"
+msgstr "溫度必須 <= 1.0"
+
 #: plugin/calc/python/editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
 msgstr "編輯儲存格中的 Python..."
@@ -408,15 +420,6 @@ msgstr "已插入影像"
 msgid "Images inserted"
 msgstr "已插入影像"
 
-#: plugin/calc/editselection.py plugin/writer/editselection.py
-msgid "Please enter edit instructions!"
-msgstr "請輸入編輯指示！"
-
-#: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/xdl_strings.py
-msgid "Input"
-msgstr "輸入"
-
 #: plugin/calc/editselection.py
 msgid "WriterAgent: Edit Selection (Calc)"
 msgstr "WriterAgent：編輯選取 (Calc)"
@@ -453,11 +456,11 @@ msgstr "接受此變更"
 msgid "Reject this change"
 msgstr "拒絕此變更"
 
-#: plugin/writer/editselection.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent：擴展選取"
 
-#: plugin/writer/editselection.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent：編輯選取"
 
@@ -856,6 +859,11 @@ msgid "Waiting for approval…"
 msgstr "等待核准中…"
 
 #: plugin/chatbot/panel.py
+#, python-format
+msgid "Recording audio… (%d ms silence)"
+msgstr "正在錄製音訊… (%d 毫秒靜音)"
+
+#: plugin/chatbot/panel.py
 msgid "Record"
 msgstr "錄製"
 
@@ -895,14 +903,6 @@ msgid ""
 "Settings.]"
 msgstr "[模型 {0} 不支援原生音訊。請在設定中選擇 STT 模型。]"
 
-#: plugin/chatbot/settings_dialog.py
-msgid "Invalid Setting"
-msgstr "無效設定"
-
-#: plugin/chatbot/settings_dialog.py
-msgid "Temperature must be <= 1.0"
-msgstr "溫度必須 <= 1.0"
-
 #: plugin/chatbot/web_research_chat.py
 #, python-format
 msgid "This search query '%s' will be sent to the search engine."
@@ -914,6 +914,13 @@ msgid ""
 "Research cache hit (fuzzy, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
 "%(matched)s)"
 msgstr "研究快取命中 (模糊，%(pct)s%% 符合：%(lang_bit)s%(cache_key)s → %(matched)s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid ""
+"Research cache hit (embedding, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
+"%(matched)s)"
+msgstr "研究快取命中 (嵌入，%(pct)s%% 符合：%(lang_bit)s%(cache_key)s → %(matched)s)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1055,6 +1062,31 @@ msgstr "未知研究錯誤。"
 msgid "[Research error: {0}]"
 msgstr "[研究錯誤：{0}]"
 
+#: plugin/chatbot/selection.py
+msgid "Please enter edit instructions!"
+msgstr "請輸入編輯指示！"
+
+#: plugin/chatbot/selection.py plugin/xdl_strings.py
+msgid "Input"
+msgstr "輸入"
+
+#: plugin/chatbot/selection.py
+msgid "Edit"
+msgstr "編輯"
+
+#: plugin/chatbot/selection.py
+msgid "Extend"
+msgstr "擴充"
+
+#: plugin/chatbot/selection.py
+#, python-brace-format
+msgid "{0} selection not supported for this document type"
+msgstr "此文件類型不支援 {0} 選取"
+
+#: plugin/chatbot/selection.py
+msgid "No document open"
+msgstr "沒有開啟的文件"
+
 #: plugin/chatbot/extension_update_check.py
 msgid "Update available"
 msgstr "有可用更新"
@@ -1073,6 +1105,10 @@ msgstr "正在切換到文件模式…"
 #: plugin/chatbot/dialog_views.py plugin/main.py plugin/xdl_strings.py
 msgid "Settings"
 msgstr "設定"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Invalid Setting"
+msgstr "無效設定"
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -2443,6 +2479,14 @@ msgid ""
 msgstr ""
 "啟用後，將引導指令注入系統提示詞，使模型生成或修訂的文件內容聽起來更自然、更像人類（移除 AI 冗贅模式）。請在您的 LibreOffice 設定檔中的"
 " writeragent/skills/humanizer/SKILL.md 編輯規則（該檔案會在首次使用時自動建立）。未來可新增專屬的「技能」頁籤。"
+
+msgid "Silence before send (ms)"
+msgstr "傳送前的靜音時間 (毫秒)"
+
+msgid ""
+"Pause after you stop talking, then auto-stop and send (Record). 0 = wait "
+"until you click Stop Rec."
+msgstr "停止說話後暫停，然後自動停止並傳送 (錄製)。0 = 等待直到您點擊「停止錄製」。"
 
 msgid "Doc"
 msgstr "文件"

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-02 21:14-0400\n"
+"POT-Creation-Date: 2026-07-05 17:17-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Latvian <LL@li.org>\n"
@@ -364,6 +364,18 @@ msgstr ""
 "Modelis atkārto vienu un to pašu fragmentu (bezgalīga cilpa). Mēģiniet "
 "vēlreiz vai izmantojiet citu modeli."
 
+#: plugin/framework/config.py
+msgid "Chat max tokens must be >= 0"
+msgstr "Tērzēšanas maksimālajam marķieru skaitam jābūt >= 0"
+
+#: plugin/framework/config.py
+msgid "Request timeout must be > 0"
+msgstr "Pieprasījuma noildzei jābūt > 0"
+
+#: plugin/framework/config.py
+msgid "Temperature must be <= 1.0"
+msgstr "Temperatūrai jābūt <= 1.0"
+
 #: plugin/calc/python/editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
 msgstr "Rediģēt Python šūnā..."
@@ -440,15 +452,6 @@ msgstr "Attēls ievietots"
 msgid "Images inserted"
 msgstr "Ievietotie attēli"
 
-#: plugin/calc/editselection.py plugin/writer/editselection.py
-msgid "Please enter edit instructions!"
-msgstr "Lūdzu, ievadiet rediģēšanas instrukcijas!"
-
-#: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/xdl_strings.py
-msgid "Input"
-msgstr "Ievade"
-
 #: plugin/calc/editselection.py
 msgid "WriterAgent: Edit Selection (Calc)"
 msgstr "WriterAgent: Rediģēt atlasi (Calc)"
@@ -485,11 +488,11 @@ msgstr "Pieņemt šo izmaiņu"
 msgid "Reject this change"
 msgstr "Noraidīt šo izmaiņu"
 
-#: plugin/writer/editselection.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Paplašināt atlasi"
 
-#: plugin/writer/editselection.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Rediģēt atlasi"
 
@@ -888,6 +891,11 @@ msgid "Waiting for approval…"
 msgstr "Gaida apstiprinājumu…"
 
 #: plugin/chatbot/panel.py
+#, python-format
+msgid "Recording audio… (%d ms silence)"
+msgstr "Ieraksta audio… (%d ms klusums)"
+
+#: plugin/chatbot/panel.py
 msgid "Record"
 msgstr "Ierakstīt"
 
@@ -933,14 +941,6 @@ msgstr ""
 "[Modelis {0} neatbalsta vietējo audio. Lūdzu, iestatījumos atlasiet STT "
 "modeli.]"
 
-#: plugin/chatbot/settings_dialog.py
-msgid "Invalid Setting"
-msgstr "Nederīgs iestatījums"
-
-#: plugin/chatbot/settings_dialog.py
-msgid "Temperature must be <= 1.0"
-msgstr "Temperatūrai jābūt <= 1.0"
-
 #: plugin/chatbot/web_research_chat.py
 #, python-format
 msgid "This search query '%s' will be sent to the search engine."
@@ -953,6 +953,15 @@ msgid ""
 "%(matched)s)"
 msgstr ""
 "Pētījumu kešatmiņas trāpījums (neskaidra, %(pct)s%% atbilstība: "
+"%(lang_bit)s%(cache_key)s → %(matched)s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid ""
+"Research cache hit (embedding, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
+"%(matched)s)"
+msgstr ""
+"Pētniecības kešatmiņas trāpījums (iegulšana, %(pct)s%% atbilstība: "
 "%(lang_bit)s%(cache_key)s → %(matched)s)"
 
 #: plugin/chatbot/web_research_chat.py
@@ -1101,6 +1110,31 @@ msgstr "Nezināma izpētes kļūda."
 msgid "[Research error: {0}]"
 msgstr "[Izpētes kļūda: {0}]"
 
+#: plugin/chatbot/selection.py
+msgid "Please enter edit instructions!"
+msgstr "Lūdzu, ievadiet rediģēšanas instrukcijas!"
+
+#: plugin/chatbot/selection.py plugin/xdl_strings.py
+msgid "Input"
+msgstr "Ievade"
+
+#: plugin/chatbot/selection.py
+msgid "Edit"
+msgstr "Rediģēt"
+
+#: plugin/chatbot/selection.py
+msgid "Extend"
+msgstr "Paplašināt"
+
+#: plugin/chatbot/selection.py
+#, python-brace-format
+msgid "{0} selection not supported for this document type"
+msgstr "{0} atlase netiek atbalstīta šim dokumenta tipam"
+
+#: plugin/chatbot/selection.py
+msgid "No document open"
+msgstr "Nav atvērts neviens dokuments"
+
 #: plugin/chatbot/extension_update_check.py
 msgid "Update available"
 msgstr "Ir pieejams atjauninājums"
@@ -1122,6 +1156,10 @@ msgstr "Pārslēdzas uz dokumenta režīmu..."
 #: plugin/chatbot/dialog_views.py plugin/main.py plugin/xdl_strings.py
 msgid "Settings"
 msgstr "Iestatījumi"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Invalid Setting"
+msgstr "Nederīgs iestatījums"
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -2561,6 +2599,16 @@ msgstr ""
 "LibreOffice profilā mapē writeragent/skills/humanizer/SKILL.md (fails tiek "
 "automātiski izveidots pirmajā lietošanas reizē). Īpašu prasmju cilni var "
 "pievienot vēlāk."
+
+msgid "Silence before send (ms)"
+msgstr "Klusums pirms nosūtīšanas (ms)"
+
+msgid ""
+"Pause after you stop talking, then auto-stop and send (Record). 0 = wait "
+"until you click Stop Rec."
+msgstr ""
+"Pauze pēc runāšanas beigām, tad automātiska apturēšana un nosūtīšana "
+"(Ierakstīt). 0 = gaidīt, līdz noklikšķināsiet uz Pārtraukt ierakstīšanu."
 
 msgid "Doc"
 msgstr "Dokuments"

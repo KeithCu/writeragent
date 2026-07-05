@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-02 21:14-0400\n"
+"POT-Creation-Date: 2026-07-05 17:17-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Croatian <LL@li.org>\n"
@@ -363,6 +363,18 @@ msgstr ""
 "Model ponavlja isti isječak (beskonačna petlja). Pokušajte ponovno ili "
 "koristite drugi model."
 
+#: plugin/framework/config.py
+msgid "Chat max tokens must be >= 0"
+msgstr "Maksimalni broj tokena za chat mora biti >= 0"
+
+#: plugin/framework/config.py
+msgid "Request timeout must be > 0"
+msgstr "Vremensko ograničenje zahtjeva mora biti > 0"
+
+#: plugin/framework/config.py
+msgid "Temperature must be <= 1.0"
+msgstr "Temperatura mora biti <= 1.0"
+
 #: plugin/calc/python/editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
 msgstr "Uredi Python u ćeliji..."
@@ -439,15 +451,6 @@ msgstr "Slika umetnuta"
 msgid "Images inserted"
 msgstr "Umetnute slike"
 
-#: plugin/calc/editselection.py plugin/writer/editselection.py
-msgid "Please enter edit instructions!"
-msgstr "Molimo unesite upute za uređivanje!"
-
-#: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/xdl_strings.py
-msgid "Input"
-msgstr "Unos"
-
 #: plugin/calc/editselection.py
 msgid "WriterAgent: Edit Selection (Calc)"
 msgstr "WriterAgent: Uredi odabir (Calc)"
@@ -484,11 +487,11 @@ msgstr "Prihvati ovu promjenu"
 msgid "Reject this change"
 msgstr "Odbij ovu promjenu"
 
-#: plugin/writer/editselection.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Proširi odabir"
 
-#: plugin/writer/editselection.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Uredi odabir"
 
@@ -887,6 +890,11 @@ msgid "Waiting for approval…"
 msgstr "Čekanje na odobrenje…"
 
 #: plugin/chatbot/panel.py
+#, python-format
+msgid "Recording audio… (%d ms silence)"
+msgstr "Snimanje zvuka… (%d ms tišine)"
+
+#: plugin/chatbot/panel.py
 msgid "Record"
 msgstr "Snimi"
 
@@ -932,14 +940,6 @@ msgstr ""
 "[Model {0} ne podržava izvorni zvuk. Molimo odaberite STT model u "
 "postavkama.]"
 
-#: plugin/chatbot/settings_dialog.py
-msgid "Invalid Setting"
-msgstr "Nevažeća postavka"
-
-#: plugin/chatbot/settings_dialog.py
-msgid "Temperature must be <= 1.0"
-msgstr "Temperatura mora biti <= 1.0"
-
 #: plugin/chatbot/web_research_chat.py
 #, python-format
 msgid "This search query '%s' will be sent to the search engine."
@@ -952,6 +952,15 @@ msgid ""
 "%(matched)s)"
 msgstr ""
 "Pogodak predmemorije istraživanja (nejasno, %(pct)s%% podudaranje: "
+"%(lang_bit)s%(cache_key)s → %(matched)s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid ""
+"Research cache hit (embedding, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
+"%(matched)s)"
+msgstr ""
+"Pogodak u predmemoriji istraživanja (ugradnja, %(pct)s%% podudaranje: "
 "%(lang_bit)s%(cache_key)s → %(matched)s)"
 
 #: plugin/chatbot/web_research_chat.py
@@ -1100,6 +1109,31 @@ msgstr "Nepoznata pogreška istraživanja."
 msgid "[Research error: {0}]"
 msgstr "[Pogreška istraživanja: {0}]"
 
+#: plugin/chatbot/selection.py
+msgid "Please enter edit instructions!"
+msgstr "Molimo unesite upute za uređivanje!"
+
+#: plugin/chatbot/selection.py plugin/xdl_strings.py
+msgid "Input"
+msgstr "Unos"
+
+#: plugin/chatbot/selection.py
+msgid "Edit"
+msgstr "Uredi"
+
+#: plugin/chatbot/selection.py
+msgid "Extend"
+msgstr "Proširi"
+
+#: plugin/chatbot/selection.py
+#, python-brace-format
+msgid "{0} selection not supported for this document type"
+msgstr "{0} odabir nije podržan za ovu vrstu dokumenta"
+
+#: plugin/chatbot/selection.py
+msgid "No document open"
+msgstr "Nijedan dokument nije otvoren"
+
 #: plugin/chatbot/extension_update_check.py
 msgid "Update available"
 msgstr "Dostupno je ažuriranje"
@@ -1120,6 +1154,10 @@ msgstr "Prebacivanje u način rada dokumenta..."
 #: plugin/chatbot/dialog_views.py plugin/main.py plugin/xdl_strings.py
 msgid "Settings"
 msgstr "Postavke"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Invalid Setting"
+msgstr "Nevažeća postavka"
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -2555,6 +2593,16 @@ msgstr ""
 "uzorke AI smeća). Uredite pravila u svom LibreOffice profilu pod "
 "writeragent/skills/humanizer/SKILL.md (datoteka se automatski stvara pri "
 "prvoj upotrebi). Namjenska kartica Vještine može se dodati kasnije."
+
+msgid "Silence before send (ms)"
+msgstr "Tišina prije slanja (ms)"
+
+msgid ""
+"Pause after you stop talking, then auto-stop and send (Record). 0 = wait "
+"until you click Stop Rec."
+msgstr ""
+"Pauza nakon prestanka govora, zatim automatsko zaustavljanje i slanje "
+"(Snimi). 0 = čekaj dok ne kliknete Zaustavi snimanje."
 
 msgid "Doc"
 msgstr "Dokument"

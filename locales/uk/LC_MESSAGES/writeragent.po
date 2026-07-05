@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-02 21:14-0400\n"
+"POT-Creation-Date: 2026-07-05 17:17-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Ukrainian <LL@li.org>\n"
@@ -369,6 +369,18 @@ msgstr ""
 "Модель повторює той самий фрагмент (нескінченний цикл). Спробуйте ще раз або"
 " використайте іншу модель."
 
+#: plugin/framework/config.py
+msgid "Chat max tokens must be >= 0"
+msgstr "Максимальна кількість токенів чату має бути >= 0"
+
+#: plugin/framework/config.py
+msgid "Request timeout must be > 0"
+msgstr "Час очікування запиту має бути > 0"
+
+#: plugin/framework/config.py
+msgid "Temperature must be <= 1.0"
+msgstr "Температура має бути <= 1.0"
+
 #: plugin/calc/python/editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
 msgstr "Редагувати Python у клітинці..."
@@ -446,15 +458,6 @@ msgstr "Зображення вставлено"
 msgid "Images inserted"
 msgstr "Зображення вставлено"
 
-#: plugin/calc/editselection.py plugin/writer/editselection.py
-msgid "Please enter edit instructions!"
-msgstr "Будь ласка, введіть інструкції з редагування!"
-
-#: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/xdl_strings.py
-msgid "Input"
-msgstr "Ввід"
-
 #: plugin/calc/editselection.py
 msgid "WriterAgent: Edit Selection (Calc)"
 msgstr "WriterAgent: Редагувати виділення (Calc)"
@@ -492,11 +495,11 @@ msgstr "Прийняти цю зміну"
 msgid "Reject this change"
 msgstr "Відхилити цю зміну"
 
-#: plugin/writer/editselection.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Розширити виділення"
 
-#: plugin/writer/editselection.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Редагувати виділення"
 
@@ -895,6 +898,11 @@ msgid "Waiting for approval…"
 msgstr "Очікування схвалення…"
 
 #: plugin/chatbot/panel.py
+#, python-format
+msgid "Recording audio… (%d ms silence)"
+msgstr "Запис аудіо… (%d мс тиші)"
+
+#: plugin/chatbot/panel.py
 msgid "Record"
 msgstr "Запис"
 
@@ -940,14 +948,6 @@ msgstr ""
 "[Модель {0} не підтримує вбудоване аудіо. Будь ласка, виберіть модель STT у "
 "налаштуваннях.]"
 
-#: plugin/chatbot/settings_dialog.py
-msgid "Invalid Setting"
-msgstr "Недійсне налаштування"
-
-#: plugin/chatbot/settings_dialog.py
-msgid "Temperature must be <= 1.0"
-msgstr "Температура має бути <= 1.0"
-
 #: plugin/chatbot/web_research_chat.py
 #, python-format
 msgid "This search query '%s' will be sent to the search engine."
@@ -961,6 +961,15 @@ msgid ""
 msgstr ""
 "Збіг у кеші досліджень (нечіткий, збіг %(pct)s%%: %(lang_bit)s%(cache_key)s "
 "→ %(matched)s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid ""
+"Research cache hit (embedding, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
+"%(matched)s)"
+msgstr ""
+"Збіг у кеші досліджень (вбудовування, %(pct)s%% збіг: "
+"%(lang_bit)s%(cache_key)s → %(matched)s)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1108,6 +1117,31 @@ msgstr "Невідома помилка дослідження."
 msgid "[Research error: {0}]"
 msgstr "[Помилка дослідження: {0}]"
 
+#: plugin/chatbot/selection.py
+msgid "Please enter edit instructions!"
+msgstr "Будь ласка, введіть інструкції з редагування!"
+
+#: plugin/chatbot/selection.py plugin/xdl_strings.py
+msgid "Input"
+msgstr "Ввід"
+
+#: plugin/chatbot/selection.py
+msgid "Edit"
+msgstr "Редагувати"
+
+#: plugin/chatbot/selection.py
+msgid "Extend"
+msgstr "Розширити"
+
+#: plugin/chatbot/selection.py
+#, python-brace-format
+msgid "{0} selection not supported for this document type"
+msgstr "Виділення {0} не підтримується для цього типу документа"
+
+#: plugin/chatbot/selection.py
+msgid "No document open"
+msgstr "Немає відкритого документа"
+
 #: plugin/chatbot/extension_update_check.py
 msgid "Update available"
 msgstr "Доступне оновлення"
@@ -1129,6 +1163,10 @@ msgstr "Перемикання в режим документа..."
 #: plugin/chatbot/dialog_views.py plugin/main.py plugin/xdl_strings.py
 msgid "Settings"
 msgstr "Налаштування"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Invalid Setting"
+msgstr "Недійсне налаштування"
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -2566,6 +2604,16 @@ msgstr ""
 "(усуває шаблони ШІ). Редагуйте правила у своєму профілі LibreOffice у папці "
 "writeragent/skills/humanizer/SKILL.md (файл створюється автоматично під час "
 "першого використання). Окрему вкладку «Навички» можна буде додати пізніше."
+
+msgid "Silence before send (ms)"
+msgstr "Тиша перед надсиланням (мс)"
+
+msgid ""
+"Pause after you stop talking, then auto-stop and send (Record). 0 = wait "
+"until you click Stop Rec."
+msgstr ""
+"Пауза після завершення мовлення, потім автоматична зупинка та надсилання "
+"(Запис). 0 = чекати, доки ви не натиснете «Зупинити запис»."
 
 msgid "Doc"
 msgstr "Документ"

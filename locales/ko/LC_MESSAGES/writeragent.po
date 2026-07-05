@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-02 21:14-0400\n"
+"POT-Creation-Date: 2026-07-05 17:17-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Korean <LL@li.org>\n"
@@ -338,6 +338,18 @@ msgid ""
 "different model."
 msgstr "모델이 동일한 청크를 반복하고 있습니다(무한 루프). 다시 시도하거나 다른 모델을 사용하세요."
 
+#: plugin/framework/config.py
+msgid "Chat max tokens must be >= 0"
+msgstr "채팅 최대 토큰은 0 이상이어야 합니다"
+
+#: plugin/framework/config.py
+msgid "Request timeout must be > 0"
+msgstr "요청 시간 제한은 0보다 커야 합니다"
+
+#: plugin/framework/config.py
+msgid "Temperature must be <= 1.0"
+msgstr "온도는 1.0 이하여야 합니다"
+
 #: plugin/calc/python/editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
 msgstr "셀에서 Python 편집..."
@@ -412,15 +424,6 @@ msgstr "이미지 삽입됨"
 msgid "Images inserted"
 msgstr "이미지 삽입됨"
 
-#: plugin/calc/editselection.py plugin/writer/editselection.py
-msgid "Please enter edit instructions!"
-msgstr "편집 지침을 입력하십시오!"
-
-#: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/xdl_strings.py
-msgid "Input"
-msgstr "입력"
-
 #: plugin/calc/editselection.py
 msgid "WriterAgent: Edit Selection (Calc)"
 msgstr "WriterAgent: 선택 영역 편집 (Calc)"
@@ -457,11 +460,11 @@ msgstr "이 변경 내용 수락"
 msgid "Reject this change"
 msgstr "이 변경 내용 거부"
 
-#: plugin/writer/editselection.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: 선택 영역 확장"
 
-#: plugin/writer/editselection.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: 선택 영역 편집"
 
@@ -860,6 +863,11 @@ msgid "Waiting for approval…"
 msgstr "승인 대기 중…"
 
 #: plugin/chatbot/panel.py
+#, python-format
+msgid "Recording audio… (%d ms silence)"
+msgstr "오디오 녹음 중… (%d ms 무음)"
+
+#: plugin/chatbot/panel.py
 msgid "Record"
 msgstr "녹음"
 
@@ -899,14 +907,6 @@ msgid ""
 "Settings.]"
 msgstr "[모델 {0}은(는) 기본 오디오를 지원하지 않습니다. 설정에서 STT 모델을 선택하세요.]"
 
-#: plugin/chatbot/settings_dialog.py
-msgid "Invalid Setting"
-msgstr "잘못된 설정"
-
-#: plugin/chatbot/settings_dialog.py
-msgid "Temperature must be <= 1.0"
-msgstr "온도는 1.0 이하여야 합니다"
-
 #: plugin/chatbot/web_research_chat.py
 #, python-format
 msgid "This search query '%s' will be sent to the search engine."
@@ -919,6 +919,13 @@ msgid ""
 "%(matched)s)"
 msgstr ""
 "연구 캐시 적중 (유사 일치, %(pct)s%% 일치: %(lang_bit)s%(cache_key)s → %(matched)s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid ""
+"Research cache hit (embedding, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
+"%(matched)s)"
+msgstr "연구 캐시 적중 (임베딩, %(pct)s%% 일치: %(lang_bit)s%(cache_key)s → %(matched)s)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1064,6 +1071,31 @@ msgstr "알 수 없는 연구 오류입니다."
 msgid "[Research error: {0}]"
 msgstr "[연구 오류: {0}]"
 
+#: plugin/chatbot/selection.py
+msgid "Please enter edit instructions!"
+msgstr "편집 지침을 입력하십시오!"
+
+#: plugin/chatbot/selection.py plugin/xdl_strings.py
+msgid "Input"
+msgstr "입력"
+
+#: plugin/chatbot/selection.py
+msgid "Edit"
+msgstr "편집"
+
+#: plugin/chatbot/selection.py
+msgid "Extend"
+msgstr "확장"
+
+#: plugin/chatbot/selection.py
+#, python-brace-format
+msgid "{0} selection not supported for this document type"
+msgstr "{0} 선택은 이 문서 유형에서 지원되지 않습니다"
+
+#: plugin/chatbot/selection.py
+msgid "No document open"
+msgstr "열린 문서가 없습니다"
+
 #: plugin/chatbot/extension_update_check.py
 msgid "Update available"
 msgstr "업데이트 가능"
@@ -1084,6 +1116,10 @@ msgstr "문서 모드로 전환 중..."
 #: plugin/chatbot/dialog_views.py plugin/main.py plugin/xdl_strings.py
 msgid "Settings"
 msgstr "설정"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Invalid Setting"
+msgstr "잘못된 설정"
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -2461,6 +2497,14 @@ msgstr ""
 "활성화 시, 모델이 생성하거나 수정한 문서 텍스트가 더 자연스럽고 인간답게 들리도록 시스템 프롬프트에 지침을 주입합니다 (AI 특유의 "
 "부자연스러운 패턴 제거). LibreOffice 프로필의 writeragent/skills/humanizer/SKILL.md에서 규칙을 "
 "편집하십시오 (파일은 처음 사용할 때 자동으로 생성됩니다). 전용 기술(Skills) 탭은 나중에 추가될 수 있습니다."
+
+msgid "Silence before send (ms)"
+msgstr "전송 전 무음 (ms)"
+
+msgid ""
+"Pause after you stop talking, then auto-stop and send (Record). 0 = wait "
+"until you click Stop Rec."
+msgstr "말을 멈춘 후 일시 중지하고, 자동으로 중지 및 전송합니다 (녹음). 0 = 녹음 중지를 클릭할 때까지 대기."
 
 msgid "Doc"
 msgstr "문서"

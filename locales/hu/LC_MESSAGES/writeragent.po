@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-02 21:14-0400\n"
+"POT-Creation-Date: 2026-07-05 17:17-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Hungarian <LL@li.org>\n"
@@ -368,6 +368,18 @@ msgstr ""
 "A modell ugyanazt a darabot ismétli (végtelen ciklus). Próbálja újra, vagy "
 "használjon másik modellt."
 
+#: plugin/framework/config.py
+msgid "Chat max tokens must be >= 0"
+msgstr "A csevegés maximális tokenjeinek száma >= 0 kell legyen"
+
+#: plugin/framework/config.py
+msgid "Request timeout must be > 0"
+msgstr "A kérés időtúllépése > 0 kell legyen"
+
+#: plugin/framework/config.py
+msgid "Temperature must be <= 1.0"
+msgstr "A hőmérséklet értéke legfeljebb 1.0 lehet"
+
 #: plugin/calc/python/editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
 msgstr "Python szerkesztése cellában..."
@@ -446,15 +458,6 @@ msgstr "Kép beszúrva"
 msgid "Images inserted"
 msgstr "Beillesztett képek"
 
-#: plugin/calc/editselection.py plugin/writer/editselection.py
-msgid "Please enter edit instructions!"
-msgstr "Kérjük, adja meg a szerkesztési utasításokat!"
-
-#: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/xdl_strings.py
-msgid "Input"
-msgstr "Bevitel"
-
 #: plugin/calc/editselection.py
 msgid "WriterAgent: Edit Selection (Calc)"
 msgstr "WriterAgent: Kijelölés szerkesztése (Calc)"
@@ -491,11 +494,11 @@ msgstr "Módosítás elfogadása"
 msgid "Reject this change"
 msgstr "Módosítás elutasítása"
 
-#: plugin/writer/editselection.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Kijelölés kiterjesztése"
 
-#: plugin/writer/editselection.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Kijelölés szerkesztése"
 
@@ -894,6 +897,11 @@ msgid "Waiting for approval…"
 msgstr "Jóváhagyásra vár…"
 
 #: plugin/chatbot/panel.py
+#, python-format
+msgid "Recording audio… (%d ms silence)"
+msgstr "Hang rögzítése… (%d ms csend)"
+
+#: plugin/chatbot/panel.py
 msgid "Record"
 msgstr "Felvétel"
 
@@ -939,14 +947,6 @@ msgstr ""
 "[A(z) {0} modell nem támogatja a natív hangot. Kérjük, válasszon egy STT-"
 "modellt a Beállításokban.]"
 
-#: plugin/chatbot/settings_dialog.py
-msgid "Invalid Setting"
-msgstr "Érvénytelen beállítás"
-
-#: plugin/chatbot/settings_dialog.py
-msgid "Temperature must be <= 1.0"
-msgstr "A hőmérséklet értéke legfeljebb 1.0 lehet"
-
 #: plugin/chatbot/web_research_chat.py
 #, python-format
 msgid "This search query '%s' will be sent to the search engine."
@@ -959,6 +959,15 @@ msgid ""
 "%(matched)s)"
 msgstr ""
 "Kutatási gyorsítótár találat (fuzzy, %(pct)s%% egyezés: "
+"%(lang_bit)s%(cache_key)s → %(matched)s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid ""
+"Research cache hit (embedding, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
+"%(matched)s)"
+msgstr ""
+"Kutatási gyorsítótár találat (beágyazás, %(pct)s%% egyezés: "
 "%(lang_bit)s%(cache_key)s → %(matched)s)"
 
 #: plugin/chatbot/web_research_chat.py
@@ -1107,6 +1116,31 @@ msgstr "Ismeretlen kutatási hiba."
 msgid "[Research error: {0}]"
 msgstr "[Kutatási hiba: {0}]"
 
+#: plugin/chatbot/selection.py
+msgid "Please enter edit instructions!"
+msgstr "Kérjük, adja meg a szerkesztési utasításokat!"
+
+#: plugin/chatbot/selection.py plugin/xdl_strings.py
+msgid "Input"
+msgstr "Bevitel"
+
+#: plugin/chatbot/selection.py
+msgid "Edit"
+msgstr "Szerkesztés"
+
+#: plugin/chatbot/selection.py
+msgid "Extend"
+msgstr "Kiterjesztés"
+
+#: plugin/chatbot/selection.py
+#, python-brace-format
+msgid "{0} selection not supported for this document type"
+msgstr "A(z) {0} kijelölés nem támogatott ehhez a dokumentumtípushoz"
+
+#: plugin/chatbot/selection.py
+msgid "No document open"
+msgstr "Nincs megnyitott dokumentum"
+
 #: plugin/chatbot/extension_update_check.py
 msgid "Update available"
 msgstr "Frissítés érhető el"
@@ -1128,6 +1162,10 @@ msgstr "Váltás dokumentummódra..."
 #: plugin/chatbot/dialog_views.py plugin/main.py plugin/xdl_strings.py
 msgid "Settings"
 msgstr "Beállítások"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Invalid Setting"
+msgstr "Érvénytelen beállítás"
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -2584,6 +2622,16 @@ msgstr ""
 "A szabályokat a LibreOffice-profiljában szerkesztheti a "
 "writeragent/skills/humanizer/SKILL.md fájlban (a fájl az első használatkor "
 "automatikusan létrejön). Egy külön Készségek lap később hozzáadható."
+
+msgid "Silence before send (ms)"
+msgstr "Csend küldés előtt (ms)"
+
+msgid ""
+"Pause after you stop talking, then auto-stop and send (Record). 0 = wait "
+"until you click Stop Rec."
+msgstr ""
+"Szünet a beszéd abbahagyása után, majd automatikus leállítás és küldés "
+"(Felvétel). 0 = várakozás a Felvétel leállítása gombra kattintásig."
 
 msgid "Doc"
 msgstr "Dokumentum"

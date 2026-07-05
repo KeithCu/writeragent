@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-02 21:14-0400\n"
+"POT-Creation-Date: 2026-07-05 17:17-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Norwegian Nynorsk <LL@li.org>\n"
@@ -365,6 +365,18 @@ msgstr ""
 "Modellen gjentar den same biten (uendeleg løkke). Prøv på nytt eller bruk "
 "ein annan modell."
 
+#: plugin/framework/config.py
+msgid "Chat max tokens must be >= 0"
+msgstr "Maksimalt tal på chat-teikn må vera >= 0"
+
+#: plugin/framework/config.py
+msgid "Request timeout must be > 0"
+msgstr "Førespurnadstidsavbrot må vera > 0"
+
+#: plugin/framework/config.py
+msgid "Temperature must be <= 1.0"
+msgstr "Temperatur må vere <= 1.0"
+
 #: plugin/calc/python/editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
 msgstr "Rediger Python i celle..."
@@ -441,15 +453,6 @@ msgstr "Bilete sett inn"
 msgid "Images inserted"
 msgstr "Bilete sett inn"
 
-#: plugin/calc/editselection.py plugin/writer/editselection.py
-msgid "Please enter edit instructions!"
-msgstr "Ver venleg og skriv inn instruksjonar for redigering!"
-
-#: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/xdl_strings.py
-msgid "Input"
-msgstr "Inndata"
-
 #: plugin/calc/editselection.py
 msgid "WriterAgent: Edit Selection (Calc)"
 msgstr "WriterAgent: Rediger utval (Calc)"
@@ -486,11 +489,11 @@ msgstr "Godta denne endringa"
 msgid "Reject this change"
 msgstr "Avvis denne endringa"
 
-#: plugin/writer/editselection.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Utvid utval"
 
-#: plugin/writer/editselection.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Rediger utval"
 
@@ -889,6 +892,11 @@ msgid "Waiting for approval…"
 msgstr "Venter på godkjenning…"
 
 #: plugin/chatbot/panel.py
+#, python-format
+msgid "Recording audio… (%d ms silence)"
+msgstr "Tek opp lyd… (%d ms stille)"
+
+#: plugin/chatbot/panel.py
 msgid "Record"
 msgstr "Ta opp"
 
@@ -934,14 +942,6 @@ msgstr ""
 "[Modellen {0} støttar ikkje innebygd lyd. Vel ein STT-modell i "
 "innstillingane.]"
 
-#: plugin/chatbot/settings_dialog.py
-msgid "Invalid Setting"
-msgstr "Ugyldig innstilling"
-
-#: plugin/chatbot/settings_dialog.py
-msgid "Temperature must be <= 1.0"
-msgstr "Temperatur må vere <= 1.0"
-
 #: plugin/chatbot/web_research_chat.py
 #, python-format
 msgid "This search query '%s' will be sent to the search engine."
@@ -954,6 +954,15 @@ msgid ""
 "%(matched)s)"
 msgstr ""
 "Treff i forskingsmellomlager (fuzzy, %(pct)s%% samsvar: "
+"%(lang_bit)s%(cache_key)s → %(matched)s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid ""
+"Research cache hit (embedding, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
+"%(matched)s)"
+msgstr ""
+"Treff i forskingsmellomlager (embedding, %(pct)s%% samsvar: "
 "%(lang_bit)s%(cache_key)s → %(matched)s)"
 
 #: plugin/chatbot/web_research_chat.py
@@ -1102,6 +1111,31 @@ msgstr "Ukjend forskingsfeil."
 msgid "[Research error: {0}]"
 msgstr "[Forskingsfeil: {0}]"
 
+#: plugin/chatbot/selection.py
+msgid "Please enter edit instructions!"
+msgstr "Ver venleg og skriv inn instruksjonar for redigering!"
+
+#: plugin/chatbot/selection.py plugin/xdl_strings.py
+msgid "Input"
+msgstr "Inndata"
+
+#: plugin/chatbot/selection.py
+msgid "Edit"
+msgstr "Rediger"
+
+#: plugin/chatbot/selection.py
+msgid "Extend"
+msgstr "Utvid"
+
+#: plugin/chatbot/selection.py
+#, python-brace-format
+msgid "{0} selection not supported for this document type"
+msgstr "{0}-utval er ikkje støtta for denne dokumenttypen"
+
+#: plugin/chatbot/selection.py
+msgid "No document open"
+msgstr "Ingen dokument opne"
+
 #: plugin/chatbot/extension_update_check.py
 msgid "Update available"
 msgstr "Oppdatering tilgjengeleg"
@@ -1123,6 +1157,10 @@ msgstr "Byter til dokumentmodus..."
 #: plugin/chatbot/dialog_views.py plugin/main.py plugin/xdl_strings.py
 msgid "Settings"
 msgstr "Innstillingar"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Invalid Setting"
+msgstr "Ugyldig innstilling"
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -2548,6 +2586,16 @@ msgstr ""
 "profilen din under writeragent/skills/humanizer/SKILL.md (fila vert "
 "automatisk oppretta ved første bruk). Ei eiga fane for ferdigheiter kan "
 "leggjast til seinare."
+
+msgid "Silence before send (ms)"
+msgstr "Stille før sending (ms)"
+
+msgid ""
+"Pause after you stop talking, then auto-stop and send (Record). 0 = wait "
+"until you click Stop Rec."
+msgstr ""
+"Pause etter at du har slutta å snakka, deretter stopp automatisk og send (Ta"
+" opp). 0 = vent til du klikkar på Stopp opptak."
 
 msgid "Doc"
 msgstr "Dokument"

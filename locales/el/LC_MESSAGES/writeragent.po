@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-02 21:14-0400\n"
+"POT-Creation-Date: 2026-07-05 17:17-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Greek <LL@li.org>\n"
@@ -372,6 +372,18 @@ msgstr ""
 "Το μοντέλο επαναλαμβάνει το ίδιο τμήμα (άπειρος βρόχος). Προσπαθήστε ξανά ή "
 "χρησιμοποιήστε ένα διαφορετικό μοντέλο."
 
+#: plugin/framework/config.py
+msgid "Chat max tokens must be >= 0"
+msgstr "Τα μέγιστα tokens συνομιλίας πρέπει να είναι >= 0"
+
+#: plugin/framework/config.py
+msgid "Request timeout must be > 0"
+msgstr "Το χρονικό όριο αιτήματος πρέπει να είναι > 0"
+
+#: plugin/framework/config.py
+msgid "Temperature must be <= 1.0"
+msgstr "Η θερμοκρασία πρέπει να είναι <= 1.0"
+
 #: plugin/calc/python/editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
 msgstr "Επεξεργασία Python στο κελί..."
@@ -452,15 +464,6 @@ msgstr "Η εικόνα εισήχθη"
 msgid "Images inserted"
 msgstr "Εικόνες που εισήχθησαν"
 
-#: plugin/calc/editselection.py plugin/writer/editselection.py
-msgid "Please enter edit instructions!"
-msgstr "Παρακαλώ εισάγετε οδηγίες επεξεργασίας!"
-
-#: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/xdl_strings.py
-msgid "Input"
-msgstr "Είσοδος"
-
 #: plugin/calc/editselection.py
 msgid "WriterAgent: Edit Selection (Calc)"
 msgstr "WriterAgent: Επεξεργασία επιλογής (Calc)"
@@ -499,11 +502,11 @@ msgstr "Αποδοχή αυτής της αλλαγής"
 msgid "Reject this change"
 msgstr "Απόρριψη αυτής της αλλαγής"
 
-#: plugin/writer/editselection.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Επέκταση επιλογής"
 
-#: plugin/writer/editselection.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Επεξεργασία επιλογής"
 
@@ -902,6 +905,11 @@ msgid "Waiting for approval…"
 msgstr "Αναμονή για έγκριση…"
 
 #: plugin/chatbot/panel.py
+#, python-format
+msgid "Recording audio… (%d ms silence)"
+msgstr "Εγγραφή ήχου… (%d ms σιωπής)"
+
+#: plugin/chatbot/panel.py
 msgid "Record"
 msgstr "Εγγραφή"
 
@@ -947,14 +955,6 @@ msgstr ""
 "[Το μοντέλο {0} δεν υποστηρίζει εγγενή ήχο. Παρακαλούμε επιλέξτε ένα μοντέλο"
 " STT στις Ρυθμίσεις.]"
 
-#: plugin/chatbot/settings_dialog.py
-msgid "Invalid Setting"
-msgstr "Μη έγκυρη ρύθμιση"
-
-#: plugin/chatbot/settings_dialog.py
-msgid "Temperature must be <= 1.0"
-msgstr "Η θερμοκρασία πρέπει να είναι <= 1.0"
-
 #: plugin/chatbot/web_research_chat.py
 #, python-format
 msgid "This search query '%s' will be sent to the search engine."
@@ -967,6 +967,15 @@ msgid ""
 "%(matched)s)"
 msgstr ""
 "Επιτυχία προσωρινής μνήμης έρευνας (ασαφής, %(pct)s%% αντιστοίχιση: "
+"%(lang_bit)s%(cache_key)s → %(matched)s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid ""
+"Research cache hit (embedding, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
+"%(matched)s)"
+msgstr ""
+"Επιτυχία προσωρινής μνήμης έρευνας (ενσωμάτωση, %(pct)s%% αντιστοίχιση: "
 "%(lang_bit)s%(cache_key)s → %(matched)s)"
 
 #: plugin/chatbot/web_research_chat.py
@@ -1115,6 +1124,31 @@ msgstr "Άγνωστο σφάλμα έρευνας."
 msgid "[Research error: {0}]"
 msgstr "[Σφάλμα έρευνας: {0}]"
 
+#: plugin/chatbot/selection.py
+msgid "Please enter edit instructions!"
+msgstr "Παρακαλώ εισάγετε οδηγίες επεξεργασίας!"
+
+#: plugin/chatbot/selection.py plugin/xdl_strings.py
+msgid "Input"
+msgstr "Είσοδος"
+
+#: plugin/chatbot/selection.py
+msgid "Edit"
+msgstr "Επεξεργασία"
+
+#: plugin/chatbot/selection.py
+msgid "Extend"
+msgstr "Επέκταση"
+
+#: plugin/chatbot/selection.py
+#, python-brace-format
+msgid "{0} selection not supported for this document type"
+msgstr "Η επιλογή {0} δεν υποστηρίζεται για αυτόν τον τύπο εγγράφου"
+
+#: plugin/chatbot/selection.py
+msgid "No document open"
+msgstr "Δεν υπάρχει ανοιχτό έγγραφο"
+
 #: plugin/chatbot/extension_update_check.py
 msgid "Update available"
 msgstr "Διαθέσιμη ενημέρωση"
@@ -1136,6 +1170,10 @@ msgstr "Μετάβαση σε λειτουργία εγγράφου..."
 #: plugin/chatbot/dialog_views.py plugin/main.py plugin/xdl_strings.py
 msgid "Settings"
 msgstr "Ρυθμίσεις"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Invalid Setting"
+msgstr "Μη έγκυρη ρύθμιση"
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -2597,6 +2635,16 @@ msgstr ""
 "διαδρομή writeragent/skills/humanizer/SKILL.md (το αρχείο δημιουργείται "
 "αυτόματα κατά την πρώτη χρήση). Μια ειδική καρτέλα Δεξιοτήτων μπορεί να "
 "προστεθεί αργότερα."
+
+msgid "Silence before send (ms)"
+msgstr "Σιωπή πριν την αποστολή (ms)"
+
+msgid ""
+"Pause after you stop talking, then auto-stop and send (Record). 0 = wait "
+"until you click Stop Rec."
+msgstr ""
+"Παύση αφού σταματήσετε να μιλάτε, μετά αυτόματη διακοπή και αποστολή "
+"(Εγγραφή). 0 = αναμονή μέχρι να κάνετε κλικ στο Διακοπή εγγραφής."
 
 msgid "Doc"
 msgstr "Έγγραφο"

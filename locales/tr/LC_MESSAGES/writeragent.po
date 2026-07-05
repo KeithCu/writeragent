@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-02 21:14-0400\n"
+"POT-Creation-Date: 2026-07-05 17:17-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Turkish <LL@li.org>\n"
@@ -368,6 +368,18 @@ msgstr ""
 "Model aynı parçayı tekrarlıyor (sonsuz döngü). Tekrar deneyin veya farklı "
 "bir model kullanın."
 
+#: plugin/framework/config.py
+msgid "Chat max tokens must be >= 0"
+msgstr "Sohbet maksimum belirteç sayısı >= 0 olmalıdır"
+
+#: plugin/framework/config.py
+msgid "Request timeout must be > 0"
+msgstr "İstek zaman aşımı > 0 olmalıdır"
+
+#: plugin/framework/config.py
+msgid "Temperature must be <= 1.0"
+msgstr "Sıcaklık <= 1.0 olmalıdır"
+
 #: plugin/calc/python/editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
 msgstr "Hücredeki Python'u Düzenle..."
@@ -445,15 +457,6 @@ msgstr "Görüntü eklendi"
 msgid "Images inserted"
 msgstr "Görseller eklendi"
 
-#: plugin/calc/editselection.py plugin/writer/editselection.py
-msgid "Please enter edit instructions!"
-msgstr "Lütfen düzenleme talimatlarını girin!"
-
-#: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/xdl_strings.py
-msgid "Input"
-msgstr "Girdi"
-
 #: plugin/calc/editselection.py
 msgid "WriterAgent: Edit Selection (Calc)"
 msgstr "WriterAgent: Seçimi Düzenle (Calc)"
@@ -490,11 +493,11 @@ msgstr "Bu değişikliği kabul et"
 msgid "Reject this change"
 msgstr "Bu değişikliği reddet"
 
-#: plugin/writer/editselection.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Seçimi Genişlet"
 
-#: plugin/writer/editselection.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Seçimi Düzenle"
 
@@ -893,6 +896,11 @@ msgid "Waiting for approval…"
 msgstr "Onay bekleniyor…"
 
 #: plugin/chatbot/panel.py
+#, python-format
+msgid "Recording audio… (%d ms silence)"
+msgstr "Ses kaydediliyor… (%d ms sessizlik)"
+
+#: plugin/chatbot/panel.py
 msgid "Record"
 msgstr "Kaydet"
 
@@ -937,14 +945,6 @@ msgstr ""
 "[{0} modeli yerel sesi desteklemiyor. Lütfen Ayarlar'dan bir STT Modeli "
 "seçin.]"
 
-#: plugin/chatbot/settings_dialog.py
-msgid "Invalid Setting"
-msgstr "Geçersiz Ayar"
-
-#: plugin/chatbot/settings_dialog.py
-msgid "Temperature must be <= 1.0"
-msgstr "Sıcaklık <= 1.0 olmalıdır"
-
 #: plugin/chatbot/web_research_chat.py
 #, python-format
 msgid "This search query '%s' will be sent to the search engine."
@@ -957,6 +957,15 @@ msgid ""
 "%(matched)s)"
 msgstr ""
 "Araştırma önbelleği isabeti (bulanık, %(pct)s%% eşleşme: "
+"%(lang_bit)s%(cache_key)s → %(matched)s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid ""
+"Research cache hit (embedding, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
+"%(matched)s)"
+msgstr ""
+"Araştırma önbelleği isabeti (gömme, %(pct)s%% eşleşme: "
 "%(lang_bit)s%(cache_key)s → %(matched)s)"
 
 #: plugin/chatbot/web_research_chat.py
@@ -1104,6 +1113,31 @@ msgstr "Bilinmeyen araştırma hatası."
 msgid "[Research error: {0}]"
 msgstr "[Araştırma hatası: {0}]"
 
+#: plugin/chatbot/selection.py
+msgid "Please enter edit instructions!"
+msgstr "Lütfen düzenleme talimatlarını girin!"
+
+#: plugin/chatbot/selection.py plugin/xdl_strings.py
+msgid "Input"
+msgstr "Girdi"
+
+#: plugin/chatbot/selection.py
+msgid "Edit"
+msgstr "Düzenle"
+
+#: plugin/chatbot/selection.py
+msgid "Extend"
+msgstr "Genişlet"
+
+#: plugin/chatbot/selection.py
+#, python-brace-format
+msgid "{0} selection not supported for this document type"
+msgstr "{0} seçimi bu belge türü için desteklenmiyor"
+
+#: plugin/chatbot/selection.py
+msgid "No document open"
+msgstr "Açık belge yok"
+
 #: plugin/chatbot/extension_update_check.py
 msgid "Update available"
 msgstr "Güncelleme mevcut"
@@ -1124,6 +1158,10 @@ msgstr "Belge moduna geçiliyor..."
 #: plugin/chatbot/dialog_views.py plugin/main.py plugin/xdl_strings.py
 msgid "Settings"
 msgstr "Ayarlar"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Invalid Setting"
+msgstr "Geçersiz Ayar"
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -2560,6 +2598,16 @@ msgstr ""
 "writeragent/skills/humanizer/SKILL.md altında düzenleyin (dosya ilk "
 "kullanımda otomatik oluşturulur). İleride özel bir Yetenekler sekmesi "
 "eklenebilir."
+
+msgid "Silence before send (ms)"
+msgstr "Göndermeden önceki sessizlik (ms)"
+
+msgid ""
+"Pause after you stop talking, then auto-stop and send (Record). 0 = wait "
+"until you click Stop Rec."
+msgstr ""
+"Konuşmayı bıraktıktan sonra duraklat, ardından otomatik durdur ve gönder "
+"(Kaydet). 0 = Kaydı Durdur'a tıklayana kadar bekle."
 
 msgid "Doc"
 msgstr "Belge"

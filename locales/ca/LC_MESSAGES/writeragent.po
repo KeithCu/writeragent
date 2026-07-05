@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-02 21:14-0400\n"
+"POT-Creation-Date: 2026-07-05 17:17-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Catalan <LL@li.org>\n"
@@ -367,6 +367,18 @@ msgstr ""
 "El model repeteix el mateix fragment (bucle infinit). Torneu-ho a provar o "
 "utilitzeu un model diferent."
 
+#: plugin/framework/config.py
+msgid "Chat max tokens must be >= 0"
+msgstr "El màxim de testimonis del xat ha de ser >= 0"
+
+#: plugin/framework/config.py
+msgid "Request timeout must be > 0"
+msgstr "El temps d'espera de la sol·licitud ha de ser > 0"
+
+#: plugin/framework/config.py
+msgid "Temperature must be <= 1.0"
+msgstr "La temperatura ha de ser <= 1.0"
+
 #: plugin/calc/python/editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
 msgstr "Edita el Python a la cel·la..."
@@ -445,15 +457,6 @@ msgstr "Imatge inserida"
 msgid "Images inserted"
 msgstr "Imatges inserides"
 
-#: plugin/calc/editselection.py plugin/writer/editselection.py
-msgid "Please enter edit instructions!"
-msgstr "Si us plau, introduïu les instruccions d'edició!"
-
-#: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/xdl_strings.py
-msgid "Input"
-msgstr "Entrada"
-
 #: plugin/calc/editselection.py
 msgid "WriterAgent: Edit Selection (Calc)"
 msgstr "WriterAgent: Edita la selecció (Calc)"
@@ -490,11 +493,11 @@ msgstr "Accepta aquest canvi"
 msgid "Reject this change"
 msgstr "Rebutja aquest canvi"
 
-#: plugin/writer/editselection.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Amplia la selecció"
 
-#: plugin/writer/editselection.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Edita la selecció"
 
@@ -893,6 +896,11 @@ msgid "Waiting for approval…"
 msgstr "S'està esperant l'aprovació…"
 
 #: plugin/chatbot/panel.py
+#, python-format
+msgid "Recording audio… (%d ms silence)"
+msgstr "S'està enregistrant l'àudio… (%d ms de silenci)"
+
+#: plugin/chatbot/panel.py
 msgid "Record"
 msgstr "Enregistra"
 
@@ -938,14 +946,6 @@ msgstr ""
 "[El model {0} no admet àudio natiu. Si us plau, seleccioneu un model STT a "
 "la configuració.]"
 
-#: plugin/chatbot/settings_dialog.py
-msgid "Invalid Setting"
-msgstr "Configuració no vàlida"
-
-#: plugin/chatbot/settings_dialog.py
-msgid "Temperature must be <= 1.0"
-msgstr "La temperatura ha de ser <= 1.0"
-
 #: plugin/chatbot/web_research_chat.py
 #, python-format
 msgid "This search query '%s' will be sent to the search engine."
@@ -959,6 +959,15 @@ msgid ""
 msgstr ""
 "Encert a la memòria cau de recerca (difús, coincidència del %(pct)s%%: "
 "%(lang_bit)s%(cache_key)s → %(matched)s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid ""
+"Research cache hit (embedding, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
+"%(matched)s)"
+msgstr ""
+"Coincidència a la memòria cau de recerca (incrustació, %(pct)s%% de "
+"coincidència: %(lang_bit)s%(cache_key)s → %(matched)s)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1106,6 +1115,31 @@ msgstr "Error desconegut de recerca."
 msgid "[Research error: {0}]"
 msgstr "[Error de recerca: {0}]"
 
+#: plugin/chatbot/selection.py
+msgid "Please enter edit instructions!"
+msgstr "Si us plau, introduïu les instruccions d'edició!"
+
+#: plugin/chatbot/selection.py plugin/xdl_strings.py
+msgid "Input"
+msgstr "Entrada"
+
+#: plugin/chatbot/selection.py
+msgid "Edit"
+msgstr "Edita"
+
+#: plugin/chatbot/selection.py
+msgid "Extend"
+msgstr "Estén"
+
+#: plugin/chatbot/selection.py
+#, python-brace-format
+msgid "{0} selection not supported for this document type"
+msgstr "La selecció {0} no és compatible amb aquest tipus de document"
+
+#: plugin/chatbot/selection.py
+msgid "No document open"
+msgstr "No hi ha cap document obert"
+
 #: plugin/chatbot/extension_update_check.py
 msgid "Update available"
 msgstr "Hi ha una actualització disponible"
@@ -1127,6 +1161,10 @@ msgstr "S'està canviant al mode de document..."
 #: plugin/chatbot/dialog_views.py plugin/main.py plugin/xdl_strings.py
 msgid "Settings"
 msgstr "Configuració"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Invalid Setting"
+msgstr "Configuració no vàlida"
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -2581,6 +2619,17 @@ msgstr ""
 "perfil de LibreOffice a writeragent/skills/humanizer/SKILL.md (el fitxer es "
 "crea automàticament en el primer ús). Es pot afegir una pestanya "
 "d'Habilitats dedicada més endavant."
+
+msgid "Silence before send (ms)"
+msgstr "Silenci abans d'enviar (ms)"
+
+msgid ""
+"Pause after you stop talking, then auto-stop and send (Record). 0 = wait "
+"until you click Stop Rec."
+msgstr ""
+"Fes una pausa després de deixar de parlar, i després atura't automàticament "
+"i envia (Enregistra). 0 = espera fins que facis clic a Atura "
+"l'enregistrament."
 
 msgid "Doc"
 msgstr "Doc"

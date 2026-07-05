@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-02 21:14-0400\n"
+"POT-Creation-Date: 2026-07-05 17:17-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Finnish <LL@li.org>\n"
@@ -366,6 +366,18 @@ msgstr ""
 "Malli toistaa samaa osaa (päättymätön silmukka). Yritä uudelleen tai käytä "
 "toista mallia."
 
+#: plugin/framework/config.py
+msgid "Chat max tokens must be >= 0"
+msgstr "Chat-enimmäistunnusten on oltava >= 0"
+
+#: plugin/framework/config.py
+msgid "Request timeout must be > 0"
+msgstr "Pyynnön aikakatkaisun on oltava > 0"
+
+#: plugin/framework/config.py
+msgid "Temperature must be <= 1.0"
+msgstr "Lämpötilan on oltava <= 1.0"
+
 #: plugin/calc/python/editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
 msgstr "Muokkaa Pythonia solussa..."
@@ -443,15 +455,6 @@ msgstr "Kuva lisätty"
 msgid "Images inserted"
 msgstr "Kuvat lisätty"
 
-#: plugin/calc/editselection.py plugin/writer/editselection.py
-msgid "Please enter edit instructions!"
-msgstr "Syötä muokkausohjeet!"
-
-#: plugin/calc/editselection.py plugin/writer/editselection.py
-#: plugin/xdl_strings.py
-msgid "Input"
-msgstr "Syöte"
-
 #: plugin/calc/editselection.py
 msgid "WriterAgent: Edit Selection (Calc)"
 msgstr "WriterAgent: Muokkaa valintaa (Calc)"
@@ -488,11 +491,11 @@ msgstr "Hyväksy tämä muutos"
 msgid "Reject this change"
 msgstr "Hylkää tämä muutos"
 
-#: plugin/writer/editselection.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Laajenna valintaa"
 
-#: plugin/writer/editselection.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Muokkaa valintaa"
 
@@ -891,6 +894,11 @@ msgid "Waiting for approval…"
 msgstr "Odotetaan hyväksyntää…"
 
 #: plugin/chatbot/panel.py
+#, python-format
+msgid "Recording audio… (%d ms silence)"
+msgstr "Tallennetaan ääntä… (%d ms hiljaisuutta)"
+
+#: plugin/chatbot/panel.py
 msgid "Record"
 msgstr "Tallenna"
 
@@ -934,14 +942,6 @@ msgid ""
 "Settings.]"
 msgstr "[Malli {0} ei tue natiivia ääntä. Valitse STT-malli asetuksista.]"
 
-#: plugin/chatbot/settings_dialog.py
-msgid "Invalid Setting"
-msgstr "Virheellinen asetus"
-
-#: plugin/chatbot/settings_dialog.py
-msgid "Temperature must be <= 1.0"
-msgstr "Lämpötilan on oltava <= 1.0"
-
 #: plugin/chatbot/web_research_chat.py
 #, python-format
 msgid "This search query '%s' will be sent to the search engine."
@@ -954,6 +954,15 @@ msgid ""
 "%(matched)s)"
 msgstr ""
 "Tutkimusvälimuistin osuma (sumea, %(pct)s %% vastaavuus: "
+"%(lang_bit)s%(cache_key)s → %(matched)s)"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid ""
+"Research cache hit (embedding, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
+"%(matched)s)"
+msgstr ""
+"Tutkimusvälimuistin osuma (upotus, %(pct)s%% vastaavuus: "
 "%(lang_bit)s%(cache_key)s → %(matched)s)"
 
 #: plugin/chatbot/web_research_chat.py
@@ -1102,6 +1111,31 @@ msgstr "Tuntematon tutkimusvirhe."
 msgid "[Research error: {0}]"
 msgstr "[Tutkimusvirhe: {0}]"
 
+#: plugin/chatbot/selection.py
+msgid "Please enter edit instructions!"
+msgstr "Syötä muokkausohjeet!"
+
+#: plugin/chatbot/selection.py plugin/xdl_strings.py
+msgid "Input"
+msgstr "Syöte"
+
+#: plugin/chatbot/selection.py
+msgid "Edit"
+msgstr "Muokkaa"
+
+#: plugin/chatbot/selection.py
+msgid "Extend"
+msgstr "Laajenna"
+
+#: plugin/chatbot/selection.py
+#, python-brace-format
+msgid "{0} selection not supported for this document type"
+msgstr "{0}-valinta ei ole tuettu tälle asiakirjatyypille"
+
+#: plugin/chatbot/selection.py
+msgid "No document open"
+msgstr "Asiakirjaa ei ole avattu"
+
 #: plugin/chatbot/extension_update_check.py
 msgid "Update available"
 msgstr "Päivitys saatavilla"
@@ -1122,6 +1156,10 @@ msgstr "Vaihdetaan asiakirjatilaan..."
 #: plugin/chatbot/dialog_views.py plugin/main.py plugin/xdl_strings.py
 msgid "Settings"
 msgstr "Asetukset"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Invalid Setting"
+msgstr "Virheellinen asetus"
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -2552,6 +2590,16 @@ msgstr ""
 "LibreOffice-profiilissasi kohdassa writeragent/skills/humanizer/SKILL.md "
 "(tiedosto luodaan automaattisesti ensimmäisellä käyttökerralla). Erillinen "
 "Taitojen välilehti voidaan lisätä myöhemmin."
+
+msgid "Silence before send (ms)"
+msgstr "Hiljaisuus ennen lähetystä (ms)"
+
+msgid ""
+"Pause after you stop talking, then auto-stop and send (Record). 0 = wait "
+"until you click Stop Rec."
+msgstr ""
+"Tauko puhumisen lopettamisen jälkeen, sitten automaattinen pysäytys ja "
+"lähetys (Tallenna). 0 = odota, kunnes napsautat Lopeta tallennus."
 
 msgid "Doc"
 msgstr "Asiakirja"
