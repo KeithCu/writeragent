@@ -666,19 +666,10 @@ class MCPProtocolHandler:
                         snippet = str(effect.result)[:100] if effect.result else ""
                         event_bus.emit("mcp:result", tool=state.tool_name, result_snippet=snippet, args=state.arguments)
 
-                    # A tool may return an image: {"_mcp_image": {"data": <b64>, "mimeType": ...}} ->
-                    # emit a native MCP image content block (get_image) instead of base64-as-text.
-                    res = effect.result
-                    img = res.get("_mcp_image") if isinstance(res, dict) else None
-                    if isinstance(img, dict) and img.get("data"):
-                        final_result = wire_types.call_tool_result_image(
-                            img["data"], img.get("mimeType", "image/png"), is_error=effect.is_error,
-                        )
-                    else:
-                        final_result = wire_types.call_tool_result(
-                            json.dumps(res, ensure_ascii=False, default=str),
-                            is_error=effect.is_error,
-                        )
+                    final_result = wire_types.call_tool_result(
+                        json.dumps(effect.result, ensure_ascii=False, default=str),
+                        is_error=effect.is_error,
+                    )
 
                 elif isinstance(effect, SendErrorEffect):
                     raise ValueError(effect.message)

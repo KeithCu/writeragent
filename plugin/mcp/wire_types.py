@@ -183,19 +183,6 @@ def call_tool_result(text: str, *, is_error: bool = False) -> dict[str, Any]:
     return out
 
 
-def call_tool_result_image(data_b64: str, mime_type: str = "image/png", *, is_error: bool = False) -> dict[str, Any]:
-    """Tool result carrying an IMAGE content block (MCP image type) instead of text.
-
-    Used by get_image so a vision-capable client receives the picture itself rather than base64
-    pasted as text. data_b64 is the raw base64 (no data: URI prefix), per the MCP image content shape."""
-    out: dict[str, Any] = {
-        "content": [{"type": "image", "data": data_b64, "mimeType": mime_type}],
-    }
-    if is_error:
-        out["isError"] = True
-    return out
-
-
 @dataclasses.dataclass(frozen=True)
 class ProgressNotificationParams:
     progress_token: ProgressToken
