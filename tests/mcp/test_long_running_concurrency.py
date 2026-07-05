@@ -206,8 +206,10 @@ def test_normalized_doc_urls_share_mutation_gate():
     )
 
 
-def test_unknown_tool_uses_mutation_gate():
-    """When tool_registry.get returns None, mutating runs on the same doc serialize."""
+def test_unknown_tool_is_rejected_up_front_without_executing():
+    """An unknown tool name returns a structured UNKNOWN_TOOL error BEFORE the mutation gate and
+    the registry ever run (previously it flowed through the gate and died later as a raw KeyError
+    serialized under INTERNAL_ERROR, which reads as a server bug instead of a bad tool name)."""
 
     class _UnknownRegistry(_Registry):
         def get(self, name):
@@ -216,12 +218,11 @@ def test_unknown_tool_uses_mutation_gate():
     reg = _UnknownRegistry(is_mutation=True)
     handler = MCPProtocolHandler(_FakeServices(reg))
 
-    errors = _run_concurrent(handler._execute_long_running, ["file:///same.odt"] * 2)
+    result = handler._execute_long_running("totally_bogus_tool", {}, document_url="file:///same.odt")
 
-    assert not errors, "long_running should not error: %s" % errors
-    assert reg.max_concurrency == 1, (
-        "expected SERIALIZED (1) for unknown tool on same doc, got %d" % reg.max_concurrency
-    )
+    assert result["status"] == "error" and result["code"] == "UNKNOWN_TOOL"
+    assert "tools/list" in result["message"]
+    assert reg.max_concurrency == 0, "an unknown tool must never reach the registry"
 
 
 def test_requires_document_lock_exception_falls_back_to_detects_mutation():

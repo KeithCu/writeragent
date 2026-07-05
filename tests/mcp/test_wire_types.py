@@ -43,6 +43,17 @@ def test_call_tool_result_json_serializable():
     json.dumps(payload, ensure_ascii=False, default=str)
 
 
+def test_call_tool_result_image_content():
+    # get_image returns a native MCP image block (not base64-as-text) so vision clients see the picture.
+    payload = wire_types.call_tool_result_image("QUJD", mime_type="image/png")
+    block = payload["content"][0]
+    assert block["type"] == "image"
+    assert block["data"] == "QUJD"
+    assert block["mimeType"] == "image/png"
+    assert "isError" not in payload
+    assert wire_types.call_tool_result_image("x", is_error=True)["isError"] is True
+
+
 def test_parse_jsonrpc_request_accepts_valid_request():
     msg = {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
     parsed = wire_types.parse_jsonrpc_request(msg)

@@ -43,6 +43,77 @@ log = logging.getLogger("writeragent.mcp.protocol")
 MCP_PROTOCOL_VERSION = wire_types.MCP_PROTOCOL_VERSION
 _SUPPORTED_HTTP_PROTOCOL_VERSIONS = frozenset({MCP_PROTOCOL_VERSION, "2024-11-05"})
 
+def _document_echo_payload(doc):
+    """{name, uid} of the resolved target document, or None. Reads UNO properties — call ONLY
+    where UNO access is legal (the main thread); worker-thread callers must precompute this."""
+    if doc is None:
+        return None
+    try:
+        import os
+        from urllib.parse import unquote
+
+        from plugin.doc.document_helpers import get_runtime_uid
+
+        url = str(getattr(doc, "URL", "") or "")
+        name = unquote(os.path.basename(url)) if url else "Untitled"
+        return {"name": name, "uid": get_runtime_uid(doc)}
+    except Exception:
+        return None
+
+
+def _attach_document_echo(result, doc):
+    """Echo the resolved target document ({name, uid}) in a tool result. Without an explicit
+    document_url the target follows the USER'S window focus and can change between two calls —
+    the echo lets the agent detect that instead of silently editing the wrong document.
+    MAIN-THREAD callers only (see _document_echo_payload)."""
+    if "document" in result:
+        return
+    payload = _document_echo_payload(doc)
+    if payload:
+        result["document"] = payload
+
+
+# Pointer to the on-demand manual (T4 / G2 consolidation). The full how-to — editing, editing-html,
+# review-modes, search, navigation, images, concurrency — is served per topic by get_guidance(topic), so the model
+# pulls one section when needed instead of front-loading a manual here (Claude Desktop doesn't read
+# `instructions`; Claude Code truncates it). The topic texts are the shared prompt pieces in
+# constants.py (single source with the sidebar prompt), mapped per doc type by agent_manual.py.
+_MCP_GUIDANCE_POINTER = (
+    " HOW TO USE THESE TOOLS: call get_guidance(topic) for the manual — topics follow the open "
+    "document's type (for Writer: editing, editing-html, review-modes, search, navigation, images, "
+    "concurrency); call get_guidance() for the current list. "
+    "Confirm edits by the tool result's structured fields, and in Writer note tracked changes are "
+    "the user's to accept/reject, not yours."
+)
+
+
+def build_initialize_instructions(mode: str) -> str:
+    """Assemble the MCP initialize `instructions` string for a tool-exposure mode.
+
+    Pure function (no server/UNO) so the wording is unit-testable. `mode` is one of
+    'direct_flat', 'direct_discovery', or anything else (treated as the delegate default)."""
+    base = (
+        "WriterAgent MCP — AI document workspace. WORKFLOW: 1) Use tools to interact with LibreOffice documents. "
+        "2) Tools are filtered by document type (writer/calc/draw). 3) All UNO operations run on the main thread for thread safety."
+    )
+    if mode == "direct_flat":
+        mode_hint = (
+            " Specialized tools are listed directly in tools/list; call them by name. "
+            "No WriterAgent LLM endpoint is required."
+        )
+    elif mode == "direct_discovery":
+        mode_hint = (
+            " Call find_tools with no arguments for the full specialized domain catalog, "
+            "then find_tools(domain=…) for tool schemas in that area; call tools by name. "
+            "No WriterAgent LLM endpoint is required."
+        )
+    else:
+        mode_hint = (
+            " For specialized capabilities, call delegate_to_specialized_*_toolset with domain and task "
+            "(requires a WriterAgent chat endpoint for the inner agent)."
+        )
+    return base + mode_hint + _MCP_GUIDANCE_POINTER
+
 
 def _get_request_protocol_version(handler) -> str | None:
     for name in ("Mcp-Protocol-Version", "mcp-protocol-version", "MCP-Protocol-Version"):
@@ -427,32 +498,11 @@ class MCPProtocolHandler:
 
     def _mcp_initialize(self, params):
         client_version = params.get("protocolVersion", MCP_PROTOCOL_VERSION)
-        base = (
-            "WriterAgent MCP — AI document workspace. WORKFLOW: 1) Use tools to interact with LibreOffice documents. "
-            "2) Tools are filtered by document type (writer/calc/draw). 3) All UNO operations run on the main thread for thread safety."
-        )
-        mode = self._tool_exposure_mode()
-        if mode == "direct_flat":
-            mode_hint = (
-                " Specialized tools are listed directly in tools/list; call them by name. "
-                "No WriterAgent LLM endpoint is required."
-            )
-        elif mode == "direct_discovery":
-            mode_hint = (
-                " Call find_tools with no arguments for the full specialized domain catalog, "
-                "then find_tools(domain=…) for tool schemas in that area; call tools by name. "
-                "No WriterAgent LLM endpoint is required."
-            )
-        else:
-            mode_hint = (
-                " For specialized capabilities, call delegate_to_specialized_*_toolset with domain and task "
-                "(requires a WriterAgent chat endpoint for the inner agent)."
-            )
         return wire_types.initialize_result(
             protocol_version=MCP_PROTOCOL_VERSION,
             client_protocol_version=client_version,
             server_version=self.version,
-            instructions=base + mode_hint,
+            instructions=build_initialize_instructions(self._tool_exposure_mode()),
         )
 
     def _mcp_ping(self, params):
@@ -616,10 +666,19 @@ class MCPProtocolHandler:
                         snippet = str(effect.result)[:100] if effect.result else ""
                         event_bus.emit("mcp:result", tool=state.tool_name, result_snippet=snippet, args=state.arguments)
 
-                    final_result = wire_types.call_tool_result(
-                        json.dumps(effect.result, ensure_ascii=False, default=str),
-                        is_error=effect.is_error,
-                    )
+                    # A tool may return an image: {"_mcp_image": {"data": <b64>, "mimeType": ...}} ->
+                    # emit a native MCP image content block (get_image) instead of base64-as-text.
+                    res = effect.result
+                    img = res.get("_mcp_image") if isinstance(res, dict) else None
+                    if isinstance(img, dict) and img.get("data"):
+                        final_result = wire_types.call_tool_result_image(
+                            img["data"], img.get("mimeType", "image/png"), is_error=effect.is_error,
+                        )
+                    else:
+                        final_result = wire_types.call_tool_result(
+                            json.dumps(res, ensure_ascii=False, default=str),
+                            is_error=effect.is_error,
+                        )
 
                 elif isinstance(effect, SendErrorEffect):
                     raise ValueError(effect.message)
@@ -723,17 +782,28 @@ class MCPProtocolHandler:
             ctx = get_ctx()
             doc_key = _resolve_mcp_doc_key(document_url, doc)
             uno_services = uno_services_for_document(doc, doc_type)
-            return doc, doc_type, ctx, doc_key, uno_services
+            # Compute the document echo HERE (main thread): reading doc.URL/RuntimeUID from the
+            # HTTP worker after execution would trip the UNO thread guard on the proxied doc.
+            echo = _document_echo_payload(doc)
+            return doc, doc_type, ctx, doc_key, uno_services, echo
 
-        doc, doc_type, ctx, doc_key, uno_services = self.queue_executor.execute(_get_context, timeout=10.0)
+        doc, doc_type, ctx, doc_key, uno_services, doc_echo = self.queue_executor.execute(_get_context, timeout=10.0)
 
         # Document-optional tools (e.g. find_tools) run with no document; an explicit
         # document_url that doesn't resolve is always an error, though.
         tool = self.tool_registry.get(tool_name)
+        if tool is None:
+            return {"status": "error", "code": "UNKNOWN_TOOL",
+                    "message": "No tool named '%s'. Check tools/list for the exact name (tools are filtered by the open document's type)." % tool_name}
         if doc is None and document_url:
-            return {"status": "error", "code": "DOCUMENT_NOT_FOUND", "message": "No document open matching X-Document-URL: %s" % document_url, "details": {"document_url": document_url}}
+            return {"status": "error", "code": "DOCUMENT_NOT_FOUND",
+                    "message": ("No open document matches document_url '%s'. Call list_open_documents and retry "
+                                "with one of the returned url or uid values." % document_url),
+                    "details": {"document_url": document_url}}
         if doc is None and getattr(tool, "requires_document", True):
-            return {"status": "error", "code": "NO_DOCUMENT_OPEN", "message": "No document open in LibreOffice."}
+            return {"status": "error", "code": "NO_DOCUMENT_OPEN",
+                    "message": ("No document open in LibreOffice. Ask the user to open or create a document; "
+                                "list_open_documents works in this state to check what is open.")}
 
         from plugin.framework.tool import ToolContext
 
@@ -765,11 +835,21 @@ class MCPProtocolHandler:
 
         if isinstance(result, dict):
             result["_elapsed_ms"] = round(elapsed * 1000, 1)
+            # Echo precomputed on the main thread in _get_context — do NOT touch the proxied
+            # doc from this worker thread.
+            if doc_echo and "document" not in result:
+                result["document"] = doc_echo
 
         return result
 
     def _execute_tool_on_main(self, tool_name, arguments, document_url=None):
         """Run a backpressure tool on the main thread; shares _document_mutation_gate with long-running path."""
+        # Same check order as _execute_long_running: a bad tool NAME is diagnosed before any
+        # document concern (both errors are correct, but consistency helps clients branch).
+        tool = self.tool_registry.get(tool_name)
+        if tool is None:
+            return {"status": "error", "code": "UNKNOWN_TOOL",
+                    "message": "No tool named '%s'. Check tools/list for the exact name (tools are filtered by the open document's type)." % tool_name}
         doc = None
         doc_type = "writer"
         try:
@@ -777,7 +857,10 @@ class MCPProtocolHandler:
             if document_url:
                 doc, doc_type = doc_svc.resolve_document_by_url(document_url)
                 if doc is None:
-                    return {"status": "error", "code": "DOCUMENT_NOT_FOUND", "message": "No document open matching X-Document-URL: %s" % (document_url or ""), "details": {"document_url": document_url}}
+                    return {"status": "error", "code": "DOCUMENT_NOT_FOUND",
+                            "message": ("No open document matches document_url '%s'. Call list_open_documents and retry "
+                                        "with one of the returned url or uid values." % (document_url or "")),
+                            "details": {"document_url": document_url}}
             else:
                 doc = _real_active_document(doc_svc)
                 if doc:
@@ -787,10 +870,12 @@ class MCPProtocolHandler:
             pass
 
         # Document-optional tools (e.g. the find_tools discovery meta-tool) run with no
-        # document open; every other tool still requires one.
-        tool = self.tool_registry.get(tool_name)
+        # document open; every other tool still requires one. (Unknown tool already rejected
+        # at the top of this method.)
         if doc is None and getattr(tool, "requires_document", True):
-            return {"status": "error", "code": "NO_DOCUMENT_OPEN", "message": "No document open in LibreOffice."}
+            return {"status": "error", "code": "NO_DOCUMENT_OPEN",
+                    "message": ("No document open in LibreOffice. Ask the user to open or create a document; "
+                                "list_open_documents works in this state to check what is open.")}
 
         from plugin.doc.document_helpers import uno_services_for_document
         from plugin.framework.uno_context import get_ctx
@@ -827,6 +912,7 @@ class MCPProtocolHandler:
 
         if isinstance(result, dict):
             result["_elapsed_ms"] = round(elapsed * 1000, 1)
+            _attach_document_echo(result, doc)
 
         return result
 
