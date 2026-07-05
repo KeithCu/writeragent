@@ -52,7 +52,7 @@ def record_to_wav(
 
     recording = threading.Event()
     recording.set()
-    vad = SilenceDetector(silence_config or SilenceDetectorConfig(enabled=False), sample_rate=SAMPLE_RATE)
+    vad = SilenceDetector(silence_config or SilenceDetectorConfig(silence_stop_ms=0), sample_rate=SAMPLE_RATE)
     auto_stopped = False
 
     wav_file = wave.open(output_path, "wb")
