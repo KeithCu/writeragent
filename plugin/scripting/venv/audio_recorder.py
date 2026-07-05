@@ -11,6 +11,8 @@ import threading
 import wave
 from typing import Callable
 
+from plugin.scripting.audio_silence_detector import SilenceDetector, SilenceDetectorConfig
+
 SAMPLE_RATE = 16000
 CHANNELS = 1
 SAMPLE_WIDTH = 2  # 16-bit PCM
@@ -39,12 +41,19 @@ def record_to_wav(
     stop_event: threading.Event,
     *,
     on_stream_started: Callable[[], None] | None = None,
-) -> None:
-    """Capture mono 16 kHz PCM to *output_path* until *stop_event* is set."""
+    silence_config: SilenceDetectorConfig | None = None,
+    on_ipc_emit: Callable[[dict[str, object]], None] | None = None,
+) -> bool:
+    """Capture mono 16 kHz PCM to *output_path* until *stop_event* is set.
+
+    Returns True when silence detection triggered the stop (auto-stop), else False.
+    """
     sd = _import_sounddevice()
 
     recording = threading.Event()
     recording.set()
+    vad = SilenceDetector(silence_config or SilenceDetectorConfig(enabled=False), sample_rate=SAMPLE_RATE)
+    auto_stopped = False
 
     wav_file = wave.open(output_path, "wb")
     wav_file.setnchannels(CHANNELS)
@@ -52,10 +61,23 @@ def record_to_wav(
     wav_file.setframerate(SAMPLE_RATE)
 
     def callback(indata, frames, time_info, status):
+        nonlocal auto_stopped
         if status:
             print(status, file=sys.stderr)
-        if recording.is_set() and wav_file:
-            wav_file.writeframes(indata)
+        if not recording.is_set() or not wav_file:
+            return
+        pcm = bytes(indata)
+        wav_file.writeframes(pcm)
+        if not silence_config or not silence_config.enabled or auto_stopped:
+            return
+        result = vad.process_chunk(pcm, frame_count=frames)
+        if on_ipc_emit is not None and vad.should_emit_silence_progress(result):
+            on_ipc_emit({"status": "silence_progress", "ms": result.silence_ms, "rms": round(result.rms, 5)})
+        if result.should_stop:
+            auto_stopped = True
+            if on_ipc_emit is not None:
+                on_ipc_emit({"status": "auto_stopped", "path": output_path})
+            stop_event.set()
 
     stream = None
     try:
@@ -90,3 +112,4 @@ def record_to_wav(
             wav_file.close()
         except (OSError, ValueError):
             pass
+    return auto_stopped

@@ -904,6 +904,17 @@ def get_config_int_safe(key: str) -> int:
             return 0
 
 
+def get_config_float_safe(key: str) -> float:
+    """Safely read a float config value, returning schema default on failure."""
+    try:
+        return get_config_float(key)
+    except Exception:
+        try:
+            return parse_float_robust(_resolve_default(key))
+        except Exception:
+            return 0.0
+
+
 def get_config_float(key) -> float:
     """Get a config value as float. ALL requested keys MUST be in the schema.
     Throws ConfigError if key is not found."""

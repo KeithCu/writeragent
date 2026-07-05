@@ -36,6 +36,7 @@ def test_wait_for_recording_ready_accepts_ready_line():
 
 def test_stop_recording_process_returns_path():
     proc = MagicMock()
+    proc.poll.return_value = None
     proc.stdin = MagicMock()
     proc.stdout = MagicMock()
     proc.stdout.readline.return_value = json.dumps({"status": "ok", "path": "/tmp/x.wav"}) + "\n"
@@ -46,6 +47,7 @@ def test_stop_recording_process_returns_path():
 
 def test_stop_recording_process_uses_json_stop_command():
     proc = MagicMock()
+    proc.poll.return_value = None
     proc.stdin = StringIO()
     proc.stdout = StringIO(json.dumps({"status": "ok", "path": "/tmp/x.wav"}) + "\n")
     proc.wait.return_value = 0

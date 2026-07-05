@@ -362,13 +362,17 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self._approval_query_for_engine = None
         self.rich_text_widget = None
         self._rich_plain_fallback_warned = False
+        self.queue_executor = QueueExecutor()
         if HAS_RECORDING:
             assert _AudioRecorderCls is not None
             self.audio_recorder = _AudioRecorderCls(ctx)
+            self.audio_recorder.set_auto_stop_callbacks(
+                on_auto_stop=lambda: self.queue_executor.post(self._on_audio_auto_stop),
+                on_silence_progress=lambda ms: self.queue_executor.post(self._on_audio_silence_progress, ms),
+            )
         else:
             self.audio_recorder = None
         audio_supported = HAS_RECORDING and is_audio_recording_supported(ctx)
-        self.queue_executor = QueueExecutor()
 
         send_initial = SendButtonState(is_busy=False, is_recording=False, has_text=False, has_audio=False, audio_supported=audio_supported)
         self.sidebar_state = SidebarCompositeState(send=send_initial, tool_loop=None, audio=AudioRecorderState(status="idle"))
@@ -871,6 +875,20 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
         for effect in tr.effects:
             self._interpret_effect(effect)
+
+    def _on_audio_auto_stop(self) -> None:
+        """Silence detector ended capture; same FSM path as clicking Stop Rec (stop + send)."""
+        if not self.sidebar_state.send.is_recording:
+            log.info("audio auto-stop ignored (not recording)")
+            return
+        log.info("Audio silence pause detected — treating as Stop Rec")
+        self.dispatch(SendEvent(SendEventKind.STOP_REC_CLICKED))
+
+    def _on_audio_silence_progress(self, silence_ms: int) -> None:
+        from plugin.framework.i18n import _
+
+        if self.sidebar_state.send.is_recording:
+            self._set_status(_("Recording audio… (%d ms silence)") % silence_ms)
 
     def _interpret_effect(self, effect):
         """Interpret a state machine effect and apply side-effects."""

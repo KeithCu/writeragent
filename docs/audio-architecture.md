@@ -55,6 +55,34 @@ The JSON-line framing uses [`plugin/scripting/ipc.py`](../plugin/scripting/ipc.p
 
 Capture uses `sounddevice.RawInputStream` with `dtype='int16'` and Python's built-in `wave` module — no NumPy required for recording. Future **analysis** helpers (librosa, spectrograms) stay in the venv per [numpy-domains.md § Audio / Signal](numpy-domains.md#audio-signal).
 
+### Silence auto-stop (end-of-speech)
+
+Recording can end automatically after the user stops talking, without waiting for STT. Detection uses **local RMS + peak energy** in the capture callback (venv subprocess and host-side downloaded `sounddevice` path).
+
+**Settings → Sidebar → Silence before send (ms)** (`chatbot.audio_silence_stop_ms`):
+
+| Value | Behavior |
+|-------|----------|
+| **3000** (default) | Auto-stop and send after 3s of silence following speech |
+| **0** | Wait until you click **Stop Rec** (auto-stop off) |
+
+Algorithm constants (`MIN_SPEECH_MS` = 500, noise-floor EMA, peak fallbacks) live in [`audio_silence_detector.py`](../plugin/scripting/audio_silence_detector.py) — not user config. No upfront calibration window (users often speak immediately after **Record**); a running noise-floor EMA applies only during pre-speech silence.
+
+Implementation:
+
+- Shared detector: [`plugin/scripting/audio_silence_detector.py`](../plugin/scripting/audio_silence_detector.py)
+- Venv capture: [`plugin/scripting/venv/audio_recorder.py`](../plugin/scripting/venv/audio_recorder.py)
+- Host capture (no venv, downloaded binaries): [`plugin/chatbot/audio_recorder.py`](../plugin/chatbot/audio_recorder.py)
+
+**Venv IPC** (in addition to `ready` / `stop` / `ok`):
+
+| child → host | Meaning |
+|--------------|---------|
+| `{"status":"silence_progress","ms":750}` | Optional UI status while silence accumulates |
+| `{"status":"auto_stopped","path":"/tmp/….wav"}` | VAD triggered stop; host dispatches the same FSM path as **Stop Rec** |
+
+The host runs a stdout monitor thread ([`monitor_recording_stdout`](../plugin/scripting/audio_recorder_service.py)) and posts `STOP_REC_CLICKED` on the LibreOffice main thread via [`execute_on_main_thread`](../plugin/framework/queue_executor.py). Manual **Stop Rec** still works.
+
 ## Implementation Details
 
 ### 1. UI: The Dynamic Send/Record Button

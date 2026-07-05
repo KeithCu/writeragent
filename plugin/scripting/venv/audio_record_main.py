@@ -24,6 +24,7 @@ from plugin.framework.uno_bootstrap import register_alias_importer
 
 register_alias_importer()
 
+from plugin.scripting.audio_silence_detector import SilenceDetectorConfig
 from plugin.scripting.venv.audio_recorder import record_to_wav
 from plugin.scripting.ipc import write_json_line
 
@@ -53,8 +54,10 @@ def _stdin_stop_reader(stop_event: threading.Event) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="WriterAgent venv audio recorder")
     parser.add_argument("--output", required=True, help="Path to write the WAV file")
+    parser.add_argument("--silence-stop-ms", type=int, default=3000)
     args = parser.parse_args(argv)
     output_path = os.path.abspath(args.output)
+    silence_config = SilenceDetectorConfig(silence_stop_ms=max(0, args.silence_stop_ms))
 
     stop_event = threading.Event()
     reader = threading.Thread(target=_stdin_stop_reader, args=(stop_event,), daemon=True)
@@ -67,11 +70,17 @@ def main(argv: list[str] | None = None) -> int:
         ready_emitted.set()
 
     try:
-        record_to_wav(output_path, stop_event, on_stream_started=on_started)
+        auto_stopped = record_to_wav(
+            output_path,
+            stop_event,
+            on_stream_started=on_started,
+            silence_config=silence_config,
+            on_ipc_emit=_emit,
+        )
         if not ready_emitted.is_set():
             _emit({"status": "error", "message": "Audio stream failed to start."})
             return 1
-        _emit({"status": "ok", "path": output_path})
+        _emit({"status": "ok", "path": output_path, "auto_stopped": auto_stopped})
         return 0
     except RuntimeError as exc:
         _emit({"status": "error", "message": str(exc)})

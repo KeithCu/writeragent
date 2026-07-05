@@ -11,9 +11,11 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 from typing import Any, Callable
 
 from plugin.framework.config import get_config_str
+from plugin.scripting.audio_silence_detector import SilenceDetectorConfig, load_silence_detector_config
 from plugin.scripting.ipc import read_json_line, write_json_line
 from plugin.scripting.sandbox import resolve_venv_python, scrub_subprocess_env, wrap_command_for_sandbox
 
@@ -78,9 +80,21 @@ def _popen_kwargs() -> dict[str, Any]:
     return popen_kw
 
 
-def spawn_recording_process(exe: str, output_path: str) -> subprocess.Popen[str]:
+def _silence_cli_args(config: SilenceDetectorConfig) -> list[str]:
+    return [f"--silence-stop-ms={max(0, config.silence_stop_ms)}"]
+
+
+def spawn_recording_process(
+    exe: str,
+    output_path: str,
+    *,
+    silence_config: SilenceDetectorConfig | None = None,
+) -> subprocess.Popen[str]:
     """Start audio_record_main.py in the user venv."""
-    cmd = wrap_command_for_sandbox([exe, _AUDIO_RECORD_MAIN, "--output", output_path])
+    cmd = [exe, _AUDIO_RECORD_MAIN, "--output", output_path]
+    if silence_config is not None:
+        cmd.extend(_silence_cli_args(silence_config))
+    cmd = wrap_command_for_sandbox(cmd)
     return subprocess.Popen(cmd, **_popen_kwargs())
 
 
@@ -121,8 +135,23 @@ def stop_recording_process(
     proc: subprocess.Popen[str],
     *,
     timeout_sec: float = _RECORDING_STOP_TIMEOUT_SEC,
+    fallback_path: str | None = None,
 ) -> str:
     """Send stop, read final JSON line, terminate child, return WAV path."""
+    if proc.poll() is not None:
+        if proc.stdout is not None:
+            try:
+                payload = read_json_line(proc.stdout, timeout_sec=0.25)
+            except (subprocess.TimeoutExpired, ValueError, RuntimeError):
+                payload = None
+            if isinstance(payload, dict) and payload.get("status") == "ok":
+                path = payload.get("path")
+                if isinstance(path, str) and path:
+                    return path
+        if fallback_path:
+            return fallback_path
+        raise RuntimeError("Recording subprocess already exited without a WAV path.")
+
     if proc.stdin is None:
         raise RuntimeError("Recording subprocess stdin is not available.")
     try:
@@ -144,6 +173,47 @@ def stop_recording_process(
     except subprocess.TimeoutExpired:
         proc.terminate()
     return path
+
+
+def monitor_recording_stdout(
+    proc: subprocess.Popen[str],
+    *,
+    on_auto_stopped: Callable[[str], None],
+    on_silence_progress: Callable[[int], None] | None = None,
+    on_error: Callable[[str], None] | None = None,
+) -> threading.Thread:
+    """Background reader for venv recorder IPC (auto-stop and silence progress)."""
+
+    def _reader() -> None:
+        if proc.stdout is None:
+            return
+        while proc.poll() is None:
+            try:
+                payload = read_json_line(proc.stdout, timeout_sec=0.25)
+            except subprocess.TimeoutExpired:
+                continue
+            except (ValueError, RuntimeError) as exc:
+                log.debug("Recording IPC monitor stopped: %s", exc)
+                break
+            if payload is None:
+                break
+            status = payload.get("status")
+            if status == "silence_progress" and on_silence_progress is not None:
+                ms = payload.get("ms")
+                if isinstance(ms, int):
+                    on_silence_progress(ms)
+            elif status == "auto_stopped":
+                path = payload.get("path")
+                if isinstance(path, str) and path:
+                    on_auto_stopped(path)
+            elif status == "error" and on_error is not None:
+                message = payload.get("message")
+                if isinstance(message, str):
+                    on_error(message)
+
+    thread = threading.Thread(target=_reader, name="audio-rec-stdout-monitor", daemon=True)
+    thread.start()
+    return thread
 
 
 def terminate_recording_process(proc: subprocess.Popen[str] | None) -> None:

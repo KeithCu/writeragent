@@ -184,6 +184,15 @@ config:
     label: Humanizer skill (natural prose)
     helper: "When enabled, injects guidance into the system prompt so the model makes generated or revised document text sound more natural and human (removes AI slop patterns). Edit the rules in your LibreOffice profile under writeragent/skills/humanizer/SKILL.md (the file is auto-created on first use). A dedicated Skills tab can be added later."
 
+  audio_silence_stop_ms:
+    type: int
+    default: 3000
+    min: 0
+    max: 15000
+    widget: number
+    label: Silence before send (ms)
+    helper: "Pause after you stop talking, then auto-stop and send (Record). 0 = wait until you click Stop Rec."
+
   query_history:
     type: string
     default: "[]"
