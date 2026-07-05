@@ -61,12 +61,13 @@ def test_get_ctx_with_uno():
     mock_uno = MagicMock()
     mock_ctx = MagicMock()
     mock_uno.getComponentContext.return_value = mock_ctx
-    sys.modules['uno'] = mock_uno
-    try:
+    # patch.dict RESTORES the previous sys.modules['uno'] (the session-wide mock installed by
+    # setup_uno_mocks). The old pop('uno') left the whole run without a 'uno' module, so any
+    # later test that imports uno lazily hit the real uno.py -> "No module named 'pyuno'"
+    # (this is what broke tests/mcp/test_long_running_concurrency.py in combined runs).
+    with patch.dict(sys.modules, {'uno': mock_uno}):
         assert (get_ctx() == mock_ctx)
         mock_uno.getComponentContext.assert_called_once()
-    finally:
-        sys.modules.pop('uno', None)
 
 def test_get_ctx_fallback():
     mock_fallback = MagicMock()
@@ -86,14 +87,14 @@ def test_get_ctx_fallback():
 def test_get_ctx_fallback_uno_returns_none():
     mock_uno = MagicMock()
     mock_uno.getComponentContext.return_value = None
-    sys.modules['uno'] = mock_uno
-    try:
-        mock_fallback = MagicMock()
-        set_fallback_ctx(mock_fallback)
-        assert (get_ctx() == mock_fallback)
-    finally:
-        sys.modules.pop('uno', None)
-        set_fallback_ctx(None)
+    mock_fallback = MagicMock()
+    # patch.dict restores the session-wide uno mock afterwards (see test_get_ctx_with_uno).
+    with patch.dict(sys.modules, {'uno': mock_uno}):
+        try:
+            set_fallback_ctx(mock_fallback)
+            assert (get_ctx() == mock_fallback)
+        finally:
+            set_fallback_ctx(None)
 
 
 def test_focus_preserved_restores_focus_window():
