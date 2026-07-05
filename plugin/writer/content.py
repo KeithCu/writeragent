@@ -23,7 +23,7 @@ import threading
 
 from plugin.framework.tool import ToolBase, ToolBaseDummy
 from plugin.framework.constants import APPLY_DOCUMENT_CONTENT_TOOL_RESEARCH_HINT
-from plugin.doc.document_helpers import normalize_linebreaks, get_string_without_tracked_deletions
+from plugin.doc.document_helpers import normalize_linebreaks, get_string_without_tracked_deletions, collect_tracked_changes
 from plugin.writer.edit_review import EditReviewSession, edit_review_wait_seconds, review_recording_enabled, get_agent_edit_review_mode
 from plugin.framework.errors import safe_json_loads, ToolExecutionError
 import re as re_mod
@@ -306,6 +306,95 @@ def _find_first_range(doc, search_string):
     return _find_chained_range(doc, search_string, all_matches=False)
 
 
+def _iter_drawing_shapes(container):
+    """Yield every drawing shape on a container, recursing into group shapes.
+
+    ``doc.findFirst``/``findAll`` (the search path) cover body, table cells, text frames and inline
+    (AS_CHARACTER) shape text but NOT floating drawing-layer shapes on ``getDrawPage()``. Walking the
+    draw page (groups included) lets us both detect and edit text that lives only inside such a box."""
+    try:
+        n = int(container.getCount())
+    except Exception:
+        return
+    for i in range(n):
+        try:
+            shape = container.getByIndex(i)
+        except Exception:
+            continue
+        try:
+            is_group = shape.supportsService("com.sun.star.drawing.GroupShape")
+        except Exception:
+            is_group = False
+        if is_group:
+            yield from _iter_drawing_shapes(shape)
+        else:
+            yield shape
+
+
+def _drawing_shape_object_containing(doc, search_string):
+    """First drawing-layer shape whose text contains *search_string*, else None. Fully defensive."""
+    needle = (search_string or "").strip()
+    if not needle:
+        return None
+    try:
+        if not hasattr(doc, "getDrawPage"):
+            return None
+        draw_page = doc.getDrawPage()
+    except Exception:
+        return None
+    for shape in _iter_drawing_shapes(draw_page):
+        try:
+            text = shape.getString() if hasattr(shape, "getString") else ""
+        except Exception:
+            continue
+        if text and needle in text:
+            return shape
+    return None
+
+
+def _drawing_shape_containing(doc, search_string):
+    """Name of a drawing-layer shape whose text contains *search_string*, else None.
+
+    When search/replace finds nothing, this lets the caller tell the agent the text is actually
+    inside a floating shape -- an actionable signal (edit it in place or via the shapes toolset)
+    instead of retrying blindly (note 7). Fully defensive: any failure returns None."""
+    shape = _drawing_shape_object_containing(doc, search_string)
+    if shape is None:
+        return None
+    return (getattr(shape, "Name", "") or "").strip() or "(unnamed shape)"
+
+
+def _replace_text_in_shape(shape, old, new):
+    """Replace the first occurrence of *old* with *new* inside a drawing shape's own text,
+    preserving the formatting of the surrounding text via a text cursor. Returns True on success.
+
+    Uses character-offset navigation (goRight) which aligns with getString() for single-paragraph
+    shape text (the common case for callouts / text boxes); fully defensive on any UNO failure."""
+    try:
+        xtext = shape.getText()
+        s = xtext.getString()
+    except Exception:
+        return False
+    idx = s.find(old)
+    if idx < 0:
+        return False
+    # goRight counts UTF-16 code units, while str offsets count code points. Convert so astral
+    # characters (emoji, rare CJK) in the shape text don't misalign the selection / corrupt text.
+    left_units = len(s[:idx].encode("utf-16-le")) // 2
+    old_units = len(old.encode("utf-16-le")) // 2
+    if old_units <= 0:
+        return False
+    try:
+        cursor = xtext.createTextCursorByRange(xtext.getStart())
+        if left_units:
+            cursor.goRight(left_units, False)
+        cursor.goRight(old_units, True)
+        cursor.setString(new)
+        return True
+    except Exception:
+        return False
+
+
 def _normalize_search_string_for_find(s):
     """Collapse horizontal whitespace (incl. NBSP & friends) to a single ASCII
     space; preserve newlines for literal find.
@@ -322,6 +411,27 @@ def _all_start_indices(haystack, needle):
     while i >= 0:
         out.append(i)
         i = haystack.find(needle, i + len(needle))
+    return out
+
+
+def _find_ranges_regex_case(doc, pattern, use_regex, case_sensitive, all_matches):
+    """Direct SearchDescriptor find honoring an EXPLICIT regex / case_sensitive request. No
+    paragraph chaining, no NBSP-flex, no case fallback — so counts line up with
+    search_in_document for the text the EDIT path can reach (body, table cells, text frames;
+    search_in_document additionally sweeps drawing shapes and comments, which no edit reaches).
+    Used only when the caller opts in; the default search path is left untouched. Returns a single
+    range (all_matches False) or a list (all_matches True)."""
+    sd = doc.createSearchDescriptor()
+    sd.SearchString = pattern
+    sd.SearchRegularExpression = bool(use_regex)
+    sd.SearchCaseSensitive = bool(case_sensitive)
+    if not all_matches:
+        return doc.findFirst(sd)
+    out = []
+    found = doc.findFirst(sd)
+    while found is not None and len(out) < _MAX_SEARCH_REPLACEMENTS:
+        out.append(found)
+        found = doc.findNext(found.getEnd(), sd)
     return out
 
 
@@ -550,15 +660,15 @@ def _record_html_atomically(session, doc, mutate, track_reviewable, **record_kwa
     and the import either both land or neither does.
 
     record_mutation() opens no undo context, so a throwing import would otherwise strand a bare
-    deletion (a half-applied edit) and register no reviewable change. Unlike the plain-text path there
-    is no atomic single-op variant of an HTML import, so when recording a reviewable change we wrap the
-    whole mutation in ONE grouped undo context and, on failure, undo it (reverting the partial
-    deletion) before re-raising. If no usable/unlocked undo manager is available we REFUSE before
-    mutating (fail closed) rather than risk a partial edit. When NOT recording (no review contract) the
-    mutation runs directly, exactly as before."""
-    if not track_reviewable:
-        return session.record_mutation(mutate, **record_kwargs)
-
+    deletion (a half-applied edit). Unlike the plain-text path there is no atomic single-op variant of
+    an HTML import, so we wrap the whole mutation in ONE grouped undo context and, on failure, undo it
+    (reverting the partial deletion) before re-raising. This holds in ALL modes -- review recording ON
+    or OFF -- because the delete-before-insert is non-atomic either way: e.g. block/rich HTML into a
+    table cell deletes the match and THEN throws (format.replace_single_range_with_content), which with
+    review off previously stranded the deletion + flattened text (status "error" but the doc changed).
+    If no usable/unlocked undo manager is available we REFUSE before mutating (fail closed) rather than
+    risk a partial edit. ``track_reviewable`` no longer gates atomicity; ``session.record_mutation``
+    records a reviewable change (or not) from the session's own enabled state."""
     undo_title = _next_agent_edit_undo_title()
     try:
         mgr = doc.getUndoManager()
@@ -569,7 +679,7 @@ def _record_html_atomically(session, doc, mutate, track_reviewable, **record_kwa
         # No rollback available -> we cannot guarantee all-or-nothing, and an HTML import has no atomic
         # single-op fallback. Refuse BEFORE any mutation so the document is never left half-edited.
         raise ToolExecutionError(
-            "Cannot apply this content edit atomically in review mode (no usable undo context); "
+            "Cannot apply this content edit atomically (no usable undo context); "
             "refusing rather than risk a half-applied edit.")
 
     changes_before = len(session.changes)
@@ -581,6 +691,68 @@ def _record_html_atomically(session, doc, mutate, track_reviewable, **record_kwa
     finally:
         # Pair the enter with exactly one leave; on failure undo the partial edit and drop its record.
         _close_surgical_context(mgr, session, changes_before, applied_ok, undo_title)
+
+
+# --- post-edit echo (edited_context) ---------------------------------------
+_EDITED_CONTEXT_MAX_CHARS = 700
+
+
+def _collapsed_anchor(text_range):
+    """A collapsed model cursor at *text_range*'s start. Positions (unlike content ranges)
+    survive a delete-then-import replace, so this anchors the echo window across the edit.
+    Best-effort: None when the range's text does not support cursors (echo is then skipped)."""
+    try:
+        return text_range.getText().createTextCursorByRange(text_range.getStart())
+    except Exception:
+        return None
+
+
+def _selection_anchor(doc):
+    """Collapsed anchor at the view cursor's start (the selection insert site)."""
+    try:
+        vc = doc.getCurrentController().getViewCursor()
+        return vc.getText().createTextCursorByRange(vc.getStart())
+    except Exception:
+        return None
+
+
+def _paragraph_window_text(anchor, max_chars=_EDITED_CONTEXT_MAX_CHARS):
+    """Plain text of the paragraph around *anchor* plus one neighbor each side, read AFTER the
+    edit. Returns None instead of guessing when the paragraph walk fails (e.g. exotic nested
+    text) — the echo must be right or absent, never wrong. In record/wait the returned text is
+    the current text model, i.e. it includes the pending tracked change."""
+    if anchor is None:
+        return None
+    try:
+        text = anchor.getText()
+        start = text.createTextCursorByRange(anchor.getStart())
+        start.gotoStartOfParagraph(False)
+        start.gotoPreviousParagraph(False)   # False at the first paragraph -> stays put
+        start.gotoStartOfParagraph(False)
+        end = text.createTextCursorByRange(anchor.getEnd())
+        end.gotoEndOfParagraph(False)
+        end.gotoNextParagraph(False)         # False at the last paragraph -> stays put
+        end.gotoEndOfParagraph(False)
+        span = text.createTextCursorByRange(start.getStart())
+        span.gotoRange(end.getEnd(), True)
+        s = span.getString()
+    except Exception:
+        return None
+    if not s or not s.strip():
+        return None
+    if len(s) > max_chars:
+        head = int(max_chars * 0.6)
+        tail = max_chars - head - 7
+        s = s[:head] + " [...] " + s[-tail:]
+    return s
+
+
+def _attach_edited_context(result, anchor):
+    """Add edited_context (the touched paragraph(s) as they now read) to a successful result."""
+    snippet = _paragraph_window_text(anchor)
+    if snippet:
+        result["edited_context"] = snippet
+    return result
 
 
 def _record_preserve_replace(session, doc, found, new_text, uno_ctx, split):
@@ -780,9 +952,32 @@ class GetDocumentContent(ToolBase):
         )
         doc_len = ctx.services.document.get_document_length(ctx.doc)
         result = {"status": "ok", "content": content, "length": len(content), "document_length": doc_len}
+        # Machine-readable truncation signal: without it the only clue was the in-band marker
+        # string, which a model must know to look for. (length counts HTML chars; document_length
+        # and scope='range' offsets are plain-text chars — use those for follow-up range reads.)
+        if max_chars and isinstance(content, str) and content.endswith("[... truncated ...]"):
+            result["truncated"] = True
         if scope == "range" and range_start is not None and range_end is not None:
             result["start"] = int(range_start)
             result["end"] = int(range_end)
+
+        # The HTML content above hides tracked deletions and gives no sign that changes are pending.
+        # When the document has tracked changes, surface them explicitly (insertion vs deletion, with
+        # text) and say they await the user's review — so the model treats them as pending, not errors,
+        # and never resolves them itself.
+        try:
+            if hasattr(ctx.doc, "getRedlines") and ctx.doc.getRedlines().getCount() > 0:
+                changes = collect_tracked_changes(ctx.doc.getText())
+                if changes:
+                    result["tracked_changes"] = changes
+                    result["tracked_changes_note"] = (
+                        "This document has %d change(s) recorded as tracked changes (listed in "
+                        "tracked_changes as insertions/deletions). They are PENDING the user's review — "
+                        "not errors and not yet final. Do NOT accept or reject them yourself; that is the "
+                        "user's decision." % len(changes)
+                    )
+        except Exception:
+            log.debug("get_document_content: could not collect tracked changes", exc_info=True)
         return result
 
 
@@ -842,10 +1037,14 @@ class ApplyDocumentContent(ToolBase):
     parameters = {
         "type": "object",
         "properties": {
-            "content": {"type": "array", "items": {"type": "string"}, "description": ("List of HTML fragments or plain-text fragments (one per block); shape and math per system prompt (APPLY_DOCUMENT_CONTENT AND HTML). No Markdown.")},
+            "content": {"type": "array", "items": {"type": "string"}, "description": ("List of HTML fragments or plain-text fragments (one per block); shape and math per the APPLY_DOCUMENT_CONTENT AND HTML rules — get_guidance('editing-html') serves them if they are not in your context. No Markdown.")},
             "target": {"type": "string", "enum": ["beginning", "end", "selection", "full_document", "search"], "description": "Where to apply the content."},
             "old_content": {"type": "string", "description": ("Substring to find when target='search'. Not for whole-document replace — use target='full_document' instead.")},
-            "all_matches": {"type": "boolean", "description": "Replace all occurrences (true) or first only. Default false. Only for target='search'."},
+            "all_matches": {"type": "boolean", "description": "Replace all occurrences (true) or first only. Default false. Only for target='search' with position='replace'."},
+            "position": {"type": "string", "enum": ["replace", "before", "after"], "description": ("For target='search': 'replace' (default) replaces the match; 'before'/'after' INSERT the content next to the match and leave the matched text untouched (result reports inserted=true instead of replaced_count).")},
+            "dry_run": {"type": "boolean", "description": "For target='search': do NOT edit. Return how many times old_content matches and where each match lives, so you can check before committing."},
+            "regex": {"type": "boolean", "description": "For target='search': treat old_content as a regular expression (default false = literal). Regex mode is single-paragraph (no cross-paragraph chaining)."},
+            "case_sensitive": {"type": "boolean", "description": "For target='search': force case-sensitive (true) or case-insensitive (false) matching. Omit for the default lenient match."},
         },
         "required": ["content"],
     }
@@ -859,6 +1058,30 @@ class ApplyDocumentContent(ToolBase):
             return edit_review_wait_seconds(uno_ctx)
         except Exception:
             return 0
+
+    def _annotate_review_status(self, uno_ctx, result):
+        """Tag a successful edit result with the CURRENT review status, so the model gets a fresh,
+        per-call signal even if the guidance it read earlier (the connect-time pointer, a pulled
+        review-modes topic, or the sidebar prompt) is stale — that text is static while the user
+        can toggle the mode mid-session. Only annotates the non-wait path:
+        with recording on but no blocking wait, the edit landed as a tracked change the agent must
+        not resolve and whose accept/reject outcome it will not be told."""
+        if not isinstance(result, dict) or result.get("status") != "ok":
+            return result
+        try:
+            mode = get_agent_edit_review_mode(uno_ctx)
+        except Exception:
+            return result
+        if mode not in ("record", "wait"):
+            return result  # off -> edit is live; nothing to add
+        result = dict(result)
+        result["review_mode"] = mode
+        result["pending_review"] = True
+        result["message"] = (result.get("message") or "") + (
+            " Applied as a tracked change pending the user's review — do not accept or reject it"
+            " yourself, and you will not be notified whether it is later accepted or rejected."
+        )
+        return result
 
     def _wait_enabled_globally(self):
         """Config read without a tool context, for long_running/is_async (called by the
@@ -893,7 +1116,56 @@ class ApplyDocumentContent(ToolBase):
         # the main thread via marshalling, so the toggle is handled safely instead of erroring.
         return threading.current_thread() is not threading.main_thread()
 
+    def _dry_run_preview(self, ctx, **kwargs):
+        """Resolve old_content matches WITHOUT editing, for target='search'. Reports the count and
+        each match's location + a short snippet, so the model can check before committing."""
+        from plugin.writer import search as search_mod
+
+        target = kwargs.get("target")
+        old_content = kwargs.get("old_content")
+        if not target and old_content is not None:
+            target = "search"
+        if target != "search" or old_content is None:
+            return self._tool_error("dry_run only applies to target='search' with old_content.")
+        from . import format as format_support
+
+        old_stripped = str(old_content).strip()
+        s = old_stripped
+        if format_support.content_has_markup(s):
+            s = format_support.html_to_plain_text(s, ctx.ctx, ctx.services.get("config"))
+        s = _normalize_search_string_for_find(s)
+        if not s:
+            return self._tool_error("old_content is empty after normalization.")
+        # Mirror the EDIT path's option handling exactly — a preview that uses a different
+        # matcher than the commit it previews is worse than none. regex patterns stay raw
+        # (no markup/normalize munging), same as the edit path.
+        use_regex = bool(kwargs.get("regex"))
+        case_opt = kwargs.get("case_sensitive")
+        try:
+            if use_regex or case_opt is not None:
+                ranges = _find_ranges_regex_case(
+                    ctx.doc, old_stripped if use_regex else s, use_regex,
+                    bool(case_opt) if case_opt is not None else False, all_matches=True)
+            else:
+                ranges = _find_all_ranges(ctx.doc, s)
+        except Exception as e:
+            return self._tool_error("dry_run search failed: %s" % e)
+        matches = []
+        for found in ranges[:20]:
+            try:
+                loc = search_mod._describe_match_location(found, ctx.doc)
+            except Exception:
+                loc = "body"
+            try:
+                snippet = found.getString()
+            except Exception:
+                snippet = ""
+            matches.append({"location": loc, "text": snippet[:160]})
+        return {"status": "ok", "dry_run": True, "count": len(ranges), "matches": matches}
+
     def execute(self, ctx, **kwargs):
+        if kwargs.get("dry_run"):
+            return self._dry_run_preview(ctx, **kwargs)
         wait_seconds = self._review_wait_seconds(ctx.ctx)
         on_main = threading.current_thread() is threading.main_thread()
         if get_agent_edit_review_mode(ctx.ctx) != "wait" or on_main:
@@ -916,7 +1188,7 @@ class ApplyDocumentContent(ToolBase):
                 else:
                     from plugin.framework.queue_executor import execute_on_main_thread
                     result, _ = execute_on_main_thread(_do_edit, timeout=60.0)
-                return result
+                return self._annotate_review_status(ctx.ctx, result)
             finally:
                 if session_box:
                     if on_main:
@@ -1007,6 +1279,18 @@ class ApplyDocumentContent(ToolBase):
         if target == "search" and old_content is None:
             return self._tool_error("target='search' requires old_content."), None
 
+        # position is a search-only refinement; validate it up front (silently ignoring it on an
+        # insert target would teach the model a parameter that "works" by accident).
+        position = str(kwargs.get("position") or "replace").strip().lower()
+        if position not in ("replace", "before", "after"):
+            return self._tool_error("position must be 'replace', 'before' or 'after'."), None
+        if position != "replace" and target != "search":
+            return self._tool_error(
+                "position='before'/'after' requires target='search' (it inserts next to an old_content match)."), None
+        if position != "replace" and kwargs.get("all_matches", False):
+            return self._tool_error(
+                "position='before'/'after' inserts at a single match; drop all_matches or use position='replace'."), None
+
         # Normalize content:
         # - If the model (or caller) serialized a list as a JSON string,
         #   parse it back to a real list first so commas/brackets do not
@@ -1078,21 +1362,29 @@ class ApplyDocumentContent(ToolBase):
                 session.record_mutation(
                     lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, "end", config_svc=config_svc),
                     proposed_preview=_plain_preview(content))
-            return {"status": "ok", "message": "Inserted content at end."}, session
+            return _attach_edited_context(
+                {"status": "ok", "message": "Inserted content at end."},
+                _collapsed_anchor(ctx.doc.getText().getEnd())), session
         if target == "selection":
+            # Anchor BEFORE the edit: the selection insert clears the selection first, so only a
+            # collapsed position (not the selection range itself) survives the replace.
+            anchor = _selection_anchor(ctx.doc)
             with session:
                 # Selection insert clears the selection first, then imports -> atomic (full_document above).
                 _record_html_atomically(
                     session, ctx.doc,
                     lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, "selection", config_svc=config_svc),
                     track_reviewable, proposed_preview=_plain_preview(content))
-            return {"status": "ok", "message": "Inserted content at selection."}, session
+            return _attach_edited_context(
+                {"status": "ok", "message": "Inserted content at selection."}, anchor), session
         if target == "beginning":
             with session:
                 session.record_mutation(
                     lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, "beginning", config_svc=config_svc),
                     proposed_preview=_plain_preview(content))
-            return {"status": "ok", "message": "Inserted content at beginning."}, session
+            return _attach_edited_context(
+                {"status": "ok", "message": "Inserted content at beginning."},
+                _collapsed_anchor(ctx.doc.getText().getStart())), session
 
         # target == "search" from here on — old_content must be a findable substring, not the full body.
         # Whole-document replace: target='full_document' (no search, no old_content).
@@ -1112,10 +1404,22 @@ class ApplyDocumentContent(ToolBase):
         # no-op surfaced as a failure), N>0 -> "ok". No matched_count/warning/partial-replace:
         # if a replace raises mid-all_matches the existing abort behavior stands.
         # TODO(follow-up): share search-path return dicts with string_eval_tools.py to avoid drift.
+        # Explicit regex / case control (opt-in): a direct SearchDescriptor find that bypasses the
+        # default lenient matcher, so "search with options then replace" agrees with search_in_document.
+        _regex_opt = bool(kwargs.get("regex"))
+        _case_opt = kwargs.get("case_sensitive")
+        _use_opts = _regex_opt or _case_opt is not None
+        _opts_pattern = old_stripped if _regex_opt else search_string
+        _opts_cs = bool(_case_opt) if _case_opt is not None else False
+
         all_matches = kwargs.get("all_matches", False)
         if all_matches:
-            ranges = _find_all_ranges(doc, search_string)
+            ranges = (_find_ranges_regex_case(doc, _opts_pattern, _regex_opt, _opts_cs, all_matches=True)
+                      if _use_opts else _find_all_ranges(doc, search_string))
             count = 0
+            # Anchor at the FIRST match in document order; the echo shows that occurrence's
+            # neighborhood after the edit (positions survive the replaces, content ranges don't).
+            anchor = _collapsed_anchor(ranges[0]) if ranges else None
             # Replace from last to first so earlier character offsets stay valid after edits.
             # One record_mutation per match: each replaced occurrence is its own reviewable
             # change with its own accept/reject outcome.
@@ -1137,12 +1441,109 @@ class ApplyDocumentContent(ToolBase):
             msg = "Replaced %d occurrence(s)." % count
             if use_preserve:
                 msg += " (formatting preserved)"
-            return {"status": "ok", "message": msg, "replaced_count": count}, session
-        found = _find_first_range(doc, search_string)
+            if count > 1:
+                msg += " edited_context shows the first occurrence's neighborhood."
+            return _attach_edited_context(
+                {"status": "ok", "message": msg, "replaced_count": count}, anchor), session
+        found = (_find_ranges_regex_case(doc, _opts_pattern, _regex_opt, _opts_cs, all_matches=False)
+                 if _use_opts else _find_first_range(doc, search_string))
         if found is None:
+            # Search covers body/table cells/text frames but not drawing-layer shapes. If the text
+            # lives only inside such a floating box, say so (actionable) instead of a bare not-found
+            # -- otherwise the agent retries blindly or assumes failure where a shapes-toolset edit
+            # is needed (note 7).
+            shape = _drawing_shape_object_containing(doc, search_string)
+            if shape is not None:
+                shape_name = (getattr(shape, "Name", "") or "").strip() or "(unnamed shape)"
+                if track_reviewable:
+                    # Review modes (record/wait) require edits to become reviewable tracked changes,
+                    # but drawing-shape text can't carry redlines and editing it directly would bypass
+                    # the review/session machinery. Route to the shapes toolset rather than silently
+                    # applying an UNtracked edit while the caller believes review is engaged.
+                    return {"status": "error",
+                            "message": ("old_content is only inside a drawing shape / floating text box "
+                                        f"('{shape_name}'). In review mode it cannot be edited as a tracked "
+                                        "change; edit it via the shapes toolset "
+                                        "(delegate_to_specialized_writer_toolset domain='shapes')."),
+                            "replaced_count": 0}, session
+                # Review off: the text lives only inside a floating drawing shape, which findFirst/
+                # replace can't reach. Edit the shape's own text directly (note 7), preserving format.
+                new_text = _plain_preview(content)
+                undo = None
+                try:
+                    undo = doc.getUndoManager()
+                    undo.enterUndoContext("Edit drawing-shape text")
+                except Exception:
+                    undo = None
+                try:
+                    edited = _replace_text_in_shape(shape, search_string, new_text)
+                finally:
+                    if undo is not None:
+                        try:
+                            undo.leaveUndoContext()
+                        except Exception:
+                            pass
+                if edited:
+                    return {"status": "ok",
+                            "message": ("Replaced 1 occurrence inside drawing shape '%s' (edited the "
+                                        "shape's own text directly — NOT a tracked change; surrounding "
+                                        "formatting preserved)." % shape_name),
+                            "replaced_count": 1}, session
+                # Couldn't edit in place -> fall back to the actionable routing message.
+                return {"status": "error",
+                        "message": ("old_content was found only inside a drawing shape / floating text box "
+                                    f"('{shape_name}'), which normal search/replace cannot edit and the direct "
+                                    "shape edit did not apply. Edit it via the shapes toolset "
+                                    "(delegate_to_specialized_writer_toolset domain='shapes')."),
+                        "replaced_count": 0}, session
             return {"status": "error", "message": "old_content not found in document. Try a shorter, unique substring.",
                     "replaced_count": 0}, session
+        if position in ("before", "after"):
+            # INSERT next to the match instead of replacing it: the single most common petition
+            # edit ("add a paragraph after clause X") previously forced resending the clause
+            # itself in content — which in record/wait rendered as a tracked delete+reinsert of
+            # text nobody touched. Collapse a cursor at the match edge and run the normal
+            # HTML-import insert there; only the genuinely new text enters the review record.
+            #
+            # Two guarded gaps (clear error beats an opaque failure; the atomic wrapper would
+            # roll back either way): the mixed-math importer appends later segments at the
+            # DOCUMENT END (format.py per-segment goto-end), and the HTML import path is not
+            # cell-safe (same nested-XText hazard the replace path detects).
+            if format_support.html_fragment_contains_mixed_math(str(content)):
+                return self._tool_error(
+                    "position='before'/'after' does not support content with math segments yet "
+                    "(later segments would land at the document end); use position='replace' "
+                    "including the math, or target='end'."), session
+            try:
+                in_cell = found.getText().createTextCursorByRange(
+                    found.getStart()).getPropertyValue("TextTable") is not None
+            except Exception:
+                in_cell = False
+            if in_cell:
+                return self._tool_error(
+                    "position='before'/'after' next to a match inside a table cell is not "
+                    "supported yet; use position='replace' with plain text, or rewrite the "
+                    "cell content."), session
+            try:
+                edge = found.getStart() if position == "before" else found.getEnd()
+                insert_cursor = found.getText().createTextCursorByRange(edge)
+            except Exception as e:
+                return self._tool_error("Could not anchor the %s-match insert: %s" % (position, e)), session
+            anchor = _collapsed_anchor(found)
+            with session:
+                _record_html_atomically(
+                    session, doc,
+                    lambda: format_support._insert_mixed_or_plain_html(doc, ctx.ctx, insert_cursor, content, config_svc=config_svc, apply_styles=False),
+                    track_reviewable, proposed_preview=_plain_preview(content))
+            return _attach_edited_context(
+                {"status": "ok",
+                 "message": "Inserted content %s the old_content match (matched text left untouched)." % position,
+                 "inserted": True, "position": position}, anchor), session
+
         original = found.getString()
+        # Anchor BEFORE the mutation: the found range's content is replaced (HTML path even
+        # deletes-then-imports), but a collapsed position at its start survives.
+        anchor = _collapsed_anchor(found)
         with session:
             if use_preserve:
                 _record_preserve_replace(session, doc, found, raw_content, ctx.ctx, track_reviewable)
@@ -1154,7 +1555,8 @@ class ApplyDocumentContent(ToolBase):
         msg = "Replaced 1 occurrence (by old_content)."
         if use_preserve:
             msg += " (formatting preserved)"
-        return {"status": "ok", "message": msg, "replaced_count": 1}, session
+        return _attach_edited_context(
+            {"status": "ok", "message": msg, "replaced_count": 1}, anchor), session
 
 
 # ------------------------------------------------------------------

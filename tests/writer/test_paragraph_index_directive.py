@@ -14,7 +14,10 @@ from plugin.writer.search import SearchInDocument
 from plugin.writer.structural import GetPageObjects
 
 # Model-facing tools whose results expose a paragraph index to the model.
-_INDEX_TOOLS = (GetPageObjects, GetDocumentTree, GetHeadingChildren, SearchInDocument)
+# NOTE: SearchInDocument no longer belongs here — its results carry {text, location, context}
+# (no paragraph_index anymore) and its description instructs quoting the match text + location
+# instead of any internal index. Pinned separately below so the intent can't silently regress.
+_INDEX_TOOLS = (GetPageObjects, GetDocumentTree, GetHeadingChildren)
 
 
 def test_index_tools_warn_against_citing_paragraph_numbers():
@@ -26,3 +29,12 @@ def test_index_tools_warn_against_citing_paragraph_numbers():
 def test_get_page_objects_uses_the_central_directive_constant():
     # The previously-uncovered tool now carries the canonical constant verbatim (single source).
     assert PARAGRAPH_INDEX_DIRECTIVE in GetPageObjects.description
+
+
+def test_search_reports_locations_instead_of_internal_indexes():
+    # Search's replacement for the directive: no index in results, and the description steers the
+    # model to quote match text + location.
+    desc = (SearchInDocument.description or "").lower()
+    assert "location" in desc
+    assert "internal index" in desc
+    assert "paragraph_index" not in desc
