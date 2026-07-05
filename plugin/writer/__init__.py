@@ -20,7 +20,7 @@ from plugin.framework.module_base import ModuleBase
 
 # Load subpackages for tool registration side effects before auto_discover_package.
 from . import tree, proximity
-from . import styles, tracking, page, search, structural, outline, navigation, target_resolver  # noqa: F401
+from . import styles, tracking, page, search, structural, outline, navigation, target_resolver, get_image  # noqa: F401
 from .specialized import bookmarks
 # mock_domains: disable tools by wrapping class block in ''' in specialized/mock_domains.py
 from .specialized import forms, charts, comments, shapes, indexes, textframes, fields, embedded, mock_domains  # noqa: F401

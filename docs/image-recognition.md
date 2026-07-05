@@ -380,6 +380,7 @@ Extended [`test_vision.py`](../tests/scripting/test_vision.py), [`test_vision_ru
 | Export by graphic name | [`resolve_vision_image_bytes`](plugin/vision/vision_runner.py) + [`_get_graphic_object`](plugin/writer/images/images.py) |
 | List in-document graphics | [`list_images`](../plugin/writer/images/images.py) |
 | Metadata | [`get_image_info`](../plugin/writer/images/images.py) |
+| Return a viewable image to the model | [`get_image`](../plugin/writer/get_image.py) — an embedded graphic by name, the current selection, or `page=<n>` to render a whole page as PNG (native `writer_png_Export`) |
 | Insert / replace / delete | [`image_tools.py`](../plugin/writer/images/image_tools.py) |
 | Remote **generation** | [`generate_image`](../plugin/writer/images/images.py) |
 
