@@ -150,6 +150,7 @@ class SetTableCell(ToolWriterTableBase):
         text = kwargs.get("text")
         if text is None:
             return self._tool_error("text is required.")
+        cell_name = cell_raw  # bound for the except below even if _get_table raises before resolution
         try:
             table = _get_table(ctx.doc, name)
             cell_name = _resolve_cell_name(table, cell_raw)

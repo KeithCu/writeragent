@@ -125,6 +125,16 @@ def test_set_table_cell_out_of_bounds_lists_real_names():
     assert res["status"] == "error" and "Its cells are:" in res["message"] and "A1" in res["message"]
 
 
+def test_set_table_cell_uno_failure_returns_clean_error():
+    """A non-ValueError UNO failure BEFORE cell resolution must return a clean tool error, not
+    an UnboundLocalError from the except block referencing an unassigned cell_name."""
+    def boom():
+        raise RuntimeError("uno exploded")
+    ctx = SimpleNamespace(doc=SimpleNamespace(getTextTables=boom))
+    res = SetTableCell().execute(ctx, table_name="T", cell="A1", text="x")
+    assert res["status"] == "error" and "A1" in res["message"] and "uno exploded" in res["message"]
+
+
 def test_set_table_cell_never_blind_uppercases_real_lowercase_names():
     """Writer names columns A..Z then LOWERCASE a..z: on a wide table 'a1' and 'A1' are DIFFERENT
     cells. An exact lowercase name must be used as-is, never rewritten to uppercase."""
