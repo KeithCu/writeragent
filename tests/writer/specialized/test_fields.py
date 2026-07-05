@@ -99,9 +99,12 @@ def test_fields_insert(mock_ctx):
     doc.createInstance.assert_called_with("com.sun.star.text.textfield.PageNumber")
     assert mock_field.setPropertyValue.call_count == 2
 
-    # Text insertion uses the cursor returned by resolve_target_cursor (doc.getText().createTextCursor)
-    mock_cursor = doc.getText().createTextCursor()
-    mock_cursor.getText().insertTextContent.assert_called_with(mock_cursor, mock_field, False)
+    # Text insertion uses the cursor returned by resolve_target_cursor. Since the cell-safe fix,
+    # the selection cursor is built in the SELECTION's own text object (rng.getText()), not the
+    # body — the old body-cursor pin validated the cross-text bug.
+    rng = mock_controller.getSelection().getByIndex()
+    used_cursor = rng.getText().createTextCursorByRange()
+    used_cursor.getText().insertTextContent.assert_called_with(used_cursor, mock_field, False)
 
 
 def test_fields_delete(mock_ctx):

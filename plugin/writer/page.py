@@ -435,31 +435,74 @@ class SetPageColumns(ToolWriterPageBase):
 
 
 class InsertPageBreak(ToolWriterPageBase):
-    """Insert a page break at the current cursor position."""
+    """Insert a page break at a text anchor (before_text/after_text) or at the view cursor."""
 
     name = "insert_page_break"
-    description = "Insert a page break at the current cursor position."
-    parameters = {"type": "object", "properties": {}, "required": []}
+    description = (
+        "Start a new page. With no anchor, breaks at the user's cursor (arbitrary over MCP). "
+        "Pass before_text or after_text to break the page at a specific passage instead, so a "
+        "headless client can place it deterministically (e.g. before_text of the signature block)."
+    )
+    parameters = {"type": "object", "properties": {
+        "before_text": {"type": "string", "description": "Break so this passage starts a new page (page break on the match's paragraph)."},
+        "after_text": {"type": "string", "description": "Break the page right after this passage's paragraph."},
+        "occurrence": {"type": "integer", "description": "0-based match to use when the anchor text repeats (default 0)."},
+        "case_sensitive": {"type": "boolean", "description": "Case-sensitive anchor match (default true)."},
+    }, "required": []}
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
         doc = ctx.doc
+        before_text = kwargs.get("before_text")
+        after_text = kwargs.get("after_text")
+        if before_text and after_text:
+            return self._tool_error("Pass only one of before_text / after_text.")
 
         try:
+            if before_text or after_text:
+                anchor = str(before_text or after_text)
+                try:
+                    occurrence = int(kwargs.get("occurrence", 0) or 0)
+                except (TypeError, ValueError):
+                    return self._tool_error("occurrence must be an integer.")
+                if occurrence < 0:
+                    return self._tool_error("occurrence must be non-negative.")
+                sd = doc.createSearchDescriptor()
+                sd.SearchString = anchor
+                sd.SearchRegularExpression = False
+                sd.SearchCaseSensitive = bool(kwargs.get("case_sensitive", True))
+                found = doc.findFirst(sd)
+                for _ in range(occurrence):
+                    if found is None:
+                        break
+                    found = doc.findNext(found.getEnd(), sd)
+                if found is None:
+                    return self._tool_error("Anchor text '%s' not found%s." % (anchor, (" at occurrence %d" % occurrence) if occurrence else ""))
+                from com.sun.star.style.BreakType import PAGE_BEFORE
+                text = found.getText()
+                # BreakType is a PARAGRAPH property. before_text -> the match's own paragraph;
+                # after_text -> the paragraph that FOLLOWS the match.
+                para = text.createTextCursorByRange(found.getStart() if before_text else found.getEnd())
+                if after_text and not para.gotoNextParagraph(False):
+                    # At the LAST paragraph there is nothing after the anchor; silently breaking
+                    # on the anchor's own paragraph would push the anchor itself to a new page
+                    # (the opposite of what was asked) while reporting ok.
+                    return self._tool_error(
+                        "The anchor is in the document's last paragraph; there is nothing after it "
+                        "to start a new page with. Use before_text, or append content first.")
+                para.setPropertyValue("BreakType", PAGE_BEFORE)
+                return {"status": "ok", "message": "Page break inserted %s the anchor." % ("before" if before_text else "after")}
+
             view_cursor = doc.getCurrentController().getViewCursor()
             if not view_cursor:
                 return self._tool_error("Could not obtain view cursor.")
 
+            from com.sun.star.style.BreakType import PAGE_BEFORE
             text = view_cursor.getText()
             cursor = text.createTextCursorByRange(view_cursor)
-
-            from com.sun.star.style.BreakType import PAGE_BEFORE
-
             cursor.setPropertyValue("BreakType", PAGE_BEFORE)
-
             # Optionally insert a paragraph break so the break actually applies cleanly
             text.insertControlCharacter(cursor, 0, False)  # 0 = PARAGRAPH_BREAK
-
             return {"status": "ok", "message": "Page break inserted."}
         except Exception as e:
             return self._tool_error(f"Error inserting page break: {e}")
