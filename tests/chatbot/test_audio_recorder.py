@@ -20,6 +20,7 @@ def recording_mocks(tmp_path):
     proc = MagicMock()
     proc.stdin = MagicMock()
     proc.stdout = MagicMock()
+    proc.poll.return_value = None  # simulate running subprocess; stop path calls stop_recording_process
     with (
         patch("plugin.chatbot.audio_recorder.resolve_recording_python", return_value=("/usr/bin/python", "")),
         patch("plugin.chatbot.audio_recorder.make_temp_wav_path", return_value=wav_path),
@@ -127,10 +128,11 @@ def test_audio_record_main_protocol(tmp_path, monkeypatch):
 
     stop_event = threading.Event()
 
-    def fake_record(output, event, *, on_stream_started=None):
+    def fake_record(output, event, *, on_stream_started=None, silence_config=None, on_ipc_emit=None):
         if on_stream_started is not None:
             on_stream_started()
         event.set()
+        return False  # not auto-stopped
 
     monkeypatch.setattr(main_mod, "_emit", fake_emit)
     monkeypatch.setattr(main_mod, "record_to_wav", fake_record)
@@ -146,4 +148,4 @@ def test_audio_record_main_protocol(tmp_path, monkeypatch):
     code = main_mod.main(["--output", output_path])
     assert code == 0
     assert emitted[0] == {"status": "ready"}
-    assert emitted[-1] == {"status": "ok", "path": os.path.abspath(output_path)}
+    assert emitted[-1] == {"status": "ok", "path": os.path.abspath(output_path), "auto_stopped": False}

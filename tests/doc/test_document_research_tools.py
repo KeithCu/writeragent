@@ -34,6 +34,11 @@ def test_append_feedback_log_fails_safe(tmp_path):
         assert _append_feedback_log("bug", "x", "y") is None
 
 
+def test_append_feedback_log_returns_none_when_no_config_dir():
+    with patch("plugin.framework.config.user_config_dir", return_value=None):
+        assert _append_feedback_log("bug", "x", "y") is None
+
+
 def test_report_bug_logs_and_returns_url(tmp_path):
     with patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
          patch("plugin.framework.bug_report.build_github_issue_url",

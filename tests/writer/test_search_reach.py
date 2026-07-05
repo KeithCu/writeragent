@@ -179,7 +179,14 @@ def test_location_reports_table_cell():
         return None
 
     cur.getPropertyValue.side_effect = _get_prop
+    text = MagicMock()
+
+    def _text_prop(name):
+        return None
+
+    text.getPropertyValue.side_effect = _text_prop
     found = MagicMock()
+    found.getText.return_value = text
     found.getText.return_value.createTextCursorByRange.return_value = cur
     assert describe_match_location(found) == "table 'Table1' cell B2"
 

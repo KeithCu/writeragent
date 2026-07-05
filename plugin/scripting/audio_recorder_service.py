@@ -15,6 +15,7 @@ import threading
 from typing import Any, Callable
 
 from plugin.framework.config import get_config_str
+from plugin.framework.worker_pool import run_in_background
 from plugin.scripting.audio_silence_detector import SilenceDetectorConfig, load_silence_detector_config
 from plugin.scripting.ipc import read_json_line, write_json_line
 from plugin.scripting.sandbox import resolve_venv_python, scrub_subprocess_env, wrap_command_for_sandbox
@@ -211,9 +212,7 @@ def monitor_recording_stdout(
                 if isinstance(message, str):
                     on_error(message)
 
-    thread = threading.Thread(target=_reader, name="audio-rec-stdout-monitor", daemon=True)
-    thread.start()
-    return thread
+    return run_in_background(_reader, name="audio-rec-stdout-monitor", daemon=True)
 
 
 def terminate_recording_process(proc: subprocess.Popen[str] | None) -> None:

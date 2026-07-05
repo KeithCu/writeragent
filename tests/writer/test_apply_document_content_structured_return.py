@@ -10,6 +10,7 @@
 # We mock the range finders + the replace helpers so only the replaced_count / status logic
 # is exercised: replaced_count == 0 -> status "error", N > 0 -> "ok".
 import types
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -19,8 +20,12 @@ from plugin.writer.content import ApplyDocumentContent
 
 
 def _ctx():
+    doc = MagicMock()
+    um = MagicMock()
+    um.isLocked.return_value = False
+    doc.getUndoManager.return_value = um
     return types.SimpleNamespace(
-        doc=object(), ctx=object(),
+        doc=doc, ctx=object(),
         services=types.SimpleNamespace(get=lambda key, default=None: None),
     )
 

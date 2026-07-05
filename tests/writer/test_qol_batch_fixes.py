@@ -5,7 +5,7 @@
 """The 8-point QoL/bug batch (2026-07-02): reads must not save, is_active must be proxy-safe,
 misses must be errors (regex, delete_comment), position='before'/'after' inserts, document echo,
 undo/redo exposure, and recoverable error messages. No LibreOffice required."""
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from plugin.tests.testing_utils import setup_uno_mocks
 setup_uno_mocks()
@@ -267,6 +267,7 @@ def test_get_document_content_surfaces_tracked_changes():
 
     doc = MagicMock()
     doc.getPropertyValue.return_value = True
+    doc.getRedlines.return_value.getCount.return_value = 1
     text = MagicMock()
     doc.getText.return_value = text
     ctx = MagicMock()

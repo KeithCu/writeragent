@@ -14,6 +14,9 @@ setup_uno_mocks()
 def _edit_ctx():
     ctx = MagicMock()
     ctx.doc.getUndoManager.return_value.isLocked.return_value = False
+    # dry_run sweeps shapes/comments; bare MagicMock enumerations never terminate.
+    ctx.doc.getDrawPage.return_value = []
+    ctx.doc.getTextFields.return_value.createEnumeration.return_value.hasMoreElements.return_value = False
     return ctx
 
 

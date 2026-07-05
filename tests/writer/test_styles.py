@@ -283,7 +283,7 @@ def test_import_styles(mock_pv, mock_uno, mock_ctx):
 
 
 def test_apply_style_selection_failure_at_tool_layer(mock_ctx):
-    with patch("plugin.writer.target_resolver.resolve_target_cursor",
+    with patch("plugin.writer.styles.resolve_target_cursor",
                side_effect=ValueError("Could not resolve the current selection")):
         res = ApplyStyle().execute(mock_ctx, style_name="Heading 1", target="selection")
     assert res["status"] == "error"

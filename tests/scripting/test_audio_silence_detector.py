@@ -155,7 +155,6 @@ def test_audio_record_main_uses_silence_stop_ms_only():
 
 def test_monitor_recording_stdout_invokes_auto_stop_callback():
     import json
-    import time
     from io import StringIO
     from unittest.mock import MagicMock
 
@@ -170,16 +169,14 @@ def test_monitor_recording_stdout_invokes_auto_stop_callback():
     seen: list[str] = []
     progress: list[int] = []
 
-    monitor_recording_stdout(
+    thread = monitor_recording_stdout(
         proc,
         on_auto_stopped=seen.append,
         on_silence_progress=progress.append,
     )
+    thread.join(timeout=2.0)
     proc.stdout.close()
 
-    deadline = time.time() + 2.0
-    while time.time() < deadline and not seen:
-        time.sleep(0.05)
     assert seen == ["/tmp/voice.wav"]
     assert progress == [500]
 

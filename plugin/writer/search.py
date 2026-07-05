@@ -87,6 +87,8 @@ def _prop(obj, name):
 
 
 def _cell_name(cur, text):
+    # CellName should be a str in real UNO; if tests/mocks return non-str truthy values,
+    # consider guarding with isinstance(v, str) and v.
     for obj in (text, cur, _prop(cur, "Cell")):
         v = _prop(obj, "CellName")
         if v:

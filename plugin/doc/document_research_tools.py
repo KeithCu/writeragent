@@ -109,7 +109,10 @@ def _append_feedback_log(category: str, summary: str, details: str, ts: str | No
             import datetime
 
             ts = datetime.datetime.now().isoformat(timespec="seconds")
-        path = os.path.join(user_config_dir(), _FEEDBACK_LOG_FILENAME)
+        config_dir = user_config_dir()
+        if not config_dir:
+            return None
+        path = os.path.join(config_dir, _FEEDBACK_LOG_FILENAME)
         record = {"ts": ts, "category": category, "summary": summary, "details": details}
         with open(path, "a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
