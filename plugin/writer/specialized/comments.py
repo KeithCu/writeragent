@@ -71,43 +71,69 @@ class AddComment(ToolBase):
 
     name = "add_comment"
     intent = "review"
-    description = "Add a comment/annotation. Anchor the comment to text matching search_text."
-    parameters = {"type": "object", "properties": {"content": {"type": "string", "description": "The comment text."}, "search_text": {"type": "string", "description": "Anchor the comment to text containing this string."}}, "required": ["content", "search_text"]}
+    description = (
+        "Add a comment/annotation anchored to text matching search_text. The comment SPANS the "
+        "matched passage (the user sees which text it covers). Use occurrence to target a later "
+        "match and author to sign it."
+    )
+    parameters = {"type": "object", "properties": {
+        "content": {"type": "string", "description": "The comment text."},
+        "search_text": {"type": "string", "description": "Anchor the comment to text matching this string."},
+        "occurrence": {"type": "integer", "description": "0-based match to comment on when search_text repeats (default 0)."},
+        "author": {"type": "string", "description": "Comment author (default 'WriterAgent')."},
+    }, "required": ["content", "search_text"]}
     uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
         content = kwargs.get("content", "")
         search_text = kwargs.get("search_text")
-        author = "WriterAgent"
+        author = (kwargs.get("author") or "WriterAgent").strip() or "WriterAgent"
 
         if not search_text:
             return self._tool_error("Provide search_text.")
+        try:
+            occurrence = int(kwargs.get("occurrence", 0) or 0)
+        except (TypeError, ValueError):
+            return self._tool_error("occurrence must be an integer.")
+        if occurrence < 0:
+            return self._tool_error("occurrence must be non-negative.")
 
         doc = ctx.doc
-        doc_text = doc.getText()
 
-        # Determine anchor position
+        # Find the requested occurrence.
         sd = doc.createSearchDescriptor()
         sd.SearchString = search_text
         sd.SearchRegularExpression = False
         found = doc.findFirst(sd)
+        for _ in range(occurrence):
+            if found is None:
+                break
+            found = doc.findNext(found.getEnd(), sd)
         if found is None:
             # status="error" (not "not_found"): an anchor miss is a failure, so the chat FSM and
             # MCP host don't treat a no-op as success. anchor_text is returned on success only.
-            return {"status": "error", "message": "Text '%s' not found." % search_text, "matched": False, "comment_added": False}
-        anchor_range = found.getStart()
+            where = (" at occurrence %d" % occurrence) if occurrence else ""
+            return {"status": "error", "message": "Text '%s' not found%s." % (search_text, where), "matched": False, "comment_added": False}
 
         annotation = doc.createInstance("com.sun.star.text.textfield.Annotation")
         annotation.setPropertyValue("Author", author)
         annotation.setPropertyValue("Content", content)
         _set_annotation_date(annotation)
-        cursor = doc_text.createTextCursorByRange(anchor_range)
-        doc_text.insertTextContent(cursor, annotation, False)
+        # Insert SPANNING the match (absorb=True over a cursor covering found), so the annotation
+        # highlights the passage instead of a zero-width point. Anchor in the match's own text
+        # object (cell/frame safe).
+        anchor_text = ""
+        try:
+            anchor_text = found.getString()
+        except Exception:
+            pass
+        match_text = found.getText()
+        cursor = match_text.createTextCursorByRange(found.getStart())
+        cursor.gotoRange(found.getEnd(), True)
+        match_text.insertTextContent(cursor, annotation, True)
 
-        # TODO(follow-up): anchor_text echoes search_text (the argument), not the matched document
-        # span — slice found.getString() if agents need to verify first-match disambiguation.
-        return {"status": "ok", "message": "Comment added.", "author": author, "matched": True, "comment_added": True, "anchor_text": search_text}
+        return {"status": "ok", "message": "Comment added.", "author": author, "matched": True, "comment_added": True, "anchor_text": anchor_text or search_text}
 
 
 class DeleteComment(ToolWriterCommentBase):
@@ -148,6 +174,14 @@ class DeleteComment(ToolWriterCommentBase):
                 to_delete.append(field)
             elif author and field_author == author:
                 to_delete.append(field)
+
+        if not to_delete:
+            # A miss must be an ERROR: "ok, deleted: 0" reads as success and the agent then
+            # reports a deletion that never happened.
+            what = ("comment_name '%s'" % comment_name) if comment_name else ("author '%s'" % author)
+            return {"status": "error", "code": "COMMENT_NOT_FOUND",
+                    "message": "No comment matched %s. Call list_comments to see the current names and authors." % what,
+                    "deleted": 0}
 
         for field in to_delete:
             text_obj.removeTextContent(field)
@@ -420,13 +454,32 @@ def _read_annotation(field, para_ranges, text_obj, doc_svc):
     except Exception:
         entry["date"] = ""
 
-    # Paragraph index and anchor preview.
+    # Paragraph index and anchor preview. An annotation field's getAnchor().getString() often
+    # comes back EMPTY (the field anchor reads as a point even for spanning comments), which left
+    # anchor_preview blank — the agent could not tell which passage a comment is about. Fall back
+    # to the ENCLOSING PARAGRAPH's text and say so via anchor_is_paragraph_context.
+    anchor = None
     try:
         anchor = field.getAnchor()
         entry["paragraph_index"] = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
-        entry["anchor_preview"] = anchor.getString()[:80]
     except Exception:
         entry["paragraph_index"] = 0
-        entry["anchor_preview"] = ""
+    preview = ""
+    if anchor is not None:
+        try:
+            preview = anchor.getString()[:80]
+        except Exception:
+            preview = ""
+        if not preview:
+            try:
+                from plugin.writer.search import _enclosing_paragraph_text
+
+                ptxt = (_enclosing_paragraph_text(anchor) or "").strip()
+                if ptxt:
+                    preview = ptxt[:120]
+                    entry["anchor_is_paragraph_context"] = True
+            except Exception:
+                pass
+    entry["anchor_preview"] = preview
 
     return entry

@@ -92,8 +92,24 @@ class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
 
     uno_services = _TRACK_CHANGES_UNO_SERVICES
     name = "track_changes_list"
-    description = "List all tracked changes (redlines) in the document, including type, author, date, and comment."
+    description = (
+        "List all tracked changes (redlines) in the document, including type, author, date, text "
+        "and location. NOTE the two flags: 'recording' is the DOCUMENT's own track-changes toggle; "
+        "'agent_review_mode' (off/record/wait) is the user's review setting for AGENT edits — in "
+        "record/wait your edits become redlines even while recording is false."
+    )
     parameters = {"type": "object", "properties": {}, "required": []}
+
+    @staticmethod
+    def _agent_review_mode(uno_ctx):
+        """Best-effort agent review mode, so 'recording: false' is never read as 'my edits are
+        not being tracked' while record/wait mode is active."""
+        try:
+            from plugin.writer.edit_review import get_agent_edit_review_mode
+
+            return get_agent_edit_review_mode(uno_ctx)
+        except Exception:
+            return None
 
     def execute(self, ctx, **kwargs):
         doc = ctx.doc
@@ -102,17 +118,28 @@ class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
             recording = doc.getPropertyValue("RecordChanges")
         except Exception:
             pass
+        agent_mode = self._agent_review_mode(getattr(ctx, "ctx", None))
 
         if not hasattr(doc, "getRedlines"):
-            return {"status": "ok", "recording": recording, "changes": [], "count": 0, "message": "Document does not expose redlines API."}
+            result = {"status": "ok", "recording": recording, "changes": [], "count": 0, "message": "Document does not expose redlines API."}
+            if agent_mode is not None:
+                result["agent_review_mode"] = agent_mode
+            return result
 
         try:
             redlines = doc.getRedlines()
             enum = redlines.createEnumeration()
-            changes = []
-            index = 0
+            # Materialize the enumeration FIRST. Calling getAnchor() (which walks the text model)
+            # mid-enumeration conflicts with the live iterator, so accept/reject only touches the
+            # anchor after the loop -- we do the same by collecting the redlines up front.
+            redline_objs = []
             while enum.hasMoreElements():
-                redline = enum.nextElement()
+                redline_objs.append(enum.nextElement())
+
+            from plugin.writer.search import _describe_match_location
+
+            changes = []
+            for index, redline in enumerate(redline_objs):
                 entry: dict[str, Any] = {"index": index}
                 for prop in ("RedlineType", "RedlineAuthor", "RedlineComment", "RedlineIdentifier"):
                     try:
@@ -124,10 +151,46 @@ class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
                     entry["date"] = "%04d-%02d-%02d %02d:%02d" % (dt.Year, dt.Month, dt.Day, dt.Hours, dt.Minutes)
                 except Exception:
                     pass
+                # Text + location: accept/reject take this index, so the model needs to know WHICH
+                # change is which. Without them, mapping "reject the change to clause 4.2" onto an
+                # index is guesswork. Redline objects from getRedlines() are property sets (no
+                # getAnchor) with RedlineStart/RedlineEnd (XTextRange) and RedlineText (deleted
+                # content). Each field is best-effort so one failure never drops the other.
+                start = None
+                try:
+                    start = redline.getPropertyValue("RedlineStart")
+                except Exception:
+                    start = None
+                if start is not None:
+                    try:
+                        entry["location"] = _describe_match_location(start, doc)
+                    except Exception:
+                        pass
+                # Text: for an insertion the live span RedlineStart..RedlineEnd holds it; for a
+                # deletion that span is collapsed, so fall back to RedlineText (the removed text).
+                txt = ""
+                try:
+                    end = redline.getPropertyValue("RedlineEnd")
+                    stext = start.getText()
+                    cur = stext.createTextCursorByRange(start)
+                    cur.gotoRange(end, True)
+                    txt = cur.getString() or ""
+                except Exception:
+                    txt = ""
+                if not txt:
+                    try:
+                        rt = redline.getPropertyValue("RedlineText")
+                        txt = (rt.getString() if hasattr(rt, "getString") else str(rt)) if rt is not None else ""
+                    except Exception:
+                        txt = ""
+                if txt:
+                    entry["text"] = txt if len(txt) <= 300 else txt[:299] + "…"
                 changes.append(entry)
-                index += 1
 
-            return {"status": "ok", "recording": recording, "changes": changes, "count": len(changes)}
+            result = {"status": "ok", "recording": recording, "changes": changes, "count": len(changes)}
+            if agent_mode is not None:
+                result["agent_review_mode"] = agent_mode
+            return result
         except Exception as e:
             return self._tool_error(f"Failed to list tracked changes: {e}")
 
@@ -170,6 +233,12 @@ class TrackChangesAcceptAll(WriterAgentSpecialTracking, ToolCalcSpecialTracking)
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
+        # Guard: never let the agent bulk-resolve its OWN (wa-review) edits -- those are the human's
+        # to review. Allowed when no agent changes are pending (see agent_self_resolution_block_reason).
+        from plugin.writer.inline_review import agent_self_resolution_block_reason
+        blocked = agent_self_resolution_block_reason(ctx.doc)
+        if blocked:
+            return self._tool_error(blocked)
         try:
             smgr = ctx.ctx.ServiceManager
             dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx.ctx)
@@ -191,6 +260,12 @@ class TrackChangesRejectAll(WriterAgentSpecialTracking, ToolCalcSpecialTracking)
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
+        # Guard: never let the agent bulk-resolve its OWN (wa-review) edits -- those are the human's
+        # to review. Allowed when no agent changes are pending (see agent_self_resolution_block_reason).
+        from plugin.writer.inline_review import agent_self_resolution_block_reason
+        blocked = agent_self_resolution_block_reason(ctx.doc)
+        if blocked:
+            return self._tool_error(blocked)
         try:
             smgr = ctx.ctx.ServiceManager
             dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx.ctx)
@@ -229,14 +304,38 @@ class _TrackChangesSingleAction(WriterAgentSpecialTracking, ToolCalcSpecialTrack
             if not target_redline:
                 return self._tool_error(f"No tracked change found at index {index}.")
 
-            # To accept/reject a specific change, we select its text range then use the dispatcher
+            # Guard: refuse to resolve the agent's OWN edit (a wa-review change). Those are recorded
+            # for the human to accept/reject in the review UI; the agent must not do it itself.
+            # Fail closed when the change's metadata can't be read.
+            from plugin.writer.inline_review import redline_is_agent_change
+            is_agent, readable = redline_is_agent_change(target_redline)
+            if not readable:
+                return self._tool_error(
+                    "Couldn't read this change's metadata, so it can't be resolved from here. "
+                    "Use Edit > Track Changes > Manage in LibreOffice."
+                )
+            if is_agent:
+                return self._tool_error(
+                    "This is an agent edit awaiting your review (WriterAgent tracked change). The "
+                    "agent must not accept or reject its own edits -- resolve it in the review popup "
+                    "or Edit > Track Changes > Manage."
+                )
+
+            # To accept/reject a specific change, we select its text range then use the dispatcher.
+            # Redline objects from getRedlines() have NO getAnchor() (live probe: AttributeError) —
+            # they are property sets exposing RedlineStart/RedlineEnd (XTextRange). The old
+            # getAnchor() call meant every real change died here with "Failed to select".
             try:
-                # XRedline inherits from XTextContent, which has an anchor we can select
-                anchor = target_redline.getAnchor()
-                if anchor:
-                    ctx.doc.getCurrentController().select(anchor)
+                start = target_redline.getPropertyValue("RedlineStart")
+                cur = start.getText().createTextCursorByRange(start)
+                try:
+                    end = target_redline.getPropertyValue("RedlineEnd")
+                    if end is not None:
+                        cur.gotoRange(end, True)
+                except Exception:
+                    pass  # collapsed span (e.g. a deletion) — selecting the start point suffices
+                ctx.doc.getCurrentController().select(cur)
             except Exception as e:
-                # Fallback if getAnchor fails, might happen on deleted ranges
                 return self._tool_error(f"Failed to select tracked change for processing: {e}")
 
             smgr = ctx.ctx.ServiceManager

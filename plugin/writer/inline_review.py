@@ -249,6 +249,67 @@ def _all_redlines_are_agent(model: Any) -> bool:
     return snap.foreign_reliable and len(snap.foreign_ids) == 0
 
 
+# --- Agent-self-resolution guard (used by the agent-facing track_changes_* tools) -------------
+# BUG (reported): the agent accepted its OWN edits. wa-review changes are recorded for the HUMAN
+# to accept/reject in the review UI; the agent must never resolve them. HOW IT HAPPENED:
+# tracking.py's accept/reject tools drive the native .uno:Accept/Reject(All)TrackedChanges, which
+# is blind to the wa-review token, and they are reachable by the LLM (domain='tracking'), so a tool
+# call could resolve the very changes the same turn just made. WHY THIS FIXES IT: these two
+# token-scoped, fail-closed gates let the tools refuse the agent's own changes while still allowing
+# the user's own redlines to be resolved on request.
+
+_BULK_UNRELIABLE_MSG = (
+    "Couldn't read this document's tracked changes reliably, so accept/reject-all is blocked to "
+    "avoid resolving agent edits that are awaiting your review. Resolve changes in LibreOffice "
+    "(Edit > Track Changes > Manage)."
+)
+_BULK_AGENT_PRESENT_MSG = (
+    "This document has %d agent edit(s) awaiting your review (WriterAgent tracked changes). The "
+    "agent must not accept or reject its own edits -- you resolve those in the review popup or "
+    "Edit > Track Changes > Manage. accept-all / reject-all run only when no agent changes are pending."
+)
+
+
+def redline_is_agent_change(redline: Any) -> tuple[bool, bool]:
+    """``(is a wa-review agent change, comment_readable)`` for ONE redline.
+
+    Used by the single-index accept/reject tools. A redline whose RedlineComment can't be read
+    returns ``(False, False)`` so the caller fails CLOSED (refuse rather than risk resolving an
+    agent change we couldn't classify)."""
+    from plugin.writer.edit_review import TOKEN_PREFIX
+    try:
+        comment = str(redline.getPropertyValue("RedlineComment"))
+    except Exception:
+        return False, False
+    return comment.startswith(TOKEN_PREFIX), True
+
+
+def agent_self_resolution_block_reason(model: Any) -> str | None:
+    """Refusal message if a BULK accept/reject must NOT run, else ``None``.
+
+    A blanket AcceptAll/RejectAll would resolve the agent's own wa-review changes, which only the
+    human may do, so refuse whenever the document holds (or might hold) any agent change. Fail
+    CLOSED: a document that exposes redlines but can't be scanned reliably is treated as "agent
+    changes may be present". A document with NO redline table (or an empty one) is allowed -- the
+    native dispatch is a harmless no-op and there is nothing of the user's to clobber. A document
+    whose only redlines are the USER's own is allowed (the agent may resolve those on request);
+    only the agent's own edits are protected."""
+    try:
+        if not hasattr(model, "getRedlines"):
+            return None
+        count = int(model.getRedlines().getCount())
+    except Exception:
+        return _BULK_UNRELIABLE_MSG
+    if count <= 0:
+        return None
+    snap = _agent_and_foreign_redline_snapshot(model)
+    if not snap.tokens_reliable:
+        return _BULK_UNRELIABLE_MSG
+    if snap.agent_tokens:
+        return _BULK_AGENT_PRESENT_MSG % len(snap.agent_tokens)
+    return None
+
+
 def _foreign_redline_ids(model: Any) -> tuple[set, bool]:
     """``(identifiers of non-agent redlines, reliable)``. The identifiers are the user's OWN tracked
     changes (plus any we can't classify, counted as foreign). ``reliable`` is False when the snapshot

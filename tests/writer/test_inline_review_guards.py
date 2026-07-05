@@ -26,6 +26,8 @@ from plugin.writer.inline_review import (
     _foreign_redline_in_span,
     _other_agent_redline_in_span,
     _span_contains_point,
+    agent_self_resolution_block_reason,
+    redline_is_agent_change,
     resolve_agent_change,
 )
 from plugin.writer.edit_review import TOKEN_PREFIX
@@ -571,3 +573,49 @@ def test_agent_redlines_does_not_hang_on_mock_enumeration():
     doc.getRedlines.return_value.createEnumeration.return_value = enum
     assert agent_changes(doc) == []
     assert pending_agent_change_count(doc) == 0
+
+
+# --------------------------------------------------- agent-self-resolution guard (B3 fix)
+
+def test_block_reason_none_when_no_redlines_api():
+    # An object with no getRedlines() -> nothing to clobber -> bulk dispatch (a no-op) is allowed.
+    assert agent_self_resolution_block_reason(object()) is None
+
+
+def test_block_reason_none_on_empty_document():
+    assert agent_self_resolution_block_reason(FakeModel(FakeRedlines([]))) is None
+
+
+def test_block_reason_blocks_when_agent_change_present():
+    model = FakeModel(FakeRedlines([_agent_rl()]))
+    reason = agent_self_resolution_block_reason(model)
+    assert reason is not None and "agent edit" in reason.lower()
+
+
+def test_block_reason_allows_user_only_redlines():
+    # The user's own tracked changes (no token) may be bulk-resolved on request.
+    assert agent_self_resolution_block_reason(FakeModel(FakeRedlines([_user_rl()]))) is None
+
+
+def test_block_reason_fails_closed_on_silent_truncation():
+    # Redlines present but the scan can't be trusted -> assume an agent change might hide in the tail.
+    model = FakeModel(FakeRedlines([_user_rl()], count=2))
+    assert agent_self_resolution_block_reason(model) is not None
+
+
+def test_block_reason_fails_closed_on_count_error():
+    model = FakeModel(FakeRedlines([_user_rl()], raise_count=True))
+    assert agent_self_resolution_block_reason(model) is not None
+
+
+def test_redline_is_agent_change_true_for_token():
+    assert redline_is_agent_change(_agent_rl()) == (True, True)
+
+
+def test_redline_is_agent_change_false_for_user():
+    assert redline_is_agent_change(_user_rl()) == (False, True)
+
+
+def test_redline_is_agent_change_unreadable_fails_closed():
+    rl = FakeRedline("", 0, 0, raise_on={"RedlineComment"})
+    assert redline_is_agent_change(rl) == (False, False)
