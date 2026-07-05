@@ -842,6 +842,11 @@ def _insert_mixed_or_plain_html(model, ctx, cursor, unescaped_content, config_sv
         _cursor_goto_document_end(model, cursor)
 
 
+def insert_html_at_cursor(model, ctx, cursor, unescaped_content, config_svc=None, apply_styles=True):
+    """Insert HTML or plain text at *cursor* (public API for tools)."""
+    _insert_mixed_or_plain_html(model, ctx, cursor, unescaped_content, config_svc=config_svc, apply_styles=apply_styles)
+
+
 def insert_content_at_position(model, ctx, content, position, config_svc=None):
     """Insert formatted content at *position* (``'beginning'``,
     ``'end'``, or ``'selection'``) using ``insertDocumentFromURL``.
@@ -1152,7 +1157,7 @@ def find_text_ranges(model, ctx, search, start=0, limit=None, case_sensitive=Tru
             matches.append({"start": m_start, "end": m_end, "text": matched_text})
             if limit and len(matches) >= limit:
                 break
-            found = model.findNext(found, sd)
+            found = model.findNext(found.getEnd(), sd)
         return matches
     except Exception:
         log.exception("find_text_ranges failed")

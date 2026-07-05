@@ -944,17 +944,25 @@ to enable track changes, False to disable."}` — functional but doesn't say whe
 
 > "Enable before AI edits to make changes reviewable by the user; disable when finished."
 
-#### 4. `search_in_document` returns surrounding context paragraphs
+#### 4. `search_in_document` match shape (updated 2026-07)
 
-Their `search_in_document` has a `context_paragraphs` parameter (default: 1) that returns
-N paragraphs around each match. WriterAgent's `find_text` returns only `{start, end, text}`
-per match. When the AI is trying to decide "is this the right occurrence?", having context
-helps avoid blind replacements.
+`search_in_document` returns `{status, matches, count, returned}` where each match is
+`{text, location, context}` — **not** `paragraph_index`. `location` is human-readable
+(e.g. `"body"`, `"table 'Table1' cell B2"`, `"shape 'Callout 1'"`, `"comment by 'Ana'"`).
+`context` is the enclosing paragraph or shape/comment text.
 
-**Suggested addition**: add an optional `context` integer parameter to `find_text` that
-returns the `context` characters before and after each match (simpler than paragraph-based
-since WriterAgent uses character offsets). Zero or absent = current behavior (no change to
-existing callers).
+Parameters: `pattern` (required), `regex` (default **false**), `case_sensitive` (default **false**),
+`max_results` (default 20), `return_offsets` (default **false** — body literal offsets only; no regex,
+no shapes/comments). Invalid regex with zero hits returns `code: INVALID_REGEX`.
+
+`apply_document_content` `dry_run=true` previews edit-reachable matches plus shape/comment counts
+(see `edit_reach_note` in the result). Regex on the edit path uses the same INVALID_REGEX check.
+
+#### 4b. (historical) Collabora `context_paragraphs` comparison
+
+Collabora's `search_in_document` had a `context_paragraphs` parameter (default: 1) that returned
+N paragraphs around each match. WriterAgent's older `find_text` returned only `{start, end, text}`
+per match. The current search tool uses a single enclosing-paragraph `context` string instead.
 
 #### 5. `refresh_indexes` and `update_fields`
 
@@ -1033,8 +1041,8 @@ In priority order:
 1. **`refresh_indexes` / `update_fields`** — ~10 lines each from `uno_bridge.py`. Add when
    doing the document-tree session. Very common need after structural AI edits.
 
-2. **`context_paragraphs` / `context` in search** — find_text returns bare offsets; adding
-   surrounding context helps the AI verify it found the right place. Low effort.
+2. **`context` in search** — `search_in_document` now returns enclosing-paragraph `context`
+   strings; offset mode remains body-only via `return_offsets`.
 
 3. **`set_paragraph_style` (direct)** — currently in WriterAgent as dead code. The `list_styles`
    tool makes this useful: AI discovers style names, then applies them directly. Consider

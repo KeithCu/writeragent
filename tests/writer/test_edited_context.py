@@ -7,6 +7,8 @@
 The echo must be right or absent, never wrong: _paragraph_window_text returns None whenever the
 paragraph walk fails, and _attach_edited_context only adds the field when a snippet came back.
 No LibreOffice required — fakes implement the minimal XText/XParagraphCursor protocol."""
+from unittest.mock import MagicMock, patch
+
 from plugin.tests.testing_utils import setup_uno_mocks
 setup_uno_mocks()
 
@@ -138,3 +140,23 @@ def test_collapsed_anchor_is_best_effort():
             return self
 
     assert _collapsed_anchor(Range()) is None
+
+
+def test_apply_document_content_edited_context_on_success():
+    from plugin.writer import format as format_support
+    from plugin.writer.content import ApplyDocumentContent
+
+    found = MagicMock()
+    found.getString.return_value = "old"
+    ctx = MagicMock()
+    ctx.doc.getUndoManager.return_value.isLocked.return_value = False
+    ctx.services.get.return_value = MagicMock()
+    anchor = MagicMock()
+    with patch("plugin.writer.content._find_first_range", return_value=found), \
+         patch("plugin.writer.content._collapsed_anchor", return_value=anchor), \
+         patch("plugin.writer.content._attach_edited_context", side_effect=lambda r, a: {**r, "edited_context": "echo"}), \
+         patch.object(format_support, "content_has_markup", return_value=False), \
+         patch("plugin.writer.content._record_preserve_replace"):
+        res = ApplyDocumentContent().execute(
+            ctx, content="new", target="search", old_content="old")
+    assert res["status"] == "ok" and res.get("edited_context") == "echo"

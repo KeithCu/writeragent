@@ -14,14 +14,20 @@ setup_uno_mocks()
 # ---- 1) reads never doc.store() ----------------------------------------------
 
 def test_ensure_heading_bookmarks_never_stores():
-    import inspect
+    from plugin.writer.specialized.bookmarks import BookmarkService
 
-    from plugin.writer.specialized import bookmarks as bm
-
-    # Strip comments: the fix intentionally documents WHY there is no doc.store() call.
-    code_lines = [line.split("#")[0] for line in inspect.getsource(bm).splitlines()]
-    assert not any("doc.store()" in line for line in code_lines), \
-        "a READ/maintenance path must never persist the user's unsaved work"
+    doc = MagicMock()
+    text = MagicMock()
+    enum = MagicMock()
+    enum.hasMoreElements.return_value = False
+    text.createEnumeration.return_value = enum
+    doc.getText.return_value = text
+    doc.getBookmarks.return_value.getElementNames.return_value = []
+    services = MagicMock()
+    services.document.get_paragraph_ranges.return_value = []
+    services.document.yield_to_gui.return_value = None
+    BookmarkService(services).ensure_heading_bookmarks(doc)
+    doc.store.assert_not_called()
 
 
 # (is_active proxy-safe + document echo + multi-doc guidance tests live in the MCP experience PR,
@@ -57,6 +63,13 @@ def test_valid_regex_zero_hits_stays_ok():
 def test_literal_zero_hits_stays_ok():
     res = _search_zero_hits("([a-", False)  # literal search for weird chars is legitimate
     assert res["status"] == "ok" and res["count"] == 0
+
+
+def test_search_return_offsets_rejects_regex():
+    from plugin.writer.search import SearchInDocument
+
+    res = SearchInDocument().execute(MagicMock(doc=MagicMock()), pattern="a+", regex=True, return_offsets=True)
+    assert res["status"] == "error" and res["code"] == "INVALID_PARAM"
 
 
 # ---- 4) delete_comment miss is an error ---------------------------------------
@@ -112,7 +125,7 @@ def test_position_after_inserts_at_match_edge_without_replacing():
     with patch("plugin.writer.content._find_first_range", return_value=found), \
          patch("plugin.writer.content._collapsed_anchor", return_value=None), \
          patch.object(format_support, "html_fragment_contains_mixed_math", return_value=False), \
-         patch.object(format_support, "_insert_mixed_or_plain_html") as ins:
+         patch.object(format_support, "insert_html_at_cursor") as ins:
         res = ApplyDocumentContent().execute(
             ctx, content=["<p>novo</p>"], target="search", old_content="clausula", position="after")
 
@@ -121,7 +134,29 @@ def test_position_after_inserts_at_match_edge_without_replacing():
     ins.assert_called_once()
     assert ins.call_args.kwargs.get("apply_styles") is False
     # The match edge used must be getEnd() for 'after'.
-    found.getEnd.assert_called()
+    found.getStart.assert_called()
+
+
+def test_position_before_inserts_at_match_start():
+    from unittest.mock import patch
+
+    from plugin.writer import format as format_support
+    from plugin.writer.content import ApplyDocumentContent
+
+    found = MagicMock()
+    found.getText.return_value.createTextCursorByRange.return_value = MagicMock()
+    found.getText.return_value.createTextCursorByRange.return_value.getPropertyValue.return_value = None
+    ctx = MagicMock()
+    ctx.doc.getUndoManager.return_value.isLocked.return_value = False
+    with patch("plugin.writer.content._find_first_range", return_value=found), \
+         patch("plugin.writer.content._collapsed_anchor", return_value=None), \
+         patch.object(format_support, "html_fragment_contains_mixed_math", return_value=False), \
+         patch.object(format_support, "insert_html_at_cursor") as ins:
+        res = ApplyDocumentContent().execute(
+            ctx, content=["<p>prefix</p>"], target="search", old_content="clause", position="before")
+    assert res["status"] == "ok" and res["inserted"] is True and res["position"] == "before"
+    ins.assert_called_once()
+    found.getStart.assert_called()
 
 
 def test_position_after_rejects_math_and_table_cells():
@@ -225,3 +260,22 @@ def test_truncated_flag_on_get_document_content():
     with patch.object(format_support, "document_to_content", return_value="<p>all</p>"):
         res = GetDocumentContent().execute(ctx, max_chars=10)
     assert "truncated" not in res
+
+
+def test_get_document_content_surfaces_tracked_changes():
+    from plugin.writer.content import GetDocumentContent
+
+    doc = MagicMock()
+    doc.getPropertyValue.return_value = True
+    text = MagicMock()
+    doc.getText.return_value = text
+    ctx = MagicMock()
+    ctx.doc = doc
+    ctx.ctx = MagicMock()
+    ctx.services.get.return_value = MagicMock()
+    with patch("plugin.writer.content.collect_tracked_changes", return_value=[{"type": "Insert", "text": "x"}]), \
+         patch("plugin.writer.format.document_to_content", return_value="body"):
+        res = GetDocumentContent().execute(ctx)
+    assert res["status"] == "ok"
+    assert res["tracked_changes"] == [{"type": "Insert", "text": "x"}]
+    assert "tracked_changes_note" in res

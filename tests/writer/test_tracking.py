@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from plugin.tests.testing_utils import setup_uno_mocks
 setup_uno_mocks()
@@ -95,7 +95,12 @@ def test_track_changes_list():
     ctx, _, _, _ = _create_mock_ctx()
     tool = TrackChangesList()
     
-    # Mock redlines
+    start = MagicMock()
+    span = MagicMock()
+    span.getString.return_value = "inserted clause"
+    start.getText.return_value.createTextCursorByRange.return_value = span
+    end = MagicMock()
+
     redline_mock = MagicMock()
     def _get_redline_prop(prop):
         if prop == "RedlineDateTime":
@@ -106,6 +111,10 @@ def test_track_changes_list():
             dt.Hours = 10
             dt.Minutes = 30
             return dt
+        if prop == "RedlineStart":
+            return start
+        if prop == "RedlineEnd":
+            return end
         return {
             "RedlineType": "Insert",
             "RedlineAuthor": "Test Author",
@@ -120,13 +129,16 @@ def test_track_changes_list():
     
     ctx.doc.getRedlines.return_value.createEnumeration.return_value = enum_mock
     
-    res = tool.execute(ctx)
+    with patch("plugin.writer.search._describe_match_location", return_value="body"):
+        res = tool.execute(ctx)
     assert res["status"] == "ok"
     assert res["count"] == 1
     assert len(res["changes"]) == 1
     
     change = res["changes"][0]
     assert change["index"] == 0
+    assert change["text"] == "inserted clause"
+    assert change["location"] == "body"
     assert change["RedlineType"] == "Insert"
     assert change["RedlineAuthor"] == "Test Author"
     assert change["date"] == "2024-02-15 10:30"

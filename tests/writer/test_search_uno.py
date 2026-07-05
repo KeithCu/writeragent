@@ -97,14 +97,16 @@ def test_search_in_document_basic():
 
     match1 = res["matches"][0]
     assert match1["text"] == "needle"
-    assert match1["paragraph_index"] == 1
+    assert match1["location"] == "body"
+    assert "needle" in match1["context"].lower()
 
     match2 = res["matches"][1]
     # SearchInDocument returns the matched substring with original casing
     # from the paragraph text. The second match comes from "Needles..."
     # so the 6-letter substring is "Needle".
     assert match2["text"] == "Needle"
-    assert match2["paragraph_index"] == 2
+    assert match2["location"] == "body"
+    assert "Needle" in match2["context"]
 
 @native_test
 def test_search_in_document_case_sensitive():
@@ -121,7 +123,7 @@ def test_search_in_document_case_sensitive():
     res = tool.execute(ctx, pattern="Needle", case_sensitive=True)
     assert res["status"] == "ok"
     assert res["count"] == 1
-    assert res["matches"][0]["paragraph_index"] == 2
+    assert res["matches"][0]["location"] == "body"
     assert res["matches"][0]["text"] == "Needle"
 
 @native_test

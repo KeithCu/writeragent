@@ -55,7 +55,9 @@ def test_service_registry():
     svc = DummyService()
     registry.register('dummy', svc)
     assert (registry.get('dummy') is svc), 'ServiceRegistry failed'
+
 setup_uno_mocks()
+
 
 def test_get_ctx_with_uno():
     mock_uno = MagicMock()
@@ -68,6 +70,13 @@ def test_get_ctx_with_uno():
     with patch.dict(sys.modules, {'uno': mock_uno}):
         assert (get_ctx() == mock_ctx)
         mock_uno.getComponentContext.assert_called_once()
+
+
+def test_uno_module_restored_after_get_ctx_with_uno():
+    """B9 regression: patch.dict must restore the session-wide uno mock for later tests."""
+    test_get_ctx_with_uno()
+    assert "uno" in sys.modules
+
 
 def test_get_ctx_fallback():
     mock_fallback = MagicMock()

@@ -14,20 +14,58 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Writer search tools: search_in_document, advanced_search."""
+"""Writer search: search_in_document tool and shared text-find helpers for edit/dry_run paths."""
 
 import logging
+import re as re_mod
+from typing import Any, Literal, overload
 
-from plugin.framework.tool import ToolBase, ToolBaseDummy
 from plugin.doc.document_helpers import get_string_without_tracked_deletions
+from plugin.framework.tool import ToolBase, ToolBaseDummy
 from . import format as format_support
 
 
 log = logging.getLogger("writeragent.writer")
 
+_MAX_SEARCH_REPLACEMENTS = 200
+
+# Horizontal-space class aligned with content.py exotic-space map.
+_SPACE_CODEPOINTS = (
+    0x00A0, 0x202F, 0x2007, 0x2009, 0x2000, 0x2001, 0x2002, 0x2003, 0x2004,
+    0x2005, 0x2006, 0x2008, 0x200A, 0x205F, 0x3000,
+)
+_HORIZONTAL_SPACE_CLASS = r"[ \t" + "".join("\\u%04x" % cp for cp in _SPACE_CODEPOINTS) + "]"
+_HORIZONTAL_SPACE_RE = _HORIZONTAL_SPACE_CLASS + "+"
+
+
+def find_next_after_match(doc, found, sd):
+    """Resume LO search after *found* — use getEnd() so the next hit starts after the match."""
+    return doc.findNext(found.getEnd(), sd)
+
+
+def validate_regex_pattern(pattern):
+    """Return an error message when *pattern* is not valid Python regex, else None."""
+    try:
+        re_mod.compile(pattern)
+    except re_mod.error as rex:
+        return str(rex)
+    return None
+
+
+def invalid_regex_tool_message(rex_msg):
+    """Standard INVALID_REGEX message for tools."""
+    return (
+        "0 matches, and the pattern does not parse as a regular expression "
+        "(%s). Fix the pattern, or set regex=false for a literal search." % rex_msg
+    )
+
+
+def normalize_search_string_for_find(s):
+    """Collapse horizontal whitespace (incl. NBSP); preserve newlines for literal find."""
+    return re_mod.sub(_HORIZONTAL_SPACE_RE, " ", s).strip()
+
 
 def _safe_name(obj):
-    """Best-effort name of a UNO object (getName() then .Name); '' if unavailable."""
     if obj is None:
         return ""
     try:
@@ -40,7 +78,6 @@ def _safe_name(obj):
 
 
 def _prop(obj, name):
-    """obj.getPropertyValue(name) or attribute, '' / None-safe."""
     if obj is None:
         return None
     try:
@@ -50,9 +87,6 @@ def _prop(obj, name):
 
 
 def _cell_name(cur, text):
-    """Cell address ('A1', 'B2') for a match inside a table cell. A Writer cell exposes it via the
-    CellProperties 'CellName' property (not XNamed.getName), so try that on the cell text object and
-    on the cursor's Cell."""
     for obj in (text, cur, _prop(cur, "Cell")):
         v = _prop(obj, "CellName")
         if v:
@@ -60,19 +94,17 @@ def _cell_name(cur, text):
     return _safe_name(_prop(cur, "Cell"))
 
 
-def _header_footer_label(text_obj, doc=None):
-    """"header (page style 'X')" / "footer (...)" when *text_obj* is a page-style header/footer
-    text, else None.
-
-    Header/footer text objects are SwXHeadFootText -- findFirst/findNext DOES reach them, but the
-    cursor's TextTable/TextFrame properties don't apply there, so their matches were mislabeled
-    'body' (verified live 2026-07-02). The page-style walk pins down the region and style name; if
-    it fails we still say 'header or footer' rather than misreport 'body'."""
+def _header_footer_label(text_obj, doc=None, label_cache=None):
     try:
         if getattr(text_obj, "ImplementationName", "") != "SwXHeadFootText":
             return None
     except Exception:
         return None
+    if label_cache is not None:
+        key = id(text_obj)
+        if key in label_cache:
+            return label_cache[key]
+    result = None
     if doc is not None:
         try:
             styles = doc.getStyleFamilies().getByName("PageStyles")
@@ -90,20 +122,22 @@ def _header_footer_label(text_obj, doc=None):
                     try:
                         if getattr(st, attr, None) == text_obj:
                             name = _safe_name(st)
-                            return "%s (page style '%s')" % (region, name) if name else region
+                            result = "%s (page style '%s')" % (region, name) if name else region
+                            break
                     except Exception:
                         continue
+                if result:
+                    break
         except Exception:
             pass
-    return "header or footer"
+    if result is None:
+        result = "header or footer"
+    if label_cache is not None:
+        label_cache[id(text_obj)] = result
+    return result
 
 
-def _describe_match_location(found, doc=None):
-    """Where a found range lives: 'body', "table 'X' cell B2", "text box 'Y'", or a header/footer.
-
-    Uses the cursor's TextTable / Cell / TextFrame properties (the same ones the cell-aware edit
-    path relies on), then the header/footer check. Fails open to 'body' so a match is never
-    dropped over a location quirk."""
+def describe_match_location(found, doc=None, label_cache=None):
     try:
         text = found.getText()
         cur = text.createTextCursorByRange(found.getStart())
@@ -126,14 +160,13 @@ def _describe_match_location(found, doc=None):
     if tf is not None:
         name = _safe_name(tf)
         return "text box '%s'" % name if name else "a text box"
-    hf = _header_footer_label(text, doc)
+    hf = _header_footer_label(text, doc, label_cache=label_cache)
     if hf:
         return hf
     return "body"
 
 
-def _enclosing_paragraph_text(found):
-    """Text of the paragraph containing the match (context); '' on failure."""
+def enclosing_paragraph_text(found):
     try:
         text = found.getText()
         cur = text.createTextCursorByRange(found.getStart())
@@ -147,12 +180,7 @@ def _enclosing_paragraph_text(found):
             return ""
 
 
-def _iter_draw_shapes(container):
-    """Yield every shape on a draw-page container, recursing into group shapes.
-
-    ``doc.findAll`` searches the text model (body, cells, frames, and AS_CHARACTER-anchored shape
-    text that flows inline) but NOT floating drawing-layer shapes. This walks getDrawPage() so the
-    caller can reach text that lives only inside a floating text box / custom shape (note 7)."""
+def iter_draw_shapes(container):
     try:
         n = int(container.getCount())
     except Exception:
@@ -167,14 +195,12 @@ def _iter_draw_shapes(container):
         except Exception:
             is_group = False
         if is_group:
-            yield from _iter_draw_shapes(shape)
+            yield from iter_draw_shapes(shape)
         else:
             yield shape
 
 
-def _shape_is_as_character(shape):
-    """True if the shape is anchored AS_CHARACTER — its text already flows inline in the body, so
-    the text search covers it. We skip those in the draw-page sweep to avoid reporting them twice."""
+def shape_is_as_character(shape):
     try:
         from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
         return shape.getPropertyValue("AnchorType") == AS_CHARACTER
@@ -182,25 +208,20 @@ def _shape_is_as_character(shape):
         return False
 
 
-def _shape_is_text_box(shape):
-    """True if the shape is a Writer 'text box' (Insert > Text Box) whose text lives in a linked
-    text frame. The findFirst/findNext text search already reaches that frame, so we skip the shape
-    in the draw sweep to avoid reporting the same text twice (once as frame, once as shape)."""
+def shape_is_text_box(shape):
     try:
         return bool(shape.getPropertyValue("TextBox"))
     except Exception:
         return False
 
 
-def _shape_text_hits(shape_text, pattern, use_regex, case_sensitive):
-    """Matched substrings of *pattern* inside *shape_text* (actual-case), [] if none."""
+def shape_text_hits(shape_text, pattern, use_regex, case_sensitive):
     if not shape_text or not pattern:
         return []
     if use_regex:
-        import re as _re
-        flags = 0 if case_sensitive else _re.IGNORECASE
+        flags = 0 if case_sensitive else re_mod.IGNORECASE
         try:
-            return [m.group(0) for m in _re.finditer(pattern, shape_text, flags) if m.group(0)]
+            return [m.group(0) for m in re_mod.finditer(pattern, shape_text, flags) if m.group(0)]
         except Exception:
             return []
     hay = shape_text if case_sensitive else shape_text.lower()
@@ -210,17 +231,11 @@ def _shape_text_hits(shape_text, pattern, use_regex, case_sensitive):
     idx = hay.find(needle)
     while idx != -1:
         hits.append(shape_text[idx:idx + len(pattern)])
-        idx = hay.find(needle, idx + step)  # non-overlapping, matching LO's native text search
+        idx = hay.find(needle, idx + step)
     return hits
 
 
-def _comment_matches(doc, pattern, use_regex, case_sensitive):
-    """Yield (hit_text, author, content) for pattern matches inside comment (annotation) fields.
-
-    Comments live in text FIELDS, not in the searchable text model -- findFirst/findNext never
-    reaches them (verified live 2026-07-02: a marker inside a comment returned count 0), so text
-    that exists only in a comment was invisible to search. Matching reuses _shape_text_hits (plain
-    substring / regex over the comment's Content). Fully defensive on any UNO failure."""
+def comment_matches(doc, pattern, use_regex, case_sensitive):
     try:
         fields = doc.getTextFields().createEnumeration()
     except Exception:
@@ -239,8 +254,129 @@ def _comment_matches(doc, pattern, use_regex, case_sensitive):
             author = (getattr(field, "Author", "") or "").strip()
         except Exception:
             continue
-        for hit in _shape_text_hits(content, pattern, use_regex, case_sensitive):
+        for hit in shape_text_hits(content, pattern, use_regex, case_sensitive):
             yield hit, author, content
+
+
+@overload
+def find_ranges_regex_case(doc, pattern: str, use_regex: bool, case_sensitive: bool, all_matches: Literal[False]) -> Any: ...
+
+
+@overload
+def find_ranges_regex_case(doc, pattern: str, use_regex: bool, case_sensitive: bool, all_matches: Literal[True]) -> list[Any]: ...
+
+
+def find_ranges_regex_case(doc, pattern, use_regex, case_sensitive, all_matches):
+    if use_regex:
+        err = validate_regex_pattern(pattern)
+        if err:
+            raise ValueError(invalid_regex_tool_message(err))
+    sd = doc.createSearchDescriptor()
+    sd.SearchString = pattern
+    sd.SearchRegularExpression = bool(use_regex)
+    sd.SearchCaseSensitive = bool(case_sensitive)
+    if not all_matches:
+        return doc.findFirst(sd)
+    out = []
+    found = doc.findFirst(sd)
+    while found is not None and len(out) < _MAX_SEARCH_REPLACEMENTS:
+        out.append(found)
+        found = find_next_after_match(doc, found, sd)
+    return out
+
+
+def drawing_shape_object_containing(doc, search_string, *, use_regex=False, case_sensitive=False):
+    pattern = (search_string or "").strip()
+    if not pattern:
+        return None
+    try:
+        if not hasattr(doc, "getDrawPage"):
+            return None
+        draw_page = doc.getDrawPage()
+    except Exception:
+        return None
+    for shape in iter_draw_shapes(draw_page):
+        try:
+            if shape_is_as_character(shape) or shape_is_text_box(shape):
+                continue
+            text = shape.getString() if hasattr(shape, "getString") else ""
+        except Exception:
+            continue
+        if shape_text_hits(text, pattern, use_regex, case_sensitive):
+            return shape
+    return None
+
+
+def drawing_shape_containing(doc, search_string, *, use_regex=False, case_sensitive=False):
+    shape = drawing_shape_object_containing(
+        doc, search_string, use_regex=use_regex, case_sensitive=case_sensitive)
+    if shape is None:
+        return None
+    return (getattr(shape, "Name", "") or "").strip() or "(unnamed shape)"
+
+
+def all_start_indices(haystack, needle):
+    """Non-overlapping start indices of *needle* in *haystack*."""
+    out = []
+    if not needle:
+        return out
+    i = haystack.find(needle)
+    while i >= 0:
+        out.append(i)
+        i = haystack.find(needle, i + len(needle))
+    return out
+
+
+def sweep_draw_shape_preview_matches(doc, pattern, use_regex, case_sensitive, limit=20):
+    """Edit-reachable draw-layer hits for dry_run (same skip rules as search sweep)."""
+    matches = []
+    if not hasattr(doc, "getDrawPage"):
+        return matches
+    try:
+        draw_page = doc.getDrawPage()
+    except Exception:
+        return matches
+    for shape in iter_draw_shapes(draw_page):
+        try:
+            if shape_is_as_character(shape) or shape_is_text_box(shape):
+                continue
+            shape_text = shape.getString() if hasattr(shape, "getString") else ""
+        except Exception:
+            continue
+        hits = shape_text_hits(shape_text, pattern, use_regex, case_sensitive)
+        if not hits:
+            continue
+        sname = (getattr(shape, "Name", "") or "").strip() or "(unnamed shape)"
+        for hit in hits:
+            matches.append({
+                "text": hit,
+                "location": "shape '%s'" % sname,
+                "context": shape_text.strip(),
+            })
+            if len(matches) >= limit:
+                return matches
+    return matches
+
+
+def sweep_comment_preview_matches(doc, pattern, use_regex, case_sensitive, limit=20):
+    matches = []
+    for hit, author, content in comment_matches(doc, pattern, use_regex, case_sensitive):
+        matches.append({
+            "text": hit,
+            "location": "comment by '%s'" % (author or "unknown"),
+            "context": content.strip(),
+        })
+        if len(matches) >= limit:
+            break
+    return matches
+
+
+# Underscore aliases for tracking.py, comments.py, and older imports.
+_describe_match_location = describe_match_location
+_enclosing_paragraph_text = enclosing_paragraph_text
+_comment_matches = comment_matches
+_iter_draw_shapes = iter_draw_shapes
+_shape_text_hits = shape_text_hits
 
 
 class SearchInDocument(ToolBase):
@@ -254,7 +390,9 @@ class SearchInDocument(ToolBase):
         "e.g. \"body\", \"table 'Table1' cell B2\", \"text box 'Frame1'\", \"shape 'Shape 1'\", "
         "\"header (page style 'Standard')\", \"comment by 'Ana'\") plus the surrounding paragraph (or "
         "shape/comment text) for context. When pointing the user to a match, quote the first few words "
-        "of its text and its location rather than any internal index."
+        "of its text and its location rather than any internal index. "
+        "With regex=true, body/table/frame hits use LibreOffice/ICU regex; shape and comment sweeps "
+        "use Python re (same INVALID_REGEX check). return_offsets is body-only literal search."
     )
     parameters = {
         "type": "object",
@@ -263,7 +401,9 @@ class SearchInDocument(ToolBase):
             "regex": {"type": "boolean", "description": "Use regular expression (default: false)."},
             "case_sensitive": {"type": "boolean", "description": "Case-sensitive search (default: false)."},
             "max_results": {"type": "integer", "description": "Maximum results to return (default: 20)."},
-            "return_offsets": {"type": "boolean", "description": ("If true, returns {start, end, text} character offsets instead of located matches. (Regex not supported).")},
+            "return_offsets": {"type": "boolean", "description": (
+                "If true, returns {start, end, text} character offsets for body text only "
+                "(no regex, no shapes/comments). Default: false.")},
         },
         "required": ["pattern"],
     }
@@ -281,85 +421,86 @@ class SearchInDocument(ToolBase):
         max_results = kwargs.get("max_results", 20)
         return_offsets = kwargs.get("return_offsets", False)
 
+        if return_offsets and use_regex:
+            return self._tool_error(
+                "return_offsets does not support regex=true; use regex=false or omit return_offsets.",
+                code="INVALID_PARAM")
         if return_offsets:
-            ranges = format_support.find_text_ranges(ctx.doc, ctx.ctx, pattern, start=0, limit=max_results, case_sensitive=case_sensitive)
+            ranges = format_support.find_text_ranges(
+                ctx.doc, ctx.ctx, pattern, start=0, limit=max_results, case_sensitive=case_sensitive)
             return {"status": "ok", "ranges": ranges}
 
-        # Iterate findFirst/findNext (one range at a time) rather than findAll: findAll's bulk
-        # SwXTextRanges::Create can SIGABRT-crash LibreOffice on documents that contain floating
-        # drawing shapes (observed 2026-07-01 on a real petition). findFirst/findNext covers the
-        # same scope — body, table cells, and text boxes / frames — one match at a time, and is
-        # exactly what the edit path uses without crashing. For each hit we report WHERE it lives.
+        if use_regex:
+            rex_err = validate_regex_pattern(pattern)
+            if rex_err:
+                return self._tool_error(invalid_regex_tool_message(rex_err), code="INVALID_REGEX", count=0)
+
         doc = ctx.doc
+        label_cache = {}
+        truncated = False
         try:
             sd = doc.createSearchDescriptor()
             sd.SearchString = pattern
             sd.SearchRegularExpression = bool(use_regex)
             sd.SearchCaseSensitive = bool(case_sensitive)
             found = doc.findFirst(sd)
-        except Exception as e:
-            return {"status": "error", "error": "search failed: %s" % e}
+        except Exception:
+            log.exception("search_in_document: createSearchDescriptor / findFirst failed")
+            return self._tool_error("search failed.", code="SEARCH_FAILED")
 
         matches = []
         total_count = 0
         guard = 0
+        find_next_failed = False
         while found is not None and guard < 10000:
             guard += 1
             try:
                 hit_text = found.getString()
             except Exception:
-                hit_text = pattern
+                hit_text = ""
             if hit_text == "":
-                # Zero-width match (e.g. a zero-width regex): getEnd()==getStart() would make
-                # findNext restart in place and spin. Stop rather than emit empty hits / loop.
                 break
             total_count += 1
             if len(matches) < max_results:
                 matches.append({
                     "text": hit_text,
-                    "location": _describe_match_location(found, doc),
-                    "context": _enclosing_paragraph_text(found),
+                    "location": describe_match_location(found, doc, label_cache=label_cache),
+                    "context": enclosing_paragraph_text(found),
                 })
             try:
-                found = doc.findNext(found.getEnd(), sd)
+                found = find_next_after_match(doc, found, sd)
             except Exception:
+                log.exception("search_in_document: findNext failed")
+                find_next_failed = True
                 break
+        if guard >= 10000:
+            truncated = True
 
-        # Draw-layer sweep: floating shapes (text boxes / custom shapes anchored to page or paragraph)
-        # are NOT reached by findAll, so text living only inside one is otherwise reported "not found"
-        # (note 7). Walk the draw page (recursing into groups) and report those hits with a 'shape'
-        # location. AS_CHARACTER shapes are skipped — findAll already covers their inline text.
-        # Every hit is COUNTED (count = total matches in the document, like the text search above);
-        # only the first max_results are returned in matches.
         if hasattr(doc, "getDrawPage"):
             try:
-                draw_shapes = list(_iter_draw_shapes(doc.getDrawPage()))
-            except Exception:
-                draw_shapes = []
-            for shape in draw_shapes:
-                try:
-                    if _shape_is_as_character(shape) or _shape_is_text_box(shape):
+                for shape in iter_draw_shapes(doc.getDrawPage()):
+                    try:
+                        if shape_is_as_character(shape) or shape_is_text_box(shape):
+                            continue
+                        shape_text = shape.getString() if hasattr(shape, "getString") else ""
+                    except Exception:
                         continue
-                    shape_text = shape.getString() if hasattr(shape, "getString") else ""
-                except Exception:
-                    continue
-                hits = _shape_text_hits(shape_text, pattern, use_regex, case_sensitive)
-                if not hits:
-                    continue
-                sname = (getattr(shape, "Name", "") or "").strip() or "(unnamed shape)"
-                for hit in hits:
-                    total_count += 1
-                    if len(matches) < max_results:
-                        matches.append({
-                            "text": hit,
-                            "location": "shape '%s'" % sname,
-                            "context": shape_text.strip(),
-                        })
+                    hits = shape_text_hits(shape_text, pattern, use_regex, case_sensitive)
+                    if not hits:
+                        continue
+                    sname = (getattr(shape, "Name", "") or "").strip() or "(unnamed shape)"
+                    for hit in hits:
+                        total_count += 1
+                        if len(matches) < max_results:
+                            matches.append({
+                                "text": hit,
+                                "location": "shape '%s'" % sname,
+                                "context": shape_text.strip(),
+                            })
+            except Exception:
+                log.debug("search_in_document: draw-page sweep failed", exc_info=True)
 
-        # Comment (annotation) sweep: comments are text fields outside the searchable text model,
-        # so the text search above never sees them. Report matches with the comment's author and
-        # the full comment text as context. Same counting contract as above.
-        for hit, author, content in _comment_matches(doc, pattern, use_regex, case_sensitive):
+        for hit, author, content in comment_matches(doc, pattern, use_regex, case_sensitive):
             total_count += 1
             if len(matches) < max_results:
                 matches.append({
@@ -368,25 +509,19 @@ class SearchInDocument(ToolBase):
                     "context": content.strip(),
                 })
 
-        # Zero hits with regex=true: a malformed pattern finds nothing SILENTLY (LibreOffice's
-        # SearchDescriptor does not raise, and the Python re sweeps swallow compile errors), which
-        # is indistinguishable from "text not in document". Diagnose it: if the pattern does not
-        # even compile, say so instead of reporting a clean miss. (A pattern that found something
-        # never reaches this check, so ICU-only syntax that Python cannot parse is not rejected.)
         if total_count == 0 and use_regex:
-            import re as _re
+            rex_err = validate_regex_pattern(pattern)
+            if rex_err:
+                return self._tool_error(invalid_regex_tool_message(rex_err), code="INVALID_REGEX", count=0)
 
-            try:
-                _re.compile(pattern)
-            except _re.error as rex:
-                return {
-                    "status": "error",
-                    "code": "INVALID_REGEX",
-                    "message": ("0 matches, and the pattern does not parse as a regular expression "
-                                "(%s). Fix the pattern, or set regex=false for a literal search." % rex),
-                    "count": 0,
-                }
-        return {"status": "ok", "matches": matches, "count": total_count, "returned": len(matches)}
+        result = {"status": "ok", "matches": matches, "count": total_count, "returned": len(matches)}
+        if truncated or find_next_failed:
+            result["truncated"] = True
+            if truncated:
+                result["warning"] = "Search stopped after 10000 text-model matches; count may be incomplete."
+            elif find_next_failed:
+                result["warning"] = "Text-model search ended early after a findNext failure; count may be incomplete."
+        return result
 
 
 class AdvancedSearch(ToolBaseDummy):
@@ -421,7 +556,6 @@ class AdvancedSearch(ToolBaseDummy):
         except ValueError as e:
             return self._tool_error(str(e))
 
-        # Post-process: add page numbers and filter by page proximity
         if include_pages and result.get("matches"):
             page_map = _build_page_map(ctx.doc)
             for m in result["matches"]:
@@ -440,12 +574,10 @@ class AdvancedSearch(ToolBaseDummy):
         return {"status": "ok", **result}
 
 
-# Page map cache (cleared on doc change)
 _page_map_cache: dict[str | int, dict[int, int]] = {}
 
 
 def _build_page_map(doc):
-    """Map paragraph indices to page numbers using view cursor."""
     doc_url = doc.getURL() or id(doc)
     if doc_url in _page_map_cache:
         return _page_map_cache[doc_url]
@@ -485,7 +617,6 @@ def _build_page_map(doc):
 
 
 class GetIndexStats(ToolBaseDummy):
-    # Niche stem-index diagnostic; not exposed to LLM/MCP. Re-enable with ToolBase when needed.
     name = "get_index_stats"
     intent = "navigate"
     description = "Get search index statistics: paragraph count, unique stems, language, build time, and top 20 most frequent stems."

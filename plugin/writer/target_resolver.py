@@ -1,5 +1,7 @@
 import logging
-from .content import _normalize_search_string_for_find, _find_first_range
+
+from plugin.writer import search as search_mod
+from .content import _find_first_range
 from .format import content_has_markup, html_to_plain_text
 
 log = logging.getLogger("writeragent.writer")
@@ -78,13 +80,19 @@ def resolve_target_cursor(ctx, target, old_content):
     if content_has_markup(search_string):
         search_string = html_to_plain_text(search_string, ctx.ctx, config_svc)
 
-    search_string = _normalize_search_string_for_find(search_string)
+    search_string = search_mod.normalize_search_string_for_find(search_string)
     if not search_string:
         raise ValueError("old_content is empty after normalization.")
 
     found = _find_first_range(doc, search_string)
 
     if found is None:
+        shape_name = search_mod.drawing_shape_containing(doc, search_string)
+        if shape_name:
+            raise ValueError(
+                "old_content is only inside a drawing shape / floating text box ('%s'). "
+                "Edit it via the shapes toolset (delegate_to_specialized_writer_toolset domain='shapes')."
+                % shape_name)
         raise ValueError("old_content not found in document. Try a shorter, unique substring.")
 
     # Build the cursor in the MATCH's own text object, not the body: a match inside a table cell

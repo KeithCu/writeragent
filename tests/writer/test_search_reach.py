@@ -6,12 +6,14 @@
 
 Pure control-flow tests with fakes (no LibreOffice). The UNO behavior itself (findFirst reaching
 header/footer text, comments being invisible to it) was verified live; what is testable here is
-the labeling logic of _header_footer_label / _describe_match_location and the matching plus
-defensiveness of _comment_matches."""
+the labeling logic of _header_footer_label / describe_match_location and the matching plus
+defensiveness of comment_matches."""
+from unittest.mock import MagicMock
+
 from plugin.tests.testing_utils import setup_uno_mocks
 setup_uno_mocks()
 
-from plugin.writer.search import _comment_matches, _describe_match_location, _header_footer_label
+from plugin.writer.search import comment_matches, describe_match_location, _header_footer_label
 
 
 # ---- fakes ----------------------------------------------------------------
@@ -148,7 +150,7 @@ def test_style_walk_failure_still_labels_generically():
     assert _header_footer_label(hf, FakeDoc(styles=[])) == "header or footer"
 
 
-# ---- _describe_match_location with header text ------------------------------
+# ---- describe_match_location with header text ------------------------------
 
 def test_location_reports_header_not_body():
     class HeadTextWithCursor(FakeHeadFootText):
@@ -157,41 +159,59 @@ def test_location_reports_header_not_body():
 
     hf = HeadTextWithCursor()
     doc = FakeDoc(styles=[FakePageStyle("Standard", header=hf)])
-    assert _describe_match_location(FakeRange(hf), doc) == "header (page style 'Standard')"
+    assert describe_match_location(FakeRange(hf), doc) == "header (page style 'Standard')"
 
 
 def test_location_body_unchanged_without_doc():
-    assert _describe_match_location(FakeRange(FakeBodyText())) == "body"
+    assert describe_match_location(FakeRange(FakeBodyText())) == "body"
 
 
-# ---- _comment_matches --------------------------------------------------------
+def test_location_reports_table_cell():
+    table = MagicMock()
+    table.getName.return_value = "Table1"
+    cur = MagicMock()
+
+    def _get_prop(name):
+        if name == "TextTable":
+            return table
+        if name == "CellName":
+            return "B2"
+        return None
+
+    cur.getPropertyValue.side_effect = _get_prop
+    found = MagicMock()
+    found.getText.return_value.createTextCursorByRange.return_value = cur
+    assert describe_match_location(found) == "table 'Table1' cell B2"
+
+
+# ---- comment_matches --------------------------------------------------------
 
 def test_comment_match_yields_hit_author_content():
     doc = FakeDoc(fields=[FakeAnnotation("please FIX this paragraph", author="Ana")])
-    got = list(_comment_matches(doc, "fix", use_regex=False, case_sensitive=False))
+    got = list(comment_matches(doc, "fix", use_regex=False, case_sensitive=False))
     assert got == [("FIX", "Ana", "please FIX this paragraph")]
 
 
 def test_comment_no_match_yields_nothing():
     doc = FakeDoc(fields=[FakeAnnotation("nothing here")])
-    assert list(_comment_matches(doc, "absent", False, False)) == []
+    assert list(comment_matches(doc, "absent", False, False)) == []
 
 
 def test_non_annotation_fields_are_skipped():
     doc = FakeDoc(fields=[FakeOtherField(), FakeAnnotation("target inside", author="Bo")])
-    got = list(_comment_matches(doc, "target", False, False))
+    got = list(comment_matches(doc, "target", False, False))
     assert got == [("target", "Bo", "target inside")]
 
 
 def test_multiple_hits_in_one_comment():
     doc = FakeDoc(fields=[FakeAnnotation("x a x b x")])
-    got = list(_comment_matches(doc, "x", False, False))
+    got = list(comment_matches(doc, "x", False, False))
     assert [g[0] for g in got] == ["x", "x", "x"]
 
 
 def test_comment_regex_matching():
     doc = FakeDoc(fields=[FakeAnnotation("codes A1 and B2 here")])
-    got = list(_comment_matches(doc, r"[A-Z]\d", use_regex=True, case_sensitive=True))
+    got = list(comment_matches(doc, r"[A-Z]\d", use_regex=True, case_sensitive=True))
     assert [g[0] for g in got] == ["A1", "B2"]
 
 
@@ -199,4 +219,4 @@ def test_enumeration_failure_is_silent():
     class BrokenDoc:
         def getTextFields(self):
             raise RuntimeError("no fields")
-    assert list(_comment_matches(BrokenDoc(), "x", False, False)) == []
+    assert list(comment_matches(BrokenDoc(), "x", False, False)) == []

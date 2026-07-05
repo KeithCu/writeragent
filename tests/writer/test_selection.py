@@ -5,7 +5,7 @@
 """Selection: target='selection' must not silently append at the document end, and set_selection
 lets a headless client pick a passage. No LibreOffice required."""
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -170,3 +170,18 @@ def test_selection_target_wraps_span_failure_in_valueerror():
 
 def test_set_selection_is_core_read_only():
     assert SetSelection.tier == "core" and SetSelection.is_mutation is False
+
+
+def test_apply_document_content_selection_failure_not_silent():
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer import format as format_support
+    from plugin.writer.content import ApplyDocumentContent
+
+    ctx = MagicMock()
+    ctx.doc.getUndoManager.return_value.isLocked.return_value = False
+    ctx.services.get.return_value = MagicMock()
+    with patch("plugin.writer.content._selection_anchor", return_value=MagicMock()), \
+         patch.object(format_support, "insert_content_at_position",
+                      side_effect=ToolExecutionError("Could not resolve the current selection")):
+        with pytest.raises(ToolExecutionError, match="selection"):
+            ApplyDocumentContent().execute(ctx, content="x", target="selection")

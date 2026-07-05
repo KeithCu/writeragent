@@ -26,6 +26,7 @@ from plugin.framework.constants import APPLY_DOCUMENT_CONTENT_TOOL_RESEARCH_HINT
 from plugin.doc.document_helpers import normalize_linebreaks, get_string_without_tracked_deletions, collect_tracked_changes
 from plugin.writer.edit_review import EditReviewSession, edit_review_wait_seconds, review_recording_enabled, get_agent_edit_review_mode
 from plugin.framework.errors import safe_json_loads, ToolExecutionError
+from plugin.writer import search as search_mod
 import re as re_mod
 
 
@@ -177,7 +178,7 @@ def _find_lo_regex_ranges(doc, candidate, all_matches=False):
             if len(ranges) >= _MAX_SEARCH_REPLACEMENTS:
                 return ranges
             ranges.append(found)
-            found = doc.findNext(found, sd)
+            found = search_mod.find_next_after_match(doc, found, sd)
         if ranges:
             return ranges
     return ranges
@@ -253,7 +254,7 @@ def _find_chained_range(doc, search_string, all_matches=False):
                     last_end_cursor.goRight(offset_len, False)
 
             if not chain_ok:
-                found = doc.findNext(found, sd)
+                found = search_mod.find_next_after_match(doc, found, sd)
                 continue
 
             backward_cursor = text.createTextCursorByRange(found)
@@ -293,7 +294,7 @@ def _find_chained_range(doc, search_string, all_matches=False):
                 except Exception:
                     log.debug("Failed creating combined XTextRange", exc_info=True)
 
-            found = doc.findNext(found, sd)
+            found = search_mod.find_next_after_match(doc, found, sd)
 
         if matched_ranges:
             return matched_ranges
@@ -306,62 +307,12 @@ def _find_first_range(doc, search_string):
     return _find_chained_range(doc, search_string, all_matches=False)
 
 
-def _iter_drawing_shapes(container):
-    """Yield every drawing shape on a container, recursing into group shapes.
-
-    ``doc.findFirst``/``findAll`` (the search path) cover body, table cells, text frames and inline
-    (AS_CHARACTER) shape text but NOT floating drawing-layer shapes on ``getDrawPage()``. Walking the
-    draw page (groups included) lets us both detect and edit text that lives only inside such a box."""
-    try:
-        n = int(container.getCount())
-    except Exception:
-        return
-    for i in range(n):
-        try:
-            shape = container.getByIndex(i)
-        except Exception:
-            continue
-        try:
-            is_group = shape.supportsService("com.sun.star.drawing.GroupShape")
-        except Exception:
-            is_group = False
-        if is_group:
-            yield from _iter_drawing_shapes(shape)
-        else:
-            yield shape
-
-
-def _drawing_shape_object_containing(doc, search_string):
-    """First drawing-layer shape whose text contains *search_string*, else None. Fully defensive."""
-    needle = (search_string or "").strip()
-    if not needle:
-        return None
-    try:
-        if not hasattr(doc, "getDrawPage"):
-            return None
-        draw_page = doc.getDrawPage()
-    except Exception:
-        return None
-    for shape in _iter_drawing_shapes(draw_page):
-        try:
-            text = shape.getString() if hasattr(shape, "getString") else ""
-        except Exception:
-            continue
-        if text and needle in text:
-            return shape
-    return None
-
-
-def _drawing_shape_containing(doc, search_string):
-    """Name of a drawing-layer shape whose text contains *search_string*, else None.
-
-    When search/replace finds nothing, this lets the caller tell the agent the text is actually
-    inside a floating shape -- an actionable signal (edit it in place or via the shapes toolset)
-    instead of retrying blindly (note 7). Fully defensive: any failure returns None."""
-    shape = _drawing_shape_object_containing(doc, search_string)
-    if shape is None:
-        return None
-    return (getattr(shape, "Name", "") or "").strip() or "(unnamed shape)"
+# Re-export find helpers for tests and sibling modules.
+_normalize_search_string_for_find = search_mod.normalize_search_string_for_find
+_find_ranges_regex_case = search_mod.find_ranges_regex_case
+_drawing_shape_object_containing = search_mod.drawing_shape_object_containing
+_drawing_shape_containing = search_mod.drawing_shape_containing
+_all_start_indices = search_mod.all_start_indices
 
 
 def _replace_text_in_shape(shape, old, new):
@@ -393,46 +344,6 @@ def _replace_text_in_shape(shape, old, new):
         return True
     except Exception:
         return False
-
-
-def _normalize_search_string_for_find(s):
-    """Collapse horizontal whitespace (incl. NBSP & friends) to a single ASCII
-    space; preserve newlines for literal find.
-    """
-    return re_mod.sub(_HORIZONTAL_SPACE_RE, " ", s).strip()
-
-
-def _all_start_indices(haystack, needle):
-    """Non-overlapping start indices of *needle* in *haystack*."""
-    out = []
-    if not needle:
-        return out
-    i = haystack.find(needle)
-    while i >= 0:
-        out.append(i)
-        i = haystack.find(needle, i + len(needle))
-    return out
-
-
-def _find_ranges_regex_case(doc, pattern, use_regex, case_sensitive, all_matches):
-    """Direct SearchDescriptor find honoring an EXPLICIT regex / case_sensitive request. No
-    paragraph chaining, no NBSP-flex, no case fallback — so counts line up with
-    search_in_document for the text the EDIT path can reach (body, table cells, text frames;
-    search_in_document additionally sweeps drawing shapes and comments, which no edit reaches).
-    Used only when the caller opts in; the default search path is left untouched. Returns a single
-    range (all_matches False) or a list (all_matches True)."""
-    sd = doc.createSearchDescriptor()
-    sd.SearchString = pattern
-    sd.SearchRegularExpression = bool(use_regex)
-    sd.SearchCaseSensitive = bool(case_sensitive)
-    if not all_matches:
-        return doc.findFirst(sd)
-    out = []
-    found = doc.findFirst(sd)
-    while found is not None and len(out) < _MAX_SEARCH_REPLACEMENTS:
-        out.append(found)
-        found = doc.findNext(found.getEnd(), sd)
-    return out
 
 
 def _find_all_ranges(doc, search_string):
@@ -1119,8 +1030,6 @@ class ApplyDocumentContent(ToolBase):
     def _dry_run_preview(self, ctx, **kwargs):
         """Resolve old_content matches WITHOUT editing, for target='search'. Reports the count and
         each match's location + a short snippet, so the model can check before committing."""
-        from plugin.writer import search as search_mod
-
         target = kwargs.get("target")
         old_content = kwargs.get("old_content")
         if not target and old_content is not None:
@@ -1136,11 +1045,12 @@ class ApplyDocumentContent(ToolBase):
         s = _normalize_search_string_for_find(s)
         if not s:
             return self._tool_error("old_content is empty after normalization.")
-        # Mirror the EDIT path's option handling exactly — a preview that uses a different
-        # matcher than the commit it previews is worse than none. regex patterns stay raw
-        # (no markup/normalize munging), same as the edit path.
         use_regex = bool(kwargs.get("regex"))
         case_opt = kwargs.get("case_sensitive")
+        if use_regex:
+            rex_err = search_mod.validate_regex_pattern(old_stripped)
+            if rex_err:
+                return self._tool_error(search_mod.invalid_regex_tool_message(rex_err), code="INVALID_REGEX", count=0)
         try:
             if use_regex or case_opt is not None:
                 ranges = _find_ranges_regex_case(
@@ -1148,12 +1058,16 @@ class ApplyDocumentContent(ToolBase):
                     bool(case_opt) if case_opt is not None else False, all_matches=True)
             else:
                 ranges = _find_all_ranges(ctx.doc, s)
+        except ValueError as e:
+            return self._tool_error(str(e), code="INVALID_REGEX")
         except Exception as e:
-            return self._tool_error("dry_run search failed: %s" % e)
+            log.exception("apply_document_content dry_run search failed")
+            return self._tool_error("dry_run search failed: %s" % e, code="SEARCH_FAILED")
+        label_cache = {}
         matches = []
         for found in ranges[:20]:
             try:
-                loc = search_mod._describe_match_location(found, ctx.doc)
+                loc = search_mod.describe_match_location(found, ctx.doc, label_cache=label_cache)
             except Exception:
                 loc = "body"
             try:
@@ -1161,7 +1075,21 @@ class ApplyDocumentContent(ToolBase):
             except Exception:
                 snippet = ""
             matches.append({"location": loc, "text": snippet[:160]})
-        return {"status": "ok", "dry_run": True, "count": len(ranges), "matches": matches}
+        opts_cs = bool(case_opt) if case_opt is not None else False
+        pattern = old_stripped if use_regex else s
+        shape_hits = search_mod.sweep_draw_shape_preview_matches(ctx.doc, pattern, use_regex, opts_cs, limit=10000)
+        comment_hits = search_mod.sweep_comment_preview_matches(ctx.doc, pattern, use_regex, opts_cs, limit=10000)
+        for item in shape_hits + comment_hits:
+            if len(matches) < 20:
+                matches.append({"location": item["location"], "text": item["text"][:160]})
+        total = len(ranges) + len(shape_hits) + len(comment_hits)
+        return {
+            "status": "ok", "dry_run": True, "count": total, "matches": matches,
+            "edit_reach_note": (
+                "dry_run counts body/table/frame matches the edit path can replace, plus drawing shapes "
+                "and comments (search_in_document uses the same split; only floating shapes are editable "
+                "in review-off mode or via the shapes toolset)."),
+        }
 
     def execute(self, ctx, **kwargs):
         if kwargs.get("dry_run"):
@@ -1416,28 +1344,48 @@ class ApplyDocumentContent(ToolBase):
         if all_matches:
             ranges = (_find_ranges_regex_case(doc, _opts_pattern, _regex_opt, _opts_cs, all_matches=True)
                       if _use_opts else _find_all_ranges(doc, search_string))
-            count = 0
-            # Anchor at the FIRST match in document order; the echo shows that occurrence's
-            # neighborhood after the edit (positions survive the replaces, content ranges don't).
-            anchor = _collapsed_anchor(ranges[0]) if ranges else None
-            # Replace from last to first so earlier character offsets stay valid after edits.
-            # One record_mutation per match: each replaced occurrence is its own reviewable
-            # change with its own accept/reject outcome.
-            with session:
-                for found in reversed(ranges):
-                    original = found.getString()
-                    if use_preserve:
-                        _record_preserve_replace(session, doc, found, raw_content, ctx.ctx, track_reviewable)
-                    else:
-                        _record_html_atomically(
-                            session, doc,
-                            lambda f=found: format_support.replace_single_range_with_content(doc, f, content, ctx.ctx, config_svc),
-                            track_reviewable, original_preview=original, proposed_preview=_plain_preview(content))
-                    count += 1
-            if count == 0:
+            if not ranges:
                 return {"status": "error",
                         "message": "Replaced 0 occurrence(s). No matches found. Try a shorter substring.",
                         "replaced_count": 0}, session
+            anchor = _collapsed_anchor(ranges[0])
+            undo_title = _next_agent_edit_undo_title()
+            try:
+                mgr = doc.getUndoManager()
+                if mgr.isLocked():
+                    raise ToolExecutionError("undo manager is locked")
+                mgr.enterUndoContext(undo_title)
+            except Exception:
+                return self._tool_error(
+                    "Cannot apply all_matches atomically (no usable undo context); "
+                    "refusing rather than risk a half-applied edit.",
+                    code="UNDO_UNAVAILABLE"), session
+            changes_before = len(session.changes)
+            applied_ok = False
+            count = 0
+            try:
+                with session:
+                    for found in reversed(ranges):
+                        original = found.getString()
+                        if use_preserve:
+                            _record_preserve_replace(session, doc, found, raw_content, ctx.ctx, track_reviewable)
+                        else:
+                            session.record_mutation(
+                                lambda f=found: format_support.replace_single_range_with_content(
+                                    doc, f, content, ctx.ctx, config_svc),
+                                original_preview=original, proposed_preview=_plain_preview(content))
+                        count += 1
+                applied_ok = True
+            except Exception as e:
+                log.exception("apply_document_content all_matches failed mid-batch")
+                _close_surgical_context(mgr, session, changes_before, False, undo_title)
+                return {"status": "error",
+                        "message": ("all_matches aborted after %d replacement(s); document rolled back (%s)."
+                                    % (count, e)),
+                        "replaced_count": 0, "partial_failure": True, "attempted": count}, session
+            finally:
+                if applied_ok:
+                    _close_surgical_context(mgr, session, changes_before, True, undo_title)
             msg = "Replaced %d occurrence(s)." % count
             if use_preserve:
                 msg += " (formatting preserved)"
@@ -1452,7 +1400,9 @@ class ApplyDocumentContent(ToolBase):
             # lives only inside such a floating box, say so (actionable) instead of a bare not-found
             # -- otherwise the agent retries blindly or assumes failure where a shapes-toolset edit
             # is needed (note 7).
-            shape = _drawing_shape_object_containing(doc, search_string)
+            shape = _drawing_shape_object_containing(
+                doc, _opts_pattern if _regex_opt else search_string,
+                use_regex=_regex_opt, case_sensitive=_opts_cs if _use_opts else False)
             if shape is not None:
                 shape_name = (getattr(shape, "Name", "") or "").strip() or "(unnamed shape)"
                 if track_reviewable:
@@ -1470,9 +1420,10 @@ class ApplyDocumentContent(ToolBase):
                 # replace can't reach. Edit the shape's own text directly (note 7), preserving format.
                 new_text = _plain_preview(content)
                 undo = None
+                undo_title = _next_agent_edit_undo_title()
                 try:
                     undo = doc.getUndoManager()
-                    undo.enterUndoContext("Edit drawing-shape text")
+                    undo.enterUndoContext(undo_title)
                 except Exception:
                     undo = None
                 try:
@@ -1484,11 +1435,14 @@ class ApplyDocumentContent(ToolBase):
                         except Exception:
                             pass
                 if edited:
-                    return {"status": "ok",
-                            "message": ("Replaced 1 occurrence inside drawing shape '%s' (edited the "
-                                        "shape's own text directly — NOT a tracked change; surrounding "
-                                        "formatting preserved)." % shape_name),
-                            "replaced_count": 1}, session
+                    result = _attach_edited_context(
+                        {"status": "ok",
+                         "message": ("Replaced 1 occurrence inside drawing shape '%s' (edited the "
+                                     "shape's own text directly — NOT a tracked change; surrounding "
+                                     "formatting preserved)." % shape_name),
+                         "replaced_count": 1, "review_bypassed": True},
+                        None)
+                    return self._annotate_review_status(ctx.ctx, result), session
                 # Couldn't edit in place -> fall back to the actionable routing message.
                 return {"status": "error",
                         "message": ("old_content was found only inside a drawing shape / floating text box "
@@ -1533,7 +1487,7 @@ class ApplyDocumentContent(ToolBase):
             with session:
                 _record_html_atomically(
                     session, doc,
-                    lambda: format_support._insert_mixed_or_plain_html(doc, ctx.ctx, insert_cursor, content, config_svc=config_svc, apply_styles=False),
+                    lambda: format_support.insert_html_at_cursor(doc, ctx.ctx, insert_cursor, content, config_svc=config_svc, apply_styles=False),
                     track_reviewable, proposed_preview=_plain_preview(content))
             return _attach_edited_context(
                 {"status": "ok",

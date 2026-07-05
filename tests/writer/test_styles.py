@@ -280,3 +280,11 @@ def test_import_styles(mock_pv, mock_uno, mock_ctx):
     args, kwargs = mock_ctx.doc.loadStylesFromURL.call_args
     assert args[0] == "file:///path/to/doc.ott"
     assert isinstance(args[1], tuple)
+
+
+def test_apply_style_selection_failure_at_tool_layer(mock_ctx):
+    with patch("plugin.writer.target_resolver.resolve_target_cursor",
+               side_effect=ValueError("Could not resolve the current selection")):
+        res = ApplyStyle().execute(mock_ctx, style_name="Heading 1", target="selection")
+    assert res["status"] == "error"
+    assert "selection" in res["message"].lower()

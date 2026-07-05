@@ -169,14 +169,15 @@ class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
                 # Text: for an insertion the live span RedlineStart..RedlineEnd holds it; for a
                 # deletion that span is collapsed, so fall back to RedlineText (the removed text).
                 txt = ""
-                try:
-                    end = redline.getPropertyValue("RedlineEnd")
-                    stext = start.getText()
-                    cur = stext.createTextCursorByRange(start)
-                    cur.gotoRange(end, True)
-                    txt = cur.getString() or ""
-                except Exception:
-                    txt = ""
+                if start is not None:
+                    try:
+                        end = redline.getPropertyValue("RedlineEnd")
+                        stext = start.getText()
+                        cur = stext.createTextCursorByRange(start)
+                        cur.gotoRange(end, True)
+                        txt = cur.getString() or ""
+                    except Exception:
+                        txt = ""
                 if not txt:
                     try:
                         rt = redline.getPropertyValue("RedlineText")

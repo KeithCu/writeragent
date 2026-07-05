@@ -1101,9 +1101,9 @@ class _WriterProxy:
         """Get images, tables, frames, and Draw shapes visible on a specific physical page."""
         return _rpc_call("get_page_objects", page=page, locator=locator, paragraph_index=paragraph_index)
 
-    def search_in_document(self, pattern: str, *, regex: bool = True, case_sensitive: bool = True, max_results: int = 0, context_paragraphs: int = 0, return_offsets: bool = True) -> dict:
-        """Search for text in the document using LibreOffice native search."""
-        return _rpc_call("search_in_document", pattern=pattern, regex=regex, case_sensitive=case_sensitive, max_results=max_results, context_paragraphs=context_paragraphs, return_offsets=return_offsets)
+    def search_in_document(self, pattern: str, *, regex: bool = False, case_sensitive: bool = False, max_results: int = 20, return_offsets: bool = False) -> dict:
+        """Search for text anywhere in the document; each match reports text, location, and context."""
+        return _rpc_call("search_in_document", pattern=pattern, regex=regex, case_sensitive=case_sensitive, max_results=max_results, return_offsets=return_offsets)
 
 writer = _WriterProxy()
 
