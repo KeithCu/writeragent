@@ -52,8 +52,6 @@ def _document_echo_payload(doc):
         import os
         from urllib.parse import unquote
 
-        from plugin.doc.document_helpers import get_runtime_uid
-
         url = str(getattr(doc, "URL", "") or "")
         name = unquote(os.path.basename(url)) if url else "Untitled"
         return {"name": name, "uid": get_runtime_uid(doc)}

@@ -307,15 +307,17 @@ External MCP hosts often fire several `tools/call` requests at once (e.g. resear
 | Layer | Applies to | Effect |
 |-------|------------|--------|
 | **Global semaphore** | Backpressure (non-`long_running`) tools only | At most one fast tool on the main thread; overload → HTTP 429 `BusyError` |
-| **Per-document gate** | Mutating tools on **both** backpressure and long-running paths | Same normalized `X-Document-URL` / doc key → mutating runs serialize; different docs and read-only runs stay concurrent |
+| **Per-document gate** | Mutating tools on **both** backpressure and long-running paths | Same resolved document key (`document_url` / RuntimeUID) → mutating runs serialize; different docs and read-only runs stay concurrent |
 
 Tools with `long_running = True` (e.g. `delegate_to_specialized_*`, `generate_image`) **skip** the global semaphore so a minutes-long job does not block every other MCP client. They still take the per-document gate when they mutate. Read-only delegations (`domain: "document_research"` or `"web_research"`) opt out via [`ToolBase.requires_document_lock()`](../plugin/framework/tool.py).
 
 **UNO:** All LibreOffice access is marshalled to the main thread. The per-document gate prevents overlapping *mutating MCP tool runs* on the same file, not raw cross-thread UNO (that is already forbidden).
 
-**Targeting:** Send `X-Document-URL` on parallel calls so gates align with the intended document. URLs are normalized (trailing slash stripped) when building gate keys.
+**Targeting:** Pass **`document_url`** in each `tools/call` `arguments` (preferred — a `url` or `uid` from `list_open_documents`). The legacy **`X-Document-URL`** HTTP header still works for clients that set headers once per connection. Resolved URLs and RuntimeUIDs map to the same per-document gate key (normalized trailing slashes stripped).
 
-**Tests:** [`tests/mcp/test_long_running_concurrency.py`](../tests/mcp/test_long_running_concurrency.py).
+**Per-result document echo:** Successful tool results include `document: {name, uid}` when the tool did not already set a `document` field. The echo reflects the **resolved** target for that call (from `document_url`, header, or active window) — not necessarily the user's current focus. Check it when multiple documents are open or when you did not pass an explicit target.
+
+**Tests:** [`tests/mcp/test_long_running_concurrency.py`](../tests/mcp/test_long_running_concurrency.py), [`tests/mcp/test_mcp_qol_extras.py`](../tests/mcp/test_mcp_qol_extras.py).
 
 **Full design:** [Threading architecture — MCP](threading_architecture.md#2-http-server-and-mcp-protocol-pluginmcp) (paths, diagram, known limits: sidebar chat, gate dict lifetime, save-as key changes).
 
@@ -394,7 +396,8 @@ The MCP server is **implemented and opt-in** (default off). Summary:
 - **Document targeting** (two supported paths):
   - **Preferred (modern clients):** `document_url` parameter passed **directly in the tool call `arguments`** (e.g. in `tools/call` JSON-RPC). The server pops it from args and uses it for resolution. This works cleanly for multi-document workflows without header management and is the recommended path for Cursor, Hermes, custom agents, etc.
   - **Fallback / legacy:** `X-Document-URL` HTTP header on requests (still supported for compatibility and simple "active doc" cases).
-  - **RuntimeUID:** `document_url` may be a document file URL **or** the document's **RuntimeUID** (string). RuntimeUID is stable for the open session and works for **unsaved/untitled** documents that have no file URL yet. Discovery: call `list_open_documents` — each entry includes `document_url` (may be empty) and `uid` (RuntimeUID when available). Prefer `uid` for untitled docs.
+  - **RuntimeUID:** `document_url` may be a document file URL **or** the document's **RuntimeUID** (string). RuntimeUID is stable for the open session and works for **unsaved/untitled** documents that have no file URL yet. Discovery: call `list_open_documents` — each entry includes `url` (may be empty for untitled docs) and `uid` (RuntimeUID). Pass either value as the `document_url` tool argument; prefer `uid` for untitled docs.
+  - **Per-result echo:** Tool results echo the resolved target as `document: {name, uid}` unless the tool already returns its own `document` field. Use this to confirm which file a call acted on when focus may have changed between calls.
   - **Mutation gate keys:** resolved documents map to `uid:{RuntimeUID}` when available, else `url:{normalized URL}`. Targeting the same document by URL or UID shares one gate so concurrent mutating calls serialize. Unresolved handles use `url:{request}`; stale URLs after Save As do not auto-rekey (clients should refresh from `list_open_documents`).
   - See implementation in `plugin/mcp/mcp_protocol.py` (`_resolve_mcp_doc_key`, `_mcp_tools_call` pops `document_url` from arguments before falling back to header).
   - Full client guidance + examples live in the companion meta repos:
@@ -481,71 +484,41 @@ Supporting HTTP routes: **`GET /health`**, **`GET /`** (server info and `mcp_end
 
 ---
 
-### Critical distinction: "MCP-inspired" vs real MCP protocol
+### Critical distinction: HTTP MCP vs stdio-only clients
 
-The extension's HTTP API is **not** the Anthropic MCP specification. Real MCP uses:
-- **Transport**: JSON-RPC 2.0 over **stdio** (Claude Desktop spawns the server as a
-  subprocess) or **SSE** (server-sent events over HTTP)
-- **Methods**: `initialize`, `tools/list`, `tools/call`, `resources/list`, `prompts/list`
-- **Discovery**: Claude Desktop reads `~/.config/claude/claude_desktop_config.json` which
-  lists MCP servers by command path
+WriterAgent's live server speaks **JSON-RPC 2.0 over HTTP** on `POST /mcp` (streamable HTTP). That works directly with Cursor and other HTTP-capable MCP hosts.
 
-What the extension implements (and what WriterAgent implements) is a simpler custom
-HTTP REST API. Claude Desktop **cannot** talk to it natively — it expects stdio/SSE.
+Clients that only support **stdio** (e.g. Claude Desktop spawning a subprocess) cannot connect to `http://localhost:8765/mcp` natively. Use the shipped stdio bridge instead.
 
-**However**, Cursor's MCP support does accept HTTP-based servers. And any custom AI client
-or script can call the REST API directly with plain `curl` or `requests`.
+### Stdio bridge (`scripts/mcp_bridge.py`)
 
-For genuine Claude Desktop integration, two paths exist:
+The bridge is a **pure-stdlib** stdio MCP server that forwards JSON-RPC to LibreOffice's HTTP endpoint. The client spawns it once; the bridge **retries when LibreOffice is not up yet**, so startup order no longer matters.
 
-**Path A — stdio proxy script** (~30 lines, no changes to WriterAgent):
+**Configure** (absolute path to your checkout):
 
-```python
-#!/usr/bin/env python3
-# mcp_proxy.py — stdio MCP adapter for WriterAgent's HTTP server
-import sys, json, requests
-
-def main():
-    for line in sys.stdin:
-        req = json.loads(line)
-        method = req.get("method")
-        if method == "tools/list":
-            r = requests.get("http://localhost:8765/tools")
-            tools = r.json()["tools"]
-            reply = {"id": req["id"], "result": {"tools": tools}}
-        elif method == "tools/call":
-            name = req["params"]["name"]
-            args = req["params"].get("arguments", {})
-            r = requests.post(f"http://localhost:8765/tools/{name}", json=args)
-            reply = {"id": req["id"], "result": {"content": [{"type": "text", "text": json.dumps(r.json())}]}}
-        else:
-            reply = {"id": req["id"], "result": {}}
-        sys.stdout.write(json.dumps(reply) + "\n")
-        sys.stdout.flush()
-
-if __name__ == "__main__":
-    main()
-```
-
-Register in `claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
     "writeragent": {
       "command": "python3",
-      "args": ["/path/to/mcp_proxy.py"]
+      "args": ["/abs/path/to/writeragent/scripts/mcp_bridge.py"]
     }
   }
 }
 ```
 
-**Path B — implement JSON-RPC directly** (~40 extra lines in `core/mcp_server.py`):
+| Env var | Default | Purpose |
+|---------|---------|---------|
+| `WRITERAGENT_MCP_URL` | `http://localhost:8765/mcp` | Target MCP endpoint |
+| `WRITERAGENT_MCP_PROTOCOL` | `2025-11-25` (keep in sync with [`wire_types.py`](../plugin/mcp/wire_types.py)) | Protocol version in placeholder `initialize` when LO is down |
 
-Add an `initialize` handler and change `GET /tools` to respond to `POST /` with
-`method=tools/list`. More robust but more work.
+**When LibreOffice is down at handshake:** `initialize` still succeeds locally (placeholder `instructions`, `tools.listChanged: true`); `tools/list` returns `[]`; other methods return a clear "not reachable" error. A background watcher emits `notifications/tools/list_changed` when `/health` transitions to up, so tools refresh **without restarting the MCP client**.
 
-**Recommendation**: Start with Path A. The proxy is trivial to write and keeps the HTTP
-server simple. Path B is an optimization once Path A is validated to work.
+**Stale instructions edge case:** `initialize` `instructions` are delivered **once per MCP session**. If the bridge served the placeholder because LO was still starting, the client will **not** automatically receive the real manual when LO comes up — only the tool list refreshes. **Restart the MCP client** (or reconnect) after LibreOffice is running if you need the full `initialize` instructions. Direct HTTP clients that connect after LO is up are unaffected.
+
+**Implementation:** [`scripts/mcp_bridge.py`](../scripts/mcp_bridge.py). Tests: [`tests/mcp/test_mcp_bridge.py`](../tests/mcp/test_mcp_bridge.py).
+
+> **Historical note:** Older docs described a ~30-line REST proxy hitting `GET /tools` / `POST /tools/{name}`. That REST API was never the live transport; use the bridge above for stdio clients.
 
 ---
 

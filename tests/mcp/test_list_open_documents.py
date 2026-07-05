@@ -39,11 +39,13 @@ def test_list_open_documents_execute():
     mock_doc1.getController.return_value = None
     mock_doc1.RuntimeUID = "uid-saved-1"
     mock_doc1.isModified.return_value = True
+    mock_doc1.supportsService.return_value = True
     mock_doc2 = MagicMock()
     mock_doc2.getURL.return_value = ""  # Untitled document
     mock_doc2.getController.return_value = None
     mock_doc2.RuntimeUID = "uid-untitled-2"
     mock_doc2.isModified.return_value = False
+    mock_doc2.supportsService.return_value = True
 
     mock_components = [mock_doc1, mock_doc2]
 
@@ -102,6 +104,7 @@ def test_get_open_documents_lists_untitled_even_when_type_lookup_fails():
     untitled.getURL.return_value = ""
     untitled.getController.return_value = None
     untitled.RuntimeUID = "uid-untitled-x"
+    untitled.supportsService.return_value = True
 
     desktop = MagicMock()
     enum = MagicMock()
@@ -117,3 +120,36 @@ def test_get_open_documents_lists_untitled_even_when_type_lookup_fails():
     assert len(docs) == 1
     assert docs[0]["url"] == "" and docs[0]["uid"] == "uid-untitled-x"
     assert docs[0]["doc_type"] == "unknown"
+
+
+def test_get_open_documents_skips_non_office_document_components():
+    """The Start Center (and similar) are live components but not OfficeDocuments — same filter as
+    MCP's _real_active_document so list_open_documents never advertises untargetable entries."""
+    from plugin.doc.document_research import get_open_documents
+
+    real_doc = MagicMock()
+    real_doc.getURL.return_value = "file:///home/user/doc.odt"
+    real_doc.getController.return_value = None
+    real_doc.RuntimeUID = "uid-real"
+    real_doc.isModified.return_value = False
+    real_doc.supportsService.return_value = True
+
+    start_center = MagicMock()
+    start_center.getURL.return_value = ""
+    start_center.getController.return_value = None
+    start_center.supportsService.return_value = False
+
+    desktop = MagicMock()
+    enum = MagicMock()
+    elems = [start_center, real_doc]
+    enum.hasMoreElements.side_effect = lambda: len(elems) > 0
+    enum.nextElement.side_effect = lambda: elems.pop(0)
+    desktop.getComponents.return_value.createEnumeration.return_value = enum
+
+    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop), \
+         patch("plugin.doc.document_research._system_path_from_url",
+               side_effect=lambda u: u.replace("file://", "") if u else None):
+        docs = get_open_documents(MagicMock(), active_model=None)
+
+    assert len(docs) == 1
+    assert docs[0]["url"] == "file:///home/user/doc.odt"

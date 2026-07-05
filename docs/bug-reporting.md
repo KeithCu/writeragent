@@ -28,6 +28,7 @@ Implementation: `ReportBug` in [`plugin/doc/document_research_tools.py`](../plug
 | **Endpoint** | Current chat API endpoint from settings |
 | **Chat model** | Current text/chat model from settings |
 | Debug log | Path plus guidance to skim `writeragent_debug.log` for relevant errors |
+| **Agent feedback log** (`report_bug` tool) | Append-only `agent_feedback.jsonl` beside `writeragent.json` in the LibreOffice user profile (timestamp, category, summary, details only — no document text or API keys) |
 
 **Not included:** API keys, document text, chat history, or full `writeragent.json`.
 

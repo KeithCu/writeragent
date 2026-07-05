@@ -644,6 +644,13 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
             model = elem.getController().getModel()
         if model is None or not hasattr(model, "getURL"):
             continue
+        # Same filter as MCP's _real_active_document: the Start Center is a live component but
+        # not an OfficeDocument, so skip it — listing it would confuse multi-document targeting.
+        try:
+            if not model.supportsService("com.sun.star.document.OfficeDocument"):
+                continue
+        except Exception:
+            pass  # can't introspect -> keep it (don't drop a real document)
         url = model.getURL()
         if not url:
             # An untitled doc has no URL, so its uid is the ONLY handle a caller can target it by.

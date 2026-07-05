@@ -57,15 +57,62 @@ def test_multidoc_guidance_reaches_mcp_topic():
     assert normalize_topic("document_url") == "concurrency"
 
 
-def test_long_running_context_precomputes_echo_off_the_worker_thread():
-    """The echo payload must be computed on the MAIN thread (inside _get_context): reading
-    doc.URL/RuntimeUID from the HTTP worker trips the UNO thread guard on proxied docs."""
-    import inspect
+def test_long_running_precomputes_echo_without_post_execute_doc_access():
+    """Echo is captured once inside _get_context (main-thread marshal); the worker path must not
+    call _attach_document_echo or re-read the proxied doc after the tool body runs."""
+    from unittest.mock import patch
 
-    from plugin.mcp import mcp_protocol as mp
+    from plugin.mcp.mcp_protocol import MCPProtocolHandler
 
-    src = inspect.getsource(mp.MCPProtocolHandler._execute_long_running)
-    assert "_document_echo_payload(doc)" in src.split("queue_executor.execute")[0], \
-        "echo must be captured inside _get_context (main thread), before the worker resumes"
-    assert "_attach_document_echo" not in src, \
-        "the worker thread must not touch the proxied doc after execution"
+    class _Registry:
+        def get(self, name):
+            class _Tool:
+                is_mutation = False
+                requires_document = True
+
+                def detects_mutation(self):
+                    return False
+
+                def requires_document_lock(self, arguments=None):
+                    return False
+
+            return _Tool()
+
+        def execute(self, name, context, **kwargs):
+            return {"status": "ok"}
+
+    class _FakeMainThread:
+        def execute(self, fn, *args, **kwargs):
+            return fn(*args)
+
+    class _FakeDocSvc:
+        def resolve_document_by_url(self, url):
+            doc = type("Doc", (), {"URL": url, "RuntimeUID": "uid-1", "getURL": lambda self: url})()
+            return (doc, "writer")
+
+        def get_active_document(self):
+            return None
+
+        def detect_doc_type(self, doc):
+            return "writer"
+
+    class _FakeServices:
+        def __init__(self, registry):
+            self.tools = registry
+            self.document = _FakeDocSvc()
+
+        def get(self, key):
+            return _FakeMainThread() if key == "main_thread" else None
+
+    registry = _Registry()
+    handler = MCPProtocolHandler(_FakeServices(registry))
+
+    with patch("plugin.mcp.mcp_protocol._document_echo_payload",
+               return_value={"name": "doc.odt", "uid": "uid-1"}) as mock_echo, \
+         patch("plugin.mcp.mcp_protocol._attach_document_echo") as mock_attach:
+        result = handler._execute_long_running("any_tool", {}, document_url="file:///doc.odt")
+
+    assert result["status"] == "ok"
+    assert result["document"] == {"name": "doc.odt", "uid": "uid-1"}
+    assert mock_echo.call_count == 1
+    assert mock_attach.call_count == 0

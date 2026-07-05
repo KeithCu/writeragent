@@ -30,6 +30,8 @@ written. ``get_guidance`` resolves the target document's type the same way every
 a Calc session never reads Writer advice."""
 from __future__ import annotations
 
+import logging
+
 from plugin.framework.constants import (
     GENERIC_EDIT_CONFIRMATION_RULES,
     TOOL_USAGE_PATTERNS,
@@ -40,6 +42,8 @@ from plugin.framework.constants import (
     WRITER_REVIEW_MODES_RULES,
     WRITER_SEARCH_RULES,
 )
+
+log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # MCP-only pieces. The HTTP server's concurrency contract: real for every client of the MCP
@@ -165,7 +169,7 @@ def doc_type_of(doc) -> str | None:
         if is_draw(doc):
             return "draw"
     except Exception:
-        pass
+        log.debug("doc_type_of: could not classify document; defaulting to writer", exc_info=True)
     return "writer"
 
 
