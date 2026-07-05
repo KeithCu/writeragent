@@ -181,7 +181,8 @@ def test_delete_last_column_guard():
 def test_insert_row_appends_and_within_bounds():
     t = FakeTable(2, 2)
     ctx = _ctx({"T": t})
-    assert InsertTableRow().execute(ctx, table_name="T", row_index=2)["status"] == "ok"  # append
+    res = InsertTableRow().execute(ctx, table_name="T", row_index=2)
+    assert res["status"] == "ok" and res["rows"] == 3 and res["cols"] == 2
     assert t._rows.inserts[-1] == (2, 1)
     assert InsertTableRow().execute(ctx, table_name="T", row_index=99)["status"] == "error"  # out of range
 
@@ -189,7 +190,8 @@ def test_insert_row_appends_and_within_bounds():
 def test_delete_row_bounds_and_last_row_guard():
     t = FakeTable(2, 2)
     ctx = _ctx({"T": t})
-    assert DeleteTableRow().execute(ctx, table_name="T", row_index=1)["status"] == "ok"
+    res = DeleteTableRow().execute(ctx, table_name="T", row_index=1)
+    assert res["status"] == "ok" and res["rows"] == 1 and res["cols"] == 2
     assert t._rows.removes[-1] == (1, 1)
     # now 1 row left -> deleting it is refused
     res = DeleteTableRow().execute(ctx, table_name="T", row_index=0)
@@ -204,10 +206,20 @@ def test_delete_row_out_of_range():
 def test_column_ops():
     t = FakeTable(2, 3)
     ctx = _ctx({"T": t})
-    assert InsertTableColumn().execute(ctx, table_name="T", col_index=1)["status"] == "ok"
+    res = InsertTableColumn().execute(ctx, table_name="T", col_index=1)
+    assert res["status"] == "ok" and res["rows"] == 2 and res["cols"] == 4
     assert t._cols.inserts[-1] == (1, 1)
-    assert DeleteTableColumn().execute(ctx, table_name="T", col_index=0)["status"] == "ok"
+    res = DeleteTableColumn().execute(ctx, table_name="T", col_index=0)
+    assert res["status"] == "ok" and res["rows"] == 2 and res["cols"] == 3
     assert t._cols.removes[-1] == (0, 1)
+
+
+def test_negative_index_errors():
+    ctx = _ctx({"T": FakeTable(2, 2)})
+    res = InsertTableRow().execute(ctx, table_name="T", row_index=-1)
+    assert res["status"] == "error" and "non-negative" in res["message"]
+    res = DeleteTableColumn().execute(ctx, table_name="T", col_index=-2)
+    assert res["status"] == "error" and "non-negative" in res["message"]
 
 
 def test_non_integer_index_errors():
@@ -218,6 +230,14 @@ def test_non_integer_index_errors():
 # ---- domain registration ----------------------------------------------------
 
 def test_tables_are_specialized_domain():
-    for cls in (ListTables, SetTableCell, InsertTableRow):
+    for cls in (
+        ListTables,
+        GetTableCells,
+        SetTableCell,
+        InsertTableRow,
+        DeleteTableRow,
+        InsertTableColumn,
+        DeleteTableColumn,
+    ):
         assert cls.tier == "specialized"
         assert cls.specialized_domain == "tables"

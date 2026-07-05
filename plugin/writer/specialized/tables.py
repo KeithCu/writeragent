@@ -8,9 +8,12 @@ Structural table editing that the surface lacked entirely: petitions carry fee/v
 the only prior path was rewriting the whole document. Cell text edits are PLAIN (not tracked
 changes) in this first version — table-cell redlines are a separate, harder problem. Tables are
 addressed by name (list_tables shows them); cells by A1-style name (getCellByName)."""
+import logging
 from typing import Any
 
 from ..specialized_base import ToolWriterTableBase
+
+log = logging.getLogger("writeragent.writer.specialized.tables")
 
 
 def _tables(doc: Any) -> Any:
@@ -85,12 +88,17 @@ class ListTables(ToolWriterTableBase):
                 out.append({"name": name, "rows": rows, "cols": cols})
             return {"status": "ok", "count": len(out), "tables": out}
         except Exception as e:
+            log.exception("Could not list tables")
             return self._tool_error("Could not list tables: %s" % e)
 
 
 class GetTableCells(ToolWriterTableBase):
     name = "get_table_cells"
-    description = "Return a table's cell text as a row-major matrix (matrix[r][c]). Cell addresses are A1-style (column letter + 1-based row)."
+    description = (
+        "Return a table's cell text as a row-major matrix (matrix[row][col]) by position — not by "
+        "cell name. Use matrix indices to read values; for set_table_cell use Writer cell names from "
+        "set_table_cell error hints (columns A..Z then a..z past column 26, not spreadsheet AA)."
+    )
     is_mutation = False
     parameters = {
         "type": "object",
@@ -124,6 +132,7 @@ class GetTableCells(ToolWriterTableBase):
         except ValueError as ve:
             return self._tool_error(str(ve))
         except Exception as e:
+            log.exception("Could not read table '%s'", name)
             return self._tool_error("Could not read table '%s': %s" % (name, e))
 
 
@@ -131,7 +140,7 @@ class SetTableCell(ToolWriterTableBase):
     name = "set_table_cell"
     description = (
         "Set the plain-text content of ONE table cell, addressed A1-style (e.g. 'B2'). Replaces the "
-        "cell's text. Not a tracked change even when review mode is on."
+        "cell's text and any in-cell formatting (setString). Not a tracked change even when review mode is on."
     )
     is_mutation = True
     parameters = {
@@ -166,17 +175,20 @@ class SetTableCell(ToolWriterTableBase):
         except ValueError as ve:
             return self._tool_error(str(ve))
         except Exception as e:
+            log.exception("Could not set cell '%s' in table '%s'", cell_name, name)
             return self._tool_error("Could not set cell '%s' in table '%s': %s" % (cell_name, name, e))
 
 
-def _row_col_edit(self, ctx, kwargs, *, axis, insert):
+def _row_col_edit(self, ctx: Any, kwargs: dict[str, Any], *, axis: str, insert: bool) -> dict[str, Any]:
     """Shared body for the four row/column insert/delete tools."""
     name = (kwargs.get("table_name") or "").strip()
     idx_key = "row_index" if axis == "rows" else "col_index"
     raw = kwargs.get(idx_key)
+    if isinstance(raw, bool) or not isinstance(raw, (int, str)):
+        return self._tool_error("%s must be an integer." % idx_key)
     try:
         idx = int(raw)
-    except (TypeError, ValueError):
+    except ValueError:
         return self._tool_error("%s must be an integer." % idx_key)
     if idx < 0:
         return self._tool_error("%s must be non-negative." % idx_key)
@@ -201,6 +213,7 @@ def _row_col_edit(self, ctx, kwargs, *, axis, insert):
     except ValueError as ve:
         return self._tool_error(str(ve))
     except Exception as e:
+        log.exception("Could not edit %s of table '%s'", axis, name)
         return self._tool_error("Could not edit %s of table '%s': %s" % (axis, name, e))
 
 
