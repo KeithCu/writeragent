@@ -48,8 +48,10 @@ from plugin.framework.constants import (
 # ---------------------------------------------------------------------------
 _MCP_CONCURRENCY_RULES = (
     "CONCURRENCY / MULTI-DOCUMENT:\n"
-    "- The server runs ONE operation at a time and returns HTTP 429 'busy' when overloaded.\n"
-    "- On 429, wait briefly and retry that same call — do not fire many calls in parallel.\n"
+    "- Fast tools are serialized (one at a time); under contention the server returns HTTP 429 "
+    "'busy'. On 429, wait briefly and retry that same call.\n"
+    "- Long-running calls can overlap EXCEPT two edits to the SAME document (those are serialized), "
+    "so parallel work is fine across different documents but avoid overlapping edits to one document.\n"
     "- With more than one document open, ALWAYS pass document_url (a url or uid from "
     "list_open_documents): without it every call targets whatever window the user has focused, "
     "which can change between your calls. Every result echoes the document it acted on "
@@ -94,7 +96,7 @@ _TOPIC_SUMMARY: list[tuple[str, str]] = [
     ("search", "find text anywhere (body, tables, boxes, shapes, headers, comments) + where it is"),
     ("navigation", "map-first reading of large documents"),
     ("images", "insert/replace/resize/crop + how a vision model sees images"),
-    ("concurrency", "one operation at a time; retry on HTTP 429; multi-document targeting"),
+    ("concurrency", "same-document edits serialize; retry on HTTP 429; multi-document targeting"),
 ]
 
 # ---------------------------------------------------------------------------
@@ -109,7 +111,7 @@ _GENERIC_SECTIONS: dict[str, str] = {
 
 _GENERIC_TOPIC_SUMMARY: list[tuple[str, str]] = [
     ("editing", "use the tools, confirm edits by structured fields, re-read before targeted edits"),
-    ("concurrency", "one operation at a time; retry on HTTP 429; multi-document targeting"),
+    ("concurrency", "same-document edits serialize; retry on HTTP 429; multi-document targeting"),
 ]
 
 _SECTIONS_BY_APP: dict[str, dict[str, str]] = {

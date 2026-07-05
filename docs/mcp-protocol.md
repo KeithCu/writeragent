@@ -431,7 +431,7 @@ Ported from `libreoffice-mcp-extension/pythonpath/uno_bridge.py` and adapted to 
 | Styles | `list_styles`, `get_style_info` |
 | Comments | `list_comments`, `add_comment`, `delete_comment` |
 | Track changes | `set_track_changes`, `get_tracked_changes`, `accept_all_changes`, `reject_all_changes` |
-| Tables | `list_tables`, `read_table`, `write_table_cells` |
+| Tables | `list_tables`, `get_table_cells`, `set_table_cell`, `insert_table_row`/`delete_table_row`, `insert_table_column`/`delete_table_column` |
 
 ### Updated: `core/document_tools.py`
 
@@ -664,7 +664,7 @@ to its own embedded AI:
 **Writer**: `get_document_content` (`scope`, `max_chars`, `start`/`end`, `include_images` — default strips inline `data:image` base64), `apply_document_content`, `find_text`,
 `list_styles`, `get_style_info`, `list_comments`, `add_comment`, `delete_comment`,
 `set_track_changes`, `get_tracked_changes`, `accept_all_changes`, `reject_all_changes`,
-`list_tables`, `read_table`, `write_table_cells`, `generate_image` (create or edit with `source_image='selection'`).
+`list_tables`, `get_table_cells`, `set_table_cell`, `generate_image` (create or edit with `source_image='selection'`).
 
 **Calc**: All `CALC_TOOLS` from `core/calc_tools.py`.
 
@@ -1020,7 +1020,7 @@ additions to that section:
 REVIEW WORKFLOW: set_track_changes(enabled=true) → make edits → get_tracked_changes (to
 show user what changed) → accept_all_changes or reject_all_changes → set_track_changes(enabled=false).
 
-TABLE WORKFLOW: list_tables → read_table (understand structure) → write_table_cells for
+TABLE WORKFLOW: list_tables → get_table_cells (understand structure) → set_table_cell for
 targeted edits. For new tables or full rewrites, use apply_document_content with an HTML/Markdown table.
 
 STYLE WORKFLOW: list_styles (discover exact localized names) → apply a style by name in
