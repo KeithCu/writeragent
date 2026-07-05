@@ -147,9 +147,17 @@ def test_audio_record_main_uses_silence_stop_ms_only():
         assert silence_config.enabled is False
         return False
 
+    class _NoOpThread:
+        def __init__(self, target, args, daemon):
+            pass
+
+        def start(self):
+            return None
+
     with patch("plugin.scripting.venv.audio_record_main.record_to_wav", side_effect=fake_record):
         with patch("plugin.scripting.venv.audio_record_main._emit"):
-            rc = main(["--output", "/tmp/t.wav", "--silence-stop-ms", "0"])
+            with patch("plugin.scripting.venv.audio_record_main.threading.Thread", _NoOpThread):
+                rc = main(["--output", "/tmp/t.wav", "--silence-stop-ms", "0"])
     assert rc == 0
 
 
