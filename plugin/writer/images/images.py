@@ -305,7 +305,7 @@ class GetImageInfo(ToolWriterImageBase):
 
     name = "get_image_info"
     intent = "media"
-    description = "Get detailed info about a specific image: URL, dimensions, anchor type, orientation, and paragraph index."
+    description = "Get detailed info about a specific image: URL, dimensions, anchor type, orientation, crop (crop_mm, mm trimmed per edge), and paragraph index."
     parameters = {"type": "object", "properties": {"image_name": {"type": "string", "description": "Name of the image (from list_images)."}}, "required": ["image_name"]}
     uno_services = ["com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument"]
 
@@ -364,6 +364,15 @@ class GetImageInfo(ToolWriterImageBase):
         except Exception:
             pass
 
+        # Crop (mm trimmed from each edge), so a reader/agent can see and adjust it.
+        crop_mm = None
+        try:
+            cc = graphic.getPropertyValue("GraphicCrop")
+            if cc is not None and (cc.Top or cc.Bottom or cc.Left or cc.Right):
+                crop_mm = {"top": cc.Top / 100.0, "bottom": cc.Bottom / 100.0, "left": cc.Left / 100.0, "right": cc.Right / 100.0}
+        except Exception:
+            pass
+
         # Paragraph index via anchor
         paragraph_index = -1
         is_calc = visual_helpers.get_visual_doc_type(ctx.doc) == "calc"
@@ -390,6 +399,7 @@ class GetImageInfo(ToolWriterImageBase):
             "vert_orient": vert_orient,
             "title": title,
             "description": description,
+            "crop_mm": crop_mm,
             "paragraph_index": paragraph_index,
         }
 
@@ -399,12 +409,72 @@ class GetImageInfo(ToolWriterImageBase):
 # ------------------------------------------------------------------
 
 
+# Friendly position names -> UNO orientation constants. Imported by name (never hard-coded ints) so
+# the values always match this LibreOffice build. Resolved lazily in _resolve_orient().
+_HORI_ORIENT_NAMES = ("left", "center", "right")
+_VERT_ORIENT_NAMES = ("top", "center", "bottom")
+
+
+# Published UNO constant values (com.sun.star.text.HoriOrientation / VertOrientation) — a stable,
+# documented part of the UNO API. Used ONLY as a fallback when the live enum import is unavailable
+# (e.g. headless tests); production resolves through the live import below, so production never
+# depends on these literals being right — they just keep the name-mapping testable without UNO.
+_HORI_ORIENT_FALLBACK = {"left": 3, "center": 2, "right": 1}
+_VERT_ORIENT_FALLBACK = {"top": 1, "center": 2, "bottom": 3}
+
+
+def _resolve_orient(value, axis):
+    """Map a friendly position to a UNO orientation constant. *axis* is 'hori' or 'vert'.
+
+    Accepts a name ('left'/'center'/'right' for hori; 'top'/'center'/'bottom' for vert; 'centre' ok)
+    OR a raw UNO integer constant (back-compat). Returns (constant, None) on success or
+    (None, error_message) on an unknown name. The name is validated first (no UNO needed); the value
+    is then read from the LIVE UNO enum, falling back to the published constant only if that import
+    is unavailable."""
+    if isinstance(value, bool):  # guard: bool is an int subclass
+        return None, "orientation must be a position name or an integer, not a boolean."
+    if isinstance(value, int):
+        return value, None  # raw UNO constant — pass through (back-compat)
+    if not isinstance(value, str):
+        return None, "orientation must be a position name (e.g. 'center') or an integer."
+    name = value.strip().lower()
+    if name == "centre":
+        name = "center"
+    valid = _HORI_ORIENT_NAMES if axis == "hori" else _VERT_ORIENT_NAMES
+    if name not in valid:
+        return None, f"unknown {axis} position '{value}'. Use one of: {', '.join(valid)}."
+    group = "com.sun.star.text.HoriOrientation" if axis == "hori" else "com.sun.star.text.VertOrientation"
+    member = name.upper()  # left/center/right/top/bottom -> LEFT/CENTER/RIGHT/TOP/BOTTOM
+    try:
+        import uno
+        return uno.getConstantByName("%s.%s" % (group, member)), None
+    except Exception:
+        fallback = _HORI_ORIENT_FALLBACK if axis == "hori" else _VERT_ORIENT_FALLBACK
+        return fallback[name], None
+
+
+def _resolve_crop_edges(kwargs, current) -> tuple[int, int, int, int]:
+    """Return (top, bottom, left, right) in 1/100 mm for the GraphicCrop struct. Each crop_*_mm
+    given (in mm) overrides that edge; edges not passed keep their current value. `current` is the
+    existing crop as a 4-tuple (top, bottom, left, right) in 1/100 mm. Pure — unit-testable."""
+    def _edge(key, cur) -> int:
+        mm = kwargs.get(key)
+        return int(round(mm * 100)) if mm is not None else int(cur)
+
+    return (
+        _edge("crop_top_mm", current[0]),
+        _edge("crop_bottom_mm", current[1]),
+        _edge("crop_left_mm", current[2]),
+        _edge("crop_right_mm", current[3]),
+    )
+
+
 class SetImageProperties(ToolWriterImageBase):
     """Resize, reposition, crop, or update caption/alt-text for an image."""
 
     name = "set_image_properties"
     intent = "media"
-    description = "Resize, reposition, crop, or update caption/alt-text for an image."
+    description = "Resize, reposition, crop, or update caption/alt-text for an image. Crop trims the given millimetres off each edge (crop_*_mm); only the edges you pass change."
     parameters = {
         "type": "object",
         "properties": {
@@ -414,8 +484,12 @@ class SetImageProperties(ToolWriterImageBase):
             "title": {"type": "string", "description": "Image title (tooltip text)."},
             "description": {"type": "string", "description": "Image alternative text (alt-text)."},
             "anchor_type": {"type": "integer", "description": ("Anchor type: 0=AT_PARAGRAPH, 1=AS_CHARACTER, 2=AT_PAGE, 3=AT_FRAME, 4=AT_CHARACTER.")},
-            "hori_orient": {"type": "integer", "description": "Horizontal orientation constant."},
-            "vert_orient": {"type": "integer", "description": "Vertical orientation constant."},
+            "hori_orient": {"type": "string", "description": "Horizontal position: 'left', 'center', or 'right'. (A raw UNO HoriOrientation integer is also accepted.)"},
+            "vert_orient": {"type": "string", "description": "Vertical position: 'top', 'center', or 'bottom'. (A raw UNO VertOrientation integer is also accepted.)"},
+            "crop_top_mm": {"type": "number", "description": "Millimetres to crop off the TOP edge (0 = no crop). Only edges you pass change."},
+            "crop_bottom_mm": {"type": "number", "description": "Millimetres to crop off the BOTTOM edge."},
+            "crop_left_mm": {"type": "number", "description": "Millimetres to crop off the LEFT edge."},
+            "crop_right_mm": {"type": "number", "description": "Millimetres to crop off the RIGHT edge."},
         },
         "required": ["image_name"],
     }
@@ -468,16 +542,41 @@ class SetImageProperties(ToolWriterImageBase):
                 graphic.setPropertyValue("AnchorType", anchor_map[anchor_type])
                 updated.append("anchor_type")
 
-        # Orientation
+        # Orientation — accept friendly names ('left'/'center'/'right', 'top'/'center'/'bottom') or
+        # raw UNO ints (back-compat). Resolve via the build's own constants; reject unknown names.
         hori_orient = kwargs.get("hori_orient")
         if hori_orient is not None:
-            graphic.setPropertyValue("HoriOrient", hori_orient)
+            resolved, err = _resolve_orient(hori_orient, "hori")
+            if err:
+                return self._tool_error(err, code="INVALID_PARAMETER", parameter="hori_orient")
+            graphic.setPropertyValue("HoriOrient", resolved)
             updated.append("hori_orient")
 
         vert_orient = kwargs.get("vert_orient")
         if vert_orient is not None:
-            graphic.setPropertyValue("VertOrient", vert_orient)
+            resolved, err = _resolve_orient(vert_orient, "vert")
+            if err:
+                return self._tool_error(err, code="INVALID_PARAMETER", parameter="vert_orient")
+            graphic.setPropertyValue("VertOrient", resolved)
             updated.append("vert_orient")
+
+        # Crop: trim mm off each edge via the GraphicCrop struct. Preserve edges the caller didn't pass.
+        if any(kwargs.get(k) is not None for k in ("crop_top_mm", "crop_bottom_mm", "crop_left_mm", "crop_right_mm")):
+            from com.sun.star.text import GraphicCrop
+
+            try:
+                cc = graphic.getPropertyValue("GraphicCrop")
+                cur = (cc.Top, cc.Bottom, cc.Left, cc.Right)
+            except Exception:
+                cur = (0, 0, 0, 0)
+            top, bottom, left, right = _resolve_crop_edges(kwargs, cur)
+            crop = GraphicCrop()
+            crop.Top = top
+            crop.Bottom = bottom
+            crop.Left = left
+            crop.Right = right
+            graphic.setPropertyValue("GraphicCrop", crop)
+            updated.append("crop")
 
         return {"status": "ok", "image_name": image_name, "updated": updated}
 
