@@ -856,18 +856,28 @@ def insert_content_at_position(model, ctx, content, position, config_svc=None):
     elif position == "end":
         cursor.gotoEnd(False)
     elif position == "selection":
+        # Resolve the target FIRST, in the selection's OWN text object: a selection inside a
+        # table cell / frame is a different XText, and gotoRange on a body cursor raises. The
+        # old blanket `except: cursor.gotoEnd(False)` meant a failure DELETED the selection and
+        # appended the content at the document end while reporting ok. Never fall back silently.
         try:
             controller = model.getCurrentController()
-            sel = controller.getSelection()
-            if sel and hasattr(sel, "getCount") and sel.getCount() > 0:
-                rng = sel.getByIndex(0)
-                rng.setString("")
-                cursor.gotoRange(rng.getStart(), False)
-            else:
-                vc = controller.getViewCursor()
-                cursor.gotoRange(vc.getStart(), False)
-        except Exception:
-            cursor.gotoEnd(False)
+            sel = controller.getSelection() if controller else None
+            rng = None
+            if sel and hasattr(sel, "getCount"):
+                try:
+                    if int(sel.getCount()) > 0:
+                        rng = sel.getByIndex(0)
+                except Exception:
+                    rng = None
+            if rng is None:
+                rng = controller.getViewCursor()
+            cursor = rng.getText().createTextCursorByRange(rng.getStart())
+            rng.setString("")  # clear the selection only AFTER the insert cursor is anchored
+        except Exception as e:
+            raise ToolExecutionError(
+                "Could not resolve the current selection (%s). Select text first, or use "
+                "target='search' with old_content, or call set_selection." % e)
     else:
         raise ToolExecutionError("Unknown position: %s" % position)
 
@@ -916,6 +926,15 @@ def replace_single_range_with_content(model, text_range, content, ctx, config_sv
     prepared = html_mod.unescape(content)
     text_obj = text_range.getText()
 
+    # Detect a table-cell target up front (the cursor's TextTable property is set inside a cell).
+    # Block/rich HTML import into a cell's nested XText can raise an empty RuntimeException (see the
+    # FOLLOW-UP above); we use this to turn that opaque failure into a clear, actionable message.
+    in_table_cell = False
+    try:
+        in_table_cell = text_obj.createTextCursorByRange(text_range.getStart()).getPropertyValue("TextTable") is not None
+    except Exception:
+        in_table_cell = False
+
     # Preserve the target paragraph style for INLINE replacements. The StarWriter
     # HTML import resets the paragraph to a default body style, silently demoting
     # headings (e.g. "Heading 3" -> "Text body"). For inline-only content (no
@@ -958,7 +977,19 @@ def replace_single_range_with_content(model, text_range, content, ctx, config_sv
     else:
         # apply_styles=False: a search/replace splits the matched paragraph, so applying a
         # data-lo-style here would restyle the surrounding text. Styled writes use full_document.
-        _insert_mixed_or_plain_html(model, ctx, cursor, prepared, config_svc=config_svc, apply_styles=False)
+        try:
+            _insert_mixed_or_plain_html(model, ctx, cursor, prepared, config_svc=config_svc, apply_styles=False)
+        except Exception as e:
+            # Block/rich HTML into a table cell can raise an empty RuntimeException from the StarWriter
+            # HTML import (nested-XText cursor mapping). Surface a clear, actionable message instead of
+            # the opaque error; the atomic wrapper rolls back the partial edit either way.
+            if in_table_cell and _content_has_block_markup(prepared):
+                raise RuntimeError(
+                    "Rich/block HTML can't be inserted inside a table cell yet (the LibreOffice HTML "
+                    "import mishandles nested cell text). Use plain text or inline tags only inside "
+                    "table cells, or place block/rich content outside the table."
+                ) from e
+            raise
 
 
 # ---------------------------------------------------------------------------

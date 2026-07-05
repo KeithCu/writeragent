@@ -91,13 +91,11 @@ class BookmarkService(ServiceBase):
             text.insertTextContent(cursor, bookmark, False)
             bookmark_map[para_idx] = bm_name
 
-        if needs_bookmark:
-            try:
-                if doc.hasLocation():
-                    doc.store()
-            except Exception:
-                pass
-
+        # Deliberately NO doc.store() here: this runs inside READ tools (get_document_tree,
+        # proximity reads), and saving would silently persist the user's unsaved manual edits
+        # and pending tracked changes to disk. The bookmarks live in the document model and are
+        # persisted whenever the USER next saves; on a discarded session they vanish with the
+        # rest of the unsaved state, which is exactly what not-saving means.
         return bookmark_map
 
     def find_nearest_heading_bookmark(self, para_index, bookmark_map):
@@ -127,12 +125,8 @@ class BookmarkService(ServiceBase):
                         removed += 1
                     except Exception:
                         pass
-            if removed:
-                try:
-                    if doc.hasLocation():
-                        doc.store()
-                except Exception:
-                    pass
+            # No doc.store() (same reason as ensure_heading_bookmarks: a maintenance path must
+            # never persist the user's unsaved work as a side effect).
         except Exception:
             log.exception("Failed to cleanup bookmarks")
         return removed

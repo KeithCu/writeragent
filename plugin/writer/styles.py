@@ -291,6 +291,8 @@ class ApplyStyle(FrameworkToolBase):
             "family": {"type": "string", "enum": ["ParagraphStyles", "CharacterStyles"], "description": ("Style family. Default: ParagraphStyles.")},
             "target": {"type": "string", "enum": ["beginning", "end", "selection", "full_document", "search"], "description": "Where to apply the style."},
             "old_content": {"type": "string", "description": "Text to find and apply style to if target = 'search'."},
+            "all_matches": {"type": "boolean", "description": "For target='search': apply to EVERY occurrence of old_content (default false = first only)."},
+            "occurrence": {"type": "integer", "description": "For target='search': apply to this single 0-based occurrence instead of the first."},
         },
         "required": ["style_name"],
     }
@@ -299,6 +301,12 @@ class ApplyStyle(FrameworkToolBase):
 
     # Maps family to the UNO property that holds the style name.
     _PROPERTY_MAP = {"ParagraphStyles": "ParaStyleName", "CharacterStyles": "CharStyleName"}
+
+    def _apply_one(self, ctx, family, uno_prop, uno_value, cursor):
+        if family == "ParagraphStyles":
+            apply_paragraph_style_preserving_direct_char(ctx.doc, cursor, uno_value)
+        else:
+            cursor.setPropertyValue(uno_prop, uno_value)
 
     def execute(self, ctx, **kwargs):
         style_name = (kwargs.get("style_name") or "").strip()
@@ -314,8 +322,73 @@ class ApplyStyle(FrameworkToolBase):
         # CharStyleName to an empty string.
         uno_value = "" if (family == "CharacterStyles" and style_name == "No Character Style") else style_name
 
+        # Validate the style EXISTS before touching the document: a near-miss name ('heading 1',
+        # 'Body Text') used to dead-end in a raw UNO IllegalArgumentException with no hint. Offer
+        # the case-insensitive match when there is one, plus a sample of valid names.
+        if uno_value:
+            try:
+                fam = ctx.doc.getStyleFamilies().getByName(family)
+                if not fam.hasByName(uno_value):
+                    names = [str(n) for n in fam.getElementNames()]
+                    low = uno_value.lower()
+                    # Best hint first: exact case-insensitive, then prefix, then substring —
+                    # shortest name wins ('body text' -> 'Body Text 2', not 'Body Text Indent 2').
+                    exact = [n for n in names if n.lower() == low]
+                    prefix = sorted((n for n in names if n.lower().startswith(low)), key=len)
+                    contains = sorted((n for n in names if low in n.lower()), key=len)
+                    close = exact or prefix or contains
+                    hint = (" Did you mean '%s'?" % close[0]) if close else ""
+                    sample = ", ".join(sorted(names)[:15])
+                    return self._tool_error(
+                        "Style '%s' not found in %s.%s Available styles include: %s." % (style_name, family, hint, sample))
+            except Exception:
+                pass  # can't enumerate styles (exotic doc) -> let the apply path report
+
         target = kwargs.get("target", "selection")
         old_content = kwargs.get("old_content")
+
+        # Multi-occurrence styling (target='search' only). resolve_target_cursor styles only the
+        # first match; all_matches / occurrence let a defined term or repeated quote lead be
+        # styled everywhere. Each match gets a cursor in its OWN text object (cell/frame safe).
+        all_matches = bool(kwargs.get("all_matches"))
+        occ_raw = kwargs.get("occurrence")
+        if target == "search" and (all_matches or occ_raw is not None):
+            from plugin.writer.content import _find_all_ranges, _normalize_search_string_for_find
+            from plugin.writer.format import content_has_markup, html_to_plain_text
+
+            s = str(old_content).strip() if old_content is not None else ""
+            if not s:
+                return {"status": "error", "message": "target='search' requires old_content.", "applied": False, "matched": False}
+            if content_has_markup(s):
+                s = html_to_plain_text(s, ctx.ctx, ctx.services.get("config"))
+            s = _normalize_search_string_for_find(s)
+            ranges = _find_all_ranges(ctx.doc, s) if s else []
+            if not ranges:
+                return {"status": "error", "message": "old_content not found in document.", "target": "search", "applied": False, "matched": False}
+            if occ_raw is not None:
+                try:
+                    occ = int(occ_raw)
+                except (TypeError, ValueError):
+                    return self._tool_error("occurrence must be an integer.")
+                if occ < 0 or occ >= len(ranges):
+                    return self._tool_error("occurrence %s out of range (found %d match(es), use 0..%d)." % (occ_raw, len(ranges), len(ranges) - 1))
+                ranges = [ranges[occ]]
+            applied = 0
+            for found in ranges:
+                try:
+                    ftext = found.getText()
+                    c = ftext.createTextCursorByRange(found.getStart())
+                    c.gotoRange(found.getEnd(), True)
+                    self._apply_one(ctx, family, uno_prop, uno_value, c)
+                    applied += 1
+                except Exception as e:
+                    return self._tool_error("Applied to %d of %d; failed on one match: %s" % (applied, len(ranges), e))
+            result = {"status": "ok", "message": "Applied style '%s' (%s) to %d match(es)." % (style_name, family, applied),
+                      "style_name": style_name, "family": family, "target": "search", "applied": True, "matched": True, "applied_count": applied}
+            from plugin.writer.edit_review import review_recording_enabled
+            if review_recording_enabled(ctx.ctx):
+                result["style_unreviewed"] = True
+            return result
 
         try:
             cursor = resolve_target_cursor(ctx, target, old_content)
@@ -332,10 +405,7 @@ class ApplyStyle(FrameworkToolBase):
             return self._tool_error("Failed to resolve target location.")
 
         try:
-            if family == "ParagraphStyles":
-                apply_paragraph_style_preserving_direct_char(ctx.doc, cursor, uno_value)
-            else:
-                cursor.setPropertyValue(uno_prop, uno_value)
+            self._apply_one(ctx, family, uno_prop, uno_value, cursor)
         except Exception as e:
             return self._tool_error("Could not apply style: %s" % e)
         result = {"status": "ok", "message": "Applied style '%s' (%s) to %s." % (style_name, family, target),

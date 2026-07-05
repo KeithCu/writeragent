@@ -91,3 +91,18 @@ frame = ctx.doc.getCurrentController().getFrame()
 
 dispatcher.executeDispatch(frame, ".uno:AcceptAllTrackedChanges", "", 0, ())
 ```
+
+### Accepting or rejecting a single change
+
+`.uno:AcceptTrackedChange` / `.uno:RejectTrackedChange` act on the *selected* change, so the view cursor must sit on it first. `XRedline` objects from `getRedlines()` are property sets with **no** `getAnchor()` method; select the change by its live span instead:
+
+```python
+start = redline.getPropertyValue("RedlineStart")
+cursor = start.getText().createTextCursorByRange(start)
+cursor.gotoRange(redline.getPropertyValue("RedlineEnd"), True)
+# then dispatch .uno:AcceptTrackedChange / .uno:RejectTrackedChange
+```
+
+### What the shipped tool returns
+
+`track_changes_list` reports, per change, the author and type plus the change **text** (for a deletion, the removed text via `RedlineText`) and its **location** (body, table cell, header/footer, and so on), along with the document's current review mode. That is enough for a model to decide what to accept or reject without a second lookup.

@@ -181,7 +181,9 @@ setattr(task, "XJob", MockBase)
 
 @pytest.fixture(autouse=True)
 def _setup_grammar_persistence_test_env():
-    """Isolate grammar persistence for every test to avoid leaking files into mock paths."""
+    """Isolate grammar persistence AND the config path for every test, so no test can leak
+    files into mock-derived paths."""
+    from plugin.framework import config as config_mod
     from plugin.writer.locale import grammar_persistence
     import shutil
     import tempfile
@@ -191,8 +193,19 @@ def _setup_grammar_persistence_test_env():
     grammar_persistence._doc_persistence_instances.clear()
 
     tmp_dir = tempfile.mkdtemp()
-    with patch("plugin.framework.config.user_config_dir", return_value=tmp_dir):
-        yield
+    # Seed the resolved-config-path cache too. Patching the user_config_dir attribute below does
+    # NOT reach callers that bound it via `from plugin.framework.config import user_config_dir`
+    # (e.g. plugin/chatbot/memory.py) — those still resolve the path from the mocked UNO ctx, and
+    # MagicMock's default __fspath__ yields a relative "MagicMock/<name>/<id>" path that
+    # MemoryStore's makedirs then creates inside the repo. Seeding the module-level cache routes
+    # every resolver through this per-test temp dir instead.
+    old_resolved = config_mod._resolved_config_path
+    config_mod._resolved_config_path = os.path.join(tmp_dir, "writeragent.json")
+    try:
+        with patch("plugin.framework.config.user_config_dir", return_value=tmp_dir):
+            yield
+    finally:
+        config_mod._resolved_config_path = old_resolved
 
     # Clean up
     grammar_persistence._doc_persistence_instances.clear()
@@ -201,10 +214,15 @@ def _setup_grammar_persistence_test_env():
 
 
 def pytest_sessionstart(session):
-    """Clean up any 'MagicMock' directories created by accidental mock stringification in previous runs."""
+    """Clean up any 'MagicMock' directories created by accidental mock stringification in previous runs.
+
+    (Belt and suspenders: the autouse config-path isolation above prevents new ones; this sweeps
+    litter left by older runs. tests/conftest.py sits one level below the repo root, so ONE
+    dirname past this file's directory is the repo — the previous triple dirname pointed at the
+    repo's PARENT and never cleaned anything.)"""
     import os
     import shutil
-    root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    root = os.path.dirname(os.path.dirname(__file__))
     magic_mock_dir = os.path.join(root, "MagicMock")
     if os.path.isdir(magic_mock_dir):
         shutil.rmtree(magic_mock_dir, ignore_errors=True)

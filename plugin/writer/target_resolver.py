@@ -25,20 +25,43 @@ def resolve_target_cursor(ctx, target, old_content):
         cursor.gotoEnd(False)
         return cursor
     elif target == "selection":
+        # Resolve the explicit selection, else the view cursor. NEVER silently fall back to the end
+        # of the document (the old `except: gotoEnd` appended edits at the very end and still
+        # reported ok). Only when BOTH are unavailable do we raise a clear error, so a headless MCP
+        # client that never set a selection is told to use set_selection / target='search'.
+        controller = None
         try:
             controller = doc.getCurrentController()
-            sel = controller.getSelection()
-            if sel and hasattr(sel, "getCount") and sel.getCount() > 0:
-                rng = sel.getByIndex(0)
-                cursor.gotoRange(rng.getStart(), False)
-                cursor.gotoRange(rng.getEnd(), True)
-            else:
-                vc = controller.getViewCursor()
-                cursor.gotoRange(vc.getStart(), False)
-                cursor.gotoRange(vc.getEnd(), True)
         except Exception:
-            cursor.gotoEnd(False)
-        return cursor
+            controller = None
+        rng = None
+        if controller is not None:
+            try:
+                sel = controller.getSelection()
+                if sel and hasattr(sel, "getCount") and int(sel.getCount()) > 0:
+                    rng = sel.getByIndex(0)
+            except Exception:
+                rng = None
+            if rng is None:
+                try:
+                    rng = controller.getViewCursor()
+                except Exception:
+                    rng = None
+        if rng is None:
+            raise ValueError(
+                "Could not resolve the current selection. Select text first, or use "
+                "target='search' with old_content, or call set_selection.")
+        # Build the cursor in the SELECTION's own text object: a selection inside a table cell or
+        # text frame is a different XText, and gotoRange on a body cursor raises a raw UNO
+        # RuntimeException that escapes callers expecting ValueError. Same pattern as the search
+        # branch below.
+        try:
+            scursor = rng.getText().createTextCursorByRange(rng.getStart())
+            scursor.gotoRange(rng.getEnd(), True)
+            return scursor
+        except Exception as e:
+            raise ValueError("Could not span the current selection (%s). Use target='search' "
+                             "with old_content, or call set_selection." % e)
     elif target == "beginning":
         cursor.gotoStart(False)
         return cursor
@@ -64,6 +87,10 @@ def resolve_target_cursor(ctx, target, old_content):
     if found is None:
         raise ValueError("old_content not found in document. Try a shorter, unique substring.")
 
-    cursor.gotoRange(found.getStart(), False)
-    cursor.gotoRange(found.getEnd(), True)
-    return cursor
+    # Build the cursor in the MATCH's own text object, not the body: a match inside a table cell
+    # or text frame is a different XText, and gotoRange across text objects raises (format.py
+    # documents this). createTextCursorByRange on found.getText() keeps the cursor in-scope.
+    ftext = found.getText()
+    fcursor = ftext.createTextCursorByRange(found.getStart())
+    fcursor.gotoRange(found.getEnd(), True)
+    return fcursor

@@ -617,16 +617,35 @@ def test_html_atomic_refuses_when_undo_manager_locked():
     assert session.changes == []
 
 
-def test_html_not_recording_runs_directly_without_context():
-    # No review contract -> run the mutation directly (today's behaviour), never touching the undo
-    # manager and never refusing.
-    class NoUndoDoc:
-        def getUndoManager(self):
-            raise AssertionError("must not be consulted when not recording")
-
+def test_html_not_recording_is_still_atomic_on_success():
+    # R4 atomicity fix: the delete-then-import path can strand a deletion in ANY mode, so review
+    # OFF also runs inside the grouped undo context (before, it ran directly with no rollback and a
+    # failing import left the document modified while reporting an error).
+    um = FakeUndoManager()
     session = FakeSession()
     calls = {"n": 0}
-    _record_html_atomically(session, NoUndoDoc(), lambda: calls.__setitem__("n", calls["n"] + 1),
-                            False, proposed_preview="x")
+
+    def ok_mutate():
+        calls["n"] += 1
+        um.record_action()
+
+    _record_html_atomically(session, FakeDoc(um), ok_mutate, False, proposed_preview="x")
     assert calls["n"] == 1
+    assert len(um.entered) == 1 and um.leaves == 1 and um.undos == 0
     assert len(session.changes) == 1
+
+
+def test_html_not_recording_rolls_back_partial_on_failure():
+    # Review OFF + the import throws after the delete landed -> the whole batch is undone and no
+    # change record survives: status error must mean "document untouched".
+    um = FakeUndoManager()
+    session = FakeSession()
+
+    def failing_mutate():
+        um.record_action()                        # the delete landed...
+        raise RuntimeError("import blew up")      # ...then the HTML import throws
+
+    with pytest.raises(RuntimeError):
+        _record_html_atomically(session, FakeDoc(um), failing_mutate, False, proposed_preview="x")
+    assert um.undos == 1                          # the stranded deletion was rolled back
+    assert session.changes == []

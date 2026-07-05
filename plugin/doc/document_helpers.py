@@ -230,6 +230,81 @@ def get_string_without_tracked_deletions(text_range) -> str:
     return "".join(parts)
 
 
+def collect_tracked_changes(text_range, max_per_change: int = 300, max_changes: int = 100):
+    """Walk text portions and collect tracked insertions/deletions WITH their text, so a reader can
+    see what is pending and that it awaits the user's review (rather than the default read, which
+    hides deletions and gives no hint that changes are pending).
+
+    Returns a list of ``{"type": "insertion"|"deletion", "text": str}`` in document order. Best-effort:
+    returns ``[]`` on any failure. Mirrors get_string_without_tracked_deletions' portion walk, but also
+    toggles on Insert redlines and buffers the text of each change instead of dropping deletions."""
+    out: list[dict] = []
+    if hasattr(text_range, "_mock_return_value") or type(text_range).__name__ in ("Mock", "MagicMock"):
+        return out
+    try:
+        para_enum = text_range.createEnumeration()
+    except Exception:
+        return out
+
+    in_delete = False
+    in_insert = False
+    del_buf: list[str] = []
+    ins_buf: list[str] = []
+
+    def _flush(buf, kind):
+        if buf and len(out) < max_changes:
+            out.append({"type": kind, "text": "".join(buf)[:max_per_change]})
+        buf.clear()
+
+    try:
+        while para_enum.hasMoreElements() and len(out) < max_changes:
+            para = para_enum.nextElement()
+            try:
+                portion_enum = para.createEnumeration()
+            except Exception:
+                continue
+            while portion_enum.hasMoreElements():
+                portion = portion_enum.nextElement()
+                try:
+                    try:
+                        ptype = portion.getPropertyValue("TextPortionType")
+                    except Exception:
+                        ptype = portion.TextPortionType
+                except Exception:
+                    continue
+
+                if ptype == "Redline":
+                    try:
+                        rtype = str(portion.getPropertyValue("RedlineType"))
+                    except Exception:
+                        rtype = ""
+                    if rtype == "Delete":
+                        if in_delete:
+                            _flush(del_buf, "deletion")
+                        in_delete = not in_delete
+                    elif rtype == "Insert":
+                        if in_insert:
+                            _flush(ins_buf, "insertion")
+                        in_insert = not in_insert
+                    continue
+
+                try:
+                    chunk = portion.getString()
+                except Exception:
+                    chunk = ""
+                if not chunk:
+                    continue
+                if in_delete:
+                    del_buf.append(chunk)
+                elif in_insert:
+                    ins_buf.append(chunk)
+        _flush(del_buf, "deletion")
+        _flush(ins_buf, "insertion")
+    except Exception:
+        return out
+    return out
+
+
 def build_writer_rewrite_prompt(original_text: str, instructions: str) -> str:
     """Return a direct rewrite prompt for Writer selection edits."""
     return f"Rewrite the following text according to the instructions below. Output only the rewritten text with no labels, headings, or explanations.\n\nInstructions: {instructions}\n\nText to rewrite:\n{original_text}"

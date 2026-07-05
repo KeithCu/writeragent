@@ -33,7 +33,11 @@ def _create_mock_ctx():
         return props[name]
     doc.setPropertyValue.side_effect = _set_prop
     doc.getPropertyValue.side_effect = _get_prop
-    
+
+    # Default: empty redline table. The agent-self-resolution guard reads getCount() first; 0 means
+    # "no changes pending" so bulk accept/reject is allowed (the pre-guard behavior for empty docs).
+    doc.getRedlines.return_value.getCount.return_value = 0
+
     ctx.doc = doc
     
     # Mock dispatcher and frame for accept/reject tests
@@ -174,44 +178,49 @@ def test_track_changes_reject_all():
     assert res["status"] == "ok"
     dispatcher.executeDispatch.assert_called_with(frame, ".uno:RejectAllTrackedChanges", "", 0, ())
 
+def _redline_property_set():
+    """A redline like the real UNO one: a property set with RedlineStart/RedlineEnd and NO
+    getAnchor (the old tests pinned select(getAnchor()) — a method MagicMock fabricated but the
+    real object never had, which is exactly why accept/reject by index was broken)."""
+    start = MagicMock()
+    span_cursor = MagicMock()
+    start.getText.return_value.createTextCursorByRange.return_value = span_cursor
+    props = {"RedlineStart": start, "RedlineEnd": MagicMock(), "RedlineComment": "user edit"}
+    redline_mock = MagicMock(spec=["getPropertyValue"])
+    redline_mock.getPropertyValue.side_effect = lambda p: props.get(p, "")
+    return redline_mock, span_cursor
+
+
 def test_track_changes_accept():
     ctx, dispatcher, frame, _ = _create_mock_ctx()
     tool = TrackChangesAccept()
-    
-    # Mock redlines
-    redline_mock = MagicMock()
-    anchor_mock = MagicMock()
-    redline_mock.getAnchor.return_value = anchor_mock
-    
+
+    redline_mock, span_cursor = _redline_property_set()
     enum_mock = MagicMock()
     enum_mock.hasMoreElements.side_effect = [True, False]
     enum_mock.nextElement.return_value = redline_mock
-    
+
     ctx.doc.getRedlines.return_value.createEnumeration.return_value = enum_mock
-    
+
     res = tool.execute(ctx, index=0)
     assert res["status"] == "ok"
-    ctx.doc.getCurrentController().select.assert_called_with(anchor_mock)
+    ctx.doc.getCurrentController().select.assert_called_with(span_cursor)
     dispatcher.executeDispatch.assert_called_with(frame, ".uno:AcceptTrackedChange", "", 0, ())
 
 def test_track_changes_reject():
     ctx, dispatcher, frame, _ = _create_mock_ctx()
     tool = TrackChangesReject()
-    
-    # Mock redlines
-    redline_mock = MagicMock()
-    anchor_mock = MagicMock()
-    redline_mock.getAnchor.return_value = anchor_mock
-    
+
+    redline_mock, span_cursor = _redline_property_set()
     enum_mock = MagicMock()
     enum_mock.hasMoreElements.side_effect = [True, False]
     enum_mock.nextElement.return_value = redline_mock
-    
+
     ctx.doc.getRedlines.return_value.createEnumeration.return_value = enum_mock
-    
+
     res = tool.execute(ctx, index=0)
     assert res["status"] == "ok"
-    ctx.doc.getCurrentController().select.assert_called_with(anchor_mock)
+    ctx.doc.getCurrentController().select.assert_called_with(span_cursor)
     dispatcher.executeDispatch.assert_called_with(frame, ".uno:RejectTrackedChange", "", 0, ())
 
 # --- Comment Tests ---
@@ -291,3 +300,111 @@ def test_comment_delete():
     res = tool.execute(ctx, index=0)
     assert res["status"] == "ok"
     comment_mock.dispose.assert_called_once()
+
+
+# --- Agent-self-resolution guard (B3): the agent must never accept/reject its OWN edits --------
+
+from plugin.writer.edit_review import TOKEN_PREFIX
+
+_AGENT_COMMENT = TOKEN_PREFIX + "sess123:0"
+
+
+def _fake_redline(comment, raise_comment=False):
+    rl = MagicMock()
+    props = {"RedlineComment": comment, "RedlineIdentifier": f"id:{comment}",
+             # Real redlines expose these (and no getAnchor); the accept/reject selection uses them.
+             "RedlineStart": MagicMock(), "RedlineEnd": MagicMock()}
+
+    def _get(name):
+        if raise_comment and name == "RedlineComment":
+            raise RuntimeError("comment read boom")
+        return props[name]
+
+    rl.getPropertyValue.side_effect = _get
+    return rl
+
+
+def _install_redlines(ctx, items, count=None):
+    """Wire ctx.doc.getRedlines() to enumerate *items* (count override simulates a truncated scan)."""
+    rls = ctx.doc.getRedlines.return_value
+    rls.getCount.return_value = len(items) if count is None else count
+
+    def _mk_enum(*_a, **_k):
+        seq = list(items)
+        enum = MagicMock()
+        enum.hasMoreElements.side_effect = lambda: len(seq) > 0
+        enum.nextElement.side_effect = lambda: seq.pop(0)
+        return enum
+
+    rls.createEnumeration.side_effect = _mk_enum
+    return rls
+
+
+def test_accept_all_blocked_when_agent_change_pending():
+    ctx, dispatcher, _frame, _ = _create_mock_ctx()
+    _install_redlines(ctx, [_fake_redline(_AGENT_COMMENT)])
+    res = TrackChangesAcceptAll().execute(ctx)
+    assert res["status"] == "error"
+    assert "agent edit" in res["message"].lower()
+    dispatcher.executeDispatch.assert_not_called()
+
+
+def test_reject_all_blocked_when_agent_change_pending():
+    ctx, dispatcher, _frame, _ = _create_mock_ctx()
+    _install_redlines(ctx, [_fake_redline(_AGENT_COMMENT)])
+    res = TrackChangesRejectAll().execute(ctx)
+    assert res["status"] == "error"
+    dispatcher.executeDispatch.assert_not_called()
+
+
+def test_accept_all_allowed_with_only_user_redlines():
+    # The user's OWN tracked changes (no wa-review token) may be bulk-resolved on request.
+    ctx, dispatcher, frame, _ = _create_mock_ctx()
+    _install_redlines(ctx, [_fake_redline("")])
+    res = TrackChangesAcceptAll().execute(ctx)
+    assert res["status"] == "ok"
+    dispatcher.executeDispatch.assert_called_with(frame, ".uno:AcceptAllTrackedChanges", "", 0, ())
+
+
+def test_accept_all_blocked_when_scan_unreliable():
+    # Redlines present (count=2) but only 1 enumerates -> can't prove no agent change -> fail closed.
+    ctx, dispatcher, _frame, _ = _create_mock_ctx()
+    _install_redlines(ctx, [_fake_redline("")], count=2)
+    res = TrackChangesAcceptAll().execute(ctx)
+    assert res["status"] == "error"
+    dispatcher.executeDispatch.assert_not_called()
+
+
+def test_single_accept_blocked_on_agent_redline():
+    ctx, dispatcher, _frame, _ = _create_mock_ctx()
+    _install_redlines(ctx, [_fake_redline(_AGENT_COMMENT)])
+    res = TrackChangesAccept().execute(ctx, index=0)
+    assert res["status"] == "error"
+    assert "agent edit" in res["message"].lower()
+    dispatcher.executeDispatch.assert_not_called()
+    ctx.doc.getCurrentController().select.assert_not_called()
+
+
+def test_single_reject_blocked_on_agent_redline():
+    ctx, dispatcher, _frame, _ = _create_mock_ctx()
+    _install_redlines(ctx, [_fake_redline(_AGENT_COMMENT)])
+    res = TrackChangesReject().execute(ctx, index=0)
+    assert res["status"] == "error"
+    dispatcher.executeDispatch.assert_not_called()
+
+
+def test_single_accept_allowed_on_user_redline():
+    ctx, dispatcher, frame, _ = _create_mock_ctx()
+    _install_redlines(ctx, [_fake_redline("")])
+    res = TrackChangesAccept().execute(ctx, index=0)
+    assert res["status"] == "ok"
+    dispatcher.executeDispatch.assert_called_with(frame, ".uno:AcceptTrackedChange", "", 0, ())
+
+
+def test_single_accept_blocked_when_comment_unreadable():
+    # Fail closed: if we can't read the change's metadata we can't prove it isn't an agent change.
+    ctx, dispatcher, _frame, _ = _create_mock_ctx()
+    _install_redlines(ctx, [_fake_redline("", raise_comment=True)])
+    res = TrackChangesAccept().execute(ctx, index=0)
+    assert res["status"] == "error"
+    dispatcher.executeDispatch.assert_not_called()
