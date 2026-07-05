@@ -22,6 +22,11 @@ from plugin.framework.constants import (
     DEFAULT_DRAW_GREETING,
 )
 
+# NOTE: the EXTERNAL_AGENT_GUIDANCE pin test moved to tests/framework/test_agent_manual.py —
+# the blob was retired; the single source is the shared prompt pieces in constants.py (the
+# sidebar embeds them, get_guidance serves them per topic, full_manual() feeds the agent backend).
+
+
 def test_get_greeting_for_document_writer():
     model = MagicMock()
     model.supportsService.return_value = False

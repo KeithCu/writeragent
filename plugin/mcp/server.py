@@ -139,6 +139,15 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
 class HttpServer:
     """Generic threaded HTTP server with optional TLS."""
 
+    # Port-bind resilience. The configured port (default 8765) can be briefly held by a previous
+    # instance that is still shutting down, or collide with another local server that defaults to
+    # the same port (e.g. a code editor's preview/"viewer" server). A single bind attempt then
+    # raises and the MCP server never comes up — the user just sees "I have to restart to connect".
+    # Retry a few times so a transient holder clears on its own; on persistent failure raise with a
+    # CLEAR, actionable message instead of a bare OSError.
+    _BIND_ATTEMPTS = 5
+    _BIND_RETRY_DELAY = 1.0
+
     def __init__(self, route_registry, port=8766, host="localhost", use_ssl=False, ssl_cert="", ssl_key=""):
         self.route_registry = route_registry
         self.port = port
@@ -157,7 +166,7 @@ class HttpServer:
 
         GenericRequestHandler.route_registry = self.route_registry
 
-        self._server = _ThreadedHTTPServer((self.host, self.port), GenericRequestHandler)
+        self._server = self._bind_with_retry()
 
         if self.use_ssl:
             # TLS server mode requires explicit certificates.
@@ -181,6 +190,34 @@ class HttpServer:
         scheme = "https" if self.use_ssl else "http"
         url = "%s://%s:%s" % (scheme, self.host, self.port)
         log.info("HTTP server ready — %s (%d routes)", url, self.route_registry.route_count)
+
+    def _bind_with_retry(self):
+        """Bind the listening socket, retrying briefly if the port is transiently in use.
+
+        Returns the bound server. Raises the last OSError (with a clear log) if the port stays
+        busy across all attempts — preserving start()'s "raise on failure" contract so the caller
+        still reports the failure, but now after retries and with an actionable message."""
+        import time
+
+        last_err = None
+        for attempt in range(1, self._BIND_ATTEMPTS + 1):
+            try:
+                return _ThreadedHTTPServer((self.host, self.port), GenericRequestHandler)
+            except OSError as e:
+                last_err = e
+                log.warning(
+                    "HTTP bind %s:%s failed (%s) — attempt %d/%d",
+                    self.host, self.port, getattr(e, "errno", e), attempt, self._BIND_ATTEMPTS,
+                )
+                if attempt < self._BIND_ATTEMPTS:
+                    time.sleep(self._BIND_RETRY_DELAY)
+        log.error(
+            "Could not bind %s:%s after %d attempts — the port is in use by another process. "
+            "Close whatever is holding it, or set the MCP 'port' (or 'mcp_port') config to a free "
+            "port, then restart. A local preview/viewer server may default to the same port.",
+            self.host, self.port, self._BIND_ATTEMPTS,
+        )
+        raise last_err if last_err is not None else OSError("bind failed")
 
     def stop(self):
         if not self._running:

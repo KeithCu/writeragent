@@ -155,7 +155,7 @@ DELEGATION_PUBLIC_WEB_HINT = "to research public topics"
 
 # Main agent only: after research delegates return plain text, write HTML to the document (not sidebar).
 RESEARCH_DELEGATE_TO_DOCUMENT = (
-    "After doing web_research or document_research,you MUST call apply_document_content to insert the received research into the document so the user can see and edit it (per APPLY_DOCUMENT_CONTENT rules). "
+    "After doing web_research or document_research, you MUST call apply_document_content to insert the received research into the document so the user can see and edit it (per APPLY_DOCUMENT_CONTENT rules). "
     "Default: write the full report to the open document (empty doc → target='beginning'). "
     "Sidebar: brief confirmation only — NEVER paste the full report in chat unless the user explicitly asked chat-only."
 )
@@ -281,30 +281,87 @@ def get_core_directives(model) -> str:
         return WRITER_CORE_DIRECTIVES
 
 
+# ---------------------------------------------------------------------------
+# Shared behavioral pieces (single source of truth for BOTH agents)
+#
+# The blocks below — together with TOOL_USAGE_PATTERNS, TRANSLATION_RULES and
+# WRITER_APPLY_DOCUMENT_HTML_RULES — are the reusable pieces of the original chat system prompt,
+# updated and extended in place. The consumers assemble them, each adding only its
+# channel-specific parts:
+#   - the Writer sidebar template (_build_writer_chat_system_prompt_template) is HYBRID: it embeds
+#     the original pieces + WRITER_REVIEW_MODES_RULES verbatim every turn (safety rules must be
+#     ambient), while the reference pieces (SEARCH/NAVIGATION/IMAGES) are pulled on demand via
+#     the get_guidance tool;
+#   - MCP clients pull every piece per topic through get_guidance (plugin/framework/agent_manual.py
+#     maps topic -> piece and adds the MCP-only extras, e.g. the HTTP 429 concurrency contract);
+#   - the Calc/Draw sidebar templates embed GENERIC_EDIT_CONFIRMATION_RULES, the same app-neutral
+#     piece the generic MCP topics serve.
+# Update a rule HERE and every consumer sees it; never fork these texts per channel.
+# ---------------------------------------------------------------------------
+
+WRITER_REVIEW_MODES_RULES = """TRACKED CHANGES / REVIEW MODES:
+- The user picks ONE of three review modes for your edits; you never pick or switch it.
+- off: your edits apply directly and are live immediately.
+- record: your edits ARE applied, but as tracked changes pending the user's accept/reject; you will NOT be told whether they are later accepted or rejected.
+- wait: your edits are applied as tracked changes and the edit tool blocks until the user finishes reviewing (or a configured timeout), then the result reports what was accepted or rejected.
+- apply_document_content's RESULT carries the review state for that call (record: review_mode / pending_review; wait: a review field with the outcome) — trust the latest result over anything earlier, since the user can switch modes mid-session.
+- In record and wait, NEVER accept or reject changes yourself (no track_changes_accept_all / track_changes_reject_all) — resolving redlines is the user's decision.
+- When reading, get_document_content lists pending changes under tracked_changes (insertions/deletions) — they are pending review, not errors to fix."""
+
+WRITER_SEARCH_RULES = """SEARCH:
+- search_in_document finds text ANYWHERE — body paragraphs and headings, table cells, text boxes/frames, floating drawing shapes, page headers/footers, and comments.
+- Each match reports WHERE it lives (e.g. "body", "table 'X' cell B2", "text box 'Y'", "shape 'Z'", "header (page style 'Standard')", "comment by 'A'") plus the surrounding text; use return_offsets=true for character ranges.
+- When pointing the user to a match, quote the first words of its text and its location — never an internal paragraph index."""
+
+WRITER_NAVIGATION_RULES = """NAVIGATING LARGE DOCUMENTS (map first, then drill — don't dump):
+- get_document_tree(content_strategy='heading_only') gives the heading outline plus stats and stable _mcp_ bookmark ids.
+- get_heading_children (structural domain; locator='bookmark:_mcp_…' or 'heading:1.2') reads one section on demand.
+- search_in_document jumps to specific text.
+- Reserve get_document_content(scope='full') for short documents or a deliberate full read."""
+
+WRITER_IMAGES_RULES = """IMAGES:
+- Image tools live in the 'images' domain: insert_image, delete_image, replace_image, list_images, get_image_info (includes crop_mm), download_image. OCR (extract_text_from_image) lives in the 'vision' domain.
+- set_image_properties resizes (width_mm/height_mm), repositions (hori_orient/vert_orient — friendly values like left/center/right/top/bottom work), and crops (crop_top_mm / crop_bottom_mm / crop_left_mm / crop_right_mm — mm trimmed per edge).
+- To actually SEE an image (vision-capable models), call get_image — by graphic name, selection=true, or page=N to render that whole page. For a bulk read with pictures embedded, pass include_images=true to get_document_content."""
+
+# App-neutral minimum (Calc/Draw sidebar prompts + the generic MCP topics via agent_manual):
+# only rules that genuinely apply to every document type — no Writer tool names.
+GENERIC_EDIT_CONFIRMATION_RULES = """EDITING THE DOCUMENT:
+- Change the document with tools, not chat.
+- VERIFY every edit by the tool result's structured fields: status='error' (or a zero count, where the tool reports counts) means nothing changed — do not assume success from friendly message wording.
+- Any document content shown to you earlier may be a partial/truncated snapshot — before a targeted edit that depends on the exact current content, re-read through the tools."""
+
+
 WRITER_CHAT_TOOLS_SECTION = """TOOLS:
 - apply_document_content: Write HTML to the document (required after research delegates). See APPLY_DOCUMENT_CONTENT AND HTML below.
 - get_document_content: Read document (full/selection/range) as HTML.
-- search_in_document: Find text (use return_offsets for character positions if needed for inspection).
-- apply_style: Apply a paragraph or character style (family='ParagraphStyles' or 'CharacterStyles')."""
+- search_in_document: Find text anywhere (body, tables, text boxes, shapes, headers/footers, comments); each match reports where it lives.
+- apply_style: Apply a paragraph or character style (family='ParagraphStyles' or 'CharacterStyles').
+- add_comment: Anchor review feedback or suggestions to a specific passage (see TOOL USAGE PATTERNS).
+- get_guidance: Read the how-to manual on demand — no topic lists the topics; one topic (e.g. 'search', 'navigation', 'images') reads just that section."""
 
 TRANSLATION_RULES = "TRANSLATION: get_document_content(scope=full) -> translate -> apply_document_content(target='full_document', content=translated). Do not use old_content or target='search' for whole-document translation. Never refuse."
 
 # Tool-usage workflow patterns (no repeat of apply_document_content targets; see WRITER_APPLY_DOCUMENT_HTML_RULES).
+# Shared piece: sidebar system prompt + MCP manual (agent_manual topic "editing").
 TOOL_USAGE_PATTERNS = """TOOL USAGE PATTERNS:
-- After an edit tool, confirm it landed via that tool's own structured field — not the message wording: apply_document_content -> replaced_count > 0; apply_style -> applied is true; add_comment -> comment_added is true. A no-op (e.g. text not found) returns status="error"; do not assume success.
+- After an edit tool, confirm it landed via that tool's own structured field — not the message wording: apply_document_content -> replaced_count > 0 for search replaces (inserts — targets beginning/end/selection and position='before'/'after' — report status='ok', the latter with inserted=true); apply_style -> applied is true; add_comment -> comment_added is true. A no-op (e.g. text not found) returns status="error"; do not assume success.
+- Any document text shown to you earlier may be a partial/truncated snapshot — before a targeted edit that depends on the exact current text, call get_document_content for the authoritative version.
+- Successful apply_document_content edits also return edited_context — the touched paragraph(s) plus neighbors as they now read (in record/wait including the pending tracked change). Check it to confirm placement instead of an immediate re-read; full_document rewrites return no echo.
 - apply_style applies formatting directly and is NOT recorded as a tracked change. When its result has style_unreviewed=true (review mode is on), briefly tell the user you changed a style, since they cannot accept or reject it the way they review your text edits.
 - search_in_document (with return_offsets if needed) is for inspection/navigation; use apply_document_content with old_content for replacements.
 - If a tool call fails, verify content and target are provided (use target='beginning' / 'end' / 'selection' for insert-only).
 - When asked to review or give feedback or suggestions on a document, use the add_comment method to add your input to specific places in the document. Use for both positive and negative feedback.
-- If the user says "fix this" (or a synonym or equivalent in another language with the same intent), assume they want you to correct spelling and grammar errors in the current sentence only, unless the context makes it clear there is another specific error they want you to fix.
-"""
+- If the user says "fix this" (or a synonym or equivalent in another language with the same intent), assume they want you to correct spelling and grammar errors in the current sentence only, unless the context makes it clear there is another specific error they want you to fix."""
 
 # apply_document_content only — design notes in docs/chat-sidebar-implementation.md § Chat prompt constants and docs/math-tex.md.
-WRITER_APPLY_DOCUMENT_HTML_RULES = f"""
-APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL):
+WRITER_APPLY_DOCUMENT_HTML_RULES = f"""APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL):
 - Parameters: `content` and `target` (required). If target='search', also `old_content` (a **substring** to find/replace; HTML in old_content is matched as plain text).
 - **Whole-document replace:** use target='full_document' with `content` only. **Never** pass the entire document as old_content — that is not supported and will fail search.
 - Targets: 'beginning', 'end', 'selection', 'full_document' (replaces all — preferred for rewrites/translations), or 'search' (substring find/replace only).
+- With target='search', old_content may span multiple paragraphs (paragraph chaining), but each interior line must then match a WHOLE paragraph.
+- position='before' / 'after' (with target='search') INSERTS the content next to the match and leaves the matched text untouched — the clean way to add a paragraph after a clause without re-sending the clause itself.
+- Reach: edits cover body text, table cells, and text frames. Text inside a floating drawing shape is edited in place only when review mode is off — in record/wait it cannot become a tracked change, so the tool routes you to the shapes domain instead. Rich/block HTML inside a table cell is not supported (clear error, document untouched); use plain text or inline tags there.
 - `content` must be a JSON array of HTML strings (one fragment per heading/paragraph). We wrap in <html>/<body>.
 {HTML_FRAGMENT_RULES}
 - Math: Use LaTeX inline delimiters \\(...\\) for math expressions (e.g. \\(x^2=4\\) or \\(a+b\\)); single variables (like x) can be plain text. No $, $$, \\[, HTML-escaped math, or equation images.
@@ -364,7 +421,15 @@ DRAW_SPECIALIZED_DELEGATION_TEMPLATE = (
 
 
 def _build_writer_chat_system_prompt_template() -> str:
-    """Assemble Writer main-chat system prompt in model-facing order."""
+    """Assemble Writer main-chat system prompt in model-facing order.
+
+    HYBRID delivery of the shared pieces: the ambient prompt carries the original pieces plus
+    the safety-critical review-modes piece (a model must know it may not resolve its own
+    tracked changes BEFORE it acts — weaker models never ask first); the reference pieces
+    (search, navigation, images) are pulled on demand through the get_guidance tool, so every
+    turn stays lean. The MCP-only extras (e.g. the HTTP 429 concurrency contract) stay out of
+    this ambient prompt — the sidebar runs in-process; if a sidebar model pulls the concurrency
+    topic anyway it just reads an inert rule."""
     return "\n\n".join([
         WRITER_CHAT_PERSONA,
         CHAT_RESPONSE_FORMAT,
@@ -373,9 +438,10 @@ def _build_writer_chat_system_prompt_template() -> str:
         WRITER_CHAT_TOOLS_SECTION,
         TRANSLATION_RULES,
         TOOL_USAGE_PATTERNS,
+        WRITER_REVIEW_MODES_RULES,
         WRITER_APPLY_DOCUMENT_HTML_RULES,
         "{specialized_delegation}",
-        f"# {MEMORY_GUIDANCE}",
+        MEMORY_GUIDANCE,
     ])
 
 
@@ -572,9 +638,7 @@ CALC_FORMULA_SYNTAX = """FORMULA SYNTAX: LibreOffice uses semicolon (;) as the f
 - Correct: =SUM(A1:A10), =IF(A1>0;B1;C1)
 - Wrong: =SUM(A1,A10), =IF(A1>0,"Yes","No") (no commas in formulas)
 - Write `=PY("result = ..."; A1:A10)` in cells to calculate/run Python (=PYTHON is the same; omit the second argument if no data is needed, e.g. `=PY("result = 2**10")`).
-- Example: `=PY("result = np.sum(data)"; A1:A10)`.
-
-"""
+- Example: `=PY("result = np.sum(data)"; A1:A10)`."""
 
 # DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE is built in _init_venv_import_policy_strings() (needs import policy).
 DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE = ""
@@ -583,6 +647,8 @@ DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE = """You are a LibreOffice Draw/Impress
 Do not explain - do the operation directly using tools. Perform as many steps as needed in one turn when possible.
 
 """ + CHAT_RESPONSE_FORMAT + """
+
+""" + GENERIC_EDIT_CONFIRMATION_RULES + """
 
 WORKFLOW:
 1. Understand the user's request.
@@ -967,13 +1033,13 @@ def _init_venv_import_policy_strings() -> None:
 - Wrong: =SUM(A1,A10), =IF(A1>0,"Yes","No") (no commas in formulas)
 - Write `=PY("result = ..."; A1:A10)` in cells to calculate/run Python (=PYTHON is the same; omit the second argument if no data is needed, e.g. `=PY("result = 2**10")`).
 {compact}
-- Example: `=PY("result = np.sum(data)"; A1:A10)`.
-
-"""
+- Example: `=PY("result = np.sum(data)"; A1:A10)`."""
     DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE = f"""You are a LibreOffice Calc spreadsheet assistant who creates polished, professional, and colorful spreadsheets.
 Do not explain, do the operation directly using tools. Perform as many steps as needed in one turn when possible.
 
 {CHAT_RESPONSE_FORMAT}
+
+{GENERIC_EDIT_CONFIRMATION_RULES}
 
 {CALC_WORKFLOW}
 
