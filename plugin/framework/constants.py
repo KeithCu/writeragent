@@ -389,7 +389,7 @@ WHEN TO SAVE (do this proactively, don't wait to be asked):
 Prioritize what reduces future user steering."""
 
 # Writer sidebar modes — not exposed on delegate_to_specialized_writer_toolset (user picks from dropdown).
-WRITER_SIDEBAR_ONLY_DOMAINS = frozenset({"brainstorming", "writing_plan"})
+WRITER_SIDEBAR_ONLY_DOMAINS = frozenset({"brainstorming", "writing_plan", "deep_research"})
 
 # Impress/Draw sidebar modes — PPT-Master combo box; hidden from main chat and draw delegate.
 IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS = frozenset({"ppt-master"})
@@ -523,6 +523,26 @@ COMPLETION TOOLS:
 - write_document_section: write content for a section to the document.
 - writing_research_web: search the public web for context or information."""
 
+DEEP_RESEARCH_SUB_AGENT_INSTRUCTIONS = """DEEP RESEARCH MODE:
+You perform multi-step public web research and write formatted results into the active Writer document when appropriate.
+
+WORKFLOW:
+1. Read document context when helpful (get_document_content / get_document_tree / search_in_document).
+2. Run deep_research_web for the user's research query (long-running breadth/depth search; returns plain text).
+3. Convert the plain-text report to HTML and insert it with apply_document_content (JSON array of HTML strings; target end unless the user asked otherwise).
+4. reply_to_user with a brief HTML summary of what you researched and where it was inserted.
+
+HTML RULES (CRITICAL):
+- apply_document_content content must be a JSON array of HTML strings — no Markdown (#, **, ```).
+- reply_to_user must be HTML.
+- Do NOT use HTML entity escaping (&lt;p&gt;) — send real tags.
+- Rewrite plain-text deep_research_web results as structured HTML (headings, paragraphs, lists) before apply_document_content.
+
+TOOLS:
+- deep_research_web: multi-step breadth/depth web research only (not the shallow web_research tool).
+- apply_document_content: the ONLY way to write research into the document.
+- reply_to_user: chat sidebar response when the turn is complete."""
+
 
 PPT_MASTER_SUB_AGENT_INSTRUCTIONS = """PPT-MASTER MODE (venv worker):
 You run the upstream ppt-master workflow with filesystem + script access in the user Python venv.
@@ -560,6 +580,16 @@ def get_brainstorming_sub_agent_instructions(ctx=None) -> str:
     """Full system instructions for the brainstorming smol sub-agent."""
     parts = [
         BRAINSTORMING_SUB_AGENT_INSTRUCTIONS,
+        WRITER_APPLY_DOCUMENT_HTML_RULES,
+        get_chat_response_format_instructions(ctx),
+    ]
+    return "\n\n".join(parts)
+
+
+def get_deep_research_sub_agent_instructions(ctx=None) -> str:
+    """Full system instructions for the Deep Research smol sub-agent (sidebar)."""
+    parts = [
+        DEEP_RESEARCH_SUB_AGENT_INSTRUCTIONS,
         WRITER_APPLY_DOCUMENT_HTML_RULES,
         get_chat_response_format_instructions(ctx),
     ]
@@ -868,6 +898,7 @@ DEFAULT_WRITER_GREETING = _("AI: I can edit or translate your document instantly
 DEFAULT_CALC_GREETING = _("AI: I can help you with formulas, data analysis, and colorful charts. Try me!")
 DEFAULT_DRAW_GREETING = _("AI: I can help you create and edit polished, colorful shapes in Draw and Impress. Try me!")
 DEFAULT_RESEARCH_GREETING = _("AI: I can do web research to answer any question, or summarize a web page, without seeing or changing your document. Let's chat.")
+DEFAULT_DEEP_RESEARCH_GREETING = _("AI: Deep Research mode runs a multi-step web investigation (planning, several searches, synthesis) and can insert a formatted report into your document. It takes longer but produces more thorough results.")
 DEFAULT_BRAINSTORMING_GREETING = _("AI: Let's explore and design your idea together. I'll ask questions, suggest approaches, and help you build an approved spec in your document when you're ready.")
 DEFAULT_WRITING_PLAN_GREETING = _("AI: Let's draft your document section-by-section. I'll help you create a writing plan outline, and then implement it incrementally with your approval.")
 DEFAULT_PPT_MASTER_GREETING = _("AI: PPT-Master mode — I'll run the ppt-master workflow in your configured Python venv (scripts + export to Impress). Describe your topic or point me at a project folder.")

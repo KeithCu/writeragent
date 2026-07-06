@@ -6,7 +6,7 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 
-"""Sidebar chat mode dropdown: Chat, Image, Web Research, Brainstorming, Writing Plan, PPT-Master."""
+"""Sidebar chat mode dropdown: Chat, Image, Web Research, Deep Research, Brainstorming, Writing Plan, PPT-Master."""
 
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ log = logging.getLogger(__name__)
 CHAT_MODE_CHAT = "chat"
 CHAT_MODE_IMAGE = "image"
 CHAT_MODE_WEB_RESEARCH = "web_research"
+CHAT_MODE_DEEP_RESEARCH = "deep_research"
 CHAT_MODE_BRAINSTORMING = "brainstorming"
 CHAT_MODE_WRITING_PLAN = "writing_plan"
 CHAT_MODE_PPT_MASTER = "ppt-master"
@@ -30,6 +31,7 @@ _VALID_MODES = frozenset(
         CHAT_MODE_CHAT,
         CHAT_MODE_IMAGE,
         CHAT_MODE_WEB_RESEARCH,
+        CHAT_MODE_DEEP_RESEARCH,
         CHAT_MODE_BRAINSTORMING,
         CHAT_MODE_WRITING_PLAN,
         CHAT_MODE_PPT_MASTER,
@@ -67,6 +69,10 @@ def _label_web_research() -> str:
     return _("Web Research")
 
 
+def _label_deep_research() -> str:
+    return _("Deep Research")
+
+
 def _label_brainstorming() -> str:
     return _("Brainstorming")
 
@@ -80,7 +86,7 @@ def _label_ppt_master() -> str:
 
 
 def _modes_for(flags: SidebarModeFlags) -> tuple[str, ...]:
-    modes: list[str] = [CHAT_MODE_CHAT, CHAT_MODE_IMAGE, CHAT_MODE_WEB_RESEARCH]
+    modes: list[str] = [CHAT_MODE_CHAT, CHAT_MODE_IMAGE, CHAT_MODE_WEB_RESEARCH, CHAT_MODE_DEEP_RESEARCH]
     if flags.include_brainstorming:
         modes.append(CHAT_MODE_BRAINSTORMING)
     if flags.include_writing_plan:
@@ -97,7 +103,7 @@ def get_mode_labels(*, include_brainstorming: bool = False, include_writing_plan
         include_writing_plan=include_writing_plan,
         include_ppt_master=include_ppt_master,
     )
-    labels = [_label_chat(), _label_image(), _label_web_research()]
+    labels = [_label_chat(), _label_image(), _label_web_research(), _label_deep_research()]
     if flags.include_brainstorming:
         labels.append(_label_brainstorming())
     if flags.include_writing_plan:
@@ -274,6 +280,10 @@ def is_image_mode(mode: str) -> bool:
 
 def is_web_research_mode(mode: str) -> bool:
     return mode == CHAT_MODE_WEB_RESEARCH
+
+
+def is_deep_research_mode(mode: str) -> bool:
+    return mode == CHAT_MODE_DEEP_RESEARCH
 
 
 def is_brainstorming_mode(mode: str) -> bool:

@@ -505,6 +505,11 @@ class SendHandlersMixin:
         for effect in step.effects:
             interpreter.interpret(effect)
 
+    def _run_deep_web_research(self: SendHandlerHost, query_text: str, model: Any) -> None:
+        """Run Deep Research sidebar session (sub-agent with apply_document_content)."""
+        setattr(self, "_active_run_deep_research", True)
+        self._run_web_research(query_text, model)
+
     def _execute_web_research_effect(self: SendHandlerHost, query_text: str, model: Any, current_state: "SendHandlerState", interpreter: "EffectInterpreter") -> None:
         from plugin.main import get_tools
         is_librarian = getattr(self, "_active_run_librarian", False)
@@ -519,6 +524,9 @@ class SendHandlersMixin:
         is_ppt_master = getattr(self, "_active_run_ppt_master", False)
         if hasattr(self, "_active_run_ppt_master"):
             delattr(self, "_active_run_ppt_master")
+        is_deep_research = getattr(self, "_active_run_deep_research", False)
+        if hasattr(self, "_active_run_deep_research"):
+            delattr(self, "_active_run_deep_research")
 
 
 
@@ -741,6 +749,33 @@ class SendHandlersMixin:
                         self._in_ppt_master_mode = False
                         msg = data.get("message", _("Unknown PPT-Master error."))
                         q.put((StreamQueueKind.CHUNK, "\n" + _("[PPT-Master error: {0}]").format(msg) + "\n"))
+
+                    q.put((StreamQueueKind.STREAM_DONE, {}))
+                elif is_deep_research:
+                    res = get_tools().execute(
+                        "deep_research_session",
+                        tctx,
+                        bypass_thread_guard=False,
+                        **{"query": query_text, "history_text": history_text},
+                    )
+                    result = json.dumps(res) if isinstance(res, dict) else str(res)
+
+                    data = safe_json_loads(result)
+                    if not isinstance(data, dict):
+                        log.error("Failed to parse deep research result [doc: %s]", doc_type)
+                        parsed_err = AgentParsingError("Invalid JSON from deep research tool.", details={"raw_result": result})
+                        data = format_error_payload(parsed_err)
+
+                    if data.get("status") == "ok":
+                        answer = data.get("result", "")
+                        if not isinstance(answer, str):
+                            answer = str(answer)
+                        self._record_assistant_start = True
+                        q.put((StreamQueueKind.CHUNK, answer + "\n"))
+                        self.session.add_assistant_message(content=answer)
+                    else:
+                        msg = data.get("message", _("Unknown deep research error."))
+                        q.put((StreamQueueKind.CHUNK, "\n" + _("[Deep research error: {0}]").format(msg) + "\n"))
 
                     q.put((StreamQueueKind.STREAM_DONE, {}))
                 else:

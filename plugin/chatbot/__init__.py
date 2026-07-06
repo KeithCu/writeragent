@@ -37,6 +37,7 @@ class ChatbotModule(ModuleBase):
         from . import librarian
         from . import brainstorming
         from . import writing
+        from . import deep_research_session
         from . import ppt_master
         from . import skills  # Humanizer skill (prompt injection via SkillStore)
 
@@ -45,6 +46,7 @@ class ChatbotModule(ModuleBase):
         services.tools.auto_discover(librarian)
         services.tools.auto_discover(brainstorming)
         services.tools.auto_discover(writing)
+        services.tools.auto_discover(deep_research_session)
         services.tools.auto_discover(ppt_master)
         services.tools.auto_discover(skills)
         self._adapter = None

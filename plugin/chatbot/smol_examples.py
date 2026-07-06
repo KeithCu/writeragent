@@ -9,6 +9,7 @@
 
 - **librarian** — onboarding (`reply_to_user`).
 - **brainstorming** — design exploration (`reply_to_user`, `save_design_spec`, `brainstorming_finished`).
+- **deep_research** — multi-step web research + `apply_document_content` (`reply_to_user`, `deep_research_web`).
 - **web_research** — web sub-agent (`final_answer`).
 - **``*:python``** — venv demo (`run_venv_python_script` + ``sp.prime``; no numpy imports).
 - **All other keys** — shared delegate demo (`specialized_workflow_finished`).
@@ -208,6 +209,34 @@ Observation: {"status": "finished"}
 
 """
 
+DEEP_RESEARCH_EXAMPLES = """Task: "Research recent advances in solid-state batteries and add a summary to my document."
+
+Action:
+{
+  "name": "deep_research_web",
+  "arguments": {"query": "solid-state battery commercialization advances 2024 2025"}
+}
+Observation: {"status": "ok", "result": "Plain text report with findings..."}
+
+Action:
+{
+  "name": "apply_document_content",
+  "arguments": {
+    "content": ["<h1>Solid-State Batteries</h1>", "<p>Summary paragraph...</p>", "<ul><li>Key finding one</li></ul>"],
+    "target": "end"
+  }
+}
+Observation: {"status": "ok"}
+
+Action:
+{
+  "name": "reply_to_user",
+  "arguments": {"answer": "<p>I completed deep web research on solid-state batteries and appended a formatted summary to the end of your document.</p>"}
+}
+Observation: {"status": "ok"}
+
+"""
+
 
 def get_examples_block(key: str) -> str:
     """Return the few-shot block for *key*.
@@ -223,6 +252,8 @@ def get_examples_block(key: str) -> str:
         return BRAINSTORMING_EXAMPLES
     if key == "writing_plan":
         return WRITING_PLAN_EXAMPLES
+    if key == "deep_research":
+        return DEEP_RESEARCH_EXAMPLES
     if key == "ppt-master":
         return PPT_MASTER_EXAMPLES
     if key == "web_research":

@@ -18,13 +18,34 @@
 
 import logging
 import os
-from typing import Any, cast
+from dataclasses import dataclass
+from typing import Any, Callable
 
 from plugin.framework.tool import ToolBase
 from plugin.framework.errors import format_error_payload, ToolExecutionError
 from plugin.contrib.smolagents.agents import ToolCallingAgent
 
 log = logging.getLogger("writeragent.web_research")
+
+
+@dataclass
+class WebAgentRunParams:
+    """Shared setup for one shallow ReAct web-research sub-agent run."""
+
+    smol_model: Any
+    max_steps: int
+    cache_path: str | None
+    cache_max_mb: int
+    cache_max_age_days: int
+    cdp_enabled: bool
+    cdp_url: str | None
+    stop_checker: Callable[[], bool] | None
+    status_callback: Callable[[str], None] | None
+    append_thinking_callback: Callable[[str], None] | None
+    approval_callback: Any
+    chat_append_callback: Callable[[str], None] | None
+    prompt_for_web_research: bool
+    outer_query: str
 
 
 class ToolWriterWebResearchBase(ToolBase):
@@ -218,6 +239,159 @@ class VisitWebpageCdpTool(Tool):
             return f"Error visiting webpage via CDP: {e}"
 
 
+def _run_web_agent(ctx: Any, query: str, history_text: str | None, params: WebAgentRunParams) -> str | dict[str, Any]:
+    """Run one shallow ReAct web-research sub-agent; returns report text or error payload dict."""
+    from plugin.chatbot.smol_agent import SmolAgentExecutor
+    from plugin.chatbot.smol_examples import get_examples_block
+    from plugin.contrib.smolagents.default_tools import DuckDuckGoSearchTool, VisitWebpageTool
+    from plugin.framework.constants import WEB_RESEARCH_PLAIN_TEXT_FORMAT
+
+    max_steps = params.max_steps
+    base_intro = (
+        "You are a research assistant. Use the conversation context provided below to resolve any ambiguity in the user's query. "
+        "Avoid visiting Yelp (yelp.com) links, as Yelp blocks automated requests and returns 403 errors; rely on other sources instead."
+    )
+    tool_steps_budget = max_steps - 1
+    budget_text = (
+        f"Step limit: at most {max_steps} agent steps total (each step is one tool call, "
+        "including final_answer). "
+        f"Use at most {tool_steps_budget} step(s) for web_search and visit_webpage; "
+        "reserve your last step for the final_answer tool so the run finishes before the hard limit. "
+        "If you have enough evidence earlier, call final_answer sooner."
+    )
+    if max_steps > 20:
+        half_steps = max_steps // 2
+        budget_text += (
+            f" IMPORTANT: If the user's query is a simple question that does not require deep or extensive research "
+            f"(e.g., local recommendations, basic facts, simple translations), try to be highly efficient and finish "
+            f"in at most half of your step budget (i.e., {half_steps} steps or fewer). Do not use all steps if a quick search suffices."
+        )
+    instructions = (
+        f"{base_intro}\n\n{budget_text}\n\n{WEB_RESEARCH_PLAIN_TEXT_FORMAT}\n"
+        "Return the full research report as plain text in final_answer; the main agent receives it in the delegate tool result."
+    )
+
+    visit_tool = (
+        VisitWebpageCdpTool(cdp_url=params.cdp_url)
+        if (params.cdp_enabled and params.cdp_url)
+        else VisitWebpageTool(cache_path=params.cache_path, cache_max_mb=params.cache_max_mb, cache_max_age_days=params.cache_max_age_days)
+    )
+    agent = WebResearchToolCallingAgent(
+        tools=[
+            DuckDuckGoSearchTool(cache_path=params.cache_path, cache_max_mb=params.cache_max_mb, cache_max_age_days=params.cache_max_age_days),
+            visit_tool,
+        ],
+        model=params.smol_model,
+        max_steps=max_steps,
+        instructions=instructions,
+        system_prompt_examples=get_examples_block("web_research"),
+    )
+
+    task = f"### CONVERSATION HISTORY:\n{history_text or 'None'}\n\n### CURRENT QUERY:\n{query}"
+    web_search_step_index = 0
+    stop_checker = params.stop_checker
+
+    def tool_call_handler(step):
+        nonlocal web_search_step_index
+        if stop_checker and stop_checker():
+            return format_error_payload(ToolExecutionError("Web search stopped by user.", code="USER_STOPPED"))
+        status_msg = ""
+        if step.name == "web_search":
+            q = _web_search_query_from_arguments(step.arguments)
+            if params.append_thinking_callback:
+                params.append_thinking_callback(f"Running tool: {step.name} with {{'query': '{q}'}}\n")
+
+            if params.prompt_for_web_research and params.approval_callback:
+                approval_result = params.approval_callback(q, "web_search", step.arguments)
+                if isinstance(approval_result, tuple):
+                    proceed, query_override = approval_result[0], (approval_result[1] if len(approval_result) > 1 else None)
+                else:
+                    proceed, query_override = approval_result, None
+
+                if not proceed:
+                    return format_error_payload(ToolExecutionError("Web search stopped by user.", code="USER_STOPPED"))
+                if query_override is not None:
+                    _apply_web_search_query_override(step, query_override)
+                    q = query_override
+
+            if params.chat_append_callback:
+                q_norm = _norm_research_query(q)
+                query_norm = _norm_research_query(params.outer_query)
+                if not (web_search_step_index == 0 and q_norm == query_norm):
+                    from plugin.chatbot.web_research_chat import web_search_engine_step_chat_text
+
+                    params.chat_append_callback(web_search_engine_step_chat_text(q, web_search_step_index))
+
+            web_search_step_index += 1
+            status_msg = f"Search: {q[:25]}"
+        elif step.name == "visit_webpage":
+            url = str(step.arguments.get("url", "")) if isinstance(step.arguments, dict) else ""
+            if params.append_thinking_callback:
+                params.append_thinking_callback(f"Running tool: {step.name} with {{'url': '{url}'}}\n")
+            from plugin.framework.url_utils import get_url_domain
+
+            status_msg = f"Read: {get_url_domain(url)}"
+        else:
+            if params.append_thinking_callback:
+                params.append_thinking_callback(f"Running tool: {step.name} with {step.arguments}\n")
+            status_msg = str(step.name)
+
+        if params.status_callback and status_msg:
+            params.status_callback(f"{status_msg}...")
+        return None
+
+    executor = SmolAgentExecutor(ctx)
+    return executor.execute_safe(agent, task, tool_call_handler=tool_call_handler, stop_message="Web search stopped by user.", error_prefix="Web search failed")
+
+
+def _run_deep_web_research(
+    ctx: Any,
+    query_str: str,
+    history_text: str | None,
+    agent_params: WebAgentRunParams,
+    *,
+    cache_path: str | None,
+    cache_max_mb: int,
+    cache_max_age_days: int,
+    plain_text_format: str,
+) -> str | dict[str, Any]:
+    """Breadth/depth research loop; each sub-query reuses the shallow ReAct sub-agent."""
+    from plugin.contrib.smolagents.default_tools import DuckDuckGoSearchTool
+    from plugin.framework.config import get_config_int
+    from plugin.chatbot.web_research_deep import run_deep_research
+
+    llm_client = agent_params.smol_model.api
+
+    def llm_chat(messages: list[dict[str, str]], max_tok: int) -> str:
+        return llm_client.chat_completion_sync(messages, max_tokens=max_tok, prepend_dev_build_system_prefix=False)
+
+    def run_sub_agent(sub_query: str, sub_history: str | None) -> str | dict[str, Any]:
+        return _run_web_agent(ctx, sub_query, sub_history, agent_params)
+
+    initial_snippet = ""
+    try:
+        preview = DuckDuckGoSearchTool(cache_path=cache_path, cache_max_mb=cache_max_mb, cache_max_age_days=cache_max_age_days)
+        initial_snippet = str(preview.forward(query_str))[:4000]
+    except Exception as preview_exc:
+        log.debug("deep_research preview search skipped: %s", preview_exc)
+
+    if agent_params.status_callback:
+        agent_params.status_callback("Deep research: starting...")
+
+    return run_deep_research(
+        query_str,
+        history_text,
+        llm_chat=llm_chat,
+        run_web_agent=run_sub_agent,
+        stop_checker=agent_params.stop_checker,
+        status_callback=agent_params.status_callback,
+        breadth=get_config_int("chatbot.deep_research_breadth"),
+        depth=get_config_int("chatbot.deep_research_depth"),
+        plain_text_format=plain_text_format,
+        initial_search_snippet=initial_snippet,
+    )
+
+
 class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
     doc_types = ["writer", "calc", "draw", "impress"]
 
@@ -327,47 +501,6 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
         cancel_scope = getattr(ctx, "send_cancellation", None)
         smol_model = WriterAgentSmolModel(LlmClient(config, ctx.ctx, cancellation_scope=cancel_scope), max_tokens=max_tokens, status_callback=status_callback, stop_checker=stop_checker)
 
-
-        from plugin.framework.constants import WEB_RESEARCH_PLAIN_TEXT_FORMAT
-
-        base_intro = (
-            "You are a research assistant. Use the conversation context provided below to resolve any ambiguity in the user's query. "
-            "Avoid visiting Yelp (yelp.com) links, as Yelp blocks automated requests and returns 403 errors; rely on other sources instead."
-        )
-        tool_steps_budget = max_steps - 1
-        budget_text = (
-            f"Step limit: at most {max_steps} agent steps total (each step is one tool call, "
-            "including final_answer). "
-            f"Use at most {tool_steps_budget} step(s) for web_search and visit_webpage; "
-            "reserve your last step for the final_answer tool so the run finishes before the hard limit. "
-            "If you have enough evidence earlier, call final_answer sooner."
-        )
-        if max_steps > 20:
-            half_steps = max_steps // 2
-            budget_text += (
-                f" IMPORTANT: If the user's query is a simple question that does not require deep or extensive research "
-                f"(e.g., local recommendations, basic facts, simple translations), try to be highly efficient and finish "
-                f"in at most half of your step budget (i.e., {half_steps} steps or fewer). Do not use all steps if a quick search suffices."
-            )
-        instructions = (
-            f"{base_intro}\n\n{budget_text}\n\n{WEB_RESEARCH_PLAIN_TEXT_FORMAT}\n"
-            "Return the full research report as plain text in final_answer; the main agent receives it in the delegate tool result."
-        )
-
-        from plugin.chatbot.smol_examples import get_examples_block
-
-        visit_tool = VisitWebpageCdpTool(cdp_url=cdp_url) if (cdp_enabled and cdp_url) else VisitWebpageTool(cache_path=cache_path, cache_max_mb=cache_max_mb, cache_max_age_days=cache_max_age_days)
-
-        agent = WebResearchToolCallingAgent(
-            tools=[DuckDuckGoSearchTool(cache_path=cache_path, cache_max_mb=cache_max_mb, cache_max_age_days=cache_max_age_days), visit_tool],
-            model=smol_model,
-            max_steps=max_steps,
-            instructions=instructions,
-            system_prompt_examples=get_examples_block("web_research"),
-        )
-
-        task = f"### CONVERSATION HISTORY:\n{history_text or 'None'}\n\n### CURRENT QUERY:\n{query}"
-        web_search_step_index = 0
         prompt_for_web_research = False
         try:
             from plugin.framework.config import get_config, as_bool
@@ -376,58 +509,41 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
         except (ValueError, TypeError):
             pass
 
-        def tool_call_handler(step):
-            nonlocal web_search_step_index
-            if stop_checker and stop_checker():
-                return format_error_payload(ToolExecutionError("Web search stopped by user.", code="USER_STOPPED"))
-            status_msg = ""
-            if step.name == "web_search":
-                q = _web_search_query_from_arguments(step.arguments)
-                if append_thinking_callback:
-                    append_thinking_callback(f"Running tool: {step.name} with {{'query': '{q}'}}\n")
+        agent_params = WebAgentRunParams(
+            smol_model=smol_model,
+            max_steps=max_steps,
+            cache_path=cache_path,
+            cache_max_mb=cache_max_mb,
+            cache_max_age_days=cache_max_age_days,
+            cdp_enabled=cdp_enabled,
+            cdp_url=cdp_url,
+            stop_checker=stop_checker,
+            status_callback=status_callback,
+            append_thinking_callback=append_thinking_callback,
+            approval_callback=approval_callback,
+            chat_append_callback=chat_append_callback,
+            prompt_for_web_research=prompt_for_web_research,
+            outer_query=query_str,
+        )
 
-                if prompt_for_web_research and approval_callback:
-                    approval_result = approval_callback(q, "web_search", step.arguments)
-                    if isinstance(approval_result, tuple):
-                        proceed, query_override = approval_result[0], (approval_result[1] if len(approval_result) > 1 else None)
-                    else:
-                        proceed, query_override = approval_result, None
+        from plugin.framework.constants import WEB_RESEARCH_PLAIN_TEXT_FORMAT
 
-                    if not proceed:
-                        return format_error_payload(ToolExecutionError("Web search stopped by user.", code="USER_STOPPED"))
-                    if query_override is not None:
-                        _apply_web_search_query_override(step, query_override)
-                        q = query_override
-
-                if chat_append_callback:
-                    q_norm = _norm_research_query(q)
-                    query_norm = _norm_research_query(cast("str", query)) if query is not None else ""
-                    if not (web_search_step_index == 0 and q_norm == query_norm):
-                        from plugin.chatbot.web_research_chat import web_search_engine_step_chat_text
-
-                        chat_append_callback(web_search_engine_step_chat_text(q, web_search_step_index))
-
-                web_search_step_index += 1
-                status_msg = f"Search: {q[:25]}"
-            elif step.name == "visit_webpage":
-                url = str(step.arguments.get("url", "")) if isinstance(step.arguments, dict) else ""
-                if append_thinking_callback:
-                    append_thinking_callback(f"Running tool: {step.name} with {{'url': '{url}'}}\n")
-                from plugin.framework.url_utils import get_url_domain
-
-                status_msg = f"Read: {get_url_domain(url)}"
-            else:
-                if append_thinking_callback:
-                    append_thinking_callback(f"Running tool: {step.name} with {step.arguments}\n")
-                status_msg = str(step.name)
-
-            if status_callback and status_msg:
-                status_callback(f"{status_msg}...")
-            return None
+        deep = bool(kwargs.get("deep"))
 
         try:
-            executor = SmolAgentExecutor(ctx)
-            final_ans = executor.execute_safe(agent, task, tool_call_handler=tool_call_handler, stop_message="Web search stopped by user.", error_prefix="Web search failed")
+            if deep:
+                final_ans = _run_deep_web_research(
+                    ctx,
+                    query_str,
+                    history_text,
+                    agent_params,
+                    cache_path=cache_path,
+                    cache_max_mb=cache_max_mb,
+                    cache_max_age_days=cache_max_age_days,
+                    plain_text_format=WEB_RESEARCH_PLAIN_TEXT_FORMAT,
+                )
+            else:
+                final_ans = _run_web_agent(ctx, query_str, history_text, agent_params)
 
             cache_fields: dict[str, Any] = {}
             if isinstance(final_ans, dict) and "status" in final_ans:

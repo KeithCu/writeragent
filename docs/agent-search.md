@@ -115,6 +115,29 @@ Settings UI: `web_research_cache_enabled` only. Cache matching tuning (`web_rese
 
 ## 6. Future Considerations
 
+### Deep Research (sidebar mode)
+
+Choose **Deep Research** in the sidebar mode dropdown to run a **breadth/depth multi-query loop** via a dedicated sub-agent that can **`apply_document_content`** after synthesis. The main agent and specialized delegates **always** use shallow web research — they never pass `deep=True`; only the sidebar Deep Research session does.
+
+Shallow **Web Research** sidebar mode streams results to chat only and does not expose document editing tools.
+
+The loop is ported from [gpt-researcher](https://github.com/assafelovic/gpt-researcher)’s `DeepResearchSkill`. The `gpt-researcher/` subdirectory in this repo is a **reference only** — it is not imported at runtime and is excluded from the OXT bundle (`.gitignore`).
+
+**Flow (deep mode):**
+
+1. **Plan** — LLM generates follow-up questions from the user query (+ optional DuckDuckGo preview snippet).
+2. **Breadth** — LLM generates N search queries (`chatbot.deep_research_breadth`, default 4).
+3. **Per sub-query** — runs the **same** shallow ReAct sub-agent (`_run_web_agent`: DuckDuckGo + visit + synthesize via `WriterAgentSmolModel`).
+4. **Extract** — LLM pulls learnings, citations, and follow-up questions from each sub-report.
+5. **Depth** — if `chatbot.deep_research_depth` > 1, recurse with halved breadth on follow-ups.
+6. **Synthesize** — LLM writes one plain-text report (`WEB_RESEARCH_PLAIN_TEXT_FORMAT`).
+
+Implementation: [`plugin/chatbot/web_research_deep.py`](../plugin/chatbot/web_research_deep.py) (orchestrator + JSON parsers); sidebar session [`plugin/chatbot/deep_research_session.py`](../plugin/chatbot/deep_research_session.py) (`deep_research_web` → `apply_document_content`); shallow agent helper [`_run_web_agent`](../plugin/chatbot/web_research.py).
+
+**Config (internal, JSON override):** `chatbot.deep_research_breadth`, `chatbot.deep_research_depth`, `chatbot.deep_research_concurrency` (reserved; sub-queries run sequentially today).
+
+---
+
 While the current implementation uses standard, unauthenticated HTTP requests via DuckDuckGo Lite, there is prior research on handling authenticated sites or executing JavaScript natively. The following sections are kept for future reference if we need to escalate beyond basic unauthenticated HTML scraping.
 
 ### A) yt-dlp cookie extraction (reference implementation)

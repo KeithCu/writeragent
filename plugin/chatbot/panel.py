@@ -1093,6 +1093,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
         from plugin.chatbot.chat_sidebar_mode import (
             CHAT_MODE_BRAINSTORMING,
+            CHAT_MODE_DEEP_RESEARCH,
             CHAT_MODE_IMAGE,
             CHAT_MODE_PPT_MASTER,
             CHAT_MODE_WEB_RESEARCH,
@@ -1107,6 +1108,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         if sidebar_mode == CHAT_MODE_WEB_RESEARCH:
             log.info("_do_send: using web research sub-agent — skip chat model and direct image")
             self._run_web_research(query_text, model)
+            return
+
+        if sidebar_mode == CHAT_MODE_DEEP_RESEARCH:
+            log.info("_do_send: using deep web research sub-agent — skip chat model and direct image")
+            self._run_deep_web_research(query_text, model)
             return
 
         if sidebar_mode == CHAT_MODE_IMAGE:

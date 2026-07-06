@@ -155,6 +155,36 @@ config:
     helper: "Minimum shared stem count for a fuzzy cache hit (0 disables). JSON only (internal); default 8."
     internal: true
 
+  deep_research_breadth:
+    type: int
+    default: 4
+    min: 1
+    max: 10
+    widget: number
+    label: Deep Research Breadth
+    helper: "Sub-queries per depth level when Deep Research sidebar mode is used (internal)."
+    internal: true
+
+  deep_research_depth:
+    type: int
+    default: 2
+    min: 1
+    max: 4
+    widget: number
+    label: Deep Research Depth
+    helper: "Recursive depth levels when Deep Research sidebar mode is used (internal)."
+    internal: true
+
+  deep_research_concurrency:
+    type: int
+    default: 2
+    min: 1
+    max: 5
+    widget: number
+    label: Deep Research Concurrency
+    helper: "Reserved for future parallel sub-query runs in Deep Research sidebar mode (internal)."
+    internal: true
+
 #  api_enabled:
 #    type: boolean
 #    default: false

@@ -13,6 +13,7 @@ from unittest.mock import MagicMock
 from plugin.chatbot.chat_sidebar_mode import (
     CHAT_MODE_BRAINSTORMING,
     CHAT_MODE_CHAT,
+    CHAT_MODE_DEEP_RESEARCH,
     CHAT_MODE_IMAGE,
     CHAT_MODE_WEB_RESEARCH,
     CHAT_MODE_WRITING_PLAN,
@@ -28,18 +29,19 @@ from plugin.chatbot.chat_sidebar_mode import (
 
 def test_mode_labels_include_brainstorming_when_writer():
     labels = get_mode_labels(include_brainstorming=True, include_writing_plan=True)
-    assert len(labels) == 5
+    assert len(labels) == 6
     assert mode_from_label(labels[0], include_brainstorming=True, include_writing_plan=True) == CHAT_MODE_CHAT
     assert mode_from_label(labels[1], include_brainstorming=True, include_writing_plan=True) == CHAT_MODE_IMAGE
     assert mode_from_label(labels[2], include_brainstorming=True, include_writing_plan=True) == CHAT_MODE_WEB_RESEARCH
-    assert mode_from_label(labels[3], include_brainstorming=True, include_writing_plan=True) == CHAT_MODE_BRAINSTORMING
-    assert mode_from_label(labels[4], include_brainstorming=True, include_writing_plan=True) == CHAT_MODE_WRITING_PLAN
+    assert mode_from_label(labels[3], include_brainstorming=True, include_writing_plan=True) == CHAT_MODE_DEEP_RESEARCH
+    assert mode_from_label(labels[4], include_brainstorming=True, include_writing_plan=True) == CHAT_MODE_BRAINSTORMING
+    assert mode_from_label(labels[5], include_brainstorming=True, include_writing_plan=True) == CHAT_MODE_WRITING_PLAN
 
 
 def test_mode_labels_omit_brainstorming_for_calc():
     labels = get_mode_labels(include_brainstorming=False, include_writing_plan=True, include_ppt_master=False)
-    assert len(labels) == 4
-    assert mode_from_label(labels[3], include_brainstorming=False, include_writing_plan=True) == CHAT_MODE_WRITING_PLAN
+    assert len(labels) == 5
+    assert mode_from_label(labels[4], include_brainstorming=False, include_writing_plan=True) == CHAT_MODE_WRITING_PLAN
 
 
 def test_mode_labels_ppt_master_for_impress():
@@ -47,8 +49,8 @@ def test_mode_labels_ppt_master_for_impress():
 
     flags = sidebar_mode_flags_for_doc_type("impress")
     labels = get_mode_labels(**flags.__dict__)
-    assert len(labels) == 4
-    assert mode_from_label(labels[3], **flags.__dict__) == CHAT_MODE_PPT_MASTER
+    assert len(labels) == 5
+    assert mode_from_label(labels[4], **flags.__dict__) == CHAT_MODE_PPT_MASTER
 
 
 def test_mode_from_selector_reads_combobox_text():
