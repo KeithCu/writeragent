@@ -123,18 +123,20 @@ Shallow **Web Research** sidebar mode streams results to chat only and does not 
 
 The loop is ported from [gpt-researcher](https://github.com/assafelovic/gpt-researcher)’s `DeepResearchSkill`. The `gpt-researcher/` subdirectory in this repo is a **reference only** — it is not imported at runtime and is excluded from the OXT bundle (`.gitignore`).
 
-**Flow (deep mode):**
+**Flow (adaptive deep mode):**
 
 1. **Plan** — LLM generates follow-up questions from the user query (+ optional DuckDuckGo preview snippet).
-2. **Breadth** — LLM generates N search queries (`chatbot.deep_research_breadth`, default 4).
-3. **Per sub-query** — runs the **same** shallow ReAct sub-agent (`_run_web_agent`: DuckDuckGo + visit + synthesize via `WriterAgentSmolModel`).
-4. **Extract** — LLM pulls learnings, citations, and follow-up questions from each sub-report.
-5. **Depth** — if `chatbot.deep_research_depth` > 1, recurse with halved breadth on follow-ups.
-6. **Synthesize** — LLM writes one plain-text report (`WEB_RESEARCH_PLAIN_TEXT_FORMAT`).
+2. **Round loop** (up to `chatbot.deep_research_max_rounds`, default 3):
+   - **Breadth** — LLM generates N search queries per round (`chatbot.deep_research_breadth`, default 4).
+   - **Parallel sub-queries** — up to `chatbot.deep_research_concurrency` shallow ReAct sub-agents run at once (global cap: `chatbot.deep_research_max_sub_queries`, default 14).
+   - **Per sub-query** — `_run_web_agent` with research goal, visited-URL dedup, and optional extra step budget.
+   - **Extract** — LLM pulls learnings, citations, and source URLs from each sub-report.
+   - **Assess** — LLM scores coverage (`chatbot.deep_research_quality_threshold`, default 7/10); stops early when sufficient or continues with gap-filling queries.
+3. **Synthesize** — LLM writes one plain-text report (`WEB_RESEARCH_PLAIN_TEXT_FORMAT`) including a sources list.
 
-Implementation: [`plugin/chatbot/web_research_deep.py`](../plugin/chatbot/web_research_deep.py) (orchestrator + JSON parsers); sidebar session [`plugin/chatbot/deep_research_session.py`](../plugin/chatbot/deep_research_session.py) (`deep_research_web` → `apply_document_content`); shallow agent helper [`_run_web_agent`](../plugin/chatbot/web_research.py).
+Implementation: [`plugin/chatbot/web_research_deep.py`](../plugin/chatbot/web_research_deep.py) (adaptive orchestrator + JSON parsers); sidebar session [`plugin/chatbot/deep_research_session.py`](../plugin/chatbot/deep_research_session.py) (`deep_research_web` → `apply_document_content`); shallow agent helper [`_run_web_agent`](../plugin/chatbot/web_research.py).
 
-**Config (internal, JSON override):** `chatbot.deep_research_breadth`, `chatbot.deep_research_depth`, `chatbot.deep_research_concurrency` (reserved; sub-queries run sequentially today).
+**Config (internal, JSON override):** `chatbot.deep_research_breadth`, `chatbot.deep_research_max_rounds`, `chatbot.deep_research_depth` (legacy alias when `max_rounds` is 0), `chatbot.deep_research_concurrency`, `chatbot.deep_research_max_sub_queries`, `chatbot.deep_research_quality_threshold`, `chatbot.deep_research_sub_agent_steps`.
 
 ---
 

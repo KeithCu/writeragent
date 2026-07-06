@@ -172,7 +172,7 @@ config:
     max: 4
     widget: number
     label: Deep Research Depth
-    helper: "Recursive depth levels when Deep Research sidebar mode is used (internal)."
+    helper: "Legacy alias for max_rounds when deep_research_max_rounds is 0 (internal)."
     internal: true
 
   deep_research_concurrency:
@@ -182,7 +182,47 @@ config:
     max: 5
     widget: number
     label: Deep Research Concurrency
-    helper: "Reserved for future parallel sub-query runs in Deep Research sidebar mode (internal)."
+    helper: "Parallel sub-query workers in Deep Research sidebar mode (internal)."
+    internal: true
+
+  deep_research_max_sub_queries:
+    type: int
+    default: 14
+    min: 1
+    max: 40
+    widget: number
+    label: Deep Research Max Sub-Queries
+    helper: "Global cap on shallow sub-agent runs per deep research session (internal)."
+    internal: true
+
+  deep_research_max_rounds:
+    type: int
+    default: 3
+    min: 1
+    max: 6
+    widget: number
+    label: Deep Research Max Rounds
+    helper: "Adaptive research rounds; deep_research_depth JSON override maps here if max_rounds unset (internal)."
+    internal: true
+
+  deep_research_quality_threshold:
+    type: int
+    default: 7
+    min: 1
+    max: 10
+    widget: number
+    label: Deep Research Quality Threshold
+    helper: "Stop when LLM coverage score reaches this value (1-10, internal)."
+    internal: true
+
+  deep_research_sub_agent_steps:
+    type: int
+    default: 0
+    min: 0
+    max: 50
+    widget: number
+    label: Deep Research Sub-Agent Steps
+    helper: "Max ReAct steps per sub-query (0 = 150% of chatbot.max_tool_rounds, internal)."
     internal: true
 
 #  api_enabled:

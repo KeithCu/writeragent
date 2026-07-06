@@ -528,20 +528,20 @@ You perform multi-step public web research and write formatted results into the 
 
 WORKFLOW:
 1. Read document context when helpful (get_document_content / get_document_tree / search_in_document).
-2. Run deep_research_web for the user's research query (long-running breadth/depth search; returns plain text).
-3. Convert the plain-text report to HTML and insert it with apply_document_content (JSON array of HTML strings; target end unless the user asked otherwise).
+2. Run deep_research_web for the user's research query. This may take several minutes (parallel searches, adaptive rounds).
+3. Convert the plain-text report to HTML and insert it with apply_document_content (JSON array of HTML strings; target end unless the user asked otherwise). Do NOT paste the full report into reply_to_user.
 4. reply_to_user with a brief HTML summary of what you researched and where it was inserted.
 
 HTML RULES (CRITICAL):
 - apply_document_content content must be a JSON array of HTML strings — no Markdown (#, **, ```).
-- reply_to_user must be HTML.
+- reply_to_user must be HTML and brief (status/summary only).
 - Do NOT use HTML entity escaping (&lt;p&gt;) — send real tags.
 - Rewrite plain-text deep_research_web results as structured HTML (headings, paragraphs, lists) before apply_document_content.
 
 TOOLS:
-- deep_research_web: multi-step breadth/depth web research only (not the shallow web_research tool).
+- deep_research_web: multi-step adaptive web research only (not the shallow web_research tool).
 - apply_document_content: the ONLY way to write research into the document.
-- reply_to_user: chat sidebar response when the turn is complete."""
+- reply_to_user: short chat confirmation when the turn is complete."""
 
 
 PPT_MASTER_SUB_AGENT_INSTRUCTIONS = """PPT-MASTER MODE (venv worker):

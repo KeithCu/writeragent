@@ -18,7 +18,8 @@
 
 import logging
 import os
-from dataclasses import dataclass
+import threading
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from plugin.framework.tool import ToolBase
@@ -46,6 +47,10 @@ class WebAgentRunParams:
     chat_append_callback: Callable[[str], None] | None
     prompt_for_web_research: bool
     outer_query: str
+    visited_urls: set[str] | None = None
+    visited_urls_lock: threading.Lock | None = None
+    max_steps_override: int | None = None
+    deep_sub_agent: bool = False
 
 
 class ToolWriterWebResearchBase(ToolBase):
@@ -178,6 +183,41 @@ def _write_research_cache(
 
 from plugin.contrib.smolagents.tools import Tool
 
+
+def _normalize_visit_url(url: str) -> str:
+    return str(url or "").strip().rstrip("/")
+
+
+class _VisitWebpageDedupTool(Tool):
+    """Wraps visit_webpage and skips URLs already read in this deep-research run."""
+
+    name = "visit_webpage"
+    description = "Visits a webpage at the given url and reads its content as a markdown string. Use this to browse webpages."
+    inputs = {"url": {"type": "string", "description": "The url of the webpage to visit."}}
+    output_type = "string"
+
+    def __init__(self, inner: Tool, visited_urls: set[str] | None, visited_urls_lock: threading.Lock | None) -> None:
+        super().__init__()
+        self._inner = inner
+        self._visited_urls = visited_urls
+        self._visited_urls_lock = visited_urls_lock
+
+    def forward(self, url: str) -> str:
+        key = _normalize_visit_url(url)
+        if key and self._visited_urls is not None:
+            lock = self._visited_urls_lock
+            if lock:
+                with lock:
+                    if key in self._visited_urls:
+                        return f"(Already visited in this research run: {key})"
+                    self._visited_urls.add(key)
+            elif key in self._visited_urls:
+                return f"(Already visited in this research run: {key})"
+            else:
+                self._visited_urls.add(key)
+        return self._inner.forward(url)
+
+
 class VisitWebpageCdpTool(Tool):
     name = "visit_webpage"
     description = "Visits a webpage at the given url and reads its content as a markdown string. Use this to browse webpages."
@@ -239,18 +279,27 @@ class VisitWebpageCdpTool(Tool):
             return f"Error visiting webpage via CDP: {e}"
 
 
-def _run_web_agent(ctx: Any, query: str, history_text: str | None, params: WebAgentRunParams) -> str | dict[str, Any]:
+def _run_web_agent(
+    ctx: Any,
+    query: str,
+    history_text: str | None,
+    params: WebAgentRunParams,
+    *,
+    research_goal: str | None = None,
+) -> str | dict[str, Any]:
     """Run one shallow ReAct web-research sub-agent; returns report text or error payload dict."""
     from plugin.chatbot.smol_agent import SmolAgentExecutor
     from plugin.chatbot.smol_examples import get_examples_block
     from plugin.contrib.smolagents.default_tools import DuckDuckGoSearchTool, VisitWebpageTool
     from plugin.framework.constants import WEB_RESEARCH_PLAIN_TEXT_FORMAT
 
-    max_steps = params.max_steps
+    max_steps = params.max_steps_override if params.max_steps_override else params.max_steps
     base_intro = (
         "You are a research assistant. Use the conversation context provided below to resolve any ambiguity in the user's query. "
         "Avoid visiting Yelp (yelp.com) links, as Yelp blocks automated requests and returns 403 errors; rely on other sources instead."
     )
+    if params.deep_sub_agent and research_goal:
+        base_intro += f"\n\nResearch goal for this sub-task: {research_goal.strip()}"
     tool_steps_budget = max_steps - 1
     budget_text = (
         f"Step limit: at most {max_steps} agent steps total (each step is one tool call, "
@@ -271,11 +320,12 @@ def _run_web_agent(ctx: Any, query: str, history_text: str | None, params: WebAg
         "Return the full research report as plain text in final_answer; the main agent receives it in the delegate tool result."
     )
 
-    visit_tool = (
+    visit_inner = (
         VisitWebpageCdpTool(cdp_url=params.cdp_url)
         if (params.cdp_enabled and params.cdp_url)
         else VisitWebpageTool(cache_path=params.cache_path, cache_max_mb=params.cache_max_mb, cache_max_age_days=params.cache_max_age_days)
     )
+    visit_tool = _VisitWebpageDedupTool(visit_inner, params.visited_urls, params.visited_urls_lock)
     agent = WebResearchToolCallingAgent(
         tools=[
             DuckDuckGoSearchTool(cache_path=params.cache_path, cache_max_mb=params.cache_max_mb, cache_max_age_days=params.cache_max_age_days),
@@ -326,6 +376,14 @@ def _run_web_agent(ctx: Any, query: str, history_text: str | None, params: WebAg
             status_msg = f"Search: {q[:25]}"
         elif step.name == "visit_webpage":
             url = str(step.arguments.get("url", "")) if isinstance(step.arguments, dict) else ""
+            norm_url = _normalize_visit_url(url)
+            if norm_url and params.visited_urls is not None:
+                lock = params.visited_urls_lock
+                if lock:
+                    with lock:
+                        params.visited_urls.add(norm_url)
+                else:
+                    params.visited_urls.add(norm_url)
             if params.append_thinking_callback:
                 params.append_thinking_callback(f"Running tool: {step.name} with {{'url': '{url}'}}\n")
             from plugin.framework.url_utils import get_url_domain
@@ -357,7 +415,7 @@ def _run_deep_web_research(
 ) -> str | dict[str, Any]:
     """Breadth/depth research loop; each sub-query reuses the shallow ReAct sub-agent."""
     from plugin.contrib.smolagents.default_tools import DuckDuckGoSearchTool
-    from plugin.framework.config import get_config_int
+    from plugin.framework.config import get_config_int, get_config_int_safe
     from plugin.chatbot.web_research_deep import run_deep_research
 
     llm_client = agent_params.smol_model.api
@@ -365,8 +423,35 @@ def _run_deep_web_research(
     def llm_chat(messages: list[dict[str, str]], max_tok: int) -> str:
         return llm_client.chat_completion_sync(messages, max_tokens=max_tok, prepend_dev_build_system_prefix=False)
 
-    def run_sub_agent(sub_query: str, sub_history: str | None) -> str | dict[str, Any]:
-        return _run_web_agent(ctx, sub_query, sub_history, agent_params)
+    visited_urls: set[str] = set()
+    visited_lock = threading.Lock()
+    deep_params = WebAgentRunParams(
+        smol_model=agent_params.smol_model,
+        max_steps=agent_params.max_steps,
+        cache_path=agent_params.cache_path,
+        cache_max_mb=agent_params.cache_max_mb,
+        cache_max_age_days=agent_params.cache_max_age_days,
+        cdp_enabled=agent_params.cdp_enabled,
+        cdp_url=agent_params.cdp_url,
+        stop_checker=agent_params.stop_checker,
+        status_callback=agent_params.status_callback,
+        append_thinking_callback=agent_params.append_thinking_callback,
+        approval_callback=agent_params.approval_callback,
+        chat_append_callback=agent_params.chat_append_callback,
+        prompt_for_web_research=agent_params.prompt_for_web_research,
+        outer_query=agent_params.outer_query,
+        visited_urls=visited_urls,
+        visited_urls_lock=visited_lock,
+        deep_sub_agent=True,
+    )
+    sub_steps = get_config_int_safe("chatbot.deep_research_sub_agent_steps")
+    if sub_steps > 0:
+        deep_params.max_steps_override = sub_steps
+    elif agent_params.max_steps > 0:
+        deep_params.max_steps_override = max(agent_params.max_steps + 1, int(agent_params.max_steps * 1.5))
+
+    def run_sub_agent(sub_query: str, research_goal: str, sub_history: str | None) -> str | dict[str, Any]:
+        return _run_web_agent(ctx, sub_query, sub_history, deep_params, research_goal=research_goal or None)
 
     initial_snippet = ""
     try:
@@ -378,6 +463,10 @@ def _run_deep_web_research(
     if agent_params.status_callback:
         agent_params.status_callback("Deep research: starting...")
 
+    max_rounds = get_config_int_safe("chatbot.deep_research_max_rounds")
+    if max_rounds <= 0:
+        max_rounds = get_config_int("chatbot.deep_research_depth")
+
     return run_deep_research(
         query_str,
         history_text,
@@ -386,7 +475,10 @@ def _run_deep_web_research(
         stop_checker=agent_params.stop_checker,
         status_callback=agent_params.status_callback,
         breadth=get_config_int("chatbot.deep_research_breadth"),
-        depth=get_config_int("chatbot.deep_research_depth"),
+        max_rounds=max_rounds,
+        concurrency=get_config_int("chatbot.deep_research_concurrency"),
+        max_sub_queries=get_config_int("chatbot.deep_research_max_sub_queries"),
+        quality_threshold=get_config_int("chatbot.deep_research_quality_threshold"),
         plain_text_format=plain_text_format,
         initial_search_snippet=initial_snippet,
     )
