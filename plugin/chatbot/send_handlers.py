@@ -193,7 +193,19 @@ class SendHandlersMixin:
             # BUT, it's better to refactor the workers to use the passed queue.
             worker_fn()
 
-        run_async_worker_with_drain(self.ctx, worker_wrapper, apply_chunk, on_stream_done, on_error, on_status_fn=self._set_status, stop_checker=self.resolve_stop_checker(), on_stopped_fn=on_stopped, name="chatbot-send-handler", q=q)
+        run_async_worker_with_drain(
+            self.ctx,
+            worker_wrapper,
+            apply_chunk,
+            on_stream_done,
+            on_error,
+            on_status_fn=self._set_status,
+            stop_checker=self.resolve_stop_checker(),
+            on_stopped_fn=on_stopped,
+            name="chatbot-send-handler",
+            q=q,
+            on_approval_required=on_approval_callback,
+        )
 
     def _do_send_direct_image(self: SendHandlerHost, query_text: str, model: Any) -> None:
         interpreter = EffectInterpreter(self)

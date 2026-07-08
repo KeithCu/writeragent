@@ -496,6 +496,7 @@ def run_async_worker_with_drain(
     on_stopped_fn: Callable[[], None] | None = None,
     name: str = "async-worker",
     q: queue.Queue[Any] | BatchingStreamQueue | None = None,
+    on_approval_required: Callable[[Any], None] | None = None,
 ):
     """Run a background worker and drain its queue on the main thread.
 
@@ -568,7 +569,19 @@ def run_async_worker_with_drain(
     resolved_on_error = on_error_fn or _noop_error
     resolved_on_stopped = on_stopped_fn or ((lambda: on_done_fn()) if on_done_fn else _noop_stopped)
 
-    run_stream_drain_loop(q, toolkit, job_done, apply_chunk_fn, on_stream_done=on_stream_done_wrapper, on_stopped=resolved_on_stopped, on_error=resolved_on_error, on_status_fn=on_status_fn, ctx=ctx, stop_checker=stop_checker)
+    run_stream_drain_loop(
+        q,
+        toolkit,
+        job_done,
+        apply_chunk_fn,
+        on_stream_done=on_stream_done_wrapper,
+        on_stopped=resolved_on_stopped,
+        on_error=resolved_on_error,
+        on_status_fn=on_status_fn,
+        ctx=ctx,
+        on_approval_required=on_approval_required,
+        stop_checker=stop_checker,
+    )
 
 
 def _run_client_stream(

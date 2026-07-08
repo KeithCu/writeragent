@@ -542,6 +542,68 @@ def test_web_research_tool_stop():
                 assert result["message"] == "Web search stopped by user."
 
 
+def test_web_research_tool_approval():
+    # Setup mock context
+    ctx = MagicMock()
+    ctx.ctx = MockContext()
+    from unittest.mock import patch
+    setattr(ctx.ctx, "getServiceManager", MagicMock())  # for ConfigService
+    ctx.status_callback = MagicMock()
+    ctx.append_thinking_callback = MagicMock()
+    ctx.stop_checker = lambda: False
+
+    # We will provide an approval_callback
+    approval_called = []
+    def mock_approval(query, tool, args):
+        approval_called.append((query, tool))
+        return True, None
+    ctx.approval_callback = mock_approval
+
+    call_count = [0]
+    def mock_generate(self, messages, stop_sequences=None, tools_to_call_from=None, **kwargs):
+        call_count[0] += 1
+        if call_count[0] == 1:
+            tc = ChatMessageToolCall(
+                id="call_1",
+                type="function",
+                function=ChatMessageToolCallFunction(
+                    name="web_search",
+                    arguments='{"query": "Latest Python release"}'
+                )
+            )
+            return ChatMessage(role=MessageRole.ASSISTANT, content="", tool_calls=[tc])
+        else:
+            return ChatMessage(role=MessageRole.ASSISTANT, content="Done!")
+
+    with patch("plugin.chatbot.smol_agent.WriterAgentSmolModel.generate", mock_generate):
+        with patch("urllib.request.urlopen") as mock_url:
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = b"<html><body>Search Results</body></html>"
+            mock_url.return_value.__enter__.return_value = mock_resp
+            with patch("requests.get") as mock_get:
+                from plugin.writer.specialized_base import DelegateToSpecializedWriter
+                tool = DelegateToSpecializedWriter()
+                # Mock config to prompt_for_web_research = "true"
+                def _cfg_get(key):
+                    if key == "chatbot.prompt_for_web_research":
+                        return "true"
+                    return "false"
+                with patch("plugin.framework.config.get_config", side_effect=_cfg_get):
+                    def _cfg_int(key):
+                        if key == "web_cache_max_mb":
+                            return 0
+                        if key == "chat_max_tokens":
+                            return 2048
+                        return 10
+                    with patch("plugin.framework.config.get_config_int", side_effect=_cfg_int):
+                        with patch("plugin.framework.config.get_api_config", return_value={}):
+                            result = tool.execute(ctx, domain="web_research", task="What is the latest Python release?")
+
+                assert result["status"] == "ok"
+                assert "Done!" in result["result"]
+                assert approval_called == [("Latest Python release", "web_search")]
+
+
 def test_run_web_research_invalid_json():
     panel = DummyChatbotPanel()
     model = MockDocument()
