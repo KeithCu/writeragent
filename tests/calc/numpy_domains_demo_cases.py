@@ -13,11 +13,12 @@ import json
 from dataclasses import dataclass
 from typing import Any, Literal
 
-DomainName = Literal["analysis", "viz", "math", "quant", "optimize", "units"]
+DomainName = Literal["analysis", "forecast", "viz", "math", "quant", "optimize", "units"]
 CheckMode = Literal["scalar", "visual", "formatted_cell", "grid_egress", "chat_only"]
 
 DOMAIN_SHEET_ORDER: tuple[DomainName, ...] = (
     "analysis",
+    "forecast",
     "viz",
     "math",
     "quant",
@@ -42,6 +43,14 @@ DATE_GRID: list[list[Any]] = [
     ["2024-01-15", 200],
     ["2024-06-15", 250],
 ]
+
+# 36 monthly points with mild seasonality for forecast/decompose helpers
+FORECAST_GRID: list[list[Any]] = [["Date", "Value"]]
+for i in range(36):
+    month = (i % 12) + 1
+    year = 2020 + i // 12
+    seasonal = 10.0 if month <= 6 else -10.0
+    FORECAST_GRID.append([f"{year}-{month:02d}-01", 100.0 + i + seasonal])
 
 PIVOT_GRID: list[list[Any]] = [
     ["Region", "Quarter", "Sales"],
@@ -187,6 +196,10 @@ def _quant_expr(helper: str, params: dict[str, Any], access: str, *, use_data: b
 
 def _optimize_expr(helper: str, params: dict[str, Any], access: str) -> str:
     return f"from writeragent.scripting.optimize import run_optimize; run_optimize({_spec(helper, params)}, data, {{}}){access}"
+
+
+def _forecast_expr(helper: str, params: dict[str, Any], access: str) -> str:
+    return f"from writeragent.scripting.forecast import run_forecast; run_forecast({_spec(helper, params)}, data, {{}}){access}"
 
 
 def _units_expr(helper: str, params: dict[str, Any], access: str) -> str:
@@ -606,6 +619,53 @@ def _quant_cases() -> list[DomainDemoCase]:
     ]
 
 
+def _forecast_cases() -> list[DomainDemoCase]:
+    return [
+        DomainDemoCase(
+            id="forecast_time_series",
+            domain="forecast",
+            helper="forecast_time_series",
+            description="Forward predictions on monthly series (statsmodels or MA fallback)",
+            input_grid=FORECAST_GRID,
+            params={"periods": 6, "model": "auto", "date_col": "Date", "value_col": "Value"},
+            python_expr=_forecast_expr(
+                "forecast_time_series",
+                {"periods": 6, "model": "auto", "date_col": "Date", "value_col": "Value"},
+                '["status"]',
+            ),
+            expected_scalar="ok",
+            script_hint="Forecast Helpers → [Forecast] forecast_time_series",
+            chat_prompt=(
+                'forecast_data helper=forecast_time_series data_range=<DATA_RANGE> '
+                'params={"periods":6,"model":"auto","date_col":"Date","value_col":"Value"}'
+            ),
+            requires_package="statsmodels",
+            check_mode="grid_egress",
+        ),
+        DomainDemoCase(
+            id="decompose_time_series",
+            domain="forecast",
+            helper="decompose_time_series",
+            description="Trend / seasonal / residual decomposition",
+            input_grid=FORECAST_GRID,
+            params={"date_col": "Date", "value_col": "Value", "model": "additive", "period": 12},
+            python_expr=_forecast_expr(
+                "decompose_time_series",
+                {"date_col": "Date", "value_col": "Value", "model": "additive", "period": 12},
+                '["status"]',
+            ),
+            expected_scalar="ok",
+            script_hint="Forecast Helpers → [Forecast] decompose_time_series",
+            chat_prompt=(
+                'forecast_data helper=decompose_time_series data_range=<DATA_RANGE> '
+                'params={"date_col":"Date","value_col":"Value","model":"additive","period":12}'
+            ),
+            requires_package="statsmodels",
+            check_mode="grid_egress",
+        ),
+    ]
+
+
 def _optimize_cases() -> list[DomainDemoCase]:
     return [
         DomainDemoCase(
@@ -747,6 +807,10 @@ def analysis_demo_cases() -> list[DomainDemoCase]:
     return _analysis_cases()
 
 
+def forecast_demo_cases() -> list[DomainDemoCase]:
+    return _forecast_cases()
+
+
 def viz_demo_cases() -> list[DomainDemoCase]:
     return _viz_cases()
 
@@ -770,6 +834,7 @@ def units_demo_cases() -> list[DomainDemoCase]:
 def cases_for_domain(domain: DomainName) -> list[DomainDemoCase]:
     builders = {
         "analysis": _analysis_cases,
+        "forecast": _forecast_cases,
         "viz": _viz_cases,
         "math": _math_cases,
         "quant": _quant_cases,

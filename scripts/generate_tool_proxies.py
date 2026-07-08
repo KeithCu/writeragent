@@ -286,8 +286,9 @@ def generate_module(tools: list[ToolBase]) -> str:
 
     for namespace in sorted(groups.keys()):
         tool_list = groups[namespace]
-        # Emit a class that acts as a namespace
-        class_name = namespace.title().replace("_", "") + "Proxy"
+        # Emit a class that acts as a namespace (hyphens in domain names are invalid in Python identifiers).
+        safe_ns = namespace.replace("-", "_")
+        class_name = "".join(part.capitalize() for part in safe_ns.split("_")) + "Proxy"
         lines.append(f"class _{class_name}:")
         lines.append(f'    """Proxy for {namespace} tools."""')
         lines.append("")
@@ -318,8 +319,8 @@ def generate_module(tools: list[ToolBase]) -> str:
             lines.append(f'        return _rpc_call("{tool.name}"{kwargs_body})')
             lines.append("")
 
-        # Singleton instance
-        lines.append(f"{namespace} = _{class_name}()")
+        # Singleton instance (keep DOMAIN_TOOLS key as registered domain string)
+        lines.append(f"{safe_ns} = _{class_name}()")
         lines.append("")
         lines.append("")
 

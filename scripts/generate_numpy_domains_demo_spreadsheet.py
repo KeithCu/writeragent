@@ -312,11 +312,12 @@ def _readme_lines() -> list[str]:
         "   Math: uv pip install sympy",
         "   Quant: uv pip install yfinance pandas-ta quantstats pyportfolioopt",
         "   Optimize: scipy (usually with analysis stack)",
+        "   Forecast: statsmodels (usually with analysis stack)",
         "   Units: uv pip install pint",
         "3. Deploy / restart WriterAgent so =PYTHON() and Run Python Script are registered.",
         "",
         "SHEETS",
-        "• analysis, viz, math, quant, optimize, units — one block per helper",
+        "• analysis, forecast, viz, math, quant, optimize, units — one block per helper",
         "• goal_seek_solver — native Calc Goal Seek / Solver (chat/MCP only)",
         "",
         "HOW TO TEST",
@@ -434,6 +435,7 @@ Native ODS preserves uppercase `=PYTHON()` and semicolon argument separators (Li
 | Sheet | Helpers |
 |-------|---------|
 | `analysis` | 14 trusted analysis helpers + `analyze_data` chat |
+| `forecast` | `forecast_time_series`, `decompose_time_series` + `forecast_data` chat |
 | `viz` | `quick_plot`, `correlation_heatmap`, `time_series_plot` + raw matplotlib block |
 | `math` | SymPy: solve, simplify, integrate, differentiate |
 | `quant` | yfinance / pandas-ta / quantstats / pyportfolioopt (RPS only) |
@@ -446,7 +448,7 @@ Native ODS preserves uppercase `=PYTHON()` and semicolon argument separators (Li
 1. Open the workbook; read the **readme** tab.
 2. On **analysis** (or optimize/math): **Ctrl+Shift+F9** — eyeball `python_formula` vs `expected_scalar`.
 3. On **viz**: select data range → **Tools → Run Python Script… → Viz Helpers**.
-4. On **math/units/quant/optimize**: use matching **Run Python Script** helper section.
+4. On **math/units/quant/optimize/forecast**: use matching **Run Python Script** helper section.
 5. Paste **chat_prompt** cells into WriterAgent chat where provided.
 
 Replace `<DATA_RANGE>` in chat prompts with the actual `Sheet.col` range from each block header row.

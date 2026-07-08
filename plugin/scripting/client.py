@@ -229,6 +229,36 @@ def run_optimize(
     )
 
 
+# --- Forecast ---
+
+_FORECAST_SESSION_PREFIX = "writeragent:forecast"
+_FORECAST_STUB = """\
+from plugin.scripting.forecast import run_forecast as _run
+result = _run(data["spec"], data.get("data"), data.get("context") or {})
+"""
+
+
+def run_forecast(
+    ctx: Any,
+    spec: dict[str, Any] | str,
+    data: Any = None,
+    *,
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Execute a trusted forecast helper in the user venv."""
+    timeout_sec = configured_python_exec_timeout(ctx)
+    payload = {"spec": spec, "data": data, "context": context or {}}
+    return _run_trusted_helper(
+        ctx,
+        session_id=_FORECAST_SESSION_PREFIX,
+        stub=_FORECAST_STUB,
+        payload=payload,
+        timeout_sec=timeout_sec,
+        error_code="FORECAST_ERROR",
+        error_label="Forecast",
+    )
+
+
 # --- Long-running trusted helpers (use the single long budget instead of user python_exec_timeout) ---
 # Vision is handled in its own resolver (also sources from the long budget for heavy paths).
 

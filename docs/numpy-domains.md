@@ -2,7 +2,7 @@
 
 Back to [Enabling NumPy & Python in LibreOffice](enabling_numpy_in_libreoffice.md) (core venv bridge, `=PYTHON()`, architecture, sandbox).
 
-WriterAgent builds **domain-specific trusted helpers** on top of the warm venv subprocess: fixed host stubs call reviewed modules under `plugin/scripting/` (and related packages) with the full scientific stack — no AST sandbox inside those modules. This document covers Analysis, Visualization, Symbolic Math, Units, Text Analytics, and planned domains (Forecasting, Optimization, Geospatial, Audio).
+WriterAgent builds **domain-specific trusted helpers** on top of the warm venv subprocess: fixed host stubs call reviewed modules under `plugin/scripting/` (and related packages) with the full scientific stack — no AST sandbox inside those modules. This document covers Analysis, Visualization, Symbolic Math, Units, Text Analytics, Forecasting, Optimization, Quant, and planned domains (Geospatial, Audio).
 
 **Related:** [Analysis Sub-Agent](analysis-sub-agent.md) · [Image Recognition](image-recognition.md) (Vision) · [Embeddings](embeddings.md) · [DuckDB Calc](duckdb-calc-dev-plan.md) · [SageMath (deferred)](sagemath-integration-dev-plan.md) · [Venv IPC & serialization](numpy-serialization.md)
 
@@ -15,6 +15,7 @@ WriterAgent builds **domain-specific trusted helpers** on top of the warm venv s
    - [Domain helper pattern](#domain-helper-pattern-analysis--vision-canonical)
    - [Visualization & Plotting](#visualization)
    - [Time Series & Forecasting](#forecasting)
+   - [Forecasting Phase 1 (next agent)](#forecasting-phase-1)
    - [Symbolic Mathematics](#symbolic-math)
    - [Data Engineering / Units (Pint)](#data-engineering-units)
    - [Text / Document Analytics](#text-analytics)
@@ -43,14 +44,14 @@ uv pip install numpy pandas scipy scikit-learn statsmodels ydata-profiling panda
 | `scipy` | `detect_outliers` (IQR, z-score) |
 | `scikit-learn` | `detect_outliers` (`isolation_forest`), `cluster_numeric` |
 | [ydata-profiling](https://github.com/ydataai/ydata-profiling) (`data_profiling`) | `describe_data` |
-| `statsmodels` | `run_regression` |
+| `statsmodels` | `run_regression`, [`forecast_time_series` / `decompose_time_series`](../plugin/scripting/forecast.py) |
 | [pandas-montecarlo](https://github.com/ranaroussi/pandas-montecarlo) | `monte_carlo` |
 
 Helpers that need a missing package return `MISSING_PACKAGE` with the install line above — there is no in-code fallback to alternate libraries. See [Analysis Sub-Agent](analysis-sub-agent.md).
 
 ### Demo workbook (all NumPy domains)
 
-Manual QA fixture covering Analysis, Viz, Math, Quant, Optimize, Units, and Goal Seek/Solver: [`tests/fixtures/numpy_domains_demo.ods`](../tests/fixtures/numpy_domains_demo.ods) ([`numpy_domains_demo.README.md`](../tests/fixtures/numpy_domains_demo.README.md)). Native ODS preserves uppercase `=PYTHON()` (LibreOffice lowercases custom add-ins when importing XLSX). One sheet per domain with sample data, `=PYTHON()` scalar checks where applicable, Run Python Script picker hints, and chat prompts for tools that expose a Calc chat surface. Regenerate from repo root:
+Manual QA fixture covering Analysis, Forecast, Viz, Math, Quant, Optimize, Units, and Goal Seek/Solver: [`tests/fixtures/numpy_domains_demo.ods`](../tests/fixtures/numpy_domains_demo.ods) ([`numpy_domains_demo.README.md`](../tests/fixtures/numpy_domains_demo.README.md)). Native ODS preserves uppercase `=PYTHON()` (LibreOffice lowercases custom add-ins when importing XLSX). One sheet per domain with sample data, `=PYTHON()` scalar checks where applicable, Run Python Script picker hints, and chat prompts for tools that expose a Calc chat surface. Regenerate from repo root:
 
 ```bash
 python scripts/generate_numpy_domains_demo_spreadsheet.py
@@ -60,7 +61,7 @@ Case definitions: [`tests/calc/numpy_domains_demo_cases.py`](../tests/calc/numpy
 
 ### Planned domain package groups {#planned-domain-package-groups}
 
-Future trusted-helper domains (Forecasting, Text Analytics, Optimization, Geospatial, Audio) will each declare required venv packages and a Settings → Python **Test** group when implemented. **Shipped today:**
+Future trusted-helper domains (Geospatial, Audio, optional `prophet`) will each declare required venv packages and a Settings → Python **Test** group when implemented. **Shipped today:**
 
 | Domain | Settings → Python **Test** group | Entry doc |
 |--------|----------------------------------|-----------|
@@ -68,6 +69,10 @@ Future trusted-helper domains (Forecasting, Text Analytics, Optimization, Geospa
 | **Embeddings** | **Embeddings Libraries** (`envwrap`, `sentence_transformers`, `sqlite_vec`, `langgraph`, `langchain_core`, `langchain_text_splitters`) | [embeddings.md](embeddings.md#embeddings-venv-packages) |
 | **Visualization** | **Visualization Libraries** (`matplotlib`, `seaborn`) | [Visualization § Phase A–C](#visualization) |
 | **Symbolic Math (SymPy)** | **Computer Algebra** (`sympy`) | [Symbolic Math §3](#symbolic-math) |
+| **Units (Pint)** | **Data Engineering Libraries** (`pint`, `duckdb`) | [Data Engineering / Units §3b](#data-engineering-units) |
+| **Forecasting** | **Data Analysis / EDA Libraries** (`statsmodels` — shared with analysis) | [Forecasting §2](#forecasting) |
+| **Text Analytics** | **Text / NLP Libraries** (`spacy`, `textdescriptives`, `transformers`, …) | [Text Analytics §4](#text-analytics) |
+| **Quantitative Finance** | **Quantitative Finance Libraries** (`yfinance`, `pandas_ta`, …) | Run Python Script **Quant Helpers** |
 
 SageMath remains a future optional extension — [sagemath-integration-dev-plan.md](sagemath-integration-dev-plan.md).
 
@@ -75,22 +80,22 @@ SageMath remains a future optional extension — [sagemath-integration-dev-plan.
 
 ## Scientific domain roadmap (trusted helpers) {#scientific-domain-roadmap-trusted-helpers}
 
-The sections below are **roadmaps and reference** for scientific capabilities. **Shipped domains:** **Analysis** ([analysis-sub-agent.md](analysis-sub-agent.md)), **Vision** ([image-recognition.md](image-recognition.md)), **Visualization** ([§1](#visualization)), and **Symbolic Math (SymPy)** ([§3](#symbolic-math)). DuckDB SQL helpers (up to Phase C: multi-table catalog with named ranges + folder files) are implemented under the same trusted + Run Python Script + analysis-domain pattern; see [duckdb-calc-dev-plan.md](duckdb-calc-dev-plan.md). Remaining domains (Forecasting, Text Analytics, Optimization, Geospatial, Audio) follow the same pattern: trusted modules under `plugin/scripting/`, fixed venv stubs, host extract → IPC → compact results → document egress, plus optional Run Python Script templates and specialized sub-agent exposure.
+The sections below are **roadmaps and reference** for scientific capabilities. **Shipped domains:** **Analysis** ([analysis-sub-agent.md](analysis-sub-agent.md)), **Vision** ([image-recognition.md](image-recognition.md)), **Visualization** ([§1](#visualization)), **Symbolic Math (SymPy)** ([§3](#symbolic-math)), **Units (Pint)** ([§3b](#data-engineering-units)), **Forecasting** ([§2](#forecasting)), **Text Analytics** ([§4](#text-analytics)), **Optimization** (partial — [§5](#optimization)), and **Quant** (Run Python Script). DuckDB SQL helpers (up to Phase C: multi-table catalog with named ranges + folder files) are implemented under the same trusted + Run Python Script + analysis-domain pattern; see [duckdb-calc-dev-plan.md](duckdb-calc-dev-plan.md). Remaining domains (Geospatial, Audio) follow the same pattern: trusted modules under `plugin/scripting/`, fixed venv stubs, host extract → IPC → compact results → document egress, plus optional Run Python Script templates and specialized sub-agent exposure.
 
 ### Domain helper pattern (Analysis + Vision canonical)
 
 Shipped domains prove the stack. New domains should mirror them—not invent parallel plumbing.
 
-| Layer | Analysis | Vision | Viz | Symbolic (SymPy) | Units (Pint) | Planned |
-|-------|----------|--------|-----|------------------|--------------|---------|
-| Trusted module | [`analysis.py`](../plugin/scripting/analysis.py) | [`vision.py`](../plugin/vision/venv/vision.py) | [`viz.py`](../plugin/scripting/viz.py) | [`symbolic.py`](../plugin/scripting/symbolic.py) | [`units.py`](../plugin/scripting/units.py) | `forecast.py`, `text_analytics.py`, … |
-| Templates | `# writeragent:analysis` | `# writeragent:vision` | `# writeragent:viz` | `# writeragent:math` | `# writeragent:units` | `# writeragent:forecast`, … |
-| Host client | [`client.py`](../plugin/scripting/client.py) `run_analysis` | [`client.py`](../plugin/scripting/client.py) `run_vision` | [`client.py`](../plugin/scripting/client.py) `run_viz` | [`client.py`](../plugin/scripting/client.py) `run_symbolic` | [`client.py`](../plugin/scripting/client.py) `run_units` | Same RPC shape |
-| Runner / egress | [`analysis_runner.py`](../plugin/calc/analysis_runner.py), [`analysis_egress.py`](../plugin/calc/analysis_egress.py) | [`vision_runner.py`](../plugin/vision/vision_runner.py), [`vision_egress.py`](../plugin/vision/vision_egress.py) | egress in [`viz.py`](../plugin/scripting/viz.py) | egress in [`symbolic.py`](../plugin/scripting/symbolic.py) | egress in [`units.py`](../plugin/scripting/units.py) | Per domain |
-| Run Python Script | `_analysis_script_section` | `_vision_script_section` | `_viz_script_section` | `_math_script_section` | `_units_script_section` | [`document_scripts.py`](../plugin/scripting/document_scripts.py) |
-| Fast path order | — | 1st | 2nd | 3rd | 4th (units) | [`python_runner.py`](../plugin/scripting/python_runner.py): vision → viz → math → **units** → quant → … |
-| Settings Test | **Data Analysis / EDA** | **Vision Libraries** | **Visualization Libraries** | **Computer Algebra** | **Data Engineering Libraries** | Per domain when shipped |
-| LLM surface | Calc `domain="analysis"` — [`analyze_data`](../plugin/calc/analysis.py), [`plot_data`](../plugin/calc/viz.py) | `analyze_image` deferred | `plot_data` (analysis); raw matplotlib via `run_venv_python_script` | `domain="python"` — [`symbolic_math`](../plugin/calc/symbolic_math.py) | Run Python Script **Units Helpers** only | Extend analysis or add domains |
+| Layer | Analysis | Vision | Viz | Symbolic (SymPy) | Units (Pint) | Forecast | Planned |
+|-------|----------|--------|-----|------------------|--------------|----------|---------|
+| Trusted module | [`analysis.py`](../plugin/scripting/analysis.py) | [`vision.py`](../plugin/vision/venv/vision.py) | [`viz.py`](../plugin/scripting/viz.py) | [`symbolic.py`](../plugin/scripting/symbolic.py) | [`units.py`](../plugin/scripting/units.py) | [`forecast.py`](../plugin/scripting/forecast.py) | `text_analytics.py`, … |
+| Templates | `# writeragent:analysis` | `# writeragent:vision` | `# writeragent:viz` | `# writeragent:math` | `# writeragent:units` | `# writeragent:forecast` | … |
+| Host client | [`client.py`](../plugin/scripting/client.py) `run_analysis` | [`client.py`](../plugin/scripting/client.py) `run_vision` | [`client.py`](../plugin/scripting/client.py) `run_viz` | [`client.py`](../plugin/scripting/client.py) `run_symbolic` | [`client.py`](../plugin/scripting/client.py) `run_units` | [`client.py`](../plugin/scripting/client.py) `run_forecast` | Same RPC shape |
+| Runner / egress | [`analysis_runner.py`](../plugin/calc/analysis_runner.py), [`analysis_egress.py`](../plugin/calc/analysis_egress.py) | [`vision_runner.py`](../plugin/vision/vision_runner.py), [`vision_egress.py`](../plugin/vision/vision_egress.py) | egress in [`viz.py`](../plugin/scripting/viz.py) | egress in [`symbolic.py`](../plugin/scripting/symbolic.py) | egress in [`units.py`](../plugin/scripting/units.py) | egress in [`forecast.py`](../plugin/scripting/forecast.py) | Per domain |
+| Run Python Script | `_analysis_script_section` | `_vision_script_section` | `_viz_script_section` | `_math_script_section` | `_units_script_section` | `_forecast_script_section` | [`document_scripts.py`](../plugin/scripting/document_scripts.py) |
+| Fast path order | — | 1st | 2nd | 3rd | 4th (units) | after optimize | [`python_runner.py`](../plugin/scripting/python_runner.py): vision → viz → math → units → quant → optimize → **forecast** → analysis |
+| Settings Test | **Data Analysis / EDA** | **Vision Libraries** | **Visualization Libraries** | **Computer Algebra** | **Data Engineering Libraries** | **Data Analysis / EDA** (`statsmodels`) | Per domain when shipped |
+| LLM surface | Calc `domain="analysis"` — [`analyze_data`](../plugin/calc/analysis.py), [`plot_data`](../plugin/calc/viz.py) | `analyze_image` deferred | `plot_data` (analysis); raw matplotlib via `run_venv_python_script` | `domain="python"` — [`symbolic_math`](../plugin/calc/symbolic_math.py) | Run Python Script **Units Helpers** only | [`forecast_data`](../plugin/calc/forecast.py) in `domain="analysis"` | Extend analysis or add domains |
 
 ```mermaid
 flowchart TD
@@ -115,7 +120,7 @@ We are actively expanding the set of supported scientific libraries. These packa
 | Domain | Packages | Implementation |
 |--------|----------|----------------|
 | **Data Engineering** | `pint`, `pyarrow` | Trusted module `plugin/scripting/units.py` or `io.py` |
-| **NLP** | `langdetect` (grammar Local + embeddings plain-text locale), `spacy` (future) | Venv `langdetect` via [`langdetect_rpc.py`](../plugin/embeddings/venv/langdetect_rpc.py); future `plugin/scripting/nlp.py` for spacy |
+| **NLP** | `langdetect` (grammar Local + embeddings plain-text locale), `spacy` (shipped via [`text_analytics.py`](../plugin/scripting/text_analytics.py)) | Venv `langdetect` via [`langdetect_rpc.py`](../plugin/embeddings/venv/langdetect_rpc.py); Writer dialog + `# writeragent:text` |
 | **Bayesian Opt** | `scikit-optimize` | Trusted module `plugin/scripting/optimization.py` |
 
 The implementation should follow the [Domain helper pattern](#domain-helper-pattern-analysis--vision-canonical) using the established RPC stub architecture.
@@ -124,16 +129,16 @@ The implementation should follow the [Domain helper pattern](#domain-helper-patt
 
 | Priority | Domain | Status today | First target |
 |----------|--------|--------------|--------------|
-| 0 | **Analysis** (numeric EDA, regression, clustering, …) | **Shipped** — [analysis-sub-agent.md](analysis-sub-agent.md); Viz auto-plot via [`viz_auto_plot.py`](../plugin/calc/viz_auto_plot.py) | Extend with Forecast hooks |
+| 0 | **Analysis** (numeric EDA, regression, clustering, …) | **Shipped** — [analysis-sub-agent.md](analysis-sub-agent.md); Viz auto-plot via [`viz_auto_plot.py`](../plugin/calc/viz_auto_plot.py) | Maintenance |
 | 1 | **Visualization & Plotting** | **Shipped** (Phase A–C) | `plot_data`, `[Viz] quick_plot` |
-| 2 | **Time Series & Forecasting** | Partial building blocks in analysis | `forecast_time_series` |
+| 2 | **Time Series & Forecasting** | **Shipped (Phase 0)** — [`forecast.py`](../plugin/scripting/forecast.py), `forecast_data` | [Phase 1 plan](#forecasting-phase-1): anomalies, viz bands, optional `prophet` |
 | 3 | **Symbolic Mathematics** | **Shipped** (SymPy only; Sage deferred) | `symbolic_math`, `[Math] solve_equation` |
-| 4 | **Text / Document Analytics** | spaCy features shipped; `topics` (NMF) added | readability, entities, key_phrases, **topics** (section-aware) |
-| 5 | **Optimization & OR** | Partial (scipy, `monte_carlo`) | `optimize_portfolio` |
+| 4 | **Text / Document Analytics** | **Shipped** — spaCy + topics + sentiment; Writer dialog; no LLM tool yet | LLM tool surface |
+| 5 | **Optimization & OR** | **Partial** — `optimize_data` + scipy helpers shipped; pulp/ortools deferred | `pulp` / `ortools` |
 | 6 | **Geospatial** | Not started | `[Geo] map_data` |
 | 7 | **Audio / Signal Processing** | Recording shipped; no librosa analysis | Spectrogram via Viz egress |
 | 8 | **Data Engineering** | **Shipped (Pint)** — [`units.py`](../plugin/scripting/units.py), `[Units]` templates; `pyarrow` IO deferred | `convert_quantity`, `parse_quantity` |
-| 9 | **NLP** | **Partial** — `langdetect` in embeddings venv (grammar Local + plain-text locale) | `spacy` entity extraction |
+| 9 | **NLP** | **Partial** — `langdetect` in embeddings venv; spaCy in text analytics | LLM tool for text analytics |
 | 10 | **Bayesian Opt** | Not started | `skopt` |
 
 ---
@@ -214,40 +219,225 @@ run_venv_python_script(code="… plt.plot(…) …")
 
 ### 2. Time Series & Forecasting {#forecasting}
 
-**Status:** **Not shipped** as dedicated helpers. **Partial:** analysis building blocks exist.
+**Status:** **Shipped (Phase 0).** Trusted helpers via [`forecast.py`](../plugin/scripting/forecast.py), Run Python Script **Forecast Helpers**, and `forecast_data` chat tool (`domain="analysis"`). Phase 1: `anomaly_detection_time_series`, optional `prophet`, viz confidence-band plots.
 
 **Goal:** Forecast, decompose, and flag anomalies on date-indexed Calc data—natural fit for spreadsheets (finance, ops, sales).
 
-**Why:** Strong Calc synergy; pairs with Visualization for confidence-band plots.
+**Why:** Strong Calc synergy; pairs with Visualization for confidence-band plots (Phase 1).
 
 **Already in codebase:**
 
 | Piece | Location |
 |-------|----------|
 | Period-over-period change | [`compare_periods`](../plugin/scripting/analysis.py) in analysis helpers |
-| Outlier detection | [`detect_outliers`](../plugin/scripting/analysis.py) — base for time-series anomalies |
+| Outlier detection | [`detect_outliers`](../plugin/scripting/analysis.py) — cross-sectional; temporal anomalies deferred |
 | OLS / statsmodels | [`run_regression`](../plugin/scripting/analysis.py); `statsmodels` in analysis venv install line |
 | Range → pandas | [`calc_addin_data.py`](../plugin/calc/calc_addin_data.py), [`analysis_coerce.py`](../plugin/scripting/analysis_coerce.py) |
 
-**Proposed helpers:**
+**Shipped helpers (Phase 0):**
 
 | Helper | Purpose | Key params |
 |--------|---------|------------|
-| `forecast_time_series` | Forward predictions + intervals | `periods=12`, `model="auto"` (ARIMA/Holt-Winters) |
-| `decompose_time_series` | Trend / seasonal / residual | `date_col`, `value_col` |
-| `anomaly_detection_time_series` | Series-aware outliers | Extends `detect_outliers` with temporal context |
+| `forecast_time_series` | Forward predictions + intervals when available | `periods=12`, `model="auto"` (Holt-Winters / ARIMA / moving-average fallback) |
+| `decompose_time_series` | Trend / seasonal / residual | `date_col`, `value_col`, `period`, `model` |
 
-**Module layout:** `plugin/scripting/forecast.py` (or extend `analysis.py` with forecast helpers in the same `run_analysis` dispatcher—prefer separate module if package deps differ).
+**Phase 1 (deferred):**
 
-**Packages:** `statsmodels` (required, already in analysis stack); optional `prophet` (heavy — optional Test group, `MISSING_PACKAGE` if absent).
+| Helper | Purpose |
+|--------|---------|
+| `anomaly_detection_time_series` | Series-aware outliers (STL / seasonal residuals) |
 
-**Run Python Script:** **Forecast Helpers →** `[Forecast] forecast_series`, `[Forecast] decompose`.
+**Module layout:** [`plugin/scripting/forecast.py`](../plugin/scripting/forecast.py) + [`plugin/scripting/venv/forecast.py`](../plugin/scripting/venv/forecast.py).
 
-**Output:** Predictions table (analysis egress pattern) + optional Viz Phase C plot for bands.
+**Packages:** `statsmodels` (required for decomposition and most forecasts; already in analysis stack); optional `prophet` (heavy — future Test group, `MISSING_PACKAGE` if absent).
 
-**Sub-agent:** Extend `domain="analysis"` — same delegation as EDA/regression.
+**Run Python Script:** **Forecast Helpers →** `[Forecast] forecast_time_series`, `[Forecast] decompose_time_series`.
 
-**Fallback:** Simple moving-average projection in pandas when statsmodels forecasting APIs unavailable.
+**Output:** Predictions table (analysis egress pattern). Viz confidence-band plots deferred to Phase 1.
+
+**Sub-agent:** [`forecast_data`](../plugin/calc/forecast.py) in `domain="analysis"` — same delegation as EDA/regression (`optimize_data` precedent).
+
+**Fallback:** Simple moving-average projection in pandas when statsmodels forecasting APIs unavailable (`forecast_time_series` with `model="auto"` or `"moving_average"`).
+
+**Tests:** [`test_forecast.py`](../tests/scripting/test_forecast.py), [`test_forecast_templates.py`](../tests/scripting/test_forecast_templates.py), [`test_python_runner_forecast.py`](../tests/scripting/test_python_runner_forecast.py), [`test_forecast_data.py`](../tests/calc/test_forecast_data.py).
+
+#### Forecasting Phase 1 (next agent) {#forecasting-phase-1}
+
+**Goal:** Temporal anomaly detection, forecast confidence-band charts on Calc, and optional Facebook Prophet — without bloating Phase 0’s tabular-only surface.
+
+**Prerequisite:** Phase 0 is shipped ([`plugin/scripting/forecast.py`](../plugin/scripting/forecast.py), [`plugin/scripting/venv/forecast.py`](../plugin/scripting/venv/forecast.py), [`plugin/calc/forecast.py`](../plugin/calc/forecast.py), RPS **Forecast Helpers**, `forecast_data` in `domain="analysis"`). Mirror Optimize/Analysis patterns; do **not** add forecast helpers to `analyze_data` `HELPER_NAMES`.
+
+##### Locked decisions
+
+| Decision | Choice | Why |
+|----------|--------|-----|
+| Anomaly helper | `anomaly_detection_time_series` in existing `forecast.py` / `venv/forecast.py` | Same module + RPC; reuses `_prepare_time_series` |
+| Anomaly method | STL / seasonal-decompose residuals + robust z-score | Cross-sectional `detect_outliers` is wrong for seasonality; decompose already shipped |
+| Viz bands | Extend `time_series_plot` in [`venv/viz.py`](../plugin/scripting/venv/viz.py) | Doc already says “shared with Forecast”; avoid a third plot helper unless extension is too messy |
+| Auto-plot | New [`plugin/calc/forecast_auto_plot.py`](../plugin/calc/forecast_auto_plot.py) + hook in `ForecastDataTool` | Copy [`viz_auto_plot.py`](../plugin/calc/viz_auto_plot.py) + [`AnalyzeDataTool`](../plugin/calc/analysis.py) lines 476–512 |
+| Prophet | Optional `model="prophet"` on `forecast_time_series` only | Heavy dep; separate Settings group; `MISSING_PACKAGE` when absent |
+| LLM tool | Still `forecast_data` only; add `auto_plot` param | Same as `analyze_data`; no new chat tool |
+| Writer | Still Calc-only RPS | Phase 0 scope unchanged |
+
+```mermaid
+flowchart TD
+  forecast_data[forecast_data_tool] --> compute[venv_forecast_helper]
+  compute --> table[metrics_and_tables]
+  compute --> auto_plot{auto_plot_or_chart_hint}
+  auto_plot --> viz[time_series_plot_with_bands]
+  viz --> sheet[Calc_chart_image_egress]
+  anomalies[anomaly_detection_time_series] --> table
+```
+
+##### Work item 1 — `anomaly_detection_time_series`
+
+**Purpose:** Flag dates where the value is an outlier **relative to trend and seasonality**, not column-wise IQR.
+
+**Params (defaults):**
+
+| Param | Default | Notes |
+|-------|---------|-------|
+| `date_col` | `"Date"` | Same as Phase 0 |
+| `value_col` | `"Value"` | Same as Phase 0 |
+| `period` | auto (12 if n≥24) | Passed to STL/decompose |
+| `method` | `"stl_residual"` | Phase 1 ships one method only |
+| `threshold` | `3.0` | Flag when \|residual\| > threshold × MAD or std |
+
+**Algorithm (recommended):**
+
+1. Reuse `_prepare_time_series` from [`venv/forecast.py`](../plugin/scripting/venv/forecast.py).
+2. Run `statsmodels.tsa.seasonal.STL` (preferred over `seasonal_decompose` for robust residuals) with `period=season`.
+3. Compute robust z-scores on `resid` (MAD-based); mark rows where \|z\| > `threshold`.
+4. Return tabular egress:
+
+```json
+{
+  "status": "ok",
+  "helper": "anomaly_detection_time_series",
+  "metrics": {"n_anomalies": 2, "period": 12, "threshold": 3.0},
+  "tables": [
+    {
+      "name": "anomalies",
+      "columns": ["date", "observed", "expected", "residual", "score"],
+      "rows": [...]
+    }
+  ]
+}
+```
+
+Optional second table `all_scores` (truncated) for debugging — keep behind `params.include_all=false` default to limit sheet size.
+
+**Errors:** `MISSING_PACKAGE` (statsmodels), `INSUFFICIENT_DATA` (need ≥ 2×period points, same as decompose).
+
+**Files:**
+
+| File | Change |
+|------|--------|
+| [`plugin/scripting/forecast.py`](../plugin/scripting/forecast.py) | Add to `HELPER_NAMES`, `_DEFAULT_PARAMS`, template |
+| [`plugin/scripting/venv/forecast.py`](../plugin/scripting/venv/forecast.py) | Implement helper + `_dispatch_helper` branch |
+| [`tests/scripting/test_forecast.py`](../tests/scripting/test_forecast.py) | Inject one obvious spike in `FORECAST_GRID`; assert flagged |
+| [`tests/calc/numpy_domains_demo_cases.py`](../tests/calc/numpy_domains_demo_cases.py) | Third forecast case + regenerate ODS |
+
+**Do not** document cross-sectional `detect_outliers` as time-series anomalies — that was the Phase 0 doc drift risk.
+
+##### Work item 2 — Viz confidence-band plots
+
+**Purpose:** After `forecast_time_series`, insert a chart: historical line + forecast line + shaded confidence band when `lower`/`upper` columns exist.
+
+**Extend** [`time_series_plot`](../plugin/scripting/venv/viz.py) (lines 250–291) with optional params:
+
+| Param | Purpose |
+|-------|---------|
+| `forecast_col` | Column name for forward forecast values (overlay) |
+| `lower_col` / `upper_col` | Band edges; use `fill_between` when both present |
+| `historical_value_col` | When plotting merged history+forecast frame |
+
+**Alternative (if extension gets messy):** add viz helper `forecast_band_plot` that accepts the **forecast result table** via `params.forecast_table` (columns from Phase 0 `forecast` table) plus `data_range` for history — host merges in `run_trusted_viz` before IPC. Prefer single-helper extension first.
+
+**Matplotlib behavior:**
+
+- Plot historical `date`/`value_col` as solid line.
+- Plot forecast segment as dashed line.
+- `ax.fill_between(dates, lower, upper, alpha=0.2)` when intervals exist.
+- Do not invent bands when model omitted intervals (Phase 0 Holt-Winters path may lack CIs).
+
+**Files:**
+
+| File | Change |
+|------|--------|
+| [`plugin/scripting/venv/viz.py`](../plugin/scripting/venv/viz.py) | Band overlay logic |
+| [`plugin/scripting/viz.py`](../plugin/scripting/viz.py) | Pass new params through templates if exposed |
+| [`tests/scripting/test_viz.py`](../tests/scripting/test_viz.py) | Unit test with synthetic history + forecast columns (mock Agg) |
+| Demo | Optional `check_mode: visual` case on forecast sheet |
+
+##### Work item 3 — `forecast_data` auto-plot
+
+**Purpose:** Match analysis UX: `forecast_data` with `auto_plot=true` (or chart keywords in `task_hint`) inserts band chart on Calc after table egress.
+
+**Pattern:** Copy analysis auto-plot wiring:
+
+1. Add [`plugin/calc/forecast_auto_plot.py`](../plugin/calc/forecast_auto_plot.py):
+   - `AUTO_PLOT_FORECAST_HELPERS = frozenset({"forecast_time_series"})`
+   - `build_viz_request(forecast_helper, forecast_result, forecast_params) -> ("time_series_plot", {...})` — merge history from `data_range` with forecast table rows; map `forecast`/`lower`/`upper` columns.
+   - Reuse `task_hint_implies_plot` from [`viz_auto_plot.py`](../plugin/calc/viz_auto_plot.py) (import, do not duplicate regex).
+2. In [`ForecastDataTool.execute`](../plugin/calc/forecast.py): after successful run + optional `output_range` write, mirror [`AnalyzeDataTool`](../plugin/calc/analysis.py) lines 476–512 (`run_auto_plot_after_forecast`, `insert_viz_result_into_doc`).
+3. Add `auto_plot: bool` to `forecast_data` parameters (default `false` to match conservative Phase 0; or `true` to match `analyze_data` — **pick `false`** unless product wants parity).
+
+**Tests:**
+
+| File | Coverage |
+|------|----------|
+| [`tests/calc/test_forecast_auto_plot.py`](../tests/calc/test_forecast_auto_plot.py) | `build_viz_request` mapping; mock viz insert |
+| [`tests/calc/test_forecast_data.py`](../tests/calc/test_forecast_data.py) | `auto_plot=true` calls viz path (mocked) |
+
+##### Work item 4 — Optional Prophet (stretch / end of Phase 1)
+
+**Only if time permits after items 1–3.**
+
+| Piece | Detail |
+|-------|--------|
+| Model | `forecast_time_series` with `model="prophet"` |
+| Package | `prophet` — add **Forecasting Libraries** group in [`venv_diagnostics.py`](../plugin/scripting/venv_diagnostics.py) `_SANDBOX_SELF_CHECK_GROUPS` |
+| Install hint | `uv pip install prophet` (note: can be slow/heavy on some platforms) |
+| Fallback | `MISSING_PACKAGE` with hint; do not auto-fallback to Holt-Winters when user asked for prophet |
+| Tests | Skip if `prophet` not installed (`pytest.importorskip`) |
+
+##### Files checklist (Phase 1 complete)
+
+| Action | Path |
+|--------|------|
+| Edit | `plugin/scripting/venv/forecast.py`, `plugin/scripting/forecast.py` |
+| Add | `plugin/calc/forecast_auto_plot.py` |
+| Edit | `plugin/calc/forecast.py` (`auto_plot` param + hook) |
+| Edit | `plugin/scripting/venv/viz.py` (+ maybe `viz.py` templates) |
+| Edit | `plugin/scripting/writeragent_api.py` | Regenerate via `python scripts/generate_tool_proxies.py` after tool schema change |
+| Tests | `test_forecast.py`, `test_viz.py`, `test_forecast_auto_plot.py`, `test_forecast_data.py`, demo cases |
+| Docs | This section → mark Phase 1 shipped; update prioritization row; [`analysis-sub-agent.md`](analysis-sub-agent.md) one line on `auto_plot` for forecasts |
+| Diagnostics | Only if Prophet shipped |
+
+##### Implementation order
+
+1. `anomaly_detection_time_series` (venv + host + template + tests + demo case)
+2. Extend `time_series_plot` for bands (+ viz tests)
+3. `forecast_auto_plot.py` + `ForecastDataTool` hook (+ tests)
+4. Prophet (optional) + Settings group
+5. Regenerate demo ODS; `make test`
+
+##### Explicitly out of Phase 1
+
+- Stuffing forecast helpers into `analyze_data`
+- Writer RPS / Writer egress for forecast
+- `create_interactive_chart` (Viz Phase 2+)
+- Geospatial / Audio / Quant test debt
+- Auto-plot for `decompose_time_series` (optional nice-to-have; not required for Phase 1 sign-off)
+
+##### Phase 1 sign-off criteria
+
+- [ ] `anomaly_detection_time_series` flags injected spike in unit test and demo sheet
+- [ ] `forecast_data` with `auto_plot=true` inserts chart on Calc when matplotlib present
+- [ ] `time_series_plot` draws band when `lower`/`upper` provided
+- [ ] All new tests pass; `make test` green
+- [ ] Prioritization table updated to **Shipped (Phase 1)** or notes Phase 2 (prophet-only polish)
 
 ---
 
@@ -456,9 +646,9 @@ Results are inserted as compact tables and usable from scripts.
 
 | Phase | Scope | Domains |
 |-------|--------|---------|
-| **0** | Trusted module + 1–2 helpers + Run Python Script section + unit tests | Viz C, Forecast, or Text (one at a time) |
+| **0** | Trusted module + 1–2 helpers + Run Python Script section + unit tests | Forecast Phase 0 shipped; next: Geospatial or Text LLM tool |
 | **0b** | Glue without full trusted module | **Viz Phase B** — `is_image_payload` in Run Python Script |
-| **1** | Sub-agent / `analyze_data`-style tools + delegation prompts | Analysis extensions (Viz auto-plot, forecast) |
+| **1** | Sub-agent / `analyze_data`-style tools + delegation prompts | [Forecast Phase 1](#forecasting-phase-1) (anomalies, viz bands, auto_plot); then Geospatial or Text LLM tool |
 | **2** | Egress polish, optional caches, Writer cleanup hints | All |
 
 Keep each domain lean: reuse `payload_codec`, split-grid, document-attached scripts + Monaco, and Settings Test reporting—the same surfaces that make Analysis and Vision usable without an LLM.

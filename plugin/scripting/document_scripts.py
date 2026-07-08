@@ -40,6 +40,7 @@ SCRIPT_ORIGIN_MATH = "math"
 SCRIPT_ORIGIN_UNITS = "units"
 SCRIPT_ORIGIN_QUANT = "quant"
 SCRIPT_ORIGIN_OPTIMIZE = "optimize"
+SCRIPT_ORIGIN_FORECAST = "forecast"
 SCRIPT_ORIGIN_SQL = "sql"
 
 DOC_SCRIPT_DISPLAY_PREFIX = "[Doc] "
@@ -50,6 +51,7 @@ MATH_SCRIPT_DISPLAY_PREFIX = "[Math] "
 UNITS_SCRIPT_DISPLAY_PREFIX = "[Units] "
 QUANT_SCRIPT_DISPLAY_PREFIX = "[Quant] "
 OPTIMIZE_SCRIPT_DISPLAY_PREFIX = "[Optimize] "
+FORECAST_SCRIPT_DISPLAY_PREFIX = "[Forecast] "
 SQL_SCRIPT_DISPLAY_PREFIX = "[SQL] "
 
 
@@ -338,6 +340,16 @@ def parse_optimize_script_display_name(display: str) -> str | None:
     return None
 
 
+def forecast_script_display_name(name: str) -> str:
+    return f"{FORECAST_SCRIPT_DISPLAY_PREFIX}{name}"
+
+
+def parse_forecast_script_display_name(display: str) -> str | None:
+    if display.startswith(FORECAST_SCRIPT_DISPLAY_PREFIX):
+        return display[len(FORECAST_SCRIPT_DISPLAY_PREFIX) :]
+    return None
+
+
 def sql_script_display_name(name: str) -> str:
     return f"{SQL_SCRIPT_DISPLAY_PREFIX}{name}"
 
@@ -375,6 +387,9 @@ def resolve_script_picker_entry(display_name: str, origin_map: dict[str, str]) -
     if origin == SCRIPT_ORIGIN_OPTIMIZE:
         real = parse_optimize_script_display_name(display_name)
         return (real or display_name, SCRIPT_ORIGIN_OPTIMIZE)
+    if origin == SCRIPT_ORIGIN_FORECAST:
+        real = parse_forecast_script_display_name(display_name)
+        return (real or display_name, SCRIPT_ORIGIN_FORECAST)
     if origin == SCRIPT_ORIGIN_SQL:
         real = parse_sql_script_display_name(display_name)
         return (real or display_name, SCRIPT_ORIGIN_SQL)
@@ -495,6 +510,21 @@ def _optimize_script_section(doc: Any | None) -> dict[str, Any] | None:
     return {"id": SCRIPT_ORIGIN_OPTIMIZE, "title": _("Optimize Helpers"), "scripts": display_scripts}
 
 
+def _forecast_script_section(doc: Any | None) -> dict[str, Any] | None:
+    if doc is None:
+        return None
+    try:
+        if not is_calc(doc):
+            return None
+    except Exception:
+        return None
+    from plugin.scripting.forecast import get_forecast_template, HELPER_NAMES
+
+    templates = {name: get_forecast_template(name) for name in HELPER_NAMES if get_forecast_template(name)}
+    display_scripts = {forecast_script_display_name(name): code for name, code in templates.items()}
+    return {"id": SCRIPT_ORIGIN_FORECAST, "title": _("Forecast Helpers"), "scripts": display_scripts}
+
+
 def _sql_script_section(doc: Any | None) -> dict[str, Any] | None:
     if doc is None:
         return None
@@ -594,6 +624,14 @@ def build_xdl_script_picker_state(
             merged[display_name] = code
             optimize_items.append(display_name)
 
+    forecast_items: list[str] = []
+    forecast_section = _forecast_script_section(doc)
+    if forecast_section:
+        for display_name, code in forecast_section["scripts"].items():
+            origin_map[display_name] = SCRIPT_ORIGIN_FORECAST
+            merged[display_name] = code
+            forecast_items.append(display_name)
+
     items = (
         sorted(user_scripts.keys())
         + analysis_items
@@ -604,6 +642,7 @@ def build_xdl_script_picker_state(
         + units_items
         + quant_items
         + optimize_items
+        + forecast_items
         + [document_script_display_name(n) for n in sorted(doc_scripts.keys())]
     )
     return items, merged, origin_map
@@ -686,6 +725,9 @@ def build_scripts_list_message(
     optimize_section = _optimize_script_section(doc)
     if optimize_section:
         sections.append(optimize_section)
+    forecast_section = _forecast_script_section(doc)
+    if forecast_section:
+        sections.append(forecast_section)
     sql_section = _sql_script_section(doc)
     if sql_section:
         sections.append(sql_section)

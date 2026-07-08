@@ -515,7 +515,7 @@ A critical architectural issue is how to pass large datasets to the analysis sub
 - Cleanup fidelity: how smart should the Writer-side "nice formatting + insert" step be? (tables, headings, cross-references back to the source Calc ranges, etc.)
 - Composition with web_research, librarian, or other specialists (e.g. "research the assumptions and then run sensitivity analysis on them in the attached budget").
 - Future expansion beyond Calc: if users start keeping serious data in Writer tables, how (if ever) to bring them into the analysis flow without making extraction too fragile.
-- **Visualization / forecasting extensions:** trusted `plot_data`, time-series helpers, and Run Python Script **[Viz]** / **[Forecast]** sections — [numpy-domains.md § Scientific domain roadmap](numpy-domains.md#scientific-domain-roadmap-trusted-helpers).
+- **Visualization / forecasting extensions:** trusted `plot_data`, [`forecast_data`](../plugin/calc/forecast.py) time-series helpers (Phase 0 shipped; Phase 1: anomalies + auto-plot bands — [Forecasting Phase 1](numpy-domains.md#forecasting-phase-1)), and Run Python Script **[Viz]** / **[Forecast]** sections — [numpy-domains.md § Scientific domain roadmap](numpy-domains.md#scientific-domain-roadmap-trusted-helpers).
 
 This keeps the implementation small by maximal reuse of delegation, embeddings for discovery, trusted execution (Calc context), data handoff patterns, and the existing document_research cross-doc machinery.
 
