@@ -30,5 +30,12 @@ def test_parse_forecast_script_header_round_trip():
     assert parsed.params["value_col"] == "Value"
 
 
+def test_get_forecast_template_anomaly_helper():
+    code = get_forecast_template("anomaly_detection_time_series")
+    assert code is not None
+    assert "anomaly_detection_time_series" in code
+    assert "stl_residual" in code
+
+
 def test_parse_forecast_script_header_invalid():
     assert parse_forecast_script_header("# not a forecast header\n") is None

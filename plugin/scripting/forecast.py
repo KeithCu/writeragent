@@ -33,6 +33,7 @@ log = logging.getLogger(__name__)
 HELPER_NAMES = {
     "forecast_time_series",
     "decompose_time_series",
+    "anomaly_detection_time_series",
 }
 
 MAX_TABLE_ROWS = 50
@@ -56,15 +57,25 @@ _DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
         "model": "additive",
         "period": None,
     },
+    "anomaly_detection_time_series": {
+        "date_col": "Date",
+        "value_col": "Value",
+        "period": None,
+        "method": "stl_residual",
+        "threshold": 3.0,
+        "include_all": False,
+    },
 }
 
 _HELPER_DESCRIPTIONS: dict[str, str] = {
     "forecast_time_series": "Forward time-series predictions with optional confidence intervals",
     "decompose_time_series": "Trend / seasonal / residual decomposition",
+    "anomaly_detection_time_series": "Flag temporal outliers via STL residuals and robust z-scores",
 }
 
 _FORECAST_VENV_EXPORTS = frozenset(
     {
+        "anomaly_detection_time_series",
         "decompose_time_series",
         "forecast_time_series",
         "run_forecast",

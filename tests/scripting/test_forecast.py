@@ -11,7 +11,7 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
-from plugin.scripting.forecast import decompose_time_series, forecast_time_series, run_forecast
+from plugin.scripting.forecast import anomaly_detection_time_series, decompose_time_series, forecast_time_series, run_forecast
 
 
 def _seasonal_series(n: int = 36) -> pd.DataFrame:
@@ -85,6 +85,46 @@ def test_run_forecast_unknown_helper():
     result = run_forecast({"helper": "not_a_helper"}, _seasonal_series())
     assert result["status"] == "error"
     assert result["code"] == "UNKNOWN_HELPER"
+
+
+def _seasonal_series_with_spike(n: int = 36, spike_idx: int = 18, spike_amount: float = 500.0) -> pd.DataFrame:
+    df = _seasonal_series(n)
+    df.loc[spike_idx, "Value"] = float(df.loc[spike_idx, "Value"]) + spike_amount
+    return df
+
+
+def test_anomaly_detection_time_series_flags_spike():
+    data = _seasonal_series_with_spike()
+    result = anomaly_detection_time_series(data, period=12, threshold=3.0)
+    assert result["status"] == "ok"
+    assert result["helper"] == "anomaly_detection_time_series"
+    assert result["metrics"]["n_anomalies"] >= 1
+    table = result["tables"][0]
+    assert table["name"] == "anomalies"
+    assert table["columns"] == ["date", "observed", "expected", "residual", "score"]
+    assert len(table["rows"]) >= 1
+
+
+def test_anomaly_detection_missing_statsmodels():
+    data = _seasonal_series_with_spike()
+    with patch("plugin.scripting.venv.forecast._require_statsmodels", return_value=None):
+        result = anomaly_detection_time_series(data, period=12)
+    assert result["status"] == "error"
+    assert result["code"] == "MISSING_PACKAGE"
+
+
+def test_anomaly_detection_insufficient_data():
+    data = _seasonal_series(n=12)
+    result = anomaly_detection_time_series(data, period=12)
+    assert result["status"] == "error"
+    assert result["code"] == "INSUFFICIENT_DATA"
+
+
+def test_run_forecast_anomaly_dispatch():
+    data = _seasonal_series_with_spike()
+    result = run_forecast({"helper": "anomaly_detection_time_series", "params": {"period": 12}}, data)
+    assert result["status"] == "ok"
+    assert result["helper"] == "anomaly_detection_time_series"
 
 
 @pytest.mark.parametrize("model", ["moving_average"])

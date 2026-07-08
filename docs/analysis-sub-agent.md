@@ -425,7 +425,7 @@ Previously planned helpers (not yet separate tools):
 - Discovery helpers (or reuse via document_research).
 - `extract_data(source, format="pandas"|"numpy"|"records")`
 - `run_analysis(spec, data_ref, ...)` → results (the gateway to trusted).
-- `plot_data` for charts; `analyze_data` with `auto_plot=true` (or chart keywords in `task_hint`) chains regression/cluster/Monte Carlo/correlation helpers to viz — see [Visualization Phase C](numpy-domains.md#visualization).
+- `plot_data` for charts; `analyze_data` with `auto_plot=true` (or chart keywords in `task_hint`) chains regression/cluster/Monte Carlo/correlation helpers to viz — see [Visualization Phase C](numpy-domains.md#visualization). `forecast_data` supports the same `auto_plot` pattern for confidence-band forecast charts — see [Forecasting Phase 1](numpy-domains.md#forecasting-phase-1).
 - `apply_analysis_results` (suggestions only; actual writes via main's tools after review).
 
 **Phasing (MVP-first, heavily reusing existing code)**
@@ -515,7 +515,7 @@ A critical architectural issue is how to pass large datasets to the analysis sub
 - Cleanup fidelity: how smart should the Writer-side "nice formatting + insert" step be? (tables, headings, cross-references back to the source Calc ranges, etc.)
 - Composition with web_research, librarian, or other specialists (e.g. "research the assumptions and then run sensitivity analysis on them in the attached budget").
 - Future expansion beyond Calc: if users start keeping serious data in Writer tables, how (if ever) to bring them into the analysis flow without making extraction too fragile.
-- **Visualization / forecasting extensions:** trusted `plot_data`, [`forecast_data`](../plugin/calc/forecast.py) time-series helpers (Phase 0 shipped; Phase 1: anomalies + auto-plot bands — [Forecasting Phase 1](numpy-domains.md#forecasting-phase-1)), and Run Python Script **[Viz]** / **[Forecast]** sections — [numpy-domains.md § Scientific domain roadmap](numpy-domains.md#scientific-domain-roadmap-trusted-helpers).
+- **Visualization / forecasting extensions:** trusted `plot_data`, [`forecast_data`](../plugin/calc/forecast.py) time-series helpers (Phase 1 shipped: anomalies + `auto_plot` bands — [Forecasting Phase 1](numpy-domains.md#forecasting-phase-1)), and Run Python Script **[Viz]** / **[Forecast]** sections — [numpy-domains.md § Scientific domain roadmap](numpy-domains.md#scientific-domain-roadmap-trusted-helpers).
 
 This keeps the implementation small by maximal reuse of delegation, embeddings for discovery, trusted execution (Calc context), data handoff patterns, and the existing document_research cross-doc machinery.
 

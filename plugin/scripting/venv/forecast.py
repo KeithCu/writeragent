@@ -19,6 +19,7 @@ HELPER_NAMES = frozenset(
     {
         "forecast_time_series",
         "decompose_time_series",
+        "anomaly_detection_time_series",
     }
 )
 
@@ -264,6 +265,8 @@ def forecast_time_series(
     )
     if err is not None:
         return err
+    if series is None:
+        return _error_result("INSUFFICIENT_DATA", "No valid time series", helper=helper)
 
     periods = max(1, int(periods))
     model_name = str(model or "auto").strip().lower()
@@ -344,6 +347,8 @@ def decompose_time_series(
     )
     if err is not None:
         return err
+    if series is None:
+        return _error_result("INSUFFICIENT_DATA", "No valid time series", helper=helper)
 
     decomp_model = str(model or "additive").strip().lower()
     if decomp_model not in ("additive", "multiplicative"):
@@ -388,6 +393,109 @@ def decompose_time_series(
     return _ok_result(helper, metrics=metrics, tables=[table], metadata=coerced.metadata if coerced else {})
 
 
+def _robust_z_scores(values: Any) -> Any:
+    """MAD-based robust z-scores; fall back to std when MAD is zero."""
+    import numpy as np
+
+    arr = np.asarray(values, dtype=float)
+    median = float(np.median(arr))
+    mad = float(np.median(np.abs(arr - median)))
+    if mad > 0:
+        return 0.6745 * (arr - median) / mad
+    std = float(np.std(arr))
+    if std > 0:
+        return (arr - float(np.mean(arr))) / std
+    return np.zeros_like(arr)
+
+
+def anomaly_detection_time_series(
+    data: Any,
+    *,
+    date_col: str = "Date",
+    value_col: str = "Value",
+    period: int | None = None,
+    method: str = "stl_residual",
+    threshold: float = 3.0,
+    include_all: bool = False,
+    headers: bool = True,
+    header_row: int = 0,
+    sheet_hint: str | None = None,
+) -> dict[str, Any]:
+    """Flag temporal outliers via STL residuals and robust z-scores."""
+    import pandas as pd
+
+    helper = "anomaly_detection_time_series"
+    if _require_statsmodels(helper) is None:
+        return _missing_package_error(helper, "statsmodels")
+
+    method_name = str(method or "stl_residual").strip().lower()
+    if method_name != "stl_residual":
+        return _error_result("FORECAST_FAILED", f"Unknown method {method_name!r}; only stl_residual is supported", helper=helper)
+
+    coerced, series, err = _prepare_time_series(
+        data,
+        date_col=date_col,
+        value_col=value_col,
+        headers=headers,
+        header_row=header_row,
+        sheet_hint=sheet_hint,
+        helper=helper,
+    )
+    if err is not None:
+        return err
+    if series is None:
+        return _error_result("INSUFFICIENT_DATA", "No valid time series", helper=helper)
+
+    season = period if period is not None else _infer_seasonal_periods(series, None)
+    if season is None or season < 2:
+        return _error_result(
+            "INSUFFICIENT_DATA",
+            "anomaly_detection_time_series requires period or enough data to infer seasonality (>= 24 points for monthly=12)",
+            helper=helper,
+        )
+    if len(series) < season * _MIN_DECOMPOSE_CYCLES:
+        return _error_result(
+            "INSUFFICIENT_DATA",
+            f"Need at least {season * _MIN_DECOMPOSE_CYCLES} observations for period={season}; got {len(series)}",
+            helper=helper,
+        )
+
+    try:
+        from statsmodels.tsa.seasonal import STL
+
+        stl_result = STL(series, period=season, robust=True).fit()
+    except Exception as exc:
+        return _error_result("FORECAST_FAILED", str(exc), helper=helper)
+
+    expected = stl_result.trend + stl_result.seasonal
+    resid = stl_result.resid
+    scores = _robust_z_scores(resid.values)
+    threshold_val = float(threshold)
+
+    scores_df = pd.DataFrame(
+        {
+            "date": series.index,
+            "observed": series.values,
+            "expected": expected.values,
+            "residual": resid.values,
+            "score": scores,
+        }
+    )
+    anomalies_df = scores_df[scores_df["score"].abs() > threshold_val].copy()
+    tables = [_table_from_df(anomalies_df, name="anomalies")]
+    if include_all:
+        tables.append(_table_from_df(scores_df, name="all_scores"))
+
+    metrics = {
+        "n_anomalies": int(len(anomalies_df)),
+        "period": season,
+        "threshold": threshold_val,
+        "method": method_name,
+        "n_obs": int(len(series)),
+    }
+    return _ok_result(helper, metrics=metrics, tables=tables, metadata=coerced.metadata if coerced else {})
+
+
 def _dispatch_helper(name: str, data: Any, params: dict[str, Any], *, headers: bool, header_row: int, context: dict[str, Any]) -> dict[str, Any]:
     sheet_hint = context.get("sheet_name") if isinstance(context.get("sheet_name"), str) else None
     common: dict[str, Any] = {"headers": headers, "header_row": header_row, "sheet_hint": sheet_hint}
@@ -409,6 +517,17 @@ def _dispatch_helper(name: str, data: Any, params: dict[str, Any], *, headers: b
             value_col=str(params.get("value_col", "Value")),
             model=str(params.get("model", "additive")),
             period=params.get("period"),
+            **common,
+        )
+    if name == "anomaly_detection_time_series":
+        return anomaly_detection_time_series(
+            data,
+            date_col=str(params.get("date_col", "Date")),
+            value_col=str(params.get("value_col", "Value")),
+            period=params.get("period"),
+            method=str(params.get("method", "stl_residual")),
+            threshold=float(params.get("threshold", 3.0)),
+            include_all=bool(params.get("include_all", False)),
             **common,
         )
     return _error_result("UNKNOWN_HELPER", f"Forecast helper {name!r} not found", helper=name)

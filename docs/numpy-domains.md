@@ -131,7 +131,7 @@ The implementation should follow the [Domain helper pattern](#domain-helper-patt
 |----------|--------|--------------|--------------|
 | 0 | **Analysis** (numeric EDA, regression, clustering, …) | **Shipped** — [analysis-sub-agent.md](analysis-sub-agent.md); Viz auto-plot via [`viz_auto_plot.py`](../plugin/calc/viz_auto_plot.py) | Maintenance |
 | 1 | **Visualization & Plotting** | **Shipped** (Phase A–C) | `plot_data`, `[Viz] quick_plot` |
-| 2 | **Time Series & Forecasting** | **Shipped (Phase 0)** — [`forecast.py`](../plugin/scripting/forecast.py), `forecast_data` | [Phase 1 plan](#forecasting-phase-1): anomalies, viz bands, optional `prophet` |
+| 2 | **Time Series & Forecasting** | **Shipped (Phase 1)** — anomalies, viz bands, `auto_plot`; Prophet deferred | Optional `prophet` model (Phase 2) |
 | 3 | **Symbolic Mathematics** | **Shipped** (SymPy only; Sage deferred) | `symbolic_math`, `[Math] solve_equation` |
 | 4 | **Text / Document Analytics** | **Shipped** — spaCy + topics + sentiment; Writer dialog; no LLM tool yet | LLM tool surface |
 | 5 | **Optimization & OR** | **Partial** — `optimize_data` + scipy helpers shipped; pulp/ortools deferred | `pulp` / `ortools` |
@@ -219,7 +219,7 @@ run_venv_python_script(code="… plt.plot(…) …")
 
 ### 2. Time Series & Forecasting {#forecasting}
 
-**Status:** **Shipped (Phase 0).** Trusted helpers via [`forecast.py`](../plugin/scripting/forecast.py), Run Python Script **Forecast Helpers**, and `forecast_data` chat tool (`domain="analysis"`). Phase 1: `anomaly_detection_time_series`, optional `prophet`, viz confidence-band plots.
+**Status:** **Shipped (Phase 1).** Trusted helpers via [`forecast.py`](../plugin/scripting/forecast.py), Run Python Script **Forecast Helpers**, and `forecast_data` chat tool (`domain="analysis"`). Phase 1 adds `anomaly_detection_time_series`, confidence-band `time_series_plot`, and `forecast_data` `auto_plot`. Optional `prophet` deferred to Phase 2.
 
 **Goal:** Forecast, decompose, and flag anomalies on date-indexed Calc data—natural fit for spreadsheets (finance, ops, sales).
 
@@ -230,38 +230,41 @@ run_venv_python_script(code="… plt.plot(…) …")
 | Piece | Location |
 |-------|----------|
 | Period-over-period change | [`compare_periods`](../plugin/scripting/analysis.py) in analysis helpers |
-| Outlier detection | [`detect_outliers`](../plugin/scripting/analysis.py) — cross-sectional; temporal anomalies deferred |
+| Outlier detection | [`detect_outliers`](../plugin/scripting/analysis.py) — cross-sectional; use [`anomaly_detection_time_series`](../plugin/scripting/forecast.py) for temporal anomalies |
 | OLS / statsmodels | [`run_regression`](../plugin/scripting/analysis.py); `statsmodels` in analysis venv install line |
 | Range → pandas | [`calc_addin_data.py`](../plugin/calc/calc_addin_data.py), [`analysis_coerce.py`](../plugin/scripting/analysis_coerce.py) |
 
-**Shipped helpers (Phase 0):**
+**Shipped helpers:**
 
 | Helper | Purpose | Key params |
 |--------|---------|------------|
 | `forecast_time_series` | Forward predictions + intervals when available | `periods=12`, `model="auto"` (Holt-Winters / ARIMA / moving-average fallback) |
 | `decompose_time_series` | Trend / seasonal / residual | `date_col`, `value_col`, `period`, `model` |
+| `anomaly_detection_time_series` | Series-aware outliers (STL residuals + robust z-score) | `date_col`, `value_col`, `period`, `threshold=3.0`, `method="stl_residual"` |
 
-**Phase 1 (deferred):**
+**Phase 2 (deferred):**
 
 | Helper | Purpose |
 |--------|---------|
-| `anomaly_detection_time_series` | Series-aware outliers (STL / seasonal residuals) |
+| `forecast_time_series` with `model="prophet"` | Facebook Prophet (heavy optional dep) |
 
 **Module layout:** [`plugin/scripting/forecast.py`](../plugin/scripting/forecast.py) + [`plugin/scripting/venv/forecast.py`](../plugin/scripting/venv/forecast.py).
 
 **Packages:** `statsmodels` (required for decomposition and most forecasts; already in analysis stack); optional `prophet` (heavy — future Test group, `MISSING_PACKAGE` if absent).
 
-**Run Python Script:** **Forecast Helpers →** `[Forecast] forecast_time_series`, `[Forecast] decompose_time_series`.
+**Run Python Script:** **Forecast Helpers →** `[Forecast] forecast_time_series`, `[Forecast] decompose_time_series`, `[Forecast] anomaly_detection_time_series`.
 
-**Output:** Predictions table (analysis egress pattern). Viz confidence-band plots deferred to Phase 1.
+**Output:** Predictions / decomposition / anomaly tables (analysis egress pattern). `forecast_data` with `auto_plot=true` (or chart keywords in `task_hint`) inserts a confidence-band chart via extended `time_series_plot`.
 
-**Sub-agent:** [`forecast_data`](../plugin/calc/forecast.py) in `domain="analysis"` — same delegation as EDA/regression (`optimize_data` precedent).
+**Sub-agent:** [`forecast_data`](../plugin/calc/forecast.py) in `domain="analysis"` — same delegation as EDA/regression (`optimize_data` precedent); supports `auto_plot` for band charts ([`forecast_auto_plot.py`](../plugin/calc/forecast_auto_plot.py)).
 
 **Fallback:** Simple moving-average projection in pandas when statsmodels forecasting APIs unavailable (`forecast_time_series` with `model="auto"` or `"moving_average"`).
 
-**Tests:** [`test_forecast.py`](../tests/scripting/test_forecast.py), [`test_forecast_templates.py`](../tests/scripting/test_forecast_templates.py), [`test_python_runner_forecast.py`](../tests/scripting/test_python_runner_forecast.py), [`test_forecast_data.py`](../tests/calc/test_forecast_data.py).
+**Tests:** [`test_forecast.py`](../tests/scripting/test_forecast.py), [`test_forecast_templates.py`](../tests/scripting/test_forecast_templates.py), [`test_python_runner_forecast.py`](../tests/scripting/test_python_runner_forecast.py), [`test_forecast_data.py`](../tests/calc/test_forecast_data.py), [`test_forecast_auto_plot.py`](../tests/calc/test_forecast_auto_plot.py).
 
-#### Forecasting Phase 1 (next agent) {#forecasting-phase-1}
+#### Forecasting Phase 1 {#forecasting-phase-1}
+
+**Status:** **Shipped** (items 1–3). Prophet remains Phase 2.
 
 **Goal:** Temporal anomaly detection, forecast confidence-band charts on Calc, and optional Facebook Prophet — without bloating Phase 0’s tabular-only surface.
 
@@ -433,11 +436,11 @@ Optional second table `all_scores` (truncated) for debugging — keep behind `pa
 
 ##### Phase 1 sign-off criteria
 
-- [ ] `anomaly_detection_time_series` flags injected spike in unit test and demo sheet
-- [ ] `forecast_data` with `auto_plot=true` inserts chart on Calc when matplotlib present
-- [ ] `time_series_plot` draws band when `lower`/`upper` provided
-- [ ] All new tests pass; `make test` green
-- [ ] Prioritization table updated to **Shipped (Phase 1)** or notes Phase 2 (prophet-only polish)
+- [x] `anomaly_detection_time_series` flags injected spike in unit test and demo sheet
+- [x] `forecast_data` with `auto_plot=true` inserts chart on Calc when matplotlib present
+- [x] `time_series_plot` draws band when `lower`/`upper` provided
+- [x] All new tests pass; `make test` green
+- [x] Prioritization table updated; Prophet noted as Phase 2
 
 ---
 
@@ -648,7 +651,7 @@ Results are inserted as compact tables and usable from scripts.
 |-------|--------|---------|
 | **0** | Trusted module + 1–2 helpers + Run Python Script section + unit tests | Forecast Phase 0 shipped; next: Geospatial or Text LLM tool |
 | **0b** | Glue without full trusted module | **Viz Phase B** — `is_image_payload` in Run Python Script |
-| **1** | Sub-agent / `analyze_data`-style tools + delegation prompts | [Forecast Phase 1](#forecasting-phase-1) (anomalies, viz bands, auto_plot); then Geospatial or Text LLM tool |
+| **1** | Sub-agent / `analyze_data`-style tools + delegation prompts | Geospatial or Text LLM tool; Forecast Phase 2 (`prophet`) |
 | **2** | Egress polish, optional caches, Writer cleanup hints | All |
 
 Keep each domain lean: reuse `payload_codec`, split-grid, document-attached scripts + Monaco, and Settings Test reporting—the same surfaces that make Analysis and Vision usable without an LLM.

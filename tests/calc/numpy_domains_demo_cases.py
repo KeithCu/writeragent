@@ -52,6 +52,10 @@ for i in range(36):
     seasonal = 10.0 if month <= 6 else -10.0
     FORECAST_GRID.append([f"{year}-{month:02d}-01", 100.0 + i + seasonal])
 
+ANOMALY_FORECAST_GRID: list[list[Any]] = [row[:] for row in FORECAST_GRID]
+# Obvious spike for STL residual anomaly demo (month 7 of year 2021 in the 36-row series).
+ANOMALY_FORECAST_GRID[19][1] = float(ANOMALY_FORECAST_GRID[19][1]) + 500.0
+
 PIVOT_GRID: list[list[Any]] = [
     ["Region", "Quarter", "Sales"],
     ["North", "Q1", 100],
@@ -659,6 +663,27 @@ def _forecast_cases() -> list[DomainDemoCase]:
             chat_prompt=(
                 'forecast_data helper=decompose_time_series data_range=<DATA_RANGE> '
                 'params={"date_col":"Date","value_col":"Value","model":"additive","period":12}'
+            ),
+            requires_package="statsmodels",
+            check_mode="grid_egress",
+        ),
+        DomainDemoCase(
+            id="anomaly_detection_time_series",
+            domain="forecast",
+            helper="anomaly_detection_time_series",
+            description="STL residual anomalies on monthly series with injected spike",
+            input_grid=ANOMALY_FORECAST_GRID,
+            params={"date_col": "Date", "value_col": "Value", "period": 12, "threshold": 3.0},
+            python_expr=_forecast_expr(
+                "anomaly_detection_time_series",
+                {"date_col": "Date", "value_col": "Value", "period": 12, "threshold": 3.0},
+                '["metrics"]["n_anomalies"]',
+            ),
+            expected_scalar=">= 1",
+            script_hint="Forecast Helpers → [Forecast] anomaly_detection_time_series",
+            chat_prompt=(
+                'forecast_data helper=anomaly_detection_time_series data_range=<DATA_RANGE> '
+                'params={"date_col":"Date","value_col":"Value","period":12,"threshold":3.0}'
             ),
             requires_package="statsmodels",
             check_mode="grid_egress",

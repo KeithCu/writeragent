@@ -252,11 +252,15 @@ def time_series_plot(
     *,
     date_col: str,
     value_col: str,
+    forecast_col: str | None = None,
+    lower_col: str | None = None,
+    upper_col: str | None = None,
+    historical_value_col: str | None = None,
     headers: bool = True,
     header_row: int = 0,
     sheet_hint: str | None = None,
 ) -> dict[str, Any]:
-    """Line plot for a date-indexed series."""
+    """Line plot for a date-indexed series with optional forecast overlay and bands."""
     plt = _require_matplotlib("time_series_plot")
     if plt is None:
         return _missing_package_error("time_series_plot", "matplotlib")
@@ -265,27 +269,73 @@ def time_series_plot(
     df = coerced.df
     if date_col not in df.columns:
         return _error_result("UNKNOWN_COLUMN", f"Unknown date column {date_col!r}", helper="time_series_plot")
-    if value_col not in df.columns:
-        return _error_result("UNKNOWN_COLUMN", f"Unknown value column {value_col!r}", helper="time_series_plot")
 
-    series = df[[date_col, value_col]].dropna()
-    if series.empty:
-        return _error_result("INSUFFICIENT_DATA", "No rows to plot.", helper="time_series_plot")
+    hist_col = historical_value_col or value_col
+    if hist_col not in df.columns and value_col not in df.columns:
+        return _error_result("UNKNOWN_COLUMN", f"Unknown value column {value_col!r}", helper="time_series_plot")
+    if hist_col not in df.columns:
+        hist_col = value_col
 
     import pandas as pd
-    dates = pd.to_datetime(series[date_col], errors="coerce")
-    values = series[value_col].astype(float)
-    mask = dates.notna()
-    dates = dates[mask]
-    values = values[mask]
-    if dates.empty:
+    from typing import cast
+
+    plot_cols = [date_col, hist_col]
+    if forecast_col and forecast_col in df.columns:
+        plot_cols.append(forecast_col)
+    if lower_col and lower_col in df.columns:
+        plot_cols.append(lower_col)
+    if upper_col and upper_col in df.columns:
+        plot_cols.append(upper_col)
+
+    series = df[plot_cols].copy()
+    dates_all = cast(pd.Series, pd.to_datetime(series[date_col], errors="coerce"))
+    if dates_all.isna().all():
         return _error_result("INVALID_DATES", "Could not parse date column.", helper="time_series_plot")
 
     fig, ax = plt.subplots(figsize=(9, 4))
-    ax.plot(dates, values)
+
+    hist_values = cast(pd.Series, pd.to_numeric(series[hist_col], errors="coerce"))
+    hist_mask = dates_all.notna() & hist_values.notna()
+    if hist_mask.any():
+        ax.plot(dates_all[hist_mask], hist_values[hist_mask], label=hist_col)
+
+    if forecast_col and forecast_col in series.columns:
+        forecast_values = cast(pd.Series, pd.to_numeric(series[forecast_col], errors="coerce"))
+        forecast_mask = dates_all.notna() & forecast_values.notna()
+        if forecast_mask.any():
+            ax.plot(
+                dates_all[forecast_mask],
+                forecast_values[forecast_mask],
+                linestyle="--",
+                label=forecast_col,
+            )
+
+    if (
+        lower_col
+        and upper_col
+        and lower_col in series.columns
+        and upper_col in series.columns
+    ):
+        lower_values = cast(pd.Series, pd.to_numeric(series[lower_col], errors="coerce"))
+        upper_values = cast(pd.Series, pd.to_numeric(series[upper_col], errors="coerce"))
+        band_mask = dates_all.notna() & lower_values.notna() & upper_values.notna()
+        if band_mask.any():
+            ax.fill_between(
+                dates_all[band_mask],
+                lower_values[band_mask],
+                upper_values[band_mask],
+                alpha=0.2,
+                label="confidence band",
+            )
+
+    if not hist_mask.any() and not (forecast_col and forecast_col in series.columns):
+        return _error_result("INSUFFICIENT_DATA", "No rows to plot.", helper="time_series_plot")
+
     ax.set_xlabel(date_col)
-    ax.set_ylabel(value_col)
-    ax.set_title(f"{value_col} over time")
+    ax.set_ylabel(hist_col)
+    ax.set_title(f"{hist_col} over time")
+    if ax.get_legend_handles_labels()[0]:
+        ax.legend(loc="best")
     fig.autofmt_xdate()
     fig.tight_layout()
     return _ok_viz("time_series_plot", fig, chart_type="line", title=ax.get_title())
@@ -312,6 +362,10 @@ def _dispatch_helper(name: str, data: Any, params: dict[str, Any], *, headers: b
             data,
             date_col=str(params["date_col"]),
             value_col=str(params["value_col"]),
+            forecast_col=str(params["forecast_col"]) if params.get("forecast_col") else None,
+            lower_col=str(params["lower_col"]) if params.get("lower_col") else None,
+            upper_col=str(params["upper_col"]) if params.get("upper_col") else None,
+            historical_value_col=str(params["historical_value_col"]) if params.get("historical_value_col") else None,
             **common,
         )
     return _error_result("UNKNOWN_HELPER", f"Unknown helper {name!r}", helper=name)

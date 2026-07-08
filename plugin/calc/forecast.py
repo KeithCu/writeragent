@@ -41,6 +41,7 @@ class ForecastDataTool(ToolCalcAnalysisBase):
             "output_range": {"type": "string", "description": "Optional A1 anchor cell to write formatted results (Calc only)."},
             "headers": {"type": "boolean", "description": "First row contains column names (default true)."},
             "task_hint": {"type": "string", "description": "Optional hint echoed in result context."},
+            "auto_plot": {"type": "boolean", "description": "When true (or task_hint mentions chart/plot), insert a forecast band chart on Calc after table egress (default false)."},
         },
         "required": ["helper"],
     }
@@ -120,5 +121,42 @@ class ForecastDataTool(ToolCalcAnalysisBase):
                 execute_on_main_thread(_write)
             except Exception as exc:
                 return self._tool_error(f"Forecast succeeded but sheet write failed: {exc}")
+
+        if result.get("status") == "ok" and ctx.doc_type == "calc":
+            auto_plot = bool(kwargs.get("auto_plot", False))
+            from plugin.calc.forecast_auto_plot import run_auto_plot_after_forecast, should_auto_plot
+            from plugin.scripting.viz import insert_viz_result_into_doc
+
+            plot_result = None
+            if should_auto_plot(helper=helper, auto_plot=auto_plot, task_hint=task_hint):
+
+                def _auto_plot() -> dict[str, Any] | None:
+                    return run_auto_plot_after_forecast(
+                        ctx.ctx,
+                        ctx.doc,
+                        forecast_helper=helper,
+                        forecast_result=result,
+                        forecast_params=params,
+                        data_range=dr,
+                        auto_plot=auto_plot,
+                        task_hint=task_hint,
+                    )
+
+                plot_result = execute_on_main_thread(_auto_plot)
+            if plot_result is not None:
+                result = dict(result)
+                result["plot"] = plot_result
+                if plot_result.get("status") == "ok":
+
+                    def _insert_plot() -> None:
+                        insert_viz_result_into_doc(ctx.ctx, ctx.doc, plot_result)
+
+                    try:
+                        execute_on_main_thread(_insert_plot)
+                        result["image_inserted"] = True
+                    except Exception as exc:
+                        result["plot_error"] = str(exc)
+                else:
+                    result["plot_error"] = plot_result.get("message")
 
         return result

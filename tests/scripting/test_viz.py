@@ -64,3 +64,42 @@ def test_run_viz_missing_matplotlib():
         result = run_viz({"helper": "quick_plot"}, pd.DataFrame({"a": [1]}), {})
     assert result["status"] == "error"
     assert result["code"] == "MISSING_PACKAGE"
+
+
+@patch("plugin.scripting.venv.viz._figure_payload", return_value=_mock_figure_payload())
+@patch("plugin.scripting.venv.viz._require_matplotlib")
+def test_time_series_plot_with_forecast_bands(mock_plt, _mock_payload):
+    plt_mod = _mock_plt_module()
+    mock_plt.return_value = plt_mod
+    fig, ax = plt_mod.subplots.return_value
+    ax.get_legend_handles_labels.return_value = ([], [])
+
+    df = pd.DataFrame(
+        {
+            "date": ["2024-01-01", "2024-02-01", "2024-03-01", "2024-04-01"],
+            "Value": [100.0, 110.0, None, None],
+            "forecast": [None, None, 120.0, 125.0],
+            "lower": [None, None, 115.0, 118.0],
+            "upper": [None, None, 125.0, 132.0],
+        }
+    )
+
+    result = run_viz(
+        {
+            "helper": "time_series_plot",
+            "params": {
+                "date_col": "date",
+                "value_col": "Value",
+                "forecast_col": "forecast",
+                "lower_col": "lower",
+                "upper_col": "upper",
+            },
+        },
+        df,
+        {},
+    )
+
+    assert result["status"] == "ok"
+    assert result["helper"] == "time_series_plot"
+    ax.plot.assert_called()
+    ax.fill_between.assert_called_once()

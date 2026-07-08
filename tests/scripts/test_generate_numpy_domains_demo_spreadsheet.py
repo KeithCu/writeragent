@@ -18,6 +18,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 _GEN_PATH = REPO_ROOT / "scripts" / "generate_numpy_domains_demo_spreadsheet.py"
 
 from plugin.scripting.analysis import HELPER_NAMES as ANALYSIS_HELPERS
+from plugin.scripting.forecast import HELPER_NAMES as FORECAST_HELPERS
 from plugin.scripting.optimize import HELPER_NAMES as OPTIMIZE_HELPERS
 from plugin.scripting.quant import HELPER_NAMES as QUANT_HELPERS
 from plugin.scripting.symbolic import HELPER_NAMES as MATH_HELPERS
@@ -28,6 +29,7 @@ from tests.calc.numpy_domains_demo_cases import (
     all_domain_demo_cases,
     analysis_demo_cases,
     goal_seek_solver_layout,
+    forecast_demo_cases,
     math_demo_cases,
     optimize_demo_cases,
     quant_demo_cases,
@@ -40,17 +42,19 @@ _LOWERCASE_PYTHON_FN_RE = re.compile(r"of:=python\(")
 
 def test_case_counts_per_domain():
     assert len(analysis_demo_cases()) == 14
+    assert len(forecast_demo_cases()) == 3
     assert len(viz_demo_cases()) == 3
     assert len(math_demo_cases()) == 4
     assert len(quant_demo_cases()) == 4
     assert len(optimize_demo_cases()) == 3
     assert len(units_demo_cases()) == 4
-    assert len(all_domain_demo_cases()) == 32
+    assert len(all_domain_demo_cases()) == 35
 
 
 def test_helpers_subset_of_module_names():
     domain_helpers = {
         "analysis": ANALYSIS_HELPERS,
+        "forecast": FORECAST_HELPERS,
         "viz": VIZ_HELPERS,
         "math": MATH_HELPERS,
         "quant": frozenset(QUANT_HELPERS),
