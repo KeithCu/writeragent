@@ -1,17 +1,15 @@
 # WriterAgent
 
-WriterAgent logo
+![WriterAgent logo](https://raw.githubusercontent.com/KeithCu/writeragent/master/extension/assets/logo.jpg)
 
-[License: GPL v3+](https://www.gnu.org/licenses/gpl-3.0.html)
-[Python 3.11+](https://www.python.org/downloads/)
-[LibreOffice 7.0+](https://www.libreoffice.org/)
-[Release](https://github.com/KeithCu/writeragent/releases)
+[![License: GPL v3+](https://img.shields.io/badge/License-GPL%20v3%2B-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.html)
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
+[![LibreOffice 7.0+](https://img.shields.io/badge/LibreOffice-7.0%2B-green.svg)](https://www.libreoffice.org/)
+[![Release](https://img.shields.io/github/v/release/KeithCu/writeragent)](https://github.com/KeithCu/writeragent/releases)
 
- A LibreOffice extension that adds agentic AI and NumPy features.
+A LibreOffice extension that adds agentic AI and NumPy features.
 
 ---
-
-
 
 ## ⚡ Quick Start
 
@@ -21,8 +19,6 @@ WriterAgent logo
 4. **Chat**: Open sidebar with **View → Sidebar → WriterAgent** or use **Ctrl+Q** / **Ctrl+E** shortcuts
 
 ---
-
-
 
 ## 📑 Table of Contents
 
@@ -41,23 +37,17 @@ WriterAgent logo
 
 ---
 
-
-
 ## Local-First & Flexible
 
 Unlike proprietary office suites that lock you into a single cloud provider and send all your data to their servers, WriterAgent is local-first. You can run fast, private models locally (via Ollama, LM Studio, or local servers) ensuring your documents never leave your machine. If you choose to use cloud APIs, you can switch between providers (e.g., OpenRouter, Together.AI) in seconds, maintaining full control over your data.
 
 ---
 
-
-
 ## Core Features
-
-
 
 ### 🖋️ Writer
 
-- **LLM-facing Writer APIs**: **9 core** tools for everyday chat plus **dozens of specialized** UNO-backed tools. The main model keeps a small default list  while `[domain-scoped sub-agents](docs/writer-specialized-toolsets.md)` unlock deep APIs for [page layout](docs/page-api-reference.md), [shapes](docs/shape_support.md), charts, [bookmarks](docs/bookmarks-api-reference.md), fields, [footnotes](docs/footnotes-api-reference.md), [track changes](docs/writer-tracking-api-reference.md), indexes, forms, and more—so models run **multi-step document automation**, not just rewrite paragraphs.
+- **LLM-facing Writer APIs**: **9 core** tools for everyday chat plus **dozens of specialized** UNO-backed tools. The main model keeps a small default list  while [`domain-scoped sub-agents`](docs/writer-specialized-toolsets.md) unlock deep APIs for [page layout](docs/page-api-reference.md), [shapes](docs/shape_support.md), charts, [bookmarks](docs/bookmarks-api-reference.md), fields, [footnotes](docs/footnotes-api-reference.md), [track changes](docs/writer-tracking-api-reference.md), indexes, forms, and more—so models run **multi-step document automation**, not just rewrite paragraphs.
 - **Format Preservation**: Uses a "surgical" replacement method that preserves existing bold, italics, highlights, and font sizes.
 - **Agentic Analysis**: The AI can run Numpy computations and return structured results (as JSON) to update your document.
 - **Real-time Grammar & Style Checker**: An asynchronous proofreader with a **sentence cache** and **Unicode-aware splitting**. Includes **Token-aware Overlap Repair** to fix "LLM slop" and ensure surgical replacements. Persistent storage of good/bad sentences with document. Supports multiple backends configurable in **Settings → Doc → Enable grammar checker (Writer)**:
@@ -73,15 +63,12 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 - **Charts from Python**: Matplotlib figures from **Viz Helpers** or custom scripts insert as inline images.
 - **Text Analytics (spaCy)**: Readability metrics, named entities (NER), and key phrases for Writer documents. Use **WriterAgent → Text Analytics…** (with Readability (doc/sel), Entities, Key Phrases, Insert report). Requires `spacy` + `textdescriptives` + a model in the venv configured in Settings → Python.
 
-
-
 ### 📊 Calc
 
 - **=PROMPT() Function**: Run AI prompts within spreadsheet cells.
 - **=PY() / =PYTHON() Function**: Run Python/NumPy within spreadsheet cells: `=PY("sp.prime(data)", A10)`. Supports multi-range inputs (e.g., `=PY("np.mean(data)", A1:A10, C1:C10)`) and auto-unpacks single-cell inputs to Python scalars. The `data` variable contains the cell values, dynamically injected at runtime. Returns can include lists/dicts of figures (multiple images) or DataFrames. Return semantics: `None` → empty cell; `float("nan")` / `np.nan` → Calc error cell (`#NUM!` / `#VALUE!`, cascades). Use `np.nanmean` / `np.nansum` etc. when input contains blanks. See [Data Handoff Guide](docs/enabling_numpy_in_libreoffice.md#data-handoff-and-shaping) and [Empty cells vs NaN](docs/calc-blanks-vs-nans.md).
 - **Automatic spill (Calc)**: On by default (Settings → Python → "Python auto spill in Calc"). A single-cell `=PYTHON()` returning a list, 2D array, or DataFrame automatically spills the result into adjacent cells. Blocked cells produce `#SPILL!` in the formula cell. Spill locations are saved in the document (persistent across reloads). Explicit matrix formulas (Ctrl+Shift+Enter) and per-row index arguments remain available for manual control.
 - **Trusted Calc helpers**: via `analyze_data`, chat delegation, and **Tools → Run Python Script** — set **Data** range where applicable.
-
 
 | Domain       | Helpers                                                                                    | Notes                                                                                                                                                                                         |
 | ------------ | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -92,13 +79,10 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 | **Optimize** | `optimize_portfolio`, `linear_programming`, `solve_scheduling_problem`                     | `scipy.optimize`. [Optimization](docs/numpy-domains.md#optimization)                                                                                                                          |
 | **Units**    | `convert_quantity`, `parse_quantity`, `format_quantity`, `check_dimensionality`            | Calc: single formatted cell by default (`36 km/h`); `output_style: "detailed"` for grid. Beyond `CONVERT()` for compound units. `pint`. [Units](docs/numpy-domains.md#data-engineering-units) |
 
-
 - **Rich Text Cells**: Paste **HTML** (bold, links, breaks) into a **single cell** using advanced StarWriter import paths.
 - **Batch Range Edits**: Apply formulas and formatting in bulk. [Specialized Toolsets](docs/calc-specialized-toolsets.md).
 - **Advanced Features**: [Conditional Formatting](docs/calc-conditional-formatting.md) and [Sheet Filtering (AutoFilter)](docs/calc-sheet-filter.md).
-- **Spreadsheet → Python conversion:** Run **WriterAgent → Convert Sheet to Python…** on an open Calc sheet (or selection) to rewrite spreadsheet formulas as `=PY()` / `=PYTHON()` while **constants, text, dates, and formats stay unchanged**. A deterministic translator covers **235+ Calc functions**—aggregates, logic, lookups (`VLOOKUP`, `XLOOKUP`), dates, financial, statistical, database, and array helpers—emitting NumPy/pandas/`xl.`* Python with precedent ranges wired as explicit `data` arguments so Calc’s recalc graph stays correct. Optional **column vectorization** collapses repeated fill-down patterns; output defaults to a **new sheet** with an optional **verify recalc** pass and a **conversion report** for any formulas left as Calc (e.g. `INDIRECT`, array formulas). Details: [Calc Spreadsheet → Python Import](docs/calc-spreadsheet-to-python-import.md).
-
-
+- **Spreadsheet → Python conversion:** Run **WriterAgent → Convert Sheet to Python…** on an open Calc sheet (or selection) to rewrite spreadsheet formulas as `=PY()` / `=PYTHON()` while **constants, text, dates, and formats stay unchanged**. A deterministic translator covers **235+ Calc functions**—aggregates, logic, lookups (`VLOOKUP`, `XLOOKUP`), dates, financial, statistical, database, and array helpers—emitting NumPy/pandas/`xl.*` Python with precedent ranges wired as explicit `data` arguments so Calc’s recalc graph stays correct. Optional **column vectorization** collapses repeated fill-down patterns; output defaults to a **new sheet** with an optional **verify recalc** pass and a **conversion report** for any formulas left as Calc (e.g. `INDIRECT`, array formulas). Details: [Calc Spreadsheet → Python Import](docs/calc-spreadsheet-to-python-import.md).
 
 ### 🌐 Multi-modal & Research
 
@@ -107,8 +91,6 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 - **Image Generation**: Generate or edit (Img2Img) images. [Image Generation Guide](docs/image-generation.md).
 - **Local OCR (Writer & Calc)**: Extract text and layout from embedded images offline via **Docling** — no cloud vision API required. **Run Python Script → Vision Helpers** — `extract_text` (Writer: inserts at cursor; Calc: sheet report below the image). **Packages:** `docling`, `rapidocr-paddle`, `numpy`, `pillow`, `onnxruntime` (required for default RapidOCR), and optional `paddleocr`, `paddlepaddle` fallback. Settings: **WriterAgent → Vision OCR Settings…** for pipeline defaults; **Settings → Python** for venv path and **Test**. [Image recognition design](docs/image-recognition.md).
 
-
-
 ### 🧠 The Intelligence Core (LO-DOM)
 
 - **Document Object Model (LO-DOM)**: A recursive model that understands structural relationships. [LO-DOM Semantic Tree](docs/lo-dom-semantic-tree.md).
@@ -116,9 +98,7 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 - **34 Locales**: Automated AI-driven translation and review pipeline. [Localization Pipeline](docs/localization.md).
 - **Multilingual Grammar & language detection**: When the AI grammar checker is on, optional **sentence language detection** can verify each complete sentence against the document locale, **auto-switch** the paragraph language when you typed in the wrong one, and **re-run grammar checking** in the correct language. **Local (langdetect)** requires **Settings → Python** venv with `langdetect` installed (same venv as embeddings). Use **AI (LLM)** instead if you prefer your chat model for detection. Configure **Settings → Doc → Sentence language detection** (`Off` / `AI (LLM)` / `Local (langdetect)`).
 - **Cross-Document Research**: Say **my** or **our** in the sidebar (e.g. *“pull Q4 from our budget spreadsheet”*) to read other files in the same folder as your saved document; edits stay on the active doc.
-- **Optional folder search cache** (off by default; enable **Embeddings + FTS** in **Settings → Vector Search**) builds beside your documents in `writeragent_embeddings/` (supports both ODF and OOXML formats, and old binary (DOC) formats: one `**corpus.db`** (FTS5 + sqlite-vec). Experimental backends: [Zvec](https://github.com/alibaba/zvec) and [LanceDB](https://github.com/lancedb/lancedb). Default model is `**paraphrase-multilingual-MiniLM-L12-v2`** for multilingual support. LLMS use `**search_nearby_files**` — keyword (BM25/NEAR) and semantic hits merged with **Reciprocal Rank Fusion** (RRF). [Multi-document plan](docs/multi-document-dev-plan.md) · [Embeddings & hybrid search](docs/embeddings.md). **Venv packages:** `sentence-transformers numpy sqlite-vec langgraph langchain-core langchain-text-splitters envwrap odfpy`.
-
-
+- **Optional folder search cache** (off by default; enable **Embeddings + FTS** in **Settings → Vector Search**) builds beside your documents in `writeragent_embeddings/` (supports both ODF and OOXML formats, and old binary (DOC) formats: one `**corpus.db`** (FTS5 + sqlite-vec). Experimental backends: [Zvec](https://github.com/alibaba/zvec) and [LanceDB](https://github.com/lancedb/lancedb). Default model is `**paraphrase-multilingual-MiniLM-L12-v2**` for multilingual support. LLMS use `**search_nearby_files**` — keyword (BM25/NEAR) and semantic hits merged with **Reciprocal Rank Fusion** (RRF). [Multi-document plan](docs/multi-document-dev-plan.md) · [Embeddings & hybrid search](docs/embeddings.md). **Venv packages:** `sentence-transformers numpy sqlite-vec langgraph langchain-core langchain-text-splitters envwrap odfpy`.
 
 ### 🐍 Local Python Execution
 
@@ -128,12 +108,11 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 - **Shared Kernel**: Keeps a persistent, single global Python namespace per Calc workbook across all `=PY()` cells. This allows cells to share variables, imports, and state, mimicking Jupyter notebook behavior. Enable it in **Settings → Python → Python session mode → Shared kernel**, and use **WriterAgent → Reset Python Session** to clear variables for the active workbook.
 - **Initialization Scripts**: Run a workbook startup script once per workbook in a dedicated initialization session (even when session mode is Isolated) to handle expensive setup or seed global constants. Edit it via **WriterAgent → Edit Initialization Script…** (Calc only).
 - **Document-Attached Scripts**: Save and manage Python scripts directly inside document custom properties rather than just in your personal user-profile library. This ensures your custom scripts travel with the document when shared. Access this in the script run dialog under "This Document" to attach, save, or run document-backed scripts.
-- **Safety & Isolation**: Code runs safely in a separate process and is evaluated by a [custom AST-based executor](plugin/contrib/smolagents/local_python_executor.py) (adapted from [Hugging Face smolagents](https://github.com/huggingface/smolagents)) that acts as a secure sandbox which blocks dangerous modules (like `os`, `subprocess`, or `sys`) and functions (like `eval` or `exec`), ensuring that the AI can only perform safe, mathematical, and data-processing tasks. 
+- **Safety & Isolation**: Code runs safely in a separate process and is evaluated by a [custom AST-based executor](plugin/contrib/smolagents/local_python_executor.py) (adapted from [Hugging Face smolagents](https://github.com/huggingface/smolagents)) that acts as a secure sandbox which blocks dangerous modules (like `os`, `subprocess`, or `sys`) and functions (like `eval` or `exec`), ensuring that the AI can only perform safe, mathematical, and data-processing tasks.
 - **High performance**: Compact pickle Protocol 5 + Split-grid [binary blob serialization for numbers](docs/numpy-serialization.md), 50x faster and 60% smaller than standard JSON lists.
 - **Auto-imported Packages**: `numpy` (as `np`), `pandas` (as `pd`), `sympy` (as `sp`), standard library `math`, `datetime`, `re`, `random`, `statistics`, `collections`, `itertools`, `json`, and `csv` are auto-imported to avoid needing manual imports.
 
 **Analysis helpers (detail)**
-
 
 | Helper                               | Purpose                                            |
 | ------------------------------------ | -------------------------------------------------- |
@@ -153,25 +132,18 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 | `calc_goal_seek`                     | Single-variable what-if (native Calc, no venv)     |
 | `calc_solver`                        | Constrained optimization on formulas (native Calc) |
 
-
-
-
 ### 🎨 Showcase
 
-
-| Feature                                   | Screenshot                        |
-| ----------------------------------------- | --------------------------------- |
-| **Hermes + Opus 4.6 (Web Research)**      | Hermes-Agent / Opus-4.6 Akihabara |
-| **Arch Linux Resume**                     | Opus 4.6 Resume                   |
-| **Spreadsheet Dashboard**                 | Chat Sidebar with Dashboard       |
-| **Math Expressions**                      | Math Expressions                  |
-| **Python in LibreOffice**                 | Python in LibreOffice             |
-| **Sonnet diagram of an Arch Linux deity** | Sonnet 4.6 Visual                 |
-
+| Feature                                   | Screenshot                                                          |
+| ----------------------------------------- | ------------------------------------------------------------------- |
+| **Hermes + Opus 4.6 (Web Research)**      | ![Hermes-Agent / Opus-4.6 Akihabara](Showcase/HermesAkihabara.png)  |
+| **Arch Linux Resume**                     | ![Opus 4.6 Resume](Showcase/Opus46Resume.png)                       |
+| **Spreadsheet Dashboard**                 | ![Chat Sidebar with Dashboard](Showcase/Sonnet46Spreadsheet.png)    |
+| **Math Expressions**                      | ![Math Expressions](Showcase/Math.png)                              |
+| **Python in LibreOffice**                 | ![Python in LibreOffice](Showcase/PythonLibreOffice.png)              |
+| **Sonnet diagram of an Arch Linux deity** | ![Sonnet 4.6 Visual](Showcase/Sonnet46ArchDiagram.jpg)              |
 
 ---
-
-
 
 ## Web Research & Fact-Checking
 
@@ -184,8 +156,6 @@ It's better than a standard Google search box because it understands natural lan
 - **Real-time Data**: Ask it to find the current price of a specific item and it can update your document with current data.
 
 ---
-
-
 
 ## High-Fidelity Editing & Formatting
 
@@ -202,8 +172,6 @@ WriterAgent is "format-aware." Unlike simpler plugins that strip away your hard 
 One of the unique challenges of building an AI assistant for a rich word processor, unlike a plain-text code editor, is the multiple ways of applying formatting. Eventually, we will encourage models to output properly classed HTML that maps to your LibreOffice template. See [LLM_STYLES.md](LLM_STYLES.md) and [Styles & Formatting](docs/llm-styles.md).
 
 ---
-
-
 
 ## MCP Server (Optional)
 
@@ -229,8 +197,6 @@ Use the URL from **MCP Server Status** (includes the `/mcp` path). Enable **MCP 
 
 - **Real-time Sidebar Monitoring**: All MCP activity (requests and tool results) is logged in real-time in the sidebar.
 - **Hybrid AI Orchestrator Model**: This exposes the entire toolset to external agents while maintaining the document as the single source of truth.
-
-
 
 ### Document targeting (multiple open files)
 
@@ -261,8 +227,6 @@ MCP server config JSON typically sets only the endpoint URL; your client or wrap
 
 ---
 
-
-
 ## Agent Backends
 
 - **Local**: Ollama, LM Studio, or custom servers (e.g., `http://localhost:11434`).
@@ -276,11 +240,9 @@ You can plug in **external agent backends** so that Chat with Document uses an e
 
 ---
 
-
-
 ## Architecture
 
-State Machine Architecture
+![State Machine Architecture](Showcase/full_super_unified_complete.png)
 *Figure 1: Unified state machine architecture for AI tool interactions.*
 
 WriterAgent is engineered for professional-grade reliability, moving beyond simple script-based plugins. [WriterAgent Architecture Overview](docs/writeragent-architecture.md) & [Sidebar Implementation Guide](docs/chat-sidebar-implementation.md).
@@ -292,8 +254,6 @@ WriterAgent is engineered for professional-grade reliability, moving beyond simp
 - **Comprehensive Test Suite**: Thousands of tests ensuring stability. [Test Architecture](docs/test_architecture_analysis.md).
 
 ---
-
-
 
 ## Roadmap & Future Vision
 
@@ -315,12 +275,9 @@ Building on this foundation, we are working on **long-document navigation** for 
 
 ---
 
-
-
 ## Credits & Collaboration
 
 WriterAgent stands on the shoulders of giants. We'd like to give credit to:
-
 
 | Project                                                                                   | Contribution                                                                                                           |
 | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
@@ -329,10 +286,7 @@ WriterAgent stands on the shoulders of giants. We'd like to give credit to:
 | **[Hermes Agent](https://github.com/NousResearch/hermes-agent)**                          | Client-side tool call parsers and JSON repair, memory, humanizer skill, CDP support                                    |
 | **[latex2mathml](https://github.com/roniemartinez/latex2mathml)**                         | Converts LaTeX to MathML                                                                                               |
 
-
 ---
-
-
 
 ## Recent Progress & Benchmarks (Apr 2026)
 
@@ -340,8 +294,7 @@ WriterAgent stands on the shoulders of giants. We'd like to give credit to:
 
 We have recently integrated an internal **LLM Evaluation Suite** directly into the LibreOffice UI. This allows users and developers to benchmark models across 10 (so far) real-world tasks in Writer, Calc, and Draw, tracking both accuracy and **Intelligence-per-Dollar (IpD)**. By fetching real-time pricing from OpenRouter, the system calculates the exact cost of every AI turn and ranks backends by **Value (C²/$)**—average correctness squared, divided by average dollars per run (higher is better).
 
-
-
+<div align="center" style="overflow-x: auto;">
 
 | Rank | Model                                  | Avg correctness | Avg score | Avg tokens | Avg cost ($) | Value (C²/$) |
 | ---- | -------------------------------------- | --------------- | --------- | ---------- | ------------ | ------------ |
@@ -361,8 +314,7 @@ We have recently integrated an internal **LLM Evaluation Suite** directly into t
 | 14   | allenai/olmo-3.1-32b-instruct          | 0.323           | 0.306     | 1912.4     | 0.00046      | 226.704      |
 | 15   | z-ai/glm-5.1                           | 0.890           | 0.843     | 4677.8     | 0.00524      | 151.141      |
 
-
-
+</div>
 
 ### Key Benchmarking Insights (Apr 2026)
 
@@ -394,18 +346,12 @@ This framework allows us to differentiate between "Flash" models that prioritize
 
 ---
 
-
-
 ## Installation & Setup
-
-
 
 ### Installation
 
 1. Download the latest `.oxt` file from the [releases page](https://github.com/KeithCu/writeragent/releases).
 2. Double-click the downloaded `.oxt` file to install it in LibreOffice, then restart LibreOffice if prompted.
-
-
 
 ### Backend Setup
 
@@ -442,22 +388,18 @@ A weekly chronicle of building a professional AI suite inside LibreOffice:
 
 ---
 
-
-
 ## Contributing
 
-[Ask DeepWiki](https://deepwiki.com/KeithCu/writeragent)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/KeithCu/writeragent)
 [Discussions](https://github.com/KeithCu/writeragent/discussions)
 
 > DeepWiki provides excellent analysis of the codebase, including visual dependency graphs
-
-
 
 ### Local Development
 
 **Update May 11, 2026:** Removed `dspy` from `pyproject.toml` to remove dependencies like `litellm`. Run `uv sync` to update your `.venv`. If you want to do prompt optimization, install manually.
 
-**Prerequisites:** Python 3.11–3.13 for dev (some native deps like spaCy do not ship 3.14 wheels yet), [uv](https://docs.astral.sh/uv/), and LibreOffice with `unopkg` on your PATH. Dev Python is pinned to **3.13** in `[.python-version](.python-version)`. Run `make check-setup` to verify.
+**Prerequisites:** Python 3.11–3.13 for dev (some native deps like spaCy do not ship 3.14 wheels yet), [uv](https://docs.astral.sh/uv/), and LibreOffice with `unopkg` on your PATH. Dev Python is pinned to **3.13** in [`.python-version`](.python-version). Run `make check-setup` to verify.
 
 ```bash
 # Clone the repository
@@ -487,8 +429,6 @@ make help
 
 ---
 
-
-
 ## License
 
 WriterAgent is released under the **GNU General Public License v3 (or later)**. See `LICENSE` for the full text. This transition ensures all improvements remain open and reciprocal under GPL v3.
@@ -497,12 +437,10 @@ WriterAgent is released under the **GNU General Public License v3 (or later)**. 
 
 WriterAgent was originally released under the **MPL 2.0** license. In 2026, it was transitioned to GPL v3 to ensure stronger protection for user freedoms and better compatibility with modern Python libraries.
 
-
 | Year      | Contribution                               | Contributor            |
 | --------- | ------------------------------------------ | ---------------------- |
 | 2024      | Original release                           | John Balis             |
 | 2025-2026 | Config, registries, build system           | quazardous             |
 | 2026      | Calc integration features (originally MIT) | LibreCalc AI Assistant |
 | 2026      | Modifications and relicensing              | KeithCu                |
-
 
