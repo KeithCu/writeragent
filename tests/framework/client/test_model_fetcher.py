@@ -79,6 +79,23 @@ class TestFetchAvailableModelsCache(unittest.TestCase):
         self.assertEqual(k_a, f'{url}\x1ftyped-a')
         self.assertEqual(k_b, f'{url}\x1ftyped-b')
 
+
+class TestTextModelPlaceholderGuards(unittest.TestCase):
+
+    def test_get_text_model_skips_connection_failed_placeholder(self):
+        from plugin.framework.client.model_fetcher import get_text_model
+
+        with patch('plugin.framework.client.model_fetcher.get_config', return_value='(Connection failed)'):
+            with patch('plugin.framework.client.model_fetcher.get_current_endpoint', return_value='https://api.z.ai/api/paas'):
+                self.assertEqual(get_text_model(), 'glm-5.2')
+
+    def test_set_text_model_ignores_placeholder(self):
+        from plugin.framework.client.model_fetcher import set_text_model
+
+        with patch('plugin.framework.client.model_fetcher.set_config') as mock_set:
+            set_text_model('(Connection failed)', update_lru=False)
+            mock_set.assert_not_called()
+
     def test_fetch_available_models_override_used_not_config_file(self):
         'Settings passes live api_key field; override must win over api_keys_by_endpoint.'
         from plugin.framework.client import model_fetcher as cfg

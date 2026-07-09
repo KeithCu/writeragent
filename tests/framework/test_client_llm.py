@@ -43,6 +43,24 @@ def test_headers_and_config_injection(client):
     client.config["is_openwebui"] = True
     assert client._api_path() == "/api"
 
+    # Z.ai bare host uses /api/paas/v4 (not bare /v4)
+    client.config["is_openwebui"] = False
+    client.config["endpoint"] = "https://api.z.ai"
+    assert client._api_path() == "/api/paas/v4"
+
+
+def test_make_chat_request_logs_body_model(caplog, client):
+    import logging
+
+    caplog.set_level(logging.DEBUG, logger="plugin.framework.client.llm_client")
+    client.config["endpoint"] = "https://api.z.ai/api/paas"
+    client.config["model"] = "glm-5.2"
+    client.config["api_key"] = "test-key"
+    client.make_chat_request([{"role": "user", "content": "hi"}], 100, tools=[{"type": "function"}], stream=True)
+    joined = "\n".join(r.message for r in caplog.records)
+    assert "Chat Request body: model='glm-5.2'" in joined
+    assert "full_url='https://api.z.ai/api/paas/v4/chat/completions'" in joined
+
 
 def test_custom_endpoint_and_key():
     config = {

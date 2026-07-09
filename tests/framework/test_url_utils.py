@@ -18,13 +18,20 @@ class TestNormalizeEndpointUrl():
         assert (normalize_endpoint_url('  ') == '')
 
     def test_zai_normalization(self):
-        # Test that /v4 is stripped for Z.ai
+        # Legacy bare-host /v4 strips to host-only storage
         assert normalize_endpoint_url("https://api.z.ai/v4") == "https://api.z.ai"
         assert normalize_endpoint_url("https://z.ai/v4") == "https://z.ai"
-        # Test that /v4 is stripped even for deeper paths (Z.ai coding endpoint)
+        # General OpenAI-compatible base
+        assert normalize_endpoint_url("https://api.z.ai/api/paas/v4") == "https://api.z.ai/api/paas"
+        # Z.ai coding-plan endpoint
         assert normalize_endpoint_url("https://api.z.ai/api/coding/paas/v4") == "https://api.z.ai/api/coding/paas"
-        # Test that /v1 is also stripped for Z.ai (as a fallback)
+        # /v1 fallback strip for Z.ai
         assert normalize_endpoint_url("https://api.z.ai/v1") == "https://api.z.ai"
+
+    def test_zai_chat_url_roundtrip(self):
+        stored = normalize_endpoint_url("https://api.z.ai/api/paas/v4")
+        suffix = get_api_version_suffix(stored)
+        assert stored + suffix + "/chat/completions" == "https://api.z.ai/api/paas/v4/chat/completions"
 
     def test_openwebui_normalization(self):
         # Test that /api is stripped when is_openwebui is True
@@ -35,8 +42,10 @@ class TestNormalizeEndpointUrl():
 class TestApiVersionSuffix():
 
     def test_zai_suffix(self):
-        assert get_api_version_suffix("https://api.z.ai") == "/v4"
-        assert get_api_version_suffix("https://z.ai") == "/v4"
+        assert get_api_version_suffix("https://api.z.ai") == "/api/paas/v4"
+        assert get_api_version_suffix("https://z.ai") == "/api/paas/v4"
+        assert get_api_version_suffix("https://api.z.ai/api/paas") == "/v4"
+        assert get_api_version_suffix("https://api.z.ai/api/coding/paas") == "/v4"
         assert get_api_version_suffix("https://other-api.com") == "/v1"
 
     def test_openwebui_suffix(self):

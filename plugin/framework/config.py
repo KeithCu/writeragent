@@ -1236,11 +1236,17 @@ def get_api_config():
 
 def validate_api_config(config):
     """Validate API config dict (from get_api_config). Returns (ok: bool, error_message: str)."""
+    from plugin.framework.i18n import _
+
     endpoint = (config.get("endpoint") or "").strip()
     if not endpoint:
-        return (False, "Please set Endpoint in Settings.")
+        return (False, _("Please set Endpoint in Settings."))
     model = (config.get("model") or "").strip()
     if not model:
-        return (False, "Please set Model in Settings.")
+        return (False, _("Please set Model in Settings."))
+    from plugin.chatbot.config_ui_helpers import _is_model_combobox_placeholder
+
+    if _is_model_combobox_placeholder(model):
+        return (False, _("Please select a valid model in Settings (not a placeholder)."))
     return (True, "")
 

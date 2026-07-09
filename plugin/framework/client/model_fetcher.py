@@ -36,7 +36,7 @@ from plugin.framework.config import (
 
 log = logging.getLogger(__name__)
 
-# Endpoint presets: local first, then FOSS-friendly / open-model providers, proprietary last. Base URLs only; api.py adds /v1 (or /api for OpenWebUI).
+# Endpoint presets: local first, then FOSS-friendly / open-model providers, proprietary last. Base URLs only; get_api_version_suffix adds /v1, /api (OpenWebUI), or /api/paas/v4 (Z.ai).
 ENDPOINT_PRESETS = [
     ("Local (Ollama)", "http://localhost:11434"),
     ("Local (LM Studio)", "http://localhost:1234"),
@@ -50,7 +50,7 @@ ENDPOINT_PRESETS = [
     ("X.ai (Grok)", "https://api.x.ai/v1"),
     ("Anthropic", "https://api.anthropic.com/v1"),
     ("Google Gemini", "https://generativelanguage.googleapis.com/v1beta/openai"),
-    ("Z.ai", "https://api.z.ai/v4"),
+    ("Z.ai", "https://api.z.ai/api/paas/v4"),
 ]
 
 
@@ -228,6 +228,10 @@ def fetch_available_models(endpoint, api_key_override: str | None = None):
         if parsed is not None:
             models, image_models, vision_models = parsed
             _store_model_fetch_caches(cache_key, models, image_models, vision_models)
+            provider = get_provider_from_endpoint(base)
+            if provider == "zai":
+                preview = models[:5] if models else []
+                log.debug("fetch_available_models z.ai ok url=%s count=%s preview=%r", url, len(models), preview)
             return models
     except (ValueError, TypeError, IOError) as e:
         log.warning("fetch_available_models network/parse error for %s: %s", url, e)
@@ -236,6 +240,8 @@ def fetch_available_models(endpoint, api_key_override: str | None = None):
             log.warning("fetch_available_models NetworkError for %s: %s", url, e)
         else:
             log.warning("fetch_available_models unexpected error for %s: %s", url, type(e).__name__)
+    if get_provider_from_endpoint(base) == "zai":
+        log.debug("fetch_available_models z.ai failed url=%s", url)
     _store_model_fetch_caches(cache_key, None, None, None)
     return None
 
@@ -433,9 +439,16 @@ def set_native_audio_support(model_id, endpoint, supported):
 # --- Resolved model getters (text / STT / grammar / image) ---
 
 
+def _sanitize_stored_model_value(val):
+    """Drop combobox placeholder strings from persisted model config."""
+    from plugin.chatbot.config_ui_helpers import _sanitize_model_combobox_value
+
+    return _sanitize_model_combobox_value(str(val or ""))
+
+
 def get_text_model():
     """Return the text/chat model (stored as ``text_model``)."""
-    val = str(get_config("text_model") or "").strip()
+    val = _sanitize_stored_model_value(get_config("text_model"))
     if val:
         return val
     current_endpoint = get_current_endpoint()
@@ -465,7 +478,7 @@ def get_grammar_model():
 
 def get_image_model():
     """Return current image model for endpoint-based generation."""
-    val = str(get_config("image_model") or "").strip()
+    val = _sanitize_stored_model_value(get_config("image_model"))
     if val:
         return val
     current_endpoint = get_current_endpoint()
@@ -478,7 +491,7 @@ def set_text_model(val, update_lru=True):
     """Set text/chat model and optionally update model_lru for the current endpoint."""
     if val is None:
         return
-    val_str = str(val).strip()
+    val_str = _sanitize_stored_model_value(val)
     if not val_str:
         return
 
@@ -497,7 +510,7 @@ def set_image_model(val, update_lru=True):
     """Set image model and notify listeners."""
     if val is None:
         return
-    val_str = str(val).strip()
+    val_str = _sanitize_stored_model_value(val)
     if not val_str:
         return
 

@@ -212,7 +212,9 @@ class ToolCallingMixin:
         if synced_model:
             log.debug("_do_send: text model updated to %s" % synced_model)
         if self.image_model_selector:
-            selected_image_model = self.image_model_selector.getText()
+            from plugin.chatbot.config_ui_helpers import _sanitize_model_combobox_value
+
+            selected_image_model = _sanitize_model_combobox_value(str(self.image_model_selector.getText() or ""))
             if selected_image_model:
                 set_image_model(selected_image_model)
                 log.debug("_do_send: image model updated to %s" % selected_image_model)
@@ -230,6 +232,21 @@ class ToolCallingMixin:
             self._terminal_status = "Error"
             self._set_status("Error")
             return
+
+        from plugin.framework.url_utils import get_api_version_suffix
+
+        endpoint_stored = str(api_config.get("endpoint") or "").strip()
+        if "z.ai" in endpoint_stored.lower():
+            combobox_raw = str(self.model_selector.getText() or "") if self.model_selector else ""
+            log.debug(
+                "_do_send z.ai diag: endpoint=%r api_path=%r combobox_raw=%r synced_model=%r config_model=%r get_text_model=%r",
+                endpoint_stored,
+                get_api_version_suffix(endpoint_stored),
+                combobox_raw,
+                synced_model,
+                api_config.get("model"),
+                get_text_model(),
+            )
 
         # contextvars (SendCancellation) do not propagate to worker threads — LlmClient
         # picks up resolve_stop_checker() via get_current_send_cancellation when created on

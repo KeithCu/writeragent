@@ -69,7 +69,7 @@ from plugin.framework.client.auth import resolve_auth_for_config, build_auth_hea
 from plugin.framework.errors import NetworkError
 from plugin.framework.url_utils import get_api_version_suffix
 
-from .errors import format_error_message, _format_http_error_response
+from .errors import format_error_message, _format_http_error_response, append_zai_unknown_model_hint
 from .http_transport import CONNECTION_ERRORS, LlmHttpTransport
 from .stream_normalizer import (
     iterate_sse,
@@ -84,6 +84,53 @@ from .provider_detection import is_openrouter_endpoint
 from .requests import sync_request
 
 log = logging.getLogger(__name__)
+
+
+def _request_model_from_body(body):
+    """Extract model field from encoded chat request body for error diagnostics."""
+    if not body:
+        return None
+    try:
+        payload = json.loads(body.decode("utf-8") if isinstance(body, bytes) else body)
+    except (ValueError, TypeError, UnicodeDecodeError):
+        return None
+    if isinstance(payload, dict):
+        return payload.get("model")
+    return None
+
+
+def _full_url_for_request_path(endpoint, path):
+    """Join stored endpoint host with relative API path for debug logs."""
+    if not path or not str(path).startswith("/"):
+        return path
+    try:
+        parsed = urllib.parse.urlparse(endpoint or "")
+        if parsed.scheme and parsed.netloc:
+            return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, path, "", "", ""))
+    except ValueError:
+        pass
+    return path
+
+
+def _log_chat_request_body_diag(client, path, body, headers, tools):
+    """Log wire-level chat fields (no secrets) for provider debugging."""
+    try:
+        payload = json.loads(body.decode("utf-8")) if body else {}
+    except (ValueError, TypeError, UnicodeDecodeError):
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    api_key = str(client.config.get("api_key") or "").strip()
+    n_tools = len(tools) if isinstance(tools, list) else len(payload.get("tools") or [])
+    log.debug(
+        "Chat Request body: model=%r stream=%s tools=%s full_url=%r api_key_set=%s api_key_len=%s",
+        payload.get("model"),
+        payload.get("stream"),
+        n_tools,
+        _full_url_for_request_path(client._endpoint(), path),
+        bool(api_key),
+        len(api_key),
+    )
 
 
 from .response_normalizers import (
@@ -339,6 +386,7 @@ class LlmClient:
         log.debug("=== Chat Request (provider=%s, tools=%s, stream=%s) ===" % (self._get_provider(), bool(tools), stream))
         log.debug("URL: %s" % path)
         log.debug("Messages: %s" % json.dumps(redact_sensitive_payload_for_log(messages), indent=2))
+        _log_chat_request_body_diag(self, path, body, headers, tools)
 
         return method, path, body, headers
 
@@ -456,10 +504,20 @@ class LlmClient:
 
                 if response.status != 200:
                     err_body = response.read().decode("utf-8", errors="replace")
-                    log.error("Provider API Error %d: %s" % (response.status, err_body))
+                    request_model = _request_model_from_body(body)
+                    log.error(
+                        "Provider API Error %d: %s (provider=%s path=%s request_model=%r)",
+                        response.status,
+                        err_body,
+                        self._get_provider(),
+                        path,
+                        request_model,
+                    )
                     # Close on error to be safe
                     self._close_connection()
-                    raise NetworkError(_format_http_error_response(response.status, response.reason, err_body), code="HTTP_ERROR", context={"url": path, "status": response.status})
+                    err_msg = _format_http_error_response(response.status, response.reason, err_body)
+                    err_msg = append_zai_unknown_model_hint(err_msg, err_body, path, self._get_provider(), request_model)
+                    raise NetworkError(err_msg, code="HTTP_ERROR", context={"url": path, "status": response.status})
 
                 try:
                     # Use a flag to stop logical processing but keep reading to exhaust the stream
@@ -640,14 +698,24 @@ class LlmClient:
                     response = self._send_request(method, path, body, headers)
                     if response.status != 200:
                         err_body = response.read().decode("utf-8", errors="replace")
-                        log.error("Provider API Error %d: %s" % (response.status, err_body))
+                        request_model = _request_model_from_body(body)
+                        log.error(
+                            "Provider API Error %d: %s (provider=%s path=%s request_model=%r)",
+                            response.status,
+                            err_body,
+                            self._get_provider(),
+                            path,
+                            request_model,
+                        )
                         try:
                             redacted_msgs = redact_sensitive_payload_for_log(messages)
                             log.error("request_with_tools outgoing messages (redacted): %s", json.dumps(redacted_msgs, indent=2, ensure_ascii=False))
                         except Exception as log_exc:
                             log.warning("Could not log redacted outgoing messages: %s", log_exc)
                         self._close_connection()
-                        raise NetworkError(_format_http_error_response(response.status, response.reason, err_body), code="HTTP_ERROR", context={"url": path, "status": response.status})
+                        err_msg = _format_http_error_response(response.status, response.reason, err_body)
+                        err_msg = append_zai_unknown_model_hint(err_msg, err_body, path, self._get_provider(), request_model)
+                        raise NetworkError(err_msg, code="HTTP_ERROR", context={"url": path, "status": response.status})
                     from plugin.framework.errors import safe_json_loads
 
                     result = safe_json_loads(response.read().decode("utf-8"))

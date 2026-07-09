@@ -55,6 +55,25 @@ def _format_http_error_response(status, reason, err_body):
     return base + ".\nProvider Response:\n" + snippet
 
 
+def append_zai_unknown_model_hint(message, err_body, path, provider, request_model=None):
+    """Append Coding Plan endpoint guidance when Z.ai returns unknown-model 400."""
+    if (provider or "").lower() != "zai":
+        return message
+    path_l = str(path or "").lower()
+    if "/api/coding/" in path_l:
+        return message
+    err_l = str(err_body or "").lower()
+    if "unknown model" not in err_l and '"code":"1211"' not in err_l and '"code": "1211"' not in err_l:
+        return message
+    hint = _(
+        " If your API key is from a GLM Coding Plan subscription, set endpoint to "
+        "https://api.z.ai/api/coding/paas/v4 (not the general /api/paas URL)."
+    )
+    if request_model:
+        return message + hint + _(" Request model was: {0}.").format(repr(request_model))
+    return message + hint
+
+
 def format_error_for_display(e):
     """Return user-friendly error string for display in cells or dialogs."""
     from plugin.framework.errors import format_error_payload

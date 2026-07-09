@@ -97,8 +97,8 @@ def _is_incompatible_model_for_provider(model_id: str, provider: str | None) -> 
         return False
     if _is_model_id_associated_with_other_provider(model_id, provider):
         return True
-    # Hosted slug providers use org/model ids; bare names are typical local Ollama picks.
-    if provider_requires_api_key(provider) and "/" not in model_id:
+    # Slug catalogs (org/model ids); bare names are typical local Ollama picks on those hosts.
+    if provider in {"openrouter", "together"} and "/" not in model_id:
         return True
     return False
 

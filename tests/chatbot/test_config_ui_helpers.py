@@ -315,7 +315,7 @@ class TestPopulateComboboxWithLruFetchOptions(unittest.TestCase):
         # Scenario: Current val is a Google model, but we just switched to Z.ai.
         # Fetch fails (None).
         current_val = "google/gemini-3.1-flash-lite-preview"
-        endpoint = "https://api.z.ai/v4"
+        endpoint = "https://api.z.ai/api/paas/v4"
         
         # Mock get_config to return empty LRU
         with patch("plugin.chatbot.config_ui_helpers.get_config", return_value=[]):
@@ -448,3 +448,36 @@ class TestPopulateComboboxWithLruFetchOptions(unittest.TestCase):
                 populate_combobox_with_lru(self.ctx, ctrl, "", "image_base_size_lru", "")
         ctrl.addItems.assert_not_called()
         ctrl.setText.assert_called_with("")
+
+    def test_zai_fetched_bare_models_not_filtered(self):
+        ctrl = MagicMock()
+        ctrl.getItemCount.return_value = 0
+        ep = "https://api.z.ai/api/paas"
+        with patch("plugin.chatbot.config_ui_helpers.fetch_available_models", return_value=["glm-5.2", "glm-4.7"]):
+            populate_combobox_with_lru(self.ctx, ctrl, "", "model_lru", ep, api_key_override="zai-key")
+        items = list(ctrl.addItems.call_args[0][0])
+        self.assertIn("glm-5.2", items)
+        self.assertIn("glm-4.7", items)
+        self.assertNotIn("(Connection failed)", items)
+
+    def test_set_text_model_via_populate_does_not_persist_connection_failed(self):
+        from plugin.framework.client.model_fetcher import set_text_model, get_text_model
+
+        self.config_data["text_model"] = "glm-5.2"
+        ctrl = MagicMock()
+        ctrl.getItemCount.return_value = 0
+        with patch("plugin.chatbot.config_ui_helpers.fetch_available_models", return_value=None):
+            populate_combobox_with_lru(
+                self.ctx,
+                ctrl,
+                "glm-5.2",
+                "model_lru",
+                "https://api.z.ai/api/paas",
+                api_key_override="zai-key",
+            )
+        set_val = ctrl.setText.call_args[0][0]
+        set_text_model(set_val, update_lru=False)
+        self.assertEqual(self.config_data.get("text_model"), "glm-5.2")
+        with patch("plugin.framework.client.model_fetcher.get_config", side_effect=lambda k, d=None: self.config_data.get(k, d)):
+            with patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="https://api.z.ai/api/paas"):
+                self.assertEqual(get_text_model(), "glm-5.2")
