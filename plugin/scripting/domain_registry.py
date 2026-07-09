@@ -445,6 +445,7 @@ WIRING_TABLE: tuple[DomainWiring, ...] = (
         unsupported_message=lambda: _("Text analytics helpers require a Writer document."),
         fail_log_label="text_analytics",
         helper_failed_fallback=lambda: _("Text analytics helper failed."),
+        fast_path_enabled=False,
     ),
     DomainWiring(
         id="quant",

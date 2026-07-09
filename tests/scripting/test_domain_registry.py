@@ -42,9 +42,9 @@ def test_rps_domains_have_required_hooks():
 
 def test_run_import_domains_disable_fast_path():
     disabled = {s.id for s in get_rps_domains() if not s.fast_path_enabled}
-    assert disabled == {"viz", "math", "units", "analysis"}
+    assert disabled == {"viz", "math", "units", "text", "analysis"}
     enabled = {s.id for s in get_rps_domains() if s.fast_path_enabled}
-    assert enabled >= {"vision", "quant", "optimize", "forecast", "text"}
+    assert enabled >= {"vision", "quant", "optimize", "forecast"}
 
 
 def test_post_venv_order_matches_constant():

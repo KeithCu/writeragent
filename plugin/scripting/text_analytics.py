@@ -9,12 +9,16 @@ Compute is lazy-loaded from ``plugin.scripting.venv.text_analytics`` via ``__get
 
 from __future__ import annotations
 
-import json
 from collections import Counter
 from typing import TYPE_CHECKING, Any
 
 from plugin.scripting._lazy_venv import make_getattr
-from plugin.scripting.helper_domain import HelperScriptMeta, header_prefix, parse_helper_script_header
+from plugin.scripting.helper_domain import (
+    DomainFacadeConfig,
+    HelperScriptMeta,
+    header_prefix,
+    make_template_api,
+)
 
 if TYPE_CHECKING:
     from plugin.doc.document_helpers import HeadingTreeNode
@@ -46,38 +50,32 @@ _HELPER_DESCRIPTIONS: dict[str, str] = {
 
 TEXT_ANALYTICS_HEADER_PREFIX = header_prefix("text")
 
-def _template_body(helper: str, params: dict[str, Any]) -> str:
-    params_json = json.dumps(params, separators=(",", ":"))
-    desc = _HELPER_DESCRIPTIONS.get(helper, helper)
-    return (
-        f"{TEXT_ANALYTICS_HEADER_PREFIX} helper={helper} params={params_json}\n"
-        f"# {desc}\n"
-        f"# Works on Writer documents (uses current document text).\n"
-        f"from writeragent.scripting.text_analytics import run_text_analytics\n\n"
-        f"result = run_text_analytics(\n"
-        f'    {{"helper": "{helper}", "params": {params_json}}},\n'
-        f"    text=None,  # filled by runner from document\n"
-        f"    context={{}},\n"
-        f")\n"
+_SHIPPED_TEMPLATES = frozenset({"full", "readability", "entities", "key_phrases", "topics", "sentiment"})
+
+_API = make_template_api(
+    DomainFacadeConfig(
+        tag="text",
+        helper_names=HELPER_NAMES,
+        default_params=_DEFAULT_PARAMS,
+        descriptions=_HELPER_DESCRIPTIONS,
+        import_module="writeragent.scripting.text_analytics",
+        run_name="run_text_analytics",
+        shipped_templates=_SHIPPED_TEMPLATES,
+        data_expr="text",
+        context_expr="document_context",
+        extra_comment_lines=("# Works on Writer documents (document text is injected on Run).",),
     )
+)
 
-
-def get_text_analytics_script_templates() -> dict[str, str]:
-    """Return text analytics helper script bodies keyed by helper name."""
-    public_helpers = {h for h in HELPER_NAMES if h not in ("diagnostics", "check")}
-    return {helper: _template_body(helper, dict(_DEFAULT_PARAMS.get(helper, {}))) for helper in sorted(public_helpers)}
+get_text_analytics_script_templates = _API.get_templates
+parse_text_analytics_script_header = _API.parse_header
 
 
 TextAnalyticsScriptMeta = HelperScriptMeta
 
 
-def parse_text_analytics_script_header(code: str) -> TextAnalyticsScriptMeta | None:
-    """Parse the machine-readable header from a built-in or copied text analytics script."""
-    return parse_helper_script_header(code, tag="text", helper_names=HELPER_NAMES)
-
-
 def supports_text_analytics_manual(doc: Any) -> bool:
-    """True when Run Python Script may use the ``# writeragent:text`` fast path on *doc*."""
+    """True when Run Python Script should expose Text Analytics helpers on *doc*."""
     if doc is None:
         return False
     try:
@@ -86,6 +84,20 @@ def supports_text_analytics_manual(doc: Any) -> bool:
         return is_writer(doc)
     except Exception:
         return False
+
+
+def resolve_text_analytics_document_inputs(doc: Any, helper: str) -> tuple[str | list[str], dict[str, Any]]:
+    """Resolve Writer document text and RPC context for a text analytics helper."""
+    name = str(helper or "full").strip() or "full"
+    if name in ("topics", "sentiment"):
+        text: str | list[str] = _get_writer_sections(doc)
+    else:
+        text = _get_writer_text(doc)
+    context: dict[str, Any] = {}
+    lang = _get_doc_lang(doc)
+    if lang:
+        context["lang"] = lang
+    return text, context
 
 
 def run_trusted_text_analytics(
@@ -108,23 +120,11 @@ def run_trusted_text_analytics(
     if not is_writer(doc):
         raise ToolExecutionError("Text analytics helpers require a Writer document.", code="TEXT_ANALYTICS_ERROR")
 
-    # For topics and sentiment we prefer structured sections (heading + body)
-    # so the helper can report per-section results. This is the main "fancy" improvement.
-    text: str | list[str]
-    if name in ("topics", "sentiment"):
-        text = _get_writer_sections(doc)
-    else:
-        text = _get_writer_text(doc)
+    text, context = resolve_text_analytics_document_inputs(doc, name)
 
     spec: dict[str, Any] = {"helper": name}
     if params:
         spec["params"] = params
-
-    # Pass doc language when available so the venv side can pick a better model.
-    context: dict[str, Any] = {}
-    lang = _get_doc_lang(doc)
-    if lang:
-        context["lang"] = lang
 
     return client_run(uno_ctx, spec, text=text, context=context)
 

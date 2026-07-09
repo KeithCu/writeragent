@@ -391,8 +391,22 @@ def execute_and_insert_result(
             if err:
                 return {"ok": False, "message": err}
 
+    exec_code = code
+    if is_writer(doc):
+        from plugin.scripting.helper_domain import parse_run_import_call_spec, prepend_run_import_document_bindings, script_uses_run_import
+        from plugin.scripting.text_analytics import resolve_text_analytics_document_inputs
+
+        if script_uses_run_import(code, run_name="run_text_analytics"):
+            spec = parse_run_import_call_spec(code, run_name="run_text_analytics") or {}
+            helper = str(spec.get("helper") or "full")
+            text, document_context = resolve_text_analytics_document_inputs(doc, helper)
+            exec_code = prepend_run_import_document_bindings(
+                code,
+                bindings={"text": text, "document_context": document_context},
+            )
+
     try:
-        response = run_code_in_user_venv(ctx, code, data=py_data)
+        response = run_code_in_user_venv(ctx, exec_code, data=py_data)
         elapsed = time.perf_counter() - t0
     except Exception as e:
         log.exception("execute_and_insert_result failed")

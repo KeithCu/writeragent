@@ -113,6 +113,15 @@ def _literal_value(node: ast.AST) -> Any:
 
 def parse_run_import_call_params(code: str, *, run_name: str) -> dict[str, Any] | None:
     """Return the ``params`` dict from ``run_name({"helper": ..., "params": {...}}, ...)`` when literal."""
+    spec = parse_run_import_call_spec(code, run_name=run_name)
+    if not spec:
+        return None
+    params = spec.get("params")
+    return params if isinstance(params, dict) else None
+
+
+def parse_run_import_call_spec(code: str, *, run_name: str) -> dict[str, Any] | None:
+    """Return the first positional spec dict from ``run_name({...}, ...)`` when literal."""
     if not code or not run_name:
         return None
     try:
@@ -128,12 +137,27 @@ def parse_run_import_call_params(code: str, *, run_name: str) -> dict[str, Any] 
         if not node.args:
             continue
         spec = _literal_value(node.args[0])
-        if not isinstance(spec, dict):
-            continue
-        params = spec.get("params")
-        if isinstance(params, dict):
-            return params
+        if isinstance(spec, dict):
+            return spec
     return None
+
+
+def prepend_run_import_document_bindings(code: str, *, bindings: dict[str, Any]) -> str:
+    """Prepend literal variable assignments for host-injected Writer document inputs."""
+    if not bindings:
+        return code
+    lines = ["# WriterAgent: document inputs injected below — edit the run_*() call only."]
+    for name, value in bindings.items():
+        lines.append(f"{name} = {json.dumps(value, ensure_ascii=False)}")
+    lines.append("")
+    return "\n".join(lines) + code
+
+
+def script_uses_run_import(code: str, *, run_name: str) -> bool:
+    """True when *code* contains a call to *run_name*."""
+    if not code or not run_name:
+        return False
+    return parse_run_import_call_spec(code, run_name=run_name) is not None or f"{run_name}(" in code
 
 
 # --- Templates ---

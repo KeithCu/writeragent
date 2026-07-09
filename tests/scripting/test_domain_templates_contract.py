@@ -15,7 +15,6 @@ from plugin.scripting.quant import HELPER_NAMES as QUANT_HELPERS, get_quant_temp
 from plugin.scripting.text_analytics import (
     HELPER_NAMES as TEXT_HELPERS,
     get_text_analytics_script_templates,
-    parse_text_analytics_script_header,
 )
 from plugin.scripting.units import (
     get_units_script_templates,
@@ -26,7 +25,6 @@ from plugin.scripting.units import (
     "templates_fn,helper_names,parse_fn,public_only",
     [
         (get_analysis_script_templates, ANALYSIS_HELPERS, parse_analysis_script_header, False),
-        (get_text_analytics_script_templates, TEXT_HELPERS, parse_text_analytics_script_header, True),
     ],
 )
 def test_domain_templates_cover_helpers(templates_fn, helper_names, parse_fn, public_only):
@@ -43,6 +41,18 @@ def test_units_templates_cover_shipped_helpers():
     for helper, code in templates.items():
         assert f'"helper": "{helper}"' in code
         assert "run_units" in code
+
+
+def test_text_templates_cover_shipped_helpers():
+    from plugin.scripting.text_analytics import _SHIPPED_TEMPLATES
+
+    templates = get_text_analytics_script_templates()
+    assert set(templates.keys()) == set(_SHIPPED_TEMPLATES)
+    public = {h for h in TEXT_HELPERS if h not in ("diagnostics", "check")}
+    assert set(templates.keys()) == public
+    for helper, code in templates.items():
+        assert f'"helper": "{helper}"' in code
+        assert "run_text_analytics" in code
 
 
 @pytest.mark.parametrize(

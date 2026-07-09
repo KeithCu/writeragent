@@ -11,6 +11,7 @@ from plugin.scripting.helper_domain import (
     format_elapsed_time,
     parse_helper_script_header,
     parse_run_import_call_params,
+    parse_run_import_call_spec,
 )
 
 
@@ -81,6 +82,14 @@ def test_parse_run_import_call_params_reads_body():
     )
     params = parse_run_import_call_params(code, run_name="run_units")
     assert params == {"value": "20", "to_unit": "mm/h"}
+
+
+def test_parse_run_import_call_spec_reads_helper_and_params():
+    code = (
+        'result = run_text_analytics({"helper": "entities", "params": {"lang": "de"}}, text, document_context)\n'
+    )
+    spec = parse_run_import_call_spec(code, run_name="run_text_analytics")
+    assert spec == {"helper": "entities", "params": {"lang": "de"}}
 
 
 def test_build_header_only_template():

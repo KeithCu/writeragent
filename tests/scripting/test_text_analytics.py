@@ -56,18 +56,17 @@ def test_run_text_analytics_dispatcher():
 # --- Host-side (no model required) ---
 
 
-def test_text_analytics_templates_and_header_roundtrip():
+def test_text_analytics_templates_include_run_call():
     temps = ta.get_text_analytics_script_templates()
     assert isinstance(temps, dict)
-    # Should have at least the shipped helpers
     for h in ("full", "readability", "entities", "key_phrases"):
         if h in temps:
             code = temps[h]
-            assert ta.TEXT_ANALYTICS_HEADER_PREFIX in code
-            meta = ta.parse_text_analytics_script_header(code)
-            assert meta is not None
-            assert meta.helper == h
-            assert isinstance(meta.params, dict)
+            assert ta.TEXT_ANALYTICS_HEADER_PREFIX not in code
+            assert f'"helper": "{h}"' in code
+            assert "run_text_analytics" in code
+            assert "text" in code
+            assert "document_context" in code
 
 
 def test_text_analytics_is_result_shapes():
@@ -126,12 +125,10 @@ def test_run_text_analytics_diagnostics_dispatch():
 def test_text_analytics_topics_in_helernames_and_templates():
     assert "topics" in ta.HELPER_NAMES
     temps = ta.get_text_analytics_script_templates()
-    assert "topics" in temps or "topics" in [k for k in temps]  # may be present
-    code = temps.get("topics", "")
-    if code:
-        assert ta.TEXT_ANALYTICS_HEADER_PREFIX in code
-        meta = ta.parse_text_analytics_script_header(code)
-        assert meta is None or meta.helper in ("topics", "full")
+    assert "topics" in temps
+    code = temps["topics"]
+    assert '"helper": "topics"' in code
+    assert '"n_topics":4' in code or '"n_topics": 4' in code
 
 
 def test_text_analytics_topics_result_shape():
@@ -173,10 +170,8 @@ def test_text_analytics_sentiment_in_helernames_and_templates():
     temps = ta.get_text_analytics_script_templates()
     assert "sentiment" in temps
     code = temps["sentiment"]
-    assert ta.TEXT_ANALYTICS_HEADER_PREFIX in code
-    meta = ta.parse_text_analytics_script_header(code)
-    assert meta is not None
-    assert meta.helper == "sentiment"
+    assert '"helper": "sentiment"' in code
+    assert "run_text_analytics" in code
 
 
 def test_text_analytics_sentiment_uses_config_model_via_params():
