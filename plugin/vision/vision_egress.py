@@ -10,6 +10,7 @@ import logging
 from typing import Any
 
 from plugin.framework.errors import ToolExecutionError
+from plugin.framework.i18n import _
 from plugin.vision.vision_common import HELPER_NAMES, resolve_vision_insert_mode
 
 log = logging.getLogger(__name__)
@@ -54,9 +55,128 @@ def vision_html_from_result(result: dict[str, Any]) -> str:
     return str(html)
 
 
-def insert_vision_result_into_writer(ctx: Any, doc: Any, result: dict[str, Any]) -> None:
-    """Insert formatted vision HTML at the Writer text cursor."""
-    from plugin.writer.format import insert_content_at_position
+# com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
+_PARAGRAPH_BREAK = 0
+
+
+def _focus_writer_frame(controller: Any) -> None:
+    try:
+        frame = controller.getFrame()
+        if frame is None:
+            return
+        window = frame.getContainerWindow()
+        if window is not None and hasattr(window, "setFocus"):
+            window.setFocus()
+    except Exception as ex:
+        log.debug("prepare_vision_writer_insert: frame focus failed: %s", ex)
+
+
+def _collapse_writer_view_cursor(controller: Any, position: Any) -> None:
+    """Collapse the UI selection to *position* (text_analytics_ui insert pattern)."""
+    try:
+        view_cursor = controller.getViewCursor()
+        view_cursor.gotoRange(position, False)
+        controller.select(view_cursor)
+    except Exception as ex:
+        log.debug("prepare_vision_writer_insert: view cursor collapse failed: %s", ex)
+
+
+def prepare_vision_writer_insert(doc: Any, ctx: Any, *, image_name: str | None = None) -> Any:
+    """Return a collapsed text cursor in a new paragraph after the selected graphic.
+
+    StarWriter HTML import at the graphic anchor can absorb/replace the embedded
+    image even when ``selected_graphic_object`` is empty. Insert a paragraph break
+    at the model layer first, then collapse the UI caret there (Monaco may still
+    hold focus during Run Script).
+    """
+    from plugin.doc.visual_helpers import get_graphic_object_by_name, list_graphic_objects, selected_graphic_object
+    from plugin.writer.images.images import _get_graphic_object
+
+    graphic = selected_graphic_object(doc)
+    name = str(image_name or "").strip()
+    if graphic is None and name:
+        graphic = _get_graphic_object(ctx, doc, name)
+    if graphic is None:
+        raise ToolExecutionError(
+            _("Select an embedded image, then Run again."),
+            code="NO_IMAGE_SELECTED",
+        )
+
+    graphic_name = ""
+    try:
+        graphic_name = str(graphic.getName() or "")
+    except Exception:
+        pass
+    graphics_before = len(list_graphic_objects(doc))
+
+    try:
+        anchor = graphic.getAnchor()
+        if anchor is None:
+            raise ToolExecutionError(
+                _("Could not resolve the image anchor for insert."),
+                code="VISION_ERROR",
+            )
+        text = anchor.getText()
+        # Step past the in-text graphic character (getEnd() can resolve before the image
+        # while the graphic stays UI-selected).
+        cursor = text.createTextCursorByRange(anchor.getStart())
+        if not cursor.goRight(1, False):
+            cursor = text.createTextCursorByRange(anchor)
+            cursor.collapseToEnd()
+        # Model-level separator: keeps the graphic char out of the HTML import range.
+        text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+        cursor.goRight(1, False)
+    except ToolExecutionError:
+        raise
+    except Exception as ex:
+        raise ToolExecutionError(
+            _("Could not position insert after the image: %s") % ex,
+            code="VISION_ERROR",
+        ) from ex
+
+    controller = doc.getCurrentController()
+    if controller is None:
+        raise ToolExecutionError(
+            _("Writer document has no controller."),
+            code="VISION_ERROR",
+        )
+
+    _focus_writer_frame(controller)
+    _collapse_writer_view_cursor(controller, cursor.getStart())
+
+    if selected_graphic_object(doc) is not None:
+        try:
+            frame = controller.getFrame()
+            if frame is not None and ctx is not None:
+                smgr = ctx.ServiceManager
+                dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+                dispatcher.executeDispatch(frame, ".uno:Escape", "", 0, ())
+                _collapse_writer_view_cursor(controller, cursor.getStart())
+        except Exception as ex:
+            log.debug("prepare_vision_writer_insert: escape fallback failed: %s", ex)
+
+    if graphic_name and get_graphic_object_by_name(doc, graphic_name) is None:
+        raise ToolExecutionError(
+            _("The image was removed while preparing OCR insert."),
+            code="VISION_ERROR",
+        )
+    if len(list_graphic_objects(doc)) < graphics_before:
+        raise ToolExecutionError(
+            _("The image was removed while preparing OCR insert."),
+            code="VISION_ERROR",
+        )
+    return cursor
+
+
+def insert_vision_result_into_writer(
+    ctx: Any,
+    doc: Any,
+    result: dict[str, Any],
+    *,
+    params: dict[str, Any] | None = None,
+) -> None:
+    """Insert formatted vision HTML immediately after the selected graphic anchor."""
+    from plugin.writer.format import insert_html_at_cursor
 
     html = vision_html_from_result(result)
     if not html.strip():
@@ -73,13 +193,29 @@ def insert_vision_result_into_writer(ctx: Any, doc: Any, result: dict[str, Any])
         html.count("style="),
         html[:120],
     )
+
+    params_dict = dict(params) if isinstance(params, dict) else {}
+    image_name = str(params_dict.get("image_name") or "").strip() or None
+
+    def _apply_insert() -> None:
+        from plugin.doc.visual_helpers import list_graphic_objects
+
+        graphics_before = len(list_graphic_objects(doc))
+        cursor = prepare_vision_writer_insert(doc, ctx, image_name=image_name)
+        insert_html_at_cursor(doc, ctx, cursor, html, apply_styles=False)
+        if len(list_graphic_objects(doc)) < graphics_before:
+            raise ToolExecutionError(
+                _("The image was removed during OCR insert."),
+                code="VISION_ERROR",
+            )
+
     # Review mode: record this agent-driven insertion as a reviewable tracked change.
     from plugin.writer.edit_review import EditReviewSession, review_recording_enabled
 
     review = EditReviewSession(doc, ctx, enabled=review_recording_enabled(ctx))
     try:
         with review:
-            review.record_mutation(lambda: insert_content_at_position(doc, ctx, html, "selection"))
+            review.record_mutation(_apply_insert)
     finally:
         review.cleanup()
 
@@ -99,7 +235,7 @@ def insert_vision_result(
     helper = str(result.get("helper") or "")
 
     if is_writer(doc):
-        insert_vision_result_into_writer(ctx, doc, result)
+        insert_vision_result_into_writer(ctx, doc, result, params=params)
         return
     if is_calc(doc):
         if insert_mode == "structured" and helper == "extract_structure":

@@ -106,9 +106,9 @@ Mirror [**Analysis Helpers**](calc-analysis-tools.md#1b-run-python-script--analy
    (Paddle-only fallback: pip install paddleocr paddlepaddle numpy — set params engine=paddle)
    (ultralytics not required until Phase 4 helpers)
 3. Open a Writer document
-4. Click the embedded image (graphic selected) and place the text cursor where OCR text should go
+4. Click the embedded image so it is selected
 5. WriterAgent → Run Python Script… → Vision Helpers → [Vision] extract_text → Run
-6. Recognized text is inserted at the text cursor (see §2.4)
+6. Recognized text is inserted immediately after the selected image
 ```
 
 ### 2.3b User workflow (Calc)
@@ -128,12 +128,12 @@ First Docling/Paddle model download uses the long trusted worker budget (Docling
 
 | Document | Phase | Behavior |
 |----------|-------|----------|
-| **Writer** | **1** | Insert pre-built **`html`** at text cursor. With **`vision.insert_mode=structured`**, layout HTML is built in the **venv worker** (needs css-inline there), not in LibreOffice's bundled Python |
+| **Writer** | **1** | Insert pre-built **`html`** immediately after the selected graphic anchor. With **`vision.insert_mode=structured`**, layout HTML is built in the **venv worker** (needs css-inline there), not in LibreOffice's bundled Python |
 | **Writer** | later | Optional **`set_image_properties`** description from OCR summary |
 | **Calc** | **1b** | Default: insert **`html`** into cell below graphic anchor. **`vision.insert_mode=structured`** + **`extract_structure`**: write `tables[]` (and prose `blocks[]`) as a multi-cell grid via [`insert_vision_structure_into_calc`](../plugin/calc/vision_egress.py) |
 | **Draw / Impress** | **1b.2** | Text box near selected graphic; shape annotations later |
 
-**Selection vs output anchor:** On **Writer**, user clicks the **image** (export) and places the **text cursor** for insert (they may differ). On **Calc**, the selected graphic's **anchor cell** defines the sheet insert row (one row below); the image must be cell-anchored.
+**Selection vs output anchor:** On **Writer**, select the **image** for OCR export; recognized text is inserted **after** that graphic in the text flow. On **Calc**, the selected graphic's **anchor cell** defines the sheet insert row (one row below); the image must be cell-anchored.
 
 Errors surface in the Monaco status line / msgbox — see [§11](#11-selection-and-error-ux).
 
@@ -613,11 +613,11 @@ def is_vision_result(value: Any) -> bool:
 1. Docling `export_to_html` (or Paddle HTML builders) → **`css_inline.inline()`** (required).
 2. **`augment_lo_heading_styles`** — merge `font-size` / `font-weight` onto `<h1>`–`<h6>` (Docling’s h2 CSS is color/margins only).
 3. **`augment_lo_body_paragraph_styles`** — Arial + line-height on bare `<p>` tags.
-4. Host [`insert_vision_result`](../plugin/vision/vision_egress.py) → [`insert_content_at_position`](../plugin/writer/format.py) (StarWriter filter; full documents are stripped to body markup before wrap).
+4. Host [`insert_vision_result`](../plugin/vision/vision_egress.py) → [`prepare_vision_writer_insert`](../plugin/vision/vision_egress.py) (paragraph after graphic + collapse UI caret) → [`insert_html_at_cursor`](../plugin/writer/format.py) (StarWriter filter; full documents are stripped to body markup before wrap).
 
 **What you should see:** section headings **bold and larger** than body paragraphs; table borders when Docling exports tables. **Not expected:** flyer colors, multi-column layout, or panel backgrounds (Docling does not export that visual design). For a **future dev plan** to improve visual fidelity, see [§21 Visual/layout HTML fidelity (deferred dev plan)](#21-visuallayout-html-fidelity-deferred-dev-plan).
 
-**Troubleshooting (Writer):** grep `writeragent_debug.log` for `insert_vision_result:` — a successful run logs `helper`, `html_len`, `h_tags`, and `style_attrs`. Missing line → old extension or insert path not reached; `h_tags=0` → upstream HTML has no headings.
+**Troubleshooting (Writer):** grep `writeragent_debug.log` for `insert_vision_result:` — a successful run logs `helper`, `html_len`, `h_tags`, and `style_attrs`. Missing line → old extension or insert path not reached; `h_tags=0` → upstream HTML has no headings. If the **image disappears** after insert, redeploy the extension (older builds imported HTML at the graphic anchor and replaced the selection). Current builds insert a paragraph break after the anchor first; a regression surfaces as `The image was removed during OCR insert.`
 
 ### Error
 
@@ -703,8 +703,10 @@ User-visible strings (gettext-ready). Host may raise [`ToolExecutionError`](../p
 | HTML looks like plain body text | Check log for `insert_vision_result:`; redeploy extension; confirm `css-inline` in venv. Headings need post-inline augment (see [§10 HTML pipeline](#html-insert-pipeline-and-expectations)) |
 | Success (Calc) | Multi-cell report below anchor; status — *Wrote N rows* |
 | Timeout | Docling/Paddle use the long trusted budget (with paddle slightly lower); user `python_exec_timeout` unchanged. See scripting client resolver. |
+| Insert fails with “no text selection” while image is selected | Rare with current builds; report if `prepare_vision_writer_insert` raises before insert. |
+| OCR text inserted but image vanished | StarWriter HTML import at the graphic anchor can replace the image. Fixed: model-level paragraph break after the anchor, then collapse the view cursor before `insert_html_at_cursor`. |
 
-**UX note:** User clicks the **image** (graphic selected for export). **Text cursor** position sets insert location — they may differ.
+**UX note:** Select the **embedded image**, then Run. Writer inserts OCR output immediately **after** that graphic.
 
 ---
 

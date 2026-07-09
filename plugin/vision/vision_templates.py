@@ -46,7 +46,7 @@ def _template_body(helper: str, params: dict[str, Any]) -> str:
         f"{VISION_HEADER_PREFIX} helper={helper} params={params_json}\n"  # nosec
         f"# {desc}\n"
         f"# Select an embedded graphic OR set image_name in params (from list_images).\n"
-        f"# Writer: place text cursor for insert. Calc: select cell-anchored graphic for output row.\n"
+        f"# Writer: select the embedded graphic (OCR inserts after it). Calc: select cell-anchored graphic.\n"
         f"from writeragent.vision.venv.vision import run_vision\n\n"
         f"result = run_vision(\n"
         f'    {{"helper": "{helper}", "params": {params_json}}},\n'

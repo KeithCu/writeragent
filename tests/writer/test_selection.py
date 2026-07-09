@@ -56,6 +56,8 @@ def test_selection_falls_back_to_view_cursor_never_end():
 
 
 def test_selection_uses_explicit_selection_range():
+    from unittest.mock import patch
+
     rng = MagicMock()
     sel_cursor = MagicMock()
     rng.getText.return_value.createTextCursorByRange.return_value = sel_cursor
@@ -65,7 +67,8 @@ def test_selection_uses_explicit_selection_range():
     controller = MagicMock()
     controller.getSelection.return_value = sel
     ctx, body_cursor = _ctx_with_controller(controller)
-    result = resolve_target_cursor(ctx, "selection", None)
+    with patch("plugin.doc.visual_helpers.is_graphic_object", return_value=False):
+        result = resolve_target_cursor(ctx, "selection", None)
     assert result is sel_cursor           # built in the selection's own text (cell/frame-safe)
     body_cursor.gotoEnd.assert_not_called()
 
@@ -138,6 +141,8 @@ def test_selection_target_spans_in_the_ranges_own_text():
     """A selection inside a table cell/frame lives in a different XText: the resolver must build
     the cursor there (a body-cursor gotoRange raises a raw UNO RuntimeException that escapes
     callers expecting ValueError)."""
+    from unittest.mock import patch
+
     rng = MagicMock()
     cell_cursor = MagicMock()
     rng.getText.return_value.createTextCursorByRange.return_value = cell_cursor
@@ -147,7 +152,8 @@ def test_selection_target_spans_in_the_ranges_own_text():
     controller = MagicMock()
     controller.getSelection.return_value = sel
     ctx, body_cursor = _ctx_with_controller(controller)
-    result = resolve_target_cursor(ctx, "selection", None)
+    with patch("plugin.doc.visual_helpers.is_graphic_object", return_value=False):
+        result = resolve_target_cursor(ctx, "selection", None)
     assert result is cell_cursor          # built via rng.getText(), not the body cursor
     body_cursor.gotoRange.assert_not_called()
     body_cursor.gotoEnd.assert_not_called()
@@ -155,6 +161,7 @@ def test_selection_target_spans_in_the_ranges_own_text():
 
 def test_selection_target_wraps_span_failure_in_valueerror():
     import pytest as _pytest
+    from unittest.mock import patch
 
     rng = MagicMock()
     rng.getText.return_value.createTextCursorByRange.side_effect = RuntimeError("cross-text")
@@ -164,8 +171,9 @@ def test_selection_target_wraps_span_failure_in_valueerror():
     controller = MagicMock()
     controller.getSelection.return_value = sel
     ctx, _ = _ctx_with_controller(controller)
-    with _pytest.raises(ValueError):
-        resolve_target_cursor(ctx, "selection", None)
+    with patch("plugin.doc.visual_helpers.is_graphic_object", return_value=False):
+        with _pytest.raises(ValueError):
+            resolve_target_cursor(ctx, "selection", None)
 
 
 def test_set_selection_is_core_read_only():

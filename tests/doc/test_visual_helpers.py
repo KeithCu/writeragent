@@ -75,6 +75,9 @@ class FakeController:
         self.ActiveSheet = active_sheet
         self.CurrentPage = current_page
 
+    def getSelection(self):
+        return self.Selection
+
     def getActiveSheet(self):
         return self.ActiveSheet
 

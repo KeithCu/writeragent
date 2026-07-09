@@ -124,6 +124,34 @@ def test_replace_preserving_format_atomic_setstring_when_not_in_undo_context():
     assert text.inserts == []                     # no delete-then-insert two-step at all
 
 
+def test_insert_content_at_position_text_selection_clears_range():
+    from unittest.mock import MagicMock, patch
+
+    from plugin.doc import visual_helpers
+    from plugin.writer.format import insert_content_at_position
+
+    text_rng = MagicMock()
+    text_rng.getText.return_value.createTextCursorByRange.return_value = MagicMock()
+
+    sel = MagicMock()
+    sel.getCount.return_value = 1
+    sel.getByIndex.return_value = text_rng
+
+    controller = MagicMock()
+    controller.getSelection.return_value = sel
+
+    model = MagicMock()
+    model.getCurrentController.return_value = controller
+    model.getText.return_value.createTextCursor.return_value = MagicMock()
+
+    with patch.object(visual_helpers, "is_graphic_object", return_value=False), patch(
+        "plugin.writer.format._insert_mixed_or_plain_html"
+    ):
+        insert_content_at_position(model, MagicMock(), "<p>hi</p>", "selection")
+
+    text_rng.setString.assert_called_once_with("")
+
+
 def test_replace_preserving_format_atomic_when_split_author_false_even_in_undo_context():
     # Configurable coloring: split_author=False forces the SINGLE atomic setString (one author -> one
     # color) even INSIDE an open undo context, where split_author=True (the default) would use the
