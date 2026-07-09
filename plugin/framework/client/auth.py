@@ -9,9 +9,11 @@ Provider-aware auth helpers for LLM HTTP clients.
 This module centralizes how we:
 - identify a provider from an endpoint URL / config flags
 - turn an API key into the correct auth headers
+- declare model ID conventions (slug vs bare) for combobox filtering
 
-It is intentionally data-driven so new providers can be added by extending
-the registry below without changing the core logic.
+Model ID styles:
+- ``slug``: OpenRouter and Together AI (``org/model`` ids)
+- ``bare``: all other registered providers (``gpt-4o``, ``glm-5.2``, ``deepseek-chat``, …)
 """
 
 from __future__ import annotations
@@ -52,11 +54,13 @@ class ProviderConfig:
     host_matches: Tuple[str, ...] = field(default_factory=tuple)
     # Optional static headers that should always be sent for this provider.
     extra_headers: Dict[str, str] = field(default_factory=dict)
+    # Model list / request ``model`` field style: ``bare`` (vendor id) or ``slug`` (org/model).
+    model_id_style: str = "bare"
 
 
 PROVIDERS: Dict[str, ProviderConfig] = {
-    "openrouter": ProviderConfig(id="openrouter", name="OpenRouter", header_style="bearer", host_matches=("openrouter.ai",)),
-    "together": ProviderConfig(id="together", name="Together AI", header_style="bearer", host_matches=("api.together.xyz", "together.xyz")),
+    "openrouter": ProviderConfig(id="openrouter", name="OpenRouter", header_style="bearer", host_matches=("openrouter.ai",), model_id_style="slug"),
+    "together": ProviderConfig(id="together", name="Together AI", header_style="bearer", host_matches=("api.together.xyz", "together.xyz"), model_id_style="slug"),
     "mistral": ProviderConfig(id="mistral", name="Mistral", header_style="bearer", host_matches=("api.mistral.ai",)),
     "openai": ProviderConfig(id="openai", name="OpenAI", header_style="bearer", host_matches=("api.openai.com",)),
     "deepseek": ProviderConfig(id="deepseek", name="DeepSeek", header_style="bearer", host_matches=("api.deepseek.com",)),
@@ -108,6 +112,16 @@ def provider_requires_api_key(provider_id: str | None) -> bool:
     if not provider_cfg:
         return False
     return provider_cfg.header_style != "none"
+
+
+def provider_requires_slug_model_id(provider_id: str | None) -> bool:
+    """True when combobox / LRU entries must use org/model slugs (OpenRouter, Together)."""
+    if not provider_id:
+        return False
+    provider_cfg = PROVIDERS.get(provider_id)
+    if not provider_cfg:
+        return False
+    return provider_cfg.model_id_style == "slug"
 
 
 def resolve_auth_for_config(api_config: Dict[str, Any]) -> Dict[str, Any]:

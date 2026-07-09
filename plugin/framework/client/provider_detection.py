@@ -77,6 +77,8 @@ def get_provider_from_endpoint(endpoint: str) -> Optional[str]:
         return "mistral"
     if "api.openai.com" in url:
         return "openai"
+    if "api.deepseek.com" in url:
+        return "deepseek"
     if "api.groq.com" in url:
         return "groq"
     if "api.cerebras.ai" in url:
@@ -91,8 +93,6 @@ def get_provider_from_endpoint(endpoint: str) -> Optional[str]:
         return "google"
     if "localhost:1234" in url:
         return "lmstudio"
-    if "localhost:4891" in url:
-        return "gpt4all"
     if "api.z.ai" in url or "z.ai" in url:
         return "zai"
 

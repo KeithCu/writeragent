@@ -481,3 +481,23 @@ class TestPopulateComboboxWithLruFetchOptions(unittest.TestCase):
         with patch("plugin.framework.client.model_fetcher.get_config", side_effect=lambda k, d=None: self.config_data.get(k, d)):
             with patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="https://api.z.ai/api/paas"):
                 self.assertEqual(get_text_model(), "glm-5.2")
+
+    def test_deepseek_bare_model_not_filtered(self):
+        ctrl = MagicMock()
+        ctrl.getItemCount.return_value = 0
+        ep = "https://api.deepseek.com"
+        with patch("plugin.chatbot.config_ui_helpers.fetch_available_models", return_value=["deepseek-chat", "deepseek-reasoner"]):
+            populate_combobox_with_lru(self.ctx, ctrl, "", "model_lru", ep, api_key_override="ds-key")
+        items = list(ctrl.addItems.call_args[0][0])
+        self.assertIn("deepseek-chat", items)
+        self.assertIn("deepseek-reasoner", items)
+
+    def test_together_bare_model_filtered(self):
+        ctrl = MagicMock()
+        ctrl.getItemCount.return_value = 0
+        ep = "https://api.together.xyz"
+        with patch("plugin.chatbot.config_ui_helpers.fetch_available_models", return_value=["llama3.2", "openai/gpt-oss-120b"]):
+            populate_combobox_with_lru(self.ctx, ctrl, "", "model_lru", ep, api_key_override="tg-key")
+        items = list(ctrl.addItems.call_args[0][0])
+        self.assertNotIn("llama3.2", items)
+        self.assertIn("openai/gpt-oss-120b", items)

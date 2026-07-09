@@ -33,6 +33,9 @@ def get_provider_defaults(provider):
     """Return default models mapped per provider based on boolean flags in DEFAULT_MODELS."""
     if not provider:
         return {}
+    # Local runtimes share bare-name conventions with Ollama; no separate catalog rows yet.
+    if provider == "lmstudio":
+        provider = "ollama"
     defaults = {}
     for model in DEFAULT_MODELS:
         effective_id = resolve_model_id(model, provider)

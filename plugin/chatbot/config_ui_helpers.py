@@ -8,7 +8,7 @@ from plugin.framework.config import (
     get_current_endpoint,
     get_api_key_for_endpoint,
 )
-from plugin.framework.client.auth import provider_requires_api_key
+from plugin.framework.client.auth import provider_requires_api_key, provider_requires_slug_model_id
 from plugin.framework.client.model_fetcher import (
     get_provider_from_endpoint,
     get_image_model,
@@ -97,8 +97,7 @@ def _is_incompatible_model_for_provider(model_id: str, provider: str | None) -> 
         return False
     if _is_model_id_associated_with_other_provider(model_id, provider):
         return True
-    # Slug catalogs (org/model ids); bare names are typical local Ollama picks on those hosts.
-    if provider in {"openrouter", "together"} and "/" not in model_id:
+    if provider_requires_slug_model_id(provider) and "/" not in model_id:
         return True
     return False
 
