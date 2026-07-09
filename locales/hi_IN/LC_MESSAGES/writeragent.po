@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-05 17:17-0400\n"
+"POT-Creation-Date: 2026-07-09 11:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Hindi <LL@li.org>\n"
@@ -315,6 +315,16 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
+"AI: Deep Research mode runs a multi-step web investigation (planning, "
+"several searches, synthesis) and can insert a formatted report into your "
+"document. It takes longer but produces more thorough results."
+msgstr ""
+"AI: डीप रिसर्च मोड एक बहु-चरणीय वेब जांच (योजना, कई खोजें, संश्लेषण) चलाता "
+"है और आपके दस्तावेज़ में एक स्वरूपित रिपोर्ट सम्मिलित कर सकता है। इसमें अधिक"
+" समय लगता है लेकिन यह अधिक गहन परिणाम देता है।"
+
+#: plugin/framework/constants.py
+msgid ""
 "AI: Let's explore and design your idea together. I'll ask questions, suggest"
 " approaches, and help you build an approved spec in your document when "
 "you're ready."
@@ -348,6 +358,20 @@ msgstr ""
 msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "AI प्रदाता से HTTP त्रुटि {0}: {1}"
 
+#: plugin/framework/client/errors.py
+msgid ""
+" If your API key is from a GLM Coding Plan subscription, set endpoint to "
+"https://api.z.ai/api/coding/paas/v4 (not the general /api/paas URL)."
+msgstr ""
+" यदि आपकी API कुंजी GLM कोडिंग प्लान सब्सक्रिप्शन से है, तो एंडपॉइंट को "
+"https://api.z.ai/api/coding/paas/v4 पर सेट करें (सामान्य /api/paas URL पर "
+"नहीं)।"
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid " Request model was: {0}."
+msgstr " अनुरोधित मॉडल था: {0}।"
+
 #: plugin/framework/client/errors.py plugin/calc/python/function.py
 #: plugin/scripting/session_manager.py
 #, python-brace-format
@@ -377,6 +401,18 @@ msgstr "अनुरोध समय-सीमा (timeout) > 0 होनी च
 #: plugin/framework/config.py
 msgid "Temperature must be <= 1.0"
 msgstr "तापमान <= 1.0 होना चाहिए"
+
+#: plugin/framework/config.py
+msgid "Please set Endpoint in Settings."
+msgstr "कृपया सेटिंग्स में एंडपॉइंट सेट करें।"
+
+#: plugin/framework/config.py
+msgid "Please set Model in Settings."
+msgstr "कृपया सेटिंग्स में मॉडल सेट करें।"
+
+#: plugin/framework/config.py
+msgid "Please select a valid model in Settings (not a placeholder)."
+msgstr "कृपया सेटिंग्स में एक मान्य मॉडल चुनें (प्लेसहोल्डर नहीं)।"
 
 #: plugin/calc/python/editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
@@ -866,6 +902,10 @@ msgid "Web Research"
 msgstr "वेब रिसर्च"
 
 #: plugin/chatbot/chat_sidebar_mode.py
+msgid "Deep Research"
+msgstr "डीप रिसर्च"
+
+#: plugin/chatbot/chat_sidebar_mode.py
 msgid "Brainstorming"
 msgstr "ब्रेनस्टॉर्मिंग"
 
@@ -1104,6 +1144,15 @@ msgid "[PPT-Master error: {0}]"
 msgstr "[PPT-Master त्रुटि: {0}]"
 
 #: plugin/chatbot/send_handlers.py
+msgid "Unknown deep research error."
+msgstr "अज्ञात डीप रिसर्च त्रुटि।"
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Deep research error: {0}]"
+msgstr "[डीप रिसर्च त्रुटि: {0}]"
+
+#: plugin/chatbot/send_handlers.py
 msgid "Unknown research error."
 msgstr "अज्ञात अनुसंधान त्रुटि।"
 
@@ -1271,6 +1320,10 @@ msgstr "Quant सहायक"
 #: plugin/scripting/document_scripts.py
 msgid "Optimize Helpers"
 msgstr "Optimize सहायक"
+
+#: plugin/scripting/document_scripts.py
+msgid "Forecast Helpers"
+msgstr "फोरकास्ट हेल्पर्स"
 
 #: plugin/scripting/document_scripts.py
 msgid "SQL Helpers"
@@ -1906,6 +1959,24 @@ msgstr "ऑप्टिमाइज़ेशन विफल रहा।"
 msgid "Optimize '{helper}' completed. Wrote {rows} rows. (took {time})"
 msgstr ""
 "ऑप्टिमाइज़ '{helper}' पूर्ण हुआ। {rows} पंक्तियाँ लिखी गईं। ({time} लगा)"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Forecast helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"पूर्वानुमान सहायक (Forecast helper) के लिए डेटा रेंज की आवश्यकता है। सेल "
+"चुनें या डेटा फ़ील्ड में एक रेंज दर्ज करें।"
+
+#: plugin/scripting/python_runner.py
+msgid "Forecast failed."
+msgstr "पूर्वानुमान विफल रहा।"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Forecast '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"पूर्वानुमान '{helper}' पूर्ण हुआ। {rows} पंक्तियाँ लिखी गईं। ({time} लगा)"
 
 #: plugin/scripting/python_runner.py
 msgid ""

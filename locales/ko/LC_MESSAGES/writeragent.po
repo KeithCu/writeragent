@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-05 17:17-0400\n"
+"POT-Creation-Date: 2026-07-09 11:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Korean <LL@li.org>\n"
@@ -293,6 +293,15 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
+"AI: Deep Research mode runs a multi-step web investigation (planning, "
+"several searches, synthesis) and can insert a formatted report into your "
+"document. It takes longer but produces more thorough results."
+msgstr ""
+"AI: Deep Research 모드는 다단계 웹 조사(계획, 여러 번의 검색, 종합)를 실행하며 문서에 서식이 지정된 보고서를 삽입할 "
+"수 있습니다. 시간이 더 걸리지만 더 철저한 결과를 제공합니다."
+
+#: plugin/framework/constants.py
+msgid ""
 "AI: Let's explore and design your idea together. I'll ask questions, suggest"
 " approaches, and help you build an approved spec in your document when "
 "you're ready."
@@ -322,6 +331,19 @@ msgstr ""
 msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "AI 공급자로부터 HTTP 오류 {0} 발생: {1}"
 
+#: plugin/framework/client/errors.py
+msgid ""
+" If your API key is from a GLM Coding Plan subscription, set endpoint to "
+"https://api.z.ai/api/coding/paas/v4 (not the general /api/paas URL)."
+msgstr ""
+" API 키가 GLM Coding Plan 구독인 경우, 엔드포인트를 https://api.z.ai/api/coding/paas/v4로 "
+"설정하십시오(일반 /api/paas URL이 아님)."
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid " Request model was: {0}."
+msgstr " 요청한 모델: {0}."
+
 #: plugin/framework/client/errors.py plugin/calc/python/function.py
 #: plugin/scripting/session_manager.py
 #, python-brace-format
@@ -349,6 +371,18 @@ msgstr "요청 시간 제한은 0보다 커야 합니다"
 #: plugin/framework/config.py
 msgid "Temperature must be <= 1.0"
 msgstr "온도는 1.0 이하여야 합니다"
+
+#: plugin/framework/config.py
+msgid "Please set Endpoint in Settings."
+msgstr "설정에서 엔드포인트를 설정하십시오."
+
+#: plugin/framework/config.py
+msgid "Please set Model in Settings."
+msgstr "설정에서 모델을 설정하십시오."
+
+#: plugin/framework/config.py
+msgid "Please select a valid model in Settings (not a placeholder)."
+msgstr "설정에서 유효한 모델을 선택하십시오(자리 표시자 아님)."
 
 #: plugin/calc/python/editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
@@ -835,6 +869,10 @@ msgid "Web Research"
 msgstr "웹 검색"
 
 #: plugin/chatbot/chat_sidebar_mode.py
+msgid "Deep Research"
+msgstr "Deep Research"
+
+#: plugin/chatbot/chat_sidebar_mode.py
 msgid "Brainstorming"
 msgstr "브레인스토밍"
 
@@ -1063,6 +1101,15 @@ msgid "[PPT-Master error: {0}]"
 msgstr "[PPT-Master 오류: {0}]"
 
 #: plugin/chatbot/send_handlers.py
+msgid "Unknown deep research error."
+msgstr "알 수 없는 Deep Research 오류입니다."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Deep research error: {0}]"
+msgstr "[Deep Research 오류: {0}]"
+
+#: plugin/chatbot/send_handlers.py
 msgid "Unknown research error."
 msgstr "알 수 없는 연구 오류입니다."
 
@@ -1226,6 +1273,10 @@ msgstr "수량 도우미"
 #: plugin/scripting/document_scripts.py
 msgid "Optimize Helpers"
 msgstr "최적화 도우미"
+
+#: plugin/scripting/document_scripts.py
+msgid "Forecast Helpers"
+msgstr "Forecast Helpers"
 
 #: plugin/scripting/document_scripts.py
 msgid "SQL Helpers"
@@ -1828,6 +1879,21 @@ msgstr "최적화에 실패했습니다."
 #, python-brace-format
 msgid "Optimize '{helper}' completed. Wrote {rows} rows. (took {time})"
 msgstr "'{helper}' 최적화가 완료되었습니다. {rows}개의 행을 작성했습니다. (소요 시간: {time})"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Forecast helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr "예측 도우미를 사용하려면 데이터 범위가 필요합니다. 셀을 선택하거나 데이터 필드에 범위를 입력하십시오."
+
+#: plugin/scripting/python_runner.py
+msgid "Forecast failed."
+msgstr "예측에 실패했습니다."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Forecast '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr "'{helper}' 예측이 완료되었습니다. {rows}개의 행을 작성했습니다. (소요 시간: {time})"
 
 #: plugin/scripting/python_runner.py
 msgid ""

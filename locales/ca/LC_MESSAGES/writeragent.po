@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-05 17:17-0400\n"
+"POT-Creation-Date: 2026-07-09 11:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Catalan <LL@li.org>\n"
@@ -316,6 +316,17 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
+"AI: Deep Research mode runs a multi-step web investigation (planning, "
+"several searches, synthesis) and can insert a formatted report into your "
+"document. It takes longer but produces more thorough results."
+msgstr ""
+"IA: El mode de recerca profunda executa una investigació web de diversos "
+"passos (planificació, diverses cerques, síntesi) i pot inserir un informe "
+"formatat al vostre document. Triga més temps, però produeix resultats més "
+"exhaustius."
+
+#: plugin/framework/constants.py
+msgid ""
 "AI: Let's explore and design your idea together. I'll ask questions, suggest"
 " approaches, and help you build an approved spec in your document when "
 "you're ready."
@@ -349,6 +360,20 @@ msgstr ""
 msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "Error HTTP {0} del proveïdor d'IA: {1}"
 
+#: plugin/framework/client/errors.py
+msgid ""
+" If your API key is from a GLM Coding Plan subscription, set endpoint to "
+"https://api.z.ai/api/coding/paas/v4 (not the general /api/paas URL)."
+msgstr ""
+" Si la vostra clau d'API prové d'una subscripció al pla de codificació GLM, "
+"establiu el punt final a https://api.z.ai/api/coding/paas/v4 (no l'URL "
+"general /api/paas)."
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid " Request model was: {0}."
+msgstr " El model de sol·licitud era: {0}."
+
 #: plugin/framework/client/errors.py plugin/calc/python/function.py
 #: plugin/scripting/session_manager.py
 #, python-brace-format
@@ -378,6 +403,20 @@ msgstr "El temps d'espera de la sol·licitud ha de ser > 0"
 #: plugin/framework/config.py
 msgid "Temperature must be <= 1.0"
 msgstr "La temperatura ha de ser <= 1.0"
+
+#: plugin/framework/config.py
+msgid "Please set Endpoint in Settings."
+msgstr "Si us plau, establiu el punt final a la configuració."
+
+#: plugin/framework/config.py
+msgid "Please set Model in Settings."
+msgstr "Si us plau, establiu el model a la configuració."
+
+#: plugin/framework/config.py
+msgid "Please select a valid model in Settings (not a placeholder)."
+msgstr ""
+"Si us plau, seleccioneu un model vàlid a la configuració (no un marcador de "
+"posició)."
 
 #: plugin/calc/python/editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
@@ -868,6 +907,10 @@ msgid "Web Research"
 msgstr "Cerca web"
 
 #: plugin/chatbot/chat_sidebar_mode.py
+msgid "Deep Research"
+msgstr "Recerca profunda"
+
+#: plugin/chatbot/chat_sidebar_mode.py
 msgid "Brainstorming"
 msgstr "Pluja d'idees"
 
@@ -1107,6 +1150,15 @@ msgid "[PPT-Master error: {0}]"
 msgstr "[Error de PPT-Master: {0}]"
 
 #: plugin/chatbot/send_handlers.py
+msgid "Unknown deep research error."
+msgstr "Error desconegut de recerca profunda."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Deep research error: {0}]"
+msgstr "[Error de recerca profunda: {0}]"
+
+#: plugin/chatbot/send_handlers.py
 msgid "Unknown research error."
 msgstr "Error desconegut de recerca."
 
@@ -1275,6 +1327,10 @@ msgstr "Assistents quantitatius"
 #: plugin/scripting/document_scripts.py
 msgid "Optimize Helpers"
 msgstr "Assistents d'optimització"
+
+#: plugin/scripting/document_scripts.py
+msgid "Forecast Helpers"
+msgstr "Assistents de previsió"
 
 #: plugin/scripting/document_scripts.py
 msgid "SQL Helpers"
@@ -1921,6 +1977,25 @@ msgstr "L'optimització ha fallat."
 msgid "Optimize '{helper}' completed. Wrote {rows} rows. (took {time})"
 msgstr ""
 "Optimització de '{helper}' completada. S'han escrit {rows} files. (ha trigat"
+" {time})"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Forecast helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"L'assistent de previsió requereix un interval de dades. Seleccioneu cel·les "
+"o introduïu un interval al camp Dades."
+
+#: plugin/scripting/python_runner.py
+msgid "Forecast failed."
+msgstr "La previsió ha fallat."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Forecast '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"La previsió «{helper}» s'ha completat. S'han escrit {rows} files. (ha trigat"
 " {time})"
 
 #: plugin/scripting/python_runner.py

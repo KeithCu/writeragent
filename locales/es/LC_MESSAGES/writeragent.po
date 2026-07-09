@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-05 17:17-0400\n"
+"POT-Creation-Date: 2026-07-09 11:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Spanish <LL@li.org>\n"
@@ -313,6 +313,17 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
+"AI: Deep Research mode runs a multi-step web investigation (planning, "
+"several searches, synthesis) and can insert a formatted report into your "
+"document. It takes longer but produces more thorough results."
+msgstr ""
+"IA: El modo Investigación profunda ejecuta una búsqueda web de varios pasos "
+"(planificación, varias búsquedas, síntesis) y puede insertar un informe "
+"formateado en su documento. Tarda más tiempo, pero produce resultados más "
+"exhaustivos."
+
+#: plugin/framework/constants.py
+msgid ""
 "AI: Let's explore and design your idea together. I'll ask questions, suggest"
 " approaches, and help you build an approved spec in your document when "
 "you're ready."
@@ -346,6 +357,20 @@ msgstr ""
 msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "Error HTTP {0} del proveedor de IA: {1}"
 
+#: plugin/framework/client/errors.py
+msgid ""
+" If your API key is from a GLM Coding Plan subscription, set endpoint to "
+"https://api.z.ai/api/coding/paas/v4 (not the general /api/paas URL)."
+msgstr ""
+" Si su clave de API proviene de una suscripción al plan de codificación GLM,"
+" establezca el punto de conexión en https://api.z.ai/api/coding/paas/v4 (no "
+"la URL general /api/paas)."
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid " Request model was: {0}."
+msgstr " El modelo de solicitud fue: {0}."
+
 #: plugin/framework/client/errors.py plugin/calc/python/function.py
 #: plugin/scripting/session_manager.py
 #, python-brace-format
@@ -375,6 +400,20 @@ msgstr "El tiempo de espera de la solicitud debe ser > 0"
 #: plugin/framework/config.py
 msgid "Temperature must be <= 1.0"
 msgstr "La temperatura debe ser <= 1.0"
+
+#: plugin/framework/config.py
+msgid "Please set Endpoint in Settings."
+msgstr "Por favor, establezca el punto de conexión en Configuración."
+
+#: plugin/framework/config.py
+msgid "Please set Model in Settings."
+msgstr "Por favor, establezca el modelo en Configuración."
+
+#: plugin/framework/config.py
+msgid "Please select a valid model in Settings (not a placeholder)."
+msgstr ""
+"Por favor, seleccione un modelo válido en Configuración (no un marcador de "
+"posición)."
 
 #: plugin/calc/python/editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
@@ -865,6 +904,10 @@ msgid "Web Research"
 msgstr "Investigación Web"
 
 #: plugin/chatbot/chat_sidebar_mode.py
+msgid "Deep Research"
+msgstr "Investigación profunda"
+
+#: plugin/chatbot/chat_sidebar_mode.py
 msgid "Brainstorming"
 msgstr "Lluvia de ideas"
 
@@ -1104,6 +1147,15 @@ msgid "[PPT-Master error: {0}]"
 msgstr "[Error de PPT-Master: {0}]"
 
 #: plugin/chatbot/send_handlers.py
+msgid "Unknown deep research error."
+msgstr "Error desconocido de investigación profunda."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Deep research error: {0}]"
+msgstr "[Error de investigación profunda: {0}]"
+
+#: plugin/chatbot/send_handlers.py
 msgid "Unknown research error."
 msgstr "Error de investigación desconocido."
 
@@ -1272,6 +1324,10 @@ msgstr "Ayudantes cuantitativos"
 #: plugin/scripting/document_scripts.py
 msgid "Optimize Helpers"
 msgstr "Ayudantes de optimización"
+
+#: plugin/scripting/document_scripts.py
+msgid "Forecast Helpers"
+msgstr "Asistentes de previsión"
 
 #: plugin/scripting/document_scripts.py
 msgid "SQL Helpers"
@@ -1916,6 +1972,25 @@ msgstr "Error en la optimización."
 msgid "Optimize '{helper}' completed. Wrote {rows} rows. (took {time})"
 msgstr ""
 "Optimización de '{helper}' completada. Se escribieron {rows} filas. (tardó "
+"{time})"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Forecast helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"El asistente de previsión requiere un rango de datos. Seleccione celdas o "
+"introduzca un rango en el campo Datos."
+
+#: plugin/scripting/python_runner.py
+msgid "Forecast failed."
+msgstr "Error en la previsión."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Forecast '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"Previsión «{helper}» completada. Se escribieron {rows} filas. (duración: "
 "{time})"
 
 #: plugin/scripting/python_runner.py

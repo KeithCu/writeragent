@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-05 17:17-0400\n"
+"POT-Creation-Date: 2026-07-09 11:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Latvian <LL@li.org>\n"
@@ -314,6 +314,16 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
+"AI: Deep Research mode runs a multi-step web investigation (planning, "
+"several searches, synthesis) and can insert a formatted report into your "
+"document. It takes longer but produces more thorough results."
+msgstr ""
+"AI: Deep Research režīms veic vairāku soļu tīmekļa izpēti (plānošana, "
+"vairākas meklēšanas, sintēze) un var ievietot formatētu pārskatu jūsu "
+"dokumentā. Tas aizņem ilgāku laiku, bet sniedz pamatīgākus rezultātus."
+
+#: plugin/framework/constants.py
+msgid ""
 "AI: Let's explore and design your idea together. I'll ask questions, suggest"
 " approaches, and help you build an approved spec in your document when "
 "you're ready."
@@ -346,6 +356,19 @@ msgstr ""
 msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "HTTP kļūda {0} no AI pakalpojumu sniedzēja: {1}"
 
+#: plugin/framework/client/errors.py
+msgid ""
+" If your API key is from a GLM Coding Plan subscription, set endpoint to "
+"https://api.z.ai/api/coding/paas/v4 (not the general /api/paas URL)."
+msgstr ""
+" Ja jūsu API atslēga ir no GLM Coding Plan abonementa, iestatiet galapunktu "
+"uz https://api.z.ai/api/coding/paas/v4 (nevis vispārīgo /api/paas URL)."
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid " Request model was: {0}."
+msgstr " Pieprasītais modelis bija: {0}."
+
 #: plugin/framework/client/errors.py plugin/calc/python/function.py
 #: plugin/scripting/session_manager.py
 #, python-brace-format
@@ -375,6 +398,18 @@ msgstr "Pieprasījuma noildzei jābūt > 0"
 #: plugin/framework/config.py
 msgid "Temperature must be <= 1.0"
 msgstr "Temperatūrai jābūt <= 1.0"
+
+#: plugin/framework/config.py
+msgid "Please set Endpoint in Settings."
+msgstr "Lūdzu, iestatiet galapunktu (Endpoint) iestatījumos."
+
+#: plugin/framework/config.py
+msgid "Please set Model in Settings."
+msgstr "Lūdzu, iestatiet modeli iestatījumos."
+
+#: plugin/framework/config.py
+msgid "Please select a valid model in Settings (not a placeholder)."
+msgstr "Lūdzu, atlasiet derīgu modeli iestatījumos (nevis vietturi)."
 
 #: plugin/calc/python/editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
@@ -863,6 +898,10 @@ msgid "Web Research"
 msgstr "Tīmekļa izpēte"
 
 #: plugin/chatbot/chat_sidebar_mode.py
+msgid "Deep Research"
+msgstr "Deep Research"
+
+#: plugin/chatbot/chat_sidebar_mode.py
 msgid "Brainstorming"
 msgstr "Prāta vētra"
 
@@ -1102,6 +1141,15 @@ msgid "[PPT-Master error: {0}]"
 msgstr "[PPT-Master kļūda: {0}]"
 
 #: plugin/chatbot/send_handlers.py
+msgid "Unknown deep research error."
+msgstr "Nezināma Deep Research kļūda."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Deep research error: {0}]"
+msgstr "[Deep research kļūda: {0}]"
+
+#: plugin/chatbot/send_handlers.py
 msgid "Unknown research error."
 msgstr "Nezināma izpētes kļūda."
 
@@ -1269,6 +1317,10 @@ msgstr "Kvantitatīvie palīgi"
 #: plugin/scripting/document_scripts.py
 msgid "Optimize Helpers"
 msgstr "Optimizācijas palīgi"
+
+#: plugin/scripting/document_scripts.py
+msgid "Forecast Helpers"
+msgstr "Prognožu palīgi"
 
 #: plugin/scripting/document_scripts.py
 msgid "SQL Helpers"
@@ -1906,6 +1958,24 @@ msgid "Optimize '{helper}' completed. Wrote {rows} rows. (took {time})"
 msgstr ""
 "Optimizācija '{helper}' pabeigta. Ierakstītas {rows} rindas. (aizņēma "
 "{time})"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Forecast helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"Prognozes palīgam ir nepieciešams datu apgabals. Atlasiet šūnas vai ievadiet"
+" apgabalu laukā Dati."
+
+#: plugin/scripting/python_runner.py
+msgid "Forecast failed."
+msgstr "Prognoze neizdevās."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Forecast '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"Prognoze '{helper}' ir pabeigta. Ierakstītas {rows} rindas. (aizņēma {time})"
 
 #: plugin/scripting/python_runner.py
 msgid ""

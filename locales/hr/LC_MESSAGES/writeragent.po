@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-05 17:17-0400\n"
+"POT-Creation-Date: 2026-07-09 11:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Croatian <LL@li.org>\n"
@@ -313,6 +313,16 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
+"AI: Deep Research mode runs a multi-step web investigation (planning, "
+"several searches, synthesis) and can insert a formatted report into your "
+"document. It takes longer but produces more thorough results."
+msgstr ""
+"AI: Način rada Deep Research pokreće višestruko web istraživanje "
+"(planiranje, nekoliko pretraživanja, sinteza) i može umetnuti oblikovano "
+"izvješće u vaš dokument. Traje dulje, ali daje temeljitije rezultate."
+
+#: plugin/framework/constants.py
+msgid ""
 "AI: Let's explore and design your idea together. I'll ask questions, suggest"
 " approaches, and help you build an approved spec in your document when "
 "you're ready."
@@ -345,6 +355,20 @@ msgstr ""
 msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "HTTP pogreška {0} od AI pružatelja: {1}"
 
+#: plugin/framework/client/errors.py
+msgid ""
+" If your API key is from a GLM Coding Plan subscription, set endpoint to "
+"https://api.z.ai/api/coding/paas/v4 (not the general /api/paas URL)."
+msgstr ""
+" Ako je vaš API ključ iz pretplate GLM Coding Plan, postavite krajnju točku "
+"(endpoint) na https://api.z.ai/api/coding/paas/v4 (ne na opći /api/paas "
+"URL)."
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid " Request model was: {0}."
+msgstr " Traženi model bio je: {0}."
+
 #: plugin/framework/client/errors.py plugin/calc/python/function.py
 #: plugin/scripting/session_manager.py
 #, python-brace-format
@@ -374,6 +398,18 @@ msgstr "Vremensko ograničenje zahtjeva mora biti > 0"
 #: plugin/framework/config.py
 msgid "Temperature must be <= 1.0"
 msgstr "Temperatura mora biti <= 1.0"
+
+#: plugin/framework/config.py
+msgid "Please set Endpoint in Settings."
+msgstr "Molimo postavite krajnju točku (Endpoint) u postavkama."
+
+#: plugin/framework/config.py
+msgid "Please set Model in Settings."
+msgstr "Molimo postavite model u postavkama."
+
+#: plugin/framework/config.py
+msgid "Please select a valid model in Settings (not a placeholder)."
+msgstr "Molimo odaberite važeći model u postavkama (ne rezervirano mjesto)."
 
 #: plugin/calc/python/editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
@@ -862,6 +898,10 @@ msgid "Web Research"
 msgstr "Web istraživanje"
 
 #: plugin/chatbot/chat_sidebar_mode.py
+msgid "Deep Research"
+msgstr "Deep Research"
+
+#: plugin/chatbot/chat_sidebar_mode.py
 msgid "Brainstorming"
 msgstr "Brainstorming"
 
@@ -1101,6 +1141,15 @@ msgid "[PPT-Master error: {0}]"
 msgstr "[PPT-Master pogreška: {0}]"
 
 #: plugin/chatbot/send_handlers.py
+msgid "Unknown deep research error."
+msgstr "Nepoznata pogreška dubinskog istraživanja."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Deep research error: {0}]"
+msgstr "[Pogreška dubinskog istraživanja: {0}]"
+
+#: plugin/chatbot/send_handlers.py
 msgid "Unknown research error."
 msgstr "Nepoznata pogreška istraživanja."
 
@@ -1266,6 +1315,10 @@ msgstr "Pomoćnici za kvantitativnu analizu"
 #: plugin/scripting/document_scripts.py
 msgid "Optimize Helpers"
 msgstr "Pomoćnici za optimizaciju"
+
+#: plugin/scripting/document_scripts.py
+msgid "Forecast Helpers"
+msgstr "Pomoćnici za prognozu"
 
 #: plugin/scripting/document_scripts.py
 msgid "SQL Helpers"
@@ -1904,6 +1957,24 @@ msgstr "Optimizacija nije uspjela."
 msgid "Optimize '{helper}' completed. Wrote {rows} rows. (took {time})"
 msgstr ""
 "Optimizacija '{helper}' dovršena. Zapisano {rows} redaka. (trajalo {time})"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Forecast helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"Pomoćnik za predviđanje zahtijeva raspon podataka. Odaberite ćelije ili "
+"unesite raspon u polje Podaci."
+
+#: plugin/scripting/python_runner.py
+msgid "Forecast failed."
+msgstr "Predviđanje nije uspjelo."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Forecast '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"Predviđanje '{helper}' je dovršeno. Zapisano {rows} redaka. (trajalo {time})"
 
 #: plugin/scripting/python_runner.py
 msgid ""

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-05 17:17-0400\n"
+"POT-Creation-Date: 2026-07-09 11:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Estonian <LL@li.org>\n"
@@ -311,6 +311,16 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
+"AI: Deep Research mode runs a multi-step web investigation (planning, "
+"several searches, synthesis) and can insert a formatted report into your "
+"document. It takes longer but produces more thorough results."
+msgstr ""
+"AI: Deep Research-režiim teostab mitmeetapilise veebiuuringu (planeerimine, "
+"mitu otsingut, süntees) ja saab lisada vormindatud aruande teie dokumenti. "
+"See võtab kauem aega, kuid annab põhjalikumaid tulemusi."
+
+#: plugin/framework/constants.py
+msgid ""
 "AI: Let's explore and design your idea together. I'll ask questions, suggest"
 " approaches, and help you build an approved spec in your document when "
 "you're ready."
@@ -343,6 +353,19 @@ msgstr ""
 msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "HTTP-tõrge {0} AI-teenuse pakkujalt: {1}"
 
+#: plugin/framework/client/errors.py
+msgid ""
+" If your API key is from a GLM Coding Plan subscription, set endpoint to "
+"https://api.z.ai/api/coding/paas/v4 (not the general /api/paas URL)."
+msgstr ""
+" Kui teie API-võti pärineb GLM Coding Plan tellimusest, määrake lõpp-"
+"punktiks https://api.z.ai/api/coding/paas/v4 (mitte üldine /api/paas URL)."
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid " Request model was: {0}."
+msgstr " Päringu mudel oli: {0}."
+
 #: plugin/framework/client/errors.py plugin/calc/python/function.py
 #: plugin/scripting/session_manager.py
 #, python-brace-format
@@ -372,6 +395,18 @@ msgstr "Päringu ajalõpp peab olema > 0"
 #: plugin/framework/config.py
 msgid "Temperature must be <= 1.0"
 msgstr "Temperatuur peab olema <= 1.0"
+
+#: plugin/framework/config.py
+msgid "Please set Endpoint in Settings."
+msgstr "Palun määrake lõpp-punkt (Endpoint) seadetes."
+
+#: plugin/framework/config.py
+msgid "Please set Model in Settings."
+msgstr "Palun määrake mudel (Model) seadetes."
+
+#: plugin/framework/config.py
+msgid "Please select a valid model in Settings (not a placeholder)."
+msgstr "Palun valige seadetes kehtiv mudel (mitte kohatäide)."
 
 #: plugin/calc/python/editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
@@ -860,6 +895,10 @@ msgid "Web Research"
 msgstr "Veebiuuring"
 
 #: plugin/chatbot/chat_sidebar_mode.py
+msgid "Deep Research"
+msgstr "Deep Research"
+
+#: plugin/chatbot/chat_sidebar_mode.py
 msgid "Brainstorming"
 msgstr "Ajurünnak"
 
@@ -1097,6 +1136,15 @@ msgid "[PPT-Master error: {0}]"
 msgstr "[PPT-Masteri viga: {0}]"
 
 #: plugin/chatbot/send_handlers.py
+msgid "Unknown deep research error."
+msgstr "Tundmatu Deep Researchi viga."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Deep research error: {0}]"
+msgstr "[Deep Researchi viga: {0}]"
+
+#: plugin/chatbot/send_handlers.py
 msgid "Unknown research error."
 msgstr "Tundmatu uurimistöö viga."
 
@@ -1262,6 +1310,10 @@ msgstr "Kvantitatiivsed abivahendid"
 #: plugin/scripting/document_scripts.py
 msgid "Optimize Helpers"
 msgstr "Optimeerimise abivahendid"
+
+#: plugin/scripting/document_scripts.py
+msgid "Forecast Helpers"
+msgstr "Prognoosi abimehed"
 
 #: plugin/scripting/document_scripts.py
 msgid "SQL Helpers"
@@ -1891,6 +1943,24 @@ msgstr "Optimeerimine ebaõnnestus."
 msgid "Optimize '{helper}' completed. Wrote {rows} rows. (took {time})"
 msgstr ""
 "Optimeerimine '{helper}' on lõpetatud. Kirjutati {rows} rida. (kulus {time})"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Forecast helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"Prognoosiabiline vajab andmevahemikku. Valige lahtrid või sisestage vahemik "
+"väljale Andmed."
+
+#: plugin/scripting/python_runner.py
+msgid "Forecast failed."
+msgstr "Prognoosimine ebaõnnestus."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Forecast '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"Prognoos '{helper}' on lõpetatud. Kirjutati {rows} rida. (kulus {time})"
 
 #: plugin/scripting/python_runner.py
 msgid ""

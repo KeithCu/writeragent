@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-05 17:17-0400\n"
+"POT-Creation-Date: 2026-07-09 11:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Dutch <LL@li.org>\n"
@@ -313,6 +313,17 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
+"AI: Deep Research mode runs a multi-step web investigation (planning, "
+"several searches, synthesis) and can insert a formatted report into your "
+"document. It takes longer but produces more thorough results."
+msgstr ""
+"AI: De modus 'Deep Research' voert een onderzoek in meerdere stappen uit op "
+"het web (planning, diverse zoekopdrachten, synthese) en kan een opgemaakt "
+"rapport in uw document invoegen. Dit duurt langer, maar levert grondiger "
+"resultaten op."
+
+#: plugin/framework/constants.py
+msgid ""
 "AI: Let's explore and design your idea together. I'll ask questions, suggest"
 " approaches, and help you build an approved spec in your document when "
 "you're ready."
@@ -346,6 +357,20 @@ msgstr ""
 msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "HTTP-fout {0} van AI-provider: {1}"
 
+#: plugin/framework/client/errors.py
+msgid ""
+" If your API key is from a GLM Coding Plan subscription, set endpoint to "
+"https://api.z.ai/api/coding/paas/v4 (not the general /api/paas URL)."
+msgstr ""
+" Als uw API-sleutel afkomstig is van een GLM Coding Plan-abonnement, stel "
+"het eindpunt dan in op https://api.z.ai/api/coding/paas/v4 (niet de algemene"
+" /api/paas URL)."
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid " Request model was: {0}."
+msgstr " Gevraagd model was: {0}."
+
 #: plugin/framework/client/errors.py plugin/calc/python/function.py
 #: plugin/scripting/session_manager.py
 #, python-brace-format
@@ -375,6 +400,19 @@ msgstr "Request timeout moet > 0 zijn"
 #: plugin/framework/config.py
 msgid "Temperature must be <= 1.0"
 msgstr "Temperatuur moet <= 1.0 zijn"
+
+#: plugin/framework/config.py
+msgid "Please set Endpoint in Settings."
+msgstr "Stel het eindpunt in bij Instellingen."
+
+#: plugin/framework/config.py
+msgid "Please set Model in Settings."
+msgstr "Stel het model in bij Instellingen."
+
+#: plugin/framework/config.py
+msgid "Please select a valid model in Settings (not a placeholder)."
+msgstr ""
+"Selecteer een geldig model in Instellingen (geen tijdelijke aanduiding)."
 
 #: plugin/calc/python/editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
@@ -864,6 +902,10 @@ msgid "Web Research"
 msgstr "Webonderzoek"
 
 #: plugin/chatbot/chat_sidebar_mode.py
+msgid "Deep Research"
+msgstr "Deep Research"
+
+#: plugin/chatbot/chat_sidebar_mode.py
 msgid "Brainstorming"
 msgstr "Brainstormen"
 
@@ -1103,6 +1145,15 @@ msgid "[PPT-Master error: {0}]"
 msgstr "[PPT-Master-fout: {0}]"
 
 #: plugin/chatbot/send_handlers.py
+msgid "Unknown deep research error."
+msgstr "Onbekende fout bij deep research."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Deep research error: {0}]"
+msgstr "[Deep research-fout: {0}]"
+
+#: plugin/chatbot/send_handlers.py
 msgid "Unknown research error."
 msgstr "Onbekende onderzoeksfout."
 
@@ -1270,6 +1321,10 @@ msgstr "Quant-helpers"
 #: plugin/scripting/document_scripts.py
 msgid "Optimize Helpers"
 msgstr "Optimalisatie-helpers"
+
+#: plugin/scripting/document_scripts.py
+msgid "Forecast Helpers"
+msgstr "Forecast Helpers"
 
 #: plugin/scripting/document_scripts.py
 msgid "SQL Helpers"
@@ -1902,6 +1957,24 @@ msgstr "Optimalisatie mislukt."
 msgid "Optimize '{helper}' completed. Wrote {rows} rows. (took {time})"
 msgstr ""
 "Optimalisatie '{helper}' voltooid. {rows} rijen geschreven. (duurde {time})"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Forecast helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"Forecast helper vereist een gegevensbereik. Selecteer cellen of voer een "
+"bereik in het veld Gegevens in."
+
+#: plugin/scripting/python_runner.py
+msgid "Forecast failed."
+msgstr "Voorspelling mislukt."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Forecast '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"Voorspelling '{helper}' voltooid. {rows} rijen geschreven. (duurde {time})"
 
 #: plugin/scripting/python_runner.py
 msgid ""

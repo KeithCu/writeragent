@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-05 17:17-0400\n"
+"POT-Creation-Date: 2026-07-09 11:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Russian <LL@li.org>\n"
@@ -319,6 +319,17 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
+"AI: Deep Research mode runs a multi-step web investigation (planning, "
+"several searches, synthesis) and can insert a formatted report into your "
+"document. It takes longer but produces more thorough results."
+msgstr ""
+"ИИ: Режим глубокого исследования выполняет многоэтапный поиск в сети "
+"(планирование, несколько поисковых запросов, синтез данных) и может вставить"
+" готовый отчет в ваш документ. Это занимает больше времени, но дает более "
+"подробные результаты."
+
+#: plugin/framework/constants.py
+msgid ""
 "AI: Let's explore and design your idea together. I'll ask questions, suggest"
 " approaches, and help you build an approved spec in your document when "
 "you're ready."
@@ -351,6 +362,20 @@ msgstr ""
 msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "HTTP-ошибка {0} от ИИ-провайдера: {1}"
 
+#: plugin/framework/client/errors.py
+msgid ""
+" If your API key is from a GLM Coding Plan subscription, set endpoint to "
+"https://api.z.ai/api/coding/paas/v4 (not the general /api/paas URL)."
+msgstr ""
+" Если ваш API-ключ получен по подписке GLM Coding Plan, установите адрес "
+"конечной точки (endpoint) на https://api.z.ai/api/coding/paas/v4 (а не общий"
+" URL /api/paas)."
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid " Request model was: {0}."
+msgstr " Запрошенная модель: {0}."
+
 #: plugin/framework/client/errors.py plugin/calc/python/function.py
 #: plugin/scripting/session_manager.py
 #, python-brace-format
@@ -380,6 +405,20 @@ msgstr "Тайм-аут запроса должен быть > 0"
 #: plugin/framework/config.py
 msgid "Temperature must be <= 1.0"
 msgstr "Температура должна быть <= 1.0"
+
+#: plugin/framework/config.py
+msgid "Please set Endpoint in Settings."
+msgstr "Пожалуйста, укажите конечную точку (Endpoint) в настройках."
+
+#: plugin/framework/config.py
+msgid "Please set Model in Settings."
+msgstr "Пожалуйста, укажите модель (Model) в настройках."
+
+#: plugin/framework/config.py
+msgid "Please select a valid model in Settings (not a placeholder)."
+msgstr ""
+"Пожалуйста, выберите корректную модель в настройках (не используйте "
+"заполнитель)."
 
 #: plugin/calc/python/editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
@@ -869,6 +908,10 @@ msgid "Web Research"
 msgstr "Веб-поиск"
 
 #: plugin/chatbot/chat_sidebar_mode.py
+msgid "Deep Research"
+msgstr "Глубокое исследование"
+
+#: plugin/chatbot/chat_sidebar_mode.py
 msgid "Brainstorming"
 msgstr "Мозговой штурм"
 
@@ -1107,6 +1150,15 @@ msgid "[PPT-Master error: {0}]"
 msgstr "[Ошибка PPT-Master: {0}]"
 
 #: plugin/chatbot/send_handlers.py
+msgid "Unknown deep research error."
+msgstr "Неизвестная ошибка при глубоком исследовании."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Deep research error: {0}]"
+msgstr "[Ошибка глубокого исследования: {0}]"
+
+#: plugin/chatbot/send_handlers.py
 msgid "Unknown research error."
 msgstr "Неизвестная ошибка исследования."
 
@@ -1274,6 +1326,10 @@ msgstr "Помощники по количественным данным"
 #: plugin/scripting/document_scripts.py
 msgid "Optimize Helpers"
 msgstr "Помощники оптимизации"
+
+#: plugin/scripting/document_scripts.py
+msgid "Forecast Helpers"
+msgstr "Помощники прогнозирования"
 
 #: plugin/scripting/document_scripts.py
 msgid "SQL Helpers"
@@ -1912,6 +1968,23 @@ msgstr "Ошибка оптимизации."
 msgid "Optimize '{helper}' completed. Wrote {rows} rows. (took {time})"
 msgstr ""
 "Оптимизация «{helper}» завершена. Записано строк: {rows}. (заняло {time})"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Forecast helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"Для помощника прогнозирования требуется диапазон данных. Выделите ячейки или"
+" введите диапазон в поле «Данные»."
+
+#: plugin/scripting/python_runner.py
+msgid "Forecast failed."
+msgstr "Ошибка прогнозирования."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Forecast '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr "Прогноз «{helper}» завершен. Записано строк: {rows}. (заняло {time})"
 
 #: plugin/scripting/python_runner.py
 msgid ""

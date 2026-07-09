@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-05 17:17-0400\n"
+"POT-Creation-Date: 2026-07-09 11:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Turkish <LL@li.org>\n"
@@ -317,6 +317,16 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
+"AI: Deep Research mode runs a multi-step web investigation (planning, "
+"several searches, synthesis) and can insert a formatted report into your "
+"document. It takes longer but produces more thorough results."
+msgstr ""
+"AI: Derin Araştırma modu, çok adımlı bir web incelemesi (planlama, birkaç "
+"arama, sentez) yürütür ve belgenize biçimlendirilmiş bir rapor ekleyebilir. "
+"Daha uzun sürer ancak daha kapsamlı sonuçlar üretir."
+
+#: plugin/framework/constants.py
+msgid ""
 "AI: Let's explore and design your idea together. I'll ask questions, suggest"
 " approaches, and help you build an approved spec in your document when "
 "you're ready."
@@ -350,6 +360,20 @@ msgstr ""
 msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "Yapay Zeka Sağlayıcısından HTTP Hatası {0}: {1}"
 
+#: plugin/framework/client/errors.py
+msgid ""
+" If your API key is from a GLM Coding Plan subscription, set endpoint to "
+"https://api.z.ai/api/coding/paas/v4 (not the general /api/paas URL)."
+msgstr ""
+" API anahtarınız bir GLM Kodlama Planı aboneliğinden geliyorsa, uç noktayı "
+"(genel /api/paas URL'si yerine) https://api.z.ai/api/coding/paas/v4 olarak "
+"ayarlayın."
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid " Request model was: {0}."
+msgstr " İstenen model: {0}."
+
 #: plugin/framework/client/errors.py plugin/calc/python/function.py
 #: plugin/scripting/session_manager.py
 #, python-brace-format
@@ -379,6 +403,18 @@ msgstr "İstek zaman aşımı > 0 olmalıdır"
 #: plugin/framework/config.py
 msgid "Temperature must be <= 1.0"
 msgstr "Sıcaklık <= 1.0 olmalıdır"
+
+#: plugin/framework/config.py
+msgid "Please set Endpoint in Settings."
+msgstr "Lütfen Ayarlar'dan Uç Noktayı ayarlayın."
+
+#: plugin/framework/config.py
+msgid "Please set Model in Settings."
+msgstr "Lütfen Ayarlar'dan Modeli ayarlayın."
+
+#: plugin/framework/config.py
+msgid "Please select a valid model in Settings (not a placeholder)."
+msgstr "Lütfen Ayarlar'dan geçerli bir model seçin (yer tutucu değil)."
 
 #: plugin/calc/python/editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
@@ -868,6 +904,10 @@ msgid "Web Research"
 msgstr "Web Araştırması"
 
 #: plugin/chatbot/chat_sidebar_mode.py
+msgid "Deep Research"
+msgstr "Derin Araştırma"
+
+#: plugin/chatbot/chat_sidebar_mode.py
 msgid "Brainstorming"
 msgstr "Beyin Fırtınası"
 
@@ -1105,6 +1145,15 @@ msgid "[PPT-Master error: {0}]"
 msgstr "[PPT-Master hatası: {0}]"
 
 #: plugin/chatbot/send_handlers.py
+msgid "Unknown deep research error."
+msgstr "Bilinmeyen derin araştırma hatası."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Deep research error: {0}]"
+msgstr "[Derin araştırma hatası: {0}]"
+
+#: plugin/chatbot/send_handlers.py
 msgid "Unknown research error."
 msgstr "Bilinmeyen araştırma hatası."
 
@@ -1270,6 +1319,10 @@ msgstr "Nicel Yardımcılar"
 #: plugin/scripting/document_scripts.py
 msgid "Optimize Helpers"
 msgstr "İyileştirme Yardımcıları"
+
+#: plugin/scripting/document_scripts.py
+msgid "Forecast Helpers"
+msgstr "Tahmin Yardımcıları"
 
 #: plugin/scripting/document_scripts.py
 msgid "SQL Helpers"
@@ -1908,6 +1961,23 @@ msgstr "Optimizasyon başarısız oldu."
 msgid "Optimize '{helper}' completed. Wrote {rows} rows. (took {time})"
 msgstr ""
 "'{helper}' optimizasyonu tamamlandı. {rows} satır yazıldı. ({time} sürdü)"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Forecast helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"Tahmin yardımcısı bir veri aralığı gerektirir. Hücreleri seçin veya Veri "
+"alanına bir aralık girin."
+
+#: plugin/scripting/python_runner.py
+msgid "Forecast failed."
+msgstr "Tahmin başarısız oldu."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Forecast '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr "'{helper}' tahmini tamamlandı. {rows} satır yazıldı. ({time} sürdü)"
 
 #: plugin/scripting/python_runner.py
 msgid ""

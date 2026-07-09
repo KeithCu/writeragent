@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-05 17:17-0400\n"
+"POT-Creation-Date: 2026-07-09 11:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Czech <LL@li.org>\n"
@@ -316,6 +316,17 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
+"AI: Deep Research mode runs a multi-step web investigation (planning, "
+"several searches, synthesis) and can insert a formatted report into your "
+"document. It takes longer but produces more thorough results."
+msgstr ""
+"AI: Režim hloubkového průzkumu (Deep Research) provádí vícekrokové "
+"vyšetřování na webu (plánování, několik vyhledávání, syntéza) a dokáže "
+"vložit formátovanou zprávu do vašeho dokumentu. Trvá to déle, ale přináší to"
+" důkladnější výsledky."
+
+#: plugin/framework/constants.py
+msgid ""
 "AI: Let's explore and design your idea together. I'll ask questions, suggest"
 " approaches, and help you build an approved spec in your document when "
 "you're ready."
@@ -348,6 +359,20 @@ msgstr ""
 msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "Chyba HTTP {0} od poskytovatele AI: {1}"
 
+#: plugin/framework/client/errors.py
+msgid ""
+" If your API key is from a GLM Coding Plan subscription, set endpoint to "
+"https://api.z.ai/api/coding/paas/v4 (not the general /api/paas URL)."
+msgstr ""
+" Pokud je váš klíč API z předplatného GLM Coding Plan, nastavte koncový bod "
+"na https://api.z.ai/api/coding/paas/v4 (nikoliv obecnou adresu URL "
+"/api/paas)."
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid " Request model was: {0}."
+msgstr " Požadovaný model byl: {0}."
+
 #: plugin/framework/client/errors.py plugin/calc/python/function.py
 #: plugin/scripting/session_manager.py
 #, python-brace-format
@@ -377,6 +402,18 @@ msgstr "Časový limit požadavku musí být > 0"
 #: plugin/framework/config.py
 msgid "Temperature must be <= 1.0"
 msgstr "Teplota musí být <= 1.0"
+
+#: plugin/framework/config.py
+msgid "Please set Endpoint in Settings."
+msgstr "Nastavte prosím koncový bod v Nastavení."
+
+#: plugin/framework/config.py
+msgid "Please set Model in Settings."
+msgstr "Nastavte prosím model v Nastavení."
+
+#: plugin/framework/config.py
+msgid "Please select a valid model in Settings (not a placeholder)."
+msgstr "Vyberte prosím platný model v Nastavení (nikoliv zástupný symbol)."
 
 #: plugin/calc/python/editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
@@ -866,6 +903,10 @@ msgid "Web Research"
 msgstr "Webový průzkum"
 
 #: plugin/chatbot/chat_sidebar_mode.py
+msgid "Deep Research"
+msgstr "Hloubkový průzkum"
+
+#: plugin/chatbot/chat_sidebar_mode.py
 msgid "Brainstorming"
 msgstr "Brainstorming"
 
@@ -1104,6 +1145,15 @@ msgid "[PPT-Master error: {0}]"
 msgstr "[Chyba PPT-Master: {0}]"
 
 #: plugin/chatbot/send_handlers.py
+msgid "Unknown deep research error."
+msgstr "Neznámá chyba hloubkového průzkumu."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Deep research error: {0}]"
+msgstr "[Chyba hloubkového průzkumu: {0}]"
+
+#: plugin/chatbot/send_handlers.py
 msgid "Unknown research error."
 msgstr "Neznámá chyba výzkumu."
 
@@ -1270,6 +1320,10 @@ msgstr "Kvantitativní pomocníci"
 #: plugin/scripting/document_scripts.py
 msgid "Optimize Helpers"
 msgstr "Optimalizační pomocníci"
+
+#: plugin/scripting/document_scripts.py
+msgid "Forecast Helpers"
+msgstr "Pomocníci pro předpovědi"
 
 #: plugin/scripting/document_scripts.py
 msgid "SQL Helpers"
@@ -1905,6 +1959,24 @@ msgstr "Optimalizace selhala."
 msgid "Optimize '{helper}' completed. Wrote {rows} rows. (took {time})"
 msgstr ""
 "Optimalizace '{helper}' dokončena. Zapsáno {rows} řádků. (trvalo {time})"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Forecast helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"Pomocník pro předpověď vyžaduje rozsah dat. Vyberte buňky nebo zadejte "
+"rozsah do pole Data."
+
+#: plugin/scripting/python_runner.py
+msgid "Forecast failed."
+msgstr "Předpověď selhala."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Forecast '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"Předpověď „{helper}“ byla dokončena. Zapsáno {rows} řádků. (trvalo {time})"
 
 #: plugin/scripting/python_runner.py
 msgid ""
