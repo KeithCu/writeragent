@@ -62,6 +62,7 @@ _EXTENSION_DOC_TYPE: dict[str, DocTypeGuess] = {
     ".doc": "writer",
     ".rtf": "writer",
     ".txt": "writer",
+    ".md": "writer",
     ".ods": "calc",
     ".ots": "calc",
     ".fods": "calc",

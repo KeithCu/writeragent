@@ -94,10 +94,12 @@ def test_paragraph_chunks_from_path_without_styles(tmp_path: Path):
 def test_path_uses_prose_chunking_by_extension():
     assert embeddings_fs.path_uses_prose_chunking("/tmp/doc.odt") is True
     assert embeddings_fs.path_uses_prose_chunking("/tmp/notes.txt") is True
+    assert embeddings_fs.path_uses_prose_chunking("/tmp/doc.md") is True
     assert embeddings_fs.path_uses_prose_chunking("/tmp/Budget.ods") is False
     assert embeddings_fs.path_uses_prose_chunking("/tmp/deck.odp") is False
 def test_guess_indexable_paths_includes_ods_and_office(tmp_path: Path):
     (tmp_path / "notes.txt").write_text("hello", encoding="utf-8")
+    (tmp_path / "notes.md").write_text("hello", encoding="utf-8")
     (tmp_path / "budget.xlsx").write_bytes(b"placeholder")
     odt = tmp_path / "doc.odt"
     content_xml = b"""<?xml version="1.0"?>
@@ -111,7 +113,7 @@ def test_guess_indexable_paths_includes_ods_and_office(tmp_path: Path):
     (tmp_path / "deck.odp").write_bytes(b"placeholder")
     entries = embeddings_fs.guess_indexable_paths(str(tmp_path))
     names = sorted(entry.name for entry in entries)
-    assert names == ["Budget.ods", "budget.xlsx", "deck.odp", "doc.odt", "notes.txt"]
+    assert names == ["Budget.ods", "budget.xlsx", "deck.odp", "doc.odt", "notes.md", "notes.txt"]
 
 
 def test_all_indexable_extensions_includes_foreign():
@@ -196,3 +198,13 @@ def test_txt_uses_per_paragraph_langdetect(tmp_path: Path, monkeypatch: pytest.M
     assert runs_by_para[1][1][0].locale_bcp47 == "de-DE"
     assert "First." in calls
     assert "Second." in calls
+
+
+def test_paragraph_chunks_from_md(tmp_path: Path):
+    path = tmp_path / "notes.md"
+    path.write_text("Alpha markdown\n\nBeta markdown", encoding="utf-8")
+    chunks = embeddings_fs.paragraph_chunks_from_path(str(path))
+    assert len(chunks) == 2
+    assert chunks[0].text == "Alpha markdown"
+    assert chunks[1].text == "Beta markdown"
+    assert chunks[0].doc_url.endswith("/notes.md")

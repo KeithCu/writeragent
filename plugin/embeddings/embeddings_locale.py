@@ -208,7 +208,7 @@ def resolve_document_locale_bcp47(path: str, body_sample: str | None = None) -> 
         tag = _odf_locale_from_fodt(path)
     elif ext == ".docx":
         tag = _docx_locale_from_zip(path)
-    elif ext in {".txt", ".rtf"}:
+    elif ext in {".txt", ".rtf", ".md"}:
         tag = None
     else:
         tag = None
@@ -217,7 +217,7 @@ def resolve_document_locale_bcp47(path: str, body_sample: str | None = None) -> 
         return tag
 
     sample = body_sample
-    if sample is None and ext in {".txt", ".rtf"}:
+    if sample is None and ext in {".txt", ".rtf", ".md"}:
         try:
             sample = open(path, encoding="utf-8", errors="replace").read(_LANGDETECT_SAMPLE_MAX)
         except OSError:

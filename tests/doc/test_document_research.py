@@ -35,6 +35,7 @@ def test_guess_doc_type_from_path():
     assert guess_doc_type_from_path("/tmp/Slides.pptx") == "draw"
     assert guess_doc_type_from_path("/tmp/photo.png") == "image"
     assert guess_doc_type_from_path("/tmp/readme.txt") == "writer"
+    assert guess_doc_type_from_path("/tmp/notes.md") == "writer"
 
 
 def test_path_to_file_url_uses_three_slashes_on_unix():
@@ -203,6 +204,7 @@ def test_nearby_extensions_constant():
     assert ".docx" in NEARBY_FILE_EXTENSIONS
     assert ".pptx" in NEARBY_FILE_EXTENSIONS
     assert ".txt" in NEARBY_FILE_EXTENSIONS
+    assert ".md" in NEARBY_FILE_EXTENSIONS
     assert ".pdf" not in NEARBY_FILE_EXTENSIONS
     assert ".tmp" not in NEARBY_FILE_EXTENSIONS
     assert ".png" not in NEARBY_FILE_EXTENSIONS

@@ -24,14 +24,14 @@ CALC_EXTENSIONS = frozenset({".ods", ".ots", ".fods"})
 DRAW_EXTENSIONS = frozenset({".odp", ".otp", ".fodp", ".odg"})
 INDEXABLE_EXTENSIONS = WRITER_EXTENSIONS | CALC_EXTENSIONS | DRAW_EXTENSIONS
 
-FOREIGN_WRITER_EXTENSIONS = frozenset({".docx", ".doc", ".rtf", ".txt"})
+FOREIGN_WRITER_EXTENSIONS = frozenset({".docx", ".doc", ".rtf", ".txt", ".md"})
 FOREIGN_CALC_EXTENSIONS = frozenset({".xlsx", ".xls", ".csv"})
 FOREIGN_DRAW_EXTENSIONS = frozenset({".pptx", ".ppt"})
 FOREIGN_EXTENSIONS = FOREIGN_WRITER_EXTENSIONS | FOREIGN_CALC_EXTENSIONS | FOREIGN_DRAW_EXTENSIONS
 
 ALL_INDEXABLE_EXTENSIONS = INDEXABLE_EXTENSIONS | FOREIGN_EXTENSIONS
 
-PROSE_CHUNK_EXTENSIONS = WRITER_EXTENSIONS | frozenset({".docx", ".doc", ".rtf", ".txt"})
+PROSE_CHUNK_EXTENSIONS = WRITER_EXTENSIONS | frozenset({".docx", ".doc", ".rtf", ".txt", ".md"})
 
 
 @dataclasses.dataclass(frozen=True)
@@ -104,7 +104,7 @@ def _extract_foreign_passages(path: str, ext: str) -> list[str]:
         return ooxml.extract_spreadsheet_rows(path)
     if ext == ".csv":
         return ooxml.extract_csv_rows(path)
-    if ext == ".txt":
+    if ext in {".txt", ".md"}:
         return ooxml.extract_plaintext_paragraphs(path)
     if ext == ".rtf":
         return ooxml.extract_rtf_paragraphs(path)
@@ -133,7 +133,7 @@ def extract_indexable_passage_runs(path: str) -> list[tuple[str, list[LocaleText
         return extract_writer_paragraph_runs(path)
     if ext == ".docx":
         return extract_docx_paragraph_runs(path)
-    if ext in {".txt", ".rtf"}:
+    if ext in {".txt", ".rtf", ".md"}:
         passages = extract_indexable_passages(path)
         doc_default = resolve_document_locale_bcp47(path, body_sample="\n".join(passages[:20]))
         return [(passage, locale_runs_for_plain_passage(passage, doc_default)) for passage in passages if passage.strip()]
