@@ -20,8 +20,7 @@ from plugin.scripting._lazy_venv import make_getattr
 from plugin.calc.python.venv import _resolve_python_data
 from plugin.doc.document_helpers import is_calc, is_draw, is_writer
 from plugin.scripting.client import run_viz as client_run_viz
-from plugin.scripting.image_payload import write_image_payload_to_temp
-from plugin.scripting.payload_codec import is_image_payload, find_image_payloads
+from plugin.scripting.payload_codec import is_image_payload, find_image_payloads, write_image_payload_to_temp
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.i18n import _
 

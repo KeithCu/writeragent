@@ -10,7 +10,7 @@ import logging
 import os
 from typing import Any
 
-from plugin.scripting.image_payload import write_image_payload_to_temp
+from plugin.scripting.payload_codec import write_image_payload_to_temp
 
 log = logging.getLogger(__name__)
 

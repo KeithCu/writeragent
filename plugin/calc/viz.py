@@ -76,7 +76,7 @@ class PlotDataTool(ToolCalcAnalysisBase):
         task_hint = str(kwargs["task_hint"]) if kwargs.get("task_hint") else None
 
         from plugin.scripting.viz import run_trusted_viz, extract_image_payload
-        from plugin.scripting.image_payload import write_image_payload_to_temp
+        from plugin.scripting.payload_codec import write_image_payload_to_temp
 
         def _run() -> dict[str, Any]:
             return run_trusted_viz(

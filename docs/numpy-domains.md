@@ -158,7 +158,7 @@ No `viz.py` yet. Matplotlib figures from user/LLM code are captured in the venv 
 | Component | Module | Behavior |
 |-----------|--------|----------|
 | Figure → bytes | [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) | `_figure_to_image_payload()` (SVG default); `_capture_open_figures_payload()` merges multiple open figures vertically; `serialize_result()` for returned `Figure`; `Agg` backend; figure cleanup |
-| Wire format | [`payload_codec.py`](../plugin/scripting/payload_codec.py), [`image_payload.py`](../plugin/scripting/image_payload.py) | `PAYLOAD_IMAGE`, `is_image_payload()`; shared temp-file helper |
+| Wire format | [`payload_codec.py`](../plugin/scripting/payload_codec.py) | `PAYLOAD_IMAGE`, `is_image_payload()`; shared temp-file helper |
 | Calc `=PYTHON()` | [`python_function.py`](../plugin/calc/python/function.py), [`python_image_egress.py`](../plugin/calc/python/image_egress.py) | `insert_image_result_on_sheet()` → `GraphicObjectShape` anchored to active cell |
 | Chat / LLM | [`venv_python.py`](../plugin/calc/python/venv.py) | **Calc:** auto-insert on active sheet + `image_path`. **Writer/Draw:** `image_path` → `insert_image` |
 | Writer notebook | [`notebook_runner.py`](../plugin/notebook/notebook_runner.py) | Inline image insert (SVG + PNG) on notebook cell run |
