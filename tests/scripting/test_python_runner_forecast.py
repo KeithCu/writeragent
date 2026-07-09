@@ -21,7 +21,10 @@ def test_execute_and_insert_forecast_fast_path(mock_run, mock_insert):
     ctx = MagicMock()
     doc = MagicMock()
 
-    with patch("plugin.scripting.python_runner.is_calc", return_value=True):
+    with (
+        patch("plugin.scripting.domain_registry.is_calc", return_value=True),
+        patch("plugin.scripting.python_runner.is_calc", return_value=True),
+    ):
         mock_run.return_value = {
             "status": "ok",
             "helper": "forecast_time_series",
@@ -45,7 +48,10 @@ def test_execute_and_insert_detects_forecast_result_from_venv(mock_venv, mock_in
     ctx = MagicMock()
     doc = MagicMock()
 
-    with patch("plugin.scripting.python_runner.is_calc", return_value=True):
+    with (
+        patch("plugin.scripting.domain_registry.is_calc", return_value=True),
+        patch("plugin.scripting.python_runner.is_calc", return_value=True),
+    ):
         mock_venv.return_value = {
             "status": "ok",
             "result": {

@@ -22,9 +22,7 @@ Direct high-level helpers are also provided for use from within venv scripts.
 from __future__ import annotations
 
 import json
-import re
 from collections import Counter
-from dataclasses import dataclass
 from typing import Any, cast, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -696,7 +694,9 @@ def run_text_analytics(
 # No pure-Python implementations live here anymore.
 # ---------------------------------------------------------------------------
 
-TEXT_ANALYTICS_HEADER_PREFIX = "# writeragent:text"
+from plugin.scripting.helper_domain import HelperScriptMeta, header_prefix, parse_helper_script_header
+
+TEXT_ANALYTICS_HEADER_PREFIX = header_prefix("text")
 
 
 def get_text_analytics_script_templates() -> dict[str, str]:
@@ -754,35 +754,12 @@ def _template_body(helper: str, params: dict[str, Any]) -> str:
     )
 
 
-_TEXT_ANALYTICS_HEADER_RE = re.compile(
-    r"^\s*#\s*writeragent:text\s+helper=(\w+)\s+params=(\{.*\})\s*$",
-    re.MULTILINE,
-)
-
-
-@dataclass(frozen=True)
-class TextAnalyticsScriptMeta:
-    helper: str
-    params: dict[str, Any]
+TextAnalyticsScriptMeta = HelperScriptMeta
 
 
 def parse_text_analytics_script_header(code: str) -> TextAnalyticsScriptMeta | None:
     """Parse the machine-readable header from a built-in or copied text analytics script."""
-    if not code or TEXT_ANALYTICS_HEADER_PREFIX not in code:
-        return None
-    match = _TEXT_ANALYTICS_HEADER_RE.search(code)
-    if not match:
-        return None
-    helper = match.group(1)
-    if helper not in HELPER_NAMES:
-        return None
-    try:
-        params = json.loads(match.group(2))
-    except Exception:
-        params = {}
-    if not isinstance(params, dict):
-        params = {}
-    return TextAnalyticsScriptMeta(helper=helper, params=params)
+    return parse_helper_script_header(code, tag="text", helper_names=HELPER_NAMES)
 
 
 def supports_text_analytics_manual(doc: Any) -> bool:

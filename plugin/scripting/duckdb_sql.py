@@ -10,21 +10,16 @@ Compute is lazy-loaded from ``plugin.scripting.venv.duckdb_sql`` via ``__getattr
 from __future__ import annotations
 
 import json
-import re
-from dataclasses import dataclass
 from typing import Any
 
 from plugin.scripting._lazy_venv import make_getattr
+from plugin.scripting.helper_domain import HelperScriptMeta, header_prefix, parse_helper_script_header
 
 # --- Constants (host) ---
 
 SQL_HELPER_NAMES = frozenset({"query_folder_sql", "query_sheet_sql"})
 
-SQL_HEADER_PREFIX = "# writeragent:sql"
-_SQL_HEADER_RE = re.compile(
-    r"^\s*#\s*writeragent:sql\s+helper=(\w+)\s+params=(\{.*\})\s*$",
-    re.MULTILINE,
-)
+SQL_HEADER_PREFIX = header_prefix("sql")
 
 _DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
     "query_folder_sql": {"files": ["data.csv"]},
@@ -82,26 +77,9 @@ def get_sql_script_templates() -> dict[str, str]:
     return {helper: _template_body(helper, dict(_DEFAULT_PARAMS.get(helper, {}))) for helper in sorted(SQL_HELPER_NAMES)}
 
 
-@dataclass
-class SqlScriptMeta:
-    helper: str
-    params: dict[str, Any]
+SqlScriptMeta = HelperScriptMeta
 
 
 def parse_sql_script_header(code: str) -> SqlScriptMeta | None:
     """Parse machine header from SQL script template."""
-    if not code or SQL_HEADER_PREFIX not in code:
-        return None
-    match = _SQL_HEADER_RE.search(code)
-    if not match:
-        return None
-    helper = match.group(1)
-    if helper not in SQL_HELPER_NAMES:
-        return None
-    try:
-        params = json.loads(match.group(2))
-    except Exception:
-        params = {}
-    if not isinstance(params, dict):
-        params = {}
-    return SqlScriptMeta(helper=helper, params=params)
+    return parse_helper_script_header(code, tag="sql", helper_names=SQL_HELPER_NAMES)

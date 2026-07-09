@@ -9,10 +9,7 @@ Compute is lazy-loaded from ``plugin.scripting.venv.optimize`` via ``__getattr__
 
 from __future__ import annotations
 
-import json
 import logging
-import re
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
 from plugin.calc.address_utils import index_to_column
@@ -24,6 +21,12 @@ from plugin.calc.python.venv import _resolve_python_data
 from plugin.doc.document_helpers import is_calc
 from plugin.framework.errors import ToolExecutionError
 from plugin.scripting.client import run_optimize as client_run_optimize
+from plugin.scripting.helper_domain import (
+    HelperScriptMeta,
+    build_helper_script_template,
+    header_prefix,
+    parse_helper_script_header,
+)
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -40,11 +43,7 @@ HELPER_NAMES = {
 
 MAX_TABLE_ROWS = 50
 
-OPTIMIZE_HEADER_PREFIX = "# writeragent:optimize"
-_OPTIMIZE_HEADER_RE = re.compile(
-    r"^\s*#\s*writeragent:optimize\s+helper=(\w+)\s+params=(\{.*\})\s*$",
-    re.MULTILINE,
-)
+OPTIMIZE_HEADER_PREFIX = header_prefix("optimize")
 
 _DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
     "optimize_portfolio": {"returns_col": None, "target_return": None, "risk_free_rate": 0.0},
@@ -72,40 +71,36 @@ __getattr__ = make_getattr("optimize", _OPTIMIZE_VENV_EXPORTS)
 
 # --- Templates ---
 
-@dataclass
-class OptimizeScriptHeader:
-    helper: str
-    params: dict[str, Any]
+OptimizeScriptHeader = HelperScriptMeta
 
 
 def parse_optimize_script_header(code: str) -> OptimizeScriptHeader | None:
-    match = _OPTIMIZE_HEADER_RE.search(code)
-    if not match:
-        return None
-    try:
-        params = json.loads(match.group(2))
-        return OptimizeScriptHeader(helper=match.group(1), params=params)
-    except Exception:
-        return None
+    return parse_helper_script_header(
+        code,
+        tag="optimize",
+        helper_names=None,
+        require_prefix=False,
+        on_bad_json="none",
+    )
 
 
 def get_optimize_template(helper: str) -> str | None:
     if helper not in HELPER_NAMES:
         return None
     params = _DEFAULT_PARAMS.get(helper, {})
-    params_str = json.dumps(params)
-    
     desc = _HELPER_DESCRIPTIONS.get(helper, helper.replace("_", " ").title())
-    
-    lines = [
-        f"{OPTIMIZE_HEADER_PREFIX} helper={helper} params={params_str}",
-        "#",
-        f"# {desc}",
-        "# This script delegates to the trusted optimize venv module.",
-        "# Edit the JSON params above if needed. No other code runs.",
-    ]
-    
-    return "\n".join(lines) + "\n"
+    return build_helper_script_template(
+        tag="optimize",
+        helper=helper,
+        params=params,
+        description=desc,
+        style="header_only",
+        compact_json=False,
+        extra_comment_lines=(
+            "# This script delegates to the trusted optimize venv module.",
+            "# Edit the JSON params above if needed. No other code runs.",
+        ),
+    )
 
 
 # --- Runner ---

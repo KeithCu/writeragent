@@ -9,10 +9,7 @@ Compute is lazy-loaded from ``plugin.scripting.venv.quant`` via ``__getattr__``.
 
 from __future__ import annotations
 
-import json
 import logging
-import re
-from dataclasses import dataclass
 from typing import Any
 
 from plugin.calc.analysis_runner import calc_tool_context
@@ -20,6 +17,12 @@ from plugin.scripting._lazy_venv import make_getattr
 from plugin.calc.python.venv import _resolve_python_data
 from plugin.doc.document_helpers import is_calc, is_writer
 from plugin.scripting.client import run_quant as client_run_quant
+from plugin.scripting.helper_domain import (
+    HelperScriptMeta,
+    build_helper_script_template,
+    header_prefix,
+    parse_helper_script_header,
+)
 from plugin.framework.errors import ToolExecutionError
 
 log = logging.getLogger(__name__)
@@ -33,11 +36,7 @@ HELPER_NAMES = (
     "efficient_frontier",
 )
 
-QUANT_HEADER_PREFIX = "# writeragent:quant"
-_QUANT_HEADER_RE = re.compile(
-    r"^\s*#\s*writeragent:quant\s+helper=(\w+)\s+params=(\{.*\})\s*$",
-    re.MULTILINE,
-)
+QUANT_HEADER_PREFIX = header_prefix("quant")
 
 _DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
     "fetch_historical_data": {"tickers": ["AAPL", "MSFT"], "start_date": "2023-01-01", "end_date": "2024-01-01", "interval": "1d"},
@@ -68,40 +67,36 @@ __getattr__ = make_getattr("quant", _QUANT_VENV_EXPORTS)
 
 # --- Templates ---
 
-@dataclass
-class QuantScriptHeader:
-    helper: str
-    params: dict[str, Any]
+QuantScriptHeader = HelperScriptMeta
 
 
 def parse_quant_script_header(code: str) -> QuantScriptHeader | None:
-    match = _QUANT_HEADER_RE.search(code)
-    if not match:
-        return None
-    try:
-        params = json.loads(match.group(2))
-        return QuantScriptHeader(helper=match.group(1), params=params)
-    except Exception:
-        return None
+    return parse_helper_script_header(
+        code,
+        tag="quant",
+        helper_names=None,
+        require_prefix=False,
+        on_bad_json="none",
+    )
 
 
 def get_quant_template(helper: str) -> str | None:
     if helper not in HELPER_NAMES:
         return None
     params = _DEFAULT_PARAMS.get(helper, {})
-    params_str = json.dumps(params)
-    
     desc = _HELPER_DESCRIPTIONS.get(helper, helper.replace("_", " ").title())
-    
-    lines = [
-        f"{QUANT_HEADER_PREFIX} helper={helper} params={params_str}",
-        "#",
-        f"# {desc}",
-        "# This script delegates to the trusted quant venv module.",
-        "# Edit the JSON params above if needed. No other code runs.",
-    ]
-    
-    return "\n".join(lines) + "\n"
+    return build_helper_script_template(
+        tag="quant",
+        helper=helper,
+        params=params,
+        description=desc,
+        style="header_only",
+        compact_json=False,
+        extra_comment_lines=(
+            "# This script delegates to the trusted quant venv module.",
+            "# Edit the JSON params above if needed. No other code runs.",
+        ),
+    )
 
 
 # --- Runner ---

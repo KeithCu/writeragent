@@ -48,37 +48,116 @@ def _run_trusted_helper(
     return result
 
 
-# --- Analysis ---
+# --- Long-running trusted helpers (use the single long budget instead of user python_exec_timeout) ---
+# Vision is handled in its own resolver (also sources from the long budget for heavy paths).
 
-_ANALYSIS_SESSION_PREFIX = "writeragent:analysis"
-_ANALYSIS_STUB = """\
-from plugin.scripting.analysis import run_analysis as _run
-result = _run(data["spec"], data.get("data"), data.get("context") or {})
-"""
+_LONG_TRUSTED_PREFIXES = frozenset({
+    "writeragent:text",
+    "writeragent:symbolic",
+})
 
 
-def run_analysis(
-    ctx: Any,
-    spec: dict[str, Any] | str,
-    data: Any = None,
+def _resolve_trusted_timeout(ctx: Any, session_id: str) -> int:
+    """Return the long budget for known slow calls, otherwise the user's standard timeout."""
+    if session_id in _LONG_TRUSTED_PREFIXES:
+        return long_trusted_worker_timeout_sec(ctx)
+    return configured_python_exec_timeout(ctx)
+
+
+def _make_spec_runner(
     *,
-    context: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Execute a trusted analysis helper in the user venv."""
-    timeout_sec = configured_python_exec_timeout(ctx)
-    payload = {"spec": spec, "data": data, "context": context or {}}
-    return _run_trusted_helper(
-        ctx,
-        session_id=_ANALYSIS_SESSION_PREFIX,
-        stub=_ANALYSIS_STUB,
-        payload=payload,
-        timeout_sec=timeout_sec,
-        error_code="ANALYSIS_ERROR",
-        error_label="Analysis",
+    session_prefix: str,
+    import_path: str,
+    run_name: str,
+    error_code: str,
+    error_label: str,
+    long_timeout: bool = False,
+):
+    """Build a ``run_*(ctx, spec, data, context=)`` client for the common stub shape."""
+    stub = (
+        f"from {import_path} import {run_name} as _run\n"
+        f'result = _run(data["spec"], data.get("data"), data.get("context") or {{}})\n'
     )
 
+    def _runner(
+        ctx: Any,
+        spec: dict[str, Any] | str,
+        data: Any = None,
+        *,
+        context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        timeout_sec = (
+            _resolve_trusted_timeout(ctx, session_prefix)
+            if long_timeout
+            else configured_python_exec_timeout(ctx)
+        )
+        payload = {"spec": spec, "data": data, "context": context or {}}
+        return _run_trusted_helper(
+            ctx,
+            session_id=session_prefix,
+            stub=stub,
+            payload=payload,
+            timeout_sec=timeout_sec,
+            error_code=error_code,
+            error_label=error_label,
+        )
 
-# --- Quant ---
+    _runner.__name__ = f"run_{error_label.lower().replace(' ', '_')}"
+    _runner.__doc__ = f"Execute a trusted {error_label} helper in the user venv."
+    return _runner
+
+
+run_analysis = _make_spec_runner(
+    session_prefix="writeragent:analysis",
+    import_path="plugin.scripting.analysis",
+    run_name="run_analysis",
+    error_code="ANALYSIS_ERROR",
+    error_label="Analysis",
+)
+
+run_viz = _make_spec_runner(
+    session_prefix="writeragent:viz",
+    import_path="plugin.scripting.viz",
+    run_name="run_viz",
+    error_code="VIZ_ERROR",
+    error_label="Viz",
+)
+
+run_symbolic = _make_spec_runner(
+    session_prefix="writeragent:symbolic",
+    import_path="plugin.scripting.symbolic",
+    run_name="run_symbolic",
+    error_code="SYMBOLIC_ERROR",
+    error_label="Symbolic",
+    long_timeout=True,
+)
+
+run_units = _make_spec_runner(
+    session_prefix="writeragent:units",
+    import_path="plugin.scripting.units",
+    run_name="run_units",
+    error_code="UNITS_ERROR",
+    error_label="Units",
+)
+
+run_optimize = _make_spec_runner(
+    session_prefix="writeragent:optimize",
+    import_path="plugin.scripting.optimize",
+    run_name="run_optimize",
+    error_code="OPTIMIZE_ERROR",
+    error_label="Optimization",
+)
+
+run_forecast = _make_spec_runner(
+    session_prefix="writeragent:forecast",
+    import_path="plugin.scripting.forecast",
+    run_name="run_forecast",
+    error_code="FORECAST_ERROR",
+    error_label="Forecast",
+)
+
+
+# --- Quant (helper/params signature differs from spec runners) ---
 
 _QUANT_SESSION_PREFIX = "writeragent:quant"
 _QUANT_STUB = """\
@@ -107,172 +186,6 @@ def run_quant(
         error_code="QUANT_ERROR",
         error_label="Quant",
     )
-
-
-# --- Viz ---
-
-_VIZ_SESSION_PREFIX = "writeragent:viz"
-_VIZ_STUB = """\
-from plugin.scripting.viz import run_viz as _run
-result = _run(data["spec"], data.get("data"), data.get("context") or {})
-"""
-
-
-def run_viz(
-    ctx: Any,
-    spec: dict[str, Any] | str,
-    data: Any = None,
-    *,
-    context: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Execute a trusted viz helper in the user venv."""
-    timeout_sec = configured_python_exec_timeout(ctx)
-    payload = {"spec": spec, "data": data, "context": context or {}}
-    return _run_trusted_helper(
-        ctx,
-        session_id=_VIZ_SESSION_PREFIX,
-        stub=_VIZ_STUB,
-        payload=payload,
-        timeout_sec=timeout_sec,
-        error_code="VIZ_ERROR",
-        error_label="Viz",
-    )
-
-
-# --- Symbolic ---
-
-_SYMBOLIC_SESSION_PREFIX = "writeragent:symbolic"
-_SYMBOLIC_STUB = """\
-from plugin.scripting.symbolic import run_symbolic as _run
-result = _run(data["spec"], data.get("data"), data.get("context") or {})
-"""
-
-
-def run_symbolic(
-    ctx: Any,
-    spec: dict[str, Any] | str,
-    data: Any = None,
-    *,
-    context: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Execute a trusted symbolic helper in the user venv."""
-    timeout_sec = _resolve_trusted_timeout(ctx, _SYMBOLIC_SESSION_PREFIX)
-    payload = {"spec": spec, "data": data, "context": context or {}}
-    return _run_trusted_helper(
-        ctx,
-        session_id=_SYMBOLIC_SESSION_PREFIX,
-        stub=_SYMBOLIC_STUB,
-        payload=payload,
-        timeout_sec=timeout_sec,
-        error_code="SYMBOLIC_ERROR",
-        error_label="Symbolic",
-    )
-
-
-# --- Units ---
-
-_UNITS_SESSION_PREFIX = "writeragent:units"
-_UNITS_STUB = """\
-from plugin.scripting.units import run_units as _run
-result = _run(data["spec"], data.get("data"), data.get("context") or {})
-"""
-
-
-def run_units(
-    ctx: Any,
-    spec: dict[str, Any] | str,
-    data: Any = None,
-    *,
-    context: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Execute a trusted units helper in the user venv."""
-    timeout_sec = configured_python_exec_timeout(ctx)
-    payload = {"spec": spec, "data": data, "context": context or {}}
-    return _run_trusted_helper(
-        ctx,
-        session_id=_UNITS_SESSION_PREFIX,
-        stub=_UNITS_STUB,
-        payload=payload,
-        timeout_sec=timeout_sec,
-        error_code="UNITS_ERROR",
-        error_label="Units",
-    )
-
-
-# --- Optimize ---
-
-_OPTIMIZE_SESSION_PREFIX = "writeragent:optimize"
-_OPTIMIZE_STUB = """\
-from plugin.scripting.optimize import run_optimize as _run
-result = _run(data["spec"], data.get("data"), data.get("context") or {})
-"""
-
-
-def run_optimize(
-    ctx: Any,
-    spec: dict[str, Any] | str,
-    data: Any = None,
-    *,
-    context: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Execute a trusted optimize helper in the user venv."""
-    timeout_sec = configured_python_exec_timeout(ctx)
-    payload = {"spec": spec, "data": data, "context": context or {}}
-    return _run_trusted_helper(
-        ctx,
-        session_id=_OPTIMIZE_SESSION_PREFIX,
-        stub=_OPTIMIZE_STUB,
-        payload=payload,
-        timeout_sec=timeout_sec,
-        error_code="OPTIMIZE_ERROR",
-        error_label="Optimization",
-    )
-
-
-# --- Forecast ---
-
-_FORECAST_SESSION_PREFIX = "writeragent:forecast"
-_FORECAST_STUB = """\
-from plugin.scripting.forecast import run_forecast as _run
-result = _run(data["spec"], data.get("data"), data.get("context") or {})
-"""
-
-
-def run_forecast(
-    ctx: Any,
-    spec: dict[str, Any] | str,
-    data: Any = None,
-    *,
-    context: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Execute a trusted forecast helper in the user venv."""
-    timeout_sec = configured_python_exec_timeout(ctx)
-    payload = {"spec": spec, "data": data, "context": context or {}}
-    return _run_trusted_helper(
-        ctx,
-        session_id=_FORECAST_SESSION_PREFIX,
-        stub=_FORECAST_STUB,
-        payload=payload,
-        timeout_sec=timeout_sec,
-        error_code="FORECAST_ERROR",
-        error_label="Forecast",
-    )
-
-
-# --- Long-running trusted helpers (use the single long budget instead of user python_exec_timeout) ---
-# Vision is handled in its own resolver (also sources from the long budget for heavy paths).
-
-_LONG_TRUSTED_PREFIXES = frozenset({
-    "writeragent:text",
-    "writeragent:symbolic",
-})
-
-
-def _resolve_trusted_timeout(ctx: Any, session_id: str) -> int:
-    """Return the long budget for known slow calls, otherwise the user's standard timeout."""
-    if session_id in _LONG_TRUSTED_PREFIXES:
-        return long_trusted_worker_timeout_sec(ctx)
-    return configured_python_exec_timeout(ctx)
 
 
 # --- Vision ---

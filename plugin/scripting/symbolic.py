@@ -9,14 +9,17 @@ Compute is lazy-loaded from ``plugin.scripting.venv.symbolic`` via ``__getattr__
 
 from __future__ import annotations
 
-import json
-import re
-from dataclasses import dataclass
 from typing import Any
 
 from plugin.doc.document_helpers import is_calc, is_writer
 from plugin.scripting._lazy_venv import make_getattr
 from plugin.scripting.client import run_symbolic as client_run_symbolic
+from plugin.scripting.helper_domain import (
+    HelperScriptMeta,
+    build_helper_script_template,
+    header_prefix,
+    parse_helper_script_header,
+)
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.i18n import _
 
@@ -32,11 +35,7 @@ HELPER_NAMES = frozenset(
     }
 )
 
-MATH_HEADER_PREFIX = "# writeragent:math"
-_MATH_HEADER_RE = re.compile(
-    r"^\s*#\s*writeragent:math\s+helper=(\w+)\s+params=(\{.*\})\s*$",
-    re.MULTILINE,
-)
+MATH_HEADER_PREFIX = header_prefix("math")
 
 _SHIPPED_TEMPLATES = frozenset({"solve_equation", "symbolic_simplify", "integrate"})
 
@@ -68,25 +67,21 @@ __getattr__ = make_getattr("symbolic", _SYMBOLIC_VENV_EXPORTS)
 
 # --- Templates ---
 
-@dataclass(frozen=True)
-class MathScriptMeta:
-    helper: str
-    params: dict[str, Any]
+MathScriptMeta = HelperScriptMeta
 
 
 def _template_body(helper: str, params: dict[str, Any]) -> str:
-    params_json = json.dumps(params, separators=(",", ":"))
-    desc = _HELPER_DESCRIPTIONS.get(helper, helper)
-    return (
-        f"{MATH_HEADER_PREFIX} helper={helper} params={params_json}\n"  # nosec
-        f"# {desc}\n"
-        f"# Edit params above, then Run.\n"
-        f"from writeragent.scripting.symbolic import run_symbolic\n\n"
-        f"result = run_symbolic(\n"
-        f'    {{"helper": "{helper}", "params": {params_json}}},\n'
-        f"    None,\n"
-        f"    {{}},\n"
-        f")\n"
+    return build_helper_script_template(
+        tag="math",
+        helper=helper,
+        params=params,
+        description=_HELPER_DESCRIPTIONS.get(helper, helper),
+        style="run_import",
+        import_module="writeragent.scripting.symbolic",
+        run_name="run_symbolic",
+        data_expr="None",
+        context_expr="{}",
+        extra_comment_lines=("# Edit params above, then Run.",),
     )
 
 
@@ -101,21 +96,7 @@ def get_math_script_templates() -> dict[str, str]:
 
 def parse_math_script_header(code: str) -> MathScriptMeta | None:
     """Parse the machine-readable header from a built-in or copied math script."""
-    if not code or MATH_HEADER_PREFIX not in code:
-        return None
-    match = _MATH_HEADER_RE.search(code)
-    if not match:
-        return None
-    helper = match.group(1)
-    if helper not in HELPER_NAMES:
-        return None
-    try:
-        params = json.loads(match.group(2))
-    except json.JSONDecodeError:
-        params = {}
-    if not isinstance(params, dict):
-        params = {}
-    return MathScriptMeta(helper=helper, params=params)
+    return parse_helper_script_header(code, tag="math", helper_names=HELPER_NAMES)
 
 
 # --- Runner ---

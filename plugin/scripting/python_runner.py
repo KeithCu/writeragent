@@ -9,7 +9,7 @@
 
 import logging
 import time
-from typing import Any, cast
+from typing import Any
 
 from plugin.framework.uno_context import get_ctx, get_desktop
 from plugin.framework.config import get_config, get_config_str, set_config
@@ -332,88 +332,15 @@ def resolve_run_script_name_config_key(doc: Any) -> str:
     return "last_python_script_name_writer"
 
 
-def format_elapsed_time(seconds: float) -> str:
-    if seconds >= 60.0:
-        minutes = int(seconds // 60)
-        secs = int(seconds % 60)
-        return f"{minutes}m {secs}s"
-    elif seconds >= 1.0:
-        return f"{seconds:.2f}s"
-    else:
-        ms = seconds * 1000.0
-        if ms < 1.0:
-            return "<1 ms"
-        else:
-            return f"{int(ms)} ms"
+from plugin.scripting.helper_domain import (
+    format_elapsed_time,
+    plot_insert_ok_outcome,
+    rps_error_outcome,
+)
 
 
-def _plot_insert_ok_outcome(
-    *,
-    helper: str,
-    title: str,
-    t0: float,
-    stdout: str | None,
-    result: Any,
-) -> dict[str, Any]:
-    formatted_time = format_elapsed_time(time.perf_counter() - t0)
-    status_ok = _("Plot inserted ({title}). (took {time})").format(title=title, time=formatted_time)
-    if helper:
-        status_ok = _("Viz '{helper}' completed. {msg}").format(
-            helper=helper,
-            msg=_("Plot inserted ({title}). (took {time})").format(title=title, time=formatted_time),
-        )
-    return {
-        "ok": True,
-        "status_ok_text": status_ok,
-        "stdout": stdout,
-        "result": result,
-    }
-
-
-def _symbolic_insert_ok_outcome(
-    *,
-    helper: str,
-    latex: str,
-    t0: float,
-    stdout: str | None,
-    result: Any,
-) -> dict[str, Any]:
-    formatted_time = format_elapsed_time(time.perf_counter() - t0)
-    preview = latex[:80] + ("…" if len(latex) > 80 else "")
-    status_ok = _("Math '{helper}' completed. Inserted: {preview} (took {time})").format(
-        helper=helper,
-        preview=preview,
-        time=formatted_time,
-    )
-    return {
-        "ok": True,
-        "status_ok_text": status_ok,
-        "stdout": stdout,
-        "result": result,
-    }
-
-
-def _units_insert_ok_outcome(
-    *,
-    helper: str,
-    formatted: str,
-    t0: float,
-    stdout: str | None,
-    result: Any,
-) -> dict[str, Any]:
-    formatted_time = format_elapsed_time(time.perf_counter() - t0)
-    preview = formatted[:80] + ("…" if len(formatted) > 80 else "")
-    status_ok = _("Units '{helper}' completed. Inserted: {preview} (took {time})").format(
-        helper=helper,
-        preview=preview,
-        time=formatted_time,
-    )
-    return {
-        "ok": True,
-        "status_ok_text": status_ok,
-        "stdout": stdout,
-        "result": result,
-    }
+# Re-export under legacy private names for any external imports/tests.
+_plot_insert_ok_outcome = plot_insert_ok_outcome
 
 
 def execute_and_insert_result(
@@ -424,47 +351,13 @@ def execute_and_insert_result(
     data_range: str | None = None,
 ) -> dict[str, Any]:
     """Run *code* in the user venv and insert the result into *doc* when possible."""
-    from plugin.calc.analysis_egress import insert_analysis_result_into_calc, is_analysis_result
-    from plugin.calc.analysis_runner import calc_selection_to_a1, calc_tool_context, run_trusted_analysis
+    from plugin.calc.analysis_runner import calc_selection_to_a1, calc_tool_context
     from plugin.calc.python.formula_edit import parse_data_binding_text
     from plugin.calc.python.venv import _resolve_python_data
-    from plugin.framework.errors import ToolExecutionError
-    from plugin.scripting.analysis import parse_analysis_script_header
-    from plugin.vision.vision_egress import insert_vision_result, is_vision_result
-    from plugin.vision.vision_runner import run_trusted_vision, supports_vision_manual
-    from plugin.vision.vision_templates import parse_vision_script_header
-    from plugin.scripting.viz import insert_viz_result_into_doc, is_viz_result, try_insert_plot_result, run_trusted_viz, supports_viz_manual, parse_viz_script_header
-    from plugin.scripting.symbolic import insert_symbolic_result_into_doc, is_symbolic_result, run_trusted_symbolic, supports_symbolic_manual, parse_math_script_header
-    from plugin.scripting.units import (
-        insert_units_result_into_doc,
-        is_units_result,
-        run_trusted_units,
-        supports_units_manual,
-        parse_units_script_header,
-        split_helper_params,
-    )
-    from plugin.scripting.text_analytics import (
-        insert_text_analytics_result_into_doc,
-        is_text_analytics_result,
-        run_trusted_text_analytics,
-        supports_text_analytics_manual,
-        parse_text_analytics_script_header,
-    )
-    from plugin.calc.quant_egress import insert_quant_result_into_calc, is_quant_result
-    from plugin.scripting.quant import run_trusted_quant, parse_quant_script_header
-    from plugin.scripting.optimize import insert_optimize_result_into_calc, is_optimize_result, run_trusted_optimize, parse_optimize_script_header
-    from plugin.scripting.forecast import insert_forecast_result_into_calc, is_forecast_result, run_trusted_forecast, parse_forecast_script_header
+    from plugin.scripting.domain_registry import get_post_venv_domains, get_rps_domains, try_rps_fast_path, try_rps_post_venv
+    from plugin.scripting.viz import try_insert_plot_result
 
     t0 = time.perf_counter()
-    vision_meta = parse_vision_script_header(code)
-    viz_meta = parse_viz_script_header(code)
-    math_meta = parse_math_script_header(code)
-    units_meta = parse_units_script_header(code)
-    text_meta = parse_text_analytics_script_header(code)
-    meta = parse_analysis_script_header(code)
-    quant_meta = parse_quant_script_header(code)
-    optimize_meta = parse_optimize_script_header(code)
-    forecast_meta = parse_forecast_script_header(code)
 
     def _resolve_data_range() -> str | None:
         binding = str(data_range).strip() if data_range else ""
@@ -475,466 +368,18 @@ def execute_and_insert_result(
             return binding
         return calc_selection_to_a1(doc)
 
-    if vision_meta is not None:
-        if not supports_vision_manual(doc):
-            return {
-                "ok": False,
-                "message": _("Vision helpers require a Writer or Calc document."),
-            }
-        try:
-            result = run_trusted_vision(ctx, doc, helper=vision_meta.helper, params=vision_meta.params)
-        except ToolExecutionError as exc:
-            elapsed = time.perf_counter() - t0
-            err_msg = str(exc)
-            formatted_time = format_elapsed_time(elapsed)
-            if not ("timed out" in err_msg.lower() or "timeout" in err_msg.lower()):
-                err_msg = f"{err_msg} (took {formatted_time})"
-            return {"ok": False, "message": err_msg}
-        except Exception as e:
-            elapsed = time.perf_counter() - t0
-            log.exception("execute_and_insert_result vision fast path failed")
-            err_msg = str(e)
-            formatted_time = format_elapsed_time(elapsed)
-            if not ("timed out" in err_msg.lower() or "timeout" in err_msg.lower()):
-                err_msg = f"{err_msg} (took {formatted_time})"
-            return {"ok": False, "message": err_msg, "traceback": exception_traceback(e)}
-
-        if result.get("status") == "error":
-            elapsed = time.perf_counter() - t0
-            formatted_time = format_elapsed_time(elapsed)
-            message = str(result.get("message") or _("Vision helper failed."))
-            return {"ok": False, "message": f"{message} (took {formatted_time})"}
-
-        try:
-            # Reviewable-edit recording for the Writer path lives inside
-            # insert_vision_result_into_writer (vision_egress).
-            insert_vision_result(ctx, doc, result, params=vision_meta.params)
-        except Exception as e:
-            elapsed_total = time.perf_counter() - t0
-            formatted_time_total = format_elapsed_time(elapsed_total)
-            return {"ok": False, "message": _("Failed to insert result: {error} (took {time})").format(error=str(e), time=formatted_time_total)}
-
-        metrics_raw = result.get("metrics")
-        metrics: dict[str, Any] = metrics_raw if isinstance(metrics_raw, dict) else {}
-        line_count = metrics.get("line_count")
-        if line_count is None and vision_meta.helper == "extract_structure":
-            line_count = metrics.get("block_count")
-        if line_count is None:
-            html = str(result.get("html") or "")
-            line_count = html.count("<p") + html.count("<h") + html.count("<table")
-        formatted_time = format_elapsed_time(time.perf_counter() - t0)
-        if vision_meta.helper == "extract_structure":
-            table_count = metrics.get("table_count", 0)
-            status_ok = _("Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} tables). (took {time})").format(
-                helper=vision_meta.helper,
-                blocks=line_count,
-                tables=table_count,
-                time=formatted_time,
-            )
-        else:
-            status_ok = _("Vision '{helper}' completed. Inserted formatted HTML. (took {time})").format(
-                helper=vision_meta.helper,
-                time=formatted_time,
-            )
-        return {
-            "ok": True,
-            "status_ok_text": status_ok,
-            "result": result,
-        }
-
-    if viz_meta is not None:
-        if not supports_viz_manual(doc):
-            return {
-                "ok": False,
-                "message": _("Viz helpers require a Writer or Calc document."),
-            }
-        dr = _resolve_data_range() if is_calc(doc) else None
-        if is_calc(doc) and not dr:
-            return {
-                "ok": False,
-                "message": _("Viz helper requires a data range. Select cells or enter a range in the Data field."),
-            }
-        try:
-            result = run_trusted_viz(
-                ctx,
-                doc,
-                helper=viz_meta.helper,
-                params=viz_meta.params,
-                data_range=dr,
-            )
-        except ToolExecutionError as exc:
-            elapsed = time.perf_counter() - t0
-            err_msg = str(exc)
-            formatted_time = format_elapsed_time(elapsed)
-            if not ("timed out" in err_msg.lower() or "timeout" in err_msg.lower()):
-                err_msg = f"{err_msg} (took {formatted_time})"
-            return {"ok": False, "message": err_msg}
-        except Exception as e:
-            elapsed = time.perf_counter() - t0
-            log.exception("execute_and_insert_result viz fast path failed")
-            err_msg = str(e)
-            formatted_time = format_elapsed_time(elapsed)
-            return {"ok": False, "message": f"{err_msg} (took {formatted_time})", "traceback": exception_traceback(e)}
-
-        if result.get("status") == "error":
-            elapsed = time.perf_counter() - t0
-            formatted_time = format_elapsed_time(elapsed)
-            message = str(result.get("message") or _("Viz helper failed."))
-            return {"ok": False, "message": f"{message} (took {formatted_time})"}
-
-        try:
-            insert_viz_result_into_doc(ctx, doc, result)
-        except Exception as e:
-            elapsed_total = time.perf_counter() - t0
-            formatted_time_total = format_elapsed_time(elapsed_total)
-            return {"ok": False, "message": _("Failed to insert result: {error} (took {time})").format(error=str(e), time=formatted_time_total)}
-
-        title = str(result.get("title") or viz_meta.helper)
-        return _plot_insert_ok_outcome(
-            helper=viz_meta.helper,
-            title=title,
+    # Trusted-helper header fast paths (ordered domain registry).
+    for spec in get_rps_domains():
+        outcome = try_rps_fast_path(
+            spec,
+            ctx=ctx,
+            doc=doc,
+            code=code,
             t0=t0,
-            stdout=None,
-            result=result,
+            resolve_data_range=_resolve_data_range,
         )
-
-    if math_meta is not None:
-        if not supports_symbolic_manual(doc):
-            return {
-                "ok": False,
-                "message": _("Math helpers require a Writer or Calc document."),
-            }
-        try:
-            result = run_trusted_symbolic(
-                ctx,
-                doc,
-                helper=math_meta.helper,
-                params=math_meta.params,
-            )
-        except ToolExecutionError as exc:
-            elapsed = time.perf_counter() - t0
-            err_msg = str(exc)
-            formatted_time = format_elapsed_time(elapsed)
-            if not ("timed out" in err_msg.lower() or "timeout" in err_msg.lower()):
-                err_msg = f"{err_msg} (took {formatted_time})"
-            return {"ok": False, "message": err_msg}
-        except Exception as e:
-            elapsed = time.perf_counter() - t0
-            log.exception("execute_and_insert_result math fast path failed")
-            err_msg = str(e)
-            formatted_time = format_elapsed_time(elapsed)
-            return {"ok": False, "message": f"{err_msg} (took {formatted_time})", "traceback": exception_traceback(e)}
-
-        if result.get("status") == "error":
-            elapsed = time.perf_counter() - t0
-            formatted_time = format_elapsed_time(elapsed)
-            message = str(result.get("message") or _("Math helper failed."))
-            return {"ok": False, "message": f"{message} (took {formatted_time})"}
-
-        try:
-            insert_symbolic_result_into_doc(ctx, doc, result)
-        except Exception as e:
-            elapsed_total = time.perf_counter() - t0
-            formatted_time_total = format_elapsed_time(elapsed_total)
-            return {"ok": False, "message": _("Failed to insert result: {error} (took {time})").format(error=str(e), time=formatted_time_total)}
-
-        latex = str(result.get("latex") or result.get("text") or math_meta.helper)
-        return _symbolic_insert_ok_outcome(
-            helper=math_meta.helper,
-            latex=latex,
-            t0=t0,
-            stdout=None,
-            result=result,
-        )
-
-    if units_meta is not None:
-        if not supports_units_manual(doc):
-            return {
-                "ok": False,
-                "message": _("Units helpers require a Writer or Calc document."),
-            }
-        units_params, units_output_style = split_helper_params(units_meta.params)
-        try:
-            result = run_trusted_units(
-                ctx,
-                doc,
-                helper=units_meta.helper,
-                params=units_params,
-            )
-        except ToolExecutionError as exc:
-            elapsed = time.perf_counter() - t0
-            err_msg = str(exc)
-            formatted_time = format_elapsed_time(elapsed)
-            if not ("timed out" in err_msg.lower() or "timeout" in err_msg.lower()):
-                err_msg = f"{err_msg} (took {formatted_time})"
-            return {"ok": False, "message": err_msg}
-        except Exception as e:
-            elapsed = time.perf_counter() - t0
-            log.exception("execute_and_insert_result units fast path failed")
-            err_msg = str(e)
-            formatted_time = format_elapsed_time(elapsed)
-            return {"ok": False, "message": f"{err_msg} (took {formatted_time})", "traceback": exception_traceback(e)}
-
-        if result.get("status") == "error":
-            elapsed = time.perf_counter() - t0
-            formatted_time = format_elapsed_time(elapsed)
-            message = str(result.get("message") or _("Units helper failed."))
-            return {"ok": False, "message": f"{message} (took {formatted_time})"}
-
-        try:
-            insert_units_result_into_doc(ctx, doc, result, output_style=units_output_style)
-        except Exception as e:
-            elapsed_total = time.perf_counter() - t0
-            formatted_time_total = format_elapsed_time(elapsed_total)
-            return {"ok": False, "message": _("Failed to insert result: {error} (took {time})").format(error=str(e), time=formatted_time_total)}
-
-        formatted = str(result.get("formatted") or result.get("text") or units_meta.helper)
-        return _units_insert_ok_outcome(
-            helper=units_meta.helper,
-            formatted=formatted,
-            t0=t0,
-            stdout=None,
-            result=result,
-        )
-
-    if text_meta is not None:
-        if not supports_text_analytics_manual(doc):
-            return {
-                "ok": False,
-                "message": _("Text analytics helpers require a Writer document."),
-            }
-        try:
-            result = run_trusted_text_analytics(
-                ctx,
-                doc,
-                helper=text_meta.helper,
-                params=text_meta.params,
-            )
-        except ToolExecutionError as exc:
-            elapsed = time.perf_counter() - t0
-            err_msg = str(exc)
-            formatted_time = format_elapsed_time(elapsed)
-            if not ("timed out" in err_msg.lower() or "timeout" in err_msg.lower()):
-                err_msg = f"{err_msg} (took {formatted_time})"
-            return {"ok": False, "message": err_msg}
-        except Exception as e:
-            elapsed = time.perf_counter() - t0
-            log.exception("execute_and_insert_result text_analytics fast path failed")
-            err_msg = str(e)
-            formatted_time = format_elapsed_time(elapsed)
-            return {"ok": False, "message": f"{err_msg} (took {formatted_time})", "traceback": exception_traceback(e)}
-
-        if result.get("status") == "error":
-            elapsed = time.perf_counter() - t0
-            formatted_time = format_elapsed_time(elapsed)
-            message = str(result.get("message") or _("Text analytics helper failed."))
-            return {"ok": False, "message": f"{message} (took {formatted_time})"}
-
-        try:
-            insert_text_analytics_result_into_doc(ctx, doc, result)
-        except Exception as e:
-            elapsed_total = time.perf_counter() - t0
-            formatted_time_total = format_elapsed_time(elapsed_total)
-            return {"ok": False, "message": _("Failed to insert result: {error} (took {time})").format(error=str(e), time=formatted_time_total)}
-
-        # Use a short title for status
-        title = text_meta.helper
-        formatted_time = format_elapsed_time(time.perf_counter() - t0)
-        return {
-            "ok": True,
-            "status_ok_text": _("Text analytics '{helper}' completed. (took {time})").format(
-                helper=title, time=formatted_time
-            ),
-            "result": result,
-        }
-
-    if quant_meta is not None and is_calc(doc):
-        dr = _resolve_data_range()
-        if not dr and quant_meta.helper != "fetch_historical_data":
-            return {
-                "ok": False,
-                "message": _("Quant helper requires a data range. Select cells or enter a range in the Data field."),
-            }
-        try:
-            result = run_trusted_quant(ctx, doc, helper=quant_meta.helper, params=quant_meta.params, data_range=dr)
-        except ToolExecutionError as exc:
-            elapsed = time.perf_counter() - t0
-            err_msg = str(exc)
-            formatted_time = format_elapsed_time(elapsed)
-            if not ("timed out" in err_msg.lower() or "timeout" in err_msg.lower()):
-                err_msg = f"{err_msg} (took {formatted_time})"
-            return {"ok": False, "message": err_msg}
-        except Exception as e:
-            elapsed = time.perf_counter() - t0
-            log.exception("execute_and_insert_result quant fast path failed")
-            err_msg = str(e)
-            formatted_time = format_elapsed_time(elapsed)
-            return {"ok": False, "message": f"{err_msg} (took {formatted_time})", "traceback": exception_traceback(e)}
-
-        if result.get("status") == "error":
-            elapsed = time.perf_counter() - t0
-            formatted_time = format_elapsed_time(elapsed)
-            message = str(result.get("message") or _("Quant failed."))
-            return {"ok": False, "message": f"{message} (took {formatted_time})"}
-
-        try:
-            row_count = insert_quant_result_into_calc(doc, ctx, result)
-        except Exception as e:
-            elapsed_total = time.perf_counter() - t0
-            formatted_time_total = format_elapsed_time(elapsed_total)
-            return {"ok": False, "message": _("Failed to insert result: {error} (took {time})").format(error=str(e), time=formatted_time_total)}
-
-        formatted_time = format_elapsed_time(time.perf_counter() - t0)
-        return {
-            "ok": True,
-            "status_ok_text": _("Quant '{helper}' completed. Wrote {rows} rows. (took {time})").format(
-                helper=quant_meta.helper,
-                rows=row_count,
-                time=formatted_time,
-            ),
-            "result": result,
-        }
-
-    if optimize_meta is not None and is_calc(doc):
-        dr = _resolve_data_range()
-        if not dr:
-            return {
-                "ok": False,
-                "message": _("Optimization helper requires a data range. Select cells or enter a range in the Data field."),
-            }
-        try:
-            result = run_trusted_optimize(ctx, doc, helper=optimize_meta.helper, params=optimize_meta.params, data_range=dr)
-        except ToolExecutionError as exc:
-            elapsed = time.perf_counter() - t0
-            err_msg = str(exc)
-            formatted_time = format_elapsed_time(elapsed)
-            if not ("timed out" in err_msg.lower() or "timeout" in err_msg.lower()):
-                err_msg = f"{err_msg} (took {formatted_time})"
-            return {"ok": False, "message": err_msg}
-        except Exception as e:
-            elapsed = time.perf_counter() - t0
-            log.exception("execute_and_insert_result optimize fast path failed")
-            err_msg = str(e)
-            formatted_time = format_elapsed_time(elapsed)
-            return {"ok": False, "message": f"{err_msg} (took {formatted_time})", "traceback": exception_traceback(e)}
-
-        if result.get("status") == "error":
-            elapsed = time.perf_counter() - t0
-            formatted_time = format_elapsed_time(elapsed)
-            message = str(result.get("message") or _("Optimization failed."))
-            return {"ok": False, "message": f"{message} (took {formatted_time})"}
-
-        try:
-            row_count = insert_optimize_result_into_calc(doc, ctx, result)
-        except Exception as e:
-            elapsed_total = time.perf_counter() - t0
-            formatted_time_total = format_elapsed_time(elapsed_total)
-            return {"ok": False, "message": _("Failed to insert result: {error} (took {time})").format(error=str(e), time=formatted_time_total)}
-
-        formatted_time = format_elapsed_time(time.perf_counter() - t0)
-        return {
-            "ok": True,
-            "status_ok_text": _("Optimize '{helper}' completed. Wrote {rows} rows. (took {time})").format(
-                helper=optimize_meta.helper,
-                rows=row_count,
-                time=formatted_time,
-            ),
-            "result": result,
-        }
-
-    if forecast_meta is not None and is_calc(doc):
-        dr = _resolve_data_range()
-        if not dr:
-            return {
-                "ok": False,
-                "message": _("Forecast helper requires a data range. Select cells or enter a range in the Data field."),
-            }
-        try:
-            result = run_trusted_forecast(ctx, doc, helper=forecast_meta.helper, params=forecast_meta.params, data_range=dr)
-        except ToolExecutionError as exc:
-            elapsed = time.perf_counter() - t0
-            err_msg = str(exc)
-            formatted_time = format_elapsed_time(elapsed)
-            if not ("timed out" in err_msg.lower() or "timeout" in err_msg.lower()):
-                err_msg = f"{err_msg} (took {formatted_time})"
-            return {"ok": False, "message": err_msg}
-        except Exception as e:
-            elapsed = time.perf_counter() - t0
-            log.exception("execute_and_insert_result forecast fast path failed")
-            err_msg = str(e)
-            formatted_time = format_elapsed_time(elapsed)
-            return {"ok": False, "message": f"{err_msg} (took {formatted_time})", "traceback": exception_traceback(e)}
-
-        if result.get("status") == "error":
-            elapsed = time.perf_counter() - t0
-            formatted_time = format_elapsed_time(elapsed)
-            message = str(result.get("message") or _("Forecast failed."))
-            return {"ok": False, "message": f"{message} (took {formatted_time})"}
-
-        try:
-            row_count = insert_forecast_result_into_calc(doc, ctx, result)
-        except Exception as e:
-            elapsed_total = time.perf_counter() - t0
-            formatted_time_total = format_elapsed_time(elapsed_total)
-            return {"ok": False, "message": _("Failed to insert result: {error} (took {time})").format(error=str(e), time=formatted_time_total)}
-
-        formatted_time = format_elapsed_time(time.perf_counter() - t0)
-        return {
-            "ok": True,
-            "status_ok_text": _("Forecast '{helper}' completed. Wrote {rows} rows. (took {time})").format(
-                helper=forecast_meta.helper,
-                rows=row_count,
-                time=formatted_time,
-            ),
-            "result": result,
-        }
-
-    if meta is not None and is_calc(doc):
-        dr = _resolve_data_range()
-        if not dr:
-            return {
-                "ok": False,
-                "message": _("Analysis helper requires a data range. Select cells or enter a range in the Data field."),
-            }
-        try:
-            result = run_trusted_analysis(ctx, doc, helper=meta.helper, params=meta.params, data_range=dr)
-        except ToolExecutionError as exc:
-            elapsed = time.perf_counter() - t0
-            err_msg = str(exc)
-            formatted_time = format_elapsed_time(elapsed)
-            if not ("timed out" in err_msg.lower() or "timeout" in err_msg.lower()):
-                err_msg = f"{err_msg} (took {formatted_time})"
-            return {"ok": False, "message": err_msg}
-        except Exception as e:
-            elapsed = time.perf_counter() - t0
-            log.exception("execute_and_insert_result analysis fast path failed")
-            err_msg = str(e)
-            formatted_time = format_elapsed_time(elapsed)
-            return {"ok": False, "message": f"{err_msg} (took {formatted_time})", "traceback": exception_traceback(e)}
-
-        if result.get("status") == "error":
-            elapsed = time.perf_counter() - t0
-            formatted_time = format_elapsed_time(elapsed)
-            message = str(result.get("message") or _("Analysis failed."))
-            return {"ok": False, "message": f"{message} (took {formatted_time})"}
-
-        try:
-            row_count = insert_analysis_result_into_calc(doc, ctx, result)
-        except Exception as e:
-            elapsed_total = time.perf_counter() - t0
-            formatted_time_total = format_elapsed_time(elapsed_total)
-            return {"ok": False, "message": _("Failed to insert result: {error} (took {time})").format(error=str(e), time=formatted_time_total)}
-
-        formatted_time = format_elapsed_time(time.perf_counter() - t0)
-        return {
-            "ok": True,
-            "status_ok_text": _("Analysis '{helper}' completed. Wrote {rows} rows. (took {time})").format(
-                helper=meta.helper,
-                rows=row_count,
-                time=formatted_time,
-            ),
-            "result": result,
-        }
+        if outcome is not None:
+            return outcome
 
     py_data = None
     if is_calc(doc):
@@ -949,20 +394,15 @@ def execute_and_insert_result(
         response = run_code_in_user_venv(ctx, code, data=py_data)
         elapsed = time.perf_counter() - t0
     except Exception as e:
-        elapsed = time.perf_counter() - t0
         log.exception("execute_and_insert_result failed")
-        err_msg = str(e)
-        formatted_time = format_elapsed_time(elapsed)
-        if not ("timed out" in err_msg.lower() or "timeout" in err_msg.lower()):
-            err_msg = f"{err_msg} (took {formatted_time})"
-        return {"ok": False, "message": err_msg, "traceback": exception_traceback(e)}
+        return rps_error_outcome(str(e), t0=t0, traceback=exception_traceback(e))
 
     formatted_time = format_elapsed_time(elapsed)
 
     if response.get("status") != "ok":
         error_msg = response.get("message", _("Unknown error"))
         log.error("Python script failed: %s", error_msg)
-        if not ("timed out" in error_msg.lower() or "timeout" in error_msg.lower()):
+        if not ("timed out" in str(error_msg).lower() or "timeout" in str(error_msg).lower()):
             error_msg = f"{error_msg} (took {formatted_time})"
         return {"ok": False, "message": error_msg}
 
@@ -979,133 +419,27 @@ def execute_and_insert_result(
 
     if doc:
         try:
-            if is_symbolic_result(result_data):
-                sym_result = cast("dict[str, Any]", result_data)
-                insert_symbolic_result_into_doc(ctx, doc, sym_result)
-                latex = str(sym_result.get("latex") or sym_result.get("text") or sym_result.get("helper") or "")
-                helper = str(sym_result.get("helper") or "")
-                return _symbolic_insert_ok_outcome(
-                    helper=helper,
-                    latex=latex,
-                    t0=t0,
-                    stdout=stdout,
-                    result=result_data,
-                )
-            if is_units_result(result_data):
-                units_result = cast("dict[str, Any]", result_data)
-                insert_units_result_into_doc(ctx, doc, units_result)
-                formatted = str(units_result.get("formatted") or units_result.get("text") or units_result.get("helper") or "")
-                helper = str(units_result.get("helper") or "")
-                return _units_insert_ok_outcome(
-                    helper=helper,
-                    formatted=formatted,
-                    t0=t0,
-                    stdout=stdout,
-                    result=result_data,
-                )
-            if is_text_analytics_result(result_data):
-                ta_result = cast("dict[str, Any]", result_data)
-                insert_text_analytics_result_into_doc(ctx, doc, ta_result)
-                formatted_time = format_elapsed_time(time.perf_counter() - t0)
-                helper = str(ta_result.get("helper") or ta_result.get("result", {}).get("meta", {}).get("model") or "text")
-                return {
-                    "ok": True,
-                    "status_ok_text": _("Text analytics '{helper}' completed. (took {time})").format(
-                        helper=helper, time=formatted_time
-                    ),
-                    "stdout": stdout,
-                    "result": result_data,
-                }
-            if is_viz_result(result_data):
-                viz_result = cast("dict[str, Any]", result_data)
-                insert_viz_result_into_doc(ctx, doc, viz_result)
-                title = str(viz_result.get("title") or viz_result.get("helper") or "Plot")
-                helper = str(viz_result.get("helper") or "")
-                return _plot_insert_ok_outcome(
-                    helper=helper,
-                    title=title,
-                    t0=t0,
-                    stdout=stdout,
-                    result=result_data,
-                )
-            if try_insert_plot_result(ctx, doc, result_data):
-                return _plot_insert_ok_outcome(
-                    helper="",
-                    title="Plot",
-                    t0=t0,
-                    stdout=stdout,
-                    result=result_data,
-                )
-            if isinstance(result_data, dict) and is_vision_result(result_data):
-                insert_vision_result(ctx, doc, result_data)
-                formatted_time = format_elapsed_time(time.perf_counter() - t0)
-                helper = str(result_data.get("helper") or "vision")
-                return {
-                    "ok": True,
-                    "status_ok_text": _("Vision '{helper}' completed. Inserted formatted HTML. (took {time})").format(
-                        helper=helper,
-                        time=formatted_time,
-                    ),
-                    "stdout": stdout,
-                    "result": result_data,
-                }
+            # Domain-shaped results from generic venv execution (ordered registry).
+            for spec in get_post_venv_domains():
+                if spec.id == "viz":
+                    # Viz domain result first, then raw matplotlib envelope below.
+                    post = try_rps_post_venv(spec, ctx=ctx, doc=doc, result_data=result_data, t0=t0, stdout=stdout)
+                    if post is not None:
+                        return post
+                    if try_insert_plot_result(ctx, doc, result_data):
+                        return plot_insert_ok_outcome(
+                            helper="",
+                            title="Plot",
+                            t0=t0,
+                            stdout=stdout,
+                            result=result_data,
+                        )
+                    continue
+                post = try_rps_post_venv(spec, ctx=ctx, doc=doc, result_data=result_data, t0=t0, stdout=stdout)
+                if post is not None:
+                    return post
+
             if is_calc(doc):
-                if isinstance(result_data, dict) and is_analysis_result(result_data):
-                    row_count = insert_analysis_result_into_calc(doc, ctx, result_data)
-                    formatted_time = format_elapsed_time(time.perf_counter() - t0)
-                    helper = str(result_data.get("helper") or "analysis")
-                    return {
-                        "ok": True,
-                        "status_ok_text": _("Analysis '{helper}' completed. Wrote {rows} rows. (took {time})").format(
-                            helper=helper,
-                            rows=row_count,
-                            time=formatted_time,
-                        ),
-                        "stdout": stdout,
-                        "result": result_data,
-                    }
-                if isinstance(result_data, dict) and is_quant_result(result_data):
-                    row_count = insert_quant_result_into_calc(doc, ctx, result_data)
-                    formatted_time = format_elapsed_time(time.perf_counter() - t0)
-                    helper = str(result_data.get("helper") or "quant")
-                    return {
-                        "ok": True,
-                        "status_ok_text": _("Quant '{helper}' completed. Wrote {rows} rows. (took {time})").format(
-                            helper=helper,
-                            rows=row_count,
-                            time=formatted_time,
-                        ),
-                        "stdout": stdout,
-                        "result": result_data,
-                    }
-                if isinstance(result_data, dict) and is_optimize_result(result_data):
-                    row_count = insert_optimize_result_into_calc(doc, ctx, result_data)
-                    formatted_time = format_elapsed_time(time.perf_counter() - t0)
-                    helper = str(result_data.get("helper") or "optimize")
-                    return {
-                        "ok": True,
-                        "status_ok_text": _("Optimize '{helper}' completed. Wrote {rows} rows. (took {time})").format(
-                            helper=helper,
-                            rows=row_count,
-                            time=formatted_time,
-                        ),
-                        "stdout": stdout,
-                        "result": result_data,
-                    }
-                if isinstance(result_data, dict) and is_forecast_result(result_data):
-                    row_count = insert_forecast_result_into_calc(doc, ctx, result_data)
-                    formatted_time = format_elapsed_time(time.perf_counter() - t0)
-                    helper = str(result_data.get("helper") or "forecast")
-                    return {
-                        "ok": True,
-                        "status_ok_text": _("Forecast '{helper}' completed. Wrote {rows} rows. (took {time})").format(
-                            helper=helper,
-                            rows=row_count,
-                            time=formatted_time,
-                        ),
-                        "stdout": stdout,
-                        "result": result_data,
-                    }
                 insert_result_into_calc(doc, ctx, result_data)
             elif is_writer(doc):
                 formatted = format_result_for_writer(result_data)

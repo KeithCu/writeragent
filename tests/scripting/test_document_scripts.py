@@ -237,6 +237,8 @@ def test_build_scripts_list_includes_analysis_section_for_calc():
     ctx = MagicMock()
     doc = MagicMock()
     with patch("plugin.framework.config.get_config", return_value={}), patch(
+        "plugin.scripting.domain_registry.is_calc", return_value=True
+    ), patch(
         "plugin.scripting.document_scripts.is_calc", return_value=True
     ):
         msg = build_scripts_list_message(ctx, session_doc=doc, session_doc_url=None)

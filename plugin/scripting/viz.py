@@ -9,10 +9,7 @@ Compute is lazy-loaded from ``plugin.scripting.venv.viz`` via ``__getattr__``.
 
 from __future__ import annotations
 
-import json
 import logging
-import re
-from dataclasses import dataclass
 from typing import Any
 
 from plugin.calc.analysis_runner import calc_tool_context
@@ -20,6 +17,12 @@ from plugin.scripting._lazy_venv import make_getattr
 from plugin.calc.python.venv import _resolve_python_data
 from plugin.doc.document_helpers import is_calc, is_draw, is_writer
 from plugin.scripting.client import run_viz as client_run_viz
+from plugin.scripting.helper_domain import (
+    HelperScriptMeta,
+    build_helper_script_template,
+    header_prefix,
+    parse_helper_script_header,
+)
 from plugin.scripting.payload_codec import is_image_payload, find_image_payloads, write_image_payload_to_temp
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.i18n import _
@@ -37,11 +40,7 @@ HELPER_NAMES = frozenset(
     }
 )
 
-VIZ_HEADER_PREFIX = "# writeragent:viz"
-_VIZ_HEADER_RE = re.compile(
-    r"^\s*#\s*writeragent:viz\s+helper=(\w+)\s+params=(\{.*\})\s*$",
-    re.MULTILINE,
-)
+VIZ_HEADER_PREFIX = header_prefix("viz")
 
 _SHIPPED_TEMPLATES = frozenset({"quick_plot", "correlation_heatmap", "time_series_plot"})
 
@@ -72,25 +71,21 @@ __getattr__ = make_getattr("viz", _VIZ_VENV_EXPORTS)
 
 # --- Templates ---
 
-@dataclass(frozen=True)
-class VizScriptMeta:
-    helper: str
-    params: dict[str, Any]
+VizScriptMeta = HelperScriptMeta
 
 
 def _template_body(helper: str, params: dict[str, Any]) -> str:
-    params_json = json.dumps(params, separators=(",", ":"))
-    desc = _HELPER_DESCRIPTIONS.get(helper, helper)
-    return (
-        f"{VIZ_HEADER_PREFIX} helper={helper} params={params_json}\n"  # nosec
-        f"# {desc}\n"
-        f"# Set the data range in the toolbar (or select cells), then Run.\n"
-        f"from writeragent.scripting.viz import run_viz\n\n"
-        f"result = run_viz(\n"
-        f'    {{"helper": "{helper}", "params": {params_json}}},\n'
-        f"    data,\n"
-        f"    {{}},\n"
-        f")\n"
+    return build_helper_script_template(
+        tag="viz",
+        helper=helper,
+        params=params,
+        description=_HELPER_DESCRIPTIONS.get(helper, helper),
+        style="run_import",
+        import_module="writeragent.scripting.viz",
+        run_name="run_viz",
+        data_expr="data",
+        context_expr="{}",
+        extra_comment_lines=("# Set the data range in the toolbar (or select cells), then Run.",),
     )
 
 
@@ -105,21 +100,7 @@ def get_viz_script_templates() -> dict[str, str]:
 
 def parse_viz_script_header(code: str) -> VizScriptMeta | None:
     """Parse the machine-readable header from a built-in or copied viz script."""
-    if not code or VIZ_HEADER_PREFIX not in code:
-        return None
-    match = _VIZ_HEADER_RE.search(code)
-    if not match:
-        return None
-    helper = match.group(1)
-    if helper not in HELPER_NAMES:
-        return None
-    try:
-        params = json.loads(match.group(2))
-    except json.JSONDecodeError:
-        params = {}
-    if not isinstance(params, dict):
-        params = {}
-    return VizScriptMeta(helper=helper, params=params)
+    return parse_helper_script_header(code, tag="viz", helper_names=HELPER_NAMES)
 
 
 # --- Runner ---

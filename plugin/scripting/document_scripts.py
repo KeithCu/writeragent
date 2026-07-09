@@ -31,28 +31,33 @@ _MAX_DOCUMENT_SCRIPTS_BYTES = 900_000
 _SOFT_WARN_SCRIPT_BYTES = 200_000
 _ENVELOPE_VERSION = 1
 
-SCRIPT_ORIGIN_USER = "user"
-SCRIPT_ORIGIN_DOCUMENT = "document"
-SCRIPT_ORIGIN_ANALYSIS = "analysis"
-SCRIPT_ORIGIN_VISION = "vision"
-SCRIPT_ORIGIN_VIZ = "viz"
-SCRIPT_ORIGIN_MATH = "math"
-SCRIPT_ORIGIN_UNITS = "units"
-SCRIPT_ORIGIN_QUANT = "quant"
-SCRIPT_ORIGIN_OPTIMIZE = "optimize"
-SCRIPT_ORIGIN_FORECAST = "forecast"
-SCRIPT_ORIGIN_SQL = "sql"
-
-DOC_SCRIPT_DISPLAY_PREFIX = "[Doc] "
-ANALYSIS_SCRIPT_DISPLAY_PREFIX = "[Analysis] "
-VISION_SCRIPT_DISPLAY_PREFIX = "[Vision] "
-VIZ_SCRIPT_DISPLAY_PREFIX = "[Viz] "
-MATH_SCRIPT_DISPLAY_PREFIX = "[Math] "
-UNITS_SCRIPT_DISPLAY_PREFIX = "[Units] "
-QUANT_SCRIPT_DISPLAY_PREFIX = "[Quant] "
-OPTIMIZE_SCRIPT_DISPLAY_PREFIX = "[Optimize] "
-FORECAST_SCRIPT_DISPLAY_PREFIX = "[Forecast] "
-SQL_SCRIPT_DISPLAY_PREFIX = "[SQL] "
+# Origins / display prefixes live in domain_registry; re-export for stable public imports.
+from plugin.scripting.domain_registry import (  # noqa: E402, F401
+    ANALYSIS_SCRIPT_DISPLAY_PREFIX,
+    DOC_SCRIPT_DISPLAY_PREFIX,
+    FORECAST_SCRIPT_DISPLAY_PREFIX,
+    MATH_SCRIPT_DISPLAY_PREFIX,
+    OPTIMIZE_SCRIPT_DISPLAY_PREFIX,
+    QUANT_SCRIPT_DISPLAY_PREFIX,
+    SCRIPT_ORIGIN_ANALYSIS,
+    SCRIPT_ORIGIN_DOCUMENT,
+    SCRIPT_ORIGIN_FORECAST,
+    SCRIPT_ORIGIN_MATH,
+    SCRIPT_ORIGIN_OPTIMIZE,
+    SCRIPT_ORIGIN_QUANT,
+    SCRIPT_ORIGIN_SQL,
+    SCRIPT_ORIGIN_UNITS,
+    SCRIPT_ORIGIN_USER,
+    SCRIPT_ORIGIN_VISION,
+    SCRIPT_ORIGIN_VIZ,
+    SQL_SCRIPT_DISPLAY_PREFIX,
+    UNITS_SCRIPT_DISPLAY_PREFIX,
+    VISION_SCRIPT_DISPLAY_PREFIX,
+    VIZ_SCRIPT_DISPLAY_PREFIX,
+    get_picker_domains,
+    parse_picker_display_name,
+    picker_display_name,
+)
 
 
 def _normalize_doc_url(url: Any) -> str:
@@ -261,103 +266,83 @@ def save_document_script(doc: Any, name: str, code: str) -> str | None:
 
 
 def document_script_display_name(name: str) -> str:
-    return f"{DOC_SCRIPT_DISPLAY_PREFIX}{name}"
+    return picker_display_name(DOC_SCRIPT_DISPLAY_PREFIX, name)
 
 
 def parse_document_script_display_name(display: str) -> str | None:
-    if display.startswith(DOC_SCRIPT_DISPLAY_PREFIX):
-        return display[len(DOC_SCRIPT_DISPLAY_PREFIX) :]
-    return None
+    return parse_picker_display_name(DOC_SCRIPT_DISPLAY_PREFIX, display)
 
 
 def analysis_script_display_name(name: str) -> str:
-    return f"{ANALYSIS_SCRIPT_DISPLAY_PREFIX}{name}"
+    return picker_display_name(ANALYSIS_SCRIPT_DISPLAY_PREFIX, name)
 
 
 def parse_analysis_script_display_name(display: str) -> str | None:
-    if display.startswith(ANALYSIS_SCRIPT_DISPLAY_PREFIX):
-        return display[len(ANALYSIS_SCRIPT_DISPLAY_PREFIX) :]
-    return None
+    return parse_picker_display_name(ANALYSIS_SCRIPT_DISPLAY_PREFIX, display)
 
 
 def vision_script_display_name(name: str) -> str:
-    return f"{VISION_SCRIPT_DISPLAY_PREFIX}{name}"
+    return picker_display_name(VISION_SCRIPT_DISPLAY_PREFIX, name)
 
 
 def parse_vision_script_display_name(display: str) -> str | None:
-    if display.startswith(VISION_SCRIPT_DISPLAY_PREFIX):
-        return display[len(VISION_SCRIPT_DISPLAY_PREFIX) :]
-    return None
+    return parse_picker_display_name(VISION_SCRIPT_DISPLAY_PREFIX, display)
 
 
 def viz_script_display_name(name: str) -> str:
-    return f"{VIZ_SCRIPT_DISPLAY_PREFIX}{name}"
+    return picker_display_name(VIZ_SCRIPT_DISPLAY_PREFIX, name)
 
 
 def parse_viz_script_display_name(display: str) -> str | None:
-    if display.startswith(VIZ_SCRIPT_DISPLAY_PREFIX):
-        return display[len(VIZ_SCRIPT_DISPLAY_PREFIX) :]
-    return None
+    return parse_picker_display_name(VIZ_SCRIPT_DISPLAY_PREFIX, display)
 
 
 def math_script_display_name(name: str) -> str:
-    return f"{MATH_SCRIPT_DISPLAY_PREFIX}{name}"
+    return picker_display_name(MATH_SCRIPT_DISPLAY_PREFIX, name)
 
 
 def parse_math_script_display_name(display: str) -> str | None:
-    if display.startswith(MATH_SCRIPT_DISPLAY_PREFIX):
-        return display[len(MATH_SCRIPT_DISPLAY_PREFIX) :]
-    return None
+    return parse_picker_display_name(MATH_SCRIPT_DISPLAY_PREFIX, display)
 
 
 def units_script_display_name(name: str) -> str:
-    return f"{UNITS_SCRIPT_DISPLAY_PREFIX}{name}"
+    return picker_display_name(UNITS_SCRIPT_DISPLAY_PREFIX, name)
 
 
 def parse_units_script_display_name(display: str) -> str | None:
-    if display.startswith(UNITS_SCRIPT_DISPLAY_PREFIX):
-        return display[len(UNITS_SCRIPT_DISPLAY_PREFIX) :]
-    return None
+    return parse_picker_display_name(UNITS_SCRIPT_DISPLAY_PREFIX, display)
 
 
 def quant_script_display_name(name: str) -> str:
-    return f"{QUANT_SCRIPT_DISPLAY_PREFIX}{name}"
+    return picker_display_name(QUANT_SCRIPT_DISPLAY_PREFIX, name)
 
 
 def parse_quant_script_display_name(display: str) -> str | None:
-    if display.startswith(QUANT_SCRIPT_DISPLAY_PREFIX):
-        return display[len(QUANT_SCRIPT_DISPLAY_PREFIX) :]
-    return None
+    return parse_picker_display_name(QUANT_SCRIPT_DISPLAY_PREFIX, display)
 
 
 def optimize_script_display_name(name: str) -> str:
-    return f"{OPTIMIZE_SCRIPT_DISPLAY_PREFIX}{name}"
+    return picker_display_name(OPTIMIZE_SCRIPT_DISPLAY_PREFIX, name)
 
 
 def parse_optimize_script_display_name(display: str) -> str | None:
-    if display.startswith(OPTIMIZE_SCRIPT_DISPLAY_PREFIX):
-        return display[len(OPTIMIZE_SCRIPT_DISPLAY_PREFIX) :]
-    return None
+    return parse_picker_display_name(OPTIMIZE_SCRIPT_DISPLAY_PREFIX, display)
 
 
 def forecast_script_display_name(name: str) -> str:
-    return f"{FORECAST_SCRIPT_DISPLAY_PREFIX}{name}"
+    return picker_display_name(FORECAST_SCRIPT_DISPLAY_PREFIX, name)
 
 
 def parse_forecast_script_display_name(display: str) -> str | None:
-    if display.startswith(FORECAST_SCRIPT_DISPLAY_PREFIX):
-        return display[len(FORECAST_SCRIPT_DISPLAY_PREFIX) :]
-    return None
+    return parse_picker_display_name(FORECAST_SCRIPT_DISPLAY_PREFIX, display)
 
 
 def sql_script_display_name(name: str) -> str:
-    return f"{SQL_SCRIPT_DISPLAY_PREFIX}{name}"
+    return picker_display_name(SQL_SCRIPT_DISPLAY_PREFIX, name)
 
 
 def parse_sql_script_display_name(display: str) -> str | None:
-    if display.startswith(SQL_SCRIPT_DISPLAY_PREFIX):
-        return display[len(SQL_SCRIPT_DISPLAY_PREFIX) :]
-    return None
+    return parse_picker_display_name(SQL_SCRIPT_DISPLAY_PREFIX, display)
 
 
 def resolve_script_picker_entry(display_name: str, origin_map: dict[str, str]) -> tuple[str, str]:
@@ -366,178 +351,11 @@ def resolve_script_picker_entry(display_name: str, origin_map: dict[str, str]) -
     if origin == SCRIPT_ORIGIN_DOCUMENT:
         real = parse_document_script_display_name(display_name)
         return (real or display_name, SCRIPT_ORIGIN_DOCUMENT)
-    if origin == SCRIPT_ORIGIN_ANALYSIS:
-        real = parse_analysis_script_display_name(display_name)
-        return (real or display_name, SCRIPT_ORIGIN_ANALYSIS)
-    if origin == SCRIPT_ORIGIN_VISION:
-        real = parse_vision_script_display_name(display_name)
-        return (real or display_name, SCRIPT_ORIGIN_VISION)
-    if origin == SCRIPT_ORIGIN_VIZ:
-        real = parse_viz_script_display_name(display_name)
-        return (real or display_name, SCRIPT_ORIGIN_VIZ)
-    if origin == SCRIPT_ORIGIN_MATH:
-        real = parse_math_script_display_name(display_name)
-        return (real or display_name, SCRIPT_ORIGIN_MATH)
-    if origin == SCRIPT_ORIGIN_UNITS:
-        real = parse_units_script_display_name(display_name)
-        return (real or display_name, SCRIPT_ORIGIN_UNITS)
-    if origin == SCRIPT_ORIGIN_QUANT:
-        real = parse_quant_script_display_name(display_name)
-        return (real or display_name, SCRIPT_ORIGIN_QUANT)
-    if origin == SCRIPT_ORIGIN_OPTIMIZE:
-        real = parse_optimize_script_display_name(display_name)
-        return (real or display_name, SCRIPT_ORIGIN_OPTIMIZE)
-    if origin == SCRIPT_ORIGIN_FORECAST:
-        real = parse_forecast_script_display_name(display_name)
-        return (real or display_name, SCRIPT_ORIGIN_FORECAST)
-    if origin == SCRIPT_ORIGIN_SQL:
-        real = parse_sql_script_display_name(display_name)
-        return (real or display_name, SCRIPT_ORIGIN_SQL)
+    for domain in get_picker_domains():
+        if origin == domain.origin:
+            real = parse_picker_display_name(domain.display_prefix, display_name)
+            return (real or display_name, domain.origin)
     return (display_name, SCRIPT_ORIGIN_USER)
-
-
-def _analysis_script_section(doc: Any | None) -> dict[str, Any] | None:
-    if doc is None:
-        return None
-    try:
-        if not is_calc(doc):
-            return None
-    except Exception:
-        return None
-    from plugin.scripting.analysis import get_analysis_script_templates
-
-    templates = get_analysis_script_templates()
-    display_scripts = {analysis_script_display_name(name): code for name, code in templates.items()}
-    return {"id": SCRIPT_ORIGIN_ANALYSIS, "title": _("Analysis Helpers"), "scripts": display_scripts}
-
-
-def _vision_script_section(doc: Any | None) -> dict[str, Any] | None:
-    if doc is None:
-        return None
-    from plugin.vision.vision_runner import supports_vision_manual
-
-    try:
-        if not supports_vision_manual(doc):
-            return None
-    except Exception:
-        return None
-    from plugin.vision.vision_templates import get_vision_script_templates
-
-    templates = get_vision_script_templates()
-    display_scripts = {vision_script_display_name(name): code for name, code in templates.items()}
-    return {"id": SCRIPT_ORIGIN_VISION, "title": _("Vision Helpers"), "scripts": display_scripts}
-
-
-def _viz_script_section(doc: Any | None) -> dict[str, Any] | None:
-    if doc is None:
-        return None
-    from plugin.scripting.viz import supports_viz_manual
-
-    try:
-        if not supports_viz_manual(doc):
-            return None
-    except Exception:
-        return None
-    from plugin.scripting.viz import get_viz_script_templates
-
-    templates = get_viz_script_templates()
-    display_scripts = {viz_script_display_name(name): code for name, code in templates.items()}
-    return {"id": SCRIPT_ORIGIN_VIZ, "title": _("Viz Helpers"), "scripts": display_scripts}
-
-
-def _math_script_section(doc: Any | None) -> dict[str, Any] | None:
-    if doc is None:
-        return None
-    from plugin.scripting.symbolic import supports_symbolic_manual
-
-    try:
-        if not supports_symbolic_manual(doc):
-            return None
-    except Exception:
-        return None
-    from plugin.scripting.symbolic import get_math_script_templates
-
-    templates = get_math_script_templates()
-    display_scripts = {math_script_display_name(name): code for name, code in templates.items()}
-    return {"id": SCRIPT_ORIGIN_MATH, "title": _("Math Helpers"), "scripts": display_scripts}
-
-
-def _units_script_section(doc: Any | None) -> dict[str, Any] | None:
-    if doc is None:
-        return None
-    from plugin.scripting.units import get_units_script_templates, supports_units_manual
-
-    try:
-        if not supports_units_manual(doc):
-            return None
-    except Exception:
-        return None
-
-    templates = get_units_script_templates()
-    display_scripts = {units_script_display_name(name): code for name, code in templates.items()}
-    return {"id": SCRIPT_ORIGIN_UNITS, "title": _("Units Helpers"), "scripts": display_scripts}
-
-
-def _quant_script_section(doc: Any | None) -> dict[str, Any] | None:
-    if doc is None:
-        return None
-    from plugin.scripting.quant import supports_quant_manual
-
-    try:
-        if not supports_quant_manual(doc):
-            return None
-    except Exception:
-        return None
-    from plugin.scripting.quant import get_quant_template, HELPER_NAMES
-
-    templates = {name: get_quant_template(name) for name in HELPER_NAMES if get_quant_template(name)}
-    display_scripts = {quant_script_display_name(name): code for name, code in templates.items()}
-    return {"id": SCRIPT_ORIGIN_QUANT, "title": _("Quant Helpers"), "scripts": display_scripts}
-
-
-def _optimize_script_section(doc: Any | None) -> dict[str, Any] | None:
-    if doc is None:
-        return None
-    try:
-        if not is_calc(doc):
-            return None
-    except Exception:
-        return None
-    from plugin.scripting.optimize import get_optimize_template, HELPER_NAMES
-
-    templates = {name: get_optimize_template(name) for name in HELPER_NAMES if get_optimize_template(name)}
-    display_scripts = {optimize_script_display_name(name): code for name, code in templates.items()}
-    return {"id": SCRIPT_ORIGIN_OPTIMIZE, "title": _("Optimize Helpers"), "scripts": display_scripts}
-
-
-def _forecast_script_section(doc: Any | None) -> dict[str, Any] | None:
-    if doc is None:
-        return None
-    try:
-        if not is_calc(doc):
-            return None
-    except Exception:
-        return None
-    from plugin.scripting.forecast import get_forecast_template, HELPER_NAMES
-
-    templates = {name: get_forecast_template(name) for name in HELPER_NAMES if get_forecast_template(name)}
-    display_scripts = {forecast_script_display_name(name): code for name, code in templates.items()}
-    return {"id": SCRIPT_ORIGIN_FORECAST, "title": _("Forecast Helpers"), "scripts": display_scripts}
-
-
-def _sql_script_section(doc: Any | None) -> dict[str, Any] | None:
-    if doc is None:
-        return None
-    try:
-        if not is_calc(doc):
-            return None
-    except Exception:
-        return None
-    from plugin.scripting.duckdb_sql import get_sql_script_templates
-
-    templates = get_sql_script_templates()
-    display_scripts = {sql_script_display_name(name): code for name, code in templates.items()}
-    return {"id": SCRIPT_ORIGIN_SQL, "title": _("SQL Helpers"), "scripts": display_scripts}
 
 
 def build_xdl_script_picker_state(
@@ -560,89 +378,27 @@ def build_xdl_script_picker_state(
         origin_map[display] = SCRIPT_ORIGIN_DOCUMENT
         merged[display] = doc_scripts[name]
 
-    analysis_items: list[str] = []
-    analysis_section = _analysis_script_section(doc)
-    if analysis_section:
-        for display_name, code in analysis_section["scripts"].items():
-            origin_map[display_name] = SCRIPT_ORIGIN_ANALYSIS
+    domain_items: list[str] = []
+    for domain in get_picker_domains():
+        try:
+            if not domain.supports(doc):
+                continue
+        except Exception:
+            continue
+        try:
+            templates = domain.templates()
+        except Exception:
+            log.debug("picker templates failed for %s", domain.origin, exc_info=True)
+            continue
+        for name, code in templates.items():
+            display_name = picker_display_name(domain.display_prefix, name)
+            origin_map[display_name] = domain.origin
             merged[display_name] = code
-            analysis_items.append(display_name)
-
-    sql_items: list[str] = []
-    sql_section = _sql_script_section(doc)
-    if sql_section:
-        for display_name, code in sql_section["scripts"].items():
-            origin_map[display_name] = SCRIPT_ORIGIN_SQL
-            merged[display_name] = code
-            sql_items.append(display_name)
-
-    vision_items: list[str] = []
-    vision_section = _vision_script_section(doc)
-    if vision_section:
-        for display_name, code in vision_section["scripts"].items():
-            origin_map[display_name] = SCRIPT_ORIGIN_VISION
-            merged[display_name] = code
-            vision_items.append(display_name)
-
-    viz_items: list[str] = []
-    viz_section = _viz_script_section(doc)
-    if viz_section:
-        for display_name, code in viz_section["scripts"].items():
-            origin_map[display_name] = SCRIPT_ORIGIN_VIZ
-            merged[display_name] = code
-            viz_items.append(display_name)
-
-    math_items: list[str] = []
-    math_section = _math_script_section(doc)
-    if math_section:
-        for display_name, code in math_section["scripts"].items():
-            origin_map[display_name] = SCRIPT_ORIGIN_MATH
-            merged[display_name] = code
-            math_items.append(display_name)
-
-    units_items: list[str] = []
-    units_section = _units_script_section(doc)
-    if units_section:
-        for display_name, code in units_section["scripts"].items():
-            origin_map[display_name] = SCRIPT_ORIGIN_UNITS
-            merged[display_name] = code
-            units_items.append(display_name)
-
-    quant_items: list[str] = []
-    quant_section = _quant_script_section(doc)
-    if quant_section:
-        for display_name, code in quant_section["scripts"].items():
-            origin_map[display_name] = SCRIPT_ORIGIN_QUANT
-            merged[display_name] = code
-            quant_items.append(display_name)
-
-    optimize_items: list[str] = []
-    optimize_section = _optimize_script_section(doc)
-    if optimize_section:
-        for display_name, code in optimize_section["scripts"].items():
-            origin_map[display_name] = SCRIPT_ORIGIN_OPTIMIZE
-            merged[display_name] = code
-            optimize_items.append(display_name)
-
-    forecast_items: list[str] = []
-    forecast_section = _forecast_script_section(doc)
-    if forecast_section:
-        for display_name, code in forecast_section["scripts"].items():
-            origin_map[display_name] = SCRIPT_ORIGIN_FORECAST
-            merged[display_name] = code
-            forecast_items.append(display_name)
+            domain_items.append(display_name)
 
     items = (
         sorted(user_scripts.keys())
-        + analysis_items
-        + sql_items
-        + vision_items
-        + viz_items
-        + math_items
-        + units_items
-        + quant_items
-        + optimize_items
-        + forecast_items
+        + domain_items
         + [document_script_display_name(n) for n in sorted(doc_scripts.keys())]
     )
     return items, merged, origin_map
@@ -704,33 +460,21 @@ def build_scripts_list_message(
     sections: list[dict[str, Any]] = [
         {"id": SCRIPT_ORIGIN_USER, "title": _("My Scripts"), "scripts": user_scripts},
     ]
-    analysis_section = _analysis_script_section(doc)
-    if analysis_section:
-        sections.append(analysis_section)
-    vision_section = _vision_script_section(doc)
-    if vision_section:
-        sections.append(vision_section)
-    viz_section = _viz_script_section(doc)
-    if viz_section:
-        sections.append(viz_section)
-    math_section = _math_script_section(doc)
-    if math_section:
-        sections.append(math_section)
-    units_section = _units_script_section(doc)
-    if units_section:
-        sections.append(units_section)
-    quant_section = _quant_script_section(doc)
-    if quant_section:
-        sections.append(quant_section)
-    optimize_section = _optimize_script_section(doc)
-    if optimize_section:
-        sections.append(optimize_section)
-    forecast_section = _forecast_script_section(doc)
-    if forecast_section:
-        sections.append(forecast_section)
-    sql_section = _sql_script_section(doc)
-    if sql_section:
-        sections.append(sql_section)
+    for domain in get_picker_domains():
+        try:
+            if not domain.supports(doc):
+                continue
+        except Exception:
+            continue
+        try:
+            templates = domain.templates()
+        except Exception:
+            log.debug("scripts_list templates failed for %s", domain.origin, exc_info=True)
+            continue
+        display_scripts = {
+            picker_display_name(domain.display_prefix, name): code for name, code in templates.items()
+        }
+        sections.append({"id": domain.origin, "title": domain.title_fn(), "scripts": display_scripts})
     sections.append({"id": SCRIPT_ORIGIN_DOCUMENT, "title": _("This Document"), "scripts": doc_scripts})
 
     selected_name, sample_code, _merged_scripts = resolve_run_script_selection(ctx, doc, user_scripts)

@@ -23,7 +23,10 @@ def test_execute_and_insert_analysis_fast_path(mock_run, mock_insert):
     doc.getCurrentController.return_value = MagicMock()
     doc.getCurrentController.return_value.getSelection.return_value = None
 
-    with patch("plugin.scripting.python_runner.is_calc", return_value=True):
+    with (
+        patch("plugin.scripting.domain_registry.is_calc", return_value=True),
+        patch("plugin.scripting.python_runner.is_calc", return_value=True),
+    ):
         mock_run.return_value = {"status": "ok", "helper": "describe_data", "metrics": {"row_count": 1}}
         mock_insert.return_value = 5
         code = get_analysis_script_templates()["describe_data"]
@@ -41,7 +44,10 @@ def test_execute_and_insert_detects_analysis_result_from_venv(mock_insert, mock_
     ctx = MagicMock()
     doc = MagicMock()
 
-    with patch("plugin.scripting.python_runner.is_calc", return_value=True):
+    with (
+        patch("plugin.scripting.domain_registry.is_calc", return_value=True),
+        patch("plugin.scripting.python_runner.is_calc", return_value=True),
+    ):
         mock_venv.return_value = {
             "status": "ok",
             "result": {"status": "ok", "helper": "quick_stats", "metrics": {"rows": 3}},

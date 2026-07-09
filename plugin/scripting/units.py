@@ -9,9 +9,6 @@ Compute is lazy-loaded from ``plugin.scripting.venv.units`` via ``__getattr__``.
 
 from __future__ import annotations
 
-import json
-import re
-from dataclasses import dataclass
 from typing import Any
 
 from plugin.doc.document_helpers import is_calc, is_writer
@@ -19,6 +16,12 @@ from plugin.framework.errors import ToolExecutionError
 from plugin.framework.i18n import _
 from plugin.scripting._lazy_venv import make_getattr
 from plugin.scripting.client import run_units as client_run_units
+from plugin.scripting.helper_domain import (
+    HelperScriptMeta,
+    build_helper_script_template,
+    header_prefix,
+    parse_helper_script_header,
+)
 
 # --- Constants & Common ---
 
@@ -31,11 +34,7 @@ HELPER_NAMES = frozenset(
     }
 )
 
-UNITS_HEADER_PREFIX = "# writeragent:units"
-_UNITS_HEADER_RE = re.compile(
-    r"^\s*#\s*writeragent:units\s+helper=(\w+)\s+params=(\{.*\})\s*$",
-    re.MULTILINE,
-)
+UNITS_HEADER_PREFIX = header_prefix("units")
 
 _SHIPPED_TEMPLATES = frozenset({"convert_quantity", "parse_quantity", "check_dimensionality"})
 
@@ -71,25 +70,21 @@ _EGRESS_PARAM_KEYS = frozenset({"output_style"})
 
 # --- Templates ---
 
-@dataclass(frozen=True)
-class UnitsScriptMeta:
-    helper: str
-    params: dict[str, Any]
+UnitsScriptMeta = HelperScriptMeta
 
 
 def _template_body(helper: str, params: dict[str, Any]) -> str:
-    params_json = json.dumps(params, separators=(",", ":"))
-    desc = _HELPER_DESCRIPTIONS.get(helper, helper)
-    return (
-        f"{UNITS_HEADER_PREFIX} helper={helper} params={params_json}\n"  # nosec
-        f"# {desc}\n"
-        f"# Edit params above, then Run.\n"
-        f"from writeragent.scripting.units import run_units\n\n"
-        f"result = run_units(\n"
-        f'    {{"helper": "{helper}", "params": {params_json}}},\n'
-        f"    None,\n"
-        f"    {{}},\n"
-        f")\n"
+    return build_helper_script_template(
+        tag="units",
+        helper=helper,
+        params=params,
+        description=_HELPER_DESCRIPTIONS.get(helper, helper),
+        style="run_import",
+        import_module="writeragent.scripting.units",
+        run_name="run_units",
+        data_expr="None",
+        context_expr="{}",
+        extra_comment_lines=("# Edit params above, then Run.",),
     )
 
 
@@ -104,21 +99,7 @@ def get_units_script_templates() -> dict[str, str]:
 
 def parse_units_script_header(code: str) -> UnitsScriptMeta | None:
     """Parse the machine-readable header from a built-in or copied units script."""
-    if not code or UNITS_HEADER_PREFIX not in code:
-        return None
-    match = _UNITS_HEADER_RE.search(code)
-    if not match:
-        return None
-    helper = match.group(1)
-    if helper not in HELPER_NAMES:
-        return None
-    try:
-        params = json.loads(match.group(2))
-    except json.JSONDecodeError:
-        params = {}
-    if not isinstance(params, dict):
-        params = {}
-    return UnitsScriptMeta(helper=helper, params=params)
+    return parse_helper_script_header(code, tag="units", helper_names=HELPER_NAMES)
 
 
 # --- Runner ---

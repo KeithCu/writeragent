@@ -9,12 +9,15 @@ Compute is lazy-loaded from ``plugin.scripting.venv.analysis`` via ``__getattr__
 
 from __future__ import annotations
 
-import json
-import re
-from dataclasses import dataclass
 from typing import Any
 
 from plugin.scripting._lazy_venv import make_getattr, venv_attr
+from plugin.scripting.helper_domain import (
+    HelperScriptMeta,
+    build_helper_script_template,
+    header_prefix,
+    parse_helper_script_header,
+)
 
 # --- Constants & Common ---
 
@@ -40,11 +43,7 @@ HELPER_NAMES = frozenset(
 MAX_TABLE_ROWS = 50
 MAX_COLS = 40
 
-ANALYSIS_HEADER_PREFIX = "# writeragent:analysis"
-_ANALYSIS_HEADER_RE = re.compile(
-    r"^\s*#\s*writeragent:analysis\s+helper=(\w+)\s+params=(\{.*\})\s*$",
-    re.MULTILINE,
-)
+ANALYSIS_HEADER_PREFIX = header_prefix("analysis")
 
 _DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
     "describe_data": {},
@@ -115,25 +114,21 @@ __getattr__ = make_getattr("analysis", _ANALYSIS_VENV_EXPORTS - frozenset({"Coer
 
 # --- Templates ---
 
-@dataclass(frozen=True)
-class AnalysisScriptMeta:
-    helper: str
-    params: dict[str, Any]
+AnalysisScriptMeta = HelperScriptMeta
 
 
 def _template_body(helper: str, params: dict[str, Any]) -> str:
-    params_json = json.dumps(params, separators=(",", ":"))
-    desc = _HELPER_DESCRIPTIONS.get(helper, helper)
-    return (
-        f"{ANALYSIS_HEADER_PREFIX} helper={helper} params={params_json}\n"  # nosec
-        f"# {desc}\n"
-        f"# Set the data range in the toolbar (or select cells), then Run.\n"
-        f"from writeragent.scripting.analysis import run_analysis\n\n"
-        f"result = run_analysis(\n"
-        f'    {{"helper": "{helper}", "params": {params_json}}},\n'
-        f"    data,\n"
-        f"    {{}},\n"
-        f")\n"
+    return build_helper_script_template(
+        tag="analysis",
+        helper=helper,
+        params=params,
+        description=_HELPER_DESCRIPTIONS.get(helper, helper),
+        style="run_import",
+        import_module="writeragent.scripting.analysis",
+        run_name="run_analysis",
+        data_expr="data",
+        context_expr="{}",
+        extra_comment_lines=("# Set the data range in the toolbar (or select cells), then Run.",),
     )
 
 
@@ -144,18 +139,4 @@ def get_analysis_script_templates() -> dict[str, str]:
 
 def parse_analysis_script_header(code: str) -> AnalysisScriptMeta | None:
     """Parse the machine-readable header from a built-in or copied analysis script."""
-    if not code or ANALYSIS_HEADER_PREFIX not in code:
-        return None
-    match = _ANALYSIS_HEADER_RE.search(code)
-    if not match:
-        return None
-    helper = match.group(1)
-    if helper not in HELPER_NAMES:
-        return None
-    try:
-        params = json.loads(match.group(2))
-    except json.JSONDecodeError:
-        params = {}
-    if not isinstance(params, dict):
-        params = {}
-    return AnalysisScriptMeta(helper=helper, params=params)
+    return parse_helper_script_header(code, tag="analysis", helper_names=HELPER_NAMES)

@@ -7,17 +7,12 @@
 from __future__ import annotations
 
 import json
-import re
-from dataclasses import dataclass
 from typing import Any
 
+from plugin.scripting.helper_domain import HelperScriptMeta, header_prefix, parse_helper_script_header
 from plugin.vision.venv.vision import HELPER_NAMES
 
-VISION_HEADER_PREFIX = "# writeragent:vision"
-_VISION_HEADER_RE = re.compile(
-    r"^\s*#\s*writeragent:vision\s+helper=(\w+)\s+params=(\{.*\})\s*$",
-    re.MULTILINE,
-)
+VISION_HEADER_PREFIX = header_prefix("vision")
 
 _SHIPPED_TEMPLATES = frozenset({"extract_text", "extract_structure"})
 
@@ -40,13 +35,11 @@ _HELPER_DESCRIPTIONS: dict[str, str] = {
 }
 
 
-@dataclass(frozen=True)
-class VisionScriptMeta:
-    helper: str
-    params: dict[str, Any]
+VisionScriptMeta = HelperScriptMeta
 
 
 def _template_body(helper: str, params: dict[str, Any]) -> str:
+    # Vision body is custom (image arg + multi-line comments); keep explicit template.
     params_json = json.dumps(params, separators=(",", ":"))
     desc = _HELPER_DESCRIPTIONS.get(helper, helper)
     return (
@@ -74,18 +67,4 @@ def get_vision_script_templates() -> dict[str, str]:
 
 def parse_vision_script_header(code: str) -> VisionScriptMeta | None:
     """Parse the machine-readable header from a built-in or copied vision script."""
-    if not code or VISION_HEADER_PREFIX not in code:
-        return None
-    match = _VISION_HEADER_RE.search(code)
-    if not match:
-        return None
-    helper = match.group(1)
-    if helper not in HELPER_NAMES:
-        return None
-    try:
-        params = json.loads(match.group(2))
-    except json.JSONDecodeError:
-        params = {}
-    if not isinstance(params, dict):
-        params = {}
-    return VisionScriptMeta(helper=helper, params=params)
+    return parse_helper_script_header(code, tag="vision", helper_names=HELPER_NAMES)
