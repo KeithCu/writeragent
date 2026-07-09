@@ -19,12 +19,13 @@ WriterAgent runs user Python (including **NumPy**, **pandas**, **scipy**, and si
    - [Keyboard shortcuts and recalc](#keyboard-shortcuts-and-recalc)
    - [Empty cells vs NaN](#empty-cells-vs-nan)
    - [Calc formula lexer quirks (inline code)](#calc-formula-lexer-quirks-inline-code)
+   - [Data handoff and shaping](#data-handoff-and-shaping)
+   - [Multi-range support (varargs)](#multi-range-support-varargs)
 7. [Deferred roadmap](#7-deferred-roadmap)
    - [Microsoft Python in Excel vs WriterAgent](#microsoft-python-in-excel-vs-writeragent)
    - [Competitive landscape (Google Sheets vs Calc)](#competitive-landscape-google-sheets-vs-calc)
    - [Calc backlog from landscape survey](#calc-backlog-from-landscape-survey)
 8. [Implementation status](#8-implementation-status)
-9. [Multi-Range Support (Varargs)](#9-multi-range-support-varargs)
 
 **Related:** [Venv subprocess IPC & NumPy serialization](numpy-serialization.md) (warm worker, protocol, wire formats, benchmarks) · [NumPy domain helpers](numpy-domains.md) (Analysis, Viz, Symbolic, Units, Text, Forecasting roadmaps) · [Monaco editor dev plan](python-monaco-editor-dev-plan.md) (IPC, phases 2B–2F, manual tests) · [Python-in-Calc future work](python-in-excel-dev-plan.md) (Phases 3–7 + backlog) · [DuckDB Calc integration (Phases A–C landed)](duckdb-calc-dev-plan.md) · [Jupyter notebook import](jupyter-notebook-import.md) · [Calc spreadsheet → Python import](calc-spreadsheet-to-python-import.md) (convert formulas to `=PY()` while preserving data — proposed) · [Analysis Sub-Agent](analysis-sub-agent.md) (data discovery + trusted numpy/pandas execution) · [Image Recognition](image-recognition.md) · [Embeddings](embeddings.md) · [SageMath integration (deferred)](sagemath-integration-dev-plan.md)
 
@@ -701,6 +702,74 @@ Conversion logic: [`plugin/calc/calc_addin_data.py`](plugin/calc/calc_addin_data
 
 Wire format and cell semantics: [numpy-serialization.md](numpy-serialization.md) ([split_grid](numpy-serialization.md#strategy-3-split-grid-serialization-detail), [Cell semantics](numpy-serialization.md#cell-semantics-calc-python-and-numpy)).
 
+
+
+#### Multi-range support (varargs) <!-- anchor: multi-range-support-varargs -->
+
+
+**Status:** Shipped (2026-05) — varargs IDL and multi-range injection (`data = [range1, range2, …]`). Wire envelope: [numpy-serialization.md — Multi-range](numpy-serialization.md#multi-range-wire-format). Chat tool multi `data_range` remains future work.
+
+`=PYTHON()` accepts **one or more** optional data arguments after `code`. Calc packs trailing arguments into a single `sequence<any>` (UNO varargs). Multiple ranges are injected as **`data = [range1, range2, …]`**; a single range keeps backward-compatible flat/2D `data`.
+
+##### Technical Approach: UNO Varargs
+
+In the UNO IDL, the **last** parameter is `sequence<any>`, so Calc packs all remaining inputs into one tuple.
+
+**IDL (shipped):**
+```idl
+// extension/idl/XPythonFunction.idl
+interface XPythonFunction : com::sun::star::uno::XInterface
+{
+    any python( [in] string code, [in] sequence< any > data );
+};
+```
+
+Rebuild after IDL changes: `scripts/rebuild_xprompt_rdb.sh` → [`extension/XPythonFunction.rdb`](../extension/XPythonFunction.rdb).
+
+##### Why Multi-Range NumPy?
+
+While Calc's `=AVERAGE()` or `=SUM()` can handle multiple ranges, the power of `=PYTHON()` with NumPy is the ability to perform **cross-range logic** that is otherwise difficult or "messy" to build with standard formulas.
+
+###### 1. Beyond the "Flat" Average: Weighted Analysis
+A common spreadsheet task is to find a weighted average across different data sets. For example, if you have Sales data from three different regions (A, B, and C), but Region B is "twice as important" for your target:
+
+*   **Calc way**: `=(AVERAGE(A1:A10) + AVERAGE(C1:C10)*2 + AVERAGE(E1:E10)) / 4`
+*   **NumPy way**: `=PYTHON("result = (data[0].mean() + data[1].mean()*2 + data[2].mean()) / 4", A1:A10, C1:C10, E1:E10)`
+
+The NumPy version is often easier to read and maintain as the logic grows in complexity.
+
+###### 2. Pattern Matching and "Frequency" (FFT)
+Simple math like `SUM` and `AVERAGE` tells you the "size" or "center" of your data, but it doesn't tell you the **rhythm**. 
+*   **The Concept**: Fast Fourier Transform (FFT) sounds complicated, but it's just a way to find "hidden rhythms" in your numbers (e.g., "does this sales data spike every 7 days?"). 
+*   **The Power**: By passing multiple non-contiguous ranges (like "Week 1" and "Week 3"), you can use NumPy to compare rhythms across different time periods without manually copying the data into a single block.
+
+###### 3. High-Confidence Verification
+Testing serialization is easier with operations that have a clear, predictable output.
+*   **Sum**: Easy to verify manually (e.g., `1 + 2 + 3 = 6`).
+*   **Mean (Average)**: Harder to verify by eye when you have 20 floating-point numbers (e.g., `1.2345 + 6.789 ... / 20`). 
+
+By using NumPy to calculate the `mean` across multiple ranges, we ensure our **marshalling** (the process of moving data from Calc to Python) is perfectly accurate down to the last decimal point. If the `np.mean(data)` returned by the worker matches the `=AVERAGE()` calculated by Calc, we know the "plumbing" is working perfectly, even for massive 2D grids of complex numbers.
+
+##### Data Representation in Python
+...
+
+| Formula | `data` variable in Python | `data_list` variable in Python |
+|---------|---------------------------|--------------------------------|
+| `=PYTHON("...", A1:A5)` | flat list or 2D grid (unchanged) | `[data]` — always a one-element list |
+| `=PYTHON("...", A1:A5, C1:C5)` | `[ range1_data, range2_data ]` | same as `data` |
+
+Use `data_list` when you want generic logic that works for both single- and multi-range formulas, e.g. `[np.sum(d) for d in data_list]`. The `data` variable keeps backward-compatible shapes (flat/2D for one range; list of ranges for varargs).
+
+Example:
+
+```python
+result = np.concatenate(data).mean()
+# OR
+result = np.mean([np.mean(d) for d in data])
+```
+
+---
+
 ### Optional: Python edit dialog (deferred UX)
 
 | Tier | User sees | Code location | Effort |
@@ -725,7 +794,7 @@ Microsoft **Python in Excel** runs user code in **cloud containers** with `=PY(c
 | **Data ingress** | Implicit: `xl("A1:B10")` inside Python code | Explicit: range as formula arg → injected as **`data`** |
 | **Output egress** | Jupyter-style last expression | Explicit **`result = …`** assignment |
 | **Dependency tracking** | Engine must parse Python strings for `xl()` refs | **Native Calc DAG** on `data` arguments |
-| **Multi-range** | Unlimited `xl()` calls in script | Varargs: `data[0]`, `data[1]`, … ([§9](#9-multi-range-support-varargs)) |
+| **Multi-range** | Unlimited `xl()` calls in script | Varargs: `data[0]`, `data[1]`, … ([Multi-range support (varargs)](#multi-range-support-varargs)) |
 | **Shared state** | Global namespace + row-major **co-volatility** | Opt-in **Shared kernel** + **`data` refs** for ordering ([§6](#session-modes-and-recalc-semantics)) |
 | **Runtime** | Cloud sandbox (offline requires connectivity) | User venv subprocess (offline, any pip packages) |
 | **Editor** | Monaco task pane in Excel | Monaco via pywebview ([§3 Monaco](#monaco-editor--run-python-script)) |
@@ -889,7 +958,7 @@ Convert an open Calc sheet so **constants stay the same** and **formula cells be
 
 #### Range alignment for multi-range NumPy
 
-Varargs deliver separate arrays per range ([§9](#9-multi-range-support-varargs)). Mismatched shapes (e.g. `A1:A10` and `C1:C15`) still require manual padding or masking before `np.corrcoef`, regression, or element-wise math.
+Varargs deliver separate arrays per range ([Multi-range support (varargs)](#multi-range-support-varargs)). Mismatched shapes (e.g. `A1:A10` and `C1:C15`) still require manual padding or masking before `np.corrcoef`, regression, or element-wise math.
 
 **Consider:** alignment helper projecting mismatched grids into a common shape using masked arrays (`np.ma`).
 
@@ -944,7 +1013,7 @@ LRU eviction of large inactive DataFrames in long-lived workbook sessions — di
 | Run Python Script UI split | [`python_runner_ui.py`](../plugin/scripting/python_runner_ui.py) (native dialog); execution in [`python_runner.py`](../plugin/scripting/python_runner.py) |
 | Monaco editor (Calc cell + Run Python Script) | [`python_editor.py`](../plugin/calc/python/editor.py), [`editor_host.py`](../plugin/scripting/editor_host.py) — [§3 Monaco](#monaco-editor--run-python-script) |
 | Document-attached scripts | [`document_scripts.py`](../plugin/scripting/document_scripts.py) — [`tests/scripting/test_document_scripts.py`](../tests/scripting/test_document_scripts.py) |
-| Multi-range varargs (`=PYTHON(code; A1; B1)`) | [§9](#9-multi-range-support-varargs) |
+| Multi-range varargs (`=PYTHON(code; A1; B1)`) | [Multi-range support (varargs)](#multi-range-support-varargs) |
 | Dynamic auto-spill (`#SPILL!`, spill registry) | [`python_function.py`](../plugin/calc/python/function.py) — [§6](#dynamic-auto-spill); [`tests/calc/python/test_function.py`](../tests/calc/python/test_function.py) |
 
 Jupyter `.ipynb` import (separate feature): [jupyter-notebook-import.md](jupyter-notebook-import.md).
@@ -961,71 +1030,3 @@ Jupyter `.ipynb` import (separate feature): [jupyter-notebook-import.md](jupyter
 - **Monaco backlog** — syntax validate (2B), range picker (2C), full Jedi (2D), sheet-level Python cell list — [python-monaco-editor-dev-plan.md](python-monaco-editor-dev-plan.md). Theme sync (2E) is shipped.
 - **Jupyter notebook import** — see [jupyter-notebook-import.md](jupyter-notebook-import.md) (Writer import shipped; execution loop deferred).
 - **Calc UX backlog** — object cards, diagnostics pane, named ranges/tables — [§7 Calc UX](#calc-ux-and-output-enhancements).
-
----
-
-## 9. Multi-Range Support (Varargs)
-
-**Status:** Shipped (2026-05) — varargs IDL and multi-range injection (`data = [range1, range2, …]`). Wire envelope: [numpy-serialization.md — Multi-range](numpy-serialization.md#multi-range-wire-format). Chat tool multi `data_range` remains future work.
-
-`=PYTHON()` accepts **one or more** optional data arguments after `code`. Calc packs trailing arguments into a single `sequence<any>` (UNO varargs). Multiple ranges are injected as **`data = [range1, range2, …]`**; a single range keeps backward-compatible flat/2D `data`.
-
-### Technical Approach: UNO Varargs
-
-In the UNO IDL, the **last** parameter is `sequence<any>`, so Calc packs all remaining inputs into one tuple.
-
-**IDL (shipped):**
-```idl
-// extension/idl/XPythonFunction.idl
-interface XPythonFunction : com::sun::star::uno::XInterface
-{
-    any python( [in] string code, [in] sequence< any > data );
-};
-```
-
-Rebuild after IDL changes: `scripts/rebuild_xprompt_rdb.sh` → [`extension/XPythonFunction.rdb`](../extension/XPythonFunction.rdb).
-
-### Why Multi-Range NumPy?
-
-While Calc's `=AVERAGE()` or `=SUM()` can handle multiple ranges, the power of `=PYTHON()` with NumPy is the ability to perform **cross-range logic** that is otherwise difficult or "messy" to build with standard formulas.
-
-#### 1. Beyond the "Flat" Average: Weighted Analysis
-A common spreadsheet task is to find a weighted average across different data sets. For example, if you have Sales data from three different regions (A, B, and C), but Region B is "twice as important" for your target:
-
-*   **Calc way**: `=(AVERAGE(A1:A10) + AVERAGE(C1:C10)*2 + AVERAGE(E1:E10)) / 4`
-*   **NumPy way**: `=PYTHON("result = (data[0].mean() + data[1].mean()*2 + data[2].mean()) / 4", A1:A10, C1:C10, E1:E10)`
-
-The NumPy version is often easier to read and maintain as the logic grows in complexity.
-
-#### 2. Pattern Matching and "Frequency" (FFT)
-Simple math like `SUM` and `AVERAGE` tells you the "size" or "center" of your data, but it doesn't tell you the **rhythm**. 
-*   **The Concept**: Fast Fourier Transform (FFT) sounds complicated, but it's just a way to find "hidden rhythms" in your numbers (e.g., "does this sales data spike every 7 days?"). 
-*   **The Power**: By passing multiple non-contiguous ranges (like "Week 1" and "Week 3"), you can use NumPy to compare rhythms across different time periods without manually copying the data into a single block.
-
-#### 3. High-Confidence Verification
-Testing serialization is easier with operations that have a clear, predictable output.
-*   **Sum**: Easy to verify manually (e.g., `1 + 2 + 3 = 6`).
-*   **Mean (Average)**: Harder to verify by eye when you have 20 floating-point numbers (e.g., `1.2345 + 6.789 ... / 20`). 
-
-By using NumPy to calculate the `mean` across multiple ranges, we ensure our **marshalling** (the process of moving data from Calc to Python) is perfectly accurate down to the last decimal point. If the `np.mean(data)` returned by the worker matches the `=AVERAGE()` calculated by Calc, we know the "plumbing" is working perfectly, even for massive 2D grids of complex numbers.
-
-### Data Representation in Python
-...
-
-| Formula | `data` variable in Python | `data_list` variable in Python |
-|---------|---------------------------|--------------------------------|
-| `=PYTHON("...", A1:A5)` | flat list or 2D grid (unchanged) | `[data]` — always a one-element list |
-| `=PYTHON("...", A1:A5, C1:C5)` | `[ range1_data, range2_data ]` | same as `data` |
-
-Use `data_list` when you want generic logic that works for both single- and multi-range formulas, e.g. `[np.sum(d) for d in data_list]`. The `data` variable keeps backward-compatible shapes (flat/2D for one range; list of ranges for varargs).
-
-Example:
-
-```python
-result = np.concatenate(data).mean()
-# OR
-result = np.mean([np.mean(d) for d in data])
-```
-
----
-
